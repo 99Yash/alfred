@@ -611,9 +611,10 @@ export function applyOverrideFloor(
 
 /**
  * Sender-kind demotion floor (#210, on the #218 activated projection). A
- * confident `group`/`service` sender is not a person the user owes a reply to —
- * you do not write back to a distribution list or a `noreply`/bot address — so
- * `awaiting_reply` from one is definitionally wrong. Demote it to `fyi`:
+ * confident `group` sender or no-reply/bot-shaped `service` sender is not a
+ * person the user owes a reply to — you do not write back to a distribution
+ * list or a `noreply`/bot address — so `awaiting_reply` from one is
+ * definitionally wrong. Demote it to `fyi`:
  * DEMOTE, NEVER BURY (#210 asymmetry) — the thread stays visible, it just leaves
  * the demanding lane.
  *
@@ -625,19 +626,31 @@ export function applyOverrideFloor(
  *
  * `senderKind` is non-null ONLY for a confident group/service — `resolveSenderKind`
  * already gates kind ∈ {group,service} AND confidence >=
- * `TRIAGE_SENDER_KIND_CONFIDENCE_THRESHOLD` — so its presence IS the gate. PURE.
+ * `TRIAGE_SENDER_KIND_CONFIDENCE_THRESHOLD`. Service senders get one extra
+ * precision gate here: role mailboxes like support@/billing@ can legitimately
+ * ask for a reply, while strong no-reply/notification or auto-submitted
+ * evidence cannot. PURE.
  */
 export function applySenderKindDemotionFloor(
   classification: TriageClassification,
   senderKind: Observations["senderKind"],
 ): { classification: TriageClassification; demoted: boolean } {
-  if (!senderKind || classification.category !== "awaiting_reply") {
+  if (
+    !senderKind ||
+    classification.category !== "awaiting_reply" ||
+    !senderKindCanDemoteAwaitingReply(senderKind)
+  ) {
     return { classification, demoted: false };
   }
   return {
     classification: {
       ...classification,
       category: "fyi",
+      todoSuggestion: null,
+      todoDecision: {
+        outcome: "no_obligation",
+        note: `sender_kind_floor: ${senderKind.kind} sender is not awaiting a reply`,
+      },
       rationale: truncateRationale(
         `${classification.rationale} Sender-kind floor: ${senderKind.kind} sender ` +
           `(active projection confidence=${senderKind.confidence.toFixed(2)}) is not awaiting the ` +
@@ -646,6 +659,13 @@ export function applySenderKindDemotionFloor(
     },
     demoted: true,
   };
+}
+
+function senderKindCanDemoteAwaitingReply(senderKind: NonNullable<Observations["senderKind"]>) {
+  if (senderKind.kind === "group") return true;
+  return senderKind.evidenceCodes.some(
+    (code) => code === "email:local:service_strong" || code === "gmail:auto_submitted",
+  );
 }
 
 /** A resolved rail todo to mint — the cheap model's proposal after the gate. */
@@ -899,13 +919,16 @@ export async function classifyEmail(
     }
   }
 
-  // Deterministic post-classification floors. The sender-kind DEMOTION runs
-  // first (awaiting_reply → fyi for a confident group/service sender); the
-  // secret ESCALATION floor runs last so it always has the final word — a leaked
-  // secret forces urgent even in the (implausible) case we just demoted the tag.
-  const kindFloor = applySenderKindDemotionFloor(working, args.observations.senderKind);
-  const floorResult = applyOverrideFloor(kindFloor.classification, signalText);
-  const classification = floorResult.classification;
+  // Deterministic post-classification floors. The secret ESCALATION floor runs
+  // first so a leaked secret escapes the sender-kind demotion entirely and keeps
+  // any legitimate security todo. The sender-kind DEMOTION then handles the
+  // remaining awaiting_reply → fyi cases for confident group/no-reply senders.
+  const floorResult = applyOverrideFloor(working, signalText);
+  const kindFloor = applySenderKindDemotionFloor(
+    floorResult.classification,
+    args.observations.senderKind,
+  );
+  const classification = kindFloor.classification;
 
   let model_id = baseModelId;
   if (secondPass) model_id += "+2pass";
