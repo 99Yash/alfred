@@ -1,6 +1,6 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { pageMeta } from "~/lib/page-meta";
-import { PreviewSkillDetailPage } from "./-preview-skill-detail/preview-skill-detail-page";
+import { SkillDetailPage } from "./-skill-detail/skill-detail-page";
 
 /**
  * App-grammar port of /skills/$slug.
@@ -20,5 +20,5 @@ export const Route = createFileRoute("/skills/$slug")({
       title: `${params.slug} · Skills`,
       path: `/skills/${encodeURIComponent(params.slug)}`,
     }),
-  component: PreviewSkillDetailPage,
+  component: SkillDetailPage,
 });

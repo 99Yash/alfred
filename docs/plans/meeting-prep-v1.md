@@ -188,7 +188,7 @@ read schema agree by construction.
 | Google routes | `packages/api/src/modules/integrations/google-routes.ts` | user-visible install/status/delete routes for calendar watch, separate from Gmail `/:id/watch` if needed |
 | Repeatables | `packages/api/src/modules/integrations/repeatable.ts` or a new meeting-prep repeatable module | ~20m horizon sweep + watch-channel renewal; register from `apps/server/src/index.ts` |
 | Connect hook | Google OAuth callback path in `google-routes.ts` | install/renew calendar watch when a credential has Calendar scope; failure logs but does not fail OAuth |
-| Smoke | `apps/server/src/scripts/smoke-meeting-prep.ts` (new) | local manual path first; webhook path only with a public HTTPS callback |
+| Smoke | `apps/server/src/scripts/smokes/smoke-meeting-prep.ts` (new) | local manual path first; webhook path only with a public HTTPS callback |
 
 ## 6. Phased plan (each lands before the next; sub-steps parallel-safe)
 

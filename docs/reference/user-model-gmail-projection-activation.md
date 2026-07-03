@@ -51,8 +51,8 @@ It deliberately does **not**:
    is non-trivial.
    ```bash
    # dry preview first, then commit:
-   node apps/server/dist/scripts/backfill-gmail-observations-committed.js --emails=yash.k@oliv.ai
-   node apps/server/dist/scripts/backfill-gmail-observations-committed.js --emails=yash.k@oliv.ai --commit
+   node apps/server/dist/scripts/backfills/backfill-gmail-observations-committed.js --emails=yash.k@oliv.ai
+   node apps/server/dist/scripts/backfills/backfill-gmail-observations-committed.js --emails=yash.k@oliv.ai --commit
    ```
    The Gmail **sent** backfill (PR B, `backfill-gmail-sent-committed.js`) feeds
    reciprocity/reply-latency, which are **deferred** in this kind-only slice —
@@ -102,7 +102,7 @@ the mailbox where the corruption was measured first.
 
 ```bash
 railway ssh -s server
-node apps/server/dist/scripts/project-user-model-gmail-shadow-committed.js \
+node apps/server/dist/scripts/backfills/project-user-model-gmail-shadow-committed.js \
   --emails=yash.k@oliv.ai --projection-version=1
 ```
 
@@ -120,7 +120,7 @@ checksum/profileCount match the dry validation (it throws on divergence). It doe
 **not** flip the active pointer.
 
 ```bash
-node apps/server/dist/scripts/project-user-model-gmail-shadow-committed.js \
+node apps/server/dist/scripts/backfills/project-user-model-gmail-shadow-committed.js \
   --emails=yash.k@oliv.ai --projection-version=1 --commit
 # -> COMMITTED — run=prun_… profiles=… checksum=sha256:…
 ```
@@ -144,7 +144,7 @@ pointer. Query the committed run's `entity_profiles` (via `railway ssh` + a smal
 > behavior for real inbound mail.
 
 ```bash
-node apps/server/dist/scripts/project-user-model-gmail-shadow-committed.js \
+node apps/server/dist/scripts/backfills/project-user-model-gmail-shadow-committed.js \
   --emails=yash.k@oliv.ai --projection-version=1 --commit --activate
 # -> ACTIVATED — user-model v1
 ```
@@ -203,9 +203,9 @@ from Step 2; never re-run a completed version.
 
 ## Reference
 
-- Projection/activation script: `apps/server/src/scripts/project-user-model-gmail-shadow-committed.ts`
-  (prod bundle from repo root: `apps/server/dist/scripts/project-user-model-gmail-shadow-committed.js`).
-- Observation backfill (prereq): `apps/server/src/scripts/backfill-gmail-observations-committed.ts`.
+- Projection/activation script: `apps/server/src/scripts/backfills/project-user-model-gmail-shadow-committed.ts`
+  (prod bundle from repo root: `apps/server/dist/scripts/backfills/project-user-model-gmail-shadow-committed.js`).
+- Observation backfill (prereq): `apps/server/src/scripts/backfills/backfill-gmail-observations-committed.ts`.
 - Classifier: `packages/api/src/modules/user-model/entity-kind-classifier.ts`.
 - Fold: `packages/api/src/modules/user-model/gmail-kind-fold.ts`.
 - Lifecycle writers (start/complete/activate + guards): `packages/api/src/modules/user-model/projection.ts`.

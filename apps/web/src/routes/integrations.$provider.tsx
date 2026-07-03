@@ -1,6 +1,6 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { pageMeta } from "~/lib/page-meta";
-import { PreviewIntegrationDetailPage } from "./-preview-integration-detail/preview-integration-detail-page";
+import { IntegrationDetailPage } from "./-integration-detail/integration-detail-page";
 
 /**
  * App-grammar port of /integrations/$provider.
@@ -11,14 +11,14 @@ import { PreviewIntegrationDetailPage } from "./-preview-integration-detail/prev
  *   - Soft chip capabilities (matching dimension's chip cluster)
  *   - app-card-in staggered entrance
  *
- * The page body lives in components/preview/integrations — each section
+ * The page body lives in components/integrations — each section
  * (header, hero, connected accounts, trust notice, related setup,
  * capabilities, overview) is its own module so each file exports a
  * single component.
  *
  * Compare:
  *   /integrations/$provider           → dimension grammar (dark, dense)
- *   /preview/integrations/$provider   → app grammar
+ *   /integrations/$provider   → app grammar
  */
 export const Route = createFileRoute("/integrations/$provider")({
   head: ({ params }) =>
@@ -26,5 +26,5 @@ export const Route = createFileRoute("/integrations/$provider")({
       title: `${params.provider} · Integrations`,
       path: `/integrations/${encodeURIComponent(params.provider)}`,
     }),
-  component: PreviewIntegrationDetailPage,
+  component: IntegrationDetailPage,
 });

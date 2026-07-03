@@ -1,6 +1,6 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { pageMeta } from "~/lib/page-meta";
-import { PreviewBriefingDetailPage } from "./-preview-briefings/preview-briefing-detail-page";
+import { BriefingDetailPage } from "./-briefings/briefing-detail-page";
 
 /**
  * A single day's briefing detail (ADR-0049). The `$date` param is a human
@@ -13,5 +13,5 @@ export const Route = createFileRoute("/briefings/$date")({
       title: `Briefing · ${params.date}`,
       path: `/briefings/${encodeURIComponent(params.date)}`,
     }),
-  component: PreviewBriefingDetailPage,
+  component: BriefingDetailPage,
 });
