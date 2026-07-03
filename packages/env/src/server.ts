@@ -91,6 +91,15 @@ const serverEnvSchema = z.object({
     .string()
     .optional()
     .transform((s) => s === "true"),
+  /**
+   * Optional explicit Sentry release override. Normally left UNSET: the SDK
+   * auto-detects the release from Railway's `RAILWAY_GIT_COMMIT_SHA` (the commit
+   * SHA prod issues already carry), and the build-time `sentry-cli` step
+   * (apps/server/scripts/sentry-release.mjs) reads the same var, so source maps
+   * and commit association line up without any config. Set this only to pin the
+   * release to a specific value on both build and runtime.
+   */
+  SENTRY_RELEASE: z.string().optional(),
   LANGFUSE_PUBLIC_KEY: z.string().optional(),
   LANGFUSE_SECRET_KEY: z.string().optional(),
   LANGFUSE_HOST: z.string().url().optional(),
