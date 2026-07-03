@@ -631,17 +631,31 @@ export function applyOverrideFloor(
  * ask for a reply, while strong no-reply/notification or auto-submitted
  * evidence cannot. PURE.
  */
+type SenderKindDemotionFloorContext = {
+  signalText?: string;
+  sender?: string | null;
+  subject?: string | null;
+  cc?: string | null;
+};
+
 export function applySenderKindDemotionFloor(
   classification: TriageClassification,
   senderKind: Observations["senderKind"],
+  context: SenderKindDemotionFloorContext = {},
 ): { classification: TriageClassification; demoted: boolean } {
   if (
     !senderKind ||
-    classification.category !== "awaiting_reply" ||
-    !senderKindCanDemoteAwaitingReply(senderKind)
+    !senderKindCanDemoteDemand(senderKind) ||
+    !senderKindFloorShouldDemoteCategory(classification.category, context)
   ) {
     return { classification, demoted: false };
   }
+  const note =
+    classification.category === "awaiting_reply"
+      ? `${senderKind.kind} sender is not awaiting a reply`
+      : senderKindDemotionReason(context) === "github_passive_pr_or_ci"
+        ? `${senderKind.kind} sender sent a passive GitHub PR/CI notification`
+        : `${senderKind.kind} sender sent a passive collaboration state transition`;
   return {
     classification: {
       ...classification,
@@ -649,22 +663,79 @@ export function applySenderKindDemotionFloor(
       todoSuggestion: null,
       todoDecision: {
         outcome: "no_obligation",
-        note: `sender_kind_floor: ${senderKind.kind} sender is not awaiting a reply`,
+        note: `sender_kind_floor: ${note}`,
       },
       rationale: truncateRationale(
         `${classification.rationale} Sender-kind floor: ${senderKind.kind} sender ` +
           `(active projection confidence=${senderKind.confidence.toFixed(2)}) is not awaiting the ` +
-          `user's reply — demoted awaiting_reply → fyi (demote, never bury).`,
+          `user's action — demoted ${classification.category} → fyi (demote, never bury).`,
       ),
     },
     demoted: true,
   };
 }
 
-function senderKindCanDemoteAwaitingReply(senderKind: NonNullable<Observations["senderKind"]>) {
+function senderKindCanDemoteDemand(senderKind: NonNullable<Observations["senderKind"]>) {
   if (senderKind.kind === "group") return true;
   return senderKind.evidenceCodes.some(
     (code) => code === "email:local:service_strong" || code === "gmail:auto_submitted",
+  );
+}
+
+function senderKindFloorShouldDemoteCategory(
+  category: TriageClassification["category"],
+  context: SenderKindDemotionFloorContext,
+): boolean {
+  if (category === "awaiting_reply") return true;
+  if (category !== "action_needed") return false;
+  return senderKindDemotionReason(context) !== null;
+}
+
+const COLLAB_STATE_TRANSITION_RE =
+  /\b(?:changed status|set the status to|moved (?:task )?(?:to|from)|marked (?:as )?(?:done|complete|completed|resolved|closed)|status changed|re-?opened|closed task)\b/i;
+const COLLAB_DIRECT_OWNERSHIP_RE =
+  /\b(?:assigned (?:task )?to you|assigned you\b|you were assigned|mentioned you|can you|could you|please|pls\s+merge|review and merge|pick this up)\b/i;
+const COLLAB_INTRINSIC_STAKE_RE =
+  /\b(?:payment failed|card declined|invoice due|past due|access (?:will be )?(?:disabled|suspended|lost)|security|compromis|exposed|leaked|secret|token|api[ -]?key|private key|production outage|prod outage|blocked deploy|critical)\b/i;
+
+function isPassiveCollaborationStateTransition(signalText: string): boolean {
+  return (
+    COLLAB_STATE_TRANSITION_RE.test(signalText) &&
+    !COLLAB_DIRECT_OWNERSHIP_RE.test(signalText) &&
+    !COLLAB_INTRINSIC_STAKE_RE.test(signalText)
+  );
+}
+
+type SenderKindDemotionReason = "collab_state_transition" | "github_passive_pr_or_ci";
+
+function senderKindDemotionReason(
+  context: SenderKindDemotionFloorContext,
+): SenderKindDemotionReason | null {
+  if (isPassiveCollaborationStateTransition(context.signalText ?? "")) {
+    return "collab_state_transition";
+  }
+  if (isPassiveGithubPrOrCiNotification(context)) return "github_passive_pr_or_ci";
+  return null;
+}
+
+const GITHUB_REASON_ALIAS_RE = /<([^>]+@noreply\.github\.com)>/gi;
+const PASSIVE_GITHUB_REASON_ALIASES = new Set([
+  "author@noreply.github.com",
+  "ci_activity@noreply.github.com",
+  "state_change@noreply.github.com",
+]);
+
+function isPassiveGithubPrOrCiNotification(context: SenderKindDemotionFloorContext): boolean {
+  if (!GITHUB_NOTIFICATION_RE.test(context.sender ?? "")) return false;
+  const reasons = githubReasonAliases(context.cc);
+  if (!reasons.some((r) => PASSIVE_GITHUB_REASON_ALIASES.has(r))) return false;
+  if (reasons.includes("ci_activity@noreply.github.com")) return true;
+  return PR_THREAD_RE.test(context.subject ?? "");
+}
+
+function githubReasonAliases(cc: string | null | undefined): string[] {
+  return [...String(cc ?? "").matchAll(GITHUB_REASON_ALIAS_RE)].map((m) =>
+    (m[1] ?? "").toLowerCase(),
   );
 }
 
@@ -921,12 +992,21 @@ export async function classifyEmail(
 
   // Deterministic post-classification floors. The secret ESCALATION floor runs
   // first so a leaked secret escapes the sender-kind demotion entirely and keeps
-  // any legitimate security todo. The sender-kind DEMOTION then handles the
-  // remaining awaiting_reply → fyi cases for confident group/no-reply senders.
+  // any legitimate security todo. The sender-kind DEMOTION then handles
+  // confident group/no-reply senders when the demand is structurally passive.
   const floorResult = applyOverrideFloor(working, signalText);
+  const meta = args.document.metadata;
+  const from = typeof meta.from === "string" ? meta.from : null;
+  const cc = typeof meta.cc === "string" ? meta.cc : null;
   const kindFloor = applySenderKindDemotionFloor(
     floorResult.classification,
     args.observations.senderKind,
+    {
+      signalText,
+      sender: from,
+      subject: args.document.title,
+      cc,
+    },
   );
   const classification = kindFloor.classification;
 
