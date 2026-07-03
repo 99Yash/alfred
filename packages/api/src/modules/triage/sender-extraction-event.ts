@@ -38,6 +38,8 @@ export interface SenderExtractionEvent {
   senderKindConfidence: number | null;
   senderKindEvidenceCodes: string[];
   senderKindDemotedPersonTreatment: boolean;
+  /** True when the sender-kind floor demoted the final category `awaiting_reply` → `fyi` (#210). */
+  senderKindDemotedCategory: boolean;
   threadMessages: number;
   threadNewest: Observations["thread"]["newestDirection"];
   gmailImportant: boolean;
@@ -98,6 +100,7 @@ export function senderExtractionEvent(args: {
     senderKindConfidence: obs.senderKind?.confidence ?? null,
     senderKindEvidenceCodes: obs.senderKind?.evidenceCodes ?? [],
     senderKindDemotedPersonTreatment: Boolean(obs.senderKind),
+    senderKindDemotedCategory: audit?.senderKindDemoted ?? false,
     threadMessages: obs.thread.messageCount,
     threadNewest: obs.thread.newestDirection,
     gmailImportant: obs.gmail.important,

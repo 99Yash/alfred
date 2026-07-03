@@ -160,6 +160,8 @@ export interface ClassifyAudit {
   conflict: TriageConflict | null;
   secondPass: TriageClassification | null;
   secondPassFailure: { message: string } | null;
+  /** True when the sender-kind floor demoted `awaiting_reply` → `fyi` (#210 / #218). */
+  senderKindDemoted: boolean;
   /** True when the override-floor signal matched, even if the model already said urgent. */
   floorMatched: boolean;
   /** True when the override floor forced a category change (not merely matched). */
@@ -607,6 +609,45 @@ export function applyOverrideFloor(
   };
 }
 
+/**
+ * Sender-kind demotion floor (#210, on the #218 activated projection). A
+ * confident `group`/`service` sender is not a person the user owes a reply to —
+ * you do not write back to a distribution list or a `noreply`/bot address — so
+ * `awaiting_reply` from one is definitionally wrong. Demote it to `fyi`:
+ * DEMOTE, NEVER BURY (#210 asymmetry) — the thread stays visible, it just leaves
+ * the demanding lane.
+ *
+ * Deliberately scoped to `awaiting_reply` ONLY (the zero-bury-risk case). A
+ * group/service CAN legitimately assign the user an action (a ClickUp task
+ * actually assigned to them, a real security/payment alert), so demoting
+ * `action_needed`/`urgent` needs a body-level "directly assigns / @-mentions the
+ * user" carve-out (ADR-0066) and is NOT done here.
+ *
+ * `senderKind` is non-null ONLY for a confident group/service — `resolveSenderKind`
+ * already gates kind ∈ {group,service} AND confidence >=
+ * `TRIAGE_SENDER_KIND_CONFIDENCE_THRESHOLD` — so its presence IS the gate. PURE.
+ */
+export function applySenderKindDemotionFloor(
+  classification: TriageClassification,
+  senderKind: Observations["senderKind"],
+): { classification: TriageClassification; demoted: boolean } {
+  if (!senderKind || classification.category !== "awaiting_reply") {
+    return { classification, demoted: false };
+  }
+  return {
+    classification: {
+      ...classification,
+      category: "fyi",
+      rationale: truncateRationale(
+        `${classification.rationale} Sender-kind floor: ${senderKind.kind} sender ` +
+          `(active projection confidence=${senderKind.confidence.toFixed(2)}) is not awaiting the ` +
+          `user's reply — demoted awaiting_reply → fyi (demote, never bury).`,
+      ),
+    },
+    demoted: true,
+  };
+}
+
 /** A resolved rail todo to mint — the cheap model's proposal after the gate. */
 export type ResolvedTodoSuggestion = { name: string; assist?: string };
 
@@ -858,12 +899,18 @@ export async function classifyEmail(
     }
   }
 
-  const floorResult = applyOverrideFloor(working, signalText);
+  // Deterministic post-classification floors. The sender-kind DEMOTION runs
+  // first (awaiting_reply → fyi for a confident group/service sender); the
+  // secret ESCALATION floor runs last so it always has the final word — a leaked
+  // secret forces urgent even in the (implausible) case we just demoted the tag.
+  const kindFloor = applySenderKindDemotionFloor(working, args.observations.senderKind);
+  const floorResult = applyOverrideFloor(kindFloor.classification, signalText);
   const classification = floorResult.classification;
 
   let model_id = baseModelId;
   if (secondPass) model_id += "+2pass";
   if (secondPassFailure) model_id += "+2pass_failed";
+  if (kindFloor.demoted) model_id += "+kindfloor";
   if (floorResult.forced) model_id += "+floor";
 
   return {
@@ -874,6 +921,7 @@ export async function classifyEmail(
       conflict,
       secondPass,
       secondPassFailure,
+      senderKindDemoted: kindFloor.demoted,
       floorMatched: floorResult.matched,
       floorForced: floorResult.forced,
     },
