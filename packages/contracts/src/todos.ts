@@ -12,6 +12,8 @@
 
 import { z } from "zod";
 
+import { deriveLoopKey } from "./loop-key.js";
+
 // ─── Status ────────────────────────────────────────────────────────────────
 
 /**
@@ -94,4 +96,67 @@ export function mergeTodoSources(existing: TodoSource[], incoming: TodoSource[])
     merged.push(ref);
   }
   return merged;
+}
+
+/** Upper bound the `todos.sources` column + sync read schema enforce. */
+export const TODO_SOURCES_MAX = 64;
+
+/** A gmail `thread` ref — the per-notification transport id, the evictable kind. */
+function isGmailThreadRef(source: TodoSource): boolean {
+  return source.provider === "gmail" && source.kind === "thread";
+}
+
+/**
+ * Bound a source set so a high-frequency recurring loop can't grow one todo's
+ * `sources` past {@link TODO_SOURCES_MAX} and silently break sync (#355). When a
+ * recurring signal (a GitHub PR, Linear issue, or tracker task) re-notifies on a
+ * NEW Gmail thread each time, {@link suggestTodo} merges every re-notification
+ * onto one todo via its stable `loop` ref — but each merge also appends that
+ * email's fresh gmail `thread` ref, so an active loop accretes thread refs
+ * without bound and eventually trips the `max(64)` on the sync read schema,
+ * after which the todo stops syncing to the client.
+ *
+ * Identity-bearing refs — everything that is NOT a gmail `thread` (the `loop`
+ * key, other-provider refs) — are always kept. Only gmail `thread` refs are
+ * evictable, oldest-first (merge appends newest last), so the reverse
+ * auto-dismiss linkage (`resolveTodosForGmailSender`, which matches recent
+ * threads / the loop's single sender) still resolves. Order-stable.
+ */
+export function boundTodoSources(sources: TodoSource[], max = TODO_SOURCES_MAX): TodoSource[] {
+  if (sources.length <= max) return sources;
+  // Room left for thread refs after every identity-bearing ref is kept.
+  const keptNonThread = sources.filter((s) => !isGmailThreadRef(s));
+  const room = Math.max(0, max - keptNonThread.length);
+  // Newest thread refs win: collect their keys from the tail, then filter the
+  // original in place so surviving refs keep their relative order.
+  const threadRefs = sources.filter(isGmailThreadRef);
+  const survivingThreadKeys = new Set(
+    threadRefs.slice(threadRefs.length - room).map(todoSourceKey),
+  );
+  return sources.filter((s) => !isGmailThreadRef(s) || survivingThreadKeys.has(todoSourceKey(s)));
+}
+
+/**
+ * Provenance sources for a todo minted from a triaged Gmail thread (#355).
+ *
+ * Always carries the transport `thread` ref — same-thread re-triage dedup, and
+ * the reverse linkage `resolveTodosForGmailSender` reads to auto-dismiss a todo
+ * when the user acts on its email. When the subject/sender yield a stable
+ * real-world loop key ({@link deriveLoopKey} — a GitHub PR, Linear issue, or
+ * tracker task that re-notifies on a NEW thread each time), it ALSO carries a
+ * `loop` ref so those re-notifications collapse onto one rail todo via the
+ * {@link suggestTodo} overlap/merge guard instead of re-minting per email. The
+ * loop id already namespaces its real provider (`gh:…`, `issue:…`,
+ * `subj:clickup:…`), so the ref stays `{provider:"gmail", kind:"loop"}` and is
+ * stable across the distinct threads the same loop arrives on.
+ */
+export function gmailTodoSources(input: {
+  threadId: string;
+  subject: string | null | undefined;
+  sender: string | null | undefined;
+}): TodoSource[] {
+  const sources: TodoSource[] = [{ provider: "gmail", kind: "thread", id: input.threadId }];
+  const loopKey = deriveLoopKey(input.subject, { sender: input.sender });
+  if (loopKey) sources.push({ provider: "gmail", kind: "loop", id: loopKey });
+  return sources;
 }
