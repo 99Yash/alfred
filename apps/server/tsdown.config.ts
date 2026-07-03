@@ -2,8 +2,8 @@ import { defineConfig } from "tsdown";
 
 export default defineConfig({
   // Extra entries: committed one-off runs on prod via `railway ssh -s server`
-  // (`node dist/scripts/<name>.js --commit`). The prod image has no tsx/loose
-  // @alfred sources, so each script must be bundled.
+  // (`node dist/scripts/<category>/<name>.js --commit`). The prod image has no
+  // tsx/loose @alfred sources, so each script must be bundled.
   entry: [
     "./src/index.ts",
     // Separate entry (not inlined into index.js) so the prod `start` script can
@@ -11,21 +11,21 @@ export default defineConfig({
     // run before the instrumented libs load, and bundlers don't preserve import
     // order across inlined modules.
     "./src/instrument.ts",
-    "./src/scripts/trigger-cold-start-committed.ts",
-    "./src/scripts/backfill-team-graph-committed.ts",
-    "./src/scripts/backfill-retire-self-mail-committed.ts",
-    "./src/scripts/backfill-retire-self-mail-aliases-committed.ts",
-    "./src/scripts/backfill-label-self-mail-committed.ts",
-    "./src/scripts/backfill-gmail-sent-committed.ts",
-    "./src/scripts/backfill-gmail-observations-committed.ts",
-    "./src/scripts/project-user-model-gmail-shadow-committed.ts",
-    "./src/scripts/backfill-object-state-github-committed.ts",
-    "./src/scripts/dry-run-triage-recategorize-committed.ts",
-    "./src/scripts/dry-run-reply-reeval-reconcile.ts",
-    "./src/scripts/repair-sent-mislabeled-triage-committed.ts",
-    "./src/scripts/backfill-purge-document-facts-committed.ts",
-    "./src/scripts/backfill-org-affiliation-committed.ts",
-    "./src/scripts/probe-chat-ttft.ts",
+    "./src/scripts/ops/trigger-cold-start-committed.ts",
+    "./src/scripts/backfills/backfill-team-graph-committed.ts",
+    "./src/scripts/backfills/backfill-retire-self-mail-committed.ts",
+    "./src/scripts/backfills/backfill-retire-self-mail-aliases-committed.ts",
+    "./src/scripts/backfills/backfill-label-self-mail-committed.ts",
+    "./src/scripts/backfills/backfill-gmail-sent-committed.ts",
+    "./src/scripts/backfills/backfill-gmail-observations-committed.ts",
+    "./src/scripts/backfills/project-user-model-gmail-shadow-committed.ts",
+    "./src/scripts/backfills/backfill-object-state-github-committed.ts",
+    "./src/scripts/dry-runs/dry-run-triage-recategorize-committed.ts",
+    "./src/scripts/dry-runs/dry-run-reply-reeval-reconcile.ts",
+    "./src/scripts/repairs/repair-sent-mislabeled-triage-committed.ts",
+    "./src/scripts/backfills/backfill-purge-document-facts-committed.ts",
+    "./src/scripts/backfills/backfill-org-affiliation-committed.ts",
+    "./src/scripts/probes/probe-chat-ttft.ts",
   ],
   format: "esm",
   outDir: "./dist",

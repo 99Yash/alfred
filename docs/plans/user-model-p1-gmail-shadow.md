@@ -87,7 +87,7 @@ later consumer cutover.
 
 ### PR B: Gmail preflight and sent backfill ✅ BUILT 2026-06-30
 
-Add `apps/server/src/scripts/backfill-gmail-sent-committed.ts`.
+Add `apps/server/src/scripts/backfills/backfill-gmail-sent-committed.ts`.
 
 Contract:
 
@@ -195,7 +195,7 @@ Evidence hash covers only relationship-significant fields:
 
 ### PR D: reducer backfill ✅ BUILT 2026-06-30
 
-Add `apps/server/src/scripts/backfill-gmail-observations-committed.ts`.
+Add `apps/server/src/scripts/backfills/backfill-gmail-observations-committed.ts`.
 
 Contract:
 
@@ -319,14 +319,14 @@ email body content.
 
 ### PR G: projection run script and validation ✅ BUILT
 
-`apps/server/src/scripts/project-user-model-gmail-shadow-committed.ts`. Local
+`apps/server/src/scripts/backfills/project-user-model-gmail-shadow-committed.ts`. Local
 gate validation lives in
 `packages/api/test/user-model/gmail-kind-projection-gates.test.ts`; prod
 activation is documented in the
 [activation runbook](../reference/user-model-gmail-projection-activation.md).
 
 
-Add `apps/server/src/scripts/project-user-model-gmail-shadow-committed.ts`.
+Add `apps/server/src/scripts/backfills/project-user-model-gmail-shadow-committed.ts`.
 
 Contract:
 

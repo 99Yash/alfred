@@ -1,6 +1,6 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { pageMeta } from "~/lib/page-meta";
-import { PreviewBriefingsRoute } from "./-preview-briefings/preview-briefings-route";
+import { BriefingsRoute } from "./-briefings/briefings-route";
 
 /**
  * In-app briefing surface (ADR-0049) — the canonical, scrollable record of the
@@ -10,5 +10,5 @@ import { PreviewBriefingsRoute } from "./-preview-briefings/preview-briefings-ro
  */
 export const Route = createFileRoute("/briefings")({
   head: () => pageMeta({ title: "Briefings", path: "/briefings" }),
-  component: PreviewBriefingsRoute,
+  component: BriefingsRoute,
 });

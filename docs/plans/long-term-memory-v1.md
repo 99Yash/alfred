@@ -187,7 +187,7 @@ Population is **passive-capture only — never cold-start** (cold-start is accou
   - `memory/significance.ts` — `computeSignificance` (pure scalar in `[0,1]`) + `runSignificancePass`. Blend: **activity = frequency × recency** (a fresh cold blast must not score like a relationship), reply-reciprocity, same-org-domain. Weights are named constants (`DEFAULT_SIGNIFICANCE_WEIGHTS`), tunable per the open item.
   - `memory/entity-metadata.ts` — zod source-of-truth for the `person`-entity metadata bag (`correspondence`, `significance`).
   - **Storage decision (was deferred to build):** designation/org-domain/score go in the `metadata` bag, **not** new typed columns — additive, matches `upsertEntity`'s metadata-merge; revisit only if a query needs to index them.
-  - `apps/server/src/scripts/backfill-team-graph-committed.ts` — committed, **dry-by-default** (`--commit`), bundled as a tsdown entry for `railway ssh -s server`. Idempotent.
+  - `apps/server/src/scripts/backfills/backfill-team-graph-committed.ts` — committed, **dry-by-default** (`--commit`), bundled as a tsdown entry for `railway ssh -s server`. Idempotent.
   - **v1 limits (honest, not gaps):** **email-only** (no `gcal` ingest path yet → no attendee edges); **no `theirDesignation`** (not in headers → waits on P4b web enrichment); user-domain set = the `user.email` domain only. Unit-tested in `test/memory/team-graph.test.ts`.
 
 **P4b — onboarding-time seeding for new users (deferred):**

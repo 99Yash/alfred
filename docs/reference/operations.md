@@ -1,23 +1,23 @@
 # Operations scripts
 
-`apps/server/src/scripts` is the local/prod operator toolbox. It intentionally
-contains entrypoints, not application modules. Prefer unit tests for normal
-regression coverage; use scripts for smoke checks, backfills, prod repair, and
-manual activation.
+`apps/server/src/scripts` is the local/prod operator command module. It
+intentionally contains entrypoints, not application modules. Prefer unit tests
+for normal regression coverage; use scripts for smoke checks, backfills, prod
+repair, and manual activation.
 
 ## Script classes
 
-| Prefix / shape | Use | Safety default |
-| --- | --- | --- |
-| `smoke-*` | End-to-end or integration smoke. Often needs real env/credentials. | May mutate local DB; read header before running against real mailbox. |
-| `backfill-*-committed` | Backfill existing data. | Dry by default unless `--commit` is passed. |
-| `dry-run-*` | Read-only analysis or fixture replay. | No writes expected. |
-| `project-*-committed` | Projection run / activation style job. | Dry by default; `--commit` persists; extra flags may activate. |
-| `repair-*-committed` | Narrow prod repair. | Treat as high risk; dry first if supported. |
-| `probe-*` | Diagnostic latency/provider probe. | Usually read-only or external-call only. |
-| `qa-*` | Manual QA seed/helper. | Local/dev preferred. |
-| `trigger-*-committed` | Enqueue a real run. | Dry by default unless `--commit` is passed. |
-| `seed-*` | Seed idempotent app data. | Idempotent by design; still read header. |
+| Folder | Prefix / shape | Use | Safety default |
+| --- | --- | --- | --- |
+| `smokes/` | `smoke-*` | End-to-end or integration smoke. Often needs real env/credentials. | May mutate local DB; read header before running against real mailbox. |
+| `backfills/` | `backfill-*-committed` | Backfill existing data. | Dry by default unless `--commit` is passed. |
+| `dry-runs/` | `dry-run-*` | Read-only analysis or fixture replay. | No writes expected. |
+| `backfills/` | `project-*-committed` | Projection run / activation style job. | Dry by default; `--commit` persists; extra flags may activate. |
+| `repairs/` | `repair-*-committed` | Narrow prod repair. | Treat as high risk; dry first if supported. |
+| `probes/` | `probe-*` | Diagnostic latency/provider probe. | Usually read-only or external-call only. |
+| `qa/` | `qa-*` | Manual QA seed/helper. | Local/dev preferred. |
+| `ops/` | `trigger-*-committed` | Enqueue a real run. | Dry by default unless `--commit` is passed. |
+| `ops/` | `seed-*` | Seed idempotent app data. | Idempotent by design; still read header. |
 
 ## Current inventory
 
@@ -36,14 +36,14 @@ Local TS:
 
 ```bash
 cd apps/server
-pnpm exec tsx --env-file=.env src/scripts/smoke-triage.ts
+pnpm exec tsx --env-file=.env src/scripts/smokes/smoke-triage.ts
 ```
 
 Prod bundle:
 
 ```bash
-node apps/server/dist/scripts/backfill-gmail-observations-committed.js --emails=user@example.com
-node apps/server/dist/scripts/backfill-gmail-observations-committed.js --emails=user@example.com --commit
+node apps/server/dist/scripts/backfills/backfill-gmail-observations-committed.js --emails=user@example.com
+node apps/server/dist/scripts/backfills/backfill-gmail-observations-committed.js --emails=user@example.com --commit
 ```
 
 ## Rules
@@ -52,4 +52,5 @@ node apps/server/dist/scripts/backfill-gmail-observations-committed.js --emails=
 - Dry-run before `--commit` when available.
 - Never use `db:push` for prod ops; migrations only.
 - For Gmail-mutating smokes, confirm `GMAIL_MAILBOX_WRITES_ENABLED` intent.
-- Add new scripts with prefix from table. If no class fits, update this doc.
+- Add new scripts under the folder from the table. If no class fits, update
+  this doc and `apps/server/src/scripts/README.md`.

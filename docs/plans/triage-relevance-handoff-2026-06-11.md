@@ -24,8 +24,8 @@ Key files:
   `sanitizeTodoName`, `resolveTodoSuggestion`, `detectConflict`, `applyOverrideFloor`,
   `todoSuppressionReason`.
 - `packages/api/test/triage/classify.test.ts` — pure-fn tests (`tsx --test`).
-- `apps/server/src/scripts/backfill-triage-committed.ts` — committed backfill.
-- `apps/server/src/scripts/smoke-triage-clickup.ts` — live flash-lite validation for 12e.
+- `apps/server/src/scripts/backfills/backfill-triage-committed.ts` — committed backfill.
+- `apps/server/src/scripts/smokes/smoke-triage-clickup.ts` — live flash-lite validation for 12e.
 - Reference: `docs/reference/triage.md`; memory `reference_prod_db_access`.
 
 ---
@@ -155,7 +155,7 @@ to do that." Layer 3 kills the repetition.
    → `payment`. Holds for bot relays too (rule 12a still applies). Extended **16b**'s
    manufactured-stake list to name conversion/upsell pressure → no todo. Added one
    subject→category exemplar (Greptile bot upsell) + one todo-decision exemplar (vs. real invoice).
-   Validated live via `apps/server/src/scripts/smoke-triage-upsell.ts` (gemini-2.5-flash-lite,
+   Validated live via `apps/server/src/scripts/smokes/smoke-triage-upsell.ts` (gemini-2.5-flash-lite,
    **4/4**): Greptile miss flips `action_needed`→`marketing` under its self-reinforcing prior
    (rationale cites 11a); real Stripe failed-payment and past-due Linear invoice both stay
    `payment` + keep todos (no over-suppression); direct Vercel upgrade pitch → `marketing`, no todo.
@@ -210,7 +210,7 @@ to do that." Layer 3 kills the repetition.
   locally → `echo <b64> | base64 -d > /app/x.cjs && cd /app && node x.cjs` → `rm`.
 - **Running committed workspace TS scripts on prod (backfills):** the `server` container has the
   FULL source tree at `/app` **and** `apps/server/node_modules/.bin/tsx`. So:
-  `railway ssh -s server "cd /app/apps/server && BACKFILL_RECENT_LIMIT=100 ./node_modules/.bin/tsx src/scripts/backfill-triage-committed.ts [--commit]"`.
+  `railway ssh -s server "cd /app/apps/server && BACKFILL_RECENT_LIMIT=100 ./node_modules/.bin/tsx src/scripts/backfills/backfill-triage-committed.ts [--commit]"`.
   No tsdown-entry/rebuild needed (the script header claiming "no tsx on prod" is stale as of
   2026-06-11). The backfill enqueues to prod BullMQ; the prod worker (deployed code) drains it —
   so **deploy the prompt change BEFORE backfilling**, or the worker re-triages with old code.

@@ -1,6 +1,6 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { pageMeta } from "~/lib/page-meta";
-import { PreviewNotesPage } from "./-preview-notes/preview-notes-page";
+import { NotesPage } from "./-notes/notes-page";
 
 /**
  * App-grammar port of /notes.
@@ -12,5 +12,5 @@ import { PreviewNotesPage } from "./-preview-notes/preview-notes-page";
  */
 export const Route = createFileRoute("/notes")({
   head: () => pageMeta({ title: "Notes", path: "/notes" }),
-  component: PreviewNotesPage,
+  component: NotesPage,
 });
