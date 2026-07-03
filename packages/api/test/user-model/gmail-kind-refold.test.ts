@@ -73,7 +73,13 @@ describe("refoldActiveGmailKindProjection (DB-backed)", { skip: SKIP_DB }, () =>
   test("skips when the user has no active projection", async () => {
     seedServerEnvForStableIds();
     const { userId, email } = await seedUser();
-    await appendObs({ userId, selfEmail: email, messageId: "m_a", from: "alice@example.com", fromName: "Alice A" });
+    await appendObs({
+      userId,
+      selfEmail: email,
+      messageId: "m_a",
+      from: "alice@example.com",
+      fromName: "Alice A",
+    });
 
     const result = await refoldActiveGmailKindProjection(userId);
     assert.deepEqual(result, { status: "skipped", reason: "no-active-projection" });
@@ -82,7 +88,13 @@ describe("refoldActiveGmailKindProjection (DB-backed)", { skip: SKIP_DB }, () =>
   test("no-ops (up-to-date) when logic is frozen and no new observations arrived", async () => {
     seedServerEnvForStableIds();
     const { userId, email } = await seedUser();
-    await appendObs({ userId, selfEmail: email, messageId: "m_a", from: "alice@example.com", fromName: "Alice A" });
+    await appendObs({
+      userId,
+      selfEmail: email,
+      messageId: "m_a",
+      from: "alice@example.com",
+      fromName: "Alice A",
+    });
     await initialActivate(userId, [email]);
 
     const result = await refoldActiveGmailKindProjection(userId);
@@ -94,7 +106,13 @@ describe("refoldActiveGmailKindProjection (DB-backed)", { skip: SKIP_DB }, () =>
   test("refolds and activates a new version when logic is frozen and new observations arrived", async () => {
     seedServerEnvForStableIds();
     const { userId, email } = await seedUser();
-    await appendObs({ userId, selfEmail: email, messageId: "m_a", from: "alice@example.com", fromName: "Alice A" });
+    await appendObs({
+      userId,
+      selfEmail: email,
+      messageId: "m_a",
+      from: "alice@example.com",
+      fromName: "Alice A",
+    });
     const initial = await initialActivate(userId, [email]);
 
     // A new inbound person arrives after activation -> watermark advances.
@@ -125,7 +143,13 @@ describe("refoldActiveGmailKindProjection (DB-backed)", { skip: SKIP_DB }, () =>
   test("refolds an event-time backfill without mistaking it for logic drift", async () => {
     seedServerEnvForStableIds();
     const { userId, email } = await seedUser();
-    await appendObs({ userId, selfEmail: email, messageId: "m_a", from: "alice@example.com", fromName: "Alice A" });
+    await appendObs({
+      userId,
+      selfEmail: email,
+      messageId: "m_a",
+      from: "alice@example.com",
+      fromName: "Alice A",
+    });
     const initial = await initialActivate(userId, [email]);
 
     // Backfill arrives after activation but its message timestamp is older than
@@ -156,7 +180,13 @@ describe("refoldActiveGmailKindProjection (DB-backed)", { skip: SKIP_DB }, () =>
   test("blocks auto-activation when the classifier output drifts from the active checksum", async () => {
     seedServerEnvForStableIds();
     const { userId, email } = await seedUser();
-    await appendObs({ userId, selfEmail: email, messageId: "m_a", from: "alice@example.com", fromName: "Alice A" });
+    await appendObs({
+      userId,
+      selfEmail: email,
+      messageId: "m_a",
+      from: "alice@example.com",
+      fromName: "Alice A",
+    });
     const initial = await initialActivate(userId, [email]);
 
     // Simulate a classifier-logic change since activation: the stored active

@@ -142,7 +142,12 @@ export async function refoldActiveGmailKindProjection(
   const projectionVersion = active.activeVersion + 1;
   const completed = await db().transaction(async (tx) => {
     const started = await startProjectionRun(
-      { userId, projectionName: USER_MODEL_PROJECTION_NAME, projectionVersion, sourceHighWatermark },
+      {
+        userId,
+        projectionName: USER_MODEL_PROJECTION_NAME,
+        projectionVersion,
+        sourceHighWatermark,
+      },
       tx,
     );
     if (started.reused) {

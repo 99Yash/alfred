@@ -223,11 +223,16 @@ describe("boundTodoSources", () => {
     // Simulate merge accretion: one loop ref + one fresh thread per notification.
     let acc: TodoSource[] = [];
     for (let i = 0; i < TODO_SOURCES_MAX + 40; i++) {
-      acc = boundTodoSources(mergeTodoSources(acc, gmailTodoSources({
-        threadId: `thread_${i}`,
-        subject: "Re: [owner/repo] Long-lived PR (PR #7)",
-        sender: "notifications@github.com",
-      })));
+      acc = boundTodoSources(
+        mergeTodoSources(
+          acc,
+          gmailTodoSources({
+            threadId: `thread_${i}`,
+            subject: "Re: [owner/repo] Long-lived PR (PR #7)",
+            sender: "notifications@github.com",
+          }),
+        ),
+      );
     }
     assert.ok(acc.length <= TODO_SOURCES_MAX, `bounded at ${acc.length}`);
     // The stable loop ref is retained, so future re-notifications still merge.

@@ -76,7 +76,4 @@ export {
   type ActiveEntityCoOccurrence,
   type UserModelReader,
 } from "./reader";
-export {
-  refoldActiveGmailKindProjection,
-  type RefoldGmailKindProjectionResult,
-} from "./refold";
+export { refoldActiveGmailKindProjection, type RefoldGmailKindProjectionResult } from "./refold";

@@ -141,9 +141,15 @@ describe("Gmail kind projection activation gates (DB-backed)", { skip: SKIP_DB }
 
     // --- Gate 10: the active reader returns the activated classification.
     const reader = userModelReader(userId);
-    const group = await reader.getProfileByIdentity({ kind: "email", value: "engineering@oliv.ai" });
+    const group = await reader.getProfileByIdentity({
+      kind: "email",
+      value: "engineering@oliv.ai",
+    });
     assert.equal(group?.kind, "group");
-    const service = await reader.getProfileByIdentity({ kind: "email", value: "noreply@github.com" });
+    const service = await reader.getProfileByIdentity({
+      kind: "email",
+      value: "noreply@github.com",
+    });
     assert.equal(service?.kind, "service");
     const weakGroup = await reader.getProfileByIdentity({
       kind: "email",
