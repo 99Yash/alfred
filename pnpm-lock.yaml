@@ -214,6 +214,15 @@ importers:
       '@types/react':
         specifier: ^19.0.0
         version: 19.2.14
+      ai:
+        specifier: 'catalog:'
+        version: 6.0.77(zod@4.3.6)
+      dotenv:
+        specifier: 'catalog:'
+        version: 17.4.2
+      evalite:
+        specifier: 1.0.0-beta.16
+        version: 1.0.0-beta.16(ai@6.0.77(zod@4.3.6))
       tsdown:
         specifier: 'catalog:'
         version: 0.15.12(@emnapi/core@1.10.0)(@emnapi/runtime@1.11.1)(oxc-resolver@11.20.0)(typescript@5.9.3)
@@ -11991,7 +12000,7 @@ snapshots:
       fastify: 5.8.5
       file-type: 19.6.0
       get-port: 7.2.0
-      jiti: 2.6.1
+      jiti: 2.7.0
       js-levenshtein: 1.1.6
       table: 6.9.0
       tinyrainbow: 3.1.0
@@ -12129,7 +12138,7 @@ snapshots:
       process-warning: 5.0.0
       rfdc: 1.4.1
       secure-json-parse: 4.1.0
-      semver: 7.7.4
+      semver: 7.8.5
       toad-cache: 3.7.1
 
   fastq@1.20.1:
@@ -14773,7 +14782,7 @@ snapshots:
       acorn-import-phases: 1.0.4(acorn@8.16.0)
       browserslist: 4.28.2
       chrome-trace-event: 1.0.4
-      enhanced-resolve: 5.21.0
+      enhanced-resolve: 5.21.6
       es-module-lexer: 2.1.0
       eslint-scope: 5.1.1
       events: 3.3.0
