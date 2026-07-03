@@ -37,7 +37,7 @@ import {
   toMessage,
   type ProjectionSourceHighWatermark,
 } from "@alfred/contracts";
-import { db } from "@alfred/db";
+import { db, rowsFromExecute } from "@alfred/db";
 import {
   entityProfiles,
   integrationCredentials,
@@ -45,7 +45,7 @@ import {
   observations,
   user as userTable,
 } from "@alfred/db/schemas";
-import { and, asc, desc, eq, inArray, sql } from "drizzle-orm";
+import { and, asc, desc, eq, inArray, lte, sql } from "drizzle-orm";
 
 const COMMIT = process.argv.includes("--commit");
 const ACTIVATE = process.argv.includes("--activate");
@@ -159,31 +159,47 @@ async function resolveTargets(emails: readonly string[]): Promise<TargetUser[]> 
 }
 
 async function gmailHighWatermark(userId: string): Promise<ProjectionSourceHighWatermark> {
-  const [row] = await db()
-    .select({
-      id: observations.id,
-      occurredAt: observations.occurredAt,
-    })
-    .from(observations)
-    .innerJoin(
-      observationFamilyHeads,
-      and(
-        eq(observationFamilyHeads.userId, observations.userId),
-        eq(observationFamilyHeads.familyKey, observations.familyKey),
-        eq(observationFamilyHeads.headObservationId, observations.id),
-      ),
-    )
-    .where(
-      and(
-        eq(observations.userId, userId),
-        eq(observations.source, "gmail"),
-        eq(observations.kind, "email_message"),
-      ),
-    )
-    .orderBy(desc(observations.occurredAt), desc(observations.id))
-    .limit(1);
-  if (!row) return {};
-  return { gmail: { lastObservationId: row.id, occurredAt: row.occurredAt.toISOString() } };
+  return db().transaction(async (tx) => {
+    const capturedAtResult = await tx.execute(sql`select now() as "capturedAt"`);
+    const rawCapturedAt = rowsFromExecute<{ capturedAt: Date | string }>(capturedAtResult)[0]
+      ?.capturedAt;
+    const capturedAt =
+      rawCapturedAt instanceof Date ? rawCapturedAt : new Date(rawCapturedAt ?? "");
+    if (Number.isNaN(capturedAt.getTime())) {
+      throw new Error("failed to capture DB timestamp for Gmail watermark");
+    }
+    const baseWhere = and(
+      eq(observations.userId, userId),
+      eq(observations.source, "gmail"),
+      eq(observations.kind, "email_message"),
+      lte(observations.createdAt, capturedAt),
+    );
+    const activeHeadJoin = and(
+      eq(observationFamilyHeads.userId, observations.userId),
+      eq(observationFamilyHeads.familyKey, observations.familyKey),
+      eq(observationFamilyHeads.headObservationId, observations.id),
+    );
+
+    const [eventRow] = await tx
+      .select({
+        id: observations.id,
+        occurredAt: observations.occurredAt,
+      })
+      .from(observations)
+      .innerJoin(observationFamilyHeads, activeHeadJoin)
+      .where(baseWhere)
+      .orderBy(desc(observations.occurredAt), desc(observations.id))
+      .limit(1);
+    if (!eventRow) return {};
+
+    return {
+      gmail: {
+        lastObservationId: eventRow.id,
+        occurredAt: eventRow.occurredAt.toISOString(),
+        sourceCursor: { appendSnapshot: { capturedAt: capturedAt.toISOString() } },
+      },
+    };
+  });
 }
 
 async function activeObservationCount(userId: string): Promise<number> {

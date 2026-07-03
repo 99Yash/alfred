@@ -248,6 +248,7 @@ function stringOrNull(value: unknown): string | null {
 
 function gmailHighWatermarkCondition(watermark: ProjectionCursorValue | undefined): SQL | null {
   if (!watermark) return null;
+  const conds: SQL[] = [];
   if (watermark.occurredAt) {
     const occurredAt = new Date(watermark.occurredAt);
     if (Number.isNaN(occurredAt.getTime())) {
@@ -264,12 +265,43 @@ function gmailHighWatermarkCondition(watermark: ProjectionCursorValue | undefine
       if (!boundedByTimestampAndId) {
         throw new Error(`[user-model.gmail-kind-fold] failed to build Gmail high-watermark bound`);
       }
-      return boundedByTimestampAndId;
+      conds.push(boundedByTimestampAndId);
+    } else {
+      conds.push(lte(observations.occurredAt, occurredAt));
     }
-    return lte(observations.occurredAt, occurredAt);
+  } else if (watermark.lastObservationId) {
+    conds.push(lte(observations.id, watermark.lastObservationId));
   }
-  if (watermark.lastObservationId) return lte(observations.id, watermark.lastObservationId);
-  return null;
+
+  const appendSnapshot = gmailAppendSnapshotFromCursor(watermark);
+  if (appendSnapshot) {
+    conds.push(lte(observations.createdAt, appendSnapshot.capturedAt));
+  }
+
+  if (conds.length === 0) return null;
+  const combined = and(...conds);
+  if (!combined) throw new Error(`[user-model.gmail-kind-fold] failed to build watermark bound`);
+  return combined;
+}
+
+interface GmailAppendSnapshot {
+  readonly capturedAt: Date;
+}
+
+function gmailAppendSnapshotFromCursor(
+  watermark: ProjectionCursorValue,
+): GmailAppendSnapshot | null {
+  const raw = watermark.sourceCursor;
+  if (!raw || typeof raw !== "object" || Array.isArray(raw)) return null;
+  const candidate = "appendSnapshot" in raw ? raw.appendSnapshot : null;
+  if (!candidate || typeof candidate !== "object" || Array.isArray(candidate)) return null;
+  const capturedAt = "capturedAt" in candidate ? candidate.capturedAt : null;
+  if (typeof capturedAt !== "string") return null;
+  const parsedCapturedAt = new Date(capturedAt);
+  if (Number.isNaN(parsedCapturedAt.getTime())) {
+    throw new Error(`[user-model.gmail-kind-fold] invalid Gmail append snapshot capturedAt`);
+  }
+  return { capturedAt: parsedCapturedAt };
 }
 
 function isExcluded(identity: IdentityRef, excludedEmails: ReadonlySet<string>): boolean {

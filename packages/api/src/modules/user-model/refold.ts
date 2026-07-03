@@ -5,7 +5,7 @@ import {
   type ProjectionCursorValue,
   type ProjectionSourceHighWatermark,
 } from "@alfred/contracts";
-import { db } from "@alfred/db";
+import { db, rowsFromExecute } from "@alfred/db";
 import {
   entityProfiles,
   integrationCredentials,
@@ -15,7 +15,8 @@ import {
   user as userTable,
   type ProjectionRun,
 } from "@alfred/db/schemas";
-import { and, desc, eq } from "drizzle-orm";
+import { and, desc, eq, gt, lte, sql } from "drizzle-orm";
+import { type DbExecutor } from "./executor";
 import { projectGmailKindProfiles } from "./gmail-kind-fold";
 import { requireEntityIdNamespace } from "./namespace";
 import {
@@ -99,12 +100,13 @@ export async function refoldActiveGmailKindProjection(
 
   // Frozen-logic gate (#218 PR J): verify the current fold code still reproduces
   // the active run's checksum at the active run's input before auto-activating.
-  if (!activeChecksum || !activeGmailWatermark) {
+  if (!activeChecksum || !activeGmailWatermark || !hasGmailAppendSnapshot(activeGmailWatermark)) {
     // A malformed/legacy active run we can't verify. Fail closed rather than
     // auto-activate a fresh fold on an unverifiable base.
     console.warn(
       `[user-model.refold] BLOCKED user=${userId} reason=unverifiable-active-run ` +
-        `(active run ${active.activeRunId} missing checksum/watermark) — re-activate via the script`,
+        `(active run ${active.activeRunId} missing checksum/watermark/append-snapshot) — ` +
+        `re-activate via the script`,
     );
     return { status: "blocked", reason: "unverifiable-active-run" };
   }
@@ -126,7 +128,10 @@ export async function refoldActiveGmailKindProjection(
     return { status: "blocked", reason: "logic-drift", activeChecksum, recomputedChecksum };
   }
 
-  if (activeGmailWatermark.lastObservationId === gmailCursor.lastObservationId) {
+  if (
+    sameGmailEventWatermark(activeGmailWatermark, gmailCursor) &&
+    !(await hasGmailObservationsAfterAppendSnapshot(userId, activeGmailWatermark))
+  ) {
     // Frozen logic AND no new observations since activation — already current.
     console.log(`[user-model.refold] skip user=${userId} reason=up-to-date`);
     return { status: "skipped", reason: "up-to-date" };
@@ -257,28 +262,47 @@ async function loadProjectionRun(userId: string, runId: string): Promise<Project
 async function gmailProjectionHighWatermark(
   userId: string,
 ): Promise<ProjectionSourceHighWatermark> {
-  const [row] = await db()
-    .select({ id: observations.id, occurredAt: observations.occurredAt })
-    .from(observations)
-    .innerJoin(
-      observationFamilyHeads,
-      and(
-        eq(observationFamilyHeads.userId, observations.userId),
-        eq(observationFamilyHeads.familyKey, observations.familyKey),
-        eq(observationFamilyHeads.headObservationId, observations.id),
-      ),
-    )
-    .where(
-      and(
-        eq(observations.userId, userId),
-        eq(observations.source, "gmail"),
-        eq(observations.kind, "email_message"),
-      ),
-    )
-    .orderBy(desc(observations.occurredAt), desc(observations.id))
-    .limit(1);
-  if (!row) return {};
-  return { gmail: { lastObservationId: row.id, occurredAt: row.occurredAt.toISOString() } };
+  return db().transaction(async (tx) => {
+    const capturedAt = await dbNow(tx);
+    const baseWhere = and(
+      eq(observations.userId, userId),
+      eq(observations.source, "gmail"),
+      eq(observations.kind, "email_message"),
+      lte(observations.createdAt, capturedAt),
+    );
+    const activeHeadJoin = and(
+      eq(observationFamilyHeads.userId, observations.userId),
+      eq(observationFamilyHeads.familyKey, observations.familyKey),
+      eq(observationFamilyHeads.headObservationId, observations.id),
+    );
+
+    const [eventRow] = await tx
+      .select({ id: observations.id, occurredAt: observations.occurredAt })
+      .from(observations)
+      .innerJoin(observationFamilyHeads, activeHeadJoin)
+      .where(baseWhere)
+      .orderBy(desc(observations.occurredAt), desc(observations.id))
+      .limit(1);
+    if (!eventRow) return {};
+
+    return {
+      gmail: {
+        lastObservationId: eventRow.id,
+        occurredAt: eventRow.occurredAt.toISOString(),
+        sourceCursor: { appendSnapshot: { capturedAt: capturedAt.toISOString() } },
+      },
+    };
+  });
+}
+
+async function dbNow(tx: DbExecutor): Promise<Date> {
+  const result = await tx.execute(sql`select now() as "capturedAt"`);
+  const rawCapturedAt = rowsFromExecute<{ capturedAt: Date | string }>(result)[0]?.capturedAt;
+  const capturedAt = rawCapturedAt instanceof Date ? rawCapturedAt : new Date(rawCapturedAt ?? "");
+  if (Number.isNaN(capturedAt.getTime())) {
+    throw new Error("[user-model.refold] failed to capture DB timestamp");
+  }
+  return capturedAt;
 }
 
 async function gmailProjectionExcludedEmails(userId: string): Promise<string[]> {
@@ -317,4 +341,52 @@ function canonicalEmail(value: string | null): string | null {
   const canonical = canonicalizeIdentityValue("email", value);
   const parsed = identityRefSchema.safeParse({ kind: "email", value: canonical });
   return parsed.success ? parsed.data.value : null;
+}
+
+function hasGmailAppendSnapshot(cursor: ProjectionCursorValue): boolean {
+  return Boolean(gmailAppendSnapshotCapturedAt(cursor));
+}
+
+function sameGmailEventWatermark(a: ProjectionCursorValue, b: ProjectionCursorValue): boolean {
+  return a.lastObservationId === b.lastObservationId && a.occurredAt === b.occurredAt;
+}
+
+function gmailAppendSnapshotCapturedAt(cursor: ProjectionCursorValue): Date | null {
+  const raw = cursor.sourceCursor;
+  if (!raw || typeof raw !== "object" || Array.isArray(raw)) return null;
+  const candidate = "appendSnapshot" in raw ? raw.appendSnapshot : null;
+  if (!candidate || typeof candidate !== "object" || Array.isArray(candidate)) return null;
+  const capturedAt = "capturedAt" in candidate ? candidate.capturedAt : null;
+  if (typeof capturedAt !== "string") return null;
+  const parsed = new Date(capturedAt);
+  return Number.isNaN(parsed.getTime()) ? null : parsed;
+}
+
+async function hasGmailObservationsAfterAppendSnapshot(
+  userId: string,
+  cursor: ProjectionCursorValue,
+): Promise<boolean> {
+  const capturedAt = gmailAppendSnapshotCapturedAt(cursor);
+  if (!capturedAt) return true;
+  const [row] = await db()
+    .select({ id: observations.id })
+    .from(observations)
+    .innerJoin(
+      observationFamilyHeads,
+      and(
+        eq(observationFamilyHeads.userId, observations.userId),
+        eq(observationFamilyHeads.familyKey, observations.familyKey),
+        eq(observationFamilyHeads.headObservationId, observations.id),
+      ),
+    )
+    .where(
+      and(
+        eq(observations.userId, userId),
+        eq(observations.source, "gmail"),
+        eq(observations.kind, "email_message"),
+        gt(observations.createdAt, capturedAt),
+      ),
+    )
+    .limit(1);
+  return Boolean(row);
 }

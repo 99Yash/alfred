@@ -187,12 +187,15 @@ from Step 2; never re-run a completed version.
   (`user_model.gmail_kind_refold_sweep`) and the live-capture path both route
   through `refoldActiveGmailKindProjection`, which **auto-activates a fresh
   version only when the classifier logic is frozen**: it recomputes the fold at
-  the active run's own watermark and requires the result to match the active
-  run's stored checksum. If it diverges (a classifier-logic change, or
-  non-determinism), the refold is **BLOCKED** — the active pointer is left
-  untouched and a `logic-drift` line is logged. A classifier-logic change then
-  requires a manual re-validation + re-activation (Steps 1–5, bumping
-  `--projection-version`).
+  the active run's own event watermark plus append-snapshot cursor and requires
+  the result to match the active run's stored checksum. That append snapshot is
+  what lets the sweep distinguish "older message backfilled after activation"
+  from "classifier output changed". If the recompute diverges (a classifier
+  change, non-determinism, or a legacy active run without an append snapshot),
+  the refold is **BLOCKED** — the active pointer is left untouched and a
+  `logic-drift` or `unverifiable-active-run` line is logged. A classifier-logic
+  change then requires a manual re-validation + re-activation (Steps 1–5,
+  bumping `--projection-version`).
 - Known safe-fail: connecting/disconnecting a Google account changes the fold's
   self-exclusion set, which can also trip the drift gate even with frozen logic.
   That fails closed (blocks auto-activation until a manual re-activation) — the

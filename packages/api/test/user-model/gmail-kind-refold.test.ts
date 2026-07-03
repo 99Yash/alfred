@@ -1,11 +1,11 @@
 import assert from "node:assert/strict";
 import { randomUUID } from "node:crypto";
 import { after, describe, test } from "node:test";
-import { closeConnections, db } from "@alfred/db";
+import { closeConnections, db, rowsFromExecute } from "@alfred/db";
 import { observations, projectionRuns, user } from "@alfred/db/schemas";
 import { databaseEnv } from "@alfred/env/database";
 import { gmailEmailMessagePayloadSchema, USER_MODEL_PROJECTION_NAME } from "@alfred/contracts";
-import { and, desc, eq, inArray } from "drizzle-orm";
+import { and, desc, eq, inArray, lte, sql } from "drizzle-orm";
 import {
   activateProjectionVersion,
   appendObservationFamilyMember,
@@ -25,6 +25,7 @@ import {
 
 const ID_PREFIX = "test-gmail-kind-refold-";
 const BASE_AT = new Date("2026-06-30T08:00:00.000Z");
+const BACKFILL_AT = new Date("2026-06-29T08:00:00.000Z");
 const LATER_AT = new Date("2026-07-01T08:00:00.000Z");
 const TEST_ENTITY_ID_SECRET = "stable namespace secret for tests";
 const createdUserIds: string[] = [];
@@ -121,6 +122,37 @@ describe("refoldActiveGmailKindProjection (DB-backed)", { skip: SKIP_DB }, () =>
     assert.equal(bob?.kind, "person");
   });
 
+  test("refolds an event-time backfill without mistaking it for logic drift", async () => {
+    seedServerEnvForStableIds();
+    const { userId, email } = await seedUser();
+    await appendObs({ userId, selfEmail: email, messageId: "m_a", from: "alice@example.com", fromName: "Alice A" });
+    const initial = await initialActivate(userId, [email]);
+
+    // Backfill arrives after activation but its message timestamp is older than
+    // the active event watermark. The append snapshot must advance even though
+    // the occurredAt watermark stays on m_a.
+    await appendObs({
+      userId,
+      selfEmail: email,
+      messageId: "m_backfill",
+      from: "carol@example.com",
+      fromName: "Carol C",
+      occurredAt: BACKFILL_AT,
+    });
+
+    const result = await refoldActiveGmailKindProjection(userId);
+    assert.equal(result.status, "activated");
+    if (result.status !== "activated") return;
+    assert.equal(result.projectionVersion, 2);
+    assert.notEqual(result.checksum, initial.checksum);
+
+    const carol = await userModelReader(userId).getProfileByIdentity({
+      kind: "email",
+      value: "carol@example.com",
+    });
+    assert.equal(carol?.kind, "person");
+  });
+
   test("blocks auto-activation when the classifier output drifts from the active checksum", async () => {
     seedServerEnvForStableIds();
     const { userId, email } = await seedUser();
@@ -182,20 +214,36 @@ async function initialActivate(
 }
 
 async function currentGmailWatermark(userId: string) {
-  const [row] = await db()
-    .select({ id: observations.id, occurredAt: observations.occurredAt })
-    .from(observations)
-    .where(
-      and(
-        eq(observations.userId, userId),
-        eq(observations.source, "gmail"),
-        eq(observations.kind, "email_message"),
-      ),
-    )
-    .orderBy(desc(observations.occurredAt), desc(observations.id))
-    .limit(1);
-  if (!row) throw new Error("no gmail observations to watermark");
-  return { gmail: { lastObservationId: row.id, occurredAt: row.occurredAt.toISOString() } };
+  return db().transaction(async (tx) => {
+    const capturedAtResult = await tx.execute(sql`select now() as "capturedAt"`);
+    const rawCapturedAt = rowsFromExecute<{ capturedAt: Date | string }>(capturedAtResult)[0]
+      ?.capturedAt;
+    const capturedAt =
+      rawCapturedAt instanceof Date ? rawCapturedAt : new Date(rawCapturedAt ?? "");
+    if (Number.isNaN(capturedAt.getTime())) {
+      throw new Error("failed to capture DB timestamp for Gmail watermark");
+    }
+    const baseWhere = and(
+      eq(observations.userId, userId),
+      eq(observations.source, "gmail"),
+      eq(observations.kind, "email_message"),
+      lte(observations.createdAt, capturedAt),
+    );
+    const [eventRow] = await tx
+      .select({ id: observations.id, occurredAt: observations.occurredAt })
+      .from(observations)
+      .where(baseWhere)
+      .orderBy(desc(observations.occurredAt), desc(observations.id))
+      .limit(1);
+    if (!eventRow) throw new Error("no gmail observations to watermark");
+    return {
+      gmail: {
+        lastObservationId: eventRow.id,
+        occurredAt: eventRow.occurredAt.toISOString(),
+        sourceCursor: { appendSnapshot: { capturedAt: capturedAt.toISOString() } },
+      },
+    };
+  });
 }
 
 function seedServerEnvForStableIds(): void {
