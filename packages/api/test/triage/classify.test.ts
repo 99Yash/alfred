@@ -313,8 +313,45 @@ describe("applySenderKindDemotionFloor", () => {
     assert.equal(invite.classification.category, "action_needed");
   });
 
-  test("leaves urgent untouched (out of this narrow floor's scope)", () => {
-    const r = applySenderKindDemotionFloor(classification({ category: "urgent" }), groupKind);
+  test("demotes urgent → fyi for a group-broadcast auth sign-in confirmation", () => {
+    const r = applySenderKindDemotionFloor(
+      classification({
+        category: "urgent",
+        todoSuggestion: { name: "Review OpenAI account security" },
+        todoDecision: { outcome: "proposed" },
+      }),
+      groupKind,
+      {
+        subject: "New sign-in to your OpenAI account",
+        signalText:
+          "We noticed a new sign-in to your OpenAI account. " +
+          "If this was you, no action is needed. " +
+          "If you don't recognize this activity, please review your account security right away.",
+      },
+    );
+    assert.equal(r.demoted, true);
+    assert.equal(r.classification.category, "fyi");
+    assert.equal(r.classification.todoSuggestion, null);
+    assert.equal(r.classification.todoDecision?.outcome, "no_obligation");
+    assert.equal(resolveTodoSuggestion(r.classification), null);
+  });
+
+  test("leaves direct service auth sign-in alerts urgent", () => {
+    const r = applySenderKindDemotionFloor(classification({ category: "urgent" }), serviceKind, {
+      subject: "New sign-in to your OpenAI account",
+      signalText:
+        "We noticed a new sign-in to your OpenAI account. " +
+        "If this was you, no action is needed. " +
+        "If you don't recognize this activity, please review your account security right away.",
+    });
+    assert.equal(r.demoted, false);
+    assert.equal(r.classification.category, "urgent");
+  });
+
+  test("leaves unrelated urgent group notifications untouched", () => {
+    const r = applySenderKindDemotionFloor(classification({ category: "urgent" }), groupKind, {
+      signalText: "Production outage: deploys are blocked and customer API requests are failing.",
+    });
     assert.equal(r.demoted, false);
     assert.equal(r.classification.category, "urgent");
   });
@@ -747,6 +784,53 @@ describe("classifyEmail", () => {
     );
     assert.equal(result.classification.category, "fyi");
     assert.equal(result.audit.senderKindDemoted, true);
+    assert.equal(result.model, "injected+kindfloor");
+    assert.equal(resolveTodoSuggestion(result.classification), null);
+  });
+
+  test("sender-kind floor demotes group-broadcast sign-in confirmations end-to-end", async () => {
+    const model = scriptedModel(
+      classification({
+        category: "urgent",
+        confidence: 0.9,
+        todoSuggestion: { name: "Review OpenAI account security" },
+        todoDecision: { outcome: "proposed" },
+      }),
+    );
+    const result = await classifyEmail(
+      args({
+        document: {
+          id: "doc_openai_group_signin",
+          title: "New sign-in to your OpenAI account",
+          content:
+            "From: 'OpenAI' via Engineering <engineering@oliv.ai>\n" +
+            "To: dev.pro.2@oliv.ai\n\n" +
+            "We noticed a new sign-in to your OpenAI account.\n\n" +
+            "App: ChatGPT Web\n" +
+            "Location: Kolkata\n" +
+            "Device: Chrome on Mac OS X\n\n" +
+            "If this was you, no action is needed.\n" +
+            "If you don't recognize this activity, please review your account security right away.",
+          authoredAt: null,
+          metadata: {
+            from: "'OpenAI' via Engineering <engineering@oliv.ai>",
+          },
+        },
+        observations: observations({
+          senderKind: {
+            kind: "group",
+            confidence: 0.99,
+            evidenceCodes: ["gmail:list_id", "gmail:list_unsubscribe", "gmail:precedence:list"],
+            entityId: "ent_engineering",
+            displayName: "Engineering",
+          },
+        }),
+        runPass: model.runPass,
+      }),
+    );
+    assert.equal(result.classification.category, "fyi");
+    assert.equal(result.audit.senderKindDemoted, true);
+    assert.equal(result.audit.firstPass.category, "urgent");
     assert.equal(result.model, "injected+kindfloor");
     assert.equal(resolveTodoSuggestion(result.classification), null);
   });

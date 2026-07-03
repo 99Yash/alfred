@@ -618,11 +618,11 @@ export function applyOverrideFloor(
  * DEMOTE, NEVER BURY (#210 asymmetry) — the thread stays visible, it just leaves
  * the demanding lane.
  *
- * Deliberately scoped to `awaiting_reply` ONLY (the zero-bury-risk case). A
- * group/service CAN legitimately assign the user an action (a ClickUp task
- * actually assigned to them, a real security/payment alert), so demoting
- * `action_needed`/`urgent` needs a body-level "directly assigns / @-mentions the
- * user" carve-out (ADR-0066) and is NOT done here.
+ * `awaiting_reply` is the zero-bury-risk case and is always demoted for a
+ * confident sender kind. `action_needed`/`urgent` require a narrow structural
+ * reason: passive collaboration state transitions, passive GitHub PR/CI
+ * notifications, or group-broadcast sign-in confirmations where the body also
+ * says no action is needed if the sign-in was recognized.
  *
  * `senderKind` is non-null ONLY for a confident group/service — `resolveSenderKind`
  * already gates kind ∈ {group,service} AND confidence >=
@@ -643,19 +643,22 @@ export function applySenderKindDemotionFloor(
   senderKind: Observations["senderKind"],
   context: SenderKindDemotionFloorContext = {},
 ): { classification: TriageClassification; demoted: boolean } {
+  const reason = senderKind ? senderKindDemotionReason(context, senderKind) : null;
   if (
     !senderKind ||
     !senderKindCanDemoteDemand(senderKind) ||
-    !senderKindFloorShouldDemoteCategory(classification.category, context)
+    !senderKindFloorShouldDemoteCategory(classification.category, reason)
   ) {
     return { classification, demoted: false };
   }
   const note =
     classification.category === "awaiting_reply"
       ? `${senderKind.kind} sender is not awaiting a reply`
-      : senderKindDemotionReason(context) === "github_passive_pr_or_ci"
+      : reason === "github_passive_pr_or_ci"
         ? `${senderKind.kind} sender sent a passive GitHub PR/CI notification`
-        : `${senderKind.kind} sender sent a passive collaboration state transition`;
+        : reason === "broadcast_auth_signin_confirmation"
+          ? `${senderKind.kind} sender sent a broadcast sign-in confirmation`
+          : `${senderKind.kind} sender sent a passive collaboration state transition`;
   return {
     classification: {
       ...classification,
@@ -684,11 +687,12 @@ function senderKindCanDemoteDemand(senderKind: NonNullable<Observations["senderK
 
 function senderKindFloorShouldDemoteCategory(
   category: TriageClassification["category"],
-  context: SenderKindDemotionFloorContext,
+  reason: SenderKindDemotionReason | null,
 ): boolean {
   if (category === "awaiting_reply") return true;
+  if (category === "urgent") return reason === "broadcast_auth_signin_confirmation";
   if (category !== "action_needed") return false;
-  return senderKindDemotionReason(context) !== null;
+  return reason !== null;
 }
 
 const COLLAB_STATE_TRANSITION_RE =
@@ -706,15 +710,22 @@ function isPassiveCollaborationStateTransition(signalText: string): boolean {
   );
 }
 
-type SenderKindDemotionReason = "collab_state_transition" | "github_passive_pr_or_ci";
+type SenderKindDemotionReason =
+  | "collab_state_transition"
+  | "github_passive_pr_or_ci"
+  | "broadcast_auth_signin_confirmation";
 
 function senderKindDemotionReason(
   context: SenderKindDemotionFloorContext,
+  senderKind: NonNullable<Observations["senderKind"]>,
 ): SenderKindDemotionReason | null {
   if (isPassiveCollaborationStateTransition(context.signalText ?? "")) {
     return "collab_state_transition";
   }
   if (isPassiveGithubPrOrCiNotification(context)) return "github_passive_pr_or_ci";
+  if (isBroadcastAuthSignInConfirmation(context, senderKind)) {
+    return "broadcast_auth_signin_confirmation";
+  }
   return null;
 }
 
@@ -736,6 +747,23 @@ function isPassiveGithubPrOrCiNotification(context: SenderKindDemotionFloorConte
 function githubReasonAliases(cc: string | null | undefined): string[] {
   return [...String(cc ?? "").matchAll(GITHUB_REASON_ALIAS_RE)].map((m) =>
     (m[1] ?? "").toLowerCase(),
+  );
+}
+
+const AUTH_SIGNIN_NOTICE_RE = /\b(?:new sign-?in|new login|new sign in|new device sign-?in)\b/i;
+const AUTH_NO_ACTION_IF_YOU_RE = /\bif this was you,\s*no action is needed\b/i;
+const AUTH_UNRECOGNIZED_RE = /\b(?:if you (?:do not|don't) recognize|if this wasn't you)\b/i;
+
+function isBroadcastAuthSignInConfirmation(
+  context: SenderKindDemotionFloorContext,
+  senderKind: NonNullable<Observations["senderKind"]>,
+): boolean {
+  if (senderKind.kind !== "group") return false;
+  const text = [context.subject, context.signalText].filter(Boolean).join("\n");
+  return (
+    AUTH_SIGNIN_NOTICE_RE.test(text) &&
+    AUTH_NO_ACTION_IF_YOU_RE.test(text) &&
+    AUTH_UNRECOGNIZED_RE.test(text)
   );
 }
 
