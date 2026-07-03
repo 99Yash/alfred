@@ -12,6 +12,9 @@ overrides:
 # repo. pnpm 11 makes build-script approval explicit, so keep denying the same
 # scripts rather than prompting during frozen installs.
 allowBuilds:
+  # Needs its postinstall to fetch the platform binary; the server build calls
+  # it (scripts/sentry-release.mjs) to upload source maps + associate commits.
+  '@sentry/cli': true
   core-js: false
   esbuild: false
   msgpackr-extract: false
