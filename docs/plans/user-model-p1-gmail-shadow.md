@@ -12,7 +12,10 @@ P1 is the first real replay over the ADR-0067 substrate. It is **not** a
 reducer-only slice. It is a full Gmail shadow build: fill Gmail history,
 reduce `documents` into `observations`, fold observations into the stable entity
 layer plus versioned projections, validate determinism and known bad cases, then
-optionally activate the projection. Consumers do not cut over in this slice.
+optionally activate the projection. Consumers are wired but inert until
+activation: absent active projection data is a no-op, and activation is the
+manual cutover that lets the triage sender-kind override read the projected
+profiles.
 
 ## Locked decisions
 
