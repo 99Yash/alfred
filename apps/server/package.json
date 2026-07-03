@@ -7,7 +7,9 @@
     "check-types": "tsc -b",
     "dev": "tsx watch --env-file=.env src/index.ts",
     "start": "node --env-file=.env --import ./dist/instrument.js dist/index.js",
-    "deploy": "pnpm --filter @alfred/db db:migrate"
+    "deploy": "pnpm --filter @alfred/db db:migrate",
+    "eval": "evalite run",
+    "eval:watch": "evalite watch"
   },
   "dependencies": {
     "@alfred/ai": "workspace:*",
@@ -34,6 +36,9 @@
     "@alfred/config": "workspace:*",
     "@types/node": "catalog:",
     "@types/react": "^19.0.0",
+    "ai": "catalog:",
+    "dotenv": "catalog:",
+    "evalite": "1.0.0-beta.16",
     "tsdown": "catalog:",
     "tsx": "^4.19.2",
     "typescript": "catalog:"
