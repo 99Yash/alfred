@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import { describe, test } from "node:test";
+import { HttpError } from "@alfred/contracts";
 import type { LabelSelfMailDeps } from "@alfred/integrations/google";
 
 // serverEnv() validates the whole schema on first read; seed the required slots
@@ -42,6 +43,7 @@ function makeDeps(
     ensureIds?: string[];
     /** If set, addLabel throws for the first N calls then succeeds. */
     failAddCalls?: number;
+    failStatus?: number;
   } = {},
 ): {
   deps: LabelSelfMailDeps;
@@ -61,7 +63,13 @@ function makeDeps(
     addLabel: async ({ messageId, labelId }) => {
       addAttempts++;
       if (overrides.failAddCalls && addAttempts <= overrides.failAddCalls) {
-        throw new Error(`gmail 404 (attempt ${addAttempts})`);
+        throw new HttpError({
+          provider: "gmail",
+          method: "POST",
+          status: overrides.failStatus ?? 404,
+          url: `https://gmail.example/messages/${messageId}/modify`,
+          body: `attempt ${addAttempts}`,
+        });
       }
       addCalls.push({ messageId, labelId });
     },
@@ -146,7 +154,25 @@ describe("labelSelfAuthoredMail (#285)", () => {
         },
         deps,
       ),
-      /gmail 404/,
+      /404/,
     );
+  });
+
+  test("does not rebuild the label for non-stale modify failures", async () => {
+    const { deps, ensureCalls, addCalls } = makeDeps({ failAddCalls: 1, failStatus: 403 });
+    await assert.rejects(
+      labelSelfAuthoredMail(
+        {
+          credentialId: "cred_1",
+          messageId: "msg_1",
+          accessToken: "tok",
+          currentLabelIds: ["INBOX"],
+        },
+        deps,
+      ),
+      /403/,
+    );
+    assert.equal(ensureCalls.length, 1, "403 should not force-rebuild a label");
+    assert.equal(addCalls.length, 0);
   });
 });

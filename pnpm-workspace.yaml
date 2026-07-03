@@ -2,13 +2,28 @@ packages:
   - apps/*
   - packages/*
 
+# Keep pnpm settings here, not in package.json#pnpm. pnpm 11 ignores the
+# package.json location, so Corepack/global pnpm must see the same overrides.
+overrides:
+  "@types/pg": ^8.18.0
+  exact-mirror: 1.0.0
+
+# These packages' postinstall scripts were already ignored by pnpm 10 in this
+# repo. pnpm 11 makes build-script approval explicit, so keep denying the same
+# scripts rather than prompting during frozen installs.
+allowBuilds:
+  core-js: false
+  esbuild: false
+  msgpackr-extract: false
+  protobufjs: false
+
 catalog:
   "@ai-sdk/anthropic": ^3.0.0
   "@ai-sdk/google": ^3.0.0
   "@ai-sdk/openai": ^3.0.0
   "@ai-sdk/perplexity": ^3.0.0
   # Elysia + its sibling packages are pinned to exact versions, and
-  # exact-mirror is pinned via `pnpm.overrides` in the root package.json.
+  # exact-mirror is pinned via the workspace `overrides` block above.
   # The workspace ships a `normalize: 'typebox'` workaround in
   # packages/api/src/index.ts for an option-name mismatch between
   # elysia@1.4.28 and exact-mirror@1.0.0 (elysia passes `TypeCompiler`,

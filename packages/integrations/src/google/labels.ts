@@ -1,4 +1,4 @@
-import { TRIAGE_CATEGORIES, type TriageCategory, toMessage } from "@alfred/contracts";
+import { isHttpError, TRIAGE_CATEGORIES, type TriageCategory, toMessage } from "@alfred/contracts";
 import { db } from "@alfred/db";
 import { integrationCredentials } from "@alfred/db/schemas";
 import { eq, sql } from "drizzle-orm";
@@ -438,10 +438,11 @@ export async function labelSelfAuthoredMail(
 
   try {
     await deps.addLabel({ accessToken, messageId, labelId });
-  } catch {
+  } catch (err) {
     // The cached id may be stale (label deleted out of band). Rebuild from the
     // live label list and retry once; a second failure bubbles to the caller,
     // which treats self-mail labelling as best-effort.
+    if (!isHttpError(err) || err.status !== 404) throw err;
     labelId = await deps.ensureLabel({ credentialId, accessToken, force: true });
     await deps.addLabel({ accessToken, messageId, labelId });
   }

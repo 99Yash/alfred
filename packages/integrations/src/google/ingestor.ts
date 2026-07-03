@@ -1,7 +1,7 @@
 import { mapConcurrent, parseEmailAddress, toMessage } from "@alfred/contracts";
 import { db } from "@alfred/db";
 import { documents, ingestionState, integrationCredentials } from "@alfred/db/schemas";
-import { serverEnv } from "@alfred/env/server";
+import { gmailMailboxWritesEnabled, serverEnv } from "@alfred/env/server";
 import { embedDocument } from "@alfred/ingestion";
 import { and, eq, inArray, sql } from "drizzle-orm";
 import { createHash } from "node:crypto";
@@ -268,18 +268,20 @@ async function persistMessage(
     // — a labelling failure must never block the drop, which is the actual
     // self-loop guardrail. The message stays out of `documents`, triage, and
     // the sender-prior cache regardless.
-    try {
-      await labelSelfAuthoredMail({
-        credentialId: cred.credentialId,
-        messageId: message.id,
-        accessToken,
-        currentLabelIds: message.labelIds ?? undefined,
-      });
-    } catch (err) {
-      console.warn(
-        `[gmail.ingestor] failed to label self-authored message=${message.id}:`,
-        toMessage(err),
-      );
+    if (gmailMailboxWritesEnabled()) {
+      try {
+        await labelSelfAuthoredMail({
+          credentialId: cred.credentialId,
+          messageId: message.id,
+          accessToken,
+          currentLabelIds: message.labelIds ?? undefined,
+        });
+      } catch (err) {
+        console.warn(
+          `[gmail.ingestor] failed to label self-authored message=${message.id}:`,
+          toMessage(err),
+        );
+      }
     }
     return { outcome: "ignored" };
   }

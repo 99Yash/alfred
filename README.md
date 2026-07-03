@@ -31,7 +31,7 @@ Architecture decisions are documented exhaustively in [`decisions.md`](./decisio
 docker-compose up -d
 
 # 2. Install dependencies
-pnpm install
+corepack pnpm install
 
 # 3. Create local env files
 cp .env.example apps/server/.env
@@ -42,14 +42,14 @@ printf 'VITE_API_URL=http://localhost:3001\nVITE_SENTRY_DSN=\nVITE_POSTHOG_KEY=\
 vim apps/server/.env
 
 # 5. Apply committed DB migrations
-pnpm db:migrate
+corepack pnpm db:migrate
 
 # 6. Start dev servers
-pnpm dev
+corepack pnpm dev
 # → server on :3001, web on :3000
 ```
 
-No build step is required before `pnpm check-types`; workspace packages export TypeScript source directly.
+Use `corepack pnpm` rather than an arbitrary global `pnpm`; the repo pins the exact package-manager version in `packageManager`. No build step is required before `corepack pnpm check-types`; workspace packages export TypeScript source directly.
 
 ## Environment variables
 
@@ -86,12 +86,12 @@ Feature-gated or optional locally: `OPENAI_API_KEY`, `VOYAGE_API_KEY` (embedding
 ## Commands
 
 ```bash
-pnpm dev             # start both apps in watch mode
-pnpm build           # production build of all packages
-pnpm check-types     # tsc across all packages
-pnpm db:generate     # generate Drizzle migration from schema diff
-pnpm db:migrate      # apply pending migrations
-pnpm db:studio       # open Drizzle Studio
+corepack pnpm dev             # start both apps in watch mode
+corepack pnpm build           # production build of all packages
+corepack pnpm check-types     # tsc across all packages
+corepack pnpm db:generate     # generate Drizzle migration from schema diff
+corepack pnpm db:migrate      # apply pending migrations
+corepack pnpm db:studio       # open Drizzle Studio
 ```
 
 ## Implementation milestones
