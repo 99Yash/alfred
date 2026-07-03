@@ -41,7 +41,7 @@ import { parseEmailAddress } from "./guards.js";
 /** Owner/repo bracket in a GitHub notification subject: `[owner/repo]`. */
 const GITHUB_REPO_RE = /\[([A-Za-z0-9._-]+\/[A-Za-z0-9._-]+)\]/;
 /** Trailing PR/issue number GitHub appends: `(PR #786)`, `(Issue #12)`, `(#12)`. */
-const GITHUB_NUMBER_RE = /\((?:PR|Issue)?\s*#(\d+)\)/i;
+const GITHUB_NUMBER_RE = /\((?:(PR|Issue)\s*)?#(\d+)\)/i;
 /**
  * Linear / Jira issue key, either bracket/paren-enclosed or at the very start
  * of the subject. Anchoring keeps it from matching version-ish tokens buried
@@ -79,6 +79,21 @@ const TRACKER_SENDER_PATTERNS: Array<{ key: string; re: RegExp }> = [
 interface LoopKeyContext {
   /** Sender header, email address, or persisted sender display label. */
   sender?: string | null;
+  /**
+   * Require the sender to look like the provider before returning structured
+   * tracker keys. Briefing uses loop keys as a soft continuation hint, so it can
+   * accept subject-only GitHub/Jira shapes. Todos use them as hard merge keys,
+   * so a human email with "Re: [owner/repo] ..." must not collapse unrelated
+   * rail items.
+   */
+  requireTrackerSender?: boolean;
+}
+
+export interface LoopEntityRef {
+  key: string;
+  provider: string;
+  kind: string;
+  id: string;
 }
 
 /**
@@ -90,35 +105,71 @@ export function deriveLoopKey(
   subject: string | null | undefined,
   context: LoopKeyContext = {},
 ): string | null {
+  return deriveLoopEntityRef(subject, context)?.key ?? null;
+}
+
+/**
+ * Structured form of {@link deriveLoopKey}. Use this when the loop key becomes
+ * persisted provenance, not just a read-side continuity hint.
+ */
+export function deriveLoopEntityRef(
+  subject: string | null | undefined,
+  context: LoopKeyContext = {},
+): LoopEntityRef | null {
   if (!subject) return null;
   const raw = subject.trim();
   if (raw.length === 0) return null;
   const prefixStripped = stripReplyPrefixes(raw);
+  const tracker = trackerSenderKey(context.sender);
 
-  const github = githubLoopKey(prefixStripped);
-  if (github) return github;
+  const github = githubLoopEntityRef(prefixStripped);
+  if (github && (!context.requireTrackerSender || tracker === "github")) return github;
 
-  const issue = issueLoopKey(prefixStripped);
-  if (issue) return issue;
+  const issue = issueLoopEntityRef(prefixStripped, tracker);
+  if (issue && (!context.requireTrackerSender || tracker === "linear" || tracker === "jira")) {
+    return issue;
+  }
 
   const normalized = normalizeSubject(prefixStripped);
   if (!normalized || normalized === NO_SUBJECT_SENTINEL) return null;
   if (!isSpecificFallbackSubject(normalized)) return null;
-  const tracker = trackerSenderKey(context.sender);
   if (!tracker) return null;
-  return `subj:${tracker}:${normalized}`;
+  return {
+    key: `subj:${tracker}:${normalized}`,
+    provider: tracker,
+    kind: "subject",
+    id: normalized,
+  };
 }
 
-function githubLoopKey(subject: string): string | null {
+function githubLoopEntityRef(subject: string): LoopEntityRef | null {
   const repo = subject.match(GITHUB_REPO_RE)?.[1];
-  const number = subject.match(GITHUB_NUMBER_RE)?.[1];
+  const numberMatch = subject.match(GITHUB_NUMBER_RE);
+  const type = numberMatch?.[1]?.toLowerCase();
+  const number = numberMatch?.[2];
   if (!repo || !number) return null;
-  return `gh:${repo.toLowerCase()}#${number}`;
+  const normalizedRepo = repo.toLowerCase();
+  return {
+    key: `gh:${normalizedRepo}#${number}`,
+    provider: "github",
+    kind: type === "pr" ? "pull_request" : "issue",
+    id: `${normalizedRepo}#${number}`,
+  };
 }
 
-function issueLoopKey(subject: string): string | null {
+function issueLoopEntityRef(
+  subject: string,
+  tracker: string | null | undefined,
+): LoopEntityRef | null {
   const key = subject.match(ISSUE_KEY_ENCLOSED_RE)?.[1] ?? subject.match(ISSUE_KEY_LEADING_RE)?.[1];
-  return key ? `issue:${key.toLowerCase()}` : null;
+  if (!key) return null;
+  const normalized = key.toLowerCase();
+  return {
+    key: `issue:${normalized}`,
+    provider: tracker === "jira" || tracker === "linear" ? tracker : "issue",
+    kind: "issue",
+    id: normalized,
+  };
 }
 
 function trackerSenderKey(sender: string | null | undefined): string | null {
