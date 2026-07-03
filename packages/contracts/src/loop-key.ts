@@ -1,15 +1,17 @@
 /**
- * Loop/entity keys for briefing continuity (#283).
+ * Loop/entity keys for recurring-notification dedup — shared across briefing
+ * continuity (#283) and todo-rail recurrence dedup (#355).
  *
- * `previouslySurfaced` used to key purely on the Gmail thread id. That misses
- * the dominant repetition pattern: collaboration tools (ClickUp, GitHub, Linear,
- * Jira) re-notify about the *same underlying work item* by sending a **new**
- * email — a comment, a status change, a re-assignment — each on its own thread.
- * Every such email is a fresh, never-surfaced document, so it slips past a
- * thread-keyed dedup and the briefing restates the item as if it were new.
+ * Keying on the Gmail thread id misses the dominant repetition pattern:
+ * collaboration tools (ClickUp, GitHub, Linear, Jira) re-notify about the *same
+ * underlying work item* by sending a **new** email — a comment, a status
+ * change, a re-assignment — each on its own thread. Every such email is a fresh,
+ * never-surfaced document, so it slips past a thread-keyed dedup and the loop is
+ * restated as if it were new: the briefing re-surfaces it (#283), and the todo
+ * rail re-mints a duplicate suggestion (#355).
  *
- * `deriveLoopKey` collapses those re-notifications onto one stable key so the
- * continuation signal recognizes them as the same loop:
+ * `deriveLoopKey` collapses those re-notifications onto one stable key so both
+ * consumers recognize them as the same loop:
  *
  *   1. **GitHub** notification subjects carry both the repo and the PR/issue
  *      number verbatim — `Re: [owner/repo] Title (PR #786)` — so two emails
@@ -28,9 +30,13 @@
  * anything. A provider whose notification subject carries neither an entity id
  * nor a sufficiently specific item title (e.g. ClickUp's occasional actor-name
  * / space-name subjects) still degrades safely to the thread-id signal.
+ *
+ * This is the *interim* content/shape key. The durable form derives the entity
+ * identity from the ADR-0067 observation-log projection (#218); this heuristic
+ * is the same one both consumers share until that lands.
  */
 
-import { parseEmailAddress } from "@alfred/contracts";
+import { parseEmailAddress } from "./guards.js";
 
 /** Owner/repo bracket in a GitHub notification subject: `[owner/repo]`. */
 const GITHUB_REPO_RE = /\[([A-Za-z0-9._-]+\/[A-Za-z0-9._-]+)\]/;

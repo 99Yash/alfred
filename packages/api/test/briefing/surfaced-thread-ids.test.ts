@@ -8,7 +8,7 @@ import {
   collectSurfacedLoopKeys,
   collectSurfacedThreadIds,
 } from "../../src/modules/briefing/read";
-import { deriveLoopKey } from "../../src/modules/briefing/loop-key";
+import { deriveLoopKey } from "@alfred/contracts";
 
 /**
  * Minimal gather carrying only the fields `collectSurfacedThreadIds` reads.

@@ -36,6 +36,7 @@ import {
   type Workflow,
 } from "@alfred/api";
 import {
+  gmailTodoSources,
   isHttpError,
   senderContextSchema,
   toStringArray,
@@ -611,7 +612,15 @@ export const emailTriageWorkflow: Workflow<State> = {
               agentRunId: ctx.runId,
               name: todoSuggestion.name,
               assist: todoSuggestion.assist,
-              sources: [{ provider: "gmail", kind: "thread", id: sourceThreadId }],
+              // Thread ref always; plus a stable real-world `loop` ref when the
+              // subject/sender resolve one, so a recurring tracker/PR/issue loop
+              // that re-notifies on a new thread each time collapses onto this
+              // one todo instead of re-minting (#355).
+              sources: gmailTodoSources({
+                threadId: sourceThreadId,
+                subject: ctxData.document.title,
+                sender: metadataString(ctxData.document.metadata, "from"),
+              }),
             });
             await ctx.log(
               `suggest_todo: ${suggested.status} todo=${suggested.todoId} category=${classification.category}`,
