@@ -4,6 +4,8 @@ Alfred is a personal AI assistant: single user, multi-device, connected to email
 
 This is a **pnpm workspace monorepo**. Packages are `@alfred/*` (never `@milkpod/*`), and `pnpm check-types` works on a fresh tree without a prior build.
 
+Nested `AGENTS.md` files under `apps/` and `packages/` carry scope-specific guidance; read the nearest one before editing in that subtree.
+
 ## Non-negotiables
 
 - **Never `db:push` outside local exploration.** Always `db:generate` -> `db:migrate`.
