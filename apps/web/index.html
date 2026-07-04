@@ -21,6 +21,10 @@
       inline background-color (not just color-scheme) so the right canvas paints
       even before any stylesheet applies. Idempotent: `.app[data-app-theme]`
       re-applies the same tokens once CSS arrives.
+
+      CSP: this inline script is SHA-256 hash-pinned in the root Caddyfile's
+      `script-src` (#295). Edit the script body below and you MUST regenerate
+      that hash (command is in the Caddyfile) or CSP silently blocks it.
     -->
     <script>
       (function () {
@@ -68,6 +72,10 @@
       reload sees the new release). A timestamp throttle prevents a reload loop
       if a chunk is genuinely, permanently missing (a bad deploy). Inline + first
       in <head> so it's registered before any module preloads can fail.
+
+      CSP: like the theme stamp above, this inline script is SHA-256 hash-pinned
+      in the root Caddyfile's `script-src` (#295). If you edit it, regenerate the
+      hash (command is in the Caddyfile) or CSP silently blocks it.
     -->
     <script>
       window.addEventListener("vite:preloadError", function () {
