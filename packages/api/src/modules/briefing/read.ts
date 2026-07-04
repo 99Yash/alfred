@@ -4,6 +4,7 @@ import {
   parseEmailAddress,
   scoreAttentionForItems,
   toRecord,
+  toStringArray,
 } from "@alfred/contracts";
 import type {
   AttentionBand,
@@ -63,9 +64,9 @@ export interface EmailListItem {
   /**
    * The email's receipt time rendered as wall-clock in the user's timezone
    * (e.g. "Fri, Jun 26, 3:10 AM") — the signal the agent phrases from (#284).
-   * Sourced from `authoredAt` (the Gmail internal/received date), falling back
-   * to `ingestedAt`. Null when the caller passes no timezone or neither
-   * timestamp exists — the agent should then not assert a receipt time.
+   * Sourced from Gmail `internalDate`, not the sender-controlled RFC `Date`
+   * header. Null when the caller passes no timezone or the Gmail receipt
+   * timestamp is unavailable — the agent should then not assert a receipt time.
    */
   receivedAtLocal: string | null;
   /**
@@ -144,6 +145,7 @@ interface EmailListRow {
   sourceThreadId: string | null;
   accountId: string | null;
   metadata: unknown;
+  gmailInternalDate: string | null;
   contentLength: number;
   triageCategory: string | null;
   triageRationale: string | null;
@@ -190,6 +192,9 @@ export async function listEmailsSinceWatermark(
         sourceThreadId: documents.sourceThreadId,
         accountId: documents.accountId,
         metadata: documents.metadata,
+        gmailInternalDate: sql<
+          string | null
+        >`coalesce(${documents.metadata}->>'internalDate', ${documents.raw}->>'internalDate')`,
         contentLength: sql<number>`length(${documents.content})`,
         triageCategory: emailTriage.category,
         triageRationale: emailTriage.rationale,
@@ -268,7 +273,7 @@ export async function listEmailsSinceWatermark(
     const loopKey = deriveLoopKey(r.subject, { sender: senders[i] ?? null });
     const surfacedByThread = r.sourceThreadId ? surfaced.threadIds.has(r.sourceThreadId) : false;
     const surfacedByLoop = loopKey ? surfaced.loopKeys.has(loopKey) : false;
-    const receiptInstant = r.authoredAt ?? r.ingestedAt;
+    const receiptInstant = gmailReceivedAt(r.gmailInternalDate);
     return {
       documentId: r.documentId,
       subject: r.subject,
@@ -300,14 +305,30 @@ function toTriageCategory(category: string | null): TriageCategory | null {
 /**
  * Gmail read-state from a document's stored `labelIds` (#284). The ingestor
  * persists `metadata.labelIds` on every Gmail row; a message carries the
- * `UNREAD` label until it is opened. An absent or empty list means no label
+ * `UNREAD` label until it is opened. An absent/non-array value means no label
  * signal was captured (older rows, non-Gmail) → `null` (unknown), so the agent
- * neither asserts seen nor unseen. Returns `true` when `UNREAD` is present,
- * `false` once it's gone.
+ * neither asserts seen nor unseen. A present empty array is a captured "not
+ * unread" state, matching the inbox reader.
  */
 function unreadFromLabels(labelIds: unknown): boolean | null {
-  if (!Array.isArray(labelIds) || labelIds.length === 0) return null;
-  return labelIds.includes("UNREAD");
+  if (!Array.isArray(labelIds)) return null;
+  return toStringArray(labelIds).includes("UNREAD");
+}
+
+/**
+ * Real Gmail receipt time, not the RFC `Date` header. Gmail's `internalDate`
+ * is the inbox-ordering timestamp and, for normal SMTP mail, the instant Google
+ * accepted the message. The query reads metadata going forward and falls back
+ * to `raw.internalDate` so already-ingested rows get the same semantics. If
+ * neither exists, return null rather than pretending `authoredAt` or
+ * `ingestedAt` is a receipt timestamp.
+ */
+function gmailReceivedAt(internalDate: string | null): Date | null {
+  if (!internalDate) return null;
+  const epochMs = Number(internalDate);
+  if (!Number.isFinite(epochMs)) return null;
+  const date = new Date(epochMs);
+  return Number.isNaN(date.getTime()) ? null : date;
 }
 
 /**

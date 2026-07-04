@@ -39,11 +39,14 @@
 	# Security headers, applied to every response (#295).
 	#
 	# The CSP is scoped to what alfred.beauty actually loads at runtime — derived
-	# from a live capture of the authed app, not guessed. Only script-src and the
-	# connect-src exfil channel are locked to explicit origins; style/img/font are
-	# widened to https: so rendered artifacts and email HTML (sandboxed srcdoc
-	# iframes inherit this CSP) keep their external styling/images. Sandboxed
-	# iframes carry no allow-scripts, so no inline-script allowance is needed there.
+	# from a live capture of the authed app, not guessed. Deployment-varying
+	# origins use Caddy env placeholders with production defaults so preview /
+	# staging can follow VITE_API_URL, VITE_POSTHOG_HOST, and VITE_SENTRY_DSN
+	# without editing source. Only script-src and the connect-src exfil channel
+	# are locked to explicit origins; style/img/font are widened to https: so
+	# rendered artifacts and email HTML (sandboxed srcdoc iframes inherit this
+	# CSP) keep their external styling/images. Sandboxed iframes carry no
+	# allow-scripts, so no inline-script allowance is needed there.
 	#
 	# script-src pins the two first-party inline bootstraps in apps/web/index.html
 	# by SHA-256 (anti-FOUC theme stamp + vite:preloadError chunk recovery) instead
@@ -68,7 +71,7 @@
 		Permissions-Policy "camera=(), microphone=(), geolocation=(self), browsing-topics=()"
 		# Railway terminates TLS at the edge, so HSTS is always safe here.
 		Strict-Transport-Security "max-age=63072000; includeSubDomains; preload"
-		Content-Security-Policy "default-src 'self'; base-uri 'self'; object-src 'none'; frame-ancestors 'none'; form-action 'self'; upgrade-insecure-requests; script-src 'self' 'sha256-i082Sz2M8uEvihxRvSiOEljQmUYkyY0jvJpe3LAQZnw=' 'sha256-wDPEyhz9ait0i5PrDghV0h4JogRyc6sbtMSmknQNv5o=' https://us-assets.i.posthog.com; style-src 'self' 'unsafe-inline' https:; img-src 'self' data: blob: https:; font-src 'self' data: https:; media-src 'self' blob:; worker-src 'self' blob:; frame-src 'self' blob: data:; connect-src 'self' https://api.alfred.beauty https://us.i.posthog.com https://us-assets.i.posthog.com https://*.ingest.de.sentry.io https://api.bigdatacloud.net https://api.open-meteo.com https://get.geojs.io https://*.r2.cloudflarestorage.com"
+		Content-Security-Policy "default-src 'self'; base-uri 'self'; object-src 'none'; frame-ancestors 'none'; form-action 'self'; upgrade-insecure-requests; script-src 'self' 'sha256-i082Sz2M8uEvihxRvSiOEljQmUYkyY0jvJpe3LAQZnw=' 'sha256-wDPEyhz9ait0i5PrDghV0h4JogRyc6sbtMSmknQNv5o=' {$WEB_CSP_POSTHOG_ASSET_ORIGIN:https://us-assets.i.posthog.com}; style-src 'self' 'unsafe-inline' https:; img-src 'self' data: blob: https:; font-src 'self' data: https:; media-src 'self' blob:; worker-src 'self' blob:; frame-src 'self' blob: data:; connect-src 'self' {$WEB_CSP_API_ORIGIN:https://api.alfred.beauty} {$WEB_CSP_POSTHOG_CONNECT_SRC:https://us.i.posthog.com https://us-assets.i.posthog.com} {$WEB_CSP_SENTRY_CONNECT_SRC:https://*.ingest.de.sentry.io} https://api.bigdatacloud.net https://api.open-meteo.com https://get.geojs.io https://*.r2.cloudflarestorage.com"
 		# Remove Server header
 		-Server
 	}

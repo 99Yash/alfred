@@ -312,6 +312,7 @@ async function persistMessage(
         cc: extracted.cc,
         labelIds,
         isSent,
+        internalDate: message.internalDate,
         historyId: message.historyId,
         sizeEstimate: message.sizeEstimate,
         snippet: message.snippet,

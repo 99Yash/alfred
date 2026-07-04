@@ -37,6 +37,8 @@ async function seedEmail(args: {
   subject: string;
   authoredAt: Date;
   ingestedAt: Date;
+  /** Gmail internalDate, i.e. actual inbox receipt time. Defaults to authoredAt. */
+  receivedAt?: Date;
   /** Omit to simulate a row ingested before labelIds were captured. */
   labelIds?: string[];
 }): Promise<string> {
@@ -55,9 +57,15 @@ async function seedEmail(args: {
       contentHash: `hash_${randomUUID()}`,
       authoredAt: args.authoredAt,
       ingestedAt: args.ingestedAt,
+      raw: {
+        id: `msg_raw_${randomUUID()}`,
+        threadId,
+        internalDate: String((args.receivedAt ?? args.authoredAt).getTime()),
+      },
       metadata: {
         from: "Sakshi <sakshi@example.com>",
         snippet: args.subject,
+        internalDate: String((args.receivedAt ?? args.authoredAt).getTime()),
         ...(args.labelIds ? { labelIds: args.labelIds } : {}),
       },
     });
@@ -91,26 +99,38 @@ describe("briefing feed receipt-time + seen-state enrichment (DB-backed)", { ski
   test("unread reflects the UNREAD label as a tri-state, and receivedAtLocal renders in tz", async () => {
     const userId = await seedUser();
     // The #284 evidence: 21:40 UTC = 03:10 the next morning in India.
+    const authored = new Date("2026-06-26T04:00:00.000Z");
     const overnight = new Date("2026-06-26T21:40:00.000Z");
 
     const unreadDoc = await seedEmail({
       userId,
       subject: "Fresh overnight ask",
-      authoredAt: overnight,
+      authoredAt: authored,
+      receivedAt: overnight,
       ingestedAt: new Date("2026-06-26T21:41:00.000Z"),
       labelIds: ["INBOX", "UNREAD"],
     });
     const readDoc = await seedEmail({
       userId,
       subject: "Already opened",
-      authoredAt: overnight,
+      authoredAt: authored,
+      receivedAt: overnight,
       ingestedAt: new Date("2026-06-26T21:42:00.000Z"),
       labelIds: ["INBOX"],
+    });
+    const readEmptyLabelsDoc = await seedEmail({
+      userId,
+      subject: "Already opened with no labels",
+      authoredAt: authored,
+      receivedAt: overnight,
+      ingestedAt: new Date("2026-06-26T21:42:30.000Z"),
+      labelIds: [],
     });
     const unknownDoc = await seedEmail({
       userId,
       subject: "No label signal",
-      authoredAt: overnight,
+      authoredAt: authored,
+      receivedAt: overnight,
       ingestedAt: new Date("2026-06-26T21:43:00.000Z"),
     });
 
@@ -124,9 +144,10 @@ describe("briefing feed receipt-time + seen-state enrichment (DB-backed)", { ski
 
     assert.equal(byId.get(unreadDoc)?.unread, true);
     assert.equal(byId.get(readDoc)?.unread, false);
+    assert.equal(byId.get(readEmptyLabelsDoc)?.unread, false);
     assert.equal(byId.get(unknownDoc)?.unread, null);
 
-    // Every item renders its receipt time in the user's local wall-clock.
+    // Every item renders Gmail internalDate (receipt time), not the RFC Date header.
     const local = byId.get(unreadDoc)?.receivedAtLocal;
     assert.ok(local?.includes("3:10 AM"), `expected 3:10 AM local, got: ${local}`);
   });
@@ -137,6 +158,7 @@ describe("briefing feed receipt-time + seen-state enrichment (DB-backed)", { ski
       userId,
       subject: "No tz passed",
       authoredAt: new Date("2026-06-26T21:40:00.000Z"),
+      receivedAt: new Date("2026-06-26T21:40:00.000Z"),
       ingestedAt: new Date("2026-06-26T21:41:00.000Z"),
       labelIds: ["INBOX", "UNREAD"],
     });

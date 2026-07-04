@@ -3,10 +3,10 @@
 Alfred serves two browser-facing surfaces from separate Railway services, so the
 security-header policy lives in two repo-owned places:
 
-| Surface | Origin | Policy owner | Mechanism |
-| --- | --- | --- | --- |
-| API | `api.alfred.beauty` | `packages/api/src/middleware/security-headers.ts` | Elysia `onRequest` plugin, wired in `apps/server/src/index.ts` next to CORS |
-| Web (SPA) | `alfred.beauty` | root `Caddyfile` | Railpack serves the Vite build with Caddy and uses this file verbatim |
+| Surface   | Origin              | Policy owner                                      | Mechanism                                                                   |
+| --------- | ------------------- | ------------------------------------------------- | --------------------------------------------------------------------------- |
+| API       | `api.alfred.beauty` | `packages/api/src/middleware/security-headers.ts` | Elysia `onRequest` plugin, wired in `apps/server/src/index.ts` next to CORS |
+| Web (SPA) | `alfred.beauty`     | root `Caddyfile`                                  | Railpack serves the Vite build with Caddy and uses this file verbatim       |
 
 ## API (`api.alfred.beauty`)
 
@@ -35,7 +35,7 @@ from a **live capture of the authenticated app**, not guessed:
 
 - `script-src` — `'self'`, the two first-party inline bootstraps in
   `apps/web/index.html` pinned by SHA-256 (no `'unsafe-inline'`), and
-  `us-assets.i.posthog.com` (PostHog config/surveys/recorder).
+  the PostHog asset origin (defaults to `us-assets.i.posthog.com`).
 - `connect-src` — API, PostHog (`us.i` + `us-assets.i`), Sentry
   (`*.ingest.de.sentry.io`), weather/geocode (`open-meteo`, `bigdatacloud`,
   `get.geojs.io`), and R2 (`*.r2.cloudflarestorage.com`) for presigned uploads.
@@ -46,6 +46,18 @@ from a **live capture of the authenticated app**, not guessed:
   `form-action 'self'` — the high-value clickjacking/injection levers stay tight.
 - `Permissions-Policy: geolocation=(self)` — the weather hero reads
   `navigator.geolocation`; dropping to `()` silently forces IP fallback.
+
+Deployment-specific origins are Caddy env placeholders with production defaults:
+
+| Caddy env var                  | Production default                                         | Mirrors                             |
+| ------------------------------ | ---------------------------------------------------------- | ----------------------------------- |
+| `WEB_CSP_API_ORIGIN`           | `https://api.alfred.beauty`                                | `VITE_API_URL`                      |
+| `WEB_CSP_POSTHOG_ASSET_ORIGIN` | `https://us-assets.i.posthog.com`                          | PostHog web SDK asset origin        |
+| `WEB_CSP_POSTHOG_CONNECT_SRC`  | `https://us.i.posthog.com https://us-assets.i.posthog.com` | `VITE_POSTHOG_HOST` plus asset host |
+| `WEB_CSP_SENTRY_CONNECT_SRC`   | `https://*.ingest.de.sentry.io`                            | Host portion of `VITE_SENTRY_DSN`   |
+
+Set these per Railway environment when a preview/staging deploy points at a
+different API, PostHog region, or Sentry ingest region. Do not widen to `*`.
 
 ### Editing the inline bootstrap scripts
 
@@ -80,4 +92,3 @@ stream, an artifact preview, an email preview in the inbox, the weather hero
 (geolocation prompt), and PostHog/Sentry network calls. A violation there means
 a directive is too tight — widen the specific directive, don't fall back to
 `'unsafe-inline'`/`*`.
-```
