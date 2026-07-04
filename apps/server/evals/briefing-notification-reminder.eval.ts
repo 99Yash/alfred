@@ -82,6 +82,8 @@ function email(overrides: Partial<EmailListItem> & Pick<EmailListItem, "from" | 
     triageRationale: overrides.triageRationale ?? null,
     authoredAt: overrides.authoredAt ?? NOW,
     ingestedAt: overrides.ingestedAt ?? NOW,
+    receivedAtLocal: overrides.receivedAtLocal ?? null,
+    unread: overrides.unread ?? null,
     threadId: overrides.threadId ?? "thr_eval_1",
     previouslySurfaced: overrides.previouslySurfaced ?? true,
     attentionBand: overrides.attentionBand ?? "normal",
