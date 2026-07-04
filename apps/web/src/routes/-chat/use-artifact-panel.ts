@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 
 import { useThreadArtifacts } from "~/lib/replicache/use-artifacts";
+import { getLocalStorageItem, setLocalStorageItem } from "~/lib/storage/storage";
 
 /**
  * Local UI state for the chat's artifact sidebar (ADR-0075 Phase 3). The
@@ -46,11 +47,7 @@ function clampWidth(width: number): number {
 }
 
 function readStoredWidth(): number {
-  if (typeof window === "undefined") return ARTIFACT_PANEL_DEFAULT_WIDTH;
-  const raw = window.localStorage.getItem(WIDTH_KEY);
-  if (raw === null) return ARTIFACT_PANEL_DEFAULT_WIDTH;
-  const parsed = Number.parseInt(raw, 10);
-  return Number.isNaN(parsed) ? ARTIFACT_PANEL_DEFAULT_WIDTH : clampWidth(parsed);
+  return clampWidth(getLocalStorageItem(WIDTH_KEY, ARTIFACT_PANEL_DEFAULT_WIDTH));
 }
 
 export function useArtifactPanel(
@@ -101,9 +98,7 @@ export function useArtifactPanel(
   const setWidth = useCallback((next: number) => {
     const clamped = clampWidth(next);
     setWidthState(clamped);
-    if (typeof window !== "undefined") {
-      window.localStorage.setItem(WIDTH_KEY, String(clamped));
-    }
+    setLocalStorageItem(WIDTH_KEY, clamped);
   }, []);
 
   return {
