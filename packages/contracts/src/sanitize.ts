@@ -1,3 +1,5 @@
+import { isPlainRecord } from "./guards.js";
+
 /**
  * Persistence poison-resistance (ADR-0070).
  *
@@ -85,20 +87,16 @@ export function sanitizeToolResult(value: unknown): SanitizeResult {
     });
     return { value: changed ? out : value, removed, collisions };
   }
-  if (value !== null && typeof value === "object") {
+  if (isPlainRecord(value)) {
     // Skip exotic objects we shouldn't (and can't safely) rebuild — Date,
     // Map/Set, class instances, etc. jsonb persistence only ever sees plain
     // objects/arrays; anything else is serialized by the driver, and rewriting
     // it here would silently flatten it. Tool results are POJO/JSON shaped.
-    const proto = Object.getPrototypeOf(value);
-    if (proto !== Object.prototype && proto !== null) {
-      return { value, removed: 0, collisions: 0 };
-    }
     let removed = 0;
     let collisions = 0;
     let changed = false;
     const out: Record<string, unknown> = {};
-    for (const [key, v] of Object.entries(value as Record<string, unknown>)) {
+    for (const [key, v] of Object.entries(value)) {
       const keyResult = stripString(key);
       removed += keyResult.removed;
       const valResult = sanitizeToolResult(v);

@@ -1,4 +1,4 @@
-import { isRecord } from "./guards.js";
+import { isNonEmptyString, isRecord } from "./guards.js";
 
 export const API_ERROR_CODES = [
   "BAD_REQUEST",
@@ -24,8 +24,8 @@ export interface ApiErrorResponse {
 }
 
 export function isApiErrorResponse(value: unknown): value is ApiErrorResponse {
-  if (!value || typeof value !== "object") return false;
-  const record = value as Record<string, unknown>;
+  if (!isRecord(value)) return false;
+  const record = value;
   return (
     typeof record.error === "string" &&
     isApiErrorCode(record.code) &&
@@ -35,9 +35,10 @@ export function isApiErrorResponse(value: unknown): value is ApiErrorResponse {
 
 export function apiErrorMessage(value: unknown, fallback: string): string {
   if (isApiErrorResponse(value)) return value.error;
-  if (value && typeof value === "object" && "message" in value) {
-    const message = (value as { message: unknown }).message;
-    if (typeof message === "string" && message.length > 0) return message;
+  if (value instanceof Error && value.message.length > 0) return value.message;
+  if (typeof value === "object" && value !== null) {
+    const message = Reflect.get(value, "message");
+    if (isNonEmptyString(message)) return message;
   }
   return fallback;
 }

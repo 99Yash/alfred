@@ -14,6 +14,7 @@ import {
   compactionThresholdTokens,
   parseIntegrationMentions,
   isIntegrationSlug,
+  isRecord,
   toJsonValue,
   toRecord,
   type AgentTranscriptMessage,
@@ -579,11 +580,10 @@ function isSuccessfulLoadIntegrationResult(
   value: unknown,
 ): value is { ok: true; slug: IntegrationSlug } {
   return (
-    typeof value === "object" &&
-    value !== null &&
-    (value as { ok?: unknown }).ok === true &&
-    typeof (value as { slug?: unknown }).slug === "string" &&
-    isIntegrationSlug((value as { slug: string }).slug)
+    isRecord(value) &&
+    value.ok === true &&
+    typeof value.slug === "string" &&
+    isIntegrationSlug(value.slug)
   );
 }
 

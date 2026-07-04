@@ -1,4 +1,4 @@
-import { httpErrorFromResponse } from "@alfred/contracts";
+import { getStringPath, httpErrorFromResponse } from "@alfred/contracts";
 import { serverEnv } from "@alfred/env/server";
 import { createHmac, createPrivateKey, timingSafeEqual, type KeyObject } from "node:crypto";
 import { SignJWT } from "jose";
@@ -188,9 +188,8 @@ export async function exchangeUserCode(code: string): Promise<ExchangeUserCodeRe
   const tokenJson = await tokenRes.json();
   const parsed = userTokenResponseSchema.safeParse(tokenJson);
   if (!parsed.success) {
-    const err = (tokenJson as { error?: string; error_description?: string }) ?? {};
     throw new Error(
-      `[github.app] user code exchange returned non-token payload: ${err.error ?? ""} ${err.error_description ?? ""}`.trim(),
+      `[github.app] user code exchange returned non-token payload: ${getStringPath(tokenJson, "error") ?? ""} ${getStringPath(tokenJson, "error_description") ?? ""}`.trim(),
     );
   }
 

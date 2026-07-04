@@ -1,3 +1,4 @@
+import { isRecord } from "@alfred/contracts";
 import { useQuery } from "@tanstack/react-query";
 import { client } from "~/lib/eden";
 
@@ -11,8 +12,8 @@ export interface RiskTierCounts {
 type TierMap = Readonly<Record<string, RiskTierCounts>>;
 
 function isRiskTierCounts(value: unknown): value is RiskTierCounts {
-  if (!value || typeof value !== "object") return false;
-  const record = value as Record<string, unknown>;
+  if (!isRecord(value)) return false;
+  const record = value;
   return (
     typeof record.no_risk === "number" &&
     typeof record.low === "number" &&
@@ -22,7 +23,7 @@ function isRiskTierCounts(value: unknown): value is RiskTierCounts {
 }
 
 function parseTierMap(value: unknown): TierMap {
-  if (!value || typeof value !== "object") return {};
+  if (!isRecord(value)) return {};
   const out: Record<string, RiskTierCounts> = {};
   for (const [slug, counts] of Object.entries(value)) {
     if (isRiskTierCounts(counts)) out[slug] = counts;

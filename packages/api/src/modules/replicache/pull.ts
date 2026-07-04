@@ -1,3 +1,4 @@
+import { isRecord } from "@alfred/contracts";
 import { db } from "@alfred/db";
 import { replicacheClient, replicacheClientGroup } from "@alfred/db/schemas";
 import { IDB_KEY, type IDBKeys } from "@alfred/sync";
@@ -36,8 +37,8 @@ export interface PullResponse {
  * malformed cookie into a DB range failure instead of a cold-sync fallback.
  */
 function narrowPullCookie(raw: unknown): ReplicacheModel.PullCookie | null {
-  if (raw == null || typeof raw !== "object") return null;
-  const obj = raw as { order?: unknown; clientGroupID?: unknown };
+  if (!isRecord(raw)) return null;
+  const obj = raw;
   if (
     typeof obj.order !== "number" ||
     !Number.isSafeInteger(obj.order) ||

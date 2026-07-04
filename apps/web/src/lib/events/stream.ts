@@ -4,6 +4,7 @@ import {
   type EventFrame,
   type EventKind,
 } from "@alfred/schemas/events";
+import { getStringPath, isRecord, safeJsonParse } from "@alfred/contracts";
 
 const API_URL =
   (import.meta as { env?: { VITE_API_URL?: string } }).env?.VITE_API_URL ?? "http://localhost:3001";
@@ -40,17 +41,18 @@ function eventStreamUrl(): URL {
 }
 
 function parseFrame(kind: EventKind, msg: MessageEvent): EventStreamFrame | null {
-  try {
-    const parsed = JSON.parse(msg.data) as { payload?: unknown; createdAt?: string };
-    const payloadResult = eventPayloadSchemas[kind].safeParse(parsed.payload);
-    if (!payloadResult.success) return null;
-    const id = Number(msg.lastEventId);
-    if (!Number.isFinite(id) || id <= 0) return null;
-    const createdAt = typeof parsed.createdAt === "string" ? parsed.createdAt : "";
-    return { id, kind, payload: payloadResult.data, createdAt };
-  } catch {
-    return null;
-  }
+  const parsed = safeJsonParse(msg.data);
+  if (!isRecord(parsed)) return null;
+  const payloadResult = eventPayloadSchemas[kind].safeParse(parsed.payload);
+  if (!payloadResult.success) return null;
+  const id = Number(msg.lastEventId);
+  if (!Number.isFinite(id) || id <= 0) return null;
+  return {
+    id,
+    kind,
+    payload: payloadResult.data,
+    createdAt: getStringPath(parsed, "createdAt") ?? "",
+  };
 }
 
 function createEventSource(

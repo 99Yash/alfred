@@ -40,6 +40,7 @@ import {
   INTEGRATION_ACTIONS,
   integrationFromToolName,
   isIntegrationSlug,
+  isRecord,
   isToolName,
   sanitizeErrorMessage,
   sanitizeToolResult,
@@ -1185,8 +1186,9 @@ function synthesizeRejection(args: SynthesizeRejectionArgs): RejectedToolResult 
 }
 
 function extractStoredError(stored: unknown): { message: string } {
-  if (stored && typeof stored === "object" && "message" in stored) {
-    const message = (stored as { message: unknown }).message;
+  if (stored instanceof Error) return { message: stored.message };
+  if (isRecord(stored)) {
+    const message = stored.message;
     return { message: typeof message === "string" ? message : JSON.stringify(message) };
   }
   return { message: stored ? JSON.stringify(stored) : "unknown failure" };

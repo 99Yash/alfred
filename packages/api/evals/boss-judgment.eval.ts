@@ -10,6 +10,7 @@ import {
   fetchUrlInput,
   gmailReadMessageInput,
   gmailSearchInput,
+  getStringPath,
   readUserContextInput,
   webSearchInput,
 } from "@alfred/contracts";
@@ -115,11 +116,7 @@ function collectOutput(result: GenerateTextView): TaskOutput {
 }
 
 function callQuery(input: unknown): string | null {
-  if (input && typeof input === "object" && "query" in input) {
-    const q = (input as { query: unknown }).query;
-    return typeof q === "string" ? q.toLowerCase().trim() : null;
-  }
-  return null;
+  return getStringPath(input, "query")?.toLowerCase().trim() ?? null;
 }
 
 /**

@@ -1,3 +1,5 @@
+import { isPlainRecord } from "./guards.js";
+
 /**
  * Tool-result payload bounding — a runaway-payload GUARDRAIL (not the accrual
  * optimizer; see below).
@@ -89,15 +91,11 @@ export function boundToolResult(
     });
     return { value: changed ? out : value, clipped };
   }
-  if (value !== null && typeof value === "object") {
-    const proto = Object.getPrototypeOf(value);
-    if (proto !== Object.prototype && proto !== null) {
-      return { value, clipped: 0 };
-    }
+  if (isPlainRecord(value)) {
     let clipped = 0;
     let changed = false;
     const out: Record<string, unknown> = {};
-    for (const [key, v] of Object.entries(value as Record<string, unknown>)) {
+    for (const [key, v] of Object.entries(value)) {
       const r = boundToolResult(v, maxStringChars);
       clipped += r.clipped;
       if (r.value !== v) changed = true;

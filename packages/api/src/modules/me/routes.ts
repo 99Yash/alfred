@@ -1,5 +1,6 @@
 import {
   TRIAGE_RAIL_SUPPRESSED_CATEGORIES,
+  getPath,
   toRecord,
   toStringArray,
   type BriefingSlot,
@@ -894,12 +895,8 @@ export const meRoutes = new Elysia({ prefix: "/api/me", normalize: "typebox" })
             .orderBy(desc(briefings.createdAt))
             .limit(1);
           const row = rows[0];
-          const headline =
-            row?.fullBriefing &&
-            typeof row.fullBriefing === "object" &&
-            "headline" in row.fullBriefing
-              ? String(row.fullBriefing.headline)
-              : null;
+          const rawHeadline = getPath(row?.fullBriefing, "headline");
+          const headline = rawHeadline === undefined ? null : String(rawHeadline);
           return {
             briefing: row
               ? {

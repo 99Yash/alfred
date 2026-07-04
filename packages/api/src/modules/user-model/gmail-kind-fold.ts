@@ -1,7 +1,9 @@
 import { createHash } from "node:crypto";
 import {
   USER_MODEL_PROJECTION_NAME,
+  getStringPath,
   identityRefSchema,
+  isRecord,
   type EntityKindClassification,
   type IdentityRef,
   type ProjectionCursorValue,
@@ -230,10 +232,8 @@ function ensureAccumulator(
 
 function payloadSignalsFromObservation(observation: Observation): GmailPayloadSignals {
   const payload = observation.payload;
-  if (!("headers" in payload) || typeof payload.headers !== "object" || payload.headers === null) {
-    return {};
-  }
-  const headers = payload.headers as Record<string, unknown>;
+  const headers = isRecord(payload.headers) ? payload.headers : null;
+  if (!headers) return {};
   return {
     listId: stringOrNull(headers.listId),
     listUnsubscribe: stringOrNull(headers.listUnsubscribe),
@@ -291,12 +291,8 @@ interface GmailAppendSnapshot {
 function gmailAppendSnapshotFromCursor(
   watermark: ProjectionCursorValue,
 ): GmailAppendSnapshot | null {
-  const raw = watermark.sourceCursor;
-  if (!raw || typeof raw !== "object" || Array.isArray(raw)) return null;
-  const candidate = "appendSnapshot" in raw ? raw.appendSnapshot : null;
-  if (!candidate || typeof candidate !== "object" || Array.isArray(candidate)) return null;
-  const capturedAt = "capturedAt" in candidate ? candidate.capturedAt : null;
-  if (typeof capturedAt !== "string") return null;
+  const capturedAt = getStringPath(watermark.sourceCursor, "appendSnapshot", "capturedAt");
+  if (capturedAt === undefined) return null;
   const parsedCapturedAt = new Date(capturedAt);
   if (Number.isNaN(parsedCapturedAt.getTime())) {
     throw new Error(`[user-model.gmail-kind-fold] invalid Gmail append snapshot capturedAt`);

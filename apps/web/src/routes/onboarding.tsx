@@ -1,3 +1,4 @@
+import { getStringPath, toRecord } from "@alfred/contracts";
 import { createFileRoute } from "@tanstack/react-router";
 import { pageMeta } from "~/lib/page-meta";
 import { OnboardingRoute, type OnboardingStep } from "./-onboarding/onboarding-route";
@@ -10,14 +11,13 @@ export const Route = createFileRoute("/onboarding")({
   validateSearch: (
     search,
   ): { step: OnboardingStep; google_connected?: string; github_connected?: string } => {
-    const raw = Number((search as { step?: unknown }).step);
+    const params = toRecord(search);
+    const raw = Number(params.step);
     const step: OnboardingStep = raw === 2 ? 2 : raw === 3 ? 3 : 1;
-    const google = (search as { google_connected?: unknown }).google_connected;
-    const github = (search as { github_connected?: unknown }).github_connected;
     return {
       step,
-      google_connected: typeof google === "string" ? google : undefined,
-      github_connected: typeof github === "string" ? github : undefined,
+      google_connected: getStringPath(params, "google_connected"),
+      github_connected: getStringPath(params, "github_connected"),
     };
   },
   component: OnboardingRoute,

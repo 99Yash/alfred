@@ -23,6 +23,7 @@
 // wrapping, and `serverEnv()` would throw on ~19 unrelated vars a bare probe has no
 // business requiring. Do not "fix" this to route through the helpers.
 import { anthropic } from "@ai-sdk/anthropic";
+import { getPath, toRecord } from "@alfred/contracts";
 import { generateText, type ModelMessage } from "ai";
 import { decorateTranscript } from "../agent.js";
 
@@ -49,10 +50,7 @@ const systemBlock = {
 function cacheStats(meta: unknown): { read: number; created: number } {
   // Anthropic reports cache accounting under providerMetadata.anthropic.usage
   // (snake_case). `res.usage.cachedInputTokens` is the SDK-normalized read.
-  const usage =
-    ((meta as { anthropic?: { usage?: Record<string, unknown> } } | undefined)?.anthropic?.usage as
-      | Record<string, unknown>
-      | undefined) ?? {};
+  const usage = toRecord(getPath(meta, "anthropic", "usage"));
   return {
     read: Number(usage.cache_read_input_tokens ?? 0),
     created: Number(usage.cache_creation_input_tokens ?? 0),

@@ -1,8 +1,8 @@
 import {
   getBossModel,
+  identifyLanguageModel,
   meteredGenerateText,
   stepCountIs,
-  type LanguageModel,
   type ModelMessage,
 } from "@alfred/ai";
 import type { IanaTimezone } from "@alfred/contracts";
@@ -123,19 +123,9 @@ export async function runBriefingAgent(
       outputTokens: result.totalUsage.outputTokens,
       totalTokens: result.totalUsage.totalTokens,
     },
-    modelId: modelIdOf(model),
+    modelId: identifyLanguageModel(model).modelId,
     steps: result.steps.length,
   };
-}
-
-/**
- * Pull the SDK-provided model id off a `LanguageModel` for audit
- * logging. The interface exposes `modelId` as a string; falling back to
- * "unknown" keeps the column non-null without forcing the agent to know
- * which provider it's bound to.
- */
-function modelIdOf(model: LanguageModel): string {
-  return (model as { modelId?: string }).modelId ?? "unknown";
 }
 
 export type { DumpedBriefing } from "./tools";

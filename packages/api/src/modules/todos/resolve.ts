@@ -1,4 +1,4 @@
-import { todoSourcesSchema, type TodoSource } from "@alfred/contracts";
+import { getStringPath, todoSourcesSchema, type TodoSource } from "@alfred/contracts";
 import { db } from "@alfred/db";
 import { documents, todos } from "@alfred/db/schemas";
 import { and, eq, inArray, sql } from "drizzle-orm";
@@ -183,9 +183,8 @@ async function loadThreadMetadata(
 }
 
 function metadataSenderEmail(metadata: unknown): string | null {
-  if (!metadata || typeof metadata !== "object" || !("from" in metadata)) return null;
-  const from = (metadata as { from?: unknown }).from;
-  return typeof from === "string" ? normalizeSenderEmail(from) : null;
+  const from = getStringPath(metadata, "from");
+  return from === undefined ? null : normalizeSenderEmail(from);
 }
 
 function normalizeOptional(value: string | null | undefined): string | null {

@@ -22,13 +22,19 @@ export function SourcesRow({ items }: { items: SourceItem[] }) {
   return (
     <div className="flex flex-wrap items-center gap-1.5 pt-1">
       {items.map((item) => (
-        <SourcePill key={item.label} {...item} />
+        <SourcePill key={sourceItemKey(item)} item={item} />
       ))}
     </div>
   );
 }
 
-function SourcePill(props: SourceItem) {
+function sourceItemKey(item: SourceItem): string {
+  return item.integration
+    ? `integration:${item.integration}:${item.label}`
+    : `source:${item.tone}:${item.label}`;
+}
+
+function SourcePill({ item: props }: { item: SourceItem }) {
   const { label, count } = props;
   if (props.integration) {
     return (

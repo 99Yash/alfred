@@ -3,7 +3,7 @@ import { webhookEvents } from "@alfred/db/schemas";
 import { findUserByInstallationId, verifyWebhookSignature } from "@alfred/integrations/github";
 import { Elysia, t } from "elysia";
 import { objectStateStore } from "./object-state";
-import { toMessage } from "@alfred/contracts";
+import { getPath, getStringPath, isRecord, toMessage } from "@alfred/contracts";
 
 /**
  * GitHub App activity receiver (ADR-0052).
@@ -29,12 +29,6 @@ import { toMessage } from "@alfred/contracts";
 // Mirrors the App's subscribed `default_events`.
 const SUBSCRIBED_EVENTS = new Set(["pull_request", "push", "issues", "pull_request_review"]);
 
-interface GithubWebhookBody {
-  action?: string;
-  installation?: { id?: number };
-  repository?: { full_name?: string };
-}
-
 export const githubWebhookRoutes = new Elysia({ prefix: "/webhooks", normalize: "typebox" }).post(
   "/github",
   async ({ body, headers, set }) => {
@@ -54,15 +48,19 @@ export const githubWebhookRoutes = new Elysia({ prefix: "/webhooks", normalize: 
     if (!SUBSCRIBED_EVENTS.has(eventType)) return { ok: true, ignored: eventType };
     if (!deliveryId) return { ok: true, ignored: "no-delivery-id" };
 
-    let payload: GithubWebhookBody;
+    let payload: Record<string, unknown>;
     try {
-      payload = JSON.parse(raw) as GithubWebhookBody;
+      const parsed: unknown = JSON.parse(raw);
+      if (!isRecord(parsed)) return { ok: true, ignored: "bad-json" };
+      payload = parsed;
     } catch {
       return { ok: true, ignored: "bad-json" };
     }
 
-    const installationId =
-      payload.installation?.id != null ? String(payload.installation.id) : null;
+    const installationIdRaw = getPath(payload, "installation", "id");
+    const installationId = installationIdRaw != null ? String(installationIdRaw) : null;
+    const action = getStringPath(payload, "action") ?? null;
+    const repo = getStringPath(payload, "repository", "full_name") ?? null;
     const userId = installationId ? await findUserByInstallationId(installationId) : null;
     const deliveredAt = new Date();
 
@@ -72,11 +70,11 @@ export const githubWebhookRoutes = new Elysia({ prefix: "/webhooks", normalize: 
         provider: "github",
         providerEventId: deliveryId,
         eventType,
-        action: payload.action ?? null,
-        repo: payload.repository?.full_name ?? null,
+        action,
+        repo,
         installationId,
         userId,
-        payload: payload as Record<string, unknown>,
+        payload,
         deliveredAt,
       })
       .onConflictDoNothing({
@@ -95,7 +93,7 @@ export const githubWebhookRoutes = new Elysia({ prefix: "/webhooks", normalize: 
           userId,
           provider: "github",
           eventType,
-          action: payload.action ?? null,
+          action,
           payload,
           deliveredAt: inserted[0].deliveredAt,
         });
