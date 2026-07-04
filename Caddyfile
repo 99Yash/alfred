@@ -36,10 +36,39 @@
 
 	respond /health 200
 
-	# Security headers (every response)
+	# Security headers, applied to every response (#295).
+	#
+	# The CSP is scoped to what alfred.beauty actually loads at runtime — derived
+	# from a live capture of the authed app, not guessed. Only script-src and the
+	# connect-src exfil channel are locked to explicit origins; style/img/font are
+	# widened to https: so rendered artifacts and email HTML (sandboxed srcdoc
+	# iframes inherit this CSP) keep their external styling/images. Sandboxed
+	# iframes carry no allow-scripts, so no inline-script allowance is needed there.
+	#
+	# script-src pins the two first-party inline bootstraps in apps/web/index.html
+	# by SHA-256 (anti-FOUC theme stamp + vite:preloadError chunk recovery) instead
+	# of 'unsafe-inline'. If you EDIT either inline <script>, regenerate its hash or
+	# the script is silently blocked (theme flash / stale-chunk reload stops working):
+	#   python3 - <<'PY'
+	#   import re,hashlib,base64
+	#   html=open('apps/web/index.html').read()
+	#   for m in re.finditer(r'<script(?![^>]*\bsrc=)[^>]*>(.*?)</script>', html, re.S):
+	#       print('sha256-'+base64.b64encode(hashlib.sha256(m.group(1).encode()).digest()).decode())
+	#   PY
 	header {
 		# Prevent some browsers from MIME-sniffing a response away from the declared Content-Type
 		X-Content-Type-Options "nosniff"
+		# Clickjacking: no one may frame alfred.beauty (frame-ancestors is the modern
+		# form; X-Frame-Options covers browsers that predate it). The app's own
+		# previews are srcdoc iframes, which this does not affect.
+		X-Frame-Options "DENY"
+		Referrer-Policy "strict-origin-when-cross-origin"
+		# geolocation=(self): the weather hero reads navigator.geolocation on this
+		# origin — do NOT drop to () or it silently falls back to IP location.
+		Permissions-Policy "camera=(), microphone=(), geolocation=(self), browsing-topics=()"
+		# Railway terminates TLS at the edge, so HSTS is always safe here.
+		Strict-Transport-Security "max-age=63072000; includeSubDomains; preload"
+		Content-Security-Policy "default-src 'self'; base-uri 'self'; object-src 'none'; frame-ancestors 'none'; form-action 'self'; upgrade-insecure-requests; script-src 'self' 'sha256-i082Sz2M8uEvihxRvSiOEljQmUYkyY0jvJpe3LAQZnw=' 'sha256-wDPEyhz9ait0i5PrDghV0h4JogRyc6sbtMSmknQNv5o=' https://us-assets.i.posthog.com; style-src 'self' 'unsafe-inline' https:; img-src 'self' data: blob: https:; font-src 'self' data: https:; media-src 'self' blob:; worker-src 'self' blob:; frame-src 'self' blob: data:; connect-src 'self' https://api.alfred.beauty https://us.i.posthog.com https://us-assets.i.posthog.com https://*.ingest.de.sentry.io https://api.bigdatacloud.net https://api.open-meteo.com https://get.geojs.io https://*.r2.cloudflarestorage.com"
 		# Remove Server header
 		-Server
 	}
