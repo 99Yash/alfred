@@ -11,6 +11,13 @@
 - Use `safeJsonParse` for raw JSON strings. Use `isRecord`, `toRecord`, `getPath`, `getStringPath`, and Zod schemas before reading fields.
 - Do not create local `asRecord` helpers unless they wrap the shared contracts guard. Prefer importing the shared helper directly when possible.
 
+## Browser Storage
+
+- Do not call `window.localStorage` outside `apps/web/src/lib/storage/storage.ts`.
+- Static localStorage keys must be registered in `apps/web/src/lib/storage/storage-schemas.ts` and read/written via `getLocalStorageItem`, `setLocalStorageItem`, or `subscribeToStorage`.
+- Dynamic or per-entity localStorage keys may use `safeGet`, `safeSet`, and `safeRemove` directly; keep their parsing at the owning feature boundary.
+- There is no equivalent shared sessionStorage or IndexedDB registry yet. If repeated usage appears, add a small typed wrapper first instead of scattering direct browser API calls. Prefer existing Replicache/storage abstractions over ad hoc IndexedDB access.
+
 ## React
 
 - Do not sync props into state with `useEffect` just to reset derived UI. Key the state by the prop or derive during render so the UI does not show a stale intermediate frame.
