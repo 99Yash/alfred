@@ -44,7 +44,7 @@ import {
   signalRun,
   warmPool,
 } from "@alfred/api";
-import { toRecord } from "@alfred/contracts";
+import { getStringPath, toRecord } from "@alfred/contracts";
 import { db } from "@alfred/db";
 import {
   actionStagings,
@@ -331,10 +331,7 @@ async function main(): Promise<void> {
     `expected api_call_log count (${apiCallCount}) to equal boss-turn count (${bossTurnCount})`,
   );
 
-  const outputText =
-    typeof final.output === "object" && final.output !== null && "text" in final.output
-      ? (final.output as { text: unknown }).text
-      : null;
+  const outputText = getStringPath(final.output, "text") ?? null;
   assert(
     typeof outputText === "string" && outputText.trim().length > 0,
     `expected non-empty output.text, got ${JSON.stringify(final.output)}`,

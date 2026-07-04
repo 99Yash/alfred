@@ -1,4 +1,4 @@
-import { getCheapModel, meteredGenerateObject } from "@alfred/ai";
+import { getCheapModel, identifyLanguageModel, meteredGenerateObject } from "@alfred/ai";
 import {
   TODO_DECISION_OUTCOMES,
   clamp01,
@@ -979,7 +979,7 @@ export async function classifyEmail(
 ): Promise<{ classification: TriageClassification; model: string; audit: ClassifyAudit }> {
   const useInjected = Boolean(args.runPass);
   const model = useInjected ? null : getCheapModel();
-  const baseModelId = useInjected ? "injected" : resolveModelId(model);
+  const baseModelId = model ? identifyLanguageModel(model).modelId : "injected";
   const runPass: RunPass = args.runPass ?? defaultRunPass(model, args);
 
   const signalText = floorSignalText(args.document);
@@ -1129,14 +1129,6 @@ function conservativeUnderClassificationFallback(
 
 function errorMessage(err: unknown): string {
   return toMessage(err);
-}
-
-function resolveModelId(model: unknown): string {
-  if (typeof model === "object" && model && "modelId" in model) {
-    const id = (model as { modelId: unknown }).modelId;
-    return typeof id === "string" ? id : String(id);
-  }
-  return "unknown";
 }
 
 /** Default category for failure paths — keep it as `fyi` so we never drop a message untriaged. */

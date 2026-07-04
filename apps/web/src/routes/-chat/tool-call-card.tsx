@@ -1,3 +1,4 @@
+import { getStringPath } from "@alfred/contracts";
 import { Check, ChevronRight, Scissors, X } from "lucide-react";
 import { useId, useState } from "react";
 import { IntegrationIcon } from "~/lib/integrations/integration-icons";
@@ -14,11 +15,8 @@ function asString(value: unknown): string | undefined {
 function failureReason(resultPreview: string | undefined): string | undefined {
   const parsed = parseJsonRecord(resultPreview);
   if (!parsed) return resultPreview;
-  const error = parsed.error;
-  if (error && typeof error === "object") {
-    const message = asString((error as Record<string, unknown>).message);
-    if (message) return message;
-  }
+  const message = getStringPath(parsed, "error", "message");
+  if (message) return message;
   return asString(parsed.message) ?? asString(parsed.error) ?? resultPreview;
 }
 

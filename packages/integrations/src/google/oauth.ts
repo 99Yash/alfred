@@ -1,4 +1,4 @@
-import type { AccountPersona } from "@alfred/contracts";
+import { isRecord, type AccountPersona } from "@alfred/contracts";
 import { serverEnv } from "@alfred/env/server";
 import { createRemoteJWKSet, jwtVerify, type JWTPayload } from "jose";
 import { z } from "zod";
@@ -296,11 +296,7 @@ export async function refreshAccessToken(refreshToken: string): Promise<RefreshT
   });
   const json = await res.json().catch(() => null);
   if (!res.ok) {
-    if (
-      json &&
-      typeof json === "object" &&
-      (json as { error?: unknown }).error === "invalid_grant"
-    ) {
+    if (isRecord(json) && json.error === "invalid_grant") {
       throw new GoogleReauthRequiredError(JSON.stringify(json));
     }
     throw new Error(`[google.oauth] refresh failed: ${res.status} ${JSON.stringify(json)}`);

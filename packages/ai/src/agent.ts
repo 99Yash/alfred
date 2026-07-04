@@ -12,6 +12,7 @@ import {
   type ToolSet,
   type TypedToolCall,
 } from "ai";
+import { toRecord } from "@alfred/contracts";
 import { meteredGenerateText, meteredStreamText, type AttributedCall } from "./metering/wrappers";
 
 /**
@@ -321,7 +322,7 @@ function stripExecute(t: Tool): Tool {
 
 function withAnthropicCacheControl(t: Tool, ttl: "5m" | "1h"): Tool {
   const existing = t.providerOptions ?? {};
-  const existingAnthropic = (existing.anthropic ?? {}) as Record<string, unknown>;
+  const existingAnthropic = toRecord(existing.anthropic);
   return {
     ...t,
     providerOptions: {
@@ -411,7 +412,7 @@ function previousToolBurstBoundaryIndex(transcript: Transcript): number | null {
 
 function withMessageCacheControl(message: ModelMessage, ttl: "5m" | "1h"): ModelMessage {
   const existing = message.providerOptions ?? {};
-  const existingAnthropic = (existing.anthropic ?? {}) as Record<string, unknown>;
+  const existingAnthropic = toRecord(existing.anthropic);
   return {
     ...message,
     providerOptions: {

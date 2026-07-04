@@ -35,6 +35,7 @@ import {
 import { Dialog, DialogContent } from "~/components/ui/dialog";
 import { AppButton, AppInput, useAppTheme } from "~/components/ui/v2";
 import { authClient } from "~/lib/auth/auth-client";
+import { getLocalStorageItem, setLocalStorageItem } from "~/lib/storage/storage";
 import type { SessionUser } from "~/lib/user-display";
 import { cn } from "~/lib/utils";
 import type { PreviewThreadEntry, PreviewThreadGroup } from "./preview-fixtures";
@@ -1159,49 +1160,36 @@ function displayName(user: SessionUser | null | undefined): string {
 /* Persistence hooks                                                          */
 /* -------------------------------------------------------------------------- */
 
-function usePersistentBoolean(key: string, fallback: boolean) {
-  const [value, setValue] = useState<boolean>(() => {
-    if (typeof window === "undefined") return fallback;
-    const raw = window.localStorage.getItem(key);
-    return raw === null ? fallback : raw === "true";
-  });
+function usePersistentBoolean(key: typeof MINIMIZED_KEY, fallback: boolean) {
+  const [value, setValue] = useState<boolean>(() => getLocalStorageItem(key, fallback));
   useEffect(() => {
-    if (typeof window !== "undefined") window.localStorage.setItem(key, String(value));
+    setLocalStorageItem(key, value);
   }, [key, value]);
   return [value, setValue] as const;
 }
 
-function usePersistentNumber(key: string, fallback: number, min: number, max: number) {
+function usePersistentNumber(key: typeof WIDTH_KEY, fallback: number, min: number, max: number) {
   const clamp = (n: number) => Math.min(max, Math.max(min, n));
   const [value, setValue] = useState<number>(() => {
-    if (typeof window === "undefined") return fallback;
-    const raw = Number(window.localStorage.getItem(key));
+    const raw = getLocalStorageItem(key, fallback);
     return Number.isFinite(raw) && raw > 0 ? clamp(raw) : fallback;
   });
   useEffect(() => {
-    if (typeof window !== "undefined") window.localStorage.setItem(key, String(value));
+    setLocalStorageItem(key, value);
   }, [key, value]);
   return [value, setValue] as const;
 }
 
 function useCollapsedGroups() {
   const [collapsed, setCollapsed] = useState<Set<string>>(() => {
-    if (typeof window === "undefined") return new Set();
-    try {
-      const raw = window.localStorage.getItem(GROUPS_KEY);
-      return raw ? new Set<string>(JSON.parse(raw)) : new Set();
-    } catch {
-      return new Set();
-    }
+    return new Set(getLocalStorageItem(GROUPS_KEY));
   });
   const toggle = useCallback((label: string) => {
     setCollapsed((prev) => {
       const next = new Set(prev);
       if (next.has(label)) next.delete(label);
       else next.add(label);
-      if (typeof window !== "undefined") {
-        window.localStorage.setItem(GROUPS_KEY, JSON.stringify([...next]));
-      }
+      setLocalStorageItem(GROUPS_KEY, [...next]);
       return next;
     });
   }, []);

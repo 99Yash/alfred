@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 
 import { useThreadArtifacts } from "~/lib/replicache/use-artifacts";
+import { getLocalStorageItem, setLocalStorageItem } from "~/lib/storage/storage";
 
 /**
  * Local UI state for the chat's artifact sidebar (ADR-0075 Phase 3). The
@@ -35,36 +36,37 @@ export interface ArtifactPanelState {
   setWidth: (width: number) => void;
 }
 
+interface SelectionState {
+  threadId: string | undefined;
+  selectedId: string | null;
+}
+
 function clampWidth(width: number): number {
   if (!Number.isFinite(width)) return ARTIFACT_PANEL_DEFAULT_WIDTH;
   return Math.min(ARTIFACT_PANEL_MAX_WIDTH, Math.max(ARTIFACT_PANEL_MIN_WIDTH, Math.round(width)));
 }
 
 function readStoredWidth(): number {
-  if (typeof window === "undefined") return ARTIFACT_PANEL_DEFAULT_WIDTH;
-  const raw = window.localStorage.getItem(WIDTH_KEY);
-  if (raw === null) return ARTIFACT_PANEL_DEFAULT_WIDTH;
-  const parsed = Number.parseInt(raw, 10);
-  return Number.isNaN(parsed) ? ARTIFACT_PANEL_DEFAULT_WIDTH : clampWidth(parsed);
+  return clampWidth(getLocalStorageItem(WIDTH_KEY, ARTIFACT_PANEL_DEFAULT_WIDTH));
 }
 
 export function useArtifactPanel(
   threadId: string | undefined,
   activeRunId: string | undefined,
 ): ArtifactPanelState {
-  const [selectedId, setSelectedId] = useState<string | null>(null);
+  const [selection, setSelection] = useState<SelectionState>(() => ({
+    threadId,
+    selectedId: null,
+  }));
   const [width, setWidthState] = useState<number>(readStoredWidth);
-  // Artifact ids we've already auto-opened, so closing one doesn't make the
-  // next generation poke re-open it. Reset on thread switch.
-  const autoOpenedRef = useRef<Set<string>>(new Set());
+  // Artifact ids we've already auto-opened per thread, so closing one doesn't
+  // make the next generation poke re-open it.
+  const autoOpenedByThreadRef = useRef<Map<string | undefined, Set<string>>>(new Map());
 
-  // Switching threads closes the panel — a selected id from another thread's
-  // artifact would render nothing (the row scopes to its own thread) or, worse,
-  // leak across conversations. Keyed on threadId so it fires once per switch.
-  useEffect(() => {
-    setSelectedId(null);
-    autoOpenedRef.current = new Set();
-  }, [threadId]);
+  if (selection.threadId !== threadId) {
+    setSelection({ threadId, selectedId: null });
+  }
+  const selectedId = selection.threadId === threadId ? selection.selectedId : null;
 
   // Auto-open the sidebar when the boss authors an artifact in the live run
   // (ADR-0075 Phase 4). We own this here — rather than letting the shell push
@@ -79,20 +81,24 @@ export function useArtifactPanel(
     // `threadArtifacts` is newest-first, so this opens the most recent artifact
     // the live run has produced so far.
     const fresh = threadArtifacts.find((a) => a.runId === activeRunId);
-    if (!fresh || autoOpenedRef.current.has(fresh.id)) return;
-    autoOpenedRef.current.add(fresh.id);
-    setSelectedId(fresh.id);
-  }, [activeRunId, threadArtifacts]);
+    if (!fresh) return;
+    const autoOpened = autoOpenedByThreadRef.current.get(threadId) ?? new Set<string>();
+    if (autoOpened.has(fresh.id)) return;
+    autoOpened.add(fresh.id);
+    autoOpenedByThreadRef.current.set(threadId, autoOpened);
+    setSelection({ threadId, selectedId: fresh.id });
+  }, [activeRunId, threadArtifacts, threadId]);
 
-  const open = useCallback((artifactId: string) => setSelectedId(artifactId), []);
-  const close = useCallback(() => setSelectedId(null), []);
+  const open = useCallback(
+    (artifactId: string) => setSelection({ threadId, selectedId: artifactId }),
+    [threadId],
+  );
+  const close = useCallback(() => setSelection({ threadId, selectedId: null }), [threadId]);
 
   const setWidth = useCallback((next: number) => {
     const clamped = clampWidth(next);
     setWidthState(clamped);
-    if (typeof window !== "undefined") {
-      window.localStorage.setItem(WIDTH_KEY, String(clamped));
-    }
+    setLocalStorageItem(WIDTH_KEY, clamped);
   }, []);
 
   return {

@@ -1,6 +1,7 @@
 import { createHash } from "node:crypto";
 import {
   canonicalizeIdentityValue,
+  getPath,
   gmailEmailMessagePayloadSchema,
   identityRefSchema,
   isRecord,
@@ -168,15 +169,6 @@ function headerOrMetadata(
   name: string,
 ): string | null {
   return headers.get(name) ?? normalizeHeader(metadata[name]);
-}
-
-function getPath(value: unknown, ...keys: string[]): unknown {
-  let current = value;
-  for (const key of keys) {
-    if (!isRecord(current)) return undefined;
-    current = current[key];
-  }
-  return current;
 }
 
 function normalizeHeader(value: unknown): string | null {

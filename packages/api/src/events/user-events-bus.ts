@@ -14,7 +14,7 @@ import { EventEmitter } from "node:events";
 import type IORedis from "ioredis";
 import type { EventFrame } from "./types";
 import { isKnownEventKind } from "./types";
-import { toMessage } from "@alfred/contracts";
+import { isRecord, toMessage } from "@alfred/contracts";
 
 type FrameListener = (frame: EventFrame) => void;
 
@@ -33,8 +33,8 @@ let subscriber: IORedis | undefined;
 const userRefCounts = new Map<string, number>();
 
 function isFrame(value: unknown): value is EventFrame {
-  if (typeof value !== "object" || value === null) return false;
-  const v = value as Partial<EventFrame> & { kind?: unknown };
+  if (!isRecord(value)) return false;
+  const v = value;
   return (
     typeof v.id === "number" &&
     Number.isFinite(v.id) &&

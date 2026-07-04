@@ -472,8 +472,11 @@ function stringifyCanonical(value: unknown, seen: WeakSet<object>): string {
     return "null";
   }
 
-  if (typeof (value as { toJSON?: unknown }).toJSON === "function") {
-    return stringifyCanonical((value as { toJSON: () => unknown }).toJSON(), seen);
+  if (typeof value === "object" && value !== null) {
+    const toJSON = Reflect.get(value, "toJSON");
+    if (typeof toJSON === "function") {
+      return stringifyCanonical(toJSON.call(value), seen);
+    }
   }
 
   if (Array.isArray(value)) {
@@ -491,13 +494,13 @@ function stringifyCanonical(value: unknown, seen: WeakSet<object>): string {
   }
 
   if (valueType === "object") {
-    const objectValue = value as Record<string, unknown>;
+    const objectValue = value as object;
     if (seen.has(objectValue)) throw new TypeError("Cannot hash circular tool input");
     seen.add(objectValue);
     const entries = Object.keys(objectValue)
       .sort()
       .flatMap((key) => {
-        const item = objectValue[key];
+        const item = Reflect.get(objectValue, key);
         const itemType = typeof item;
         if (itemType === "undefined" || itemType === "function" || itemType === "symbol") {
           return [];
