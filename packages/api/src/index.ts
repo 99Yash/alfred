@@ -16,6 +16,7 @@ import { onboardingRoutes } from "./modules/onboarding/index.js";
 import { skillsRoutes } from "./modules/skills/index.js";
 
 export { closeConnections, warmPool } from "@alfred/db";
+export { securityHeaders, type SecurityHeadersOptions } from "./middleware/security-headers.js";
 export { closeRedis } from "./queue/connection.js";
 export { initEventBridge, closeEventBridge } from "./events/index.js";
 export {

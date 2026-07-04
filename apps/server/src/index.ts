@@ -7,7 +7,7 @@
 // across inlined modules, so the preload is the authoritative fix there; this
 // import is then a harmless cache hit on the same module instance.
 import "./instrument";
-import { app } from "@alfred/api";
+import { app, securityHeaders } from "@alfred/api";
 import { toMessage } from "@alfred/contracts";
 import { serverEnv } from "@alfred/env/server";
 import { cors } from "@elysiajs/cors";
@@ -50,6 +50,9 @@ const server = new Elysia({ adapter: node(), normalize: "typebox" })
       credentials: true,
     }),
   )
+  // Browser security headers on every API response (#295). HSTS only in prod,
+  // where the Railway edge serves HTTPS — never on the local http origin.
+  .use(securityHeaders({ hsts: serverEnv().NODE_ENV === "production" }))
   .use(app)
   .listen({ port: serverEnv().PORT, hostname: "0.0.0.0" }, () => {
     console.log(`Alfred server running on http://0.0.0.0:${serverEnv().PORT}`);
