@@ -16,7 +16,7 @@
 import { EventEmitter } from "node:events";
 import type IORedis from "ioredis";
 import { createRedisConnection, isQueueEnabled } from "../queue/connection";
-import { toMessage } from "@alfred/contracts";
+import { isRecord, toMessage } from "@alfred/contracts";
 
 export interface ReplicachePoke {
   userId: string;
@@ -27,9 +27,7 @@ export interface ReplicachePoke {
 type PokeListener = (payload: ReplicachePoke) => void;
 
 function isReplicachePoke(value: unknown): value is ReplicachePoke {
-  if (typeof value !== "object" || value === null) return false;
-  const v = value as { userId?: unknown; assetId?: unknown };
-  return typeof v.userId === "string" && typeof v.assetId === "string";
+  return isRecord(value) && typeof value.userId === "string" && typeof value.assetId === "string";
 }
 
 const eventFor = (userId: string) => `poke:${userId}`;

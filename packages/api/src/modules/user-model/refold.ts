@@ -1,6 +1,7 @@
 import {
   USER_MODEL_PROJECTION_NAME,
   canonicalizeIdentityValue,
+  getStringPath,
   identityRefSchema,
   type ProjectionCursorValue,
   type ProjectionSourceHighWatermark,
@@ -357,12 +358,8 @@ function sameGmailEventWatermark(a: ProjectionCursorValue, b: ProjectionCursorVa
 }
 
 function gmailAppendSnapshotCapturedAt(cursor: ProjectionCursorValue): Date | null {
-  const raw = cursor.sourceCursor;
-  if (!raw || typeof raw !== "object" || Array.isArray(raw)) return null;
-  const candidate = "appendSnapshot" in raw ? raw.appendSnapshot : null;
-  if (!candidate || typeof candidate !== "object" || Array.isArray(candidate)) return null;
-  const capturedAt = "capturedAt" in candidate ? candidate.capturedAt : null;
-  if (typeof capturedAt !== "string") return null;
+  const capturedAt = getStringPath(cursor.sourceCursor, "appendSnapshot", "capturedAt");
+  if (capturedAt === undefined) return null;
   const parsed = new Date(capturedAt);
   return Number.isNaN(parsed.getTime()) ? null : parsed;
 }

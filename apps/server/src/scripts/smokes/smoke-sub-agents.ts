@@ -19,6 +19,7 @@ import {
   registerBuiltinTools,
   warmPool,
 } from "@alfred/api";
+import { isRecord } from "@alfred/contracts";
 import { db } from "@alfred/db";
 import { actionStagings, agentRuns, user as userTable, workflows } from "@alfred/db/schemas";
 import { and, eq, sql } from "drizzle-orm";
@@ -63,7 +64,7 @@ async function createSmokeWorkflow(userId: string): Promise<void> {
 }
 
 function assertObject(value: unknown, label: string): asserts value is Record<string, unknown> {
-  if (typeof value !== "object" || value === null || Array.isArray(value)) {
+  if (!isRecord(value)) {
     throw new Error(`[smoke-sub-agents] ${label} is not an object`);
   }
 }

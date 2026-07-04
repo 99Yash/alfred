@@ -1,4 +1,4 @@
-import { getBossModel, meteredGenerateObject } from "@alfred/ai";
+import { getBossModel, identifyLanguageModel, meteredGenerateObject } from "@alfred/ai";
 import {
   briefingComposerSchema,
   fullBriefingSchema,
@@ -154,7 +154,7 @@ export async function composeBriefing(args: ComposeBriefingArgs): Promise<Compos
     return {
       breakingSummary: result.object.breakingSummary.trim(),
       fullBriefing,
-      modelId: modelIdFor(model),
+      modelId: identifyLanguageModel(model).modelId,
       composeFallback: false,
       inputTokens: result.usage.inputTokens,
       outputTokens: result.usage.outputTokens,
@@ -308,13 +308,6 @@ function countEmailItems(gather: BriefingGather): number {
     (sum, items) => sum + (items?.length ?? 0),
     0,
   );
-}
-
-function modelIdFor(model: unknown): string {
-  if (typeof model === "object" && model && "modelId" in model) {
-    return String((model as { modelId: unknown }).modelId);
-  }
-  return String(model);
 }
 
 function errorMessage(err: unknown): string {

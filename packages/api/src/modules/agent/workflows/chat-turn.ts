@@ -252,7 +252,7 @@ function pruneForPreview(
   if (Array.isArray(value)) {
     return value.slice(0, maxArray).map((v) => pruneForPreview(v, maxArray, maxString, maxKeys));
   }
-  if (value && typeof value === "object") {
+  if (isRecord(value)) {
     const out: Record<string, unknown> = {};
     for (const [k, v] of Object.entries(value).slice(0, maxKeys)) {
       out[k] = pruneForPreview(v, maxArray, maxString, maxKeys);
@@ -661,9 +661,14 @@ function applyLoadIntegrationEffect(
   result: DispatchResult,
 ): void {
   if (toolName !== "system.load_integration" || result.kind !== "executed") return;
-  const r = result.toolResult as { ok?: unknown; slug?: unknown };
-  if (r?.ok === true && typeof r.slug === "string" && isIntegrationSlug(r.slug)) {
-    state.activeIntegrations = [...new Set([...state.activeIntegrations, r.slug])];
+  const toolResult = result.toolResult;
+  if (
+    isRecord(toolResult) &&
+    toolResult.ok === true &&
+    typeof toolResult.slug === "string" &&
+    isIntegrationSlug(toolResult.slug)
+  ) {
+    state.activeIntegrations = [...new Set([...state.activeIntegrations, toolResult.slug])];
   }
 }
 

@@ -1,3 +1,5 @@
+import { isRecord } from "@alfred/contracts";
+
 /**
  * Trajectory extraction + paired diff for agent-run replay (the regression
  * primitive for multi-step runs).
@@ -65,10 +67,10 @@ const TOOL_SPAN_PREFIX = "tool:";
 /** Recursively sort object keys so two args that differ only in key order compare equal. */
 export function canonicalize(value: unknown): unknown {
   if (Array.isArray(value)) return value.map(canonicalize);
-  if (value && typeof value === "object") {
+  if (isRecord(value)) {
     const out: Record<string, unknown> = {};
-    for (const key of Object.keys(value as Record<string, unknown>).sort()) {
-      const v = (value as Record<string, unknown>)[key];
+    for (const key of Object.keys(value).sort()) {
+      const v = value[key];
       // Drop undefined explicitly so an absent key and an explicit `undefined`
       // canonicalize identically, rather than relying on JSON.stringify's quirk
       // of silently omitting them (a deep-equal compare would diverge).
@@ -97,17 +99,13 @@ function decidedCalls(
   for (const o of obs) {
     if (o.type !== "GENERATION") continue;
     const out = o.output;
-    if (!out || typeof out !== "object") continue;
-    const tc = (out as { toolCalls?: unknown }).toolCalls;
+    if (!isRecord(out)) continue;
+    const tc = out.toolCalls;
     if (!Array.isArray(tc)) continue;
     for (const c of tc) {
-      if (
-        c &&
-        typeof c === "object" &&
-        typeof (c as { toolName?: unknown }).toolName === "string"
-      ) {
-        const call = c as { toolName: string; toolCallId?: string; input?: unknown };
-        calls.push({ toolName: call.toolName, toolCallId: call.toolCallId, input: call.input });
+      if (isRecord(c) && typeof c.toolName === "string") {
+        const toolCallId = typeof c.toolCallId === "string" ? c.toolCallId : undefined;
+        calls.push({ toolName: c.toolName, toolCallId, input: c.input });
       }
     }
   }

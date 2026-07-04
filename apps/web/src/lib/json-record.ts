@@ -1,7 +1,9 @@
+import { isRecord } from "@alfred/contracts";
+
 export type JsonRecord = Record<string, unknown>;
 
 export function asRecord(value: unknown): JsonRecord | null {
-  return value && typeof value === "object" && !Array.isArray(value) ? (value as JsonRecord) : null;
+  return isRecord(value) ? value : null;
 }
 
 export function parseJsonRecord(value: string | undefined): JsonRecord | null {
