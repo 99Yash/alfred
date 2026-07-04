@@ -14,12 +14,20 @@
  */
 
 /**
- * True only for plain object values — not `null`, not an array. This is the
- * narrowing `typeof x === "object"` should have been: after it, indexing a
- * key yields `unknown` (which you then narrow), and arrays/null are excluded.
+ * True only for plain object records — not `null`, arrays, Date, Map, or class
+ * instances. This is the narrowing most `typeof x === "object"` checks meant:
+ * after it, indexing a key yields `unknown` (which you then narrow), and exotic
+ * objects are excluded instead of being silently treated as JSON.
  */
 export function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === "object" && value !== null && !Array.isArray(value);
+  if (typeof value !== "object" || value === null || Array.isArray(value)) return false;
+  const proto = Object.getPrototypeOf(value);
+  return proto === Object.prototype || proto === null;
+}
+
+/** Alias for call sites where the plain-object requirement is the point being documented. */
+export function isPlainRecord(value: unknown): value is Record<string, unknown> {
+  return isRecord(value);
 }
 
 /** True for a usable string — the common "present and non-empty" check. */
@@ -68,6 +76,16 @@ export function getPath(value: unknown, ...keys: string[]): unknown {
     current = current[key];
   }
   return current;
+}
+
+/**
+ * Typed leaf reader for the common "walk JSON, then accept only a string"
+ * pattern. Keep `getPath` for non-string leaves; use this when the caller would
+ * otherwise immediately write `typeof leaf === "string" ? leaf : undefined`.
+ */
+export function getStringPath(value: unknown, ...keys: string[]): string | undefined {
+  const leaf = getPath(value, ...keys);
+  return typeof leaf === "string" ? leaf : undefined;
 }
 
 /**

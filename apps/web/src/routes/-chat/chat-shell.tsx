@@ -1,6 +1,7 @@
 import {
   MAX_ATTACHMENT_BYTES_PER_MESSAGE,
   MAX_ATTACHMENTS_PER_MESSAGE,
+  isRecord,
   scoreAttentionForItems,
   type AttentionBand,
   type TriageCategory,
@@ -1287,7 +1288,7 @@ function readDraftJSON(draftKey: string): JSONContent | undefined {
   if (!raw) return undefined;
   try {
     const parsed = JSON.parse(raw) as JSONContent;
-    if (parsed && typeof parsed === "object" && "type" in parsed) return parsed;
+    if (isRecord(parsed) && "type" in parsed) return parsed as JSONContent;
   } catch {
     // Legacy plain-text draft — wrap as a single paragraph.
     return {

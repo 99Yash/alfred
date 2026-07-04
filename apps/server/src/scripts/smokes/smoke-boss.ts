@@ -41,6 +41,7 @@ import {
   signalRun,
   warmPool,
 } from "@alfred/api";
+import { getStringPath } from "@alfred/contracts";
 import { db } from "@alfred/db";
 import {
   actionStagings,
@@ -401,10 +402,7 @@ async function main(): Promise<void> {
       "expected no compactor_failed runs for this user",
     );
 
-    const outputText =
-      typeof final.output === "object" && final.output !== null && "text" in final.output
-        ? (final.output as { text: unknown }).text
-        : null;
+    const outputText = getStringPath(final.output, "text") ?? null;
     console.log(`[smoke-boss] output.text:\n${outputText}`);
 
     console.log("\n[smoke-boss] PASS");

@@ -82,17 +82,13 @@ const OBSERVATION_CHAIN_CONSTRAINTS = new Set([
   "observations_single_root_idx",
 ]);
 
-interface PgErrorLike {
-  code?: string;
-  constraint?: string;
-}
-
 export function isOrgAffiliationObservationAppendConflict(err: unknown): boolean {
-  if (typeof err !== "object" || err === null) return false;
-  const pg = err as PgErrorLike;
+  if (!isRecord(err)) return false;
+  const constraint = err.constraint;
   return (
-    pg.code === "23505" &&
-    Boolean(pg.constraint && OBSERVATION_CHAIN_CONSTRAINTS.has(pg.constraint))
+    err.code === "23505" &&
+    typeof constraint === "string" &&
+    OBSERVATION_CHAIN_CONSTRAINTS.has(constraint)
   );
 }
 

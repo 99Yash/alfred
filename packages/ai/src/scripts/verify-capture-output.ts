@@ -12,6 +12,7 @@
  *     src/scripts/verify-capture-output.ts
  */
 import { serverEnv } from "@alfred/env/server";
+import { isRecord } from "@alfred/contracts";
 import { jsonSchema, tool } from "ai";
 import { randomUUID } from "node:crypto";
 import { flushLangfuse } from "../metering/langfuse";
@@ -89,13 +90,13 @@ async function main() {
     console.log("❌ no tool-call generation observation appeared");
     process.exit(1);
   }
-  const out = gen.output as { toolCalls?: { toolName: string }[] } | string | null;
-  const calls = typeof out === "object" && out !== null ? out.toolCalls : undefined;
+  const out = gen.output;
+  const calls = isRecord(out) ? out.toolCalls : undefined;
   const ok = Array.isArray(calls) && calls.length > 0 && typeof calls[0]?.toolName === "string";
   console.log(`generation output: ${JSON.stringify(out)?.slice(0, 300)}`);
   console.log(
     ok
-      ? `\n✅ tool call captured in generation output (toolName=${calls![0]!.toolName})`
+      ? `\n✅ tool call captured in generation output (toolName=${calls[0]!.toolName})`
       : "\n❌ generation output did NOT carry the tool call (regression — was NULL before the fix)",
   );
   process.exit(ok ? 0 : 1);

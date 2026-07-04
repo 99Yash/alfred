@@ -196,8 +196,8 @@ const calendarListEventsObject = z
 // non-window value (e.g. `range:"this month"`) is left to fail strict
 // validation, surfacing the enriched "valid parameters: …" dispatcher message.
 function promoteWindowSynonym(value: unknown): unknown {
-  if (!value || typeof value !== "object" || Array.isArray(value)) return value;
-  const obj = { ...(value as Record<string, unknown>) };
+  if (!isRecord(value)) return value;
+  const obj = { ...value };
   if (obj.window !== undefined) return obj;
   const windowValues = CALENDAR_WINDOW_VALUES as readonly string[];
   for (const [key, val] of Object.entries(obj)) {

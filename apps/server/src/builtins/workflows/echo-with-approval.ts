@@ -1,4 +1,5 @@
 import type { Workflow } from "@alfred/api";
+import { getStringPath } from "@alfred/contracts";
 import { z } from "zod";
 
 /**
@@ -28,13 +29,7 @@ export const echoWithApprovalWorkflow: Workflow<State> = {
   initialStep: "say-hello",
   stateSchema,
   initialState(input) {
-    const greeting =
-      typeof input.input === "object" &&
-      input.input !== null &&
-      "greeting" in input.input &&
-      typeof (input.input as { greeting: unknown }).greeting === "string"
-        ? (input.input as { greeting: string }).greeting
-        : "hello";
+    const greeting = getStringPath(input.input, "greeting") ?? "hello";
     return { greeting, approval: "pending" };
   },
   steps: {

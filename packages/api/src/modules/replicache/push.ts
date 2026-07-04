@@ -9,7 +9,7 @@ import { enqueueChatStorageCleanup } from "../integrations/queue";
 import { MutatorForbiddenError } from "./authz";
 import type { ReplicacheModel } from "./model";
 import { serverMutators } from "./server-mutators";
-import { toMessage } from "@alfred/contracts";
+import { getStringPath, isRecord, toMessage } from "@alfred/contracts";
 
 export type PushRequestBody = ReplicacheModel.Push;
 export type PushResponse =
@@ -52,7 +52,7 @@ type DbTx = any;
 type ServerMutatorResult = void | { applied?: boolean };
 
 function didMutatorApply(result: ServerMutatorResult | undefined): boolean {
-  if (typeof result !== "object" || result === null) return true;
+  if (!isRecord(result)) return true;
   return result.applied ?? true;
 }
 
@@ -188,13 +188,13 @@ export async function handlePush(
         if (POLICY_BUST_MUTATORS.has(mutatorName)) needsPolicyBust = true;
         if (RELABEL_MUTATORS.has(mutatorName)) {
           // `parsed.data` is the override schema's output — carries `threadId`.
-          const threadId = (parsed.data as { threadId?: unknown }).threadId;
-          if (typeof threadId === "string") relabelThreads.push(threadId);
+          const threadId = getStringPath(parsed.data, "threadId");
+          if (threadId !== undefined) relabelThreads.push(threadId);
         }
         if (STORAGE_CLEANUP_MUTATORS.has(mutatorName)) {
           // `chatThreadDelete` args carry the deleted thread's `id`.
-          const id = (parsed.data as { id?: unknown }).id;
-          if (typeof id === "string") cleanupThreads.push(id);
+          const id = getStringPath(parsed.data, "id");
+          if (id !== undefined) cleanupThreads.push(id);
         }
       }
     }

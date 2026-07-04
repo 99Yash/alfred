@@ -55,6 +55,14 @@ export const LOCAL_STORAGE_SCHEMAS = {
   "alfred.chat.notifyOnboarded": z
     .preprocess((value) => (value === 1 ? true : value === 0 ? false : value), z.boolean())
     .default(false),
+  /** Inline chat artifact panel width in px (see `routes/-chat/use-artifact-panel`). */
+  "alfred:artifact-panel-width": z.number().default(460),
+  /** Expanded app sidebar width in px (see `components/app-sidebar`). */
+  "alfred:sidebar-width": z.number().default(264),
+  /** Whether the inline app sidebar is collapsed to the icon rail. */
+  "alfred:sidebar-minimized": z.boolean().default(false),
+  /** Collapsed thread group labels in the app sidebar. */
+  "alfred:sidebar-collapsed-groups": z.array(z.string()).default([]),
   /**
    * Last weather snapshot, cached across reloads so the rail paints without a
    * fetch (see `hooks/use-weather`). `fetchedAt` is epoch-ms; the default's `0`
