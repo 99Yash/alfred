@@ -21,6 +21,7 @@ import {
   findSenderSuppression,
   listActiveSuppressionInstructions,
 } from "../memory/standing-instructions";
+import { formatInstantInTimezone } from "../timezone";
 
 /**
  * Read-side helpers for the LLM-composed daily briefing.
@@ -59,6 +60,22 @@ export interface EmailListItem {
   triageRationale: string | null;
   authoredAt: Date | null;
   ingestedAt: Date;
+  /**
+   * The email's receipt time rendered as wall-clock in the user's timezone
+   * (e.g. "Fri, Jun 26, 3:10 AM") — the signal the agent phrases from (#284).
+   * Sourced from `authoredAt` (the Gmail internal/received date), falling back
+   * to `ingestedAt`. Null when the caller passes no timezone or neither
+   * timestamp exists — the agent should then not assert a receipt time.
+   */
+  receivedAtLocal: string | null;
+  /**
+   * Gmail read-state derived from the message's `UNREAD` label (#284):
+   * `true` = still unread, `false` = the user has opened it (label removed),
+   * `null` = no label signal captured, so read-state is unknown. The agent
+   * must NOT assume unseen: soften a `false` item from a fresh ask toward
+   * "for reference," and never assert the user has/hasn't seen a `null` one.
+   */
+  unread: boolean | null;
   threadId: string | null;
   /**
    * True when this email's underlying *loop* already went out in a recent
@@ -111,6 +128,11 @@ interface ListEmailsSinceArgs {
   sinceIngestedAt: Date | null;
   /** Inclusive upper bound. Defaults to now — the agent should freeze this per run. */
   untilIngestedAt: Date;
+  /**
+   * User's IANA timezone — used to render each item's `receivedAtLocal`. Omit
+   * (e.g. in DB-only tests) and `receivedAtLocal` stays null.
+   */
+  timezone?: string;
   limit?: number;
 }
 
@@ -246,6 +268,7 @@ export async function listEmailsSinceWatermark(
     const loopKey = deriveLoopKey(r.subject, { sender: senders[i] ?? null });
     const surfacedByThread = r.sourceThreadId ? surfaced.threadIds.has(r.sourceThreadId) : false;
     const surfacedByLoop = loopKey ? surfaced.loopKeys.has(loopKey) : false;
+    const receiptInstant = r.authoredAt ?? r.ingestedAt;
     return {
       documentId: r.documentId,
       subject: r.subject,
@@ -255,6 +278,10 @@ export async function listEmailsSinceWatermark(
       triageRationale: r.triageRationale,
       authoredAt: r.authoredAt,
       ingestedAt: r.ingestedAt,
+      receivedAtLocal: args.timezone
+        ? formatInstantInTimezone(receiptInstant, args.timezone)
+        : null,
+      unread: unreadFromLabels(meta.labelIds),
       threadId: r.sourceThreadId,
       previouslySurfaced: surfacedByThread || surfacedByLoop,
       attentionBand: toTriageCategory(r.triageCategory)
@@ -268,6 +295,19 @@ export async function listEmailsSinceWatermark(
 /** A triage category string narrowed to the contract enum, or null if unknown/absent. */
 function toTriageCategory(category: string | null): TriageCategory | null {
   return isTriageCategory(category) ? category : null;
+}
+
+/**
+ * Gmail read-state from a document's stored `labelIds` (#284). The ingestor
+ * persists `metadata.labelIds` on every Gmail row; a message carries the
+ * `UNREAD` label until it is opened. An absent or empty list means no label
+ * signal was captured (older rows, non-Gmail) → `null` (unknown), so the agent
+ * neither asserts seen nor unseen. Returns `true` when `UNREAD` is present,
+ * `false` once it's gone.
+ */
+function unreadFromLabels(labelIds: unknown): boolean | null {
+  if (!Array.isArray(labelIds) || labelIds.length === 0) return null;
+  return labelIds.includes("UNREAD");
 }
 
 /**
