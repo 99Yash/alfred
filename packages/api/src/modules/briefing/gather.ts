@@ -67,10 +67,10 @@ const PRIORITY_CATEGORIES = [
   "awaiting_reply",
   "meeting",
   "payment",
-  "fyi",
 ] as const satisfies readonly TriageCategory[];
 
 const SUPPRESSED_CATEGORIES = [
+  "fyi",
   "done",
   "newsletter",
   "marketing",
@@ -226,9 +226,9 @@ export async function gatherBriefingDigest(
     awaiting_reply: [],
     meeting: [],
     payment: [],
-    fyi: [],
   };
   const suppressedCounts: Record<SuppressedCategory, number> = {
+    fyi: 0,
     done: 0,
     newsletter: 0,
     marketing: 0,
@@ -431,14 +431,15 @@ export async function gatherBriefingWithSuppressionAudit(
   // agent's read path uses. Folds into day-shape so the morning suppression gate
   // leads from "is anything demanding?" instead of a raw count: a quiet day of
   // normal/muted items suppresses rather than promoting a trivial item to the
-  // headline. `fyi` is gathered for body context but scores `muted` (base 0.2),
-  // so a priority-listed `fyi` can never clear the bar or block suppression.
+  // headline. `fyi` remains ambient/suppressed and is not part of the demand
+  // count.
   const emailDemand = await scorePriorityEmailDemand(
     args.userId,
     PRIORITY_CATEGORIES.flatMap((category) =>
       digest.buckets[category].map((item) => ({
         sender: item.from,
         subject: item.subject,
+        snippet: item.snippet,
         category: item.category,
         occurredAtMs: item.authoredAt?.getTime() ?? null,
       })),
