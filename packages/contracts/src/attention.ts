@@ -48,6 +48,9 @@ export function bucketSignificance(score: number): SignificanceBand {
 export const ATTENTION_BANDS = ["demanding", "normal", "muted"] as const;
 export type AttentionBand = (typeof ATTENTION_BANDS)[number];
 
+/** Zod enum over {@link ATTENTION_BANDS} — reused by persisted contracts (day-shape). */
+export const attentionBandSchema = z.enum(ATTENTION_BANDS);
+
 /**
  * Intrinsic per-category demand — the **floor**. Significance and recurrence
  * move an item *within* and *down* from its category's demand, never *up* past
