@@ -84,18 +84,27 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - uses: pnpm/action-setup@v4
-
       - uses: actions/setup-node@v4
         with:
           node-version: 22
-          cache: pnpm
+
+      - name: Enable Corepack
+        run: corepack enable
+
+      - name: Resolve pnpm store path
+        run: echo "PNPM_STORE_PATH=$(corepack pnpm store path --silent)" >> "$GITHUB_ENV"
+
+      - uses: actions/cache@v4
+        with:
+          path: ${{ env.PNPM_STORE_PATH }}
+          key: ${{ runner.os }}-pnpm-store-${{ hashFiles('pnpm-lock.yaml') }}
+          restore-keys: ${{ runner.os }}-pnpm-store-
 
       - name: Install dependencies
-        run: pnpm install --frozen-lockfile
+        run: corepack pnpm install --frozen-lockfile
 
       - name: Apply database migrations
-        run: pnpm --filter @alfred/db db:migrate
+        run: corepack pnpm --filter @alfred/db db:migrate
 
       - name: Run grounding evals (reports scores; never fails the job)
         # `evalite run` takes a SINGLE path filter, so each suite is its own
@@ -111,7 +120,7 @@ jobs:
           run_suite() {
             suite="$1"
             # evalite resolves --outputPath against ITS cwd — under
-            # `pnpm --filter @alfred/api exec` that is packages/api, not the
+            # `corepack pnpm --filter @alfred/api exec` that is packages/api, not the
             # repo root this step runs in. An absolute path keeps the write and
             # the read pointed at the same file. A relative path silently wrote
             # the report under packages/api/ while the reader looked at the
@@ -119,7 +128,7 @@ jobs:
             # scheduled run since the workflow was added.
             output="${results_dir}/${suite}.json"
             set +e
-            pnpm --filter @alfred/api exec evalite run "$suite" --threshold 0 --outputPath "$output"
+            corepack pnpm --filter @alfred/api exec evalite run "$suite" --threshold 0 --outputPath "$output"
             status="$?"
             set -e
 
