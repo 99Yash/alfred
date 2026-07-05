@@ -22,6 +22,7 @@ export * from "./briefing-references.js";
 export * from "./attachments.js";
 export * from "./weather.js";
 export * from "./metering.js";
+export * from "./memory.js";
 export * from "./event-triggers.js";
 export * from "./todos.js";
 export * from "./loop-key.js";
