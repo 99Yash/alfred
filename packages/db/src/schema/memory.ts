@@ -1,3 +1,4 @@
+import type { MemorySource } from "@alfred/contracts";
 import { sql } from "drizzle-orm";
 import {
   index,
@@ -72,10 +73,11 @@ export const userFacts = pgTable(
     confidence: real("confidence").notNull(),
     /** proposed | confirmed | rejected | edited | superseded — see file header. */
     status: text("status").notNull().default("proposed"),
-    /** Provenance: { kind: 'document'|'chunk'|'tool_call'|'cold_start'|'user', id?: string }. */
+    /** Provenance: { kind: 'document'|'chunk'|'tool_call'|'cold_start'|'user'|'agent', id?: string }. */
     source: jsonb("source")
+      .$type<MemorySource>()
       .notNull()
-      .default(sql`'{}'::jsonb`),
+      .default(sql`'{"kind":"agent"}'::jsonb`),
     /**
      * Temporal validity window (ADR-0012). `valid_from` is when the fact
      * became true (extractor's best guess at the source's authoring time),
@@ -130,8 +132,9 @@ export const userPreferences = pgTable(
     value: jsonb("value").notNull(),
     /** Optional provenance — usually `{ kind: 'user' }`; agents can suggest a pref via `{ kind: 'agent' }`. */
     source: jsonb("source")
+      .$type<MemorySource>()
       .notNull()
-      .default(sql`'{}'::jsonb`),
+      .default(sql`'{"kind":"user"}'::jsonb`),
     rowVersion: integer("row_version").notNull().default(0),
     ...lifecycle_dates,
   },
@@ -303,10 +306,11 @@ export const memoryChunks = pgTable(
     embedding: vectorColumn("embedding", 1024),
     /** sha256 of `content` — skip re-embed when content hasn't changed. */
     contentHash: text("content_hash").notNull(),
-    /** Provenance refs: `{ kind: 'thread_summary', threadId: '…' }`, `{ kind: 'extraction_run', runId: '…' }`. */
+    /** Provenance refs: `{ kind: 'agent', id: runId }`, `{ kind: 'cold_start', id: runId }`. */
     source: jsonb("source")
+      .$type<MemorySource>()
       .notNull()
-      .default(sql`'{}'::jsonb`),
+      .default(sql`'{"kind":"agent"}'::jsonb`),
     metadata: jsonb("metadata")
       .notNull()
       .default(sql`'{}'::jsonb`),

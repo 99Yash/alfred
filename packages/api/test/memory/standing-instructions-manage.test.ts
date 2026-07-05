@@ -7,6 +7,7 @@ import {
   STANDING_INSTRUCTION_SCHEMA_VERSION,
   SUPPRESSION_EFFECTS,
   standingInstructionValueSchema,
+  type MemorySource,
 } from "@alfred/contracts";
 import { closeConnections, db } from "@alfred/db";
 import { observations, user, userFacts } from "@alfred/db/schemas";
@@ -33,6 +34,7 @@ function hasDatabaseUrl(): boolean {
 
 const SKIP = hasDatabaseUrl() ? false : "DATABASE_URL not set — skipping DB-backed test";
 const ID_PREFIX = "test-standing-manage-";
+const USER_MEMORY_SOURCE = { kind: "user" } satisfies MemorySource;
 const createdUserIds: string[] = [];
 
 async function seedUser(): Promise<string> {
@@ -113,7 +115,7 @@ describe("standing instruction management (DB-backed)", { skip: SKIP }, () => {
           value: instructionValue(`sender-${i}@example.com`, `Sender ${i}`),
           confidence: 1,
           status: "confirmed",
-          source: { kind: "user" },
+          source: USER_MEMORY_SOURCE,
           validFrom: new Date(Date.UTC(2026, 0, 1, 0, i)),
           validUntil: null,
         })),
