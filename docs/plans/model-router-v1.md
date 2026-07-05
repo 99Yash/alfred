@@ -30,9 +30,12 @@ picker), `api_call_log` (records the *served* model — the data source for obse
 The composer's Auto/Deep picker today is a **static model selector in disguise**: `Auto →
 Sonnet 4.6 @ low effort`, `Deep → Opus 4.8 @ high effort`. Two problems:
 
-1. **It over-serves.** Deep pins `effort: "high"`, so a trivial turn ("what's in this
-   image", "is my 3pm free") burns seconds of extended thinking for zero quality gain
-   (#249).
+1. **It over-serves.** Deep pins `effort: "high"`, so the concern was that a trivial turn
+   ("what's in this image", "is my 3pm free") burns seconds of extended thinking for zero
+   quality gain (#249). **Update 2026-07-05:** a live A/B disproved the thinking-budget half
+   of this — Opus 4.8 adaptive thinking already self-sizes trivial turns to ~0 reasoning (see
+   Phase 1). Any residual over-serving is the *tool-loop / dig* axis (#405) or output length,
+   not the effort ceiling.
 2. **It asks the user to manage models.** Frontier models ship every couple of weeks.
    Making the end user track which model fits which task is a tax that only *developers
    building coding tools* should pay. Alfred is a single-user personal assistant; the
@@ -91,7 +94,7 @@ may consume), of which model identity is one lever.
 | 1 | **Scope** | Chat surface only; registry built standalone for later reuse. |
 | 2 | **What the picker means** | Auto/Deep = an *effort envelope* (authorization), not a model. Model identity is internal. |
 | 3 | **Envelope levers (v1)** | Model tier · thinking/reasoning effort · tool-loop / agentic depth. (Fan-out deferred.) |
-| 4 | **Ceiling, not mandate** | Effort intent *caps* spend; it never forces it. Deep on a trivial turn still answers directly. This is the #249 fix. |
+| 4 | **Ceiling, not mandate** | Effort intent *caps* spend; it never forces it. Deep on a trivial turn still answers directly — verified: Opus 4.8 adaptive thinking already self-sizes trivial turns to ~0 reasoning (see Phase 1), so the ceiling never needs lowering. |
 | 5 | **Routing mechanism** | **Self-routing** — the answering model decides direct vs research-mode as its first move. No separate classifier. |
 | 6 | **Model cadence** | **Sticky per-thread, escalation-only.** Never flaps down within a thread. |
 | 7 | **Effort + tool-loop cadence** | **Per-turn, self-routed.** Cache-safe (not part of the cached prefix). |
@@ -255,14 +258,46 @@ and add the chat telemetry contract above (`messageId`, `threadId`, requested ti
 effort, mode, fallback evidence). The activity table and eval both depend on truthful
 served-model and mode data.
 
-**Phase 1 — the #249 thin edge (ships alone, no new infra).** Make Deep's effort a
-*ceiling directionally, not the full router yet*: de-pin `getChatProviderOptions("deep")`
-from unconditional `effort: "high"` so trivial turns stop over-thinking. Without
-self-routing this is not a true per-turn ceiling yet; it is a conservative default that
-isolates the latency win before the gate exists. Acceptance: a trivial Deep vision/text
-turn is no longer forced into high-effort thinking, the "started" indicator appears before
-hydration, and telemetry records TTFT/reasoningMs/cost for comparison. Do not promise ~1s
-until measured on the actual Opus/Sonnet path.
+**Phase 1 — the #249 thin edge: investigated, no thinking-axis change needed (2026-07-05).**
+The original proposal (de-pin `getChatProviderOptions("deep")` from `effort: "high"`) and its
+successor (an unconditional adaptive-thinking *nudge* in the frozen charter) both target the
+*thinking axis*. A live A/B on the real Deep config — Opus 4.8 @ `effort: high`, adaptive
+thinking — measured reasoning old-prompt vs nudge-prompt across trivial and hard turns and
+found the premise does **not reproduce**: adaptive thinking already self-sizes trivial turns
+to ~0 reasoning, so there is no thinking over-budget to remove.
+
+- pure-text trivial ("2+2", "capital of France"): **0 ms** reasoning in both arms.
+- tool-trivial ("am I free at 3pm?"): correct immediate `calendar.list_events` call, ~0–150 ms
+  reasoning, no arm difference.
+- vision-trivial ("what's in this image?"): ~120 ms reasoning, no reduction from the nudge.
+- hard (multi-step puzzle; research → tools): reasoning depth **and** tool trajectory
+  preserved across arms (guardrail — a de-pin *would* have risked these; the nudge did not,
+  but it also bought nothing).
+
+Conclusion: the thinking axis needs no code change on Opus 4.8. `effort` stays pinned at
+`high` as the ceiling (adaptive thinking is the self-sizer beneath it). **#249's remaining
+latency lever is elsewhere** and moves off this plan's Phase 1:
+
+- **Dig / tool-selection axis (#405):** deliberation over *which* tools to load/call on a
+  richer turn — the straightforward-task fast path's other axis. This is where a trivial turn
+  can still feel slow, and it is #405's preloader/lazy-tool work, not a thinking budget.
+- **Output length / narration:** Opus 4.8 narrates more and asks more often than 4.7 — real
+  perceived latency that is output tokens, not thinking (handoff's noted follow-up).
+- **Perceived TTFT:** already fixed on `main` — the "started" poke now fires before transcript
+  hydration (`chat-turn.ts`), so the composer paints immediately on image-heavy turns.
+
+Timeline reconciliation: #249 was filed 2026-06-22 with a live repro ("Thought for 5.4s" on a
+vision turn). The reasoning dispatch was **reworked afterward** — ADR-0078/#313 (2026-06-28)
+replaced the effort handling with the per-model capability map, and the chat charter/Auto tier
+were revised 2026-07-02 — so the config the 5.4s was measured against no longer exists. That,
+plus the model self-sizing better, is the most likely reason it no longer reproduces.
+`AlfredAgent.streamTurn` adds only cache-control + metering over the same model/providerOptions,
+so the raw-`streamText` A/B is a faithful proxy for thinking behavior.
+
+The single-turn A/B did not exercise a full multi-step tool loop or the complete production
+tool surface, and could not recover the original June trace. If a fresh prod trace shows Deep
+over-thinking again, re-open with the full end-to-end replay-diff before adding any
+thinking-axis intervention.
 
 **Phase 2 — registry + envelope.** Standalone churn-absorption module: current-best
 {cheap, deep} mapping + the envelope type (model tier · effort ceiling · tool-loop ceiling).
@@ -281,8 +316,9 @@ research mode is declared.
 
 **Phase 5 — eval lane.** Labeled gate fixtures + deterministic mode-match scorer on evalite.
 
-**Build rule:** Phase 1 must ship and verify the #249 acceptance before Phase 3 adds the
-gate, so the latency win is isolated from the routing change.
+**Build rule:** Phase 1's thinking-axis premise was tested and closed (no code change — see
+Phase 1). The remaining router phases stand on their own; #249's residual latency lever moves
+to the dig axis (#405) and output length, not this plan's effort envelope.
 
 ---
 
