@@ -1,12 +1,3 @@
-import { db } from "@alfred/db";
-import { documents, emailTriage, integrationCredentials, webhookEvents } from "@alfred/db/schemas";
-import {
-  isLoopClosingCategory,
-  isRecord,
-  toRecord,
-  weatherFallbackFor,
-  toMessage,
-} from "@alfred/contracts";
 import type {
   BriefingGather,
   BriefingSlot,
@@ -18,11 +9,20 @@ import type {
   WeatherContribution,
 } from "@alfred/contracts";
 import {
+  isLoopClosingCategory,
+  isRecord,
+  toMessage,
+  toRecord,
+  weatherFallbackFor,
+} from "@alfred/contracts";
+import { db } from "@alfred/db";
+import { documents, emailTriage, integrationCredentials, webhookEvents } from "@alfred/db/schemas";
+import {
   CALENDAR_EVENTS_SCOPE,
   CALENDAR_READONLY_SCOPE,
+  type CalendarEvent,
   getFreshAccessToken,
   listEvents,
-  type CalendarEvent,
   type TriageCategory,
 } from "@alfred/integrations/google";
 import { and, desc, eq, gte, lte } from "drizzle-orm";
@@ -39,6 +39,7 @@ import {
   listActiveSuppressionInstructions,
 } from "../memory/standing-instructions";
 import { addLocalDays, localStartOfDay } from "../timezone";
+import { scorePriorityEmailDemand } from "./read";
 
 /**
  * Inbox-only briefing data shape (ADR-0025 #2).
@@ -66,10 +67,10 @@ const PRIORITY_CATEGORIES = [
   "awaiting_reply",
   "meeting",
   "payment",
+  "fyi",
 ] as const satisfies readonly TriageCategory[];
 
 const SUPPRESSED_CATEGORIES = [
-  "fyi",
   "done",
   "newsletter",
   "marketing",
@@ -225,9 +226,9 @@ export async function gatherBriefingDigest(
     awaiting_reply: [],
     meeting: [],
     payment: [],
+    fyi: [],
   };
   const suppressedCounts: Record<SuppressedCategory, number> = {
-    fyi: 0,
     done: 0,
     newsletter: 0,
     marketing: 0,
@@ -424,6 +425,26 @@ export async function gatherBriefingWithSuppressionAudit(
     activityCount: integrationActivity.length,
   });
 
+  // Attention-aware email demand over the FINALIZED priority buckets (#259 /
+  // ADR-0064) — scored off the raw `from` (not the shortened `sender` above, so
+  // bulk-sender + significance lookups still work) with the same scorer the
+  // agent's read path uses. Folds into day-shape so the morning suppression gate
+  // leads from "is anything demanding?" instead of a raw count: a quiet day of
+  // normal/muted items suppresses rather than promoting a trivial item to the
+  // headline. `fyi` is gathered for body context but scores `muted` (base 0.2),
+  // so a priority-listed `fyi` can never clear the bar or block suppression.
+  const emailDemand = await scorePriorityEmailDemand(
+    args.userId,
+    PRIORITY_CATEGORIES.flatMap((category) =>
+      digest.buckets[category].map((item) => ({
+        sender: item.from,
+        subject: item.subject,
+        category: item.category,
+        occurredAtMs: item.authoredAt?.getTime() ?? null,
+      })),
+    ),
+  );
+
   return {
     gather: {
       email: {
@@ -433,7 +454,11 @@ export async function gatherBriefingWithSuppressionAudit(
       integration_activity: { items: integrationActivity },
       weather,
       day_of_week: dayContribution(args.briefingDate, args.timezone),
-      day_shape: dayShape,
+      day_shape: {
+        ...dayShape,
+        demandingEmailCount: emailDemand.demandingCount,
+        topEmailBand: emailDemand.topBand,
+      },
     },
     suppressedByInstruction: digest.suppressedByInstruction,
     closedLoops: digest.closedLoops,

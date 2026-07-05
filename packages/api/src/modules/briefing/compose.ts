@@ -43,6 +43,7 @@ const CATEGORY_LABEL: Record<PriorityCategory, string> = {
   awaiting_reply: "Awaiting your reply",
   meeting: "Meetings",
   payment: "Payments",
+  fyi: "FYIs",
 };
 
 const CATEGORY_ORDER: readonly PriorityCategory[] = [
@@ -52,6 +53,7 @@ const CATEGORY_ORDER: readonly PriorityCategory[] = [
   "awaiting_reply",
   "meeting",
   "payment",
+  "fyi",
 ] as const;
 
 // Role + rules + citation contract, sectioned per the Anthropic template. The
@@ -356,9 +358,6 @@ function renderText(args: ComposeInboxBriefingArgs, greeting: string): string {
     if (args.digest.suppressedCounts.newsletter > 0) {
       parts.push(`${args.digest.suppressedCounts.newsletter} newsletter(s)`);
     }
-    if (args.digest.suppressedCounts.fyi > 0) {
-      parts.push(`${args.digest.suppressedCounts.fyi} FYI`);
-    }
     lines.push(`Also seen in the last 24h: ${parts.join(", ")}.`);
   }
 
@@ -398,9 +397,6 @@ function renderHtml(args: ComposeInboxBriefingArgs, greeting: string): string {
     const parts: string[] = [];
     if (args.digest.suppressedCounts.newsletter > 0) {
       parts.push(`${args.digest.suppressedCounts.newsletter} newsletter(s)`);
-    }
-    if (args.digest.suppressedCounts.fyi > 0) {
-      parts.push(`${args.digest.suppressedCounts.fyi} FYI`);
     }
     tail.push(`<p style="${MUTED_P_STYLE}">Also seen in the last 24h: ${parts.join(", ")}.</p>`);
   }

@@ -89,9 +89,13 @@ export {
   listPriorBriefings,
   fetchLatestWatermark,
   recordBriefingRun,
+  scorePriorityEmailDemand,
+  isQuietMorning,
   type EmailListItem,
   type EmailReadResult,
   type PriorBriefingSummary,
+  type PriorityEmailDemand,
+  type PriorityEmailDemandItem,
 } from "./read";
 
 export {

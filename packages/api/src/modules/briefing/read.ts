@@ -3,6 +3,7 @@ import {
   isTriageCategory,
   parseEmailAddress,
   scoreAttentionForItems,
+  toMessage,
   toRecord,
   toStringArray,
 } from "@alfred/contracts";
@@ -358,6 +359,114 @@ async function loadSignificanceBands(
     out.set(address, significance.band);
   }
   return out;
+}
+
+/** One already-gathered priority email, reduced to the scorer's inputs. */
+export interface PriorityEmailDemandItem {
+  /** Raw `From` (display-name + address ok) — used for bulk + significance lookup. */
+  sender: string | null;
+  subject: string | null;
+  /** The honest, immutable triage category — the demand floor. */
+  category: TriageCategory;
+  /** Chronological key for recurrence (e.g. `authoredAt`); null falls back to input order. */
+  occurredAtMs: number | null;
+}
+
+export interface PriorityEmailDemand {
+  /** How many of the gathered priority emails scored at the `demanding` band. */
+  demandingCount: number;
+  /** Highest band across the set — `muted` when the set is empty. */
+  topBand: AttentionBand;
+}
+
+/**
+ * Score an already-gathered set of priority emails for the morning suppression
+ * gate (#259 / ADR-0064). Uses the SAME windowed scorer + significance read the
+ * agent's `list_emails_since` uses, so the deterministic send/suppress decision
+ * and the agent's own ranking agree on what "demanding" means — the gate never
+ * suppresses a day the agent would have led with, and never composes a day whose
+ * only items the agent would drop.
+ *
+ * Recurrence is a cross-row property, so pass the WHOLE window's priority items
+ * in one call (a machine notification fired ten times decays out of the
+ * demanding lane here exactly as it does for the agent). Significance is
+ * best-effort: an unscored / non-human sender degrades to the category floor
+ * (so `payment`/`follow_up`/`fyi` never reach `demanding`, but an unscored
+ * `awaiting_reply`/`action_needed` does — the gate then errs toward SENDING,
+ * ADR-0048's morning posture), and a significance-read failure degrades the
+ * whole set to intrinsic-only rather than failing the gather.
+ */
+export async function scorePriorityEmailDemand(
+  userId: string,
+  items: readonly PriorityEmailDemandItem[],
+): Promise<PriorityEmailDemand> {
+  if (items.length === 0) return { demandingCount: 0, topBand: "muted" };
+
+  let bands: Map<string, SignificanceBand> = new Map();
+  try {
+    bands = await loadSignificanceBands(
+      userId,
+      items.map((item) => item.sender),
+    );
+  } catch (err) {
+    // Never fail the whole briefing over a significance read — fall back to
+    // intrinsic-only scoring (today's Phase-A behavior).
+    console.warn("[briefing.read] significance unavailable for suppression gate:", toMessage(err));
+  }
+  const bandFor = (from: string | null): SignificanceBand | null => {
+    const address = parseEmailAddress(from);
+    return address ? (bands.get(address) ?? null) : null;
+  };
+
+  const scored = scoreAttentionForItems(
+    items.map((item) => ({
+      sender: item.sender,
+      subject: item.subject,
+      category: item.category,
+      significanceBand: bandFor(item.sender),
+      occurredAtMs: item.occurredAtMs,
+    })),
+  );
+
+  let demandingCount = 0;
+  let topScore = -1;
+  let topBand: AttentionBand = "muted";
+  for (const result of scored) {
+    if (result.band === "demanding") demandingCount += 1;
+    if (result.score > topScore) {
+      topScore = result.score;
+      topBand = result.band;
+    }
+  }
+  return { demandingCount, topBand };
+}
+
+/**
+ * Morning suppression predicate (#259 / ADR-0064). A cron morning is "quiet" —
+ * suppressing without an LLM call — when nothing in the window demands the user:
+ * no priority email at the `demanding` attention band, no integration activity,
+ * and no calendar events. `demandingEmailCount` is the attention-aware
+ * replacement for the old raw priority-email count — a normal/muted item (a
+ * resolved micro-charge, a cold ask, a bot digest once significance demotes it)
+ * no longer forces a send and promotes itself to the headline. Pure so the
+ * suppression invariant is unit-pinned.
+ *
+ * When the attention signal is unavailable (`demandingEmailCount` undefined —
+ * a legacy gather or a failed day-shape), fall back to the raw email count so a
+ * signalless day still sends if anything landed: erring toward sending is
+ * ADR-0048's morning posture, and the wrong direction to fail is a silent
+ * suppression that eats a real briefing.
+ */
+export function isQuietMorning(args: {
+  demandingEmailCount: number | undefined;
+  emailCount: number;
+  activityCount: number;
+  meetingCount: number;
+}): boolean {
+  if (args.activityCount > 0 || args.meetingCount > 0) return false;
+  return args.demandingEmailCount !== undefined
+    ? args.demandingEmailCount === 0
+    : args.emailCount === 0;
 }
 
 /** Both continuation signals a recent briefing left behind for the next slot. */
