@@ -366,6 +366,8 @@ export interface PriorityEmailDemandItem {
   /** Raw `From` (display-name + address ok) — used for bulk + significance lookup. */
   sender: string | null;
   subject: string | null;
+  /** Short body/header context for category-specific pins such as payment failures. */
+  snippet?: string | null;
   /** The honest, immutable triage category — the demand floor. */
   category: TriageCategory;
   /** Chronological key for recurrence (e.g. `authoredAt`); null falls back to input order. */
@@ -390,10 +392,11 @@ export interface PriorityEmailDemand {
  * Recurrence is a cross-row property, so pass the WHOLE window's priority items
  * in one call (a machine notification fired ten times decays out of the
  * demanding lane here exactly as it does for the agent). Significance is
- * best-effort: an unscored / non-human sender degrades to the category floor
- * (so `payment`/`follow_up`/`fyi` never reach `demanding`, but an unscored
- * `awaiting_reply`/`action_needed` does — the gate then errs toward SENDING,
- * ADR-0048's morning posture), and a significance-read failure degrades the
+ * best-effort: an unscored / non-human sender degrades to the category floor.
+ * Quiet `payment`/`follow_up` items stay below `demanding`, but payment items
+ * that look failed/due/actionable are pinned demanding so we do not silently eat
+ * a real billing problem. An unscored `awaiting_reply`/`action_needed` also
+ * sends — ADR-0048's morning posture. A significance-read failure degrades the
  * whole set to intrinsic-only rather than failing the gather.
  */
 export async function scorePriorityEmailDemand(
@@ -425,6 +428,7 @@ export async function scorePriorityEmailDemand(
       category: item.category,
       significanceBand: bandFor(item.sender),
       occurredAtMs: item.occurredAtMs,
+      pinnedDemanding: isDemandingPayment(item),
     })),
   );
 
@@ -439,6 +443,15 @@ export async function scorePriorityEmailDemand(
     }
   }
   return { demandingCount, topBand };
+}
+
+const ACTIONABLE_PAYMENT_RE =
+  /\b(?:payment|card|invoice|bill|billing|subscription|charge)\b[\s\S]{0,120}\b(?:fail(?:ed|ure)?|declin(?:ed|e)|past due|overdue|unpaid|due now|due today|unable to process|could(?: not|n't) process|update|action required|required action|requires? attention|needs? attention)\b|\b(?:fail(?:ed|ure)?|declin(?:ed|e)|past due|overdue|unpaid|action required|required action|requires? attention|needs? attention|unable to process|could(?: not|n't) process)\b[\s\S]{0,120}\b(?:payment|card|invoice|bill|billing|subscription|charge)\b/i;
+
+function isDemandingPayment(item: PriorityEmailDemandItem): boolean {
+  if (item.category !== "payment") return false;
+  const text = [item.subject, item.snippet].filter(Boolean).join("\n");
+  return ACTIONABLE_PAYMENT_RE.test(text);
 }
 
 /**

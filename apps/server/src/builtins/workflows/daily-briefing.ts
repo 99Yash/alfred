@@ -60,7 +60,8 @@ import { runBriefingAgent } from "../agents/briefing/agent";
  * band, no integration activity, and no calendar events in the window. A
  * normal/muted item (a resolved micro-charge, a cold ask) is not enough to
  * send — so a quiet day suppresses instead of promoting a trivial item to
- * the headline. Absent a demand signal, it falls back to the raw email count
+ * the headline. Payment mail that looks failed/due/actionable is pinned
+ * demanding. Absent a demand signal, it falls back to the raw email count
  * (errs toward sending).
  */
 
@@ -241,8 +242,9 @@ export const dailyBriefingWorkflow: Workflow<State> = {
         // Attention-aware quiet-day (#259 / ADR-0064): a normal/muted email (a
         // resolved micro-charge, a cold ask) no longer flips the morning to
         // "not quiet" — only a `demanding` item, integration activity, or a
-        // calendar event does. `demandingEmailCount` is folded onto day-shape by
-        // the gather; its absence falls back to the raw email count.
+        // calendar event does. Payment failures/owed bills are pinned demanding.
+        // `demandingEmailCount` is folded onto day-shape by the gather; its
+        // absence falls back to the raw email count.
         const demandingEmailCount = gather.day_shape?.demandingEmailCount;
         const quietDay = isQuietMorning({
           demandingEmailCount,
@@ -479,10 +481,10 @@ export const dailyBriefingWorkflow: Workflow<State> = {
 
 /**
  * Live-signal counts for the suppression gate. `email.categories` holds the
- * priority buckets (`fyi` is gathered for body context but scores `muted`, so it
- * never counts as demanding). The raw `email` count is now only the fallback
- * when the attention-aware `demandingEmailCount` signal is unavailable — the
- * gate leads from demand, not raw volume (#259).
+ * priority buckets (ambient `fyi` is suppressed before this payload). The raw
+ * `email` count is now only the fallback when the attention-aware
+ * `demandingEmailCount` signal is unavailable — the gate leads from demand, not
+ * raw volume (#259).
  */
 function gatherCounts(gather: BriefingGather): {
   email: number;

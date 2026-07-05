@@ -59,7 +59,8 @@ describe("isQuietMorning", () => {
  * DB-backed because {@link scorePriorityEmailDemand} reads sender significance.
  * With no graph rows (a fresh user), scoring degrades to intrinsic-only — which
  * is exactly the case the gate must get right: categories at/above the demanding
- * cutoff still count, the sub-cutoff ones (payment/follow_up/fyi) never do.
+ * cutoff still count, while quiet sub-cutoff items do not. Payment failures are
+ * pinned demanding from subject/snippet so real billing problems are not eaten.
  */
 function hasDatabaseUrl(): boolean {
   try {
@@ -90,6 +91,7 @@ describe("scorePriorityEmailDemand", { skip: SKIP }, () => {
       {
         sender: "billing@railway.app",
         subject: "Payment receipt",
+        snippet: "Your receipt for $6.79",
         category: "payment",
         occurredAtMs: 3,
       },
@@ -108,6 +110,20 @@ describe("scorePriorityEmailDemand", { skip: SKIP }, () => {
     ]);
     assert.equal(demand.demandingCount, 0);
     assert.equal(demand.topBand, "normal"); // payment/follow_up sit at normal, fyi muted
+  });
+
+  test("an actionable payment failure counts as demanding ⇒ send", async () => {
+    const demand = await scorePriorityEmailDemand(userId, [
+      {
+        sender: "billing@railway.app",
+        subject: "Payment failed - update your card",
+        snippet: "We were unable to process your payment. Please update your billing card.",
+        category: "payment",
+        occurredAtMs: 1,
+      },
+    ]);
+    assert.equal(demand.demandingCount, 1);
+    assert.equal(demand.topBand, "demanding");
   });
 
   test("an unscored action_needed counts as demanding ⇒ send (errs toward sending)", async () => {

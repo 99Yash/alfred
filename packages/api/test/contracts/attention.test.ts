@@ -45,11 +45,11 @@ describe("attentionScore", () => {
     assert.equal(r.band, "muted");
   });
 
-  test("payment/follow_up never reach `demanding` — even unscored (#259 headline floor)", () => {
+  test("quiet payment/follow_up stay below `demanding` at the category floor", () => {
     // The $6.79-receipt bug: a resolved micro-charge is `payment` (0.55) and,
     // like `follow_up` (0.55), sits below the DEMANDING_AT cutoff (0.6) at FULL
-    // strength. So no significance data is needed for the morning gate to refuse
-    // to lead a briefing with one — it can never clear the demanding bar.
+    // strength. Actionable payment failures are pinned by the briefing gate's
+    // category-specific scorer; the raw category floor stays below the bar.
     for (const category of ["payment", "follow_up"] as const) {
       const unscored = attentionScore({ category });
       assert.equal(unscored.band, "normal", `${category} unscored should be normal`);

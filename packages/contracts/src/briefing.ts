@@ -242,10 +242,12 @@ export interface DayShape {
    * with zero demanding email, no integration activity, and no calendar events
    * is a genuinely quiet day and suppresses — a normal/muted item (a resolved
    * micro-charge, a cold recruiter ask) no longer forces a send and promotes
-   * itself to the headline. Optional + additive: absent on day-shape objects
-   * persisted before this field, and on a standalone `gatherDayShape()` call
-   * that has no email context — the gate treats absence as "signal unavailable"
-   * and falls back to the raw email count (errs toward sending, ADR-0048).
+   * itself to the headline. Actionable payment failures/bills are pinned into
+   * this count by the gather scorer. Optional + additive: absent on day-shape
+   * objects persisted before this field, and on a standalone `gatherDayShape()`
+   * call that has no email context — the gate treats absence as "signal
+   * unavailable" and falls back to the raw email count (errs toward sending,
+   * ADR-0048).
    */
   demandingEmailCount?: number;
   /**
