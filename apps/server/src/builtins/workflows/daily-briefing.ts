@@ -4,6 +4,7 @@ import {
   dailyBriefingWorkflowInputSchema,
   fetchLatestWatermark,
   gatherBriefingWithSuppressionAudit,
+  isQuietMorning,
   localDateInTimezone,
   markBriefingComposed,
   markBriefingComposing,
@@ -55,8 +56,13 @@ import { runBriefingAgent } from "../agents/briefing/agent";
  * Suppression (ADR-0048): the morning slot is discretionary — a quiet
  * cron morning suppresses; evening always sends; manual/forced runs
  * (e.g. the rail "Generate briefing" button) bypass suppression. "Quiet"
- * reuses the old gate's rule: no priority email, no integration activity,
- * and no calendar events in the window.
+ * is attention-aware (#259 / ADR-0064): no priority email at the `demanding`
+ * band, no integration activity, and no calendar events in the window. A
+ * normal/muted item (a resolved micro-charge, a cold ask) is not enough to
+ * send — so a quiet day suppresses instead of promoting a trivial item to
+ * the headline. Payment mail that looks failed/due/actionable is pinned
+ * demanding. Absent a demand signal, it falls back to the raw email count
+ * (errs toward sending).
  */
 
 const stateSchema = z.object({
@@ -77,7 +83,7 @@ const stateSchema = z.object({
   untilIngestedAt: z.string().optional(),
   /** `briefings` row id, set in `gather`. */
   briefingId: z.string().optional(),
-  /** No priority email, integration activity, or calendar events in window. */
+  /** No demanding priority email, integration activity, or calendar events in window (#259). */
   quietDay: z.boolean().optional(),
   composed: z
     .object({
@@ -233,12 +239,25 @@ export const dailyBriefingWorkflow: Workflow<State> = {
         }
 
         const counts = gatherCounts(gather);
-        const quietDay = counts.email === 0 && counts.activity === 0 && counts.meetings === 0;
+        // Attention-aware quiet-day (#259 / ADR-0064): a normal/muted email (a
+        // resolved micro-charge, a cold ask) no longer flips the morning to
+        // "not quiet" — only a `demanding` item, integration activity, or a
+        // calendar event does. Payment failures/owed bills are pinned demanding.
+        // `demandingEmailCount` is folded onto day-shape by the gather; its
+        // absence falls back to the raw email count.
+        const demandingEmailCount = gather.day_shape?.demandingEmailCount;
+        const quietDay = isQuietMorning({
+          demandingEmailCount,
+          emailCount: counts.email,
+          activityCount: counts.activity,
+          meetingCount: counts.meetings,
+        });
 
         await ctx.log(
           `gather: id=${begun.row.id} action=${begun.action} tz=${timezone} date=${briefingDate} ` +
             `since=${since ? since.toISOString() : "(first run)"} until=${until.toISOString()} ` +
-            `email=${counts.email} activity=${counts.activity} meetings=${counts.meetings} quiet=${quietDay}${instructionSuppressionLogPart(suppressedByInstruction)}`,
+            `email=${counts.email} demanding=${demandingEmailCount ?? "n/a"} topBand=${gather.day_shape?.topEmailBand ?? "n/a"} ` +
+            `activity=${counts.activity} meetings=${counts.meetings} quiet=${quietDay}${instructionSuppressionLogPart(suppressedByInstruction)}`,
         );
 
         return {
@@ -271,7 +290,7 @@ export const dailyBriefingWorkflow: Workflow<State> = {
         // Evening always sends; manual/forced bypass.
         if (ctx.state.slot === "morning" && ctx.state.reason === "cron" && ctx.state.quietDay) {
           const gateReason =
-            "quiet morning: no priority email, integration activity, or calendar events";
+            "quiet morning: no demanding email, integration activity, or calendar events";
           if (!ctx.state.dryRun) {
             await markBriefingSuppressed({
               briefingId,
@@ -436,7 +455,7 @@ export const dailyBriefingWorkflow: Workflow<State> = {
             ? "evening slot always sends"
             : ctx.state.reason !== "cron"
               ? `${ctx.state.reason} run bypasses morning suppression`
-              : "live signals present";
+              : "demanding signal present";
         await markBriefingSent({
           briefingId,
           emailSendId: result.emailSendId,
@@ -461,9 +480,11 @@ export const dailyBriefingWorkflow: Workflow<State> = {
 };
 
 /**
- * Live-signal counts for the suppression gate. `email.categories` holds
- * only priority categories (gatherBriefing buckets fyi/newsletter out),
- * so a non-zero email count means a priority email landed in the window.
+ * Live-signal counts for the suppression gate. `email.categories` holds the
+ * priority buckets (ambient `fyi` is suppressed before this payload). The raw
+ * `email` count is now only the fallback when the attention-aware
+ * `demandingEmailCount` signal is unavailable — the gate leads from demand, not
+ * raw volume (#259).
  */
 function gatherCounts(gather: BriefingGather): {
   email: number;
