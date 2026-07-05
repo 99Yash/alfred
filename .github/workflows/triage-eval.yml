@@ -84,23 +84,32 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - uses: pnpm/action-setup@v4
-
       - uses: actions/setup-node@v4
         with:
           node-version: 22
-          cache: pnpm
+
+      - name: Enable Corepack
+        run: corepack enable
+
+      - name: Resolve pnpm store path
+        run: echo "PNPM_STORE_PATH=$(corepack pnpm store path --silent)" >> "$GITHUB_ENV"
+
+      - uses: actions/cache@v4
+        with:
+          path: ${{ env.PNPM_STORE_PATH }}
+          key: ${{ runner.os }}-pnpm-store-${{ hashFiles('pnpm-lock.yaml') }}
+          restore-keys: ${{ runner.os }}-pnpm-store-
 
       - name: Install dependencies
-        run: pnpm install --frozen-lockfile
+        run: corepack pnpm install --frozen-lockfile
 
       - name: Apply database migrations
-        run: pnpm --filter @alfred/db db:migrate
+        run: corepack pnpm --filter @alfred/db db:migrate
 
       - name: Run triage eval (fails below threshold)
         # Scoped to the triage-classify suite by name. `evalite run` with no
         # path globs every *.eval.ts, which would pull the live behavioral
         # grounding evals (calendar/date/github) into this gate — they score 0
         # (not skip) on a provider blip and drag the average under the bar with
-        # no code defect. Those run via `pnpm eval` locally, off the CI gate.
-        run: pnpm --filter @alfred/api exec evalite run triage-classify --threshold 70
+        # no code defect. Those run via `corepack pnpm eval` locally, off the CI gate.
+        run: corepack pnpm --filter @alfred/api exec evalite run triage-classify --threshold 70
