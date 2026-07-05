@@ -9,6 +9,7 @@
 
 import { z } from "zod";
 
+import { attentionBandSchema, type AttentionBand } from "./attention.js";
 import { triageCategorySchema, type TriageCategory } from "./triage.js";
 import { isIntegrationSlug, type IntegrationSlug } from "./tools.js";
 
@@ -235,6 +236,24 @@ export interface DayShape {
   activityVolume: DayShapeVolume;
   /** Work objects that reached a shipped/resolved state — the evening recap. */
   shipped: Array<{ title: string; url?: string }>;
+  /**
+   * Count of gathered priority emails scored at the `demanding` attention band
+   * (ADR-0064). The morning suppression gate (#259) reads this: a cron morning
+   * with zero demanding email, no integration activity, and no calendar events
+   * is a genuinely quiet day and suppresses — a normal/muted item (a resolved
+   * micro-charge, a cold recruiter ask) no longer forces a send and promotes
+   * itself to the headline. Optional + additive: absent on day-shape objects
+   * persisted before this field, and on a standalone `gatherDayShape()` call
+   * that has no email context — the gate treats absence as "signal unavailable"
+   * and falls back to the raw email count (errs toward sending, ADR-0048).
+   */
+  demandingEmailCount?: number;
+  /**
+   * Highest attention band among the gathered priority emails (`muted` when
+   * there are none). Presentation/logging aid — lets a suppressed morning's log
+   * line say *why* it was quiet. Same optionality as {@link DayShape.demandingEmailCount}.
+   */
+  topEmailBand?: AttentionBand;
 }
 
 export const dayShapeSchema = z.object({
@@ -242,6 +261,8 @@ export const dayShapeSchema = z.object({
   shipped: z.array(
     z.object({ title: z.string().min(1).max(300), url: z.string().url().optional() }),
   ),
+  demandingEmailCount: z.number().int().nonnegative().optional(),
+  topEmailBand: attentionBandSchema.optional(),
 }) satisfies z.ZodType<DayShape>;
 
 /**

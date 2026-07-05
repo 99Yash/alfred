@@ -45,6 +45,19 @@ describe("attentionScore", () => {
     assert.equal(r.band, "muted");
   });
 
+  test("payment/follow_up never reach `demanding` — even unscored (#259 headline floor)", () => {
+    // The $6.79-receipt bug: a resolved micro-charge is `payment` (0.55) and,
+    // like `follow_up` (0.55), sits below the DEMANDING_AT cutoff (0.6) at FULL
+    // strength. So no significance data is needed for the morning gate to refuse
+    // to lead a briefing with one — it can never clear the demanding bar.
+    for (const category of ["payment", "follow_up"] as const) {
+      const unscored = attentionScore({ category });
+      assert.equal(unscored.band, "normal", `${category} unscored should be normal`);
+      const strong = attentionScore({ category, significanceBand: "strong" });
+      assert.notEqual(strong.band, "demanding", `${category} must never reach demanding`);
+    }
+  });
+
   test("a recurring bot alarm decays out of the demanding lane (the CloudWatch-10x case)", () => {
     const first = attentionScore({ category: "urgent", isBulkSender: true, recurrenceIndex: 0 });
     assert.equal(first.band, "demanding");
