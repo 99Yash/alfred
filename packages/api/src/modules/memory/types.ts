@@ -1,13 +1,12 @@
-import { jsonRecordSchema, memorySourceSchema } from "@alfred/sync";
+import { jsonRecordSchema, memorySourceSchema, type MemorySource } from "@alfred/contracts";
 import { z } from "zod";
-import type { MemorySource } from "@alfred/sync";
 
 /**
  * Where a fact / preference / chunk came from. Provenance discipline
  * (ADR-0019): every inferred row cites a specific origin so the user
  * can ask "why do you think that?" and get a non-hallucinated answer.
  */
-export type { MemorySource } from "@alfred/sync";
+export type { MemorySource } from "@alfred/contracts";
 
 export function parseMemorySourceOrDefault(
   value: unknown,
