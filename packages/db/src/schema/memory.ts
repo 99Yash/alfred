@@ -1,5 +1,8 @@
+import type { MemorySource } from "@alfred/contracts";
 import { sql } from "drizzle-orm";
+import type { AnyPgColumn } from "drizzle-orm/pg-core";
 import {
+  check,
   index,
   integer,
   jsonb,
@@ -12,6 +15,14 @@ import {
 import { createId, lifecycle_dates, vectorColumn } from "../helpers";
 import { user } from "./auth";
 import { documents } from "./documents";
+
+function memorySourceShapeCheck(source: AnyPgColumn) {
+  return sql`jsonb_typeof(${source}) = 'object'
+    AND ${source} ? 'kind'
+    AND ${source}->>'kind' IN ('document', 'chunk', 'tool_call', 'cold_start', 'user', 'agent')
+    AND (${source}->'id' IS NULL OR jsonb_typeof(${source}->'id') = 'string')
+    AND (${source}->'meta' IS NULL OR jsonb_typeof(${source}->'meta') = 'object')`;
+}
 
 /**
  * Memory primitives (ADRs 0012, 0013, 0019).
@@ -72,10 +83,11 @@ export const userFacts = pgTable(
     confidence: real("confidence").notNull(),
     /** proposed | confirmed | rejected | edited | superseded — see file header. */
     status: text("status").notNull().default("proposed"),
-    /** Provenance: { kind: 'document'|'chunk'|'tool_call'|'cold_start'|'user', id?: string }. */
+    /** Provenance: { kind: 'document'|'chunk'|'tool_call'|'cold_start'|'user'|'agent', id?: string }. */
     source: jsonb("source")
+      .$type<MemorySource>()
       .notNull()
-      .default(sql`'{}'::jsonb`),
+      .default(sql`'{"kind":"agent"}'::jsonb`),
     /**
      * Temporal validity window (ADR-0012). `valid_from` is when the fact
      * became true (extractor's best guess at the source's authoring time),
@@ -93,6 +105,7 @@ export const userFacts = pgTable(
     index("user_facts_key_idx").on(t.userId, t.key, t.status),
     index("user_facts_status_idx").on(t.userId, t.status, t.updatedAt),
     index("user_facts_supersedes_idx").on(t.supersedesId),
+    check("user_facts_source_shape", memorySourceShapeCheck(t.source)),
   ],
 );
 
@@ -130,12 +143,16 @@ export const userPreferences = pgTable(
     value: jsonb("value").notNull(),
     /** Optional provenance — usually `{ kind: 'user' }`; agents can suggest a pref via `{ kind: 'agent' }`. */
     source: jsonb("source")
+      .$type<MemorySource>()
       .notNull()
-      .default(sql`'{}'::jsonb`),
+      .default(sql`'{"kind":"user"}'::jsonb`),
     rowVersion: integer("row_version").notNull().default(0),
     ...lifecycle_dates,
   },
-  (t) => [uniqueIndex("user_preferences_unique_idx").on(t.userId, t.key)],
+  (t) => [
+    uniqueIndex("user_preferences_unique_idx").on(t.userId, t.key),
+    check("user_preferences_source_shape", memorySourceShapeCheck(t.source)),
+  ],
 );
 
 // ---------------------------------------------------------------------------
@@ -303,10 +320,11 @@ export const memoryChunks = pgTable(
     embedding: vectorColumn("embedding", 1024),
     /** sha256 of `content` — skip re-embed when content hasn't changed. */
     contentHash: text("content_hash").notNull(),
-    /** Provenance refs: `{ kind: 'thread_summary', threadId: '…' }`, `{ kind: 'extraction_run', runId: '…' }`. */
+    /** Provenance refs: `{ kind: 'agent', id: runId }`, `{ kind: 'cold_start', id: runId }`. */
     source: jsonb("source")
+      .$type<MemorySource>()
       .notNull()
-      .default(sql`'{}'::jsonb`),
+      .default(sql`'{"kind":"agent"}'::jsonb`),
     metadata: jsonb("metadata")
       .notNull()
       .default(sql`'{}'::jsonb`),
@@ -315,6 +333,7 @@ export const memoryChunks = pgTable(
   (t) => [
     index("memory_chunks_user_kind_idx").on(t.userId, t.kind, t.createdAt),
     uniqueIndex("memory_chunks_hash_idx").on(t.userId, t.kind, t.contentHash),
+    check("memory_chunks_source_shape", memorySourceShapeCheck(t.source)),
   ],
 );
 

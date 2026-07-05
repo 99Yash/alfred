@@ -15,6 +15,8 @@ import {
   fullBriefingSchema,
   isIntegrationSlug,
   isToolName,
+  jsonRecordSchema,
+  memorySourceSchema,
   significanceBandSchema,
   todoCreatedBySchema,
   todoExecutorSchema,
@@ -24,6 +26,7 @@ import {
   triageCategorySchema,
   type IntegrationRule,
   type IntegrationRules,
+  type MemorySource,
   type PolicyMode,
   type ToolName,
 } from "@alfred/contracts";
@@ -36,14 +39,7 @@ export const isoDateTimeStringSchema = z
     message: "must be a valid date-time string",
   });
 
-export const jsonRecordSchema = z.record(z.string(), z.unknown());
-
-export const memorySourceSchema = z.object({
-  kind: z.enum(["document", "chunk", "tool_call", "cold_start", "user", "agent"]),
-  id: z.string().optional(),
-  meta: jsonRecordSchema.optional(),
-});
-export type MemorySource = z.infer<typeof memorySourceSchema>;
+export { jsonRecordSchema, memorySourceSchema, type MemorySource };
 
 export const factValueSchema = z.union([
   z.string(),

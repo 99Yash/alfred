@@ -519,6 +519,20 @@
       "when": 1782888752524,
       "tag": "0073_slim_corsair",
       "breakpoints": true
+    },
+    {
+      "idx": 74,
+      "version": "7",
+      "when": 1783263600111,
+      "tag": "0074_acoustic_namor",
+      "breakpoints": true
+    },
+    {
+      "idx": 75,
+      "version": "7",
+      "when": 1783265869332,
+      "tag": "0075_fluffy_gamma_corps",
+      "breakpoints": true
     }
   ]
 }
