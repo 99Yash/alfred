@@ -14,7 +14,7 @@ import {
   Wrench,
   type LucideIcon,
 } from "lucide-react";
-import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import { useEffect, useId, useMemo, useRef, useState, type ReactNode } from "react";
 import { cn } from "~/lib/utils";
 import type { PreviewRecentThread } from "./preview-fixtures";
 
@@ -162,6 +162,13 @@ export function SearchPalette({ onClose, recentThreads }: SearchPaletteProps) {
   const [highlight, setHighlight] = useState(0);
   const inputRef = useRef<HTMLInputElement | null>(null);
   const listRef = useRef<HTMLDivElement | null>(null);
+  // Stable base for the combobox/listbox ARIA wiring. The input is a
+  // combobox that controls the listbox via `aria-controls`, and points at
+  // the active row via `aria-activedescendant` — that's how a screen reader
+  // learns which option is highlighted while DOM focus stays on the input.
+  const baseId = useId();
+  const listId = `${baseId}-listbox`;
+  const optionId = (item: CommandItem) => `${baseId}-opt-${item.id}`;
 
   // Focus the input on mount. The parent only renders this component
   // while the palette is open, so this fires exactly once per open.
@@ -215,6 +222,8 @@ export function SearchPalette({ onClose, recentThreads }: SearchPaletteProps) {
 
   // Clamp the highlight during render — no useEffect needed.
   const activeIndex = visualOrder.length === 0 ? 0 : Math.min(highlight, visualOrder.length - 1);
+  const activeItem = visualOrder[activeIndex];
+  const activeOptionId = activeItem ? optionId(activeItem) : undefined;
 
   // Keep the highlighted row in view when arrow-key nav walks past the
   // visible window. `block: "nearest"` is a no-op when the row is already
@@ -304,6 +313,11 @@ export function SearchPalette({ onClose, recentThreads }: SearchPaletteProps) {
               "outline-none focus-visible:outline-none",
             )}
             aria-label="Search query"
+            role="combobox"
+            aria-expanded={visualOrder.length > 0}
+            aria-controls={listId}
+            aria-activedescendant={activeOptionId}
+            aria-autocomplete="list"
           />
           <kbd
             className={cn(
@@ -316,7 +330,13 @@ export function SearchPalette({ onClose, recentThreads }: SearchPaletteProps) {
           </kbd>
         </div>
 
-        <div ref={listRef} className="max-h-[52vh] overflow-y-auto pb-2">
+        <div
+          ref={listRef}
+          id={listId}
+          role="listbox"
+          aria-label="Search results"
+          className="max-h-[52vh] overflow-y-auto pb-2"
+        >
           {visualOrder.length === 0 ? (
             <div className="px-4 py-12 text-center text-sm text-app-fg-2">No matches.</div>
           ) : (
@@ -326,6 +346,7 @@ export function SearchPalette({ onClose, recentThreads }: SearchPaletteProps) {
                   {grouped.commands.map((item, i) => (
                     <PaletteRow
                       key={item.id}
+                      id={optionId(item)}
                       item={item}
                       active={i === activeIndex}
                       onMouseEnter={() => setHighlight(i)}
@@ -341,6 +362,7 @@ export function SearchPalette({ onClose, recentThreads }: SearchPaletteProps) {
                     return (
                       <PaletteRow
                         key={item.id}
+                        id={optionId(item)}
                         item={item}
                         active={flatIndex === activeIndex}
                         onMouseEnter={() => setHighlight(flatIndex)}
@@ -383,9 +405,13 @@ export function SearchPalette({ onClose, recentThreads }: SearchPaletteProps) {
 }
 
 function Group({ label, children }: { label: string; children: ReactNode }) {
+  const labelId = useId();
   return (
-    <div className="pt-1">
-      <div className="px-3 pt-2 pb-1 text-[10.5px] font-medium tracking-tight text-app-fg-2 uppercase">
+    <div role="group" aria-labelledby={labelId} className="pt-1">
+      <div
+        id={labelId}
+        className="px-3 pt-2 pb-1 text-[10.5px] font-medium tracking-tight text-app-fg-2 uppercase"
+      >
         {label}
       </div>
       <div className="space-y-0.5 px-1.5">{children}</div>
@@ -394,11 +420,14 @@ function Group({ label, children }: { label: string; children: ReactNode }) {
 }
 
 function PaletteRow({
+  id,
   item,
   active,
   onMouseEnter,
   onClick,
 }: {
+  /** Stable id referenced by the input's `aria-activedescendant`. */
+  id: string;
   item: CommandItem;
   active: boolean;
   onMouseEnter: () => void;
@@ -408,6 +437,7 @@ function PaletteRow({
   return (
     <button
       type="button"
+      id={id}
       role="option"
       aria-selected={active}
       onMouseEnter={onMouseEnter}
