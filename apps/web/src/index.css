@@ -1155,24 +1155,31 @@
       opacity: 0;
     }
   }
+  /*
+   * Only animate scale here. Centering lives on the `translate` CSS property
+   * (Tailwind v4's `-translate-x-1/2 -translate-y-1/2` on DialogContent), which
+   * composes with `transform: scale()`. Do NOT re-apply translate(-50%, -50%)
+   * inside `transform` — in v4 the two properties stack, so the panel would
+   * animate in from the top-left quadrant and snap to center on completion.
+   */
   @keyframes dialog-content-in {
     from {
       opacity: 0;
-      transform: translate(-50%, -50%) scale(0.96);
+      transform: scale(0.96);
     }
     to {
       opacity: 1;
-      transform: translate(-50%, -50%) scale(1);
+      transform: scale(1);
     }
   }
   @keyframes dialog-content-out {
     from {
       opacity: 1;
-      transform: translate(-50%, -50%) scale(1);
+      transform: scale(1);
     }
     to {
       opacity: 0;
-      transform: translate(-50%, -50%) scale(0.96);
+      transform: scale(0.96);
     }
   }
 }
