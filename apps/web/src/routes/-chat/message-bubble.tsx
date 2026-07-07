@@ -4,6 +4,7 @@ import { Check, Copy, RotateCcw } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import type { Components } from "react-markdown";
 import ReactMarkdown from "react-markdown";
+import remend from "remend";
 import remarkBreaks from "remark-breaks";
 import remarkGfm from "remark-gfm";
 import { animateWords } from "~/lib/chat/animate-text";
@@ -143,9 +144,31 @@ function hideIncompleteTableTail(text: string): string {
   return lines.slice(0, start).join("\n"); // hold back the header / partial delimiter
 }
 
+/**
+ * Heal the text of an in-flight stream so half-typed markdown never flashes its
+ * raw markers. Two layers, applied only while streaming:
+ *
+ *  1. {@link hideIncompleteTableTail} withholds an incomplete trailing GFM table
+ *     (a block-level concern remend doesn't cover).
+ *  2. `remend` auto-closes dangling inline tokens — `**bold`, `*em`, `_em`,
+ *     `` `code ``, `~~strike~~` — and renders a half-typed link (`[label](http…`)
+ *     as plain text (`linkMode: "text-only"`) until the closing paren arrives.
+ *
+ * We adopt remend rather than a hand-rolled healer: it's a zero-dependency ~12KB
+ * ESM string transformer (Vercel's streamdown) that already gets the CommonMark
+ * flanking-delimiter, escaped-backtick, and code-span-context edge cases right —
+ * the parts a local healer quietly gets wrong. `katex` is disabled because this
+ * chat render path wires only remark-gfm + remark-breaks (no math), so there's
+ * nothing to heal a `$$` into. Healing touches streamed frames only; the final
+ * persisted body is complete markdown and renders untouched.
+ */
+function healStreamingMarkdown(text: string): string {
+  return remend(hideIncompleteTableTail(text), { linkMode: "text-only", katex: false });
+}
+
 /** Assistant markdown body, with a blinking caret + per-word reveal while streaming. */
 export function AssistantMarkdown({ text, streaming }: { text: string; streaming?: boolean }) {
-  const body = streaming ? hideIncompleteTableTail(text) : text;
+  const body = streaming ? healStreamingMarkdown(text) : text;
   return (
     <div className={cn("text-sm leading-relaxed tracking-tight text-app-fg-4", MARKDOWN_CLASSES)}>
       <ReactMarkdown
