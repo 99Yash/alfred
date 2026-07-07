@@ -621,8 +621,10 @@ export function applyOverrideFloor(
  * `awaiting_reply` is the zero-bury-risk case and is always demoted for a
  * confident sender kind. `action_needed`/`urgent` require a narrow structural
  * reason: passive collaboration state transitions, passive GitHub PR/CI
- * notifications, or group-broadcast sign-in confirmations where the body also
- * says no action is needed if the sign-in was recognized.
+ * notifications, group-broadcast sign-in confirmations where the body also says
+ * no action is needed if the sign-in was recognized, or monitoring-alarm
+ * broadcasts (CloudWatch/SNS-style) fanned out to a distribution address the user
+ * is not a direct recipient of (#354 — shape AND audience, never shape alone).
  *
  * `senderKind` is non-null ONLY for a confident group/service — `resolveSenderKind`
  * already gates kind ∈ {group,service} AND confidence >=
@@ -635,7 +637,15 @@ type SenderKindDemotionFloorContext = {
   signalText?: string;
   sender?: string | null;
   subject?: string | null;
+  to?: string | null;
   cc?: string | null;
+  /**
+   * The connected account's own address (the user being triaged). The AUDIENCE
+   * half of the monitoring-alarm gate (#354): a broadcast the user is not a
+   * direct recipient of is not their personal action. Absent → the audience gate
+   * is a conservative no-op (we cannot prove a broadcast, so we do not demote).
+   */
+  accountEmail?: string | null;
 };
 
 export function applySenderKindDemotionFloor(
@@ -658,7 +668,9 @@ export function applySenderKindDemotionFloor(
         ? `${senderKind.kind} sender sent a passive GitHub PR/CI notification`
         : reason === "broadcast_auth_signin_confirmation"
           ? `${senderKind.kind} sender sent a broadcast sign-in confirmation`
-          : `${senderKind.kind} sender sent a passive collaboration state transition`;
+          : reason === "monitoring_alarm"
+            ? `${senderKind.kind} sender broadcast a monitoring alarm the user was not addressed on`
+            : `${senderKind.kind} sender sent a passive collaboration state transition`;
   return {
     classification: {
       ...classification,
@@ -690,7 +702,9 @@ function senderKindFloorShouldDemoteCategory(
   reason: SenderKindDemotionReason | null,
 ): boolean {
   if (category === "awaiting_reply") return true;
-  if (category === "urgent") return reason === "broadcast_auth_signin_confirmation";
+  if (category === "urgent") {
+    return reason === "broadcast_auth_signin_confirmation" || reason === "monitoring_alarm";
+  }
   if (category !== "action_needed") return false;
   return reason !== null;
 }
@@ -713,7 +727,8 @@ function isPassiveCollaborationStateTransition(signalText: string): boolean {
 type SenderKindDemotionReason =
   | "collab_state_transition"
   | "github_passive_pr_or_ci"
-  | "broadcast_auth_signin_confirmation";
+  | "broadcast_auth_signin_confirmation"
+  | "monitoring_alarm";
 
 function senderKindDemotionReason(
   context: SenderKindDemotionFloorContext,
@@ -726,6 +741,7 @@ function senderKindDemotionReason(
   if (isBroadcastAuthSignInConfirmation(context, senderKind)) {
     return "broadcast_auth_signin_confirmation";
   }
+  if (isMonitoringAlarmBroadcast(context)) return "monitoring_alarm";
   return null;
 }
 
@@ -765,6 +781,49 @@ function isBroadcastAuthSignInConfirmation(
     AUTH_NO_ACTION_IF_YOU_RE.test(text) &&
     AUTH_UNRECOGNIZED_RE.test(text)
   );
+}
+
+// A monitoring/alarm broadcast (#354). CloudWatch/SNS-style alarms fan out to a
+// distribution address (engineering@, oncall@, alerts@) that the user is not a
+// direct recipient of — a team FYI, not the user's personal urgent/action_needed.
+// The cheap model reliably reads the alarming body as demanding; the floor demotes
+// it to fyi (visible, never buried) ONLY when the SHAPE is a monitoring alarm AND
+// the AUDIENCE is a broadcast the user was not addressed on. Shape alone is not
+// enough: an alarm the user is directly To/Cc'd on (they own it, or are on-call
+// for it) keeps its category (ADR-0066 audience gate). Anchored on the observed
+// AWS SNS/CloudWatch case; the sender set + `ALARM:`/`ALERT:` subject generalize
+// to PagerDuty/Grafana/Datadog/Opsgenie without widening the audience gate.
+const MONITORING_SENDER_RE = /sns\.amazonaws\.com|cloudwatch|pagerduty|opsgenie|grafana|datadog/i;
+const MONITORING_ALARM_SUBJECT_RE = /^\s*(?:ALARM|ALERT)\b\s*:/i;
+
+function isMonitoringAlarmBroadcast(context: SenderKindDemotionFloorContext): boolean {
+  const shaped =
+    MONITORING_SENDER_RE.test(context.sender ?? "") ||
+    MONITORING_ALARM_SUBJECT_RE.test(context.subject ?? "");
+  if (!shaped) return false;
+  const signalText = context.signalText ?? "";
+  // A leaked-secret alarm must escape demotion entirely — keep the security
+  // escalation + any legitimate rotate-now todo (mirrors the collab carve-out).
+  if (OVERRIDE_FLOOR_SECRET_RE.test(signalText)) return false;
+  // If the alarm names / @-assigns / directly asks the user, it is theirs — keep.
+  if (COLLAB_DIRECT_OWNERSHIP_RE.test(signalText)) return false;
+  return isBroadcastAudience(context);
+}
+
+/**
+ * The audience half of the monitoring-alarm gate: true only when we can PROVE the
+ * user was not a direct recipient — the connected account's own address is known
+ * AND absent from both To and Cc. Missing identity or missing recipient headers
+ * are conservative no-ops (we cannot prove a broadcast, so we do not demote). A
+ * user in Cc counts as directly addressed. PURE.
+ */
+function isBroadcastAudience(context: SenderKindDemotionFloorContext): boolean {
+  const account = (context.accountEmail ?? "").trim().toLowerCase();
+  if (!account) return false;
+  const to = (context.to ?? "").toLowerCase();
+  const cc = (context.cc ?? "").toLowerCase();
+  if (!to && !cc) return false;
+  return !to.includes(account) && !cc.includes(account);
 }
 
 /** A resolved rail todo to mint — the cheap model's proposal after the gate. */
@@ -1025,6 +1084,7 @@ export async function classifyEmail(
   const floorResult = applyOverrideFloor(working, signalText);
   const meta = args.document.metadata;
   const from = typeof meta.from === "string" ? meta.from : null;
+  const to = typeof meta.to === "string" ? meta.to : null;
   const cc = typeof meta.cc === "string" ? meta.cc : null;
   const kindFloor = applySenderKindDemotionFloor(
     floorResult.classification,
@@ -1033,7 +1093,9 @@ export async function classifyEmail(
       signalText,
       sender: from,
       subject: args.document.title,
+      to,
       cc,
+      accountEmail: args.identity?.email ?? null,
     },
   );
   const classification = kindFloor.classification;

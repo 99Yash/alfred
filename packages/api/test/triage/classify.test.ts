@@ -356,6 +356,136 @@ describe("applySenderKindDemotionFloor", () => {
     assert.equal(r.classification.category, "urgent");
   });
 
+  // --- #354: monitoring-alarm broadcasts (shape AND audience) ---
+  const ACCOUNT = "yash.k@oliv.ai";
+
+  test("demotes urgent → fyi for a CloudWatch/SNS alarm broadcast the user is not addressed on", () => {
+    const r = applySenderKindDemotionFloor(
+      classification({
+        category: "urgent",
+        todoSuggestion: { name: "Investigate baserow response time" },
+        todoDecision: { outcome: "proposed" },
+      }),
+      groupKind,
+      {
+        sender: "AWS Notifications <no-reply@sns.amazonaws.com>",
+        subject: 'ALARM: "baserow-response-time" in EU (Ireland)',
+        signalText:
+          'ALARM: "baserow-response-time" in EU (Ireland)\n' +
+          "Threshold Crossed: 1 datapoint greater than the threshold (2000.0).",
+        to: "engineering@oliv.ai",
+        accountEmail: ACCOUNT,
+      },
+    );
+    assert.equal(r.demoted, true);
+    assert.equal(r.classification.category, "fyi");
+    assert.equal(r.classification.todoSuggestion, null);
+    assert.equal(r.classification.todoDecision?.outcome, "no_obligation");
+    assert.equal(resolveTodoSuggestion(r.classification), null);
+    assert.match(r.classification.rationale, /sender-kind floor/i);
+  });
+
+  test("demotes action_needed → fyi for a broadcast monitoring alarm too", () => {
+    const r = applySenderKindDemotionFloor(
+      classification({ category: "action_needed" }),
+      serviceKind,
+      {
+        sender: "Grafana <alerts@grafana.net>",
+        subject: "[ALERTING] ElastiCache CurrConnections high",
+        signalText: "ALERT: ElastiCache CurrConnections is above the configured threshold.",
+        to: "oncall@oliv.ai",
+        accountEmail: ACCOUNT,
+      },
+    );
+    assert.equal(r.demoted, true);
+    assert.equal(r.classification.category, "fyi");
+  });
+
+  test("keeps a monitoring alarm the user is directly addressed on (To)", () => {
+    const r = applySenderKindDemotionFloor(classification({ category: "urgent" }), groupKind, {
+      sender: "AWS Notifications <no-reply@sns.amazonaws.com>",
+      subject: 'ALARM: "checkout-error-rate" in us-east-1',
+      signalText: "ALARM: checkout-error-rate crossed the threshold.",
+      to: `On-call <${ACCOUNT}>`,
+      accountEmail: ACCOUNT,
+    });
+    assert.equal(r.demoted, false);
+    assert.equal(r.classification.category, "urgent");
+  });
+
+  test("keeps a monitoring alarm when the user is in Cc (still a direct addressee)", () => {
+    const r = applySenderKindDemotionFloor(classification({ category: "urgent" }), groupKind, {
+      sender: "no-reply@sns.amazonaws.com",
+      subject: "ALARM: prod-db-cpu",
+      signalText: "ALARM: prod-db-cpu is high.",
+      to: "engineering@oliv.ai",
+      cc: ACCOUNT,
+      accountEmail: ACCOUNT,
+    });
+    assert.equal(r.demoted, false);
+    assert.equal(r.classification.category, "urgent");
+  });
+
+  test("keeps a monitoring alarm when identity is unknown (cannot prove broadcast)", () => {
+    const r = applySenderKindDemotionFloor(classification({ category: "urgent" }), groupKind, {
+      sender: "no-reply@sns.amazonaws.com",
+      subject: "ALARM: prod-db-cpu",
+      signalText: "ALARM: prod-db-cpu is high.",
+      to: "engineering@oliv.ai",
+      accountEmail: null,
+    });
+    assert.equal(r.demoted, false);
+    assert.equal(r.classification.category, "urgent");
+  });
+
+  test("keeps a monitoring alarm with no recipient headers (cannot prove broadcast)", () => {
+    const r = applySenderKindDemotionFloor(classification({ category: "urgent" }), groupKind, {
+      sender: "no-reply@sns.amazonaws.com",
+      subject: "ALARM: prod-db-cpu",
+      signalText: "ALARM: prod-db-cpu is high.",
+      accountEmail: ACCOUNT,
+    });
+    assert.equal(r.demoted, false);
+    assert.equal(r.classification.category, "urgent");
+  });
+
+  test("keeps an alarm that directly @-assigns / asks the user (ownership veto)", () => {
+    const r = applySenderKindDemotionFloor(classification({ category: "urgent" }), groupKind, {
+      sender: "no-reply@sns.amazonaws.com",
+      subject: 'ALARM: "payments-api" down',
+      signalText:
+        'ALARM: "payments-api" is down. @yash can you pick this up — you are the on-call owner.',
+      to: "engineering@oliv.ai",
+      accountEmail: ACCOUNT,
+    });
+    assert.equal(r.demoted, false);
+    assert.equal(r.classification.category, "urgent");
+  });
+
+  test("keeps a broadcast alarm that also exposes a secret (secret escapes demotion)", () => {
+    const r = applySenderKindDemotionFloor(classification({ category: "urgent" }), groupKind, {
+      sender: "no-reply@sns.amazonaws.com",
+      subject: "ALARM: secret scanner",
+      signalText: "ALARM: an API key was leaked in the build logs — rotate it now.",
+      to: "engineering@oliv.ai",
+      accountEmail: ACCOUNT,
+    });
+    assert.equal(r.demoted, false);
+    assert.equal(r.classification.category, "urgent");
+  });
+
+  test("keeps an urgent broadcast that is NOT monitoring-shaped (shape gate)", () => {
+    const r = applySenderKindDemotionFloor(classification({ category: "urgent" }), groupKind, {
+      sender: "Ops <ops@oliv.ai>",
+      subject: "All hands: production incident war room now",
+      signalText: "Join the incident bridge — customer API requests are failing.",
+      to: "engineering@oliv.ai",
+      accountEmail: ACCOUNT,
+    });
+    assert.equal(r.demoted, false);
+    assert.equal(r.classification.category, "urgent");
+  });
+
   test("no-op when senderKind is null (silent graph = no demotion)", () => {
     const c = classification({ category: "awaiting_reply" });
     const r = applySenderKindDemotionFloor(c, null);
