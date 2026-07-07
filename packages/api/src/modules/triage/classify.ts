@@ -12,6 +12,7 @@ import {
 import { TRIAGE_CATEGORIES, type TriageCategory } from "@alfred/integrations/google";
 import { z } from "zod";
 import type { Observations } from "./observations";
+import { canonicalizeEmailForMatch, recipientAddresses } from "./sender-context";
 
 /**
  * Email triage classifier — context-rich, cheap-model-always (ADR-0051).
@@ -784,16 +785,21 @@ function isBroadcastAuthSignInConfirmation(
 }
 
 // A monitoring/alarm broadcast (#354). CloudWatch/SNS-style alarms fan out to a
-// distribution address (engineering@, oncall@, alerts@) that the user is not a
-// direct recipient of — a team FYI, not the user's personal urgent/action_needed.
-// The cheap model reliably reads the alarming body as demanding; the floor demotes
-// it to fyi (visible, never buried) ONLY when the SHAPE is a monitoring alarm AND
-// the AUDIENCE is a broadcast the user was not addressed on. Shape alone is not
-// enough: an alarm the user is directly To/Cc'd on (they own it, or are on-call
-// for it) keeps its category (ADR-0066 audience gate). Anchored on the observed
-// AWS SNS/CloudWatch case; the sender set + `ALARM:`/`ALERT:` subject generalize
-// to PagerDuty/Grafana/Datadog/Opsgenie without widening the audience gate.
-const MONITORING_SENDER_RE = /sns\.amazonaws\.com|cloudwatch|pagerduty|opsgenie|grafana|datadog/i;
+// team address the user is not a direct recipient of — a team FYI, not the user's
+// personal urgent/action_needed. The cheap model reliably reads the alarming body
+// as demanding; the floor demotes it to fyi (visible, never buried) ONLY when the
+// SHAPE is a monitoring alarm AND the AUDIENCE is broadcast (`isBroadcastAudience`:
+// the user is not in To/Cc — broader than a literal distribution address; an alarm
+// To a single other individual also qualifies). Shape alone is not enough: an alarm
+// the user is directly To/Cc'd on (they own it, or are on-call for it) keeps its
+// category (ADR-0066 audience gate).
+//
+// Only the AWS SNS `group`-classified case is observed in prod. CloudWatch itself is
+// delivered VIA SNS (`no-reply@sns.amazonaws.com` + an `ALARM:` subject), so the SNS
+// sender + subject tokens already cover it; PagerDuty/Grafana/Datadog/Opsgenie are a
+// HYPOTHESIS — they only fire if `resolveSenderKind` confidently tags them group/
+// service, and are unverified against real mail.
+const MONITORING_SENDER_RE = /sns\.amazonaws\.com|pagerduty|opsgenie|grafana|datadog/i;
 const MONITORING_ALARM_SUBJECT_RE = /^\s*(?:ALARM|ALERT)\b\s*:/i;
 
 function isMonitoringAlarmBroadcast(context: SenderKindDemotionFloorContext): boolean {
@@ -807,6 +813,13 @@ function isMonitoringAlarmBroadcast(context: SenderKindDemotionFloorContext): bo
   if (OVERRIDE_FLOOR_SECRET_RE.test(signalText)) return false;
   // If the alarm names / @-assigns / directly asks the user, it is theirs — keep.
   if (COLLAB_DIRECT_OWNERSHIP_RE.test(signalText)) return false;
+  // DELIBERATE ASYMMETRY with the collaboration path: we do NOT honor
+  // COLLAB_INTRINSIC_STAKE_RE here. Every alarm body reads as threshold-crossing /
+  // "critical" / "outage" by construction, so an intrinsic-stake veto would neuter
+  // the floor entirely. The audience gate is what makes this safe: a genuine SEV1
+  // the user is not To/Cc'd on is a team FYI, not their personal urgent — and it
+  // still renders (demote to fyi, never bury). A SEV1 that IS the user's own is
+  // caught by the ownership veto above or by them being a direct recipient below.
   return isBroadcastAudience(context);
 }
 
@@ -816,14 +829,21 @@ function isMonitoringAlarmBroadcast(context: SenderKindDemotionFloorContext): bo
  * AND absent from both To and Cc. Missing identity or missing recipient headers
  * are conservative no-ops (we cannot prove a broadcast, so we do not demote). A
  * user in Cc counts as directly addressed. PURE.
+ *
+ * Membership is by EXACT parsed address, not raw-header substring: a substring
+ * test over-demotes a user addressed via a Gmail plus-tag (`u+alerts@x` does not
+ * contain `u@x`) and under-demotes on an incidental substring (`u@x` inside
+ * `notu@x`). `recipientAddresses` parses each To/Cc token and folds the plus-tag,
+ * so a plus-addressed direct recipient still counts as addressed.
  */
 function isBroadcastAudience(context: SenderKindDemotionFloorContext): boolean {
-  const account = (context.accountEmail ?? "").trim().toLowerCase();
+  const account = canonicalizeEmailForMatch(context.accountEmail);
   if (!account) return false;
-  const to = (context.to ?? "").toLowerCase();
-  const cc = (context.cc ?? "").toLowerCase();
-  if (!to && !cc) return false;
-  return !to.includes(account) && !cc.includes(account);
+  const to = context.to ?? "";
+  const cc = context.cc ?? "";
+  if (!to.trim() && !cc.trim()) return false;
+  const addressed = new Set([...recipientAddresses(to), ...recipientAddresses(cc)]);
+  return !addressed.has(account);
 }
 
 /** A resolved rail todo to mint — the cheap model's proposal after the gate. */
