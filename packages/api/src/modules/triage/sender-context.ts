@@ -138,6 +138,51 @@ function parseFromHeader(raw: string | null): ParsedFrom | null {
 }
 
 // ---------------------------------------------------------------------------
+// Recipient (`To:`/`Cc:`) address extraction
+// ---------------------------------------------------------------------------
+
+// Every `local@domain` token in a header, ignoring `<>`, quotes, commas, and
+// comment parens as boundaries. A global scan rather than a comma split so a
+// quoted display name (`"Doe, Jane" <j@x>`) does not corrupt a token boundary —
+// the exact reason a naive `header.split(",")` rots.
+const RECIPIENT_ADDRESS_RE = /[^\s<>,";()]+@[^\s<>,";()]+/g;
+
+/**
+ * Every email address in a `To:`/`Cc:` header, each folded to the canonical
+ * comparison form (see {@link canonicalizeEmailForMatch}). PURE — no DB, no LLM.
+ * Reused by the triage monitoring-alarm audience gate (#354); lives here because
+ * `sender-context` is triage's DB-free address-parsing home (importing the
+ * `memory/team-graph` splitter would pull DB in and cycle `triage → memory`).
+ */
+export function recipientAddresses(header: string | null | undefined): string[] {
+  const out: string[] = [];
+  for (const m of String(header ?? "").matchAll(RECIPIENT_ADDRESS_RE)) {
+    const addr = canonicalizeEmailForMatch(m[0]);
+    if (addr) out.push(addr);
+  }
+  return out;
+}
+
+/**
+ * Lowercase/trim an email and drop a Gmail `+tag` suffix from the local part
+ * (`u+alerts@x.com` → `u@x.com`) so a plus-addressed recipient still matches the
+ * base account. Returns `""` when the input is not a `local@domain` address.
+ * PURE.
+ */
+export function canonicalizeEmailForMatch(raw: string | null | undefined): string {
+  const value = String(raw ?? "")
+    .trim()
+    .toLowerCase();
+  const at = value.lastIndexOf("@");
+  if (at < 1 || at === value.length - 1) return "";
+  const localFull = value.slice(0, at);
+  const plus = localFull.indexOf("+");
+  const local = plus > 0 ? localFull.slice(0, plus) : localFull;
+  if (!local) return "";
+  return `${local}@${value.slice(at + 1)}`;
+}
+
+// ---------------------------------------------------------------------------
 // fromKind classification
 // ---------------------------------------------------------------------------
 
