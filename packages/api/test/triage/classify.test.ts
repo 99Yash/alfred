@@ -486,6 +486,47 @@ describe("applySenderKindDemotionFloor", () => {
     assert.equal(r.classification.category, "urgent");
   });
 
+  test("keeps a monitoring alarm the user is addressed on via a Gmail plus-tag", () => {
+    // `yash.k+alerts@oliv.ai` does not contain `yash.k@oliv.ai` as a substring —
+    // the old raw-substring test over-demoted this direct (plus-addressed) recipient.
+    const r = applySenderKindDemotionFloor(classification({ category: "urgent" }), groupKind, {
+      sender: "no-reply@sns.amazonaws.com",
+      subject: "ALARM: prod-db-cpu",
+      signalText: "ALARM: prod-db-cpu is high.",
+      to: `Alerts <yash.k+alerts@oliv.ai>`,
+      accountEmail: ACCOUNT,
+    });
+    assert.equal(r.demoted, false);
+    assert.equal(r.classification.category, "urgent");
+  });
+
+  test("demotes a broadcast whose recipient merely CONTAINS the account as a substring", () => {
+    // `notyash.k@oliv.ai` contains `yash.k@oliv.ai` — a raw substring test wrongly
+    // read the user as addressed and kept the category; exact membership demotes.
+    const r = applySenderKindDemotionFloor(classification({ category: "urgent" }), groupKind, {
+      sender: "no-reply@sns.amazonaws.com",
+      subject: "ALARM: prod-db-cpu",
+      signalText: "ALARM: prod-db-cpu is high.",
+      to: "notyash.k@oliv.ai",
+      accountEmail: ACCOUNT,
+    });
+    assert.equal(r.demoted, true);
+    assert.equal(r.classification.category, "fyi");
+  });
+
+  test("keeps a monitoring alarm to a quoted-name recipient list the user is in", () => {
+    // Comma inside a quoted display name must not corrupt token boundaries.
+    const r = applySenderKindDemotionFloor(classification({ category: "urgent" }), groupKind, {
+      sender: "no-reply@sns.amazonaws.com",
+      subject: "ALARM: prod-db-cpu",
+      signalText: "ALARM: prod-db-cpu is high.",
+      to: `"Doe, Jane" <jane@oliv.ai>, "Kar, Yash" <${ACCOUNT}>`,
+      accountEmail: ACCOUNT,
+    });
+    assert.equal(r.demoted, false);
+    assert.equal(r.classification.category, "urgent");
+  });
+
   test("no-op when senderKind is null (silent graph = no demotion)", () => {
     const c = classification({ category: "awaiting_reply" });
     const r = applySenderKindDemotionFloor(c, null);
@@ -953,6 +994,54 @@ describe("classifyEmail", () => {
             evidenceCodes: ["gmail:list_id", "gmail:list_unsubscribe", "gmail:precedence:list"],
             entityId: "ent_engineering",
             displayName: "Engineering",
+          },
+        }),
+        runPass: model.runPass,
+      }),
+    );
+    assert.equal(result.classification.category, "fyi");
+    assert.equal(result.audit.senderKindDemoted, true);
+    assert.equal(result.audit.firstPass.category, "urgent");
+    assert.equal(result.model, "injected+kindfloor");
+    assert.equal(resolveTodoSuggestion(result.classification), null);
+  });
+
+  test("sender-kind floor demotes a monitoring-alarm broadcast end-to-end (threads to + identity)", async () => {
+    // Guards the two fields #354 added to the floor context — `metadata.to` and
+    // `identity.email`. A refactor that drops `identity` makes `accountEmail` null,
+    // `isBroadcastAudience` returns false, and the floor silently no-ops in prod;
+    // the predicate-level tests would still pass. This locks the wiring end-to-end.
+    const model = scriptedModel(
+      classification({
+        category: "urgent",
+        confidence: 0.9,
+        todoSuggestion: { name: "Investigate baserow response time" },
+        todoDecision: { outcome: "proposed" },
+      }),
+    );
+    const result = await classifyEmail(
+      args({
+        document: {
+          id: "doc_sns_alarm_broadcast",
+          title: 'ALARM: "baserow-response-time" in EU (Ireland)',
+          content:
+            "From: AWS Notifications <no-reply@sns.amazonaws.com>\n" +
+            "To: engineering@oliv.ai\n\n" +
+            "Threshold Crossed: 1 datapoint greater than the threshold (2000.0).",
+          authoredAt: null,
+          metadata: {
+            from: "AWS Notifications <no-reply@sns.amazonaws.com>",
+            to: "engineering@oliv.ai",
+          },
+        },
+        identity: { email: "yash.k@oliv.ai" },
+        observations: observations({
+          senderKind: {
+            kind: "group",
+            confidence: 0.99,
+            evidenceCodes: ["gmail:list_id"],
+            entityId: "ent_sns",
+            displayName: "AWS Notifications",
           },
         }),
         runPass: model.runPass,
