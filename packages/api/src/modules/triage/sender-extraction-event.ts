@@ -1,4 +1,8 @@
-import { type AccountPersona, type SenderContext } from "@alfred/contracts";
+import {
+  type AccountPersona,
+  type CollabActivityKind,
+  type SenderContext,
+} from "@alfred/contracts";
 import { type TriageCategory } from "@alfred/integrations/google";
 import type { ClassifyAudit, TriageClassification } from "./classify";
 import type { Observations } from "./observations";
@@ -40,6 +44,8 @@ export interface SenderExtractionEvent {
   senderKindDemotedPersonTreatment: boolean;
   /** True when the sender-kind floor demoted the final category `awaiting_reply` → `fyi` (#210). */
   senderKindDemotedCategory: boolean;
+  /** Structured reason for a sender-kind category demotion, if one fired. */
+  senderKindDemotionReason: ClassifyAudit["senderKindDemotionReason"];
   threadMessages: number;
   threadNewest: Observations["thread"]["newestDirection"];
   gmailImportant: boolean;
@@ -47,13 +53,16 @@ export interface SenderExtractionEvent {
   contentFlags: Observations["content"];
   firstPassCategory: TriageCategory | null;
   firstPassConfidence: number | null;
+  firstPassCollabActivity: CollabActivityKind | null;
   conflict: NonNullable<ClassifyAudit["conflict"]>["kind"] | null;
   secondPassCategory: TriageCategory | null;
+  secondPassCollabActivity: CollabActivityKind | null;
   secondPassFailure: string | null;
   floorMatched: boolean;
   floorForced: boolean;
   finalCategory: TriageCategory;
   finalConfidence: number;
+  finalCollabActivity: CollabActivityKind | null;
   todoSuggested: boolean;
   standingInstructionSuppressedTodo: boolean;
   standingInstructionFactId: string | null;
@@ -101,6 +110,7 @@ export function senderExtractionEvent(args: {
     senderKindEvidenceCodes: obs.senderKind?.evidenceCodes ?? [],
     senderKindDemotedPersonTreatment: Boolean(obs.senderKind),
     senderKindDemotedCategory: audit?.senderKindDemoted ?? false,
+    senderKindDemotionReason: audit?.senderKindDemotionReason ?? null,
     threadMessages: obs.thread.messageCount,
     threadNewest: obs.thread.newestDirection,
     gmailImportant: obs.gmail.important,
@@ -109,14 +119,17 @@ export function senderExtractionEvent(args: {
     // classify audit (null on the fallback/default path)
     firstPassCategory: audit?.firstPass.category ?? null,
     firstPassConfidence: audit?.firstPass.confidence ?? null,
+    firstPassCollabActivity: audit?.firstPass.collabActivity ?? null,
     conflict: audit?.conflict?.kind ?? null,
     secondPassCategory: audit?.secondPass?.category ?? null,
+    secondPassCollabActivity: audit?.secondPass?.collabActivity ?? null,
     secondPassFailure: audit?.secondPassFailure?.message ?? null,
     floorMatched: audit?.floorMatched ?? false,
     floorForced: audit?.floorForced ?? false,
     // final outcome
     finalCategory: args.classification.category,
     finalConfidence: args.classification.confidence,
+    finalCollabActivity: args.classification.collabActivity ?? null,
     todoSuggested: args.todoSuggested,
     standingInstructionSuppressedTodo: Boolean(args.standingSuppression),
     standingInstructionFactId: args.standingSuppression?.factId ?? null,

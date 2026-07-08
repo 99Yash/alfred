@@ -136,9 +136,29 @@ export const COLLAB_ACTIVITY_OWNERSHIP_KINDS = [
   "mentioned_user",
   "comment_to_user",
 ] as const satisfies readonly CollabActivityKind[];
+export type OwnershipCollabActivityKind = (typeof COLLAB_ACTIVITY_OWNERSHIP_KINDS)[number];
+
+export const COLLAB_ACTIVITY_PASSIVE_KINDS = [
+  "state_change",
+  "other_activity",
+  "digest",
+] as const satisfies readonly CollabActivityKind[];
+export type PassiveCollabActivityKind = (typeof COLLAB_ACTIVITY_PASSIVE_KINDS)[number];
+
+// Compile-time partition guard: a newly-added kind must be explicitly classified
+// as ownership or passive before the sender-kind floor can consume it.
+export const COLLAB_ACTIVITY_PARTITION_CHECK: Record<
+  Exclude<CollabActivityKind, OwnershipCollabActivityKind | PassiveCollabActivityKind>,
+  never
+> &
+  Record<Extract<OwnershipCollabActivityKind, PassiveCollabActivityKind>, never> = {};
 
 export function isOwnershipCollabActivity(kind: CollabActivityKind): boolean {
   return (COLLAB_ACTIVITY_OWNERSHIP_KINDS as readonly CollabActivityKind[]).includes(kind);
+}
+
+export function isPassiveCollabActivity(kind: CollabActivityKind): boolean {
+  return (COLLAB_ACTIVITY_PASSIVE_KINDS as readonly CollabActivityKind[]).includes(kind);
 }
 
 export const ACCOUNT_PERSONAS = ["work", "personal"] as const;

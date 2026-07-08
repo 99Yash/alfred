@@ -120,8 +120,17 @@ test("senderExtractionEvent records the sender-kind demotion breadcrumb", () => 
   const event = senderExtractionEvent({
     senderContextResult: senderContextResult(),
     observations: observations(),
-    audit: null,
-    classification: classification(),
+    audit: {
+      firstPass: classification({ category: "action_needed", collabActivity: "other_activity" }),
+      conflict: null,
+      secondPass: null,
+      secondPassFailure: null,
+      senderKindDemoted: true,
+      senderKindDemotionReason: "collab_passive_activity",
+      floorMatched: false,
+      floorForced: false,
+    },
+    classification: classification({ collabActivity: "other_activity" }),
     todoSuggested: false,
     standingSuppression: null,
     standingSuppressionReadFailed: false,
@@ -131,6 +140,10 @@ test("senderExtractionEvent records the sender-kind demotion breadcrumb", () => 
   assert.equal(event.senderKindConfidence, 0.99);
   assert.deepEqual(event.senderKindEvidenceCodes, ["gmail:list_id"]);
   assert.equal(event.senderKindDemotedPersonTreatment, true);
+  assert.equal(event.senderKindDemotedCategory, true);
+  assert.equal(event.senderKindDemotionReason, "collab_passive_activity");
+  assert.equal(event.firstPassCollabActivity, "other_activity");
+  assert.equal(event.finalCollabActivity, "other_activity");
   assert.equal(event.knownContact, false);
   assert.equal(event.senderRelationship, null);
 });
@@ -144,8 +157,14 @@ function senderContextResult(): SenderContextResult {
   };
 }
 
-function classification(): TriageClassification {
-  return { category: "fyi", confidence: 0.8, rationale: "because", todoSuggestion: null };
+function classification(overrides: Partial<TriageClassification> = {}): TriageClassification {
+  return {
+    category: "fyi",
+    confidence: 0.8,
+    rationale: "because",
+    todoSuggestion: null,
+    ...overrides,
+  };
 }
 
 function observations(): Observations {
