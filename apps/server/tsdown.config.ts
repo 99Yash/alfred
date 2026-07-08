@@ -20,6 +20,11 @@ export default defineConfig({
     "./src/scripts/backfills/backfill-gmail-observations-committed.ts",
     "./src/scripts/backfills/project-user-model-gmail-shadow-committed.ts",
     "./src/scripts/backfills/backfill-object-state-github-committed.ts",
+    // Committing sibling of dry-run-triage-recategorize: deletes stale agent
+    // todos and re-runs the real email-triage workflow so merged demotion slices
+    // (sender-kind floor, #354 alarm, collabActivity) re-tag existing mail, not
+    // just new mail. Bundled so it runs on prod via `railway ssh -s server`.
+    "./src/scripts/backfills/backfill-triage-committed.ts",
     "./src/scripts/dry-runs/dry-run-triage-recategorize-committed.ts",
     "./src/scripts/dry-runs/dry-run-reply-reeval-reconcile.ts",
     "./src/scripts/repairs/repair-sent-mislabeled-triage-committed.ts",
