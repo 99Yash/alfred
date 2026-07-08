@@ -342,6 +342,26 @@ describe("applySenderKindDemotionFloor", () => {
     assert.equal(r.classification.category, "action_needed");
   });
 
+  test("passive collabActivity demotes when only the task title carries scary words", () => {
+    const r = applySenderKindDemotionFloor(
+      classification({
+        category: "action_needed",
+        todoSuggestion: { name: "Handle the ClickUp task" },
+        todoDecision: { outcome: "proposed" },
+      }),
+      serviceKind,
+      {
+        signalText:
+          "Critical security payment task\nAkash commented\nyes good catch\nView comment or reply",
+        collabVetoText: "Akash commented\nyes good catch\nView comment or reply",
+        collabActivity: "other_activity",
+      },
+    );
+    assert.equal(r.demoted, true);
+    assert.equal(r.reason, "collab_passive_activity");
+    assert.equal(r.classification.category, "fyi");
+  });
+
   test("passive collabActivity from a weak service-role mailbox is spared (evidence gate)", () => {
     const r = applySenderKindDemotionFloor(
       classification({ category: "action_needed" }),
@@ -1009,6 +1029,54 @@ describe("classifyEmail", () => {
     );
     assert.equal(result.classification.category, "fyi");
     assert.equal(result.audit.senderKindDemoted, true);
+    assert.equal(result.model, "injected+kindfloor");
+    assert.equal(resolveTodoSuggestion(result.classification), null);
+  });
+
+  test("sender-kind floor demotes model-emitted passive collabActivity end-to-end", async () => {
+    const model = scriptedModel(
+      classification({
+        category: "action_needed",
+        confidence: 0.88,
+        todoSuggestion: { name: "Review the ClickUp task" },
+        todoDecision: { outcome: "proposed" },
+        collabActivity: "other_activity",
+      }),
+    );
+    const result = await classifyEmail(
+      args({
+        document: {
+          id: "doc_clickup_passive_comment",
+          title: "Critical security payment task title",
+          content:
+            "From: Oliv AI <notifications@tasks.clickup.com>\n" +
+            "To: yash.k@oliv.ai\n\n" +
+            "Akash Ojha commented\n" +
+            "yes good catch\n" +
+            "View comment or reply to add a comment",
+          authoredAt: null,
+          metadata: {
+            from: "Oliv AI <notifications@tasks.clickup.com>",
+            to: "yash.k@oliv.ai",
+          },
+        },
+        observations: observations({
+          senderKind: {
+            kind: "service",
+            confidence: 0.92,
+            evidenceCodes: ["email:local:service_strong"],
+            entityId: "ent_clickup",
+            displayName: "Oliv AI",
+          },
+        }),
+        runPass: model.runPass,
+      }),
+    );
+    assert.equal(result.classification.category, "fyi");
+    assert.equal(result.classification.collabActivity, "other_activity");
+    assert.equal(result.audit.firstPass.collabActivity, "other_activity");
+    assert.equal(result.audit.senderKindDemoted, true);
+    assert.equal(result.audit.senderKindDemotionReason, "collab_passive_activity");
     assert.equal(result.model, "injected+kindfloor");
     assert.equal(resolveTodoSuggestion(result.classification), null);
   });

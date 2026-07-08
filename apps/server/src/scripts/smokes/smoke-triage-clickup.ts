@@ -9,7 +9,16 @@
  */
 import { classifyEmail } from "@alfred/api/modules/triage/classify";
 import { extractSenderContext } from "@alfred/api/modules/triage/sender-context";
+import type { CollabActivityKind } from "@alfred/contracts";
 import type { Observations } from "@alfred/api/modules/triage/observations";
+
+const clickUpSenderKind = {
+  kind: "service" as const,
+  confidence: 0.92,
+  evidenceCodes: ["email:local:service_strong"],
+  entityId: "ent_clickup",
+  displayName: "Oliv AI",
+};
 
 const baseObs = (over: Partial<Observations> = {}): Observations => ({
   senderPrior: { key: "notifications@tasks.clickup.com", categoryCounts: {}, lastCategory: null },
@@ -22,7 +31,7 @@ const baseObs = (over: Partial<Observations> = {}): Observations => ({
   },
   knownContact: false,
   senderRelationship: null,
-  senderKind: null,
+  senderKind: clickUpSenderKind,
   gmail: { categories: ["updates"], important: false, starred: false, inInbox: true },
   content: {
     hasUnsubscribe: false,
@@ -42,6 +51,7 @@ interface Case {
   body: string;
   expectCategory: string[];
   expectTodo: boolean;
+  expectCollabActivity?: CollabActivityKind | null;
   /** A heavy action_needed prior, like prod accumulated — proves the prompt beats the prior. */
   prior?: Record<string, number>;
   /** Prior messages in the same thread (newest first), fed as ADR-0051 #8 thread context. */
@@ -57,6 +67,7 @@ const CASES: Case[] = [
     body: "Akshay Jyothis commented\nNothing to be done here - was a product understanding gap for the user\nView comment or reply to add a comment",
     expectCategory: ["fyi", "done"],
     expectTodo: false,
+    expectCollabActivity: "other_activity",
     prior: { action_needed: 20, done: 6, fyi: 2 },
   },
   {
@@ -66,6 +77,7 @@ const CASES: Case[] = [
     body: "Akshay Jyothis assigned this task to you.\nDue Jun 14. Priority: High.\nThe SSO login redirects in a loop for enterprise accounts.",
     expectCategory: ["action_needed"],
     expectTodo: true,
+    expectCollabActivity: "assigned_to_user",
     prior: { action_needed: 20, done: 6, fyi: 2 },
   },
   {
@@ -75,6 +87,7 @@ const CASES: Case[] = [
     body: "Akshay Jyothis mentioned you in a comment\n@yash.k can you confirm whether the merge dedupes by external id before we ship? Need your call today.",
     expectCategory: ["action_needed", "awaiting_reply"],
     expectTodo: true,
+    expectCollabActivity: "mentioned_user",
     prior: { action_needed: 20, done: 6, fyi: 2 },
   },
   {
@@ -111,6 +124,7 @@ const CASES: Case[] = [
     body: "Brain: Done. Created [Investigate slow dashboard load] in the 26.3 Backlog list.\nView comment or reply to add a comment",
     expectCategory: ["fyi"],
     expectTodo: false,
+    expectCollabActivity: "other_activity",
     prior: { action_needed: 20, done: 6, fyi: 2 },
   },
   {
@@ -126,6 +140,7 @@ const CASES: Case[] = [
     body: "dvd set the status to 10 web\nView task or reply to add a comment",
     expectCategory: ["fyi"],
     expectTodo: false,
+    expectCollabActivity: "state_change",
     prior: { action_needed: 20, done: 6, fyi: 2 },
   },
 ];
@@ -169,7 +184,10 @@ async function main() {
     const gotTodo = classification.todoDecision?.outcome === "proposed";
     const catOk = c.expectCategory.includes(classification.category);
     const todoOk = gotTodo === c.expectTodo;
-    const ok = catOk && todoOk;
+    const collabOk =
+      c.expectCollabActivity === undefined ||
+      (classification.collabActivity ?? null) === c.expectCollabActivity;
+    const ok = catOk && todoOk && collabOk;
     if (!ok) failures++;
     console.log(`\n${ok ? "✅" : "❌"} ${c.name}`);
     console.log(
@@ -178,6 +196,11 @@ async function main() {
     console.log(
       `   todo: ${gotTodo ? `proposed "${classification.todoSuggestion?.name}"` : `none (${classification.todoDecision?.outcome})`} (want ${c.expectTodo ? "todo" : "none"}) ${todoOk ? "ok" : "WRONG"}`,
     );
+    if (c.expectCollabActivity !== undefined) {
+      console.log(
+        `   collabActivity: ${classification.collabActivity ?? "null"} (want ${c.expectCollabActivity ?? "null"}) ${collabOk ? "ok" : "WRONG"}`,
+      );
+    }
     console.log(`   rationale: ${classification.rationale}`);
   }
   console.log(`\n${failures === 0 ? "ALL PASS" : `${failures} FAILURE(S)`}`);

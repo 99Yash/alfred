@@ -5,6 +5,7 @@ import {
   collabActivitySchema,
   confidenceSchema,
   isOwnershipCollabActivity,
+  isPassiveCollabActivity,
   triageTodoDecisionSchema,
   triageTodoSuggestionSchema,
   type CollabActivityKind,
@@ -177,6 +178,8 @@ export interface ClassifyAudit {
   secondPassFailure: { message: string } | null;
   /** True when the sender-kind floor demoted `awaiting_reply` → `fyi` (#210 / #218). */
   senderKindDemoted: boolean;
+  /** Structured reason consumed by the sender-kind category demotion floor, if it fired. */
+  senderKindDemotionReason: SenderKindDemotionReason | null;
   /** True when the override-floor signal matched, even if the model already said urgent. */
   floorMatched: boolean;
   /** True when the override floor forced a category change (not merely matched). */
@@ -658,6 +661,14 @@ export function applyOverrideFloor(
  */
 type SenderKindDemotionFloorContext = {
   signalText?: string;
+  /**
+   * Body/snippet text used for collabActivity intrinsic-stake vetoes. Task-tracker
+   * subjects are often imperative task titles, not ownership/evidence; scanning
+   * them for "critical"/"security"/"payment" would let passive activity on a
+   * scary-named task escape demotion. Absent → falls back to signalText for tests
+   * and legacy callers.
+   */
+  collabVetoText?: string;
   sender?: string | null;
   subject?: string | null;
   to?: string | null;
@@ -682,14 +693,18 @@ export function applySenderKindDemotionFloor(
   classification: TriageClassification,
   senderKind: Observations["senderKind"],
   context: SenderKindDemotionFloorContext = {},
-): { classification: TriageClassification; demoted: boolean } {
+): {
+  classification: TriageClassification;
+  demoted: boolean;
+  reason: SenderKindDemotionReason | null;
+} {
   const reason = senderKind ? senderKindDemotionReason(context, senderKind) : null;
   if (
     !senderKind ||
     !senderKindCanDemoteDemand(senderKind) ||
     !senderKindFloorShouldDemoteCategory(classification.category, reason)
   ) {
-    return { classification, demoted: false };
+    return { classification, demoted: false, reason: null };
   }
   const note =
     classification.category === "awaiting_reply"
@@ -719,6 +734,7 @@ export function applySenderKindDemotionFloor(
       ),
     },
     demoted: true,
+    reason,
   };
 }
 
@@ -777,14 +793,16 @@ function senderKindDemotionReason(
   // a past-due invoice keeps its escalation).
   const collab = context.collabActivity;
   if (collab != null) {
-    if (!isOwnershipCollabActivity(collab)) {
-      const signalText = context.signalText ?? "";
+    if (isPassiveCollabActivity(collab)) {
+      const signalText = context.collabVetoText ?? context.signalText ?? "";
       if (
         !OVERRIDE_FLOOR_SECRET_RE.test(signalText) &&
         !COLLAB_INTRINSIC_STAKE_RE.test(signalText)
       ) {
         return "collab_passive_activity";
       }
+    } else if (!isOwnershipCollabActivity(collab)) {
+      return null;
     }
   } else if (isPassiveCollaborationStateTransition(context.signalText ?? "")) {
     return "collab_state_transition";
@@ -1099,6 +1117,14 @@ function floorSignalText(document: ClassifyEmailArgs["document"]): string {
   return parts.join("\n").toLowerCase();
 }
 
+/** Body + snippet only: task/issue titles are not intrinsic-stake evidence for collab floors. */
+function floorBodySignalText(document: ClassifyEmailArgs["document"]): string {
+  const parts: string[] = [document.content];
+  const snippet = document.metadata.snippet;
+  if (typeof snippet === "string") parts.push(snippet);
+  return parts.join("\n").toLowerCase();
+}
+
 /**
  * Run the context-rich classify sequence over a single email: first cheap pass
  * → conditional second pass on a detected conflict → override floor. Returns
@@ -1113,6 +1139,7 @@ export async function classifyEmail(
   const runPass: RunPass = args.runPass ?? defaultRunPass(model, args);
 
   const signalText = floorSignalText(args.document);
+  const collabVetoText = floorBodySignalText(args.document);
   const floorMatches = OVERRIDE_FLOOR_SECRET_RE.test(signalText);
 
   const firstPass = await runPass({
@@ -1162,6 +1189,7 @@ export async function classifyEmail(
     args.observations.senderKind,
     {
       signalText,
+      collabVetoText,
       sender: from,
       subject: args.document.title,
       to,
@@ -1187,6 +1215,7 @@ export async function classifyEmail(
       secondPass,
       secondPassFailure,
       senderKindDemoted: kindFloor.demoted,
+      senderKindDemotionReason: kindFloor.reason,
       floorMatched: floorResult.matched,
       floorForced: floorResult.forced,
     },
