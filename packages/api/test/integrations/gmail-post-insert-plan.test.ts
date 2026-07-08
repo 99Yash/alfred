@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import {
   FULL_RESYNC_REPLY_REEVAL_THREAD_LIMIT,
+  hasGmailPostInsertSideEffects,
   planGmailPostInsertSideEffects,
 } from "../../src/modules/integrations/queue";
 import {
@@ -59,6 +60,41 @@ test("gmail realtime poll emits webhook triage and reply re-eval", () => {
   assert.equal(plan.replyReevalThreadLimit, null);
   assert.equal(plan.skippedReplyReevalSentDocs, 0);
   assert.deepEqual(plan.protectedDocumentIds, ["doc_in_1", "doc_sent_1"]);
+});
+
+test("gmail realtime duplicate sent row still runs reply re-eval side effects", () => {
+  assert.equal(
+    hasGmailPostInsertSideEffects({
+      insertedDocumentIds: [],
+      sentDocumentIds: ["doc_sent_existing"],
+      touchedThreadIds: ["thread_1"],
+    }),
+    true,
+  );
+
+  const plan = planGmailPostInsertSideEffects({
+    jobKind: "gmail.poll_recent",
+    triageDocumentIds: [],
+    sentDocumentIds: ["doc_sent_existing"],
+    touchedThreadIds: ["thread_1"],
+  });
+
+  assert.equal(plan.triageReason, "webhook");
+  assert.deepEqual(plan.triageDocumentIds, []);
+  assert.deepEqual(plan.reconcileThreadIds, ["thread_1"]);
+  assert.deepEqual(plan.replyReevalSentDocumentIds, ["doc_sent_existing"]);
+  assert.deepEqual(plan.protectedDocumentIds, ["doc_sent_existing"]);
+});
+
+test("gmail side-effect gate stays closed for empty no-op polls", () => {
+  assert.equal(
+    hasGmailPostInsertSideEffects({
+      insertedDocumentIds: [],
+      sentDocumentIds: [],
+      touchedThreadIds: [],
+    }),
+    false,
+  );
 });
 
 test("gmail history full-resync skips normal triage but runs bounded reply re-eval", () => {

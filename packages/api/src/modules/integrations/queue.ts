@@ -125,6 +125,18 @@ export function planGmailPostInsertSideEffects(args: {
   };
 }
 
+export function hasGmailPostInsertSideEffects(args: {
+  insertedDocumentIds: readonly string[];
+  sentDocumentIds: readonly string[];
+  touchedThreadIds: readonly string[];
+}): boolean {
+  return (
+    args.insertedDocumentIds.length > 0 ||
+    args.sentDocumentIds.length > 0 ||
+    args.touchedThreadIds.length > 0
+  );
+}
+
 export type IngestionJobData =
   | {
       kind: "gmail.ingest_recent";
@@ -319,7 +331,7 @@ async function processIngestionJob(job: Job<IngestionJobData>): Promise<unknown>
         `[ingestion:worker] gmail.ingest_recent credential=${data.credentialId} ` +
           `fetched=${result.fetched} inserted=${result.inserted} skipped=${result.skipped} ignored=${result.ignored} errors=${result.errors}`,
       );
-      if (result.insertedDocumentIds.length) {
+      if (hasGmailPostInsertSideEffects(result)) {
         // Triage event emission (optional) and the rail-update publish are
         // independent writes to different tables; fan them out so a
         // large bulk seed doesn't pay the latencies in series. Triage fans
@@ -346,10 +358,18 @@ async function processIngestionJob(job: Job<IngestionJobData>): Promise<unknown>
             await runGmailRepairSideEffects(data.credentialId, result.userId, plan);
           },
           async () => {
-            await recordGmailObservationsForDocuments(result.userId, result.insertedDocumentIds);
+            if (result.insertedDocumentIds.length) {
+              await recordGmailObservationsForDocuments(result.userId, result.insertedDocumentIds);
+            }
           },
           async () => {
-            await publishInboxUpdate(result.userId, "ingested", result.insertedDocumentIds.length);
+            if (result.insertedDocumentIds.length) {
+              await publishInboxUpdate(
+                result.userId,
+                "ingested",
+                result.insertedDocumentIds.length,
+              );
+            }
           },
         ]);
       }
@@ -357,7 +377,7 @@ async function processIngestionJob(job: Job<IngestionJobData>): Promise<unknown>
     }
     case "gmail.poll_recent": {
       // Pub/sub-driven realtime path (ADR-0037). Lists messages from Gmail's
-      // search index (`newer_than:5m`), dedupes against `documents.source_id`,
+      // search index (`newer_than:5m`), persists/dedupes by `documents.source_id`,
       // and emits triage trigger events on inserts. We don't touch history.list here — that
       // path's index lags pub/sub and was the source of 1–3 min tag-latency
       // tails. Catch-up for anything missed lives on `gmail.poll_history`
@@ -368,7 +388,7 @@ async function processIngestionJob(job: Job<IngestionJobData>): Promise<unknown>
           `listed=${result.listed} inserted=${result.inserted} skipped=${result.skipped} ` +
           `ignored=${result.ignored} errors=${result.errors} cursor=${result.cursorBefore ?? "?"}->${result.cursorAfter ?? "?"}`,
       );
-      if (result.insertedDocumentIds.length) {
+      if (hasGmailPostInsertSideEffects(result)) {
         // Triage event emission, embed fan-out, and the rail-update publish
         // are independent — they target different tables / queues and
         // each function swallows its own errors. Fan them out so the
@@ -396,13 +416,23 @@ async function processIngestionJob(job: Job<IngestionJobData>): Promise<unknown>
             await runGmailRepairSideEffects(data.credentialId, result.userId, plan);
           },
           async () => {
-            await recordGmailObservationsForDocuments(result.userId, result.insertedDocumentIds);
+            if (result.insertedDocumentIds.length) {
+              await recordGmailObservationsForDocuments(result.userId, result.insertedDocumentIds);
+            }
           },
           async () => {
-            await embedRealtimeInserts(result.insertedDocumentIds);
+            if (result.insertedDocumentIds.length) {
+              await embedRealtimeInserts(result.insertedDocumentIds);
+            }
           },
           async () => {
-            await publishInboxUpdate(result.userId, "ingested", result.insertedDocumentIds.length);
+            if (result.insertedDocumentIds.length) {
+              await publishInboxUpdate(
+                result.userId,
+                "ingested",
+                result.insertedDocumentIds.length,
+              );
+            }
           },
         ]);
       }
@@ -424,7 +454,7 @@ async function processIngestionJob(job: Job<IngestionJobData>): Promise<unknown>
       // ordinary triage fan-out to avoid back-catalog LLM burn, but they still
       // run bounded thread repairs so the resync can heal sent-reply and dead-id
       // drift instead of preserving it for the next webhook.
-      if (result.insertedDocumentIds.length) {
+      if (hasGmailPostInsertSideEffects(result)) {
         const plan = planGmailPostInsertSideEffects({
           jobKind: data.kind,
           fullResync: result.fullResync,
@@ -446,10 +476,18 @@ async function processIngestionJob(job: Job<IngestionJobData>): Promise<unknown>
             await runGmailRepairSideEffects(data.credentialId, result.userId, plan);
           },
           async () => {
-            await recordGmailObservationsForDocuments(result.userId, result.insertedDocumentIds);
+            if (result.insertedDocumentIds.length) {
+              await recordGmailObservationsForDocuments(result.userId, result.insertedDocumentIds);
+            }
           },
           async () => {
-            await publishInboxUpdate(result.userId, "ingested", result.insertedDocumentIds.length);
+            if (result.insertedDocumentIds.length) {
+              await publishInboxUpdate(
+                result.userId,
+                "ingested",
+                result.insertedDocumentIds.length,
+              );
+            }
           },
         ]);
       }

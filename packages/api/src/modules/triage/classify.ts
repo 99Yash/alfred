@@ -2,9 +2,13 @@ import { getCheapModel, identifyLanguageModel, meteredGenerateObject } from "@al
 import {
   TODO_DECISION_OUTCOMES,
   clamp01,
+  collabActivitySchema,
   confidenceSchema,
+  isOwnershipCollabActivity,
+  isPassiveCollabActivity,
   triageTodoDecisionSchema,
   triageTodoSuggestionSchema,
+  type CollabActivityKind,
   type SenderContext,
   type TodoDecisionOutcome,
   toMessage,
@@ -82,6 +86,17 @@ export const triageClassificationSchema = z.object({
   // suggestion null when no todo, the decision always present).
   todoSuggestion: triageTodoSuggestionSchema.optional(),
   todoDecision: triageTodoDecisionSchema.optional(),
+  /**
+   * Collaboration-tool activity kind (#218). Non-null ONLY for a task/issue
+   * tracker or doc-comment notification (ClickUp, Linear, Jira, Asana, Notion,
+   * Trello, …); null for every other email. The sender-kind floor reads it to
+   * demote PASSIVE team activity (`state_change`/`other_activity`/`digest`) from
+   * a confident group/service sender while KEEPING work directed at the user
+   * (`assigned_to_user`/`mentioned_user`/`comment_to_user`). `.nullable()` so the
+   * cheap model's explicit `null` validates; `.optional()` so non-cheap producers
+   * need not emit it.
+   */
+  collabActivity: collabActivitySchema.nullable().optional(),
 });
 export type TriageClassification = z.infer<typeof triageClassificationSchema>;
 
@@ -163,6 +178,8 @@ export interface ClassifyAudit {
   secondPassFailure: { message: string } | null;
   /** True when the sender-kind floor demoted `awaiting_reply` → `fyi` (#210 / #218). */
   senderKindDemoted: boolean;
+  /** Structured reason consumed by the sender-kind category demotion floor, if it fired. */
+  senderKindDemotionReason: SenderKindDemotionReason | null;
   /** True when the override-floor signal matched, even if the model already said urgent. */
   floorMatched: boolean;
   /** True when the override floor forced a category change (not merely matched). */
@@ -288,6 +305,14 @@ Rules:
     16g. ALWAYS emit \`todoDecision\`: { "outcome": <one of the six above>, "note"?: "<≤1 short clause if useful>" }. \`todoSuggestion\` is null unless outcome is \`proposed\`.
 17. Thread tag is the LIVE loop, not the last keystroke. The thread carries ONE tag and the newest message rewrites it for the whole thread. Do not let a trailing low-signal message — an automation/bot status line ("Done. Created the task", "moved to In Progress"), an acknowledgement, or a reaction — overwrite an open ask from earlier in the thread. When the recent-thread-messages show the user was assigned a task or asked a direct question that is still unanswered, the thread stays \`action_needed\`/\`awaiting_reply\` even when the latest line is a bot's "done". Judge what the thread still needs FROM THE USER, not the wording of the final line.
 18. Your own reply closes the loop (the inverse of rule 17). When the MOST RECENT message in the thread is FROM THE USER — thread state reads "you last replied on <date>" and the recent-thread-messages show the user's send as the latest line — and that reply answers the thread's outstanding ask, the thread no longer needs anything FROM THE USER. It is NOT \`awaiting_reply\`/\`action_needed\`: the user does not owe a reply they have already sent. Route it to \`done\` — the user's side of the loop is closed; waiting on the counterparty to respond is THEIR move, not a user action, so do not re-tag it as a thing the user must do. The recruiter who got a reply, the question the user already answered, the request the user already actioned all land here. EXCEPTION: the user's own latest message itself poses a NEW unanswered question to the counterparty or commits the user to a concrete next step — then classify on that open ask, not on the closed one. Rule 17 keeps a trailing low-signal BOT line from burying an open ask; rule 18 recognizes the user's OWN substantive reply as the line that closes it.
+19. Collaboration-tool activity (\`collabActivity\`) — SEPARATELY from the category, for a notification from a task/issue tracker or doc-comment thread (ClickUp, Linear, Jira, Asana, Monday, Trello, Notion, GitHub Issues, Google Docs/Drive or Figma comments, and similar collaboration tools), emit \`collabActivity\` naming WHAT the notification is — the same ownership read rule 12e asks for, surfaced as a field:
+    - \`assigned_to_user\`: the body assigns / hands the item to the user.
+    - \`mentioned_user\`: the user is @-mentioned with a concrete ask.
+    - \`comment_to_user\`: a comment or reply directed AT the user — on the user's own item, or answering/asking the user — that expects a response.
+    - \`state_change\`: a status/stage change, move, close, or reopen — nobody is asked to do anything.
+    - \`other_activity\`: activity on an item the user only watches or is CC'd on — a third-party comment, a newly created item, someone else's edit — NOT directed at the user.
+    - \`digest\`: a periodic activity roundup ("N updates in your workspace this week").
+    Emit \`null\` for ANY email that is not a collaboration-tool notification (ordinary person-to-person mail, newsletters, marketing, security/auth, payments, calendar invites, social networks, vendor status pages). This is a FACTUAL read of the notification and is independent of the category — set it even when the category is fyi/done. It does not change your category choice; it records the ownership you already judged.
 
 Examples (subject → category):
 - "[acme/repo] Redis URI exposed on GitHub" from noreply@github.com → urgent (credential must be rotated today).
@@ -337,7 +362,7 @@ Todo-decision exemplars (each illustrates the ONE rubric test that decides it �
 - A cold ask — "give me a recommendation", "endorse my skills", "can you intro me?" — whose Sender relationship reads \`weak · one-way inbound\` or \`no prior contact on record\` → category awaiting_reply (an honest direct ask), no todo (16b person-waiting: a cold contact is not a real person waiting, note \`cold_sender:\`). The SAME ask from a \`strong · two-way\` contact (or a known contact with real history) → todo (a real person is waiting).
 - "Sundram Fasteners — 63rd Annual General Meeting" from a registrar → category fyi, no todo (16b: ceremonial, no real stake) — unless it asks the user to vote by a deadline (then a todo).
 
-Output JSON: { "category": "...", "confidence": 0.0-1.0, "rationale": "...", "todoSuggestion": { "name": "...", "assist": "..." } | null, "todoDecision": { "outcome": "proposed|no_obligation|not_significant|would_not_forget|too_vague|already_handled", "note": "..." } }`;
+Output JSON: { "category": "...", "confidence": 0.0-1.0, "rationale": "...", "todoSuggestion": { "name": "...", "assist": "..." } | null, "todoDecision": { "outcome": "proposed|no_obligation|not_significant|would_not_forget|too_vague|already_handled", "note": "..." }, "collabActivity": "assigned_to_user|mentioned_user|comment_to_user|state_change|other_activity|digest" | null }`;
 
 function renderObservations(obs: Observations): string {
   const lines: string[] = ["=== Observations (deterministic context — hints, not verdicts) ==="];
@@ -636,6 +661,14 @@ export function applyOverrideFloor(
  */
 type SenderKindDemotionFloorContext = {
   signalText?: string;
+  /**
+   * Body/snippet text used for collabActivity intrinsic-stake vetoes. Task-tracker
+   * subjects are often imperative task titles, not ownership/evidence; scanning
+   * them for "critical"/"security"/"payment" would let passive activity on a
+   * scary-named task escape demotion. Absent → falls back to signalText for tests
+   * and legacy callers.
+   */
+  collabVetoText?: string;
   sender?: string | null;
   subject?: string | null;
   to?: string | null;
@@ -647,20 +680,38 @@ type SenderKindDemotionFloorContext = {
    * is a conservative no-op (we cannot prove a broadcast, so we do not demote).
    */
   accountEmail?: string | null;
+  /**
+   * The cheap model's collaboration-tool activity read (#218). Present only for
+   * task/issue-tracker and doc-comment notifications; passive kinds drive the
+   * `collab_passive_activity` reason, ownership kinds keep the category. Absent
+   * → the model saw no collaboration activity, so the body-regex path applies.
+   */
+  collabActivity?: CollabActivityKind | null;
 };
 
 export function applySenderKindDemotionFloor(
   classification: TriageClassification,
   senderKind: Observations["senderKind"],
   context: SenderKindDemotionFloorContext = {},
-): { classification: TriageClassification; demoted: boolean } {
+): {
+  classification: TriageClassification;
+  demoted: boolean;
+  reason: SenderKindDemotionReason | null;
+} {
+  // An ownership collabActivity is a model-emitted "this is directed at the user"
+  // read. Treat it as a veto over every passive sender-kind demotion path,
+  // including the broad awaiting_reply demotion and GitHub reason aliases.
+  if (context.collabActivity != null && isOwnershipCollabActivity(context.collabActivity)) {
+    return { classification, demoted: false, reason: null };
+  }
+
   const reason = senderKind ? senderKindDemotionReason(context, senderKind) : null;
   if (
     !senderKind ||
     !senderKindCanDemoteDemand(senderKind) ||
     !senderKindFloorShouldDemoteCategory(classification.category, reason)
   ) {
-    return { classification, demoted: false };
+    return { classification, demoted: false, reason: null };
   }
   const note =
     classification.category === "awaiting_reply"
@@ -671,7 +722,9 @@ export function applySenderKindDemotionFloor(
           ? `${senderKind.kind} sender sent a broadcast sign-in confirmation`
           : reason === "monitoring_alarm"
             ? `${senderKind.kind} sender broadcast a monitoring alarm the user was not addressed on`
-            : `${senderKind.kind} sender sent a passive collaboration state transition`;
+            : reason === "collab_passive_activity"
+              ? `${senderKind.kind} sender sent passive collaboration activity not directed at the user`
+              : `${senderKind.kind} sender sent a passive collaboration state transition`;
   return {
     classification: {
       ...classification,
@@ -688,6 +741,7 @@ export function applySenderKindDemotionFloor(
       ),
     },
     demoted: true,
+    reason,
   };
 }
 
@@ -727,6 +781,7 @@ function isPassiveCollaborationStateTransition(signalText: string): boolean {
 
 type SenderKindDemotionReason =
   | "collab_state_transition"
+  | "collab_passive_activity"
   | "github_passive_pr_or_ci"
   | "broadcast_auth_signin_confirmation"
   | "monitoring_alarm";
@@ -735,7 +790,25 @@ function senderKindDemotionReason(
   context: SenderKindDemotionFloorContext,
   senderKind: NonNullable<Observations["senderKind"]>,
 ): SenderKindDemotionReason | null {
-  if (isPassiveCollaborationStateTransition(context.signalText ?? "")) {
+  // Model-authoritative collaboration signal (#218). When the cheap model tagged
+  // the notification's activity kind, it is a stronger, per-message read than the
+  // body-regex heuristic — so it takes precedence over `collab_state_transition`.
+  // Ownership kinds are handled as a hard veto in `applySenderKindDemotionFloor`.
+  // Passive kinds demote, subject to the SAME secret + intrinsic-stake vetoes the
+  // regex path honors (a "someone changed status" line that also names an exposed
+  // secret or a past-due invoice keeps its escalation).
+  const collab = context.collabActivity;
+  if (collab != null) {
+    if (isPassiveCollabActivity(collab)) {
+      const signalText = context.collabVetoText ?? context.signalText ?? "";
+      if (
+        !OVERRIDE_FLOOR_SECRET_RE.test(signalText) &&
+        !COLLAB_INTRINSIC_STAKE_RE.test(signalText)
+      ) {
+        return "collab_passive_activity";
+      }
+    }
+  } else if (isPassiveCollaborationStateTransition(context.signalText ?? "")) {
     return "collab_state_transition";
   }
   if (isPassiveGithubPrOrCiNotification(context)) return "github_passive_pr_or_ci";
@@ -1048,6 +1121,14 @@ function floorSignalText(document: ClassifyEmailArgs["document"]): string {
   return parts.join("\n").toLowerCase();
 }
 
+/** Body + snippet only: task/issue titles are not intrinsic-stake evidence for collab floors. */
+function floorBodySignalText(document: ClassifyEmailArgs["document"]): string {
+  const parts: string[] = [document.content];
+  const snippet = document.metadata.snippet;
+  if (typeof snippet === "string") parts.push(snippet);
+  return parts.join("\n").toLowerCase();
+}
+
 /**
  * Run the context-rich classify sequence over a single email: first cheap pass
  * → conditional second pass on a detected conflict → override floor. Returns
@@ -1062,6 +1143,7 @@ export async function classifyEmail(
   const runPass: RunPass = args.runPass ?? defaultRunPass(model, args);
 
   const signalText = floorSignalText(args.document);
+  const collabVetoText = floorBodySignalText(args.document);
   const floorMatches = OVERRIDE_FLOOR_SECRET_RE.test(signalText);
 
   const firstPass = await runPass({
@@ -1111,11 +1193,13 @@ export async function classifyEmail(
     args.observations.senderKind,
     {
       signalText,
+      collabVetoText,
       sender: from,
       subject: args.document.title,
       to,
       cc,
       accountEmail: args.identity?.email ?? null,
+      collabActivity: floorResult.classification.collabActivity ?? null,
     },
   );
   const classification = kindFloor.classification;
@@ -1135,6 +1219,7 @@ export async function classifyEmail(
       secondPass,
       secondPassFailure,
       senderKindDemoted: kindFloor.demoted,
+      senderKindDemotionReason: kindFloor.reason,
       floorMatched: floorResult.matched,
       floorForced: floorResult.forced,
     },
@@ -1183,10 +1268,18 @@ function defaultRunPass(
         name: pass === "second" ? "triage.classify.second_pass" : "triage.classify",
       },
     );
+    const object = result.object;
+    if (!Object.hasOwn(object, "collabActivity")) {
+      throw new Error("[triage] cheap classifier omitted required collabActivity field");
+    }
     // Clamp confidence into [0, 1] here rather than in the schema: the range
     // can't be expressed in the cheap-model structured-output JSON schema (see
     // `confidenceSchema`). `clamp01` is the shared boundary clamp.
-    return { ...result.object, confidence: clamp01(result.object.confidence) };
+    return {
+      ...object,
+      confidence: clamp01(object.confidence),
+      collabActivity: object.collabActivity ?? null,
+    };
   };
 }
 
