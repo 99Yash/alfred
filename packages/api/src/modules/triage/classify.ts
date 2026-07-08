@@ -184,6 +184,10 @@ export interface ClassifyAudit {
   floorMatched: boolean;
   /** True when the override floor forced a category change (not merely matched). */
   floorForced: boolean;
+  /** True when the meeting-gate floor demoted `meeting` → `fyi`. */
+  meetingDemoted: boolean;
+  /** Structured reason the meeting-gate floor fired, if it did. */
+  meetingDemotionReason: MeetingDemotionReason | null;
 }
 
 const PASSIVE_CATEGORIES = new Set<TriageCategory>(["fyi", "done", "newsletter", "marketing"]);
@@ -248,7 +252,7 @@ const SYSTEM_PROMPT = `You triage emails for a personal assistant. Classify each
 - action_needed: the user must take a concrete step that isn't time-critical. Reply, decide, complete a task, rotate a credential, update a card before its actual deadline, verify identity, fix a broken build, respond to a code review. (Self-initiated sign-in/magic links, one-time login codes, and email-verification are NOT here — they are fyi per rule 15. Persistent account-access changes — OAuth apps, passkeys, 2FA/MFA, recovery emails/phones, or login methods being added/changed — are surfaced here unless the body proves this was only a transient same-flow verification with no future access grant.)
 - follow_up: a soft check-in or nudge on a prior thread — "any update on...?", "circling back", "just following up." The sender already knows the user is aware; they're probing for status.
 - awaiting_reply: someone is asking the user a direct first question, and the only action is to write back. Pick this when no prior thread exists or the message is a fresh ask. A bulk social-network invitation or connection request is NOT a direct question the user must answer — it is passive social activity (rule 8a → fyi). Once the user has sent a reply that answers the ask, the thread is NO LONGER awaiting_reply — the user owes nothing (rule 18).
-- meeting: a meeting the user is expected to attend, prepare for, schedule, reschedule, or answer availability for. Direct calendar invites, agenda/prep emails for the user's meeting, room/availability negotiations, and "your meeting starts soon" pings.
+- meeting: a LIVE calendar event with a scheduling or attendance action open to the user right now — a direct calendar invite the user is on, a reschedule/time-change to their event, a room/availability negotiation, or a "your meeting starts soon" ping. NOT a recap/notes/minutes/summary of a meeting that ALREADY happened (→ fyi, or done if it explicitly closes a loop), NOT a pre-meeting prep/agenda brief (→ fyi), NOT an event merely ANNOUNCED for the future with no invite and no confirmed date yet (→ fyi), and NOT a collaboration-tool (ClickUp/Linear/Jira/…) comment or notification that only MENTIONS meeting language (route by rule 12e ownership). A calendar meeting the user attends arrives from a real organizer or as a calendar invite, never as a task-tracker/product-notification relay. The words "meet"/"meeting"/"offsite"/"standup" are never enough on their own (rule 7).
 - fyi: passive awareness items. Self-initiated sign-in/magic links, one-time and step-up/sudo login codes, email-verification, and transient same-flow security confirmations that do NOT add/change future account access ("security verification completed") (rule 15), resolved-incident status posts, a third-party vendor's own status/incident post for a service the user only consumes (rule 12f), product release notes without action, social activity digests, social-network connection/invitation requests ("X wants to connect", "I want to connect") and network-growth / profile-activity nudges ("people you may know", "you appeared in N searches", "N people viewed your profile") (rule 8a), "we updated our terms" notices, GitHub notifications that don't require review, legal/investor/shareholder notices with no user action.
 - done: explicit closure or completion notice — the user's underlying request/loop is RESOLVED. Order shipped, payment received, deploy succeeded, ticket resolved, "your request has been processed." A task/ticket being CREATED, FILED, OPENED, logged, or "added to the backlog" is the START of work, NOT a closure — never \`done\`, even when an automation reports "Done" about having created it ("Brain: Done. Created [task] in the backlog" = the bot finished FILING the task, the user's request is now OPEN, not resolved). Route task creation by ownership (rule 12e), never to \`done\`. Also \`done\` when the user has sent the latest reply and owes nothing further on the thread — the user's side of the loop is closed, and waiting on the counterparty's response is not a user action (rule 18).
 - payment: invoices, receipts that need attention, payment failures, billing notices, refunds, statements.
@@ -273,7 +277,7 @@ Rules:
 4. Reply-shape (continued): prefer 'follow_up' over 'awaiting_reply' when the sender is nudging on an existing thread, not opening a new ask. "Any update?" / "Just circling back" → follow_up.
 5. Closure: prefer 'done' over 'fyi' when the message explicitly marks something as finished/shipped/resolved/succeeded. 'fyi' is for informational items that don't close a loop. Closure means the USER'S underlying request/loop is resolved — NOT that an intermediate actor reported finishing a sub-step. Creating, filing, or opening a task/ticket (even one phrased "Done. Created …") OPENS a loop; it is never closure.
 6. Promo split: prefer 'marketing' over 'newsletter' for unsolicited promotional blasts, sales pitches, cold outbound, public product launches, brand events, webinars, and keynotes. 'newsletter' is for subscribed editorial/digest content the user opted into.
-7. Meeting gate: choose 'meeting' only when the user is a participant or likely participant in a personal/work calendar-style meeting. The words "meeting", "event", "conference", "webinar", "keynote", "AGM", or "annual general meeting" are NOT enough by themselves.
+7. Meeting gate: choose 'meeting' only when the user is a participant (or likely participant) in a LIVE personal/work calendar-style meeting AND there is a concrete scheduling/attendance action for them — an invite to accept, a time to confirm, availability to answer, or an imminent join. The words "meeting", "event", "offsite", "standup", "conference", "webinar", "keynote", "AGM", or "annual general meeting" are NOT enough by themselves. A meeting that ALREADY happened (its notes/recap/minutes/summary), a prep/agenda brief for a meeting, and an event merely ANNOUNCED for the future with no invite or set date are NOT 'meeting' → they are 'fyi' (a recap that explicitly closes a loop may be 'done'). A calendar meeting the user attends arrives from a real organizer or a calendar invite, not as a task-tracker/product-notification relay.
 8. Bulk/public event rule: public events, brand announcements, product launches, webinars, conferences, keynotes, and "save the date" blasts are marketing/newsletter/fyi, not meeting, unless the email is a direct calendar invite or scheduling thread for the user. (The publicEvent content flag marks this language.)
     8a. Social-network activity rule: connection / invitation requests ("X wants to connect", "I want to connect", "would like to join your network"), network-growth nudges ("people you may know", "add X to your network"), and profile-activity notifications ("you appeared in N searches", "N people viewed your profile", "your post got N reactions") relayed by a social platform (LinkedIn, X, Instagram, etc.) are passive social activity → 'fyi'. They are NOT 'awaiting_reply'/'action_needed'/'urgent': accepting or ignoring an invitation is the SENDER'S want, not a question the user must answer or a task the user owns (rule 16a-i no_obligation), however senior the requester's stated title. EXCEPTION: an actual personal message a real correspondent sent the user THROUGH the platform — where the body carries a genuine ask, not a templated invite — is judged on its content (awaiting_reply/follow_up), gated as always by the Sender relationship observation; a digest relaying a cold/unknown sender's message stays 'fyi'.
 9. Investor/legal notice rule: stock-market, shareholder, AGM, proxy/e-voting, annual report, exchange filing, and registrar/depository notices are usually 'fyi'. Use 'action_needed' only when the email asks the user to vote, register, submit a form, make a decision, or meet a concrete deadline. Do not use 'meeting' for a corporate AGM notice just because the notice says "meeting". (The investorNotice content flag marks this language.) More broadly — manufactured or ceremonial urgency (engagement/gamification nudges, "save the date" galas, AGMs) is 'fyi' (or 'marketing') unless it imposes a concrete action + deadline on the user; never 'meeting'/'urgent' on ceremony or a manufactured stake alone.
@@ -345,6 +349,9 @@ Examples (subject → category):
 - "Sundram Fasteners Limited — 63rd Annual General Meeting..." from a registrar/depository → fyi (shareholder/legal notice, not the user's meeting).
 - "Proxy voting closes tomorrow — cast your vote" from a registrar/depository → action_needed (concrete user action/deadline).
 - "Design review moved to 3pm — can you attend?" from a colleague/client → meeting (user participation/scheduling).
+- "Meeting notes: Eng standup • …" / "Post Meet Summary" from an automated meeting-assistant → fyi (a recap of a meeting that ALREADY happened — rule 7; nothing to attend or schedule), no todo.
+- "Meeting prep: Weekly Sync • …" / an agenda brief from an automated assistant → fyi (a pre-meeting brief, not a calendar action — rule 7).
+- A ClickUp/Linear comment "@everyone we'll meet in-person for the offsite in Aug, I'll confirm the dates" → fyi (rule 12e collab-tool relay + rule 7: a future event with no invite or set date; "meet" is not enough), no todo (16a: an @everyone broadcast, the sender owns confirming the dates).
 
 Todo-decision exemplars (each illustrates the ONE rubric test that decides it — note category and todo can disagree):
 - "Sign in to Anthropic" / "Your login code is 123456" the user requested → no todo (16c memorability: self-initiated, nothing to remember).
@@ -919,6 +926,122 @@ function isBroadcastAudience(context: SenderKindDemotionFloorContext): boolean {
   return !addressed.has(account);
 }
 
+/**
+ * Meeting-gate demotion floor. `meeting` is the highest-precedence category
+ * (rule 10) and the ONLY demand lane the sender-kind floor never covers, so a
+ * false meeting rides entirely on cheap-model judgment — and it leaks on a few
+ * recurring shapes the model reads as "meeting" from the words alone:
+ *
+ *   - `meeting_recap`  — notes/minutes/recap/summary of a meeting that ALREADY
+ *                        happened. Not something to attend or schedule → fyi.
+ *   - `meeting_prep`   — a pre-meeting prep / agenda brief. A document about a
+ *                        meeting, not a calendar action → fyi.
+ *   - `automated_relay`— an automated product/task-tracker (ClickUp/Linear/…)
+ *                        notification that merely MENTIONS meeting language
+ *                        (the "@everyone offsite in Aug" ClickUp comment). A
+ *                        real calendar meeting arrives from a person organizer
+ *                        or as a calendar invite, never as a notification relay.
+ *   - `investor_notice`— an AGM / shareholder / proxy / e-voting / registrar
+ *                        notice (rule 9 already says a corporate "meeting" is
+ *                        not the user's meeting) → fyi.
+ *   - `public_event`   — a webinar / conference / keynote / summit / launch /
+ *                        "save the date" blast (rule 8: public events are not
+ *                        the user's calendar meeting) → fyi.
+ *
+ * Keys on CONTENT SHAPE (subject regex) for the recap/prep pair — the reliable
+ * signal, since the automated meeting-assistant senders that emit these parse as
+ * `person` (no `noreply`/`notifications` envelope) and carry no projection kind.
+ * The `automated_relay` trigger keys on a passive `collabActivity` read from
+ * the cheap model. Sender shape alone is deliberately too broad: real Calendar
+ * mail also comes from service/no-reply addresses. `investor_notice`/`public_event`
+ * key on the deterministic content flags Alfred already computes. All are
+ * carved out by the calendar-action subject shape so a real Google-Calendar
+ * "Invitation:"/"Proposed new time:"/"starts in 10 minutes" subject is preserved,
+ * even one that mentions the event topic in its body.
+ *
+ * DEMOTE, NEVER BURY (#210 asymmetry) — demoted to `fyi` (still visible), with
+ * the stray todo the model minted from the same misread cleared. PURE.
+ */
+export type MeetingDemotionReason =
+  | "meeting_recap"
+  | "meeting_prep"
+  | "automated_relay"
+  | "investor_notice"
+  | "public_event";
+
+// Subject shapes. Anchored at the start so a mid-body mention ("see the meeting
+// notes") never trips them — only a subject that IS a recap/prep does.
+const MEETING_RECAP_SUBJECT_RE =
+  /^\s*(?:re:\s*|fwd:\s*)*(?:meeting\s+(?:notes|minutes|recap|summary)|notes\s+from\b|minutes\s+(?:from|of)\b|recap\s+of\b|recap:|post[- ]?meet(?:ing)?\s+summary)/i;
+const MEETING_PREP_SUBJECT_RE =
+  /^\s*(?:\[[^\]]*\]\s*)*(?:meeting\s+prep\b|prep\s+for\b|agenda\s+for\b|pre[- ]?read\s+for\b)/i;
+// Google-Calendar action subject shapes — the carve-out that keeps genuine
+// invite/schedule/attendance mail from a service/no-reply calendar address in
+// `meeting`.
+const CALENDAR_ACTION_SUBJECT_RE =
+  /^\s*(?:re:\s*)?(?:(?:updated\s+)?invitation(?:\s+with\s+note)?|proposed\s+new\s+time|new\s+time\s+proposed|(?:cancelled|canceled)(?:\s+event)?|accepted|declined|tentatively\s+accepted|this\s+event\s+has\s+been\s+(?:updated|cancelled|canceled)|reminder:?\s+.*\bstarts\s+in\b)\b|\binvitation:/i;
+
+export function applyMeetingDemotionFloor(
+  classification: TriageClassification,
+  context: {
+    effectiveAuthor?: SenderContext["effectiveAuthor"] | null;
+    senderKind?: Observations["senderKind"];
+    subject?: string | null;
+    collabActivity?: CollabActivityKind | null;
+    /** Deterministic content flags (rules 8/9 backstops); optional for callers/tests. */
+    contentFlags?: Pick<Observations["content"], "hasInvestorNotice" | "hasPublicEventLanguage">;
+  },
+): {
+  classification: TriageClassification;
+  demoted: boolean;
+  reason: MeetingDemotionReason | null;
+} {
+  if (classification.category !== "meeting") {
+    return { classification, demoted: false, reason: null };
+  }
+  const subject = context.subject ?? "";
+  // The calendar-action subject shape is the single carve-out shared by every
+  // trigger: a genuine "Invitation:"/"Proposed new time:" stays `meeting` even
+  // when it comes from a service or mentions the event topic in its body.
+  const isCalendarAction = CALENDAR_ACTION_SUBJECT_RE.test(subject);
+  const collabActivity = classification.collabActivity ?? context.collabActivity ?? null;
+  const reason: MeetingDemotionReason | null = MEETING_RECAP_SUBJECT_RE.test(subject)
+    ? "meeting_recap"
+    : MEETING_PREP_SUBJECT_RE.test(subject)
+      ? "meeting_prep"
+      : collabActivity != null && isPassiveCollabActivity(collabActivity) && !isCalendarAction
+        ? "automated_relay"
+        : context.contentFlags?.hasInvestorNotice && !isCalendarAction
+          ? "investor_notice"
+          : context.contentFlags?.hasPublicEventLanguage && !isCalendarAction
+            ? "public_event"
+            : null;
+  if (!reason) return { classification, demoted: false, reason: null };
+  const note =
+    reason === "meeting_recap"
+      ? "recap of a meeting that already happened"
+      : reason === "meeting_prep"
+        ? "pre-meeting prep/agenda brief, not a calendar action"
+        : reason === "automated_relay"
+          ? "automated relay merely mentioning a meeting, not the user's calendar event"
+          : reason === "investor_notice"
+            ? "AGM/shareholder/proxy notice, not the user's meeting (rule 9)"
+            : "public event (webinar/conference/launch), not the user's meeting (rule 8)";
+  return {
+    classification: {
+      ...classification,
+      category: "fyi",
+      todoSuggestion: null,
+      todoDecision: { outcome: "no_obligation", note: `meeting_floor: ${note}` },
+      rationale: truncateRationale(
+        `${classification.rationale} Meeting floor: ${note} — demoted meeting → fyi (demote, never bury).`,
+      ),
+    },
+    demoted: true,
+    reason,
+  };
+}
+
 /** A resolved rail todo to mint — the cheap model's proposal after the gate. */
 export type ResolvedTodoSuggestion = { name: string; assist?: string };
 
@@ -1202,12 +1325,26 @@ export async function classifyEmail(
       collabActivity: floorResult.classification.collabActivity ?? null,
     },
   );
-  const classification = kindFloor.classification;
+
+  // Meeting-gate floor runs last: it only fires on a surviving `meeting` tag, so
+  // a secret-escalated `urgent` or a sender-kind-demoted `fyi` is already past
+  // meeting and left untouched. Catches the recap/prep/relay leaks the model
+  // reads as "meeting" from the words alone (the ClickUp offsite, oliv.guide
+  // "Meeting notes"/"Meeting prep").
+  const meetingFloor = applyMeetingDemotionFloor(kindFloor.classification, {
+    effectiveAuthor: args.senderContext.effectiveAuthor,
+    senderKind: args.observations.senderKind,
+    subject: args.document.title,
+    collabActivity: kindFloor.classification.collabActivity ?? null,
+    contentFlags: args.observations.content,
+  });
+  const classification = meetingFloor.classification;
 
   let model_id = baseModelId;
   if (secondPass) model_id += "+2pass";
   if (secondPassFailure) model_id += "+2pass_failed";
   if (kindFloor.demoted) model_id += "+kindfloor";
+  if (meetingFloor.demoted) model_id += "+meetingfloor";
   if (floorResult.forced) model_id += "+floor";
 
   return {
@@ -1222,6 +1359,8 @@ export async function classifyEmail(
       senderKindDemotionReason: kindFloor.reason,
       floorMatched: floorResult.matched,
       floorForced: floorResult.forced,
+      meetingDemoted: meetingFloor.demoted,
+      meetingDemotionReason: meetingFloor.reason,
     },
   };
 }
@@ -1272,20 +1411,24 @@ function defaultRunPass(
     // Clamp confidence into [0, 1] here rather than in the schema: the range
     // can't be expressed in the cheap-model structured-output JSON schema (see
     // `confidenceSchema`). `clamp01` is the shared boundary clamp.
-    return {
-      ...object,
-      confidence: clamp01(object.confidence),
-      // `collabActivity` is an OPTIONAL field, so the cheap model is free to omit
-      // the key — flash-lite does on ~1-in-5 non-collab emails. Treat omission as
-      // `null` (no collaboration-tool activity), never a throw: an unhandled throw
-      // here propagates out of the un-caught first pass and the workflow buries the
-      // real classification as the fallback `fyi` (and a second-pass throw escalates
-      // passive → action_needed via the conservative fallback). The sender-kind
-      // floor only demotes on a non-null PASSIVE kind, so omitted and null are
-      // already equivalent downstream — the guarantee the throw tried to enforce
-      // has no consumer.
-      collabActivity: object.collabActivity ?? null,
-    };
+    return normalizeClassifierOutput(object);
+  };
+}
+
+export function normalizeClassifierOutput(object: TriageClassification): TriageClassification {
+  return {
+    ...object,
+    confidence: clamp01(object.confidence),
+    // `collabActivity` is an OPTIONAL field, so the cheap model is free to omit
+    // the key — flash-lite does on ~1-in-5 non-collab emails. Treat omission as
+    // `null` (no collaboration-tool activity), never a throw: an unhandled throw
+    // here propagates out of the un-caught first pass and the workflow buries the
+    // real classification as the fallback `fyi` (and a second-pass throw escalates
+    // passive → action_needed via the conservative fallback). The sender-kind
+    // floor only demotes on a non-null PASSIVE kind, so omitted and null are
+    // already equivalent downstream — the guarantee the throw tried to enforce
+    // has no consumer.
+    collabActivity: object.collabActivity ?? null,
   };
 }
 

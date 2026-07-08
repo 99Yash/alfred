@@ -46,6 +46,10 @@ export interface SenderExtractionEvent {
   senderKindDemotedCategory: boolean;
   /** Structured reason for a sender-kind category demotion, if one fired. */
   senderKindDemotionReason: ClassifyAudit["senderKindDemotionReason"];
+  /** True when the meeting-gate floor demoted `meeting` → `fyi`. */
+  meetingDemotedCategory: boolean;
+  /** Structured reason for a meeting-gate demotion, if one fired. */
+  meetingDemotionReason: ClassifyAudit["meetingDemotionReason"];
   threadMessages: number;
   threadNewest: Observations["thread"]["newestDirection"];
   gmailImportant: boolean;
@@ -111,6 +115,8 @@ export function senderExtractionEvent(args: {
     senderKindDemotedPersonTreatment: Boolean(obs.senderKind),
     senderKindDemotedCategory: audit?.senderKindDemoted ?? false,
     senderKindDemotionReason: audit?.senderKindDemotionReason ?? null,
+    meetingDemotedCategory: audit?.meetingDemoted ?? false,
+    meetingDemotionReason: audit?.meetingDemotionReason ?? null,
     threadMessages: obs.thread.messageCount,
     threadNewest: obs.thread.newestDirection,
     gmailImportant: obs.gmail.important,
