@@ -1269,15 +1269,21 @@ function defaultRunPass(
       },
     );
     const object = result.object;
-    if (!Object.hasOwn(object, "collabActivity")) {
-      throw new Error("[triage] cheap classifier omitted required collabActivity field");
-    }
     // Clamp confidence into [0, 1] here rather than in the schema: the range
     // can't be expressed in the cheap-model structured-output JSON schema (see
     // `confidenceSchema`). `clamp01` is the shared boundary clamp.
     return {
       ...object,
       confidence: clamp01(object.confidence),
+      // `collabActivity` is an OPTIONAL field, so the cheap model is free to omit
+      // the key — flash-lite does on ~1-in-5 non-collab emails. Treat omission as
+      // `null` (no collaboration-tool activity), never a throw: an unhandled throw
+      // here propagates out of the un-caught first pass and the workflow buries the
+      // real classification as the fallback `fyi` (and a second-pass throw escalates
+      // passive → action_needed via the conservative fallback). The sender-kind
+      // floor only demotes on a non-null PASSIVE kind, so omitted and null are
+      // already equivalent downstream — the guarantee the throw tried to enforce
+      // has no consumer.
       collabActivity: object.collabActivity ?? null,
     };
   };
