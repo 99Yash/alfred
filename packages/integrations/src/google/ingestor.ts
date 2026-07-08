@@ -1,4 +1,4 @@
-import { mapConcurrent, parseEmailAddress, toMessage } from "@alfred/contracts";
+import { isRecord, mapConcurrent, parseEmailAddress, toMessage } from "@alfred/contracts";
 import { db } from "@alfred/db";
 import { documents, ingestionState, integrationCredentials } from "@alfred/db/schemas";
 import { gmailMailboxWritesEnabled, serverEnv } from "@alfred/env/server";
@@ -482,9 +482,13 @@ export interface PollHistoryResult {
   insertedDocumentIds: string[];
   /** Non-sent subset of `insertedDocumentIds` — the ids the caller fans triage runs over. */
   triageDocumentIds: string[];
-  /** Inserted SENT docs — drive the reply-re-eval (issue #282). */
+  /**
+   * SENT docs observed by this history poll that should drive reply re-eval
+   * (issue #282). Includes skipped rows when another ingestion path inserted
+   * the same sent copy first.
+   */
   sentDocumentIds: string[];
-  /** Threads with a fresh insert — reconciled against live Gmail (issue #279). */
+  /** Threads with a fresh insert or observed SENT row — reconciled against live Gmail (issue #279). */
   touchedThreadIds: string[];
   /** User who owns the credential. */
   userId: string;
@@ -631,6 +635,10 @@ export async function pollGmailHistory(args: PollHistoryArgs): Promise<PollHisto
         ignored++;
       } else {
         skipped++;
+        if (result.isSent) {
+          sentDocumentIds.push(result.documentId);
+          if (message.threadId) touchedThreadIds.add(message.threadId);
+        }
       }
     } catch (err) {
       errors++;
@@ -697,9 +705,13 @@ export interface PollRecentResult {
   insertedDocumentIds: string[];
   /** Non-sent subset of `insertedDocumentIds` — the ids the caller fans triage runs over. */
   triageDocumentIds: string[];
-  /** Inserted SENT docs — drive the reply-re-eval (issue #282). */
+  /**
+   * SENT docs observed by this realtime poll that should drive reply re-eval
+   * (issue #282). Includes skipped rows when the 5-min catch-up path inserted
+   * the same sent copy first.
+   */
   sentDocumentIds: string[];
-  /** Threads with a fresh insert — reconciled against live Gmail (issue #279). */
+  /** Threads with a fresh insert or observed SENT row — reconciled against live Gmail (issue #279). */
   touchedThreadIds: string[];
   userId: string;
 }
@@ -713,11 +725,9 @@ export interface PollRecentResult {
  *
  * Contract:
  *  - Lists messages with `newer_than:<window>` (default 5m), capped.
- *  - One indexed SELECT drops ids we already have BEFORE we spend a
- *    `messages.get` roundtrip on them.
- *  - Fetches + persists the remainder concurrently via the same
- *    `persistMessage` path as the bulk + delta ingestors, so dedupe
- *    behaves identically.
+ *  - One indexed SELECT drops already-known non-SENT ids before we spend a
+ *    `messages.get` roundtrip on them. Already-known SENT rows are still
+ *    surfaced to the caller so outbound replies trigger reply re-eval.
  *  - Advances the history cursor to the max observed `historyId`, but
  *    only forward — never rolls it back. `pollGmailHistory` (poll-
  *    fallback) reads the same cursor and stays consistent.
@@ -759,10 +769,13 @@ export async function pollGmailRecent(args: PollRecentArgs): Promise<PollRecentR
     pageToken = page.nextPageToken;
   }
 
-  // Drop refs we've already persisted. One indexed lookup beats N
-  // `messages.get` roundtrips — typical webhook returns 1-3 ids and
-  // the catch-up sweep often beat us to a subset.
-  const unknownRefs = refs.length ? await filterKnownGmailIds(cred.userId, refs) : [];
+  // Preserve the indexed pre-filter for the latency path, but do not drop known
+  // SENT rows on the floor. A sent copy may have been inserted by history
+  // catch-up or a prior attempt that died before side effects; the realtime
+  // webhook must still force the thread's reply re-eval.
+  const { unknownRefs, knownSentDocs } = refs.length
+    ? await partitionKnownGmailRefs(cred.userId, refs)
+    : { unknownRefs: [], knownSentDocs: [] };
   let skipped = refs.length - unknownRefs.length;
   let inserted = 0;
   let ignored = 0;
@@ -770,8 +783,10 @@ export async function pollGmailRecent(args: PollRecentArgs): Promise<PollRecentR
   let highWaterHistoryId: string | null = cursorBefore;
   const insertedDocumentIds: string[] = [];
   const triageDocumentIds: string[] = [];
-  const sentDocumentIds: string[] = [];
-  const touchedThreadIds = new Set<string>();
+  const sentDocumentIds: string[] = knownSentDocs.map((doc) => doc.documentId);
+  const touchedThreadIds = new Set(
+    knownSentDocs.map((doc) => doc.threadId).filter((threadId) => threadId !== null),
+  );
 
   await mapConcurrent(unknownRefs, concurrency, async (ref) => {
     try {
@@ -787,9 +802,12 @@ export async function pollGmailRecent(args: PollRecentArgs): Promise<PollRecentR
         // Self-authored mail (issue #211) — dropped, never a document.
         ignored++;
       } else {
-        // A race against pollGmailHistory or a duplicate webhook fired
-        // between the pre-filter SELECT and the insert. Rare but fine.
+        // A race against pollGmailHistory or a duplicate webhook. Rare but fine.
         skipped++;
+        if (result.isSent) {
+          sentDocumentIds.push(result.documentId);
+          if (message.threadId) touchedThreadIds.add(message.threadId);
+        }
       }
       if (
         message.historyId &&
@@ -838,14 +856,23 @@ export async function pollGmailRecent(args: PollRecentArgs): Promise<PollRecentR
   };
 }
 
-/** Drop refs whose Gmail id already maps to a `documents` row for this user. */
-async function filterKnownGmailIds(
+interface KnownSentGmailDoc {
+  documentId: string;
+  threadId: string | null;
+}
+
+async function partitionKnownGmailRefs(
   userId: string,
   refs: { id: string; threadId: string }[],
-): Promise<{ id: string; threadId: string }[]> {
+): Promise<{ unknownRefs: { id: string; threadId: string }[]; knownSentDocs: KnownSentGmailDoc[] }> {
   const ids = refs.map((r) => r.id);
   const existing = await db()
-    .select({ sourceId: documents.sourceId })
+    .select({
+      id: documents.id,
+      sourceId: documents.sourceId,
+      sourceThreadId: documents.sourceThreadId,
+      metadata: documents.metadata,
+    })
     .from(documents)
     .where(
       and(
@@ -854,8 +881,22 @@ async function filterKnownGmailIds(
         inArray(documents.sourceId, ids),
       ),
     );
-  const known = new Set(existing.map((r) => r.sourceId));
-  return refs.filter((r) => !known.has(r.id));
+  const known = new Map(existing.map((row) => [row.sourceId, row]));
+  const unknownRefs = refs.filter((r) => !known.has(r.id));
+  const knownSentDocs: KnownSentGmailDoc[] = [];
+  for (const row of existing) {
+    if (isStoredGmailSentMetadata(row.metadata)) {
+      knownSentDocs.push({ documentId: row.id, threadId: row.sourceThreadId });
+    }
+  }
+  return { unknownRefs, knownSentDocs };
+}
+
+function isStoredGmailSentMetadata(metadata: unknown): boolean {
+  if (!isRecord(metadata)) return false;
+  if (metadata.isSent === true) return true;
+  const labelIds = metadata.labelIds;
+  return Array.isArray(labelIds) && labelIds.includes("SENT");
 }
 
 /** Return added message ids from a history entry. We dedupe upstream via Set. */
