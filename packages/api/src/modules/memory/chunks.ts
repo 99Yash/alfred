@@ -16,7 +16,7 @@ import {
 
 export const writeMemoryChunkArgsSchema = z.object({
   userId: z.string().min(1),
-  kind: z.enum(["thread_summary", "extraction_run", "cold_start_research", "manual"]),
+  kind: memoryChunkKindSchema,
   content: z.string().min(1).max(50_000),
   source: memorySourceSchema,
   metadata: z.record(z.string(), z.unknown()).optional(),
