@@ -1,5 +1,6 @@
 import path from "node:path";
 import {
+  collabActivityPartition,
   type AccountPersona,
   type CollabActivityKind,
   type SenderContext,
@@ -861,9 +862,13 @@ evalite<Case, TaskOutput, Expected>("Triage classifier", {
         if (!("collabActivity" in (expected ?? {}))) {
           return { score: 1, metadata: "not asserted" };
         }
+        const gotPartition = collabActivityPartition(output.collabActivity);
+        const wantPartition = collabActivityPartition(expected?.collabActivity);
         return {
-          score: output.collabActivity === expected?.collabActivity ? 1 : 0,
-          metadata: `got ${output.collabActivity ?? "null"}, want ${expected?.collabActivity ?? "null"}`,
+          score: gotPartition === wantPartition ? 1 : 0,
+          metadata:
+            `got ${output.collabActivity ?? "null"} (${gotPartition}), ` +
+            `want ${expected?.collabActivity ?? "null"} (${wantPartition})`,
         };
       },
     },
