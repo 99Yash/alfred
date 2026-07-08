@@ -22,7 +22,7 @@ Label management (`packages/integrations/src/google/labels.ts`):
 
 Classifier guardrails:
 
-- `meeting` is only for a personal/work calendar-style meeting the user is expected to attend, prepare for, schedule, reschedule, or answer availability for.
+- `meeting` is only for a live personal/work calendar-style meeting where the user has a scheduling or attendance action: accept/decline an invite, answer availability, handle a time/location change, join soon, or negotiate room/attendance details. Meeting notes/recaps/minutes, pre-meeting prep/agenda briefs, future-event announcements with no invite or set date, and task-tracker/product notifications that merely mention meeting language are `fyi` (or `done` when they explicitly close a loop).
 - Public events, product launches, webinars, conferences, keynotes, and bulk "save the date" blasts are `marketing`/`newsletter`/`fyi`, not `meeting`.
 - Shareholder, AGM, annual report, proxy/e-voting, registrar/depository, and stock-market notices are usually `fyi`; use `action_needed` only when the email asks the user to vote, register, submit a form, or meet a concrete deadline.
 - Review bots (`coderabbit`, Copilot review, GitHub Actions, Dependabot, Renovate) are advisory by default and usually land as `fyi`; they only become `action_needed`/`urgent` when the body shows real severity such as CVEs, exposed secrets, production impact, blocked deploys, or same-day remediation.
@@ -33,6 +33,7 @@ Sender/observation flow:
 - `gatherObservations` feeds the cheap classifier deterministic context: sender-prior histogram for bulk/service senders, account persona, thread state, known-contact flag for human senders, Gmail-native signals, and cheap content flags.
 - `detectConflict` may run one second cheap pass when the first output conflicts with a strong deterministic expectation: passive category despite a security flag, or important category from a strong-bulk sender with no supporting severity signal.
 - `applyOverrideFloor` forces `urgent` only on high-precision secret-exposure wording such as an API key/token/private key/password/secret being exposed, leaked, committed, compromised, found, or detected. CVEs, payment urgency, and generic auth vocabulary stay model-owned.
+- `applyMeetingDemotionFloor` demotes false `meeting` tags to `fyi` for post-hoc recaps, prep/agenda briefs, passive collaboration-tool relays, investor/legal meeting notices, and public-event blasts. Real Calendar action subjects stay `meeting`, even from service/no-reply addresses.
 - `agent_decision_traces` stores a `triage.classification` row with sender context, observations, first/second pass categories, second-pass failure, floor match/force, and todo-rubric outcome so tuning happens from observed misses in SQL rather than transient progress logs.
 - The dormant `deepen`/dossier hooks remain in code for future non-triage work, but triage v3 does not call them.
 

@@ -62,6 +62,8 @@ function traceFixture(senderRelationship: string): SenderExtractionEvent {
     senderKindDemotedPersonTreatment: false,
     senderKindDemotedCategory: false,
     senderKindDemotionReason: null,
+    meetingDemotedCategory: false,
+    meetingDemotionReason: null,
     threadMessages: 1,
     threadNewest: "received",
     gmailImportant: false,
