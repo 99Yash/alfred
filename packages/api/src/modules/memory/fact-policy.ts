@@ -30,7 +30,7 @@ import {
   RELATIONSHIP_FACT_PREFIX,
   type FactKey,
 } from "@alfred/contracts";
-import type { documents } from "@alfred/db/schemas";
+import type { Document } from "@alfred/db/schemas";
 import { extractSenderContext } from "../triage/sender-context";
 import { isSentGmailMetadata } from "../triage/sent-mail";
 
@@ -208,10 +208,7 @@ export type Authorship =
  * so the shape can't drift from the schema (`metadata` is untyped `jsonb` →
  * `unknown`, narrowed here at the boundary).
  */
-export type AuthorshipDocument = Pick<
-  typeof documents.$inferSelect,
-  "source" | "metadata" | "accountId"
->;
+export type AuthorshipDocument = Pick<Document, "source" | "metadata" | "accountId">;
 
 /**
  * Everything `authoredByUser` needs to recognize "the user" across providers.
