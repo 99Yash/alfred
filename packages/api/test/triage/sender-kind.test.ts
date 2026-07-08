@@ -129,6 +129,8 @@ test("senderExtractionEvent records the sender-kind demotion breadcrumb", () => 
       senderKindDemotionReason: "collab_passive_activity",
       floorMatched: false,
       floorForced: false,
+      meetingDemoted: false,
+      meetingDemotionReason: null,
     },
     classification: classification({ collabActivity: "other_activity" }),
     todoSuggested: false,

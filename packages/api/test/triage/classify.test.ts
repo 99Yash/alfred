@@ -2,10 +2,12 @@ import assert from "node:assert/strict";
 import { describe, test } from "node:test";
 
 import {
+  applyMeetingDemotionFloor,
   applyOverrideFloor,
   applySenderKindDemotionFloor,
   classifyEmail,
   detectConflict,
+  normalizeClassifierOutput,
   resolveTodoSuggestion,
   sanitizeAssist,
   sanitizeTodoName,
@@ -693,6 +695,160 @@ describe("applySenderKindDemotionFloor", () => {
 });
 
 // ---------------------------------------------------------------------------
+// applyMeetingDemotionFloor
+// ---------------------------------------------------------------------------
+
+describe("applyMeetingDemotionFloor", () => {
+  const serviceKind = {
+    kind: "service" as const,
+    confidence: 0.92,
+    evidenceCodes: ["email:local:service_strong"],
+    entityId: "ent_1",
+    displayName: "ClickUp",
+  };
+  const groupKind = { ...serviceKind, kind: "group" as const, evidenceCodes: ["gmail:list_id"] };
+
+  test("demotes a post-hoc recap → fyi even from a person-parsed sender (oliv.guide)", () => {
+    const r = applyMeetingDemotionFloor(classification({ category: "meeting", confidence: 1 }), {
+      effectiveAuthor: "person",
+      subject: "Meeting notes: Eng standup • Thu, Jul 02, 2026 10:45 AM IST",
+    });
+    assert.equal(r.demoted, true);
+    assert.equal(r.reason, "meeting_recap");
+    assert.equal(r.classification.category, "fyi");
+    assert.match(r.classification.rationale, /meeting floor/i);
+  });
+
+  test("demotes a pre-meeting prep brief → fyi (bracket-prefixed subject too)", () => {
+    const r = applyMeetingDemotionFloor(classification({ category: "meeting" }), {
+      effectiveAuthor: "person",
+      subject: "[Beta] Meeting prep: Oliv AI <> Practifi | Weekly Sync",
+    });
+    assert.equal(r.demoted, true);
+    assert.equal(r.reason, "meeting_prep");
+    assert.equal(r.classification.category, "fyi");
+  });
+
+  test("demotes a passive collab-tool relay → fyi and clears the stray todo (offsite)", () => {
+    const r = applyMeetingDemotionFloor(
+      classification({
+        category: "meeting",
+        confidence: 0.8,
+        todoSuggestion: { name: "Attend the offsite in August" },
+        todoDecision: { outcome: "proposed" },
+        collabActivity: "other_activity",
+      }),
+      { effectiveAuthor: "service", senderKind: serviceKind, subject: "Offsite" },
+    );
+    assert.equal(r.demoted, true);
+    assert.equal(r.reason, "automated_relay");
+    assert.equal(r.classification.category, "fyi");
+    assert.equal(r.classification.todoSuggestion, null);
+    assert.equal(r.classification.todoDecision?.outcome, "no_obligation");
+    assert.equal(resolveTodoSuggestion(r.classification), null);
+  });
+
+  test("keeps automated non-collab meeting mail unless a narrower meeting-floor reason fires", () => {
+    const r = applyMeetingDemotionFloor(classification({ category: "meeting" }), {
+      effectiveAuthor: "person",
+      senderKind: groupKind,
+      subject: "Engineering",
+    });
+    assert.equal(r.demoted, false);
+    assert.equal(r.reason, null);
+  });
+
+  test("KEEPS a genuine calendar invite from a person organizer", () => {
+    const r = applyMeetingDemotionFloor(classification({ category: "meeting", confidence: 1 }), {
+      effectiveAuthor: "person",
+      subject: "Updated invitation: Eng standup @ Wed Jul 8, 2026 11am - 12pm (IST)",
+    });
+    assert.equal(r.demoted, false);
+    assert.equal(r.classification.category, "meeting");
+  });
+
+  test("KEEPS a genuine calendar invite even from a service calendar address (carve-out)", () => {
+    const r = applyMeetingDemotionFloor(classification({ category: "meeting" }), {
+      effectiveAuthor: "service",
+      senderKind: serviceKind,
+      subject: "Invitation: Weekly Sync @ Thu Jul 10",
+    });
+    assert.equal(r.demoted, false);
+    assert.equal(r.classification.category, "meeting");
+  });
+
+  test("KEEPS Calendar scheduling and attendance-action subjects from service addresses", () => {
+    const subjects = [
+      "Proposed new time: Max <> Andriy 1on1 @ Thu Jan 9, 2025 11:30am - 12pm",
+      "Canceled: Weekly Sync",
+      "Reminder: Weekly Sync starts in 10 minutes",
+      "Updated invitation with note: Weekly Sync @ Thu Jul 10",
+    ];
+    for (const subject of subjects) {
+      const r = applyMeetingDemotionFloor(classification({ category: "meeting" }), {
+        effectiveAuthor: "service",
+        senderKind: serviceKind,
+        subject,
+      });
+      assert.equal(r.demoted, false, subject);
+      assert.equal(r.classification.category, "meeting", subject);
+    }
+  });
+
+  test("KEEPS a real scheduling ask from a person (non-invite subject, not automated)", () => {
+    const r = applyMeetingDemotionFloor(classification({ category: "meeting" }), {
+      effectiveAuthor: "person",
+      subject: "Can you do a call this week?",
+    });
+    assert.equal(r.demoted, false);
+    assert.equal(r.classification.category, "meeting");
+  });
+
+  test("demotes an AGM/investor notice → fyi via the content flag (rule 9)", () => {
+    const r = applyMeetingDemotionFloor(classification({ category: "meeting" }), {
+      effectiveAuthor: "person",
+      subject: "SUNDRAM FASTENERS LIMITED - 63rd Annual General Meeting",
+      contentFlags: { hasInvestorNotice: true, hasPublicEventLanguage: false },
+    });
+    assert.equal(r.demoted, true);
+    assert.equal(r.reason, "investor_notice");
+    assert.equal(r.classification.category, "fyi");
+  });
+
+  test("demotes a webinar/public-event blast → fyi via the content flag (rule 8)", () => {
+    const r = applyMeetingDemotionFloor(classification({ category: "meeting" }), {
+      effectiveAuthor: "person",
+      subject: "Don't Miss Tuesday's Webinar on Practitioner's Guide",
+      contentFlags: { hasInvestorNotice: false, hasPublicEventLanguage: true },
+    });
+    assert.equal(r.demoted, true);
+    assert.equal(r.reason, "public_event");
+    assert.equal(r.classification.category, "fyi");
+  });
+
+  test("KEEPS a real invite even when the body trips an investor/public-event flag (carve-out)", () => {
+    const r = applyMeetingDemotionFloor(classification({ category: "meeting" }), {
+      effectiveAuthor: "person",
+      subject: "Invitation: Prep sync for the shareholder AGM",
+      contentFlags: { hasInvestorNotice: true, hasPublicEventLanguage: true },
+    });
+    assert.equal(r.demoted, false);
+    assert.equal(r.classification.category, "meeting");
+  });
+
+  test("is a no-op for any non-meeting category", () => {
+    const c = classification({ category: "action_needed" });
+    const r = applyMeetingDemotionFloor(c, {
+      effectiveAuthor: "service",
+      subject: "Offsite",
+      contentFlags: { hasInvestorNotice: true, hasPublicEventLanguage: true },
+    });
+    assert.equal(r.demoted, false);
+    assert.deepEqual(r.classification, c);
+  });
+});
+
+// ---------------------------------------------------------------------------
 // detectConflict
 // ---------------------------------------------------------------------------
 
@@ -1125,6 +1281,51 @@ describe("classifyEmail", () => {
     assert.equal(resolveTodoSuggestion(result.classification), null);
   });
 
+  test("meeting floor demotes a passive collab meeting relay end-to-end and records audit", async () => {
+    const model = scriptedModel(
+      classification({
+        category: "meeting",
+        confidence: 0.86,
+        todoSuggestion: { name: "Attend the offsite in August" },
+        todoDecision: { outcome: "proposed" },
+        collabActivity: "other_activity",
+      }),
+    );
+    const result = await classifyEmail(
+      args({
+        document: {
+          id: "doc_clickup_offsite",
+          title: "Offsite",
+          content:
+            "From: Oliv AI <notifications@tasks.clickup.com>\n" +
+            "To: yash.k@oliv.ai\n\n" +
+            "@everyone we'll meet in-person for the offsite in Aug; I'll confirm the dates.",
+          authoredAt: null,
+          metadata: {
+            from: "Oliv AI <notifications@tasks.clickup.com>",
+            to: "yash.k@oliv.ai",
+          },
+        },
+        observations: observations({
+          senderKind: {
+            kind: "service",
+            confidence: 0.92,
+            evidenceCodes: ["email:local:service_strong"],
+            entityId: "ent_clickup",
+            displayName: "Oliv AI",
+          },
+        }),
+        runPass: model.runPass,
+      }),
+    );
+    assert.equal(result.classification.category, "fyi");
+    assert.equal(result.audit.senderKindDemoted, false);
+    assert.equal(result.audit.meetingDemoted, true);
+    assert.equal(result.audit.meetingDemotionReason, "automated_relay");
+    assert.equal(result.model, "injected+meetingfloor");
+    assert.equal(resolveTodoSuggestion(result.classification), null);
+  });
+
   test("sender-kind floor preserves model-emitted ownership collabActivity awaiting_reply end-to-end", async () => {
     const model = scriptedModel(
       classification({
@@ -1482,6 +1683,18 @@ describe("classifyEmail", () => {
 // ---------------------------------------------------------------------------
 
 describe("triageClassificationSchema.todoSuggestion", () => {
+  test("normalizes omitted collabActivity to null at the classifier boundary", () => {
+    const output = normalizeClassifierOutput({
+      category: "fyi",
+      confidence: 1.4,
+      rationale: "not a collaboration notification",
+      todoSuggestion: null,
+      todoDecision: { outcome: "no_obligation" },
+    });
+    assert.equal(output.confidence, 1);
+    assert.equal(output.collabActivity, null);
+  });
+
   function parseTodo(todoSuggestion: unknown, todoDecision: unknown = { outcome: "proposed" }) {
     return triageClassificationSchema.safeParse({
       category: "action_needed",
