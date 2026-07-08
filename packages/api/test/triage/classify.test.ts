@@ -259,6 +259,163 @@ describe("applySenderKindDemotionFloor", () => {
     assert.equal(r.classification.category, "action_needed");
   });
 
+  // --- #218: collabActivity model-field floor (ClickUp/Linear residual tail) ---
+  // The body is the ambiguous assignment/mention/comment prose that no
+  // state-transition regex matches — the model's `collabActivity` read is the
+  // signal. Passive kinds demote; ownership kinds keep.
+
+  for (const kind of ["state_change", "other_activity", "digest"] as const) {
+    test(`demotes action_needed → fyi on passive collabActivity=${kind} (no state-transition regex)`, () => {
+      const r = applySenderKindDemotionFloor(
+        classification({
+          category: "action_needed",
+          todoSuggestion: { name: "Handle the ClickUp task" },
+          todoDecision: { outcome: "proposed" },
+        }),
+        serviceKind,
+        {
+          signalText: "Conservice: Show all CRM fields as options\nActivity in your workspace",
+          collabActivity: kind,
+        },
+      );
+      assert.equal(r.demoted, true);
+      assert.equal(r.classification.category, "fyi");
+      assert.equal(r.classification.todoSuggestion, null);
+      assert.equal(r.classification.todoDecision?.outcome, "no_obligation");
+      assert.equal(resolveTodoSuggestion(r.classification), null);
+    });
+  }
+
+  for (const kind of ["assigned_to_user", "mentioned_user", "comment_to_user"] as const) {
+    test(`keeps action_needed on ownership collabActivity=${kind} (directed at the user)`, () => {
+      const r = applySenderKindDemotionFloor(
+        classification({ category: "action_needed" }),
+        serviceKind,
+        {
+          signalText: "Conservice: Show all CRM fields as options",
+          collabActivity: kind,
+        },
+      );
+      assert.equal(r.demoted, false);
+      assert.equal(r.classification.category, "action_needed");
+    });
+  }
+
+  for (const kind of ["mentioned_user", "comment_to_user"] as const) {
+    test(`keeps awaiting_reply on ownership collabActivity=${kind} (direct reply owed by user)`, () => {
+      const r = applySenderKindDemotionFloor(
+        classification({
+          category: "awaiting_reply",
+          todoSuggestion: { name: "Reply to the task comment" },
+          todoDecision: { outcome: "proposed" },
+        }),
+        serviceKind,
+        {
+          signalText: "Akshay mentioned you in a comment\n@yash.k can you confirm this today?",
+          collabActivity: kind,
+        },
+      );
+      assert.equal(r.demoted, false);
+      assert.equal(r.reason, null);
+      assert.equal(r.classification.category, "awaiting_reply");
+      assert.deepEqual(r.classification.todoSuggestion, { name: "Reply to the task comment" });
+    });
+  }
+
+  test("collabActivity model field wins over a stray state-transition regex match", () => {
+    // Body would match the passive-state-transition regex, but the model read the
+    // notification as assigned to the user — the model field takes precedence.
+    const r = applySenderKindDemotionFloor(
+      classification({ category: "action_needed" }),
+      serviceKind,
+      {
+        signalText: "changed status to In Progress\nAkshay assigned this to you",
+        collabActivity: "assigned_to_user",
+      },
+    );
+    assert.equal(r.demoted, false);
+    assert.equal(r.classification.category, "action_needed");
+  });
+
+  test("ownership collabActivity blocks other passive sender-kind reasons too", () => {
+    const r = applySenderKindDemotionFloor(
+      classification({
+        category: "action_needed",
+        todoSuggestion: { name: "Merge the PR" },
+        todoDecision: { outcome: "proposed" },
+        collabActivity: "mentioned_user",
+      }),
+      serviceKind,
+      {
+        sender: "GitHub <notifications@github.com>",
+        subject: "Re: [org/repo] Deal Merge Flow (PR #654)",
+        cc: "Yash <yash@example.com>, Author <author@noreply.github.com>",
+        signalText: "Sanyam mentioned you in a comment\n@yash.k pls merge this PR before release",
+        collabActivity: "mentioned_user",
+      },
+    );
+    assert.equal(r.demoted, false);
+    assert.equal(r.reason, null);
+    assert.equal(r.classification.category, "action_needed");
+    assert.deepEqual(r.classification.todoSuggestion, { name: "Merge the PR" });
+  });
+
+  test("passive collabActivity with an exposed-secret body is NOT demoted (secret veto)", () => {
+    const r = applySenderKindDemotionFloor(
+      classification({ category: "action_needed" }),
+      serviceKind,
+      {
+        signalText: "activity on card\nAWS secret key was exposed in the logs",
+        collabActivity: "other_activity",
+      },
+    );
+    assert.equal(r.demoted, false);
+    assert.equal(r.classification.category, "action_needed");
+  });
+
+  test("passive collabActivity with a real money stake is NOT demoted (intrinsic-stake veto)", () => {
+    const r = applySenderKindDemotionFloor(
+      classification({ category: "action_needed" }),
+      serviceKind,
+      {
+        signalText: "workspace activity\nyour invoice is past due — card declined",
+        collabActivity: "digest",
+      },
+    );
+    assert.equal(r.demoted, false);
+    assert.equal(r.classification.category, "action_needed");
+  });
+
+  test("passive collabActivity demotes when only the task title carries scary words", () => {
+    const r = applySenderKindDemotionFloor(
+      classification({
+        category: "action_needed",
+        todoSuggestion: { name: "Handle the ClickUp task" },
+        todoDecision: { outcome: "proposed" },
+      }),
+      serviceKind,
+      {
+        signalText:
+          "Critical security payment task\nAkash commented\nyes good catch\nView comment or reply",
+        collabVetoText: "Akash commented\nyes good catch\nView comment or reply",
+        collabActivity: "other_activity",
+      },
+    );
+    assert.equal(r.demoted, true);
+    assert.equal(r.reason, "collab_passive_activity");
+    assert.equal(r.classification.category, "fyi");
+  });
+
+  test("passive collabActivity from a weak service-role mailbox is spared (evidence gate)", () => {
+    const r = applySenderKindDemotionFloor(
+      classification({ category: "action_needed" }),
+      serviceRoleKind,
+      { signalText: "activity in your workspace", collabActivity: "other_activity" },
+    );
+    assert.equal(r.demoted, false);
+    assert.equal(r.classification.category, "action_needed");
+  });
+
   test("demotes GitHub PR notifications where Cc structurally says the user is the author", () => {
     const r = applySenderKindDemotionFloor(
       classification({ category: "action_needed" }),
@@ -918,6 +1075,102 @@ describe("classifyEmail", () => {
     assert.equal(result.audit.senderKindDemoted, true);
     assert.equal(result.model, "injected+kindfloor");
     assert.equal(resolveTodoSuggestion(result.classification), null);
+  });
+
+  test("sender-kind floor demotes model-emitted passive collabActivity end-to-end", async () => {
+    const model = scriptedModel(
+      classification({
+        category: "action_needed",
+        confidence: 0.88,
+        todoSuggestion: { name: "Review the ClickUp task" },
+        todoDecision: { outcome: "proposed" },
+        collabActivity: "other_activity",
+      }),
+    );
+    const result = await classifyEmail(
+      args({
+        document: {
+          id: "doc_clickup_passive_comment",
+          title: "Critical security payment task title",
+          content:
+            "From: Oliv AI <notifications@tasks.clickup.com>\n" +
+            "To: yash.k@oliv.ai\n\n" +
+            "Akash Ojha commented\n" +
+            "yes good catch\n" +
+            "View comment or reply to add a comment",
+          authoredAt: null,
+          metadata: {
+            from: "Oliv AI <notifications@tasks.clickup.com>",
+            to: "yash.k@oliv.ai",
+          },
+        },
+        observations: observations({
+          senderKind: {
+            kind: "service",
+            confidence: 0.92,
+            evidenceCodes: ["email:local:service_strong"],
+            entityId: "ent_clickup",
+            displayName: "Oliv AI",
+          },
+        }),
+        runPass: model.runPass,
+      }),
+    );
+    assert.equal(result.classification.category, "fyi");
+    assert.equal(result.classification.collabActivity, "other_activity");
+    assert.equal(result.audit.firstPass.collabActivity, "other_activity");
+    assert.equal(result.audit.senderKindDemoted, true);
+    assert.equal(result.audit.senderKindDemotionReason, "collab_passive_activity");
+    assert.equal(result.model, "injected+kindfloor");
+    assert.equal(resolveTodoSuggestion(result.classification), null);
+  });
+
+  test("sender-kind floor preserves model-emitted ownership collabActivity awaiting_reply end-to-end", async () => {
+    const model = scriptedModel(
+      classification({
+        category: "awaiting_reply",
+        confidence: 0.88,
+        todoSuggestion: { name: "Reply to the merge question" },
+        todoDecision: { outcome: "proposed" },
+        collabActivity: "mentioned_user",
+      }),
+    );
+    const result = await classifyEmail(
+      args({
+        document: {
+          id: "doc_clickup_direct_mention",
+          title: "Deal Merge Flow",
+          content:
+            "From: Oliv AI <notifications@tasks.clickup.com>\n" +
+            "To: yash.k@oliv.ai\n\n" +
+            "Akshay mentioned you in a comment\n" +
+            "@yash.k can you confirm whether the merge dedupes by external id before we ship?",
+          authoredAt: null,
+          metadata: {
+            from: "Oliv AI <notifications@tasks.clickup.com>",
+            to: "yash.k@oliv.ai",
+          },
+        },
+        observations: observations({
+          senderKind: {
+            kind: "service",
+            confidence: 0.92,
+            evidenceCodes: ["email:local:service_strong"],
+            entityId: "ent_clickup",
+            displayName: "Oliv AI",
+          },
+        }),
+        runPass: model.runPass,
+      }),
+    );
+    assert.equal(result.classification.category, "awaiting_reply");
+    assert.equal(result.classification.collabActivity, "mentioned_user");
+    assert.equal(result.audit.senderKindDemoted, false);
+    assert.equal(result.audit.senderKindDemotionReason, null);
+    assert.equal(result.model, "injected");
+    assert.deepEqual(resolveTodoSuggestion(result.classification), {
+      name: "Reply to the merge question",
+    });
   });
 
   test("sender-kind floor demotes a GitHub author PR notification from metadata", async () => {

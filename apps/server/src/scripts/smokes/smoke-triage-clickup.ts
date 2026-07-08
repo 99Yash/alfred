@@ -4,12 +4,34 @@
  *   $ pnpm tsx --env-file=.env src/scripts/smokes/smoke-triage-clickup.ts
  *
  * Live cheap-model (gemini-2.5-flash-lite) call — needs GOOGLE_GENERATIVE_AI_API_KEY.
+ * Uses classifyEmail's injected runPass seam so this smoke validates prompt +
+ * floor behavior without depending on local `model_prices` / api_call_log DB state.
  * Runs the real prod miss plus two counter-cases that must NOT be suppressed, so
  * we confirm the new principle flips the leak without over-correcting genuine work.
  */
-import { classifyEmail } from "@alfred/api/modules/triage/classify";
+import { getCheapModel } from "@alfred/ai";
+import {
+  classifyEmail,
+  triageClassificationSchema,
+  type RunPass,
+} from "@alfred/api/modules/triage/classify";
 import { extractSenderContext } from "@alfred/api/modules/triage/sender-context";
+import {
+  clamp01,
+  collabActivityPartition,
+  toMessage,
+  type CollabActivityKind,
+} from "@alfred/contracts";
 import type { Observations } from "@alfred/api/modules/triage/observations";
+import { generateText, Output } from "ai";
+
+const clickUpSenderKind = {
+  kind: "service" as const,
+  confidence: 0.92,
+  evidenceCodes: ["email:local:service_strong"],
+  entityId: "ent_clickup",
+  displayName: "Oliv AI",
+};
 
 const baseObs = (over: Partial<Observations> = {}): Observations => ({
   senderPrior: { key: "notifications@tasks.clickup.com", categoryCounts: {}, lastCategory: null },
@@ -22,7 +44,7 @@ const baseObs = (over: Partial<Observations> = {}): Observations => ({
   },
   knownContact: false,
   senderRelationship: null,
-  senderKind: null,
+  senderKind: clickUpSenderKind,
   gmail: { categories: ["updates"], important: false, starred: false, inInbox: true },
   content: {
     hasUnsubscribe: false,
@@ -42,6 +64,7 @@ interface Case {
   body: string;
   expectCategory: string[];
   expectTodo: boolean;
+  expectCollabActivity?: CollabActivityKind | null;
   /** A heavy action_needed prior, like prod accumulated — proves the prompt beats the prior. */
   prior?: Record<string, number>;
   /** Prior messages in the same thread (newest first), fed as ADR-0051 #8 thread context. */
@@ -57,6 +80,7 @@ const CASES: Case[] = [
     body: "Akshay Jyothis commented\nNothing to be done here - was a product understanding gap for the user\nView comment or reply to add a comment",
     expectCategory: ["fyi", "done"],
     expectTodo: false,
+    expectCollabActivity: "other_activity",
     prior: { action_needed: 20, done: 6, fyi: 2 },
   },
   {
@@ -66,6 +90,7 @@ const CASES: Case[] = [
     body: "Akshay Jyothis assigned this task to you.\nDue Jun 14. Priority: High.\nThe SSO login redirects in a loop for enterprise accounts.",
     expectCategory: ["action_needed"],
     expectTodo: true,
+    expectCollabActivity: "assigned_to_user",
     prior: { action_needed: 20, done: 6, fyi: 2 },
   },
   {
@@ -75,6 +100,7 @@ const CASES: Case[] = [
     body: "Akshay Jyothis mentioned you in a comment\n@yash.k can you confirm whether the merge dedupes by external id before we ship? Need your call today.",
     expectCategory: ["action_needed", "awaiting_reply"],
     expectTodo: true,
+    expectCollabActivity: "mentioned_user",
     prior: { action_needed: 20, done: 6, fyi: 2 },
   },
   {
@@ -111,6 +137,7 @@ const CASES: Case[] = [
     body: "Brain: Done. Created [Investigate slow dashboard load] in the 26.3 Backlog list.\nView comment or reply to add a comment",
     expectCategory: ["fyi"],
     expectTodo: false,
+    expectCollabActivity: "other_activity",
     prior: { action_needed: 20, done: 6, fyi: 2 },
   },
   {
@@ -126,9 +153,56 @@ const CASES: Case[] = [
     body: "dvd set the status to 10 web\nView task or reply to add a comment",
     expectCategory: ["fyi"],
     expectTodo: false,
+    expectCollabActivity: "state_change",
     prior: { action_needed: 20, done: 6, fyi: 2 },
   },
 ];
+
+const EMPTY_OUTPUT_ATTEMPTS = 3;
+const liveModel = getCheapModel();
+
+const runLivePass: RunPass = async ({ system, prompt }) => {
+  const result = await generateText({
+    model: liveModel,
+    system,
+    prompt,
+    output: Output.object({ schema: triageClassificationSchema }),
+    temperature: 0,
+    maxOutputTokens: 400,
+    timeout: { totalMs: 30_000 },
+  });
+  const object = result.output;
+  if (!Object.hasOwn(object, "collabActivity")) {
+    throw new Error("[triage-smoke] cheap classifier omitted required collabActivity field");
+  }
+  return {
+    ...object,
+    confidence: clamp01(object.confidence),
+    collabActivity: object.collabActivity ?? null,
+  };
+};
+
+function isEmptyOutput(err: unknown): boolean {
+  return /AI_NoOutputGeneratedError|AI_NoObjectGeneratedError|No output generated|No object generated/i.test(
+    toMessage(err),
+  );
+}
+
+async function classifyWithRetry(
+  args: Parameters<typeof classifyEmail>[0],
+): Promise<Awaited<ReturnType<typeof classifyEmail>>> {
+  let lastErr: unknown;
+  for (let attempt = 1; attempt <= EMPTY_OUTPUT_ATTEMPTS; attempt++) {
+    try {
+      return await classifyEmail(args);
+    } catch (err) {
+      lastErr = err;
+      if (!isEmptyOutput(err) || attempt === EMPTY_OUTPUT_ATTEMPTS) throw err;
+      await new Promise((resolve) => setTimeout(resolve, 500 * attempt));
+    }
+  }
+  throw lastErr;
+}
 
 async function main() {
   let failures = 0;
@@ -138,38 +212,52 @@ async function main() {
       subject: c.subject,
       body: c.body,
     });
-    const { classification, model } = await classifyEmail({
-      identity: { name: "Yash", email: "yash.k@oliv.ai" },
-      document: {
-        id: "smoke",
-        title: c.subject,
-        content: `From: ${c.from}\nTo: yash.k@oliv.ai\nSubject: ${c.subject}\n\n${c.body}`,
-        authoredAt: new Date("2026-06-11T09:51:48Z"),
-        metadata: {
-          from: c.from,
-          to: "yash.k@oliv.ai",
-          labelIds: ["UNREAD", "CATEGORY_UPDATES", "INBOX"],
+    let result: Awaited<ReturnType<typeof classifyEmail>>;
+    try {
+      result = await classifyWithRetry({
+        identity: { name: "Yash", email: "yash.k@oliv.ai" },
+        document: {
+          id: "smoke",
+          title: c.subject,
+          content: `From: ${c.from}\nTo: yash.k@oliv.ai\nSubject: ${c.subject}\n\n${c.body}`,
+          authoredAt: new Date("2026-06-11T09:51:48Z"),
+          metadata: {
+            from: c.from,
+            to: "yash.k@oliv.ai",
+            labelIds: ["UNREAD", "CATEGORY_UPDATES", "INBOX"],
+          },
         },
-      },
-      senderContext,
-      observations: baseObs({
-        senderPrior: {
-          key: "notifications@tasks.clickup.com",
-          categoryCounts: c.prior ?? {},
-          lastCategory: "action_needed",
-        },
-        thread: {
-          lastUserReplyAt: null,
-          newestDirection: "received",
-          messageCount: c.recentMessages?.length ?? 0,
-          recentMessages: (c.recentMessages ?? []).map((m) => ({ ...m, authoredAt: null })),
-        },
-      }),
-    });
+        senderContext,
+        runPass: runLivePass,
+        observations: baseObs({
+          senderPrior: {
+            key: "notifications@tasks.clickup.com",
+            categoryCounts: c.prior ?? {},
+            lastCategory: "action_needed",
+          },
+          thread: {
+            lastUserReplyAt: null,
+            newestDirection: "received",
+            messageCount: c.recentMessages?.length ?? 0,
+            recentMessages: (c.recentMessages ?? []).map((m) => ({ ...m, authoredAt: null })),
+          },
+        }),
+      });
+    } catch (err) {
+      failures++;
+      console.log(`\n❌ ${c.name}`);
+      console.log(`   classify error: ${toMessage(err)}`);
+      continue;
+    }
+    const { classification, model } = result;
     const gotTodo = classification.todoDecision?.outcome === "proposed";
     const catOk = c.expectCategory.includes(classification.category);
     const todoOk = gotTodo === c.expectTodo;
-    const ok = catOk && todoOk;
+    const collabOk =
+      c.expectCollabActivity === undefined ||
+      collabActivityPartition(classification.collabActivity) ===
+        collabActivityPartition(c.expectCollabActivity);
+    const ok = catOk && todoOk && collabOk;
     if (!ok) failures++;
     console.log(`\n${ok ? "✅" : "❌"} ${c.name}`);
     console.log(
@@ -178,6 +266,12 @@ async function main() {
     console.log(
       `   todo: ${gotTodo ? `proposed "${classification.todoSuggestion?.name}"` : `none (${classification.todoDecision?.outcome})`} (want ${c.expectTodo ? "todo" : "none"}) ${todoOk ? "ok" : "WRONG"}`,
     );
+    if (c.expectCollabActivity !== undefined) {
+      console.log(
+        `   collabActivity: ${classification.collabActivity ?? "null"} (${collabActivityPartition(classification.collabActivity)}) ` +
+          `(want ${c.expectCollabActivity ?? "null"} / ${collabActivityPartition(c.expectCollabActivity)}) ${collabOk ? "ok" : "WRONG"}`,
+      );
+    }
     console.log(`   rationale: ${classification.rationale}`);
   }
   console.log(`\n${failures === 0 ? "ALL PASS" : `${failures} FAILURE(S)`}`);

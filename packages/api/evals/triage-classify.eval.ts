@@ -1,5 +1,11 @@
 import path from "node:path";
-import { type AccountPersona, type SenderContext, type TriageCategory } from "@alfred/contracts";
+import {
+  collabActivityPartition,
+  type AccountPersona,
+  type CollabActivityKind,
+  type SenderContext,
+  type TriageCategory,
+} from "@alfred/contracts";
 import { serverEnv } from "@alfred/env/server";
 import { config as loadEnv } from "dotenv";
 import { evalite } from "evalite";
@@ -10,7 +16,7 @@ import {
   type ClassifyEmailArgs,
   type TodoDecisionOutcome,
 } from "../src/modules/triage/classify";
-import { assembleObservations } from "../src/modules/triage/observations";
+import { assembleObservations, type Observations } from "../src/modules/triage/observations";
 import type { ThreadMessageContext } from "../src/modules/triage/thread-state";
 import { llmJudgeScorer } from "./lib/llm-judge";
 
@@ -53,6 +59,8 @@ interface Expected {
   category: TriageCategory;
   /** Whether a rail todo should mint. */
   todo: "mint" | "suppress";
+  /** Expected model-emitted collaboration activity kind when the case exercises rule 19. */
+  collabActivity?: CollabActivityKind | null;
   /** Human note on the decision — context for the judge and the reader. */
   note: string;
 }
@@ -82,6 +90,8 @@ interface Case {
   newestDirection?: "sent" | "received";
   /** When the user last replied on the thread — drives rule 18 (own reply closes the loop). */
   lastUserReplyAt?: Date | null;
+  /** Active user-model projection signal; set when an eval must exercise sender-kind floors. */
+  senderKind?: Observations["senderKind"];
   sender: SenderContext;
   authoredAt?: Date;
   expected: Expected;
@@ -156,6 +166,75 @@ const CASES: Case[] = [
       category: "action_needed",
       todo: "mint",
       note: "Filing a backlog task OPENS work; the thread shows a live bug assigned to the user (rules 12e/17). The bot 'Done' is the filing, not the fix.",
+    },
+  },
+  {
+    label: "clickup-passive-third-party-comment-collab-activity",
+    from: "Oliv AI <notifications@tasks.clickup.com>",
+    subject: "Conservice: Show all CRM fields as options",
+    body: "Akash Ojha commented\nyes good catch\nView comment or reply to add a comment",
+    senderKey: "notifications@tasks.clickup.com",
+    senderPrior: { action_needed: 20, done: 6, fyi: 2 },
+    lastCategory: "action_needed",
+    senderKind: {
+      kind: "service",
+      confidence: 0.92,
+      evidenceCodes: ["email:local:service_strong"],
+      entityId: "ent_clickup",
+      displayName: "Oliv AI",
+    },
+    sender: { fromKind: "service", effectiveAuthor: "service" },
+    expected: {
+      category: "fyi",
+      todo: "suppress",
+      collabActivity: "other_activity",
+      note: "Rule 19: passive third-party ClickUp comment is not directed at the user. The service sender-kind floor should demote any action_needed spike to fyi.",
+    },
+  },
+  {
+    label: "clickup-assigned-to-user-collab-activity",
+    from: "Oliv AI <notifications@tasks.clickup.com>",
+    subject: "Fix login redirect loop on SSO",
+    body: "Akshay Jyothis assigned this task to you.\nDue Jun 14. Priority: High.\nThe SSO login redirects in a loop for enterprise accounts.",
+    senderKey: "notifications@tasks.clickup.com",
+    senderPrior: { action_needed: 20, done: 6, fyi: 2 },
+    lastCategory: "action_needed",
+    senderKind: {
+      kind: "service",
+      confidence: 0.92,
+      evidenceCodes: ["email:local:service_strong"],
+      entityId: "ent_clickup",
+      displayName: "Oliv AI",
+    },
+    sender: { fromKind: "service", effectiveAuthor: "service" },
+    expected: {
+      category: "action_needed",
+      todo: "mint",
+      collabActivity: "assigned_to_user",
+      note: "Rule 19 counter-case: assignment to the user is ownership activity, so the sender-kind floor must not demote it.",
+    },
+  },
+  {
+    label: "clickup-direct-mention-ask-collab-activity",
+    from: "Oliv AI <notifications@tasks.clickup.com>",
+    subject: "Deal Merge Flow",
+    body: "Sanyam mentioned you in a comment\n@yash.k pls merge this PR before the release branch is cut: https://github.com/OlivAIRepo/autosched-mirror/pull/654",
+    senderKey: "notifications@tasks.clickup.com",
+    senderPrior: { action_needed: 20, done: 6, fyi: 2 },
+    lastCategory: "action_needed",
+    senderKind: {
+      kind: "service",
+      confidence: 0.92,
+      evidenceCodes: ["email:local:service_strong"],
+      entityId: "ent_clickup",
+      displayName: "Oliv AI",
+    },
+    sender: { fromKind: "service", effectiveAuthor: "service" },
+    expected: {
+      category: "action_needed",
+      todo: "mint",
+      collabActivity: "mentioned_user",
+      note: "Rule 19 counter-case: an @mention with a concrete merge ask is directed at the user and must stay demanding.",
     },
   },
   {
@@ -527,6 +606,7 @@ interface TaskOutput {
   category: TriageCategory;
   confidence: number;
   rationale: string;
+  collabActivity: CollabActivityKind | null;
   todoOutcome: TodoDecisionOutcome | undefined;
   todoName: string | null;
   wouldMintTodo: boolean;
@@ -616,7 +696,7 @@ function buildArgs(c: Case): ClassifyEmailArgs {
     },
     knownContact: c.knownContact ?? false,
     senderRelationship: c.senderRelationship ?? null,
-    senderKind: null,
+    senderKind: c.senderKind ?? null,
     labelIds: c.labelIds ?? ["INBOX"],
     signalText,
   });
@@ -709,6 +789,7 @@ evalite<Case, TaskOutput, Expected>("Triage classifier", {
         category: "fyi",
         confidence: 0,
         rationale: `[skipped: ${kind}]`,
+        collabActivity: null,
         todoOutcome: undefined,
         todoName: null,
         wouldMintTodo: false,
@@ -731,6 +812,7 @@ evalite<Case, TaskOutput, Expected>("Triage classifier", {
       category: classification.category,
       confidence: classification.confidence,
       rationale: classification.rationale,
+      collabActivity: classification.collabActivity ?? null,
       todoOutcome: classification.todoDecision?.outcome,
       todoName: resolved?.name ?? null,
       wouldMintTodo,
@@ -770,6 +852,23 @@ evalite<Case, TaskOutput, Expected>("Triage classifier", {
         return {
           score: ok ? 1 : 0,
           metadata: `${got}; want ${expected.todo}`,
+        };
+      },
+    },
+    {
+      name: "CollabActivity match",
+      scorer: ({ output, expected }) => {
+        if (output.skipped) return { score: 0, metadata: "skipped (provider overload)" };
+        if (!("collabActivity" in (expected ?? {}))) {
+          return { score: 1, metadata: "not asserted" };
+        }
+        const gotPartition = collabActivityPartition(output.collabActivity);
+        const wantPartition = collabActivityPartition(expected?.collabActivity);
+        return {
+          score: gotPartition === wantPartition ? 1 : 0,
+          metadata:
+            `got ${output.collabActivity ?? "null"} (${gotPartition}), ` +
+            `want ${expected?.collabActivity ?? "null"} (${wantPartition})`,
         };
       },
     },

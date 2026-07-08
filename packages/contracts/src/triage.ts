@@ -102,6 +102,74 @@ export const triageTodoDecisionSchema = z.object({
 });
 export type TriageTodoDecision = z.infer<typeof triageTodoDecisionSchema>;
 
+// ─── Collaboration-tool activity kind (#218 / ADR-0066) ───────────────────
+// A structured read of WHAT a collaboration-tool notification (ClickUp, Linear,
+// Jira, Asana, Notion, Trello, doc-comment threads) represents. The cheap
+// classifier emits it alongside the category so a deterministic floor can demote
+// PASSIVE team activity from a confident group/service sender — the residual
+// `action_needed` leak that no body-regex reason (`collab_state_transition`,
+// `github_passive_pr_or_ci`, …) safely catches. Null for any mail that is NOT a
+// collaboration-tool notification. Rule 12e already asks the model to classify
+// these by ownership; this surfaces that read as a field the floor can gate on
+// (a structured signal, not another prompt patch).
+export const COLLAB_ACTIVITY_KINDS = [
+  // Directed AT the user — the ball is in their court. These KEEP their category.
+  "assigned_to_user",
+  "mentioned_user",
+  "comment_to_user",
+  // Passive team activity — not the user's obligation. These DEMOTE to fyi.
+  "state_change",
+  "other_activity",
+  "digest",
+] as const;
+export type CollabActivityKind = (typeof COLLAB_ACTIVITY_KINDS)[number];
+export const collabActivitySchema = z.enum(COLLAB_ACTIVITY_KINDS);
+
+/**
+ * The subset directed AT the user (assignment, @-mention, or a comment/reply to
+ * them). A collaboration notification of one of these kinds genuinely obligates
+ * the user, so the sender-kind floor must NOT demote it — only the passive
+ * complement (`state_change` / `other_activity` / `digest`) demotes.
+ */
+export const COLLAB_ACTIVITY_OWNERSHIP_KINDS = [
+  "assigned_to_user",
+  "mentioned_user",
+  "comment_to_user",
+] as const satisfies readonly CollabActivityKind[];
+export type OwnershipCollabActivityKind = (typeof COLLAB_ACTIVITY_OWNERSHIP_KINDS)[number];
+
+export const COLLAB_ACTIVITY_PASSIVE_KINDS = [
+  "state_change",
+  "other_activity",
+  "digest",
+] as const satisfies readonly CollabActivityKind[];
+export type PassiveCollabActivityKind = (typeof COLLAB_ACTIVITY_PASSIVE_KINDS)[number];
+
+// Compile-time partition guard: a newly-added kind must be explicitly classified
+// as ownership or passive before the sender-kind floor can consume it.
+export const COLLAB_ACTIVITY_PARTITION_CHECK: Record<
+  Exclude<CollabActivityKind, OwnershipCollabActivityKind | PassiveCollabActivityKind>,
+  never
+> &
+  Record<Extract<OwnershipCollabActivityKind, PassiveCollabActivityKind>, never> = {};
+
+export function isOwnershipCollabActivity(kind: CollabActivityKind): boolean {
+  return (COLLAB_ACTIVITY_OWNERSHIP_KINDS as readonly CollabActivityKind[]).includes(kind);
+}
+
+export function isPassiveCollabActivity(kind: CollabActivityKind): boolean {
+  return (COLLAB_ACTIVITY_PASSIVE_KINDS as readonly CollabActivityKind[]).includes(kind);
+}
+
+export type CollabActivityPartition = "ownership" | "passive" | "none";
+
+export function collabActivityPartition(
+  kind: CollabActivityKind | null | undefined,
+): CollabActivityPartition {
+  if (kind == null) return "none";
+  return isPassiveCollabActivity(kind) ? "passive" : "ownership";
+}
+
 export const ACCOUNT_PERSONAS = ["work", "personal"] as const;
 export type AccountPersona = (typeof ACCOUNT_PERSONAS)[number];
 export const accountPersonaSchema = z.enum(ACCOUNT_PERSONAS);
