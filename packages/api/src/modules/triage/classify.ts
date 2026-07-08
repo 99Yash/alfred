@@ -2,9 +2,12 @@ import { getCheapModel, identifyLanguageModel, meteredGenerateObject } from "@al
 import {
   TODO_DECISION_OUTCOMES,
   clamp01,
+  collabActivitySchema,
   confidenceSchema,
+  isOwnershipCollabActivity,
   triageTodoDecisionSchema,
   triageTodoSuggestionSchema,
+  type CollabActivityKind,
   type SenderContext,
   type TodoDecisionOutcome,
   toMessage,
@@ -82,6 +85,17 @@ export const triageClassificationSchema = z.object({
   // suggestion null when no todo, the decision always present).
   todoSuggestion: triageTodoSuggestionSchema.optional(),
   todoDecision: triageTodoDecisionSchema.optional(),
+  /**
+   * Collaboration-tool activity kind (#218). Non-null ONLY for a task/issue
+   * tracker or doc-comment notification (ClickUp, Linear, Jira, Asana, Notion,
+   * Trello, …); null for every other email. The sender-kind floor reads it to
+   * demote PASSIVE team activity (`state_change`/`other_activity`/`digest`) from
+   * a confident group/service sender while KEEPING work directed at the user
+   * (`assigned_to_user`/`mentioned_user`/`comment_to_user`). `.nullable()` so the
+   * cheap model's explicit `null` validates; `.optional()` so non-cheap producers
+   * need not emit it.
+   */
+  collabActivity: collabActivitySchema.nullable().optional(),
 });
 export type TriageClassification = z.infer<typeof triageClassificationSchema>;
 
@@ -288,6 +302,14 @@ Rules:
     16g. ALWAYS emit \`todoDecision\`: { "outcome": <one of the six above>, "note"?: "<≤1 short clause if useful>" }. \`todoSuggestion\` is null unless outcome is \`proposed\`.
 17. Thread tag is the LIVE loop, not the last keystroke. The thread carries ONE tag and the newest message rewrites it for the whole thread. Do not let a trailing low-signal message — an automation/bot status line ("Done. Created the task", "moved to In Progress"), an acknowledgement, or a reaction — overwrite an open ask from earlier in the thread. When the recent-thread-messages show the user was assigned a task or asked a direct question that is still unanswered, the thread stays \`action_needed\`/\`awaiting_reply\` even when the latest line is a bot's "done". Judge what the thread still needs FROM THE USER, not the wording of the final line.
 18. Your own reply closes the loop (the inverse of rule 17). When the MOST RECENT message in the thread is FROM THE USER — thread state reads "you last replied on <date>" and the recent-thread-messages show the user's send as the latest line — and that reply answers the thread's outstanding ask, the thread no longer needs anything FROM THE USER. It is NOT \`awaiting_reply\`/\`action_needed\`: the user does not owe a reply they have already sent. Route it to \`done\` — the user's side of the loop is closed; waiting on the counterparty to respond is THEIR move, not a user action, so do not re-tag it as a thing the user must do. The recruiter who got a reply, the question the user already answered, the request the user already actioned all land here. EXCEPTION: the user's own latest message itself poses a NEW unanswered question to the counterparty or commits the user to a concrete next step — then classify on that open ask, not on the closed one. Rule 17 keeps a trailing low-signal BOT line from burying an open ask; rule 18 recognizes the user's OWN substantive reply as the line that closes it.
+19. Collaboration-tool activity (\`collabActivity\`) — SEPARATELY from the category, for a notification from a task/issue tracker or doc-comment thread (ClickUp, Linear, Jira, Asana, Monday, Trello, Notion, GitHub Issues, Google Docs/Drive or Figma comments, and similar collaboration tools), emit \`collabActivity\` naming WHAT the notification is — the same ownership read rule 12e asks for, surfaced as a field:
+    - \`assigned_to_user\`: the body assigns / hands the item to the user.
+    - \`mentioned_user\`: the user is @-mentioned with a concrete ask.
+    - \`comment_to_user\`: a comment or reply directed AT the user — on the user's own item, or answering/asking the user — that expects a response.
+    - \`state_change\`: a status/stage change, move, close, or reopen — nobody is asked to do anything.
+    - \`other_activity\`: activity on an item the user only watches or is CC'd on — a third-party comment, a newly created item, someone else's edit — NOT directed at the user.
+    - \`digest\`: a periodic activity roundup ("N updates in your workspace this week").
+    Emit \`null\` for ANY email that is not a collaboration-tool notification (ordinary person-to-person mail, newsletters, marketing, security/auth, payments, calendar invites, social networks, vendor status pages). This is a FACTUAL read of the notification and is independent of the category — set it even when the category is fyi/done. It does not change your category choice; it records the ownership you already judged.
 
 Examples (subject → category):
 - "[acme/repo] Redis URI exposed on GitHub" from noreply@github.com → urgent (credential must be rotated today).
@@ -337,7 +359,7 @@ Todo-decision exemplars (each illustrates the ONE rubric test that decides it �
 - A cold ask — "give me a recommendation", "endorse my skills", "can you intro me?" — whose Sender relationship reads \`weak · one-way inbound\` or \`no prior contact on record\` → category awaiting_reply (an honest direct ask), no todo (16b person-waiting: a cold contact is not a real person waiting, note \`cold_sender:\`). The SAME ask from a \`strong · two-way\` contact (or a known contact with real history) → todo (a real person is waiting).
 - "Sundram Fasteners — 63rd Annual General Meeting" from a registrar → category fyi, no todo (16b: ceremonial, no real stake) — unless it asks the user to vote by a deadline (then a todo).
 
-Output JSON: { "category": "...", "confidence": 0.0-1.0, "rationale": "...", "todoSuggestion": { "name": "...", "assist": "..." } | null, "todoDecision": { "outcome": "proposed|no_obligation|not_significant|would_not_forget|too_vague|already_handled", "note": "..." } }`;
+Output JSON: { "category": "...", "confidence": 0.0-1.0, "rationale": "...", "todoSuggestion": { "name": "...", "assist": "..." } | null, "todoDecision": { "outcome": "proposed|no_obligation|not_significant|would_not_forget|too_vague|already_handled", "note": "..." }, "collabActivity": "assigned_to_user|mentioned_user|comment_to_user|state_change|other_activity|digest" | null }`;
 
 function renderObservations(obs: Observations): string {
   const lines: string[] = ["=== Observations (deterministic context — hints, not verdicts) ==="];
@@ -647,6 +669,13 @@ type SenderKindDemotionFloorContext = {
    * is a conservative no-op (we cannot prove a broadcast, so we do not demote).
    */
   accountEmail?: string | null;
+  /**
+   * The cheap model's collaboration-tool activity read (#218). Present only for
+   * task/issue-tracker and doc-comment notifications; passive kinds drive the
+   * `collab_passive_activity` reason, ownership kinds keep the category. Absent
+   * → the model saw no collaboration activity, so the body-regex path applies.
+   */
+  collabActivity?: CollabActivityKind | null;
 };
 
 export function applySenderKindDemotionFloor(
@@ -671,7 +700,9 @@ export function applySenderKindDemotionFloor(
           ? `${senderKind.kind} sender sent a broadcast sign-in confirmation`
           : reason === "monitoring_alarm"
             ? `${senderKind.kind} sender broadcast a monitoring alarm the user was not addressed on`
-            : `${senderKind.kind} sender sent a passive collaboration state transition`;
+            : reason === "collab_passive_activity"
+              ? `${senderKind.kind} sender sent passive collaboration activity not directed at the user`
+              : `${senderKind.kind} sender sent a passive collaboration state transition`;
   return {
     classification: {
       ...classification,
@@ -727,6 +758,7 @@ function isPassiveCollaborationStateTransition(signalText: string): boolean {
 
 type SenderKindDemotionReason =
   | "collab_state_transition"
+  | "collab_passive_activity"
   | "github_passive_pr_or_ci"
   | "broadcast_auth_signin_confirmation"
   | "monitoring_alarm";
@@ -735,7 +767,26 @@ function senderKindDemotionReason(
   context: SenderKindDemotionFloorContext,
   senderKind: NonNullable<Observations["senderKind"]>,
 ): SenderKindDemotionReason | null {
-  if (isPassiveCollaborationStateTransition(context.signalText ?? "")) {
+  // Model-authoritative collaboration signal (#218). When the cheap model tagged
+  // the notification's activity kind, it is a stronger, per-message read than the
+  // body-regex heuristic — so it takes precedence over `collab_state_transition`.
+  // Ownership kinds (assigned/@-mentioned/comment TO the user) are NOT passive:
+  // they fall through so a genuine assignment keeps its category. Passive kinds
+  // demote, subject to the SAME secret + intrinsic-stake vetoes the regex path
+  // honors (a "someone changed status" line that also names an exposed secret or
+  // a past-due invoice keeps its escalation).
+  const collab = context.collabActivity;
+  if (collab != null) {
+    if (!isOwnershipCollabActivity(collab)) {
+      const signalText = context.signalText ?? "";
+      if (
+        !OVERRIDE_FLOOR_SECRET_RE.test(signalText) &&
+        !COLLAB_INTRINSIC_STAKE_RE.test(signalText)
+      ) {
+        return "collab_passive_activity";
+      }
+    }
+  } else if (isPassiveCollaborationStateTransition(context.signalText ?? "")) {
     return "collab_state_transition";
   }
   if (isPassiveGithubPrOrCiNotification(context)) return "github_passive_pr_or_ci";
@@ -1116,6 +1167,7 @@ export async function classifyEmail(
       to,
       cc,
       accountEmail: args.identity?.email ?? null,
+      collabActivity: floorResult.classification.collabActivity ?? null,
     },
   );
   const classification = kindFloor.classification;

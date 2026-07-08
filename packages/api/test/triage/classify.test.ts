@@ -259,6 +259,99 @@ describe("applySenderKindDemotionFloor", () => {
     assert.equal(r.classification.category, "action_needed");
   });
 
+  // --- #218: collabActivity model-field floor (ClickUp/Linear residual tail) ---
+  // The body is the ambiguous assignment/mention/comment prose that no
+  // state-transition regex matches — the model's `collabActivity` read is the
+  // signal. Passive kinds demote; ownership kinds keep.
+
+  for (const kind of ["state_change", "other_activity", "digest"] as const) {
+    test(`demotes action_needed → fyi on passive collabActivity=${kind} (no state-transition regex)`, () => {
+      const r = applySenderKindDemotionFloor(
+        classification({
+          category: "action_needed",
+          todoSuggestion: { name: "Handle the ClickUp task" },
+          todoDecision: { outcome: "proposed" },
+        }),
+        serviceKind,
+        {
+          signalText: "Conservice: Show all CRM fields as options\nActivity in your workspace",
+          collabActivity: kind,
+        },
+      );
+      assert.equal(r.demoted, true);
+      assert.equal(r.classification.category, "fyi");
+      assert.equal(r.classification.todoSuggestion, null);
+      assert.equal(r.classification.todoDecision?.outcome, "no_obligation");
+      assert.equal(resolveTodoSuggestion(r.classification), null);
+    });
+  }
+
+  for (const kind of ["assigned_to_user", "mentioned_user", "comment_to_user"] as const) {
+    test(`keeps action_needed on ownership collabActivity=${kind} (directed at the user)`, () => {
+      const r = applySenderKindDemotionFloor(
+        classification({ category: "action_needed" }),
+        serviceKind,
+        {
+          signalText: "Conservice: Show all CRM fields as options",
+          collabActivity: kind,
+        },
+      );
+      assert.equal(r.demoted, false);
+      assert.equal(r.classification.category, "action_needed");
+    });
+  }
+
+  test("collabActivity model field wins over a stray state-transition regex match", () => {
+    // Body would match the passive-state-transition regex, but the model read the
+    // notification as assigned to the user — the model field takes precedence.
+    const r = applySenderKindDemotionFloor(
+      classification({ category: "action_needed" }),
+      serviceKind,
+      {
+        signalText: "changed status to In Progress\nAkshay assigned this to you",
+        collabActivity: "assigned_to_user",
+      },
+    );
+    assert.equal(r.demoted, false);
+    assert.equal(r.classification.category, "action_needed");
+  });
+
+  test("passive collabActivity with an exposed-secret body is NOT demoted (secret veto)", () => {
+    const r = applySenderKindDemotionFloor(
+      classification({ category: "action_needed" }),
+      serviceKind,
+      {
+        signalText: "activity on card\nAWS secret key was exposed in the logs",
+        collabActivity: "other_activity",
+      },
+    );
+    assert.equal(r.demoted, false);
+    assert.equal(r.classification.category, "action_needed");
+  });
+
+  test("passive collabActivity with a real money stake is NOT demoted (intrinsic-stake veto)", () => {
+    const r = applySenderKindDemotionFloor(
+      classification({ category: "action_needed" }),
+      serviceKind,
+      {
+        signalText: "workspace activity\nyour invoice is past due — card declined",
+        collabActivity: "digest",
+      },
+    );
+    assert.equal(r.demoted, false);
+    assert.equal(r.classification.category, "action_needed");
+  });
+
+  test("passive collabActivity from a weak service-role mailbox is spared (evidence gate)", () => {
+    const r = applySenderKindDemotionFloor(
+      classification({ category: "action_needed" }),
+      serviceRoleKind,
+      { signalText: "activity in your workspace", collabActivity: "other_activity" },
+    );
+    assert.equal(r.demoted, false);
+    assert.equal(r.classification.category, "action_needed");
+  });
+
   test("demotes GitHub PR notifications where Cc structurally says the user is the author", () => {
     const r = applySenderKindDemotionFloor(
       classification({ category: "action_needed" }),
