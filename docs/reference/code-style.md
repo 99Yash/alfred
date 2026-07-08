@@ -22,15 +22,17 @@ interface DocArg {
   authoredAt: Date | null;
 }
 
-// ✓ derived — title/authoredAt stay nullable because the column is
-import type { documents } from "@alfred/db/schemas";
-type DocArg = Pick<typeof documents.$inferSelect, "id" | "title" | "content" | "source" | "authoredAt">;
+// ✓ derived — title/authoredAt stay nullable because the column is.
+// Prefer the NAMED row-type the schema already exports (one per table)…
+import type { Document } from "@alfred/db/schemas";
+type DocArg = Pick<Document, "id" | "title" | "content" | "source" | "authoredAt">;
 ```
 
-- A subset of columns → `Pick<typeof table.$inferSelect, ...>`.
-- Everything-but-a-few → `Omit<typeof table.$inferSelect, ...>`.
-- A row mapped to a wire/Replicache shape → keep `r: typeof table.$inferSelect` as the **input** and let the output be its own declared type (this is the `rowToFact` / `rowToEntity` / `rowToBriefing` idiom — see `packages/api/src/modules/memory/facts.ts`, `entities.ts`, `briefing/store.ts`).
-- Insert payloads → `typeof table.$inferInsert`, never a hand-written `{ ... }`.
+- **Prefer the named export.** The schema exports a named row type per table (`Document`, `Entity`, `UserFact`, … — 65 of them). `Pick<Document, ...>` is preferred over re-spelling `Pick<typeof documents.$inferSelect, ...>`: identical type, but it uses the canonical name and stays a pure `import type` instead of pulling the table *value* into scope just to read its inferred shape. Fall back to `typeof table.$inferSelect` only when no named export exists.
+- A subset of columns → `Pick<Document, ...>`.
+- Everything-but-a-few → `Omit<Document, ...>`.
+- A row mapped to a wire/Replicache shape → keep `r: Document` (the named row type) as the **input** and let the output be its own declared type (this is the `rowToFact` / `rowToEntity` / `rowToBriefing` idiom — see `packages/api/src/modules/memory/facts.ts`, `entities.ts`, `briefing/store.ts`).
+- Insert payloads → the table's `New*` export where one exists (`NewArtifact`, `NewBriefing`, `NewIntegrationObject`), else `typeof table.$inferInsert` — never a hand-written `{ ... }`. Add a `New<Table>` export when you first need one; don't hand-roll the insert shape.
 - A type-only use (only inside `typeof`) takes `import type` so nothing lands in the runtime bundle — required by `verbatimModuleSyntax` (see [typescript.md](./typescript.md)).
 
 ### Zod schemas → `z.infer`
