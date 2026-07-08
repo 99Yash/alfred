@@ -161,6 +161,15 @@ export function isPassiveCollabActivity(kind: CollabActivityKind): boolean {
   return (COLLAB_ACTIVITY_PASSIVE_KINDS as readonly CollabActivityKind[]).includes(kind);
 }
 
+export type CollabActivityPartition = "ownership" | "passive" | "none";
+
+export function collabActivityPartition(
+  kind: CollabActivityKind | null | undefined,
+): CollabActivityPartition {
+  if (kind == null) return "none";
+  return isPassiveCollabActivity(kind) ? "passive" : "ownership";
+}
+
 export const ACCOUNT_PERSONAS = ["work", "personal"] as const;
 export type AccountPersona = (typeof ACCOUNT_PERSONAS)[number];
 export const accountPersonaSchema = z.enum(ACCOUNT_PERSONAS);

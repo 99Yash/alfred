@@ -698,6 +698,13 @@ export function applySenderKindDemotionFloor(
   demoted: boolean;
   reason: SenderKindDemotionReason | null;
 } {
+  // An ownership collabActivity is a model-emitted "this is directed at the user"
+  // read. Treat it as a veto over every passive sender-kind demotion path,
+  // including the broad awaiting_reply demotion and GitHub reason aliases.
+  if (context.collabActivity != null && isOwnershipCollabActivity(context.collabActivity)) {
+    return { classification, demoted: false, reason: null };
+  }
+
   const reason = senderKind ? senderKindDemotionReason(context, senderKind) : null;
   if (
     !senderKind ||
@@ -786,11 +793,10 @@ function senderKindDemotionReason(
   // Model-authoritative collaboration signal (#218). When the cheap model tagged
   // the notification's activity kind, it is a stronger, per-message read than the
   // body-regex heuristic — so it takes precedence over `collab_state_transition`.
-  // Ownership kinds (assigned/@-mentioned/comment TO the user) are NOT passive:
-  // they fall through so a genuine assignment keeps its category. Passive kinds
-  // demote, subject to the SAME secret + intrinsic-stake vetoes the regex path
-  // honors (a "someone changed status" line that also names an exposed secret or
-  // a past-due invoice keeps its escalation).
+  // Ownership kinds are handled as a hard veto in `applySenderKindDemotionFloor`.
+  // Passive kinds demote, subject to the SAME secret + intrinsic-stake vetoes the
+  // regex path honors (a "someone changed status" line that also names an exposed
+  // secret or a past-due invoice keeps its escalation).
   const collab = context.collabActivity;
   if (collab != null) {
     if (isPassiveCollabActivity(collab)) {
@@ -801,8 +807,6 @@ function senderKindDemotionReason(
       ) {
         return "collab_passive_activity";
       }
-    } else if (!isOwnershipCollabActivity(collab)) {
-      return null;
     }
   } else if (isPassiveCollaborationStateTransition(context.signalText ?? "")) {
     return "collab_state_transition";
@@ -1264,10 +1268,18 @@ function defaultRunPass(
         name: pass === "second" ? "triage.classify.second_pass" : "triage.classify",
       },
     );
+    const object = result.object;
+    if (!Object.hasOwn(object, "collabActivity")) {
+      throw new Error("[triage] cheap classifier omitted required collabActivity field");
+    }
     // Clamp confidence into [0, 1] here rather than in the schema: the range
     // can't be expressed in the cheap-model structured-output JSON schema (see
     // `confidenceSchema`). `clamp01` is the shared boundary clamp.
-    return { ...result.object, confidence: clamp01(result.object.confidence) };
+    return {
+      ...object,
+      confidence: clamp01(object.confidence),
+      collabActivity: object.collabActivity ?? null,
+    };
   };
 }
 
