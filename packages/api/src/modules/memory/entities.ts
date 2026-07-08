@@ -8,7 +8,7 @@ const aliasesSchema = z.array(z.string());
 
 export const upsertEntityArgsSchema = z.object({
   userId: z.string().min(1),
-  kind: z.enum(["person", "organization", "project", "product", "location", "other"]),
+  kind: entityKindSchema,
   canonicalName: z.string().min(1).max(500),
   aliases: z.array(z.string()).optional(),
   metadata: z.record(z.string(), z.unknown()).optional(),
