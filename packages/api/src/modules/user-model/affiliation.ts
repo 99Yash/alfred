@@ -48,7 +48,7 @@ import { insertObservation } from "./observations";
 import { type DbExecutor } from "./executor";
 
 /** The lifecycle status a connect/disconnect emits. */
-export type OrgAffiliationStatus = "connected" | "disconnected";
+export type OrgAffiliationStatus = UserOrgAffiliationPayload["status"];
 
 /**
  * The credential fields the emitter reads. A narrow interface (not the full

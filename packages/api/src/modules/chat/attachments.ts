@@ -5,7 +5,7 @@ import {
   MAX_ATTACHMENTS_PER_MESSAGE,
   type IngestPolicyEntry,
 } from "@alfred/contracts";
-import type { chatAttachments } from "@alfred/db/schemas";
+import type { NewChatAttachment } from "@alfred/db/schemas";
 import sharp from "sharp";
 import { BadRequestError } from "../../middleware/errors";
 import { buildAttachmentKey, headObject } from "./storage";
@@ -182,7 +182,7 @@ export function toAttachmentRow(opts: {
   threadId: string;
   messageId: string;
   attachment: AttachmentInput;
-}): typeof chatAttachments.$inferInsert {
+}): NewChatAttachment {
   const { userId, threadId, messageId, attachment } = opts;
   assertUploadAllowed(attachment.mime, attachment.size);
   return {

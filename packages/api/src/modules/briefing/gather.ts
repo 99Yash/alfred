@@ -7,6 +7,7 @@ import type {
   IntegrationActivityItem,
   StateCategory,
   WeatherContribution,
+  WeatherFallbackLocation,
 } from "@alfred/contracts";
 import {
   isLoopClosingCategory,
@@ -789,22 +790,16 @@ const openMeteoSchema = z.object({
     .optional(),
 });
 
-interface WeatherLocation {
-  lat: number;
-  lng: number;
-  label: string;
-}
-
 async function resolveWeatherLocation(
   userId: string,
   timezone: IanaTimezone,
-): Promise<WeatherLocation | null> {
+): Promise<WeatherFallbackLocation | null> {
   const pref = await getPreference(userId, "location");
   const parsed = parseWeatherLocation(pref?.value);
   return parsed ?? weatherFallbackFor(timezone);
 }
 
-function parseWeatherLocation(value: unknown): WeatherLocation | null {
+function parseWeatherLocation(value: unknown): WeatherFallbackLocation | null {
   if (!isRecord(value)) return null;
   const record = value;
   const lat = parseCoord(record.lat ?? record.latitude);

@@ -10,6 +10,7 @@ import {
 import { db } from "@alfred/db";
 import { createId } from "@alfred/db/helpers";
 import { agentRuns, chatAttachments, chatMessages, chatThreads } from "@alfred/db/schemas";
+import type { ChatAttachment, NewChatAttachment } from "@alfred/db/schemas";
 import { serverEnv } from "@alfred/env/server";
 import { and, asc, eq, inArray, notInArray, sql } from "drizzle-orm";
 import { Elysia, t } from "elysia";
@@ -53,15 +54,9 @@ let attachmentUploadRateRedis: ReturnType<typeof createCacheRedisConnection> | u
 
 type DbTransaction = Parameters<Parameters<ReturnType<typeof db>["transaction"]>[0]>[0];
 type DbExecutor = ReturnType<typeof db> | DbTransaction;
-type AttachmentInsertRow = typeof chatAttachments.$inferInsert;
-type ExistingAttachmentSummary = Pick<
-  typeof chatAttachments.$inferSelect,
-  "id" | "name" | "mime" | "size" | "position"
->;
-type RetryAttachmentSource = Pick<
-  typeof chatAttachments.$inferSelect,
-  "id" | "storageKey" | "name" | "mime" | "size"
->;
+type AttachmentInsertRow = NewChatAttachment;
+type ExistingAttachmentSummary = Pick<ChatAttachment, "id" | "name" | "mime" | "size" | "position">;
+type RetryAttachmentSource = Pick<ChatAttachment, "id" | "storageKey" | "name" | "mime" | "size">;
 interface FreshAttachmentDescriptor {
   id: string;
   name: string;

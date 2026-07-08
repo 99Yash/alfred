@@ -1,10 +1,12 @@
 import { db } from "@alfred/db";
 import {
   entities,
+  type Entity,
   entityRelations,
   integrationCredentials,
   memoryChunks,
   user,
+  type UserFact,
   userFacts,
   userPreferences,
 } from "@alfred/db/schemas";
@@ -127,16 +129,10 @@ const MEMORY_PREVIEW_CHARS = 900;
 /** Cap on the extra entities a `query`/`subjectEmail` focus may pull in past the ranked slice. */
 const FOCUS_MATCH_LIMIT = 10;
 
-type EntityRow = {
-  id: string;
-  kind: string;
-  canonicalName: string;
-  aliases: unknown;
-  metadata: unknown;
-};
+type EntityRow = Pick<Entity, "id" | "kind" | "canonicalName" | "aliases" | "metadata">;
 
 type FactContextRow = Pick<
-  typeof userFacts.$inferSelect,
+  UserFact,
   "id" | "key" | "value" | "confidence" | "source" | "updatedAt" | "createdAt"
 >;
 type StringFactContextRow = FactContextRow & { value: string };
