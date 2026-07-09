@@ -2,7 +2,7 @@ import { isTriageCategory, parseEmailAddress, type TriageCategory } from "@alfre
 import type { InfiniteData } from "@tanstack/react-query";
 import { useInfiniteQuery, useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { responseErrorMessage } from "~/lib/api-error";
-import { client } from "~/lib/eden";
+import { client, type EdenData } from "~/lib/eden";
 import type { IntegrationBrand } from "~/lib/integrations/integration-icons";
 import type { InboxItem, ToolTone } from "~/routes/-preview-chat/helpers";
 
@@ -152,13 +152,11 @@ export interface InboxMessage {
   attachments: ReadonlyArray<InboxAttachment>;
 }
 
-export interface InboxAttachment {
-  partId: string | null;
-  attachmentId: string;
-  filename: string;
-  mimeType: string;
-  size: number;
-}
+/** Thread payload from `GET /api/me/inbox/:documentId`, per the live contract. */
+type InboxDetailData = EdenData<ReturnType<typeof client.api.me.inbox>["get"]>;
+
+/** One attachment on a thread message; the mapper below is a 1:1 passthrough. */
+export type InboxAttachment = InboxDetailData["messages"][number]["attachments"][number];
 
 export function useInboxDetail(documentId: string | null) {
   return useQuery<InboxThread | null>({
@@ -231,16 +229,8 @@ function parseSenderEmail(raw: string): string | null {
   return null;
 }
 
-interface InboxResponseItem {
-  documentId: string;
-  threadId: string | null;
-  sender: string | null;
-  subject: string | null;
-  snippet: string | null;
-  authoredAt: string | null;
-  unread: boolean;
-  category: string | null;
-}
+/** One row from `GET /api/me/inbox`, derived from the live route contract. */
+type InboxResponseItem = EdenData<typeof client.api.me.inbox.get>["items"][number];
 
 function toInboxItem(row: InboxResponseItem): InboxItem {
   const display = senderDisplay(row.sender);

@@ -1,5 +1,5 @@
 import { useQuery } from "@tanstack/react-query";
-import { client } from "~/lib/eden";
+import { client, type EdenData } from "~/lib/eden";
 import type { MeetingItem } from "~/routes/-preview-chat/helpers";
 
 /**
@@ -23,7 +23,7 @@ export function useMeetings() {
     queryFn: async () => {
       const res = await client.api.me.meetings.get();
       if (res.error || !res.data) return { items: [], connected: false };
-      const raw = res.data.items as ReadonlyArray<MeetingResponseItem>;
+      const raw = res.data.items;
       // Pick exactly one row to badge as "next" — the soonest future event.
       // Without this, every future event would render with the Next pill
       // and the rail's signal value evaporates.
@@ -45,17 +45,8 @@ export function useMeetings() {
   });
 }
 
-interface MeetingResponseItem {
-  id: string;
-  title: string;
-  startAt: string | null;
-  endAt: string | null;
-  allDay: boolean;
-  location: string | null;
-  attendees: ReadonlyArray<{ email: string; displayName: string | null }>;
-  hangoutLink: string | null;
-  htmlLink: string | null;
-}
+/** One event from `GET /api/me/meetings`, derived from the live route contract. */
+type MeetingResponseItem = EdenData<typeof client.api.me.meetings.get>["items"][number];
 
 function toMeetingItem(row: MeetingResponseItem, nextStart: number | null): MeetingItem {
   const time = row.allDay ? "All day" : formatStart(row.startAt);
