@@ -6,6 +6,7 @@ import {
   ChevronLeft,
   ChevronRight,
   Copy,
+  Download,
   FileText,
   Layers,
   Loader2,
@@ -19,12 +20,15 @@ import {
   useEffectEvent,
   useRef,
   useState,
+  type Dispatch,
   type PointerEvent as ReactPointerEvent,
   type ReactNode,
+  type SetStateAction,
 } from "react";
 import { createPortal } from "react-dom";
 import { ArtifactPageFrame } from "~/components/artifact-page-frame";
 import { MarkdownRenderer } from "~/components/markdown-renderer";
+import { printArtifactPages } from "~/lib/artifacts/export-artifact";
 import { useArtifact } from "~/lib/replicache/use-artifacts";
 import { cn } from "~/lib/utils";
 import type { RailMode } from "~/routes/-preview-chat/helpers";
@@ -64,6 +68,12 @@ export function ArtifactSidebar({
 }: ArtifactSidebarProps) {
   const artifact = useArtifact(artifactId);
   const [fullscreen, setFullscreen] = useState(false);
+  // Which page is in view. Lifted here so it is the single source of truth
+  // shared by the thumbnail strip, the header's "present" button, and the
+  // fullscreen viewer — so opening fullscreen starts on the page the user is
+  // actually looking at, not page 1. Reset when the artifact swaps.
+  const [pageIndex, setPageIndex] = useState(0);
+  useEffect(() => setPageIndex(0), [artifactId]);
 
   // Escape closes the panel (overlay) or exits fullscreen first. The handler
   // reads the latest fullscreen/mode/onClose through an Effect Event so the
@@ -100,7 +110,12 @@ export function ArtifactSidebar({
         onEdit={onSuggestEdit ? onEdit : undefined}
         onClose={onClose}
       />
-      <ArtifactBody artifact={artifact} onFullscreen={isPages ? () => setFullscreen(true) : null} />
+      <ArtifactBody
+        artifact={artifact}
+        onFullscreen={isPages ? () => setFullscreen(true) : null}
+        pageIndex={pageIndex}
+        onPageIndexChange={setPageIndex}
+      />
     </div>
   );
 
@@ -125,7 +140,12 @@ export function ArtifactSidebar({
           {inner}
         </aside>
         {fullscreen && artifact ? (
-          <ArtifactFullscreen artifact={artifact} onClose={() => setFullscreen(false)} />
+          <ArtifactFullscreen
+            artifact={artifact}
+            index={pageIndex}
+            onIndexChange={setPageIndex}
+            onClose={() => setFullscreen(false)}
+          />
         ) : null}
       </>
     );
@@ -145,7 +165,12 @@ export function ArtifactSidebar({
       <ResizeHandle width={width} onWidthChange={onWidthChange} />
       {inner}
       {fullscreen && artifact ? (
-        <ArtifactFullscreen artifact={artifact} onClose={() => setFullscreen(false)} />
+        <ArtifactFullscreen
+          artifact={artifact}
+          index={pageIndex}
+          onIndexChange={setPageIndex}
+          onClose={() => setFullscreen(false)}
+        />
       ) : null}
     </aside>
   );
@@ -169,7 +194,8 @@ function ArtifactHeader({
   onClose: () => void;
 }) {
   const isPages = artifact?.kind === "pages";
-  const pageCount = artifact?.content?.kind === "pages" ? artifact.content.pages.length : undefined;
+  const pagesContent = artifact?.content?.kind === "pages" ? artifact.content.pages : null;
+  const pageCount = pagesContent?.length;
 
   return (
     <header className="flex h-[60px] shrink-0 items-center gap-2 border-b border-app-bg-3/50 px-3">
@@ -186,6 +212,13 @@ function ArtifactHeader({
       </div>
       {artifact?.kind === "document" && artifact.content?.kind === "document" ? (
         <CopyMarkdownButton markdown={artifact.content.markdown} />
+      ) : null}
+      {isPages && pagesContent && pagesContent.length > 0 && artifact?.status !== "generating" ? (
+        <DownloadPagesButton
+          pages={pagesContent}
+          format={artifact?.format ?? "pdf"}
+          title={artifact?.title || "Artifact"}
+        />
       ) : null}
       {onEdit && artifact && artifact.status !== "generating" ? (
         <IconButton label="Suggest an edit" onClick={onEdit}>
@@ -252,9 +285,13 @@ function ArtifactSubline({
 function ArtifactBody({
   artifact,
   onFullscreen,
+  pageIndex,
+  onPageIndexChange,
 }: {
   artifact: SyncedArtifact | null;
   onFullscreen: (() => void) | null;
+  pageIndex: number;
+  onPageIndexChange: Dispatch<SetStateAction<number>>;
 }) {
   if (!artifact)
     return (
@@ -289,6 +326,8 @@ function ArtifactBody({
       format={artifact.format ?? "pdf"}
       generating={artifact.status === "generating"}
       onFullscreen={onFullscreen}
+      pageIndex={pageIndex}
+      onPageIndexChange={onPageIndexChange}
     />
   );
 }
@@ -298,15 +337,18 @@ function PagesBody({
   format,
   generating,
   onFullscreen,
+  pageIndex,
+  onPageIndexChange,
 }: {
   pages: ArtifactPage[];
   format: ArtifactFormat;
   generating: boolean;
   onFullscreen: (() => void) | null;
+  pageIndex: number;
+  onPageIndexChange: Dispatch<SetStateAction<number>>;
 }) {
-  const [selected, setSelected] = useState(0);
   // Clamp when the page list shrinks (e.g. an `update_artifact` replace).
-  const safeIndex = pages.length === 0 ? 0 : Math.min(selected, pages.length - 1);
+  const safeIndex = pages.length === 0 ? 0 : Math.min(pageIndex, pages.length - 1);
   const current = pages[safeIndex];
 
   if (pages.length === 0) {
@@ -327,7 +369,7 @@ function PagesBody({
               <button
                 key={`${index}-${page.title}`}
                 type="button"
-                onClick={() => setSelected(index)}
+                onClick={() => onPageIndexChange(index)}
                 className={cn(
                   "w-[84px] shrink-0 rounded-xl border p-1 text-left transition-colors",
                   active
@@ -390,25 +432,29 @@ function PagesBody({
 
 function ArtifactFullscreen({
   artifact,
+  index,
+  onIndexChange,
   onClose,
 }: {
   artifact: SyncedArtifact;
+  /** Current page, shared with the sidebar so entry/exit keep position. */
+  index: number;
+  onIndexChange: Dispatch<SetStateAction<number>>;
   onClose: () => void;
 }) {
   const pages: ArtifactPage[] = artifact.content?.kind === "pages" ? artifact.content.pages : [];
   const format = artifact.format ?? "pdf";
-  const [index, setIndex] = useState(0);
   const safeIndex = pages.length === 0 ? 0 : Math.min(index, pages.length - 1);
 
   const go = useCallback(
     (delta: number) =>
-      setIndex((i) => {
+      onIndexChange((i) => {
         const next = i + delta;
         if (next < 0) return 0;
         if (next > pages.length - 1) return Math.max(0, pages.length - 1);
         return next;
       }),
-    [pages.length],
+    [pages.length, onIndexChange],
   );
 
   useEffect(() => {
@@ -568,6 +614,31 @@ function CenteredState({ icon, text }: { icon: ReactNode; text: string }) {
         <p className="text-sm">{text}</p>
       </div>
     </div>
+  );
+}
+
+function DownloadPagesButton({
+  pages,
+  format,
+  title,
+}: {
+  pages: ArtifactPage[];
+  format: ArtifactFormat;
+  title: string;
+}) {
+  const [busy, setBusy] = useState(false);
+  const onDownload = useCallback(() => {
+    setBusy(true);
+    void printArtifactPages(
+      pages.map((page) => page.html),
+      format,
+      title,
+    ).finally(() => setBusy(false));
+  }, [pages, format, title]);
+  return (
+    <IconButton label="Download PDF" onClick={busy ? undefined : onDownload}>
+      {busy ? <Loader2 size={13} className="animate-spin" /> : <Download size={13} />}
+    </IconButton>
   );
 }
 

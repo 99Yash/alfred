@@ -241,6 +241,9 @@ importers:
       '@alfred/api':
         specifier: workspace:*
         version: link:../../packages/api
+      '@alfred/artifacts-design':
+        specifier: workspace:*
+        version: link:../../packages/artifacts-design
       '@alfred/contracts':
         specifier: workspace:*
         version: link:../../packages/contracts
@@ -462,6 +465,9 @@ importers:
       '@alfred/ai':
         specifier: workspace:*
         version: link:../ai
+      '@alfred/artifacts-design':
+        specifier: workspace:*
+        version: link:../artifacts-design
       '@alfred/auth':
         specifier: workspace:*
         version: link:../auth
@@ -565,6 +571,22 @@ importers:
       vitest:
         specifier: ^4.0.16
         version: 4.1.8(@opentelemetry/api@1.9.1)(@types/node@22.19.17)(jsdom@28.1.0(@noble/hashes@2.2.0))(vite@6.4.2(@types/node@22.19.17)(jiti@2.7.0)(lightningcss@1.32.0)(terser@5.48.0)(tsx@4.21.0)(yaml@2.9.0))
+
+  packages/artifacts-design:
+    dependencies:
+      '@alfred/contracts':
+        specifier: workspace:*
+        version: link:../contracts
+      typescript:
+        specifier: ^5
+        version: 5.9.3
+    devDependencies:
+      '@alfred/config':
+        specifier: workspace:*
+        version: link:../config
+      tsdown:
+        specifier: 'catalog:'
+        version: 0.15.12(@emnapi/core@1.10.0)(@emnapi/runtime@1.11.1)(oxc-resolver@11.20.0)(typescript@5.9.3)
 
   packages/auth:
     dependencies:

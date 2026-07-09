@@ -46,14 +46,15 @@ export const artifactStatusValues = ["generating", "complete", "error"] as const
 export type ArtifactStatus = (typeof artifactStatusValues)[number];
 export const artifactStatusSchema = z.enum(artifactStatusValues);
 
-/** One page of a `kind: "pages"` artifact: a title + a self-contained HTML body. */
+/** One page of a `kind: "pages"` artifact: a title + body-level HTML. */
 export const artifactPageSchema = z.object({
   /** Short page title, shown on the thumbnail and the page chrome. */
   title: z.string().max(200),
   /**
-   * Self-contained HTML for the page body — inlined CSS/fonts, no external
-   * refs. Rendered in a sandboxed `<iframe srcDoc>` (see `ArtifactPageFrame`),
-   * so it is style-isolated and cannot script the host.
+   * Body-level HTML for the page. The web renderer wraps this in the Alfred
+   * artifact shell before passing it to a sandboxed `<iframe srcDoc>` (see
+   * `ArtifactPageFrame`), so the stored value should not include document,
+   * head, body, script, external link/CDN, page geometry, or font boilerplate.
    */
   html: z.string().max(200_000),
 });

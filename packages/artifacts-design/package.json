@@ -1,0 +1,22 @@
+{
+  "name": "@alfred/artifacts-design",
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts",
+    "./*": "./src/*.ts"
+  },
+  "scripts": {
+    "build": "tsdown",
+    "check-types": "tsc -b"
+  },
+  "dependencies": {
+    "@alfred/contracts": "workspace:*"
+  },
+  "devDependencies": {
+    "@alfred/config": "workspace:*",
+    "tsdown": "catalog:"
+  },
+  "peerDependencies": {
+    "typescript": "^5"
+  }
+}

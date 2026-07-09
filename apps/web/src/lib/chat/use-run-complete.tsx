@@ -1,5 +1,6 @@
 import { useNavigate } from "@tanstack/react-router";
 import { useEffect, useRef } from "react";
+import { MarkdownRenderer } from "~/components/markdown-renderer";
 import {
   getLocalStorageItem,
   type LocalStorageValue,
@@ -99,7 +100,16 @@ export function useRunComplete(stream: StreamingMessage | null): void {
     const snippet = replySnippet(stream.text);
     toast.custom({
       message: "Alfred finished replying",
-      description: snippet ? `“${snippet}”` : "Your turn is ready.",
+      // Render the preview as markdown so emphasis/code/links land formatted
+      // rather than leaking raw `**`, backticks, etc. The snippet is already a
+      // single collapsed line, so compact block rhythm reads as one tidy row.
+      description: snippet ? (
+        <MarkdownRenderer size="compact" className="[&_p]:my-0">
+          {snippet}
+        </MarkdownRenderer>
+      ) : (
+        "Your turn is ready."
+      ),
       icon: <span className="text-[15px] leading-none">✨</span>,
       position: "bottom-right",
       duration: 6000,
