@@ -19,8 +19,10 @@ import {
   useEffectEvent,
   useRef,
   useState,
+  type Dispatch,
   type PointerEvent as ReactPointerEvent,
   type ReactNode,
+  type SetStateAction,
 } from "react";
 import { createPortal } from "react-dom";
 import { ArtifactPageFrame } from "~/components/artifact-page-frame";
@@ -64,6 +66,12 @@ export function ArtifactSidebar({
 }: ArtifactSidebarProps) {
   const artifact = useArtifact(artifactId);
   const [fullscreen, setFullscreen] = useState(false);
+  // Which page is in view. Lifted here so it is the single source of truth
+  // shared by the thumbnail strip, the header's "present" button, and the
+  // fullscreen viewer — so opening fullscreen starts on the page the user is
+  // actually looking at, not page 1. Reset when the artifact swaps.
+  const [pageIndex, setPageIndex] = useState(0);
+  useEffect(() => setPageIndex(0), [artifactId]);
 
   // Escape closes the panel (overlay) or exits fullscreen first. The handler
   // reads the latest fullscreen/mode/onClose through an Effect Event so the
@@ -100,7 +108,12 @@ export function ArtifactSidebar({
         onEdit={onSuggestEdit ? onEdit : undefined}
         onClose={onClose}
       />
-      <ArtifactBody artifact={artifact} onFullscreen={isPages ? () => setFullscreen(true) : null} />
+      <ArtifactBody
+        artifact={artifact}
+        onFullscreen={isPages ? () => setFullscreen(true) : null}
+        pageIndex={pageIndex}
+        onPageIndexChange={setPageIndex}
+      />
     </div>
   );
 
@@ -125,7 +138,12 @@ export function ArtifactSidebar({
           {inner}
         </aside>
         {fullscreen && artifact ? (
-          <ArtifactFullscreen artifact={artifact} onClose={() => setFullscreen(false)} />
+          <ArtifactFullscreen
+            artifact={artifact}
+            index={pageIndex}
+            onIndexChange={setPageIndex}
+            onClose={() => setFullscreen(false)}
+          />
         ) : null}
       </>
     );
@@ -145,7 +163,12 @@ export function ArtifactSidebar({
       <ResizeHandle width={width} onWidthChange={onWidthChange} />
       {inner}
       {fullscreen && artifact ? (
-        <ArtifactFullscreen artifact={artifact} onClose={() => setFullscreen(false)} />
+        <ArtifactFullscreen
+          artifact={artifact}
+          index={pageIndex}
+          onIndexChange={setPageIndex}
+          onClose={() => setFullscreen(false)}
+        />
       ) : null}
     </aside>
   );
@@ -252,9 +275,13 @@ function ArtifactSubline({
 function ArtifactBody({
   artifact,
   onFullscreen,
+  pageIndex,
+  onPageIndexChange,
 }: {
   artifact: SyncedArtifact | null;
   onFullscreen: (() => void) | null;
+  pageIndex: number;
+  onPageIndexChange: Dispatch<SetStateAction<number>>;
 }) {
   if (!artifact)
     return (
@@ -289,6 +316,8 @@ function ArtifactBody({
       format={artifact.format ?? "pdf"}
       generating={artifact.status === "generating"}
       onFullscreen={onFullscreen}
+      pageIndex={pageIndex}
+      onPageIndexChange={onPageIndexChange}
     />
   );
 }
@@ -298,15 +327,18 @@ function PagesBody({
   format,
   generating,
   onFullscreen,
+  pageIndex,
+  onPageIndexChange,
 }: {
   pages: ArtifactPage[];
   format: ArtifactFormat;
   generating: boolean;
   onFullscreen: (() => void) | null;
+  pageIndex: number;
+  onPageIndexChange: Dispatch<SetStateAction<number>>;
 }) {
-  const [selected, setSelected] = useState(0);
   // Clamp when the page list shrinks (e.g. an `update_artifact` replace).
-  const safeIndex = pages.length === 0 ? 0 : Math.min(selected, pages.length - 1);
+  const safeIndex = pages.length === 0 ? 0 : Math.min(pageIndex, pages.length - 1);
   const current = pages[safeIndex];
 
   if (pages.length === 0) {
@@ -327,7 +359,7 @@ function PagesBody({
               <button
                 key={`${index}-${page.title}`}
                 type="button"
-                onClick={() => setSelected(index)}
+                onClick={() => onPageIndexChange(index)}
                 className={cn(
                   "w-[84px] shrink-0 rounded-xl border p-1 text-left transition-colors",
                   active
@@ -390,25 +422,29 @@ function PagesBody({
 
 function ArtifactFullscreen({
   artifact,
+  index,
+  onIndexChange,
   onClose,
 }: {
   artifact: SyncedArtifact;
+  /** Current page, shared with the sidebar so entry/exit keep position. */
+  index: number;
+  onIndexChange: Dispatch<SetStateAction<number>>;
   onClose: () => void;
 }) {
   const pages: ArtifactPage[] = artifact.content?.kind === "pages" ? artifact.content.pages : [];
   const format = artifact.format ?? "pdf";
-  const [index, setIndex] = useState(0);
   const safeIndex = pages.length === 0 ? 0 : Math.min(index, pages.length - 1);
 
   const go = useCallback(
     (delta: number) =>
-      setIndex((i) => {
+      onIndexChange((i) => {
         const next = i + delta;
         if (next < 0) return 0;
         if (next > pages.length - 1) return Math.max(0, pages.length - 1);
         return next;
       }),
-    [pages.length],
+    [pages.length, onIndexChange],
   );
 
   useEffect(() => {
