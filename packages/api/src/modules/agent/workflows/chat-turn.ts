@@ -11,6 +11,7 @@ import {
   type Tool,
   type ToolSet,
 } from "@alfred/ai";
+import { ARTIFACT_DESIGN_PROMPT } from "@alfred/artifacts-design";
 import {
   boundToolResult,
   chatModelTierSchema,
@@ -243,7 +244,14 @@ export function buildChatSystemPrompt(
   artifactsContext = "",
 ): string {
   const artifactsBlock = artifactsContext ? `\n\n${artifactsContext}` : "";
-  return `${CHAT_SYSTEM_PROMPT_BASE}\n\nThe current date is ${grounding}.${artifactsBlock}\n\n${connectedSummary}`;
+  // The artifact design-system block (`@alfred/artifacts-design`) is identical
+  // every turn, so it sits right after the constant base — the largest possible
+  // cache-stable prefix (#223) — and ahead of the date/catalog so the connected
+  // catalog stays the last, strongest anchor (ADR-0077). It teaches the boss the
+  // house shell contract, the `art-*` vocabulary, archetypes, theme voice, and
+  // authoring rules; without it artifact styling is reconstructed from memory
+  // and drifts (the "vibes" gap behind the resume shitshow — see artifacts/read.ts).
+  return `${CHAT_SYSTEM_PROMPT_BASE}\n\n${ARTIFACT_DESIGN_PROMPT}\n\nThe current date is ${grounding}.${artifactsBlock}\n\n${connectedSummary}`;
 }
 
 // ── helpers ─────────────────────────────────────────────────────────────────
