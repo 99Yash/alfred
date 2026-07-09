@@ -41,8 +41,10 @@ function buildArtifactDesignPrompt(): string {
       "- Surfaces/marks: art-card, art-panel, art-badge, art-rule, art-accent-mark, art-dot.",
       "- Data: art-stat-value + art-stat-label; art-bar-track + art-bar-fill (a pure-CSS bar, sized with an inline width %); art-list (accent-marked bullets).",
       "- Code: a <pre> block (styled by the shell) or art-code for multi-line code; inline `<code>` for a token in prose.",
+      "- Decor: art-aurora, a soft on-brand gradient wash for negative space. Drop a single empty `<div class=\"art-aurora\"></div>` as a child of the page and the shell draws it behind your content.",
     ].join("\n"),
     `Pick ONE layout archetype per page and keep the whole deck on the same theme: ${archetypeList}.`,
+    "Use art-aurora only on sparse pages that carry a large empty area (cover, section divider, closing) to fill negative space; never on a content-dense page, and at most one per page. Scale it to the subject: skip it or keep decks minimal for serious or technical material, and reserve it for lighter, marketing, or celebratory decks. When in doubt, leave it off; plain white is always on-brand.",
     [
       "Example page body (Title archetype):",
       '<div class="art-center art-stack">',
