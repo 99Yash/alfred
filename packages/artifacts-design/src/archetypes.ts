@@ -30,7 +30,8 @@ const title: Archetype = {
   name: "Title",
   description:
     "Opening or section cover — an oversized title with an eyebrow and a supporting line.",
-  html: `<div class="art-center art-stack">
+  html: `<div class="art-aurora"></div>
+<div class="art-center art-stack">
   <span class="art-eyebrow">Quarterly review</span>
   <h1 class="art-display">The year in one page</h1>
   <p class="art-subhead art-muted">A concise look at what moved, what stalled, and where we go next.</p>
@@ -47,7 +48,8 @@ const section: Archetype = {
   id: "section",
   name: "Section divider",
   description: "A palate-cleanser between sections — a big index number and the section name.",
-  html: `<div class="art-center art-row" style="gap: 32px;">
+  html: `<div class="art-aurora"></div>
+<div class="art-center art-row" style="gap: 32px;">
   <span class="art-display art-accent-text" style="font-size: 140px;">02</span>
   <div class="art-stack" style="gap: 8px;">
     <span class="art-eyebrow">Section</span>

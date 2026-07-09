@@ -195,7 +195,30 @@ code {
   tab-size: 2;
 }
 /* A <code> inside a block inherits the block's type; no double background. */
-.art-code code, pre code { font-family: inherit; font-size: inherit; background: none; padding: 0; border-radius: 0; }`;
+.art-code code, pre code { font-family: inherit; font-size: inherit; background: none; padding: 0; border-radius: 0; }
+
+/* Decorative aurora: a soft, on-brand gradient wash for pages with large
+ * negative space (cover / section / closing). Built from the accent + hue
+ * tokens so it can never drift off-palette, and kept faint so ink stays
+ * crisp. Author drops a single empty <div class="art-aurora"></div> as a
+ * child of the page; NOT for dense content pages. It is absolutely
+ * positioned behind content, and the rule below lifts the page's real
+ * children above it (scoped with :has so it only affects pages that opt in,
+ * and via z-index on the flex items so it never overrides author
+ * positioning). */
+.art-aurora {
+  position: absolute;
+  inset: 0;
+  z-index: 0;
+  overflow: hidden;
+  pointer-events: none;
+  background:
+    radial-gradient(42% 55% at 84% 12%, color-mix(in srgb, var(--art-accent) 38%, transparent), transparent 70%),
+    radial-gradient(38% 50% at 8% 90%, color-mix(in srgb, var(--art-hue-sky) 28%, transparent), transparent 70%),
+    radial-gradient(30% 42% at 92% 90%, color-mix(in srgb, var(--art-hue-purple) 24%, transparent), transparent 72%);
+  filter: blur(10px);
+}
+.art-page:has(> .art-aurora) > :not(.art-aurora) { z-index: 1; }`;
 }
 
 /**
