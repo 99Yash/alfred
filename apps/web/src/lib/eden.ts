@@ -21,6 +21,10 @@ export const client = treaty<App>(API_URL, {
  * types from this pins them to the live wire contract instead of a hand-copied
  * DTO that can silently drift from the route (code-style §1).
  *
+ * Only the outer `data` null is stripped. A field that is itself nullable in
+ * the success payload stays nullable — apply your own `NonNullable` to it (see
+ * `use-latest-briefing`, which unwraps the `briefing` field on top of this).
+ *
  * Usage: `EdenData<typeof client.api.me.meetings.get>["items"][number]`.
  */
 export type EdenData<T extends (...args: never[]) => Promise<{ data: unknown }>> = NonNullable<
