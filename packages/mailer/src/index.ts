@@ -10,3 +10,4 @@ export {
   SkillDocumentationEmail,
   type SkillDocumentationEmailProps,
 } from "./emails/skill-documentation";
+export type { ComposedEmail } from "./types";

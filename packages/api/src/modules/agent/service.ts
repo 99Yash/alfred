@@ -28,11 +28,7 @@ import {
   type WorkflowInput,
 } from "./types";
 import { userAuthoredBriefWorkflow } from "./workflows/user-authored-brief";
-
-interface PgErrorLike {
-  code?: string;
-  cause?: unknown;
-}
+import type { PgErrorLike } from "../../pg-errors";
 
 /**
  * `true` when the given error is a Postgres unique-violation (SQLSTATE

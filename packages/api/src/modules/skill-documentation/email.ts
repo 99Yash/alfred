@@ -1,5 +1,5 @@
 import { serverEnv } from "@alfred/env/server";
-import { renderSkillDocumentationEmail } from "@alfred/mailer";
+import { type ComposedEmail, renderSkillDocumentationEmail } from "@alfred/mailer";
 import type { SkillDocumentationContext } from "./context";
 
 /**
@@ -34,15 +34,9 @@ export interface SkillDocumentationEmailArgs {
   alfredUrl?: string;
 }
 
-export interface ComposedDocumentationEmail {
-  subject: string;
-  html: string;
-  text: string;
-}
-
 export async function composeSkillDocumentationEmail(
   args: SkillDocumentationEmailArgs,
-): Promise<ComposedDocumentationEmail> {
+): Promise<ComposedEmail> {
   const greetingName = firstName(args.context.user.name);
   const subject = `Skill documented: ${args.context.skill.name}`;
 

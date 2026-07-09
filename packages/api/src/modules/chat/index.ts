@@ -33,6 +33,7 @@ import {
   assertPassThroughImageBytes,
   assertStoredAttachmentReady,
   assertUploadAllowed,
+  type AttachmentInput,
   toAttachmentRow,
 } from "./attachments";
 import {
@@ -57,13 +58,12 @@ type DbExecutor = ReturnType<typeof db> | DbTransaction;
 type AttachmentInsertRow = NewChatAttachment;
 type ExistingAttachmentSummary = Pick<ChatAttachment, "id" | "name" | "mime" | "size" | "position">;
 type RetryAttachmentSource = Pick<ChatAttachment, "id" | "storageKey" | "name" | "mime" | "size">;
-interface FreshAttachmentDescriptor {
-  id: string;
-  name: string;
-  mime: string;
-  size: number;
-  position?: number;
-}
+/**
+ * The turn path's view of a fresh attachment: `AttachmentInput`, but with
+ * `position` optional because this path derives it (`?? index`) rather than
+ * writing the client's value straight to the row.
+ */
+type FreshAttachmentDescriptor = Omit<AttachmentInput, "position"> & { position?: number };
 
 export interface ExistingChatTurnRun {
   runId: string | null;
