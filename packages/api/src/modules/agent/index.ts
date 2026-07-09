@@ -3,7 +3,12 @@ import { authMacro } from "../../middleware/auth";
 import { BadRequestError, ConflictError, NotFoundError } from "../../middleware/errors";
 import { runOnce } from "./executor";
 import { closeAgentQueue, enqueueRun, getAgentQueue } from "./queue";
-import { listPublicWorkflows, listWorkflows, registerWorkflow } from "./registry";
+import {
+  isInternalWorkflowSlug,
+  listPublicWorkflows,
+  listWorkflows,
+  registerWorkflow,
+} from "./registry";
 import {
   cancelRun,
   cancelRunInTx,
@@ -71,6 +76,9 @@ export const agent = new Elysia({ prefix: "/api/agent", normalize: "typebox" })
       .post(
         "/runs",
         async ({ body, user }) => {
+          if (isInternalWorkflowSlug(body.workflowSlug)) {
+            throw new NotFoundError("Workflow not found");
+          }
           try {
             const { runId } = await createRun({
               userId: user.id,
