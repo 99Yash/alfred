@@ -98,11 +98,11 @@ Recommendation: add `New*` insert exports **on demand** (i.e. export `NewChatAtt
 
 The 5-member `factStatusSchema` → `@alfred/contracts` relocation (single-sourcing the api↔sync duplication) was considered and **deferred**: it fixes an api-internal + wire duplication, not the web consumer, and both sides are low-churn. Revisit if a third boundary needs the full set. See carve-out note below.
 
-### Batch 6 — Script hygiene (lowest priority)
+### Batch 6 — Script hygiene (lowest priority; DONE 2026-07-09)
 
-| # | Location | Problem | Fix | Conf |
+| # | Location | Problem | Fix applied | Conf |
 |---|---|---|---|---|
-| 23 | `packages/ai/src/scripts/verify-capabilities.ts:33,38` | `ReasoningOption` / `SnapshotCapabilities` hand-rolled above their plain `z.object` schemas | `z.infer` — **caveat:** schemas use `.passthrough()`, so `z.infer` adds an index signature (harmless; call sites only read named fields). Accept the widening or drop `.passthrough()` | H |
+| 23 | `packages/ai/src/scripts/verify-capabilities.ts:33,38` | `ReasoningOption` / `SnapshotCapabilities` hand-rolled above their plain `z.object` schemas | `type ReasoningOption = z.infer<typeof reasoningOptionSchema>` + `type SnapshotCapabilities = z.infer<typeof snapshotCapabilitiesSchema>`, moved below each schema. Kept `.passthrough()` — the resulting index-signature widening is harmless (call sites read only named fields) and preserves the deliberate don't-strip-unknown-keys parse behavior. Type-only change; `pnpm --filter @alfred/ai check-types` is the whole test (passed). | H |
 
 ---
 
@@ -126,7 +126,7 @@ Re-flagging these would be a regression. Recorded so the next pass doesn't re-li
 - **PR 2 — Batch 2 (web Eden/sync derives).** Type-only; removes 3 inference-defeating casts. Run `pnpm check:web-boundaries` + `pnpm check-types`.
 - **PR 3 — Batches 3 & 4 (api enum/shape single-sourcing).** A couple of new small consts/types.
 - **PR 4 — Batch 5 (DONE, revised).** No package move after all: web `-memory` fact-status derives from `SyncedFact["status"]`; the two artifact fixtures are carve-outs (comment-only). See the revised Batch 5 table for why the original relocate/align prescription was reversed.
-- **Batch 6** — fold into any `packages/ai` PR; not worth its own.
+- **Batch 6 (DONE 2026-07-09)** — item #23 landed as a standalone type-only change; `pnpm --filter @alfred/ai check-types` green.
 
 After each derive lands, drop now-orphaned imports (`noUnusedLocals` will fail otherwise) and run scoped `oxfmt` only on touched files (never a tree-wide format — see `.lessons/use-oxfmt-oxlint-never-biome.md`).
 
