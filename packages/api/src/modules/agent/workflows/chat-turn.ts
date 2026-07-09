@@ -51,6 +51,7 @@ import { emitReplicachePokes } from "../../../events/replicache-events";
 import { publishEvent } from "../../../events/publish";
 import { scheduleThreadIdleExtraction } from "../../chat-memory/queue";
 import { isSynthesizedToolDup } from "../transcript-dedup";
+import { buildThreadArtifactsContext } from "../../artifacts/read";
 import { finalizeRunArtifacts } from "../../artifacts/write";
 import { listToolsForIntegration } from "../../tools/registry";
 import { buildConnectedSummary } from "../connected-summary";
@@ -138,6 +139,12 @@ const chatRunStateSchema = z.object({
   // ADR-0053 connected summary, snapshotted once at run start (first turn) and
   // reused every turn so the system-prompt prefix stays cache-stable.
   connectedSummary: z.string().optional(),
+  // The thread's existing artifacts (ids + current body) so the boss revises in
+  // place rather than rebuilding from memory. Snapshotted once at run start like
+  // `connectedSummary`: artifacts authored earlier *this* run are already in
+  // context via their tool results, so a per-run snapshot is both sufficient and
+  // cache-stable. "" when the thread has no artifacts.
+  artifactsContext: z.string().optional(),
   // User's IANA timezone, snapshotted once on the first turn — it can't change
   // mid-run, so re-reading it from the DB every turn (like `connectedSummary`)
   // is wasted latency.
@@ -226,8 +233,17 @@ const CHAT_SYSTEM_PROMPT_BASE = [
   ].join("\n"),
 ].join("\n\n");
 
-export function buildChatSystemPrompt(grounding: string, connectedSummary: string): string {
-  return `${CHAT_SYSTEM_PROMPT_BASE}\n\nThe current date is ${grounding}.\n\n${connectedSummary}`;
+export function buildChatSystemPrompt(
+  grounding: string,
+  connectedSummary: string,
+  // Artifacts already authored in this thread (id + current body). Placed
+  // between the date and the ADR-0053 catalog so the connected catalog stays
+  // the last, strongest anchor (ADR-0077), while the boss still sees the ids it
+  // needs to revise an artifact in place instead of rebuilding it.
+  artifactsContext = "",
+): string {
+  const artifactsBlock = artifactsContext ? `\n\n${artifactsContext}` : "";
+  return `${CHAT_SYSTEM_PROMPT_BASE}\n\nThe current date is ${grounding}.${artifactsBlock}\n\n${connectedSummary}`;
 }
 
 // ── helpers ─────────────────────────────────────────────────────────────────
@@ -1181,9 +1197,16 @@ const chatTurnStep: Step<ChatRunState> = {
       if (state.connectedSummary === undefined) {
         state.connectedSummary = await buildConnectedSummary(ctx.userId, state.allowedIntegrations);
       }
+      if (state.artifactsContext === undefined) {
+        state.artifactsContext = await buildThreadArtifactsContext(ctx.userId, state.threadId);
+      }
       const agent = new AlfredAgent({
         id: "chat",
-        system: buildChatSystemPrompt(formatDateGrounding(state.timezone), state.connectedSummary),
+        system: buildChatSystemPrompt(
+          formatDateGrounding(state.timezone),
+          state.connectedSummary,
+          state.artifactsContext,
+        ),
         tools: () => resolveSdkTools(state.activeIntegrations),
         model: getChatModel(state.tier),
         // Ask the model to expose its thinking so the turn streams
