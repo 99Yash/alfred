@@ -12,11 +12,11 @@ import { cssVariables, font, pageGeometry, spacing, type } from "./tokens";
  * next paint) and needs no re-store — mirroring the seam the old inline
  * `PAGE_RESET` occupied, which this subsumes.
  *
- * Hard constraint that shapes the design: the renderer's iframe permits
- * same-origin resource loading for the app's own fonts, but does not permit
- * scripts — so NO Tailwind CDN, NO Font Awesome JS, NO runtime framework.
- * Everything here is pure CSS. The brand font is embedded via `@font-face`
- * pointing at the app's own `/fonts/*.woff2`.
+ * Hard constraint that shapes the design: the renderer's iframe keeps an
+ * opaque-origin sandbox and does not permit scripts — so NO Tailwind CDN, NO
+ * Font Awesome JS, NO runtime framework. Everything here is pure CSS. The
+ * shell declares the app's own `/fonts/*.woff2`, but browsers may reject those
+ * font loads under the sandbox and fall back to the system sans stack.
  */
 
 /**
