@@ -1199,7 +1199,7 @@ export const appendArtifactPageInput = z
       .string()
       .max(200_000)
       .describe(
-        "Self-contained HTML for the page body — inline all CSS/fonts, no external refs. Rendered in a sandboxed iframe. One call appends one page to the end; call again for each subsequent page.",
+        "Body-level HTML for one page. Do not include <html>, <head>, <body>, <!doctype>, scripts, external links/CDNs, page geometry, body background, or font boilerplate; the renderer wraps it in the Alfred artifact shell. One call appends one page to the end; call again for each subsequent page.",
       ),
   })
   .strict();
