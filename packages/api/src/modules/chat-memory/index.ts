@@ -13,6 +13,7 @@ export {
   CHAT_MEMORY_CAPTURE_WORKFLOW_SLUG,
   CHAT_MEMORY_IDLE_MS,
   chatMemoryIdleJobId,
+  chatMemoryIdleTailJobId,
   getChatMemoryQueue,
   scheduleThreadIdleExtraction,
   startChatMemoryWorker,

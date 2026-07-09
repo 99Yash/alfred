@@ -219,6 +219,13 @@ const serverEnvSchema = z.object({
     .optional()
     .transform((s) => s === "true"),
   /**
+   * Opt-in gate for the chat→memory idle capture worker (#398). Disabled by
+   * default because the current slice only extracts propositions; durable
+   * observation writes/review land in the follow-up slices. Enable deliberately
+   * when exercising the pipeline end-to-end in a controlled environment.
+   */
+  CHAT_MEMORY_CAPTURE_ENABLED: optionalBooleanString(),
+  /**
    * Gate for Gmail *mailbox mutations* — triage label writes and watch
    * install/renew/stop (#278). Dev and prod connect to the same real Gmail
    * account; if a non-prod instance writes labels or (un)installs the watch it
@@ -260,4 +267,8 @@ export function serverEnv(): ServerEnv {
 export function gmailMailboxWritesEnabled(): boolean {
   const env = serverEnv();
   return env.GMAIL_MAILBOX_WRITES_ENABLED ?? env.NODE_ENV === "production";
+}
+
+export function chatMemoryCaptureEnabled(): boolean {
+  return serverEnv().CHAT_MEMORY_CAPTURE_ENABLED === true;
 }

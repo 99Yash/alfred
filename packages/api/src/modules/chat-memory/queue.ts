@@ -1,3 +1,4 @@
+import { chatMemoryCaptureEnabled } from "@alfred/env/server";
 import { toMessage } from "@alfred/contracts";
 import { Queue, Worker, type Job } from "bullmq";
 import { z } from "zod";
@@ -53,34 +54,65 @@ let _queue: Queue<ChatMemoryJobData> | undefined;
 let _worker: Worker<ChatMemoryJobData> | undefined;
 
 /**
- * Per-thread/message job id. BullMQ custom job ids can't contain `:`, so mirror
- * the logical `chat-memory-idle:<threadId>:<messageId>` with dot separators.
- * The scheduler still removes older pending jobs for the same thread before
- * adding a fresh one, so this is a replaceable debounce key while the anchor
- * keeps active/completed jobs from blocking future settled turns.
+ * Per-thread primary debounce job id. BullMQ custom job ids can't contain `:`,
+ * so mirror the logical `chat-memory-idle:<threadId>` with dot separators.
+ * This stable id lets the scheduler replace exactly one pending job instead of
+ * scanning the whole queue on every completed chat turn.
  */
-export function chatMemoryIdleJobId(threadId: string, captureAfterMessageId: string): string {
-  return `chat-mem-idle.${threadId}.${captureAfterMessageId}`;
+export function chatMemoryIdleJobId(threadId: string): string {
+  return `chat-mem-idle.${threadId}`;
 }
 
-async function removePendingThreadIdleJobs(
+/**
+ * Secondary job used only when the primary job is already active. A new user
+ * turn during that tiny fire window must schedule one more idle pass after the
+ * new turn settles; keeping a separate stable tail id gives us "latest wins"
+ * without pulling an active job out from under its worker.
+ */
+export function chatMemoryIdleTailJobId(threadId: string): string {
+  return `chat-mem-idle-tail.${threadId}`;
+}
+
+async function removeReplaceableJob(
   queue: Queue<ChatMemoryJobData>,
-  threadId: string,
-): Promise<void> {
-  const jobs = await queue.getJobs(["delayed", "waiting", "paused"], 0, -1);
-  for (const job of jobs) {
-    const parsed = chatMemoryJobDataSchema.safeParse(job.data);
-    if (!parsed.success || parsed.data.threadId !== threadId) continue;
-    const state = await job.getState();
-    if (state === "active") continue;
-    try {
-      await job.remove();
-    } catch (err) {
-      const message = toMessage(err).toLowerCase();
-      if (message.includes("locked") || message.includes("could not be removed")) continue;
-      throw err;
-    }
+  jobId: string,
+): Promise<"missing" | "active" | "removed" | "locked"> {
+  const job = await queue.getJob(jobId);
+  if (!job) return "missing";
+  const state = await job.getState();
+  if (state === "active") return "active";
+  try {
+    await job.remove();
+    return "removed";
+  } catch (err) {
+    const message = toMessage(err).toLowerCase();
+    if (message.includes("locked") || message.includes("could not be removed")) return "locked";
+    throw err;
   }
+}
+
+async function addIdleJob(
+  queue: Queue<ChatMemoryJobData>,
+  args: {
+    userId: string;
+    threadId: string;
+    captureAfterMessageId: string;
+    jobId: string;
+  },
+): Promise<void> {
+  await queue.add(
+    "chat-memory.extract",
+    {
+      kind: "chat-memory.extract",
+      userId: args.userId,
+      threadId: args.threadId,
+      captureAfterMessageId: args.captureAfterMessageId,
+    } satisfies ChatMemoryJobData,
+    {
+      delay: CHAT_MEMORY_IDLE_MS,
+      jobId: args.jobId,
+    },
+  );
 }
 
 export function getChatMemoryQueue(): Queue<ChatMemoryJobData> {
@@ -98,11 +130,11 @@ export function getChatMemoryQueue(): Queue<ChatMemoryJobData> {
 }
 
 /**
- * (Re)arm the idle timer for a thread — the debounce reset. Removes any
- * still-pending (`delayed`/`waiting`) job for the thread and schedules a fresh
- * one at `CHAT_MEMORY_IDLE_MS`, so each new turn pushes extraction further out.
- * A job that is already `active` (mid-fire) is left alone and a fresh anchored
- * delayed job is still added; that closes the race where a user sends a new
+ * (Re)arm the idle timer for a thread — the debounce reset. Replaces the exact
+ * per-thread primary delayed job and schedules it at `CHAT_MEMORY_IDLE_MS`, so
+ * each new completed assistant turn pushes extraction further out. If the
+ * primary job is already active (mid-fire), we leave it alone and replace the
+ * per-thread tail job instead; that closes the race where a user sends a new
  * turn while the prior idle fire is already running. Best-effort: never throws
  * into the caller (arming memory capture must not fail a chat turn), mirroring
  * the join-wake scheduler.
@@ -112,23 +144,19 @@ export async function scheduleThreadIdleExtraction(args: {
   threadId: string;
   captureAfterMessageId: string;
 }): Promise<"scheduled" | "disabled" | "failed"> {
-  if (!isQueueEnabled()) return "disabled";
+  if (!isQueueEnabled() || !chatMemoryCaptureEnabled()) return "disabled";
   try {
     const queue = getChatMemoryQueue();
-    await removePendingThreadIdleJobs(queue, args.threadId);
-    await queue.add(
-      "chat-memory.extract",
-      {
-        kind: "chat-memory.extract",
-        userId: args.userId,
-        threadId: args.threadId,
-        captureAfterMessageId: args.captureAfterMessageId,
-      } satisfies ChatMemoryJobData,
-      {
-        delay: CHAT_MEMORY_IDLE_MS,
-        jobId: chatMemoryIdleJobId(args.threadId, args.captureAfterMessageId),
-      },
-    );
+    const primaryJobId = chatMemoryIdleJobId(args.threadId);
+    const tailJobId = chatMemoryIdleTailJobId(args.threadId);
+    const primaryState = await removeReplaceableJob(queue, primaryJobId);
+    if (primaryState === "active" || primaryState === "locked") {
+      await removeReplaceableJob(queue, tailJobId);
+      await addIdleJob(queue, { ...args, jobId: tailJobId });
+      return "scheduled";
+    }
+    await removeReplaceableJob(queue, tailJobId);
+    await addIdleJob(queue, { ...args, jobId: primaryJobId });
     return "scheduled";
   } catch (err) {
     console.warn("[chat-memory] failed to arm idle extraction", args.threadId, toMessage(err));
@@ -141,6 +169,7 @@ export interface StartChatMemoryWorkerOpts {
 }
 
 export async function startChatMemoryWorker(opts: StartChatMemoryWorkerOpts = {}): Promise<void> {
+  if (!chatMemoryCaptureEnabled()) return;
   if (_worker) return;
   _worker = new Worker<ChatMemoryJobData>(CHAT_MEMORY_QUEUE_NAME, processChatMemoryJob, {
     connection: createRedisConnection(),

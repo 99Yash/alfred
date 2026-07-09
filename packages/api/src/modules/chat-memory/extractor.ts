@@ -41,8 +41,8 @@ export const MAX_TRANSCRIPT_CHARS = 12_000;
 export interface ExtractThreadArgs {
   userId: string;
   threadId: string;
-  /** The thread's finished turns, oldest-first. */
-  transcript: ThreadTurn[];
+  /** The thread's finished turns, oldest-first, or an already-rendered capped transcript. */
+  transcript: ThreadTurn[] | string;
   /** Run/step ids forwarded to the metering log + Langfuse trace. */
   runId?: string;
   stepId?: string;
@@ -109,6 +109,12 @@ export function buildThreadTranscript(
   kept.reverse();
   const marker = truncated ? "[…earlier turns truncated]\n" : "";
   return `${marker}${kept.join("\n")}`;
+}
+
+function capRenderedTranscript(transcript: string, maxChars: number = MAX_TRANSCRIPT_CHARS): string {
+  const trimmed = transcript.trim();
+  if (trimmed.length <= maxChars) return trimmed;
+  return `[…earlier turns truncated]\n${trimmed.slice(trimmed.length - maxChars)}`;
 }
 
 export const SYSTEM_PROMPT = `You read a FINISHED conversation between a user and their personal assistant (Alfred) and extract durable, CRISP facts worth remembering.
@@ -178,7 +184,10 @@ function defaultGenerate(args: ExtractThreadArgs): GenerateObject {
 export async function extractPropositionsFromThread(
   args: ExtractThreadArgs,
 ): Promise<ChatProposition[]> {
-  const transcript = buildThreadTranscript(args.transcript);
+  const transcript =
+    typeof args.transcript === "string"
+      ? capRenderedTranscript(args.transcript)
+      : buildThreadTranscript(args.transcript);
   if (transcript.trim().length === 0) return [];
 
   const generate = args.generate ?? defaultGenerate(args);

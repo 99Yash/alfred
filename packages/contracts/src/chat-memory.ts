@@ -95,49 +95,56 @@ export const propositionAttributionSchema = z.enum(PROPOSITION_ATTRIBUTIONS);
 export type PropositionAttribution = (typeof PROPOSITION_ATTRIBUTIONS)[number];
 
 /**
- * A single crisp proposition distilled from a finished chat thread (D6). The
- * extractor emits its BEST key/value; canonicalization onto `FACT_ONTOLOGY`
- * (via `canonicalizeFactKey`) and identity resolution of `subjectRef` are the
- * projection's job (#400), so both are intentionally loose here.
+ * A single crisp proposition distilled from a finished chat thread (D6). Kept
+ * as one flat object instead of a discriminated union because this schema is
+ * model-facing: `z.discriminatedUnion` + `z.never()` emits JSON Schema
+ * `oneOf`/`not`, which is brittle in provider structured-output paths. The
+ * branch invariant is enforced by `superRefine` after generation.
  */
-const chatPropositionBaseSchema = z.object({
-  /**
-   * The proposition's key. The extractor emits its best snake_case guess
-   * (`employer`, `job_title`, `relationship:dvd@oliv.ai`, `pref:tone`, …); the
-   * projection canonicalizes it against the fact ontology later.
-   */
-  key: z.string().min(1).max(200),
-  /** The value — the simplest correct JSON shape (string or shallow object). */
-  value: propositionValueSchema,
-  /** D4 verification route. */
-  verificationClass: verificationClassSchema,
-  /** D4 volatility. */
-  volatility: volatilitySchema,
-  /** How #399 should attribute the observation (the correction arc). */
-  attribution: propositionAttributionSchema,
-  /** Model confidence in the proposition (0–1). */
-  confidence: confidenceSchema,
-  /** Short justification grounded in the transcript — for audit + debugging bad proposals. */
-  rationale: z.string().min(1).max(500),
-});
-
-export const chatPropositionSchema = z.discriminatedUnion("subject", [
-  chatPropositionBaseSchema.extend({
-    /** Proposition about the user; entity refs are invalid on this branch. */
-    subject: z.literal("user"),
-    subjectRef: z.never().optional(),
-  }),
-  chatPropositionBaseSchema.extend({
-    /** Proposition about another entity (D8). */
-    subject: z.literal("entity"),
+export const chatPropositionSchema = z
+  .object({
+    /** The proposition's subject. Entity propositions must carry `subjectRef`. */
+    subject: z.enum(["user", "entity"]),
     /**
      * The entity as the model referred to it (an email, a display name like
-     * "dvd"/"Venkata Deepankar Duvvuru", …). Left as a free string in v1 —
-     * resolving it to a stable entity id is #399/#400.
+     * "dvd"/"Venkata Deepankar Duvvuru", …). Omitted for user propositions.
      */
-    subjectRef: z.string().min(1).max(200),
-  }),
-]);
+    subjectRef: z.string().min(1).max(200).optional(),
+    /**
+     * The proposition's key. The extractor emits its best snake_case guess
+     * (`employer`, `job_title`, `relationship:dvd@oliv.ai`, `pref:tone`, …); the
+     * projection canonicalizes it against the fact ontology later.
+     */
+    key: z.string().min(1).max(200),
+    /** The value — the simplest correct JSON shape (string or shallow object). */
+    value: propositionValueSchema,
+    /** D4 verification route. */
+    verificationClass: verificationClassSchema,
+    /** D4 volatility. */
+    volatility: volatilitySchema,
+    /** How #399 should attribute the observation (the correction arc). */
+    attribution: propositionAttributionSchema,
+    /** Model confidence in the proposition (0–1). */
+    confidence: confidenceSchema,
+    /** Short justification grounded in the transcript — for audit + debugging bad proposals. */
+    rationale: z.string().min(1).max(500),
+  })
+  .superRefine((value, ctx) => {
+    if (value.subject === "entity" && !value.subjectRef) {
+      ctx.addIssue({
+        code: "custom",
+        path: ["subjectRef"],
+        message: "entity propositions require subjectRef",
+      });
+    }
+    if (value.subject === "user" && value.subjectRef !== undefined) {
+      ctx.addIssue({
+        code: "custom",
+        path: ["subjectRef"],
+        message: "user propositions must not include subjectRef",
+      });
+    }
+  });
 export type ChatProposition = z.infer<typeof chatPropositionSchema>;
 
 /**

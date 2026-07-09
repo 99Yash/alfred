@@ -1,4 +1,5 @@
 import {
+  buildThreadTranscript,
   CHAT_MEMORY_CAPTURE_WORKFLOW_SLUG,
   extractPropositionsFromThread,
   type ThreadTurn,
@@ -7,7 +8,7 @@ import {
 import { chatPropositionSchema, toMessage } from "@alfred/contracts";
 import { db } from "@alfred/db";
 import { chatMessages, chatThreads } from "@alfred/db/schemas";
-import { and, asc, eq } from "drizzle-orm";
+import { and, asc, eq, lt, lte, or } from "drizzle-orm";
 import { z } from "zod";
 
 /**
@@ -46,7 +47,9 @@ const stateSchema = z.object({
   /** Injected propositions (manual mode) — bypasses the LLM. */
   manualPropositions: z.array(chatPropositionSchema).optional(),
   /** Populated by load-transcript. */
-  transcript: z.array(threadTurnSchema),
+  transcriptText: z.string(),
+  /** Populated by load-transcript. */
+  turnCount: z.number().int().nonnegative(),
   /** Populated by extract. */
   propositions: z.array(chatPropositionSchema),
   /** ISO timestamp captured at run-create. */
@@ -87,7 +90,8 @@ export const chatMemoryCaptureWorkflow: Workflow<State> = {
       captureAfterMessageId,
       manualTranscript: parsed.manualTranscript,
       manualPropositions: parsed.manualPropositions,
-      transcript: [],
+      transcriptText: "",
+      turnCount: 0,
       propositions: [],
       startedAt: new Date().toISOString(),
     };
@@ -115,10 +119,11 @@ export const chatMemoryCaptureWorkflow: Workflow<State> = {
         // Manual mode: the test supplies the transcript, skip the DB read.
         if (ctx.state.mode === "manual" && ctx.state.manualTranscript) {
           const transcript = ctx.state.manualTranscript;
+          const transcriptText = buildThreadTranscript(transcript);
           await ctx.log(`load-transcript (manual): ${transcript.length} turn(s)`);
           return {
             kind: "next",
-            state: { ...ctx.state, transcript },
+            state: { ...ctx.state, transcriptText, turnCount: transcript.length },
             nextStep: "extract",
           };
         }
@@ -132,7 +137,34 @@ export const chatMemoryCaptureWorkflow: Workflow<State> = {
           .limit(1);
         if (!thread) {
           await ctx.log(`load-transcript: thread ${ctx.state.threadId} not found for user`);
-          return { kind: "next", state: { ...ctx.state, transcript: [] }, nextStep: "extract" };
+          return {
+            kind: "next",
+            state: { ...ctx.state, transcriptText: "", turnCount: 0 },
+            nextStep: "extract",
+          };
+        }
+
+        const [anchor] = await db()
+          .select({ id: chatMessages.id, createdAt: chatMessages.createdAt })
+          .from(chatMessages)
+          .where(
+            and(
+              eq(chatMessages.id, ctx.state.captureAfterMessageId),
+              eq(chatMessages.userId, ctx.userId),
+              eq(chatMessages.threadId, ctx.state.threadId),
+              eq(chatMessages.status, "complete"),
+            ),
+          )
+          .limit(1);
+        if (!anchor) {
+          await ctx.log(
+            `load-transcript: capture anchor ${ctx.state.captureAfterMessageId} not found for thread=${ctx.state.threadId}`,
+          );
+          return {
+            kind: "next",
+            state: { ...ctx.state, transcriptText: "", turnCount: 0 },
+            nextStep: "extract",
+          };
         }
 
         const rows = await db()
@@ -143,15 +175,23 @@ export const chatMemoryCaptureWorkflow: Workflow<State> = {
               eq(chatMessages.userId, ctx.userId),
               eq(chatMessages.threadId, ctx.state.threadId),
               eq(chatMessages.status, "complete"),
+              or(
+                lt(chatMessages.createdAt, anchor.createdAt),
+                and(
+                  eq(chatMessages.createdAt, anchor.createdAt),
+                  lte(chatMessages.id, ctx.state.captureAfterMessageId),
+                ),
+              ),
             ),
           )
           .orderBy(asc(chatMessages.createdAt), asc(chatMessages.id));
         const transcript: ThreadTurn[] = rows.map((r) => ({ role: r.role, content: r.content }));
+        const transcriptText = buildThreadTranscript(transcript);
 
         await ctx.log(`load-transcript: ${transcript.length} turn(s)`);
         return {
           kind: "next",
-          state: { ...ctx.state, transcript },
+          state: { ...ctx.state, transcriptText, turnCount: transcript.length },
           nextStep: "extract",
         };
       },
@@ -172,7 +212,7 @@ export const chatMemoryCaptureWorkflow: Workflow<State> = {
           };
         }
 
-        if (ctx.state.transcript.length === 0) {
+        if (ctx.state.transcriptText.trim().length === 0) {
           return { kind: "next", state: { ...ctx.state, propositions: [] }, nextStep: "finalize" };
         }
 
@@ -180,7 +220,7 @@ export const chatMemoryCaptureWorkflow: Workflow<State> = {
           const propositions = await extractPropositionsFromThread({
             userId: ctx.userId,
             threadId: ctx.state.threadId,
-            transcript: ctx.state.transcript,
+            transcript: ctx.state.transcriptText,
             runId: ctx.runId,
             stepId: "extract",
             idempotencyKey: `${ctx.idempotencyKey}:${ctx.state.threadId}`,
@@ -203,9 +243,9 @@ export const chatMemoryCaptureWorkflow: Workflow<State> = {
     finalize: {
       id: "finalize",
       async run(ctx) {
-        const { propositions, threadId, transcript } = ctx.state;
+        const { propositions, threadId, turnCount } = ctx.state;
         await ctx.log(
-          `finalize: thread=${threadId} turns=${transcript.length} propositions=${propositions.length}`,
+          `finalize: thread=${threadId} turns=${turnCount} propositions=${propositions.length}`,
         );
 
         // TODO(#399): write these propositions into the ADR-0067 observation log
@@ -218,7 +258,7 @@ export const chatMemoryCaptureWorkflow: Workflow<State> = {
           state: ctx.state,
           output: {
             threadId,
-            turns: transcript.length,
+            turns: turnCount,
             propositionCount: propositions.length,
             propositions,
           },
