@@ -7,6 +7,7 @@ import { type TriageCategory } from "@alfred/integrations/google";
 import type { ClassifyAudit, TriageClassification } from "./classify";
 import type { Observations } from "./observations";
 import type { SenderContextResult } from "./sender-context";
+import type { TriageSenderKindSignal } from "./sender-kind";
 import type { SenderSuppressionMatch } from "../memory/standing-instructions";
 
 /**
@@ -38,7 +39,7 @@ export interface SenderExtractionEvent {
   /** Rendered Sender relationship descriptor (ADR-0059), or null for non-human senders — logged for rubric tuning. */
   senderRelationship: string | null;
   /** Active user-model projection kind that demoted person treatment, if any. */
-  senderKind: "group" | "service" | null;
+  senderKind: TriageSenderKindSignal["kind"] | null;
   senderKindConfidence: number | null;
   senderKindEvidenceCodes: string[];
   senderKindDemotedPersonTreatment: boolean;

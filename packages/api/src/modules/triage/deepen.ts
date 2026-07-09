@@ -41,7 +41,7 @@ export interface DeepenTriageArgs {
 
 export interface DeepenTriageResult {
   classification: TriageClassification;
-  severityFlag: "severe" | "normal" | "low";
+  severityFlag: DeepenOutput["severityFlag"];
   dossierRequest?: {
     personEmail: string;
   };
