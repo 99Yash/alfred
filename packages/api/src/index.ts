@@ -90,6 +90,7 @@ export {
   type RecordOrgAffiliationResult,
 } from "./modules/user-model/index.js";
 export * from "./modules/memory/index.js";
+export * from "./modules/chat-memory/index.js";
 export * from "./modules/drift-audit/index.js";
 export * from "./modules/triage/index.js";
 export { suggestTodo } from "./modules/todos/suggest.js";

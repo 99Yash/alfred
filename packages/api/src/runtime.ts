@@ -43,6 +43,11 @@ export {
   startMemoryWorker,
   stopMemoryWorker,
 } from "./modules/memory/index.js";
+export {
+  closeChatMemoryQueue,
+  startChatMemoryWorker,
+  stopChatMemoryWorker,
+} from "./modules/chat-memory/index.js";
 export { registerBuiltinTools } from "./modules/tools/index.js";
 export {
   scheduleRepeatableWorkflowsJobs,

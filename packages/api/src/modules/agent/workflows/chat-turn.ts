@@ -49,6 +49,7 @@ import {
 } from "../sub-agents";
 import { emitReplicachePokes } from "../../../events/replicache-events";
 import { publishEvent } from "../../../events/publish";
+import { scheduleThreadIdleExtraction } from "../../chat-memory/queue";
 import { isSynthesizedToolDup } from "../transcript-dedup";
 import { finalizeRunArtifacts } from "../../artifacts/write";
 import { listToolsForIntegration } from "../../tools/registry";
@@ -1727,6 +1728,18 @@ async function finalizeAssistantMessage(
     payload: { runId, threadId: state.threadId, messageId: state.messageId, phase: "completed" },
   });
   emitReplicachePokes([userId]);
+
+  // (Re)arm the end-of-thread memory-capture debounce (chat-mem v1, #398, D9).
+  // Each completed turn pushes the idle timer out, so extraction only fires
+  // once the thread has been quiet — seeing the whole, settled conversation.
+  // Fire-and-forget + internally best-effort: arming memory capture must never
+  // fail (or delay) an otherwise-good reply. Only the success path arms it; a
+  // failed turn (`finalizeFailedMessage`) intentionally does not.
+  void scheduleThreadIdleExtraction({
+    userId,
+    threadId: state.threadId,
+    captureAfterMessageId: state.messageId,
+  });
 
   // Name the thread from its opening exchange. Fire-and-forget: this does two
   // SELECTs plus a cheap-model call (up to TITLE_TIMEOUT_MS), and awaiting it
