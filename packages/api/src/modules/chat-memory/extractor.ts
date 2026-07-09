@@ -92,6 +92,11 @@ export function buildThreadTranscript(
   let truncated = false;
   for (let i = lines.length - 1; i >= 0; i--) {
     const line = lines[i]!;
+    if (line.length > maxChars && kept.length === 0) {
+      kept.push(line.slice(line.length - maxChars));
+      truncated = true;
+      break;
+    }
     // +1 for the joining newline between turns.
     const cost = line.length + (kept.length > 0 ? 1 : 0);
     if (used + cost > maxChars && kept.length > 0) {

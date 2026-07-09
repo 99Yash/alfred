@@ -50,6 +50,22 @@ describe("chatPropositionSchema", () => {
     assert.deepEqual(parsed.value, { role: "co-founder" });
   });
 
+  test("rejects an entity proposition without subjectRef", () => {
+    const withoutSubjectRef: Record<string, unknown> = { ...validEntityProposition };
+    delete withoutSubjectRef.subjectRef;
+    assert.throws(
+      () => chatPropositionSchema.parse(withoutSubjectRef),
+      /subjectRef|required|expected/i,
+    );
+  });
+
+  test("rejects subjectRef on a user proposition", () => {
+    assert.throws(
+      () => chatPropositionSchema.parse({ ...validUserProposition, subjectRef: "dvd" }),
+      /subjectRef|never|expected/i,
+    );
+  });
+
   test("rejects an unknown verificationClass", () => {
     assert.throws(
       () => chatPropositionSchema.parse({ ...validUserProposition, verificationClass: "vibes" }),
@@ -126,7 +142,10 @@ describe("chatMemoryExtractionResultSchema", () => {
     assert.throws(
       () =>
         chatMemoryExtractionResultSchema.parse({
-          propositions: Array.from({ length: MAX_CHAT_PROPOSITIONS + 1 }, () => validUserProposition),
+          propositions: Array.from(
+            { length: MAX_CHAT_PROPOSITIONS + 1 },
+            () => validUserProposition,
+          ),
         }),
       /too_big|at most|expected/i,
     );
