@@ -14,6 +14,7 @@ import {
 } from "@alfred/schemas";
 import { and, eq, sql } from "drizzle-orm";
 import { publishEvent } from "../../events/publish";
+import { type PgErrorLike } from "../../lib/pg-errors";
 import { snapshotScratchToPostgres } from "../scratchpad";
 import { enqueueRun } from "./queue";
 import { getWorkflow, listWorkflows } from "./registry";
@@ -28,7 +29,6 @@ import {
   type WorkflowInput,
 } from "./types";
 import { userAuthoredBriefWorkflow } from "./workflows/user-authored-brief";
-import type { PgErrorLike } from "../../pg-errors";
 
 /**
  * `true` when the given error is a Postgres unique-violation (SQLSTATE
@@ -37,11 +37,11 @@ import type { PgErrorLike } from "../../pg-errors";
  * and recover (return the in-flight run / 409 / no-op) instead of leaking the
  * raw constraint name.
  *
- * Drizzle wraps every driver error in a `DrizzleQueryError`, whose own `.code`
- * is undefined — the node-postgres `DatabaseError` (which carries `code:
- * "23505"`) sits on `.cause`. So we walk a short cause chain rather than only
- * checking the top-level error; otherwise a wrapped violation reads as a
- * generic failure and the recovery path never fires (the concurrent
+ * Drizzle query execution wraps pg driver errors in a `DrizzleQueryError`,
+ * whose own `.code` is undefined — the node-postgres `DatabaseError` (which
+ * carries `code: "23505"`) sits on `.cause`. So we walk a short cause chain
+ * rather than only checking the top-level error; otherwise a wrapped violation
+ * reads as a generic failure and the recovery path never fires (the concurrent
  * double-submit 500 this fixes).
  */
 export function isUniqueViolation(err: unknown): boolean {
