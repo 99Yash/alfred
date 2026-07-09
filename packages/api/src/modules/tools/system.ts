@@ -413,7 +413,7 @@ export const systemTools: readonly RegisteredTool[] = [
     // side effect, so it stays off the approvals path like other system tools.
     riskTier: "no_risk",
     description:
-      "Produce a rich artifact the user reads in a side panel: a written `document` (markdown) or a deck/PDF of `pages` (HTML). Use this when the user asks you to write, draft, or build something substantial they'll want to read or present — a one-pager, a brief, a report, a slide deck, a PDF — instead of dumping it all into the chat reply. Opens the artifact; for a `document` author the whole markdown here, for `pages` follow with append_artifact_page per page. This is in-app content, not a downloadable file.",
+      "Produce a rich artifact the user reads in a side panel: a written `document` (markdown) or a deck/PDF of `pages` (HTML). Use this when the user asks you to write, draft, or build something substantial they'll want to read or present — a one-pager, a brief, a report, a slide deck, a PDF — instead of dumping it all into the chat reply. Opens the artifact; for a `document` author the whole markdown here, for `pages` follow with append_artifact_page per page. Each page is body-level HTML authored against the Alfred house shell (see the design-system guidance): the shell supplies the font, tokens, and layout classes, so write only the page body and follow that guidance rather than a full standalone document. This is in-app content, not a downloadable file.",
     inputSchema: createArtifactInput,
     execute: async (input, ctx) => {
       const resolved = resolveArtifactContext(ctx);
@@ -426,7 +426,7 @@ export const systemTools: readonly RegisteredTool[] = [
     action: "append_artifact_page",
     riskTier: "no_risk",
     description:
-      "Append one HTML page to a `pages` artifact created with create_artifact. Call once per page, in order; each page is self-contained HTML (inline all CSS, no external refs). Pages appear in the sidebar as you add them.",
+      "Append one page to a `pages` artifact created with create_artifact. Call once per page, in order. Each page is body-level HTML authored against the Alfred house shell (see the design-system guidance): the shell wraps it with the brand font, design tokens, and layout classes at render time. Write only the page body — do NOT emit <html>, <head>, <body>, or <!doctype>, and do NOT set page width/height, margins, or a body background (the shell owns page geometry and the surface). A small inline <style> for one-off tuning is fine. Pages appear in the sidebar as you add them.",
     inputSchema: appendArtifactPageInput,
     execute: async (input, ctx) => {
       const resolved = resolveArtifactContext(ctx);

@@ -1,3 +1,4 @@
+import { buildArtifactDocument } from "@alfred/artifacts-design";
 import type { ArtifactFormat } from "@alfred/contracts";
 import { useCallback, useState } from "react";
 import { cn } from "~/lib/utils";
@@ -56,7 +57,7 @@ export function ArtifactPageFrame({
     >
       <iframe
         title={title}
-        srcDoc={html}
+        srcDoc={buildArtifactDocument(html, format)}
         sandbox=""
         className="pointer-events-none absolute top-0 left-0 border-0 bg-white"
         style={{
