@@ -13,3 +13,16 @@ const API_URL =
 export const client = treaty<App>(API_URL, {
   fetch: { credentials: "include" },
 });
+
+/**
+ * Unwrap the success `data` payload of an Eden Treaty call. Every treaty
+ * response resolves to `{ data: T; error: null } | { data: null; error: E }`,
+ * so a successful body is `NonNullable<…["data"]>`. Deriving hook/response
+ * types from this pins them to the live wire contract instead of a hand-copied
+ * DTO that can silently drift from the route (code-style §1).
+ *
+ * Usage: `EdenData<typeof client.api.me.meetings.get>["items"][number]`.
+ */
+export type EdenData<T extends (...args: never[]) => Promise<{ data: unknown }>> = NonNullable<
+  Awaited<ReturnType<T>>["data"]
+>;

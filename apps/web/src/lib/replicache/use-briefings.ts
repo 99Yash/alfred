@@ -1,13 +1,8 @@
 import { IDB_KEY, type SyncedBriefing, syncedBriefingSchema } from "@alfred/sync";
 import { useEffect, useState } from "react";
 import type { ReadTransaction } from "replicache";
-import type { AlfredReplicache } from "./client";
+import type { AlfredReplicache, ReplicacheSnapshot } from "./client";
 import { useReplicacheStatus } from "./context";
-
-interface ReplicacheSnapshot<T> {
-  rep: AlfredReplicache;
-  value: T;
-}
 
 /** morning reads above evening within a day (orientation → close, ADR-0049). */
 const SLOT_ORDER: Record<string, number> = { morning: 0, evening: 1 };
