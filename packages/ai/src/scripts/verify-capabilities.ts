@@ -29,17 +29,6 @@ import {
   type ModelId,
 } from "../models";
 
-/** A reasoning-control mechanism as models.dev records it (closed 3-type set). */
-interface ReasoningOption {
-  type: string;
-  values?: string[];
-}
-
-interface SnapshotCapabilities {
-  reasoningOptions?: ReasoningOption[] | null;
-  temperature?: boolean | null;
-}
-
 const reasoningOptionSchema = z
   .object({
     type: z.string(),
@@ -47,12 +36,17 @@ const reasoningOptionSchema = z
   })
   .passthrough();
 
+/** A reasoning-control mechanism as models.dev records it (closed 3-type set). */
+type ReasoningOption = z.infer<typeof reasoningOptionSchema>;
+
 const snapshotCapabilitiesSchema = z
   .object({
     reasoningOptions: z.array(reasoningOptionSchema).nullable().optional(),
     temperature: z.boolean().nullable().optional(),
   })
   .passthrough();
+
+type SnapshotCapabilities = z.infer<typeof snapshotCapabilitiesSchema>;
 
 const snapshotMetadataSchema = z
   .object({
