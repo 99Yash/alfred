@@ -10,6 +10,7 @@ import {
   type FullBriefing,
   type IanaTimezone,
 } from "@alfred/contracts";
+import type { ComposedEmail } from "@alfred/mailer";
 
 import type { BriefingDigest, BriefingItem, PriorityCategory } from "./gather";
 import {
@@ -75,12 +76,6 @@ const BRIEFING_COMPOSER_SYSTEM_PROMPT = [
     "- Do not emit URLs. Reference resolution adds links after compose.",
   ].join("\n"),
 ].join("\n\n");
-
-export interface ComposedInboxBriefing {
-  subject: string;
-  html: string;
-  text: string;
-}
 
 export interface ComposeInboxBriefingArgs {
   digest: BriefingDigest;
@@ -314,7 +309,7 @@ function errorMessage(err: unknown): string {
   return summarizeBody(toMessage(err));
 }
 
-export function composeInboxBriefing(args: ComposeInboxBriefingArgs): ComposedInboxBriefing {
+export function composeInboxBriefing(args: ComposeInboxBriefingArgs): ComposedEmail {
   const greeting = args.recipientName ? `Good morning, ${args.recipientName}` : "Good morning";
   const subject = subjectLine(args.digest, args.dateLabel);
   const text = renderText(args, greeting);
