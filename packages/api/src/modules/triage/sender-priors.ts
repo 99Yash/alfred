@@ -24,11 +24,16 @@ import { createCacheRedisConnection } from "../../queue/connection";
 const CACHE_PREFIX = "alfred:sender-prior:";
 const CACHE_TTL_SECONDS = 60 * 60; // 1h — increments bust it well before this
 
-export interface SenderPrior {
-  /** Raw category histogram. Empty object for a sender we've never classified. */
-  categoryCounts: Record<string, number>;
-  lastCategory: string | null;
-}
+/**
+ * The read shape for a sender's histogram — the two prior-signal columns of the
+ * `sender_priors` row. Derived from the table so it can't drift (code-style §1);
+ * `categoryCounts` is `.notNull().$type<Record<string, number>>()`, so it's an
+ * empty object (never null) for a sender we've never classified.
+ *
+ * Named after the narrow read shape, not the full DB `SenderPrior` row it's a
+ * `Pick` of — the collision is intentional (this file never needs the full row).
+ */
+export type SenderPrior = Pick<typeof senderPriors.$inferSelect, "categoryCounts" | "lastCategory">;
 
 // ---------------------------------------------------------------------------
 // Pure helpers (no IO) — unit-tested directly

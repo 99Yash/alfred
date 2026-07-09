@@ -13,8 +13,14 @@
  * right zone.
  */
 
-import { parseJsonWith, SCRATCH_TTL_SECONDS, sharedKey, subAgentKey } from "@alfred/contracts";
-import type { ScratchEntry } from "@alfred/contracts";
+import {
+  parseJsonWith,
+  SCRATCH_TTL_SECONDS,
+  SCRATCH_ZONES,
+  sharedKey,
+  subAgentKey,
+} from "@alfred/contracts";
+import type { ScratchEntry, ScratchZone } from "@alfred/contracts";
 import { db } from "@alfred/db";
 import { agentRunContext, type AgentRunContextRow } from "@alfred/db/schemas";
 import { sql } from "drizzle-orm";
@@ -29,7 +35,7 @@ import { createRedisConnection } from "../../queue/connection";
  */
 const scratchEntrySchema = z.object({
   value: z.unknown(),
-  zone: z.enum(["shared", "scratch"]),
+  zone: z.enum(SCRATCH_ZONES),
   writtenBy: z.string(),
   writtenAt: z.number(),
 });
@@ -52,7 +58,7 @@ function resolveKey(target: ScratchTargetArgs): string {
 
 export interface WriteScratchArgs<T = unknown> {
   runId: string;
-  zone: "shared" | "scratch";
+  zone: ScratchZone;
   /** Required when `zone === 'scratch'`; ignored when `zone === 'shared'`. */
   subId?: string;
   path: string;
@@ -74,7 +80,7 @@ export async function writeScratch<T>(args: WriteScratchArgs<T>): Promise<void> 
 
 export interface ReadScratchArgs {
   runId: string;
-  zone: "shared" | "scratch";
+  zone: ScratchZone;
   subId?: string;
   path: string;
 }
@@ -204,7 +210,7 @@ export async function snapshotScratchToPostgres(runId: string): Promise<number> 
 
 function toTarget(args: {
   runId: string;
-  zone: "shared" | "scratch";
+  zone: ScratchZone;
   subId?: string;
   path: string;
 }): ScratchTargetArgs {
