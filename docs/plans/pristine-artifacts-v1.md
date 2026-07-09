@@ -118,8 +118,23 @@ exemplars); wire the prompt block + shell into the artifact-authoring turn; retr
 `append_artifact_page` to wrap body in the shell. Result: the *existing* in-app artifacts
 become pristine, cached, and consistent — zero new services.
 
-**Phase 2 — verified floor.** Deterministic fit-check + bounded auto-repair at finalize.
-Vision-repair behind a flag.
+**Phase 2a — document medium + authoring floor (shipped).** Live use answered Open Question 1:
+the lean prompt carries SLIDES but not DOCUMENTS. Asked for a "resume," the model had no
+document exemplar and hand-rolled a page-level `<style>` with hardcoded Apple greys and a
+10.5px base — off-brand, cramped, half-empty page. Fix, all deterministic (no model calls):
+a `pdf` document is treated as its own medium — a denser `docType` scale + `--art-doc-*` vars
+(tokens), an `art-doc-*` primitive layer (shell), and three on-token templates (resume /
+report / one-pager) that flow top to bottom and stay balanced. The resume is inlined into
+`ARTIFACT_DESIGN_PROMPT` as the anchor. A hard authoring floor backs it: the token system is
+the source of truth (reference `var(--art-*)`, never hardcode a palette or font, never drop
+below the medium body size), and content is balanced rather than force-filled (no
+spacer-to-bottom that strands a mid-page void). `create_artifact`/`append_artifact_page`
+descriptions point at the doc vocabulary. Verified by rendering all three templates through
+the real shell (caught + fixed a page-fill void); live boss authoring still to confirm.
+
+**Phase 2b — verified floor.** Deterministic fit-check + bounded auto-repair at finalize.
+Vision-repair behind a flag. (Was Phase 2; the durable answer to authoring quality once the
+templates + floor are exhausted.)
 
 **Phase 3a — native print export (shipped).** Browser-native "Save as PDF" for `pages`
 artifacts via `buildArtifactPrintDocument` + an off-screen print iframe; wired into the chat

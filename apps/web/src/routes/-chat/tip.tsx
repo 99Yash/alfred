@@ -79,7 +79,7 @@ export function Tip({
           className={cn(
             "group/tip app z-200 max-w-[16rem] rounded-lg px-2.5 py-1.5 text-xs",
             "bg-app-fg-4 text-app-bg-1 shadow-[0_2px_8px_rgba(0,0,0,0.18)]",
-            "select-none will-change-[transform,opacity]",
+            "will-change-[transform,opacity] select-none",
             "data-[state=delayed-open]:animate-[app-tooltip-in_140ms_cubic-bezier(0.22,1,0.36,1)]",
           )}
         >
