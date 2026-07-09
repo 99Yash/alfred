@@ -14,7 +14,6 @@
   },
   "dependencies": {
     "@alfred/ai": "workspace:*",
-    "@alfred/artifacts-design": "workspace:*",
     "@alfred/auth": "workspace:*",
     "@alfred/contracts": "workspace:*",
     "@alfred/db": "workspace:*",

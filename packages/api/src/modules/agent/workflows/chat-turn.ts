@@ -11,7 +11,6 @@ import {
   type Tool,
   type ToolSet,
 } from "@alfred/ai";
-import { ARTIFACT_DESIGN_PROMPT } from "@alfred/artifacts-design";
 import {
   boundToolResult,
   chatModelTierSchema,
@@ -228,13 +227,7 @@ const CHAT_SYSTEM_PROMPT_BASE = [
 ].join("\n\n");
 
 export function buildChatSystemPrompt(grounding: string, connectedSummary: string): string {
-  // The artifact design-system block is identical across every turn, so it
-  // rides after the (also cache-stable) connected catalog rather than being
-  // rebuilt per page call — the boss pays for it once via the prompt cache
-  // (#223), not per `append_artifact_page`. Kept lean on purpose (see
-  // `@alfred/artifacts-design`): it names the shell contract + primitive
-  // vocabulary instead of dumping exemplar HTML every turn.
-  return `${CHAT_SYSTEM_PROMPT_BASE}\n\nThe current date is ${grounding}.\n\n${connectedSummary}\n\n${ARTIFACT_DESIGN_PROMPT}`;
+  return `${CHAT_SYSTEM_PROMPT_BASE}\n\nThe current date is ${grounding}.\n\n${connectedSummary}`;
 }
 
 // ── helpers ─────────────────────────────────────────────────────────────────

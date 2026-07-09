@@ -465,9 +465,6 @@ importers:
       '@alfred/ai':
         specifier: workspace:*
         version: link:../ai
-      '@alfred/artifacts-design':
-        specifier: workspace:*
-        version: link:../artifacts-design
       '@alfred/auth':
         specifier: workspace:*
         version: link:../auth
