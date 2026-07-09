@@ -97,7 +97,7 @@ export function ArtifactSidebar({
   // on the focused composer with the scaffold inserted.
   const onEdit = useCallback(() => {
     if (!artifact || !onSuggestEdit) return;
-    onSuggestEdit(`Edit "${artifact.title}": `);
+    onSuggestEdit(`Edit artifact ${artifact.id} ("${artifact.title}"): `);
     if (mode === "overlay") onClose();
   }, [artifact, onSuggestEdit, mode, onClose]);
 

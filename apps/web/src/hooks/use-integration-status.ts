@@ -274,8 +274,15 @@ export function useGoogleScopeGaps(): GoogleScopeGaps {
       if (PROVIDER_BACKEND[p.id] !== "google") return [];
       const required = PROVIDER_REQUIRED_SCOPES[p.id];
       if (!required) return [];
-      // Missing iff no active credential carries every required scope.
-      if (active.some((c) => required.every((r) => meetsScopeRequirement(c.scopes, r)))) return [];
+      // Missing iff no active credential carries every required scope. Build the
+      // scope Set once per credential so repeated membership checks stay O(1).
+      if (
+        active.some((c) => {
+          const granted = new Set(c.scopes);
+          return required.every((r) => meetsScopeRequirement(granted, r));
+        })
+      )
+        return [];
       return [{ providerId: p.id, name: p.name }];
     });
     return { connected: true, accountLabel: active[0]?.accountLabel ?? null, missing };
@@ -319,16 +326,19 @@ function matchByScopes(
 ): ReadonlyArray<CredentialRow> {
   const required = PROVIDER_REQUIRED_SCOPES[provider.id];
   if (!required) return [];
-  return creds.filter(
-    (c) => c.status === "active" && required.every((r) => meetsScopeRequirement(c.scopes, r)),
-  );
+  return creds.filter((c) => {
+    if (c.status !== "active") return false;
+    // Build the scope Set once per credential so repeated membership checks stay O(1).
+    const granted = new Set(c.scopes);
+    return required.every((r) => meetsScopeRequirement(granted, r));
+  });
 }
 
 function meetsScopeRequirement(
-  scopes: ReadonlyArray<string>,
+  granted: ReadonlySet<string>,
   requirement: ProviderScopeRequirement,
 ): boolean {
   return typeof requirement === "string"
-    ? scopes.includes(requirement)
-    : requirement.some((scope) => scopes.includes(scope));
+    ? granted.has(requirement)
+    : requirement.some((scope) => granted.has(scope));
 }

@@ -3,9 +3,9 @@
   "jsPlugins": ["oxlint-tailwindcss"],
   "categories": {},
   "rules": {
-    "tailwindcss/enforce-sort-order": "warn",
+    "tailwindcss/enforce-sort-order": ["warn", { "entryPoint": "apps/web/src/index.css" }],
     "tailwindcss/enforce-shorthand": "warn",
-    "tailwindcss/no-deprecated-classes": "warn"
+    "tailwindcss/no-deprecated-classes": ["warn", { "entryPoint": "apps/web/src/index.css" }]
   },
   "settings": {
     "tailwindcss": {

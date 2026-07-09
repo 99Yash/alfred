@@ -10,5 +10,6 @@
 export * from "./tokens";
 export * from "./shell";
 export * from "./archetypes";
+export * from "./templates";
 export * from "./theme";
 export * from "./prompt";
