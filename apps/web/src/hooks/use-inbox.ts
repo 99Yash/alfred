@@ -152,7 +152,11 @@ export interface InboxMessage {
   attachments: ReadonlyArray<InboxAttachment>;
 }
 
-/** Thread payload from `GET /api/me/inbox/:documentId`, per the live contract. */
+/**
+ * Thread payload from `GET /api/me/inbox/:documentId`, per the live contract.
+ * The `:documentId` param makes this route a function in Eden's typing, so we
+ * reach `.get` through `ReturnType<…>` — unlike the paramless list route above.
+ */
 type InboxDetailData = EdenData<ReturnType<typeof client.api.me.inbox>["get"]>;
 
 /** One attachment on a thread message; the mapper below is a 1:1 passthrough. */
