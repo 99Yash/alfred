@@ -12,10 +12,22 @@ import { userModelReader } from "../user-model";
 export const TRIAGE_SENDER_KIND_CONFIDENCE_THRESHOLD = 0.8;
 export const TRIAGE_SENDER_KIND_FEATURE_KEY = "feature.internal.triage_sender_kind_projection";
 
-const TRIAGE_DEMOTING_ENTITY_KINDS = new Set<EntityNodeKind>(["group", "service"]);
+/**
+ * Entity kinds that trigger triage person-treatment demotion — a 2-member
+ * subset of EntityNodeKind. Single source for the literal set: the membership
+ * check ({@link isTriageDemotingEntityKind}), the signal's `kind`, and the
+ * decision-trace's `senderKind` all derive from this.
+ */
+export const TRIAGE_DEMOTING_ENTITY_KINDS = [
+  "group",
+  "service",
+] as const satisfies readonly EntityNodeKind[];
+export type TriageDemotingEntityKind = (typeof TRIAGE_DEMOTING_ENTITY_KINDS)[number];
+
+const TRIAGE_DEMOTING_ENTITY_KIND_SET = new Set<EntityNodeKind>(TRIAGE_DEMOTING_ENTITY_KINDS);
 
 export type TriageSenderKindSignal = {
-  kind: "group" | "service";
+  kind: TriageDemotingEntityKind;
   confidence: number;
   evidenceCodes: string[];
   entityId: string;
@@ -78,8 +90,8 @@ function flagOn(value: unknown): boolean {
   return !(value === false || value === "false" || value === 0);
 }
 
-function isTriageDemotingEntityKind(kind: EntityNodeKind): kind is TriageSenderKindSignal["kind"] {
-  return TRIAGE_DEMOTING_ENTITY_KINDS.has(kind);
+function isTriageDemotingEntityKind(kind: EntityNodeKind): kind is TriageDemotingEntityKind {
+  return TRIAGE_DEMOTING_ENTITY_KIND_SET.has(kind);
 }
 
 function classificationFromProfile(profile: ActiveEntityProfile): EntityKindClassification | null {

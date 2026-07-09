@@ -28,4 +28,4 @@ export { composeSkillDocumentation } from "./compose";
 export type { ComposeArgs, ComposedDocumentation } from "./compose";
 
 export { composeSkillDocumentationEmail } from "./email";
-export type { ComposedDocumentationEmail, SkillDocumentationEmailArgs } from "./email";
+export type { SkillDocumentationEmailArgs } from "./email";

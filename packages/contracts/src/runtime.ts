@@ -50,9 +50,13 @@ export function subAgentKey(
   return `alfred:scratch:${runId}:scratch.${subId}.${path}`;
 }
 
+/** The two scratchpad zones: boss-owned `shared.*` and per-sub-agent `scratch.*`. */
+export const SCRATCH_ZONES = ["shared", "scratch"] as const;
+export type ScratchZone = (typeof SCRATCH_ZONES)[number];
+
 export interface ScratchEntry<T = unknown> {
   value: T;
-  zone: "shared" | "scratch";
+  zone: ScratchZone;
   writtenBy: string;
   writtenAt: number;
 }
