@@ -26,8 +26,10 @@ function buildArtifactDesignPrompt(): string {
       "Hard rules:",
       "- Write body-level HTML only. Never emit <html>, <head>, <body>, <!doctype>, <script>, or external <link>/CDN tags. Scripts do not run (the page is sandboxed).",
       `- Never set page width/height or margins on the root, and never fix a background on <body>: the shell owns page geometry (slides are ${slides.width}x${slides.height}, pdf pages ${pdf.width}x${pdf.height}) and the white surface.`,
-      "- Everything must fit inside the page box. There is no scrolling; overflow is clipped. Keep content per page small, use one idea per page, and prefer more pages over a crammed one.",
+      "- Do NOT add your own padding or margin to the top-level wrapper. The shell already insets the page from every edge; extra outer padding stacks on top of it, shrinks the usable box, and pushes content off the bottom. Let the shell own the edge inset and only space elements WITHIN the content.",
+      "- Everything must fit inside the page box. There is no scrolling; overflow is clipped. Author light: one idea per page, prefer more pages over a crammed one. As a budget, a slide holds roughly a heading plus 4-6 short lines or 3 small cards; if you have more, split it across pages.",
       "- Use the provided classes and tokens; a small inline `style` for one-off tuning (a width %, a gap) is fine. Do not restyle the whole page from scratch.",
+      "- For code, use a <pre> block (or the art-code class), not a hand-styled box. Keep each block short (about 12 lines max) and lines under ~60 characters; long lines wrap and tall blocks are clipped. Split long code across pages.",
       "- Voice: plain, confident, concrete. No em-dashes (use a period, comma, or colon). No emoji.",
     ].join("\n"),
     [
@@ -38,6 +40,7 @@ function buildArtifactDesignPrompt(): string {
       "- Color: art-ink, art-muted, art-subtle, art-accent-text.",
       "- Surfaces/marks: art-card, art-panel, art-badge, art-rule, art-accent-mark, art-dot.",
       "- Data: art-stat-value + art-stat-label; art-bar-track + art-bar-fill (a pure-CSS bar, sized with an inline width %); art-list (accent-marked bullets).",
+      "- Code: a <pre> block (styled by the shell) or art-code for multi-line code; inline `<code>` for a token in prose.",
     ].join("\n"),
     `Pick ONE layout archetype per page and keep the whole deck on the same theme: ${archetypeList}.`,
     [

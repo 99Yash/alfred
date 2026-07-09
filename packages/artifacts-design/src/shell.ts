@@ -166,7 +166,36 @@ body {
 /* Bulleted list styled with accent markers */
 .art-list { display: flex; flex-direction: column; gap: ${spacing.sm}; list-style: none; }
 .art-list li { display: flex; align-items: flex-start; gap: ${spacing.sm}; }
-.art-list li::before { content: ""; margin-top: 10px; width: 8px; height: 8px; border-radius: 9999px; background: var(--art-accent); flex: 0 0 auto; }`;
+.art-list li::before { content: ""; margin-top: 10px; width: 8px; height: 8px; border-radius: 9999px; background: var(--art-accent); flex: 0 0 auto; }
+
+/* Inline code: a quiet mono token that sits inside body copy. */
+code {
+  font-family: ${font.mono};
+  font-size: 0.9em;
+  background: var(--art-surface-sunken);
+  padding: 2px 6px;
+  border-radius: var(--art-radius-sm);
+}
+
+/* Code block: the house primitive for multi-line code. Wraps long lines (no
+ * horizontal scroll under sandbox) and clips overflow so a too-tall block can
+ * never push the page — authors keep blocks short instead. */
+.art-code, pre {
+  font-family: ${font.mono};
+  font-size: 13px;
+  line-height: 1.55;
+  color: var(--art-ink);
+  background: var(--art-surface-sunken);
+  border-radius: var(--art-radius-md);
+  padding: ${spacing.md};
+  margin: 0;
+  white-space: pre-wrap;
+  word-break: break-word;
+  overflow: hidden;
+  tab-size: 2;
+}
+/* A <code> inside a block inherits the block's type; no double background. */
+.art-code code, pre code { font-family: inherit; font-size: inherit; background: none; padding: 0; border-radius: 0; }`;
 }
 
 /**
