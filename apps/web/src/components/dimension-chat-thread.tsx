@@ -56,6 +56,9 @@ export type ChatPreviewState =
   | "streaming"
   | "active-tool"
   | "rich-content";
+// Styleguide demo state selecting which mock UI to render — deliberately NOT
+// the storage `ArtifactStatus` (`generating`/`complete`/`error`) from
+// `@alfred/contracts`. `empty` has no lifecycle analog; this drives the demo.
 export type ArtifactPreviewState = "completed" | "generating" | "empty";
 
 const COMPANY_RESULTS: SearchResult[] = [
