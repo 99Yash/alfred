@@ -8,6 +8,7 @@ import {
   VERIFICATION_CLASSES,
   VOLATILITY_CLASSES,
 } from "@alfred/contracts";
+import { z } from "zod";
 
 /**
  * Pins the chat→memory proposition contract (chat-mem v1, #398; D4/D6): the
@@ -55,14 +56,14 @@ describe("chatPropositionSchema", () => {
     delete withoutSubjectRef.subjectRef;
     assert.throws(
       () => chatPropositionSchema.parse(withoutSubjectRef),
-      /subjectRef|required|expected/i,
+      /entity propositions require subjectRef|subjectRef/i,
     );
   });
 
   test("rejects subjectRef on a user proposition", () => {
     assert.throws(
       () => chatPropositionSchema.parse({ ...validUserProposition, subjectRef: "dvd" }),
-      /subjectRef|never|expected/i,
+      /user propositions must not include subjectRef|subjectRef/i,
     );
   });
 
@@ -149,5 +150,11 @@ describe("chatMemoryExtractionResultSchema", () => {
         }),
       /too_big|at most|expected/i,
     );
+  });
+
+  test("emits provider-safe JSON Schema without oneOf/not", () => {
+    const jsonSchema = JSON.stringify(z.toJSONSchema(chatMemoryExtractionResultSchema));
+    assert.equal(jsonSchema.includes('"oneOf"'), false);
+    assert.equal(jsonSchema.includes('"not"'), false);
   });
 });

@@ -124,6 +124,23 @@ describe("extractPropositionsFromThread", () => {
     assert.equal(out[0]?.key, "relationship:dvd");
   });
 
+  test("caps an already-rendered transcript before calling the model", async () => {
+    let seenPrompt = "";
+    const generate: GenerateObject = async ({ prompt }) => {
+      seenPrompt = prompt;
+      return { propositions: [] };
+    };
+    await extractPropositionsFromThread({
+      userId: "usr_1",
+      threadId: "thread_1",
+      transcript: `OLDEST\n${"x".repeat(12_050)}\nNEWEST`,
+      generate,
+    });
+    assert.match(seenPrompt, /\[…earlier turns truncated\]/);
+    assert.match(seenPrompt, /NEWEST/);
+    assert.doesNotMatch(seenPrompt, /OLDEST/);
+  });
+
   test("re-validates the model output — a malformed proposition throws", async () => {
     const generate: GenerateObject = async () =>
       ({
