@@ -6,13 +6,8 @@ import {
 } from "@alfred/sync";
 import { useCallback, useEffect, useState } from "react";
 import type { ReadTransaction } from "replicache";
-import type { AlfredReplicache } from "./client";
+import type { AlfredReplicache, ReplicacheSnapshot } from "./client";
 import { useReplicacheStatus } from "./context";
-
-interface ReplicacheSnapshot<T> {
-  rep: AlfredReplicache;
-  value: T;
-}
 
 export interface WorkflowsState {
   /** All synced workflows (built-in + user-authored), name-sorted. */

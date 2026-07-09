@@ -1,5 +1,5 @@
 import { useQuery } from "@tanstack/react-query";
-import { client } from "~/lib/eden";
+import { client, type EdenData } from "~/lib/eden";
 
 /**
  * Most recent same-day briefing row for the signed-in user. Sent/suppressed
@@ -7,16 +7,12 @@ import { client } from "~/lib/eden";
  * run can stop polling and clear its "Composing…" state.
  *
  * Errors collapse to `null` so the footer can fall back to its empty
- * state without exploding the rail.
+ * state without exploding the rail. Derived from the route's `briefing`
+ * payload so it can't drift from the server DTO (code-style §1).
  */
-export interface LatestBriefingSummary {
-  id: string;
-  slot: string;
-  briefingDate: string;
-  runAt: string;
-  subject: string | null;
-  status: string;
-}
+export type LatestBriefingSummary = NonNullable<
+  EdenData<typeof client.api.me.briefings.latest.get>["briefing"]
+>;
 
 /**
  * Normalize a `date` column value to a `YYYY-MM-DD` key. Eden Treaty revives
