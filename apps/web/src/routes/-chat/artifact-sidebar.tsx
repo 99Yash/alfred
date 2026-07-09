@@ -71,9 +71,23 @@ export function ArtifactSidebar({
   // Which page is in view. Lifted here so it is the single source of truth
   // shared by the thumbnail strip, the header's "present" button, and the
   // fullscreen viewer — so opening fullscreen starts on the page the user is
-  // actually looking at, not page 1. Reset when the artifact swaps.
-  const [pageIndex, setPageIndex] = useState(0);
-  useEffect(() => setPageIndex(0), [artifactId]);
+  // actually looking at, not page 1. The index is stored against the artifact it
+  // belongs to, so swapping artifacts derives back to page 0 on its own — no
+  // prop-sync effect (which would briefly show the previous artifact's index).
+  const [pageState, setPageState] = useState<{ forId: string; index: number }>({
+    forId: artifactId,
+    index: 0,
+  });
+  const pageIndex = pageState.forId === artifactId ? pageState.index : 0;
+  const setPageIndex = useCallback<Dispatch<SetStateAction<number>>>(
+    (action) =>
+      setPageState((s) => {
+        const current = s.forId === artifactId ? s.index : 0;
+        const next = typeof action === "function" ? action(current) : action;
+        return { forId: artifactId, index: next };
+      }),
+    [artifactId],
+  );
 
   // Escape closes the panel (overlay) or exits fullscreen first. The handler
   // reads the latest fullscreen/mode/onClose through an Effect Event so the

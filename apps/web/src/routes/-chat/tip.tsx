@@ -22,7 +22,7 @@ function TipArrow() {
           "group-data-[side=left]/tip:w-3 group-data-[side=right]/tip:w-3",
         )}
       >
-        <path d="M16.9853 0.485289L9.20711 8.26347C8.81658 8.654 8.18342 8.654 7.79289 8.26347L0.0147266 0.485289H16.9853Z" />
+        <path d="M16.99 0.49L9.21 8.26C8.82 8.65 8.18 8.65 7.79 8.26L0.01 0.49H16.99Z" />
       </svg>
     </Tooltip.Arrow>
   );
