@@ -44,12 +44,7 @@ export type {
 } from "./gather";
 
 export { composeBriefing, composeInboxBriefing } from "./compose";
-export type {
-  ComposedBriefing,
-  ComposeBriefingArgs,
-  ComposedInboxBriefing,
-  ComposeInboxBriefingArgs,
-} from "./compose";
+export type { ComposedBriefing, ComposeBriefingArgs, ComposeInboxBriefingArgs } from "./compose";
 
 export {
   buildBriefingSourcePanels,
