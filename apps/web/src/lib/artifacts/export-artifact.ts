@@ -1,4 +1,4 @@
-import { buildArtifactPrintDocument } from "@alfred/artifacts-design";
+import { buildArtifactPrintDocument } from "@alfred/artifacts-design/shell";
 import type { ArtifactFormat } from "@alfred/contracts";
 
 /**
@@ -10,9 +10,10 @@ import type { ArtifactFormat } from "@alfred/contracts";
  *
  * The on-screen render iframe is `sandbox=""` (scripts + modals blocked), so it
  * cannot call `print()` on itself. Instead we build a fresh, NON-sandboxed,
- * off-screen iframe from `buildArtifactPrintDocument`, wait for its fonts to
- * settle (otherwise the PDF captures the fallback face), print it, and tear it
- * down once the print dialog closes.
+ * off-screen iframe from `buildArtifactPrintDocument`, print it, and tear it
+ * down once the print dialog closes. The print document intentionally uses the
+ * same no-web-font shell as the preview, so downloaded output does not drift to
+ * Open Runde just because the export iframe is unsandboxed.
  */
 export async function printArtifactPages(
   pages: readonly string[],
@@ -47,14 +48,6 @@ export async function printArtifactPages(
   if (!frameWindow) {
     iframe.remove();
     return;
-  }
-
-  // Wait for the self-hosted brand font so the exported PDF isn't the fallback
-  // stack. `fonts.ready` may be unavailable in older engines — tolerate that.
-  try {
-    await frameWindow.document.fonts?.ready;
-  } catch {
-    // Best-effort; proceed with whatever is loaded.
   }
 
   const cleanup = () => iframe.remove();
