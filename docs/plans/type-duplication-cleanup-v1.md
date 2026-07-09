@@ -87,14 +87,16 @@ Recommendation: add `New*` insert exports **on demand** (i.e. export `NewChatAtt
 | 19 | `packages/api/src/modules/agent/service.ts:32` vs `user-model/observations.ts:27` | `PgErrorLike` pg-error narrowing shape declared twice (one a strict subset) | Define one superset `{code?;constraint?;message?;cause?}` in a small `lib/pg-errors.ts`; import in both. **Keep the explicit structural walk** — do *not* switch to `isRecord` (per package CLAUDE.md) | M |
 | 20 | `packages/api/src/modules/briefing/compose.ts:79` vs `skill-documentation/email.ts:37` | `{subject;html;text}` composed-email shape declared twice | Introduce shared `ComposedEmail` in `@alfred/mailer`; both return it (note: `RenderedBriefingEmail` at `briefing/references.ts:35` is a 2-field variant — leave it) | L |
 
-### Batch 5 — Structural: relocate to `@alfred/contracts` (bigger, but the "right" fix)
+### Batch 5 — Structural (revised after verification; DONE 2026-07-09)
 
-These are **drift** (copies that disagree), currently low-live-impact because the drifted copies sit on preview/stub surfaces — but they're the ones that could become real bugs if those surfaces go live.
+**Correction on execution.** Reading both sides of each pair (not just field names) reversed the original prescription for both items — all three target surfaces turned out to be preview/stub/showcase code, and the fixes below would have introduced bugs if applied as first written. What actually shipped:
 
-| # | Location | Problem | Fix | Conf |
+| # | Location | Verified reality | Fix applied | Conf |
 |---|---|---|---|---|
-| 21 | `packages/api/src/modules/memory/types.ts:24` (`FACT_STATUSES`) vs `apps/web/src/routes/-memory/helpers.ts:1` | web hand-rolls `"proposed"\|"confirmed"` (2 of 5) **because the canonical set lives in `@alfred/api`, which web can't import** | Relocate `FACT_STATUSES`/`factStatusSchema` to `@alfred/contracts`; api re-exports, web imports | M |
-| 22 | `packages/contracts/src/artifacts.ts:25,45` vs `apps/web/.../dimension-chat-thread.tsx:59` & `lib/artifacts/library-artifacts.ts:3` | artifact status/kind **drift**: `"completed"≠"complete"`, `"empty"≠"error"`; kind adds `presentation`/`pdf`, drops `pages` | Align the two web fixture types to the contracts `z.enum`s (or delete the fixtures). Real sidebar already uses `SyncedArtifact` correctly | M |
+| 21 | `apps/web/src/routes/-memory/helpers.ts:1` | Web's `"proposed"\|"confirmed"` mirrors the **2-member wire subset** (`syncedFactSchema.status`, `sync/src/schemas.ts:171`), **not** the api's 5-member internal lifecycle. `@alfred/sync` already owns that enum and web can import it. Relocating the 5-member set to contracts + importing it into web would have let the stub represent states (`rejected`/`edited`/`superseded`) that never sync. `-memory` is a stub (Replicache subscribe stubbed; `useState<LocalFact[]>([])`). | `type FactStatus = SyncedFact["status"]` from `@alfred/sync` — derive from the wire truth, no contracts move. | H |
+| 22 | `apps/web/.../dimension-chat-thread.tsx:59` & `lib/artifacts/library-artifacts.ts:3` | **Both are view-models, not drifted mirrors.** `ArtifactType` (`presentation\|document\|spreadsheet\|pdf`) is a **Library display taxonomy** used by 5 files — `presentation`/`pdf` are formats, not storage kinds; aligning it to `artifactKindValues` (`document/pages/spreadsheet`) would break the Library type filter. `ArtifactPreviewState` (`completed\|generating\|empty`) is consumed **only by the styleguide** as a demo-state selector — `empty` has no lifecycle analog. | **Reclassified as carve-outs.** Added a one-line "why not derived" comment to each (per §1). Did **not** align them. | H |
+
+The 5-member `factStatusSchema` → `@alfred/contracts` relocation (single-sourcing the api↔sync duplication) was considered and **deferred**: it fixes an api-internal + wire duplication, not the web consumer, and both sides are low-churn. Revisit if a third boundary needs the full set. See carve-out note below.
 
 ### Batch 6 — Script hygiene (lowest priority)
 
@@ -114,6 +116,7 @@ Re-flagging these would be a regression. Recorded so the next pass doesn't re-li
 - **snake_case raw-pg results**: `OutboxRow` (`outbox-relay.ts`) uses `user_id`/`created_at` + `id: string` (bigserial-as-string) — deriving from `$inferSelect` gives the wrong names/types.
 - **Wire/DTO reshapes**: `Synced*`, the `Me*` route DTOs, `EmailListRow` join projections, web view-models (`InboxMessage`/`InboxThread`, `-preview-chat` fixtures), streaming shapes (`StreamingToolCall`/`StreamingMessage`) — divergence is the point.
 - **The team-graph trio** (`ParsedPerson`/`ContactAggregate`/`CorrespondenceStats`) — see TL;DR.
+- **`library-artifacts.ts` `ArtifactType`** — a Library display taxonomy (`presentation`/`pdf` are formats, not storage kinds), not the contracts `ArtifactKind`. Aligning it breaks the type filter. **`dimension-chat-thread.tsx` `ArtifactPreviewState`** — a styleguide-only demo-state selector (`empty` has no lifecycle analog), not the contracts `ArtifactStatus`. Both now carry a "why not derived" comment (Batch 5, corrected).
 
 ---
 
@@ -122,7 +125,7 @@ Re-flagging these would be a regression. Recorded so the next pass doesn't re-li
 - **PR 1 — Batch 1 (5 one-liners).** Zero-risk, canonical already in-file. `pnpm check-types` is the whole test.
 - **PR 2 — Batch 2 (web Eden/sync derives).** Type-only; removes 3 inference-defeating casts. Run `pnpm check:web-boundaries` + `pnpm check-types`.
 - **PR 3 — Batches 3 & 4 (api enum/shape single-sourcing).** A couple of new small consts/types.
-- **PR 4 — Batch 5 (relocate `FACT_STATUSES` to contracts; align artifact fixtures).** The one with a package move — do it deliberately.
+- **PR 4 — Batch 5 (DONE, revised).** No package move after all: web `-memory` fact-status derives from `SyncedFact["status"]`; the two artifact fixtures are carve-outs (comment-only). See the revised Batch 5 table for why the original relocate/align prescription was reversed.
 - **Batch 6** — fold into any `packages/ai` PR; not worth its own.
 
 After each derive lands, drop now-orphaned imports (`noUnusedLocals` will fail otherwise) and run scoped `oxfmt` only on touched files (never a tree-wide format — see `.lessons/use-oxfmt-oxlint-never-biome.md`).

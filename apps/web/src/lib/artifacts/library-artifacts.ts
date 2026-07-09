@@ -1,5 +1,9 @@
 import { SYCAMORE_BRIEF_PAGES, type ArtifactPage } from "~/lib/artifacts/artifact-pages";
 
+// Library display taxonomy — deliberately NOT the storage `ArtifactKind`
+// (`document`/`pages`/`spreadsheet`) from `@alfred/contracts`. It flattens
+// kind + format into the user-facing categories the Library filter is built on
+// (`presentation`/`pdf` are formats, not kinds), so it evolves independently.
 export type ArtifactType = "presentation" | "document" | "spreadsheet" | "pdf";
 
 export type LibraryArtifact = {
