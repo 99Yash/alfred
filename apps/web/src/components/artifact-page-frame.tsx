@@ -56,10 +56,11 @@ export function ArtifactPageFrame({
       <iframe
         title={title}
         srcDoc={buildArtifactDocument(html, format)}
-        // Scripts/forms/top-nav stay blocked. `allow-same-origin` is required
-        // for same-origin Open Runde font files to load from `srcDoc`; without
-        // it the frame has an opaque origin and Chromium rejects the font.
-        sandbox="allow-same-origin"
+        // Keep the frame on an opaque origin: scripts, forms, top navigation,
+        // storage, and parent DOM access all stay blocked. Same-origin font
+        // files may fall back to the system stack here, which is acceptable for
+        // previews and safer than relaxing the sandbox.
+        sandbox=""
         className="pointer-events-none absolute top-0 left-0 border-0 bg-white"
         style={{
           width: pageWidth,
