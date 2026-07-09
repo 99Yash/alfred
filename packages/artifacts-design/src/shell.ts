@@ -6,17 +6,18 @@ import { cssVariables, font, pageGeometry, spacing, type } from "./tokens";
  *
  * Model-authored pages are body-level HTML (see `ARTIFACT_DESIGN_PROMPT`); this
  * wraps that body in a complete, self-contained `<!doctype html>` document that
- * carries the brand font, the design tokens, a reset, and a compact utility /
- * primitive class layer. Applied at render time by `ArtifactPageFrame` rather
- * than baked into the stored content, so it is retroactive (old rows re-skin on
- * next paint) and needs no re-store — mirroring the seam the old inline
- * `PAGE_RESET` occupied, which this subsumes.
+ * carries the design tokens, a reset, and a compact utility / primitive class
+ * layer. Applied at render time by `ArtifactPageFrame` rather than baked into
+ * the stored content, so it is retroactive (old rows re-skin on next paint) and
+ * needs no re-store — mirroring the seam the old inline `PAGE_RESET` occupied,
+ * which this subsumes.
  *
  * Hard constraint that shapes the design: the renderer's iframe keeps an
  * opaque-origin sandbox and does not permit scripts — so NO Tailwind CDN, NO
- * Font Awesome JS, NO runtime framework. Everything here is pure CSS. The
- * shell declares the app's own `/fonts/*.woff2`, but browsers may reject those
- * font loads under the sandbox and fall back to the system sans stack.
+ * Font Awesome JS, NO runtime framework. Everything here is pure CSS. The shell
+ * deliberately does not declare the app's own `/fonts/*.woff2`; the preview's
+ * opaque-origin sandbox cannot consistently load those fonts, so export uses
+ * the same system-sans fallback contract for visual parity.
  */
 
 /**
@@ -40,21 +41,6 @@ html, body { margin: 0; padding: 0; }
 img, svg, canvas { display: block; max-width: 100%; }
 p, h1, h2, h3, h4, h5, h6, ul, ol, figure, blockquote { margin: 0; }
 ul, ol { padding: 0; list-style-position: inside; }`;
-
-/** `@font-face` for each self-hosted Open Runde weight, plus a mono fallback note. */
-function fontFaces(): string {
-  return font.faces
-    .map(
-      (face) => `@font-face {
-  font-family: "${font.family}";
-  src: url("${face.url}") format("woff2");
-  font-weight: ${face.weight};
-  font-style: normal;
-  font-display: swap;
-}`,
-    )
-    .join("\n");
-}
 
 /** `:root { --art-*: … }` from the token source of truth. */
 function rootVariables(): string {
@@ -229,10 +215,9 @@ code {
 .art-page:has(> .art-aurora) > :not(.art-aurora) { z-index: 1; }`;
 }
 
-/** The full shell stylesheet: font faces, token vars, reset, and primitives. */
+/** The full shell stylesheet: token vars, reset, and primitives. */
 function shellStyles(): string {
-  return `${fontFaces()}
-${rootVariables()}
+  return `${rootVariables()}
 ${RESET}
 ${baseStyles()}`;
 }
@@ -240,7 +225,7 @@ ${baseStyles()}`;
 /**
  * Wrap model-authored, body-level `bodyHtml` in the full house-shell document
  * for the given `format`. The returned string is a complete standalone page:
- * `<!doctype html>` -> `<head>` (font, tokens, reset, primitives, locked page
+ * `<!doctype html>` -> `<head>` (tokens, reset, primitives, locked page
  * box) -> `<body>` -> `.art-page` wrapper -> the author's HTML.
  *
  * Legacy rows that stored a full `<!doctype>` document will double-wrap; that is
@@ -317,9 +302,10 @@ body.art-print { background: #fff; }
 /**
  * Build a single print-ready `<!doctype html>` document containing every page
  * of a `kind: "pages"` artifact, for the browser-native "Save as PDF" export
- * (pristine-artifacts Phase 3a). Reuses the exact house shell so the export is
- * visually identical to the on-screen render, then layers `printStyles` so the
- * browser's print engine emits one artifact page per physical sheet at 1:1.
+ * (pristine-artifacts Phase 3a). Reuses the exact no-web-font house shell so
+ * the export is visually identical to the on-screen render, then layers
+ * `printStyles` so the browser's print engine emits one artifact page per
+ * physical sheet at 1:1.
  *
  * Each entry in `pages` is body-level page HTML (same contract as
  * `buildArtifactDocument`). `title` seeds `<title>`, which browsers use as the
