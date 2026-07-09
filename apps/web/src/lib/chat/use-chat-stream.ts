@@ -1,4 +1,5 @@
 import type { EventPayload } from "@alfred/schemas/events";
+import type { SyncedChatNarration } from "@alfred/sync";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { openEventStream, type EventStreamFrame } from "~/lib/events/stream";
 import { markChatTimingByAssistant } from "./timing";
@@ -15,12 +16,6 @@ export interface StreamingToolCall {
   segmentIndex: number;
 }
 
-/** A closed narration segment streamed before a tool step (interleaved in the trail). */
-export interface StreamingNarration {
-  index: number;
-  text: string;
-}
-
 export interface StreamingMessage {
   messageId: string;
   runId: string;
@@ -31,7 +26,7 @@ export interface StreamingMessage {
    */
   text: string;
   /** Closed narration segments to interleave with the tool cards in the trail. */
-  narration: StreamingNarration[];
+  narration: SyncedChatNarration[];
   /** Drip-buffered reasoning — the model's thinking, shown in the accordion. */
   reasoning: string;
   /** True while thinking is still arriving (reply hasn't started) — drives the shimmer. */
@@ -140,7 +135,7 @@ export function useChatStream(threadId: string | undefined): ChatStream {
         const answer = r.segments.get(r.currentSegment) ?? "";
         r.reasoningShown = ease(r.reasoningShown, r.reasoning.length);
         r.shown = ease(r.shown, answer.length);
-        const narration: StreamingNarration[] = [];
+        const narration: SyncedChatNarration[] = [];
         for (const [index, text] of r.segments) {
           if (index < r.currentSegment && text.trim().length > 0) narration.push({ index, text });
         }

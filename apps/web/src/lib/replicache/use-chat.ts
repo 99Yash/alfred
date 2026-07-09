@@ -9,13 +9,8 @@ import {
 } from "@alfred/sync";
 import { useEffect, useState } from "react";
 import type { ReadTransaction } from "replicache";
-import type { AlfredReplicache } from "./client";
+import type { AlfredReplicache, ReplicacheSnapshot } from "./client";
 import { useReplicache } from "./context";
-
-interface ReplicacheSnapshot<T> {
-  rep: AlfredReplicache;
-  value: T;
-}
 
 /**
  * Reactive list of the user's chat threads, newest activity first. Mirrors
