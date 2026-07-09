@@ -2,6 +2,7 @@ import { db } from "@alfred/db";
 import { observationFamilyHeads, observations, type Observation } from "@alfred/db/schemas";
 import { observationInsertSchema, type ObservationInsertInput } from "@alfred/contracts";
 import { and, eq, sql } from "drizzle-orm";
+import { type PgErrorLike } from "../../lib/pg-errors";
 import { type DbExecutor } from "./executor";
 
 const OBSERVATION_APPEND_MAX_ATTEMPTS = 3;
@@ -22,13 +23,6 @@ export interface InsertObservationResult {
 
 export interface AppendObservationFamilyMemberResult extends InsertObservationResult {
   status: "inserted" | "deduped";
-}
-
-interface PgErrorLike {
-  code?: string;
-  constraint?: string;
-  message?: string;
-  cause?: unknown;
 }
 
 export function isObservationAppendConflict(err: unknown): boolean {
