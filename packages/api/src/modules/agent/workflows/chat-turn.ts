@@ -1735,7 +1735,11 @@ async function finalizeAssistantMessage(
   // Fire-and-forget + internally best-effort: arming memory capture must never
   // fail (or delay) an otherwise-good reply. Only the success path arms it; a
   // failed turn (`finalizeFailedMessage`) intentionally does not.
-  void scheduleThreadIdleExtraction({ userId, threadId: state.threadId });
+  void scheduleThreadIdleExtraction({
+    userId,
+    threadId: state.threadId,
+    captureAfterMessageId: state.messageId,
+  });
 
   // Name the thread from its opening exchange. Fire-and-forget: this does two
   // SELECTs plus a cheap-model call (up to TITLE_TIMEOUT_MS), and awaiting it

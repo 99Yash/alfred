@@ -23,7 +23,10 @@ describe("buildThreadTranscript", () => {
       { role: "user", content: "who is dvd?" },
       { role: "assistant", content: "Venkata Deepankar Duvvuru." },
     ];
-    assert.equal(buildThreadTranscript(turns), "User: who is dvd?\nAlfred: Venkata Deepankar Duvvuru.");
+    assert.equal(
+      buildThreadTranscript(turns),
+      "User: who is dvd?\nAlfred: Venkata Deepankar Duvvuru.",
+    );
   });
 
   test("skips blank/whitespace-only turns", () => {
@@ -46,6 +49,13 @@ describe("buildThreadTranscript", () => {
     assert.match(out, /\[…earlier turns truncated\]/);
     assert.match(out, /User: NEWEST/);
     assert.doesNotMatch(out, /OLDEST/);
+  });
+
+  test("caps a single oversized newest turn instead of sending the whole blob", () => {
+    const out = buildThreadTranscript([{ role: "user", content: "x".repeat(100) }], 20);
+    assert.match(out, /\[…earlier turns truncated\]/);
+    assert.equal(out.endsWith("x".repeat(20)), true);
+    assert.ok(out.length < 60);
   });
 
   test("no truncation marker when the whole thread fits", () => {

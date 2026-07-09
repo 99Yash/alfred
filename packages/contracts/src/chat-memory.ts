@@ -17,7 +17,6 @@
 
 import { z } from "zod";
 import { confidenceSchema } from "./model-output.js";
-import { factSubjectKindSchema } from "./user-model.js";
 
 /**
  * The value a proposition carries. Deliberately NOT the recursive
@@ -101,16 +100,7 @@ export type PropositionAttribution = (typeof PROPOSITION_ATTRIBUTIONS)[number];
  * (via `canonicalizeFactKey`) and identity resolution of `subjectRef` are the
  * projection's job (#400), so both are intentionally loose here.
  */
-export const chatPropositionSchema = z.object({
-  /** Whether the proposition is about the user or about another entity (D8). */
-  subject: factSubjectKindSchema,
-  /**
-   * For `subject: "entity"`, the entity as the model referred to it (an email,
-   * a display name like "dvd"/"Venkata Deepankar Duvvuru", …). Left as a free
-   * string in v1 — resolving it to a stable entity id is #399/#400. Should be
-   * omitted for `subject: "user"`.
-   */
-  subjectRef: z.string().min(1).max(200).optional(),
+const chatPropositionBaseSchema = z.object({
   /**
    * The proposition's key. The extractor emits its best snake_case guess
    * (`employer`, `job_title`, `relationship:dvd@oliv.ai`, `pref:tone`, …); the
@@ -130,6 +120,24 @@ export const chatPropositionSchema = z.object({
   /** Short justification grounded in the transcript — for audit + debugging bad proposals. */
   rationale: z.string().min(1).max(500),
 });
+
+export const chatPropositionSchema = z.discriminatedUnion("subject", [
+  chatPropositionBaseSchema.extend({
+    /** Proposition about the user; entity refs are invalid on this branch. */
+    subject: z.literal("user"),
+    subjectRef: z.never().optional(),
+  }),
+  chatPropositionBaseSchema.extend({
+    /** Proposition about another entity (D8). */
+    subject: z.literal("entity"),
+    /**
+     * The entity as the model referred to it (an email, a display name like
+     * "dvd"/"Venkata Deepankar Duvvuru", …). Left as a free string in v1 —
+     * resolving it to a stable entity id is #399/#400.
+     */
+    subjectRef: z.string().min(1).max(200),
+  }),
+]);
 export type ChatProposition = z.infer<typeof chatPropositionSchema>;
 
 /**

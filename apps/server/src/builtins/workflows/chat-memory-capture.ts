@@ -40,6 +40,7 @@ const threadTurnSchema = z.object({
 const stateSchema = z.object({
   mode: z.enum(["auto", "manual"]),
   threadId: z.string().min(1),
+  captureAfterMessageId: z.string().min(1),
   /** Injected transcript (manual mode) — bypasses the DB read. */
   manualTranscript: z.array(threadTurnSchema).optional(),
   /** Injected propositions (manual mode) — bypasses the LLM. */
@@ -74,10 +75,16 @@ export const chatMemoryCaptureWorkflow: Workflow<State> = {
     const metadata = input.metadata ?? {};
     const threadId = typeof metadata.threadId === "string" ? metadata.threadId : null;
     if (!threadId) throw new Error("chat-memory-capture workflow requires metadata.threadId");
+    const captureAfterMessageId =
+      typeof metadata.captureAfterMessageId === "string" ? metadata.captureAfterMessageId : null;
+    if (!captureAfterMessageId) {
+      throw new Error("chat-memory-capture workflow requires metadata.captureAfterMessageId");
+    }
     const parsed = inputSchema.parse(input.input ?? {});
     return {
       mode: parsed.mode,
       threadId,
+      captureAfterMessageId,
       manualTranscript: parsed.manualTranscript,
       manualPropositions: parsed.manualPropositions,
       transcript: [],
@@ -86,14 +93,18 @@ export const chatMemoryCaptureWorkflow: Workflow<State> = {
     };
   },
 
-  // One capture per thread at a time. A second debounce fire that overlaps a
-  // still-running capture collides on the partial unique index instead of
-  // double-extracting the same thread. Failed/cancelled runs are excluded, so a
-  // transient failure stays retryable.
+  // One capture per settled transcript anchor at a time. The anchor is the
+  // completed assistant message that armed the debounce: duplicates for that
+  // exact settled turn collide, while a later turn in the same thread can still
+  // produce a fresh capture.
   dedupKey(input) {
     const threadId = input.metadata?.threadId;
-    return typeof threadId === "string" && threadId.length > 0
-      ? `chat-memory:${threadId}`
+    const captureAfterMessageId = input.metadata?.captureAfterMessageId;
+    return typeof threadId === "string" &&
+      threadId.length > 0 &&
+      typeof captureAfterMessageId === "string" &&
+      captureAfterMessageId.length > 0
+      ? `chat-memory:${threadId}:${captureAfterMessageId}`
       : null;
   },
 
