@@ -6,6 +6,7 @@ import {
   ChevronLeft,
   ChevronRight,
   Copy,
+  Download,
   FileText,
   Layers,
   Loader2,
@@ -27,6 +28,7 @@ import {
 import { createPortal } from "react-dom";
 import { ArtifactPageFrame } from "~/components/artifact-page-frame";
 import { MarkdownRenderer } from "~/components/markdown-renderer";
+import { printArtifactPages } from "~/lib/artifacts/export-artifact";
 import { useArtifact } from "~/lib/replicache/use-artifacts";
 import { cn } from "~/lib/utils";
 import type { RailMode } from "~/routes/-preview-chat/helpers";
@@ -192,7 +194,8 @@ function ArtifactHeader({
   onClose: () => void;
 }) {
   const isPages = artifact?.kind === "pages";
-  const pageCount = artifact?.content?.kind === "pages" ? artifact.content.pages.length : undefined;
+  const pagesContent = artifact?.content?.kind === "pages" ? artifact.content.pages : null;
+  const pageCount = pagesContent?.length;
 
   return (
     <header className="flex h-[60px] shrink-0 items-center gap-2 border-b border-app-bg-3/50 px-3">
@@ -209,6 +212,13 @@ function ArtifactHeader({
       </div>
       {artifact?.kind === "document" && artifact.content?.kind === "document" ? (
         <CopyMarkdownButton markdown={artifact.content.markdown} />
+      ) : null}
+      {isPages && pagesContent && pagesContent.length > 0 && artifact?.status !== "generating" ? (
+        <DownloadPagesButton
+          pages={pagesContent}
+          format={artifact?.format ?? "pdf"}
+          title={artifact?.title || "Artifact"}
+        />
       ) : null}
       {onEdit && artifact && artifact.status !== "generating" ? (
         <IconButton label="Suggest an edit" onClick={onEdit}>
@@ -604,6 +614,31 @@ function CenteredState({ icon, text }: { icon: ReactNode; text: string }) {
         <p className="text-sm">{text}</p>
       </div>
     </div>
+  );
+}
+
+function DownloadPagesButton({
+  pages,
+  format,
+  title,
+}: {
+  pages: ArtifactPage[];
+  format: ArtifactFormat;
+  title: string;
+}) {
+  const [busy, setBusy] = useState(false);
+  const onDownload = useCallback(() => {
+    setBusy(true);
+    void printArtifactPages(
+      pages.map((page) => page.html),
+      format,
+      title,
+    ).finally(() => setBusy(false));
+  }, [pages, format, title]);
+  return (
+    <IconButton label="Download PDF" onClick={busy ? undefined : onDownload}>
+      {busy ? <Loader2 size={13} className="animate-spin" /> : <Download size={13} />}
+    </IconButton>
   );
 }
 

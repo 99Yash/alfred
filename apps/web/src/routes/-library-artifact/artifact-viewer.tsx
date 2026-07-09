@@ -1,8 +1,10 @@
+import type { ArtifactFormat } from "@alfred/contracts";
 import { Link, useNavigate, useParams } from "@tanstack/react-router";
 import { Download, Maximize2, Share2, X } from "lucide-react";
 import { useCallback, useEffect } from "react";
 import { ArtifactPageFrame } from "~/components/artifact-page-frame";
 import { AppButton } from "~/components/ui/v2";
+import { printArtifactPages } from "~/lib/artifacts/export-artifact";
 import { getArtifact } from "~/lib/artifacts/library-artifacts";
 import { cn } from "~/lib/utils";
 
@@ -14,6 +16,16 @@ export function ArtifactViewer() {
   const close = useCallback(() => {
     void navigate({ to: "/library" });
   }, [navigate]);
+
+  // Native "Save as PDF" export of the rendered pages. Only pages that carry
+  // real shell HTML are printable (the summary-only sample rows have none).
+  const onDownload = useCallback(() => {
+    if (!artifact) return;
+    const htmlPages = artifact.pages.flatMap((page) => (page.html ? [page.html] : []));
+    if (htmlPages.length === 0) return;
+    const format: ArtifactFormat = artifact.type === "presentation" ? "slides" : "pdf";
+    void printArtifactPages(htmlPages, format, artifact.title);
+  }, [artifact]);
 
   useEffect(() => {
     const handler = (e: KeyboardEvent) => {
@@ -85,7 +97,7 @@ export function ArtifactViewer() {
           <AppButton variant="ghost" size="md" aria-label="Share artifact">
             <Share2 size={15} />
           </AppButton>
-          <AppButton variant="ghost" size="md" aria-label="Download artifact">
+          <AppButton variant="ghost" size="md" aria-label="Download artifact" onClick={onDownload}>
             <Download size={15} />
           </AppButton>
           <AppButton variant="ghost" size="md" aria-label="Fullscreen artifact">
