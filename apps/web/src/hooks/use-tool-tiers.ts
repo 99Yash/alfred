@@ -1,13 +1,9 @@
-import { isRecord } from "@alfred/contracts";
+import { isRecord, type ToolRiskTier } from "@alfred/contracts";
 import { useQuery } from "@tanstack/react-query";
 import { client } from "~/lib/eden";
 
-export interface RiskTierCounts {
-  no_risk: number;
-  low: number;
-  medium: number;
-  high: number;
-}
+/** Mirrors the server's `Record<ToolRiskTier, number>` tool-tier tally. */
+export type RiskTierCounts = Record<ToolRiskTier, number>;
 
 type TierMap = Readonly<Record<string, RiskTierCounts>>;
 

@@ -34,6 +34,16 @@ const API_URL =
 
 export type AlfredReplicache = Replicache<ClientMutators>;
 
+/**
+ * A Replicache handle paired with the last value read for it. The subscription
+ * hooks (`use-briefings`, `use-workflows`, `use-chat`) store this so a client
+ * swap and its stale snapshot are discarded together.
+ */
+export interface ReplicacheSnapshot<T> {
+  rep: AlfredReplicache;
+  value: T;
+}
+
 export interface CreateReplicacheOptions {
   /**
    * Fired when the synced data path looks unauthenticated — a pull/push that

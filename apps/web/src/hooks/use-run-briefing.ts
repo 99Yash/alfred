@@ -1,6 +1,6 @@
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { responseErrorMessage } from "~/lib/api-error";
-import { client } from "~/lib/eden";
+import { client, type EdenData } from "~/lib/eden";
 
 /**
  * Trigger an on-demand briefing run (the rail "Generate briefing" button).
@@ -11,12 +11,11 @@ import { client } from "~/lib/eden";
  * "composing" state and polls `useLatestBriefing({ poll })` until today's
  * briefing row appears. On success this invalidates the latest-briefing
  * query so polling picks up immediately.
+ *
+ * Derived from the route so it keeps the discriminated union (only `queued`
+ * carries `runId`) a hand-flattened type would lose (code-style §1).
  */
-export interface RunBriefingResult {
-  status: "queued" | "running" | "exists";
-  slot: "morning" | "evening";
-  runId?: string;
-}
+export type RunBriefingResult = EdenData<typeof client.api.me.briefings.run.post>;
 
 export function useRunBriefing() {
   const queryClient = useQueryClient();
@@ -26,7 +25,7 @@ export function useRunBriefing() {
       if (res.error) {
         throw new Error(responseErrorMessage(res.error.value, res.status, "Generate briefing"));
       }
-      return res.data as RunBriefingResult;
+      return res.data;
     },
     onSettled: () => {
       void queryClient.invalidateQueries({ queryKey: ["me", "briefings", "latest"] });
