@@ -27,7 +27,15 @@ import { cssVariables, font, pageGeometry, spacing, type } from "./tokens";
  * just a dead gutter. This is the old `PAGE_RESET`, absorbed into the shell.
  */
 const RESET = `
-*, *::before, *::after { box-sizing: border-box; }
+*, *::before, *::after {
+  box-sizing: border-box;
+  /* Force backgrounds/gradients (aurora, badges, bars, accent marks, surfaces)
+   * to render when the browser prints to PDF. Without this the UA default of
+   * economy strips background colors/images and flattens colored pages to white
+   * in the export (and in the print dialog when "Background graphics" is off). */
+  -webkit-print-color-adjust: exact;
+  print-color-adjust: exact;
+}
 html, body { margin: 0; padding: 0; }
 img, svg, canvas { display: block; max-width: 100%; }
 p, h1, h2, h3, h4, h5, h6, ul, ol, figure, blockquote { margin: 0; }
@@ -221,6 +229,14 @@ code {
 .art-page:has(> .art-aurora) > :not(.art-aurora) { z-index: 1; }`;
 }
 
+/** The full shell stylesheet: font faces, token vars, reset, and primitives. */
+function shellStyles(): string {
+  return `${fontFaces()}
+${rootVariables()}
+${RESET}
+${baseStyles()}`;
+}
+
 /**
  * Wrap model-authored, body-level `bodyHtml` in the full house-shell document
  * for the given `format`. The returned string is a complete standalone page:
@@ -240,16 +256,102 @@ export function buildArtifactDocument(bodyHtml: string, format: ArtifactFormat =
 <meta charset="utf-8" />
 <meta name="viewport" content="width=${width}, height=${height}" />
 <style>
-${fontFaces()}
-${rootVariables()}
-${RESET}
-${baseStyles()}
+${shellStyles()}
 </style>
 </head>
 <body>
 <div class="art-page" data-format="${format}">
 ${bodyHtml}
 </div>
+</body>
+</html>`;
+}
+
+/** Minimal HTML-text escape for interpolating a title into `<title>`. */
+function escapeHtml(value: string): string {
+  return value
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;");
+}
+
+/**
+ * Print-only overrides layered after the shell styles. Sets the physical page
+ * size to the format geometry (so the browser's own print engine emits 1:1,
+ * one artifact page per sheet, no margins), unlocks the shell's screen-only
+ * full-viewport `overflow:hidden` body, and sizes each `.art-print-page` box to
+ * the exact geometry with a hard page break between pages.
+ */
+function printStyles(format: ArtifactFormat): string {
+  const { width, height } = pageGeometry[format];
+  return `
+@page { size: ${width}px ${height}px; margin: 0; }
+html, body { width: auto; height: auto; overflow: visible; }
+body.art-print { background: #fff; }
+.art-print-page {
+  position: relative;
+  width: ${width}px;
+  height: ${height}px;
+  overflow: hidden;
+  background: var(--art-surface);
+  break-after: page;
+  page-break-after: always;
+}
+.art-print-page:last-child { break-after: auto; page-break-after: auto; }
+.art-print-page > .art-page { width: 100%; height: 100%; }
+/* The print doc is rendered in an off-screen iframe; the screen block just
+ * keeps it sane if it is ever opened directly. */
+@media screen {
+  body.art-print {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 16px;
+    padding: 16px;
+    background: #e5e5e5;
+  }
+}`;
+}
+
+/**
+ * Build a single print-ready `<!doctype html>` document containing every page
+ * of a `kind: "pages"` artifact, for the browser-native "Save as PDF" export
+ * (pristine-artifacts Phase 3a). Reuses the exact house shell so the export is
+ * visually identical to the on-screen render, then layers `printStyles` so the
+ * browser's print engine emits one artifact page per physical sheet at 1:1.
+ *
+ * Each entry in `pages` is body-level page HTML (same contract as
+ * `buildArtifactDocument`). `title` seeds `<title>`, which browsers use as the
+ * default PDF filename. Pure string output — the caller (web) drives the actual
+ * print via an off-screen iframe, since the render iframe is `sandbox=""` and
+ * cannot script `print()` itself.
+ */
+export function buildArtifactPrintDocument(
+  pages: readonly string[],
+  format: ArtifactFormat = "pdf",
+  title = "Artifact",
+): string {
+  const pageBlocks = pages
+    .map(
+      (bodyHtml) =>
+        `<section class="art-print-page"><div class="art-page" data-format="${format}">
+${bodyHtml}
+</div></section>`,
+    )
+    .join("\n");
+  return `<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<title>${escapeHtml(title)}</title>
+<style>
+${shellStyles()}
+${printStyles(format)}
+</style>
+</head>
+<body class="art-print">
+${pageBlocks}
 </body>
 </html>`;
 }
