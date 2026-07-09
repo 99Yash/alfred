@@ -82,10 +82,9 @@ export const hues = {
 
 /**
  * Self-hosted Open Runde (the app's only shipped face — see the `@font-face`
- * block in `apps/web/src/index.css`), served from the app origin. The iframe
- * `srcDoc` resolves these absolute paths against the parent document's origin,
- * and `@font-face`/`<link>` fonts DO load under `sandbox=""` (only scripts are
- * blocked), so the shell can embed the real brand font with no CDN.
+ * block in `apps/web/src/index.css`), served from the app origin. The artifact
+ * iframe allows same-origin resource loading while keeping scripts blocked, so
+ * the shell can embed the real brand font with no CDN.
  */
 export const font = {
   family: "Open Runde",

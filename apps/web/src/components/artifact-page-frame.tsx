@@ -1,15 +1,12 @@
-import { buildArtifactDocument } from "@alfred/artifacts-design";
+import { buildArtifactDocument } from "@alfred/artifacts-design/shell";
+import { pageGeometry } from "@alfred/artifacts-design/tokens";
 import type { ArtifactFormat } from "@alfred/contracts";
 import { useCallback, useState } from "react";
 import { cn } from "~/lib/utils";
 
-// Page geometry per artifact format. `pdf` is portrait US-Letter (816×1056 =
-// 8.5×11 at 96dpi); `slides` is a 1280×720 16:9 deck page. The iframe renders
-// at this fixed logical size and is scaled to the measured container width, so
-// page HTML can be authored against a stable canvas regardless of panel width.
-const PAGE_GEOMETRY: Record<ArtifactFormat, { width: number; height: number; aspect: string }> = {
-  pdf: { width: 816, height: 1056, aspect: "aspect-[8.5/11]" },
-  slides: { width: 1280, height: 720, aspect: "aspect-video" },
+const PAGE_ASPECT: Record<ArtifactFormat, string> = {
+  pdf: "aspect-[8.5/11]",
+  slides: "aspect-video",
 };
 
 export function ArtifactPageFrame({
@@ -24,7 +21,8 @@ export function ArtifactPageFrame({
   /** Drives page geometry/aspect. Defaults to `pdf` (portrait US-Letter). */
   format?: ArtifactFormat;
 }) {
-  const { width: pageWidth, height: pageHeight, aspect } = PAGE_GEOMETRY[format];
+  const { width: pageWidth, height: pageHeight } = pageGeometry[format];
+  const aspect = PAGE_ASPECT[format];
   // `width` is undefined until the frame has been measured. The iframe falls
   // back to scale 1 in that single pre-measurement frame; ResizeObserver fires
   // synchronously on attach, so the unscaled frame is rarely visible.
@@ -58,7 +56,10 @@ export function ArtifactPageFrame({
       <iframe
         title={title}
         srcDoc={buildArtifactDocument(html, format)}
-        sandbox=""
+        // Scripts/forms/top-nav stay blocked. `allow-same-origin` is required
+        // for same-origin Open Runde font files to load from `srcDoc`; without
+        // it the frame has an opaque origin and Chromium rejects the font.
+        sandbox="allow-same-origin"
         className="pointer-events-none absolute top-0 left-0 border-0 bg-white"
         style={{
           width: pageWidth,
