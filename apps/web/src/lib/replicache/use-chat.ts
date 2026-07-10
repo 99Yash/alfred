@@ -10,7 +10,7 @@ import {
 import { useEffect, useState } from "react";
 import type { ReadTransaction } from "replicache";
 import type { AlfredReplicache, ReplicacheSnapshot } from "./client";
-import { useReplicache } from "./context";
+import { useReplicache, useReplicacheStatus } from "./context";
 
 /**
  * Reactive list of the user's chat threads, newest activity first. Mirrors
@@ -40,12 +40,14 @@ export function useChatThreads(): SyncedChatThread[] {
   return snapshot?.rep === rep ? snapshot.value : [];
 }
 
-/**
- * Reactive single-thread lookup. Returns the synced thread row (for its title
- * + activity), or null while it hasn't synced yet / for a brand-new thread.
- */
-export function useChatThread(threadId: string | undefined): SyncedChatThread | null {
-  const rep = useReplicache();
+export interface ChatThreadState {
+  thread: SyncedChatThread | null;
+  loading: boolean;
+}
+
+/** Reactive single-thread lookup with unresolved and resolved-empty kept distinct. */
+export function useChatThread(threadId: string | undefined): ChatThreadState {
+  const { rep, loadError, pullError, initialPullPending } = useReplicacheStatus();
   const [snapshot, setSnapshot] = useState<{
     rep: AlfredReplicache;
     threadId: string;
@@ -63,15 +65,28 @@ export function useChatThread(threadId: string | undefined): SyncedChatThread | 
     );
   }, [rep, threadId]);
 
-  return snapshot?.rep === rep && snapshot.threadId === threadId ? snapshot.thread : null;
+  const current =
+    snapshot?.rep === rep && snapshot.threadId === threadId ? snapshot.thread : undefined;
+  const error = loadError ?? pullError;
+  return {
+    thread: current ?? null,
+    loading:
+      Boolean(threadId) &&
+      !error &&
+      (current === undefined || (current === null && initialPullPending)),
+  };
 }
 
-/**
- * Reactive list of one thread's messages in chronological order. Returns an
- * empty array for a brand-new (unsent) thread.
- */
-export function useChatMessages(threadId: string | undefined): SyncedChatMessage[] {
-  const rep = useReplicache();
+export interface ChatMessagesState {
+  messages: SyncedChatMessage[];
+  loading: boolean;
+  error: string | null;
+  retry: () => void;
+}
+
+/** Reactive message list that does not expose an unresolved subscription as empty. */
+export function useChatMessages(threadId: string | undefined): ChatMessagesState {
+  const { rep, loadError, pullError, initialPullPending, retry } = useReplicacheStatus();
   const [snapshot, setSnapshot] = useState<{
     rep: AlfredReplicache;
     threadId: string;
@@ -95,7 +110,17 @@ export function useChatMessages(threadId: string | undefined): SyncedChatMessage
     );
   }, [rep, threadId]);
 
-  return snapshot?.rep === rep && snapshot.threadId === threadId ? snapshot.rows : [];
+  const current = snapshot?.rep === rep && snapshot.threadId === threadId ? snapshot.rows : null;
+  const error = loadError ?? pullError;
+  return {
+    messages: current ?? [],
+    loading:
+      Boolean(threadId) &&
+      !error &&
+      (current === null || (current.length === 0 && initialPullPending)),
+    error,
+    retry,
+  };
 }
 
 /**
