@@ -234,7 +234,7 @@ function modelForLane(lane: ModelLane): LanguageModel {
     case "boss":
       return getBossModel();
     case "forced-gemini":
-      return withToolNameShim(google("gemini-2.5-pro"));
+      return withToolNameShim(google("gemini-3.5-flash"));
     default: {
       const _exhaustive: never = lane;
       return _exhaustive;

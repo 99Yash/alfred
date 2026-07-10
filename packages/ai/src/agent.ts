@@ -488,7 +488,7 @@ function nonStopReason(r: FinishReason): "length" | "content-filter" | "error" |
  * Included (retryable): a clean `stop`, a provider `error`, or an `unknown`/`other`
  * finish with zero output. This is the transient provider anomaly the
  * Anthropic→Gemini quota fallback surfaces — when Anthropic hits its workspace
- * spend cap, `withFallback` degrades to Gemini 2.5 Pro, which occasionally returns
+ * spend cap, `withFallback` degrades to Gemini 3.5 Flash, which may return
  * a `finishReason:stop` candidate with 0 output tokens (see the 2026-07-10 chat-turn
  * dig, trace `run_hesh6eyb1m01`). `withFallback` itself cannot catch this: the SDK
  * call *succeeds* with an empty stream, so there is no error for the retry cascade

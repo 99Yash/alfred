@@ -84,7 +84,7 @@ const TURN_CAP_MAX = 24;
  * How many consecutive empty completions (see `isRetryableEmptyCompletion`) to
  * regenerate before surfacing a failure. An empty `stop` with no text and no
  * tool calls is the transient anomaly the Anthropic→Gemini quota fallback throws
- * (a Gemini 2.5 Pro candidate with 0 output tokens); re-attempting the turn
+ * (a Gemini fallback candidate with 0 output tokens); re-attempting the turn
  * usually clears it. Kept tight so a provider genuinely stuck returning empties
  * fails fast instead of burning the whole `TURN_CAP_MAX` budget on full-price
  * retries.

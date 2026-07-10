@@ -49,7 +49,7 @@ const cases: Array<{
       kind: "briefing",
       role: "briefing",
       provider: "google",
-      model: "gemini-2.5-pro",
+      model: "gemini-3.5-flash",
       runId: jobRun,
       userId: "verify-user",
     },
