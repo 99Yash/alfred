@@ -2,7 +2,7 @@ import {
   getBossModel,
   identifyLanguageModel,
   meteredGenerateText,
-  stepCountIs,
+  isStepCount,
   type ModelMessage,
 } from "@alfred/ai";
 import type { IanaTimezone } from "@alfred/contracts";
@@ -91,7 +91,7 @@ export async function runBriefingAgent(
       // Bound the loop. dump_briefing should be reached well within this
       // budget; if not, we want to surface that as a failure rather than
       // burn tokens indefinitely.
-      stopWhen: stepCountIs(MAX_STEPS),
+      stopWhen: isStepCount(MAX_STEPS),
     },
     {
       // `briefing` is the cost bucket (ADR-0041), not the call shape — this is
@@ -119,9 +119,9 @@ export async function runBriefingAgent(
   return {
     briefing,
     usage: {
-      inputTokens: result.totalUsage.inputTokens,
-      outputTokens: result.totalUsage.outputTokens,
-      totalTokens: result.totalUsage.totalTokens,
+      inputTokens: result.usage.inputTokens,
+      outputTokens: result.usage.outputTokens,
+      totalTokens: result.usage.totalTokens,
     },
     modelId: identifyLanguageModel(model).modelId,
     steps: result.steps.length,

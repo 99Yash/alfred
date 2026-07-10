@@ -42,6 +42,20 @@ import {
 import { INTEGRATION_SLUGS, type ToolName } from "./tools.js";
 
 /**
+ * Zod's built-in email validator emits negative-lookahead assertions in JSON
+ * Schema. OpenAI's Responses API rejects regex lookaround in tool parameters,
+ * so model-facing email fields use the same practical address grammar without
+ * lookaround. Runtime parsing and the model-visible schema still share this
+ * single validator.
+ */
+const MODEL_TOOL_EMAIL_PATTERN =
+  /^[A-Za-z0-9_'+-]+(?:\.[A-Za-z0-9_'+-]+)*@(?:[A-Za-z0-9](?:[A-Za-z0-9-]*[A-Za-z0-9])?\.)+[A-Za-z]{2,}$/;
+
+function modelToolEmail() {
+  return z.string().regex(MODEL_TOOL_EMAIL_PATTERN, "Invalid email address");
+}
+
+/**
  * Search tools split on the query field name: `drive`/`gmail` use `q` (the
  * Google API param) while `github`/`notion` use `query`. The boss pattern-
  * matches across tools and routinely sends the off-name spelling — dispatch
@@ -240,7 +254,7 @@ export const calendarCreateEventInput = coerceJsonArrayFields(
         .max(100)
         .optional()
         .describe("IANA timezone for the event. Omit when start/end include explicit offsets."),
-      attendees: z.array(z.string().email()).max(50).optional(),
+      attendees: z.array(modelToolEmail()).max(50).optional(),
     })
     .strict()
     .refine((value) => new Date(value.end) > new Date(value.start), {
@@ -509,9 +523,9 @@ export const gmailSendDraftInput = coerceJsonArrayFields(
   ["to", "cc", "bcc"],
   z
     .object({
-      to: z.array(z.string().email()).min(1).max(25),
-      cc: z.array(z.string().email()).max(25).optional(),
-      bcc: z.array(z.string().email()).max(25).optional(),
+      to: z.array(modelToolEmail()).min(1).max(25),
+      cc: z.array(modelToolEmail()).max(25).optional(),
+      bcc: z.array(modelToolEmail()).max(25).optional(),
       subject: z
         .string()
         .min(1)
@@ -928,7 +942,7 @@ export const readUserContextInput = coerceJsonArrayFields(
           .string()
           .trim()
           .toLowerCase()
-          .email()
+          .regex(MODEL_TOOL_EMAIL_PATTERN, "Invalid email address")
           .max(320)
           .optional()
           .describe("Optional person/contact email to focus on."),

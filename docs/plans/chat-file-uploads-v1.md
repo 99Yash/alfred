@@ -9,7 +9,7 @@ Adds file upload to chat. Today the composer's paperclip is a **dead button** �
 1. **Raw media** — stored in a Railway bucket, retained for replay/preview in the UI. **Never sent to the model.**
 2. **Degraded artifact** — transcript text (+ keyframe image objects) — the _only_ thing that enters the transcript and the model context.
 
-This invariant is why there is **no model-capability gate and no force-routing**: nothing unreadable ever reaches the model, so the question "which model can read this attachment" never arises. Tier picker (Auto=Sonnet 4.6 / Deep=Opus 4.8) and attachments are orthogonal. Gemini 2.5 Pro stays a pure reliability fallback, _not_ an ingest or routing target. See ADR-0065 for the full rationale and the rejected routing design.
+This invariant is why there is **no model-capability gate and no force-routing**: nothing unreadable ever reaches the model, so the question "which model can read this attachment" never arises. Tier picker (Auto=Sonnet 4.6 / Deep=Opus 4.8) and attachments are orthogonal. Gemini 3.5 Flash stays a pure reliability fallback, _not_ an ingest or routing target. See ADR-0065 for the full rationale and the rejected routing design.
 
 ## Why not route unsupported uploads to a capable model (the grilled fork)
 

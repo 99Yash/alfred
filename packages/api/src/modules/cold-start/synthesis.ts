@@ -88,7 +88,7 @@ export async function synthesizeColdStart(args: SynthesizeColdStartArgs): Promis
   const result = await meteredGenerateText(
     {
       model: getBossModel(),
-      system: SYSTEM_PROMPT,
+      instructions: SYSTEM_PROMPT,
       prompt: buildPrompt(args),
       maxOutputTokens: SYNTHESIS_MAX_OUTPUT_TOKENS,
       temperature: 0,
@@ -110,8 +110,8 @@ export async function synthesizeColdStart(args: SynthesizeColdStartArgs): Promis
     citations: mergeCitations(args.anchor, args.aspects),
     meta: {
       finishReason: result.finishReason,
-      inputTokens: result.totalUsage?.inputTokens,
-      outputTokens: result.totalUsage?.outputTokens,
+      inputTokens: result.usage?.inputTokens,
+      outputTokens: result.usage?.outputTokens,
     },
   };
 }

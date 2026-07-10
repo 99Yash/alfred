@@ -118,7 +118,7 @@ export async function extractColdStartFacts(
   const result = await meteredGenerateObject<z.infer<typeof extractColdStartResultSchema>>(
     {
       model: getCheapModel(),
-      system: SYSTEM_PROMPT,
+      instructions: SYSTEM_PROMPT,
       prompt: buildUserPrompt(args),
       schema: extractColdStartResultSchema,
       temperature: 0,
@@ -137,5 +137,5 @@ export async function extractColdStartFacts(
       name: "cold-start.extract",
     },
   );
-  return result.object.proposals;
+  return result.output.proposals;
 }

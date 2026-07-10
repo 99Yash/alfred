@@ -120,7 +120,7 @@ export async function composeBriefing(args: ComposeBriefingArgs): Promise<Compos
         schemaName: "briefing_composer",
         schemaDescription:
           "Composes a concise daily briefing from gathered email, calendar, integration activity, weather, and day context.",
-        system: BRIEFING_COMPOSER_SYSTEM_PROMPT,
+        instructions: BRIEFING_COMPOSER_SYSTEM_PROMPT,
         prompt: buildComposerPrompt(args),
         temperature: 0.2,
         maxOutputTokens: 2_500,
@@ -145,9 +145,9 @@ export async function composeBriefing(args: ComposeBriefingArgs): Promise<Compos
       },
     );
 
-    const fullBriefing = attachSourcePanels(result.object.fullBriefing, args.gather);
+    const fullBriefing = attachSourcePanels(result.output.fullBriefing, args.gather);
     return {
-      breakingSummary: result.object.breakingSummary.trim(),
+      breakingSummary: result.output.breakingSummary.trim(),
       fullBriefing,
       modelId: identifyLanguageModel(model).modelId,
       composeFallback: false,

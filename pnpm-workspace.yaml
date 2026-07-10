@@ -14,17 +14,17 @@ overrides:
 allowBuilds:
   # Needs its postinstall to fetch the platform binary; the server build calls
   # it (scripts/sentry-release.mjs) to upload source maps + associate commits.
-  '@sentry/cli': true
+  "@sentry/cli": true
   core-js: false
   esbuild: false
   msgpackr-extract: false
   protobufjs: false
 
 catalog:
-  "@ai-sdk/anthropic": ^3.0.0
-  "@ai-sdk/google": ^3.0.0
-  "@ai-sdk/openai": ^3.0.0
-  "@ai-sdk/perplexity": ^3.0.0
+  "@ai-sdk/anthropic": ^4.0.11
+  "@ai-sdk/google": ^4.0.11
+  "@ai-sdk/openai": ^4.0.11
+  "@ai-sdk/perplexity": ^4.0.8
   # Elysia + its sibling packages are pinned to exact versions, and
   # exact-mirror is pinned via the workspace `overrides` block above.
   # The workspace ships a `normalize: 'typebox'` workaround in
@@ -44,11 +44,11 @@ catalog:
   "@tanstack/router-plugin": ^1.121.7
   "@types/node": ^22.13.11
   "@vitejs/plugin-react": ^4.5.2
-  ai: 6.0.77
+  ai: 7.0.19
   # Provider-fallback cascade for the LanguageModel dispatchers (see
   # `withFallback` in packages/ai/src/provider.ts). Same version warden
-  # runs on the identical ai@6 / @ai-sdk/provider@3 resolution.
-  ai-retry: ^1.7.3
+  # runs on the identical ai@7 / @ai-sdk/provider@4 resolution.
+  ai-retry: ^2.0.0
   better-auth: ^1.3.28
   bullmq: ^5.52.1
   clsx: ^2.1.1
@@ -71,3 +71,13 @@ catalog:
   typescript: ^5.8.2
   vite: ^6.3.5
   zod: 4.3.6
+
+minimumReleaseAgeExclude:
+  - "@ai-sdk/gateway@4.0.15"
+  - "@ai-sdk/openai@4.0.11"
+  - "@ai-sdk/provider-utils@5.0.7"
+  - "@ai-sdk/provider@4.0.3"
+  - ai@7.0.19
+  - "@ai-sdk/anthropic@4.0.11"
+  - "@ai-sdk/google@4.0.11"
+  - "@ai-sdk/perplexity@4.0.8"
