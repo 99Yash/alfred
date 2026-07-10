@@ -1,4 +1,4 @@
-import { createContext, use, useCallback, useEffect, useMemo, useState } from "react";
+import { createContext, use, useCallback, useEffect, useMemo, useReducer } from "react";
 import { authClient } from "~/lib/auth/auth-client";
 import type { AlfredReplicache } from "./client";
 
@@ -29,30 +29,111 @@ function syncErrorMessage(error: unknown): string {
   return error instanceof Error ? `Sync failed: ${error.message}` : "Sync failed.";
 }
 
+interface SyncLifecycle {
+  rep: AlfredReplicache | null;
+  loadError: string | null;
+  pullError: string | null;
+  initialPullPending: boolean;
+  retryNonce: number;
+  lifecycle: object | null;
+}
+
+type SyncLifecycleAction =
+  | { type: "start"; lifecycle: object }
+  | { type: "stop"; lifecycle: object }
+  | { type: "signedOut" }
+  | { type: "ready"; lifecycle: object; rep: AlfredReplicache }
+  | { type: "authError"; lifecycle: object }
+  | { type: "pullRecovered"; lifecycle: object }
+  | { type: "pullReportedError"; lifecycle: object; message: string }
+  | { type: "pullSucceeded"; lifecycle: object; rep: AlfredReplicache }
+  | { type: "pullFailed"; lifecycle: object; rep: AlfredReplicache; message: string }
+  | { type: "loadFailed"; lifecycle: object; message: string }
+  | { type: "retryPull"; rep: AlfredReplicache }
+  | { type: "retryLoad" };
+
+const initialSyncLifecycle: SyncLifecycle = {
+  rep: null,
+  loadError: null,
+  pullError: null,
+  initialPullPending: true,
+  retryNonce: 0,
+  lifecycle: null,
+};
+
+function syncLifecycleReducer(state: SyncLifecycle, action: SyncLifecycleAction): SyncLifecycle {
+  switch (action.type) {
+    case "start":
+      return {
+        ...state,
+        rep: null,
+        loadError: null,
+        pullError: null,
+        initialPullPending: true,
+        lifecycle: action.lifecycle,
+      };
+    case "stop":
+      return state.lifecycle === action.lifecycle
+        ? { ...initialSyncLifecycle, retryNonce: state.retryNonce }
+        : state;
+    case "signedOut":
+      return { ...initialSyncLifecycle, retryNonce: state.retryNonce };
+    case "ready":
+      return state.lifecycle === action.lifecycle ? { ...state, rep: action.rep } : state;
+    case "authError":
+      return state.lifecycle === action.lifecycle
+        ? { ...state, loadError: state.loadError ?? SESSION_EXPIRED_MESSAGE }
+        : state;
+    case "pullRecovered":
+      return state.lifecycle === action.lifecycle ? { ...state, pullError: null } : state;
+    case "pullReportedError":
+      return state.lifecycle === action.lifecycle ? { ...state, pullError: action.message } : state;
+    case "pullSucceeded":
+      return state.lifecycle === action.lifecycle && state.rep === action.rep
+        ? { ...state, pullError: null, initialPullPending: false }
+        : state;
+    case "pullFailed":
+      return state.lifecycle === action.lifecycle && state.rep === action.rep
+        ? { ...state, pullError: state.pullError ?? action.message }
+        : state;
+    case "loadFailed":
+      return state.lifecycle === action.lifecycle
+        ? { ...state, loadError: state.loadError ?? action.message }
+        : state;
+    case "retryPull":
+      return state.rep === action.rep ? { ...state, pullError: null } : state;
+    case "retryLoad":
+      return { ...state, pullError: null, retryNonce: state.retryNonce + 1 };
+  }
+}
+
 export function ReplicacheProvider({ children }: { children: React.ReactNode }) {
   const { data: session } = authClient.useSession();
   const userId = session?.user?.id;
-  const [rep, setRep] = useState<AlfredReplicache | null>(null);
-  const [loadError, setLoadError] = useState<string | null>(null);
-  const [pullError, setPullError] = useState<string | null>(null);
-  const [initialPullPending, setInitialPullPending] = useState(true);
-  const [retryNonce, setRetryNonce] = useState(0);
+  const [sync, dispatch] = useReducer(syncLifecycleReducer, initialSyncLifecycle);
+  const { rep, loadError, pullError, initialPullPending, retryNonce } = sync;
   const retry = useCallback(() => {
-    setPullError(null);
     if (rep) {
+      const lifecycle = sync.lifecycle;
+      if (!lifecycle) return;
+      dispatch({ type: "retryPull", rep });
       void rep
         .pull({ now: true })
         .then(() => {
-          setInitialPullPending(false);
-          setPullError(null);
+          dispatch({ type: "pullSucceeded", lifecycle, rep });
         })
         .catch((error: unknown) => {
-          setPullError((current) => current ?? syncErrorMessage(error));
+          dispatch({
+            type: "pullFailed",
+            lifecycle,
+            rep,
+            message: syncErrorMessage(error),
+          });
         });
       return;
     }
-    setRetryNonce((nonce) => nonce + 1);
-  }, [rep]);
+    dispatch({ type: "retryLoad" });
+  }, [rep, sync.lifecycle]);
   const contextValue = useMemo<ReplicacheContextValue>(
     () => ({ rep, loadError, pullError, initialPullPending, retry }),
     [initialPullPending, loadError, pullError, rep, retry],
@@ -60,22 +141,22 @@ export function ReplicacheProvider({ children }: { children: React.ReactNode }) 
 
   useEffect(() => {
     if (!userId) {
-      setRep(null);
-      setLoadError(null);
-      setPullError(null);
-      setInitialPullPending(true);
+      dispatch({ type: "signedOut" });
       return;
     }
+    const lifecycle = {};
     let cancelled = false;
     let close: (() => void) | undefined;
     let retryTimeout: ReturnType<typeof setTimeout> | undefined;
     let resolveRetry: (() => void) | undefined;
 
+    dispatch({ type: "start", lifecycle });
+
     // Set once on the first 401 — Replicache retries the pull/push forever, so
     // onAuthError fires repeatedly; collapse that to a single state update.
     const handleAuthError = () => {
       if (cancelled) return;
-      setLoadError((prev) => prev ?? SESSION_EXPIRED_MESSAGE);
+      dispatch({ type: "authError", lifecycle });
     };
 
     const MAX_ATTEMPTS = 3;
@@ -90,9 +171,6 @@ export function ReplicacheProvider({ children }: { children: React.ReactNode }) 
       });
 
     const load = async () => {
-      setLoadError(null);
-      setPullError(null);
-      setInitialPullPending(true);
       for (let attempt = 1; attempt <= MAX_ATTEMPTS && !cancelled; attempt++) {
         try {
           const { createReplicache } = await import("./client");
@@ -101,35 +179,42 @@ export function ReplicacheProvider({ children }: { children: React.ReactNode }) 
             onAuthError: handleAuthError,
             onPullSuccess: () => {
               if (cancelled) return;
-              setPullError(null);
+              dispatch({ type: "pullRecovered", lifecycle });
             },
             onPullError: (message) => {
               if (cancelled) return;
-              setPullError(message);
+              dispatch({ type: "pullReportedError", lifecycle, message });
             },
           });
           close = instance.close;
-          setRep(instance.rep);
+          dispatch({ type: "ready", lifecycle, rep: instance.rep });
           void instance.rep
             .pull({ now: true })
             .then(() => {
               if (cancelled) return;
-              setInitialPullPending(false);
-              setPullError(null);
+              dispatch({ type: "pullSucceeded", lifecycle, rep: instance.rep });
             })
             .catch((error: unknown) => {
               if (cancelled) return;
-              setPullError((current) => current ?? syncErrorMessage(error));
+              dispatch({
+                type: "pullFailed",
+                lifecycle,
+                rep: instance.rep,
+                message: syncErrorMessage(error),
+              });
             });
           return;
         } catch (err) {
           if (cancelled) return;
           if (attempt === MAX_ATTEMPTS) {
-            setLoadError(
-              err instanceof Error
-                ? `Sync client failed to load: ${err.message}`
-                : "Sync client failed to load.",
-            );
+            dispatch({
+              type: "loadFailed",
+              lifecycle,
+              message:
+                err instanceof Error
+                  ? `Sync client failed to load: ${err.message}`
+                  : "Sync client failed to load.",
+            });
             return;
           }
           await waitForRetry(500 * attempt);
@@ -145,7 +230,7 @@ export function ReplicacheProvider({ children }: { children: React.ReactNode }) 
       const resolve = resolveRetry;
       resolveRetry = undefined;
       resolve?.();
-      setRep(null);
+      dispatch({ type: "stop", lifecycle });
       close?.();
     };
   }, [userId, retryNonce]);
