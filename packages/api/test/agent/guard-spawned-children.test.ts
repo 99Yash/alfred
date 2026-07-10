@@ -6,6 +6,7 @@ import { AWAIT_SUB_AGENT_CEILING_MS } from "../../src/modules/agent/sub-agent-jo
 import {
   awaitedChildRunId,
   guardSpawnedChildren,
+  planEmptyChatCompletionRetry,
   type ChatRunState,
   type GuardSpawnedChildrenDeps,
 } from "../../src/modules/agent/workflows/chat-turn";
@@ -55,6 +56,7 @@ function baseState(overrides: Partial<ChatRunState> = {}): ChatRunState {
     deltaSeq: 7,
     reasoningSeq: 0,
     turnCount: 1,
+    emptyCompletionRetries: 0,
     started: true,
     foldedChildRunIds: [],
     notedFailureToolCallIds: [],
@@ -202,6 +204,26 @@ describe("guardSpawnedChildren (ADR-0073 runtime invariant)", () => {
       /finished without you awaiting it — it completed/,
       "the fold carries the terminal result for the regenerated answer",
     );
+  });
+
+  test("an empty completion retries from the exact pre-turn transcript", () => {
+    const state = baseState({ emptyCompletionRetries: 1 });
+    const transcript = [{ role: "user" as const, content: "Keep this request" }];
+    const result = planEmptyChatCompletionRetry(state, transcript);
+
+    assert.equal(result?.kind, "next");
+    assert.equal(result?.state.emptyCompletionRetries, 2);
+    assert.equal(state.emptyCompletionRetries, 1, "planning does not mutate checkpoint state");
+    assert.strictEqual(
+      result?.kind === "next" ? result.transcript : undefined,
+      transcript,
+      "the empty assistant response is never appended to the retry transcript",
+    );
+  });
+
+  test("the empty-completion retry budget is bounded", () => {
+    const state = baseState({ emptyCompletionRetries: 2 });
+    assert.equal(planEmptyChatCompletionRetry(state, []), null);
   });
 
   test("one terminal + one running child: folds the terminal, parks on the running one", async () => {

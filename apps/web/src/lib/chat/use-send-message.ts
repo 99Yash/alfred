@@ -32,6 +32,8 @@ export type SendMessage = (
    */
   retryAttachmentIds?: string[],
   retryAttachmentMessageId?: string,
+  /** Structured target selected by the artifact sidebar; never parsed from prose. */
+  artifactTargetId?: string,
 ) => Promise<boolean>;
 
 const turnKickResponseSchema = z.object({
@@ -61,7 +63,15 @@ export function useSendMessage(): SendMessage {
   const navigate = useNavigate();
 
   return useCallback(
-    async (threadId, text, tier, files, retryAttachmentIds, retryAttachmentMessageId) => {
+    async (
+      threadId,
+      text,
+      tier,
+      files,
+      retryAttachmentIds,
+      retryAttachmentMessageId,
+      artifactTargetId,
+    ) => {
       const content = text.trim();
       const pickedFiles = files ?? [];
       const retryIds = retryAttachmentIds ?? [];
@@ -123,6 +133,7 @@ export function useSendMessage(): SendMessage {
               retryIds.length > 0 && retryAttachmentMessageId
                 ? retryAttachmentMessageId
                 : undefined,
+            artifactTargetId,
           }),
           signal: AbortSignal.timeout(TURN_KICK_TIMEOUT_MS),
         });
@@ -167,16 +178,18 @@ export function useSendMessage(): SendMessage {
             createdAt: now,
           });
           // Local display patch only: the HTTP route has already verified the
-          // bucket object and inserted the canonical attachment rows.
-          for (const a of uploaded) {
+          // bucket object and inserted the canonical attachment rows. Replicache
+          // serializes write mutations internally, so preserve explicit order
+          // instead of presenting this as concurrent work.
+          for (const attachment of uploaded) {
             await rep.mutate.chatAttachmentCreate({
-              id: a.id,
+              id: attachment.id,
               messageId: userMessageId,
               threadId: tid,
-              name: a.name,
-              mime: a.mime,
-              size: a.size,
-              position: a.position,
+              name: attachment.name,
+              mime: attachment.mime,
+              size: attachment.size,
+              position: attachment.position,
               createdAt: now,
             });
           }

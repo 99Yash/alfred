@@ -91,7 +91,7 @@ export function ModelTierPicker({
               "app-press text-app-fg-3 outline-none",
               "transition-[box-shadow,color,background-color]",
               // Raised frosted pill — visible chrome at rest, mirrors dimension's mode pill.
-              "bg-gradient-to-b from-app-bg-1 to-app-bg-2 shadow-(--app-shadow-elevated)",
+              "bg-linear-to-b from-app-bg-1 to-app-bg-2 shadow-(--app-shadow-elevated)",
               "hover:text-app-fg-4 hover:shadow-(--app-shadow-elevated-hover)",
               "data-[state=open]:text-app-fg-4 data-[state=open]:shadow-(--app-shadow-elevated-hover)",
               "disabled:cursor-not-allowed disabled:opacity-50",

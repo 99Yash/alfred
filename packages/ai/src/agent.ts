@@ -129,7 +129,11 @@ const DEFAULT_TURN_STREAM_TIMEOUT = { chunkMs: 30_000, totalMs: 180_000 } as con
  * Discriminated result of a single turn. The executor consumes `kind`:
  *   - `final`      → mark run done with `text`.
  *   - `tool-calls` → dispatch each tool, append results to transcript, schedule another turn.
- *   - `stopped`    → abnormal stop (length cap / content filter / error). Caller decides recovery.
+ *   - `empty`      → a retryable empty completion (see {@link isRetryableEmptyCompletion}):
+ *                    no text, no tool calls, a clean/errored finish. The caller should
+ *                    regenerate the turn from the *unchanged* transcript a bounded number
+ *                    of times before giving up — never append the empty assistant message.
+ *   - `stopped`    → abnormal stop (length cap / content filter). Caller decides recovery.
  *
  * `raw.response.messages` is the canonical thing to append to the transcript.
  */
@@ -146,6 +150,13 @@ export type TurnResult =
       kind: "tool-calls";
       toolCalls: TypedToolCall<ToolSet>[];
       text: string;
+      usage: LanguageModelUsage;
+      finishReason: FinishReason;
+      warnings: CallWarning[] | undefined;
+      raw: GenerateTextResult<ToolSet, never>;
+    }
+  | {
+      kind: "empty";
       usage: LanguageModelUsage;
       finishReason: FinishReason;
       warnings: CallWarning[] | undefined;
@@ -440,6 +451,15 @@ function classifyTurnResult(result: GenerateTextResult<ToolSet, never>): TurnRes
       ...base,
     };
   }
+  if (
+    isRetryableEmptyCompletion({
+      finishReason: result.finishReason,
+      hasToolCalls: false,
+      textLength: result.text.trim().length,
+    })
+  ) {
+    return { kind: "empty", ...base };
+  }
   if (result.finishReason === "stop") {
     return { kind: "final", text: result.text, ...base };
   }
@@ -452,6 +472,34 @@ function nonStopReason(r: FinishReason): "length" | "content-filter" | "error" |
 }
 
 /**
+ * True when a finished turn came back with **no assistant text and no tool
+ * calls** — an empty completion — on a finish reason a bounded retry can plausibly
+ * clear.
+ *
+ * Included (retryable): a clean `stop`, a provider `error`, or an `unknown`/`other`
+ * finish with zero output. This is the transient provider anomaly the
+ * Anthropic→Gemini quota fallback surfaces — when Anthropic hits its workspace
+ * spend cap, `withFallback` degrades to Gemini 2.5 Pro, which occasionally returns
+ * a `finishReason:stop` candidate with 0 output tokens (see the 2026-07-10 chat-turn
+ * dig, trace `run_hesh6eyb1m01`). `withFallback` itself cannot catch this: the SDK
+ * call *succeeds* with an empty stream, so there is no error for the retry cascade
+ * to switch on — degrading is the executor's job. Re-attempting the same turn
+ * usually produces real output.
+ *
+ * Excluded (surface, don't retry): `content-filter` (a safety block) and `length`
+ * (the output budget was exhausted, often by thinking) do not self-heal on an
+ * identical re-attempt.
+ */
+export function isRetryableEmptyCompletion(input: {
+  finishReason: FinishReason;
+  hasToolCalls: boolean;
+  textLength: number;
+}): boolean {
+  if (input.hasToolCalls || input.textLength > 0) return false;
+  return input.finishReason !== "content-filter" && input.finishReason !== "length";
+}
+
+/**
  * Classify a finished streamed turn into the same discriminated shape
  * `turn()` returns. Call after draining `fullStream` and awaiting the
  * result's `toolCalls` + `finishReason`.
@@ -459,13 +507,31 @@ function nonStopReason(r: FinishReason): "length" | "content-filter" | "error" |
 export type StreamFinishOutcome =
   | { kind: "final" }
   | { kind: "tool-calls" }
+  | { kind: "empty" }
   | { kind: "stopped"; reason: "length" | "content-filter" | "error" | "other" };
 
 export function classifyStreamFinish(input: {
-  toolCalls: TypedToolCall<ToolSet>[];
+  /** Only presence matters here; callers need not manufacture a full SDK call shape. */
+  toolCalls: readonly unknown[];
   finishReason: FinishReason;
+  /**
+   * Trimmed length of the assistant text streamed this turn. The streaming
+   * executor accumulates the text itself (`state.assistantText`), so it passes
+   * the length in rather than us re-deriving it from a result object. Lets this
+   * detect the `empty` outcome symmetrically with {@link classifyTurnResult}.
+   */
+  textLength: number;
 }): StreamFinishOutcome {
   if (input.toolCalls.length > 0) return { kind: "tool-calls" };
+  if (
+    isRetryableEmptyCompletion({
+      finishReason: input.finishReason,
+      hasToolCalls: false,
+      textLength: input.textLength,
+    })
+  ) {
+    return { kind: "empty" };
+  }
   if (input.finishReason === "stop") return { kind: "final" };
   return { kind: "stopped", reason: nonStopReason(input.finishReason) };
 }

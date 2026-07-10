@@ -22,7 +22,7 @@ function TipArrow() {
           "group-data-[side=left]/tip:w-3 group-data-[side=right]/tip:w-3",
         )}
       >
-        <path d="M16.9853 0.485289L9.20711 8.26347C8.81658 8.654 8.18342 8.654 7.79289 8.26347L0.0147266 0.485289H16.9853Z" />
+        <path d="M16.99 0.49L9.21 8.26C8.82 8.65 8.18 8.65 7.79 8.26L0.01 0.49H16.99Z" />
       </svg>
     </Tooltip.Arrow>
   );
@@ -79,7 +79,7 @@ export function Tip({
           className={cn(
             "group/tip app z-200 max-w-[16rem] rounded-lg px-2.5 py-1.5 text-xs",
             "bg-app-fg-4 text-app-bg-1 shadow-[0_2px_8px_rgba(0,0,0,0.18)]",
-            "select-none will-change-[transform,opacity]",
+            "will-change-[transform,opacity] select-none",
             "data-[state=delayed-open]:animate-[app-tooltip-in_140ms_cubic-bezier(0.22,1,0.36,1)]",
           )}
         >
