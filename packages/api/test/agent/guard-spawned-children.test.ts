@@ -6,6 +6,7 @@ import { AWAIT_SUB_AGENT_CEILING_MS } from "../../src/modules/agent/sub-agent-jo
 import {
   awaitedChildRunId,
   guardSpawnedChildren,
+  markProductiveChatTurn,
   type ChatRunState,
   type GuardSpawnedChildrenDeps,
 } from "../../src/modules/agent/workflows/chat-turn";
@@ -203,6 +204,30 @@ describe("guardSpawnedChildren (ADR-0073 runtime invariant)", () => {
       /finished without you awaiting it — it completed/,
       "the fold carries the terminal result for the regenerated answer",
     );
+  });
+
+  test("a productive answer resets prior empty retries before guarded regeneration", async () => {
+    const state = baseState({ emptyCompletionRetries: 2 });
+    const rec = recorder({
+      children: [{ id: "child_a", status: "completed" }],
+      outcomes: {
+        child_a: {
+          ok: true,
+          done: true,
+          status: "completed",
+          output: { summary: "did the thing" },
+        },
+      },
+    });
+
+    // Mirrors the productive-text boundary immediately before the guard in the
+    // chat workflow. If the guard regenerates, its returned state must carry a
+    // fresh retry budget rather than the streak from before this real answer.
+    markProductiveChatTurn(state);
+    const result = await guardSpawnedChildren(baseCtx(state), state, [], rec.deps);
+
+    assert.equal(result?.kind, "next");
+    assert.equal(result?.state.emptyCompletionRetries, 0);
   });
 
   test("one terminal + one running child: folds the terminal, parks on the running one", async () => {
