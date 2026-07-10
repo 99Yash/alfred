@@ -6,8 +6,8 @@
     "./*": "./src/*.ts"
   },
   "scripts": {
-    "build": "tsdown",
-    "check-types": "tsc -b"
+    "build": "node ../../scripts/clean-package-dist.mjs && tsc -b --emitDeclarationOnly --force",
+    "check-types": "tsc -b --emitDeclarationOnly"
   },
   "dependencies": {
     "@alfred/contracts": "workspace:*",
@@ -15,12 +15,11 @@
   },
   "devDependencies": {
     "@alfred/config": "workspace:*",
-    "replicache": "catalog:",
-    "tsdown": "catalog:"
+    "replicache": "catalog:"
   },
   "peerDependencies": {
     "replicache": "^15",
-    "typescript": "^5"
+    "typescript": "catalog:"
   },
   "peerDependenciesMeta": {
     "replicache": {

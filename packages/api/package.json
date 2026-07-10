@@ -14,8 +14,8 @@
     "./queue/connection": "./src/queue/connection.ts"
   },
   "scripts": {
-    "build": "tsdown",
-    "check-types": "tsc -b",
+    "build": "node ../../scripts/clean-package-dist.mjs && tsc -b --emitDeclarationOnly --force",
+    "check-types": "tsc -b --emitDeclarationOnly",
     "test": "tsx --test test/**/*.test.ts",
     "eval": "evalite run",
     "eval:watch": "evalite watch"
@@ -54,11 +54,10 @@
     "ai": "catalog:",
     "dotenv": "catalog:",
     "evalite": "1.0.0-beta.16",
-    "tsdown": "catalog:",
     "tsx": "^4.21.0",
     "vitest": "^4.0.16"
   },
   "peerDependencies": {
-    "typescript": "^5"
+    "typescript": "catalog:"
   }
 }
