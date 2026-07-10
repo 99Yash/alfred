@@ -8,16 +8,17 @@ import { ChatShell } from "./chat-shell";
 export function ChatThreadRoute() {
   const { threadId } = useParams({ from: "/chat/$threadId" });
   const { setActiveThread } = useChatContext();
-  const thread = useChatThread(threadId);
+  const { thread, loading } = useChatThread(threadId);
 
   useLayoutEffect(() => {
     setActiveThread(threadId);
   }, [threadId, setActiveThread]);
 
   // Title comes from the synced thread (the worker derives it from the opening
-  // exchange; the turn endpoint seeds a placeholder before that lands). Falls
-  // back to "New chat" before the thread row has synced.
-  const title = thread?.title?.trim() || "New chat";
+  // exchange; the turn endpoint seeds a placeholder before that lands). Stay
+  // neutral while the subscription resolves so a deep link never presents an
+  // existing conversation as a new one, even briefly.
+  const title = thread?.title?.trim() || (loading ? "Chat" : "New chat");
 
   // Mirror the live thread title into the browser tab. The static route `head`
   // can't see Replicache subscriptions, so it seeds "Chat · Alfred"; this keeps
