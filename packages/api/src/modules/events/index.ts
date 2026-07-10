@@ -18,7 +18,8 @@ import { toMessage } from "@alfred/contracts";
  * Replay-vs-live race handling:
  *   1. Subscribe to live tail FIRST (frames go into a buffer).
  *   2. Snapshot a high watermark = MAX(id) currently published for this user.
- *   3. Replay rows in (since, watermark].
+ *   3. Replay one bounded page in (since, watermark]. If more rows remain,
+ *      close so EventSource reconnects with the page's final id.
  *   4. Flush buffered live frames with id > watermark — anything <= watermark
  *      was already covered by replay.
  *   5. Switch buffered listener into passthrough mode.
@@ -94,7 +95,18 @@ export const events = new Elysia({ prefix: "/api/events", normalize: "typebox" }
                 watermark = await getReplayHighWatermark(userId);
                 if (watermark > sinceId) {
                   const replay = await getEventsSince(userId, sinceId, watermark);
-                  for (const frame of replay) writeFrame(frame);
+                  for (const frame of replay.frames) writeFrame(frame);
+                  // Unknown legacy kinds are filtered from dispatch, but their
+                  // ids must still advance Last-Event-ID or reconnect could
+                  // request the same page forever.
+                  if (replay.cursor > (replay.frames.at(-1)?.id ?? sinceId)) {
+                    write(`id: ${replay.cursor}\n\n`);
+                  }
+                  if (replay.hasMore) {
+                    cleanup();
+                    controller.close();
+                    return;
+                  }
                 }
               } catch (err) {
                 console.warn("[events:sse] replay failed for user", userId, toMessage(err));

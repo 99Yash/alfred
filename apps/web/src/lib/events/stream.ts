@@ -5,7 +5,7 @@ import {
   type EventKind,
 } from "@alfred/contracts/events";
 import { getStringPath, isRecord, safeJsonParse } from "@alfred/contracts";
-import { getLocalStorageItem, setLocalStorageItem } from "~/lib/storage/storage";
+import { getReplaySince, noteReplayFrame } from "./replay-anchor";
 
 const API_URL =
   (import.meta as { env?: { VITE_API_URL?: string } }).env?.VITE_API_URL ?? "http://localhost:3001";
@@ -37,68 +37,9 @@ interface SharedEventStream {
 
 let sharedStream: SharedEventStream | null = null;
 
-// ---------------------------------------------------------------------------
-// Replay anchor — lets a mid-flight turn survive a full page reload.
-//
-// The browser only re-sends `Last-Event-ID` when the SAME EventSource
-// auto-reconnects; a page refresh destroys it, so a turn that was streaming
-// comes back blank until the next live flush. During a thinking or tool-call
-// gap that flush can be ~10s away, so the bubble reads as stalled/errored.
-//
-// We persist an outbox-row id and pass it as `?since` on the next connect, so
-// the server replays the in-flight turn. The anchor must sit just BEFORE the
-// current turn's first frame, so we FREEZE it while any turn is streaming
-// (tracked via `chat.message` started/completed) and only advance it to the
-// latest seen id while idle. Reload mid-turn → `?since` replays the whole turn;
-// idle → the anchor is current, so nothing already-completed replays.
-// ---------------------------------------------------------------------------
-
-const REPLAY_ANCHOR_KEY = "alfred.events.replayAnchor" as const;
-let maxSeenId = 0;
-let lastPersistedAnchor = 0;
-const activeRuns = new Set<string>();
-let anchorSeeded = false;
-
-function noteFrame(frame: EventStreamFrame): void {
-  if (!anchorSeeded) {
-    anchorSeeded = true;
-    lastPersistedAnchor = getLocalStorageItem(REPLAY_ANCHOR_KEY);
-    maxSeenId = lastPersistedAnchor;
-  }
-  if (frame.id > maxSeenId) maxSeenId = frame.id;
-
-  // Track in-flight turns so the anchor stays behind the earliest active one.
-  if (frame.kind === "chat.message" && isRecord(frame.payload)) {
-    const runId = frame.payload.runId;
-    if (typeof runId === "string") {
-      if (frame.payload.phase === "started") {
-        // A turn is beginning. Pin the anchor just before this frame so a
-        // reload replays the whole turn — even on the very first turn of a
-        // fresh page, where no prior completion has written an anchor yet.
-        // `frame.id - 1` never lowers a higher anchor an earlier turn left.
-        if (activeRuns.size === 0) persistAnchor(frame.id - 1);
-        activeRuns.add(runId);
-      } else if (frame.payload.phase === "completed") {
-        activeRuns.delete(runId);
-      }
-    }
-  }
-
-  // Advance the anchor only when nothing is streaming. High-frequency frames
-  // (reasoning/delta) arrive only mid-turn, when this is frozen — so writes are
-  // sparse (roughly one per turn, on completion) without any throttle.
-  if (activeRuns.size === 0) persistAnchor(maxSeenId);
-}
-
-function persistAnchor(id: number): void {
-  if (id <= lastPersistedAnchor) return;
-  lastPersistedAnchor = id;
-  setLocalStorageItem(REPLAY_ANCHOR_KEY, id);
-}
-
 function eventStreamUrl(): URL {
   const url = new URL(`${API_URL}/api/events/`);
-  const anchor = getLocalStorageItem(REPLAY_ANCHOR_KEY);
+  const anchor = getReplaySince();
   if (anchor > 0) url.searchParams.set("since", String(anchor));
   return url;
 }
@@ -141,8 +82,8 @@ function createEventSource(
  * All callers share one connection. Browser EventSource handles auto-reconnect
  * and automatically sends `Last-Event-ID` from the most recent `id:` line, so
  * the server can replay events missed across drops. That header is lost on a
- * full page reload, so we also pass a persisted `?since` anchor (see
- * `noteFrame`) to replay a turn that was mid-flight when the page reloaded.
+ * full page reload, so we also pass the persisted recovery cursor from
+ * `replay-anchor` as `?since` when the page reconnects.
  */
 export function openEventStream(opts: OpenEventStreamOptions): () => void {
   if (!sharedStream) {
@@ -150,7 +91,7 @@ export function openEventStream(opts: OpenEventStreamOptions): () => void {
     sharedStream = {
       source: createEventSource(
         (frame) => {
-          noteFrame(frame);
+          noteReplayFrame(frame);
           for (const subscriber of subscribers.values()) {
             subscriber.onFrame(frame);
           }

@@ -3,15 +3,13 @@ import { eventsOutbox } from "@alfred/db/schemas";
 import { and, asc, eq, gt, isNotNull, lte, sql } from "drizzle-orm";
 import type { EventFrame } from "../../events/types";
 import { isKnownEventKind } from "../../events/types";
+import { REPLAY_PAGE_SIZE, toReplayPage, type ReplayPage } from "./replay-page";
 
 /**
- * Hard cap so a malicious or buggy client passing `since=0` can't make us
- * stream every event the user has ever received. If a client legitimately
- * needs to backfill past this, they should sync via Replicache (the durable
- * domain state) instead.
+ * A replay page is capped so a malicious or buggy `since=0` request cannot
+ * read an unbounded history in one connection. The route closes after a full
+ * page; EventSource reconnects with its final id to request the next page.
  */
-const REPLAY_LIMIT = 500;
-
 export async function getReplayHighWatermark(userId: string): Promise<number> {
   const [row] = await db()
     .select({ max: sql<string | null>`MAX(${eventsOutbox.id})` })
@@ -24,8 +22,8 @@ export async function getEventsSince(
   userId: string,
   sinceId: number,
   watermark: number,
-): Promise<EventFrame[]> {
-  if (watermark <= sinceId) return [];
+): Promise<ReplayPage<EventFrame> & { cursor: number }> {
+  if (watermark <= sinceId) return { frames: [], hasMore: false, cursor: sinceId };
 
   const rows = await db()
     .select({
@@ -44,22 +42,11 @@ export async function getEventsSince(
       ),
     )
     .orderBy(asc(eventsOutbox.id))
-    .limit(REPLAY_LIMIT + 1);
+    .limit(REPLAY_PAGE_SIZE + 1);
 
-  if (rows.length > REPLAY_LIMIT) {
-    console.warn(
-      "[events:replay] user",
-      userId,
-      "hit replay cap of",
-      REPLAY_LIMIT,
-      "events since id",
-      sinceId,
-      "— truncating",
-    );
-    rows.length = REPLAY_LIMIT;
-  }
-
-  return rows.flatMap<EventFrame>((row) => {
+  const page = toReplayPage(rows);
+  const cursor = Number(page.frames.at(-1)?.id ?? sinceId);
+  const frames = page.frames.flatMap<EventFrame>((row) => {
     if (!isKnownEventKind(row.kind)) return [];
     return [
       {
@@ -70,4 +57,6 @@ export async function getEventsSince(
       },
     ];
   });
+
+  return { frames, hasMore: page.hasMore, cursor };
 }
