@@ -26,6 +26,9 @@ Env (loaded from `apps/server/.env`):
 - `sender-suppression-grounding.eval.ts` — chat agent searches Gmail before
   sender-suppression writes, and only persists a resolved sender when search
   hits clearly identify one address.
+- `voice-ai-tells.eval.ts` — a small, non-gating nightly sample that checks
+  Alfred's default chat voice for high-confidence AI-writing tells and grades
+  usefulness with a cheap cross-provider judge.
 - `triage-classify.eval.ts` — the email-triage classifier: category match, rail-todo
   mint decision, and an LLM-judge pass on rationale soundness.
 - `lib/llm-judge.ts` — reusable LLM-as-a-judge scorer factory.

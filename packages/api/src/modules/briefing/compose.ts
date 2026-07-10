@@ -119,7 +119,7 @@ export interface ComposedBriefing {
  * generated or non-user-facing and left untouched.
  */
 function sanitizeFullBriefing(fb: FullBriefing): FullBriefing {
-  return {
+  return fullBriefingSchema.parse({
     ...fb,
     headline: sanitizeVoice(fb.headline),
     sections: fb.sections.map((s) => {
@@ -127,7 +127,7 @@ function sanitizeFullBriefing(fb: FullBriefing): FullBriefing {
       if (s.why !== undefined) next.why = sanitizeVoice(s.why);
       return next;
     }),
-  };
+  });
 }
 
 export async function composeBriefing(args: ComposeBriefingArgs): Promise<ComposedBriefing> {
@@ -167,7 +167,9 @@ export async function composeBriefing(args: ComposeBriefingArgs): Promise<Compos
 
     const fullBriefing = attachSourcePanels(result.output.fullBriefing, args.gather);
     return {
-      breakingSummary: sanitizeVoice(result.output.breakingSummary.trim()),
+      breakingSummary: briefingComposerSchema.shape.breakingSummary.parse(
+        sanitizeVoice(result.output.breakingSummary.trim()),
+      ),
       fullBriefing: sanitizeFullBriefing(fullBriefing),
       modelId: identifyLanguageModel(model).modelId,
       composeFallback: false,
