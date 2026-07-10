@@ -5,15 +5,14 @@ import { config as loadEnv } from "dotenv";
 import { evalite } from "evalite";
 import { formatDateGrounding } from "../src/modules/agent/grounding";
 import { detectAiTells, summarizeTells } from "../src/modules/agent/voice-detector";
-import { createVoiceStreamSanitizer } from "../src/modules/agent/voice-sanitize";
 import { buildChatSystemPrompt } from "../src/modules/agent/workflows/chat-turn";
 import { llmJudgeScorer } from "./lib/llm-judge";
 
-// Behavioral guard on the shipped chat voice contract. It grades both layers:
-// DEFAULT_VOICE_PROMPT suppresses judgment-based tells, while the streaming
-// sanitizer enforces the user's punctuation preference without corrupting code
-// or quotes. A deterministic scorer catches high-confidence tells; a cheap,
-// cross-provider judge verifies that terse prose is still useful and human.
+// Behavioral guard on the shipped chat voice contract. Chat relies on the
+// prompt rather than post-processing so explicit tone, persona, and exact-copy
+// requests can override the default. A deterministic scorer catches
+// high-confidence tells and exact-copy drift; a cheap, cross-provider judge
+// verifies that concise prose is still useful and natural.
 //
 // Run locally with apps/server/.env populated:
 // `pnpm --filter @alfred/api eval`.
@@ -35,6 +34,7 @@ const SYSTEM = buildChatSystemPrompt(formatDateGrounding(TIMEZONE, NOW), CONNECT
 interface Case {
   prompt: string;
   intent: string;
+  exactText?: string;
 }
 
 const CASES: Case[] = [
@@ -62,19 +62,23 @@ const CASES: Case[] = [
     intent:
       "Respond with concise empathy that feels human without flattery, canned reassurance, or hype.",
   },
+  {
+    prompt:
+      "Return this sentence exactly, with no quotation marks or commentary: Ship it — after QA.",
+    intent:
+      "Preserve the user's exact requested copy, including its em-dash, because exact-copy instructions override Alfred's default voice.",
+    exactText: "Ship it — after QA.",
+  },
+  {
+    prompt:
+      "Draft a two-sentence update for a formal board memo. Do not use contractions. Revenue grew 23% in Q3 and churn fell from 4.1% to 3.4%.",
+    intent:
+      "Follow the formal audience and explicit no-contractions request while staying concrete, restrained, and accurate.",
+  },
 ];
 
 interface TaskOutput {
   text: string;
-}
-
-function sanitizeAsStream(text: string): string {
-  const sanitizer = createVoiceStreamSanitizer();
-  let output = "";
-  // Exercise arbitrary provider boundaries, including delimiters split one
-  // character at a time. This is intentionally harsher than a typical stream.
-  for (const char of text) output += sanitizer.push(char);
-  return output + sanitizer.flush();
 }
 
 const QUALITY_RUBRIC = `
@@ -95,14 +99,19 @@ evalite<Case, TaskOutput>("Chat voice — direct, human, and useful", {
       maxOutputTokens: 300,
       abortSignal: AbortSignal.timeout(EVAL_TIMEOUT_MS),
     });
-    return { text: sanitizeAsStream(result.text) };
+    return { text: result.text };
   },
   scorers: [
     {
-      name: "No AI-writing tells in shipped prose",
-      scorer: ({ output }) => {
+      name: "Voice contract in shipped prose",
+      scorer: ({ input, output }) => {
         const text = output.text.trim();
         if (text.length === 0) return { score: 0, metadata: "empty output" };
+        if (input.exactText !== undefined) {
+          return text === input.exactText
+            ? { score: 1, metadata: `exact copy preserved: ${text}` }
+            : { score: 0, metadata: `expected exact copy: ${input.exactText}; received: ${text}` };
+        }
         const tells = detectAiTells(text);
         return {
           score: tells.length === 0 ? 1 : 0,
@@ -135,5 +144,5 @@ evalite<Case, TaskOutput>("Chat voice — direct, human, and useful", {
         ].join("\n"),
     }),
   ],
-  trialCount: 1,
+  trialCount: 2,
 });

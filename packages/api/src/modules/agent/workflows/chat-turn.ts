@@ -45,7 +45,6 @@ import {
 } from "../sub-agent-join-wake-queue";
 import { subAgentDoneSignalName } from "../sub-agent-metadata";
 import { DEFAULT_VOICE_PROMPT } from "../voice";
-import { createVoiceStreamSanitizer } from "../voice-sanitize";
 import {
   isTerminalChildStatus,
   listSpawnedChildRuns,
@@ -339,7 +338,7 @@ export function buildChatSystemPrompt(
   // house shell contract, the `art-*` vocabulary, archetypes, theme voice, and
   // authoring rules; without it artifact styling is reconstructed from memory
   // and drifts (the "vibes" gap behind the resume shitshow — see artifacts/read.ts).
-  return `${CHAT_SYSTEM_PROMPT_BASE}\n\n${DEFAULT_VOICE_PROMPT}\n\n${ARTIFACT_DESIGN_PROMPT}${documentDesignBlock}\n\nThe current date is ${grounding}.${artifactsBlock}\n\n${connectedSummary}`;
+  return `${CHAT_SYSTEM_PROMPT_BASE}\n\n${ARTIFACT_DESIGN_PROMPT}${documentDesignBlock}\n\n${DEFAULT_VOICE_PROMPT}\n\nThe current date is ${grounding}.${artifactsBlock}\n\n${connectedSummary}`;
 }
 
 // ── helpers ─────────────────────────────────────────────────────────────────
@@ -1374,19 +1373,6 @@ const chatTurnStep: Step<ChatRunState> = {
       // client orders each track on its own.
       let buffer = "";
       let lastFlush = Date.now();
-      // Deterministically strip em-dashes the model won't drop from the prompt
-      // alone (DEFAULT_VOICE_PROMPT asks; Sonnet/Opus ignore). Feeding deltas
-      // through here keeps the live stream and the persisted `assistantText`
-      // identical; the held-back tail is committed at each tool-call boundary and
-      // at end-of-stream (see the two `voiceStream.flush()` calls below).
-      const voiceStream = createVoiceStreamSanitizer();
-      const commitVoiceTail = (): void => {
-        const tail = voiceStream.flush();
-        if (tail.length > 0) {
-          state.assistantText += tail;
-          buffer += tail;
-        }
-      };
       const flush = async (): Promise<void> => {
         if (buffer.length === 0) return;
         const text = buffer;
@@ -1440,9 +1426,8 @@ const chatTurnStep: Step<ChatRunState> = {
           if (await checkStop()) break;
           if (part.type === "text-delta") {
             await flushReasoning();
-            const clean = voiceStream.push(part.text);
-            state.assistantText += clean;
-            buffer += clean;
+            state.assistantText += part.text;
+            buffer += part.text;
             if (buffer.length >= DELTA_FLUSH_CHARS || Date.now() - lastFlush >= DELTA_FLUSH_MS) {
               await flush();
             }
@@ -1466,9 +1451,6 @@ const chatTurnStep: Step<ChatRunState> = {
               reasoningStart = 0;
             }
             await flushReasoning();
-            // Commit any held-back tail so the pre-tool text streams before the
-            // tool card, keeping segment order correct.
-            commitVoiceTail();
             await flush();
             await publishEvent({
               userId: ctx.userId,
@@ -1504,7 +1486,6 @@ const chatTurnStep: Step<ChatRunState> = {
         reasoningStart = 0;
       }
       await flushReasoning();
-      commitVoiceTail();
       await flush();
 
       if (stopRequested) {

@@ -34,7 +34,6 @@ import { listToolsForIntegration } from "../../tools/registry";
 import { buildConnectedSummary } from "../connected-summary";
 import { formatDateGrounding, resolveUserTimezone } from "../grounding";
 import { DEFAULT_VOICE_PROMPT } from "../voice";
-import { sanitizeVoice } from "../voice-sanitize";
 import {
   readSubAgentMetadata,
   subAgentMetadataSchema,
@@ -259,17 +258,13 @@ const bossTurnStep: Step<BriefRunState> = {
     }
 
     if (result.kind === "final") {
-      // Sub-agent scratch is evidence for another model, not presentation copy;
-      // preserve it exactly. Apply the final voice policy only at the boss's
-      // user-facing boundary.
-      const finalText = subAgent ? result.text : sanitizeVoice(result.text);
       const output = subAgent
         ? await writeSubAgentSummary({
             parentRunId: subAgent.parentRunId,
             subId: subAgent.subId,
-            text: finalText,
+            text: result.text,
           })
-        : { text: finalText };
+        : { text: result.text };
       return {
         kind: "done",
         state: { ...state, emptyRetries: 0 },
