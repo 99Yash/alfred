@@ -77,6 +77,16 @@ import type { AgentDbExecutor, Step, StepContext, StepResult, Workflow } from ".
 export const CHAT_TURN_WORKFLOW_SLUG = "__chat-turn__";
 
 const TURN_CAP_MAX = 24;
+/**
+ * How many consecutive empty completions (see `isRetryableEmptyCompletion`) to
+ * regenerate before surfacing a failure. An empty `stop` with no text and no
+ * tool calls is the transient anomaly the Anthropic→Gemini quota fallback throws
+ * (a Gemini 2.5 Pro candidate with 0 output tokens); re-attempting the turn
+ * usually clears it. Kept tight so a provider genuinely stuck returning empties
+ * fails fast instead of burning the whole `TURN_CAP_MAX` budget on full-price
+ * retries.
+ */
+const EMPTY_COMPLETION_MAX_RETRIES = 2;
 /** Flush coalesced text deltas at least this often (ms) and at this size (chars). */
 const DELTA_FLUSH_MS = 180;
 const DELTA_FLUSH_CHARS = 100;
@@ -171,6 +181,11 @@ const chatRunStateSchema = z.object({
   deltaSeq: z.number().int().min(0).default(0),
   reasoningSeq: z.number().int().min(0).default(0),
   turnCount: z.number().int().min(0).default(0),
+  // Consecutive empty completions retried this run (see EMPTY_COMPLETION_MAX_RETRIES).
+  // Reset to 0 whenever a turn is productive (tool calls or real text), so this
+  // counts a provider stuck returning empties — not scattered empties across a
+  // long turn loop. Default 0 for runs minted before the field existed.
+  emptyCompletionRetries: z.number().int().min(0).default(0),
   started: z.boolean().default(false),
   // ADR-0073 finalization guard: child runs spawned this turn whose outcomes
   // are already accounted for in the transcript — either folded by the guard, or
@@ -1482,9 +1497,36 @@ const chatTurnStep: Step<ChatRunState> = {
         (m) => !isSynthesizedToolDup(m, stepCallIds),
       );
       const nextTranscript = [...transcript, ...assistantMessages];
-      const outcome = classifyStreamFinish({ toolCalls, finishReason });
+      const outcome = classifyStreamFinish({
+        toolCalls,
+        finishReason,
+        textLength: state.assistantText.trim().length,
+      });
+
+      if (outcome.kind === "empty") {
+        // Retryable empty completion: a clean stream finish (or provider error)
+        // with no text and no tool calls — the anomaly the Anthropic→Gemini quota
+        // fallback throws. `withFallback` can't catch it (the SDK call succeeded
+        // with an empty stream), so degrade here: regenerate the turn from the
+        // *pre-turn* transcript (never `nextTranscript` — appending the empty
+        // assistant message would poison the retry and Anthropic 400s on empty
+        // assistant content) up to a bounded budget, then fail loudly. The client
+        // keeps showing "Thinking…" across the retry (no `started` re-poke, no
+        // committed delta).
+        if (state.emptyCompletionRetries < EMPTY_COMPLETION_MAX_RETRIES) {
+          state.emptyCompletionRetries += 1;
+          console.warn(
+            `[chat-turn] empty completion (finishReason:${finishReason}); retry ` +
+              `${state.emptyCompletionRetries}/${EMPTY_COMPLETION_MAX_RETRIES} (run ${ctx.runId})`,
+          );
+          return { kind: "next", state, transcript, nextStep: "chat-turn" };
+        }
+        throw new Error("Assistant finished without producing a response.");
+      }
 
       if (outcome.kind === "tool-calls") {
+        // Productive turn — reset the consecutive-empty counter.
+        state.emptyCompletionRetries = 0;
         state.pendingToolCalls = toolCalls.map((call) => ({
           toolCallId: call.toolCallId,
           toolName: call.toolName,
@@ -1508,9 +1550,12 @@ const chatTurnStep: Step<ChatRunState> = {
       }
 
       if (state.assistantText.trim().length === 0) {
-        // Terminal provider anomaly: no tool calls and no assistant text leaves
-        // nothing useful to retry from this completed stream, so fail the run
-        // once and persist a legible failed assistant message for the client.
+        // Empty text that a retry can't clear — a `content-filter` (safety block)
+        // or `length` (budget exhausted) finish, which `classifyStreamFinish`
+        // deliberately excludes from the `empty` (retryable) outcome. Nothing
+        // useful to regenerate from, so fail the run once and persist a legible
+        // failed assistant message for the client. (A retryable empty `stop`/
+        // `error` is handled by the `outcome.kind === "empty"` branch above.)
         throw new Error("Assistant finished without producing a response.");
       }
 
@@ -2232,6 +2277,7 @@ export const chatTurnWorkflow: Workflow<ChatRunState> = {
       deltaSeq: 0,
       reasoningSeq: 0,
       turnCount: 0,
+      emptyCompletionRetries: 0,
       started: false,
       foldedChildRunIds: [],
       notedFailureToolCallIds: [],
