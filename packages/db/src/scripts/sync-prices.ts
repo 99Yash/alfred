@@ -13,7 +13,9 @@
  * below until they're added or we wire a Voyage-specific source.
  */
 import { httpErrorFromResponse, isRecord } from "@alfred/contracts";
+import type { ModelPricingMetadata } from "@alfred/contracts/model-pricing";
 import { sql } from "drizzle-orm";
+import { z } from "zod";
 import { db, rowsFromExecute } from "../index";
 import { modelPrices } from "../schema/metering";
 
@@ -29,29 +31,62 @@ const PROVIDERS = ["anthropic", "google", "openai", "perplexity"] as const;
  * present only on `effort` (the vocabulary the `verify-capabilities` audit diffs
  * against `MODEL_CAPABILITIES.effortValues`).
  */
-interface ModelsDevReasoningOption {
-  type: string;
-  values?: string[];
-  min?: number;
-  max?: number;
-}
+const modelsDevReasoningOptionSchema = z
+  .object({
+    type: z.string(),
+    values: z.array(z.string()).optional(),
+    min: z.number().optional(),
+    max: z.number().optional(),
+  })
+  .passthrough();
 
-interface ModelsDevModel {
-  id: string;
-  cost?: { input?: number; output?: number; cache_read?: number; cache_write?: number };
-  limit?: { context?: number; output?: number };
-  modalities?: { input?: string[]; output?: string[] };
-  reasoning?: boolean;
-  reasoning_options?: ModelsDevReasoningOption[];
-  temperature?: boolean;
-  tool_call?: boolean;
-}
+const modelsDevCostTierSchema = z
+  .object({
+    input: z.number().nonnegative(),
+    output: z.number().nonnegative(),
+    cache_read: z.number().nonnegative().optional(),
+    cache_write: z.number().nonnegative().optional(),
+    tier: z.object({ type: z.literal("context"), size: z.number().int().positive() }).passthrough(),
+  })
+  .passthrough();
 
-interface ModelsDevProvider {
-  models?: Record<string, ModelsDevModel>;
-}
+const modelsDevModelSchema = z
+  .object({
+    id: z.string(),
+    cost: z
+      .object({
+        input: z.number().nonnegative().optional(),
+        output: z.number().nonnegative().optional(),
+        cache_read: z.number().nonnegative().optional(),
+        cache_write: z.number().nonnegative().optional(),
+        tiers: z.array(modelsDevCostTierSchema).optional(),
+      })
+      .passthrough()
+      .optional(),
+    limit: z
+      .object({
+        context: z.number().int().positive().optional(),
+        output: z.number().int().positive().optional(),
+      })
+      .passthrough()
+      .optional(),
+    modalities: z
+      .object({ input: z.array(z.string()).optional(), output: z.array(z.string()).optional() })
+      .passthrough()
+      .optional(),
+    reasoning: z.boolean().optional(),
+    reasoning_options: z.array(modelsDevReasoningOptionSchema).optional(),
+    temperature: z.boolean().optional(),
+    tool_call: z.boolean().optional(),
+  })
+  .passthrough();
 
-type ModelsDevCatalog = Record<string, ModelsDevProvider>;
+const modelsDevCatalogSchema = z.record(
+  z.string(),
+  z.object({ models: z.record(z.string(), modelsDevModelSchema).optional() }).passthrough(),
+);
+
+type ModelsDevCatalog = z.infer<typeof modelsDevCatalogSchema>;
 
 /** Static fallback for providers absent from models.dev. Per-Mtok USD. */
 const STATIC_PRICES: Array<{
@@ -118,7 +153,7 @@ async function fetchCatalog(): Promise<ModelsDevCatalog> {
   try {
     const res = await fetch(MODELS_DEV_URL, { signal: controller.signal });
     if (!res.ok) throw await httpErrorFromResponse("models.dev", res, { url: MODELS_DEV_URL });
-    return (await res.json()) as ModelsDevCatalog;
+    return modelsDevCatalogSchema.parse(await res.json());
   } finally {
     clearTimeout(timeoutId);
   }
@@ -144,6 +179,20 @@ function flattenCatalog(catalog: ModelsDevCatalog): PriceRow[] {
         contextWindow: m.limit?.context ?? null,
         source: "models.dev",
         metadata: {
+          pricing: {
+            // models.dev exposes Anthropic's default 5m cache-write rate. Alfred
+            // also uses 1h breakpoints, billed by Anthropic at 2x base input.
+            cacheWrite1hPerMtok: provider === "anthropic" ? cost.input * 2 : null,
+            tiers:
+              cost.tiers?.map((tier) => ({
+                minInputTokens: tier.tier.size,
+                inputPerMtok: tier.input,
+                outputPerMtok: tier.output,
+                cachedInputPerMtok: tier.cache_read ?? null,
+                cacheWriteInputPerMtok: tier.cache_write ?? null,
+                cacheWrite1hPerMtok: provider === "anthropic" ? tier.input * 2 : null,
+              })) ?? [],
+          } satisfies ModelPricingMetadata,
           capabilities: {
             reasoning: m.reasoning ?? false,
             toolCall: m.tool_call ?? false,
@@ -193,14 +242,11 @@ function pricesEqual(
 }
 
 /**
- * Compare the audited capability subset (effort vocabulary + temperature) the
- * `verify-capabilities` script reads. Folded into change-detection so a
- * capability shift inserts a fresh snapshot even when *price* is unchanged —
- * otherwise the new metadata would never land on a price-stable model and the
- * audit would perpetually see no snapshot. Deep-compared via JSON (the tracked
- * fields are a small array + a boolean), order-sensitive (models.dev is stable).
+ * Compare pricing dimensions and the audited capability subset stored in
+ * metadata. Folded into change detection so tier/TTL or capability changes
+ * insert a fresh snapshot even when the flat columns are unchanged.
  */
-function capabilitiesEqual(
+function auditedMetadataEqual(
   latestMetadata: unknown,
   incoming: Record<string, unknown> | undefined,
 ): boolean {
@@ -208,6 +254,7 @@ function capabilitiesEqual(
     const metadata = isRecord(meta) ? meta : {};
     const caps = isRecord(metadata.capabilities) ? metadata.capabilities : {};
     return JSON.stringify({
+      pricing: metadata.pricing ?? null,
       reasoningOptions: caps?.reasoningOptions ?? null,
       temperature: caps?.temperature ?? null,
     });
@@ -260,7 +307,7 @@ async function upsertIfChanged(row: PriceRow): Promise<"inserted" | "unchanged">
           contextWindow: latest.context_window,
         },
         row,
-      ) && capabilitiesEqual(latest.metadata, row.metadata);
+      ) && auditedMetadataEqual(latest.metadata, row.metadata);
     if (same) return "unchanged";
   }
 

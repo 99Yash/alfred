@@ -145,9 +145,9 @@ export async function composeBriefing(args: ComposeBriefingArgs): Promise<Compos
       },
     );
 
-    const fullBriefing = attachSourcePanels(result.object.fullBriefing, args.gather);
+    const fullBriefing = attachSourcePanels(result.output.fullBriefing, args.gather);
     return {
-      breakingSummary: result.object.breakingSummary.trim(),
+      breakingSummary: result.output.breakingSummary.trim(),
       fullBriefing,
       modelId: identifyLanguageModel(model).modelId,
       composeFallback: false,

@@ -2,26 +2,6 @@ import type { LanguageModel } from "ai";
 import { z } from "zod";
 
 /**
- * Canonical model-id list — the single source of truth. The `ModelId` type and
- * the runtime `modelIdSchema` both derive from this one tuple (the same
- * `as const` + `z.enum` idiom as `TRIAGE_CATEGORIES` in `@alfred/contracts`),
- * so the literal union, the validator, and the registry keys can never drift.
- */
-export const MODEL_IDS = [
-  "claude-opus-4-8",
-  "claude-sonnet-4-6",
-  "claude-haiku-4-5-20251001",
-  "gemini-2.5-pro",
-  "gemini-2.5-flash",
-  "gemini-2.5-flash-lite",
-  "gpt-5.6-sol",
-  "gpt-5.6-luna",
-] as const;
-
-export const modelIdSchema = z.enum(MODEL_IDS);
-export type ModelId = z.infer<typeof modelIdSchema>;
-
-/**
  * Providers Alfred dispatches to. A closed, hand-enumerated set: adding one is
  * a real code change (new provider factory + `model_prices` rows), not data.
  * `openai` also owns transcription, but its GPT entries below are language
@@ -31,30 +11,125 @@ export const PROVIDER_IDS = ["anthropic", "google", "openai"] as const;
 export const providerIdSchema = z.enum(PROVIDER_IDS);
 export type ProviderId = z.infer<typeof providerIdSchema>;
 
+/** Provider effort labels, weakest to strongest. */
+export const EFFORT_LEVELS = ["none", "minimal", "low", "medium", "high", "xhigh", "max"] as const;
+export type EffortLevel = (typeof EFFORT_LEVELS)[number];
+
+export interface ModelCapabilities {
+  readonly effortValues: readonly EffortLevel[];
+  readonly temperature: boolean;
+}
+
+interface ModelDefinition {
+  readonly id: string;
+  readonly provider: ProviderId;
+  readonly capabilities: ModelCapabilities;
+}
+
 /**
- * Model id → provider, keyed by id. This is the *only* per-model metadata that
- * must live in code: it's the compile-time constraint behind {@link ModelIdFor}
- * (and the typed `anthropic(...)`/`google(...)` factories in `provider.ts`) plus
- * `reconcileServed` cost attribution. Everything else models.dev already carries
- * — context window, tool-call support, pricing, display name — and `db:sync-prices`
- * stores it in `model_prices`; read it from there (see `resolveModelContextWindow`
- * in `metering/prices.ts`) rather than re-hand-coding it here.
- *
- * `as const satisfies Record<ModelId, …>` does double duty: `satisfies` forces an
- * entry for *every* `ModelId` (a missing or unknown key is a compile error),
- * while `as const` preserves the literal `provider` so {@link ModelIdFor} can
- * filter by it.
+ * One source of truth for every code-resident model fact. Runtime ids, provider
+ * routing, capability lookup, and their literal types are derived below.
  */
-export const MODEL_REGISTRY = {
-  "claude-opus-4-8": "anthropic",
-  "claude-sonnet-4-6": "anthropic",
-  "claude-haiku-4-5-20251001": "anthropic",
-  "gemini-2.5-pro": "google",
-  "gemini-2.5-flash": "google",
-  "gemini-2.5-flash-lite": "google",
-  "gpt-5.6-sol": "openai",
-  "gpt-5.6-luna": "openai",
-} as const satisfies Record<ModelId, ProviderId>;
+export const MODEL_DEFINITIONS = [
+  {
+    id: "claude-opus-4-8",
+    provider: "anthropic",
+    capabilities: {
+      effortValues: ["low", "medium", "high", "xhigh", "max"],
+      temperature: false,
+    },
+  },
+  {
+    id: "claude-sonnet-4-6",
+    provider: "anthropic",
+    capabilities: { effortValues: ["low", "medium", "high", "max"], temperature: true },
+  },
+  {
+    id: "claude-haiku-4-5-20251001",
+    provider: "anthropic",
+    capabilities: { effortValues: [], temperature: true },
+  },
+  {
+    id: "gemini-2.5-pro",
+    provider: "google",
+    capabilities: { effortValues: [], temperature: true },
+  },
+  {
+    id: "gemini-2.5-flash",
+    provider: "google",
+    capabilities: { effortValues: [], temperature: true },
+  },
+  {
+    id: "gemini-2.5-flash-lite",
+    provider: "google",
+    capabilities: { effortValues: [], temperature: true },
+  },
+  {
+    id: "gpt-5.6-sol",
+    provider: "openai",
+    capabilities: {
+      effortValues: ["none", "low", "medium", "high", "xhigh", "max"],
+      temperature: false,
+    },
+  },
+  {
+    id: "gpt-5.6-luna",
+    provider: "openai",
+    capabilities: {
+      effortValues: ["none", "low", "medium", "high", "xhigh", "max"],
+      temperature: false,
+    },
+  },
+] as const satisfies readonly [ModelDefinition, ...ModelDefinition[]];
+
+type RegisteredModel = (typeof MODEL_DEFINITIONS)[number];
+export type ModelId = RegisteredModel["id"];
+
+function modelIds<const T extends readonly [ModelDefinition, ...ModelDefinition[]]>(
+  definitions: T,
+) {
+  // SAFETY: Array.map preserves tuple order and cardinality; each projection is exactly its id.
+  return definitions.map(({ id }) => id) as {
+    readonly [K in keyof T]: T[K] extends { readonly id: infer I extends string } ? I : never;
+  };
+}
+
+export const MODEL_IDS = modelIds(MODEL_DEFINITIONS);
+export const modelIdSchema = z.enum(MODEL_IDS);
+
+/**
+ * Derived model-id projections. Provider routing and the small set of request-time
+ * capabilities stay code-resident; catalog facts such as pricing and context
+ * windows remain in `model_prices`.
+ */
+type ModelRegistry = {
+  readonly [D in RegisteredModel as D["id"]]: D["provider"];
+};
+
+type ModelCapabilityRegistry = {
+  readonly [D in RegisteredModel as D["id"]]: D["capabilities"];
+};
+
+function indexModelDefinitions(definitions: typeof MODEL_DEFINITIONS): {
+  providers: ModelRegistry;
+  capabilities: ModelCapabilityRegistry;
+} {
+  const providers: Record<string, ProviderId> = {};
+  const capabilities: Record<string, ModelCapabilities> = {};
+  for (const definition of definitions) {
+    providers[definition.id] = definition.provider;
+    capabilities[definition.id] = definition.capabilities;
+  }
+  // SAFETY: both records are populated in one exhaustive pass over the canonical tuple.
+  return { providers, capabilities } as {
+    providers: ModelRegistry;
+    capabilities: ModelCapabilityRegistry;
+  };
+}
+
+const indexedModels = indexModelDefinitions(MODEL_DEFINITIONS);
+export const MODEL_REGISTRY = indexedModels.providers;
+export const MODEL_CAPABILITIES = indexedModels.capabilities;
 
 /** Providers that currently have language models in {@link MODEL_REGISTRY}. */
 export type ModelProviderId = (typeof MODEL_REGISTRY)[ModelId];
@@ -68,72 +143,6 @@ export type ModelProviderId = (typeof MODEL_REGISTRY)[ModelId];
 export type ModelIdFor<P extends ModelProviderId> = {
   [K in ModelId]: (typeof MODEL_REGISTRY)[K] extends P ? K : never;
 }[ModelId];
-
-/**
- * Effort labels providers may accept (`reasoning_options[].effort` in models.dev),
- * weakest→strongest. This is a known-provider union, not Anthropic's vocabulary:
- * OpenAI exposes `none`/`minimal`, Gemini 3 exposes `minimal`, and Anthropic
- * exposes `xhigh`/`max`. The per-model `effortValues` below is the exact accepted
- * subset for that model; `PROVIDER_DISPATCH.clamp` snaps a requested tier to the
- * nearest value a given model actually accepts.
- */
-export const EFFORT_LEVELS = ["none", "minimal", "low", "medium", "high", "xhigh", "max"] as const;
-export type EffortLevel = (typeof EFFORT_LEVELS)[number];
-
-/**
- * Per-model structural facts that the provider layer needs at request time and
- * that a tier→model remap must not be able to get wrong. This is the *per-model*
- * axis (ADR-0078); the *per-provider* mechanics (reasoning-block shape, tool-name
- * shim policy) live in `PROVIDER_DISPATCH` in `provider.ts`.
- *
- * These mirror models.dev's `reasoning_options` / `temperature` for our six
- * registered ids; the non-gating `verify-capabilities` audit asserts they still
- * match the synced `model_prices` snapshot. models.dev is the *audit oracle*, not
- * a runtime source of truth (it has gaps — e.g. `structured_output` is absent for
- * every Anthropic model), so the values are code-resident.
- */
-export interface ModelCapabilities {
-  /**
-   * Effort values the model accepts, weakest→strongest. `[]` means the model has
-   * **no** effort/adaptive reasoning param — the provider must send a light/empty
-   * reasoning block (Haiku 4.5 per ADR-0077; Gemini 2.5 models are budget/toggle
-   * based). The vocabulary is provider-specific; do not filter unknown values out
-   * of the audit, add them to {@link EFFORT_LEVELS} first.
-   */
-  readonly effortValues: readonly EffortLevel[];
-  /**
-   * Model accepts a `temperature` param. `false` on Opus 4.7+/Fable (they 400 on
-   * any temperature). Recorded for future-proofing; Alfred sends no temperature
-   * today, so nothing reads this at runtime yet.
-   */
-  readonly temperature: boolean;
-}
-
-/**
- * The closed capability map for every registered id. `as const satisfies
- * Record<ModelId, …>` forces an entry for every model (a missing or unknown key
- * is a compile error) while preserving the literal `effortValues` tuples so the
- * provider dispatch can clamp against them.
- */
-export const MODEL_CAPABILITIES = {
-  "claude-opus-4-8": {
-    effortValues: ["low", "medium", "high", "xhigh", "max"],
-    temperature: false,
-  },
-  "claude-sonnet-4-6": { effortValues: ["low", "medium", "high", "max"], temperature: true },
-  "claude-haiku-4-5-20251001": { effortValues: [], temperature: true }, // ADR-0077: empty block
-  "gemini-2.5-pro": { effortValues: [], temperature: true }, // budget-based; effort N/A
-  "gemini-2.5-flash": { effortValues: [], temperature: true },
-  "gemini-2.5-flash-lite": { effortValues: [], temperature: true },
-  "gpt-5.6-sol": {
-    effortValues: ["none", "low", "medium", "high", "xhigh", "max"],
-    temperature: false,
-  },
-  "gpt-5.6-luna": {
-    effortValues: ["none", "low", "medium", "high", "xhigh", "max"],
-    temperature: false,
-  },
-} as const satisfies Record<ModelId, ModelCapabilities>;
 
 /** `true` when `id` is a known registry model id (narrows to `ModelId`). */
 export function isModelId(id: string): id is ModelId {

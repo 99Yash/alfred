@@ -1,7 +1,9 @@
 import { db } from "@alfred/db";
 import { modelPrices } from "@alfred/db/schemas";
+import { modelPricingMetadataSchema, type ModelPriceTier } from "@alfred/contracts/model-pricing";
 import type { LanguageModel } from "ai";
 import { and, desc, eq, lte } from "drizzle-orm";
+import { z } from "zod";
 import { identifyLanguageModel } from "../models";
 import type { CallUsage } from "./types";
 
@@ -22,6 +24,8 @@ interface CachedPrice {
   outputPerMtok: number;
   cachedInputPerMtok: number | null;
   cacheWriteInputPerMtok: number | null;
+  cacheWrite1hPerMtok: number | null;
+  tiers: readonly ModelPriceTier[];
   perCallUsd: number | null;
   contextWindow: number | null;
   fetchedAt: number;
@@ -34,6 +38,10 @@ export interface PriceLookup {
   outputPerMtok: number;
   cachedInputPerMtok: number | null;
   cacheWriteInputPerMtok: number | null;
+  /** Provider-specific 1h cache-write rate; null when TTL does not affect pricing. */
+  cacheWrite1hPerMtok: number | null;
+  /** Higher token rates activated when a request crosses a provider context threshold. */
+  tiers: readonly ModelPriceTier[];
   perCallUsd: number | null;
   /**
    * Max input tokens the model accepts in a single request. Seeded by
@@ -44,6 +52,16 @@ export interface PriceLookup {
    * for a model the runtime needs to reason about.
    */
   contextWindow: number | null;
+}
+
+function parsePricingMetadata(metadata: unknown) {
+  const parsed = z
+    .object({ pricing: modelPricingMetadataSchema.optional() })
+    .passthrough()
+    .safeParse(metadata);
+  return parsed.success
+    ? (parsed.data.pricing ?? { cacheWrite1hPerMtok: null, tiers: [] })
+    : { cacheWrite1hPerMtok: null, tiers: [] };
 }
 
 function cacheKey(provider: string, model: string): string {
@@ -65,12 +83,15 @@ async function fetchPrice(provider: string, model: string): Promise<PriceLookup 
     .limit(1);
   const row = rows[0];
   if (!row) return null;
+  const pricing = parsePricingMetadata(row.metadata);
   return {
     inputPerMtok: Number(row.inputPerMtok),
     outputPerMtok: Number(row.outputPerMtok),
     cachedInputPerMtok: row.cachedInputPerMtok != null ? Number(row.cachedInputPerMtok) : null,
     cacheWriteInputPerMtok:
       row.cacheWriteInputPerMtok != null ? Number(row.cacheWriteInputPerMtok) : null,
+    cacheWrite1hPerMtok: pricing.cacheWrite1hPerMtok,
+    tiers: pricing.tiers,
     perCallUsd: row.perCallUsd != null ? Number(row.perCallUsd) : null,
     contextWindow: row.contextWindow ?? null,
   };
@@ -85,6 +106,8 @@ export async function getPrice(provider: string, model: string): Promise<PriceLo
       outputPerMtok: cached.outputPerMtok,
       cachedInputPerMtok: cached.cachedInputPerMtok,
       cacheWriteInputPerMtok: cached.cacheWriteInputPerMtok,
+      cacheWrite1hPerMtok: cached.cacheWrite1hPerMtok,
+      tiers: cached.tiers,
       perCallUsd: cached.perCallUsd,
       contextWindow: cached.contextWindow,
     };
@@ -134,21 +157,37 @@ export function computeCost(price: PriceLookup | null, usage: CallUsage | undefi
   // cache_read). Bill only the uncached remainder at the full input rate, then
   // add cache reads and writes at their own rates — otherwise either category
   // is charged twice (full rate via the total, plus its cache rate).
+  const rates = resolveRates(price, usage.inputTokens ?? 0);
   const cachedInputTokens = usage.cachedInputTokens ?? 0;
   const cacheWriteInputTokens = usage.cacheWriteInputTokens ?? 0;
-  const uncachedInput =
-    Math.max(0, (usage.inputTokens ?? 0) - cachedInputTokens - cacheWriteInputTokens) / 1_000_000;
+  const uncachedInputTokens =
+    usage.noCacheInputTokens ??
+    Math.max(0, (usage.inputTokens ?? 0) - cachedInputTokens - cacheWriteInputTokens);
+  const uncachedInput = uncachedInputTokens / 1_000_000;
   const cachedInput = cachedInputTokens / 1_000_000;
   const cacheWriteInput = cacheWriteInputTokens / 1_000_000;
   const output = (usage.outputTokens ?? 0) / 1_000_000;
-  const cachedRate = price.cachedInputPerMtok ?? price.inputPerMtok;
-  const cacheWriteRate = price.cacheWriteInputPerMtok ?? price.inputPerMtok;
+  const cachedRate = rates.cachedInputPerMtok ?? rates.inputPerMtok;
+  const cacheWriteRate =
+    usage.cacheWriteTtl === "1h" && rates.cacheWrite1hPerMtok != null
+      ? rates.cacheWrite1hPerMtok
+      : (rates.cacheWriteInputPerMtok ?? rates.inputPerMtok);
   return (
-    uncachedInput * price.inputPerMtok +
+    uncachedInput * rates.inputPerMtok +
     cachedInput * cachedRate +
     cacheWriteInput * cacheWriteRate +
-    output * price.outputPerMtok
+    output * rates.outputPerMtok
   );
+}
+
+function resolveRates(
+  price: PriceLookup,
+  inputTokens: number,
+): Omit<PriceLookup, "contextWindow" | "tiers" | "perCallUsd"> {
+  const tier = [...price.tiers]
+    .sort((a, b) => b.minInputTokens - a.minInputTokens)
+    .find((candidate) => inputTokens > candidate.minInputTokens);
+  return tier ?? price;
 }
 
 /** Test-only: drop the cache so the next lookup refetches. */

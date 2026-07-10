@@ -1,11 +1,14 @@
 import { closeConnections, db } from "@alfred/db";
 import { apiCallLog } from "@alfred/db/schemas";
+import { serverEnv } from "@alfred/env/server";
+import { toMessage } from "@alfred/contracts";
 import { and, desc, eq, gte, inArray } from "drizzle-orm";
 import { isStepCount, tool } from "ai";
 import { z } from "zod";
 import {
   getRegisteredModel,
   getRegisteredModelProviderOptions,
+  flushMeteringWrites,
   meteredGenerateObject,
   meteredGenerateText,
   meteredStreamText,
@@ -81,7 +84,7 @@ async function smokeModel(modelId: (typeof MODEL_IDS)[number]): Promise<void> {
     },
     attribution,
   );
-  if (objectResult.object.status !== "ok" || objectResult.object.model !== modelId) {
+  if (objectResult.output.status !== "ok" || objectResult.output.model !== modelId) {
     throw new Error(`${modelId} structured output mismatch`);
   }
 
@@ -115,12 +118,12 @@ async function smokeModel(modelId: (typeof MODEL_IDS)[number]): Promise<void> {
 }
 
 async function main(): Promise<void> {
-  if (!process.env.OPENAI_API_KEY) throw new Error("OPENAI_API_KEY is required");
+  if (!serverEnv().OPENAI_API_KEY) throw new Error("OPENAI_API_KEY is required");
   const startedAt = new Date();
   for (const modelId of MODEL_IDS) await smokeModel(modelId);
 
-  // Metering writes are intentionally fire-and-forget on the request path.
-  await new Promise((resolve) => setTimeout(resolve, 500));
+  // Metering stays fire-and-forget on request paths; scripts can drain it deterministically.
+  await flushMeteringWrites();
   const rows = await db()
     .select({ model: apiCallLog.model, costUsd: apiCallLog.costUsd })
     .from(apiCallLog)
@@ -143,7 +146,7 @@ async function main(): Promise<void> {
 
 main()
   .catch((error) => {
-    console.error("[smoke-gpt-5.6] FAIL", error);
+    console.error("[smoke-gpt-5.6] FAIL", toMessage(error));
     process.exitCode = 1;
   })
   .finally(() => closeConnections().catch(() => {}));

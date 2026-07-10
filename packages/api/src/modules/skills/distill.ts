@@ -136,10 +136,10 @@ export async function distillSkill(args: DistillSkillArgs): Promise<DistillSkill
     },
   );
 
-  const mentions = resolveMentions(parseMentions(result.object.body), {
+  const mentions = resolveMentions(parseMentions(result.output.body), {
     integrationSlugs: new Set(args.context.connectedIntegrations),
     skillSlugs: new Set(args.context.existingSkillSlugs),
   });
 
-  return { ...result.object, mentions };
+  return { ...result.output, mentions };
 }

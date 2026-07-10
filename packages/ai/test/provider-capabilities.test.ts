@@ -12,7 +12,6 @@ import {
   clampEffort,
   getChatProviderOptions,
   getRegisteredModelProviderOptions,
-  selectAvailableModelIds,
 } from "../src/provider";
 
 /**
@@ -94,16 +93,5 @@ describe("provider capability dispatch", () => {
     assert.deepEqual(getRegisteredModelProviderOptions("gpt-5.6-luna", "minimal"), {
       openai: { reasoningEffort: "none" },
     });
-  });
-
-  test("missing optional OpenAI credentials remove GPT-5.6 before fallback dispatch", () => {
-    assert.deepEqual(
-      selectAvailableModelIds(["claude-sonnet-4-6", "gpt-5.6-sol", "gemini-2.5-pro"], {
-        anthropic: true,
-        google: true,
-        openai: false,
-      }),
-      ["claude-sonnet-4-6", "gemini-2.5-pro"],
-    );
   });
 });

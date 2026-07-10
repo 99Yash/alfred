@@ -140,12 +140,12 @@ export async function deepenTriageClassification(
 
   return {
     classification: {
-      category: result.object.refinedCategory,
-      confidence: result.object.confidence,
-      rationale: truncateRationale(result.object.rationale),
+      category: result.output.refinedCategory,
+      confidence: result.output.confidence,
+      rationale: truncateRationale(result.output.rationale),
     },
-    severityFlag: result.object.severityFlag,
-    ...(result.object.dossierRequest ? { dossierRequest: result.object.dossierRequest } : {}),
+    severityFlag: result.output.severityFlag,
+    ...(result.output.dossierRequest ? { dossierRequest: result.output.dossierRequest } : {}),
   };
 }
 

@@ -192,7 +192,7 @@ export class AlfredAgent<CTX = unknown> {
     const rawTools = await this.s.tools(ctx);
     const tools = decorateTools(rawTools, this.cacheTtl());
 
-    const attribution = this.buildAttribution(args.attribution);
+    const attribution = this.buildAttribution(args.attribution, this.cacheTtl());
 
     const result = await meteredGenerateText(
       {
@@ -245,7 +245,7 @@ export class AlfredAgent<CTX = unknown> {
     const rawTools = await this.s.tools(ctx);
     const tools = decorateTools(rawTools, this.cacheTtl());
 
-    const attribution = this.buildAttribution(args.attribution);
+    const attribution = this.buildAttribution(args.attribution, this.cacheTtl());
 
     return meteredStreamText(
       {
@@ -291,9 +291,12 @@ export class AlfredAgent<CTX = unknown> {
     throw new Error(msg);
   }
 
-  private buildAttribution(perTurn: Partial<AttributedCall> | undefined): AttributedCall {
+  private buildAttribution(
+    perTurn: Partial<AttributedCall> | undefined,
+    cacheWriteTtl: "5m" | "1h" | undefined,
+  ): AttributedCall {
     const base = this.s.attribution ?? {};
-    const merged: AttributedCall = { ...base, ...perTurn };
+    const merged: AttributedCall = { cacheWriteTtl, ...base, ...perTurn };
     if (!merged.name) {
       merged.name = this.id ? `agent:${this.id}` : merged.name;
     }

@@ -1,4 +1,4 @@
-export { metered } from "./metered";
+export { flushMeteringWrites, metered } from "./metered";
 export {
   meteredGenerateText,
   meteredGenerateObject,

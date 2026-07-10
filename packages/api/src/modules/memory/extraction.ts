@@ -131,5 +131,5 @@ export async function extractFactsFromDocument(args: ExtractDocumentArgs): Promi
     },
   );
 
-  return result.object.proposals;
+  return result.output.proposals;
 }

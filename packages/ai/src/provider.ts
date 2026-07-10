@@ -54,11 +54,10 @@ export const TOOL_NAME_PROVIDER_POLICIES = {
  * provider↔adapter today, so provider-keying is correct now — a future
  * Bedrock/Vertex adapter would need its own entry.
  */
-interface ProviderDispatch {
+interface ProviderDispatch<M extends ModelId> {
   /**
-   * Apply the `.`↔`__` tool-name shim at this provider's edge. `true` for both
-   * dispatched language-model providers today (Anthropic rejects `.`, Google
-   * strips the prefix).
+   * Apply the `.`↔`__` tool-name shim at this provider's edge. Enabled for every
+   * dispatched language-model provider today.
    */
   readonly toolNameShim: boolean;
   /** Max tool-name length the provider accepts; pinned by the tool-name registry invariant test. */
@@ -70,8 +69,12 @@ interface ProviderDispatch {
    * instead of an unsupported param. Return type is per-provider (covariant under
    * the `satisfies` below) so the call sites keep the SDK-typed block.
    */
-  reasoningOptions(modelId: ModelId, effort: EffortLevel): Record<string, unknown>;
+  reasoningOptions(modelId: M, effort: EffortLevel): Record<string, unknown>;
 }
+
+type ProviderDispatchMap = {
+  readonly [P in ModelProviderId]: ProviderDispatch<ModelIdFor<P>>;
+};
 
 /**
  * Snap a requested effort to the nearest value `allowed` actually contains, by
@@ -94,7 +97,10 @@ function isAnthropicEffortLevel(value: EffortLevel): value is AnthropicEffortLev
 const PROVIDER_DISPATCH = {
   anthropic: {
     ...TOOL_NAME_PROVIDER_POLICIES.anthropic,
-    reasoningOptions(modelId: ModelId, effort: EffortLevel): AnthropicChatProviderOptions {
+    reasoningOptions(
+      modelId: ModelIdFor<"anthropic">,
+      effort: EffortLevel,
+    ): AnthropicChatProviderOptions {
       const { effortValues } = MODEL_CAPABILITIES[modelId];
       // Empty block: Haiku 4.5 (ADR-0077) hard-400s on BOTH adaptive thinking and
       // `effort` — they're Sonnet-4.6+/Opus-only. Any model with no effort param
@@ -120,7 +126,10 @@ const PROVIDER_DISPATCH = {
     // translated. If a future Google model exposes effort labels (e.g. Gemini 3),
     // this must grow the SDK-specific mapping instead of silently sending the
     // Gemini 2.5 budget block.
-    reasoningOptions(modelId: ModelId, _effort: EffortLevel): GoogleChatProviderOptions {
+    reasoningOptions(
+      modelId: ModelIdFor<"google">,
+      _effort: EffortLevel,
+    ): GoogleChatProviderOptions {
       const { effortValues } = MODEL_CAPABILITIES[modelId];
       if (effortValues.length > 0) {
         throw new Error(
@@ -132,15 +141,15 @@ const PROVIDER_DISPATCH = {
   },
   openai: {
     ...TOOL_NAME_PROVIDER_POLICIES.openai,
-    reasoningOptions(modelId: ModelId, effort: EffortLevel): OpenAIChatProviderOptions {
+    reasoningOptions(
+      modelId: ModelIdFor<"openai">,
+      effort: EffortLevel,
+    ): OpenAIChatProviderOptions {
       const { effortValues } = MODEL_CAPABILITIES[modelId];
-      if (effortValues.length === 0) {
-        throw new Error(`${modelId} has no OpenAI reasoning-effort vocabulary`);
-      }
       return { reasoningEffort: clampEffort(effort, effortValues) };
     },
   },
-} as const satisfies Record<ModelProviderId, ProviderDispatch>;
+} as const satisfies ProviderDispatchMap;
 
 export function getShimmedToolNameMaxLen(): number {
   return Math.min(
@@ -210,22 +219,30 @@ export function getRegisteredModelProviderOptions(
   id: ModelId,
   effort: EffortLevel,
 ): ChatProviderOptions {
-  const provider = MODEL_REGISTRY[id];
-  return { [provider]: PROVIDER_DISPATCH[provider].reasoningOptions(id, effort) };
+  const { provider, options } = reasoningOptionsForModel(id, effort);
+  return { [provider]: options };
 }
 
-export type ProviderAvailability = Readonly<Record<ModelProviderId, boolean>>;
-
-/**
- * Filter a candidate chain before construction/dispatch. OpenAI is optional in
- * Alfred's environment, so a missing key must remove it here instead of
- * surfacing as a non-retryable 401 after another provider has already failed.
- */
-export function selectAvailableModelIds(
-  candidates: readonly ModelId[],
-  availability: ProviderAvailability,
-): ModelId[] {
-  return candidates.filter((id) => availability[MODEL_REGISTRY[id]]);
+function reasoningOptionsForModel(
+  id: ModelId,
+  effort: EffortLevel,
+): { provider: ModelProviderId; options: NonNullable<ChatProviderOptions[string]> } {
+  const provider = MODEL_REGISTRY[id];
+  switch (provider) {
+    case "anthropic":
+      assertModelProvider(id, provider);
+      return { provider, options: PROVIDER_DISPATCH.anthropic.reasoningOptions(id, effort) };
+    case "google":
+      assertModelProvider(id, provider);
+      return { provider, options: PROVIDER_DISPATCH.google.reasoningOptions(id, effort) };
+    case "openai":
+      assertModelProvider(id, provider);
+      return { provider, options: PROVIDER_DISPATCH.openai.reasoningOptions(id, effort) };
+    default: {
+      const _exhaustive: never = provider;
+      return _exhaustive;
+    }
+  }
 }
 
 /**
@@ -358,8 +375,7 @@ export function getChatProviderOptions(tier: ChatModelTier = "standard"): ChatPr
   const { primary, fallback, effort } = CHAT_TIERS[tier];
   const options: ChatProviderOptions = {};
   for (const modelId of [primary, fallback]) {
-    const provider = MODEL_REGISTRY[modelId];
-    const next = PROVIDER_DISPATCH[provider].reasoningOptions(modelId, effort);
+    const { provider, options: next } = reasoningOptionsForModel(modelId, effort);
     const prev = options[provider];
     if (prev && JSON.stringify(prev) !== JSON.stringify(next)) {
       throw new Error(

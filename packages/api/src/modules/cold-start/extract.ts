@@ -137,5 +137,5 @@ export async function extractColdStartFacts(
       name: "cold-start.extract",
     },
   );
-  return result.object.proposals;
+  return result.output.proposals;
 }
