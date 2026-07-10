@@ -8,6 +8,8 @@ const PRICE: PriceLookup = {
   outputPerMtok: 15, // $15 / Mtok output
   cachedInputPerMtok: 0.3, // $0.30 / Mtok cache read
   cacheWriteInputPerMtok: 3.75, // $3.75 / Mtok cache write
+  cacheWrite1hPerMtok: 6, // Anthropic 1h write = 2x input
+  tiers: [],
   perCallUsd: null,
   contextWindow: 200_000,
 };
@@ -88,5 +90,45 @@ describe("computeCost", () => {
       { inputTokens: 1_000_000, cacheWriteInputTokens: 1_000_000, outputTokens: 0 },
     );
     assert.equal(cost, 1.25);
+  });
+
+  test("uses the canonical no-cache detail when total input is unavailable", () => {
+    const cost = computeCost(PRICE, {
+      noCacheInputTokens: 200_000,
+      cachedInputTokens: 800_000,
+      outputTokens: 0,
+    });
+    assert.ok(Math.abs(cost - 0.84) < 1e-9, `expected ~0.84, got ${cost}`);
+  });
+
+  test("charges 1h Anthropic cache writes at the retention-specific rate", () => {
+    const cost = computeCost(PRICE, {
+      inputTokens: 1_000_000,
+      noCacheInputTokens: 0,
+      cacheWriteInputTokens: 1_000_000,
+      cacheWriteTtl: "1h",
+      outputTokens: 0,
+    });
+    assert.equal(cost, 6);
+  });
+
+  test("activates context-tier rates for long prompts", () => {
+    const cost = computeCost(
+      {
+        ...PRICE,
+        tiers: [
+          {
+            minInputTokens: 272_000,
+            inputPerMtok: 10,
+            outputPerMtok: 45,
+            cachedInputPerMtok: 1,
+            cacheWriteInputPerMtok: 12.5,
+            cacheWrite1hPerMtok: null,
+          },
+        ],
+      },
+      { inputTokens: 500_000, noCacheInputTokens: 500_000, outputTokens: 100_000 },
+    );
+    assert.equal(cost, 9.5);
   });
 });

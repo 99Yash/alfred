@@ -3,9 +3,7 @@ import {
   generateText,
   Output,
   streamText,
-  type CallWarning,
   type EmbedResult,
-  type FinishReason,
   type GenerateTextResult,
   type LanguageModel,
   type LanguageModelUsage,
@@ -71,12 +69,15 @@ const DEFAULT_STREAM_TIMEOUT = { chunkMs: 30_000, totalMs: DEFAULT_LLM_TIMEOUT_M
 // `metered()` only reads `usage`/`finishReason`/`toolCalls`/`steps`,
 // none of which depend on the OUTPUT generic — so we collapse to the
 // widest valid instantiation and let the call site cast through `never`.
-function extractTextUsage(result: GenerateTextResult<ToolSet, never, never>): MeteredResult {
+function extractTextUsage(
+  result: GenerateTextResult<ToolSet, never, never>,
+  cacheWriteTtl: AttributedCall["cacheWriteTtl"],
+): MeteredResult {
   return {
-    usage: usageFromSdk(result.usage),
+    usage: usageFromSdk(result.usage, cacheWriteTtl),
     responseMeta: {
       finishReason: result.finishReason,
-      toolCallCount: result.finalStep.toolCalls.length,
+      toolCallCount: result.toolCalls.length,
       stepCount: result.steps?.length,
     },
     // Completion — only sent to Langfuse when capture is on (gated in
@@ -84,7 +85,7 @@ function extractTextUsage(result: GenerateTextResult<ToolSet, never, never>): Me
     // on a tool-call turn the model often emits no prose, so `.text` alone would
     // drop the one thing a trajectory replay needs — what the model decided to
     // call (see captureOutput).
-    output: captureOutput({ text: result.text, toolCalls: result.finalStep.toolCalls }),
+    output: captureOutput({ text: result.text, toolCalls: result.toolCalls }),
     ...servedFromResponse(result.finalStep.response),
   };
 }
@@ -158,15 +159,18 @@ function extractEmbedUsage(result: EmbedResult): MeteredResult {
   };
 }
 
-export function usageFromSdk(usage: LanguageModelUsage | undefined) {
+export function usageFromSdk(usage: LanguageModelUsage | undefined, cacheWriteTtl?: "5m" | "1h") {
   if (!usage) return undefined;
+  const noCacheTokens = usage.inputTokenDetails?.noCacheTokens;
   const cacheReadTokens = usage.inputTokenDetails?.cacheReadTokens;
   const cacheWriteTokens = usage.inputTokenDetails?.cacheWriteTokens;
   return {
     inputTokens: usage.inputTokens,
+    noCacheInputTokens: noCacheTokens,
     outputTokens: usage.outputTokens,
     cachedInputTokens: cacheReadTokens,
     cacheWriteInputTokens: cacheWriteTokens,
+    cacheWriteTtl: cacheWriteTokens != null && cacheWriteTokens > 0 ? cacheWriteTtl : undefined,
   };
 }
 
@@ -183,13 +187,6 @@ export interface MeteredGenerateObjectArgs<O> extends Omit<GenerateTextArgs, "ou
   schemaDescription?: string;
 }
 
-export interface MeteredGenerateObjectResult<O> {
-  object: O;
-  usage: LanguageModelUsage;
-  finishReason: FinishReason;
-  warnings: CallWarning[] | undefined;
-}
-
 export interface AttributedCall extends CallAttribution {
   /** Trimmed params surfaced to `request_meta` (avoid full prompts). */
   requestMeta?: Record<string, unknown>;
@@ -200,6 +197,8 @@ export interface AttributedCall extends CallAttribution {
   name?: string;
   /** Stable per-call idempotency key. Forwarded to log row + Langfuse trace metadata. */
   idempotencyKey?: string;
+  /** Provider cache-write retention used by this request, for TTL-aware billing. */
+  cacheWriteTtl?: "5m" | "1h";
 }
 
 export async function meteredGenerateText(
@@ -219,23 +218,22 @@ export async function meteredGenerateText(
   // namespace alias. Cast through unknown to a callable shape and pin the
   // public return type to <ToolSet, never>, which downstream callers (which
   // never use structured output) can read freely.
-  return metered(
-    meta,
-    () => generateText(callArgs),
-    extractTextUsage as never,
-  ) as unknown as Promise<GenerateTextResult<ToolSet, never, never>>;
+  return metered(meta, () => generateText(callArgs), ((
+    result: GenerateTextResult<ToolSet, never, never>,
+  ) => extractTextUsage(result, attribution.cacheWriteTtl)) as never) as unknown as Promise<
+    GenerateTextResult<ToolSet, never, never>
+  >;
 }
 
 /**
  * Structured-output wrapper. AI SDK deprecated `generateObject` in favor of
  * `generateText` + `Output.object`, so we route through the text path and
- * project the schema-validated result into a `{ object, usage, ... }` shape
- * to keep call sites stable.
+ * while preserving the SDK's native typed `.output` result contract.
  */
 export async function meteredGenerateObject<O>(
   args: MeteredGenerateObjectArgs<O>,
   attribution: AttributedCall = {},
-): Promise<MeteredGenerateObjectResult<O>> {
+): Promise<GenerateTextResult<ToolSet, never, ReturnType<typeof Output.object<O>>>> {
   const { schema, schemaName, schemaDescription, ...rest } = args;
   const ids = resolveIds(rest.model, attribution);
   const meta: MeteredMeta = {
@@ -258,17 +256,9 @@ export async function meteredGenerateObject<O>(
       description: schemaDescription,
     }),
   } as unknown as Parameters<typeof generateText>[0];
-  const result = (await metered(
-    meta,
-    () => generateText(callArgs),
-    extractTextUsage as never,
-  )) as unknown as Result;
-  return {
-    object: result.output,
-    usage: result.usage,
-    finishReason: result.finishReason,
-    warnings: result.finalStep.warnings,
-  };
+  return (await metered(meta, () => generateText(callArgs), ((
+    result: GenerateTextResult<ToolSet, never, never>,
+  ) => extractTextUsage(result, attribution.cacheWriteTtl)) as never)) as unknown as Result;
 }
 
 export type StreamTextArgs = Parameters<typeof streamText>[0];
@@ -307,15 +297,15 @@ export function meteredStreamText(
       timeout,
       onEnd: (event: StreamTextEndEvent) => {
         finish({
-          usage: usageFromSdk(event.usage),
+          usage: usageFromSdk(event.usage, attribution.cacheWriteTtl),
           responseMeta: {
             finishReason: event.finishReason,
-            toolCallCount: event.finalStep.toolCalls.length,
+            toolCallCount: event.toolCalls.length,
             stepCount: event.steps?.length,
           },
           // Same fold as the non-streaming path: a streamed tool-call turn emits
           // no prose, so capture the proposed calls or the replay loses them.
-          output: captureOutput({ text: event.text, toolCalls: event.finalStep.toolCalls }),
+          output: captureOutput({ text: event.text, toolCalls: event.toolCalls }),
           ...servedFromResponse(event.finalStep.response),
         });
         callerOnEnd?.(event);
@@ -330,7 +320,7 @@ export function meteredStreamText(
         // `withFallback` cascade gets logged as the nominal primary (#216).
         const served = servedFromSteps(event.steps);
         abort({
-          usage: usageFromSteps(event.steps),
+          usage: usageFromSteps(event.steps, attribution.cacheWriteTtl),
           responseMeta: {
             finishReason: "abort",
             stepCount: event.steps.length,
@@ -360,9 +350,13 @@ function servedFromSteps(
   return {};
 }
 
-export function usageFromSteps(steps: readonly { usage?: LanguageModelUsage }[]) {
+export function usageFromSteps(
+  steps: readonly { usage?: LanguageModelUsage }[],
+  cacheWriteTtl?: "5m" | "1h",
+) {
   if (steps.length === 0) return undefined;
   let inputTokens = 0;
+  let noCacheInputTokens: number | undefined;
   let outputTokens = 0;
   // Leave undefined when no step reported cache info, matching the
   // non-abort path (`usageFromSdk`) instead of asserting a false `0`.
@@ -370,10 +364,13 @@ export function usageFromSteps(steps: readonly { usage?: LanguageModelUsage }[])
   let cacheWriteInputTokens: number | undefined;
   let sawUsage = false;
   for (const step of steps) {
-    const usage = usageFromSdk(step.usage);
+    const usage = usageFromSdk(step.usage, cacheWriteTtl);
     if (!usage) continue;
     sawUsage = true;
     inputTokens += usage.inputTokens ?? 0;
+    if (usage.noCacheInputTokens != null) {
+      noCacheInputTokens = (noCacheInputTokens ?? 0) + usage.noCacheInputTokens;
+    }
     outputTokens += usage.outputTokens ?? 0;
     if (usage.cachedInputTokens != null) {
       cachedInputTokens = (cachedInputTokens ?? 0) + usage.cachedInputTokens;
@@ -383,7 +380,15 @@ export function usageFromSteps(steps: readonly { usage?: LanguageModelUsage }[])
     }
   }
   if (!sawUsage) return undefined;
-  return { inputTokens, outputTokens, cachedInputTokens, cacheWriteInputTokens };
+  return {
+    inputTokens,
+    noCacheInputTokens,
+    outputTokens,
+    cachedInputTokens,
+    cacheWriteInputTokens,
+    cacheWriteTtl:
+      cacheWriteInputTokens != null && cacheWriteInputTokens > 0 ? cacheWriteTtl : undefined,
+  };
 }
 
 export async function meteredEmbed(

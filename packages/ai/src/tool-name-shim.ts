@@ -133,8 +133,8 @@ const toolNameShimMiddleware: LanguageModelMiddleware = {
  * Wrap a model so the dotted `integration.action` tool names survive the round
  * trip through a provider that can't carry the `.` (Anthropic rejects it; Google
  * strips the prefix). Applied per `PROVIDER_DISPATCH[provider].toolNameShim`, so
- * the factory wraps every provider whose policy demands it (Anthropic + Google
- * today). Harmless on tool-less calls (the middleware is a no-op when there are
+ * the factory wraps every provider whose policy demands it. Harmless on
+ * tool-less calls (the middleware is a no-op when there are
  * no tool names). Provider/modelId are proxied unchanged, so cost attribution and
  * the served-model id (#216) still see the real `anthropic`/`google` + model id.
  */

@@ -1407,7 +1407,7 @@ function defaultRunPass(
         name: pass === "second" ? "triage.classify.second_pass" : "triage.classify",
       },
     );
-    const object = result.object;
+    const object = result.output;
     // Clamp confidence into [0, 1] here rather than in the schema: the range
     // can't be expressed in the cheap-model structured-output JSON schema (see
     // `confidenceSchema`). `clamp01` is the shared boundary clamp.

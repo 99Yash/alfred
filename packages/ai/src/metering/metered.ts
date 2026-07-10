@@ -6,6 +6,22 @@ import { computeCost, getPrice } from "./prices";
 import type { MeteredMeta, MeteredResult, ResultExtractor } from "./types";
 import { toMessage } from "@alfred/contracts";
 
+const pendingMeteringWrites = new Set<Promise<void>>();
+
+function enqueueMeteringWrite(write: Promise<void>): void {
+  const tracked = write
+    .catch((err) => console.warn("[metered] background settlement failed:", toMessage(err)))
+    .finally(() => pendingMeteringWrites.delete(tracked));
+  pendingMeteringWrites.add(tracked);
+}
+
+/** Wait for metering work already accepted by this process; used by scripts and shutdown. */
+export async function flushMeteringWrites(): Promise<void> {
+  while (pendingMeteringWrites.size > 0) {
+    await Promise.all(pendingMeteringWrites);
+  }
+}
+
 /**
  * Reconcile the pre-call attribution (`meta.provider`/`meta.model`, resolved
  * from the model object before dispatch) with the model the provider reports
@@ -64,14 +80,16 @@ export async function metered<T>(
     const served = reconcileServed(meta, extracted);
     const price = await getPrice(served.provider, served.model);
     const costUsd = computeCost(price, extracted.usage);
-    void writeLogRow({
-      meta: { ...meta, provider: served.provider, model: served.model },
-      latencyMs,
-      usage: extracted.usage,
-      costUsd,
-      responseMeta: served.responseMeta,
-      error: null,
-    });
+    enqueueMeteringWrite(
+      writeLogRow({
+        meta: { ...meta, provider: served.provider, model: served.model },
+        latencyMs,
+        usage: extracted.usage,
+        costUsd,
+        responseMeta: served.responseMeta,
+        error: null,
+      }),
+    );
     span.success({
       usage: extracted.usage,
       costUsd,
@@ -83,14 +101,16 @@ export async function metered<T>(
   } catch (err) {
     const latencyMs = Date.now() - startedAt.getTime();
     const message = toMessage(err);
-    void writeLogRow({
-      meta,
-      latencyMs,
-      usage: undefined,
-      costUsd: 0,
-      responseMeta: undefined,
-      error: { message },
-    });
+    enqueueMeteringWrite(
+      writeLogRow({
+        meta,
+        latencyMs,
+        usage: undefined,
+        costUsd: 0,
+        responseMeta: undefined,
+        error: { message },
+      }),
+    );
     span.error(message);
     throw err;
   }
@@ -129,25 +149,27 @@ export function meteredStream<T>(
     const latencyMs = Date.now() - startedAt.getTime();
     const served = reconcileServed(meta, extracted);
     const responseMeta = aborted ? { ...served.responseMeta, aborted: true } : served.responseMeta;
-    void (async () => {
-      const price = await getPrice(served.provider, served.model);
-      const costUsd = computeCost(price, extracted.usage);
-      void writeLogRow({
-        meta: { ...meta, provider: served.provider, model: served.model },
-        latencyMs,
-        usage: extracted.usage,
-        costUsd,
-        responseMeta,
-        error: null,
-      });
-      span.success({
-        usage: extracted.usage,
-        costUsd,
-        output: extracted.output,
-        responseMeta,
-        servedModel: served.model,
-      });
-    })();
+    enqueueMeteringWrite(
+      (async () => {
+        const price = await getPrice(served.provider, served.model);
+        const costUsd = computeCost(price, extracted.usage);
+        await writeLogRow({
+          meta: { ...meta, provider: served.provider, model: served.model },
+          latencyMs,
+          usage: extracted.usage,
+          costUsd,
+          responseMeta,
+          error: null,
+        });
+        span.success({
+          usage: extracted.usage,
+          costUsd,
+          output: extracted.output,
+          responseMeta,
+          servedModel: served.model,
+        });
+      })(),
+    );
   };
   const finish = (extracted: MeteredResult): void => {
     settleWithUsage(extracted, false);
@@ -159,14 +181,16 @@ export function meteredStream<T>(
     if (settled) return;
     settled = true;
     const latencyMs = Date.now() - startedAt.getTime();
-    void writeLogRow({
-      meta,
-      latencyMs,
-      usage: undefined,
-      costUsd: 0,
-      responseMeta: undefined,
-      error: { message },
-    });
+    enqueueMeteringWrite(
+      writeLogRow({
+        meta,
+        latencyMs,
+        usage: undefined,
+        costUsd: 0,
+        responseMeta: undefined,
+        error: { message },
+      }),
+    );
     span.error(message);
   };
   return start({ finish, fail, abort });

@@ -174,7 +174,7 @@ function defaultGenerate(args: ExtractThreadArgs): GenerateObject {
         name: "chat-memory.extract",
       },
     );
-    return result.object;
+    return result.output;
   };
 }
 
