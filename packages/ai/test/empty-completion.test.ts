@@ -7,7 +7,7 @@ import { classifyStreamFinish, isRetryableEmptyCompletion } from "../src/agent";
 
 /**
  * The empty-completion contract (2026-07-10 chat-turn dig). When Anthropic hits
- * its workspace spend cap, `withFallback` degrades the boss to Gemini 2.5 Pro,
+ * its workspace spend cap, `withFallback` degrades the boss to Gemini 3.5 Flash,
  * which occasionally returns a `finishReason:stop` candidate with **0 output
  * tokens** — no text, no tool calls. `withFallback` cannot catch it (the SDK
  * call *succeeds* with an empty stream), so the executor treats it as a bounded,

@@ -32,11 +32,7 @@
  *      failed with `compactor_failed`.
  */
 
-import {
-  createRun,
-  enqueueRun,
-  signalRun,
-} from "@alfred/api/backend";
+import { createRun, enqueueRun, signalRun } from "@alfred/api/backend";
 import { closeAgentQueue, closeConnections, closeRedis, warmPool } from "@alfred/api/runtime";
 import { getStringPath } from "@alfred/contracts";
 import { db } from "@alfred/db";
@@ -59,7 +55,7 @@ const WORKFLOW_SLUG = "smoke-boss";
 
 const POLL_INTERVAL_MS = 2_000;
 // Boss + a full sub-agent child run is many LLM turns; the dev boss model
-// (gemini-2.5-pro) runs ~5 min/turn here, and the 30-turn cap is the
+// (Gemini 3.5 Flash) can still run several minutes across a full tool loop, and the 30-turn cap is the
 // ceiling, so a quiet-window run needs hours. The policy override stays
 // installed for this entire span (restore is in `finally`, after polling
 // returns), so a timeout never gates the run mid-flight.

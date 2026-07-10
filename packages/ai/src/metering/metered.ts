@@ -30,7 +30,7 @@ export async function flushMeteringWrites(): Promise<void> {
  *
  * Registry-gated: only a served id that maps to a known `MODEL_REGISTRY`
  * entry overrides the meta — providers echo dated aliases of the requested
- * model (e.g. `gemini-2.5-pro-002`) and those must not knock attribution to
+ * model (e.g. a dated Gemini alias) and those must not knock attribution to
  * `unknown`. A divergent-but-unrecognized id is still surfaced on
  * `response_meta.servedModelId` so the row is auditable.
  */

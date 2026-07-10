@@ -130,7 +130,7 @@ async function driveStream(parts: StreamPart[]) {
 
 describe("classifyStreamFinish over a real streamText drain", () => {
   test("empty stop candidate → empty (the Anthropic→Gemini quota-fallback anomaly)", async () => {
-    // What Gemini 2.5 Pro throws under the quota fallback: a clean finish with
+    // What the Gemini fallback may return under quota pressure: a clean finish with
     // zero content. The SDK call SUCCEEDS, so nothing upstream can catch it.
     const { outcome, toolCalls, finishReason, assistantText } = await driveStream([
       START,

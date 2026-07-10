@@ -1,13 +1,7 @@
 import assert from "node:assert/strict";
 import { describe, test } from "node:test";
 
-import {
-  EFFORT_LEVELS,
-  type EffortLevel,
-  MODEL_CAPABILITIES,
-  type ModelId,
-  MODEL_REGISTRY,
-} from "../src/models";
+import { EFFORT_LEVELS, type EffortLevel, MODEL_CAPABILITIES, type ModelId } from "../src/models";
 import {
   clampEffort,
   getChatProviderOptions,
@@ -25,12 +19,12 @@ describe("provider capability dispatch", () => {
     // standard → Sonnet 4.6: adaptive thinking + clamped medium effort (ADR-0077 amendment).
     assert.deepEqual(getChatProviderOptions("standard"), {
       anthropic: { thinking: { type: "adaptive", display: "summarized" }, effort: "medium" },
-      google: { thinkingConfig: { includeThoughts: true, thinkingBudget: -1 } },
+      google: { thinkingConfig: { includeThoughts: true, thinkingLevel: "medium" } },
     });
     // deep → Opus 4.8: adaptive thinking + clamped effort.
     assert.deepEqual(getChatProviderOptions("deep"), {
       anthropic: { thinking: { type: "adaptive", display: "summarized" }, effort: "high" },
-      google: { thinkingConfig: { includeThoughts: true, thinkingBudget: -1 } },
+      google: { thinkingConfig: { includeThoughts: true, thinkingLevel: "high" } },
     });
   });
 
@@ -54,18 +48,13 @@ describe("provider capability dispatch", () => {
     }
   });
 
-  test("Google registry entries stay budget-based until the dispatch maps effort labels", () => {
-    for (const [id, provider] of Object.entries(MODEL_REGISTRY) as [
-      ModelId,
-      (typeof MODEL_REGISTRY)[ModelId],
-    ][]) {
-      if (provider !== "google") continue;
-      assert.deepEqual(
-        MODEL_CAPABILITIES[id].effortValues,
-        [],
-        `${id} has Google effort values; update provider.ts to map them to the Google SDK option shape before registering it`,
-      );
-    }
+  test("Google dispatch maps effort models and preserves budget-based models", () => {
+    assert.deepEqual(getRegisteredModelProviderOptions("gemini-3.5-flash", "xhigh"), {
+      google: { thinkingConfig: { includeThoughts: true, thinkingLevel: "high" } },
+    });
+    assert.deepEqual(getRegisteredModelProviderOptions("gemini-2.5-flash", "medium"), {
+      google: { thinkingConfig: { includeThoughts: true, thinkingBudget: -1 } },
+    });
   });
 
   test("clampEffort snaps a requested effort to the nearest allowed value", () => {

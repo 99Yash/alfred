@@ -30,6 +30,9 @@ type AnthropicChatProviderOptions = Pick<AnthropicLanguageModelOptions, "thinkin
 type GoogleChatProviderOptions = Pick<GoogleLanguageModelOptions, "thinkingConfig">;
 type OpenAIChatProviderOptions = Pick<OpenAILanguageModelResponsesOptions, "reasoningEffort">;
 type AnthropicEffortLevel = NonNullable<AnthropicChatProviderOptions["effort"]>;
+type GoogleThinkingLevel = NonNullable<
+  NonNullable<GoogleChatProviderOptions["thinkingConfig"]>["thinkingLevel"]
+>;
 type ChatProviderOptions = NonNullable<Parameters<typeof generateText>[0]["providerOptions"]>;
 type ToolNameProviderPolicy = {
   readonly toolNameShim: boolean;
@@ -94,6 +97,10 @@ function isAnthropicEffortLevel(value: EffortLevel): value is AnthropicEffortLev
   return value !== "none" && value !== "minimal";
 }
 
+function isGoogleThinkingLevel(value: EffortLevel): value is GoogleThinkingLevel {
+  return value === "minimal" || value === "low" || value === "medium" || value === "high";
+}
+
 const PROVIDER_DISPATCH = {
   anthropic: {
     ...TOOL_NAME_PROVIDER_POLICIES.anthropic,
@@ -120,21 +127,20 @@ const PROVIDER_DISPATCH = {
   },
   google: {
     ...TOOL_NAME_PROVIDER_POLICIES.google,
-    // `includeThoughts` surfaces the thought summary (not the raw chain);
-    // `thinkingBudget: -1` lets Gemini 2.5 size its own thinking. Current Google
-    // registry entries are budget/toggle based, so `effort` is intentionally not
-    // translated. If a future Google model exposes effort labels (e.g. Gemini 3),
-    // this must grow the SDK-specific mapping instead of silently sending the
-    // Gemini 2.5 budget block.
+    // `includeThoughts` surfaces the thought summary (not the raw chain). Gemini
+    // 3.x accepts an explicit thinking level; Gemini 2.5 Flash/Flash-Lite remain
+    // budget-based and use -1 to size their own thinking.
     reasoningOptions(
       modelId: ModelIdFor<"google">,
-      _effort: EffortLevel,
+      effort: EffortLevel,
     ): GoogleChatProviderOptions {
       const { effortValues } = MODEL_CAPABILITIES[modelId];
       if (effortValues.length > 0) {
-        throw new Error(
-          `${modelId} declares Google effort values [${effortValues.join(",")}], but the Google dispatch only supports budget-based thinkingConfig today`,
-        );
+        const thinkingLevel = clampEffort(effort, effortValues);
+        if (!isGoogleThinkingLevel(thinkingLevel)) {
+          throw new Error(`${modelId} declares Google-incompatible effort "${thinkingLevel}"`);
+        }
+        return { thinkingConfig: { includeThoughts: true, thinkingLevel } };
       }
       return { thinkingConfig: { includeThoughts: true, thinkingBudget: -1 } };
     },
@@ -246,7 +252,7 @@ function reasoningOptionsForModel(
 }
 
 /**
- * Boss + sub-agent run on Anthropic Sonnet 4.6, degrading to Gemini 2.5 Pro
+ * Boss + sub-agent run on Anthropic Sonnet 4.6, degrading to Gemini 3.5 Flash
  * on provider failure via `withFallback`. (Restored 2026-06-07 after the
  * temporary 2026-05-21 → 2026-06-01 spend-cap swap to Gemini 2.5 Pro; the
  * Anthropic-specific provider options inside `AlfredAgent` — cacheControl
@@ -254,11 +260,11 @@ function reasoningOptionsForModel(
  * them when the fallback serves.)
  */
 export function getBossModel(): LanguageModel {
-  return withFallback(anthropicModel("claude-sonnet-4-6"), googleModel("gemini-2.5-pro"));
+  return withFallback(anthropicModel("claude-sonnet-4-6"), googleModel("gemini-3.5-flash"));
 }
 
 export function getSubAgentModel(): LanguageModel {
-  return withFallback(anthropicModel("claude-sonnet-4-6"), googleModel("gemini-2.5-pro"));
+  return withFallback(anthropicModel("claude-sonnet-4-6"), googleModel("gemini-3.5-flash"));
 }
 
 export function getCheapModel(): LanguageModel {
@@ -341,13 +347,14 @@ export function googleSearchGroundingTools(): ToolSet {
  *     the boss-worker harness runs on when chat fans out). Asks for `effort: "high"`
  *     for deliberate reasoning.
  *
- * Each tier degrades to Gemini 2.5 Pro on Anthropic failure (rate limit, overload,
+ * Each tier degrades to Gemini 3.5 Flash on Anthropic failure (rate limit, overload,
  * spend cap) via `withFallback`, so a chat turn never hard-fails on a single
- * provider blip.
+ * provider blip. The shared tier effort maps to Gemini's thinking level, keeping
+ * Auto at medium and Deep at high instead of comparing unlike reasoning settings.
  */
 const CHAT_TIERS = {
-  standard: { primary: "claude-sonnet-4-6", fallback: "gemini-2.5-pro", effort: "medium" },
-  deep: { primary: "claude-opus-4-8", fallback: "gemini-2.5-pro", effort: "high" },
+  standard: { primary: "claude-sonnet-4-6", fallback: "gemini-3.5-flash", effort: "medium" },
+  deep: { primary: "claude-opus-4-8", fallback: "gemini-3.5-flash", effort: "high" },
 } as const satisfies Record<
   ChatModelTier,
   { primary: ModelId; fallback: ModelId; effort: EffortLevel }

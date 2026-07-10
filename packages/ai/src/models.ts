@@ -50,9 +50,12 @@ export const MODEL_DEFINITIONS = [
     capabilities: { effortValues: [], temperature: true },
   },
   {
-    id: "gemini-2.5-pro",
+    id: "gemini-3.5-flash",
     provider: "google",
-    capabilities: { effortValues: [], temperature: true },
+    capabilities: {
+      effortValues: ["minimal", "low", "medium", "high"],
+      temperature: true,
+    },
   },
   {
     id: "gemini-2.5-flash",
@@ -159,7 +162,7 @@ export function isModelIdForProvider<P extends ModelProviderId>(
 
 /**
  * Look up a registry provider by served/reported id. Returns `undefined` for ids
- * the registry doesn't track (provider dated aliases like `gemini-2.5-pro-002`,
+ * the registry doesn't track (provider dated aliases like `gemini-3.5-flash-002`,
  * transcription models).
  */
 export function findModelProvider(id: string): ModelProviderId | undefined {
