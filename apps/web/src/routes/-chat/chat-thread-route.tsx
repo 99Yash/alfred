@@ -10,8 +10,13 @@ export function ChatThreadRoute() {
   const { setActiveThread } = useChatContext();
   const { thread, loading } = useChatThread(threadId);
 
+  // Publish the active thread so the sidebar highlights this row, and clear it
+  // on unmount. Without the cleanup, navigating back to bare `/chat` (⌘J, the
+  // "New chat" button, deleting the open thread) leaves the previous thread
+  // highlighted, since nothing else resets it. Mirrors the preview route.
   useLayoutEffect(() => {
     setActiveThread(threadId);
+    return () => setActiveThread("");
   }, [threadId, setActiveThread]);
 
   // Title comes from the synced thread (the worker derives it from the opening
