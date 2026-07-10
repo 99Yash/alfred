@@ -1,4 +1,4 @@
-import { getBossModel, meteredGenerateText, stepCountIs } from "@alfred/ai";
+import { getBossModel, isStepCount, meteredGenerateText } from "@alfred/ai";
 import type { ColdStartSignals } from "./signals";
 import { buildColdStartWebTool } from "./web-tool";
 
@@ -87,10 +87,10 @@ export async function resolveIdentity(args: ResolveIdentityArgs): Promise<Identi
   const result = await meteredGenerateText(
     {
       model: getBossModel(),
-      system: SYSTEM_PROMPT,
+      instructions: SYSTEM_PROMPT,
       prompt: buildPrompt(args.signals),
       tools: web.tools,
-      stopWhen: stepCountIs(SEED_MAX_STEPS),
+      stopWhen: isStepCount(SEED_MAX_STEPS),
       maxOutputTokens: 1_000,
       temperature: 0,
     },

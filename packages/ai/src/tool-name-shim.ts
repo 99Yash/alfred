@@ -1,7 +1,7 @@
 import { wrapLanguageModel, type LanguageModelMiddleware } from "ai";
-// ai-retry's `LanguageModel` alias is the concrete `LanguageModelV3` instance
+// ai-retry's `LanguageModel` alias is the concrete `LanguageModelV4` instance
 // type — the same narrowing `provider.ts` and `withFallback` use.
-import type { LanguageModel as LanguageModelV3 } from "ai-retry";
+import type { LanguageModel as LanguageModelV4 } from "ai-retry";
 
 /**
  * Provider-boundary shim for our dotted tool-name convention.
@@ -110,7 +110,7 @@ function decodeStreamPart(part: StreamPart): StreamPart {
 }
 
 const toolNameShimMiddleware: LanguageModelMiddleware = {
-  specificationVersion: "v3",
+  specificationVersion: "v4",
   transformParams: async ({ params }) => encodeParams(params),
   wrapGenerate: async ({ doGenerate }) => {
     const result = await doGenerate();
@@ -138,6 +138,6 @@ const toolNameShimMiddleware: LanguageModelMiddleware = {
  * no tool names). Provider/modelId are proxied unchanged, so cost attribution and
  * the served-model id (#216) still see the real `anthropic`/`google` + model id.
  */
-export function withToolNameShim(model: LanguageModelV3): LanguageModelV3 {
-  return wrapLanguageModel({ model, middleware: toolNameShimMiddleware }) as LanguageModelV3;
+export function withToolNameShim(model: LanguageModelV4): LanguageModelV4 {
+  return wrapLanguageModel({ model, middleware: toolNameShimMiddleware }) as LanguageModelV4;
 }

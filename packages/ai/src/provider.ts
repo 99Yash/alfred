@@ -1,13 +1,14 @@
 import { anthropic, type AnthropicLanguageModelOptions } from "@ai-sdk/anthropic";
 import { google, type GoogleLanguageModelOptions } from "@ai-sdk/google";
+import { openai, type OpenAILanguageModelResponsesOptions } from "@ai-sdk/openai";
 import type { ChatModelTier } from "@alfred/contracts";
-import { APICallError, type LanguageModel, type ToolSet } from "ai";
-// ai-retry's `LanguageModel` alias is `LanguageModelV3` — the concrete model
+import { APICallError, generateText, type LanguageModel, type ToolSet } from "ai";
+// ai-retry's `LanguageModel` alias is `LanguageModelV4` — the concrete model
 // instances our provider factories return, deliberately narrower than `ai`'s
 // `LanguageModel` union (which also admits gateway string ids). Same narrowing
 // warden does; see its packages/ai/src/models.ts.
-import type { LanguageModel as LanguageModelV3 } from "ai-retry";
-import { createRetryable, error, timeout } from "ai-retry/experimental/language-model";
+import type { LanguageModel as LanguageModelV4 } from "ai-retry";
+import { createRetryableModel, error, or, timeout } from "ai-retry/language-model";
 import {
   type EffortLevel,
   EFFORT_LEVELS,
@@ -27,8 +28,9 @@ export type { ChatModelTier };
 
 type AnthropicChatProviderOptions = Pick<AnthropicLanguageModelOptions, "thinking" | "effort">;
 type GoogleChatProviderOptions = Pick<GoogleLanguageModelOptions, "thinkingConfig">;
+type OpenAIChatProviderOptions = Pick<OpenAILanguageModelResponsesOptions, "reasoningEffort">;
 type AnthropicEffortLevel = NonNullable<AnthropicChatProviderOptions["effort"]>;
-type ChatProviderOptions = Record<string, Record<string, unknown>>;
+type ChatProviderOptions = NonNullable<Parameters<typeof generateText>[0]["providerOptions"]>;
 type ToolNameProviderPolicy = {
   readonly toolNameShim: boolean;
   readonly toolNameMaxLen: number;
@@ -37,6 +39,7 @@ type ToolNameProviderPolicy = {
 export const TOOL_NAME_PROVIDER_POLICIES = {
   anthropic: { toolNameShim: true, toolNameMaxLen: 128 },
   google: { toolNameShim: true, toolNameMaxLen: 64 },
+  openai: { toolNameShim: true, toolNameMaxLen: 64 },
 } as const satisfies Record<ModelProviderId, ToolNameProviderPolicy>;
 
 /**
@@ -127,6 +130,16 @@ const PROVIDER_DISPATCH = {
       return { thinkingConfig: { includeThoughts: true, thinkingBudget: -1 } };
     },
   },
+  openai: {
+    ...TOOL_NAME_PROVIDER_POLICIES.openai,
+    reasoningOptions(modelId: ModelId, effort: EffortLevel): OpenAIChatProviderOptions {
+      const { effortValues } = MODEL_CAPABILITIES[modelId];
+      if (effortValues.length === 0) {
+        throw new Error(`${modelId} has no OpenAI reasoning-effort vocabulary`);
+      }
+      return { reasoningEffort: clampEffort(effort, effortValues) };
+    },
+  },
 } as const satisfies Record<ModelProviderId, ProviderDispatch>;
 
 export function getShimmedToolNameMaxLen(): number {
@@ -150,6 +163,10 @@ const anthropicModel = (id: ModelIdFor<"anthropic">) =>
   PROVIDER_DISPATCH.anthropic.toolNameShim ? withToolNameShim(anthropic(id)) : anthropic(id);
 const googleModel = (id: ModelIdFor<"google">) =>
   PROVIDER_DISPATCH.google.toolNameShim ? withToolNameShim(google(id)) : google(id);
+const openaiModel = (id: ModelIdFor<"openai">) =>
+  PROVIDER_DISPATCH.openai.toolNameShim
+    ? withToolNameShim(openai.responses(id))
+    : openai.responses(id);
 
 function assertModelProvider<P extends ModelProviderId>(
   id: ModelId,
@@ -164,7 +181,7 @@ function providerForModel(id: ModelId): ModelProviderId {
   return MODEL_REGISTRY[id];
 }
 
-function modelForId(id: ModelId): LanguageModelV3 {
+function modelForId(id: ModelId): LanguageModelV4 {
   const provider = providerForModel(id);
   switch (provider) {
     case "anthropic":
@@ -173,11 +190,42 @@ function modelForId(id: ModelId): LanguageModelV3 {
     case "google":
       assertModelProvider(id, "google");
       return googleModel(id);
+    case "openai":
+      assertModelProvider(id, "openai");
+      return openaiModel(id);
     default: {
       const _exhaustive: never = provider;
       return _exhaustive;
     }
   }
+}
+
+/** Construct any language model in Alfred's closed registry. */
+export function getRegisteredModel(id: ModelId): LanguageModel {
+  return modelForId(id);
+}
+
+/** Provider-namespaced reasoning options for an explicitly selected registry model. */
+export function getRegisteredModelProviderOptions(
+  id: ModelId,
+  effort: EffortLevel,
+): ChatProviderOptions {
+  const provider = MODEL_REGISTRY[id];
+  return { [provider]: PROVIDER_DISPATCH[provider].reasoningOptions(id, effort) };
+}
+
+export type ProviderAvailability = Readonly<Record<ModelProviderId, boolean>>;
+
+/**
+ * Filter a candidate chain before construction/dispatch. OpenAI is optional in
+ * Alfred's environment, so a missing key must remove it here instead of
+ * surfacing as a non-retryable 401 after another provider has already failed.
+ */
+export function selectAvailableModelIds(
+  candidates: readonly ModelId[],
+  availability: ProviderAvailability,
+): ModelId[] {
+  return candidates.filter((id) => availability[MODEL_REGISTRY[id]]);
 }
 
 /**
@@ -327,7 +375,7 @@ export function getChatProviderOptions(tier: ChatModelTier = "standard"): ChatPr
  * Wrap a primary model so a failed call degrades to `fallback` (warden's
  * `createRetryable` pattern — memory `feedback_ai_retry_preference`; the
  * earlier V2/V3 spec-mismatch blocker cleared with `@ai-sdk/*@3.0.x`, which
- * emit `LanguageModelV3`).
+ * emit `LanguageModelV4`).
  *
  * Cascade, evaluated per failed attempt:
  *   1. Transient errors (provider-flagged retryable — 429/529/overload — or
@@ -372,7 +420,7 @@ function isQuotaOrBillingError(e: APICallError): boolean {
   );
 }
 
-export function withFallback(primary: LanguageModelV3, fallback: LanguageModelV3): LanguageModel {
+export function withFallback(primary: LanguageModelV4, fallback: LanguageModelV4): LanguageModel {
   // True for any error worth degrading to the fallback; false for a
   // non-retryable client bug we want to surface. Built with the raw `error`
   // helper (not `.not()`) so it is inherently error-only — `.not()` of an error
@@ -391,10 +439,10 @@ export function withFallback(primary: LanguageModelV3, fallback: LanguageModelV3
     }
     return true;
   });
-  return createRetryable({
+  return createRetryableModel({
     model: primary,
     retries: [
-      error.isRetryable(true).or(timeout()).retry({ delay: 1_000, maxAttempts: 2 }),
+      or(error.isRetryable(true), timeout()).retry({ delay: 1_000, maxAttempts: 2 }),
       shouldSwitch.switch({ model: fallback }),
     ],
   });

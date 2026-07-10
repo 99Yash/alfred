@@ -1,4 +1,4 @@
-import { getSubAgentModel, meteredGenerateText, stepCountIs } from "@alfred/ai";
+import { getSubAgentModel, isStepCount, meteredGenerateText } from "@alfred/ai";
 import type { IdentityAnchor } from "./seed";
 import type { ColdStartSignals } from "./signals";
 import { buildColdStartWebTool } from "./web-tool";
@@ -126,10 +126,10 @@ async function runAspect(args: {
   const result = await meteredGenerateText(
     {
       model: getSubAgentModel(),
-      system: SYSTEM_PROMPT,
+      instructions: SYSTEM_PROMPT,
       prompt: buildPrompt(args),
       tools: web.tools,
-      stopWhen: stepCountIs(ASPECT_MAX_STEPS),
+      stopWhen: isStepCount(ASPECT_MAX_STEPS),
       maxOutputTokens: ASPECT_MAX_OUTPUT_TOKENS,
       temperature: 0,
       abortSignal: args.abortSignal,

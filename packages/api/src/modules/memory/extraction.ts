@@ -109,7 +109,7 @@ export async function extractFactsFromDocument(args: ExtractDocumentArgs): Promi
   const result = await meteredGenerateObject<z.infer<typeof extractionResultSchema>>(
     {
       model: getCheapModel(),
-      system: SYSTEM_PROMPT,
+      instructions: SYSTEM_PROMPT,
       prompt: userPrompt(args),
       schema: extractionResultSchema,
       temperature: 0,

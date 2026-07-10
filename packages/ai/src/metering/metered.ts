@@ -100,7 +100,7 @@ export async function metered<T>(
  * Streaming sibling of `metered()`. A streamed call can't be metered with a
  * single await — `streamText` returns immediately and usage is only known
  * once the stream finishes. So instead of wrapping a thunk, this hands the
- * caller two callbacks to wire into the SDK's `onFinish` / `onError` hooks:
+ * caller two callbacks to wire into the SDK's `onEnd` / `onError` hooks:
  *
  *   - `finish(result)` — call once when the stream completes, with the same
  *     `MeteredResult` shape `metered()`'s extractor returns. Computes cost,
@@ -109,7 +109,7 @@ export async function metered<T>(
  *     span. The caller still rethrows/propagates as it sees fit.
  *
  * Both are idempotent — only the first call lands — so wiring them into both
- * `onFinish` and a `try/catch` is safe. The span opens synchronously here so
+ * `onEnd` and a `try/catch` is safe. The span opens synchronously here so
  * latency is measured from before the model call, matching `metered()`.
  */
 export function meteredStream<T>(
@@ -193,6 +193,7 @@ async function writeLogRow(args: WriteArgs): Promise<void> {
         inputTokens: usage?.inputTokens,
         outputTokens: usage?.outputTokens,
         cachedInputTokens: usage?.cachedInputTokens,
+        cacheWriteInputTokens: usage?.cacheWriteInputTokens,
         costUsd: costUsd.toFixed(8),
         latencyMs,
         userId: meta.userId,

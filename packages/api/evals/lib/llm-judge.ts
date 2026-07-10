@@ -87,10 +87,10 @@ export function llmJudgeScorer<TInput, TOutput, TExpected>(
         const result = await generateObject({
           model: opts.model ?? getChatModel("standard"),
           schema: judgeOutputSchema,
-          system: `${JUDGE_PREAMBLE}\n\nRubric:\n${opts.rubric}`,
+          instructions: `${JUDGE_PREAMBLE}\n\nRubric:\n${opts.rubric}`,
           prompt: opts.prompt({ input, output, expected }),
           temperature: 0,
-          timeout: { totalMs: 60_000 },
+          abortSignal: AbortSignal.timeout(60_000),
         });
         return {
           score: GRADE_TO_SCORE[result.object.grade],

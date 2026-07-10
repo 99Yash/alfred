@@ -38,7 +38,7 @@ interface ModelsDevReasoningOption {
 
 interface ModelsDevModel {
   id: string;
-  cost?: { input?: number; output?: number; cache_read?: number };
+  cost?: { input?: number; output?: number; cache_read?: number; cache_write?: number };
   limit?: { context?: number; output?: number };
   modalities?: { input?: string[]; output?: string[] };
   reasoning?: boolean;
@@ -60,6 +60,7 @@ const STATIC_PRICES: Array<{
   inputPerMtok: number;
   outputPerMtok: number;
   cachedInputPerMtok: number | null;
+  cacheWriteInputPerMtok: number | null;
   perCallUsd: number | null;
   contextWindow: number | null;
   metadata?: Record<string, unknown>;
@@ -72,6 +73,7 @@ const STATIC_PRICES: Array<{
     inputPerMtok: 0.18,
     outputPerMtok: 0,
     cachedInputPerMtok: null,
+    cacheWriteInputPerMtok: null,
     perCallUsd: null,
     contextWindow: null,
   },
@@ -81,6 +83,7 @@ const STATIC_PRICES: Array<{
     inputPerMtok: 0.06,
     outputPerMtok: 0,
     cachedInputPerMtok: null,
+    cacheWriteInputPerMtok: null,
     perCallUsd: null,
     contextWindow: null,
   },
@@ -90,6 +93,7 @@ const STATIC_PRICES: Array<{
     inputPerMtok: 0.05,
     outputPerMtok: 0,
     cachedInputPerMtok: null,
+    cacheWriteInputPerMtok: null,
     perCallUsd: null,
     contextWindow: null,
   },
@@ -101,6 +105,7 @@ interface PriceRow {
   inputPerMtok: number;
   outputPerMtok: number;
   cachedInputPerMtok: number | null;
+  cacheWriteInputPerMtok: number | null;
   perCallUsd: number | null;
   contextWindow: number | null;
   source: string;
@@ -134,6 +139,7 @@ function flattenCatalog(catalog: ModelsDevCatalog): PriceRow[] {
         inputPerMtok: cost.input,
         outputPerMtok: cost.output,
         cachedInputPerMtok: cost.cache_read ?? null,
+        cacheWriteInputPerMtok: cost.cache_write ?? null,
         perCallUsd: null,
         contextWindow: m.limit?.context ?? null,
         source: "models.dev",
@@ -163,6 +169,7 @@ function pricesEqual(
     inputPerMtok: number;
     outputPerMtok: number;
     cachedInputPerMtok: number | null;
+    cacheWriteInputPerMtok: number | null;
     perCallUsd: number | null;
     contextWindow: number | null;
   },
@@ -170,6 +177,7 @@ function pricesEqual(
     inputPerMtok: number;
     outputPerMtok: number;
     cachedInputPerMtok: number | null;
+    cacheWriteInputPerMtok: number | null;
     perCallUsd: number | null;
     contextWindow: number | null;
   },
@@ -178,6 +186,7 @@ function pricesEqual(
     a.inputPerMtok === b.inputPerMtok &&
     a.outputPerMtok === b.outputPerMtok &&
     a.cachedInputPerMtok === b.cachedInputPerMtok &&
+    a.cacheWriteInputPerMtok === b.cacheWriteInputPerMtok &&
     a.perCallUsd === b.perCallUsd &&
     a.contextWindow === b.contextWindow
   );
@@ -219,7 +228,7 @@ function safeCauseMessage(err: unknown): string | undefined {
 
 async function upsertIfChanged(row: PriceRow): Promise<"inserted" | "unchanged"> {
   const existing = await db().execute(sql`
-    SELECT input_per_mtok, output_per_mtok, cached_input_per_mtok, per_call_usd, context_window, metadata
+    SELECT input_per_mtok, output_per_mtok, cached_input_per_mtok, cache_write_input_per_mtok, per_call_usd, context_window, metadata
     FROM model_prices
     WHERE provider = ${row.provider} AND model = ${row.model}
     ORDER BY valid_from DESC
@@ -229,6 +238,7 @@ async function upsertIfChanged(row: PriceRow): Promise<"inserted" | "unchanged">
     input_per_mtok: string;
     output_per_mtok: string;
     cached_input_per_mtok: string | null;
+    cache_write_input_per_mtok: string | null;
     per_call_usd: string | null;
     context_window: number | null;
     metadata: unknown;
@@ -242,6 +252,10 @@ async function upsertIfChanged(row: PriceRow): Promise<"inserted" | "unchanged">
           outputPerMtok: Number(latest.output_per_mtok),
           cachedInputPerMtok:
             latest.cached_input_per_mtok != null ? Number(latest.cached_input_per_mtok) : null,
+          cacheWriteInputPerMtok:
+            latest.cache_write_input_per_mtok != null
+              ? Number(latest.cache_write_input_per_mtok)
+              : null,
           perCallUsd: latest.per_call_usd != null ? Number(latest.per_call_usd) : null,
           contextWindow: latest.context_window,
         },
@@ -258,6 +272,8 @@ async function upsertIfChanged(row: PriceRow): Promise<"inserted" | "unchanged">
       inputPerMtok: row.inputPerMtok.toString(),
       outputPerMtok: row.outputPerMtok.toString(),
       cachedInputPerMtok: row.cachedInputPerMtok != null ? row.cachedInputPerMtok.toString() : null,
+      cacheWriteInputPerMtok:
+        row.cacheWriteInputPerMtok != null ? row.cacheWriteInputPerMtok.toString() : null,
       perCallUsd: row.perCallUsd != null ? row.perCallUsd.toString() : null,
       contextWindow: row.contextWindow,
       metadata: { source: row.source, ...row.metadata },

@@ -227,7 +227,7 @@ const bossTurnStep: Step<BriefRunState> = {
     );
     const nextTranscript = appendModelResponseMessages(
       transcript,
-      result.raw.response.messages as AgentTranscriptMessage[],
+      result.raw.responseMessages as AgentTranscriptMessage[],
       stepCallIds,
     );
     state.inFlightTailStart = transcript.length;

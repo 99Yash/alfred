@@ -12,7 +12,7 @@ import { runWebSearch } from "../tools/web-search";
  * Why local-execute rather than `system.spawn_sub_agent`: cold-start is a
  * deterministic onboarding workflow, not a boss-driven autonomous run. We want
  * the agent harness (a model that picks its own queries and adapts to what it
- * finds), but bounded — `meteredGenerateText` + `stopWhen(stepCountIs(n))`
+ * finds), but bounded — `meteredGenerateText` + `stopWhen(isStepCount(n))`
  * gives exactly that without the separate `agent_runs` / queue / dispatch
  * machinery the spawn path carries, which is far too heavy and slow for a
  * signup callback.

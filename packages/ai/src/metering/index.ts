@@ -2,6 +2,7 @@ export { metered } from "./metered";
 export {
   meteredGenerateText,
   meteredGenerateObject,
+  meteredStreamText,
   meteredEmbed,
   type AttributedCall,
 } from "./wrappers";

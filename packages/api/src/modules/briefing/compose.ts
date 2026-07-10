@@ -120,7 +120,7 @@ export async function composeBriefing(args: ComposeBriefingArgs): Promise<Compos
         schemaName: "briefing_composer",
         schemaDescription:
           "Composes a concise daily briefing from gathered email, calendar, integration activity, weather, and day context.",
-        system: BRIEFING_COMPOSER_SYSTEM_PROMPT,
+        instructions: BRIEFING_COMPOSER_SYSTEM_PROMPT,
         prompt: buildComposerPrompt(args),
         temperature: 0.2,
         maxOutputTokens: 2_500,

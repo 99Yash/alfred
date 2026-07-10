@@ -7,6 +7,7 @@ const PRICE: PriceLookup = {
   inputPerMtok: 3, // $3 / Mtok uncached input
   outputPerMtok: 15, // $15 / Mtok output
   cachedInputPerMtok: 0.3, // $0.30 / Mtok cache read
+  cacheWriteInputPerMtok: 3.75, // $3.75 / Mtok cache write
   perCallUsd: null,
   contextWindow: 200_000,
 };
@@ -54,5 +55,38 @@ describe("computeCost", () => {
     );
     // 200k @ $3 + 800k @ $3 (fallback) = 1M @ $3 = 3
     assert.ok(Math.abs(cost - 3) < 1e-9, `expected ~3, got ${cost}`);
+  });
+
+  test("bills mixed uncached, cache-read, cache-write, and output usage exactly once", () => {
+    const cost = computeCost(PRICE, {
+      inputTokens: 1_000_000,
+      cachedInputTokens: 300_000,
+      cacheWriteInputTokens: 200_000,
+      outputTokens: 100_000,
+    });
+    // 500k uncached @ $3 + 300k read @ $0.30 + 200k write @ $3.75 + 100k output @ $15
+    assert.ok(Math.abs(cost - 3.84) < 1e-9, `expected ~3.84, got ${cost}`);
+  });
+
+  test("falls back to the input rate when no cache-write rate is configured", () => {
+    const cost = computeCost(
+      { ...PRICE, cacheWriteInputPerMtok: null },
+      { inputTokens: 1_000_000, cacheWriteInputTokens: 800_000, outputTokens: 0 },
+    );
+    assert.ok(Math.abs(cost - 3) < 1e-9, `expected ~3, got ${cost}`);
+  });
+
+  test("charges GPT-5.6 Luna cache writes at 1.25x input", () => {
+    const cost = computeCost(
+      {
+        ...PRICE,
+        inputPerMtok: 1,
+        outputPerMtok: 6,
+        cachedInputPerMtok: 0.1,
+        cacheWriteInputPerMtok: 1.25,
+      },
+      { inputTokens: 1_000_000, cacheWriteInputTokens: 1_000_000, outputTokens: 0 },
+    );
+    assert.equal(cost, 1.25);
   });
 });

@@ -8,5 +8,5 @@
  * schema, then plug into `meteredGenerateText` (one-shot) or
  * `AlfredAgent` (durable per-turn) from this package.
  */
-export { stepCountIs, streamText, tool } from "ai";
+export { isStepCount, streamText, tool } from "ai";
 export type { LanguageModel, ModelMessage, Tool, ToolSet, TypedToolCall } from "ai";

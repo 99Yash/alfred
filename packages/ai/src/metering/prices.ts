@@ -21,6 +21,7 @@ interface CachedPrice {
   inputPerMtok: number;
   outputPerMtok: number;
   cachedInputPerMtok: number | null;
+  cacheWriteInputPerMtok: number | null;
   perCallUsd: number | null;
   contextWindow: number | null;
   fetchedAt: number;
@@ -32,6 +33,7 @@ export interface PriceLookup {
   inputPerMtok: number;
   outputPerMtok: number;
   cachedInputPerMtok: number | null;
+  cacheWriteInputPerMtok: number | null;
   perCallUsd: number | null;
   /**
    * Max input tokens the model accepts in a single request. Seeded by
@@ -67,6 +69,8 @@ async function fetchPrice(provider: string, model: string): Promise<PriceLookup 
     inputPerMtok: Number(row.inputPerMtok),
     outputPerMtok: Number(row.outputPerMtok),
     cachedInputPerMtok: row.cachedInputPerMtok != null ? Number(row.cachedInputPerMtok) : null,
+    cacheWriteInputPerMtok:
+      row.cacheWriteInputPerMtok != null ? Number(row.cacheWriteInputPerMtok) : null,
     perCallUsd: row.perCallUsd != null ? Number(row.perCallUsd) : null,
     contextWindow: row.contextWindow ?? null,
   };
@@ -80,6 +84,7 @@ export async function getPrice(provider: string, model: string): Promise<PriceLo
       inputPerMtok: cached.inputPerMtok,
       outputPerMtok: cached.outputPerMtok,
       cachedInputPerMtok: cached.cachedInputPerMtok,
+      cacheWriteInputPerMtok: cached.cacheWriteInputPerMtok,
       perCallUsd: cached.perCallUsd,
       contextWindow: cached.contextWindow,
     };
@@ -127,17 +132,22 @@ export function computeCost(price: PriceLookup | null, usage: CallUsage | undefi
   // The SDK's `inputTokens` is the TOTAL prompt, INCLUDING cache reads
   // (anthropic/google both report total = uncached + cache_creation +
   // cache_read). Bill only the uncached remainder at the full input rate, then
-  // add cache reads at the cached rate — otherwise cache reads are charged
-  // twice (full rate via the total, plus the cached rate). Cache-creation
-  // (write) tokens, lacking a dedicated price column, fall into the uncached
-  // remainder and are billed at the plain input rate.
+  // add cache reads and writes at their own rates — otherwise either category
+  // is charged twice (full rate via the total, plus its cache rate).
   const cachedInputTokens = usage.cachedInputTokens ?? 0;
-  const uncachedInput = Math.max(0, (usage.inputTokens ?? 0) - cachedInputTokens) / 1_000_000;
+  const cacheWriteInputTokens = usage.cacheWriteInputTokens ?? 0;
+  const uncachedInput =
+    Math.max(0, (usage.inputTokens ?? 0) - cachedInputTokens - cacheWriteInputTokens) / 1_000_000;
   const cachedInput = cachedInputTokens / 1_000_000;
+  const cacheWriteInput = cacheWriteInputTokens / 1_000_000;
   const output = (usage.outputTokens ?? 0) / 1_000_000;
   const cachedRate = price.cachedInputPerMtok ?? price.inputPerMtok;
+  const cacheWriteRate = price.cacheWriteInputPerMtok ?? price.inputPerMtok;
   return (
-    uncachedInput * price.inputPerMtok + cachedInput * cachedRate + output * price.outputPerMtok
+    uncachedInput * price.inputPerMtok +
+    cachedInput * cachedRate +
+    cacheWriteInput * cacheWriteRate +
+    output * price.outputPerMtok
   );
 }
 

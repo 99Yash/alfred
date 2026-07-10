@@ -14,6 +14,8 @@ export const MODEL_IDS = [
   "gemini-2.5-pro",
   "gemini-2.5-flash",
   "gemini-2.5-flash-lite",
+  "gpt-5.6-sol",
+  "gpt-5.6-luna",
 ] as const;
 
 export const modelIdSchema = z.enum(MODEL_IDS);
@@ -22,9 +24,8 @@ export type ModelId = z.infer<typeof modelIdSchema>;
 /**
  * Providers Alfred dispatches to. A closed, hand-enumerated set: adding one is
  * a real code change (new provider factory + `model_prices` rows), not data.
- * `openai` is a member because the transcription path meters through it
- * ({@link ../transcription}); it has no `MODEL_REGISTRY` entry because the
- * registry tracks *language* models only.
+ * `openai` also owns transcription, but its GPT entries below are language
+ * models dispatched through the Responses API.
  */
 export const PROVIDER_IDS = ["anthropic", "google", "openai"] as const;
 export const providerIdSchema = z.enum(PROVIDER_IDS);
@@ -51,6 +52,8 @@ export const MODEL_REGISTRY = {
   "gemini-2.5-pro": "google",
   "gemini-2.5-flash": "google",
   "gemini-2.5-flash-lite": "google",
+  "gpt-5.6-sol": "openai",
+  "gpt-5.6-luna": "openai",
 } as const satisfies Record<ModelId, ProviderId>;
 
 /** Providers that currently have language models in {@link MODEL_REGISTRY}. */
@@ -107,7 +110,7 @@ export interface ModelCapabilities {
 }
 
 /**
- * The closed capability map for the six registered ids. `as const satisfies
+ * The closed capability map for every registered id. `as const satisfies
  * Record<ModelId, …>` forces an entry for every model (a missing or unknown key
  * is a compile error) while preserving the literal `effortValues` tuples so the
  * provider dispatch can clamp against them.
@@ -122,6 +125,14 @@ export const MODEL_CAPABILITIES = {
   "gemini-2.5-pro": { effortValues: [], temperature: true }, // budget-based; effort N/A
   "gemini-2.5-flash": { effortValues: [], temperature: true },
   "gemini-2.5-flash-lite": { effortValues: [], temperature: true },
+  "gpt-5.6-sol": {
+    effortValues: ["none", "low", "medium", "high", "xhigh", "max"],
+    temperature: false,
+  },
+  "gpt-5.6-luna": {
+    effortValues: ["none", "low", "medium", "high", "xhigh", "max"],
+    temperature: false,
+  },
 } as const satisfies Record<ModelId, ModelCapabilities>;
 
 /** `true` when `id` is a known registry model id (narrows to `ModelId`). */
@@ -169,8 +180,8 @@ export function normalizeProvider(raw: string): string {
 
 /**
  * Resolve `{ provider, modelId }` from an AI SDK `LanguageModel`. The SDK's
- * `LanguageModel` union is `string | LanguageModelV2 | LanguageModelV3`; both
- * object members expose `provider` + `modelId`, so a plain `typeof === "object"`
+ * `LanguageModel` includes gateway strings and versioned model objects. Every
+ * object member exposes `provider` + `modelId`, so a plain `typeof === "object"`
  * narrows without the old `"provider" in model` duck-typing. The single home
  * for this logic — `prices.ts` and the metering wrappers both call it instead
  * of re-implementing provider-head splitting.
