@@ -3,8 +3,13 @@ import type { AttributionKind } from "@alfred/contracts";
 /** What `metered()` writes to `api_call_log`. Extracted post-hoc from the SDK result. */
 export interface CallUsage {
   inputTokens?: number;
+  /** Canonical non-cached prompt tokens reported by AI SDK 7. */
+  noCacheInputTokens?: number;
   outputTokens?: number;
   cachedInputTokens?: number;
+  cacheWriteInputTokens?: number;
+  /** Cache retention used for writes in this call, when the provider prices it differently. */
+  cacheWriteTtl?: "5m" | "1h";
 }
 
 /**

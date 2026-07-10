@@ -103,7 +103,7 @@ export async function composeSkillDocumentation(args: ComposeArgs): Promise<Comp
   const result = await meteredGenerateText(
     {
       model: getBossModel(),
-      system: SYSTEM_PROMPT,
+      instructions: SYSTEM_PROMPT,
       prompt: buildUserPrompt(args.context),
       temperature: 0.2,
       maxOutputTokens: 2_000,
@@ -123,7 +123,7 @@ export async function composeSkillDocumentation(args: ComposeArgs): Promise<Comp
 
   return {
     body: result.text.trim(),
-    inputTokens: result.totalUsage?.inputTokens,
-    outputTokens: result.totalUsage?.outputTokens,
+    inputTokens: result.usage?.inputTokens,
+    outputTokens: result.usage?.outputTokens,
   };
 }

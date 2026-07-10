@@ -105,7 +105,7 @@ function extractSearchQueries(providerMetadata: unknown): string[] {
  * Pull `{ url, title }` sources out of the AI SDK result. Gemini grounding
  * surfaces them two ways, both of which we read and dedupe by url (order-
  * preserving):
- *   1. `result.sources` — the v6 standard `url`-typed source parts the SDK
+ *   1. `result.sources` — the standard `url`-typed source parts the SDK
  *      lifts out of grounding chunks (each carries `url` + `title`).
  *   2. `providerMetadata.google.groundingMetadata.groundingChunks[].web`
  *      — the raw grounding payload (`uri` + `title`), in case the SDK didn't
@@ -173,7 +173,7 @@ export async function runWebSearch(args: WebSearchArgs): Promise<WebSearchResult
 
   const citations = extractCitations(
     result.sources as ReadonlyArray<{ url?: string; title?: string }> | undefined,
-    result.providerMetadata,
+    result.finalStep.providerMetadata,
   );
 
   return {
@@ -183,6 +183,6 @@ export async function runWebSearch(args: WebSearchArgs): Promise<WebSearchResult
       url: source.url,
       ...(source.title ? { title: source.title } : {}),
     })),
-    searchQueries: extractSearchQueries(result.providerMetadata),
+    searchQueries: extractSearchQueries(result.finalStep.providerMetadata),
   };
 }

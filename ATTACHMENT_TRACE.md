@@ -118,8 +118,8 @@ The endpoint receives:
 ```typescript
 export function getChatModel(tier: ChatModelTier = "standard"): LanguageModel {
   return tier === "deep"
-    ? withFallback(anthropicModel("claude-opus-4-8"), googleModel("gemini-2.5-pro"))
-    : withFallback(anthropicModel("claude-sonnet-4-6"), googleModel("gemini-2.5-pro"));
+    ? withFallback(anthropicModel("claude-opus-4-8"), googleModel("gemini-3.5-flash"))
+    : withFallback(anthropicModel("claude-sonnet-4-6"), googleModel("gemini-3.5-flash"));
 }
 ```
 

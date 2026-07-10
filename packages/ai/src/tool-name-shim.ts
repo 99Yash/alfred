@@ -1,7 +1,7 @@
 import { wrapLanguageModel, type LanguageModelMiddleware } from "ai";
-// ai-retry's `LanguageModel` alias is the concrete `LanguageModelV3` instance
+// ai-retry's `LanguageModel` alias is the concrete `LanguageModelV4` instance
 // type — the same narrowing `provider.ts` and `withFallback` use.
-import type { LanguageModel as LanguageModelV3 } from "ai-retry";
+import type { LanguageModel as LanguageModelV4 } from "ai-retry";
 
 /**
  * Provider-boundary shim for our dotted tool-name convention.
@@ -110,7 +110,7 @@ function decodeStreamPart(part: StreamPart): StreamPart {
 }
 
 const toolNameShimMiddleware: LanguageModelMiddleware = {
-  specificationVersion: "v3",
+  specificationVersion: "v4",
   transformParams: async ({ params }) => encodeParams(params),
   wrapGenerate: async ({ doGenerate }) => {
     const result = await doGenerate();
@@ -133,11 +133,11 @@ const toolNameShimMiddleware: LanguageModelMiddleware = {
  * Wrap a model so the dotted `integration.action` tool names survive the round
  * trip through a provider that can't carry the `.` (Anthropic rejects it; Google
  * strips the prefix). Applied per `PROVIDER_DISPATCH[provider].toolNameShim`, so
- * the factory wraps every provider whose policy demands it (Anthropic + Google
- * today). Harmless on tool-less calls (the middleware is a no-op when there are
+ * the factory wraps every provider whose policy demands it. Harmless on
+ * tool-less calls (the middleware is a no-op when there are
  * no tool names). Provider/modelId are proxied unchanged, so cost attribution and
  * the served-model id (#216) still see the real `anthropic`/`google` + model id.
  */
-export function withToolNameShim(model: LanguageModelV3): LanguageModelV3 {
-  return wrapLanguageModel({ model, middleware: toolNameShimMiddleware }) as LanguageModelV3;
+export function withToolNameShim(model: LanguageModelV4): LanguageModelV4 {
+  return wrapLanguageModel({ model, middleware: toolNameShimMiddleware }) as LanguageModelV4;
 }

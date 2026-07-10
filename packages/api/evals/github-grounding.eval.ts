@@ -85,7 +85,7 @@ const CASES: Case[] = [
 function runFirstCall(input: string) {
   return generateText({
     model: getChatModel("standard"),
-    system: SYSTEM,
+    instructions: SYSTEM,
     prompt: input,
     temperature: 0,
     timeout: { totalMs: EVAL_TIMEOUT_MS },

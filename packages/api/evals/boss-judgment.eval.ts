@@ -15,7 +15,7 @@ import {
   webSearchInput,
 } from "@alfred/contracts";
 import { serverEnv } from "@alfred/env/server";
-import { type Tool, generateText, stepCountIs, tool } from "ai";
+import { type Tool, generateText, isStepCount, tool } from "ai";
 import { config as loadEnv } from "dotenv";
 import { evalite } from "evalite";
 import { z } from "zod";
@@ -242,7 +242,7 @@ function toolSurface(): Record<string, Tool> {
 async function runSourceChoice(input: string): Promise<TaskOutput> {
   const result = await generateText({
     model: getChatModel("standard"),
-    system: SYSTEM,
+    instructions: SYSTEM,
     prompt: input,
     timeout: { totalMs: EVAL_TIMEOUT_MS },
     providerOptions: providerOptions(),
@@ -316,7 +316,7 @@ async function runThinPersonResearchReplay(
 ): Promise<TaskOutput> {
   const result = await generateText({
     model: getChatModel(tier),
-    system: SYSTEM,
+    instructions: SYSTEM,
     messages: [
       { role: "user", content: "what do i know about sakshi" },
       {
@@ -328,7 +328,7 @@ async function runThinPersonResearchReplay(
     ],
     timeout: { totalMs: EVAL_TIMEOUT_MS },
     providerOptions: providerOptions(tier),
-    stopWhen: stepCountIs(5),
+    stopWhen: isStepCount(5),
     tools: {
       [READ_CONTEXT_TOOL]: tool({
         description: "Read Alfred's stored context about the user's people and projects.",
@@ -524,7 +524,7 @@ async function runPersonResearchDepth(
 ): Promise<TaskOutput> {
   const result = await generateText({
     model: getChatModel(tier),
-    system: SYSTEM,
+    instructions: SYSTEM,
     messages: [
       { role: "user", content: "what do we know about priya nair?" },
       {
@@ -536,7 +536,7 @@ async function runPersonResearchDepth(
     ],
     timeout: { totalMs: EVAL_TIMEOUT_MS },
     providerOptions: providerOptions(tier),
-    stopWhen: stepCountIs(6),
+    stopWhen: isStepCount(6),
     tools: {
       [READ_CONTEXT_TOOL]: tool({
         description: "Read Alfred's stored context about the user's people and projects.",
@@ -698,10 +698,10 @@ const SUB_AGENT_CASES: SubAgentCase[] = [
 async function runSubAgentInvestigation(brief: string): Promise<TaskOutput> {
   const result = await generateText({
     model: getSubAgentModel(),
-    system: SUB_SYSTEM,
+    instructions: SUB_SYSTEM,
     prompt: brief,
     timeout: { totalMs: EVAL_TIMEOUT_MS },
-    stopWhen: stepCountIs(6),
+    stopWhen: isStepCount(6),
     tools: {
       [WEB_SEARCH_TOOL]: tool({
         description: WEB_SEARCH_DESCRIPTION,

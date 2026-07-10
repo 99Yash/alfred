@@ -112,7 +112,7 @@ async function once(
 
   const res = streamText({
     model,
-    system: SYSTEM_PROMPT,
+    instructions: SYSTEM_PROMPT,
     messages: [{ role: "user", content: USER_PROMPT }],
     ...(tools ? { tools } : {}),
     maxOutputTokens: MAX_OUT,
@@ -125,7 +125,7 @@ async function once(
     },
   });
 
-  for await (const part of res.fullStream) {
+  for await (const part of res.stream) {
     const now = performance.now();
     const type = String((part as { type: string }).type);
     if (ttft === null && isContent(type)) ttft = now - t0;

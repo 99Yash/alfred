@@ -38,6 +38,8 @@ export const apiCallLog = pgTable(
     inputTokens: integer("input_tokens"),
     outputTokens: integer("output_tokens"),
     cachedInputTokens: integer("cached_input_tokens"),
+    /** Prompt tokens written to a paid provider cache during this call. */
+    cacheWriteInputTokens: integer("cache_write_input_tokens"),
     /** Snapshot at write time. numeric(12,8) keeps fractions of a cent across orders of magnitude. */
     costUsd: numeric("cost_usd", { precision: 12, scale: 8 }).notNull().default("0"),
     latencyMs: integer("latency_ms"),
@@ -81,6 +83,8 @@ export const modelPrices = pgTable(
     outputPerMtok: numeric("output_per_mtok", { precision: 12, scale: 6 }).notNull(),
     /** Cost per 1,000,000 cached-read input tokens (Anthropic prompt cache, etc.). NULL if unsupported. */
     cachedInputPerMtok: numeric("cached_input_per_mtok", { precision: 12, scale: 6 }),
+    /** Cost per 1,000,000 prompt-cache write tokens. NULL falls back to the normal input rate. */
+    cacheWriteInputPerMtok: numeric("cache_write_input_per_mtok", { precision: 12, scale: 6 }),
     /** Cost per call for fixed-fee endpoints (Perplexity, transcription). NULL when token-based. */
     perCallUsd: numeric("per_call_usd", { precision: 12, scale: 6 }),
     /** Model context window in tokens, populated from models.dev capability metadata when available. */

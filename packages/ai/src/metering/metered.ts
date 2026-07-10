@@ -6,6 +6,22 @@ import { computeCost, getPrice } from "./prices";
 import type { MeteredMeta, MeteredResult, ResultExtractor } from "./types";
 import { toMessage } from "@alfred/contracts";
 
+const pendingMeteringWrites = new Set<Promise<void>>();
+
+function enqueueMeteringWrite(write: Promise<void>): void {
+  const tracked = write
+    .catch((err) => console.warn("[metered] background settlement failed:", toMessage(err)))
+    .finally(() => pendingMeteringWrites.delete(tracked));
+  pendingMeteringWrites.add(tracked);
+}
+
+/** Wait for metering work already accepted by this process; used by scripts and shutdown. */
+export async function flushMeteringWrites(): Promise<void> {
+  while (pendingMeteringWrites.size > 0) {
+    await Promise.all(pendingMeteringWrites);
+  }
+}
+
 /**
  * Reconcile the pre-call attribution (`meta.provider`/`meta.model`, resolved
  * from the model object before dispatch) with the model the provider reports
@@ -14,7 +30,7 @@ import { toMessage } from "@alfred/contracts";
  *
  * Registry-gated: only a served id that maps to a known `MODEL_REGISTRY`
  * entry overrides the meta — providers echo dated aliases of the requested
- * model (e.g. `gemini-2.5-pro-002`) and those must not knock attribution to
+ * model (e.g. a dated Gemini alias) and those must not knock attribution to
  * `unknown`. A divergent-but-unrecognized id is still surfaced on
  * `response_meta.servedModelId` so the row is auditable.
  */
@@ -64,14 +80,16 @@ export async function metered<T>(
     const served = reconcileServed(meta, extracted);
     const price = await getPrice(served.provider, served.model);
     const costUsd = computeCost(price, extracted.usage);
-    void writeLogRow({
-      meta: { ...meta, provider: served.provider, model: served.model },
-      latencyMs,
-      usage: extracted.usage,
-      costUsd,
-      responseMeta: served.responseMeta,
-      error: null,
-    });
+    enqueueMeteringWrite(
+      writeLogRow({
+        meta: { ...meta, provider: served.provider, model: served.model },
+        latencyMs,
+        usage: extracted.usage,
+        costUsd,
+        responseMeta: served.responseMeta,
+        error: null,
+      }),
+    );
     span.success({
       usage: extracted.usage,
       costUsd,
@@ -83,14 +101,16 @@ export async function metered<T>(
   } catch (err) {
     const latencyMs = Date.now() - startedAt.getTime();
     const message = toMessage(err);
-    void writeLogRow({
-      meta,
-      latencyMs,
-      usage: undefined,
-      costUsd: 0,
-      responseMeta: undefined,
-      error: { message },
-    });
+    enqueueMeteringWrite(
+      writeLogRow({
+        meta,
+        latencyMs,
+        usage: undefined,
+        costUsd: 0,
+        responseMeta: undefined,
+        error: { message },
+      }),
+    );
     span.error(message);
     throw err;
   }
@@ -100,7 +120,7 @@ export async function metered<T>(
  * Streaming sibling of `metered()`. A streamed call can't be metered with a
  * single await — `streamText` returns immediately and usage is only known
  * once the stream finishes. So instead of wrapping a thunk, this hands the
- * caller two callbacks to wire into the SDK's `onFinish` / `onError` hooks:
+ * caller two callbacks to wire into the SDK's `onEnd` / `onError` hooks:
  *
  *   - `finish(result)` — call once when the stream completes, with the same
  *     `MeteredResult` shape `metered()`'s extractor returns. Computes cost,
@@ -109,7 +129,7 @@ export async function metered<T>(
  *     span. The caller still rethrows/propagates as it sees fit.
  *
  * Both are idempotent — only the first call lands — so wiring them into both
- * `onFinish` and a `try/catch` is safe. The span opens synchronously here so
+ * `onEnd` and a `try/catch` is safe. The span opens synchronously here so
  * latency is measured from before the model call, matching `metered()`.
  */
 export function meteredStream<T>(
@@ -129,25 +149,27 @@ export function meteredStream<T>(
     const latencyMs = Date.now() - startedAt.getTime();
     const served = reconcileServed(meta, extracted);
     const responseMeta = aborted ? { ...served.responseMeta, aborted: true } : served.responseMeta;
-    void (async () => {
-      const price = await getPrice(served.provider, served.model);
-      const costUsd = computeCost(price, extracted.usage);
-      void writeLogRow({
-        meta: { ...meta, provider: served.provider, model: served.model },
-        latencyMs,
-        usage: extracted.usage,
-        costUsd,
-        responseMeta,
-        error: null,
-      });
-      span.success({
-        usage: extracted.usage,
-        costUsd,
-        output: extracted.output,
-        responseMeta,
-        servedModel: served.model,
-      });
-    })();
+    enqueueMeteringWrite(
+      (async () => {
+        const price = await getPrice(served.provider, served.model);
+        const costUsd = computeCost(price, extracted.usage);
+        await writeLogRow({
+          meta: { ...meta, provider: served.provider, model: served.model },
+          latencyMs,
+          usage: extracted.usage,
+          costUsd,
+          responseMeta,
+          error: null,
+        });
+        span.success({
+          usage: extracted.usage,
+          costUsd,
+          output: extracted.output,
+          responseMeta,
+          servedModel: served.model,
+        });
+      })(),
+    );
   };
   const finish = (extracted: MeteredResult): void => {
     settleWithUsage(extracted, false);
@@ -159,14 +181,16 @@ export function meteredStream<T>(
     if (settled) return;
     settled = true;
     const latencyMs = Date.now() - startedAt.getTime();
-    void writeLogRow({
-      meta,
-      latencyMs,
-      usage: undefined,
-      costUsd: 0,
-      responseMeta: undefined,
-      error: { message },
-    });
+    enqueueMeteringWrite(
+      writeLogRow({
+        meta,
+        latencyMs,
+        usage: undefined,
+        costUsd: 0,
+        responseMeta: undefined,
+        error: { message },
+      }),
+    );
     span.error(message);
   };
   return start({ finish, fail, abort });
@@ -193,6 +217,7 @@ async function writeLogRow(args: WriteArgs): Promise<void> {
         inputTokens: usage?.inputTokens,
         outputTokens: usage?.outputTokens,
         cachedInputTokens: usage?.cachedInputTokens,
+        cacheWriteInputTokens: usage?.cacheWriteInputTokens,
         costUsd: costUsd.toFixed(8),
         latencyMs,
         userId: meta.userId,

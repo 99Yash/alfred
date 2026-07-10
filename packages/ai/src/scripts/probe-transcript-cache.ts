@@ -49,7 +49,7 @@ const systemBlock = {
 
 function cacheStats(meta: unknown): { read: number; created: number } {
   // Anthropic reports cache accounting under providerMetadata.anthropic.usage
-  // (snake_case). `res.usage.cachedInputTokens` is the SDK-normalized read.
+  // (snake_case). Standardized cache usage lives on `res.usage.inputTokenDetails`.
   const usage = toRecord(getPath(meta, "anthropic", "usage"));
   return {
     read: Number(usage.cache_read_input_tokens ?? 0),
@@ -60,16 +60,19 @@ function cacheStats(meta: unknown): { read: number; created: number } {
 async function turn(label: string, transcript: ModelMessage[]): Promise<void> {
   const res = await generateText({
     model: anthropic("claude-sonnet-4-6"),
-    messages: [systemBlock, ...decorateTranscript(transcript, TTL)],
+    instructions: systemBlock,
+    messages: decorateTranscript(transcript, TTL),
     maxOutputTokens: 64,
     temperature: 0,
     timeout: GENERATE_TIMEOUT_MS,
   });
-  const { read, created } = cacheStats(res.providerMetadata);
+  const { read, created } = cacheStats(res.finalStep.providerMetadata);
   console.log(
-    `${label}: input=${res.usage.inputTokens} usage.cached=${res.usage.cachedInputTokens ?? "?"} cached_read=${read} cache_created=${created} → "${res.text.slice(0, 50)}"`,
+    `${label}: input=${res.usage.inputTokens} usage.cached=${res.usage.inputTokenDetails?.cacheReadTokens ?? "?"} cached_read=${read} cache_created=${created} → "${res.text.slice(0, 50)}"`,
   );
-  console.log(`   raw anthropic meta: ${JSON.stringify(res.providerMetadata?.anthropic)}`);
+  console.log(
+    `   raw anthropic meta: ${JSON.stringify(res.finalStep.providerMetadata?.anthropic)}`,
+  );
 }
 
 async function main(): Promise<void> {

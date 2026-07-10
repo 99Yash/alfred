@@ -1,8 +1,8 @@
 import assert from "node:assert/strict";
 import { describe, test } from "node:test";
 
-import { stepCountIs, streamText, tool, type FinishReason, type LanguageModel } from "ai";
-import { convertArrayToReadableStream, MockLanguageModelV3 } from "ai/test";
+import { isStepCount, streamText, tool, type FinishReason, type LanguageModel } from "ai";
+import { convertArrayToReadableStream, MockLanguageModelV4 } from "ai/test";
 import { z } from "zod";
 
 import { classifyStreamFinish } from "../src/agent";
@@ -16,7 +16,7 @@ import { classifyStreamFinish } from "../src/agent";
  * the whole retry hinges on.
  *
  * So these tests drive the genuine `streamText` pipeline with a
- * `MockLanguageModelV3` `doStream`, drain `fullStream` accumulating text the
+ * `MockLanguageModelV4` `doStream`, drain `stream` accumulating text the
  * same way `chat-turn.ts` accumulates `state.assistantText`, then feed the
  * awaited `toolCalls` / `finishReason` into the production `classifyStreamFinish`
  * — mirroring `chat-turn.ts` line-for-line (drain → `Promise.all` →
@@ -30,13 +30,13 @@ import { classifyStreamFinish } from "../src/agent";
  * reproduction.
  */
 
-// Derive the V3 stream-part union off the mock itself (same `ai` copy) rather
+// Derive the V4 stream-part union off the mock itself (same `ai` copy) rather
 // than importing `@ai-sdk/provider`, which is only a transitive dependency —
 // the same approach with-fallback.test.ts uses for its generate-result shape.
-type StreamResult = Awaited<ReturnType<MockLanguageModelV3["doStream"]>>;
+type StreamResult = Awaited<ReturnType<MockLanguageModelV4["doStream"]>>;
 type StreamPart = StreamResult["stream"] extends ReadableStream<infer P> ? P : never;
 
-// V3 usage shape, copied verbatim from with-fallback.test.ts's proven fixture.
+// V4 usage shape, copied verbatim from with-fallback.test.ts's proven fixture.
 const USAGE = {
   inputTokens: { total: 0, noCache: 0, cacheRead: 0, cacheWrite: 0 },
   outputTokens: { total: 0, text: 0, reasoning: 0 },
@@ -82,12 +82,11 @@ function toolCallParts(): StreamPart[] {
   ];
 }
 
-// SAFETY: AI SDK v6 exposes LanguageModel as a V2/V3 compatibility union;
-// this SDK-provided V3 mock implements the runtime branch streamText consumes.
-const asModel = (m: MockLanguageModelV3) => m as unknown as LanguageModel;
+// SAFETY: this SDK-provided V4 mock implements the runtime branch streamText consumes.
+const asModel = (m: MockLanguageModelV4) => m as unknown as LanguageModel;
 
 // An `execute`-less tool: same as production (dispatch happens in a later step),
-// so `stopWhen: stepCountIs(1)` means the SDK surfaces the call without running it.
+// so `stopWhen: isStepCount(1)` means the SDK surfaces the call without running it.
 const pingTool = tool({
   description: "test tool",
   inputSchema: z.object({ ok: z.boolean() }),
@@ -98,7 +97,7 @@ const pingTool = tool({
  * the production classification plus the drained primitives for assertion.
  */
 async function driveStream(parts: StreamPart[]) {
-  const model = new MockLanguageModelV3({
+  const model = new MockLanguageModelV4({
     provider: "mock",
     modelId: "mock-model",
     doStream: async () => ({ stream: convertArrayToReadableStream(parts) }),
@@ -109,14 +108,14 @@ async function driveStream(parts: StreamPart[]) {
     prompt: "hi",
     tools: { ping: pingTool },
     // Mirror the agent: one model request, no SDK-level dispatch or retry.
-    stopWhen: stepCountIs(1),
+    stopWhen: isStepCount(1),
     maxRetries: 0,
   });
 
   // Accumulate assistant text off the live stream the way the executor builds
   // `state.assistantText` — the value it passes to `classifyStreamFinish`.
   let assistantText = "";
-  for await (const part of stream.fullStream) {
+  for await (const part of stream.stream) {
     if (part.type === "text-delta") assistantText += part.text;
   }
 
@@ -131,7 +130,7 @@ async function driveStream(parts: StreamPart[]) {
 
 describe("classifyStreamFinish over a real streamText drain", () => {
   test("empty stop candidate → empty (the Anthropic→Gemini quota-fallback anomaly)", async () => {
-    // What Gemini 2.5 Pro throws under the quota fallback: a clean finish with
+    // What the Gemini fallback may return under quota pressure: a clean finish with
     // zero content. The SDK call SUCCEEDS, so nothing upstream can catch it.
     const { outcome, toolCalls, finishReason, assistantText } = await driveStream([
       START,

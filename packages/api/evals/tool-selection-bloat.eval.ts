@@ -177,7 +177,7 @@ async function runUnderMenu(input: string, slugs: IntegrationSlug[]): Promise<Ta
   const loadable = slugs.filter((s): s is LoadableIntegrationSlug => s !== "system");
   const result = await generateText({
     model: getChatModel("standard"),
-    system: buildChatSystemPrompt(formatDateGrounding(TIMEZONE, NOW), buildSummary(loadable)),
+    instructions: buildChatSystemPrompt(formatDateGrounding(TIMEZONE, NOW), buildSummary(loadable)),
     prompt: input,
     temperature: 0,
     timeout: { totalMs: EVAL_TIMEOUT_MS },
