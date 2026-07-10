@@ -439,7 +439,7 @@ export const systemTools: readonly RegisteredTool[] = [
     action: "update_artifact",
     riskTier: "no_risk",
     description:
-      "Revise an existing artifact: rename it, replace a document's markdown, or replace a deck's full page list. Use this when the user asks for an edit to something you already produced this conversation.",
+      "Revise an existing artifact: rename it, replace a document's markdown, or replace a deck's full page list. Use this when the user asks for an edit to something you already produced this conversation. For cross-turn content replacement, work only from a reference with contentComplete=true and copy its baseContentHash; never replace content from a partial reference. Rename-only edits need no hash.",
     inputSchema: updateArtifactInput,
     execute: async (input, ctx) => {
       const resolved = resolveArtifactContext(ctx);

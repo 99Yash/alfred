@@ -52,7 +52,7 @@ import { emitReplicachePokes } from "../../../events/replicache-events";
 import { publishEvent } from "../../../events/publish";
 import { scheduleThreadIdleExtraction } from "../../chat-memory/queue";
 import { isSynthesizedToolDup } from "../transcript-dedup";
-import { buildThreadArtifactsContext } from "../../artifacts/read";
+import { buildThreadArtifactsContext, extractArtifactTargetId } from "../../artifacts/read";
 import { finalizeRunArtifacts } from "../../artifacts/write";
 import { listToolsForIntegration } from "../../tools/registry";
 import { buildConnectedSummary } from "../connected-summary";
@@ -97,6 +97,11 @@ const PREVIEW_TIERS: ReadonlyArray<readonly [number, number, number]> = [
   [1, 40, 16],
 ];
 const TITLE_TIMEOUT_MS = 15_000;
+const ARTIFACT_MUTATION_TOOLS = new Set<string>([
+  "system.create_artifact",
+  "system.append_artifact_page",
+  "system.update_artifact",
+]);
 
 const pendingToolCallSchema = z.object({
   toolCallId: z.string().min(1),
@@ -140,12 +145,13 @@ const chatRunStateSchema = z.object({
   // ADR-0053 connected summary, snapshotted once at run start (first turn) and
   // reused every turn so the system-prompt prefix stays cache-stable.
   connectedSummary: z.string().optional(),
-  // The thread's existing artifacts (ids + current body) so the boss revises in
-  // place rather than rebuilding from memory. Snapshotted once at run start like
-  // `connectedSummary`: artifacts authored earlier *this* run are already in
-  // context via their tool results, so a per-run snapshot is both sufficient and
-  // cache-stable. "" when the thread has no artifacts.
+  // Safe system guidance for the thread's existing artifacts (generated
+  // ids/enums only). Refreshed after an artifact mutation so the next model step
+  // cannot operate from stale target metadata.
   artifactsContext: z.string().optional(),
+  // Exact selected artifact body, carried as a lower-trust assistant reference
+  // message rather than system text. Empty when no artifact exists/was found.
+  artifactReference: z.string().optional(),
   // User's IANA timezone, snapshotted once on the first turn — it can't change
   // mid-run, so re-reading it from the DB every turn (like `connectedSummary`)
   // is wasted latency.
@@ -626,6 +632,34 @@ async function hydrateTranscriptForModel(
     );
   }
   return reversed.reverse();
+}
+
+function latestUserText(transcript: readonly AgentTranscriptMessage[]): string {
+  for (let index = transcript.length - 1; index >= 0; index -= 1) {
+    const message = transcript[index];
+    if (message?.role === "user" && typeof message.content === "string") {
+      return message.content;
+    }
+  }
+  return "";
+}
+
+/** Place prior assistant-authored artifact data immediately before the request. */
+function withArtifactReference(
+  transcript: readonly AgentTranscriptMessage[],
+  reference: string,
+): AgentTranscriptMessage[] {
+  if (!reference) return [...transcript];
+  let userIndex = -1;
+  for (let index = transcript.length - 1; index >= 0; index -= 1) {
+    if (transcript[index]?.role === "user") {
+      userIndex = index;
+      break;
+    }
+  }
+  const message = { role: "assistant", content: reference } satisfies AgentTranscriptMessage;
+  if (userIndex < 0) return [message, ...transcript];
+  return [...transcript.slice(0, userIndex), message, ...transcript.slice(userIndex)];
 }
 
 function toolResultMessage(
@@ -1197,7 +1231,7 @@ const chatTurnStep: Step<ChatRunState> = {
         });
       }
 
-      const modelTranscript = await hydrateTranscriptForModel(transcript);
+      let modelTranscript = await hydrateTranscriptForModel(transcript);
 
       if (state.timezone === undefined) {
         state.timezone = await resolveUserTimezone(ctx.userId);
@@ -1205,9 +1239,17 @@ const chatTurnStep: Step<ChatRunState> = {
       if (state.connectedSummary === undefined) {
         state.connectedSummary = await buildConnectedSummary(ctx.userId, state.allowedIntegrations);
       }
-      if (state.artifactsContext === undefined) {
-        state.artifactsContext = await buildThreadArtifactsContext(ctx.userId, state.threadId);
+      if (state.artifactsContext === undefined || state.artifactReference === undefined) {
+        const requestedArtifactId = extractArtifactTargetId(latestUserText(modelTranscript));
+        const artifactContext = await buildThreadArtifactsContext(
+          ctx.userId,
+          state.threadId,
+          requestedArtifactId,
+        );
+        state.artifactsContext = artifactContext.systemContext;
+        state.artifactReference = artifactContext.referenceMessage;
       }
+      modelTranscript = withArtifactReference(modelTranscript, state.artifactReference);
       const agent = new AlfredAgent({
         id: "chat",
         system: buildChatSystemPrompt(
@@ -1625,6 +1667,13 @@ const dispatchToolsStep: Step<ChatRunState> = {
           if (result.kind === "staged" || result.kind === "parked") continue;
 
           applyLoadIntegrationEffect(state, call.toolName, result);
+
+          if (ARTIFACT_MUTATION_TOOLS.has(call.toolName) && result.kind === "executed") {
+            // The next model step must not see a stale pre-edit body/hash. Re-read
+            // the selected/default artifact after create/update commits.
+            state.artifactsContext = undefined;
+            state.artifactReference = undefined;
+          }
 
           const status = toolCallLogStatus(call.toolName, result);
           const resultPreview =

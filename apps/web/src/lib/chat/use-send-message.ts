@@ -167,22 +167,21 @@ export function useSendMessage(): SendMessage {
             createdAt: now,
           });
           // Local display patch only: the HTTP route has already verified the
-          // bucket object and inserted the canonical attachment rows. Each row is
-          // keyed independently, so fan them out rather than awaiting serially.
-          await Promise.all(
-            uploaded.map((a) =>
-              rep.mutate.chatAttachmentCreate({
-                id: a.id,
-                messageId: userMessageId,
-                threadId: tid,
-                name: a.name,
-                mime: a.mime,
-                size: a.size,
-                position: a.position,
-                createdAt: now,
-              }),
-            ),
-          );
+          // bucket object and inserted the canonical attachment rows. Replicache
+          // serializes write mutations internally, so preserve explicit order
+          // instead of presenting this as concurrent work.
+          for (const attachment of uploaded) {
+            await rep.mutate.chatAttachmentCreate({
+              id: attachment.id,
+              messageId: userMessageId,
+              threadId: tid,
+              name: attachment.name,
+              mime: attachment.mime,
+              size: attachment.size,
+              position: attachment.position,
+              createdAt: now,
+            });
+          }
         } catch (err) {
           console.warn("[chat] local turn mirror failed:", toMessage(err));
         }

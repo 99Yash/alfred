@@ -204,17 +204,19 @@ code {
   display: flex;
   flex-direction: column;
   font-size: var(--art-doc-body);
-  line-height: 1.5;
+  line-height: var(--art-doc-line-body);
   letter-spacing: -0.01em;
   color: var(--art-ink);
+  overflow-wrap: anywhere;
 }
 .art-doc a { color: var(--art-accent-to); text-decoration: none; }
 
 /* Header: name/role on the left, a contact stack on the right. */
 .art-doc-header { display: flex; justify-content: space-between; align-items: flex-start; gap: 24px; }
+.art-doc-header > :first-child { min-width: 0; }
 .art-doc-name { font-size: var(--art-doc-name); font-weight: 700; line-height: 1.04; letter-spacing: -0.035em; }
 .art-doc-role { font-size: var(--art-doc-role); color: var(--art-fg-muted); margin-top: 4px; }
-.art-doc-contact { text-align: right; font-size: var(--art-doc-meta); line-height: 1.7; color: var(--art-fg-muted); flex: 0 0 auto; }
+.art-doc-contact { max-width: 42%; text-align: right; font-size: var(--art-doc-meta); line-height: 1.7; color: var(--art-fg-muted); flex: 0 1 auto; overflow-wrap: anywhere; }
 
 /* The document's single brand moment: a thin accent rule under the header
  * lockup. At most one per page — the restraint is what keeps a document
@@ -242,9 +244,9 @@ code {
 .art-doc-entry { margin-bottom: 14px; }
 .art-doc-entry:last-child { margin-bottom: 0; }
 .art-doc-entry-head { display: flex; justify-content: space-between; align-items: baseline; gap: 16px; }
-.art-doc-entry-title { font-size: var(--art-doc-heading); font-weight: 650; letter-spacing: -0.01em; }
+.art-doc-entry-title { min-width: 0; font-size: var(--art-doc-heading); font-weight: 650; line-height: var(--art-doc-line-heading); letter-spacing: -0.01em; }
 .art-doc-entry-title span { color: var(--art-fg-muted); font-weight: 450; }
-.art-doc-entry-meta { font-size: var(--art-doc-meta); color: var(--art-fg-subtle); white-space: nowrap; flex: 0 0 auto; }
+.art-doc-entry-meta { font-size: var(--art-doc-meta); color: var(--art-fg-muted); white-space: nowrap; flex: 0 0 auto; }
 .art-doc-entry-desc { color: var(--art-fg-muted); margin-top: 4px; }
 
 /* Two-column footer region (e.g. skills + education), set off by a hairline so
