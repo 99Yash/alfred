@@ -60,12 +60,11 @@ const resume: DocumentTemplate = {
       <a href="mailto:jordan@rivera.dev">jordan@rivera.dev</a>
     </div>
   </div>
+  <hr class="art-doc-headrule" />
 
   <div class="art-doc-lede">Product engineer who ships end to end, from data model to polished interface, with a bias for reliability and measurable outcomes.</div>
 
-  <hr class="art-doc-rule" />
-
-  <div class="art-doc-section">Experience</div>
+  <div class="art-doc-sectionhead"><div class="art-doc-section">Experience</div></div>
   <div class="art-doc-entry">
     <div class="art-doc-entry-head">
       <div class="art-doc-entry-title">Northwind <span>&middot; Senior Product Engineer</span></div>
@@ -95,15 +94,14 @@ const resume: DocumentTemplate = {
     <div class="art-doc-entry-desc">Shipped the internal analytics dashboard and the alerting pipeline behind it.</div>
   </div>
 
-  <hr class="art-doc-rule" />
-
-  <div class="art-doc-section">Selected projects</div>
+  <div class="art-doc-sectionhead"><div class="art-doc-section">Selected projects</div></div>
   <div class="art-doc-entry">
-    <div class="art-doc-entry-title">Atlas <span>&middot; an open-source type-safe router</span></div>
-    <div class="art-doc-entry-desc">1.2k stars. Full inference from route to handler with zero code generation.</div>
+    <div class="art-doc-entry-head">
+      <div class="art-doc-entry-title">Atlas <span>&middot; open-source type-safe router</span></div>
+      <div class="art-doc-entry-meta">1.2k stars</div>
+    </div>
+    <div class="art-doc-entry-desc">Full inference from route to handler with zero code generation.</div>
   </div>
-
-  <hr class="art-doc-rule" />
 
   <div class="art-doc-cols">
     <div>
@@ -147,18 +145,17 @@ const report: DocumentTemplate = {
     </div>
     <div class="art-doc-contact">Prepared by A. Chen<br />October 2026</div>
   </div>
+  <hr class="art-doc-headrule" />
 
   <div class="art-doc-lede">Uptime held at 99.95 percent through the quarter. Two incidents drove the remaining budget; both are now covered by automated failover.</div>
 
-  <hr class="art-doc-rule" />
+  <div class="art-doc-sectionhead"><div class="art-doc-section">What happened</div></div>
+  <p class="art-doc-entry-desc" style="color: var(--art-ink); margin: 0;">Traffic grew 60 percent quarter over quarter with no added latency at the median. The two incidents that consumed error budget were both single-region database failovers that took longer than target to promote a replica.</p>
 
-  <div class="art-doc-section">What happened</div>
-  <p class="art-doc-entry-desc" style="color: var(--art-ink); margin-bottom: 16px;">Traffic grew 60 percent quarter over quarter with no added latency at the median. The two incidents that consumed error budget were both single-region database failovers that took longer than target to promote a replica.</p>
+  <div class="art-doc-sectionhead"><div class="art-doc-section">What we changed</div></div>
+  <p class="art-doc-entry-desc" style="color: var(--art-ink); margin: 0;">Promotion is now automated with a 30-second detection window, and read traffic sheds to a warm standby on failure. We added synthetic checks per region so a partial outage pages before customers notice.</p>
 
-  <div class="art-doc-section">What we changed</div>
-  <p class="art-doc-entry-desc" style="color: var(--art-ink); margin-bottom: 24px;">Promotion is now automated with a 30-second detection window, and read traffic sheds to a warm standby on failure. We added synthetic checks per region so a partial outage pages before customers notice.</p>
-
-  <div class="art-panel" style="border-left: 3px solid var(--art-accent);">
+  <div class="art-panel" style="border-left: 3px solid var(--art-accent); margin-top: 28px;">
     <div class="art-doc-section" style="margin-bottom: 4px;">Takeaway</div>
     <div style="font-size: var(--art-doc-role);">Automated failover closes the gap that cost us this quarter. Next: extend it to the analytics tier.</div>
   </div>
@@ -187,10 +184,8 @@ const onePager: DocumentTemplate = {
 
   <div class="art-doc-lede" style="max-width: 78%;">Harbor triages your mail before you wake up, so the first thing you see is a short ranked list of what needs you, not a wall of unread.</div>
 
-  <hr class="art-doc-rule" />
-
-  <div class="art-doc-section">Why it matters</div>
-  <div style="display: grid; grid-template-columns: repeat(3, 1fr); gap: 24px; margin-bottom: 24px;">
+  <div class="art-doc-sectionhead"><div class="art-doc-section">Why it matters</div></div>
+  <div style="display: grid; grid-template-columns: repeat(3, 1fr); gap: 24px;">
     <div class="art-doc-entry">
       <div class="art-doc-entry-title">Ranked, not raw</div>
       <div class="art-doc-entry-desc">One ordered list by what needs a reply, filed automatically underneath.</div>
@@ -205,7 +200,7 @@ const onePager: DocumentTemplate = {
     </div>
   </div>
 
-  <div class="art-doc-section">How it works</div>
+  <div class="art-doc-sectionhead"><div class="art-doc-section">How it works</div></div>
   <div style="display: grid; grid-template-columns: repeat(3, 1fr); gap: 24px;">
     <div class="art-doc-entry">
       <div class="art-doc-entry-title art-accent-text">01</div>
