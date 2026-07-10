@@ -204,6 +204,11 @@ const chatRunStateSchema = z.object({
 });
 export type ChatRunState = z.infer<typeof chatRunStateSchema>;
 
+/** A non-empty text or tool-call turn breaks any consecutive-empty streak. */
+export function markProductiveChatTurn(state: ChatRunState): void {
+  state.emptyCompletionRetries = 0;
+}
+
 // ADR-0077: charter, not a rulebook. Keep mission + capabilities + judgment
 // principles here; `buildChatSystemPrompt` appends date grounding and the
 // ADR-0053 connected catalog last so the strongest tool-grounding anchor still
@@ -1526,7 +1531,7 @@ const chatTurnStep: Step<ChatRunState> = {
 
       if (outcome.kind === "tool-calls") {
         // Productive turn — reset the consecutive-empty counter.
-        state.emptyCompletionRetries = 0;
+        markProductiveChatTurn(state);
         state.pendingToolCalls = toolCalls.map((call) => ({
           toolCallId: call.toolCallId,
           toolName: call.toolName,
@@ -1558,6 +1563,11 @@ const chatTurnStep: Step<ChatRunState> = {
         // `error` is handled by the `outcome.kind === "empty"` branch above.)
         throw new Error("Assistant finished without producing a response.");
       }
+
+      // This turn produced user-visible text. Reset before either finalization
+      // guard: both guards can regenerate another chat turn, and that next turn
+      // must receive a fresh consecutive-empty retry budget.
+      markProductiveChatTurn(state);
 
       // ADR-0073 runtime invariant: before completing, never let the parent
       // answer while a sub-agent it spawned is still running. If the boss skipped
