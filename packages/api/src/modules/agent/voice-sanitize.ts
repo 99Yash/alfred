@@ -15,13 +15,9 @@ export interface VoiceStreamSanitizer {
 }
 
 interface PendingDash {
-  char: "—" | "–";
+  char: "—" | "–" | "--";
   /** Whitespace seen immediately before the dash. */
   before: string;
-}
-
-function isRangeEndpoint(char: string): boolean {
-  return /[\p{L}\p{N}]/u.test(char);
 }
 
 function withoutTrailingHorizontalSpace(value: string): string {
@@ -42,6 +38,7 @@ export function createVoiceStreamSanitizer(): VoiceStreamSanitizer {
   let mode: "prose" | "code" = "prose";
   let codeDelimiterLength = 0;
   let tickBuffer = "";
+  let pendingHyphenBefore: string | null = null;
   let whitespace = "";
   let pendingDash: PendingDash | null = null;
   let previousProseNonSpace = "";
@@ -49,6 +46,9 @@ export function createVoiceStreamSanitizer(): VoiceStreamSanitizer {
   let curlyQuoteOpen = false;
   let atLineStart = true;
   let blockQuoteLine = false;
+  let markdownDestinationDepth = 0;
+  let previousInputChar = "";
+  let currentProseToken = "";
 
   const takeOutput = (): string => {
     const next = output;
@@ -58,21 +58,33 @@ export function createVoiceStreamSanitizer(): VoiceStreamSanitizer {
 
   const emitWhitespace = (): void => {
     output += whitespace;
+    if (whitespace.length > 0) currentProseToken = "";
     whitespace = "";
   };
 
-  const resolveDash = (nextNonSpace: string): void => {
+  const emitSingleHyphen = (): void => {
+    if (pendingHyphenBefore === null) return;
+    output += `${pendingHyphenBefore}-`;
+    currentProseToken = pendingHyphenBefore.length > 0 ? "-" : `${currentProseToken}-`;
+    previousProseNonSpace = "-";
+    pendingHyphenBefore = null;
+  };
+
+  const tokenNeedsExactPunctuation = (): boolean =>
+    currentProseToken.includes("://") ||
+    currentProseToken.startsWith("www.") ||
+    currentProseToken.startsWith("mailto:") ||
+    currentProseToken.includes("@");
+
+  const resolveDash = (): void => {
     if (!pendingDash) return;
     const before = pendingDash.before;
     const after = whitespace;
-    const isRange =
-      pendingDash.char === "–" &&
-      isRangeEndpoint(previousProseNonSpace) &&
-      isRangeEndpoint(nextNonSpace);
-
-    if (isRange) {
-      // Monday–Friday, A–Z, and 10 – 20 are ranges, not parenthetical prose.
-      output += "-";
+    if (pendingDash.char === "–") {
+      // An en dash is ambiguous between a range and a clause separator. ASCII
+      // hyphenation preserves both meanings without guessing from neighboring
+      // letters ("deploy – failed" is not a range) or joining words together.
+      output += `${before}-${after}`;
     } else {
       // Preserve structural line breaks. On one line, a semicolon is safer than
       // manufacturing a comma splice between clauses.
@@ -89,10 +101,18 @@ export function createVoiceStreamSanitizer(): VoiceStreamSanitizer {
 
     pendingDash = null;
     whitespace = "";
+    currentProseToken = "";
   };
 
   const emitProseChar = (char: string): void => {
     if (char === "—" || char === "–") {
+      if (whitespace.length === 0 && tokenNeedsExactPunctuation()) {
+        emitWhitespace();
+        output += char;
+        currentProseToken += char;
+        previousProseNonSpace = char;
+        return;
+      }
       // Treat an adjacent dash run as one separator.
       pendingDash = { char, before: pendingDash?.before ?? whitespace };
       whitespace = "";
@@ -105,9 +125,10 @@ export function createVoiceStreamSanitizer(): VoiceStreamSanitizer {
       return;
     }
 
-    resolveDash(char);
+    resolveDash();
     emitWhitespace();
     output += char;
+    currentProseToken += char;
     previousProseNonSpace = char;
     atLineStart = false;
   };
@@ -116,7 +137,7 @@ export function createVoiceStreamSanitizer(): VoiceStreamSanitizer {
     if (tickBuffer.length === 0) return;
 
     if (mode === "prose") {
-      resolveDash("`");
+      resolveDash();
       emitWhitespace();
       output += tickBuffer;
       mode = "code";
@@ -132,6 +153,16 @@ export function createVoiceStreamSanitizer(): VoiceStreamSanitizer {
   };
 
   const processChar = (char: string): void => {
+    const priorInputChar = previousInputChar;
+    previousInputChar = char;
+
+    if (markdownDestinationDepth > 0) {
+      output += char;
+      if (char === "(") markdownDestinationDepth += 1;
+      if (char === ")") markdownDestinationDepth -= 1;
+      return;
+    }
+
     if (blockQuoteLine) {
       output += char;
       if (char === "\n" || char === "\r") {
@@ -149,6 +180,22 @@ export function createVoiceStreamSanitizer(): VoiceStreamSanitizer {
       return;
     }
 
+    if (pendingHyphenBefore !== null) {
+      if (char === "-") {
+        if (pendingHyphenBefore.length === 0 && tokenNeedsExactPunctuation()) {
+          output += "--";
+          currentProseToken += "--";
+          previousProseNonSpace = "-";
+          pendingHyphenBefore = null;
+          return;
+        }
+        pendingDash = { char: "--", before: pendingHyphenBefore };
+        pendingHyphenBefore = null;
+        return;
+      }
+      emitSingleHyphen();
+    }
+
     if (char === "`") {
       tickBuffer += char;
       return;
@@ -160,8 +207,14 @@ export function createVoiceStreamSanitizer(): VoiceStreamSanitizer {
       return;
     }
 
+    if (char === "(" && priorInputChar === "]") {
+      emitProseChar(char);
+      markdownDestinationDepth = 1;
+      return;
+    }
+
     if (atLineStart && char === ">") {
-      resolveDash(char);
+      resolveDash();
       emitWhitespace();
       output += char;
       previousProseNonSpace = char;
@@ -170,14 +223,22 @@ export function createVoiceStreamSanitizer(): VoiceStreamSanitizer {
       return;
     }
 
-    if (char === '"' || char === "“") {
-      resolveDash(char);
+    const asciiQuoteStarts =
+      char === '"' && (priorInputChar.length === 0 || /[\s([{<>=:;]/u.test(priorInputChar));
+    if (asciiQuoteStarts || char === "“") {
+      resolveDash();
       emitWhitespace();
       output += char;
       previousProseNonSpace = char;
       asciiQuoteOpen = char === '"';
       curlyQuoteOpen = char === "“";
       atLineStart = false;
+      return;
+    }
+
+    if (char === "-") {
+      pendingHyphenBefore = whitespace;
+      whitespace = "";
       return;
     }
 
@@ -191,6 +252,7 @@ export function createVoiceStreamSanitizer(): VoiceStreamSanitizer {
     },
     flush(): string {
       resolveTicks();
+      emitSingleHyphen();
       if (pendingDash) {
         // A reply that ends on a separator has no right-hand clause. Preserve
         // line structure but drop the stranded punctuation and horizontal space.
@@ -212,6 +274,9 @@ export function createVoiceStreamSanitizer(): VoiceStreamSanitizer {
       curlyQuoteOpen = false;
       atLineStart = true;
       blockQuoteLine = false;
+      markdownDestinationDepth = 0;
+      previousInputChar = "";
+      currentProseToken = "";
       return finalOutput;
     },
   };
@@ -219,7 +284,7 @@ export function createVoiceStreamSanitizer(): VoiceStreamSanitizer {
 
 /** Replace prose dashes while preserving code, quotes, and range meaning. */
 export function sanitizeVoice(text: string): string {
-  if (!text.includes("—") && !text.includes("–")) return text;
+  if (!text.includes("—") && !text.includes("–") && !text.includes("--")) return text;
   const sanitizer = createVoiceStreamSanitizer();
   return sanitizer.push(text) + sanitizer.flush();
 }

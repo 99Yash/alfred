@@ -30,9 +30,17 @@ describe("sanitizeVoice — batch", () => {
 
   test("numeric and word ranges keep their meaning with a hyphen", () => {
     assert.equal(sanitizeVoice("9–11am"), "9-11am");
-    assert.equal(sanitizeVoice("10 – 20"), "10-20");
+    assert.equal(sanitizeVoice("10 – 20"), "10 - 20");
     assert.equal(sanitizeVoice("Monday–Friday"), "Monday-Friday");
-    assert.equal(sanitizeVoice("A – Z"), "A-Z");
+    assert.equal(sanitizeVoice("A – Z"), "A - Z");
+  });
+
+  test("spaced en-dash prose never joins unrelated words", () => {
+    assert.equal(sanitizeVoice("the deploy – failed again"), "the deploy - failed again");
+    assert.equal(
+      sanitizeVoice("This matters – because users notice"),
+      "This matters - because users notice",
+    );
   });
 
   test("no dashes is identity (same reference fast-path)", () => {
@@ -55,6 +63,31 @@ describe("sanitizeVoice — batch", () => {
       "She wrote “keep this — exactly” and left; quickly.",
     );
     assert.equal(sanitizeVoice("> source — text\nanswer — now"), "> source — text\nanswer; now");
+  });
+
+  test("preserves markdown destinations and raw URLs", () => {
+    assert.equal(
+      sanitizeVoice("See [the docs](https://example.com/a—b) — now."),
+      "See [the docs](https://example.com/a—b); now.",
+    );
+    assert.equal(
+      sanitizeVoice("Open https://example.com/a—b — now."),
+      "Open https://example.com/a—b; now.",
+    );
+    assert.equal(
+      sanitizeVoice("Open https://example.com/a--b -- now."),
+      "Open https://example.com/a--b; now.",
+    );
+  });
+
+  test("an inches mark does not hide the rest of the line", () => {
+    assert.equal(sanitizeVoice('The 6" display — ships today.'), 'The 6" display; ships today.');
+  });
+
+  test("double hyphens used as a dash become a clause boundary", () => {
+    assert.equal(sanitizeVoice("ready -- ship it"), "ready; ship it");
+    assert.equal(sanitizeVoice("ready--ship it"), "ready; ship it");
+    assert.equal(sanitizeVoice("well-known"), "well-known");
   });
 
   test("preserves newlines (only spaces/tabs are eaten around a dash)", () => {
@@ -124,6 +157,8 @@ describe("createVoiceStreamSanitizer — straddling deltas", () => {
       '```ts\nconst range = "Monday–Friday";\n```\nDone — now.',
       "Keep “quoted — punctuation” exact — outside it.",
       "> quoted — source\nThe answer — concise.",
+      "See [docs](https://example.com/a—b) — now.",
+      "ready -- ship it",
     ];
     for (const sample of samples) {
       const expected = sanitizeVoice(sample);

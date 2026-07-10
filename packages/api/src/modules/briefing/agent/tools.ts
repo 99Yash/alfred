@@ -199,13 +199,13 @@ export function buildBriefingTools(args: BuildArgs): BriefingToolBag {
       execute: async (input): Promise<{ ok: true }> => {
         // Strip em-dashes the model won't drop from the prompt alone. This is the
         // single chokepoint before both the DB persist and the email send.
-        dumped = {
+        dumped = dumpInputSchema.parse({
           subject: sanitizeVoice(input.subject),
           bodyText: sanitizeVoice(input.bodyText),
           bodyMarkdown: sanitizeVoice(input.bodyMarkdown),
           citedDocumentIds: input.citedDocumentIds,
           rationale: input.rationale,
-        };
+        });
         return { ok: true };
       },
     }),
