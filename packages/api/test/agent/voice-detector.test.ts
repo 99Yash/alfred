@@ -18,24 +18,32 @@ describe("detectAiTells — flags each tell", () => {
   const cases: Array<{ label: string; text: string; ruleId: string }> = [
     {
       label: "inflated verb",
-      text: "We can leverage the calendar API to sync events.",
+      text: "We can utilize the calendar API to sync events.",
       ruleId: "inflated-word",
     },
-    { label: "inflated adjective", text: "It's a robust, seamless workflow.", ruleId: "inflated-word" },
+    { label: "inflated adjective", text: "It's a seamless workflow.", ruleId: "inflated-word" },
     { label: "filler phrase", text: "In order to reply, open the thread.", ruleId: "filler" },
     {
       label: "flattery",
       text: "You're absolutely right. I hope this helps, feel free to ask more.",
       ruleId: "flattery",
     },
-    { label: "let's construction", text: "Let's dive into your inbox.", ruleId: "lets-construction" },
+    {
+      label: "let's construction",
+      text: "Let's dive into your inbox.",
+      ruleId: "lets-construction",
+    },
     { label: "hype", text: "This is a real game-changer for your workflow.", ruleId: "hype" },
     {
       label: "generic conclusion",
       text: "You have three PRs. At the end of the day, the future looks bright.",
       ruleId: "generic-conclusion",
     },
-    { label: "chatbot opener", text: "Certainly! Here is your calendar.", ruleId: "chatbot-opener" },
+    {
+      label: "chatbot opener",
+      text: "Certainly! Here is your calendar.",
+      ruleId: "chatbot-opener",
+    },
     {
       label: "false concession",
       text: "It's not about speed, it's about focus.",
@@ -47,7 +55,11 @@ describe("detectAiTells — flags each tell", () => {
       ruleId: "rhetorical-opener",
     },
     { label: "em-dash", text: "Your day is light — just one meeting.", ruleId: "em-dash" },
-    { label: "double-hyphen dash", text: "Your day is light -- just one meeting.", ruleId: "em-dash" },
+    {
+      label: "double-hyphen dash",
+      text: "Your day is light -- just one meeting.",
+      ruleId: "em-dash",
+    },
     { label: "emoji", text: "Nice work today 🎉", ruleId: "emoji" },
   ];
 
@@ -80,12 +92,18 @@ describe("detectAiTells — stays quiet on clean prose", () => {
 
 describe("detectAiTells — precision guards", () => {
   test("ignores tells inside fenced code", () => {
-    const text = "Run this:\n```\nnpm run build -- --watch\nconst x = utilize()\n```\nThat starts the watcher.";
+    const text =
+      "Run this:\n```\nnpm run build -- --watch\nconst x = utilize()\n```\nThat starts the watcher.";
     assert.deepEqual(detectAiTells(text), []);
   });
 
   test("ignores tells inside inline code", () => {
     const text = "Pass the `--watch` flag and call `leverage()` from the script.";
+    assert.deepEqual(detectAiTells(text), []);
+  });
+
+  test("ignores exact quoted material", () => {
+    const text = "The source says “Certainly — utilize this.” That wording is the problem.";
     assert.deepEqual(detectAiTells(text), []);
   });
 
@@ -104,7 +122,7 @@ describe("detectAiTells — precision guards", () => {
   });
 
   test("dedupes repeated identical matches within a rule", () => {
-    const text = "Leverage this and leverage that.";
+    const text = "Utilize this and utilize that.";
     const tells = detectAiTells(text).filter((t) => t.ruleId === "inflated-word");
     assert.equal(tells.length, 1);
   });

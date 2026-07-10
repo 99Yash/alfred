@@ -163,7 +163,7 @@ export function buildSubAgentSystemPrompt(
   connectedSummary: string,
   subId: string,
 ): string {
-  return `${buildSubAgentSystemPromptBase(subId)}\n\n${DEFAULT_VOICE_PROMPT}\n\nThe current date is ${grounding}.\n\n${connectedSummary}`;
+  return `${buildSubAgentSystemPromptBase(subId)}\n\nThe current date is ${grounding}.\n\n${connectedSummary}`;
 }
 
 const bossTurnStep: Step<BriefRunState> = {
@@ -259,9 +259,10 @@ const bossTurnStep: Step<BriefRunState> = {
     }
 
     if (result.kind === "final") {
-      // Strip em-dashes the model won't drop from the prompt alone, covering both
-      // the boss's persisted summary and a sub-agent's scratch summary.
-      const finalText = sanitizeVoice(result.text);
+      // Sub-agent scratch is evidence for another model, not presentation copy;
+      // preserve it exactly. Apply the final voice policy only at the boss's
+      // user-facing boundary.
+      const finalText = subAgent ? result.text : sanitizeVoice(result.text);
       const output = subAgent
         ? await writeSubAgentSummary({
             parentRunId: subAgent.parentRunId,

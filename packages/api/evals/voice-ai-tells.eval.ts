@@ -1,26 +1,22 @@
 import path from "node:path";
-import { getChatModel } from "@alfred/ai";
+import { getChatModel, getCheapModel } from "@alfred/ai";
 import { generateText } from "ai";
 import { config as loadEnv } from "dotenv";
 import { evalite } from "evalite";
 import { formatDateGrounding } from "../src/modules/agent/grounding";
 import { detectAiTells, summarizeTells } from "../src/modules/agent/voice-detector";
-import { sanitizeVoice } from "../src/modules/agent/voice-sanitize";
+import { createVoiceStreamSanitizer } from "../src/modules/agent/voice-sanitize";
 import { buildChatSystemPrompt } from "../src/modules/agent/workflows/chat-turn";
+import { llmJudgeScorer } from "./lib/llm-judge";
 
-// GROUND: behavioral guard on the SHIPPED chat voice contract, which is two
-// layers: DEFAULT_VOICE_PROMPT (suppresses the judgment tells) plus the
-// deterministic sanitizeVoice pass the chat stream runs (strips em-dashes the
-// model won't drop on its own). The task mirrors that contract — generate a real
-// reply under the live chat system prompt, then sanitize — and runs the detector
-// over the result. The prompts below TEMPT the forbidden register: a
-// congratulation invites flattery/emoji, a "motivate me" invites hype and generic
-// conclusions, an "explain what you do" invites marketing voice. A tell surviving
-// means the fragment rotted out of the prompt, the sanitizer regressed, or a model
-// swap changed the voice.
+// Behavioral guard on the shipped chat voice contract. It grades both layers:
+// DEFAULT_VOICE_PROMPT suppresses judgment-based tells, while the streaming
+// sanitizer enforces the user's punctuation preference without corrupting code
+// or quotes. A deterministic scorer catches high-confidence tells; a cheap,
+// cross-provider judge verifies that terse prose is still useful and human.
 //
-// Run locally with apps/server/.env populated (ANTHROPIC_API_KEY, matching
-// serverEnv): `pnpm --filter @alfred/api eval`.
+// Run locally with apps/server/.env populated:
+// `pnpm --filter @alfred/api eval`.
 
 loadEnv({ path: path.resolve(import.meta.dirname, "../../../apps/server/.env") });
 
@@ -36,45 +32,77 @@ const CONNECTED_SUMMARY = [
 
 const SYSTEM = buildChatSystemPrompt(formatDateGrounding(TIMEZONE, NOW), CONNECTED_SUMMARY);
 
-// Prompts that do NOT need a tool call (so the model replies in prose) but do
-// tempt the forbidden register.
-const CASES: string[] = [
-  "I just shipped the release I've been grinding on for two weeks. Say something.",
-  "Give me a one-line boost before I walk into a big client demo.",
-  "In a couple of sentences, tell me what you can help me with day to day.",
-  "Why should I bother keeping my inbox at zero? Keep it short.",
-  "My deploy just failed for the third time today. Say something short and real.",
+interface Case {
+  prompt: string;
+  intent: string;
+}
+
+const CASES: Case[] = [
+  {
+    prompt: "I just shipped the release I've been grinding on for two weeks. Say something.",
+    intent: "Acknowledge a meaningful win with specific, natural warmth; do not sound ceremonial.",
+  },
+  {
+    prompt: "Give me a one-line boost before I walk into a big client demo.",
+    intent:
+      "Give one concise, credible line of encouragement rather than generic motivational hype.",
+  },
+  {
+    prompt: "In a couple of sentences, tell me what you can help me with day to day.",
+    intent:
+      "Explain concrete everyday help in no more than a few direct sentences without marketing copy.",
+  },
+  {
+    prompt: "Why should I bother keeping my inbox at zero? Keep it short.",
+    intent:
+      "Answer the premise honestly and briefly; it is acceptable to reject inbox zero as a goal.",
+  },
+  {
+    prompt: "My deploy just failed for the third time today. Say something short and real.",
+    intent:
+      "Respond with concise empathy that feels human without flattery, canned reassurance, or hype.",
+  },
 ];
 
 interface TaskOutput {
   text: string;
 }
 
-evalite<string, TaskOutput>("Chat voice — no AI-writing tells", {
+function sanitizeAsStream(text: string): string {
+  const sanitizer = createVoiceStreamSanitizer();
+  let output = "";
+  // Exercise arbitrary provider boundaries, including delimiters split one
+  // character at a time. This is intentionally harsher than a typical stream.
+  for (const char of text) output += sanitizer.push(char);
+  return output + sanitizer.flush();
+}
+
+const QUALITY_RUBRIC = `
+A: Fully answers the stated intent, is concise and specific, sounds natural for the emotional context, and preserves the user's requested length and tone.
+B: Useful and mostly natural, but has one minor issue such as slightly generic wording, mild coldness, or avoidable length.
+C: Partly answers but is noticeably generic, cold, verbose, evasive, or weakly aligned with the requested tone.
+D: Empty, unhelpful, off-task, meaningfully patronizing, or violates the requested form or length.
+Do not reward terseness by itself. A short response that fails to help or acknowledge the situation is a failure.`;
+
+evalite<Case, TaskOutput>("Chat voice — direct, human, and useful", {
   data: () => CASES.map((input) => ({ input })),
   task: async (input): Promise<TaskOutput> => {
     const result = await generateText({
       model: getChatModel("standard"),
       system: SYSTEM,
-      prompt: input,
+      prompt: input.prompt,
       temperature: 0.3,
       maxOutputTokens: 300,
       abortSignal: AbortSignal.timeout(EVAL_TIMEOUT_MS),
     });
-    // Mirror the shipped chat path: the stream runs sanitizeVoice on every delta.
-    return { text: sanitizeVoice(result.text) };
+    return { text: sanitizeAsStream(result.text) };
   },
   scorers: [
     {
-      // Deterministic + pure: never throws, so a flaky generation can't hang
-      // the reporter (see evals/lib/llm-judge.ts). Empty output has no tells and
-      // scores clean; the metadata flags it so a human notices a dead generation.
       name: "No AI-writing tells in shipped prose",
       scorer: ({ output }) => {
         const text = output.text.trim();
-        if (text.length === 0) {
-          return { score: 1, metadata: "empty output, nothing generated to score" };
-        }
+        if (text.length === 0) return { score: 0, metadata: "empty output" };
         const tells = detectAiTells(text);
         return {
           score: tells.length === 0 ? 1 : 0,
@@ -85,5 +113,27 @@ evalite<string, TaskOutput>("Chat voice — no AI-writing tells", {
         };
       },
     },
+    llmJudgeScorer<Case, TaskOutput, never>({
+      name: "Useful and natural",
+      rubric: QUALITY_RUBRIC,
+      // Generation is Claude; use cheap Gemini as the judge to reduce spend and
+      // avoid same-model-family preference.
+      model: getCheapModel(),
+      skipWhen: ({ output }) => (output.text.trim().length === 0 ? "empty output" : null),
+      prompt: ({ input, output }) =>
+        [
+          "User prompt:",
+          input.prompt,
+          "",
+          "Intended product outcome:",
+          input.intent,
+          "",
+          "Assistant response:",
+          output.text,
+          "",
+          "Grade the response against the rubric and intended outcome.",
+        ].join("\n"),
+    }),
   ],
+  trialCount: 1,
 });
