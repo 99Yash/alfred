@@ -1,49 +1,25 @@
-import { Filter, Search, Star } from "lucide-react";
-import { useMemo, useState } from "react";
-import { AppInput, AppSegmented } from "~/components/ui/v2";
-import {
-  artifactMatchesType,
-  LIBRARY_ARTIFACTS,
-  matchesArtifact,
-  type ArtifactType,
-} from "~/lib/artifacts/library-artifacts";
+import { AlertTriangle, Loader2, Search } from "lucide-react";
+import { useMemo, useState, type ReactNode } from "react";
+import { AppButton, AppInput } from "~/components/ui/v2";
+import { useRecentArtifacts } from "~/lib/replicache/use-artifacts";
 import { cn } from "~/lib/utils";
 import { ArtifactCard } from "./artifact-card";
-import type { LibraryFilter } from "./helpers";
+import { artifactMatchesQuery, artifactMatchesType, type ArtifactType } from "./helpers";
 import { LibraryEmpty } from "./library-empty";
 import { TypeFilterPopover } from "./type-filter-popover";
 
-const FILTER_TABS = [
-  {
-    value: "all" as const,
-    label: (
-      <span className="inline-flex items-center gap-1.5">
-        <Filter size={13} /> All
-      </span>
-    ),
-  },
-  {
-    value: "favourites" as const,
-    label: (
-      <span className="inline-flex items-center gap-1.5">
-        <Star size={13} /> Favourites
-      </span>
-    ),
-  },
-];
-
 export function LibraryPage({ dimmed = false }: { dimmed?: boolean }) {
-  const [filter, setFilter] = useState<LibraryFilter>("all");
+  const { artifacts: recentArtifacts, loading, error, retry } = useRecentArtifacts();
   const [query, setQuery] = useState("");
   const [types, setTypes] = useState<Set<ArtifactType>>(new Set());
+  const hasCachedArtifacts = recentArtifacts.length > 0;
 
   const artifacts = useMemo(() => {
-    return LIBRARY_ARTIFACTS.filter((artifact) => {
-      if (filter === "favourites" && !artifact.favourite) return false;
+    return recentArtifacts.filter((artifact) => {
       if (!artifactMatchesType(artifact, types)) return false;
-      return matchesArtifact(artifact, query);
+      return artifactMatchesQuery(artifact, query);
     });
-  }, [filter, query, types]);
+  }, [query, recentArtifacts, types]);
 
   return (
     <div
@@ -55,24 +31,16 @@ export function LibraryPage({ dimmed = false }: { dimmed?: boolean }) {
       <main className="mx-auto w-full max-w-6xl px-4 py-12 sm:px-6 sm:py-16 lg:px-8">
         <header className="app-card-in space-y-3 text-center">
           <h1 className="text-[40px] leading-[48px] font-medium tracking-tight text-app-fg-4">
-            Library
+            Recent artifacts
           </h1>
-          <p className="text-sm text-app-fg-3">Browse all your created artifacts.</p>
+          <p className="text-sm text-app-fg-3">Your latest documents and generated pages.</p>
         </header>
 
         <div
           className="app-card-in mt-10 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between"
           style={{ animationDelay: "100ms" }}
         >
-          <div className="flex items-center gap-2">
-            <TypeFilterPopover selectedTypes={types} onSelectedTypesChange={setTypes} />
-            <AppSegmented<LibraryFilter>
-              value={filter}
-              onValueChange={setFilter}
-              items={FILTER_TABS}
-              label="Library secondary filter"
-            />
-          </div>
+          <TypeFilterPopover selectedTypes={types} onSelectedTypesChange={setTypes} />
           <div className="relative w-full sm:w-[300px]">
             <Search
               size={14}
@@ -90,17 +58,66 @@ export function LibraryPage({ dimmed = false }: { dimmed?: boolean }) {
         </div>
 
         <div className="mt-10">
-          {artifacts.length > 0 ? (
-            <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
-              {artifacts.map((artifact, i) => (
-                <ArtifactCard key={artifact.id} artifact={artifact} index={i} />
-              ))}
-            </div>
+          {loading ? (
+            <LibraryState
+              icon={<Loader2 size={22} className="animate-spin" />}
+              title="Loading artifacts"
+            />
+          ) : error && !hasCachedArtifacts ? (
+            <LibraryState
+              icon={<AlertTriangle size={22} />}
+              title="Artifacts could not be loaded"
+              description={error}
+              action={<AppButton onClick={retry}>Try again</AppButton>}
+            />
           ) : (
-            <LibraryEmpty filter={filter} query={query} />
+            <div className="space-y-4">
+              {error ? (
+                <div className="flex items-center justify-between gap-4 rounded-xl bg-app-bg-2 px-4 py-3">
+                  <p className="text-xs text-app-fg-3">
+                    Showing cached artifacts. <span className="text-app-red-4">{error}</span>
+                  </p>
+                  <AppButton size="sm" onClick={retry}>
+                    Retry
+                  </AppButton>
+                </div>
+              ) : null}
+              {artifacts.length > 0 ? (
+                <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
+                  {artifacts.map((artifact, i) => (
+                    <ArtifactCard key={artifact.id} artifact={artifact} index={i} />
+                  ))}
+                </div>
+              ) : (
+                <LibraryEmpty query={query} />
+              )}
+            </div>
           )}
         </div>
       </main>
+    </div>
+  );
+}
+
+function LibraryState({
+  icon,
+  title,
+  description,
+  action,
+}: {
+  icon: ReactNode;
+  title: string;
+  description?: string;
+  action?: ReactNode;
+}) {
+  return (
+    <div className="grid min-h-[280px] place-items-center text-center">
+      <div className="flex max-w-md flex-col items-center">
+        <span className="text-app-fg-3">{icon}</span>
+        <p className="mt-3 text-sm font-medium text-app-fg-4">{title}</p>
+        {description ? <p className="mt-1 text-xs text-app-fg-3">{description}</p> : null}
+        {action ? <div className="mt-4">{action}</div> : null}
+      </div>
     </div>
   );
 }

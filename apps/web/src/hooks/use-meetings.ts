@@ -1,6 +1,6 @@
 import { useQuery } from "@tanstack/react-query";
 import { client, type EdenData } from "~/lib/eden";
-import type { MeetingItem } from "~/routes/-preview-chat/helpers";
+import type { RailMeetingItem } from "~/routes/-chat/rail/models";
 
 /**
  * Today's calendar events for the rail's Meetings tab. Mirrors `useInbox`:
@@ -13,7 +13,7 @@ import type { MeetingItem } from "~/routes/-preview-chat/helpers";
  * a clear day."
  */
 export interface UseMeetingsResult {
-  items: ReadonlyArray<MeetingItem>;
+  items: ReadonlyArray<RailMeetingItem>;
   connected: boolean;
 }
 
@@ -48,7 +48,7 @@ export function useMeetings() {
 /** One event from `GET /api/me/meetings`, derived from the live route contract. */
 type MeetingResponseItem = EdenData<typeof client.api.me.meetings.get>["items"][number];
 
-function toMeetingItem(row: MeetingResponseItem, nextStart: number | null): MeetingItem {
+function toMeetingItem(row: MeetingResponseItem, nextStart: number | null): RailMeetingItem {
   const time = row.allDay ? "All day" : formatStart(row.startAt);
   const duration = row.allDay ? "" : formatDuration(row.startAt, row.endAt);
   return {

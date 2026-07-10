@@ -96,7 +96,7 @@ if (violations.length > 0) {
     console.error(`- ${v.file}:${v.line} imports ${v.specifier}`);
   }
   console.error(
-    "Use type-only imports where allowed, or move shared runtime code to @alfred/contracts/@alfred/schemas/@alfred/sync.",
+    "Use type-only imports where allowed, or move shared runtime code to @alfred/contracts/@alfred/sync.",
   );
   process.exit(1);
 }

@@ -15,7 +15,7 @@ import {
   type IdentityAnchor,
   type ResearchResult,
   type Workflow,
-} from "@alfred/api";
+} from "@alfred/api/backend";
 import { z } from "zod";
 
 /**

@@ -1,0 +1,489 @@
+import { useNavigate } from "@tanstack/react-router";
+import {
+  Brain,
+  CornerDownLeft,
+  Library,
+  MessageSquare,
+  NotebookPen,
+  Plug,
+  Search,
+  Settings2,
+  ShieldCheck,
+  SquarePen,
+  Workflow,
+  Wrench,
+  type LucideIcon,
+} from "lucide-react";
+import { useEffect, useId, useMemo, useRef, useState, type ReactNode } from "react";
+import type { RecentThread } from "~/lib/shell/thread-view-model";
+import { cn } from "~/lib/utils";
+
+/**
+ * Cmd-K search palette.
+ *
+ * Modal overlay mounted by `AppShell`. Provides a single keyboard-driven
+ * entry point that fuzzy-matches across:
+ *   • Static commands (New chat, Settings, Integrations, …)
+ *   • Recent chat threads supplied by the owning shell surface
+ *
+ * Keyboard:
+ *   • cmd/ctrl-K (handled by parent) — open
+ *   • esc — close
+ *   • up/down arrows — move highlight (wraps)
+ *   • enter — invoke highlighted item
+ *
+ * The component is only mounted while open — the parent renders it
+ * conditionally — so internal state is fresh on each open without
+ * needing to reset on a prop change.
+ */
+
+export interface SearchPaletteProps {
+  onClose: () => void;
+  /** Recent threads to surface in the "Recent chats" group. Empty/omitted → group hidden. */
+  recentThreads?: ReadonlyArray<RecentThread>;
+}
+
+type CommandKind = "command" | "thread";
+
+interface CommandItem {
+  id: string;
+  kind: CommandKind;
+  label: string;
+  hint?: string;
+  icon: LucideIcon;
+  /** When set, navigate to this path on invoke. */
+  to?: string;
+  /** Thread rows: the synced thread id — invoke navigates to `/chat/$threadId`. */
+  threadId?: string;
+  /** When set, run this on invoke (e.g. open settings modal — not wired yet). */
+  onRun?: () => void;
+  /** Free-form keywords to match in addition to the label. */
+  keywords?: string;
+  /** Global shortcut for this command, shown as a trailing hint when not selected. */
+  kbd?: string;
+}
+
+const COMMANDS: ReadonlyArray<CommandItem> = [
+  {
+    id: "new-chat",
+    kind: "command",
+    label: "New chat",
+    hint: "Start a fresh thread",
+    icon: SquarePen,
+    to: "/chat",
+    keywords: "compose ask alfred",
+    kbd: "⌘J",
+  },
+  {
+    id: "integrations",
+    kind: "command",
+    label: "Integrations",
+    hint: "Connect or manage providers",
+    icon: Plug,
+    to: "/integrations",
+    keywords: "gmail calendar slack github drive",
+  },
+  {
+    id: "workflows",
+    kind: "command",
+    label: "Workflows",
+    hint: "Scheduled and triggered runs",
+    icon: Workflow,
+    to: "/workflows",
+    keywords: "automation cron triggers",
+  },
+  {
+    id: "skills",
+    kind: "command",
+    label: "Skills",
+    hint: "Tools Alfred can call",
+    icon: Wrench,
+    keywords: "tools capabilities",
+  },
+  {
+    id: "library",
+    kind: "command",
+    label: "Library",
+    hint: "Saved artifacts and outputs",
+    icon: Library,
+    keywords: "files documents artifacts",
+  },
+  {
+    id: "approvals",
+    kind: "command",
+    label: "Approvals",
+    hint: "Pending decisions",
+    icon: ShieldCheck,
+    keywords: "review approve",
+  },
+  {
+    id: "memory",
+    kind: "command",
+    label: "Memory",
+    hint: "Long-term notes Alfred remembers",
+    icon: Brain,
+    keywords: "knowledge facts",
+  },
+  {
+    id: "notes",
+    kind: "command",
+    label: "Notes",
+    hint: "Your scratch notes",
+    icon: NotebookPen,
+    keywords: "scratchpad",
+  },
+  {
+    id: "settings",
+    kind: "command",
+    label: "Settings",
+    hint: "Account, preferences, billing",
+    icon: Settings2,
+    to: "/settings",
+    keywords: "preferences account features",
+  },
+];
+
+function matchScore(item: CommandItem, query: string): number {
+  if (!query) return 1;
+  const haystack = `${item.label} ${item.keywords ?? ""}`.toLowerCase();
+  const needle = query.toLowerCase().trim();
+  if (!needle) return 1;
+  if (haystack.startsWith(needle)) return 3;
+  if (haystack.includes(` ${needle}`)) return 2;
+  if (haystack.includes(needle)) return 1;
+  return 0;
+}
+
+export function SearchPalette({ onClose, recentThreads }: SearchPaletteProps) {
+  const navigate = useNavigate();
+  const [query, setQuery] = useState("");
+  const [highlight, setHighlight] = useState(0);
+  const inputRef = useRef<HTMLInputElement | null>(null);
+  const listRef = useRef<HTMLDivElement | null>(null);
+  // Stable base for the combobox/listbox ARIA wiring. The input is a
+  // combobox that controls the listbox via `aria-controls`, and points at
+  // the active row via `aria-activedescendant` — that's how a screen reader
+  // learns which option is highlighted while DOM focus stays on the input.
+  const baseId = useId();
+  const listId = `${baseId}-listbox`;
+  const optionId = (item: CommandItem) => `${baseId}-opt-${item.id}`;
+
+  // Focus the input on mount. The parent only renders this component
+  // while the palette is open, so this fires exactly once per open.
+  useEffect(() => {
+    const id = requestAnimationFrame(() => inputRef.current?.focus());
+    return () => cancelAnimationFrame(id);
+  }, []);
+
+  // Build the full item list — commands plus the (prop-driven) recent
+  // threads — once per prop change.
+  const allItems = useMemo<ReadonlyArray<CommandItem>>(() => {
+    if (!recentThreads || recentThreads.length === 0) return COMMANDS;
+    const threadItems: CommandItem[] = recentThreads.map((t) => ({
+      id: `thread-${t.id}`,
+      kind: "thread",
+      label: t.title,
+      hint: t.when,
+      icon: MessageSquare,
+      threadId: t.id,
+      keywords: `${t.title} ${t.when}`,
+    }));
+    return [...COMMANDS, ...threadItems];
+  }, [recentThreads]);
+
+  // Filter + score in one pass to avoid the .map().filter() chain.
+  const results = useMemo(() => {
+    const ranked: { item: CommandItem; score: number }[] = [];
+    for (const item of allItems) {
+      const score = matchScore(item, query);
+      if (score > 0) ranked.push({ item, score });
+    }
+    if (query.trim()) ranked.sort((a, b) => b.score - a.score);
+    return ranked.map((r) => r.item);
+  }, [allItems, query]);
+
+  // Group results into commands + threads in a single pass so the visual
+  // order is built once and shared by rendering and keyboard nav.
+  const grouped = useMemo(() => {
+    const commands: CommandItem[] = [];
+    const threads: CommandItem[] = [];
+    for (const item of results) {
+      if (item.kind === "command") commands.push(item);
+      else threads.push(item);
+    }
+    return { commands, threads };
+  }, [results]);
+
+  // Flat array in render order. Arrow keys walk this so the highlight
+  // matches the visual sequence (commands first, then threads).
+  const visualOrder = useMemo(() => [...grouped.commands, ...grouped.threads], [grouped]);
+
+  // Clamp the highlight during render — no useEffect needed.
+  const activeIndex = visualOrder.length === 0 ? 0 : Math.min(highlight, visualOrder.length - 1);
+  const activeItem = visualOrder[activeIndex];
+  const activeOptionId = activeItem ? optionId(activeItem) : undefined;
+
+  // Keep the highlighted row in view when arrow-key nav walks past the
+  // visible window. `block: "nearest"` is a no-op when the row is already
+  // visible, so this stays quiet for mouse hover and short lists.
+  useEffect(() => {
+    const el = listRef.current?.querySelector<HTMLElement>('[aria-selected="true"]');
+    el?.scrollIntoView({ block: "nearest" });
+  }, [activeIndex]);
+
+  const invoke = (item: CommandItem) => {
+    onClose();
+    if (item.threadId) {
+      void navigate({ to: "/chat/$threadId", params: { threadId: item.threadId } });
+    } else if (item.to) {
+      void navigate({ to: item.to });
+    } else if (item.onRun) {
+      item.onRun();
+    }
+  };
+
+  const onKeyDown = (e: React.KeyboardEvent) => {
+    if (e.key === "Escape") {
+      e.preventDefault();
+      onClose();
+      return;
+    }
+    if (e.key === "ArrowDown") {
+      e.preventDefault();
+      if (visualOrder.length === 0) return;
+      setHighlight((activeIndex + 1) % visualOrder.length);
+      return;
+    }
+    if (e.key === "ArrowUp") {
+      e.preventDefault();
+      if (visualOrder.length === 0) return;
+      setHighlight((activeIndex - 1 + visualOrder.length) % visualOrder.length);
+      return;
+    }
+    if (e.key === "Enter") {
+      e.preventDefault();
+      const item = visualOrder[activeIndex];
+      if (item) invoke(item);
+    }
+  };
+
+  return (
+    <dialog
+      open
+      aria-label="Search palette"
+      className={cn(
+        // Override UA defaults: dialog ships with its own border, padding,
+        // max-width/height and centered positioning — we want a full-bleed
+        // overlay so the backdrop button covers the viewport.
+        "fixed inset-0 z-[60] m-0 size-full max-h-none max-w-none",
+        "border-0 bg-transparent p-0 text-inherit",
+        "app-fade-in flex items-start justify-center pt-[12vh]",
+      )}
+    >
+      <button
+        type="button"
+        aria-label="Close search"
+        onClick={onClose}
+        className="absolute inset-0 bg-app-background/55 backdrop-blur-[2px]"
+      />
+
+      <div
+        className={cn(
+          "relative mx-4 w-full max-w-[640px]",
+          "rounded-2xl bg-app-bg-1 ring-1 ring-app-bg-3/80",
+          "shadow-[0_30px_80px_rgba(0,0,0,0.32)]",
+          "overflow-hidden",
+        )}
+      >
+        <div className="flex h-12 items-center gap-2.5 border-b border-app-bg-3/60 px-4">
+          <Search size={16} strokeWidth={1.75} className="shrink-0 text-app-fg-2" aria-hidden />
+          <input
+            ref={inputRef}
+            value={query}
+            onChange={(e) => {
+              setQuery(e.target.value);
+              setHighlight(0);
+            }}
+            onKeyDown={onKeyDown}
+            placeholder="Search chats and actions…"
+            className={cn(
+              "min-w-0 flex-1 bg-transparent text-sm text-app-fg-4 placeholder:text-app-fg-2",
+              "outline-none focus-visible:outline-none",
+            )}
+            aria-label="Search query"
+            role="combobox"
+            aria-expanded={visualOrder.length > 0}
+            aria-controls={listId}
+            aria-activedescendant={activeOptionId}
+            aria-autocomplete="list"
+          />
+          <kbd
+            className={cn(
+              "inline-flex h-[18px] shrink-0 items-center justify-center rounded-md px-1.5",
+              "text-[10.5px] font-medium tabular-nums",
+              "bg-app-bg-a2 font-sans text-app-fg-2",
+            )}
+          >
+            ESC
+          </kbd>
+        </div>
+
+        <div
+          ref={listRef}
+          id={listId}
+          role="listbox"
+          aria-label="Search results"
+          className="max-h-[52vh] overflow-y-auto pb-2"
+        >
+          {visualOrder.length === 0 ? (
+            <div className="px-4 py-12 text-center text-sm text-app-fg-2">No matches.</div>
+          ) : (
+            <>
+              {grouped.commands.length ? (
+                <Group label="Actions">
+                  {grouped.commands.map((item, i) => (
+                    <PaletteRow
+                      key={item.id}
+                      id={optionId(item)}
+                      item={item}
+                      active={i === activeIndex}
+                      onMouseEnter={() => setHighlight(i)}
+                      onClick={() => invoke(item)}
+                    />
+                  ))}
+                </Group>
+              ) : null}
+              {grouped.threads.length ? (
+                <Group label="Recent chats">
+                  {grouped.threads.map((item, i) => {
+                    const flatIndex = grouped.commands.length + i;
+                    return (
+                      <PaletteRow
+                        key={item.id}
+                        id={optionId(item)}
+                        item={item}
+                        active={flatIndex === activeIndex}
+                        onMouseEnter={() => setHighlight(flatIndex)}
+                        onClick={() => invoke(item)}
+                      />
+                    );
+                  })}
+                </Group>
+              ) : null}
+            </>
+          )}
+        </div>
+
+        <div
+          className={cn(
+            "flex h-10 items-center justify-between gap-3 px-4",
+            "border-t border-app-bg-3/60 bg-app-bg-1/60",
+          )}
+        >
+          <div className="flex items-center gap-3 text-[11px] text-app-fg-2">
+            <span className="inline-flex items-center gap-1.5">
+              <FootKbd>↑</FootKbd>
+              <FootKbd>↓</FootKbd>
+              <span>Move</span>
+            </span>
+            <span className="inline-flex items-center gap-1.5">
+              <FootKbd>
+                <CornerDownLeft size={9} />
+              </FootKbd>
+              <span>Select</span>
+            </span>
+          </div>
+          <span className="text-[11px] text-app-fg-2">
+            {visualOrder.length} result{visualOrder.length === 1 ? "" : "s"}
+          </span>
+        </div>
+      </div>
+    </dialog>
+  );
+}
+
+function Group({ label, children }: { label: string; children: ReactNode }) {
+  const labelId = useId();
+  return (
+    <div role="group" aria-labelledby={labelId} className="pt-1">
+      <div
+        id={labelId}
+        className="px-3 pt-2 pb-1 text-[10.5px] font-medium tracking-tight text-app-fg-2 uppercase"
+      >
+        {label}
+      </div>
+      <div className="space-y-0.5 px-1.5">{children}</div>
+    </div>
+  );
+}
+
+function PaletteRow({
+  id,
+  item,
+  active,
+  onMouseEnter,
+  onClick,
+}: {
+  /** Stable id referenced by the input's `aria-activedescendant`. */
+  id: string;
+  item: CommandItem;
+  active: boolean;
+  onMouseEnter: () => void;
+  onClick: () => void;
+}) {
+  const Icon = item.icon;
+  return (
+    <button
+      type="button"
+      id={id}
+      role="option"
+      aria-selected={active}
+      onMouseEnter={onMouseEnter}
+      onClick={onClick}
+      className={cn(
+        "group flex h-10 w-full items-center gap-3 rounded-xl px-2.5",
+        "transition-colors",
+        "outline-none",
+        active
+          ? "sidebar-tile text-app-fg-4"
+          : "text-app-fg-3 hover:bg-app-bg-a2 hover:text-app-fg-4 hover:shadow-[inset_0_1px_0_var(--app-sidebar-tile-highlight)]",
+      )}
+    >
+      <span
+        aria-hidden
+        className={cn(
+          "inline-flex size-7 shrink-0 items-center justify-center rounded-lg",
+          "bg-app-bg-2 text-app-fg-3",
+          active && "bg-app-purple-1 text-app-purple-4",
+        )}
+      >
+        <Icon size={14} strokeWidth={1.75} />
+      </span>
+      <span className="min-w-0 flex-1 text-left">
+        <span className="block truncate text-sm font-medium text-app-fg-4">{item.label}</span>
+        {item.hint ? (
+          <span className="block truncate text-[11px] text-app-fg-2">{item.hint}</span>
+        ) : null}
+      </span>
+      {active ? (
+        <CornerDownLeft size={12} aria-hidden className="shrink-0 text-app-fg-2" />
+      ) : item.kbd ? (
+        <FootKbd>{item.kbd}</FootKbd>
+      ) : null}
+    </button>
+  );
+}
+
+function FootKbd({ children }: { children: ReactNode }) {
+  return (
+    <kbd
+      className={cn(
+        "inline-flex h-4 min-w-[16px] items-center justify-center rounded px-1",
+        "text-[10px] leading-none font-medium tabular-nums",
+        "bg-app-bg-a2 font-sans text-app-fg-3",
+      )}
+    >
+      {children}
+    </kbd>
+  );
+}

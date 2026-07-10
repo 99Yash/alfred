@@ -44,7 +44,7 @@
  *   # repair:
  *   node dist/scripts/repairs/repair-sent-mislabeled-triage-committed.js --commit
  */
-import { closeConnections, closeRedis, warmPool } from "@alfred/api";
+import { closeConnections, closeRedis, warmPool } from "@alfred/api/runtime";
 import { gmailSentSql, isSentGmailMetadata } from "@alfred/api/modules/triage/sent-mail";
 import { loadTriageContext, withTriageThreadLock } from "@alfred/api/modules/triage/store";
 import { isHttpError, isTriageCategory, toMessage } from "@alfred/contracts";

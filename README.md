@@ -1,6 +1,6 @@
 # Alfred
 
-A personal AI assistant — single user, multi-device. Connects to Google Workspace (Gmail, Calendar, Drive, Docs, Sheets, Slides), GitHub, Notion, Railway, and Vercel to run background workflows (morning briefing, email triage, meeting prep) and answer questions about your day.
+A personal AI assistant — single user, multi-device. Connects to Google Workspace (Gmail, Calendar, Drive, Docs, Sheets, Slides), GitHub, Notion, Railway, and Vercel to run background workflows (daily briefings, email triage, meeting prep) and answer questions about your day.
 
 Slack and Linear still exist in design docs and catalog UI, but they do not have live backend integrations yet.
 

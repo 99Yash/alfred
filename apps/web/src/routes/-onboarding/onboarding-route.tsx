@@ -2,7 +2,7 @@ import { useQueryClient } from "@tanstack/react-query";
 import { useNavigate, useSearch } from "@tanstack/react-router";
 import { useEffect, useState } from "react";
 import { OnboardingFlow } from "~/components/onboarding/onboarding-flow";
-import { useConnectedAccountLabel } from "~/hooks/use-integration-status";
+import { useConnectedAccountLabel } from "~/lib/integrations/use-integration-status";
 import { authClient } from "~/lib/auth/auth-client";
 import { client } from "~/lib/eden";
 import { toast } from "~/lib/toast";

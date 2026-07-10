@@ -4,12 +4,12 @@ import { createId, lifecycle_dates } from "../helpers";
 import { user } from "./auth";
 
 /**
- * Legacy-only composed-run archive. ADR-0048 makes `briefings` the
- * canonical slotted entity and moves terminal watermarks there. Keep this
- * table only for diagnostics and the in-flight legacy `daily-briefing`
- * smoke path until the follow-up migration drops it.
+ * Legacy-only composed-run archive. ADR-0048 makes `briefings` the canonical
+ * slotted entity and moves terminal watermarks there. No live code writes or
+ * reads this table; it remains only to preserve historical data and avoid a
+ * destructive migration during the legacy workflow cleanup.
  *
- * One row per composed briefing. Two roles in one table:
+ * Historical rows served two roles:
  *
  *   1. Watermark store. `watermark_at` is the `documents.ingested_at`
  *      cut-off this run consumed; the next run for the same `(user_id,
@@ -24,8 +24,7 @@ import { user } from "./auth";
  *      follow-up..." without re-deriving from the inbox. The agent
  *      reads its own prior output, not chat history.
  *
- * `slot` is the only place we distinguish morning from evening at the
- * data layer; the workflow + agent are otherwise shared.
+ * `slot` distinguished morning from evening in this retired data model.
  *
  * Idempotency rides on `email_sends.(user_id, idempotency_key)` per
  * ADR-0020 — `briefing_runs` itself does not enforce one-per-day. A
@@ -41,7 +40,7 @@ export const briefingRuns = pgTable(
     userId: text("user_id")
       .notNull()
       .references(() => user.id, { onDelete: "cascade" }),
-    /** 'morning' | 'evening'. New slots (e.g. 'midday') can land without a migration. */
+    /** Historical slot value, normally 'morning' | 'evening'. */
     slot: text("slot").notNull(),
     /** Local-date this run is *for* (YYYY-MM-DD in user tz). Same shape as the idempotency-key day-segment. */
     briefingDate: text("briefing_date").notNull(),
@@ -55,7 +54,7 @@ export const briefingRuns = pgTable(
     watermarkAt: timestamp("watermark_at", { withTimezone: true }),
     /** 'composing' | 'composed' | 'failed'. */
     status: text("status").notNull().default("composing"),
-    /** Composed body — read by future runs as prompt context. */
+    /** Historical composed body. */
     subject: text("subject"),
     bodyText: text("body_text"),
     /**
@@ -83,8 +82,7 @@ export const briefingRuns = pgTable(
     ...lifecycle_dates,
   },
   (t) => [
-    // Most common read: "last N briefings for this user (any slot)" — used by the agent's
-    // `list_prior_briefings` tool. Ordered descending in the query.
+    // Retained historical indexes; no live query depends on them.
     index("briefing_runs_user_run_at_idx").on(t.userId, t.runAt),
     // Watermark lookup: "what was the latest composed briefing for this (user, slot)?"
     // Filtered to `composed` so a half-finished row doesn't poison the next watermark.

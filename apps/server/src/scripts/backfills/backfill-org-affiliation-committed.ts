@@ -26,11 +26,9 @@
  */
 import {
   buildOrgAffiliationObservationInput,
-  closeConnections,
-  closeRedis,
   recordOrgAffiliationOnConnect,
-  warmPool,
-} from "@alfred/api";
+} from "@alfred/api/backend";
+import { closeConnections, closeRedis, warmPool } from "@alfred/api/runtime";
 import { toMessage } from "@alfred/contracts";
 import { db } from "@alfred/db";
 import { integrationCredentials, user as userTable } from "@alfred/db/schemas";

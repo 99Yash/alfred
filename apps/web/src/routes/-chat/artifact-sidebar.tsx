@@ -31,7 +31,7 @@ import { MarkdownRenderer } from "~/components/markdown-renderer";
 import { printArtifactPages } from "~/lib/artifacts/export-artifact";
 import { useArtifact } from "~/lib/replicache/use-artifacts";
 import { cn } from "~/lib/utils";
-import type { RailMode } from "~/routes/-preview-chat/helpers";
+import type { ChatSidePanelMode } from "~/routes/-chat/rail/models";
 
 /**
  * The chat's artifact sidebar (ADR-0075 Phase 3). Renders a single synced
@@ -54,7 +54,7 @@ export interface ArtifactEditSuggestion {
 
 interface ArtifactSidebarProps {
   artifactId: string;
-  mode: RailMode;
+  mode: ChatSidePanelMode;
   /** Inline-mode width in px (ignored in overlay mode). */
   width: number;
   onWidthChange: (width: number) => void;

@@ -9,20 +9,22 @@
  * when shipping a new builtin (e.g. a new boss-agent workflow in m13)
  * without forcing a re-signup.
  */
-import { closeConnections, seedBuiltinWorkflowsForAllUsers, warmPool } from "@alfred/api";
+import { closeConnections, seedBuiltinWorkflowsForAllUsers, warmPool } from "@alfred/api/runtime";
 import { registerBuiltinWorkflows } from "../../builtins";
 
 async function main() {
   await warmPool();
   registerBuiltinWorkflows();
 
-  const { users, rowsTouched } = await seedBuiltinWorkflowsForAllUsers();
+  const { users, rowsTouched, rowsRetired } = await seedBuiltinWorkflowsForAllUsers();
   if (users === 0) {
     console.log("[seed-builtin-workflows] no users; nothing to seed.");
     return;
   }
 
-  console.log(`[seed-builtin-workflows] done: users=${users} totalRowsTouched=${rowsTouched}`);
+  console.log(
+    `[seed-builtin-workflows] done: users=${users} totalRowsTouched=${rowsTouched} retired=${rowsRetired}`,
+  );
 }
 
 main()

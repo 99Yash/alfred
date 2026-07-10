@@ -8,13 +8,13 @@ apps/
 └── web/             # Vite + TanStack Router SPA — port 3000
 packages/
 ├── ai/              # AI SDK provider config, model dispatchers, embeddings, metering
-├── api/             # Elysia app (routes + middleware) + Eden App type export
+├── api/             # HTTP root + backend service and runtime entrypoints
+├── artifacts-design/ # Shared artifact themes and design contracts
 ├── auth/            # Better Auth config — Google social provider + one-email allowlist
 ├── config/          # Shared tsconfig.base.json
-├── contracts/       # Zero-dep shared types + consts (tool registry, runtime keys) — safe in apps/web
+├── contracts/       # Browser-safe shared types, consts, and Zod schemas
 ├── db/              # Drizzle schema, pool, helpers
 ├── env/             # Zod-validated env vars — serverEnv() / CLIENT_DEFAULTS
-├── schemas/         # Browser-safe shared Zod schemas + inferred types
 ├── sync/            # Replicache keys, schemas, and client mutators
 ├── integrations/    # Per-provider integration code (Gmail, Calendar, GitHub, ...)
 ├── mailer/          # React Email templates + render helpers for Resend sends
@@ -28,6 +28,8 @@ Path alias `~/` maps to `src/` in both apps.
 ## How the pieces coordinate
 
 **Web → API:** `apps/web/src/lib/eden.ts` creates an Eden treaty client typed against `App` from `@alfred/api`. The Vite dev server proxies `/api/auth/*` to `localhost:3001`; all other API calls use `VITE_API_URL` directly.
+
+**API entrypoints:** the `@alfred/api` root exports the composed Elysia `app`, its `App` type, and HTTP security-header helpers. Reusable server-side domain and queue services live at `@alfred/api/backend`. Worker lifecycle, registration, scheduling, bootstrap, and teardown operations live at `@alfred/api/runtime`. Supported deep imports are limited to the operational triage and queue paths declared in `packages/api/package.json`.
 
 **Web → Auth:** `apps/web/src/lib/auth-client.ts` creates a Better Auth client. The web app calls `authClient.signIn.social({ provider: "google" })` from the login surface; Better Auth redirects through Google and back to `/api/auth/callback/google`, both mounted on the Elysia server.
 
@@ -44,8 +46,7 @@ Path alias `~/` maps to `src/` in both apps.
 Allowed in `apps/web`:
 
 - `import type { App } from '@alfred/api'` — type-only, stripped at build time, safe.
-- `import { ... } from '@alfred/contracts'` — zero Node deps (pure types + const exports), safe at runtime.
-- `import { ... } from '@alfred/schemas'` — browser-safe Zod schemas and inferred types.
+- `import { ... } from '@alfred/contracts'` — browser-safe shared Zod schemas, inferred types, constants, and small boundary helpers.
 - `import { ... } from '@alfred/sync'` — Replicache keys, mutators, and synced read-model schemas.
 - `import { treaty } from '@elysiajs/eden'` — client-side.
 - `import { createAuthClient } from 'better-auth/react'` — client-side.
@@ -56,6 +57,13 @@ Forbidden in `apps/web`:
 - Any import of `@alfred/ai` (contains server-only AI SDK providers).
 
 `pnpm check:web-boundaries` enforces these forbidden runtime imports for `apps/web`.
+
+## Web organization
+
+- Keep TanStack route entry files thin: route declaration, parameter/search validation, loaders, and feature composition.
+- Colocate feature components, hooks, state, schemas, and helpers in the owning private route directory (for example, `routes/-chat`, `routes/-skills`, or `routes/-integrations`). Put code in top-level `components`, `hooks`, or `lib` only when it is genuinely generic or shared across features.
+- Keep preview and debug fixtures inside their preview/debug feature directories. Preview surfaces may compose production components, but production routes and features must not import preview fixtures, route modules, or debug-only helpers.
+- Preview and debug surfaces must not trigger production writes, background work, analytics, or provider calls; gate internal routes from production where appropriate.
 
 ## Integration status
 

@@ -1,7 +1,6 @@
 /**
- * App-grammar primitives. Lives alongside the existing
- * dimension-grammar primitives in apps/web/src/components/ui — opt-in
- * per surface by wrapping a subtree in the `.app` class.
+ * Production app-grammar primitives. Legacy dimension versions of duplicated
+ * primitives are isolated in ../legacy for the development styleguide.
  *
  * See ./README.md and archive/visitors-now/design-notes.md.
  */

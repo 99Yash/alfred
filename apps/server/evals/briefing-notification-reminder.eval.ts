@@ -2,13 +2,13 @@ import path from "node:path";
 import { google } from "@ai-sdk/google";
 import { getBossModel, type LanguageModel } from "@alfred/ai";
 import { withToolNameShim } from "@alfred/ai/tool-name-shim";
-import type { EmailListItem, PriorBriefingSummary } from "@alfred/api";
+import type { EmailListItem, PriorBriefingSummary } from "@alfred/api/backend";
 import type { DayShape } from "@alfred/contracts";
 import { generateText, stepCountIs, tool } from "ai";
 import { config as loadEnv } from "dotenv";
 import { evalite } from "evalite";
 import { z } from "zod";
-import { buildSystemPrompt } from "../src/builtins/agents/briefing/prompt";
+import { buildSystemPrompt } from "@alfred/api/backend";
 
 // #265 — the briefing composer must NOT assert a progress/status claim ("still
 // no reply", "no progress", "you haven't started X") on an item that arrived as
@@ -72,7 +72,9 @@ function findAssertedProgress(text: string): string[] {
 
 // ─── Fixtures ────────────────────────────────────────────────────────────────
 
-function email(overrides: Partial<EmailListItem> & Pick<EmailListItem, "from" | "subject">): EmailListItem {
+function email(
+  overrides: Partial<EmailListItem> & Pick<EmailListItem, "from" | "subject">,
+): EmailListItem {
   return {
     documentId: "doc_eval_1",
     subject: overrides.subject,
@@ -276,7 +278,13 @@ async function runBriefingScenario(input: ScenarioRun): Promise<ComposeOutput> {
           execute: async ({ documentId }) => {
             const hit = scenario.emails.find((e) => e.documentId === documentId);
             return hit
-              ? { documentId, subject: hit.subject, from: hit.from, body: hit.snippet ?? "", truncated: false }
+              ? {
+                  documentId,
+                  subject: hit.subject,
+                  from: hit.from,
+                  body: hit.snippet ?? "",
+                  truncated: false,
+                }
               : { error: `not found: ${documentId}` };
           },
         }),
@@ -300,7 +308,9 @@ async function runBriefingScenario(input: ScenarioRun): Promise<ComposeOutput> {
         list_meeting_preps: tool({
           description: "Meeting preps. Not wired — returns [].",
           inputSchema: z.object({
-            window: z.enum(["today", "tomorrow", "today_and_tomorrow"]).default("today_and_tomorrow"),
+            window: z
+              .enum(["today", "tomorrow", "today_and_tomorrow"])
+              .default("today_and_tomorrow"),
           }),
           execute: async () => [],
         }),

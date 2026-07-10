@@ -19,14 +19,16 @@
  *      handler runs again (CAS on `next_run_at`).
  */
 import {
+  dispatchDueCronWorkflows,
+  getAgentQueue,
+} from "@alfred/api/backend";
+import {
   closeAgentQueue,
   closeConnections,
   closeRedis,
   closeWorkflowsQueue,
-  dispatchDueCronWorkflows,
-  getAgentQueue,
   warmPool,
-} from "@alfred/api";
+} from "@alfred/api/runtime";
 import { db } from "@alfred/db";
 import { agentRuns, user as userTable, workflows } from "@alfred/db/schemas";
 import { and, eq } from "drizzle-orm";

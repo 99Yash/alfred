@@ -25,15 +25,17 @@ import {
   bustPolicyCache,
   cancelRun,
   clearToolRegistryForTests,
-  closeConnections,
-  closeRedis,
   dispatchToolCall,
-  ensureDefaultActionPolicyForUser,
   liveTool,
   registerTools,
   signalRun,
+} from "@alfred/api/backend";
+import {
+  closeConnections,
+  closeRedis,
+  ensureDefaultActionPolicyForUser,
   warmPool,
-} from "@alfred/api";
+} from "@alfred/api/runtime";
 import { db } from "@alfred/db";
 import {
   actionStagings,

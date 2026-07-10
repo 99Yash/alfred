@@ -8,14 +8,11 @@
  * progress, signals the HIL approval, and asserts the final output.
  */
 import {
-  closeAgentQueue,
-  closeConnections,
-  closeRedis,
   createRun,
   enqueueRun,
   signalRun,
-  warmPool,
-} from "@alfred/api";
+} from "@alfred/api/backend";
+import { closeAgentQueue, closeConnections, closeRedis, warmPool } from "@alfred/api/runtime";
 import { db } from "@alfred/db";
 import { agentRuns, agentSteps, user as userTable } from "@alfred/db/schemas";
 import { eq } from "drizzle-orm";

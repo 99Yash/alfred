@@ -29,15 +29,12 @@
  *   node dist/scripts/backfills/backfill-triage-committed.js --commit
  */
 import {
-  closeAgentQueue,
-  closeConnections,
-  closeRedis,
   createRun,
   emitReplicachePokes,
   enqueueRun,
   TRIAGE_WORKFLOW_SLUG,
-  warmPool,
-} from "@alfred/api";
+} from "@alfred/api/backend";
+import { closeAgentQueue, closeConnections, closeRedis, warmPool } from "@alfred/api/runtime";
 import { db, rowsFromExecute } from "@alfred/db";
 import { documents, todos, user as userTable } from "@alfred/db/schemas";
 import { and, desc, eq, inArray, isNotNull, sql } from "drizzle-orm";

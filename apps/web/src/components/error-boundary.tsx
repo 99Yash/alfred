@@ -16,8 +16,8 @@
 import { useRouter, type ErrorComponentProps } from "@tanstack/react-router";
 import { RefreshCcw } from "lucide-react";
 import { useEffect } from "react";
-import { Button } from "~/components/ui/button";
 import { FrostPanel } from "~/components/ui/frost-panel";
+import { LegacyButton } from "~/components/ui/legacy/button";
 
 const RELOAD_TRAILING = <RefreshCcw className="size-3.5" />;
 
@@ -42,7 +42,7 @@ export function DefaultCatchBoundary({ error, reset }: ErrorComponentProps) {
         </p>
 
         <div className="mt-2 flex items-center gap-2">
-          <Button
+          <LegacyButton
             variant="ghost"
             size="md"
             onClick={() => {
@@ -53,8 +53,8 @@ export function DefaultCatchBoundary({ error, reset }: ErrorComponentProps) {
             }}
           >
             Try again
-          </Button>
-          <Button
+          </LegacyButton>
+          <LegacyButton
             variant="primary"
             size="md"
             trailing={RELOAD_TRAILING}
@@ -63,7 +63,7 @@ export function DefaultCatchBoundary({ error, reset }: ErrorComponentProps) {
             }}
           >
             Reload page
-          </Button>
+          </LegacyButton>
         </div>
       </FrostPanel>
     </div>
@@ -86,7 +86,7 @@ export function NotFound() {
         </p>
 
         <div className="mt-2 flex items-center gap-2">
-          <Button
+          <LegacyButton
             variant="ghost"
             size="md"
             onClick={() => {
@@ -94,8 +94,8 @@ export function NotFound() {
             }}
           >
             Go back
-          </Button>
-          <Button
+          </LegacyButton>
+          <LegacyButton
             variant="primary"
             size="md"
             onClick={() => {
@@ -103,7 +103,7 @@ export function NotFound() {
             }}
           >
             Go home
-          </Button>
+          </LegacyButton>
         </div>
       </FrostPanel>
     </div>

@@ -10,15 +10,17 @@
  */
 
 import {
-  closeAgentQueue,
-  closeConnections,
-  closeRedis,
   createRun,
   dispatchToolCall,
   readScratch,
+} from "@alfred/api/backend";
+import {
+  closeAgentQueue,
+  closeConnections,
+  closeRedis,
   registerBuiltinTools,
   warmPool,
-} from "@alfred/api";
+} from "@alfred/api/runtime";
 import { isRecord } from "@alfred/contracts";
 import { db } from "@alfred/db";
 import { actionStagings, agentRuns, user as userTable, workflows } from "@alfred/db/schemas";

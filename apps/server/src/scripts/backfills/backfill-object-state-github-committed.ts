@@ -24,7 +24,8 @@
  *   # commit:
  *   node dist/scripts/backfills/backfill-object-state-github-committed.js --commit
  */
-import { closeConnections, closeRedis, objectStateStore, warmPool } from "@alfred/api";
+import { objectStateStore } from "@alfred/api/backend";
+import { closeConnections, closeRedis, warmPool } from "@alfred/api/runtime";
 import { db } from "@alfred/db";
 import { integrationObjects, webhookEvents } from "@alfred/db/schemas";
 import { and, asc, eq, isNotNull } from "drizzle-orm";

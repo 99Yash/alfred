@@ -40,7 +40,7 @@
  *   # every connected Google account, full custom query:
  *   node dist/scripts/backfills/backfill-gmail-sent-committed.js --all-connected --query="in:sent" --commit
  */
-import { closeConnections, closeRedis, warmPool } from "@alfred/api";
+import { closeConnections, closeRedis, warmPool } from "@alfred/api/runtime";
 import { toMessage } from "@alfred/contracts";
 import { db } from "@alfred/db";
 import { integrationCredentials, user as userTable } from "@alfred/db/schemas";
