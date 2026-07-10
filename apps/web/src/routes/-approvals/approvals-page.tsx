@@ -94,15 +94,17 @@ export function ApprovalsPage() {
       ),
     [rows],
   );
+  const selectedIntegrations = useMemo(() => new Set(selIntegration), [selIntegration]);
+  const selectedRisks = useMemo(() => new Set(selRisk), [selRisk]);
 
   const filtered = useMemo(
     () =>
       rows.filter(
         (r) =>
-          (selIntegration.length === 0 || selIntegration.includes(r.integration)) &&
-          (selRisk.length === 0 || selRisk.includes(r.riskTier)),
+          (selectedIntegrations.size === 0 || selectedIntegrations.has(r.integration)) &&
+          (selectedRisks.size === 0 || selectedRisks.has(r.riskTier)),
       ),
-    [rows, selIntegration, selRisk],
+    [rows, selectedIntegrations, selectedRisks],
   );
 
   const filtering = selIntegration.length > 0 || selRisk.length > 0;
@@ -185,7 +187,7 @@ export function ApprovalsPage() {
                       label={f.label}
                       count={f.count}
                       icon={brand ? <IntegrationGlyph brand={brand} size={15} /> : undefined}
-                      active={selIntegration.includes(f.value)}
+                      active={selectedIntegrations.has(f.value)}
                       onClick={() => toggle("integration", f.value)}
                     />
                   );
@@ -199,7 +201,7 @@ export function ApprovalsPage() {
                     key={f.value}
                     label={f.label}
                     count={f.count}
-                    active={selRisk.includes(f.value)}
+                    active={selectedRisks.has(f.value)}
                     dotClass={RISK_DOT[f.value]}
                     onClick={() => toggle("risk", f.value)}
                   />

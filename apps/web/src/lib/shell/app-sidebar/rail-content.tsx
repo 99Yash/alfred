@@ -15,7 +15,8 @@ import {
 } from "lucide-react";
 import { cn } from "~/lib/utils";
 import { RailUserButton } from "./footer-user-row";
-import { RailButton, RailLink, RailTip, railIconClass } from "./navigation-primitives";
+import { RailButton, RailLink, RailTip } from "./navigation-primitives";
+import { railIconClass } from "./navigation-primitives.styles";
 
 interface RailContentProps {
   path: string;

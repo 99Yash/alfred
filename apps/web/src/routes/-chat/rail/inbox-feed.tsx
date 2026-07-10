@@ -30,8 +30,9 @@ import { useInboxDetail, type InboxAttachment, type InboxMessage } from "~/hooks
 import { faviconFor as faviconUrl } from "~/lib/favicon";
 import { IntegrationGlyph } from "~/lib/integrations/integration-icons";
 import { cn } from "~/lib/utils";
+import { hasRemoteEmailMedia } from "./inbox-feed-media";
+import type { InboxFeedProps } from "./inbox-feed.types";
 import { RAIL_TOOL_TONE, type RailInboxItem } from "./models";
-import type { InboxPagination } from "./rail-data";
 
 const PAGE_SIZE = 8;
 
@@ -49,32 +50,6 @@ const PAGE_SIZE = 8;
  * The component is presentation-only — refresh cadence (window-focus +
  * 5-minute poll) lives in `useInbox`.
  */
-export interface InboxFeedProps {
-  items: ReadonlyArray<RailInboxItem>;
-  /** Optional server-driven pagination. When omitted, local filtering still
-   * supports a single page (no controls shown) — used by preview routes. */
-  pagination?: InboxPagination;
-  /** Document id of the row currently expanded in the reader pane. When
-   * non-null, the feed swaps the list out for `InboxDetailPane`. */
-  selectedId?: string | null;
-  /** Open the reader for a given row. Rendered as a link to Gmail when omitted. */
-  onOpen?: (documentId: string) => void;
-  /** Close the reader and return to the list. */
-  onClose?: () => void;
-  /**
-   * Optional bulk "mark read" — when present, the feed renders a
-   * "Mark all read" affordance that fires with the *visible* unread
-   * ids. Preview routes (and any caller that wants to suppress the
-   * action) omit this. */
-  onMarkRead?: (documentIds: ReadonlyArray<string>) => void;
-  /** True while a mark-read request is in flight — disables the button. */
-  markReadPending?: boolean;
-  /** Synced tag rows keyed by Gmail thread id; overlays optimistic overrides. */
-  triageTagsByThreadId?: ReadonlyMap<string, SyncedTriageTag>;
-  /** Pin a thread to a user-chosen triage category. */
-  onOverrideTag?: (threadId: string, category: TriageCategory) => void;
-}
-
 export function InboxFeed({
   items,
   pagination,
@@ -961,14 +936,6 @@ const LOOSE_CSP_META =
   `default-src 'none'; img-src http: https: data: cid:; media-src http: https:; font-src 'none'; ` +
   `connect-src 'none'; frame-src 'none'; object-src 'none'; script-src 'none'; ` +
   `style-src 'unsafe-inline'; base-uri 'none'; form-action 'none'">`;
-
-const REMOTE_MEDIA_ATTR_RE =
-  /<(?:img|source|video|audio|track|image)\b[^>]*\s(?:src|srcset|poster|href|xlink:href)\s*=\s*(?:"[^"]*https?:\/\/|'[^']*https?:\/\/|[^\s>]*https?:\/\/)/i;
-const REMOTE_CSS_URL_RE = /url\(\s*(?:"https?:\/\/|'https?:\/\/|https?:\/\/)/i;
-
-export function hasRemoteEmailMedia(html: string): boolean {
-  return REMOTE_MEDIA_ATTR_RE.test(html) || REMOTE_CSS_URL_RE.test(html);
-}
 
 /**
  * Renders email HTML in a sandboxed iframe via `srcDoc`. DOMPurify already

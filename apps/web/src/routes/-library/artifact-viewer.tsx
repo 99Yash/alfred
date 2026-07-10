@@ -94,13 +94,15 @@ function PopulatedArtifact({
 
   const onDownload = useCallback(() => {
     if (!canDownload) return;
+    const downloadablePages =
+      artifact.content?.kind === "pages" ? artifact.content.pages : [];
     const format: ArtifactFormat = artifact.format ?? "pdf";
     void printArtifactPages(
-      pages.map((page) => page.html),
+      downloadablePages.map((page) => page.html),
       format,
       artifact.title,
     );
-  }, [artifact.format, artifact.title, canDownload, pages]);
+  }, [artifact.content, artifact.format, artifact.title, canDownload]);
 
   return (
     <ArtifactDialog label={artifact.title} onClose={onClose}>
@@ -201,10 +203,17 @@ function ArtifactContent({ artifact }: { artifact: SyncedArtifact }) {
     );
   }
   const format = artifact.format ?? "pdf";
+  const pageKeyOccurrences = new Map<string, number>();
+  const keyedPages = pages.map((page) => {
+    const shapeKey = JSON.stringify([page.title, page.html]);
+    const occurrence = pageKeyOccurrences.get(shapeKey) ?? 0;
+    pageKeyOccurrences.set(shapeKey, occurrence + 1);
+    return { key: JSON.stringify([shapeKey, occurrence]), page };
+  });
   return (
     <div className="mx-auto flex w-full max-w-[720px] flex-col gap-8">
-      {pages.map((page, index) => (
-        <section key={`${page.title}-${index}`} aria-label={`Page ${index + 1}`}>
+      {keyedPages.map(({ key, page }, index) => (
+        <section key={key} aria-label={`Page ${index + 1}`}>
           <div className="mb-2 flex items-center justify-between text-[11.5px] text-app-fg-3">
             <span>{page.title || "Page"}</span>
             <span className="tabular-nums">
