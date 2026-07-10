@@ -45,6 +45,15 @@ export const LOCAL_STORAGE_SCHEMAS = {
   "alfred.onboarding-complete": z
     .preprocess((value) => (value === 1 ? true : value === 0 ? false : value), z.boolean())
     .default(false),
+  /**
+   * Replay anchor for the SSE event stream (`lib/events/stream`) — the outbox
+   * row id to resume from after a full page reload. A refresh destroys the
+   * EventSource (so the browser's `Last-Event-ID` catch-up is lost); passing
+   * this as `?since` lets the server replay a mid-flight turn from its first
+   * frame instead of the bubble coming back blank. Frozen while a turn streams,
+   * advanced to the latest seen id while idle. `0` means "no replay".
+   */
+  "alfred.events.replayAnchor": z.number().int().nonnegative().default(0),
   /** When the run-complete chime plays (see `lib/chat/use-run-complete`). */
   "alfred.chat.soundPreference": z.enum(["always", "unfocused", "mute"]).default("unfocused"),
   /**
