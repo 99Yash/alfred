@@ -1,4 +1,5 @@
 import * as Tooltip from "@radix-ui/react-tooltip";
+import { RefreshCw } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { stopChatRun } from "~/lib/chat/turn-controls";
 import { useChatStream } from "~/lib/chat/use-chat-stream";
@@ -59,7 +60,12 @@ export function ChatShell({ threadId, title }: ChatShellProps) {
     return () => window.removeEventListener("keydown", handler);
   }, [railMode, railOpen]);
 
-  const messages = useChatMessages(threadId);
+  const {
+    messages,
+    loading: messagesLoading,
+    error: messagesError,
+    retry: retryMessages,
+  } = useChatMessages(threadId);
   const { stream, stopStream } = useChatStream(threadId);
   useRunComplete(stream);
   const showStream = shouldShowStream(messages, stream);
@@ -250,6 +256,10 @@ export function ChatShell({ threadId, title }: ChatShellProps) {
               </div>
             </div>
           </>
+        ) : messagesLoading ? (
+          <ConversationLoading />
+        ) : messagesError ? (
+          <ConversationLoadError message={messagesError} onRetry={retryMessages} />
         ) : (
           <EmptyHero
             threadId={threadId}
@@ -264,5 +274,41 @@ export function ChatShell({ threadId, title }: ChatShellProps) {
         )}
       </div>
     </Tooltip.Provider>
+  );
+}
+
+function ConversationLoading() {
+  return (
+    <div
+      className="mx-auto flex w-full max-w-3xl flex-1 flex-col justify-end gap-8 px-4 py-10"
+      role="status"
+      aria-label="Loading conversation"
+    >
+      <span className="sr-only">Loading conversation</span>
+      <div className="ml-auto h-5 w-2/5 animate-pulse rounded-sm bg-app-bg-3 motion-reduce:animate-none" />
+      <div className="space-y-3">
+        <div className="h-4 w-4/5 animate-pulse rounded-sm bg-app-bg-3 motion-reduce:animate-none" />
+        <div className="h-4 w-3/5 animate-pulse rounded-sm bg-app-bg-3 motion-reduce:animate-none" />
+      </div>
+      <div className="h-24 w-full animate-pulse rounded-md bg-app-bg-2 motion-reduce:animate-none" />
+    </div>
+  );
+}
+
+function ConversationLoadError({ message, onRetry }: { message: string; onRetry: () => void }) {
+  return (
+    <div className="flex flex-1 items-center justify-center px-6">
+      <div className="flex max-w-md flex-col items-center gap-3 text-center">
+        <p className="text-sm text-app-fg-3">{message}</p>
+        <button
+          type="button"
+          onClick={onRetry}
+          className="app-press inline-flex h-9 items-center gap-2 rounded-md bg-app-bg-2 px-3 text-sm font-medium text-app-fg-4 transition-colors hover:bg-app-bg-a2 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-app-purple-2"
+        >
+          <RefreshCw className="size-4" aria-hidden="true" />
+          Try again
+        </button>
+      </div>
+    </div>
   );
 }
