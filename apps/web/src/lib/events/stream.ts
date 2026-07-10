@@ -5,6 +5,7 @@ import {
   type EventKind,
 } from "@alfred/contracts/events";
 import { getStringPath, isRecord, safeJsonParse } from "@alfred/contracts";
+import { getReplaySince, noteReplayFrame } from "./replay-anchor";
 
 const API_URL =
   (import.meta as { env?: { VITE_API_URL?: string } }).env?.VITE_API_URL ?? "http://localhost:3001";
@@ -37,7 +38,10 @@ interface SharedEventStream {
 let sharedStream: SharedEventStream | null = null;
 
 function eventStreamUrl(): URL {
-  return new URL(`${API_URL}/api/events/`);
+  const url = new URL(`${API_URL}/api/events/`);
+  const anchor = getReplaySince();
+  if (anchor > 0) url.searchParams.set("since", String(anchor));
+  return url;
 }
 
 function parseFrame(kind: EventKind, msg: MessageEvent): EventStreamFrame | null {
@@ -77,7 +81,9 @@ function createEventSource(
  *
  * All callers share one connection. Browser EventSource handles auto-reconnect
  * and automatically sends `Last-Event-ID` from the most recent `id:` line, so
- * the server can replay events missed across drops.
+ * the server can replay events missed across drops. That header is lost on a
+ * full page reload, so we also pass the persisted recovery cursor from
+ * `replay-anchor` as `?since` when the page reconnects.
  */
 export function openEventStream(opts: OpenEventStreamOptions): () => void {
   if (!sharedStream) {
@@ -85,6 +91,7 @@ export function openEventStream(opts: OpenEventStreamOptions): () => void {
     sharedStream = {
       source: createEventSource(
         (frame) => {
+          noteReplayFrame(frame);
           for (const subscriber of subscribers.values()) {
             subscriber.onFrame(frame);
           }
