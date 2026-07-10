@@ -8,6 +8,7 @@ import { db } from "@alfred/db";
 import { artifacts } from "@alfred/db/schemas";
 import { and, eq, sql } from "drizzle-orm";
 import { emitReplicachePokes } from "../../events/replicache-events";
+import { artifactReplacementMatchesBase } from "./content-hash";
 
 /**
  * Server-side write path for agent-authored artifacts (ADR-0075). The
@@ -50,7 +51,7 @@ export type AppendArtifactPageResult =
 
 export type UpdateArtifactResult =
   | { ok: true; artifactId: string; title: string; kind: ArtifactKind }
-  | { ok: false; status: "not_found" | "wrong_kind"; reason: string };
+  | { ok: false; status: "not_found" | "wrong_kind" | "stale_content"; reason: string };
 
 /** Hard ceiling on pages per artifact — mirrors the `artifactContentSchema` cap. */
 const MAX_PAGES = 100;
@@ -160,11 +161,22 @@ export async function appendArtifactPage(
  */
 export async function updateArtifact(
   ctx: ArtifactWriteContext,
-  input: { artifactId: string; title?: string; markdown?: string; pages?: ArtifactPage[] },
+  input: {
+    artifactId: string;
+    title?: string;
+    markdown?: string;
+    pages?: ArtifactPage[];
+    baseContentHash?: string;
+  },
 ): Promise<UpdateArtifactResult> {
   const result = await db().transaction(async (tx) => {
     const [row] = await tx
-      .select({ kind: artifacts.kind, title: artifacts.title })
+      .select({
+        kind: artifacts.kind,
+        title: artifacts.title,
+        runId: artifacts.runId,
+        content: artifacts.content,
+      })
       .from(artifacts)
       .where(and(eq(artifacts.id, input.artifactId), eq(artifacts.userId, ctx.userId)))
       .for("update");
@@ -175,6 +187,24 @@ export async function updateArtifact(
     }
     if (input.pages !== undefined && row.kind !== "pages") {
       return { status: "wrong_kind" as const, want: "pages" };
+    }
+
+    const replacesContent = input.markdown !== undefined || input.pages !== undefined;
+    // Content authored earlier in this same run is already present in the live
+    // transcript. Cross-turn full replacement is different: require proof that
+    // the model received the complete, still-current body. This rejects edits
+    // based on a truncated reference and lost updates after concurrent changes.
+    if (
+      replacesContent &&
+      row.runId !== ctx.runId &&
+      !artifactReplacementMatchesBase({
+        currentContent: row.content,
+        rowRunId: row.runId,
+        editingRunId: ctx.runId,
+        baseContentHash: input.baseContentHash,
+      })
+    ) {
+      return { status: "stale_content" as const };
     }
 
     const set: Record<string, unknown> = { rowVersion: sql`${artifacts.rowVersion} + 1` };
@@ -194,6 +224,14 @@ export async function updateArtifact(
       ok: false,
       status: "wrong_kind",
       reason: `that content only applies to a '${result.want}' artifact`,
+    };
+  }
+  if (result.status === "stale_content") {
+    return {
+      ok: false,
+      status: "stale_content",
+      reason:
+        "content replacement rejected because the complete current artifact body was not supplied or changed after it was read",
     };
   }
   emitReplicachePokes([ctx.userId]);

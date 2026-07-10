@@ -246,6 +246,16 @@ function resolveOne(
   };
 }
 
+const credentialScopeSets = new WeakMap<CredentialRow, ReadonlySet<string>>();
+
+function grantedScopes(credential: CredentialRow): ReadonlySet<string> {
+  const cached = credentialScopeSets.get(credential);
+  if (cached) return cached;
+  const scopes = new Set(credential.scopes);
+  credentialScopeSets.set(credential, scopes);
+  return scopes;
+}
+
 /**
  * Partial-grant detector for the scope-completeness banner. Alfred's
  * onboarding requests the full Google grant in one consent, but Google's
@@ -274,13 +284,15 @@ export function useGoogleScopeGaps(): GoogleScopeGaps {
       if (PROVIDER_BACKEND[p.id] !== "google") return [];
       const required = PROVIDER_REQUIRED_SCOPES[p.id];
       if (!required) return [];
-      // Missing iff no active credential carries every required scope. Build the
-      // scope Set once per credential so repeated membership checks stay O(1).
+      // Missing iff no active credential carries every required scope. The
+      // WeakMap-backed helper builds one Set per credential object, shared by
+      // every provider probe in this render.
       if (
-        active.some((c) => {
-          const granted = new Set(c.scopes);
-          return required.every((r) => meetsScopeRequirement(granted, r));
-        })
+        active.some((credential) =>
+          required.every((requirement) =>
+            meetsScopeRequirement(grantedScopes(credential), requirement),
+          ),
+        )
       )
         return [];
       return [{ providerId: p.id, name: p.name }];
@@ -328,9 +340,7 @@ function matchByScopes(
   if (!required) return [];
   return creds.filter((c) => {
     if (c.status !== "active") return false;
-    // Build the scope Set once per credential so repeated membership checks stay O(1).
-    const granted = new Set(c.scopes);
-    return required.every((r) => meetsScopeRequirement(granted, r));
+    return required.every((requirement) => meetsScopeRequirement(grantedScopes(c), requirement));
   });
 }
 

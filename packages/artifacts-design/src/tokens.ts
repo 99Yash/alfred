@@ -229,5 +229,7 @@ export function cssVariables(): DesignToken[] {
     { name: "art-doc-heading", value: docType.heading },
     { name: "art-doc-body", value: docType.body },
     { name: "art-doc-meta", value: docType.meta },
+    { name: "art-doc-line-heading", value: docType.lineHeading },
+    { name: "art-doc-line-body", value: docType.lineBody },
   ];
 }

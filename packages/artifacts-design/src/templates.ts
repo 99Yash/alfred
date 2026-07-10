@@ -50,76 +50,74 @@ const resume: DocumentTemplate = {
   html: `<div class="art-doc">
   <div class="art-doc-header">
     <div>
-      <div class="art-doc-name">Jordan Rivera</div>
-      <div class="art-doc-role">Senior Product Engineer</div>
+      <div class="art-doc-name">[Full name]</div>
+      <div class="art-doc-role">[Current or target role]</div>
     </div>
     <div class="art-doc-contact">
-      <a href="https://jordanrivera.dev">jordanrivera.dev</a><br />
-      <a href="https://github.com/jrivera">github.com/jrivera</a><br />
-      <a href="https://linkedin.com/in/jrivera">linkedin.com/in/jrivera</a><br />
-      <a href="mailto:jordan@rivera.dev">jordan@rivera.dev</a>
+      [Portfolio URL]<br />
+      [GitHub URL]<br />
+      [LinkedIn URL]<br />
+      [Email address]
     </div>
   </div>
   <hr class="art-doc-headrule" />
 
-  <div class="art-doc-lede">Product engineer who ships end to end, from data model to polished interface, with a bias for reliability and measurable outcomes.</div>
+  <div class="art-doc-lede">[One verified sentence summarizing scope, strengths, and the kind of outcomes delivered.]</div>
 
   <div class="art-doc-sectionhead"><div class="art-doc-section">Experience</div></div>
   <div class="art-doc-entry">
     <div class="art-doc-entry-head">
-      <div class="art-doc-entry-title">Northwind <span>&middot; Senior Product Engineer</span></div>
-      <div class="art-doc-entry-meta">2023 to Present</div>
+      <div class="art-doc-entry-title">[Company] <span>&middot; [Role]</span></div>
+      <div class="art-doc-entry-meta">[Start to end]</div>
     </div>
-    <div class="art-doc-entry-desc">Led the billing rewrite that cut checkout errors by 40 percent. Owned the design system and the migration to a typed API end to end.</div>
+    <div class="art-doc-entry-desc">[Verified responsibility or accomplishment, including a metric only when the source provides one.]</div>
   </div>
   <div class="art-doc-entry">
     <div class="art-doc-entry-head">
-      <div class="art-doc-entry-title">Lumen <span>&middot; Product Engineer</span></div>
-      <div class="art-doc-entry-meta">2021 to 2023</div>
+      <div class="art-doc-entry-title">[Company] <span>&middot; [Role]</span></div>
+      <div class="art-doc-entry-meta">[Start to end]</div>
     </div>
-    <div class="art-doc-entry-desc">Built core product surfaces from spec to production and shipped the onboarding flow that lifted activation by a third.</div>
+    <div class="art-doc-entry-desc">[Verified responsibility or accomplishment.]</div>
   </div>
   <div class="art-doc-entry">
     <div class="art-doc-entry-head">
-      <div class="art-doc-entry-title">Beacon <span>&middot; Software Engineer</span></div>
-      <div class="art-doc-entry-meta">2019 to 2021</div>
+      <div class="art-doc-entry-title">[Company] <span>&middot; [Role]</span></div>
+      <div class="art-doc-entry-meta">[Start to end]</div>
     </div>
-    <div class="art-doc-entry-desc">Delivered full-stack features across the product and owned the search and indexing layer, cutting query latency in half.</div>
+    <div class="art-doc-entry-desc">[Verified responsibility or accomplishment.]</div>
   </div>
   <div class="art-doc-entry">
     <div class="art-doc-entry-head">
-      <div class="art-doc-entry-title">Vector <span>&middot; Software Engineer, Intern</span></div>
-      <div class="art-doc-entry-meta">2018</div>
+      <div class="art-doc-entry-title">[Company] <span>&middot; [Role]</span></div>
+      <div class="art-doc-entry-meta">[Start to end]</div>
     </div>
-    <div class="art-doc-entry-desc">Shipped the internal analytics dashboard and the alerting pipeline behind it.</div>
+    <div class="art-doc-entry-desc">[Verified responsibility or accomplishment.]</div>
   </div>
 
   <div class="art-doc-sectionhead"><div class="art-doc-section">Selected projects</div></div>
   <div class="art-doc-entry">
     <div class="art-doc-entry-head">
-      <div class="art-doc-entry-title">Atlas <span>&middot; open-source type-safe router</span></div>
-      <div class="art-doc-entry-meta">1.2k stars</div>
+      <div class="art-doc-entry-title">[Project] <span>&middot; [What it is]</span></div>
+      <div class="art-doc-entry-meta">[Verified signal]</div>
     </div>
-    <div class="art-doc-entry-desc">Full inference from route to handler with zero code generation.</div>
+    <div class="art-doc-entry-desc">[Verified outcome or distinctive technical contribution.]</div>
   </div>
 
   <div class="art-doc-cols">
     <div>
       <div class="art-doc-section">Skills</div>
       <div class="art-doc-chips">
-        <span class="art-doc-chip">TypeScript</span>
-        <span class="art-doc-chip">React</span>
-        <span class="art-doc-chip">Node</span>
-        <span class="art-doc-chip">Postgres</span>
-        <span class="art-doc-chip">Python</span>
-        <span class="art-doc-chip">AWS</span>
+        <span class="art-doc-chip">[Skill]</span>
+        <span class="art-doc-chip">[Skill]</span>
+        <span class="art-doc-chip">[Skill]</span>
+        <span class="art-doc-chip">[Skill]</span>
       </div>
     </div>
     <div>
       <div class="art-doc-section">Education</div>
       <div class="art-doc-entry">
-        <div class="art-doc-entry-title">State University</div>
-        <div class="art-doc-entry-desc">B.S. Computer Science &middot; 2018</div>
+        <div class="art-doc-entry-title">[Institution]</div>
+        <div class="art-doc-entry-desc">[Credential] &middot; [Year]</div>
       </div>
     </div>
   </div>
