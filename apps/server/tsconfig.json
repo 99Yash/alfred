@@ -3,7 +3,6 @@
   "compilerOptions": {
     "composite": true,
     "outDir": "dist",
-    "baseUrl": ".",
     // `@alfred/mailer` exports React (`.tsx`) source; the server renders
     // briefing emails to a string server-side. jsx here lets tsc parse
     // those sources (classic runtime, matching the mailer package). Server-

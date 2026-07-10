@@ -68,7 +68,7 @@ catalog:
   tailwind-merge: ^3.3.0
   tailwindcss: ^4.1.8
   tsdown: ^0.15.5
-  typescript: ^5.8.2
+  typescript: ^7.0.2
   vite: ^6.3.5
   zod: 4.3.6
 
