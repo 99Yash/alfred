@@ -1,7 +1,7 @@
 import { archetypes } from "./archetypes";
 import { documentTemplateById, documentTemplates } from "./templates";
 import { houseTheme } from "./theme";
-import { accent, docType, pageGeometry, type } from "./tokens";
+import { accent, docType, pageGeometry } from "./tokens";
 
 /**
  * The design-system block injected into the artifact-authoring turn
@@ -14,16 +14,15 @@ import { accent, docType, pageGeometry, type } from "./tokens";
  *
  * Built from the token/theme source of truth (accent, page geometry, archetype
  * names, document type scale) so it can never drift from what the shell renders.
- * Covers both mediums: SLIDES (the art-* vocabulary + layout archetypes) and
- * DOCUMENTS (the denser art-doc-* vocabulary + the resume template, inlined as
- * the anchor because naming alone let the model free-style a resume off-system).
+ * This stable base covers the shared shell plus the slide vocabulary. The full
+ * document vocabulary/template is a separate block injected only after a PDF
+ * artifact is selected or created, so unrelated chat turns do not pay for a
+ * résumé exemplar they cannot use.
  */
 function buildArtifactDesignPrompt(): string {
   const slides = pageGeometry.slides;
   const pdf = pageGeometry.pdf;
   const archetypeList = archetypes.map((a) => `${a.name} (${a.description})`).join("; ");
-  const docTemplateList = documentTemplates.map((t) => `${t.name} (${t.description})`).join("; ");
-  const resumeTemplate = documentTemplateById("resume");
 
   return [
     "## Authoring artifact pages",
@@ -35,7 +34,7 @@ function buildArtifactDesignPrompt(): string {
       "- Do NOT add your own padding or margin to the top-level wrapper. The shell already insets the page from every edge; extra outer padding stacks on top of it, shrinks the usable box, and pushes content off the bottom. Let the shell own the edge inset and only space elements WITHIN the content.",
       "- Everything must fit inside the page box. There is no scrolling; overflow is clipped. Author light: one idea per page, prefer more pages over a crammed one. As a budget, a slide holds roughly a heading plus 4-6 short lines or 3 small cards; if you have more, split it across pages.",
       "- Balance the page. Choose type sizes and spacing so content reads complete, not crammed into the top. Even, generous spacing between sections beats one large gap; some trailing whitespace at the bottom of a short page is fine, a void in the middle is not.",
-      `- The house token system is the source of truth: extend it, never replace it. If you add an inline \`<style>\`, reference the tokens (color: var(--art-ink), var(--art-fg-muted), var(--art-accent), and the shell's font) rather than hardcoding hex colors or naming a different font, and never set a base font-size below the medium body size (slides ${type.body}, documents ${docType.body}). A small inline style for one-off geometry (a width %, a gap, a grid) is fine; rebuilding the page look from scratch (a full page-level stylesheet with its own palette and tiny type) is not, and reads off-brand.`,
+      `- The house token system is the source of truth: extend it, never replace it. If you add an inline \`<style>\`, reference the tokens (color: var(--art-ink), var(--art-fg-muted), var(--art-accent), and the shell's font) rather than hardcoding hex colors or naming a different font. A small inline style for one-off geometry (a width %, a gap, a grid) is fine; rebuilding the page look from scratch is not. PDF pages are validated separately and reject custom typography.`,
       "- For code, use a <pre> block (or the art-code class), not a hand-styled box. Keep each block short (about 12 lines max) and lines under ~60 characters; long lines wrap and tall blocks are clipped. Split long code across pages.",
       "- Voice: plain, confident, concrete. No em-dashes (use a period, comma, or colon). No emoji.",
     ].join("\n"),
@@ -60,16 +59,27 @@ function buildArtifactDesignPrompt(): string {
       '  <p class="art-subhead art-muted">What moved, what stalled, and where we go next.</p>',
       "</div>",
     ].join("\n"),
+  ].join("\n\n");
+}
+
+/** Medium-specific guidance injected only while authoring/editing PDF pages. */
+function buildArtifactDocumentDesignPrompt(): string {
+  const pdf = pageGeometry.pdf;
+  const docTemplateList = documentTemplates.map((t) => `${t.name} (${t.description})`).join("; ");
+  const resumeTemplate = documentTemplateById("resume");
+
+  return [
+    "## Authoring PDF document pages",
     [
-      `Documents (\`pdf\` format) are a DIFFERENT medium from slides: a portrait page (${pdf.width}x${pdf.height}) read up close, so it is denser and type is smaller. Do not carry the big slide type onto a document. Build hierarchy from weight and the document type scale, and use the art-doc-* vocabulary:`,
-      `- Type scale (font-size, use the class): art-doc-name (${docType.name}) for the person or document name; art-doc-role (${docType.role}) for the role or subtitle; art-doc-heading (${docType.heading}) for an entry title; art-doc-body (${docType.body}) for copy; art-doc-meta (${docType.meta}) for dates and captions; art-doc-section (${docType.section}, uppercase, tracked) for a section label. ${docType.body} is the readable floor.`,
-      "- Structure: wrap the page in `art-doc`. Then art-doc-header (name and role on the left, art-doc-contact stack on the right), art-doc-headrule (the accent hairline under the header), art-doc-lede (a one-line summary), then each section as art-doc-sectionhead wrapping an art-doc-section label (draws the label with a trailing hairline and the right spacing above it — use this for repeated sections instead of stacking art-doc-rule). An art-doc-entry holds art-doc-entry-head (art-doc-entry-title with a muted `<span>` for the org, plus art-doc-entry-meta for the date) and art-doc-entry-desc. Use art-doc-cols for a two-column footer (it draws its own top hairline), art-doc-chips + art-doc-chip for skills or tags.",
-      "- Accent restraint: a document gets ONE brand moment. Use art-doc-headrule under the header and let links carry the accent; do not tint section labels or repeat accent bars. That single-accent discipline is what separates a professional document from a brochure.",
-      "- Let the document flow top to bottom with even spacing between sections; the section-head cadence provides it. Thin content should breathe rather than pile up at the top; trailing whitespace at the bottom is fine. Do not force a footer to the page bottom with a spacer, which strands a gap in the middle.",
-      "- Fit every page: a document page is a clipped sheet, not a scroll. Keep each page to what fits with air to spare. A typical one-page resume holds roughly 4 to 5 concise roles plus skills and education, but never omit factual history merely to satisfy layout. If the user's requested content does not fit, add a second pdf page unless they explicitly require one page; then ask what to prioritize rather than silently deleting facts.",
+      `Documents are a DIFFERENT medium from slides: a portrait page (${pdf.width}x${pdf.height}) read up close, so it is denser and type is smaller. Do not carry the big slide type onto a document. Every PDF page is validated: wrap it in art-doc, use the provided typography classes/tokens, and do not declare custom font-size, font, font-family, or --art-* token overrides.`,
+      `- Type scale (font-size, use the class): art-doc-name (${docType.name}) for the person or document name; art-doc-role (${docType.role}) for the role or subtitle; art-doc-heading (${docType.heading}) for an entry title; art-doc-body (${docType.body}) for copy; art-doc-meta (${docType.meta}) for dates and captions; art-doc-section (${docType.section}, uppercase, tracked) for a section label.`,
+      "- Structure: wrap the page in `art-doc`. Then art-doc-header (name and role on the left, art-doc-contact stack on the right), art-doc-headrule (the accent hairline under the header), art-doc-lede (a one-line summary), then each section as art-doc-sectionhead wrapping an art-doc-section label. An art-doc-entry holds art-doc-entry-head (art-doc-entry-title with a muted `<span>` for the org, plus art-doc-entry-meta for the date) and art-doc-entry-desc. Use art-doc-cols for a two-column footer, art-doc-chips + art-doc-chip for skills or tags.",
+      "- Accent restraint: a document gets ONE brand moment. Use art-doc-headrule under the header and let links carry the accent; do not tint section labels or repeat accent bars.",
+      "- Let the document flow top to bottom with even spacing between sections. Trailing whitespace at the bottom is fine. Do not force a footer to the page bottom with a spacer, which strands a gap in the middle.",
+      "- Fit every page: a document page is a clipped sheet, not a scroll. A typical one-page resume holds roughly 4 to 5 concise roles plus skills and education, but never omit factual history merely to satisfy layout. If requested content does not fit, add a second PDF page unless the user explicitly requires one page; then ask what to prioritize.",
     ].join("\n"),
     `Document templates to adapt (keep the structure and classes, swap placeholders for verified user facts): ${docTemplateList}. Never invent a missing name, link, employer, date, metric, credential, or accomplishment; omit it or ask. Reference resume:`,
-    resumeTemplate ? resumeTemplate.html : "",
+    resumeTemplate?.html ?? "",
   ].join("\n\n");
 }
 
@@ -80,3 +90,6 @@ function buildArtifactDesignPrompt(): string {
  * explicit and avoids rebuilding the string on every prompt assembly).
  */
 export const ARTIFACT_DESIGN_PROMPT: string = buildArtifactDesignPrompt();
+
+/** Trusted PDF-only extension; omitted from ordinary/slides chat turns. */
+export const ARTIFACT_DOCUMENT_DESIGN_PROMPT: string = buildArtifactDocumentDesignPrompt();

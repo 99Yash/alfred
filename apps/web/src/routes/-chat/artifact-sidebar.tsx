@@ -47,6 +47,11 @@ import type { RailMode } from "~/routes/-preview-chat/helpers";
  * slot — opening an artifact swaps the rail out (see `chat-shell`).
  */
 
+export interface ArtifactEditSuggestion {
+  artifactTargetId: string;
+  text: string;
+}
+
 interface ArtifactSidebarProps {
   artifactId: string;
   mode: RailMode;
@@ -55,7 +60,7 @@ interface ArtifactSidebarProps {
   onWidthChange: (width: number) => void;
   onClose: () => void;
   /** Prefill the composer with an edit scaffold for this artifact. */
-  onSuggestEdit?: (text: string) => void;
+  onSuggestEdit?: (suggestion: ArtifactEditSuggestion) => void;
 }
 
 export function ArtifactSidebar({
@@ -111,7 +116,7 @@ export function ArtifactSidebar({
   // on the focused composer with the scaffold inserted.
   const onEdit = useCallback(() => {
     if (!artifact || !onSuggestEdit) return;
-    onSuggestEdit(`Edit artifact ${artifact.id} ("${artifact.title}"): `);
+    onSuggestEdit({ artifactTargetId: artifact.id, text: "Edit this artifact: " });
     if (mode === "overlay") onClose();
   }, [artifact, onSuggestEdit, mode, onClose]);
 

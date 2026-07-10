@@ -79,7 +79,7 @@ import { EMPTY_RAIL_DATA, type RailData } from "~/routes/-preview-chat/rail-data
 import { RightRail } from "~/routes/-preview-chat/right-rail";
 import type { SuggestionInput } from "~/routes/-preview-chat/todo-feed";
 import { ChatApprovalTray } from "./approval-tray";
-import { ArtifactSidebar } from "./artifact-sidebar";
+import { ArtifactSidebar, type ArtifactEditSuggestion } from "./artifact-sidebar";
 import { Conversation } from "./conversation";
 import { buildFollowUpSuggestions, shouldShowStream } from "./conversation-helpers";
 import { filterMentionOptions, type MentionOption } from "./mention-options";
@@ -161,13 +161,18 @@ export function ChatShell({ threadId, title }: ChatShellProps) {
   // different thread's composer when the user navigates away (the Composer
   // remounts per-thread, which would otherwise re-fire the apply effect).
   const [editPrefill, setEditPrefill] = useState<{
+    artifactTargetId: string;
     text: string;
     nonce: number;
     threadId: string | undefined;
   } | null>(null);
   const onSuggestArtifactEdit = useCallback(
-    (text: string) => {
-      setEditPrefill((prev) => ({ text, nonce: (prev?.nonce ?? 0) + 1, threadId }));
+    (suggestion: ArtifactEditSuggestion) => {
+      setEditPrefill((prev) => ({
+        ...suggestion,
+        nonce: (prev?.nonce ?? 0) + 1,
+        threadId,
+      }));
     },
     [threadId],
   );
@@ -216,7 +221,8 @@ export function ChatShell({ threadId, title }: ChatShellProps) {
   // choice survives reloads and thread switches; rides with every turn.
   const [tier, setTier] = useModelTier();
   const onSend = useCallback(
-    (text: string, files?: File[]) => send(threadId, text, tier, files),
+    (text: string, files?: File[], artifactTargetId?: string) =>
+      send(threadId, text, tier, files, undefined, undefined, artifactTargetId),
     [send, threadId, tier],
   );
   // Retry re-sends the prior user turn as a fresh turn. It carries that
@@ -407,7 +413,7 @@ function EmptyHero({
 }: {
   threadId: string | undefined;
   isStreaming: boolean;
-  onSend?: (text: string, files?: File[]) => Promise<boolean>;
+  onSend?: (text: string, files?: File[], artifactTargetId?: string) => Promise<boolean>;
   autoApprove?: boolean;
   autoApprovePending?: boolean;
   onToggleAutoApprove?: () => void;
@@ -687,14 +693,19 @@ function Composer({
   threadId: string | undefined;
   isStreaming: boolean;
   disabled?: boolean;
-  onSend?: (text: string, files?: File[]) => Promise<boolean>;
+  onSend?: (text: string, files?: File[], artifactTargetId?: string) => Promise<boolean>;
   onStopGeneration?: () => void;
   /**
    * Text to drop into the editor on demand (e.g. the artifact sidebar's
    * "Suggest an edit"). The `nonce` lets the same scaffold re-apply on a repeat
    * request; the editor inserts it at the caret and focuses (ADR-0075 Phase 4).
    */
-  prefill?: { text: string; nonce: number; threadId: string | undefined } | null;
+  prefill?: {
+    artifactTargetId: string;
+    text: string;
+    nonce: number;
+    threadId: string | undefined;
+  } | null;
   /** Suggested next prompt shown dimmed in the empty editor; Tab accepts. */
   ghostText?: string;
   onGhostAccept?: () => void;
@@ -720,6 +731,21 @@ function Composer({
   const { suggestion, mentionCandidates, visibleMentionIdx, suggestionKeyDownRef } = mention;
   const hasAttachments = attachments.items.length > 0;
   const [sending, setSending] = useState(false);
+  const artifactTargetKey = `alfred:chat-artifact-target:${threadId ?? "new"}`;
+  const [artifactTargetId, setArtifactTargetIdState] = useState<string | undefined>(() => {
+    // Target metadata belongs to the persisted draft. Ignore a stale key when
+    // no draft survived (for example, after a crash between the two removals).
+    if (!initialJSON) return undefined;
+    return safeGet(artifactTargetKey) ?? undefined;
+  });
+  const setArtifactTargetId = useCallback(
+    (targetId: string | undefined) => {
+      setArtifactTargetIdState(targetId);
+      if (targetId) safeSet(artifactTargetKey, targetId);
+      else safeRemove(artifactTargetKey);
+    },
+    [artifactTargetKey],
+  );
   const composerDisabled = disabled || sending;
   const canSend =
     !composerDisabled &&
@@ -749,8 +775,17 @@ function Composer({
     if (prefill.threadId !== threadId) return;
     if (appliedPrefillNonce.current === prefill.nonce) return;
     appliedPrefillNonce.current = prefill.nonce;
+    setArtifactTargetId(prefill.artifactTargetId);
     editorRef.current?.insertText(prefill.text);
-  }, [prefill, composerDisabled, threadId]);
+  }, [prefill, composerDisabled, threadId, setArtifactTargetId]);
+
+  const handleEditorChange = useCallback(
+    (nextText: string, nextJSON: JSONContent, nextEmpty: boolean) => {
+      onEditorChange(nextText, nextJSON, nextEmpty);
+      if (nextEmpty) setArtifactTargetId(undefined);
+    },
+    [onEditorChange, setArtifactTargetId],
+  );
 
   const onAttachClick = useCallback(() => {
     if (composerDisabled || mic.recording) return;
@@ -762,16 +797,17 @@ function Composer({
     const value = text.trim();
     const files = attachments.files();
     setSending(true);
-    void onSend(value, files)
+    void onSend(value, files, artifactTargetId)
       .then((staged) => {
         if (!staged) return;
         editorRef.current?.clear();
         resetDraft();
         attachments.clear();
+        setArtifactTargetId(undefined);
       })
       .catch(() => toast.error("Couldn't send your message. Please try again."))
       .finally(() => setSending(false));
-  }, [canSend, text, onSend, resetDraft, attachments]);
+  }, [canSend, text, onSend, resetDraft, attachments, artifactTargetId, setArtifactTargetId]);
 
   const onFormSubmit = (e: FormEvent<HTMLFormElement>) => {
     e.preventDefault();
@@ -872,7 +908,7 @@ function Composer({
               initialJSON={initialJSON}
               placeholder="Type and press enter to start chatting…"
               disabled={composerDisabled}
-              onChange={onEditorChange}
+              onChange={handleEditorChange}
               onSubmit={handleSubmit}
               onSuggestionChange={mention.setSuggestion}
               suggestionKeyDownRef={suggestionKeyDownRef}

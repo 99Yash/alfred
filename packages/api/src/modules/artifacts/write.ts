@@ -4,6 +4,7 @@ import {
   type ArtifactKind,
   type ArtifactPage,
 } from "@alfred/contracts";
+import { validatePdfArtifactHtml } from "@alfred/artifacts-design/validation";
 import { db } from "@alfred/db";
 import { artifacts } from "@alfred/db/schemas";
 import { and, eq, sql } from "drizzle-orm";
@@ -20,8 +21,8 @@ import { artifactReplacementMatchesBase } from "./content-hash";
  * sidebar sees content arrive at page/step granularity (the v1 "streaming"
  * model — there is no token-level stream; see the artifact-sidebar plan). Reads
  * + writes of a `pages` row's content run inside a `SELECT … FOR UPDATE`
- * transaction so concurrent appends in the same turn (the dispatcher fans the
- * autonomy bucket out with `Promise.all`) can't clobber each other.
+ * transaction as a second line of defense against callers outside the ordered
+ * chat dispatcher and concurrent runs editing the same artifact.
  */
 
 /** Common provenance every write carries — who/where the artifact belongs to. */
@@ -47,11 +48,19 @@ export type CreateArtifactResult =
 
 export type AppendArtifactPageResult =
   | { ok: true; artifactId: string; pageCount: number }
-  | { ok: false; status: "not_found" | "wrong_kind" | "page_limit"; reason: string };
+  | {
+      ok: false;
+      status: "not_found" | "wrong_kind" | "page_limit" | "invalid_content";
+      reason: string;
+    };
 
 export type UpdateArtifactResult =
   | { ok: true; artifactId: string; title: string; kind: ArtifactKind }
-  | { ok: false; status: "not_found" | "wrong_kind" | "stale_content"; reason: string };
+  | {
+      ok: false;
+      status: "not_found" | "wrong_kind" | "stale_content" | "invalid_content";
+      reason: string;
+    };
 
 /** Hard ceiling on pages per artifact — mirrors the `artifactContentSchema` cap. */
 const MAX_PAGES = 100;
@@ -109,14 +118,26 @@ export async function appendArtifactPage(
 
   const result = await db().transaction(async (tx) => {
     const [row] = await tx
-      .select({ kind: artifacts.kind, content: artifacts.content })
+      .select({ kind: artifacts.kind, format: artifacts.format, content: artifacts.content })
       .from(artifacts)
-      .where(and(eq(artifacts.id, input.artifactId), eq(artifacts.userId, ctx.userId)))
+      .where(
+        and(
+          eq(artifacts.id, input.artifactId),
+          eq(artifacts.userId, ctx.userId),
+          eq(artifacts.threadId, ctx.threadId),
+        ),
+      )
       .for("update");
 
     if (!row) return { status: "not_found" as const };
     if (row.kind !== "pages" || !row.content || row.content.kind !== "pages") {
       return { status: "wrong_kind" as const };
+    }
+    if (row.format === "pdf") {
+      const validation = validatePdfArtifactHtml(page.html);
+      if (!validation.ok) {
+        return { status: "invalid_content" as const, reason: validation.reason };
+      }
     }
     if (row.content.pages.length >= MAX_PAGES) return { status: "page_limit" as const };
 
@@ -127,7 +148,13 @@ export async function appendArtifactPage(
         content: { kind: "pages", pages },
         rowVersion: sql`${artifacts.rowVersion} + 1`,
       })
-      .where(eq(artifacts.id, input.artifactId));
+      .where(
+        and(
+          eq(artifacts.id, input.artifactId),
+          eq(artifacts.userId, ctx.userId),
+          eq(artifacts.threadId, ctx.threadId),
+        ),
+      );
     return { status: "ok" as const, pageCount: pages.length };
   });
 
@@ -147,6 +174,9 @@ export async function appendArtifactPage(
       status: "page_limit",
       reason: `an artifact holds at most ${MAX_PAGES} pages`,
     };
+  }
+  if (result.status === "invalid_content") {
+    return { ok: false, status: "invalid_content", reason: result.reason };
   }
   emitReplicachePokes([ctx.userId]);
   return { ok: true, artifactId: input.artifactId, pageCount: result.pageCount };
@@ -173,12 +203,19 @@ export async function updateArtifact(
     const [row] = await tx
       .select({
         kind: artifacts.kind,
+        format: artifacts.format,
         title: artifacts.title,
         runId: artifacts.runId,
         content: artifacts.content,
       })
       .from(artifacts)
-      .where(and(eq(artifacts.id, input.artifactId), eq(artifacts.userId, ctx.userId)))
+      .where(
+        and(
+          eq(artifacts.id, input.artifactId),
+          eq(artifacts.userId, ctx.userId),
+          eq(artifacts.threadId, ctx.threadId),
+        ),
+      )
       .for("update");
 
     if (!row) return { status: "not_found" as const };
@@ -187,6 +224,14 @@ export async function updateArtifact(
     }
     if (input.pages !== undefined && row.kind !== "pages") {
       return { status: "wrong_kind" as const, want: "pages" };
+    }
+    if (input.pages !== undefined && row.format === "pdf") {
+      for (const page of input.pages) {
+        const validation = validatePdfArtifactHtml(page.html);
+        if (!validation.ok) {
+          return { status: "invalid_content" as const, reason: validation.reason };
+        }
+      }
     }
 
     const replacesContent = input.markdown !== undefined || input.pages !== undefined;
@@ -212,7 +257,16 @@ export async function updateArtifact(
     if (input.markdown !== undefined) set.content = { kind: "document", markdown: input.markdown };
     if (input.pages !== undefined) set.content = { kind: "pages", pages: input.pages };
 
-    await tx.update(artifacts).set(set).where(eq(artifacts.id, input.artifactId));
+    await tx
+      .update(artifacts)
+      .set(set)
+      .where(
+        and(
+          eq(artifacts.id, input.artifactId),
+          eq(artifacts.userId, ctx.userId),
+          eq(artifacts.threadId, ctx.threadId),
+        ),
+      );
     return { status: "ok" as const, kind: row.kind, title: input.title ?? row.title };
   });
 
@@ -233,6 +287,9 @@ export async function updateArtifact(
       reason:
         "content replacement rejected because the complete current artifact body was not supplied or changed after it was read",
     };
+  }
+  if (result.status === "invalid_content") {
+    return { ok: false, status: "invalid_content", reason: result.reason };
   }
   emitReplicachePokes([ctx.userId]);
   return { ok: true, artifactId: input.artifactId, title: result.title, kind: result.kind };

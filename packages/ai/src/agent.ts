@@ -511,7 +511,8 @@ export type StreamFinishOutcome =
   | { kind: "stopped"; reason: "length" | "content-filter" | "error" | "other" };
 
 export function classifyStreamFinish(input: {
-  toolCalls: TypedToolCall<ToolSet>[];
+  /** Only presence matters here; callers need not manufacture a full SDK call shape. */
+  toolCalls: readonly unknown[];
   finishReason: FinishReason;
   /**
    * Trimmed length of the assistant text streamed this turn. The streaming

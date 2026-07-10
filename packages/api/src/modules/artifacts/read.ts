@@ -1,6 +1,7 @@
-import type { ArtifactContent } from "@alfred/contracts";
+import type { ArtifactFormat } from "@alfred/contracts";
 import { db } from "@alfred/db";
 import { artifacts } from "@alfred/db/schemas";
+import type { Artifact } from "@alfred/db/schemas";
 import { and, desc, eq } from "drizzle-orm";
 import { artifactContentHash } from "./content-hash";
 
@@ -18,30 +19,21 @@ import { artifactContentHash } from "./content-hash";
 const MAX_REFERENCE_CONTENT_CHARS = 20_000;
 /** Keep per-turn metadata work bounded even in artifact-heavy threads. */
 const MAX_LISTED_ARTIFACTS = 20;
-/** Exact shape emitted by the sidebar's `Edit artifact <id>` scaffold. */
-const ARTIFACT_ID_PATTERN = /\bartifact\s+(art_[a-z0-9]+)\b/i;
-
 export interface ThreadArtifactsContext {
   /** Safe system guidance: generated ids/enums only, never titles/bodies. */
   readonly systemContext: string;
   /** Lower-trust assistant message with the exact selected body when bounded. */
   readonly referenceMessage: string;
+  /** Selected artifact medium, used to inject only the relevant design guide. */
+  readonly designMedium: ArtifactFormat | undefined;
 }
 
-/** Extract an exact artifact id from the edit scaffold/user text. */
-export function extractArtifactTargetId(userText: string): string | undefined {
-  return ARTIFACT_ID_PATTERN.exec(userText)?.[1];
-}
+type ArtifactReferenceRow = Pick<
+  Artifact,
+  "id" | "title" | "kind" | "format" | "status" | "rowVersion" | "content"
+>;
 
-export function buildArtifactReference(row: {
-  id: string;
-  title: string;
-  kind: string;
-  format: string | null;
-  status: string;
-  rowVersion: number;
-  content: ArtifactContent | null;
-}): string {
+export function buildArtifactReference(row: ArtifactReferenceRow): string {
   const serializedContent = JSON.stringify(row.content);
   const contentComplete =
     row.status !== "generating" && serializedContent.length <= MAX_REFERENCE_CONTENT_CHARS;
@@ -95,7 +87,9 @@ export async function buildThreadArtifactsContext(
     .limit(MAX_LISTED_ARTIFACTS + 1);
 
   const current = rows[0];
-  if (!current) return { systemContext: "", referenceMessage: "" };
+  if (!current) {
+    return { systemContext: "", referenceMessage: "", designMedium: undefined };
+  }
 
   const selectedId = requestedArtifactId ?? current.id;
   const [selected] = await db()
@@ -145,5 +139,6 @@ export async function buildThreadArtifactsContext(
   return {
     systemContext: lines.join("\n"),
     referenceMessage: selected ? buildArtifactReference(selected) : "",
+    designMedium: selected?.format ?? undefined,
   };
 }

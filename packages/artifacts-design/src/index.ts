@@ -13,3 +13,4 @@ export * from "./archetypes";
 export * from "./templates";
 export * from "./theme";
 export * from "./prompt";
+export * from "./validation";

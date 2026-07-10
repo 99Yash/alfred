@@ -20,15 +20,13 @@
  * Placeholder content is generic on purpose; the model swaps in the real facts.
  */
 
-import type { ArtifactFormat } from "@alfred/contracts";
-
 export interface DocumentTemplate {
   /** Stable id used by the prompt and tests. */
   readonly id: string;
   /** Human name shown in guidance. */
   readonly name: string;
   /** The format this template is authored for. */
-  readonly format: ArtifactFormat;
+  readonly format: "pdf";
   /** One-line description of when to reach for it. */
   readonly description: string;
   /** Body-level HTML exemplar (goes inside the shell's `.art-page`). */
