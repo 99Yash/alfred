@@ -1,5 +1,5 @@
 import type { AgentTranscriptMessage } from "@alfred/contracts";
-import { agentRunTriggerSchema, type AgentRunTrigger } from "@alfred/schemas";
+import { agentRunTriggerSchema, type AgentRunTrigger } from "@alfred/contracts";
 import { sql } from "drizzle-orm";
 import {
   bigserial,

@@ -1,7 +1,17 @@
 import { db } from "@alfred/db";
 import { user as userTable, workflows } from "@alfred/db/schemas";
-import { sql } from "drizzle-orm";
-import { listPublicWorkflows } from "../agent/registry";
+import { and, eq, inArray, sql } from "drizzle-orm";
+import { listPublicWorkflows, listResumeOnlyWorkflows } from "../agent/registry";
+
+export function getBuiltinWorkflowSeedPlan(): {
+  seed: ReturnType<typeof listPublicWorkflows>;
+  retireSlugs: string[];
+} {
+  return {
+    seed: listPublicWorkflows(),
+    retireSlugs: listResumeOnlyWorkflows().map((workflow) => workflow.slug),
+  };
+}
 
 /**
  * Seed one `workflows` row per registered builtin for a given user.
@@ -18,14 +28,16 @@ import { listPublicWorkflows } from "../agent/registry";
  * generic `workflows.tick` partial index skips them. User-authored cron
  * workflows compute `next_run_at` at write time via the CRUD path.
  *
- * Returns the count of rows touched (insert + update).
+ * Resume-only compatibility definitions are deleted only when the existing row
+ * is a built-in. Replicache observes the deletion and emits a tombstone; agent
+ * runs do not reference this table and continue resolving the code registry.
  */
 export async function seedBuiltinWorkflowsForUser(userId: string): Promise<{
   seeded: number;
+  retired: number;
   slugs: string[];
 }> {
-  const builtins = listPublicWorkflows();
-  if (builtins.length === 0) return { seeded: 0, slugs: [] };
+  const { seed: builtins, retireSlugs } = getBuiltinWorkflowSeedPlan();
 
   const rows = builtins.map((wf) => ({
     userId,
@@ -40,33 +52,53 @@ export async function seedBuiltinWorkflowsForUser(userId: string): Promise<{
     isBuiltin: true,
   }));
 
-  await db()
-    .insert(workflows)
-    .values(rows)
-    .onConflictDoUpdate({
-      target: [workflows.userId, workflows.slug],
-      set: {
-        name: sql`excluded.name`,
-        description: sql`excluded.description`,
-        trigger: sql`excluded.trigger`,
-        allowedIntegrations: sql`excluded.allowed_integrations`,
-        // Built-ins sync via Replicache too, so the CVR needs `row_version`
-        // to move when a definition-derived field actually changes —
-        // otherwise a re-seeded trigger/name never reaches connected
-        // clients. Guard with IS DISTINCT FROM so an unchanged re-seed
-        // (every boot) doesn't churn the version or force redundant pulls.
-        rowVersion: sql`CASE WHEN (${workflows.name}, ${workflows.description}, ${workflows.trigger}, ${workflows.allowedIntegrations})
-          IS DISTINCT FROM (excluded.name, excluded.description, excluded.trigger, excluded.allowed_integrations)
-          THEN ${workflows.rowVersion} + 1 ELSE ${workflows.rowVersion} END`,
-        // Crucially: `status` and `next_run_at` are NOT in the SET
-        // list. A user-paused builtin stays paused across deploys; a
-        // cron schedule update doesn't re-arm a builtin behind the
-        // user's back.
-        updatedAt: sql`now()`,
-      },
-    });
+  const retired = await db().transaction(async (tx) => {
+    const retiredRows =
+      retireSlugs.length === 0
+        ? []
+        : await tx
+            .delete(workflows)
+            .where(
+              and(
+                eq(workflows.userId, userId),
+                eq(workflows.isBuiltin, true),
+                inArray(workflows.slug, retireSlugs),
+              ),
+            )
+            .returning({ id: workflows.id });
 
-  return { seeded: rows.length, slugs: rows.map((r) => r.slug) };
+    if (rows.length > 0) {
+      await tx
+        .insert(workflows)
+        .values(rows)
+        .onConflictDoUpdate({
+          target: [workflows.userId, workflows.slug],
+          set: {
+            name: sql`excluded.name`,
+            description: sql`excluded.description`,
+            trigger: sql`excluded.trigger`,
+            allowedIntegrations: sql`excluded.allowed_integrations`,
+            // Built-ins sync via Replicache too, so the CVR needs `row_version`
+            // to move when a definition-derived field actually changes —
+            // otherwise a re-seeded trigger/name never reaches connected
+            // clients. Guard with IS DISTINCT FROM so an unchanged re-seed
+            // (every boot) doesn't churn the version or force redundant pulls.
+            rowVersion: sql`CASE WHEN (${workflows.name}, ${workflows.description}, ${workflows.trigger}, ${workflows.allowedIntegrations})
+              IS DISTINCT FROM (excluded.name, excluded.description, excluded.trigger, excluded.allowed_integrations)
+              THEN ${workflows.rowVersion} + 1 ELSE ${workflows.rowVersion} END`,
+            // Crucially: `status` and `next_run_at` are NOT in the SET
+            // list. A user-paused builtin stays paused across deploys; a
+            // cron schedule update doesn't re-arm a builtin behind the
+            // user's back.
+            updatedAt: sql`now()`,
+          },
+        });
+    }
+
+    return retiredRows.length;
+  });
+
+  return { seeded: rows.length, retired, slugs: rows.map((r) => r.slug) };
 }
 
 /**
@@ -82,18 +114,22 @@ export async function seedBuiltinWorkflowsForUser(userId: string): Promise<{
  *
  * Calling this at boot closes that drift class: the `ON CONFLICT DO UPDATE`
  * still leaves user-owned fields (`status`, `next_run_at`) untouched, so a
- * paused builtin stays paused — we only resync the definition-derived fields.
- * Idempotent and cheap (single-user scale); safe to run on every boot.
+ * paused builtin stays paused. It also retires rows for definitions now marked
+ * resume-only before workers or schedulers start. Idempotent and cheap
+ * (single-user scale); safe to run on every boot.
  */
 export async function seedBuiltinWorkflowsForAllUsers(): Promise<{
   users: number;
   rowsTouched: number;
+  rowsRetired: number;
 }> {
   const users = await db().select({ id: userTable.id }).from(userTable);
   let rowsTouched = 0;
+  let rowsRetired = 0;
   for (const u of users) {
     const result = await seedBuiltinWorkflowsForUser(u.id);
     rowsTouched += result.seeded;
+    rowsRetired += result.retired;
   }
-  return { users: users.length, rowsTouched };
+  return { users: users.length, rowsTouched, rowsRetired };
 }

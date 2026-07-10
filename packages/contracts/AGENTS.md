@@ -1,22 +1,15 @@
 # Alfred Contracts Guidance
 
-`@alfred/contracts` is the shared, web-safe contract package. It is the right home for cross-boundary schemas, enums, limits, and tiny pure helpers.
+`@alfred/contracts` owns browser-safe cross-boundary schemas and their inferred types, shared wire enums, client-visible limits, and small pure boundary helpers. Replicache keys, mutator arguments, and synced read models belong in `@alfred/sync`, not here.
 
 ## Dependencies
 
-- Keep runtime dependencies web-safe and light. Do not import DB, env, auth, API, AI, mailer, or integration packages.
-- Zod is allowed and already part of this package.
+- Keep runtime dependencies browser-safe, light, and server-agnostic. Do not import DB, env, auth, API, AI, mailer, integration, or other Node-only packages.
+- Define a schema once and export its `z.infer` type; do not maintain a parallel interface.
+- Keep implementation-only constants and schemas in their owning package. A value belongs here only when browser and server must agree on it.
 
-## Existing Runtime Helpers
+## Runtime Semantics
 
-- Unknown JSON/protocol objects: `isRecord`, `isPlainRecord`, `toRecord`, `getPath`, `getStringPath`, `toStringArray`, `isNonEmptyString`.
-- JSON strings: `safeJsonParse`, `parseJsonWith`.
-- JSON persistence/transcript values: `toJsonValue`, `sanitizeToolResult`, `boundToolResult`.
-- Error text: `toMessage`, `apiErrorMessage`, `sanitizeErrorMessage`, `httpErrorFromResponse`.
-- Tool identity and display: `isToolName`, `integrationFromToolName`, `humanizeToolName`, `hashToolInput`.
-
-## Guard Semantics
-
-- `isRecord` means plain object only: POJO or null-prototype object. It must reject arrays, `Date`, `Map`, class instances, SDK objects, timer handles, and driver errors.
-- Add new guard/read helpers here instead of copying local `getPath`, `asRecord`, or `typeof value === "object"` plus casts around the repo.
-- Do not change `hashToolInput` or canonical serialization to use `isRecord`; hashing intentionally works over own enumerable properties and `toJSON`, not just JSON POJOs.
+- Record guards prove JSON-shaped plain objects, not arbitrary JavaScript objects. They must reject arrays, dates, maps, class/SDK instances, timer handles, and driver errors.
+- Add generally reusable JSON parsing, traversal, error-text, or serialization behavior here instead of copying local cast-based helpers across packages.
+- Preserve the documented semantics of canonical serialization and hashing; those operations may intentionally support values beyond plain JSON records.

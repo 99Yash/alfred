@@ -11,7 +11,7 @@ import {
   skillDocumentationInputSchema,
   type SkillDocumentationContext,
   type Workflow,
-} from "@alfred/api";
+} from "@alfred/api/backend";
 import { z } from "zod";
 
 /**
@@ -125,6 +125,10 @@ export const skillDocumentationWorkflow: Workflow<State> = {
   dedupKey: ({ input }) => {
     const parsed = skillDocumentationInputSchema.parse(input ?? {});
     return skillDocumentationDedupKey(parsed.skillId);
+  },
+
+  async onTerminalFailure(ctx) {
+    await finalizeSkillRun({ agentRunId: ctx.runId, status: "failed" });
   },
 
   steps: {

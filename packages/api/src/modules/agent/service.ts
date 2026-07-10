@@ -11,7 +11,7 @@ import {
   runStatusSchema,
   wakeConditionSchema,
   type AgentRunTrigger,
-} from "@alfred/schemas";
+} from "@alfred/contracts";
 import { and, eq, sql } from "drizzle-orm";
 import { publishEvent } from "../../events/publish";
 import { type PgErrorLike } from "../../lib/pg-errors";
@@ -184,6 +184,11 @@ export async function createRun(
   });
   const workflow = resolved.workflow;
   const workflowSlug = resolved.workflowSlug;
+  if (workflow.resumeOnly) {
+    throw new Error(
+      `[agent] workflow slug=${workflowSlug} is available only to resume existing runs`,
+    );
+  }
   let brief = args.brief;
   let metadata = args.metadata ?? {};
 

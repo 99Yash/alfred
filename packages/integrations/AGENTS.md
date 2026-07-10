@@ -1,13 +1,16 @@
 # Alfred Integrations Guidance
 
-## HTTP And Errors
+`@alfred/integrations` owns provider clients, OAuth exchanges, webhook verification, and provider-to-Alfred translation.
+
+## Network Boundaries
 
 - Every external HTTP call needs a timeout or passed `AbortSignal`.
-- For non-OK responses, prefer `httpErrorFromResponse(provider, response, { url, method })` so body bounding and secret redaction stay consistent.
-- Use `toMessage` for caught errors. Never log full provider error objects.
+- Bound and redact non-OK response bodies before returning or logging errors. Never log complete provider responses, tokens, webhook bodies, or error objects.
+- Verify webhook signatures with timing-safe comparison against the raw body before parsing it.
+- Make retryable provider writes idempotent where the provider supports an idempotency key.
 
 ## Provider Payloads
 
-- Validate provider JSON with Zod schemas where a response has a contract.
-- For small optional error/details reads, use `isRecord`, `getPath`, or `getStringPath` from `@alfred/contracts`; do not cast `await res.json()` to a local interface.
-- OAuth token responses and webhook bodies are untrusted even when they come from the provider.
+- OAuth responses, webhook bodies, and provider JSON are untrusted. Validate stable contracts with schemas and narrowly inspect optional error details; do not cast `await response.json()` to a local interface.
+- Keep provider-specific wire shapes and pagination in the provider module. Export normalized Alfred-facing behavior rather than leaking SDK or API payloads to callers.
+- Keep credentials and environment lookup outside reusable provider logic; accept validated configuration through the package boundary.

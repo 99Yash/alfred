@@ -28,7 +28,7 @@ import type { Document } from "@alfred/db/schemas";
 type DocArg = Pick<Document, "id" | "title" | "content" | "source" | "authoredAt">;
 ```
 
-- **Prefer the named export.** The schema exports a named row type per table (`Document`, `Entity`, `UserFact`, … — 65 of them). `Pick<Document, ...>` is preferred over re-spelling `Pick<typeof documents.$inferSelect, ...>`: identical type, but it uses the canonical name and stays a pure `import type` instead of pulling the table *value* into scope just to read its inferred shape. Fall back to `typeof table.$inferSelect` only when no named export exists.
+- **Prefer the named export.** The schema exports named row types such as `Document`, `Entity`, and `UserFact`. `Pick<Document, ...>` is preferred over re-spelling `Pick<typeof documents.$inferSelect, ...>`: identical type, but it uses the canonical name and stays a pure `import type` instead of pulling the table *value* into scope just to read its inferred shape. Fall back to `typeof table.$inferSelect` only when no named export exists.
 - A subset of columns → `Pick<Document, ...>`.
 - Everything-but-a-few → `Omit<Document, ...>`.
 - A row mapped to a wire/Replicache shape → keep `r: Document` (the named row type) as the **input** and let the output be its own declared type (this is the `rowToFact` / `rowToEntity` / `rowToBriefing` idiom — see `packages/api/src/modules/memory/facts.ts`, `entities.ts`, `briefing/store.ts`).
@@ -119,7 +119,7 @@ Before moving a value into `@alfred/contracts`, confirm the web bundle is allowe
 - **SSR-safe:** guard `window`/`document`/browser-only APIs. Sanitize any HTML you inject.
 - **No stray `console.log`**; surface errors to the user, don't swallow them.
 - **Keys** are stable IDs, never array index.
-- **Accessibility:** keyboard-reachable interactive elements, ARIA where needed, never color as the only signal. Tailwind v4 quirks (`translate-*` ≠ `transform`) in [tailwind notes via memory]; prefer CSS-variable shorthands over arbitrary values.
+- **Accessibility:** keyboard-reachable interactive elements, ARIA where needed, never color as the only signal. Prefer CSS-variable shorthands over arbitrary values.
 
 ---
 

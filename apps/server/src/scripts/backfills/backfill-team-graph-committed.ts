@@ -21,7 +21,8 @@
  *   # override target(s) / scan depth:
  *   TEAM_GRAPH_EMAILS="a@x.com" TEAM_GRAPH_MAX_DOCS=2000 node dist/scripts/backfills/backfill-team-graph-committed.js --commit
  */
-import { backfillTeamGraph, closeConnections, closeRedis, warmPool } from "@alfred/api";
+import { backfillTeamGraph } from "@alfred/api/backend";
+import { closeConnections, closeRedis, warmPool } from "@alfred/api/runtime";
 import { db } from "@alfred/db";
 import { user as userTable } from "@alfred/db/schemas";
 import { inArray } from "drizzle-orm";

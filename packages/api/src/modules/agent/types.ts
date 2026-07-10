@@ -9,7 +9,7 @@ import {
   type RunStatus,
   type WakeCondition,
   type WorkflowTrigger,
-} from "@alfred/schemas";
+} from "@alfred/contracts";
 import type { z } from "zod";
 
 export type MaybePromise<T> = T | Promise<T>;
@@ -152,6 +152,12 @@ export interface DedupKeyArgs extends WorkflowInput {
 export interface Workflow<S = unknown> {
   /** Stable slug; used to look up the workflow when resuming a run after a deploy. */
   slug: string;
+  /**
+   * Keep the workflow executable only for already-persisted runs. Resume-only
+   * workflows remain registered so durable checkpoints survive deploys, but
+   * are excluded from catalogs and built-in seeding and cannot start new runs.
+   */
+  resumeOnly?: boolean;
   /**
    * Display name shown in the settings / workflows list. Required for
    * built-ins because the seeder writes it into the `workflows.name`

@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { NagBanner } from "~/components/nag-banner";
-import { useGoogleScopeGaps } from "~/hooks/use-integration-status";
+import { useGoogleScopeGaps } from "~/lib/integrations/use-integration-status";
 
 const API_URL =
   (import.meta as { env?: { VITE_API_URL?: string } }).env?.VITE_API_URL ?? "http://localhost:3001";

@@ -57,7 +57,7 @@ export const LOCAL_STORAGE_SCHEMAS = {
     .default(false),
   /** Inline chat artifact panel width in px (see `routes/-chat/use-artifact-panel`). */
   "alfred:artifact-panel-width": z.number().default(460),
-  /** Expanded app sidebar width in px (see `components/app-sidebar`). */
+  /** Expanded app sidebar width in px (see `lib/shell/app-sidebar`). */
   "alfred:sidebar-width": z.number().default(264),
   /** Whether the inline app sidebar is collapsed to the icon rail. */
   "alfred:sidebar-minimized": z.boolean().default(false),

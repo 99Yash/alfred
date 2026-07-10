@@ -1,5 +1,11 @@
-import { createFileRoute } from "@tanstack/react-router";
-import { PreviewChatThreadRoute } from "./-preview-chat-thread/preview-chat-thread-route";
+import { createFileRoute, lazyRouteComponent, notFound } from "@tanstack/react-router";
+
+const PreviewChatThreadRoute = import.meta.env.DEV
+  ? lazyRouteComponent(
+      () => import("./-preview-chat-thread/preview-chat-thread-route"),
+      "PreviewChatThreadRoute",
+    )
+  : () => null;
 
 /**
  * Design-reference deep link — `/preview/chat/$threadId`. Same fixture
@@ -7,5 +13,8 @@ import { PreviewChatThreadRoute } from "./-preview-chat-thread/preview-chat-thre
  * ChatContext so the sidebar highlight + page title pick it up.
  */
 export const Route = createFileRoute("/preview/chat/$threadId")({
+  beforeLoad: () => {
+    if (!import.meta.env.DEV) throw notFound();
+  },
   component: PreviewChatThreadRoute,
 });

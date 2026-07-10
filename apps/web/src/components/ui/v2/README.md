@@ -1,8 +1,8 @@
 # App-grammar UI primitives
 
-A second design language for Alfred, modeled on visitors.now. Lives alongside the existing dimension-grammar primitives — neither replaces the other yet.
+Alfred's production app design language, modeled on visitors.now. Older dimension versions of duplicated primitives are isolated in `../legacy` for the development styleguide and the existing dimension-styled global error fallback.
 
-**Why two systems?** Dimension-grammar (dark, layered glass, frosted hairlines) ships the landing page and the current app surfaces. App-grammar (light, single elevation, tokenized hue scale, no ornament) is being evaluated as the new direction for data-dense app surfaces. The two coexist on this branch so we can A/B and migrate one route at a time.
+New production app surfaces should use the `App*` exports here. The legacy set has materially different visual and prop contracts and is not a second generic production namespace.
 
 The full design study that informed these primitives lives at `archive/visitors-now/design-notes.md` in the repo root — a local-only, git-ignored snapshot, so it won't be present in a fresh clone.
 

@@ -5,7 +5,7 @@
  *   $ pnpm tsx --env-file=.env src/scripts/smokes/smoke-metered-fail.ts
  */
 import { metered } from "@alfred/ai";
-import { closeConnections, warmPool } from "@alfred/api";
+import { closeConnections, warmPool } from "@alfred/api/runtime";
 import { db } from "@alfred/db";
 import { apiCallLog } from "@alfred/db/schemas";
 import { desc, eq } from "drizzle-orm";

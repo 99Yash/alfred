@@ -1,6 +1,6 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { pageMeta } from "~/lib/page-meta";
-import { IntegrationDetailPage } from "./-integration-detail/integration-detail-page";
+import { IntegrationDetailPage } from "./-integrations/detail/integration-detail-page";
 
 /**
  * App-grammar port of /integrations/$provider.
@@ -11,7 +11,7 @@ import { IntegrationDetailPage } from "./-integration-detail/integration-detail-
  *   - Soft chip capabilities (matching dimension's chip cluster)
  *   - app-card-in staggered entrance
  *
- * The page body lives in components/integrations — each section
+ * The page body lives in routes/-integrations/detail — each section
  * (header, hero, connected accounts, trust notice, related setup,
  * capabilities, overview) is its own module so each file exports a
  * single component.

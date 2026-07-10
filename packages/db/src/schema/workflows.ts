@@ -7,7 +7,7 @@ import {
   type WorkflowStep,
   type WorkflowSteps,
   type WorkflowTrigger,
-} from "@alfred/schemas";
+} from "@alfred/contracts";
 import { sql } from "drizzle-orm";
 import {
   boolean,

@@ -21,15 +21,13 @@
  */
 import {
   activateProjectionVersion,
-  closeConnections,
-  closeRedis,
   completeProjectionRun,
   projectGmailKindProfiles,
   requireEntityIdNamespace,
   startProjectionRun,
-  warmPool,
   writeProjectionCursor,
-} from "@alfred/api";
+} from "@alfred/api/backend";
+import { closeConnections, closeRedis, warmPool } from "@alfred/api/runtime";
 import {
   USER_MODEL_PROJECTION_NAME,
   canonicalizeIdentityValue,

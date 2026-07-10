@@ -1,4 +1,4 @@
-import type { EventPayload } from "@alfred/schemas/events";
+import type { EventPayload } from "@alfred/contracts/events";
 import type { SyncedChatNarration } from "@alfred/sync";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { openEventStream, type EventStreamFrame } from "~/lib/events/stream";

@@ -1,12 +1,13 @@
 # Alfred Server App Guidance
 
-## Built-In Workflows And Smokes
+## Composition Root
 
-- Built-in workflows receive `unknown` workflow input. Parse with the workflow's Zod schema, or use `getPath` / `getStringPath` for tiny smoke-only shapes.
-- Smoke scripts are executable documentation. Keep them as strict as production code: no fake `{ text?: unknown }` casts for run output, no local record guards, and no broad JSON assumptions.
-- Server code may import `@alfred/api`, `@alfred/db`, `@alfred/env`, and `@alfred/ai`, but still prefer contract helpers for wire/protocol data.
+- `apps/server` is the executable composition and bootstrap layer. It wires package-owned services, starts workers and bridges, binds the HTTP server, and shuts resources down in dependency-safe order.
+- Keep business rules, persistence, provider behavior, queue mechanics, and reusable workflow logic in their owning backend package/module. Do not grow `index.ts`, `runtime.ts`, or scripts into alternate domain implementations.
+- Initialize resources at startup rather than module load, and preserve graceful shutdown for every resource started here.
 
-## Model And Error Helpers
+## Built-Ins And Scripts
 
-- Use `identifyLanguageModel` from `@alfred/ai` for model ids.
-- Use `toMessage` / `httpErrorFromResponse` for error text. Do not log whole error objects.
+- Built-in workflows and agents are thin adapters: declare built-in identity/configuration, validate workflow input, and compose reusable domain operations from owning backend modules.
+- Do not duplicate domain logic in built-ins to make it locally convenient. Move reusable behavior to the package/module that owns the domain, then adapt it here.
+- Smoke, probe, repair, and backfill scripts are executable operational entrypoints. Reuse production boundaries, validate unknown input/output, make destructive intent explicit, and do not weaken types with fixture casts.

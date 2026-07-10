@@ -25,15 +25,12 @@
  *      ends up with one alfred label across the whole thread.
  */
 import {
-  closeAgentQueue,
-  closeConnections,
-  closeRedis,
   createRun,
   enqueueRun,
   getTriage,
   TRIAGE_WORKFLOW_SLUG,
-  warmPool,
-} from "@alfred/api";
+} from "@alfred/api/backend";
+import { closeAgentQueue, closeConnections, closeRedis, warmPool } from "@alfred/api/runtime";
 import { db } from "@alfred/db";
 import { agentRuns, documents, emailTriage, integrationCredentials } from "@alfred/db/schemas";
 import {

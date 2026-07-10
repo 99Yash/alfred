@@ -71,19 +71,21 @@ export {
 } from "./store";
 
 export {
-  BRIEFING_WORKFLOW_SLUG,
   DAILY_BRIEFING_WORKFLOW_SLUG,
-  briefingWorkflowInputSchema,
+  LEGACY_MORNING_BRIEFING_WORKFLOW_SLUG,
   dailyBriefingWorkflowInputSchema,
+  legacyMorningBriefingWorkflowInputSchema,
 } from "./workflow-input";
-export type { BriefingWorkflowInput, DailyBriefingWorkflowInput } from "./workflow-input";
+export type {
+  DailyBriefingWorkflowInput,
+  LegacyMorningBriefingWorkflowInput,
+} from "./workflow-input";
 
 export {
   listEmailsSinceWatermark,
   readEmailDocument,
   listPriorBriefings,
   fetchLatestWatermark,
-  recordBriefingRun,
   scorePriorityEmailDemand,
   isQuietMorning,
   type EmailListItem,
@@ -102,3 +104,10 @@ export {
   type BriefingJobData,
 } from "./queue";
 export { scheduleRepeatableBriefingJobs } from "./repeatable";
+export { buildSystemPrompt } from "./agent/prompt";
+export {
+  runDailyBriefingCompose,
+  runDailyBriefingGather,
+  runDailyBriefingSend,
+  type DailyBriefingOperationState,
+} from "./workflow-operations";
