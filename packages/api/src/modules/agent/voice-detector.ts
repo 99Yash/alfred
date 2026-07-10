@@ -61,10 +61,6 @@ function wordRule(
 
 // Inflated vocabulary — say the plain word. (Tier 1 of the source table.)
 const INFLATED_WORDS = [
-  "leverage",
-  "leverages",
-  "leveraged",
-  "leveraging",
   "utilize",
   "utilizes",
   "utilized",
@@ -77,17 +73,8 @@ const INFLATED_WORDS = [
   "commences",
   "commenced",
   "commencing",
-  "robust",
   "seamless",
   "seamlessly",
-  "streamline",
-  "streamlines",
-  "streamlined",
-  "streamlining",
-  "facilitate",
-  "facilitates",
-  "facilitated",
-  "facilitating",
   "endeavor",
   "endeavors",
   "endeavored",
@@ -180,7 +167,7 @@ const RULES: readonly Rule[] = [
   wordRule("inflated-word", "Inflated vocabulary", "medium", INFLATED_WORDS),
   wordRule("filler", "Filler phrase", "medium", FILLER_PHRASES),
   wordRule("flattery", "Flattery / chatbot filler", "high", FLATTERY_PHRASES),
-  wordRule("lets-construction", "\"Let's\" opener", "medium", LETS_CONSTRUCTIONS),
+  wordRule("lets-construction", '"Let\'s" opener', "medium", LETS_CONSTRUCTIONS),
   wordRule("hype", "Hype / significance inflation", "medium", HYPE_PHRASES),
   wordRule("generic-conclusion", "Generic conclusion", "medium", GENERIC_CONCLUSIONS),
   // Chatbot openers, only when they actually open a line.
@@ -220,14 +207,16 @@ const EMOJI_PATTERN =
   /[\u{1F300}-\u{1FAFF}\u{2600}-\u{27BF}\u{2B00}-\u{2BFF}\u{1F1E6}-\u{1F1FF}]\u{FE0F}?/gu;
 
 /**
- * Strip fenced code blocks, inline code, and normalize smart quotes so the
- * rules run against prose only — a `--flag` or `utilize()` inside a code sample
- * is not an AI tell.
+ * Strip fenced code blocks, inline code, and explicitly quoted material so the
+ * rules run against authored prose only. Exact source text is evidence, not the
+ * assistant's voice, and may legitimately contain a forbidden phrase or dash.
  */
 function normalize(text: string): string {
   return text
     .replace(/```[\s\S]*?```/g, " ")
     .replace(/`[^`]*`/g, " ")
+    .replace(/“[^”]*”/g, " ")
+    .replace(/"[^"\n]*"/g, " ")
     .replace(/[‘’]/g, "'")
     .replace(/[“”]/g, '"');
 }

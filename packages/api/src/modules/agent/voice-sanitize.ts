@@ -1,67 +1,225 @@
 /**
- * Deterministic enforcement of the one voice rule a model won't reliably follow
- * from an instruction: no em-dashes. Sonnet/Opus reach for `—` on nearly every
- * reply regardless of DEFAULT_VOICE_PROMPT, and it is a purely mechanical
- * substitution, so we fix it in code rather than hoping the model complies. This
- * matches the user's standing "no em/en dashes in copy" preference.
+ * Narrow deterministic enforcement for Alfred's no-dash preference.
  *
- * Scope is deliberately narrow: only the Unicode em-dash (—) and en-dash (–)
- * that models actually emit. ASCII `--` is left alone (it is a CLI flag far more
- * often than a dash in real prose), emoji are left to the prompt (chat may mirror
- * a user's emoji), and code spans + numeric ranges are preserved.
- *
- * `sanitizeVoice` is for batch text (a whole briefing body, a finished summary).
- * `createVoiceStreamSanitizer` is for the chat token stream, where a dash can
- * straddle two deltas — it holds back an ambiguous trailing run until the next
- * chunk resolves it.
+ * The transformer is deliberately lexical rather than regex-only. It preserves
+ * fenced/inline code and quoted material, converts en-dash ranges to ASCII
+ * hyphens, and keeps enough state for streamed output to behave exactly like a
+ * completed string regardless of provider chunk boundaries.
  */
 
-// code span (passed through) | numeric range | prose dash. Only spaces/tabs are
-// eaten around a prose dash so line breaks (and markdown list structure) survive.
-const CODE_OR_DASH = /(```[\s\S]*?```|`[^`]*`)|(\d)[ \t]*[—–][ \t]*(?=\d)|[ \t]*[—–][ \t]*/g;
-
-/** Replace em/en dashes with plain punctuation, leaving code and ranges intact. */
-export function sanitizeVoice(text: string): string {
-  if (!text.includes("—") && !text.includes("–")) return text;
-  const out = text.replace(CODE_OR_DASH, (_m, code: string | undefined, rangeDigit: string | undefined) => {
-    if (code !== undefined) return code; // leave code untouched
-    if (rangeDigit !== undefined) return `${rangeDigit}-`; // numeric range: 10–20 -> 10-20
-    return ", "; // prose dash -> comma
-  });
-  // Collapse any doubled comma an adjacent-dash run produced ("— —" -> ", ,").
-  return out.replace(/,[ \t]*,/g, ",");
-}
-
 export interface VoiceStreamSanitizer {
-  /** Feed a raw text delta; returns the sanitized text that is safe to emit now. */
+  /** Feed a raw text delta; returns sanitized text that is safe to emit now. */
   push(raw: string): string;
-  /** End of a segment/stream: returns the sanitized held-back tail and resets. */
+  /** End the segment/stream, returning any held-back punctuation or whitespace. */
   flush(): string;
 }
 
-// A trailing run we can't safely emit yet: optional spaces/tabs, an optional
-// single dash, optional spaces/tabs, at end of buffer. Holding it lets the next
-// chunk supply the dash's right-hand side so "word —" + " next" collapses to
-// "word, next" rather than emitting a stranded dash.
-const AMBIGUOUS_TAIL = /[ \t]*[—–]?[ \t]*$/;
+interface PendingDash {
+  char: "—" | "–";
+  /** Whitespace seen immediately before the dash. */
+  before: string;
+}
 
+function isRangeEndpoint(char: string): boolean {
+  return /[\p{L}\p{N}]/u.test(char);
+}
+
+function withoutTrailingHorizontalSpace(value: string): string {
+  return value.replace(/[ \t]+$/g, "");
+}
+
+function hasLineBreak(value: string): boolean {
+  return value.includes("\n") || value.includes("\r");
+}
+
+/**
+ * Create a chunk-invariant sanitizer. Markdown delimiters, prose whitespace,
+ * and a pending dash may all straddle provider deltas, so each is carried as
+ * explicit state instead of re-running a whole-string regexp on every chunk.
+ */
 export function createVoiceStreamSanitizer(): VoiceStreamSanitizer {
-  let pending = "";
+  let output = "";
+  let mode: "prose" | "code" = "prose";
+  let codeDelimiterLength = 0;
+  let tickBuffer = "";
+  let whitespace = "";
+  let pendingDash: PendingDash | null = null;
+  let previousProseNonSpace = "";
+  let asciiQuoteOpen = false;
+  let curlyQuoteOpen = false;
+  let atLineStart = true;
+  let blockQuoteLine = false;
+
+  const takeOutput = (): string => {
+    const next = output;
+    output = "";
+    return next;
+  };
+
+  const emitWhitespace = (): void => {
+    output += whitespace;
+    whitespace = "";
+  };
+
+  const resolveDash = (nextNonSpace: string): void => {
+    if (!pendingDash) return;
+    const before = pendingDash.before;
+    const after = whitespace;
+    const isRange =
+      pendingDash.char === "–" &&
+      isRangeEndpoint(previousProseNonSpace) &&
+      isRangeEndpoint(nextNonSpace);
+
+    if (isRange) {
+      // Monday–Friday, A–Z, and 10 – 20 are ranges, not parenthetical prose.
+      output += "-";
+    } else {
+      // Preserve structural line breaks. On one line, a semicolon is safer than
+      // manufacturing a comma splice between clauses.
+      const beforeBreak = hasLineBreak(before) ? withoutTrailingHorizontalSpace(before) : "";
+      const afterBreak = hasLineBreak(after) ? withoutTrailingHorizontalSpace(after) : "";
+      if (beforeBreak || afterBreak) {
+        output += beforeBreak || afterBreak;
+      } else if (previousProseNonSpace && !/[.!?:;,]/.test(previousProseNonSpace)) {
+        output += "; ";
+      } else if (previousProseNonSpace) {
+        output += " ";
+      }
+    }
+
+    pendingDash = null;
+    whitespace = "";
+  };
+
+  const emitProseChar = (char: string): void => {
+    if (char === "—" || char === "–") {
+      // Treat an adjacent dash run as one separator.
+      pendingDash = { char, before: pendingDash?.before ?? whitespace };
+      whitespace = "";
+      return;
+    }
+
+    if (/\s/u.test(char)) {
+      whitespace += char;
+      if (char === "\n" || char === "\r") atLineStart = true;
+      return;
+    }
+
+    resolveDash(char);
+    emitWhitespace();
+    output += char;
+    previousProseNonSpace = char;
+    atLineStart = false;
+  };
+
+  const resolveTicks = (): void => {
+    if (tickBuffer.length === 0) return;
+
+    if (mode === "prose") {
+      resolveDash("`");
+      emitWhitespace();
+      output += tickBuffer;
+      mode = "code";
+      codeDelimiterLength = tickBuffer.length;
+    } else {
+      output += tickBuffer;
+      if (tickBuffer.length >= codeDelimiterLength) {
+        mode = "prose";
+        codeDelimiterLength = 0;
+      }
+    }
+    tickBuffer = "";
+  };
+
+  const processChar = (char: string): void => {
+    if (blockQuoteLine) {
+      output += char;
+      if (char === "\n" || char === "\r") {
+        blockQuoteLine = false;
+        atLineStart = true;
+      }
+      return;
+    }
+
+    if (asciiQuoteOpen || curlyQuoteOpen) {
+      output += char;
+      if (asciiQuoteOpen && char === '"') asciiQuoteOpen = false;
+      if (curlyQuoteOpen && char === "”") curlyQuoteOpen = false;
+      if (char === "\n" || char === "\r") atLineStart = true;
+      return;
+    }
+
+    if (char === "`") {
+      tickBuffer += char;
+      return;
+    }
+    resolveTicks();
+
+    if (mode === "code") {
+      output += char;
+      return;
+    }
+
+    if (atLineStart && char === ">") {
+      resolveDash(char);
+      emitWhitespace();
+      output += char;
+      previousProseNonSpace = char;
+      blockQuoteLine = true;
+      atLineStart = false;
+      return;
+    }
+
+    if (char === '"' || char === "“") {
+      resolveDash(char);
+      emitWhitespace();
+      output += char;
+      previousProseNonSpace = char;
+      asciiQuoteOpen = char === '"';
+      curlyQuoteOpen = char === "“";
+      atLineStart = false;
+      return;
+    }
+
+    emitProseChar(char);
+  };
+
   return {
     push(raw: string): string {
-      pending += raw;
-      const m = AMBIGUOUS_TAIL.exec(pending);
-      const holdStart = m ? m.index : pending.length;
-      const safe = pending.slice(0, holdStart);
-      pending = pending.slice(holdStart);
-      return sanitizeVoice(safe);
+      for (const char of raw) processChar(char);
+      return takeOutput();
     },
     flush(): string {
-      const rest = pending;
-      pending = "";
-      // A reply that literally ends on a dash sanitizes to a trailing ", " —
-      // trim that artifact so we don't end the message on a dangling comma.
-      return sanitizeVoice(rest).replace(/,[ \t]*$/, "");
+      resolveTicks();
+      if (pendingDash) {
+        // A reply that ends on a separator has no right-hand clause. Preserve
+        // line structure but drop the stranded punctuation and horizontal space.
+        const structural = `${pendingDash.before}${whitespace}`;
+        if (hasLineBreak(structural)) output += withoutTrailingHorizontalSpace(structural);
+        pendingDash = null;
+        whitespace = "";
+      } else {
+        emitWhitespace();
+      }
+      const finalOutput = takeOutput();
+      // A tool-call boundary starts a new prose segment. Do not let an unmatched
+      // quote/fence in narration leak lexical state into the post-tool answer.
+      mode = "prose";
+      codeDelimiterLength = 0;
+      tickBuffer = "";
+      previousProseNonSpace = "";
+      asciiQuoteOpen = false;
+      curlyQuoteOpen = false;
+      atLineStart = true;
+      blockQuoteLine = false;
+      return finalOutput;
     },
   };
+}
+
+/** Replace prose dashes while preserving code, quotes, and range meaning. */
+export function sanitizeVoice(text: string): string {
+  if (!text.includes("—") && !text.includes("–")) return text;
+  const sanitizer = createVoiceStreamSanitizer();
+  return sanitizer.push(text) + sanitizer.flush();
 }
