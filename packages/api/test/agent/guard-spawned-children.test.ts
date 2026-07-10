@@ -6,7 +6,7 @@ import { AWAIT_SUB_AGENT_CEILING_MS } from "../../src/modules/agent/sub-agent-jo
 import {
   awaitedChildRunId,
   guardSpawnedChildren,
-  markProductiveChatTurn,
+  planEmptyChatCompletionRetry,
   type ChatRunState,
   type GuardSpawnedChildrenDeps,
 } from "../../src/modules/agent/workflows/chat-turn";
@@ -206,28 +206,24 @@ describe("guardSpawnedChildren (ADR-0073 runtime invariant)", () => {
     );
   });
 
-  test("a productive answer resets prior empty retries before guarded regeneration", async () => {
-    const state = baseState({ emptyCompletionRetries: 2 });
-    const rec = recorder({
-      children: [{ id: "child_a", status: "completed" }],
-      outcomes: {
-        child_a: {
-          ok: true,
-          done: true,
-          status: "completed",
-          output: { summary: "did the thing" },
-        },
-      },
-    });
-
-    // Mirrors the productive-text boundary immediately before the guard in the
-    // chat workflow. If the guard regenerates, its returned state must carry a
-    // fresh retry budget rather than the streak from before this real answer.
-    markProductiveChatTurn(state);
-    const result = await guardSpawnedChildren(baseCtx(state), state, [], rec.deps);
+  test("an empty completion retries from the exact pre-turn transcript", () => {
+    const state = baseState({ emptyCompletionRetries: 1 });
+    const transcript = [{ role: "user" as const, content: "Keep this request" }];
+    const result = planEmptyChatCompletionRetry(state, transcript);
 
     assert.equal(result?.kind, "next");
-    assert.equal(result?.state.emptyCompletionRetries, 0);
+    assert.equal(result?.state.emptyCompletionRetries, 2);
+    assert.equal(state.emptyCompletionRetries, 1, "planning does not mutate checkpoint state");
+    assert.strictEqual(
+      result?.kind === "next" ? result.transcript : undefined,
+      transcript,
+      "the empty assistant response is never appended to the retry transcript",
+    );
+  });
+
+  test("the empty-completion retry budget is bounded", () => {
+    const state = baseState({ emptyCompletionRetries: 2 });
+    assert.equal(planEmptyChatCompletionRetry(state, []), null);
   });
 
   test("one terminal + one running child: folds the terminal, parks on the running one", async () => {

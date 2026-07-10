@@ -9,7 +9,13 @@ import {
 } from "@alfred/contracts";
 import { db } from "@alfred/db";
 import { createId } from "@alfred/db/helpers";
-import { agentRuns, chatAttachments, chatMessages, chatThreads } from "@alfred/db/schemas";
+import {
+  agentRuns,
+  artifacts,
+  chatAttachments,
+  chatMessages,
+  chatThreads,
+} from "@alfred/db/schemas";
 import type { ChatAttachment, NewChatAttachment } from "@alfred/db/schemas";
 import { serverEnv } from "@alfred/env/server";
 import { and, asc, eq, inArray, notInArray, sql } from "drizzle-orm";
@@ -164,6 +170,7 @@ async function findExistingChatTurnRun(
   userId: string,
   userMessageId: string,
   fallbackAssistantMessageId: string,
+  artifactTargetId: string | undefined,
 ): Promise<ExistingChatTurnRun | null> {
   const active = await ex
     .select({ id: agentRuns.id, metadata: agentRuns.metadata })
@@ -179,6 +186,13 @@ async function findExistingChatTurnRun(
     .limit(1);
   const existing = active[0];
   if (!existing) return null;
+  const storedArtifactTargetId = getPath(existing.metadata, "artifactTargetId");
+  const normalizedStoredTarget = isNonEmptyString(storedArtifactTargetId)
+    ? storedArtifactTargetId
+    : undefined;
+  if (normalizedStoredTarget !== artifactTargetId) {
+    throw new ConflictError("Message id already belongs to a different chat turn");
+  }
   const existingAssistantId = getPath(existing.metadata, "assistantMessageId");
   return {
     runId: existing.id,
@@ -504,6 +518,7 @@ export const chatRoutes = new Elysia({ prefix: "/api/chat", normalize: "typebox"
           const attachments = body.attachments ?? [];
           const retryAttachmentIds = body.retryAttachmentIds ?? [];
           const retryAttachmentMessageId = body.retryAttachmentMessageId ?? null;
+          const artifactTargetId = body.artifactTargetId;
           assertAttachmentBatchAllowed(attachments);
           // A turn must carry text or at least one attachment — a fresh upload
           // or a re-attached one from a retry (image-only sends are valid: the
@@ -528,6 +543,22 @@ export const chatRoutes = new Elysia({ prefix: "/api/chat", normalize: "typebox"
           const thread = existing[0];
           if (thread && thread.userId !== user.id) {
             throw new NotFoundError("thread not found");
+          }
+          if (artifactTargetId) {
+            const ownedTargets = await db()
+              .select({ id: artifacts.id })
+              .from(artifacts)
+              .where(
+                and(
+                  eq(artifacts.id, artifactTargetId),
+                  eq(artifacts.userId, user.id),
+                  eq(artifacts.threadId, threadId),
+                ),
+              )
+              .limit(1);
+            if (!ownedTargets[0]) {
+              throw new BadRequestError("Artifact target doesn't belong to this chat");
+            }
           }
 
           // Reject a divergent reused message id before storage verification/copies
@@ -631,6 +662,7 @@ export const chatRoutes = new Elysia({ prefix: "/api/chat", normalize: "typebox"
               user.id,
               body.userMessageId,
               createId("msg"),
+              artifactTargetId,
             );
             if (existingRun) {
               await enqueueChatTurnRunBestEffort(existingRun.runId);
@@ -834,6 +866,7 @@ export const chatRoutes = new Elysia({ prefix: "/api/chat", normalize: "typebox"
                       assistantMessageId,
                       userMessageId: body.userMessageId,
                       tier: body.tier ?? "standard",
+                      artifactTargetId,
                     },
                   },
                   sp,
@@ -852,6 +885,7 @@ export const chatRoutes = new Elysia({ prefix: "/api/chat", normalize: "typebox"
                 user.id,
                 body.userMessageId,
                 assistantMessageId,
+                artifactTargetId,
               );
               return existingRun ?? { runId: null, assistantMessageId };
             }
@@ -875,6 +909,9 @@ export const chatRoutes = new Elysia({ prefix: "/api/chat", normalize: "typebox"
             content: t.String({ minLength: 0, maxLength: 100_000 }),
             // Model tier from the composer's picker; `getChatModel` maps it.
             tier: t.Optional(t.Union([t.Literal("standard"), t.Literal("deep")])),
+            // Selected by the artifact sidebar. Kept out of user prose and
+            // ownership-scoped to this exact thread above.
+            artifactTargetId: t.Optional(t.String({ minLength: 1, maxLength: 100 })),
             // Files uploaded via /attachments/upload during composition. The id
             // must match the upload's (the storage key is rebuilt from it).
             attachments: t.Optional(

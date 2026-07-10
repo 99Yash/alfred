@@ -32,6 +32,8 @@ export type SendMessage = (
    */
   retryAttachmentIds?: string[],
   retryAttachmentMessageId?: string,
+  /** Structured target selected by the artifact sidebar; never parsed from prose. */
+  artifactTargetId?: string,
 ) => Promise<boolean>;
 
 const turnKickResponseSchema = z.object({
@@ -61,7 +63,15 @@ export function useSendMessage(): SendMessage {
   const navigate = useNavigate();
 
   return useCallback(
-    async (threadId, text, tier, files, retryAttachmentIds, retryAttachmentMessageId) => {
+    async (
+      threadId,
+      text,
+      tier,
+      files,
+      retryAttachmentIds,
+      retryAttachmentMessageId,
+      artifactTargetId,
+    ) => {
       const content = text.trim();
       const pickedFiles = files ?? [];
       const retryIds = retryAttachmentIds ?? [];
@@ -123,6 +133,7 @@ export function useSendMessage(): SendMessage {
               retryIds.length > 0 && retryAttachmentMessageId
                 ? retryAttachmentMessageId
                 : undefined,
+            artifactTargetId,
           }),
           signal: AbortSignal.timeout(TURN_KICK_TIMEOUT_MS),
         });

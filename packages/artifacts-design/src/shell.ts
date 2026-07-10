@@ -216,6 +216,9 @@ code {
 .art-doc-header > :first-child { min-width: 0; }
 .art-doc-name { font-size: var(--art-doc-name); font-weight: 700; line-height: 1.04; letter-spacing: -0.035em; }
 .art-doc-role { font-size: var(--art-doc-role); color: var(--art-fg-muted); margin-top: 4px; }
+.art-doc-heading { font-size: var(--art-doc-heading); font-weight: 650; line-height: var(--art-doc-line-heading); letter-spacing: -0.01em; }
+.art-doc-body { font-size: var(--art-doc-body); line-height: var(--art-doc-line-body); }
+.art-doc-meta { font-size: var(--art-doc-meta); line-height: 1.4; color: var(--art-fg-muted); }
 .art-doc-contact { max-width: 42%; text-align: right; font-size: var(--art-doc-meta); line-height: 1.7; color: var(--art-fg-muted); flex: 0 1 auto; overflow-wrap: anywhere; }
 
 /* The document's single brand moment: a thin accent rule under the header

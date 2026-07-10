@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { describe, test } from "node:test";
 
-import type { FinishReason, TypedToolCall, ToolSet } from "ai";
+import type { FinishReason } from "ai";
 
 import { classifyStreamFinish, isRetryableEmptyCompletion } from "../src/agent";
 
@@ -22,8 +22,8 @@ import { classifyStreamFinish, isRetryableEmptyCompletion } from "../src/agent";
 
 // A single fake tool call — the classifier only reads `.length`, so the shape
 // past that is irrelevant.
-const ONE_TOOL_CALL = [{} as TypedToolCall<ToolSet>];
-const NO_TOOL_CALLS: TypedToolCall<ToolSet>[] = [];
+const ONE_TOOL_CALL = [{}];
+const NO_TOOL_CALLS: unknown[] = [];
 
 describe("isRetryableEmptyCompletion", () => {
   test("empty + clean stop → retryable", () => {

@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { describe, test } from "node:test";
 
-import { stepCountIs, streamText, tool, type LanguageModel } from "ai";
+import { stepCountIs, streamText, tool, type FinishReason, type LanguageModel } from "ai";
 import { convertArrayToReadableStream, MockLanguageModelV3 } from "ai/test";
 import { z } from "zod";
 
@@ -35,7 +35,6 @@ import { classifyStreamFinish } from "../src/agent";
 // the same approach with-fallback.test.ts uses for its generate-result shape.
 type StreamResult = Awaited<ReturnType<MockLanguageModelV3["doStream"]>>;
 type StreamPart = StreamResult["stream"] extends ReadableStream<infer P> ? P : never;
-type UnifiedFinishReason = "stop" | "length" | "content-filter" | "tool-calls" | "error" | "other";
 
 // V3 usage shape, copied verbatim from with-fallback.test.ts's proven fixture.
 const USAGE = {
@@ -43,42 +42,48 @@ const USAGE = {
   outputTokens: { total: 0, text: 0, reasoning: 0 },
 } as const;
 
-function finishPart(unified: UnifiedFinishReason): StreamPart {
-  return { type: "finish", finishReason: { unified, raw: unified }, usage: USAGE } as StreamPart;
+function streamPart(part: StreamPart): StreamPart {
+  return part;
 }
 
-const START: StreamPart = { type: "stream-start", warnings: [] } as StreamPart;
-const RESPONSE_META: StreamPart = {
+function finishPart(unified: FinishReason): StreamPart {
+  return streamPart({ type: "finish", finishReason: { unified, raw: unified }, usage: USAGE });
+}
+
+const START = streamPart({ type: "stream-start", warnings: [] });
+const RESPONSE_META = streamPart({
   type: "response-metadata",
   id: "resp-0",
   modelId: "mock-model",
   timestamp: new Date(0),
-} as StreamPart;
+});
 
 /** Text parts for a single streamed span with the given body. */
 function textParts(body: string): StreamPart[] {
   return [
-    { type: "text-start", id: "txt-0" } as StreamPart,
-    { type: "text-delta", id: "txt-0", delta: body } as StreamPart,
-    { type: "text-end", id: "txt-0" } as StreamPart,
+    streamPart({ type: "text-start", id: "txt-0" }),
+    streamPart({ type: "text-delta", id: "txt-0", delta: body }),
+    streamPart({ type: "text-end", id: "txt-0" }),
   ];
 }
 
 /** A single tool-call span whose input matches the `ping` tool's schema. */
 function toolCallParts(): StreamPart[] {
   return [
-    { type: "tool-input-start", id: "call-0", toolName: "ping" } as StreamPart,
-    { type: "tool-input-delta", id: "call-0", delta: '{"ok":true}' } as StreamPart,
-    { type: "tool-input-end", id: "call-0" } as StreamPart,
-    {
+    streamPart({ type: "tool-input-start", id: "call-0", toolName: "ping" }),
+    streamPart({ type: "tool-input-delta", id: "call-0", delta: '{"ok":true}' }),
+    streamPart({ type: "tool-input-end", id: "call-0" }),
+    streamPart({
       type: "tool-call",
       toolCallId: "call-0",
       toolName: "ping",
       input: '{"ok":true}',
-    } as StreamPart,
+    }),
   ];
 }
 
+// SAFETY: AI SDK v6 exposes LanguageModel as a V2/V3 compatibility union;
+// this SDK-provided V3 mock implements the runtime branch streamText consumes.
 const asModel = (m: MockLanguageModelV3) => m as unknown as LanguageModel;
 
 // An `execute`-less tool: same as production (dispatch happens in a later step),
