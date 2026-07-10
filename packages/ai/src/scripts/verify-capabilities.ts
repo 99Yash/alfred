@@ -5,7 +5,7 @@
  * — the provider dispatch reads it at request time, so a wrong value reintroduces
  * the #224/#303 class of silent-fallback 400. models.dev is the *audit oracle* that
  * proves those code-resident values still match reality. This script diffs the two
- * for the six registered ids and exits non-zero on drift.
+ * for every registered id and exits non-zero on drift.
  *
  * It reads the **synced `model_prices` snapshot** (`db:sync-prices` captures
  * `reasoning_options` + `temperature` into `metadata.capabilities`), NOT a live

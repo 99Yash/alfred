@@ -68,15 +68,15 @@ export const DEFAULT_LLM_TIMEOUT_MS = 600_000;
  */
 const DEFAULT_STREAM_TIMEOUT = { chunkMs: 30_000, totalMs: DEFAULT_LLM_TIMEOUT_MS } as const;
 
-// `metered()` only reads `totalUsage`/`finishReason`/`toolCalls`/`steps`,
+// `metered()` only reads `usage`/`finishReason`/`toolCalls`/`steps`,
 // none of which depend on the OUTPUT generic — so we collapse to the
 // widest valid instantiation and let the call site cast through `never`.
-function extractTextUsage(result: GenerateTextResult<ToolSet, never>): MeteredResult {
+function extractTextUsage(result: GenerateTextResult<ToolSet, never, never>): MeteredResult {
   return {
-    usage: usageFromSdk(result.totalUsage),
+    usage: usageFromSdk(result.usage),
     responseMeta: {
       finishReason: result.finishReason,
-      toolCallCount: result.toolCalls.length,
+      toolCallCount: result.finalStep.toolCalls.length,
       stepCount: result.steps?.length,
     },
     // Completion — only sent to Langfuse when capture is on (gated in
@@ -84,8 +84,8 @@ function extractTextUsage(result: GenerateTextResult<ToolSet, never>): MeteredRe
     // on a tool-call turn the model often emits no prose, so `.text` alone would
     // drop the one thing a trajectory replay needs — what the model decided to
     // call (see captureOutput).
-    output: captureOutput({ text: result.text, toolCalls: result.toolCalls }),
-    ...servedFromResponse(result.response),
+    output: captureOutput({ text: result.text, toolCalls: result.finalStep.toolCalls }),
+    ...servedFromResponse(result.finalStep.response),
   };
 }
 
@@ -121,16 +121,23 @@ export function captureOutput(args: {
 /**
  * Build the Langfuse span input from SDK call args. Prefers the chat
  * `messages` array (Langfuse renders it as a conversation); falls back to
- * the `prompt` string, folding in `system` when present. Attached to every
+ * the `prompt` string, folding in `instructions` when present. Attached to every
  * call's meta but only emitted when `LANGFUSE_CAPTURE_IO=true`.
  */
-function captureInput(args: { system?: string; prompt?: unknown; messages?: unknown }): unknown {
-  const { system, prompt, messages } = args;
+function captureInput(args: {
+  instructions?: unknown;
+  prompt?: unknown;
+  messages?: unknown;
+}): unknown {
+  const { instructions, prompt, messages } = args;
   if (Array.isArray(messages)) {
-    return system ? [{ role: "system", content: system }, ...messages] : messages;
+    if (typeof instructions === "string") {
+      return [{ role: "system", content: instructions }, ...messages];
+    }
+    return instructions !== undefined ? [instructions, ...messages] : messages;
   }
-  if (prompt !== undefined) return system ? { system, prompt } : prompt;
-  return system;
+  if (prompt !== undefined) return instructions ? { instructions, prompt } : prompt;
+  return instructions;
 }
 
 /**
@@ -151,13 +158,15 @@ function extractEmbedUsage(result: EmbedResult): MeteredResult {
   };
 }
 
-function usageFromSdk(usage: LanguageModelUsage | undefined) {
+export function usageFromSdk(usage: LanguageModelUsage | undefined) {
   if (!usage) return undefined;
   const cacheReadTokens = usage.inputTokenDetails?.cacheReadTokens;
+  const cacheWriteTokens = usage.inputTokenDetails?.cacheWriteTokens;
   return {
     inputTokens: usage.inputTokens,
     outputTokens: usage.outputTokens,
     cachedInputTokens: cacheReadTokens,
+    cacheWriteInputTokens: cacheWriteTokens,
   };
 }
 
@@ -166,10 +175,7 @@ export type EmbedArgs = Parameters<typeof embed>[0];
 
 type ObjectSchema<O> = Parameters<typeof Output.object<O>>[0]["schema"];
 
-export interface MeteredGenerateObjectArgs<O> extends Omit<
-  GenerateTextArgs,
-  "output" | "experimental_output"
-> {
+export interface MeteredGenerateObjectArgs<O> extends Omit<GenerateTextArgs, "output"> {
   schema: ObjectSchema<O>;
   /** Optional name forwarded to `Output.object` — some providers use it for tool/schema naming. */
   schemaName?: string;
@@ -199,7 +205,7 @@ export interface AttributedCall extends CallAttribution {
 export async function meteredGenerateText(
   args: GenerateTextArgs,
   attribution: AttributedCall = {},
-): Promise<GenerateTextResult<ToolSet, never>> {
+): Promise<GenerateTextResult<ToolSet, never, never>> {
   const ids = resolveIds(args.model, attribution);
   const meta: MeteredMeta = {
     ...attribution,
@@ -212,16 +218,16 @@ export async function meteredGenerateText(
   // but the `Output` interface is not exported as a nameable type, only via a
   // namespace alias. Cast through unknown to a callable shape and pin the
   // public return type to <ToolSet, never>, which downstream callers (which
-  // never use `experimental_output`) can read freely.
+  // never use structured output) can read freely.
   return metered(
     meta,
     () => generateText(callArgs),
     extractTextUsage as never,
-  ) as unknown as Promise<GenerateTextResult<ToolSet, never>>;
+  ) as unknown as Promise<GenerateTextResult<ToolSet, never, never>>;
 }
 
 /**
- * Structured-output wrapper. AI SDK v6 deprecated `generateObject` in favor of
+ * Structured-output wrapper. AI SDK deprecated `generateObject` in favor of
  * `generateText` + `Output.object`, so we route through the text path and
  * project the schema-validated result into a `{ object, usage, ... }` shape
  * to keep call sites stable.
@@ -238,7 +244,7 @@ export async function meteredGenerateObject<O>(
     ...ids,
     input: captureInput(rest as Parameters<typeof captureInput>[0]),
   };
-  type Result = GenerateTextResult<ToolSet, ReturnType<typeof Output.object<O>>>;
+  type Result = GenerateTextResult<ToolSet, never, ReturnType<typeof Output.object<O>>>;
   // The discriminated `Prompt` union (prompt | messages) doesn't survive an
   // Omit/spread round trip — TS widens `messages` to `T[] | undefined`. Cast
   // back to the SDK's parameter type so the call type-checks; the original
@@ -259,31 +265,31 @@ export async function meteredGenerateObject<O>(
   )) as unknown as Result;
   return {
     object: result.output,
-    usage: result.totalUsage,
+    usage: result.usage,
     finishReason: result.finishReason,
-    warnings: result.warnings,
+    warnings: result.finalStep.warnings,
   };
 }
 
 export type StreamTextArgs = Parameters<typeof streamText>[0];
-type StreamTextFinishEvent = Parameters<NonNullable<StreamTextArgs["onFinish"]>>[0];
+type StreamTextEndEvent = Parameters<NonNullable<StreamTextArgs["onEnd"]>>[0];
 type StreamTextErrorEvent = Parameters<NonNullable<StreamTextArgs["onError"]>>[0];
 type StreamTextAbortEvent = Parameters<NonNullable<StreamTextArgs["onAbort"]>>[0];
 
 /**
  * Streaming counterpart to `meteredGenerateText`. Returns the SDK's
- * `StreamTextResult` synchronously so the caller can consume `fullStream`
+ * `StreamTextResult` synchronously so the caller can consume `stream`
  * for live token / tool-call deltas; metering lands once the stream
- * finishes, via the SDK's `onFinish` / `onError` hooks. Produces exactly
+ * finishes, via the SDK's `onEnd` / `onError` hooks. Produces exactly
  * one `api_call_log` row per streamed turn, same as the non-streaming path.
  *
- * Any caller-supplied `onFinish` / `onError` are preserved and invoked
+ * Any caller-supplied `onEnd` / `onError` are preserved and invoked
  * after the metering hook runs.
  */
 export function meteredStreamText(
   args: StreamTextArgs,
   attribution: AttributedCall = {},
-): StreamTextResult<ToolSet, never> {
+): StreamTextResult<ToolSet, never, never> {
   const ids = resolveIds(args.model, attribution);
   const meta: MeteredMeta = {
     ...attribution,
@@ -291,7 +297,7 @@ export function meteredStreamText(
     ...ids,
     input: captureInput(args as Parameters<typeof captureInput>[0]),
   };
-  const callerOnFinish = args.onFinish;
+  const callerOnEnd = args.onEnd;
   const callerOnError = args.onError;
   const callerOnAbort = args.onAbort;
   const timeout = args.timeout ?? DEFAULT_STREAM_TIMEOUT;
@@ -299,20 +305,20 @@ export function meteredStreamText(
     streamText({
       ...args,
       timeout,
-      onFinish: (event: StreamTextFinishEvent) => {
+      onEnd: (event: StreamTextEndEvent) => {
         finish({
-          usage: usageFromSdk(event.totalUsage),
+          usage: usageFromSdk(event.usage),
           responseMeta: {
             finishReason: event.finishReason,
-            toolCallCount: event.toolCalls?.length,
+            toolCallCount: event.finalStep.toolCalls.length,
             stepCount: event.steps?.length,
           },
           // Same fold as the non-streaming path: a streamed tool-call turn emits
           // no prose, so capture the proposed calls or the replay loses them.
-          output: captureOutput({ text: event.text, toolCalls: event.toolCalls }),
-          ...servedFromResponse(event.response),
+          output: captureOutput({ text: event.text, toolCalls: event.finalStep.toolCalls }),
+          ...servedFromResponse(event.finalStep.response),
         });
-        callerOnFinish?.(event);
+        callerOnEnd?.(event);
       },
       onError: (event: StreamTextErrorEvent) => {
         fail(toMessage(event.error));
@@ -335,7 +341,7 @@ export function meteredStreamText(
         callerOnAbort?.(event);
       },
     }),
-  ) as StreamTextResult<ToolSet, never>;
+  ) as StreamTextResult<ToolSet, never, never>;
 }
 
 /**
@@ -354,13 +360,14 @@ function servedFromSteps(
   return {};
 }
 
-function usageFromSteps(steps: readonly { usage?: LanguageModelUsage }[]) {
+export function usageFromSteps(steps: readonly { usage?: LanguageModelUsage }[]) {
   if (steps.length === 0) return undefined;
   let inputTokens = 0;
   let outputTokens = 0;
   // Leave undefined when no step reported cache info, matching the
   // non-abort path (`usageFromSdk`) instead of asserting a false `0`.
   let cachedInputTokens: number | undefined;
+  let cacheWriteInputTokens: number | undefined;
   let sawUsage = false;
   for (const step of steps) {
     const usage = usageFromSdk(step.usage);
@@ -371,9 +378,12 @@ function usageFromSteps(steps: readonly { usage?: LanguageModelUsage }[]) {
     if (usage.cachedInputTokens != null) {
       cachedInputTokens = (cachedInputTokens ?? 0) + usage.cachedInputTokens;
     }
+    if (usage.cacheWriteInputTokens != null) {
+      cacheWriteInputTokens = (cacheWriteInputTokens ?? 0) + usage.cacheWriteInputTokens;
+    }
   }
   if (!sawUsage) return undefined;
-  return { inputTokens, outputTokens, cachedInputTokens };
+  return { inputTokens, outputTokens, cachedInputTokens, cacheWriteInputTokens };
 }
 
 export async function meteredEmbed(

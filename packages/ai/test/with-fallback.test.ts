@@ -3,13 +3,13 @@ import { describe, test } from "node:test";
 
 import { APICallError, generateText } from "ai";
 import type { LanguageModel } from "ai-retry";
-import { MockLanguageModelV3 } from "ai/test";
+import { MockLanguageModelV4 } from "ai/test";
 
 import { withFallback } from "../src/provider";
 
 // Derive the generate-result shape from the mock itself (same `ai` copy) rather
 // than importing `@ai-sdk/provider`, which is only a transitive dependency.
-type GenResult = Awaited<ReturnType<MockLanguageModelV3["doGenerate"]>>;
+type GenResult = Awaited<ReturnType<MockLanguageModelV4["doGenerate"]>>;
 
 /**
  * `withFallback` degrades a failed primary call to a fallback model — EXCEPT a
@@ -59,8 +59,8 @@ function apiError(
   });
 }
 
-function throwingModel(modelId: string, err: unknown): MockLanguageModelV3 {
-  return new MockLanguageModelV3({
+function throwingModel(modelId: string, err: unknown): MockLanguageModelV4 {
+  return new MockLanguageModelV4({
     provider: "mock",
     modelId,
     doGenerate: async () => {
@@ -69,19 +69,19 @@ function throwingModel(modelId: string, err: unknown): MockLanguageModelV3 {
   });
 }
 
-function okModel(modelId: string, text: string): MockLanguageModelV3 {
-  return new MockLanguageModelV3({
+function okModel(modelId: string, text: string): MockLanguageModelV4 {
+  return new MockLanguageModelV4({
     provider: "mock",
     modelId,
     doGenerate: async () => okResult(text),
   });
 }
 
-// MockLanguageModelV3 implements the ai-sdk LanguageModelV3; `withFallback`'s
+// MockLanguageModelV4 implements the ai-sdk LanguageModelV4; `withFallback`'s
 // params are `ai-retry`'s `LanguageModel` alias for the same spec.
-const asModel = (m: MockLanguageModelV3) => m as unknown as LanguageModel;
+const asModel = (m: MockLanguageModelV4) => m as unknown as LanguageModel;
 
-async function run(primary: MockLanguageModelV3, fallback: MockLanguageModelV3) {
+async function run(primary: MockLanguageModelV4, fallback: MockLanguageModelV4) {
   return generateText({
     model: withFallback(asModel(primary), asModel(fallback)),
     prompt: "hi",

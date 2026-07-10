@@ -112,7 +112,7 @@ export async function deepenTriageClassification(
   const result = await meteredGenerateObject<DeepenOutput>(
     {
       model,
-      system: DEEPEN_SYSTEM_PROMPT,
+      instructions: DEEPEN_SYSTEM_PROMPT,
       prompt: deepenUserPrompt(args),
       schema: deepenOutputSchema,
       schemaName: "triage_deepen",

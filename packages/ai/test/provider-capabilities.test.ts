@@ -8,7 +8,12 @@ import {
   type ModelId,
   MODEL_REGISTRY,
 } from "../src/models";
-import { clampEffort, getChatProviderOptions } from "../src/provider";
+import {
+  clampEffort,
+  getChatProviderOptions,
+  getRegisteredModelProviderOptions,
+  selectAvailableModelIds,
+} from "../src/provider";
 
 /**
  * The per-model capability map (ADR-0078) replaced the hardcoded tier→capability
@@ -80,5 +85,25 @@ describe("provider capability dispatch", () => {
     assert.equal(clampEffort("low", ["minimal", "low", "medium", "high"]), "low");
     assert.equal(clampEffort("xhigh", ["minimal", "low", "medium", "high"]), "high");
     assert.equal(clampEffort("low", ["none", "low", "medium", "high", "xhigh"]), "low");
+  });
+
+  test("GPT-5.6 dispatch emits only supported Responses API effort values", () => {
+    assert.deepEqual(getRegisteredModelProviderOptions("gpt-5.6-sol", "max"), {
+      openai: { reasoningEffort: "max" },
+    });
+    assert.deepEqual(getRegisteredModelProviderOptions("gpt-5.6-luna", "minimal"), {
+      openai: { reasoningEffort: "none" },
+    });
+  });
+
+  test("missing optional OpenAI credentials remove GPT-5.6 before fallback dispatch", () => {
+    assert.deepEqual(
+      selectAvailableModelIds(["claude-sonnet-4-6", "gpt-5.6-sol", "gemini-2.5-pro"], {
+        anthropic: true,
+        google: true,
+        openai: false,
+      }),
+      ["claude-sonnet-4-6", "gemini-2.5-pro"],
+    );
   });
 });

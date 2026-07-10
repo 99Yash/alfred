@@ -1375,7 +1375,7 @@ function defaultRunPass(
     const result = await meteredGenerateObject<TriageClassification>(
       {
         model,
-        system,
+        instructions: system,
         prompt,
         schema: triageClassificationSchema,
         temperature: 0,

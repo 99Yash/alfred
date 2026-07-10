@@ -89,7 +89,7 @@ export async function compactTranscript(
       model,
       maxOutputTokens: COMPACTOR_MAX_OUTPUT_TOKENS,
       temperature: 0,
-      system: COMPACTOR_SYSTEM_PROMPT,
+      instructions: COMPACTOR_SYSTEM_PROMPT,
       messages: [transcriptPayloadMessage(prior)] as ModelMessage[],
       ...(providerOptions ? { providerOptions: providerOptions as Record<string, never> } : {}),
     },

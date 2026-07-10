@@ -5,6 +5,7 @@ export interface CallUsage {
   inputTokens?: number;
   outputTokens?: number;
   cachedInputTokens?: number;
+  cacheWriteInputTokens?: number;
 }
 
 /**

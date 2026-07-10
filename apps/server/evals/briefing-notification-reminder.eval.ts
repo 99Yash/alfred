@@ -4,7 +4,7 @@ import { getBossModel, type LanguageModel } from "@alfred/ai";
 import { withToolNameShim } from "@alfred/ai/tool-name-shim";
 import type { EmailListItem, PriorBriefingSummary } from "@alfred/api/backend";
 import type { DayShape } from "@alfred/contracts";
-import { generateText, stepCountIs, tool } from "ai";
+import { generateText, isStepCount, tool } from "ai";
 import { config as loadEnv } from "dotenv";
 import { evalite } from "evalite";
 import { z } from "zod";
@@ -259,7 +259,7 @@ async function runBriefingScenario(input: ScenarioRun): Promise<ComposeOutput> {
             "Compose the morning briefing for Yash. Start by reading list_prior_briefings, then list_emails_since. End with dump_briefing.",
         },
       ],
-      stopWhen: stepCountIs(8),
+      stopWhen: isStepCount(8),
       tools: {
         list_prior_briefings: tool({
           description: "Recent prior briefings, newest first.",

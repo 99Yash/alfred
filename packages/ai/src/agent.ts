@@ -1,5 +1,5 @@
 import {
-  stepCountIs,
+  isStepCount,
   type CallWarning,
   type FinishReason,
   type GenerateTextResult,
@@ -31,7 +31,7 @@ type AlfredProviderOptions = Record<string, Record<string, unknown>>;
  *   - ToolLoopAgent owns its own multi-step loop. We need a checkpoint
  *     between turns (ADR-0006/0014) so HIL interrupts and crash-resume work.
  *   - Per-turn metering (ADR-0015) wants one `api_call_log` row per LLM
- *     turn; ToolLoopAgent aggregates `totalUsage` across steps.
+ *     turn; ToolLoopAgent aggregates `usage` across steps.
  *   - Lazy integration loading (dimension's pattern) needs the active
  *     toolset to be re-resolved per turn from run state, not per-call.
  *
@@ -135,7 +135,7 @@ const DEFAULT_TURN_STREAM_TIMEOUT = { chunkMs: 30_000, totalMs: 180_000 } as con
  *                    of times before giving up — never append the empty assistant message.
  *   - `stopped`    → abnormal stop (length cap / content filter). Caller decides recovery.
  *
- * `raw.response.messages` is the canonical thing to append to the transcript.
+ * `raw.responseMessages` is the canonical thing to append to the transcript.
  */
 export type TurnResult =
   | {
@@ -144,7 +144,7 @@ export type TurnResult =
       usage: LanguageModelUsage;
       finishReason: FinishReason;
       warnings: CallWarning[] | undefined;
-      raw: GenerateTextResult<ToolSet, never>;
+      raw: GenerateTextResult<ToolSet, never, never>;
     }
   | {
       kind: "tool-calls";
@@ -153,14 +153,14 @@ export type TurnResult =
       usage: LanguageModelUsage;
       finishReason: FinishReason;
       warnings: CallWarning[] | undefined;
-      raw: GenerateTextResult<ToolSet, never>;
+      raw: GenerateTextResult<ToolSet, never, never>;
     }
   | {
       kind: "empty";
       usage: LanguageModelUsage;
       finishReason: FinishReason;
       warnings: CallWarning[] | undefined;
-      raw: GenerateTextResult<ToolSet, never>;
+      raw: GenerateTextResult<ToolSet, never, never>;
     }
   | {
       kind: "stopped";
@@ -168,7 +168,7 @@ export type TurnResult =
       usage: LanguageModelUsage;
       finishReason: FinishReason;
       warnings: CallWarning[] | undefined;
-      raw: GenerateTextResult<ToolSet, never>;
+      raw: GenerateTextResult<ToolSet, never, never>;
     };
 
 const DEFAULT_CACHE_TTL: "5m" | "1h" = "1h";
@@ -197,13 +197,18 @@ export class AlfredAgent<CTX = unknown> {
     const result = await meteredGenerateText(
       {
         model,
-        system: buildSystem(system, this.cacheTtl()),
+        instructions: buildSystem(system, this.cacheTtl()),
         messages: decorateTranscript(transcript, this.cacheTtl()),
+        // Compaction prepends a server-authored `<run_summary>` system message
+        // to the persisted transcript. AI SDK 7 rejects system messages in
+        // `messages` by default; this opt-in is safe because transcript roles
+        // are assigned by Alfred, never accepted from user input.
+        allowSystemInMessages: true,
         tools,
         // Cap at 1 step: the SDK should send the model request and return
         // — even if the model emits tool calls. Combined with `execute`-
         // less tools, the SDK never dispatches.
-        stopWhen: stepCountIs(1),
+        stopWhen: isStepCount(1),
         maxOutputTokens: this.s.maxOutputTokens,
         temperature: this.s.temperature,
         // The SDK types `providerOptions` as `JSONObject` per provider; our
@@ -222,15 +227,15 @@ export class AlfredAgent<CTX = unknown> {
    * Streaming sibling of `turn()`. Same single-step semantics (the SDK sends
    * one model request and returns; `execute`-less tools mean it never
    * dispatches), same cache/strip/metering treatment — but returns the SDK's
-   * `StreamTextResult` so the caller can consume `fullStream` for live token
+   * `StreamTextResult` so the caller can consume `stream` for live token
    * and tool-call deltas as they arrive.
    *
-   * The caller is responsible for draining `fullStream` to completion, then
+   * The caller is responsible for draining `stream` to completion, then
    * awaiting `toolCalls` / `text` / `response` and passing them to
    * `classifyStreamFinish` to get the same discriminated outcome `turn()`
    * returns. Metering lands automatically when the stream finishes.
    */
-  async streamTurn(args: TurnArgs<CTX>): Promise<StreamTextResult<ToolSet, never>> {
+  async streamTurn(args: TurnArgs<CTX>): Promise<StreamTextResult<ToolSet, never, never>> {
     const { ctx, transcript } = args;
 
     const system = await resolve(this.s.system, ctx);
@@ -245,10 +250,11 @@ export class AlfredAgent<CTX = unknown> {
     return meteredStreamText(
       {
         model,
-        system: buildSystem(system, this.cacheTtl()),
+        instructions: buildSystem(system, this.cacheTtl()),
         messages: decorateTranscript(transcript, this.cacheTtl()),
+        allowSystemInMessages: true,
         tools,
-        stopWhen: stepCountIs(1),
+        stopWhen: isStepCount(1),
         maxOutputTokens: this.s.maxOutputTokens,
         temperature: this.s.temperature,
         providerOptions: this.s.providerOptions as Record<string, never> | undefined,
@@ -436,11 +442,11 @@ function withMessageCacheControl(message: ModelMessage, ttl: "5m" | "1h"): Model
   } as ModelMessage;
 }
 
-function classifyTurnResult(result: GenerateTextResult<ToolSet, never>): TurnResult {
+function classifyTurnResult(result: GenerateTextResult<ToolSet, never, never>): TurnResult {
   const base = {
     usage: result.usage,
     finishReason: result.finishReason,
-    warnings: result.warnings,
+    warnings: result.finalStep.warnings,
     raw: result,
   } as const;
   if (result.toolCalls.length > 0) {
@@ -501,7 +507,7 @@ export function isRetryableEmptyCompletion(input: {
 
 /**
  * Classify a finished streamed turn into the same discriminated shape
- * `turn()` returns. Call after draining `fullStream` and awaiting the
+ * `turn()` returns. Call after draining `stream` and awaiting the
  * result's `toolCalls` + `finishReason`.
  */
 export type StreamFinishOutcome =

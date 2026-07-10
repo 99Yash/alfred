@@ -641,7 +641,7 @@ async function hydrateContentForModel(
       continue;
     }
     budget.usedEncodedBytes += hydrated.encodedBytes;
-    parts.push({ type: "image", image: hydrated.image, mediaType: hydrated.mediaType });
+    parts.push({ type: "file", data: hydrated.image, mediaType: hydrated.mediaType });
   }
   return parts;
 }
@@ -1421,7 +1421,7 @@ const chatTurnStep: Step<ChatRunState> = {
       };
 
       try {
-        for await (const part of stream.fullStream) {
+        for await (const part of stream.stream) {
           if (await checkStop()) break;
           if (part.type === "text-delta") {
             await flushReasoning();
@@ -1515,12 +1515,7 @@ const chatTurnStep: Step<ChatRunState> = {
         };
       }
 
-      const [toolCalls, finishReason, response, warnings] = await Promise.all([
-        stream.toolCalls,
-        stream.finishReason,
-        stream.response,
-        stream.warnings,
-      ]);
+      const { toolCalls, finishReason, response, warnings } = await stream.finalStep;
       // Surface provider warnings — most importantly the Anthropic
       // "cacheControl breakpoint limit" warning, which signals that the
       // 4-breakpoint cap was exceeded and a cache block (the tool definitions)
@@ -2032,7 +2027,7 @@ async function maybeGenerateThreadTitle(args: {
     const result = await meteredGenerateText(
       {
         model: getCheapModel(),
-        system: TITLE_SYSTEM_PROMPT,
+        instructions: TITLE_SYSTEM_PROMPT,
         prompt: [userLine, assistantLine, "", "Title:"]
           .filter((line): line is string => line !== null)
           .join("\n"),

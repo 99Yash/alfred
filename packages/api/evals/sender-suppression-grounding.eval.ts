@@ -8,7 +8,7 @@ import {
   type GmailSearchResult,
 } from "@alfred/contracts";
 import { serverEnv } from "@alfred/env/server";
-import { generateText, stepCountIs, tool } from "ai";
+import { generateText, isStepCount, tool } from "ai";
 import { config as loadEnv } from "dotenv";
 import { evalite } from "evalite";
 import { formatDateGrounding } from "../src/modules/agent/grounding";
@@ -93,7 +93,7 @@ const CASES: Case[] = [
 function runFirstCall(input: string) {
   return generateText({
     model: getChatModel("standard"),
-    system: SYSTEM,
+    instructions: SYSTEM,
     prompt: input,
     timeout: { totalMs: EVAL_TIMEOUT_MS },
     providerOptions: standardProviderOptions(),
@@ -215,11 +215,11 @@ async function runResolutionScenario(
   const resolvedTodos: RememberCall[] = [];
   const result = await generateText({
     model: getChatModel("standard"),
-    system: SYSTEM,
+    instructions: SYSTEM,
     prompt: input,
     timeout: { totalMs: EVAL_TIMEOUT_MS },
     providerOptions: standardProviderOptions(),
-    stopWhen: stepCountIs(4),
+    stopWhen: isStepCount(4),
     tools: {
       [SEARCH_TOOL]: tool({
         description:

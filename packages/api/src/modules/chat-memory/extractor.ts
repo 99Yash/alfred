@@ -111,7 +111,10 @@ export function buildThreadTranscript(
   return `${marker}${kept.join("\n")}`;
 }
 
-function capRenderedTranscript(transcript: string, maxChars: number = MAX_TRANSCRIPT_CHARS): string {
+function capRenderedTranscript(
+  transcript: string,
+  maxChars: number = MAX_TRANSCRIPT_CHARS,
+): string {
   const trimmed = transcript.trim();
   if (trimmed.length <= maxChars) return trimmed;
   return `[…earlier turns truncated]\n${trimmed.slice(trimmed.length - maxChars)}`;
@@ -151,7 +154,7 @@ function defaultGenerate(args: ExtractThreadArgs): GenerateObject {
     const result = await meteredGenerateObject<ChatMemoryExtractionResult>(
       {
         model: getCheapModel(),
-        system,
+        instructions: system,
         prompt,
         schema: chatMemoryExtractionResultSchema,
         temperature: 0,

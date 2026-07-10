@@ -120,7 +120,7 @@ export async function distillSkill(args: DistillSkillArgs): Promise<DistillSkill
   const result = await meteredGenerateObject<DistillResult>(
     {
       model: getCheapModel(),
-      system: SYSTEM_PROMPT,
+      instructions: SYSTEM_PROMPT,
       prompt: buildUserPrompt({ context: args.context, prompt: args.prompt }),
       schema: distillResultSchema,
       temperature: 0,
