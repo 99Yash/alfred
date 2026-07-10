@@ -40,6 +40,9 @@ export default defineConfig({
   },
   server: {
     port: 3000,
+    // Never auto-increment onto the API port. A duplicate web process on 3001
+    // makes auth fail with misleading CORS/network errors.
+    strictPort: true,
     proxy: {
       "/api/auth": {
         target: "http://localhost:3001",
