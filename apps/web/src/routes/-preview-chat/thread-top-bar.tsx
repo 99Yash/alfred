@@ -1,7 +1,7 @@
 import { Ellipsis, PanelRight, Share2 } from "lucide-react";
 import { AppPill } from "~/components/ui/v2";
 import { cn } from "~/lib/utils";
-import { IconButton } from "./icon-button";
+import { IconButton } from "~/routes/-chat/rail/icon-button";
 
 export function ThreadTopBar({
   title,

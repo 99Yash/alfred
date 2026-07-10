@@ -5,7 +5,7 @@ import type {
   ToolName,
   ToolRiskTier,
 } from "@alfred/contracts";
-import type { ActionStagingStatus } from "@alfred/schemas";
+import type { ActionStagingStatus } from "@alfred/contracts";
 import { sql } from "drizzle-orm";
 import {
   boolean,

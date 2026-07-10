@@ -1,7 +1,7 @@
 import { CheckCircle2, type LucideIcon } from "lucide-react";
 import { IntegrationGlyph, type IntegrationBrand } from "~/lib/integrations/integration-icons";
 import { cn } from "~/lib/utils";
-import { TOOL_TONE, type ToolTone } from "./helpers";
+import { RAIL_TOOL_TONE, type RailToolTone } from "~/routes/-chat/rail/models";
 
 /**
  * One step in a `RunGroup` — a tool/integration call, search, or write.
@@ -18,7 +18,7 @@ type ToolRowProps =
   | {
       integration: IntegrationBrand;
       icon?: LucideIcon;
-      tone?: ToolTone;
+      tone?: RailToolTone;
       label: string;
       detail?: string;
       count?: string;
@@ -27,7 +27,7 @@ type ToolRowProps =
   | {
       integration?: undefined;
       icon: LucideIcon;
-      tone: ToolTone;
+      tone: RailToolTone;
       label: string;
       detail?: string;
       count?: string;
@@ -50,7 +50,7 @@ export function ToolRow(props: ToolRowProps) {
           aria-hidden
           className={cn(
             "inline-flex size-6 shrink-0 items-center justify-center rounded-md",
-            TOOL_TONE[props.tone],
+            RAIL_TOOL_TONE[props.tone],
           )}
         >
           <props.icon size={12} />

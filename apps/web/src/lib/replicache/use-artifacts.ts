@@ -2,7 +2,58 @@ import { IDB_KEY, syncedArtifactSchema, type SyncedArtifact } from "@alfred/sync
 import { useEffect, useState } from "react";
 import type { ReadTransaction } from "replicache";
 import type { AlfredReplicache } from "./client";
-import { useReplicache } from "./context";
+import { useReplicache, useReplicacheStatus } from "./context";
+
+export interface RecentArtifactsState {
+  /** The artifacts present in the bounded Replicache sync window, newest first. */
+  artifacts: SyncedArtifact[];
+  loading: boolean;
+  error: string | null;
+  initialPullPending: boolean;
+  retry: () => void;
+}
+
+/**
+ * Reactive global artifact list. The server syncs at most the newest 200
+ * artifacts, so this is intentionally a recent feed rather than a full archive.
+ */
+export function useRecentArtifacts(): RecentArtifactsState {
+  const { rep, loadError, pullError, initialPullPending, retry } = useReplicacheStatus();
+  const [snapshot, setSnapshot] = useState<{
+    rep: AlfredReplicache;
+    rows: SyncedArtifact[];
+  } | null>(null);
+
+  useEffect(() => {
+    if (!rep) {
+      setSnapshot(null);
+      return;
+    }
+    const prefix = IDB_KEY.ARTIFACT({});
+    return rep.subscribe(
+      async (tx: ReadTransaction) => tx.scan({ prefix }).values().toArray(),
+      (values) => {
+        const parsed: SyncedArtifact[] = [];
+        for (const value of values) {
+          const result = syncedArtifactSchema.safeParse(value);
+          if (result.success) parsed.push(result.data);
+        }
+        parsed.sort((a, b) => b.createdAt.localeCompare(a.createdAt));
+        setSnapshot({ rep, rows: parsed });
+      },
+    );
+  }, [rep]);
+
+  const current = snapshot?.rep === rep ? snapshot.rows : null;
+  const error = loadError ?? pullError;
+  return {
+    artifacts: current ?? [],
+    loading: !error && (current === null || (current.length === 0 && initialPullPending)),
+    error,
+    initialPullPending,
+    retry,
+  };
+}
 
 /**
  * Reactive list of one thread's agent-produced artifacts (ADR-0075), newest

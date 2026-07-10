@@ -28,14 +28,11 @@
  *      emitted any proposals — single-string keys per the distill schema).
  */
 import {
-  closeAgentQueue,
-  closeConnections,
-  closeRedis,
   createRun,
   enqueueRun,
   LEARN_SKILL_WORKFLOW_SLUG,
-  warmPool,
-} from "@alfred/api";
+} from "@alfred/api/backend";
+import { closeAgentQueue, closeConnections, closeRedis, warmPool } from "@alfred/api/runtime";
 import { db } from "@alfred/db";
 import {
   agentRuns,

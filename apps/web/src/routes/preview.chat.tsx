@@ -1,5 +1,8 @@
-import { createFileRoute } from "@tanstack/react-router";
-import { PreviewChatRoute } from "./-preview-chat/preview-chat-route";
+import { createFileRoute, lazyRouteComponent, notFound } from "@tanstack/react-router";
+
+const PreviewChatRoute = import.meta.env.DEV
+  ? lazyRouteComponent(() => import("./-preview-chat/preview-chat-route"), "PreviewChatRoute")
+  : () => null;
 
 /**
  * Design reference for the chat shell at `/preview/chat`.
@@ -10,5 +13,8 @@ import { PreviewChatRoute } from "./-preview-chat/preview-chat-route";
  * free; backend wiring lands in m13.
  */
 export const Route = createFileRoute("/preview/chat")({
+  beforeLoad: () => {
+    if (!import.meta.env.DEV) throw notFound();
+  },
   component: PreviewChatRoute,
 });

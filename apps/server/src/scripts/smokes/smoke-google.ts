@@ -18,7 +18,7 @@
  * manual one-time step. The instructions print at the end if no
  * credential exists yet.
  */
-import { closeConnections, warmPool } from "@alfred/api";
+import { closeConnections, warmPool } from "@alfred/api/runtime";
 import { db } from "@alfred/db";
 import { documents, integrationCredentials } from "@alfred/db/schemas";
 import {

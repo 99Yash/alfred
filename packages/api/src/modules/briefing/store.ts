@@ -103,7 +103,7 @@ export async function markBriefingComposed(args: {
    * Safe to set pre-terminal: `fetchLatestWatermark` and the watermark index both
    * read only `sent`/`suppressed` rows, so it isn't consumed until send promotes
    * the row. Omit it to leave the column untouched (the watermark-less briefing
-   * path, e.g. morning-briefing, sets it at send time instead).
+   * path sets it at send time instead).
    */
   watermarkAt?: Date | null;
 }): Promise<BriefingRow> {

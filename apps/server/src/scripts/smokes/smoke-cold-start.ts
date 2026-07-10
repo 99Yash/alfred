@@ -6,7 +6,7 @@
  * Pre-reqs:
  *   - A server process running (`pnpm dev`) so the agent worker can pick
  *     up the run. (Or run this with the worker started in-process — the
- *     script does not start one itself; mirroring smoke-briefing.)
+ *     script does not start one itself; mirroring smoke-daily-briefing.)
  *   - `GOOGLE_GENERATIVE_AI_API_KEY` set so the boss seed/synthesis and the
  *     grounded-Gemini `web_search` aspect loops can run. (Required env, so
  *     a configured dev tree already has it.)
@@ -32,15 +32,8 @@
  *     re-connect testing on a fresh user).
  *   - Quality of the research output (qualitative, requires human review).
  */
-import {
-  closeAgentQueue,
-  closeConnections,
-  closeRedis,
-  COLD_START_WORKFLOW_SLUG,
-  createRun,
-  enqueueRun,
-  warmPool,
-} from "@alfred/api";
+import { COLD_START_WORKFLOW_SLUG, createRun, enqueueRun } from "@alfred/api/backend";
+import { closeAgentQueue, closeConnections, closeRedis, warmPool } from "@alfred/api/runtime";
 import { db } from "@alfred/db";
 import { agentRuns, memoryChunks, user as userTable, userFacts } from "@alfred/db/schemas";
 import { serverEnv } from "@alfred/env/server";

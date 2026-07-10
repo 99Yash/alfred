@@ -1,26 +1,23 @@
 import { useMemo, type Dispatch, type ReactNode, type SetStateAction } from "react";
 import { useNavigate } from "@tanstack/react-router";
 import type { SyncedChatThread } from "@alfred/sync";
-import { AppSidebar, type SidebarThreadActions } from "~/components/app-sidebar";
-import {
-  PREVIEW_APPROVALS_BADGE,
-  PREVIEW_CHAT_THREADS,
-  PREVIEW_RECENT_THREADS,
-  type PreviewRecentThread,
-  type PreviewThreadEntry,
-  type PreviewThreadGroup,
-} from "~/components/preview-fixtures";
 import { GithubReconnectBanner } from "~/components/github-reconnect-banner";
 import { ScopeGapBanner } from "~/components/scope-gap-banner";
-import { SearchPalette } from "~/components/search-palette";
 import { AppThemed } from "~/components/ui/v2/themed";
 import { useEventBridge } from "~/lib/events/use-event-bridge";
 import { useReplicache } from "~/lib/replicache/context";
 import { useChatThreads } from "~/lib/replicache/use-chat";
+import { AppSidebar, type SidebarThreadActions } from "~/lib/shell/app-sidebar";
+import { SearchPalette } from "~/lib/shell/search-palette";
+import type {
+  RecentThread,
+  ShellThreadViewModel,
+  ThreadEntry,
+  ThreadGroup,
+} from "~/lib/shell/thread-view-model";
 import { cn } from "~/lib/utils";
 
 interface AuthedAppShellProps {
-  pathname: string;
   mainContent: ReactNode;
   rightRailNode: ReactNode | null;
   paletteOpen: boolean;
@@ -29,10 +26,10 @@ interface AuthedAppShellProps {
   sidebarOpen: boolean;
   setSidebarOpen: Dispatch<SetStateAction<boolean>>;
   sidebarMode: "inline" | "overlay";
+  threadViewModel: ShellThreadViewModel | null;
 }
 
 export default function AuthedAppShell({
-  pathname,
   mainContent,
   rightRailNode,
   paletteOpen,
@@ -41,6 +38,7 @@ export default function AuthedAppShell({
   sidebarOpen,
   setSidebarOpen,
   sidebarMode,
+  threadViewModel,
 }: AuthedAppShellProps) {
   // Single per-session SSE connection that drives React Query invalidations
   // (inbox.updated -> ["me","inbox"]). Mounted in the authenticated shell so
@@ -55,21 +53,16 @@ export default function AuthedAppShell({
   const realThreads = useMemo(() => groupChatThreads(chatThreads), [chatThreads]);
   const realRecentThreads = useMemo(() => recentThreadsForPalette(chatThreads), [chatThreads]);
 
-  /* `/preview/*` is the fixture-rich design surface. Real routes now feed the
-   * sidebar + palette live Replicache-synced chat threads; the approvals badge
-   * still awaits its own wiring, so it stays empty on real routes. The preview
-   * routes pass demo fixtures so the design surface stays loud regardless. */
-  const isPreviewRoute = pathname.startsWith("/preview/");
-  const sidebarThreads = isPreviewRoute ? PREVIEW_CHAT_THREADS : realThreads;
-  const sidebarApprovalsBadge = isPreviewRoute ? PREVIEW_APPROVALS_BADGE : undefined;
-  const paletteRecentThreads = isPreviewRoute ? PREVIEW_RECENT_THREADS : realRecentThreads;
+  const sidebarThreads = threadViewModel?.groups ?? realThreads;
+  const sidebarApprovalsBadge = threadViewModel?.approvalsBadge;
+  const paletteRecentThreads = threadViewModel?.recent ?? realRecentThreads;
 
   /* Rename / pin / delete run as Replicache mutators (optimistic patch, then
    * the next pull confirms). Wired only on real routes — preview rows are
    * inert demo ids that no mutator should touch. Deleting the open thread
    * bounces back to a fresh /chat. */
   const threadActions = useMemo<SidebarThreadActions | undefined>(() => {
-    if (isPreviewRoute || !rep) return undefined;
+    if (threadViewModel || !rep) return undefined;
     return {
       rename: (id, title) => void rep.mutate.chatThreadRename({ id, title }),
       setPinned: (id, pinned) => void rep.mutate.chatThreadSetPinned({ id, pinned }),
@@ -78,7 +71,7 @@ export default function AuthedAppShell({
         if (activeThread === id) void navigate({ to: "/chat" });
       },
     };
-  }, [isPreviewRoute, rep, activeThread, navigate]);
+  }, [threadViewModel, rep, activeThread, navigate]);
 
   return (
     <AppThemed className="min-h-dvh bg-app-background-subtle">
@@ -133,8 +126,8 @@ export default function AuthedAppShell({
  */
 function groupChatThreads(
   threads: ReadonlyArray<SyncedChatThread>,
-): Record<PreviewThreadGroup, PreviewThreadEntry[]> {
-  const groups: Record<PreviewThreadGroup, PreviewThreadEntry[]> = {
+): Record<ThreadGroup, ThreadEntry[]> {
+  const groups: Record<ThreadGroup, ThreadEntry[]> = {
     pinned: [],
     today: [],
     yesterday: [],
@@ -146,7 +139,7 @@ function groupChatThreads(
   startOfYesterday.setDate(startOfYesterday.getDate() - 1);
 
   for (const thread of threads) {
-    const entry: PreviewThreadEntry = {
+    const entry: ThreadEntry = {
       id: thread.id,
       title: thread.title?.trim() || "New chat",
       pinned: thread.pinned,
@@ -172,7 +165,7 @@ const PALETTE_THREAD_LIMIT = 12;
  * relative `when` label (Today / Yesterday / "May 30"). `useChatThreads`
  * already sorts newest-first, so a plain slice keeps the most recent.
  */
-function recentThreadsForPalette(threads: ReadonlyArray<SyncedChatThread>): PreviewRecentThread[] {
+function recentThreadsForPalette(threads: ReadonlyArray<SyncedChatThread>): RecentThread[] {
   const startOfToday = new Date();
   startOfToday.setHours(0, 0, 0, 0);
   const startOfYesterday = new Date(startOfToday);

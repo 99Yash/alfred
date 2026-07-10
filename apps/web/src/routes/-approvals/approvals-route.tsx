@@ -1,5 +1,5 @@
-import { ApprovalsPage } from "~/components/approvals/approvals-page";
 import { authClient } from "~/lib/auth/auth-client";
+import { ApprovalsPage } from "./approvals-page";
 
 export function ApprovalsRoute() {
   const { isPending } = authClient.useSession();

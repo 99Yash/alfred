@@ -8,6 +8,7 @@ import {
   useCallback,
   useEffect,
   useEffectEvent,
+  useLayoutEffect,
   useMemo,
   useReducer,
   useRef,
@@ -21,6 +22,7 @@ import { authClient } from "~/lib/auth/auth-client";
 import { writeAuthHint } from "~/lib/auth/auth-hint";
 import { client } from "~/lib/eden";
 import { readOnboardingHint, writeOnboardingHint } from "~/lib/auth/onboarding-hint";
+import type { ShellThreadViewModel } from "~/lib/shell/thread-view-model";
 
 /* -----------------------------------------------------------------------------
  * Right-rail slot
@@ -38,11 +40,26 @@ const RightRailContext = createContext<RightRailContextValue | null>(null);
 
 export function useRightRail(node: ReactNode | null) {
   const ctx = use(RightRailContext);
-  useEffect(() => {
+  useLayoutEffect(() => {
     if (!ctx) return;
     ctx.setContent(node);
     return () => ctx.setContent(null);
   }, [ctx, node]);
+}
+
+interface ShellThreadViewModelContextValue {
+  setViewModel: (viewModel: ShellThreadViewModel | null) => void;
+}
+
+const ShellThreadViewModelContext = createContext<ShellThreadViewModelContextValue | null>(null);
+
+export function useShellThreadViewModel(viewModel: ShellThreadViewModel) {
+  const ctx = use(ShellThreadViewModelContext);
+  useLayoutEffect(() => {
+    if (!ctx) return;
+    ctx.setViewModel(viewModel);
+    return () => ctx.setViewModel(null);
+  }, [ctx, viewModel]);
 }
 
 /* -----------------------------------------------------------------------------
@@ -68,7 +85,7 @@ export function useSidebarState(): SidebarStateValue {
 
 /* -----------------------------------------------------------------------------
  * Viewport-driven sidebar collapse
- * Mirrors `useRailMode` from -preview-chat/helpers — same matchMedia + snap-on-
+ * Mirrors `useRailMode` from -chat/rail/use-rail-mode — same matchMedia + snap-on-
  * transition shape, but at a narrower breakpoint than the rail (1024px vs
  * 1280px) so the right rail collapses first and the sidebar follows once
  * we're firmly in tablet territory. Both default-open inline, default-closed
@@ -97,13 +114,15 @@ interface ShellState {
   paletteOpen: boolean;
   sidebarOpen: boolean;
   activeThread: string;
+  threadViewModel: ShellThreadViewModel | null;
 }
 
 type ShellAction =
   | { type: "setRightRailNode"; value: ReactNode | null }
   | { type: "setPaletteOpen"; value: SetStateAction<boolean> }
   | { type: "setSidebarOpen"; value: SetStateAction<boolean> }
-  | { type: "setActiveThread"; value: string };
+  | { type: "setActiveThread"; value: string }
+  | { type: "setThreadViewModel"; value: ShellThreadViewModel | null };
 
 function resolveSetState<T>(current: T, next: SetStateAction<T>): T {
   return typeof next === "function" ? (next as (current: T) => T)(current) : next;
@@ -115,8 +134,14 @@ function createInitialShellState(sidebarMode: "inline" | "overlay"): ShellState 
     paletteOpen: false,
     sidebarOpen: sidebarMode === "inline",
     activeThread: "",
+    threadViewModel: null,
   };
 }
+
+const INERT_THREAD_VIEW_MODEL: ShellThreadViewModel = {
+  groups: { pinned: [], today: [], yesterday: [], earlier: [] },
+  recent: [],
+};
 
 function shellReducer(state: ShellState, action: ShellAction): ShellState {
   switch (action.type) {
@@ -128,6 +153,8 @@ function shellReducer(state: ShellState, action: ShellAction): ShellState {
       return { ...state, sidebarOpen: resolveSetState(state.sidebarOpen, action.value) };
     case "setActiveThread":
       return { ...state, activeThread: action.value };
+    case "setThreadViewModel":
+      return { ...state, threadViewModel: action.value };
     default: {
       const _exhaustive: never = action;
       throw new Error(`Unhandled shell action: ${(_exhaustive as ShellAction).type}`);
@@ -147,7 +174,7 @@ export function AppShell({ children }: { children: ReactNode }) {
     sidebarMode,
     createInitialShellState,
   );
-  const { rightRailNode, paletteOpen, sidebarOpen, activeThread } = shellState;
+  const { rightRailNode, paletteOpen, sidebarOpen, activeThread, threadViewModel } = shellState;
   const setRightRailNode = useCallback(
     (value: ReactNode | null) => dispatchShell({ type: "setRightRailNode", value }),
     [],
@@ -162,6 +189,10 @@ export function AppShell({ children }: { children: ReactNode }) {
   );
   const setActiveThread = useCallback(
     (value: string) => dispatchShell({ type: "setActiveThread", value }),
+    [],
+  );
+  const setThreadViewModel = useCallback(
+    (value: ShellThreadViewModel | null) => dispatchShell({ type: "setThreadViewModel", value }),
     [],
   );
 
@@ -238,6 +269,8 @@ export function AppShell({ children }: { children: ReactNode }) {
   if (prevLocationRef.current !== location) {
     prevLocationRef.current = location;
     setPaletteOpen(false);
+    setRightRailNode(null);
+    setThreadViewModel(null);
     // Dismiss the overlay drawer on navigation so a tapped nav row doesn't
     // leave it floating over the page it just routed to. Owned here (not via a
     // child effect calling back up) for the same reason as the palette close —
@@ -255,6 +288,7 @@ export function AppShell({ children }: { children: ReactNode }) {
   const chromeless =
     location.pathname === "/" ||
     location.pathname === "/login" ||
+    location.pathname === "/preview/landing" ||
     location.pathname === "/privacy-policy" ||
     location.pathname === "/terms-of-service" ||
     location.pathname === "/support" ||
@@ -270,6 +304,8 @@ export function AppShell({ children }: { children: ReactNode }) {
    * Covers chat, memory, notes, skills, settings, integrations, briefings,
    * library, workflows, approvals, debug — every route AppShell wraps. */
   const pathname = location.pathname;
+  const onPreviewChatRoute =
+    pathname === "/preview/chat" || pathname.startsWith("/preview/chat/");
   const searchStr = location.searchStr;
   const mustRedirectToLogin = !isPending && !sessionUser && !chromeless;
   useEffect(() => {
@@ -323,6 +359,10 @@ export function AppShell({ children }: { children: ReactNode }) {
     () => ({ activeThread, setActiveThread }),
     [activeThread, setActiveThread],
   );
+  const shellThreadViewModelContextValue = useMemo(
+    () => ({ setViewModel: setThreadViewModel }),
+    [setThreadViewModel],
+  );
 
   // First-load gating: between "session resolved" and "onboarding query
   // resolved" we don't yet know whether to redirect new users to
@@ -357,34 +397,40 @@ export function AppShell({ children }: { children: ReactNode }) {
   // /login or while pending.
   return (
     <RightRailContext.Provider value={ctx}>
-      <SidebarStateContext.Provider value={sidebarStateValue}>
-        <ChatContext.Provider value={chatContextValue}>
-          <AppThemeProvider>
-            {showChrome ? (
-              <Suspense fallback={<AuthedShellFallback />}>
-                <LazyAuthedAppShell
-                  pathname={location.pathname}
-                  mainContent={mainContent}
-                  rightRailNode={rightRailNode}
-                  paletteOpen={paletteOpen}
-                  setPaletteOpen={setPaletteOpen}
-                  activeThread={activeThread}
-                  sidebarOpen={sidebarOpen}
-                  setSidebarOpen={setSidebarOpen}
-                  sidebarMode={sidebarMode}
-                />
-              </Suspense>
-            ) : mustRedirectToLogin ? (
-              // Redirect to /login is in flight (effect above) — hold a blank
-              // frame rather than flashing the bare authed route (e.g. the
-              // chrome-less ChatShell) at a signed-out visitor.
-              <AuthedShellFallback />
-            ) : (
-              children
-            )}
-          </AppThemeProvider>
-        </ChatContext.Provider>
-      </SidebarStateContext.Provider>
+      <ShellThreadViewModelContext.Provider value={shellThreadViewModelContextValue}>
+        <SidebarStateContext.Provider value={sidebarStateValue}>
+          <ChatContext.Provider value={chatContextValue}>
+            <AppThemeProvider>
+              {showChrome ? (
+                <Suspense fallback={<AuthedShellFallback />}>
+                  <LazyAuthedAppShell
+                    mainContent={mainContent}
+                    rightRailNode={rightRailNode}
+                    paletteOpen={paletteOpen}
+                    setPaletteOpen={setPaletteOpen}
+                    activeThread={activeThread}
+                    sidebarOpen={sidebarOpen}
+                    setSidebarOpen={setSidebarOpen}
+                    sidebarMode={sidebarMode}
+                    threadViewModel={
+                      onPreviewChatRoute
+                        ? (threadViewModel ?? INERT_THREAD_VIEW_MODEL)
+                        : threadViewModel
+                    }
+                  />
+                </Suspense>
+              ) : mustRedirectToLogin ? (
+                // Redirect to /login is in flight (effect above) — hold a blank
+                // frame rather than flashing the bare authed route (e.g. the
+                // chrome-less ChatShell) at a signed-out visitor.
+                <AuthedShellFallback />
+              ) : (
+                children
+              )}
+            </AppThemeProvider>
+          </ChatContext.Provider>
+        </SidebarStateContext.Provider>
+      </ShellThreadViewModelContext.Provider>
     </RightRailContext.Provider>
   );
 }

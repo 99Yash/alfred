@@ -16,7 +16,7 @@ import {
   type SkillLearnContext,
   type SkillProposal,
   type Workflow,
-} from "@alfred/api";
+} from "@alfred/api/backend";
 import { z } from "zod";
 import { toMessage } from "@alfred/contracts";
 
@@ -126,6 +126,10 @@ export const learnSkillWorkflow: Workflow<State> = {
   dedupKey: ({ input }) => {
     const parsed = learnSkillWorkflowInputSchema.parse(input ?? {});
     return learnSkillDedupKey(parsed.skillId);
+  },
+
+  async onTerminalFailure(ctx) {
+    await finalizeSkillRun({ agentRunId: ctx.runId, status: "failed" });
   },
 
   steps: {

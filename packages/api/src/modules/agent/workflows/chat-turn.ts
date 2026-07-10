@@ -29,7 +29,7 @@ import {
 } from "@alfred/contracts";
 import { db } from "@alfred/db";
 import { chatAttachments, chatMessages, chatThreads } from "@alfred/db/schemas";
-import { CHAT_DELTA_MAX } from "@alfred/schemas/events";
+import { CHAT_DELTA_MAX } from "@alfred/contracts/events";
 import { and, asc, eq, inArray, like, ne, or, sql } from "drizzle-orm";
 import { z } from "zod";
 import { sniffPassThroughImageMime } from "../../chat/attachments";

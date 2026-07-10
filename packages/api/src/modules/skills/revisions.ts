@@ -1,6 +1,7 @@
 import { db } from "@alfred/db";
 import { skillRevisions, skillRuns, skills } from "@alfred/db/schemas";
-import { and, eq, sql } from "drizzle-orm";
+import { and, eq, notInArray, sql } from "drizzle-orm";
+import { emitReplicachePokes } from "../../events/replicache-events";
 
 /**
  * Append a `skill_revisions` row, advance `skills.current_revision_id`,
@@ -33,7 +34,7 @@ export interface CommitRevisionResult {
 }
 
 export async function commitSkillRevision(args: CommitRevisionArgs): Promise<CommitRevisionResult> {
-  return db().transaction(async (tx) => {
+  const result = await db().transaction(async (tx) => {
     const [skill] = await tx
       .select({ id: skills.id, status: skills.status })
       .from(skills)
@@ -91,7 +92,7 @@ export async function commitSkillRevision(args: CommitRevisionArgs): Promise<Com
           `[learn-skill] revision insert conflicted but no row found for run ${createdByRunId}`,
         );
       }
-      return { revisionId: existing.id, skillStatus: skill.status };
+      return { revisionId: existing.id, skillStatus: skill.status, created: false };
     }
 
     // First revision flips draft → active. Subsequent revisions only
@@ -109,8 +110,14 @@ export async function commitSkillRevision(args: CommitRevisionArgs): Promise<Com
     return {
       revisionId: revision.id,
       skillStatus: flippingFromDraft ? "active" : skill.status,
+      created: true,
     };
   });
+
+  // The revision and skill pointer are now visible to Replicache pulls. Do not
+  // poke on an idempotent retry that found the run's existing revision.
+  if (result.created) emitReplicachePokes([args.userId], args.skillId);
+  return { revisionId: result.revisionId, skillStatus: result.skillStatus };
 }
 
 /**
@@ -142,7 +149,10 @@ export async function recordSkillRun(args: RecordSkillRunArgs): Promise<{ id: st
     .onConflictDoNothing({ target: skillRuns.agentRunId })
     .returning({ id: skillRuns.id });
 
-  if (inserted[0]) return inserted[0];
+  if (inserted[0]) {
+    emitReplicachePokes([args.userId], args.skillId);
+    return inserted[0];
+  }
 
   const [existing] = await db()
     .select({ id: skillRuns.id })
@@ -163,7 +173,7 @@ export interface FinalizeSkillRunArgs {
 }
 
 export async function finalizeSkillRun(args: FinalizeSkillRunArgs): Promise<void> {
-  await db()
+  const updated = await db()
     .update(skillRuns)
     .set({
       status: args.status,
@@ -171,5 +181,14 @@ export async function finalizeSkillRun(args: FinalizeSkillRunArgs): Promise<void
       endedAt: new Date(),
       rowVersion: sql`${skillRuns.rowVersion} + 1`,
     })
-    .where(eq(skillRuns.agentRunId, args.agentRunId));
+    .where(
+      and(
+        eq(skillRuns.agentRunId, args.agentRunId),
+        notInArray(skillRuns.status, ["completed", "failed", "cancelled"]),
+      ),
+    )
+    .returning({ userId: skillRuns.userId, skillId: skillRuns.skillId });
+
+  const run = updated[0];
+  if (run) emitReplicachePokes([run.userId], run.skillId);
 }

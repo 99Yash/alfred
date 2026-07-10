@@ -44,3 +44,9 @@ export {
   type MemoryJobData,
 } from "./queue";
 export { scheduleRepeatableMemoryJobs } from "./repeatable";
+export {
+  runMemoryFinalize,
+  runMemoryPickDocuments,
+  runMemoryProcess,
+  type MemoryExtractionOperationState,
+} from "./workflow-operations";

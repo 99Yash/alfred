@@ -12,7 +12,8 @@
  * search the web, invented `search.search`, and the dispatcher rejected it.
  */
 
-import { getTool, registerBuiltinTools } from "@alfred/api";
+import { getTool } from "@alfred/api/backend";
+import { registerBuiltinTools } from "@alfred/api/runtime";
 
 async function main(): Promise<void> {
   registerBuiltinTools();

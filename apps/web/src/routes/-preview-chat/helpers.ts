@@ -1,6 +1,4 @@
-import type { AttentionBand, TriageCategory, TriageTagSource } from "@alfred/contracts";
-import { useEffect, useState } from "react";
-import type { IntegrationBrand } from "~/lib/integrations/integration-icons";
+import type { RailInboxItem, RailMeetingItem, RailTodoItem } from "~/routes/-chat/rail/models";
 
 export type ThreadGroup = "today" | "yesterday" | "earlier";
 
@@ -63,34 +61,7 @@ export const THREADS: Record<ThreadGroup, ThreadEntry[]> = {
   ],
 };
 
-export type RailMode = "inline" | "overlay";
-export type RailTab = "todo" | "inbox" | "meetings";
-
-const RAIL_BREAKPOINT = "(min-width: 1280px)";
-
-export function useRailMode(): RailMode {
-  const [mode, setMode] = useState<RailMode>(() => {
-    if (typeof window === "undefined") return "inline";
-    return window.matchMedia(RAIL_BREAKPOINT).matches ? "inline" : "overlay";
-  });
-  useEffect(() => {
-    const mq = window.matchMedia(RAIL_BREAKPOINT);
-    const handler = () => setMode(mq.matches ? "inline" : "overlay");
-    mq.addEventListener("change", handler);
-    return () => mq.removeEventListener("change", handler);
-  }, []);
-  return mode;
-}
-
-export interface TodoItem {
-  id: string;
-  title: string;
-  due?: string;
-  source?: "email" | "meeting" | "manual";
-  done?: boolean;
-}
-
-export const TODOS: TodoItem[] = [
+export const TODOS: RailTodoItem[] = [
   {
     id: "maya-reply",
     title: "Reply to Maya — vesting cliff question",
@@ -121,51 +92,7 @@ export const TODOS: TodoItem[] = [
   },
 ];
 
-export interface InboxItem {
-  id: string;
-  sender: string;
-  /**
-   * Bare sender email (`local@domain`), for the attention scorer's bulk-sender
-   * detection + recurrence grouping. {@link InboxItem.sender} is a display name
-   * and can't reveal a `no-reply@`/`notifications@` mailbox. Null when unparseable.
-   */
-  senderAddress?: string | null;
-  subject: string;
-  preview: string;
-  time: string;
-  /**
-   * Authored time as epoch ms — the chronological key the attention scorer uses
-   * to order recurrence (the rail renders newest-first, but the Nth repeat must
-   * decay oldest-first). Null when the row carries no authored timestamp.
-   * Distinct from {@link InboxItem.time}, which is a localized display string.
-   */
-  authoredAtMs?: number | null;
-  unread?: boolean;
-  initial: string;
-  tone: ToolTone;
-  /** Gmail thread id — used to deep-link rows to Gmail web. */
-  threadId?: string | null;
-  /** Triage category surfaced as a chip next to the timestamp. */
-  category?: TriageCategory | null;
-  /** Whether the visible triage tag came from the classifier or a user override. */
-  categorySource?: TriageTagSource | null;
-  /**
-   * Presentation-layer demand band (ADR-0064 / #210), computed across the
-   * visible list from category + sender significance + cross-row recurrence.
-   * Drives row ordering and de-emphasis — `muted` rows dim, `demanding` lead.
-   * Never re-tags: the honest {@link InboxItem.category} chip is unchanged.
-   */
-  attentionBand?: AttentionBand | null;
-  /** Brand glyph for noreply senders (github, linkedin, linear, …). */
-  senderBrand?: IntegrationBrand | null;
-  /**
-   * Domain of the sender's email (e.g. `notion.so`). Used for the favicon
-   * fallback avatar when the domain doesn't have a first-class brand SVG.
-   */
-  senderDomain?: string | null;
-}
-
-export const INBOX: InboxItem[] = [
+export const INBOX: RailInboxItem[] = [
   {
     id: "maya",
     sender: "Maya Chen",
@@ -206,16 +133,7 @@ export const INBOX: InboxItem[] = [
   },
 ];
 
-export interface MeetingItem {
-  id: string;
-  title: string;
-  time: string;
-  duration: string;
-  with: string;
-  status?: "now" | "next" | "later";
-}
-
-export const MEETINGS: MeetingItem[] = [
+export const MEETINGS: RailMeetingItem[] = [
   {
     id: "eng-sync",
     title: "Eng sync",
@@ -239,17 +157,6 @@ export const MEETINGS: MeetingItem[] = [
     with: "3 people",
   },
 ];
-
-export type ToolTone = "sky" | "amber" | "purple" | "green" | "pink" | "orange";
-
-export const TOOL_TONE: Record<ToolTone, string> = {
-  sky: "bg-app-sky-1 text-app-sky-4",
-  amber: "bg-app-amber-1 text-app-amber-4",
-  purple: "bg-app-purple-1 text-app-purple-4",
-  green: "bg-app-green-1 text-app-green-4",
-  pink: "bg-app-pink-1 text-app-pink-4",
-  orange: "bg-app-orange-1 text-app-orange-4",
-};
 
 const THREAD_INDEX = new Map<string, ThreadEntry>(
   Object.values(THREADS).flatMap((group) => group.map((t) => [t.id, t] as const)),

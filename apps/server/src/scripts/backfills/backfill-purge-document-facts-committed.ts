@@ -47,16 +47,14 @@
  *   node dist/scripts/backfills/backfill-purge-document-facts-committed.js --emails=yashgouravkar@gmail.com --commit
  */
 import {
-  closeConnections,
-  closeRedis,
   gateDocumentFact,
   isSingleValuedKey,
   loadSelfIdentity,
   rejectFact,
   valueSignature,
-  warmPool,
   type SelfIdentity,
-} from "@alfred/api";
+} from "@alfred/api/backend";
+import { closeConnections, closeRedis, warmPool } from "@alfred/api/runtime";
 import { canonicalizeFactKey, toMessage } from "@alfred/contracts";
 import { db } from "@alfred/db";
 import { documents, user as userTable, userFacts } from "@alfred/db/schemas";

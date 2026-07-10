@@ -18,12 +18,10 @@
  */
 import {
   appendObservationFamilyMember,
-  closeConnections,
-  closeRedis,
   reduceGmailDocument,
-  warmPool,
   type GmailDocumentForReduction,
-} from "@alfred/api";
+} from "@alfred/api/backend";
+import { closeConnections, closeRedis, warmPool } from "@alfred/api/runtime";
 import { toMessage } from "@alfred/contracts";
 import { db } from "@alfred/db";
 import {

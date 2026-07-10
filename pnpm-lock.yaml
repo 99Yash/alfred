@@ -247,9 +247,6 @@ importers:
       '@alfred/contracts':
         specifier: workspace:*
         version: link:../../packages/contracts
-      '@alfred/schemas':
-        specifier: workspace:*
-        version: link:../../packages/schemas
       '@alfred/sync':
         specifier: workspace:*
         version: link:../../packages/sync
@@ -489,9 +486,6 @@ importers:
       '@alfred/mailer':
         specifier: workspace:*
         version: link:../mailer
-      '@alfred/schemas':
-        specifier: workspace:*
-        version: link:../schemas
       '@alfred/sync':
         specifier: workspace:*
         version: link:../sync
@@ -645,9 +639,6 @@ importers:
       '@alfred/env':
         specifier: workspace:*
         version: link:../env
-      '@alfred/schemas':
-        specifier: workspace:*
-        version: link:../schemas
       dotenv:
         specifier: 'catalog:'
         version: 17.4.2
@@ -789,33 +780,11 @@ importers:
         specifier: 'catalog:'
         version: 5.9.3
 
-  packages/schemas:
-    dependencies:
-      '@alfred/contracts':
-        specifier: workspace:*
-        version: link:../contracts
-      typescript:
-        specifier: ^5
-        version: 5.9.3
-      zod:
-        specifier: 'catalog:'
-        version: 4.3.6
-    devDependencies:
-      '@alfred/config':
-        specifier: workspace:*
-        version: link:../config
-      tsdown:
-        specifier: 'catalog:'
-        version: 0.15.12(@emnapi/core@1.10.0)(@emnapi/runtime@1.11.1)(oxc-resolver@11.20.0)(typescript@5.9.3)
-
   packages/sync:
     dependencies:
       '@alfred/contracts':
         specifier: workspace:*
         version: link:../contracts
-      '@alfred/schemas':
-        specifier: workspace:*
-        version: link:../schemas
       typescript:
         specifier: ^5
         version: 5.9.3

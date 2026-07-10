@@ -5,11 +5,9 @@
  *   • After — the App-revamp landing grammar (FrostButton, EyebrowChip,
  *     AuroraGlow, DeviceBezel, FeatureGrid, etc.) used by the marketing
  *     surface in components/landing/*.
- *   • Before — the Dimension primitives still powering the in-app surfaces
- *     (Button, IconButton, Card, FrostPanel, CommandPalette, …) from
- *     components/ui/*. Kept verbatim because we still rely on them everywhere
- *     inside the authenticated app, and a lot of the recipes (frost-border,
- *     gray ramp, lavender heading) carry forward into the new grammar.
+ *   • Before — legacy Dimension primitives retained as a design reference.
+ *     The duplicated form and surface primitives live in components/ui/legacy;
+ *     production app surfaces use the App primitives from components/ui/v2.
  *
  * Add new primitives to the appropriate half as they're built. The App half is
  * the source of truth for the new marketing direction (see
@@ -38,17 +36,17 @@ import {
 } from "lucide-react";
 import { useState, type ReactNode } from "react";
 import { Avatar } from "~/components/ui/avatar";
-import { Button } from "~/components/ui/button";
-import { Card } from "~/components/ui/card";
 import { CommandPalette } from "~/components/ui/command-palette";
 import { FrostPanel } from "~/components/ui/frost-panel";
 import { IconButton } from "~/components/ui/icon-button";
-import { Input } from "~/components/ui/input";
 import { Kbd } from "~/components/ui/kbd";
+import { LegacyButton } from "~/components/ui/legacy/button";
+import { LegacyCard } from "~/components/ui/legacy/card";
+import { LegacyInput } from "~/components/ui/legacy/input";
+import { LegacySwitch } from "~/components/ui/legacy/switch";
+import { LegacyTextarea } from "~/components/ui/legacy/textarea";
 import { StatusDot } from "~/components/ui/status-dot";
-import { Switch } from "~/components/ui/switch";
 import { Tabs } from "~/components/ui/tabs";
-import { Textarea } from "~/components/ui/textarea";
 import {
   AppButton,
   AppCard,
@@ -333,81 +331,81 @@ function ButtonSection() {
     <Section
       id="button"
       title="Button"
-      recipe="One pill shape. Variants change fill + inset glow only. apps/web/src/components/ui/button.tsx"
+      recipe="One pill shape. Variants change fill + inset glow only. components/ui/legacy/button.tsx"
     >
       <Row label="primary · lg">
-        <Button variant="primary" size="lg">
+        <LegacyButton variant="primary" size="lg">
           Create Workflow
-        </Button>
-        <Button variant="primary" size="lg" leading={sparklesLeading}>
+        </LegacyButton>
+        <LegacyButton variant="primary" size="lg" leading={sparklesLeading}>
           Learn
-        </Button>
-        <Button variant="primary" size="lg" disabled>
+        </LegacyButton>
+        <LegacyButton variant="primary" size="lg" disabled>
           Disabled
-        </Button>
-        <Button variant="primary" size="lg" loading>
+        </LegacyButton>
+        <LegacyButton variant="primary" size="lg" loading>
           Loading
-        </Button>
+        </LegacyButton>
       </Row>
 
       <Row label="primary · sizes">
-        <Button variant="primary" size="sm">
+        <LegacyButton variant="primary" size="sm">
           sm
-        </Button>
-        <Button variant="primary" size="md">
+        </LegacyButton>
+        <LegacyButton variant="primary" size="md">
           md
-        </Button>
-        <Button variant="primary" size="mdPlus">
+        </LegacyButton>
+        <LegacyButton variant="primary" size="mdPlus">
           mdPlus
-        </Button>
-        <Button variant="primary" size="lg">
+        </LegacyButton>
+        <LegacyButton variant="primary" size="lg">
           lg
-        </Button>
+        </LegacyButton>
       </Row>
 
       <Row label="white">
-        <Button variant="white" size="lg">
+        <LegacyButton variant="white" size="lg">
           Upgrade Plan
-        </Button>
-        <Button variant="white" size="mdPlus" leading={plusLeading}>
+        </LegacyButton>
+        <LegacyButton variant="white" size="mdPlus" leading={plusLeading}>
           New chat
-        </Button>
-        <Button variant="white" size="lg" disabled>
+        </LegacyButton>
+        <LegacyButton variant="white" size="lg" disabled>
           Disabled
-        </Button>
+        </LegacyButton>
       </Row>
 
       <Row label="destructive">
-        <Button variant="destructive" size="lg" leading={logOutLeading}>
+        <LegacyButton variant="destructive" size="lg" leading={logOutLeading}>
           Sign out
-        </Button>
-        <Button variant="destructive" size="mdPlus">
+        </LegacyButton>
+        <LegacyButton variant="destructive" size="mdPlus">
           Delete account
-        </Button>
+        </LegacyButton>
       </Row>
 
       <Row label="ghost">
-        <Button variant="ghost" size="mdPlus">
+        <LegacyButton variant="ghost" size="mdPlus">
           Manage
-        </Button>
-        <Button variant="ghost" size="mdPlus">
+        </LegacyButton>
+        <LegacyButton variant="ghost" size="mdPlus">
           Connect
-        </Button>
-        <Button variant="ghost" size="mdPlus" disabled>
+        </LegacyButton>
+        <LegacyButton variant="ghost" size="mdPlus" disabled>
           Coming Soon
-        </Button>
-        <Button variant="ghost" size="md">
+        </LegacyButton>
+        <LegacyButton variant="ghost" size="md">
           Share
-        </Button>
+        </LegacyButton>
       </Row>
 
       <Row label="send">
-        <Button variant="send" size="md" aria-label="Send">
+        <LegacyButton variant="send" size="md" aria-label="Send">
           <ArrowUp size={16} />
-        </Button>
-        <Button variant="send" size="mdPlus" aria-label="Send">
+        </LegacyButton>
+        <LegacyButton variant="send" size="mdPlus" aria-label="Send">
           <ArrowUp size={16} />
-        </Button>
+        </LegacyButton>
       </Row>
     </Section>
   );
@@ -463,27 +461,27 @@ function InputSection() {
     >
       <Row label="default">
         <div className="w-80">
-          <Input placeholder="Untitled skill" />
+          <LegacyInput placeholder="Untitled skill" />
         </div>
       </Row>
       <Row label="filled">
         <div className="w-80">
-          <Input defaultValue="Wake me up gently" />
+          <LegacyInput defaultValue="Wake me up gently" />
         </div>
       </Row>
       <Row label="disabled">
         <div className="w-80">
-          <Input defaultValue="Read only" disabled />
+          <LegacyInput defaultValue="Read only" disabled />
         </div>
       </Row>
       <Row label="search">
         <div className="w-80">
-          <Input variant="search" placeholder="Search integrations" leading={searchLeading} />
+          <LegacyInput variant="search" placeholder="Search integrations" leading={searchLeading} />
         </div>
       </Row>
       <Row label="with trailing">
         <div className="w-80">
-          <Input placeholder="Press ⌘K" trailing={cmdKKbd} />
+          <LegacyInput placeholder="Press ⌘K" trailing={cmdKKbd} />
         </div>
       </Row>
     </Section>
@@ -503,12 +501,12 @@ function TextareaSection() {
     >
       <Row label="card">
         <div className="w-96">
-          <Textarea placeholder="Background — what does Alfred need to know?" />
+          <LegacyTextarea placeholder="Background — what does Alfred need to know?" />
         </div>
       </Row>
       <Row label="card · filled">
         <div className="w-96">
-          <Textarea
+          <LegacyTextarea
             defaultValue={
               "Alfred should not action anything before 7am. Triage email aggressively — only Slack me for items that need a same-day reply."
             }
@@ -517,7 +515,7 @@ function TextareaSection() {
       </Row>
       <Row label="inline (heading)">
         <div className="w-96">
-          <Textarea
+          <LegacyTextarea
             variant="inline"
             placeholder="Untitled skill"
             rows={1}
@@ -541,15 +539,15 @@ function SwitchSection() {
       recipe="44×24 track. Off gray-100, on purple-400. Thumb is a 20px white disc with subtle shadow."
     >
       <Row label="uncontrolled">
-        <Switch defaultChecked={false} />
-        <Switch defaultChecked />
+        <LegacySwitch defaultChecked={false} />
+        <LegacySwitch defaultChecked />
       </Row>
       <Row label="controlled">
         <ControlledSwitchDemo />
       </Row>
       <Row label="disabled">
-        <Switch defaultChecked={false} disabled />
-        <Switch defaultChecked disabled />
+        <LegacySwitch defaultChecked={false} disabled />
+        <LegacySwitch defaultChecked disabled />
       </Row>
       <Row label="form row">
         <div className="flex w-96 items-center justify-between rounded-2xl border border-white/5 px-3 py-2.5">
@@ -559,7 +557,7 @@ function SwitchSection() {
               Drafts will be sent without confirmation.
             </div>
           </div>
-          <Switch defaultChecked />
+          <LegacySwitch defaultChecked />
         </div>
       </Row>
     </Section>
@@ -570,7 +568,7 @@ function ControlledSwitchDemo() {
   const [on, setOn] = useState(true);
   return (
     <div className="flex items-center gap-3">
-      <Switch checked={on} onCheckedChange={setOn} />
+      <LegacySwitch checked={on} onCheckedChange={setOn} />
       <span className="tabular text-[12.5px] text-gray-800">checked = {on ? "true" : "false"}</span>
     </div>
   );
@@ -656,7 +654,7 @@ function CardSection() {
       recipe="rounded-2xl, transparent at rest, hover/focus fill #181818. Use `interactive` when the card itself is clickable."
     >
       <Row label="static">
-        <Card className="max-w-md">
+        <LegacyCard className="max-w-md">
           <div className="flex items-center gap-3">
             <div className="frost-icon-tile grid size-10 place-items-center rounded-lg">
               <Mail size={16} />
@@ -668,10 +666,10 @@ function CardSection() {
               </div>
             </div>
           </div>
-        </Card>
+        </LegacyCard>
       </Row>
       <Row label="interactive">
-        <Card interactive tabIndex={0} className="max-w-md">
+        <LegacyCard interactive tabIndex={0} className="max-w-md">
           <div className="flex items-center gap-3">
             <div className="frost-icon-tile grid size-10 place-items-center rounded-lg">
               <Bell size={16} />
@@ -682,11 +680,11 @@ function CardSection() {
                 Daily summary of your inbox before 7am.
               </div>
             </div>
-            <Button variant="ghost" size="md">
+            <LegacyButton variant="ghost" size="md">
               Manage
-            </Button>
+            </LegacyButton>
           </div>
-        </Card>
+        </LegacyCard>
       </Row>
     </Section>
   );
@@ -774,9 +772,9 @@ function KbdSection() {
         <Kbd>⌥⇧K</Kbd>
       </Row>
       <Row label="in context">
-        <Button variant="primary" size="md" trailing={cmdEnterKbd}>
+        <LegacyButton variant="primary" size="md" trailing={cmdEnterKbd}>
           Learn
-        </Button>
+        </LegacyButton>
       </Row>
     </Section>
   );
@@ -886,11 +884,11 @@ function CommandPaletteSection() {
       recipe="cmdk + Radix Dialog. ⌘K from anywhere in the app opens this from the AppShell. Result rows: h-11 rounded-md px-3 + leading icon tile + trailing ↵ on the selected row."
     >
       <Row label="trigger">
-        <Button variant="white" size="md" onClick={() => setOpen(true)}>
+        <LegacyButton variant="white" size="md" onClick={() => setOpen(true)}>
           <Search size={14} className="mr-1.5" />
           Open palette
           <Kbd className="ml-2">⌘K</Kbd>
-        </Button>
+        </LegacyButton>
         {picked ? (
           <span className="tabular text-[12.5px] text-gray-800">
             Last pick: <span className="text-gray-950">{picked}</span>

@@ -1,5 +1,5 @@
 import { useParams } from "@tanstack/react-router";
-import { useEffect } from "react";
+import { useEffect, useLayoutEffect } from "react";
 import { useChatContext } from "~/components/chat-context";
 import { formatPageTitle } from "~/lib/page-meta";
 import { useChatThread } from "~/lib/replicache/use-chat";
@@ -7,12 +7,12 @@ import { ChatShell } from "./chat-shell";
 
 export function ChatThreadRoute() {
   const { threadId } = useParams({ from: "/chat/$threadId" });
-  const { activeThread, setActiveThread } = useChatContext();
+  const { setActiveThread } = useChatContext();
   const thread = useChatThread(threadId);
 
-  useEffect(() => {
-    if (threadId !== activeThread) setActiveThread(threadId);
-  }, [threadId, activeThread, setActiveThread]);
+  useLayoutEffect(() => {
+    setActiveThread(threadId);
+  }, [threadId, setActiveThread]);
 
   // Title comes from the synced thread (the worker derives it from the opening
   // exchange; the turn endpoint seeds a placeholder before that lands). Falls

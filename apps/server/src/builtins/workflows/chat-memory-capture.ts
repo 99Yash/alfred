@@ -4,7 +4,7 @@ import {
   extractPropositionsFromThread,
   type ThreadTurn,
   type Workflow,
-} from "@alfred/api";
+} from "@alfred/api/backend";
 import { chatPropositionSchema, toMessage } from "@alfred/contracts";
 import { db } from "@alfred/db";
 import { chatMessages, chatThreads } from "@alfred/db/schemas";
