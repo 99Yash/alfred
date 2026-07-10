@@ -8,7 +8,6 @@
     "jsx": "react-jsx",
     "outDir": "dist",
     "declaration": false,
-    "baseUrl": ".",
     "paths": {
       "~/*": ["./src/*"]
     },
