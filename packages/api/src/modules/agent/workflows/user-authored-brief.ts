@@ -45,6 +45,14 @@ import type { Step, Workflow } from "../types";
 export const USER_AUTHORED_BRIEF_WORKFLOW_SLUG = SUB_AGENT_WORKFLOW_SLUG;
 
 const TURN_CAP_MAX = 30;
+/**
+ * Consecutive empty completions (see `isRetryableEmptyCompletion`) to regenerate
+ * before failing the boss/sub-agent run. An empty `stop`/`error` with no text and
+ * no tool calls is the transient Anthropic→Gemini quota-fallback anomaly; a
+ * re-attempt usually clears it. Kept tight so a provider stuck returning empties
+ * fails fast instead of burning the `TURN_CAP_MAX` budget on full-price retries.
+ */
+const EMPTY_COMPLETION_MAX_RETRIES = 2;
 
 const pendingToolCallSchema = z.object({
   toolCallId: z.string().min(1),
@@ -73,6 +81,11 @@ const briefRunStateSchema = z.object({
    * 0 — the first boss-turn always fits under threshold.
    */
   lastInputTokens: z.number().int().min(0).default(0),
+  // Consecutive empty completions retried this run (see EMPTY_COMPLETION_MAX_RETRIES).
+  // Reset to 0 on any productive turn (tool calls or a real final), so this counts a
+  // provider stuck returning empties — not scattered empties across a long run.
+  // Default 0 for runs minted before the field existed.
+  emptyRetries: z.number().int().min(0).default(0),
 });
 type BriefRunState = z.infer<typeof briefRunStateSchema>;
 
@@ -220,6 +233,29 @@ const bossTurnStep: Step<BriefRunState> = {
     state.inFlightTailStart = transcript.length;
     state.lastInputTokens = result.usage.inputTokens ?? 0;
 
+    if (result.kind === "empty") {
+      // Retryable empty completion (see isRetryableEmptyCompletion): this turn came
+      // back with no text and no tool calls on a clean/errored finish — the
+      // Anthropic→Gemini quota-fallback anomaly. `withFallback` can't catch it (the
+      // SDK call succeeded with an empty stream), so degrade here: regenerate from
+      // the *pre-turn* transcript (never `nextTranscript` — appending the empty
+      // assistant message would poison the retry and Anthropic 400s on it) up to a
+      // bounded budget, then fail the run loudly.
+      if (state.emptyRetries < EMPTY_COMPLETION_MAX_RETRIES) {
+        console.warn(
+          `[boss-turn] empty completion (finishReason:${result.finishReason}); retry ` +
+            `${state.emptyRetries + 1}/${EMPTY_COMPLETION_MAX_RETRIES} (run ${ctx.runId})`,
+        );
+        return {
+          kind: "next",
+          state: { ...state, emptyRetries: state.emptyRetries + 1 },
+          transcript,
+          nextStep: "boss-turn",
+        };
+      }
+      throw new Error("boss_turn_empty_completion");
+    }
+
     if (result.kind === "final") {
       const output = subAgent
         ? await writeSubAgentSummary({
@@ -230,13 +266,15 @@ const bossTurnStep: Step<BriefRunState> = {
         : { text: result.text };
       return {
         kind: "done",
-        state,
+        state: { ...state, emptyRetries: 0 },
         transcript: nextTranscript,
         output,
       };
     }
 
     if (result.kind === "tool-calls") {
+      // Productive turn — reset the consecutive-empty counter.
+      state.emptyRetries = 0;
       state.pendingToolCalls = result.toolCalls.map((call) => ({
         toolCallId: call.toolCallId,
         toolName: call.toolName,
@@ -491,6 +529,7 @@ export const userAuthoredBriefWorkflow: Workflow<BriefRunState> = {
       inFlightTailStart: 0,
       turnCount: 0,
       lastInputTokens: 0,
+      emptyRetries: 0,
     };
   },
   async initialTranscript(input) {

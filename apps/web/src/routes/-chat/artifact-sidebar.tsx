@@ -47,6 +47,11 @@ import type { ChatSidePanelMode } from "~/routes/-chat/rail/models";
  * slot — opening an artifact swaps the rail out (see `chat-shell`).
  */
 
+export interface ArtifactEditSuggestion {
+  artifactTargetId: string;
+  text: string;
+}
+
 interface ArtifactSidebarProps {
   artifactId: string;
   mode: ChatSidePanelMode;
@@ -55,7 +60,7 @@ interface ArtifactSidebarProps {
   onWidthChange: (width: number) => void;
   onClose: () => void;
   /** Prefill the composer with an edit scaffold for this artifact. */
-  onSuggestEdit?: (text: string) => void;
+  onSuggestEdit?: (suggestion: ArtifactEditSuggestion) => void;
 }
 
 export function ArtifactSidebar({
@@ -71,9 +76,23 @@ export function ArtifactSidebar({
   // Which page is in view. Lifted here so it is the single source of truth
   // shared by the thumbnail strip, the header's "present" button, and the
   // fullscreen viewer — so opening fullscreen starts on the page the user is
-  // actually looking at, not page 1. Reset when the artifact swaps.
-  const [pageIndex, setPageIndex] = useState(0);
-  useEffect(() => setPageIndex(0), [artifactId]);
+  // actually looking at, not page 1. The index is stored against the artifact it
+  // belongs to, so swapping artifacts derives back to page 0 on its own — no
+  // prop-sync effect (which would briefly show the previous artifact's index).
+  const [pageState, setPageState] = useState<{ forId: string; index: number }>({
+    forId: artifactId,
+    index: 0,
+  });
+  const pageIndex = pageState.forId === artifactId ? pageState.index : 0;
+  const setPageIndex = useCallback<Dispatch<SetStateAction<number>>>(
+    (action) =>
+      setPageState((s) => {
+        const current = s.forId === artifactId ? s.index : 0;
+        const next = typeof action === "function" ? action(current) : action;
+        return { forId: artifactId, index: next };
+      }),
+    [artifactId],
+  );
 
   // Escape closes the panel (overlay) or exits fullscreen first. The handler
   // reads the latest fullscreen/mode/onClose through an Effect Event so the
@@ -97,7 +116,7 @@ export function ArtifactSidebar({
   // on the focused composer with the scaffold inserted.
   const onEdit = useCallback(() => {
     if (!artifact || !onSuggestEdit) return;
-    onSuggestEdit(`Edit "${artifact.title}": `);
+    onSuggestEdit({ artifactTargetId: artifact.id, text: "Edit this artifact: " });
     if (mode === "overlay") onClose();
   }, [artifact, onSuggestEdit, mode, onClose]);
 

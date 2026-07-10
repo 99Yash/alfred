@@ -8,10 +8,12 @@ import {
   type FormEvent,
   type RefObject,
 } from "react";
+import type { JSONContent } from "@tiptap/react";
 import { useAppTheme } from "~/components/ui/v2/theme";
 import { ACCEPT_ATTR } from "~/lib/chat/upload-attachments";
 import { toast } from "~/lib/toast";
 import { cn } from "~/lib/utils";
+import { safeGet, safeRemove, safeSet } from "~/lib/storage/storage";
 import { MicWaveform } from "../mic-recording";
 import { formatElapsed } from "../mic-recording-format";
 import type { ChatTier } from "../model-tier-picker";
@@ -44,14 +46,19 @@ export function Composer({
   threadId: string | undefined;
   isStreaming: boolean;
   disabled?: boolean;
-  onSend?: (text: string, files?: File[]) => Promise<boolean>;
+  onSend?: (text: string, files?: File[], artifactTargetId?: string) => Promise<boolean>;
   onStopGeneration?: () => void;
   /**
    * Text to drop into the editor on demand (e.g. the artifact sidebar's
    * "Suggest an edit"). The `nonce` lets the same scaffold re-apply on a repeat
    * request; the editor inserts it at the caret and focuses (ADR-0075 Phase 4).
    */
-  prefill?: { text: string; nonce: number; threadId: string | undefined } | null;
+  prefill?: {
+    artifactTargetId: string;
+    text: string;
+    nonce: number;
+    threadId: string | undefined;
+  } | null;
   /** Suggested next prompt shown dimmed in the empty editor; Tab accepts. */
   ghostText?: string;
   onGhostAccept?: () => void;
@@ -77,6 +84,25 @@ export function Composer({
   const { suggestion, mentionCandidates, visibleMentionIdx, suggestionKeyDownRef } = mention;
   const hasAttachments = attachments.items.length > 0;
   const [sending, setSending] = useState(false);
+  const artifactTargetKey = `alfred:chat-artifact-target:${threadId ?? "new"}`;
+  // Event-driven mutable state read only at submit time stays off the render path.
+  const artifactTargetIdRef = useRef<string | undefined>(undefined);
+  const artifactTargetInitRef = useRef(false);
+  if (!artifactTargetInitRef.current) {
+    artifactTargetInitRef.current = true;
+    // Target metadata belongs to the persisted draft. Ignore an orphaned target.
+    artifactTargetIdRef.current = initialJSON
+      ? (safeGet(artifactTargetKey) ?? undefined)
+      : undefined;
+  }
+  const setArtifactTargetId = useCallback(
+    (targetId: string | undefined) => {
+      artifactTargetIdRef.current = targetId;
+      if (targetId) safeSet(artifactTargetKey, targetId);
+      else safeRemove(artifactTargetKey);
+    },
+    [artifactTargetKey],
+  );
   const composerDisabled = disabled || sending;
   const canSend =
     !composerDisabled &&
@@ -106,8 +132,17 @@ export function Composer({
     if (prefill.threadId !== threadId) return;
     if (appliedPrefillNonce.current === prefill.nonce) return;
     appliedPrefillNonce.current = prefill.nonce;
+    setArtifactTargetId(prefill.artifactTargetId);
     editorRef.current?.insertText(prefill.text);
-  }, [prefill, composerDisabled, threadId]);
+  }, [prefill, composerDisabled, threadId, setArtifactTargetId]);
+
+  const handleEditorChange = useCallback(
+    (nextText: string, nextJSON: JSONContent, nextEmpty: boolean) => {
+      onEditorChange(nextText, nextJSON, nextEmpty);
+      if (nextEmpty) setArtifactTargetId(undefined);
+    },
+    [onEditorChange, setArtifactTargetId],
+  );
 
   const onAttachClick = useCallback(() => {
     if (composerDisabled || mic.recording) return;
@@ -119,16 +154,17 @@ export function Composer({
     const value = text.trim();
     const files = attachments.files();
     setSending(true);
-    void onSend(value, files)
+    void onSend(value, files, artifactTargetIdRef.current)
       .then((staged) => {
         if (!staged) return;
         editorRef.current?.clear();
         resetDraft();
         attachments.clear();
+        setArtifactTargetId(undefined);
       })
       .catch(() => toast.error("Couldn't send your message. Please try again."))
       .finally(() => setSending(false));
-  }, [canSend, text, onSend, resetDraft, attachments]);
+  }, [canSend, text, onSend, resetDraft, attachments, setArtifactTargetId]);
 
   const onFormSubmit = (e: FormEvent<HTMLFormElement>) => {
     e.preventDefault();
@@ -229,7 +265,7 @@ export function Composer({
               initialJSON={initialJSON}
               placeholder="Type and press enter to start chatting…"
               disabled={composerDisabled}
-              onChange={onEditorChange}
+              onChange={handleEditorChange}
               onSubmit={handleSubmit}
               onSuggestionChange={mention.setSuggestion}
               suggestionKeyDownRef={suggestionKeyDownRef}

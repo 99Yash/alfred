@@ -16,7 +16,7 @@ export function EmptyHero({
 }: {
   threadId: string | undefined;
   isStreaming: boolean;
-  onSend?: (text: string, files?: File[]) => Promise<boolean>;
+  onSend?: (text: string, files?: File[], artifactTargetId?: string) => Promise<boolean>;
   autoApprove?: boolean;
   autoApprovePending?: boolean;
   onToggleAutoApprove?: () => void;

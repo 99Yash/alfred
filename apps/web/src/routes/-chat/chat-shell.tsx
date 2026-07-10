@@ -10,7 +10,7 @@ import { useChatMessages } from "~/lib/replicache/use-chat";
 import { useRightRail } from "~/lib/shell/app-shell";
 import { toast } from "~/lib/toast";
 import { ChatApprovalTray } from "./approval-tray";
-import { ArtifactSidebar } from "./artifact-sidebar";
+import { ArtifactSidebar, type ArtifactEditSuggestion } from "./artifact-sidebar";
 import { Composer } from "./composer/composer";
 import { useModelTier } from "./composer/use-model-tier";
 import { Conversation } from "./conversation";
@@ -28,9 +28,7 @@ import { useArtifactPanel } from "./use-artifact-panel";
  * Top bar with the thread title + action buttons (share, more, rail toggle).
  * Below: a centered empty-state hero (date · greeting · tagline · composer ·
  * connect-tools row). A right rail (`Today` panel — todos / inbox / meetings)
- * mounts via `useRightRail()` when open; the rail UI is reused from the
- * `/preview/chat` source dir today, so its content is fixture data until
- * Replicache wires real per-user todos/inbox/meetings in m13.
+ * mounts via `useRightRail()` when open and reads production-backed data.
  */
 export interface ChatShellProps {
   threadId: string | undefined;
@@ -82,14 +80,16 @@ export function ChatShell({ threadId, title }: ChatShellProps) {
   // with the thread it was created for so a stale prefill doesn't leak into a
   // different thread's composer when the user navigates away (the Composer
   // remounts per-thread, which would otherwise re-fire the apply effect).
-  const [editPrefill, setEditPrefill] = useState<{
-    text: string;
-    nonce: number;
-    threadId: string | undefined;
-  } | null>(null);
+  const [editPrefill, setEditPrefill] = useState<
+    (ArtifactEditSuggestion & { nonce: number; threadId: string | undefined }) | null
+  >(null);
   const onSuggestArtifactEdit = useCallback(
-    (text: string) => {
-      setEditPrefill((prev) => ({ text, nonce: (prev?.nonce ?? 0) + 1, threadId }));
+    (suggestion: ArtifactEditSuggestion) => {
+      setEditPrefill((prev) => ({
+        ...suggestion,
+        nonce: (prev?.nonce ?? 0) + 1,
+        threadId,
+      }));
     },
     [threadId],
   );
@@ -138,7 +138,8 @@ export function ChatShell({ threadId, title }: ChatShellProps) {
   // choice survives reloads and thread switches; rides with every turn.
   const [tier, setTier] = useModelTier();
   const onSend = useCallback(
-    (text: string, files?: File[]) => send(threadId, text, tier, files),
+    (text: string, files?: File[], artifactTargetId?: string) =>
+      send(threadId, text, tier, files, undefined, undefined, artifactTargetId),
     [send, threadId, tier],
   );
   // Retry re-sends the prior user turn as a fresh turn. It carries that
