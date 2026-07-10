@@ -732,15 +732,21 @@ function Composer({
   const hasAttachments = attachments.items.length > 0;
   const [sending, setSending] = useState(false);
   const artifactTargetKey = `alfred:chat-artifact-target:${threadId ?? "new"}`;
-  const [artifactTargetId, setArtifactTargetIdState] = useState<string | undefined>(() => {
+  // Which artifact the next message targets (the sidebar's "Suggest an edit").
+  // Event-driven mutable state that's only read at submit time and never
+  // rendered, so a ref keeps it off the render path instead of forcing a
+  // re-render on every set.
+  const artifactTargetIdRef = useRef<string | undefined>(undefined);
+  const artifactTargetInitRef = useRef(false);
+  if (!artifactTargetInitRef.current) {
+    artifactTargetInitRef.current = true;
     // Target metadata belongs to the persisted draft. Ignore a stale key when
     // no draft survived (for example, after a crash between the two removals).
-    if (!initialJSON) return undefined;
-    return safeGet(artifactTargetKey) ?? undefined;
-  });
+    artifactTargetIdRef.current = initialJSON ? (safeGet(artifactTargetKey) ?? undefined) : undefined;
+  }
   const setArtifactTargetId = useCallback(
     (targetId: string | undefined) => {
-      setArtifactTargetIdState(targetId);
+      artifactTargetIdRef.current = targetId;
       if (targetId) safeSet(artifactTargetKey, targetId);
       else safeRemove(artifactTargetKey);
     },
@@ -797,7 +803,7 @@ function Composer({
     const value = text.trim();
     const files = attachments.files();
     setSending(true);
-    void onSend(value, files, artifactTargetId)
+    void onSend(value, files, artifactTargetIdRef.current)
       .then((staged) => {
         if (!staged) return;
         editorRef.current?.clear();
@@ -807,7 +813,7 @@ function Composer({
       })
       .catch(() => toast.error("Couldn't send your message. Please try again."))
       .finally(() => setSending(false));
-  }, [canSend, text, onSend, resetDraft, attachments, artifactTargetId, setArtifactTargetId]);
+  }, [canSend, text, onSend, resetDraft, attachments, setArtifactTargetId]);
 
   const onFormSubmit = (e: FormEvent<HTMLFormElement>) => {
     e.preventDefault();
