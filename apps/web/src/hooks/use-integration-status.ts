@@ -246,6 +246,16 @@ function resolveOne(
   };
 }
 
+const credentialScopeSets = new WeakMap<CredentialRow, ReadonlySet<string>>();
+
+function grantedScopes(credential: CredentialRow): ReadonlySet<string> {
+  const cached = credentialScopeSets.get(credential);
+  if (cached) return cached;
+  const scopes = new Set(credential.scopes);
+  credentialScopeSets.set(credential, scopes);
+  return scopes;
+}
+
 /**
  * Partial-grant detector for the scope-completeness banner. Alfred's
  * onboarding requests the full Google grant in one consent, but Google's
@@ -274,8 +284,17 @@ export function useGoogleScopeGaps(): GoogleScopeGaps {
       if (PROVIDER_BACKEND[p.id] !== "google") return [];
       const required = PROVIDER_REQUIRED_SCOPES[p.id];
       if (!required) return [];
-      // Missing iff no active credential carries every required scope.
-      if (active.some((c) => required.every((r) => meetsScopeRequirement(c.scopes, r)))) return [];
+      // Missing iff no active credential carries every required scope. The
+      // WeakMap-backed helper builds one Set per credential object, shared by
+      // every provider probe in this render.
+      if (
+        active.some((credential) =>
+          required.every((requirement) =>
+            meetsScopeRequirement(grantedScopes(credential), requirement),
+          ),
+        )
+      )
+        return [];
       return [{ providerId: p.id, name: p.name }];
     });
     return { connected: true, accountLabel: active[0]?.accountLabel ?? null, missing };
@@ -319,16 +338,17 @@ function matchByScopes(
 ): ReadonlyArray<CredentialRow> {
   const required = PROVIDER_REQUIRED_SCOPES[provider.id];
   if (!required) return [];
-  return creds.filter(
-    (c) => c.status === "active" && required.every((r) => meetsScopeRequirement(c.scopes, r)),
-  );
+  return creds.filter((c) => {
+    if (c.status !== "active") return false;
+    return required.every((requirement) => meetsScopeRequirement(grantedScopes(c), requirement));
+  });
 }
 
 function meetsScopeRequirement(
-  scopes: ReadonlyArray<string>,
+  granted: ReadonlySet<string>,
   requirement: ProviderScopeRequirement,
 ): boolean {
   return typeof requirement === "string"
-    ? scopes.includes(requirement)
-    : requirement.some((scope) => scopes.includes(scope));
+    ? granted.has(requirement)
+    : requirement.some((scope) => granted.has(scope));
 }

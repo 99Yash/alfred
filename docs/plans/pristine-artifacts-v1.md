@@ -1,6 +1,7 @@
 # Implementation plan — pristine artifacts (design-system + verified floor)
 
-**Status:** proposed (needs grill + ADR-0083 before build)
+**Status:** implemented through Phase 2a + Phase 3a; later phases remain proposed. Record
+ADR-0083 before starting the verified-floor or native-mirror architecture.
 
 **Decision (2026-07-01):** For agent-built decks/docs, optimize **pristine read-only** as the
 flagship deliverable, plus a thin **structured→Google Slides escape hatch** for "I want to
@@ -30,9 +31,9 @@ borrow the design-system recipe and add the floor they lack.
 2. **Pristine = freehand HTML in an Alfred design system, not structured slots.** Structured
    `{title,bullets,layout}` renders clean but generic; the pristine bar (CSS data-viz,
    micro-textures, 17 layout archetypes) needs freehand HTML + a real exemplar library.
-3. **Verified floor.** Every page is fit-checked (deterministic) and optionally
-   vision-critiqued, then auto-repaired, before it shows `complete`. This is where we exceed
-   Dimension (they ship on human eyeballs).
+3. **Verified-floor target.** Phase 2a improves authoring deterministically, but pages are not
+   yet measured automatically. Phase 2b will fit-check every page and optionally
+   vision-critique/repair it before `complete`.
 4. **One typed source of design truth.** A single token module generates the shell, the
    prompt block, and (for docs) Typst variables — no prose duplication/drift (their font
    list drifted across shell + tool-prompt + docstring + plan).
@@ -67,24 +68,27 @@ Authoring: the boss (or a dedicated artifact sub-agent / stronger tier — see Q
 freehand `<style>` + body per page against the shell, picking one theme per deck and a
 layout archetype per page. Reuses the existing `append_artifact_page` path.
 
-**Verified floor** (new, at finalize):
+**Verified floor** (deferred to Phase 2b, at finalize):
+
 - **Fit-check (deterministic):** headless-measure the rendered page against the bounded box;
   on overflow, feed the offending element + overflow delta back → bounded auto-`update`
   (≤2 retries). Kills freehand's #1 failure mode (Dimension only *instructs* "no overflow").
 - **Vision critique/repair (optional, flag-gated):** screenshot → vision model + theme spec
-  + rubric (overflow / contrast / alignment / theme-consistency) → auto-repair on fail.
+  with a rubric (overflow / contrast / alignment / theme-consistency) → auto-repair on fail.
   Affordable at single-user scale; the primary "exceed" lever.
 
 **Read-only export (download):**
+
 - **Native browser print (shipped, Phase 3a).** Because each page is already a
   self-contained house-shell document with locked geometry, the browser's own print engine
   emits a 1:1 "Save as PDF" with zero new infra: `buildArtifactPrintDocument(pages, format,
   title)` (in `@alfred/artifacts-design`) concatenates every page under the shell styles +
   an `@page`-sized print layer, and `printArtifactPages` (`apps/web/src/lib/artifacts/
-  export-artifact.ts`) renders it in an **off-screen, non-sandboxed** iframe and calls
-  `print()`. Constraint discovered: the on-screen render iframe is `sandbox=""` (scripts +
-  modals blocked), so it cannot print itself — the export must build a fresh unsandboxed
-  iframe from the same shell output. Tradeoff: goes through the browser print dialog (not a
+  export-artifact.ts`) renders it in an off-screen iframe sandboxed with only
+  `allow-modals allow-same-origin` and calls `print()` from the trusted parent. It never grants
+  `allow-scripts`, so authored HTML remains inert. Constraint discovered: the on-screen render
+  iframe is `sandbox=""` (scripts + modals blocked), so it cannot print itself. Tradeoff: goes
+  through the browser print dialog (not a
   silent one-click file) and fidelity depends on the user's print engine.
 - **Documents (`document` kind = markdown) → Typst → PDF** (deferred, Phase 3b). Chromium-free,
   fits Railway, best print typography; doc tokens shared from `@alfred/artifacts-design`.
@@ -118,8 +122,25 @@ exemplars); wire the prompt block + shell into the artifact-authoring turn; retr
 `append_artifact_page` to wrap body in the shell. Result: the *existing* in-app artifacts
 become pristine, cached, and consistent — zero new services.
 
-**Phase 2 — verified floor.** Deterministic fit-check + bounded auto-repair at finalize.
-Vision-repair behind a flag.
+**Phase 2a — document medium + authoring floor (shipped).** Live use answered Open Question 1:
+the lean prompt carries SLIDES but not DOCUMENTS. Asked for a "resume," the model had no
+document exemplar and hand-rolled a page-level `<style>` with hardcoded Apple greys and a
+10.5px base — off-brand, cramped, half-empty page. Fix, all deterministic (no model calls):
+a `pdf` document is treated as its own medium — a denser `docType` scale + `--art-doc-*` vars
+(tokens), an `art-doc-*` primitive layer (shell), and three on-token templates (resume /
+report / one-pager) that flow top to bottom and stay balanced. The resume is inlined into
+`ARTIFACT_DESIGN_PROMPT` as the anchor. A hard authoring floor backs it: the token system is
+the source of truth (reference `var(--art-*)`, never hardcode a palette or font, never drop
+below the medium body size), and content is balanced rather than force-filled (no
+spacer-to-bottom that strands a mid-page void). `create_artifact`/`append_artifact_page`
+descriptions point at the doc vocabulary. Verified by rendering all three templates through
+the real shell (caught + fixed a page-fill void) and by a live boss run using the dense
+four-role fixture: both new document primitives, no hand-rolled palette/sub-floor type, and
+812px of true content in a 928px content area.
+
+**Phase 2b — verified floor.** Deterministic fit-check + bounded auto-repair at finalize.
+Vision-repair behind a flag. (Was Phase 2; the durable answer to authoring quality once the
+templates + floor are exhausted.)
 
 **Phase 3a — native print export (shipped).** Browser-native "Save as PDF" for `pages`
 artifacts via `buildArtifactPrintDocument` + an off-screen print iframe; wired into the chat
@@ -171,6 +192,9 @@ native mirrors.
 7. **ADR-0083 scope:** one ADR covering both lanes (this doc = flagship; `artifact-native-
    mirror-v1.md` = escape-hatch lane), superseding the "populate-on-create" line in ADR-0043's
    plan. Confirm.
+8. **Page geometry:** `format: "pdf"` currently means portrait US Letter. Before expanding
+   beyond the single-user v1, split delivery format from explicit page size/orientation so A4,
+   landscape, and other document geometries are representable rather than inferred from PDF.
 
 ---
 

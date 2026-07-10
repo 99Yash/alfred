@@ -9,11 +9,11 @@ import type { ArtifactFormat } from "@alfred/contracts";
  * sheet, straight from the design-system shell.
  *
  * The on-screen render iframe is `sandbox=""` (scripts + modals blocked), so it
- * cannot call `print()` on itself. Instead we build a fresh, NON-sandboxed,
- * off-screen iframe from `buildArtifactPrintDocument`, print it, and tear it
- * down once the print dialog closes. The print document intentionally uses the
- * same no-web-font shell as the preview, so downloaded output does not drift to
- * Open Runde just because the export iframe is unsandboxed.
+ * cannot call `print()` on itself. Instead we build a fresh off-screen iframe
+ * from `buildArtifactPrintDocument`, grant only the sandbox tokens needed for
+ * the parent to trigger the print dialog, print it, and tear it down once the
+ * dialog closes. We intentionally do NOT grant `allow-scripts`: artifact HTML is
+ * model-authored/user-influenced content and must stay inert during export too.
  */
 export async function printArtifactPages(
   pages: readonly string[],
@@ -24,6 +24,11 @@ export async function printArtifactPages(
 
   const iframe = document.createElement("iframe");
   iframe.setAttribute("aria-hidden", "true");
+  // `allow-modals` permits `print()`. `allow-same-origin` lets this trusted
+  // parent attach `afterprint` and call `contentWindow.print()`. Without
+  // `allow-scripts`, script tags/event handlers inside the artifact still cannot
+  // execute or remove the sandbox.
+  iframe.sandbox.add("allow-modals", "allow-same-origin");
   iframe.tabIndex = -1;
   // Off-screen rather than display:none — a non-rendered iframe won't paint
   // fonts/layout, which the print engine needs measured before it captures.

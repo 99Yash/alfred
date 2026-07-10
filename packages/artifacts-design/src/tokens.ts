@@ -101,6 +101,12 @@ export const font = {
 /**
  * Type ramp in px (authoring canvas is a fixed logical size, so px is stable).
  * `display` heads a title page; `eyebrow`/`caption` are the small marks.
+ *
+ * This ramp is calibrated for SLIDES — a 1280x720 page read at a distance, so
+ * type is large and one idea fills a page. A `pdf` document is a different
+ * medium (816x1056, read up close, dense), so it gets its own denser ramp in
+ * `docType` below. Mixing the two mediums on one ramp is what pushed the model
+ * to hand-roll a tiny off-token type scale for a resume.
  */
 export const type = {
   display: "72px",
@@ -115,6 +121,31 @@ export const type = {
   lineBody: "1.55",
   /** App-wide tracking (`.app` sets -0.02em); heads tighten further inline. */
   tracking: "-0.02em",
+} as const;
+
+/**
+ * Document type ramp for the `pdf` medium (resumes, one-pagers, reports). Denser
+ * than the slide `type` ramp because a US-Letter page is read up close and packs
+ * more per page — but with a hard readable FLOOR (`body` 14px, the smallest mark
+ * 11px) so a document can never regress to the 10px-and-hardcoded-grey soup the
+ * model reaches for when left to free-style. Everything derives from here so the
+ * shell classes, templates, and prompt floor cite one source.
+ */
+export const docType = {
+  /** Résumé/report name or document title. */
+  name: "32px",
+  /** Role line under the name; lead-in subtitle. */
+  role: "15px",
+  /** Section label (uppercase, tracked): "Experience", "Education". */
+  section: "11px",
+  /** Entry title — a job/role/project name. */
+  heading: "15px",
+  /** Body copy — descriptions, prose. The readable floor for documents. */
+  body: "14px",
+  /** Dates, captions, right-column meta. */
+  meta: "12px",
+  lineHeading: "1.25",
+  lineBody: "1.5",
 } as const;
 
 /** 4px-based spacing scale for gaps, padding, and page margins. */
@@ -192,5 +223,13 @@ export function cssVariables(): DesignToken[] {
     { name: "art-radius-md", value: radii.md },
     { name: "art-radius-lg", value: radii.lg },
     { name: "art-shadow", value: shadow.elevated },
+    { name: "art-doc-name", value: docType.name },
+    { name: "art-doc-role", value: docType.role },
+    { name: "art-doc-section", value: docType.section },
+    { name: "art-doc-heading", value: docType.heading },
+    { name: "art-doc-body", value: docType.body },
+    { name: "art-doc-meta", value: docType.meta },
+    { name: "art-doc-line-heading", value: docType.lineHeading },
+    { name: "art-doc-line-body", value: docType.lineBody },
   ];
 }

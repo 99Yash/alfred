@@ -11,10 +11,12 @@ import {
   type Tool,
   type ToolSet,
 } from "@alfred/ai";
-import { ARTIFACT_DESIGN_PROMPT } from "@alfred/artifacts-design";
+import { ARTIFACT_DESIGN_PROMPT, ARTIFACT_DOCUMENT_DESIGN_PROMPT } from "@alfred/artifacts-design";
 import {
+  artifactFormatSchema,
   boundToolResult,
   chatModelTierSchema,
+  getPath,
   HttpError,
   isIntegrationSlug,
   isPassThrough,
@@ -23,6 +25,7 @@ import {
   sanitizeToolResult,
   toJsonValue,
   type AgentTranscriptMessage,
+  type ArtifactFormat,
   type ChatErrorKind,
   type ToolName,
   toMessage,
@@ -77,6 +80,16 @@ import type { AgentDbExecutor, Step, StepContext, StepResult, Workflow } from ".
 export const CHAT_TURN_WORKFLOW_SLUG = "__chat-turn__";
 
 const TURN_CAP_MAX = 24;
+/**
+ * How many consecutive empty completions (see `isRetryableEmptyCompletion`) to
+ * regenerate before surfacing a failure. An empty `stop` with no text and no
+ * tool calls is the transient anomaly the Anthropic→Gemini quota fallback throws
+ * (a Gemini 2.5 Pro candidate with 0 output tokens); re-attempting the turn
+ * usually clears it. Kept tight so a provider genuinely stuck returning empties
+ * fails fast instead of burning the whole `TURN_CAP_MAX` budget on full-price
+ * retries.
+ */
+const EMPTY_COMPLETION_MAX_RETRIES = 2;
 /** Flush coalesced text deltas at least this often (ms) and at this size (chars). */
 const DELTA_FLUSH_MS = 180;
 const DELTA_FLUSH_CHARS = 100;
@@ -97,6 +110,46 @@ const PREVIEW_TIERS: ReadonlyArray<readonly [number, number, number]> = [
   [1, 40, 16],
 ];
 const TITLE_TIMEOUT_MS = 15_000;
+const ARTIFACT_MUTATION_TOOL_NAMES = [
+  "system.create_artifact",
+  "system.append_artifact_page",
+  "system.update_artifact",
+] as const satisfies readonly ToolName[];
+const ARTIFACT_MUTATION_TOOLS: ReadonlySet<string> = new Set(ARTIFACT_MUTATION_TOOL_NAMES);
+
+/**
+ * Run independent autonomy calls concurrently while preserving model order for
+ * artifact mutations. The two lanes overlap, so a slow lookup does not delay
+ * page authoring; only mutations that share artifact state serialize.
+ */
+export async function dispatchAutonomyCallsInSafeOrder<
+  TCall extends { readonly toolName: string },
+  TResult,
+>(
+  calls: readonly TCall[],
+  gateFlags: readonly boolean[],
+  dispatch: (call: TCall) => Promise<TResult>,
+): Promise<Array<TResult | undefined>> {
+  const results: Array<TResult | undefined> = Array.from({ length: calls.length });
+  const independentCalls = calls.flatMap((call, index) =>
+    gateFlags[index] || ARTIFACT_MUTATION_TOOLS.has(call.toolName)
+      ? []
+      : [
+          dispatch(call).then((result) => {
+            results[index] = result;
+          }),
+        ],
+  );
+  const orderedArtifactCalls = (async () => {
+    for (let index = 0; index < calls.length; index += 1) {
+      const call = calls[index]!;
+      if (gateFlags[index] || !ARTIFACT_MUTATION_TOOLS.has(call.toolName)) continue;
+      results[index] = await dispatch(call);
+    }
+  })();
+  await Promise.all([...independentCalls, orderedArtifactCalls]);
+  return results;
+}
 
 const pendingToolCallSchema = z.object({
   toolCallId: z.string().min(1),
@@ -134,18 +187,25 @@ const chatRunStateSchema = z.object({
   // from a *historical* one replayed in the transcript (recoverable only by a
   // new chat). Optional for legacy runs minted before this field existed.
   userMessageId: z.string().optional(),
+  // Structured artifact target selected by the sidebar. This is run metadata,
+  // never inferred from user-authored prose or attachment content.
+  artifactTargetId: z.string().optional(),
   tier: chatModelTierSchema,
   activeIntegrations: z.array(z.string().min(1)),
   allowedIntegrations: z.array(z.string()),
   // ADR-0053 connected summary, snapshotted once at run start (first turn) and
   // reused every turn so the system-prompt prefix stays cache-stable.
   connectedSummary: z.string().optional(),
-  // The thread's existing artifacts (ids + current body) so the boss revises in
-  // place rather than rebuilding from memory. Snapshotted once at run start like
-  // `connectedSummary`: artifacts authored earlier *this* run are already in
-  // context via their tool results, so a per-run snapshot is both sufficient and
-  // cache-stable. "" when the thread has no artifacts.
+  // Safe system guidance for the thread's existing artifacts (generated
+  // ids/enums only). Refreshed after an artifact mutation so the next model step
+  // cannot operate from stale target metadata.
   artifactsContext: z.string().optional(),
+  // Exact selected artifact body, carried as a lower-trust assistant reference
+  // message rather than system text. Empty when no artifact exists/was found.
+  artifactReference: z.string().optional(),
+  // Determines whether the PDF-only authoring guide belongs in the next model
+  // prompt. Refreshed with the selected artifact context after mutations.
+  artifactDesignMedium: artifactFormatSchema.optional(),
   // User's IANA timezone, snapshotted once on the first turn — it can't change
   // mid-run, so re-reading it from the DB every turn (like `connectedSummary`)
   // is wasted latency.
@@ -165,6 +225,11 @@ const chatRunStateSchema = z.object({
   deltaSeq: z.number().int().min(0).default(0),
   reasoningSeq: z.number().int().min(0).default(0),
   turnCount: z.number().int().min(0).default(0),
+  // Consecutive empty completions retried this run (see EMPTY_COMPLETION_MAX_RETRIES).
+  // Reset to 0 whenever a turn is productive (tool calls or real text), so this
+  // counts a provider stuck returning empties — not scattered empties across a
+  // long turn loop. Default 0 for runs minted before the field existed.
+  emptyCompletionRetries: z.number().int().min(0).default(0),
   started: z.boolean().default(false),
   // ADR-0073 finalization guard: child runs spawned this turn whose outcomes
   // are already accounted for in the transcript — either folded by the guard, or
@@ -182,6 +247,23 @@ const chatRunStateSchema = z.object({
   notedFailureToolCallIds: z.array(z.string()).default([]),
 });
 export type ChatRunState = z.infer<typeof chatRunStateSchema>;
+
+/**
+ * Plan a bounded retry from the pre-turn transcript. Kept pure so tests can
+ * assert both the retry budget and the poison-transcript regression directly.
+ */
+export function planEmptyChatCompletionRetry(
+  state: ChatRunState,
+  transcript: AgentTranscriptMessage[],
+): StepResult<ChatRunState> | null {
+  if (state.emptyCompletionRetries >= EMPTY_COMPLETION_MAX_RETRIES) return null;
+  return {
+    kind: "next",
+    state: { ...state, emptyCompletionRetries: state.emptyCompletionRetries + 1 },
+    transcript,
+    nextStep: "chat-turn",
+  };
+}
 
 // ADR-0077: charter, not a rulebook. Keep mission + capabilities + judgment
 // principles here; `buildChatSystemPrompt` appends date grounding and the
@@ -237,13 +319,17 @@ const CHAT_SYSTEM_PROMPT_BASE = [
 export function buildChatSystemPrompt(
   grounding: string,
   connectedSummary: string,
-  // Artifacts already authored in this thread (id + current body). Placed
-  // between the date and the ADR-0053 catalog so the connected catalog stays
-  // the last, strongest anchor (ADR-0077), while the boss still sees the ids it
-  // needs to revise an artifact in place instead of rebuilding it.
-  artifactsContext = "",
+  options: {
+    /** Safe generated artifact metadata; authored content stays in the transcript. */
+    artifactsContext?: string;
+    /** Inject the heavier document guide only while a PDF is selected. */
+    artifactDesignMedium?: ArtifactFormat;
+  } = {},
 ): string {
+  const artifactsContext = options.artifactsContext ?? "";
   const artifactsBlock = artifactsContext ? `\n\n${artifactsContext}` : "";
+  const documentDesignBlock =
+    options.artifactDesignMedium === "pdf" ? `\n\n${ARTIFACT_DOCUMENT_DESIGN_PROMPT}` : "";
   // The artifact design-system block (`@alfred/artifacts-design`) is identical
   // every turn, so it sits right after the constant base — the largest possible
   // cache-stable prefix (#223) — and ahead of the date/catalog so the connected
@@ -251,7 +337,7 @@ export function buildChatSystemPrompt(
   // house shell contract, the `art-*` vocabulary, archetypes, theme voice, and
   // authoring rules; without it artifact styling is reconstructed from memory
   // and drifts (the "vibes" gap behind the resume shitshow — see artifacts/read.ts).
-  return `${CHAT_SYSTEM_PROMPT_BASE}\n\n${ARTIFACT_DESIGN_PROMPT}\n\nThe current date is ${grounding}.${artifactsBlock}\n\n${connectedSummary}`;
+  return `${CHAT_SYSTEM_PROMPT_BASE}\n\n${ARTIFACT_DESIGN_PROMPT}${documentDesignBlock}\n\nThe current date is ${grounding}.${artifactsBlock}\n\n${connectedSummary}`;
 }
 
 // ── helpers ─────────────────────────────────────────────────────────────────
@@ -626,6 +712,24 @@ async function hydrateTranscriptForModel(
     );
   }
   return reversed.reverse();
+}
+
+/** Place prior assistant-authored artifact data immediately before the request. */
+function withArtifactReference(
+  transcript: readonly AgentTranscriptMessage[],
+  reference: string,
+): AgentTranscriptMessage[] {
+  if (!reference) return [...transcript];
+  let userIndex = -1;
+  for (let index = transcript.length - 1; index >= 0; index -= 1) {
+    if (transcript[index]?.role === "user") {
+      userIndex = index;
+      break;
+    }
+  }
+  const message = { role: "assistant", content: reference } satisfies AgentTranscriptMessage;
+  if (userIndex < 0) return [message, ...transcript];
+  return [...transcript.slice(0, userIndex), message, ...transcript.slice(userIndex)];
 }
 
 function toolResultMessage(
@@ -1197,7 +1301,7 @@ const chatTurnStep: Step<ChatRunState> = {
         });
       }
 
-      const modelTranscript = await hydrateTranscriptForModel(transcript);
+      let modelTranscript = await hydrateTranscriptForModel(transcript);
 
       if (state.timezone === undefined) {
         state.timezone = await resolveUserTimezone(ctx.userId);
@@ -1205,16 +1309,23 @@ const chatTurnStep: Step<ChatRunState> = {
       if (state.connectedSummary === undefined) {
         state.connectedSummary = await buildConnectedSummary(ctx.userId, state.allowedIntegrations);
       }
-      if (state.artifactsContext === undefined) {
-        state.artifactsContext = await buildThreadArtifactsContext(ctx.userId, state.threadId);
+      if (state.artifactsContext === undefined || state.artifactReference === undefined) {
+        const artifactContext = await buildThreadArtifactsContext(
+          ctx.userId,
+          state.threadId,
+          state.artifactTargetId,
+        );
+        state.artifactsContext = artifactContext.systemContext;
+        state.artifactReference = artifactContext.referenceMessage;
+        state.artifactDesignMedium = artifactContext.designMedium;
       }
+      modelTranscript = withArtifactReference(modelTranscript, state.artifactReference);
       const agent = new AlfredAgent({
         id: "chat",
-        system: buildChatSystemPrompt(
-          formatDateGrounding(state.timezone),
-          state.connectedSummary,
-          state.artifactsContext,
-        ),
+        system: buildChatSystemPrompt(formatDateGrounding(state.timezone), state.connectedSummary, {
+          artifactsContext: state.artifactsContext,
+          artifactDesignMedium: state.artifactDesignMedium,
+        }),
         tools: () => resolveSdkTools(state.activeIntegrations),
         model: getChatModel(state.tier),
         // Ask the model to expose its thinking so the turn streams
@@ -1440,9 +1551,36 @@ const chatTurnStep: Step<ChatRunState> = {
         (m) => !isSynthesizedToolDup(m, stepCallIds),
       );
       const nextTranscript = [...transcript, ...assistantMessages];
-      const outcome = classifyStreamFinish({ toolCalls, finishReason });
+      const outcome = classifyStreamFinish({
+        toolCalls,
+        finishReason,
+        textLength: state.assistantText.trim().length,
+      });
+
+      if (outcome.kind === "empty") {
+        // Retryable empty completion: a clean stream finish (or provider error)
+        // with no text and no tool calls — the anomaly the Anthropic→Gemini quota
+        // fallback throws. `withFallback` can't catch it (the SDK call succeeded
+        // with an empty stream), so degrade here: regenerate the turn from the
+        // *pre-turn* transcript (never `nextTranscript` — appending the empty
+        // assistant message would poison the retry and Anthropic 400s on empty
+        // assistant content) up to a bounded budget, then fail loudly. The client
+        // keeps showing "Thinking…" across the retry (no `started` re-poke, no
+        // committed delta).
+        const retry = planEmptyChatCompletionRetry(state, transcript);
+        if (retry) {
+          console.warn(
+            `[chat-turn] empty completion (finishReason:${finishReason}); retry ` +
+              `${retry.state.emptyCompletionRetries}/${EMPTY_COMPLETION_MAX_RETRIES} (run ${ctx.runId})`,
+          );
+          return retry;
+        }
+        throw new Error("Assistant finished without producing a response.");
+      }
 
       if (outcome.kind === "tool-calls") {
+        // Productive turn — reset the consecutive-empty counter.
+        state.emptyCompletionRetries = 0;
         state.pendingToolCalls = toolCalls.map((call) => ({
           toolCallId: call.toolCallId,
           toolName: call.toolName,
@@ -1466,11 +1604,19 @@ const chatTurnStep: Step<ChatRunState> = {
       }
 
       if (state.assistantText.trim().length === 0) {
-        // Terminal provider anomaly: no tool calls and no assistant text leaves
-        // nothing useful to retry from this completed stream, so fail the run
-        // once and persist a legible failed assistant message for the client.
+        // Empty text that a retry can't clear — a `content-filter` (safety block)
+        // or `length` (budget exhausted) finish, which `classifyStreamFinish`
+        // deliberately excludes from the `empty` (retryable) outcome. Nothing
+        // useful to regenerate from, so fail the run once and persist a legible
+        // failed assistant message for the client. (A retryable empty `stop`/
+        // `error` is handled by the `outcome.kind === "empty"` branch above.)
         throw new Error("Assistant finished without producing a response.");
       }
+
+      // This turn produced user-visible text. Reset before either finalization
+      // guard: both guards can regenerate another chat turn, and that next turn
+      // must receive a fresh consecutive-empty retry budget.
+      state.emptyCompletionRetries = 0;
 
       // ADR-0073 runtime invariant: before completing, never let the parent
       // answer while a sub-agent it spawned is still running. If the boss skipped
@@ -1568,14 +1714,7 @@ const dispatchToolsStep: Step<ChatRunState> = {
             allowedIntegrations: state.allowedIntegrations,
           });
 
-        const results: (DispatchResult | undefined)[] = Array.from({ length: calls.length });
-        // Autonomy bucket — concurrent.
-        await Promise.all(
-          calls.map(async (call, i) => {
-            if (gateFlags[i]) return;
-            results[i] = await dispatch(call);
-          }),
-        );
+        const results = await dispatchAutonomyCallsInSafeOrder(calls, gateFlags, dispatch);
         // Gated bucket — serial in transcript order, stop at the first that
         // stages. Earlier gated calls that resolved on a prior approval execute
         // here (idempotent); later ones stay undispatched and stage on the next
@@ -1625,6 +1764,19 @@ const dispatchToolsStep: Step<ChatRunState> = {
           if (result.kind === "staged" || result.kind === "parked") continue;
 
           applyLoadIntegrationEffect(state, call.toolName, result);
+
+          if (ARTIFACT_MUTATION_TOOLS.has(call.toolName) && result.kind === "executed") {
+            // The next model step must not see a stale pre-edit body/hash. Re-read
+            // the selected/default artifact after create/update commits.
+            state.artifactsContext = undefined;
+            state.artifactReference = undefined;
+            if (call.toolName === "system.create_artifact") {
+              const createdFormat = artifactFormatSchema.safeParse(
+                getPath(result.toolResult, "format"),
+              );
+              if (createdFormat.success) state.artifactDesignMedium = createdFormat.data;
+            }
+          }
 
           const status = toolCallLogStatus(call.toolName, result);
           const resultPreview =
@@ -2166,10 +2318,13 @@ export const chatTurnWorkflow: Workflow<ChatRunState> = {
       : [];
     const userMessageId =
       typeof metadata.userMessageId === "string" ? metadata.userMessageId : undefined;
+    const artifactTargetId =
+      typeof metadata.artifactTargetId === "string" ? metadata.artifactTargetId : undefined;
     return {
       threadId,
       messageId,
       userMessageId,
+      artifactTargetId,
       tier,
       activeIntegrations: [],
       allowedIntegrations,
@@ -2183,6 +2338,7 @@ export const chatTurnWorkflow: Workflow<ChatRunState> = {
       deltaSeq: 0,
       reasoningSeq: 0,
       turnCount: 0,
+      emptyCompletionRetries: 0,
       started: false,
       foldedChildRunIds: [],
       notedFailureToolCallIds: [],

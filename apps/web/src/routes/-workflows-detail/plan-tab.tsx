@@ -10,7 +10,7 @@ import {
   type WorkflowUpdateArgs,
 } from "@alfred/sync";
 import { AlertTriangle, Link2, Lock } from "lucide-react";
-import { useEffect, useMemo, useState } from "react";
+import { useMemo, useState } from "react";
 import { AppButton, AppCard, AppPill, AppSegmented, AppTextarea } from "~/components/ui/v2";
 import { AppInput } from "~/components/ui/v2/input";
 import { cn } from "~/lib/utils";
@@ -117,17 +117,14 @@ export function PlanTab({
   onSave: (args: Omit<WorkflowUpdateArgs, "slug">) => Promise<void>;
 }) {
   const readOnly = workflow.isBuiltin;
+  // The draft seeds once per mount. The parent keys this component on
+  // `slug:rowVersion`, so when the row changes underneath us (our own save bumps
+  // rowVersion, or another device edits it) React remounts and re-seeds — no sync
+  // effect, no stale-workflow capture. Mid-edit clobbering is acceptable at
+  // single-user scale and keeps the form honest to the synced row.
   const [draft, setDraft] = useState<Draft>(() => draftFromWorkflow(workflow));
   const [saving, setSaving] = useState(false);
   const [saveError, setSaveError] = useState<string | null>(null);
-
-  // Re-seed the draft when the row changes underneath us (our own save bumps
-  // rowVersion, or another device edits it). Mid-edit clobbering is acceptable
-  // at single-user scale and keeps the form honest to the synced row.
-  // biome-ignore lint/correctness/useExhaustiveDependencies: re-init only on identity/version change
-  useEffect(() => {
-    setDraft(draftFromWorkflow(workflow));
-  }, [workflow.slug, workflow.rowVersion]);
 
   const eventTypes = EVENT_TYPES_BY_SOURCE[draft.eventSource] as readonly string[];
 
