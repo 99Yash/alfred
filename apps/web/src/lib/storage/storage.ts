@@ -25,13 +25,14 @@
  */
 
 import {
+  LOCAL_STORAGE_KEY,
   LOCAL_STORAGE_SCHEMAS,
   type LocalStorageKey,
   type LocalStorageValue,
 } from "~/lib/storage/storage-schemas";
 
 export type { LocalStorageKey, LocalStorageValue };
-export { LOCAL_STORAGE_SCHEMAS };
+export { LOCAL_STORAGE_KEY, LOCAL_STORAGE_SCHEMAS };
 
 // ---------------------------------------------------------------------------
 // Safe primitives — the only place that touches `window.localStorage`. Each is
