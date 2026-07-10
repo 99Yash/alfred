@@ -13,7 +13,6 @@
     "@alfred/api": "workspace:*",
     "@alfred/artifacts-design": "workspace:*",
     "@alfred/contracts": "workspace:*",
-    "@alfred/schemas": "workspace:*",
     "@alfred/sync": "workspace:*",
     "@elysiajs/eden": "catalog:",
     "@formkit/auto-animate": "^0.9.0",

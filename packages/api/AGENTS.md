@@ -1,19 +1,18 @@
 # Alfred API Guidance
 
-## Shape Boundaries
+`@alfred/api` owns the authenticated HTTP surface, server-side workflow orchestration, and Replicache server protocol.
 
-- For request bodies and mutator/tool inputs, parse with the owning Zod schema. After `safeParse`, avoid re-casting schema output; use typed fields or `getStringPath` when checking optional union leaves.
-- For provider/webhook/Replicache/Event payloads, use `@alfred/contracts` helpers (`isRecord`, `getPath`, `getStringPath`, `toRecord`) before reading unknown fields.
-- Do not add local `getPath`, `asRecord`, or `isObject` utilities.
+Use `@alfred/api` only for the Elysia app, its `App` type, and HTTP security headers. Import reusable server services from `@alfred/api/backend` and worker/bootstrap/teardown operations from `@alfred/api/runtime`.
 
-## Places Where `isRecord` Is Wrong
+## Boundaries
 
-- Drizzle/Postgres errors are class instances and may be wrapped through `.cause`. Use explicit structural walking for these, not `isRecord`.
-- Timer handles and Node runtime objects are not JSON. Check the specific method/property you need, such as `.unref`.
+- Validate request, webhook, workflow, tool, event, and Replicache payloads with the owning schema before domain code sees them. Derive types from that schema rather than recasting parsed output.
+- Keep routes thin: authentication/authorization, transport validation, domain delegation, and response mapping. Reusable domain behavior belongs in the owning module, not route handlers.
+- New routes must remain under the shared auth, rate-limit, and error lifecycle. Paginate lists and make retryable writes idempotent.
+- Keep multi-step writes atomic. Replicache server mutators must use the transaction supplied by the push handler and preserve row-version semantics.
 
-## Domain Helpers To Reuse
+## Runtime Values
 
-- Model ids: import `identifyLanguageModel` from `@alfred/ai`.
-- Error messages: use `toMessage`, `apiErrorMessage`, `sanitizeErrorMessage`, or `httpErrorFromResponse` rather than logging full errors.
-- Tool results/previews: use `boundToolResult`, `sanitizeToolResult`, and `toJsonValue`.
+- JSON/protocol guards are for JSON-shaped values. Drizzle errors, timer handles, SDK instances, and other runtime objects require checks for the specific property or method being used.
+- Bound and sanitize tool output and error text before persistence, transport, or logging. Never log full error objects.
 - User-model writes must go through the existing observation/fact write boundaries and schemas; do not insert raw rows directly.

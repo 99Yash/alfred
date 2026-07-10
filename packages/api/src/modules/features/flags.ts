@@ -15,7 +15,7 @@ import { getPreference } from "../memory/preferences";
  * The dimension UI implies six independent switches, but Alfred's backend
  * doesn't model them 1:1. Two entanglements the gates resolve:
  *
- *   - **Morning vs evening briefing** share one workflow (`morning-briefing`,
+ *   - **Morning vs evening briefing** share one workflow (`daily-briefing`,
  *     `slot` param). Gated per-slot in `briefing/queue.ts` `handleTick`, not
  *     via `workflows.status`.
  *   - **Email tagging vs action items** share the `email-triage` classify

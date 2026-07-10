@@ -1,13 +1,15 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useChatContext } from "~/components/chat-context";
-import { useRightRail } from "~/lib/shell/app-shell";
+import { useRightRail, useShellThreadViewModel } from "~/lib/shell/app-shell";
+import type { RailData } from "~/routes/-chat/rail/rail-data";
+import { RightRail } from "~/routes/-chat/rail/right-rail";
+import { useRailMode } from "~/routes/-chat/rail/use-rail-mode";
 import { ComposerDock } from "./composer-dock";
 import { ConversationPlaceholder } from "./conversation-placeholder";
 import { ConversationScroll } from "./conversation-scroll";
-import { findThread, INBOX, MEETINGS, TODOS, useRailMode } from "./helpers";
-import type { RailData } from "./rail-data";
-import { RightRail } from "./right-rail";
+import { findThread, INBOX, MEETINGS, TODOS } from "./helpers";
 import { ThreadTopBar } from "./thread-top-bar";
+import { PREVIEW_SHELL_THREADS } from "./preview-fixtures";
 
 /* Demo fixtures piped into the rail. `/preview/chat` is the loud design
  * surface — when this route mounts, the rail shows the full populated
@@ -34,6 +36,7 @@ const PREVIEW_RAIL_DATA: RailData = {
 };
 
 export function PreviewChatPage() {
+  useShellThreadViewModel(PREVIEW_SHELL_THREADS);
   const { activeThread } = useChatContext();
   const [composer, setComposer] = useState("");
   const railMode = useRailMode();

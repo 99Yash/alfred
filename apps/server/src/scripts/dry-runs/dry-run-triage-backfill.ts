@@ -26,7 +26,7 @@ import {
   resolveTodoSuggestion,
   senderKeyFor,
   todoSuppressionReason,
-} from "@alfred/api";
+} from "@alfred/api/backend";
 import { toStringArray, toMessage } from "@alfred/contracts";
 import { db } from "@alfred/db";
 import { documents, todos, user as userTable } from "@alfred/db/schemas";

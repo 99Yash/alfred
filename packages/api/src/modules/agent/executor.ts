@@ -2,7 +2,7 @@ import type { AgentTranscriptMessage } from "@alfred/contracts";
 import { sanitizeErrorMessage, sanitizeToolResult } from "@alfred/contracts";
 import { db, rowsFromExecute } from "@alfred/db";
 import { agentDecisionTraces, agentRuns, agentSteps, pendingActions } from "@alfred/db/schemas";
-import { runStatusSchema } from "@alfred/schemas";
+import { runStatusSchema } from "@alfred/contracts";
 import { and, eq, sql } from "drizzle-orm";
 import { publishEvent } from "../../events/publish";
 import { normalizeDecisionTraceKey, type DecisionTraceRecord } from "./decision-traces";
@@ -200,7 +200,11 @@ export async function runOnce(runId: string, opts: RunOnceOptions = {}): Promise
     result = await step.run(ctx);
   } catch (err) {
     const error = errorMessage(err);
-    return await commitStepFailure(run, stepId, attempt, error);
+    const outcome = await commitStepFailure(run, stepId, attempt, error);
+    if (outcome.kind === "failed") {
+      await finalizeWorkflowFailure(run, outcome.error);
+    }
+    return outcome;
   }
 
   // 5) Commit success in one tx: step row, run row, staged actions, decision
@@ -740,11 +744,11 @@ async function commitStepFailure(
 }
 
 /**
- * Drive a workflow's `onTerminalFailure` hook (ADR-0070 §1.4) after the run was
- * already terminal-failed in the DB by a path that never entered a step body
- * (the non-progressing backstop, a post-deploy step-resolution failure). For
- * chat-turn this writes the failed assistant row + emits `chat.message
- * completed` so the streaming bubble reconciles instead of hanging forever.
+ * Drive a workflow's `onTerminalFailure` hook after the run was terminal-failed
+ * in the DB, whether by a step throw, the non-progressing backstop, or a
+ * post-deploy step-resolution failure. For chat-turn this writes the failed
+ * assistant row + emits `chat.message completed` so the streaming bubble
+ * reconciles instead of hanging forever.
  *
  * Best-effort by contract: the run is already failed, so any throw here (an
  * unresolvable workflow after a deploy, a state-schema drift, the hook itself)

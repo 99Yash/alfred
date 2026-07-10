@@ -58,7 +58,7 @@ export const skillsRoutes = new Elysia({ prefix: "/api/skills", normalize: "type
           if (trimmedPrompt.length === 0) {
             /* No learn run for an empty draft. Fire a poke so the client
              * sees the new row before its detail page renders. */
-            emitReplicachePokes([user.id]);
+            emitReplicachePokes([user.id], skill.id);
             return { skillId: skill.id, slug: skill.slug, runId: null };
           }
 

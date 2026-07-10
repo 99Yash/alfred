@@ -3,7 +3,7 @@ import {
   eventPayloadSchemas,
   type EventFrame,
   type EventKind,
-} from "@alfred/schemas/events";
+} from "@alfred/contracts/events";
 import { getStringPath, isRecord, safeJsonParse } from "@alfred/contracts";
 
 const API_URL =

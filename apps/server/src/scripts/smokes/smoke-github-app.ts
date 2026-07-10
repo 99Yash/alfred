@@ -14,7 +14,7 @@
  * If no installation exists yet, it prints how to install — that's the
  * one manual step (the browser connect flow).
  */
-import { closeConnections, warmPool } from "@alfred/api";
+import { closeConnections, warmPool } from "@alfred/api/runtime";
 import { db } from "@alfred/db";
 import { integrationCredentials } from "@alfred/db/schemas";
 import { buildInstallUrl, getInstallationToken, mintAppJwt } from "@alfred/integrations/github";

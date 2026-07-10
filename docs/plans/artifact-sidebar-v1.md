@@ -13,7 +13,7 @@ in-house, **not** Google→PDF export. UX target: `-dimension-ai-web`'s artifact
 
 Dimension streams **partial tool-call JSON** (slide content token-by-token) into the
 sidebar via its tRPC run stream. **Alfred cannot do this today**: the chat SSE stream
-(`chat.tool` events, `packages/schemas/src/events.ts`) only carries a tool call as
+(`chat.tool` events, `packages/contracts/src/events.ts`) only carries a tool call as
 `started` (full `argsPreview`, capped 2000 chars) and `succeeded`/`failed`
 (`resultPreview`, capped 2000 chars). There is no partial-args delta channel, and the
 2000-char cap means artifact content can never ride the tool-call payload anyway.

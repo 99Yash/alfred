@@ -14,13 +14,10 @@
  */
 
 import {
-  closeAgentQueue,
-  closeConnections,
-  closeRedis,
   createRun,
   enqueueRun,
-  warmPool,
-} from "@alfred/api";
+} from "@alfred/api/backend";
+import { closeAgentQueue, closeConnections, closeRedis, warmPool } from "@alfred/api/runtime";
 import { db } from "@alfred/db";
 import {
   actionStagings,

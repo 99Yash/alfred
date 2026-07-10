@@ -30,7 +30,7 @@ import {
   type PolicyMode,
   type ToolName,
 } from "@alfred/contracts";
-import { runStatusSchema, workflowTriggerSchema } from "@alfred/schemas";
+import { runStatusSchema, workflowTriggerSchema } from "@alfred/contracts";
 import { z } from "zod";
 
 export const isoDateTimeStringSchema = z

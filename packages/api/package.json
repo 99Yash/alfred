@@ -3,7 +3,15 @@
   "type": "module",
   "exports": {
     ".": "./src/index.ts",
-    "./*": "./src/*.ts"
+    "./backend": "./src/backend.ts",
+    "./runtime": "./src/runtime.ts",
+    "./modules/triage/classify": "./src/modules/triage/classify.ts",
+    "./modules/triage/gmail-reconcile": "./src/modules/triage/gmail-reconcile.ts",
+    "./modules/triage/observations": "./src/modules/triage/observations.ts",
+    "./modules/triage/sender-context": "./src/modules/triage/sender-context.ts",
+    "./modules/triage/sent-mail": "./src/modules/triage/sent-mail.ts",
+    "./modules/triage/store": "./src/modules/triage/store.ts",
+    "./queue/connection": "./src/queue/connection.ts"
   },
   "scripts": {
     "build": "tsdown",
@@ -22,7 +30,6 @@
     "@alfred/ingestion": "workspace:*",
     "@alfred/integrations": "workspace:*",
     "@alfred/mailer": "workspace:*",
-    "@alfred/schemas": "workspace:*",
     "@alfred/sync": "workspace:*",
     "@aws-sdk/client-s3": "^3.1073.0",
     "@aws-sdk/s3-presigned-post": "^3.1073.0",

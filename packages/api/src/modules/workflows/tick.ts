@@ -1,6 +1,6 @@
 import { db } from "@alfred/db";
 import { workflows } from "@alfred/db/schemas";
-import { workflowTriggerSchema, type WorkflowTrigger } from "@alfred/schemas";
+import { workflowTriggerSchema, type WorkflowTrigger } from "@alfred/contracts";
 import { and, eq, sql } from "drizzle-orm";
 import { createRun } from "../agent/service";
 import { enqueueRun } from "../agent/queue";

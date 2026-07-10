@@ -24,14 +24,12 @@
  *     (requires an end-to-end boss run after this fixture-level smoke).
  */
 import {
-  closeConnections,
-  warmPool,
-  verifyMeteringModels,
   compactTranscript,
   assertHandoffSections,
   extractHandoffSection,
   type HandoffSection,
-} from "@alfred/api";
+} from "@alfred/api/backend";
+import { closeConnections, verifyMeteringModels, warmPool } from "@alfred/api/runtime";
 import { flushLangfuse } from "@alfred/ai";
 import type { AgentTranscriptMessage } from "@alfred/contracts";
 import { readFile, readdir } from "node:fs/promises";

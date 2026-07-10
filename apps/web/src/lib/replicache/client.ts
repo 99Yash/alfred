@@ -52,6 +52,10 @@ export interface CreateReplicacheOptions {
    * "session expired" state instead of an invisible infinite retry loop.
    */
   onAuthError?: () => void;
+  /** Fired after a pull response has been successfully parsed. */
+  onPullSuccess?: () => void;
+  /** Fired for HTTP, network, timeout, and response parsing pull failures. */
+  onPullError?: (message: string) => void;
 }
 
 // Replicache surfaces a non-200 `errorMessage` via its logging /
@@ -65,6 +69,10 @@ async function describeFailure(response: Response): Promise<string> {
     // Body already consumed or unreadable — fall back to the status line.
   }
   return `${response.status} ${response.statusText}${body ? `: ${body}` : ""}`;
+}
+
+function describePullError(error: unknown): string {
+  return error instanceof Error ? `Sync failed: ${error.message}` : "Sync failed.";
 }
 
 export function createReplicache(
@@ -88,20 +96,29 @@ export function createReplicache(
     mutators: clientMutators,
 
     puller: async (req) => {
-      const response = await fetch(`${API_URL}/api/replicache/pull`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(req),
-        credentials: "include",
-        signal: AbortSignal.timeout(SYNC_FETCH_TIMEOUT_MS),
-      });
-      if (response.ok) {
-        return {
-          response: await response.json(),
-          httpRequestInfo: { httpStatusCode: response.status, errorMessage: "" },
-        };
+      try {
+        const response = await fetch(`${API_URL}/api/replicache/pull`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(req),
+          credentials: "include",
+          signal: AbortSignal.timeout(SYNC_FETCH_TIMEOUT_MS),
+        });
+        if (response.ok) {
+          const body = await response.json();
+          options.onPullSuccess?.();
+          return {
+            response: body,
+            httpRequestInfo: { httpStatusCode: response.status, errorMessage: "" },
+          };
+        }
+        const httpRequestInfo = await failureInfo(response);
+        options.onPullError?.(`Sync failed: ${httpRequestInfo.errorMessage}`);
+        return { httpRequestInfo };
+      } catch (error) {
+        options.onPullError?.(describePullError(error));
+        throw error;
       }
-      return { httpRequestInfo: await failureInfo(response) };
     },
 
     pusher: async (req) => {

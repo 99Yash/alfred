@@ -4,12 +4,12 @@ import { useInfiniteQuery, useMutation, useQuery, useQueryClient } from "@tansta
 import { responseErrorMessage } from "~/lib/api-error";
 import { client, type EdenData } from "~/lib/eden";
 import type { IntegrationBrand } from "~/lib/integrations/integration-icons";
-import type { InboxItem, ToolTone } from "~/routes/-preview-chat/helpers";
+import type { RailInboxItem, RailToolTone } from "~/routes/-chat/rail/models";
 
 export const INBOX_PAGE_SIZE = 8;
 
 export interface InboxPage {
-  items: ReadonlyArray<InboxItem>;
+  items: ReadonlyArray<RailInboxItem>;
   nextCursor: string | null;
   total: number;
 }
@@ -236,7 +236,7 @@ function parseSenderEmail(raw: string): string | null {
 /** One row from `GET /api/me/inbox`, derived from the live route contract. */
 type InboxResponseItem = EdenData<typeof client.api.me.inbox.get>["items"][number];
 
-function toInboxItem(row: InboxResponseItem): InboxItem {
+function toInboxItem(row: InboxResponseItem): RailInboxItem {
   const display = senderDisplay(row.sender);
   const domain = senderDomain(row.sender);
   const brand = brandFor(domain);
@@ -348,13 +348,20 @@ function initialFor(name: string): string {
   return first || "?";
 }
 
-const TONE_PALETTE: ReadonlyArray<ToolTone> = ["purple", "sky", "amber", "green", "pink", "orange"];
+const TONE_PALETTE: ReadonlyArray<RailToolTone> = [
+  "purple",
+  "sky",
+  "amber",
+  "green",
+  "pink",
+  "orange",
+];
 
 /**
  * Deterministic tone-per-sender so the same correspondent keeps the same
  * avatar color across renders. Cheap djb2 hash on the display name.
  */
-function toneFor(name: string): ToolTone {
+function toneFor(name: string): RailToolTone {
   if (!name) return "purple";
   let hash = 5381;
   for (let i = 0; i < name.length; i++) {

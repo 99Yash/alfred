@@ -1,15 +1,9 @@
+import type { SyncedArtifact } from "@alfred/sync";
 import { Link } from "@tanstack/react-router";
-import {
-  FileSpreadsheet,
-  FileText,
-  MoreHorizontal,
-  Presentation,
-  Star,
-  type LucideIcon,
-} from "lucide-react";
+import { AlertTriangle, FileText, Loader2, Presentation, type LucideIcon } from "lucide-react";
 import { ArtifactPageFrame } from "~/components/artifact-page-frame";
-import type { ArtifactType, LibraryArtifact } from "~/lib/artifacts/library-artifacts";
 import { cn } from "~/lib/utils";
+import { artifactType, artifactTypeLabel, formatArtifactDate, type ArtifactType } from "./helpers";
 
 const TYPE_TINT: Record<ArtifactType, { bg: string; fg: string; ring: string; icon: LucideIcon }> =
   {
@@ -20,23 +14,20 @@ const TYPE_TINT: Record<ArtifactType, { bg: string; fg: string; ring: string; ic
       icon: FileText,
     },
     pdf: { bg: "bg-app-red-1", fg: "text-app-red-4", ring: "ring-app-red-2", icon: FileText },
-    presentation: {
+    slides: {
       bg: "bg-app-amber-1",
       fg: "text-app-amber-4",
       ring: "ring-app-amber-2",
       icon: Presentation,
     },
-    spreadsheet: {
-      bg: "bg-app-green-1",
-      fg: "text-app-green-4",
-      ring: "ring-app-green-2",
-      icon: FileSpreadsheet,
-    },
   };
 
-export function ArtifactCard({ artifact, index }: { artifact: LibraryArtifact; index: number }) {
-  const tint = TYPE_TINT[artifact.type];
+export function ArtifactCard({ artifact, index }: { artifact: SyncedArtifact; index: number }) {
+  const type = artifactType(artifact);
+  const tint = TYPE_TINT[type];
   const Icon = tint.icon;
+  const firstPage = artifact.content?.kind === "pages" ? artifact.content.pages[0] : undefined;
+  const markdown = artifact.content?.kind === "document" ? artifact.content.markdown : "";
   return (
     <Link
       to="/library/$artifact"
@@ -51,10 +42,11 @@ export function ArtifactCard({ artifact, index }: { artifact: LibraryArtifact; i
       style={{ animationDelay: `${index * 60 + 160}ms` }}
     >
       <div className="aspect-[4/3] bg-app-bg-2/60 p-4 shadow-[inset_0_-1px_0_rgba(0,0,0,0.05)]">
-        {artifact.pages[0]?.html ? (
+        {firstPage ? (
           <ArtifactPageFrame
-            html={artifact.pages[0].html}
+            html={firstPage.html}
             title={`${artifact.title} cover preview`}
+            format={artifact.format ?? "pdf"}
             className="mx-auto h-full max-w-[210px] rounded-lg shadow-[0_4px_12px_rgba(0,0,0,0.10)]"
           />
         ) : (
@@ -65,15 +57,22 @@ export function ArtifactCard({ artifact, index }: { artifact: LibraryArtifact; i
               "bg-app-bg-1",
             )}
           >
-            <p className="text-[10px] font-semibold tracking-[0.16em] text-app-fg-2 uppercase">
-              {artifact.pages[0]?.kicker}
-            </p>
-            <p className="mt-3 text-lg leading-5 font-semibold text-app-fg-4">
-              {artifact.pages[0]?.title}
-            </p>
-            <p className="mt-3 line-clamp-5 text-[11px] leading-4 text-app-fg-3">
-              {artifact.pages[0]?.body}
-            </p>
+            <p className="text-lg leading-5 font-semibold text-app-fg-4">{artifact.title}</p>
+            {markdown ? (
+              <p className="mt-3 line-clamp-6 text-[11px] leading-4 whitespace-pre-wrap text-app-fg-3">
+                {markdown}
+              </p>
+            ) : (
+              <div className="grid flex-1 place-items-center text-app-fg-3">
+                {artifact.status === "generating" ? (
+                  <Loader2 size={18} className="animate-spin" />
+                ) : artifact.status === "error" ? (
+                  <AlertTriangle size={18} />
+                ) : (
+                  <FileText size={18} />
+                )}
+              </div>
+            )}
           </div>
         )}
       </div>
@@ -90,22 +89,11 @@ export function ArtifactCard({ artifact, index }: { artifact: LibraryArtifact; i
           <Icon size={16} />
         </span>
         <div className="min-w-0 flex-1">
-          <div className="flex items-center gap-1.5">
-            <p className="truncate text-sm font-medium text-app-fg-4">{artifact.title}</p>
-            {artifact.favourite ? (
-              <Star size={12} aria-hidden className="shrink-0 fill-app-amber-4 text-app-amber-4" />
-            ) : null}
-          </div>
+          <p className="truncate text-sm font-medium text-app-fg-4">{artifact.title}</p>
           <p className="mt-0.5 truncate text-[12px] text-app-fg-3">
-            {artifact.typeLabel} · {artifact.updatedLabel}
+            {artifactTypeLabel(artifact)} · {formatArtifactDate(artifact)}
           </p>
         </div>
-        <span
-          aria-hidden
-          className="grid size-8 shrink-0 place-items-center rounded-xl text-app-fg-2 transition-colors group-hover:text-app-fg-4"
-        >
-          <MoreHorizontal size={16} />
-        </span>
       </div>
     </Link>
   );

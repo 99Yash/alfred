@@ -1,25 +1,12 @@
 import { PartyPopper } from "lucide-react";
 import type { ReactNode } from "react";
-import type { LibraryFilter } from "./helpers";
 
-export function LibraryEmpty({
-  filter,
-  query,
-}: {
-  filter: LibraryFilter;
-  query: string;
-}): ReactNode {
+export function LibraryEmpty({ query }: { query: string }): ReactNode {
   const isSearching = query.trim().length > 0;
-  const title = isSearching
-    ? "No matches"
-    : filter === "favourites"
-      ? "Nothing favourited yet"
-      : "No artifacts yet";
+  const title = isSearching ? "No matches" : "No recent artifacts";
   const description = isSearching
     ? `No artifacts match "${query}".`
-    : filter === "favourites"
-      ? "Star anything Alfred produces to keep it close by."
-      : "Generated documents, drafts, and research artifacts will appear here once Alfred starts producing them.";
+    : "Generated documents and pages will appear here once Alfred starts producing them.";
 
   return (
     <div className="grid min-h-[280px] place-items-center text-center">

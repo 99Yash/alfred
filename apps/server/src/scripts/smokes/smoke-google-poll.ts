@@ -19,7 +19,7 @@
  *  - users.watch installation against a real topic — also manual,
  *    since Pub/Sub topics + IAM are configured out-of-band.
  */
-import { closeConnections, warmPool } from "@alfred/api";
+import { closeConnections, warmPool } from "@alfred/api/runtime";
 import { db } from "@alfred/db";
 import { ingestionState, integrationCredentials } from "@alfred/db/schemas";
 import { findUnembeddedDocumentIds } from "@alfred/ingestion";

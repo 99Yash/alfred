@@ -1,5 +1,11 @@
-import { createFileRoute } from "@tanstack/react-router";
-import { LandingPage } from "~/components/landing/landing-page";
+import { createFileRoute, lazyRouteComponent, notFound } from "@tanstack/react-router";
+
+const PreviewLandingPage = import.meta.env.DEV
+  ? lazyRouteComponent(
+      () => import("./-preview-landing/preview-landing-page"),
+      "PreviewLandingPage",
+    )
+  : () => null;
 
 /**
  * Preview of the logged-out marketing landing — accessible at /preview/landing
@@ -7,5 +13,8 @@ import { LandingPage } from "~/components/landing/landing-page";
  * primitives in components/landing/* without signing out.
  */
 export const Route = createFileRoute("/preview/landing")({
-  component: () => <LandingPage healthOk={true} healthLoading={false} />,
+  beforeLoad: () => {
+    if (!import.meta.env.DEV) throw notFound();
+  },
+  component: PreviewLandingPage,
 });

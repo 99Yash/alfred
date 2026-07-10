@@ -1,12 +1,13 @@
-import { chatTurnWorkflow, registerWorkflow, userAuthoredBriefWorkflow } from "@alfred/api";
+import { chatTurnWorkflow, userAuthoredBriefWorkflow } from "@alfred/api/backend";
+import { registerWorkflow } from "@alfred/api/runtime";
 import { chatMemoryCaptureWorkflow } from "./workflows/chat-memory-capture";
 import { coldStartResearchWorkflow } from "./workflows/cold-start-research";
 import { dailyBriefingWorkflow } from "./workflows/daily-briefing";
 import { echoWithApprovalWorkflow } from "./workflows/echo-with-approval";
 import { emailTriageWorkflow } from "./workflows/email-triage";
 import { learnSkillWorkflow } from "./workflows/learn-skill";
+import { morningBriefingWorkflow } from "./workflows/legacy/morning-briefing";
 import { memoryExtractionWorkflow } from "./workflows/memory-extraction";
-import { morningBriefingWorkflow } from "./workflows/morning-briefing";
 import { skillDocumentationWorkflow } from "./workflows/skill-documentation";
 
 /**
@@ -19,6 +20,8 @@ export function registerBuiltinWorkflows(): void {
   registerWorkflow(memoryExtractionWorkflow);
   registerWorkflow(chatMemoryCaptureWorkflow);
   registerWorkflow(emailTriageWorkflow);
+  // Resume compatibility only: hidden from catalogs/seeding and unavailable
+  // for new runs, but required by persisted nonterminal agent checkpoints.
   registerWorkflow(morningBriefingWorkflow);
   registerWorkflow(dailyBriefingWorkflow);
   registerWorkflow(coldStartResearchWorkflow);

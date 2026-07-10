@@ -1,15 +1,15 @@
 # Alfred AI Guidance
 
-## Model Identity And Metering
+`@alfred/ai` owns model construction, model identity, provider configuration, embeddings, and LLM cost attribution.
 
-- Use `identifyLanguageModel(model)` for provider/model ids. Do not read `.provider` or `.modelId` with local casts.
-- LLM calls that should be attributed must use the metered wrappers (`meteredGenerateText`, `meteredGenerateObject`, `meteredStreamText`) instead of raw SDK calls, except for explicitly isolated scripts/probes.
+## Calls And Metering
 
-## Provider Options
+- Use the package's model-identification boundary; do not inspect SDK internals with local casts.
+- Production LLM calls that should be attributed must use the metered wrappers. Raw SDK calls are limited to explicitly isolated probes or package internals that implement those wrappers.
+- Every external or LLM call needs a timeout or abort signal. Cancel sibling work after failure so billable calls do not continue unattended.
 
-- Provider options are JSON-shaped bags. Use `toRecord` from `@alfred/contracts` before merging provider-specific objects like `providerOptions.anthropic`.
-- Do not use local `as Record<string, unknown>` casts for provider metadata; use `getPath`, `toRecord`, or a Zod schema.
+## Provider Data
 
-## SDK Objects
-
-- AI SDK model instances are class/SDK objects, not JSON records. A direct `typeof model === "object"` check can be correct in `models.ts`; do not replace it with `isRecord`.
+- Treat provider options, metadata, and structured responses as untrusted JSON and validate or narrow them before use.
+- AI SDK models are SDK objects, not JSON records. Inspect only the specific runtime properties the package boundary requires.
+- Keep provider-specific behavior inside this package; callers should depend on Alfred's model and metering abstractions.

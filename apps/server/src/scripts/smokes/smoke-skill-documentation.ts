@@ -25,17 +25,14 @@
  *      previous (v1) revision id pointer.
  */
 import {
-  closeAgentQueue,
-  closeConnections,
-  closeRedis,
   createRun,
   enqueueRun,
   LEARN_SKILL_WORKFLOW_SLUG,
   learnSkillDedupKey,
   SKILL_DOCUMENTATION_WORKFLOW_SLUG,
   skillDocumentationDedupKey,
-  warmPool,
-} from "@alfred/api";
+} from "@alfred/api/backend";
+import { closeAgentQueue, closeConnections, closeRedis, warmPool } from "@alfred/api/runtime";
 import { toRecord } from "@alfred/contracts";
 import { db } from "@alfred/db";
 import {

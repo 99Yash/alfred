@@ -1,10 +1,8 @@
 /**
  * Email triage (ADR-0025 #1).
  *
- * Thin module: classifier + DB store. The actual workflow steps live with
- * the rest of the built-ins under `apps/server/src/builtins/workflows/`,
- * and the trigger wiring (post-ingest enqueue) lives in the integration
- * package — they all import from here.
+ * Workflow operations live here; apps/server retains only the built-in
+ * declaration, state schema, and step topology.
  */
 
 export {
@@ -104,3 +102,9 @@ export type {
 
 export { senderExtractionEvent } from "./sender-extraction-event";
 export type { SenderExtractionEvent } from "./sender-extraction-event";
+
+export {
+  runEmailTriageApplyLabel,
+  runEmailTriageClassify,
+  type EmailTriageOperationState,
+} from "./workflow-operations";

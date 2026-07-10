@@ -16,7 +16,7 @@ import type {
   TriageCategory,
 } from "@alfred/contracts";
 import { db } from "@alfred/db";
-import { briefingRuns, briefings, documents, emailTriage, type Briefing } from "@alfred/db/schemas";
+import { briefings, documents, emailTriage, type Briefing } from "@alfred/db/schemas";
 import { and, desc, eq, gt, inArray, isNotNull, sql } from "drizzle-orm";
 import { getSenderSignificanceBatch } from "../memory/significance";
 import {
@@ -730,54 +730,4 @@ function priorBriefingBodyText(
     ...fullBriefing.sections.map((section) => section.body),
   ].filter((part): part is string => typeof part === "string" && part.trim().length > 0);
   return parts.length ? parts.join("\n\n") : null;
-}
-
-interface RecordBriefingRunArgs {
-  userId: string;
-  slot: string;
-  briefingDate: string;
-  watermarkAt: Date;
-  subject: string;
-  bodyText: string;
-  /** Markdown source of the composed body; HTML is rendered at send time. */
-  bodyMarkdown: string;
-  agentRunId: string;
-  modelId?: string;
-  inputTokens?: number;
-  outputTokens?: number;
-  payload?: Record<string, unknown>;
-  /**
-   * Legacy `briefing_runs` status for the old smoke workflow.
-   * `'dry_run'` persists the row for inspection without sending.
-   */
-  status?: "composed" | "dry_run";
-}
-
-/**
- * Legacy-only insert for the old `daily-briefing` smoke path. ADR-0048
- * makes `briefings` canonical; new product code should write terminal
- * sent/suppressed rows there instead.
- */
-export async function recordBriefingRun(args: RecordBriefingRunArgs): Promise<{ id: string }> {
-  const rows = await db()
-    .insert(briefingRuns)
-    .values({
-      userId: args.userId,
-      slot: args.slot,
-      briefingDate: args.briefingDate,
-      watermarkAt: args.watermarkAt,
-      status: args.status ?? "composed",
-      subject: args.subject,
-      bodyText: args.bodyText,
-      bodyMarkdown: args.bodyMarkdown,
-      agentRunId: args.agentRunId,
-      modelId: args.modelId,
-      inputTokens: args.inputTokens,
-      outputTokens: args.outputTokens,
-      payload: args.payload ?? {},
-    })
-    .returning({ id: briefingRuns.id });
-  const row = rows[0];
-  if (!row) throw new Error("[briefing.read] insert returned no row");
-  return { id: row.id };
 }

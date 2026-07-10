@@ -1,13 +1,12 @@
 import * as PopoverPrimitive from "@radix-ui/react-popover";
 import { Check, ChevronDown, Filter } from "lucide-react";
-import type { ArtifactType } from "~/lib/artifacts/library-artifacts";
 import { cn } from "~/lib/utils";
+import type { ArtifactType } from "./helpers";
 
 const TYPE_OPTIONS: ReadonlyArray<{ label: string; value: ArtifactType | "all" }> = [
   { label: "All types", value: "all" },
-  { label: "Presentations", value: "presentation" },
   { label: "Documents", value: "document" },
-  { label: "Spreadsheets", value: "spreadsheet" },
+  { label: "Slides", value: "slides" },
   { label: "PDF Documents", value: "pdf" },
 ];
 

@@ -23,9 +23,6 @@
  */
 import {
   AUTO_CONFIRM_THRESHOLD,
-  closeAgentQueue,
-  closeConnections,
-  closeRedis,
   confirmFact,
   editFact,
   embedMemoryChunk,
@@ -42,9 +39,9 @@ import {
   rejectFact,
   setPreference,
   supersedeFact,
-  warmPool,
   writeMemoryChunk,
-} from "@alfred/api";
+} from "@alfred/api/backend";
+import { closeAgentQueue, closeConnections, closeRedis, warmPool } from "@alfred/api/runtime";
 import { embed } from "@alfred/ai/embeddings";
 import { db } from "@alfred/db";
 import { user as userTable } from "@alfred/db/schemas";

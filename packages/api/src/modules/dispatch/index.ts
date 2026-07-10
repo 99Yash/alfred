@@ -57,7 +57,7 @@ import {
 } from "@alfred/ai";
 import { db } from "@alfred/db";
 import { actionStagings, type ActionStaging } from "@alfred/db/schemas";
-import { actionStagingStatusSchema } from "@alfred/schemas";
+import { actionStagingStatusSchema } from "@alfred/contracts";
 import { and, desc, eq, sql } from "drizzle-orm";
 import { enrichInvalidInputMessage } from "./invalid-input";
 import { emitReplicachePokes } from "../../events/replicache-events";

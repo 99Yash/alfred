@@ -1,5 +1,5 @@
 import { Outlet, useChildMatches } from "@tanstack/react-router";
-import { SkillsPage } from "~/components/skills/skills-page";
+import { SkillsPage } from "./list/skills-page";
 
 export function SkillsRoute() {
   const hasChild = useChildMatches().length > 0;

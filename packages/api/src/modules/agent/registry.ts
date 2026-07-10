@@ -35,7 +35,13 @@ export function isInternalWorkflowSlug(slug: string): boolean {
 }
 
 export function listPublicWorkflows(): Workflow<unknown>[] {
-  return listWorkflows().filter((workflow) => !isInternalWorkflowSlug(workflow.slug));
+  return listWorkflows().filter(
+    (workflow) => !isInternalWorkflowSlug(workflow.slug) && !workflow.resumeOnly,
+  );
+}
+
+export function listResumeOnlyWorkflows(): Workflow<unknown>[] {
+  return listWorkflows().filter((workflow) => workflow.resumeOnly);
 }
 
 /** Test-only: drop everything. Production code never calls this. */

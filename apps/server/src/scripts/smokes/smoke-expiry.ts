@@ -27,17 +27,19 @@ import {
   approvalExpiryJobId,
   bustPolicyCache,
   clearToolRegistryForTests,
-  closeConnections,
-  closeRedis,
   dispatchToolCall,
-  ensureDefaultActionPolicyForUser,
   expireStaging,
   getApprovalExpiryQueue,
   liveTool,
   registerTools,
   removeApprovalExpiryJob,
+} from "@alfred/api/backend";
+import {
+  closeConnections,
+  closeRedis,
+  ensureDefaultActionPolicyForUser,
   warmPool,
-} from "@alfred/api";
+} from "@alfred/api/runtime";
 import { APPROVAL_EXPIRY_MS } from "@alfred/contracts";
 import { db } from "@alfred/db";
 import {
