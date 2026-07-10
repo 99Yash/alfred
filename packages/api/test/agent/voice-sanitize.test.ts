@@ -90,6 +90,11 @@ describe("sanitizeVoice — batch", () => {
     assert.equal(sanitizeVoice("well-known"), "well-known");
   });
 
+  test("preserves markdown thematic breaks and frontmatter delimiters", () => {
+    assert.equal(sanitizeVoice("before\n---\nafter — done"), "before\n---\nafter; done");
+    assert.equal(sanitizeVoice("---\ntitle: Briefing\n---"), "---\ntitle: Briefing\n---");
+  });
+
   test("preserves newlines (only spaces/tabs are eaten around a dash)", () => {
     const out = sanitizeVoice("line one\n— line two");
     assert.ok(out.includes("line one\n"), out);
@@ -159,6 +164,8 @@ describe("createVoiceStreamSanitizer — straddling deltas", () => {
       "> quoted — source\nThe answer — concise.",
       "See [docs](https://example.com/a—b) — now.",
       "ready -- ship it",
+      "before\n---\nafter — done",
+      "---\ntitle: Briefing\n---",
     ];
     for (const sample of samples) {
       const expected = sanitizeVoice(sample);

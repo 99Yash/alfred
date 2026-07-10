@@ -1,10 +1,11 @@
 /**
- * Narrow deterministic enforcement for Alfred's no-dash preference.
+ * Narrow deterministic enforcement for Alfred-owned briefing prose.
  *
  * The transformer is deliberately lexical rather than regex-only. It preserves
  * fenced/inline code and quoted material, converts en-dash ranges to ASCII
  * hyphens, and keeps enough state for streamed output to behave exactly like a
- * completed string regardless of provider chunk boundaries.
+ * completed string regardless of chunk boundaries. Do not apply it to
+ * open-ended agent output: exact-copy and persona requests must remain verbatim.
  */
 
 export interface VoiceStreamSanitizer {
@@ -49,6 +50,8 @@ export function createVoiceStreamSanitizer(): VoiceStreamSanitizer {
   let markdownDestinationDepth = 0;
   let previousInputChar = "";
   let currentProseToken = "";
+  let lineStartHyphens = "";
+  let structuralMarkdownLine = false;
 
   const takeOutput = (): string => {
     const next = output;
@@ -75,6 +78,17 @@ export function createVoiceStreamSanitizer(): VoiceStreamSanitizer {
     currentProseToken.startsWith("www.") ||
     currentProseToken.startsWith("mailto:") ||
     currentProseToken.includes("@");
+
+  const resolveLineStartHyphensAsProse = (): void => {
+    if (lineStartHyphens.length === 0) return;
+    if (lineStartHyphens.length === 1) {
+      pendingHyphenBefore = whitespace;
+    } else {
+      pendingDash = { char: "--", before: whitespace };
+    }
+    whitespace = "";
+    lineStartHyphens = "";
+  };
 
   const resolveDash = (): void => {
     if (!pendingDash) return;
@@ -155,6 +169,31 @@ export function createVoiceStreamSanitizer(): VoiceStreamSanitizer {
   const processChar = (char: string): void => {
     const priorInputChar = previousInputChar;
     previousInputChar = char;
+
+    if (structuralMarkdownLine) {
+      output += char;
+      if (char === "\n" || char === "\r") {
+        structuralMarkdownLine = false;
+        atLineStart = true;
+      }
+      return;
+    }
+
+    if (lineStartHyphens.length > 0) {
+      if (char === "-") {
+        lineStartHyphens += char;
+        if (lineStartHyphens.length === 3) {
+          resolveDash();
+          emitWhitespace();
+          output += lineStartHyphens;
+          lineStartHyphens = "";
+          structuralMarkdownLine = true;
+          atLineStart = false;
+        }
+        return;
+      }
+      resolveLineStartHyphensAsProse();
+    }
 
     if (markdownDestinationDepth > 0) {
       output += char;
@@ -237,6 +276,10 @@ export function createVoiceStreamSanitizer(): VoiceStreamSanitizer {
     }
 
     if (char === "-") {
+      if (atLineStart && mode === "prose") {
+        lineStartHyphens = "-";
+        return;
+      }
       pendingHyphenBefore = whitespace;
       whitespace = "";
       return;
@@ -251,6 +294,7 @@ export function createVoiceStreamSanitizer(): VoiceStreamSanitizer {
       return takeOutput();
     },
     flush(): string {
+      resolveLineStartHyphensAsProse();
       resolveTicks();
       emitSingleHyphen();
       if (pendingDash) {
@@ -277,6 +321,8 @@ export function createVoiceStreamSanitizer(): VoiceStreamSanitizer {
       markdownDestinationDepth = 0;
       previousInputChar = "";
       currentProseToken = "";
+      lineStartHyphens = "";
+      structuralMarkdownLine = false;
       return finalOutput;
     },
   };
