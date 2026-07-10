@@ -33,6 +33,8 @@ import { writeScratch } from "../../scratchpad";
 import { listToolsForIntegration } from "../../tools/registry";
 import { buildConnectedSummary } from "../connected-summary";
 import { formatDateGrounding, resolveUserTimezone } from "../grounding";
+import { DEFAULT_VOICE_PROMPT } from "../voice";
+import { sanitizeVoice } from "../voice-sanitize";
 import {
   readSubAgentMetadata,
   subAgentMetadataSchema,
@@ -132,7 +134,7 @@ const BOSS_SYSTEM_PROMPT_BASE = [
 ].join("\n\n");
 
 function buildBossSystemPrompt(grounding: string, connectedSummary: string): string {
-  return `${BOSS_SYSTEM_PROMPT_BASE}\n\nThe current date is ${grounding}.\n\n${connectedSummary}`;
+  return `${BOSS_SYSTEM_PROMPT_BASE}\n\n${DEFAULT_VOICE_PROMPT}\n\nThe current date is ${grounding}.\n\n${connectedSummary}`;
 }
 
 export function buildSubAgentSystemPromptBase(subId: string): string {
@@ -161,7 +163,7 @@ export function buildSubAgentSystemPrompt(
   connectedSummary: string,
   subId: string,
 ): string {
-  return `${buildSubAgentSystemPromptBase(subId)}\n\nThe current date is ${grounding}.\n\n${connectedSummary}`;
+  return `${buildSubAgentSystemPromptBase(subId)}\n\n${DEFAULT_VOICE_PROMPT}\n\nThe current date is ${grounding}.\n\n${connectedSummary}`;
 }
 
 const bossTurnStep: Step<BriefRunState> = {
@@ -257,13 +259,16 @@ const bossTurnStep: Step<BriefRunState> = {
     }
 
     if (result.kind === "final") {
+      // Strip em-dashes the model won't drop from the prompt alone, covering both
+      // the boss's persisted summary and a sub-agent's scratch summary.
+      const finalText = sanitizeVoice(result.text);
       const output = subAgent
         ? await writeSubAgentSummary({
             parentRunId: subAgent.parentRunId,
             subId: subAgent.subId,
-            text: result.text,
+            text: finalText,
           })
-        : { text: result.text };
+        : { text: finalText };
       return {
         kind: "done",
         state: { ...state, emptyRetries: 0 },

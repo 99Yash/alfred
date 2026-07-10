@@ -12,6 +12,8 @@ import {
 } from "@alfred/contracts";
 import type { ComposedEmail } from "@alfred/mailer";
 
+import { DEFAULT_VOICE_PROMPT } from "../agent/voice";
+import { sanitizeVoice } from "../agent/voice-sanitize";
 import type { BriefingDigest, BriefingItem, PriorityCategory } from "./gather";
 import {
   buildBriefingSourcePanels,
@@ -69,6 +71,7 @@ const BRIEFING_COMPOSER_SYSTEM_PROMPT = [
     "- If an issue failed and then resolved without user action, mention it only when the rollup shows notable pain.",
     "- Section `why` fields explain the inclusion in one sentence — not model reasoning.",
   ].join("\n"),
+  DEFAULT_VOICE_PROMPT,
   [
     "Citations:",
     "- Use only the provided availableReferences list when citing source items.",
@@ -110,6 +113,23 @@ export interface ComposedBriefing {
   outputTokens?: number;
 }
 
+/**
+ * Strip em-dashes the model won't drop from the prompt alone, across every
+ * user-facing prose field of the composed briefing. Panels/ids/audit are code-
+ * generated or non-user-facing and left untouched.
+ */
+function sanitizeFullBriefing(fb: FullBriefing): FullBriefing {
+  return {
+    ...fb,
+    headline: sanitizeVoice(fb.headline),
+    sections: fb.sections.map((s) => {
+      const next = { ...s, label: sanitizeVoice(s.label), body: sanitizeVoice(s.body) };
+      if (s.why !== undefined) next.why = sanitizeVoice(s.why);
+      return next;
+    }),
+  };
+}
+
 export async function composeBriefing(args: ComposeBriefingArgs): Promise<ComposedBriefing> {
   const model = getBossModel();
   try {
@@ -147,8 +167,8 @@ export async function composeBriefing(args: ComposeBriefingArgs): Promise<Compos
 
     const fullBriefing = attachSourcePanels(result.output.fullBriefing, args.gather);
     return {
-      breakingSummary: result.output.breakingSummary.trim(),
-      fullBriefing,
+      breakingSummary: sanitizeVoice(result.output.breakingSummary.trim()),
+      fullBriefing: sanitizeFullBriefing(fullBriefing),
       modelId: identifyLanguageModel(model).modelId,
       composeFallback: false,
       inputTokens: result.usage.inputTokens,
