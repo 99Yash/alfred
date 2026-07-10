@@ -115,7 +115,13 @@ export function WorkflowDetailPage() {
         label="Workflow detail sections"
       />
 
-      {tab === "plan" ? <PlanTab workflow={workflow} onSave={updateWorkflow} /> : null}
+      {tab === "plan" ? (
+        <PlanTab
+          key={`${workflow.slug}:${workflow.rowVersion}`}
+          workflow={workflow}
+          onSave={updateWorkflow}
+        />
+      ) : null}
       {tab === "history" ? <HistoryTab workflow={view} /> : null}
       {tab === "approvals" ? <ApprovalsTab workflow={view} /> : null}
 

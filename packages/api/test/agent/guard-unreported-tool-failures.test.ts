@@ -37,6 +37,7 @@ function baseState(overrides: Partial<ChatRunState> = {}): ChatRunState {
     deltaSeq: 7,
     reasoningSeq: 0,
     turnCount: 1,
+    emptyCompletionRetries: 0,
     started: true,
     foldedChildRunIds: [],
     notedFailureToolCallIds: [],

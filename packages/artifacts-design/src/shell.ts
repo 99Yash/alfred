@@ -191,6 +191,75 @@ code {
 /* A <code> inside a block inherits the block's type; no double background. */
 .art-code code, pre code { font-family: inherit; font-size: inherit; background: none; padding: 0; border-radius: 0; }
 
+/* ── Document layer (art-doc-*) ──────────────────────────────────────────────
+ * The vocabulary for the pdf medium: resumes, one-pagers, reports. Denser than
+ * the slide type ramp (uses the --art-doc-* scale) but on the SAME palette
+ * tokens, so a document reads on-brand without the model hand-rolling an
+ * off-token grey/tiny type soup. Wrap page content in .art-doc; the container
+ * fills the page height so a document can distribute vertically instead of
+ * crowding the top. */
+.art-doc {
+  flex: 1 1 auto;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  font-size: var(--art-doc-body);
+  line-height: var(--art-doc-line-body);
+  letter-spacing: -0.01em;
+  color: var(--art-ink);
+  overflow-wrap: anywhere;
+}
+.art-doc a { color: var(--art-accent-to); text-decoration: none; }
+
+/* Header: name/role on the left, a contact stack on the right. */
+.art-doc-header { display: flex; justify-content: space-between; align-items: flex-start; gap: 24px; }
+.art-doc-header > :first-child { min-width: 0; }
+.art-doc-name { font-size: var(--art-doc-name); font-weight: 700; line-height: 1.04; letter-spacing: -0.035em; }
+.art-doc-role { font-size: var(--art-doc-role); color: var(--art-fg-muted); margin-top: 4px; }
+.art-doc-heading { font-size: var(--art-doc-heading); font-weight: 650; line-height: var(--art-doc-line-heading); letter-spacing: -0.01em; }
+.art-doc-body { font-size: var(--art-doc-body); line-height: var(--art-doc-line-body); }
+.art-doc-meta { font-size: var(--art-doc-meta); line-height: 1.4; color: var(--art-fg-muted); }
+.art-doc-contact { max-width: 42%; text-align: right; font-size: var(--art-doc-meta); line-height: 1.7; color: var(--art-fg-muted); flex: 0 1 auto; overflow-wrap: anywhere; }
+
+/* The document's single brand moment: a thin accent rule under the header
+ * lockup. At most one per page — the restraint is what keeps a document
+ * reading professional rather than like a brochure. */
+.art-doc-headrule { height: 2px; width: 100%; border: 0; border-radius: 2px; margin: 14px 0 0; background: linear-gradient(90deg, var(--art-accent-from), var(--art-accent-to)); }
+
+/* Lede / summary paragraph under the header. */
+.art-doc-lede { font-size: var(--art-doc-role); color: var(--art-fg-muted); line-height: 1.5; margin-top: 12px; max-width: 92%; }
+
+/* Section label: uppercase, tracked. Quiet but legible. */
+.art-doc-section { font-size: var(--art-doc-section); font-weight: 650; text-transform: uppercase; letter-spacing: 0.14em; color: var(--art-fg-muted); margin: 0 0 10px; }
+
+/* Section header: a label with a hairline trailing to the page edge, carrying
+ * the inter-section rhythm. Replaces a stack of identical standalone rules —
+ * the label owns the separation and the whole document gains an even cadence. */
+.art-doc-sectionhead { display: flex; align-items: center; gap: 14px; margin: 22px 0 12px; }
+.art-doc-sectionhead .art-doc-section { margin: 0; flex: 0 0 auto; }
+.art-doc-sectionhead::after { content: ""; flex: 1 1 auto; height: 1px; background: var(--art-border); }
+
+/* A plain section separator hairline (kept for one-off use; prefer the
+ * section-head cadence above for repeated sections). */
+.art-doc-rule { height: 1px; width: 100%; background: var(--art-border); border: 0; margin: 16px 0; }
+
+/* An entry: a job, role, or project. Title + date on one row, description below. */
+.art-doc-entry { margin-bottom: 14px; }
+.art-doc-entry:last-child { margin-bottom: 0; }
+.art-doc-entry-head { display: flex; justify-content: space-between; align-items: baseline; gap: 16px; }
+.art-doc-entry-title { min-width: 0; font-size: var(--art-doc-heading); font-weight: 650; line-height: var(--art-doc-line-heading); letter-spacing: -0.01em; }
+.art-doc-entry-title span { color: var(--art-fg-muted); font-weight: 450; }
+.art-doc-entry-meta { font-size: var(--art-doc-meta); color: var(--art-fg-muted); white-space: nowrap; flex: 0 0 auto; }
+.art-doc-entry-desc { color: var(--art-fg-muted); margin-top: 4px; }
+
+/* Two-column footer region (e.g. skills + education), set off by a hairline so
+ * it closes the document with the same cadence as a section head. */
+.art-doc-cols { display: grid; grid-template-columns: 1.15fr 1fr; gap: 40px; margin-top: 22px; padding-top: 20px; border-top: 1px solid var(--art-border); }
+
+/* Keyword / skill chips: a crisp hairline pill, not a flat grey blob. */
+.art-doc-chips { display: flex; flex-wrap: wrap; gap: 7px; }
+.art-doc-chip { background: var(--art-surface-raised); border: 1px solid var(--art-border); border-radius: 999px; padding: 4px 12px; font-size: var(--art-doc-meta); color: var(--art-ink); }
+
 /* Decorative aurora: a soft, on-brand gradient wash for pages with large
  * negative space (cover / section / closing). Built from the accent + hue
  * tokens so it can never drift off-palette, and kept faint so ink stays

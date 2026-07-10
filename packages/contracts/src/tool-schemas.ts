@@ -1222,6 +1222,13 @@ export const updateArtifactInput = coerceJsonArrayFields(
         .describe(
           "Full replacement page list for a `pages` artifact. Send every page you want kept — this replaces the whole set. To merely add a page, prefer append_artifact_page.",
         ),
+      baseContentHash: z
+        .string()
+        .regex(/^[a-f0-9]{64}$/)
+        .optional()
+        .describe(
+          "Required for cross-turn markdown/pages replacement. Copy it exactly from a complete artifact reference. Omit for rename-only edits or content created earlier in this same run.",
+        ),
     })
     .strict()
     .refine((v) => v.title !== undefined || v.markdown !== undefined || v.pages !== undefined, {
