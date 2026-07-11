@@ -1,4 +1,4 @@
-import { isPlainRecord } from "./guards.js";
+import { isPlainRecord } from "./guards";
 
 /**
  * Persistence poison-resistance (ADR-0070).

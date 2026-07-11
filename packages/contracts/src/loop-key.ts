@@ -36,7 +36,7 @@
  * is the same one both consumers share until that lands.
  */
 
-import { parseEmailAddress } from "./guards.js";
+import { parseEmailAddress } from "./guards";
 
 /** Owner/repo bracket in a GitHub notification subject: `[owner/repo]`. */
 const GITHUB_REPO_RE = /\[([A-Za-z0-9._-]+\/[A-Za-z0-9._-]+)\]/;

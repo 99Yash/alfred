@@ -13,7 +13,7 @@ import {
   type BriefingReferenceKind,
   type FullBriefingSection,
   type GatherSourceSlug,
-} from "./briefing.js";
+} from "./briefing";
 
 export type BriefingReference = `${BriefingReferenceKind}:${string}`;
 

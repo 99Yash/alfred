@@ -2,20 +2,20 @@ import { auth } from "@alfred/auth";
 import { db } from "@alfred/db";
 import { sql } from "drizzle-orm";
 import { Elysia } from "elysia";
-import { errorHandler } from "./middleware/error-handler.js";
-import { getSessionCached, invalidateSessionToken } from "./middleware/session-cache.js";
-import { createUntrackedRedisConnection } from "./queue/connection.js";
-import { events } from "./modules/events/index.js";
-import { replicache } from "./modules/replicache/index.js";
-import { agent } from "./modules/agent/index.js";
-import { approvalsRoutes } from "./modules/approvals/index.js";
-import { chatRoutes } from "./modules/chat/index.js";
-import { integrations } from "./modules/integrations/index.js";
-import { meRoutes } from "./modules/me/index.js";
-import { onboardingRoutes } from "./modules/onboarding/index.js";
-import { skillsRoutes } from "./modules/skills/index.js";
+import { errorHandler } from "./middleware/error-handler";
+import { getSessionCached, invalidateSessionToken } from "./middleware/session-cache";
+import { createUntrackedRedisConnection } from "./queue/connection";
+import { events } from "./modules/events/index";
+import { replicache } from "./modules/replicache/index";
+import { agent } from "./modules/agent/index";
+import { approvalsRoutes } from "./modules/approvals/index";
+import { chatRoutes } from "./modules/chat/index";
+import { integrations } from "./modules/integrations/index";
+import { meRoutes } from "./modules/me/index";
+import { onboardingRoutes } from "./modules/onboarding/index";
+import { skillsRoutes } from "./modules/skills/index";
 
-export { securityHeaders, type SecurityHeadersOptions } from "./middleware/security-headers.js";
+export { securityHeaders, type SecurityHeadersOptions } from "./middleware/security-headers";
 
 // `normalize: 'typebox'` opts out of Elysia 1.4's bundled `exact-mirror`
 // schema cleaner in favour of TypeBox's native `Value.Clean`. Elysia

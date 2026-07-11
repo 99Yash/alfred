@@ -51,7 +51,7 @@ import {
 import { db } from "@alfred/db";
 import { agentRuns, briefings, user as userTable } from "@alfred/db/schemas";
 import { eq } from "drizzle-orm";
-import { registerBuiltinWorkflows } from "../../builtins";
+import { registerBuiltinWorkflows } from "~/builtins";
 
 const POLL_INTERVAL_MS = 500;
 const POLL_TIMEOUT_MS = 120_000;

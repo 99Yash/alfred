@@ -12,7 +12,7 @@
 
 import { z } from "zod";
 
-import { deriveLoopEntityRef } from "./loop-key.js";
+import { deriveLoopEntityRef } from "./loop-key";
 
 // ─── Status ────────────────────────────────────────────────────────────────
 

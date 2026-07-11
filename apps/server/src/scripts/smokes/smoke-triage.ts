@@ -43,7 +43,7 @@ import {
 } from "@alfred/integrations/google";
 import { gmailMailboxWritesEnabled } from "@alfred/env/server";
 import { and, desc, eq, isNotNull, sql } from "drizzle-orm";
-import { registerBuiltinWorkflows } from "../../builtins";
+import { registerBuiltinWorkflows } from "~/builtins";
 
 const POLL_INTERVAL_MS = 250;
 const POLL_TIMEOUT_MS = 90_000;

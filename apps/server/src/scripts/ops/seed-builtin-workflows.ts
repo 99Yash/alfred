@@ -10,7 +10,7 @@
  * without forcing a re-signup.
  */
 import { closeConnections, seedBuiltinWorkflowsForAllUsers, warmPool } from "@alfred/api/runtime";
-import { registerBuiltinWorkflows } from "../../builtins";
+import { registerBuiltinWorkflows } from "~/builtins";
 
 async function main() {
   await warmPool();

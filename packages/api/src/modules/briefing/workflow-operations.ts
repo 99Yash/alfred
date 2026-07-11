@@ -1,9 +1,9 @@
 import {
   gatherBriefingWithSuppressionAudit,
   type BriefingInstructionSuppression,
-} from "./gather.js";
-import { localDateInTimezone, resolveBriefingPreferences } from "./preferences.js";
-import { fetchLatestWatermark, isQuietMorning } from "./read.js";
+} from "./gather";
+import { localDateInTimezone, resolveBriefingPreferences } from "./preferences";
+import { fetchLatestWatermark, isQuietMorning } from "./read";
 import {
   beginBriefing,
   markBriefingComposed,
@@ -12,16 +12,16 @@ import {
   markBriefingGathering,
   markBriefingSent,
   markBriefingSuppressed,
-} from "./store.js";
-import { notify } from "../notifications/index.js";
-import type { StepContext, StepResult } from "../agent/index.js";
+} from "./store";
+import { notify } from "../notifications/index";
+import type { StepContext, StepResult } from "../agent/index";
 import { assertIanaTimezone, type BriefingGather, type IanaTimezone } from "@alfred/contracts";
 import { db } from "@alfred/db";
 import { user } from "@alfred/db/schemas";
 import { serverEnv } from "@alfred/env/server";
 import { renderBriefingEmail } from "@alfred/mailer";
 import { eq } from "drizzle-orm";
-import { runBriefingAgent } from "./agent/agent.js";
+import { runBriefingAgent } from "./agent/agent";
 
 /**
  * Daily briefing workflow — LLM-composed prose, two slots ('morning' |

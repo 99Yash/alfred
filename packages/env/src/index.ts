@@ -1,3 +1,3 @@
-export { serverEnv, type ServerEnv } from "./server.js";
-export { databaseEnv, type DatabaseEnv } from "./database.js";
-export { CLIENT_DEFAULTS, type ClientDefaults } from "./client.js";
+export { serverEnv, type ServerEnv } from "./server";
+export { databaseEnv, type DatabaseEnv } from "./database";
+export { CLIENT_DEFAULTS, type ClientDefaults } from "./client";

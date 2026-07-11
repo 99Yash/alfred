@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { describe, test } from "node:test";
 import type { ModelMessage } from "ai";
-import { decorateTranscript, type Transcript } from "../src/agent.js";
+import { decorateTranscript, type Transcript } from "../src/agent";
 
 /**
  * Pins the transcript cache breakpoint (#223). The boss re-sends the full

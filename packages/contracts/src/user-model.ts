@@ -21,8 +21,8 @@
  */
 
 import { z } from "zod";
-import { classifyEmailDomain, domainClassSchema } from "./identity-affiliation.js";
-import { STANDING_INSTRUCTION_KEY } from "./standing-instructions.js";
+import { classifyEmailDomain, domainClassSchema } from "./identity-affiliation";
+import { STANDING_INSTRUCTION_KEY } from "./standing-instructions";
 
 // ───────────────────────────────────────────────────────────────────────────
 // Observation sources + precedence (D1, D14)

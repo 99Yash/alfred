@@ -6,7 +6,7 @@
  * source of truth once set.
  */
 
-import type { IanaTimezone } from "./briefing.js";
+import type { IanaTimezone } from "./briefing";
 
 export interface WeatherFallbackLocation {
   lat: number;

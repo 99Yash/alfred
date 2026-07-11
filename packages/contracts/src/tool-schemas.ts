@@ -29,17 +29,17 @@
  */
 
 import { z } from "zod";
-import { artifactFormatSchema, artifactKindSchema, artifactPageSchema } from "./artifacts.js";
-import { githubSearchQueryIssues, sanitizeGithubSearchQuery } from "./github-search.js";
-import { isRecord } from "./guards.js";
-import { todoSourceSchema } from "./todos.js";
+import { artifactFormatSchema, artifactKindSchema, artifactPageSchema } from "./artifacts";
+import { githubSearchQueryIssues, sanitizeGithubSearchQuery } from "./github-search";
+import { isRecord } from "./guards";
+import { todoSourceSchema } from "./todos";
 import {
   GMAIL_SEARCH_DEFAULT_RESULTS,
   GMAIL_SEARCH_MAX_RESULTS,
   GMAIL_SEARCH_QUERY_MAX_CHARS,
   GMAIL_SEARCH_SNIPPET_MAX_CHARS,
-} from "./tool-constants.js";
-import { INTEGRATION_SLUGS, type ToolName } from "./tools.js";
+} from "./tool-constants";
+import { INTEGRATION_SLUGS, type ToolName } from "./tools";
 
 /**
  * Zod's built-in email validator emits negative-lookahead assertions in JSON

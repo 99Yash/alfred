@@ -14,8 +14,8 @@
  */
 
 import { z } from "zod";
-import { TOOL_INPUT_SCHEMAS } from "./tool-schemas.js";
-import type { ToolName } from "./tools.js";
+import { TOOL_INPUT_SCHEMAS } from "./tool-schemas";
+import type { ToolName } from "./tools";
 
 export type FieldKind =
   | "text"
