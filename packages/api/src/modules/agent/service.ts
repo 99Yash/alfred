@@ -14,7 +14,7 @@ import {
 } from "@alfred/contracts";
 import { and, eq, sql } from "drizzle-orm";
 import { publishEvent } from "../../events/publish";
-import { type PgErrorLike } from "../../lib/pg-errors";
+import { pgErrorChain } from "../../lib/pg-errors";
 import { snapshotScratchToPostgres } from "../scratchpad";
 import { enqueueRun } from "./queue";
 import { getWorkflow, listWorkflows } from "./registry";
@@ -45,9 +45,8 @@ import { userAuthoredBriefWorkflow } from "./workflows/user-authored-brief";
  * double-submit 500 this fixes).
  */
 export function isUniqueViolation(err: unknown): boolean {
-  for (let cur: unknown = err, depth = 0; cur != null && depth < 5; depth++) {
-    if (typeof cur === "object" && (cur as PgErrorLike).code === "23505") return true;
-    cur = typeof cur === "object" ? (cur as PgErrorLike).cause : undefined;
+  for (const e of pgErrorChain(err)) {
+    if (e.code === "23505") return true;
   }
   return false;
 }

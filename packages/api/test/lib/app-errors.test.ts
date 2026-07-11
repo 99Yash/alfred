@@ -15,6 +15,15 @@ test("unknown errors become a closed generic public error", () => {
   assert.ok(!JSON.stringify(result).includes("usr_private"));
 });
 
+test("partial tool failures use an explicit safe fallback without exposing their cause", () => {
+  const result = toPublicAppError(new Error(RAW_SQL), "calendar_account_read_failed");
+  assert.deepEqual(result, {
+    code: "calendar_account_read_failed",
+    message: "A connected Calendar account could not be read. Reconnect it in settings.",
+  });
+  assert.ok(!JSON.stringify(result).includes("usr_private"));
+});
+
 test("registered errors keep their public code without exposing their cause", () => {
   const result = toPublicAppError(
     new AppError("artifact_create_failed", { cause: new Error(RAW_SQL) }),

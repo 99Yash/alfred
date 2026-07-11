@@ -343,13 +343,16 @@ describe("Railway credential fan-out", () => {
   test("pickCredential requires an explicit choice when several are connected", () => {
     assert.throws(
       () => pickCredential([cred("a", "A"), cred("b", "B")]),
-      /multiple Railway credentials/,
+      /Choose an active Railway credential/,
     );
   });
 
   test("pickCredential resolves a named credential and rejects an unknown id", () => {
     assert.equal(pickCredential([cred("a", "A"), cred("b", "B")], "b").id, "b");
-    assert.throws(() => pickCredential([cred("a", "A")], "zzz"), /not active or connected/);
+    assert.throws(
+      () => pickCredential([cred("a", "A")], "zzz"),
+      /Choose an active Railway credential/,
+    );
   });
 
   test("de-dupes projects across credentials (first wins) and tags provenance", async () => {
@@ -386,6 +389,8 @@ describe("Railway credential fan-out", () => {
     assert.equal(projects[0]?.credentialId, "ok");
     assert.equal(failures.length, 1);
     assert.equal(failures[0]?.credentialId, "dead");
+    assert.equal(failures[0]?.code, "railway_account_read_failed");
+    assert.doesNotMatch(JSON.stringify(failures[0]), /Not Authorized/);
   });
 
   test("returns empty without throwing when a dead credential coexists with a valid-but-empty one", async () => {
@@ -408,27 +413,27 @@ describe("Railway credential fan-out", () => {
         listProjectsForCredentials([cred("a", "A"), cred("b", "B")], async () => {
           throw authz();
         }),
-      /no Railway credential could list projects/,
+      /Railway projects could not be read/,
     );
   });
 
-  test("surfaces the single-credential authz error verbatim", async () => {
+  test("projects a single-credential authz error through the safe registry", async () => {
     await assert.rejects(
       () =>
         listProjectsForCredentials([cred("only", "Only")], async () => {
           throw authz();
         }),
-      /Not Authorized/,
+      /Railway projects could not be read/,
     );
   });
 
-  test("surfaces a single-credential non-authz error verbatim", async () => {
+  test("projects a single-credential provider error through the safe registry", async () => {
     await assert.rejects(
       () =>
         listProjectsForCredentials([cred("only", "Only")], async () => {
           throw new Error("network down");
         }),
-      /network down/,
+      /Railway projects could not be read/,
     );
   });
 
@@ -447,7 +452,8 @@ describe("Railway credential fan-out", () => {
     assert.equal(projects[0]?.credentialId, "ok");
     assert.equal(failures.length, 1);
     assert.equal(failures[0]?.credentialId, "flaky");
-    assert.match(failures[0]?.message ?? "", /network down/);
+    assert.equal(failures[0]?.code, "railway_account_read_failed");
+    assert.doesNotMatch(JSON.stringify(failures[0]), /network down/);
   });
 });
 

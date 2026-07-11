@@ -25,6 +25,7 @@ import type { z } from "zod";
 import { localDateInTimezone } from "../briefing/preferences";
 import { addLocalDays, localTimeInTimezone } from "../timezone";
 import { liveTool, type RegisteredTool } from "./registry";
+import { AppError } from "../../lib/app-errors";
 
 type GithubSearchInput = z.infer<typeof githubSearchInput>;
 
@@ -116,13 +117,11 @@ export function buildGithubSearchQuery(
 export function resolvePullRequestAuthor(
   author: string,
   accountLogin: string | null,
-  userId = "unknown",
+  _userId = "unknown",
 ): string {
   if (author !== "@me") return author;
   if (!accountLogin) {
-    throw new Error(
-      `[github.tools] user ${userId} has no github login on the active credential — reconnect GitHub in settings`,
-    );
+    throw new AppError("github_connection_required");
   }
   return accountLogin;
 }

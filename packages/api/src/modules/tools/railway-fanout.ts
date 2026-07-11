@@ -5,9 +5,10 @@
  * passed in here as plain data / an injected lister.
  */
 
-import { toMessage } from "@alfred/contracts";
 import { type RailwayDeployment, type RailwayProject } from "@alfred/integrations/railway";
 import type { ActiveBearerCredential } from "@alfred/integrations/shared";
+import { AppError, toPublicAppError, type PublicAppError } from "../../lib/app-errors";
+import { logger } from "../../lib/logger";
 
 export interface RailwayCredentialRef {
   credentialId: string;
@@ -18,10 +19,9 @@ export interface RailwayCredentialRef {
 export type RailwayProjectWithCredential = RailwayProject & RailwayCredentialRef;
 export type RailwayDeploymentWithCredential = RailwayDeployment & RailwayCredentialRef;
 
-export interface RailwayFanoutFailure {
+export interface RailwayFanoutFailure extends PublicAppError {
   credentialId: string;
   credentialLabel: string;
-  message: string;
 }
 
 export function credentialLabel(credential: ActiveBearerCredential): string {
@@ -55,21 +55,13 @@ export function pickCredential(
   if (credentialId) {
     const credential = credentials.find((c) => c.id === credentialId);
     if (!credential) {
-      throw new Error(
-        `[railway.credentials] Railway credential '${credentialId}' is not active or connected`,
-      );
+      throw new AppError("railway_credential_required");
     }
     return credential;
   }
   const [sole] = credentials;
   if (sole && credentials.length === 1) return sole;
-  // List only the ids (not the labels, which can be an email): the boss already
-  // has the id→label mapping from list_projects output, and the thrown message
-  // is persisted verbatim into executeError telemetry.
-  const choices = credentials.map((c) => c.id).join(", ");
-  throw new Error(
-    `[railway.credentials] multiple Railway credentials connected. Pass credentialId from list_projects (one of: ${choices})`,
-  );
+  throw new AppError("railway_credential_required");
 }
 
 /**
@@ -95,9 +87,11 @@ export async function listProjectsForCredentials(
   const settled = await Promise.allSettled(
     credentials.map((credential) => listProjects(credential.accessToken)),
   );
-  // With a single credential there is no sibling to fall back to, so surface the
-  // original error verbatim (the boss asks the user to reconnect).
-  if (credentials.length === 1 && settled[0]?.status === "rejected") throw settled[0].reason;
+  // With a single credential there is no sibling to fall back to, so fail with
+  // a safe actionable error while retaining the provider detail only as cause.
+  if (credentials.length === 1 && settled[0]?.status === "rejected") {
+    throw new AppError("railway_unavailable", { cause: settled[0].reason });
+  }
 
   const projectsById = new Map<string, RailwayProjectWithCredential>();
   const failures: RailwayFanoutFailure[] = [];
@@ -115,21 +109,26 @@ export async function listProjectsForCredentials(
       return;
     }
     // A sibling may still answer, so record the failure and keep going.
+    const failure = toPublicAppError(outcome.reason, "railway_account_read_failed");
+    logger.error(
+      {
+        err: outcome.reason,
+        event: "railway_account_read_failed",
+        credentialId: credential.id,
+      },
+      failure.message,
+    );
     failures.push({
       credentialId: credential.id,
       credentialLabel: credentialLabel(credential),
-      message: toMessage(outcome.reason),
+      ...failure,
     });
   });
   // Only an *all-failed* fan-out is an error. A credential that succeeded with
   // zero projects (empty workspace) must not be reported as a failure. List the
-  // ids (not labels) in the thrown message — it lands verbatim in telemetry.
+  // provider details remain in the per-account safe logs above.
   if (!anySucceeded && failures.length > 0) {
-    throw new Error(
-      `[railway.credentials] no Railway credential could list projects: ${failures
-        .map((f) => `${f.credentialId}: ${f.message}`)
-        .join("; ")}`,
-    );
+    throw new AppError("railway_unavailable");
   }
   return { projects: [...projectsById.values()], failures };
 }

@@ -1,4 +1,4 @@
-import { calendarCreateEventInput, calendarListEventsInput, toMessage } from "@alfred/contracts";
+import { calendarCreateEventInput, calendarListEventsInput } from "@alfred/contracts";
 import {
   CALENDAR_EVENTS_SCOPE,
   CALENDAR_READONLY_SCOPE,
@@ -10,10 +10,11 @@ import {
   type CalendarEvent,
 } from "@alfred/integrations/google";
 import type { z } from "zod";
+import { AppError, toPublicAppError, type PublicAppError } from "../../lib/app-errors";
+import { logger } from "../../lib/logger";
 import { localDateInTimezone } from "../briefing/preferences";
 import { addLocalDays, localTimeInTimezone } from "../timezone";
 import { liveTool, type RegisteredTool } from "./registry";
-import { AppError } from "../../lib/app-errors";
 
 const MS_PER_DAY = 86_400_000;
 
@@ -161,13 +162,11 @@ async function executeListEvents(input: CalendarListEventsInput, userId: string,
   const window = resolveCalendarListWindow(input, timezone);
   const credentials = await calendarReadCredentials(userId);
   if (credentials.length === 0) {
-    throw new Error(
-      `[calendar.tools] user ${userId} has no active google credential with calendar.readonly or calendar.events — reconnect Calendar in settings`,
-    );
+    throw new AppError("calendar_read_connection_required");
   }
 
   const events: CompactCalendarEvent[] = [];
-  const failures: Array<{ credentialId: string; message: string }> = [];
+  const failures: Array<{ credentialId: string } & PublicAppError> = [];
   for (const credential of credentials) {
     try {
       const accessToken = await getFreshAccessToken(credential.id);
@@ -181,17 +180,20 @@ async function executeListEvents(input: CalendarListEventsInput, userId: string,
       });
       for (const event of result.events) events.push(compactEvent(credential, event));
     } catch (err) {
+      const failure = toPublicAppError(err, "calendar_account_read_failed");
+      logger.error(
+        { err, event: "calendar_account_read_failed", credentialId: credential.id, userId },
+        failure.message,
+      );
       failures.push({
         credentialId: credential.id,
-        message: toMessage(err),
+        ...failure,
       });
     }
   }
 
   if (allReadsFailed(events, failures, credentials)) {
-    throw new Error(
-      `[calendar.tools] calendar unavailable for every connected account: ${failures.map((f) => f.message).join("; ")}`,
-    );
+    throw new AppError("calendar_unavailable");
   }
 
   return {

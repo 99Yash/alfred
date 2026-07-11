@@ -81,6 +81,57 @@ jobs:
       - name: API unit tests
         run: corepack pnpm --filter @alfred/api test
 
+  api-db-tests:
+    name: api-db-tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    services:
+      postgres:
+        image: pgvector/pgvector:pg16
+        env:
+          POSTGRES_USER: ci
+          POSTGRES_PASSWORD: ci
+          POSTGRES_DB: alfred_ci
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U ci"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+    env:
+      DATABASE_URL: postgresql://ci:ci@localhost:5432/alfred_ci
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Enable Corepack
+        run: corepack enable
+
+      - name: Resolve pnpm store path
+        run: echo "PNPM_STORE_PATH=$(corepack pnpm store path --silent)" >> "$GITHUB_ENV"
+
+      - uses: actions/cache@v4
+        with:
+          path: ${{ env.PNPM_STORE_PATH }}
+          key: ${{ runner.os }}-pnpm-store-${{ hashFiles('pnpm-lock.yaml') }}
+          restore-keys: ${{ runner.os }}-pnpm-store-
+
+      - name: Install dependencies
+        run: corepack pnpm install --frozen-lockfile
+
+      - name: Apply database migrations
+        run: corepack pnpm --filter @alfred/db db:migrate
+
+      - name: API database regression tests
+        run: >-
+          corepack pnpm --filter @alfred/api exec tsx --test
+          test/artifacts/create-artifact-message-fk.test.ts
+          test/dispatch/staging.test.ts
+
   ai-unit-tests:
     name: ai-unit-tests
     runs-on: ubuntu-latest
@@ -117,6 +168,7 @@ jobs:
     needs:
       - static
       - api-unit-tests
+      - api-db-tests
       - ai-unit-tests
     if: always()
     steps:
@@ -124,8 +176,10 @@ jobs:
         env:
           STATIC_RESULT: ${{ needs.static.result }}
           API_UNIT_TESTS_RESULT: ${{ needs.api-unit-tests.result }}
+          API_DB_TESTS_RESULT: ${{ needs.api-db-tests.result }}
           AI_UNIT_TESTS_RESULT: ${{ needs.ai-unit-tests.result }}
         run: |
           test "$STATIC_RESULT" = "success"
           test "$API_UNIT_TESTS_RESULT" = "success"
+          test "$API_DB_TESTS_RESULT" = "success"
           test "$AI_UNIT_TESTS_RESULT" = "success"
