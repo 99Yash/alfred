@@ -22,6 +22,13 @@
 > #223 cache warm (`cached_input_tokens` 7478). The Google-as-primary dotted-name
 > probe (step 3) remains the one unrun manual check — Google is still only a fallback.
 
+> **2026-07-11 amendment (#370).** The chat-compaction/media-enrichment plan extends the
+> code-resident per-model axis with accepted input modalities and relevant request limits.
+> Those fields route the asynchronous enrichment worker only; they do not route the sticky
+> answering chat model. The existing models.dev audit posture remains: catalog data is an
+> audit oracle, never an unvalidated runtime source of truth. See
+> [chat-compaction-and-overflow-v1.md](./chat-compaction-and-overflow-v1.md).
+
 Fixes #313: swapping the chat model means **rediscovering each model's structural quirks by hand**, usually via a live 400 or a silently-degraded turn. Today the tier→model→capability mapping is hardcoded in three places (`getChatModel`, `getChatProviderOptions`, the `anthropicModel`/`googleModel` factories), and a future tier remap can reintroduce an unsupported param — the exact #224/#303/ADR-0077 class of silent-fallback bug.
 
 This plan is the durable fix. It is **grounded in two pieces of research** (2026-06-28): the full models.dev catalog (145 providers) and opencode's `transform.ts` (the reference consumer of models.dev, written by the same team). Both are summarized below because they overturn the shape the issue originally proposed.

@@ -9,21 +9,29 @@ Adds file upload to chat. Today the composer's paperclip is a **dead button** �
 1. **Raw media** — stored in a Railway bucket, retained for replay/preview in the UI. **Never sent to the model.**
 2. **Degraded artifact** — transcript text (+ keyframe image objects) — the _only_ thing that enters the transcript and the model context.
 
-This invariant is why there is **no model-capability gate and no force-routing**: nothing unreadable ever reaches the model, so the question "which model can read this attachment" never arises. Tier picker (Auto=Sonnet 4.6 / Deep=Opus 4.8) and attachments are orthogonal. Gemini 3.5 Flash stays a pure reliability fallback, _not_ an ingest or routing target. See ADR-0065 for the full rationale and the rejected routing design.
+This invariant is why there is **no attachment-driven routing of the answering chat model**:
+nothing unreadable ever reaches that model. Tier choice and attachments remain orthogonal.
+
+**Amendment (2026-07-11, #370).** The normalization worker may itself select a
+media-capable extraction model from the shared capability registry. That is ingest/enrichment
+routing, not chat-model routing: its durable output is still text + images. Historical images
+gain a versioned OCR/visual-description representation shared by transcript compaction,
+chat-memory extraction, and on-demand evidence retrieval. See
+[chat-compaction-and-overflow-v1.md](./chat-compaction-and-overflow-v1.md).
 
 ## Why not route unsupported uploads to a capable model (the grilled fork)
 
 Routing is unsound because **file-parts persist in a thread's transcript**: once a video part is in the history, _every subsequent turn replays it_. So a single video would pin the entire thread to Gemini and silently downgrade the user off the tier they chose. Degrading at ingest means the historical transcript only ever holds text+images → no poisoning, no thread-pinning, no tier conflict, and the per-model PDF-capability question (models.dev lists Sonnet 4.6 as image-only) simply disappears. Full alternatives in ADR-0065.
 
-## The degrade pipeline (deterministic — ffmpeg + OpenAI, no Gemini)
+## The degrade pipeline (deterministic substrate + capability-routed enrichment)
 
 Reuses what's already in the tree (`@alfred/ai` `transcribeAudio()` → OpenAI `gpt-4o-mini-transcribe`, `transcription.ts:25`) plus ffmpeg:
 
 | Upload kind                | Degrade                                                                                        |
 | -------------------------- | ---------------------------------------------------------------------------------------------- |
-| image (jpeg/png/webp/heic) | **pass-through** → image part                                                                  |
+| image (jpeg/png/webp/heic) | **pass-through** → image part; background Gemini enrichment writes reusable OCR + visual description before long-thread compaction |
 | audio (mp3/wav/m4a/opus/…) | `transcribeAudio(bytes)` → transcript text                                                     |
-| video (mp4/webm/mov/…)     | ffmpeg split audio track → `transcribeAudio` (transcript) **+** ffmpeg keyframes → image parts |
+| video (mp4/webm/mov/…)     | ffmpeg audio transcript + keyframes as deterministic evidence; enrichment may also use a registry-confirmed video-capable model |
 | pdf                        | text extraction → text (page-image render **deferred**; scanned/OCR likely `reject` for v1)    |
 | docx / xlsx / code         | text extraction → text (dimension's `mammoth`/xlsx pattern)                                    |
 | anything else              | **reject** at the boundary with a clear message                                                |
@@ -71,7 +79,8 @@ The boss harness is strictly request→response today: **cannot await/poll a job
 - **Bucket↔DB reconcile sweeper** — single-user, log-only v1.
 - **Media library / sharing beyond thread lifetime** — raw media dies with the chat.
 - **Embedding/RAG over uploaded files** — these are turn-scoped context, not an ingested corpus (unlike Gmail/Drive).
-- **`MODEL_CAPABILITIES` registry + force-routing** — rejected by ADR-0065; the invariant removes the need.
+- **Attachment-driven answering-model routing** — rejected by ADR-0065. Capability-routed
+  background enrichment is allowed because it preserves the normalization invariant.
 
 ## Build order
 
@@ -92,7 +101,9 @@ The boss harness is strictly request→response today: **cannot await/poll a job
 
 ### Known v1 gaps (Phase 1 review, 2026-06-22)
 
-- **Image transcript replay** is bounded per-turn (`MAX_MODEL_ATTACHMENT_BYTES_PER_TURN`) but not compacted: recent images re-download + re-base64 every turn, no cross-turn cache. v2: replace older image parts with `[earlier image: name]` text past a threshold. (See ADR-0065 implementation notes.)
+- **Image transcript replay** is bounded per-turn (`MAX_MODEL_ATTACHMENT_BYTES_PER_TURN`) but
+  not yet compacted. #370 replaces older image replay with a durable, provenance-backed image
+  representation once thread pressure approaches compaction; raw images remain retrievable.
 - **PDF/non-universal fidelity** — degrade-to-text is lossy; scanned/infographic PDFs answer worse than a natively-multimodal model. PDF page-image rendering is the known v2 gap.
 - **Ingest-abuse limiter** (rate limit + per-message pending-bytes budget/ledger + orphan reaper) is multi-user forward-compat, kept deliberately though a single user can't trigger it.
 
