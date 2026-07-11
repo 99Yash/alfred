@@ -608,7 +608,7 @@ describe("applySenderKindDemotionFloor", () => {
     assert.equal(r.classification.category, "urgent");
   });
 
-  test("keeps an alarm that directly @-assigns / asks the user (ownership veto)", () => {
+  test("does not infer alarm ownership from body prose without direct envelope evidence", () => {
     const r = applySenderKindDemotionFloor(classification({ category: "urgent" }), groupKind, {
       sender: "no-reply@sns.amazonaws.com",
       subject: 'ALARM: "payments-api" down',
@@ -617,8 +617,8 @@ describe("applySenderKindDemotionFloor", () => {
       to: "engineering@oliv.ai",
       accountEmail: ACCOUNT,
     });
-    assert.equal(r.demoted, false);
-    assert.equal(r.classification.category, "urgent");
+    assert.equal(r.demoted, true);
+    assert.equal(r.classification.category, "fyi");
   });
 
   test("demotes a broadcast alarm whose boilerplate footer merely contains 'please' (#354 regression)", () => {
@@ -627,7 +627,7 @@ describe("applySenderKindDemotionFloor", () => {
     // "You are receiving this email…" preamble and a "…please visit the link to
     // unsubscribe" footer. COLLAB_DIRECT_OWNERSHIP_RE read that bare "please" as a
     // direct ask and vetoed EVERY demotion, so 26 SNS broadcasts stayed `urgent`
-    // with no `+kindfloor`. The narrow alarm-path ownership regex must ignore it.
+    // with no `+kindfloor`. Alarm ownership must not be inferred from body prose.
     const r = applySenderKindDemotionFloor(
       classification({
         category: "urgent",

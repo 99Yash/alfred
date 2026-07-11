@@ -881,18 +881,6 @@ function isBroadcastAuthSignInConfirmation(
 // service, and are unverified against real mail.
 const MONITORING_SENDER_RE = /sns\.amazonaws\.com|pagerduty|opsgenie|grafana|datadog/i;
 const MONITORING_ALARM_SUBJECT_RE = /^\s*(?:ALARM|ALERT)\b\s*:/i;
-// Ownership veto for the alarm path. INTENTIONALLY NARROWER than
-// `COLLAB_DIRECT_OWNERSHIP_RE`: a monitoring/list broadcast body is wrapped in
-// automated boilerplate — CloudWatch's "You are receiving this email because…",
-// SNS/Google-Groups unsubscribe footers ("…please visit the link to
-// unsubscribe"). The collab regex treats a BARE "please"/"can you" as a direct
-// ask, so that footer boilerplate vetoed every alarm demotion in prod (26 SNS
-// broadcasts stayed `urgent`, 0 demoted). Match only phrasing that genuinely
-// puts THIS user on the hook: an explicit assignment, an @-mention, or on-call/
-// ownership language — never bare politeness.
-const ALARM_DIRECT_OWNERSHIP_RE =
-  /\b(?:assigned (?:this |the alarm )?to you|assigned you\b|you were assigned|mentioned you|you(?:'re| are)\s+(?:the\s+)?(?:on-?call|owner|responsible|accountable)\b|you\s+own\b|pick this up)\b/i;
-
 function isMonitoringAlarmBroadcast(context: SenderKindDemotionFloorContext): boolean {
   const shaped =
     MONITORING_SENDER_RE.test(context.sender ?? "") ||
@@ -902,11 +890,13 @@ function isMonitoringAlarmBroadcast(context: SenderKindDemotionFloorContext): bo
   // A leaked-secret alarm must escape demotion entirely — keep the security
   // escalation + any legitimate rotate-now todo (mirrors the collab carve-out).
   if (OVERRIDE_FLOOR_SECRET_RE.test(signalText)) return false;
-  // If the alarm explicitly puts THIS user on the hook (assignment, @-mention,
-  // on-call/owner language), it is theirs — keep. Uses the narrow alarm-path
-  // regex, not COLLAB_DIRECT_OWNERSHIP_RE, so boilerplate "please …" / "can you …"
-  // in list/unsubscribe footers no longer cancels the demotion.
-  if (ALARM_DIRECT_OWNERSHIP_RE.test(signalText)) return false;
+  // Do not infer ownership from body prose here. Monitoring/list mail is wrapped
+  // in provider and distribution-list boilerplate, so generic second-person or
+  // request language is not reliable evidence that THIS user owns the alarm.
+  // This interim floor only claims the deterministic envelope fact below: a user
+  // directly present in To/Cc keeps the model's category; a provable broadcast is
+  // demoted. Role/object ownership belongs to the ADR-0066/0067 user-context
+  // consumer, not another alarm-specific phrase vocabulary.
   // DELIBERATE ASYMMETRY with the collaboration path: we do NOT honor
   // COLLAB_INTRINSIC_STAKE_RE here. Every alarm body reads as threshold-crossing /
   // "critical" / "outage" by construction, so an intrinsic-stake veto would neuter
