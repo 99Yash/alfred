@@ -19,7 +19,8 @@ import { createArtifact, finalizeRunArtifacts } from "../../src/modules/artifact
  * `artifacts_message_id_chat_messages_id_fk` for the whole turn, so artifact
  * creation failed 100% of the time in prod (all retries failed identically) and
  * the raw failed query — including `user_id` — leaked into the chat. The fix
- * leaves `message_id` NULL (the column is read nowhere; a dormant v1 seam).
+ * leaves `message_id` NULL until finalization, then backfills it so the web can
+ * associate the artifact trigger card with its authoring assistant message.
  *
  * This seeds the exact mid-turn state — user + thread + run exist, but NO
  * `chat_messages` row — and asserts the insert now succeeds with `message_id`

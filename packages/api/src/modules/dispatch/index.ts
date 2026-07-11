@@ -65,7 +65,7 @@ import {
   toPublicAppError,
   type PublicAppError,
 } from "../../lib/app-errors";
-import { logger } from "../../lib/logger";
+import { logger, safeErrorDiagnostic } from "../../lib/logger";
 import { enrichInvalidInputMessage } from "./invalid-input";
 import { emitReplicachePokes } from "../../events/replicache-events";
 import { resolveApprovalNotifyDelayMs, resolvePolicyMode } from "../action-policies/resolve";
@@ -1017,8 +1017,7 @@ async function executeToolWithSpan(
     // Strip NUL-byte poison before the span records the message (the span
     // itself also redacts secrets + bounds length — see `startToolSpan`).
     // Mirrors the `execute_error` DB-write sanitization below.
-    const publicError = toPublicAppError(err);
-    span.error(`${publicError.code}: ${publicError.message}`);
+    span.error(safeErrorDiagnostic(err));
     throw err;
   }
 }
@@ -1047,8 +1046,11 @@ async function resolveAwaitSubAgentWithSpan(
     span.success(awaitSubAgentSpanOutput(result));
     return result;
   } catch (err) {
-    const publicError = toPublicAppError(err);
-    span.error(`${publicError.code}: ${publicError.message}`);
+    span.error(safeErrorDiagnostic(err));
+    logger.error(
+      { err, event: "await_sub_agent_failed", toolName: tool.name, runId: ctx.runId },
+      "Awaiting the sub-agent failed",
+    );
     throw err;
   }
 }

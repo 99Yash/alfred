@@ -13,6 +13,7 @@ import type { z } from "zod";
 import { localDateInTimezone } from "../briefing/preferences";
 import { addLocalDays, localTimeInTimezone } from "../timezone";
 import { liveTool, type RegisteredTool } from "./registry";
+import { AppError } from "../../lib/app-errors";
 
 const MS_PER_DAY = 86_400_000;
 
@@ -51,9 +52,7 @@ async function calendarWriteCredential(userId: string): Promise<CalendarCredenti
   const creds = await listCredentials(userId, "google");
   const active = creds.find((c) => c.status === "active" && hasCalendarWriteScope(c.scopes));
   if (!active) {
-    throw new Error(
-      `[calendar.tools] user ${userId} has no active google credential with calendar.events — reconnect Calendar in settings`,
-    );
+    throw new AppError("calendar_connection_required");
   }
   return { id: active.id, accountLabel: active.accountLabel };
 }
@@ -65,16 +64,14 @@ export function resolveCalendarListWindow(
 ): CalendarListWindow {
   if (input.timeMin || input.timeMax) {
     if (input.window || input.partOfDay) {
-      throw new Error(
-        "calendar.list_events accepts either explicit timeMin/timeMax bounds or relative window/partOfDay, not both",
-      );
+      throw new AppError("calendar_bounds_conflict");
     }
     const timeMin = input.timeMin ? new Date(input.timeMin) : now;
     const timeMax = input.timeMax
       ? new Date(input.timeMax)
       : new Date(timeMin.getTime() + 7 * MS_PER_DAY);
     if (timeMax <= timeMin) {
-      throw new Error("calendar.list_events requires timeMax to be after timeMin");
+      throw new AppError("calendar_bounds_order");
     }
     return { timeMin, timeMax, timezone };
   }

@@ -1,4 +1,4 @@
-import pino from "pino";
+import pino, { type DestinationStream } from "pino";
 
 const REDACT_PATHS = [
   "req.headers.authorization",
@@ -35,6 +35,11 @@ function causeOf(value: unknown): unknown {
   return Reflect.get(value, "cause");
 }
 
+function isPostgresDiagnostic(value: unknown): boolean {
+  const code = stringField(value, "code");
+  return code !== undefined && /^[0-9A-Z]{5}$/.test(code);
+}
+
 /**
  * Allowlist an exception for logs. In particular, never serialize `message`,
  * `detail`, `query`, or `parameters`: Drizzle/Postgres may place user data and
@@ -45,7 +50,7 @@ export function serializeError(err: unknown): SafeErrorLog {
   let cause: unknown = err;
   let databaseSource: unknown;
   for (let depth = 0; depth < 4 && cause !== undefined; depth += 1) {
-    if (stringField(cause, "code") || stringField(cause, "constraint")) databaseSource = cause;
+    if (isPostgresDiagnostic(cause)) databaseSource = cause;
     cause = causeOf(cause);
   }
   const database = {
@@ -64,8 +69,26 @@ export function serializeError(err: unknown): SafeErrorLog {
   };
 }
 
-export const logger = pino({
-  name: "alfred-api",
-  serializers: { err: serializeError },
-  redact: { paths: [...REDACT_PATHS], censor: "[redacted]" },
-});
+/** A bounded, allowlisted diagnostic suitable for traces and other text-only sinks. */
+export function safeErrorDiagnostic(err: unknown): string {
+  const serialized = serializeError(err);
+  const database = serialized.database;
+  return [
+    serialized.type,
+    database?.code ? `sqlstate=${database.code}` : undefined,
+    database?.constraint ? `constraint=${database.constraint}` : undefined,
+  ]
+    .filter((part): part is string => part !== undefined)
+    .join(" ");
+}
+
+export function createLogger(destination?: DestinationStream) {
+  const options = {
+    name: "alfred-api",
+    serializers: { err: serializeError },
+    redact: { paths: [...REDACT_PATHS], censor: "[redacted]" },
+  };
+  return destination ? pino(options, destination) : pino(options);
+}
+
+export const logger = createLogger();
