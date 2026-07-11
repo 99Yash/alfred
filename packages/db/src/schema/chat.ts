@@ -1,6 +1,15 @@
 import type { ChatAttachmentStatus, ChatErrorKind } from "@alfred/contracts";
 import { sql } from "drizzle-orm";
-import { boolean, index, integer, jsonb, pgTable, text, timestamp } from "drizzle-orm/pg-core";
+import {
+  boolean,
+  check,
+  index,
+  integer,
+  jsonb,
+  pgTable,
+  text,
+  timestamp,
+} from "drizzle-orm/pg-core";
 
 import { createId, lifecycle_dates } from "../helpers";
 import { agentRuns } from "./agent";
@@ -127,6 +136,46 @@ export const chatMessages = pgTable(
 );
 
 /**
+ * Server-internal working-context state for a chat thread. This table is
+ * deliberately absent from Replicache: summaries, pressure estimates, and job
+ * metadata are runtime implementation details rather than user-visible chat
+ * entities. `summary` stays `unknown` until the API's owning boundary validates
+ * its structure and source provenance.
+ */
+export const chatThreadContext = pgTable(
+  "chat_thread_context",
+  {
+    threadId: text("thread_id")
+      .primaryKey()
+      .references(() => chatThreads.id, { onDelete: "cascade" }),
+    userId: text("user_id")
+      .notNull()
+      .references(() => user.id, { onDelete: "cascade" }),
+    summary: jsonb("summary"),
+    summaryWatermarkCreatedAt: timestamp("summary_watermark_created_at", { withTimezone: true }),
+    summaryWatermarkMessageId: text("summary_watermark_message_id"),
+    estimatedReplayTokens: integer("estimated_replay_tokens").notNull().default(0),
+    compactionRequestedAt: timestamp("compaction_requested_at", { withTimezone: true }),
+    compactionCompletedAt: timestamp("compaction_completed_at", { withTimezone: true }),
+    compactionFailedAt: timestamp("compaction_failed_at", { withTimezone: true }),
+    compactionFailureCategory: text("compaction_failure_category"),
+    compactionFailureMessage: text("compaction_failure_message"),
+    /** Monotonic compare-and-swap revision; incremented only by a winning summary write. */
+    compactionGeneration: integer("compaction_generation").notNull().default(0),
+    ...lifecycle_dates,
+  },
+  (t) => [
+    index("chat_thread_context_user_idx").on(t.userId),
+    check(
+      "chat_thread_context_watermark_pair_chk",
+      sql`(${t.summaryWatermarkCreatedAt} IS NULL) = (${t.summaryWatermarkMessageId} IS NULL)`,
+    ),
+    check("chat_thread_context_estimated_tokens_chk", sql`${t.estimatedReplayTokens} >= 0`),
+    check("chat_thread_context_generation_chk", sql`${t.compactionGeneration} >= 0`),
+  ],
+);
+
+/**
  * A file the user attached to a chat message (ADR-0065). The raw bytes live in
  * an object bucket under `chat/{userId}/{threadId}/{messageId}/{file}`; only the
  * `storageKey` is recorded here. The model never sees the raw media — at turn
@@ -189,5 +238,7 @@ export const chatAttachments = pgTable(
 
 export type ChatThread = typeof chatThreads.$inferSelect;
 export type ChatMessage = typeof chatMessages.$inferSelect;
+export type ChatThreadContext = typeof chatThreadContext.$inferSelect;
+export type NewChatThreadContext = typeof chatThreadContext.$inferInsert;
 export type ChatAttachment = typeof chatAttachments.$inferSelect;
 export type NewChatAttachment = typeof chatAttachments.$inferInsert;

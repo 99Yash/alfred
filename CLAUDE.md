@@ -13,6 +13,7 @@ Read the nearest nested `AGENTS.md` before editing within its subtree.
 - Apply database schema changes with `db:generate` then `db:migrate`. Never use `db:push` outside local exploration.
 - Put cross-boundary browser-safe contracts in `@alfred/contracts`, Replicache models in `@alfred/sync`, and implementation details in the package or feature that owns them.
 - Read [decisions.md](./decisions.md) before changing architecture.
+- Relevant or appropriate locations of handoff docs: at /private/tmp/claude-501/-Users-yash-Developer-self-alfred/... or ./.handoff here along with ./.lessons.
 
 ## References
 

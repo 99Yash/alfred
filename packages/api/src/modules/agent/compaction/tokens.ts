@@ -9,3 +9,35 @@ import type { AgentTranscriptMessage } from "@alfred/contracts";
 export function estimateTranscriptTokens(messages: readonly AgentTranscriptMessage[]): number {
   return Math.ceil(JSON.stringify(messages).length / 4);
 }
+
+/**
+ * Estimate the next model input from the prior provider-billed input plus the
+ * transcript suffix produced since that call. The billed input already covers
+ * the stable system prompt, tool declarations, and prior transcript; adding the
+ * serialized in-flight tail keeps every pressure decision on that same request
+ * shape without double-counting the stable overhead.
+ */
+export function estimateNextTurnInputTokens({
+  priorInputTokens,
+  inFlightTail,
+}: {
+  priorInputTokens: number;
+  inFlightTail: readonly AgentTranscriptMessage[];
+}): number {
+  return priorInputTokens + estimateTranscriptTokens(inFlightTail);
+}
+
+/** Pure Guard 2 decision for whether compaction is not yet worth its round-trip. */
+export function shouldSkipCompaction({
+  priorChars,
+  minimumPriorChars,
+  nextTurnInputTokens,
+  pressureThresholdTokens,
+}: {
+  priorChars: number;
+  minimumPriorChars: number;
+  nextTurnInputTokens: number;
+  pressureThresholdTokens: number;
+}): boolean {
+  return priorChars < minimumPriorChars && nextTurnInputTokens <= pressureThresholdTokens;
+}
