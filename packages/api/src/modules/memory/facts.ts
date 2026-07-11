@@ -1,6 +1,12 @@
 import { canonicalizeFactKey, clamp01 } from "@alfred/contracts";
 import { db, rowsFromExecute } from "@alfred/db";
-import { rejectedInferences, userFacts, type UserFact } from "@alfred/db/schemas";
+import {
+  rejectedInferences,
+  userFactInsertSchema,
+  userFacts,
+  type NewUserFact,
+  type UserFact,
+} from "@alfred/db/schemas";
 import {
   and,
   asc,
@@ -32,25 +38,37 @@ import {
 // schemas
 // ---------------------------------------------------------------------------
 
-export const proposeFactArgsSchema = z.object({
-  userId: z.string().min(1),
-  key: z.string().min(1).max(200),
-  /** Any JSON-serializable value. Extractor decides shape per key. */
-  value: z.unknown(),
-  /**
-   * [0, 1] — ≥ AUTO_CONFIRM_THRESHOLD auto-confirms. Clamped here at the
-   * persistence boundary: model confidences (`confidenceSchema`) are a bare
-   * `z.number()` with no schema-enforced range, and extractors pass them
-   * straight through (memory-extraction, cold-start, learn-skill), so a stray
-   * 1.1 / -0.1 from structured output would otherwise crash this gate.
-   */
-  confidence: z.number().transform(clamp01),
-  source: memorySourceSchema,
-  /** When the fact became true. Defaults to now() server-side. */
-  validFrom: z.date().optional(),
-  /** When the fact stopped being true. Usually NULL on a new proposal. */
-  validUntil: z.date().nullable().optional(),
-});
+export const proposeFactArgsSchema = userFactInsertSchema
+  .pick({
+    userId: true,
+    key: true,
+    value: true,
+    confidence: true,
+    source: true,
+    validFrom: true,
+    validUntil: true,
+  })
+  .extend({
+    userId: z.string().min(1),
+    key: z.string().min(1).max(200),
+    // Fact-policy validation owns the per-key shape; callers intentionally
+    // carry `unknown` until that policy gate runs inside `proposeFact`.
+    value: z.unknown(),
+    /**
+     * [0, 1] — ≥ AUTO_CONFIRM_THRESHOLD auto-confirms. Clamped here at the
+     * persistence boundary: model confidences (`confidenceSchema`) are a bare
+     * `z.number()` with no schema-enforced range, and extractors pass them
+     * straight through (memory-extraction, cold-start, learn-skill), so a stray
+     * 1.1 / -0.1 from structured output would otherwise crash this gate.
+     */
+    confidence: z.number().transform(clamp01),
+    source: memorySourceSchema,
+  }) satisfies z.ZodType<
+  Pick<
+    NewUserFact,
+    "userId" | "key" | "value" | "confidence" | "source" | "validFrom" | "validUntil"
+  >
+>;
 export type ProposeFactArgs = z.infer<typeof proposeFactArgsSchema>;
 
 export const editFactArgsSchema = z.object({
