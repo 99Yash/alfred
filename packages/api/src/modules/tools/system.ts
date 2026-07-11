@@ -17,6 +17,7 @@ import {
   webSearchInput,
   writeScratchInput,
 } from "@alfred/contracts";
+import { AppError } from "../../lib/app-errors";
 import {
   appendArtifactPage,
   createArtifact,
@@ -229,9 +230,7 @@ export const systemTools: readonly RegisteredTool[] = [
       const from = parseScratchToolKey(input.fromKey);
       const to = parseScratchToolKey(input.toKey);
       if (from.zone !== "scratch" || to.zone !== "shared") {
-        throw new Error(
-          "system.promote requires fromKey=scratch.<subId>.<path> and toKey=shared.<path>",
-        );
+        throw new AppError("tool_input_invalid");
       }
 
       const entry = await promoteScratch({

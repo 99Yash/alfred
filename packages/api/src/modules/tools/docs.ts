@@ -10,15 +10,14 @@
 
 import { docsGetDocumentInput } from "@alfred/contracts";
 import { getDocument, getFreshAccessToken, listCredentials } from "@alfred/integrations/google";
+import { AppError } from "../../lib/app-errors";
 import { liveTool, type RegisteredTool } from "./registry";
 
 async function accessTokenFor(userId: string): Promise<string> {
   const creds = await listCredentials(userId, "google");
   const active = creds.find((c) => c.status === "active");
   if (!active) {
-    throw new Error(
-      `[docs.tools] user ${userId} has no active google credential — reconnect in settings`,
-    );
+    throw new AppError("google_connection_required");
   }
   return getFreshAccessToken(active.id);
 }

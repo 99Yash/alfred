@@ -1,3 +1,4 @@
+import { isIndexable } from "@alfred/contracts";
 import pino, { type DestinationStream } from "pino";
 
 const REDACT_PATHS = [
@@ -23,15 +24,13 @@ type SafeErrorLog = {
 };
 
 function stringField(value: unknown, key: string): string | undefined {
-  if ((typeof value !== "object" && typeof value !== "function") || value === null)
-    return undefined;
+  if (!isIndexable(value)) return undefined;
   const field = Reflect.get(value, key);
   return typeof field === "string" ? field : undefined;
 }
 
 function causeOf(value: unknown): unknown {
-  if ((typeof value !== "object" && typeof value !== "function") || value === null)
-    return undefined;
+  if (!isIndexable(value)) return undefined;
   return Reflect.get(value, "cause");
 }
 

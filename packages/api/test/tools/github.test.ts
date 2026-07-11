@@ -78,7 +78,7 @@ describe("buildGithubSearchQuery", () => {
     assert.equal(resolvePullRequestAuthor("octocat", null), "octocat");
     assert.throws(
       () => resolvePullRequestAuthor("@me", null, "user_1"),
-      /user user_1 has no github login/,
+      /GitHub account details are unavailable/,
     );
   });
 
