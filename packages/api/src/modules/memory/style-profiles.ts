@@ -1,5 +1,10 @@
 import { db } from "@alfred/db";
-import { styleProfiles, type StyleProfile } from "@alfred/db/schemas";
+import {
+  styleProfileInsertSchema,
+  styleProfiles,
+  type NewStyleProfile,
+  type StyleProfile,
+} from "@alfred/db/schemas";
 import { and, desc, eq, inArray, isNull, or, sql } from "drizzle-orm";
 import { z } from "zod";
 import {
@@ -23,18 +28,44 @@ const styleProfileStatusSchema = z.enum(["draft", "active", "superseded"]);
 const stringArraySchema = z.array(z.string());
 const unknownArraySchema = z.array(z.unknown());
 
-export const upsertStyleProfileArgsSchema = z.object({
-  userId: z.string().min(1),
-  channel: channelSchema,
-  audienceBucket: audienceBucketSchema,
-  recipientId: z.string().nullable().optional(),
-  profileDoc: z.string().min(1).max(20_000),
-  examples: z.array(z.unknown()).optional(),
-  sourceMsgIds: z.array(z.string()).optional(),
-  generatedFromCount: z.number().int().nonnegative().optional(),
-  confidence: z.number().min(0).max(1).optional(),
-  status: styleProfileStatusSchema.optional(),
-});
+export const upsertStyleProfileArgsSchema = styleProfileInsertSchema
+  .pick({
+    userId: true,
+    channel: true,
+    audienceBucket: true,
+    recipientId: true,
+    profileDoc: true,
+    examples: true,
+    sourceMsgIds: true,
+    generatedFromCount: true,
+    confidence: true,
+    status: true,
+  })
+  .extend({
+    userId: z.string().min(1),
+    channel: channelSchema,
+    audienceBucket: audienceBucketSchema,
+    profileDoc: z.string().min(1).max(20_000),
+    examples: z.array(z.json()).optional(),
+    sourceMsgIds: z.array(z.string()).optional(),
+    generatedFromCount: z.number().int().nonnegative().optional(),
+    confidence: z.number().min(0).max(1).optional(),
+    status: styleProfileStatusSchema.optional(),
+  }) satisfies z.ZodType<
+  Pick<
+    NewStyleProfile,
+    | "userId"
+    | "channel"
+    | "audienceBucket"
+    | "recipientId"
+    | "profileDoc"
+    | "examples"
+    | "sourceMsgIds"
+    | "generatedFromCount"
+    | "confidence"
+    | "status"
+  >
+>;
 export type UpsertStyleProfileArgs = z.infer<typeof upsertStyleProfileArgsSchema>;
 
 /**

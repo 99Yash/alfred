@@ -1,16 +1,22 @@
 import { db } from "@alfred/db";
-import { userPreferences, type UserPreference } from "@alfred/db/schemas";
+import {
+  userPreferenceInsertSchema,
+  userPreferences,
+  type NewUserPreference,
+  type UserPreference,
+} from "@alfred/db/schemas";
 import { and, asc, eq, sql } from "drizzle-orm";
 import { z } from "zod";
 import { type MemorySource, memorySourceSchema, parseMemorySourceOrDefault } from "./types";
 
-export const setPreferenceArgsSchema = z.object({
-  userId: z.string().min(1),
-  key: z.string().min(1).max(200),
-  value: z.unknown(),
-  /** Defaults to `{ kind: 'user' }`. Agents that suggest a pref pass `{ kind: 'agent' }`. */
-  source: memorySourceSchema.optional(),
-});
+export const setPreferenceArgsSchema = userPreferenceInsertSchema
+  .pick({ userId: true, key: true, value: true, source: true })
+  .extend({
+    userId: z.string().min(1),
+    key: z.string().min(1).max(200),
+    /** Defaults to `{ kind: 'user' }`. Agents that suggest a pref pass `{ kind: 'agent' }`. */
+    source: memorySourceSchema.optional(),
+  }) satisfies z.ZodType<Pick<NewUserPreference, "userId" | "key" | "value" | "source">>;
 export type SetPreferenceArgs = z.infer<typeof setPreferenceArgsSchema>;
 
 /**
