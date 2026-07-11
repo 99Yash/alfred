@@ -59,6 +59,13 @@ import { db } from "@alfred/db";
 import { actionStagings, type ActionStaging } from "@alfred/db/schemas";
 import { actionStagingStatusSchema } from "@alfred/contracts";
 import { and, desc, eq, sql } from "drizzle-orm";
+import {
+  APP_ERROR_REGISTRY,
+  isAppErrorCode,
+  toPublicAppError,
+  type PublicAppError,
+} from "../../lib/app-errors";
+import { logger } from "../../lib/logger";
 import { enrichInvalidInputMessage } from "./invalid-input";
 import { emitReplicachePokes } from "../../events/replicache-events";
 import { resolveApprovalNotifyDelayMs, resolvePolicyMode } from "../action-policies/resolve";
@@ -144,7 +151,7 @@ export type DispatchResult =
   | {
       kind: "failed";
       stagingId: string | null;
-      error: { message: string };
+      error: PublicAppError;
     }
   | {
       kind: "rejected";
@@ -1010,7 +1017,8 @@ async function executeToolWithSpan(
     // Strip NUL-byte poison before the span records the message (the span
     // itself also redacts secrets + bounds length — see `startToolSpan`).
     // Mirrors the `execute_error` DB-write sanitization below.
-    span.error(sanitizeErrorMessage(toMessage(err)));
+    const publicError = toPublicAppError(err);
+    span.error(`${publicError.code}: ${publicError.message}`);
     throw err;
   }
 }
@@ -1039,7 +1047,8 @@ async function resolveAwaitSubAgentWithSpan(
     span.success(awaitSubAgentSpanOutput(result));
     return result;
   } catch (err) {
-    span.error(sanitizeErrorMessage(toMessage(err)));
+    const publicError = toPublicAppError(err);
+    span.error(`${publicError.code}: ${publicError.message}`);
     throw err;
   }
 }
@@ -1065,15 +1074,20 @@ async function executeAndCommit(
   editedByUser: boolean,
 ): Promise<DispatchResult> {
   let result: unknown;
-  let error: { message: string } | undefined;
+  let error: PublicAppError | undefined;
   try {
     result = await executeToolWithSpan(tool, input, ctx);
   } catch (err) {
     // Throw-poison class (ADR-0070 §1.3): a tool that *throws* a NUL-byte
     // message. The result-boundary sanitizer below can't reach this — a throw
     // carries no result — so strip the error string before it hits the
-    // `execute_error` jsonb write.
-    error = { message: sanitizeErrorMessage(toMessage(err)) };
+    // `execute_error` jsonb write. Project through the closed public-error
+    // registry so arbitrary exception text cannot reach persistence or users.
+    error = toPublicAppError(err);
+    logger.error(
+      { err, event: "tool_execution_failed", toolName: tool.name, runId: ctx.runId },
+      error.message,
+    );
   }
   const now = new Date();
   if (error) {
@@ -1160,11 +1174,17 @@ async function executeFastPath(
       sanitized: didSanitize,
     };
   } catch (err) {
-    // Throw-poison class (ADR-0070 §1.3).
+    // Throw-poison class (ADR-0070 §1.3). The public-error registry also keeps
+    // arbitrary exception text out of the model and transport boundaries.
+    const error = toPublicAppError(err);
+    logger.error(
+      { err, event: "tool_execution_failed", toolName: tool.name, runId: ctx.runId },
+      error.message,
+    );
     return {
       kind: "failed",
       stagingId: null,
-      error: { message: sanitizeErrorMessage(toMessage(err)) },
+      error,
     };
   }
 }
@@ -1185,13 +1205,11 @@ function synthesizeRejection(args: SynthesizeRejectionArgs): RejectedToolResult 
   };
 }
 
-function extractStoredError(stored: unknown): { message: string } {
-  if (stored instanceof Error) return { message: stored.message };
-  if (isRecord(stored)) {
-    const message = stored.message;
-    return { message: typeof message === "string" ? message : JSON.stringify(message) };
-  }
-  return { message: stored ? JSON.stringify(stored) : "unknown failure" };
+function extractStoredError(stored: unknown): PublicAppError {
+  const code = isRecord(stored) ? stored.code : undefined;
+  if (isAppErrorCode(code)) return { code, message: APP_ERROR_REGISTRY[code].message };
+  // Legacy rows may contain raw exception text. Never replay it to the model.
+  return toPublicAppError(undefined);
 }
 
 function validateScratchToolAccess(args: {

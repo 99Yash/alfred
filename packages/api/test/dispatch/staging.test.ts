@@ -96,6 +96,11 @@ describe("dispatch staging (DB-backed)", { skip: SKIP }, () => {
         description: "test double — counts executions",
         inputSchema: z.object({ slug: z.string() }),
         execute: async (input) => {
+          if (input.slug === "sql-leak") {
+            throw new Error(
+              'Failed query: insert into "artifacts" ("user_id") values ($1) params: usr_private',
+            );
+          }
           executeCount += 1;
           // The `poison` sentinel returns a NUL byte the dispatch-boundary
           // sanitizer must strip (ADR-0070 §1.1) — used to prove the sanitize
@@ -229,6 +234,37 @@ describe("dispatch staging (DB-backed)", { skip: SKIP }, () => {
       .from(actionStagings)
       .where(and(eq(actionStagings.runId, runId), eq(actionStagings.toolCallId, toolCallId)));
     assert.equal(rows[0]?.executeSanitized, true, "the verdict is persisted on the row");
+  });
+
+  test("raw thrown SQL never reaches the returned or persisted tool error", async () => {
+    const { userId, runId } = await seedUserAndRun();
+    const toolCallId = `tc_${randomUUID().slice(0, 8)}`;
+    const result = await dispatchToolCall({
+      runId,
+      stepId: "dispatch-tools",
+      toolCallId,
+      toolName: "system.load_integration",
+      input: { slug: "sql-leak" },
+      userId,
+      caller: "boss",
+    });
+
+    assert.deepEqual(result, {
+      kind: "failed",
+      stagingId: result.stagingId,
+      error: {
+        code: "tool_execution_failed",
+        message: "The tool failed unexpectedly. Please try again.",
+      },
+    });
+
+    const [row] = await db()
+      .select({ executeError: actionStagings.executeError })
+      .from(actionStagings)
+      .where(and(eq(actionStagings.runId, runId), eq(actionStagings.toolCallId, toolCallId)));
+    const persisted = JSON.stringify(row?.executeError);
+    assert.doesNotMatch(persisted, /Failed query|usr_private|insert into/i);
+    assert.match(persisted, /tool_execution_failed/);
   });
 
   test("#293 redacts proposed_input for an autonomous tool while execute sees the raw url", async () => {

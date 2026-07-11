@@ -6,9 +6,10 @@ import {
 } from "@alfred/contracts";
 import { validatePdfArtifactHtml } from "@alfred/artifacts-design/validation";
 import { db } from "@alfred/db";
-import { artifacts } from "@alfred/db/schemas";
+import { artifacts, type Artifact } from "@alfred/db/schemas";
 import { and, eq, sql } from "drizzle-orm";
 import { emitReplicachePokes } from "../../events/replicache-events";
+import { AppError } from "../../lib/app-errors";
 import { artifactReplacementMatchesBase } from "./content-hash";
 
 /**
@@ -32,8 +33,6 @@ export interface ArtifactWriteContext {
   threadId: string;
   /** The authoring agent run (audit/replay). */
   runId: string;
-  /** The assistant message that authored it (drives the in-message trigger card). */
-  messageId: string;
 }
 
 export type CreateArtifactResult =
@@ -80,25 +79,34 @@ export async function createArtifact(
       ? { kind: "document" as const, markdown: input.markdown ?? "" }
       : emptyArtifactContent("pages");
 
-  const [row] = await db()
-    .insert(artifacts)
-    .values({
-      userId: ctx.userId,
-      threadId: ctx.threadId,
-      runId: ctx.runId,
-      messageId: ctx.messageId,
-      kind: input.kind,
-      format: input.kind === "pages" ? (input.format ?? null) : null,
-      title: input.title,
-      status: "generating",
-      content,
-    })
-    .returning({
-      id: artifacts.id,
-      title: artifacts.title,
-      kind: artifacts.kind,
-      format: artifacts.format,
-    });
+  // `message_id` starts NULL. The authoring assistant message is
+  // not persisted to `chat_messages` until the turn finalizes (~minutes after
+  // the tool runs), so referencing it here fails the `message_id` FK for every
+  // in-turn create_artifact call. `finalizeRunArtifacts` backfills the column
+  // after that message is persisted so the web can attach its trigger card.
+  let row: Pick<Artifact, "id" | "title" | "kind" | "format"> | undefined;
+  try {
+    [row] = await db()
+      .insert(artifacts)
+      .values({
+        userId: ctx.userId,
+        threadId: ctx.threadId,
+        runId: ctx.runId,
+        kind: input.kind,
+        format: input.kind === "pages" ? (input.format ?? null) : null,
+        title: input.title,
+        status: "generating",
+        content,
+      })
+      .returning({
+        id: artifacts.id,
+        title: artifacts.title,
+        kind: artifacts.kind,
+        format: artifacts.format,
+      });
+  } catch (err) {
+    throw new AppError("artifact_create_failed", { cause: err });
+  }
 
   if (!row) throw new Error("[createArtifact] insert returned no row");
   emitReplicachePokes([ctx.userId]);
@@ -307,11 +315,12 @@ export async function updateArtifact(
 export async function finalizeRunArtifacts(
   userId: string,
   runId: string,
+  messageId: string,
   status: "complete" | "error",
 ): Promise<void> {
   const updated = await db()
     .update(artifacts)
-    .set({ status, rowVersion: sql`${artifacts.rowVersion} + 1` })
+    .set({ messageId, status, rowVersion: sql`${artifacts.rowVersion} + 1` })
     .where(
       and(
         eq(artifacts.userId, userId),
