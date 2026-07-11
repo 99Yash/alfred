@@ -54,7 +54,7 @@ import {
   workflows,
 } from "@alfred/db/schemas";
 import { and, eq, sql } from "drizzle-orm";
-import { registerBuiltinWorkflows } from "../../builtins";
+import { registerBuiltinWorkflows } from "~/builtins";
 
 const WORKFLOW_SLUG = "smoke-brief-execution";
 const SMOKE_BRIEF =

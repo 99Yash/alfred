@@ -38,7 +38,7 @@ import { db } from "@alfred/db";
 import { agentRuns, memoryChunks, user as userTable, userFacts } from "@alfred/db/schemas";
 import { serverEnv } from "@alfred/env/server";
 import { and, desc, eq, sql } from "drizzle-orm";
-import { registerBuiltinWorkflows } from "../../builtins";
+import { registerBuiltinWorkflows } from "~/builtins";
 
 // Seed + parallel aspect loops + synthesis can run a couple of minutes
 // of LLM + web_search calls; budget 5min before giving up.

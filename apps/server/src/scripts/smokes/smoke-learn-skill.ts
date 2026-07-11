@@ -43,7 +43,7 @@ import {
   userFacts,
 } from "@alfred/db/schemas";
 import { and, desc, eq, sql } from "drizzle-orm";
-import { registerBuiltinWorkflows } from "../../builtins";
+import { registerBuiltinWorkflows } from "~/builtins";
 
 const POLL_INTERVAL_MS = 1_000;
 const POLL_TIMEOUT_MS = 90_000; // cheap-tier distill is ~5–15s; 90s is comfortable headroom.

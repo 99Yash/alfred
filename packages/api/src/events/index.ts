@@ -8,8 +8,8 @@
  * Shutdown reverses that order: stop the relay first so we don't enqueue
  * frames into a torn-down bus, then close the bus.
  */
-import { startOutboxRelay, stopOutboxRelay } from "./outbox-relay.js";
-import { closeUserEventsBus, initUserEventsBus } from "./user-events-bus.js";
+import { startOutboxRelay, stopOutboxRelay } from "./outbox-relay";
+import { closeUserEventsBus, initUserEventsBus } from "./user-events-bus";
 
 export async function initEventBridge(): Promise<void> {
   await initUserEventsBus();

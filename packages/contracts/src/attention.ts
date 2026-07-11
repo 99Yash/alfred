@@ -20,7 +20,7 @@
  * tuning surface with the ADR-0057/0059 significance weights.
  */
 import { z } from "zod";
-import type { TriageCategory } from "./triage.js";
+import type { TriageCategory } from "./triage";
 
 // ─── Significance bucketing (shared with the sender-relationship resolver) ───
 // The same two cutoffs the ADR-0059 resolver uses (0.66 / 0.33). Kept here so

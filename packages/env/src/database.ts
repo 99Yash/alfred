@@ -3,7 +3,7 @@ import { z } from "zod";
 /**
  * Narrow env parser for DB-only runtimes (migration tooling, one-off scripts,
  * the `db()` pool factory). Reads ONLY `DATABASE_URL` so a process that just
- * needs Postgres isn't forced to supply the entire {@link import("./server.js").ServerEnv}
+ * needs Postgres isn't forced to supply the entire {@link import("./server").ServerEnv}
  * schema (Redis, Auth, OAuth, GitHub App, API keys). The full server runtime
  * still validates everything via `serverEnv()`.
  */

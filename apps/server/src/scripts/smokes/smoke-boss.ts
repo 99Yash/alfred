@@ -49,7 +49,7 @@ import {
 } from "@alfred/db/schemas";
 import { GMAIL_SEND_SCOPE } from "@alfred/integrations/google";
 import { and, desc, eq, inArray, like, sql } from "drizzle-orm";
-import { registerBuiltinWorkflows } from "../../builtins";
+import { registerBuiltinWorkflows } from "~/builtins";
 
 const WORKFLOW_SLUG = "smoke-boss";
 

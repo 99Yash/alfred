@@ -1,5 +1,5 @@
 import { Elysia } from "elysia";
-import { ApiError, apiErrorResponse, type ApiErrorResponse } from "./errors.js";
+import { ApiError, apiErrorResponse, type ApiErrorResponse } from "./errors";
 import { toMessage } from "@alfred/contracts";
 
 export const errorHandler = new Elysia({ name: "error-handler", normalize: "typebox" }).onError(

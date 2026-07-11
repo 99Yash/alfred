@@ -1,4 +1,4 @@
-import { DEFAULT_VOICE_PROMPT } from "./voice.js";
+import { DEFAULT_VOICE_PROMPT } from "./voice";
 
 export const AGENT_OUTPUT_PURPOSES = {
   assistant_response: { voice: "default" },
