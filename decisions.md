@@ -1604,6 +1604,22 @@ This supersedes the `getCheapModel()` references for the compactor throughout th
 
 **Fault model addition — overflow is not the same as failure.** Two distinct paths: a compactor *call* failure (model error / invalid envelope) takes the existing bounded retry → `compactor_failed`; a *prior-slice-too-large* condition first falls over to `COMPACTOR_FALLBACK_MODEL` (1M window) and only fails with `compactor_input_too_large` when the slice exceeds even the fallback. The latter is the single place a degraded (lower-quality) compaction is accepted — surviving a pathological high-payload turn beats killing the run. This refines the body's blanket "no degraded fallback" line, which predated the asymmetric-window reality.
 
+**Amendment (2026-07-11) — persisted chat compaction resolves alternative (f).**
+Substantial composer conversations now exist, and #370 demonstrated the deferred reliability
+cliff: chat replays unbounded persisted history and otherwise discovers overflow through a
+provider failure. Chat therefore gains a distinct, provenance-backed
+`<conversation_summary>` plus compound message watermark, a token-budgeted verbatim tail,
+background-first compaction, an honest synchronous pre-call backstop, and within-run tool-loop
+compaction. The summary is historical user-role context—not a boss `<run_summary>` and never a
+system instruction—and raw messages/tool records remain recoverable through bounded on-demand
+history retrieval. Background compaction starts at
+`min(60% of the effective window, 200_000 tokens)`; synchronous safety acts at 85% after the
+actual system/tool/transcript shape and explicit output reserve are accounted for. Chat
+compaction manages working context only and remains separate from chat-memory extraction and
+durable user-memory projection. Historical media is normalized by a shared, capability-routed
+enrichment worker; attachment modality never swaps the sticky answering model. Full decision
+and test contract: [chat-compaction-and-overflow-v1.md](./docs/plans/chat-compaction-and-overflow-v1.md).
+
 ---
 
 ## ADR-0036 — Redis as scratchpad primary; Postgres as terminal snapshot
