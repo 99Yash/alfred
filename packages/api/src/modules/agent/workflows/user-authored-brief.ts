@@ -33,7 +33,7 @@ import { writeScratch } from "../../scratchpad";
 import { listToolsForIntegration } from "../../tools/registry";
 import { buildConnectedSummary } from "../connected-summary";
 import { formatDateGrounding, resolveUserTimezone } from "../grounding";
-import { DEFAULT_VOICE_PROMPT } from "../voice";
+import { composeAgentInstructions } from "../instructions";
 import {
   readSubAgentMetadata,
   subAgentMetadataSchema,
@@ -133,7 +133,11 @@ const BOSS_SYSTEM_PROMPT_BASE = [
 ].join("\n\n");
 
 function buildBossSystemPrompt(grounding: string, connectedSummary: string): string {
-  return `${BOSS_SYSTEM_PROMPT_BASE}\n\n${DEFAULT_VOICE_PROMPT}\n\nThe current date is ${grounding}.\n\n${connectedSummary}`;
+  return composeAgentInstructions({
+    purpose: "assistant_response",
+    role: BOSS_SYSTEM_PROMPT_BASE,
+    grounding: [`The current date is ${grounding}.`, connectedSummary],
+  });
 }
 
 export function buildSubAgentSystemPromptBase(subId: string): string {
@@ -162,7 +166,11 @@ export function buildSubAgentSystemPrompt(
   connectedSummary: string,
   subId: string,
 ): string {
-  return `${buildSubAgentSystemPromptBase(subId)}\n\nThe current date is ${grounding}.\n\n${connectedSummary}`;
+  return composeAgentInstructions({
+    purpose: "source_faithful",
+    role: buildSubAgentSystemPromptBase(subId),
+    grounding: [`The current date is ${grounding}.`, connectedSummary],
+  });
 }
 
 const bossTurnStep: Step<BriefRunState> = {
