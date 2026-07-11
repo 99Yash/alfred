@@ -34,6 +34,7 @@ import {
 } from "@alfred/integrations/google";
 import { and, eq, inArray } from "drizzle-orm";
 import { liveTool, type RegisteredTool } from "./registry";
+import { AppError } from "../../lib/app-errors";
 
 /**
  * Best-effort Gmail webview URL. Gmail accepts thread ids in the `#all/` path
@@ -68,19 +69,14 @@ async function pickGmailCredentialId(
   const creds = await listCredentials(userId, "google");
   const active = creds.filter((c) => c.status === "active");
   if (active.length === 0) {
-    throw new Error(
-      `[gmail.tools] user ${userId} has no active google credential — reconnect in settings`,
-    );
+    throw new AppError("gmail_connection_required");
   }
   const scoped = active.find((c) => {
     const granted = new Set(c.scopes);
     return gmailScopes.some((s) => granted.has(s));
   });
   if (!scoped) {
-    throw new Error(
-      `[gmail.tools] user ${userId} has ${active.length} active google credential(s) but none grant ` +
-        `Gmail access — reconnect with Gmail enabled`,
-    );
+    throw new AppError("gmail_scope_required");
   }
   return scoped.id;
 }
