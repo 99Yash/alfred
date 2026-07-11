@@ -41,8 +41,13 @@ import { and, desc, eq, inArray, isNotNull, sql } from "drizzle-orm";
 import { registerBuiltinWorkflows } from "~/builtins";
 import { toMessage } from "@alfred/contracts";
 
-/** Mailboxes to backfill. */
-const TARGET_EMAILS = ["yash.k@oliv.ai", "yashgouravkar@gmail.com"];
+/**
+ * Mailboxes to backfill. Override with `BACKFILL_TARGET_EMAILS` (comma-separated)
+ * to scope a run to a subset — e.g. a single mailbox for a targeted re-triage.
+ */
+const TARGET_EMAILS = process.env.BACKFILL_TARGET_EMAILS?.split(",")
+  .map((email) => email.trim())
+  .filter(Boolean) ?? ["yash.k@oliv.ai", "yashgouravkar@gmail.com"];
 /**
  * Newest doc per thread, most-recent N threads. Defaults to 50; override with
  * `BACKFILL_RECENT_LIMIT` (e.g. the 2026-06-10 re-run scoped to 100 each).
@@ -206,7 +211,7 @@ async function processUser(u: TargetUser): Promise<void> {
         // backfill over a previously-triaged inbox skips everything and mints no
         // todos. Backfill-only; the real-time path never sets it.
         input: { documentId, reason: "manual", force: true },
-        metadata: { source: "backfill-triage-committed-2026-06-09" },
+        metadata: { source: "backfill-triage-committed" },
         trigger: { kind: "manual" },
       });
       await enqueueRun(runId);
