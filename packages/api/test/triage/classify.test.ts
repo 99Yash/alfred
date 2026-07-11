@@ -621,6 +621,39 @@ describe("applySenderKindDemotionFloor", () => {
     assert.equal(r.classification.category, "urgent");
   });
 
+  test("demotes a broadcast alarm whose boilerplate footer merely contains 'please' (#354 regression)", () => {
+    // The real prod failure: every CloudWatch/SNS alarm relayed through the
+    // `engineering@oliv.ai` Google Group carries list boilerplate — CloudWatch's
+    // "You are receiving this email…" preamble and a "…please visit the link to
+    // unsubscribe" footer. COLLAB_DIRECT_OWNERSHIP_RE read that bare "please" as a
+    // direct ask and vetoed EVERY demotion, so 26 SNS broadcasts stayed `urgent`
+    // with no `+kindfloor`. The narrow alarm-path ownership regex must ignore it.
+    const r = applySenderKindDemotionFloor(
+      classification({
+        category: "urgent",
+        todoSuggestion: { name: "Investigate baserow response time" },
+        todoDecision: { outcome: "proposed" },
+      }),
+      groupKind,
+      {
+        sender: "AWS Notifications <no-reply@sns.amazonaws.com>",
+        subject: 'ALARM: "baserow-response-time" in US East (Ohio)',
+        signalText:
+          'ALARM: "baserow-response-time" in US East (Ohio)\n' +
+          "You are receiving this email because your Amazon CloudWatch Alarm entered the ALARM state.\n" +
+          "Threshold Crossed: 1 datapoint was greater than the threshold (10.0).\n" +
+          '--\nYou received this message because you are subscribed to the Google Groups "Engineering" group.\n' +
+          "To unsubscribe, please visit https://groups.google.com/a/oliv.ai/unsubscribe.",
+        to: "engineering@oliv.ai",
+        accountEmail: ACCOUNT,
+      },
+    );
+    assert.equal(r.demoted, true);
+    assert.equal(r.classification.category, "fyi");
+    assert.equal(resolveTodoSuggestion(r.classification), null);
+    assert.equal(r.classification.todoDecision?.outcome, "no_obligation");
+  });
+
   test("keeps a broadcast alarm that also exposes a secret (secret escapes demotion)", () => {
     const r = applySenderKindDemotionFloor(classification({ category: "urgent" }), groupKind, {
       sender: "no-reply@sns.amazonaws.com",
