@@ -881,7 +881,6 @@ function isBroadcastAuthSignInConfirmation(
 // service, and are unverified against real mail.
 const MONITORING_SENDER_RE = /sns\.amazonaws\.com|pagerduty|opsgenie|grafana|datadog/i;
 const MONITORING_ALARM_SUBJECT_RE = /^\s*(?:ALARM|ALERT)\b\s*:/i;
-
 function isMonitoringAlarmBroadcast(context: SenderKindDemotionFloorContext): boolean {
   const shaped =
     MONITORING_SENDER_RE.test(context.sender ?? "") ||
@@ -891,8 +890,13 @@ function isMonitoringAlarmBroadcast(context: SenderKindDemotionFloorContext): bo
   // A leaked-secret alarm must escape demotion entirely — keep the security
   // escalation + any legitimate rotate-now todo (mirrors the collab carve-out).
   if (OVERRIDE_FLOOR_SECRET_RE.test(signalText)) return false;
-  // If the alarm names / @-assigns / directly asks the user, it is theirs — keep.
-  if (COLLAB_DIRECT_OWNERSHIP_RE.test(signalText)) return false;
+  // Do not infer ownership from body prose here. Monitoring/list mail is wrapped
+  // in provider and distribution-list boilerplate, so generic second-person or
+  // request language is not reliable evidence that THIS user owns the alarm.
+  // This interim floor only claims the deterministic envelope fact below: a user
+  // directly present in To/Cc keeps the model's category; a provable broadcast is
+  // demoted. Role/object ownership belongs to the ADR-0066/0067 user-context
+  // consumer, not another alarm-specific phrase vocabulary.
   // DELIBERATE ASYMMETRY with the collaboration path: we do NOT honor
   // COLLAB_INTRINSIC_STAKE_RE here. Every alarm body reads as threshold-crossing /
   // "critical" / "outage" by construction, so an intrinsic-stake veto would neuter
