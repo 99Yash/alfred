@@ -16,7 +16,7 @@ import { closeAgentQueue, closeConnections, closeRedis, warmPool } from "@alfred
 import { db } from "@alfred/db";
 import { agentRuns, agentSteps, user as userTable } from "@alfred/db/schemas";
 import { eq } from "drizzle-orm";
-import { registerBuiltinWorkflows } from "../../builtins";
+import { registerBuiltinWorkflows } from "~/builtins";
 
 const POLL_INTERVAL_MS = 250;
 const POLL_TIMEOUT_MS = 30_000;

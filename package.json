@@ -9,6 +9,7 @@
     "dev:web": "turbo run dev --filter=web",
     "dev:server": "turbo run dev --filter=server",
     "check:web-boundaries": "node scripts/check-web-boundaries.mjs",
+    "check:imports": "node scripts/relative-to-alias.mjs --check",
     "lint": "oxlint",
     "lint:fix": "oxlint --fix --fix-suggestions",
     "lint:fix:all": "oxlint --fix-dangerously",
@@ -19,7 +20,7 @@
     "db:sync-prices": "turbo run db:sync-prices --filter=@alfred/db",
     "db:predeploy": "pnpm --filter @alfred/db db:migrate && pnpm --filter @alfred/db db:sync-prices",
     "format": "oxfmt --write --ignore-path .prettierignore apps packages package.json pnpm-workspace.yaml turbo.json .oxlintrc.json .oxfmtrc.json",
-    "check": "node scripts/check-web-boundaries.mjs && oxlint && oxfmt --write --ignore-path .prettierignore apps packages package.json pnpm-workspace.yaml turbo.json .oxlintrc.json .oxfmtrc.json",
+    "check": "node scripts/check-web-boundaries.mjs && node scripts/relative-to-alias.mjs --check && oxlint && oxfmt --write --ignore-path .prettierignore apps packages package.json pnpm-workspace.yaml turbo.json .oxlintrc.json .oxfmtrc.json",
     "doctor": "pnpm exec react-doctor"
   },
   "devDependencies": {

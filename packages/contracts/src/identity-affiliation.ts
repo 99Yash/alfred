@@ -20,7 +20,7 @@
  */
 
 import { z } from "zod";
-import { type FactKey } from "./user-model.js";
+import { type FactKey } from "./user-model";
 
 // ───────────────────────────────────────────────────────────────────────────
 // Domain classifier (ADR-0080 §4b) — the connected-account employer signal

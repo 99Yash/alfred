@@ -28,7 +28,7 @@ import {
   workflows,
 } from "@alfred/db/schemas";
 import { and, eq } from "drizzle-orm";
-import { registerBuiltinWorkflows } from "../../builtins";
+import { registerBuiltinWorkflows } from "~/builtins";
 
 const WORKFLOW_SLUG = `qa-gated-staging${process.argv[2] ? `-${process.argv[2]}` : ""}`;
 const BRIEF =

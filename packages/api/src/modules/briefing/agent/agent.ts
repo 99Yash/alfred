@@ -6,8 +6,8 @@ import {
   type ModelMessage,
 } from "@alfred/ai";
 import type { IanaTimezone } from "@alfred/contracts";
-import { buildSystemPrompt } from "./prompt.js";
-import { buildBriefingTools, type DumpedBriefing } from "./tools.js";
+import { buildSystemPrompt } from "./prompt";
+import { buildBriefingTools, type DumpedBriefing } from "./tools";
 
 /**
  * Daily-briefing agent driver.
@@ -128,4 +128,4 @@ export async function runBriefingAgent(
   };
 }
 
-export type { DumpedBriefing } from "./tools.js";
+export type { DumpedBriefing } from "./tools";

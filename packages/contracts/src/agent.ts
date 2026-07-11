@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { EVENT_SOURCES } from "./event-triggers.js";
+import { EVENT_SOURCES } from "./event-triggers";
 
 export const runStatusSchema = z.enum([
   "pending",

@@ -1,15 +1,15 @@
-import { writeMemoryChunk } from "./chunks.js";
-import { extractFactsFromDocument, type FactProposal } from "./extraction.js";
-import { gateDocumentFact } from "./fact-policy.js";
-import { listFactsByStatus, proposeFact } from "./facts.js";
-import { loadSelfIdentity } from "./self-identity.js";
-import { runSignificancePass } from "./significance.js";
+import { writeMemoryChunk } from "./chunks";
+import { extractFactsFromDocument, type FactProposal } from "./extraction";
+import { gateDocumentFact } from "./fact-policy";
+import { listFactsByStatus, proposeFact } from "./facts";
+import { loadSelfIdentity } from "./self-identity";
+import { runSignificancePass } from "./significance";
 import {
   accumulateDoc,
   applyCorrespondenceIncrements,
   type ContactAggregate,
-} from "./team-graph.js";
-import type { StepContext, StepResult } from "../agent/index.js";
+} from "./team-graph";
+import type { StepContext, StepResult } from "../agent/index";
 import { isRecord, toMessage } from "@alfred/contracts";
 import { db } from "@alfred/db";
 import { documents, memoryExtractionStatus, user, userFacts } from "@alfred/db/schemas";

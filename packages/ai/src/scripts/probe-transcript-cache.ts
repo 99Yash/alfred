@@ -25,7 +25,7 @@
 import { anthropic } from "@ai-sdk/anthropic";
 import { getPath, toRecord } from "@alfred/contracts";
 import { generateText, type ModelMessage } from "ai";
-import { decorateTranscript } from "../agent.js";
+import { decorateTranscript } from "../agent";
 
 const TTL = "5m" as const;
 const GENERATE_TIMEOUT_MS = 60_000;

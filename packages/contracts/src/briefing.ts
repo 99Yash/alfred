@@ -9,9 +9,9 @@
 
 import { z } from "zod";
 
-import { attentionBandSchema, type AttentionBand } from "./attention.js";
-import { triageCategorySchema, type TriageCategory } from "./triage.js";
-import { isIntegrationSlug, type IntegrationSlug } from "./tools.js";
+import { attentionBandSchema, type AttentionBand } from "./attention";
+import { triageCategorySchema, type TriageCategory } from "./triage";
+import { isIntegrationSlug, type IntegrationSlug } from "./tools";
 
 // ─── Sources + reference kinds ────────────────────────────────────────────
 

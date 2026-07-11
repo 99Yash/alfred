@@ -1,4 +1,4 @@
-import { isPlainRecord } from "./guards.js";
+import { isPlainRecord } from "./guards";
 
 /**
  * Tool-result payload bounding — a runaway-payload GUARDRAIL (not the accrual

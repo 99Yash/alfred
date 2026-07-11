@@ -1,4 +1,4 @@
-import { INTEGRATION_SLUGS, isIntegrationSlug, type IntegrationSlug } from "./tools.js";
+import { INTEGRATION_SLUGS, isIntegrationSlug, type IntegrationSlug } from "./tools";
 
 const MENTION_RE = /(?:^|[^a-z0-9_-])@([a-z][a-z0-9_]*)/gi;
 

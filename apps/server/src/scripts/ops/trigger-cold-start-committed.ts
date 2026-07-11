@@ -33,7 +33,7 @@ import { closeAgentQueue, closeConnections, closeRedis, warmPool } from "@alfred
 import { db } from "@alfred/db";
 import { agentRuns, user as userTable } from "@alfred/db/schemas";
 import { and, eq, inArray, sql } from "drizzle-orm";
-import { registerBuiltinWorkflows } from "../../builtins";
+import { registerBuiltinWorkflows } from "~/builtins";
 import { toMessage } from "@alfred/contracts";
 
 /** Mailboxes to (re-)research. Override with `COLD_START_EMAILS` (comma-sep). */
