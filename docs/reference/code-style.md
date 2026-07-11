@@ -1,6 +1,6 @@
 # Code style & review checklist
 
-Distilled from the [review prompt](https://gist.github.com/99Yash/0ab2043d8f6281d82dea4f8d2599ea8a) and the conventions already in this tree. Read it before opening a PR and use it as the checklist when reviewing one. This is the *what to do here* layer; the *why* lives in [decisions.md](../../decisions.md) and the deeper mechanics in the sibling reference docs (linked inline).
+Distilled from the [review prompt](https://gist.github.com/99Yash/0ab2043d8f6281d82dea4f8d2599ea8a) and the conventions already in this tree. Read it before opening a PR and use it as the checklist when reviewing one. This is the _what to do here_ layer; the _why_ lives in [decisions.md](../../decisions.md) and the deeper mechanics in the sibling reference docs (linked inline).
 
 ---
 
@@ -28,7 +28,7 @@ import type { Document } from "@alfred/db/schemas";
 type DocArg = Pick<Document, "id" | "title" | "content" | "source" | "authoredAt">;
 ```
 
-- **Prefer the named export.** The schema exports named row types such as `Document`, `Entity`, and `UserFact`. `Pick<Document, ...>` is preferred over re-spelling `Pick<typeof documents.$inferSelect, ...>`: identical type, but it uses the canonical name and stays a pure `import type` instead of pulling the table *value* into scope just to read its inferred shape. Fall back to `typeof table.$inferSelect` only when no named export exists.
+- **Prefer the named export.** The schema exports named row types such as `Document`, `Entity`, and `UserFact`. `Pick<Document, ...>` is preferred over re-spelling `Pick<typeof documents.$inferSelect, ...>`: identical type, but it uses the canonical name and stays a pure `import type` instead of pulling the table _value_ into scope just to read its inferred shape. Fall back to `typeof table.$inferSelect` only when no named export exists.
 - A subset of columns → `Pick<Document, ...>`.
 - Everything-but-a-few → `Omit<Document, ...>`.
 - A row mapped to a wire/Replicache shape → keep `r: Document` (the named row type) as the **input** and let the output be its own declared type (this is the `rowToFact` / `rowToEntity` / `rowToBriefing` idiom — see `packages/api/src/modules/memory/facts.ts`, `entities.ts`, `briefing/store.ts`).
@@ -40,9 +40,39 @@ type DocArg = Pick<Document, "id" | "title" | "content" | "source" | "authoredAt
 If a value is validated by a zod schema, its type is `z.infer<typeof schema>`. Never write a parallel `interface`.
 
 ```ts
-export const setPreferenceArgsSchema = z.object({ /* ... */ });
+export const setPreferenceArgsSchema = z.object({
+  /* ... */
+});
 export type SetPreferenceArgs = z.infer<typeof setPreferenceArgsSchema>; // ✓
 ```
+
+### Drizzle tables → runtime Zod schemas
+
+When a runtime boundary represents the same select/insert/update shape as a
+Drizzle table, derive its base validator from the table instead of restating
+the columns. This tree uses `drizzle-zod` with the currently pinned Drizzle
+version:
+
+```ts
+export const preferenceInsertSchema = createInsertSchema(userPreferences, {
+  source: memorySourceSchema.optional(),
+});
+
+export const setPreferenceArgsSchema = preferenceInsertSchema
+  .pick({ userId: true, key: true, value: true, source: true })
+  .extend({ key: z.string().min(1).max(200) });
+```
+
+- Let Drizzle own column presence, nullability, and database-default semantics.
+- Refine scalar business rules at the boundary (`min`, `max`, formats).
+- Override `jsonb` fields with their contract-owned Zod schema; `.$type<T>()`
+  informs TypeScript but does not validate at runtime.
+- Do not generate wire DTOs or Replicache models from a table merely because
+  fields overlap. Those schemas intentionally reshape, redact, rename, or
+  serialize rows and remain source-of-truth contracts with explicit mappers.
+- A generated select schema describes a complete row. For partial query
+  projections, derive a matching `.pick(...)` or validate the owning DTO; do
+  not parse a partial result with the full-row schema.
 
 ### Cross-package shapes → import the canonical one
 
@@ -55,28 +85,28 @@ Deriving is the default, not a law. A standalone `interface`/`type` is right whe
 - A wire/DTO reshape — the `Synced*` serializers intentionally pick, rename, and re-type columns for the client. That divergence is the point; don't collapse it back to `$inferSelect`.
 - A shape that merely happens to overlap a table today but models a different concept and should evolve independently.
 
-If you keep a literal, a one-line comment saying *why it isn't derived* saves the next reviewer the investigation.
+If you keep a literal, a one-line comment saying _why it isn't derived_ saves the next reviewer the investigation.
 
 ### Before you derive: confirm the type is identical
 
-A derive is only correct when the derived type *equals* what you'd hand-write. The trap is that a column rarely infers to the obvious type, so a `Pick<>` that reads right silently widens or re-nullable-s a field. Only `.notNull()` controls select-nullability — `.default()` / `.defaultNow()` do **not**.
+A derive is only correct when the derived type _equals_ what you'd hand-write. The trap is that a column rarely infers to the obvious type, so a `Pick<>` that reads right silently widens or re-nullable-s a field. Only `.notNull()` controls select-nullability — `.default()` / `.defaultNow()` do **not**.
 
-| Column | `$inferSelect` gives |
-|---|---|
-| `text().notNull()` | `string` |
-| `text()` | `string \| null` |
-| `text().$type<Foo>().notNull()` | `Foo` (narrower than `string`) |
-| `jsonb()` (no `.$type<>()`) | `unknown` — **not** your shape |
-| `numeric()` (no `mode: "number"`) | `string` — **not** `number` |
-| `timestamp()` | `Date \| null` |
+| Column                            | `$inferSelect` gives           |
+| --------------------------------- | ------------------------------ |
+| `text().notNull()`                | `string`                       |
+| `text()`                          | `string \| null`               |
+| `text().$type<Foo>().notNull()`   | `Foo` (narrower than `string`) |
+| `jsonb()` (no `.$type<>()`)       | `unknown` — **not** your shape |
+| `numeric()` (no `mode: "number"`) | `string` — **not** `number`    |
+| `timestamp()`                     | `Date \| null`                 |
 
 The five ways a "safe" derive silently changes the type (all real cases from the June audit):
 
-- **Untyped `jsonb` is `unknown`.** `documents.metadata` is `jsonb().notNull()` with no `.$type<>()` → `unknown`. So even on §1's poster-child table you can `Pick` `id/title/content/authoredAt` but **not** `metadata: Record<string, unknown>`. Any row whose `rowToX` mapper `.parse()`s a jsonb column (`rowToEntity`, `rowToProfile`, `rowToChunk`, `rowToPref`) has narrowed that field on purpose — the mapped output *is* the contract; keep it literal.
+- **Untyped `jsonb` is `unknown`.** `documents.metadata` is `jsonb().notNull()` with no `.$type<>()` → `unknown`. So even on §1's poster-child table you can `Pick` `id/title/content/authoredAt` but **not** `metadata: Record<string, unknown>`. Any row whose `rowToX` mapper `.parse()`s a jsonb column (`rowToEntity`, `rowToProfile`, `rowToChunk`, `rowToPref`) has narrowed that field on purpose — the mapped output _is_ the contract; keep it literal.
 - **`numeric` is `string`.** `modelPrices`' money columns infer `string`; `fetchPrice` does `Number(...)`. A `number`-typed lookup is a transform, not a mirror.
-- **`.$type<Brand>()` is narrower than the literal.** A hand-rolled `toolName: string` is *wider* than the column's `.$type<ToolName>()`. Deriving narrows it — often an upgrade, but a real change: confirm every assignment site still fits.
+- **`.$type<Brand>()` is narrower than the literal.** A hand-rolled `toolName: string` is _wider_ than the column's `.$type<ToolName>()`. Deriving narrows it — often an upgrade, but a real change: confirm every assignment site still fits.
 - **Nullability narrowed behind a guard.** `selectDueRows` does `if (!row.nextRunAt) continue`, so `DueRow.nextRunAt` is `Date`, not the column's `Date | null`. Deriving re-adds `| null` and breaks the downstream non-null guarantee (same for `RecentRejection.decidedAt`).
-- **An interface-first schema is canonical — don't invert it.** When a schema is annotated against a hand-written interface — `z.object({ … }) satisfies z.ZodType<Foo>` or `const fooSchema: z.ZodType<Foo> = …` (the `briefing.ts` / `triage.ts` contribution types) — the `interface Foo` is the source and the annotation is its drift guard. `type Foo = z.infer<typeof fooSchema>` then makes `Foo` derive from a schema that references `Foo`: a circular reference (TS2456). Only `z.infer` from a *plain* schema with no such back-reference.
+- **An interface-first schema is canonical — don't invert it.** When a schema is annotated against a hand-written interface — `z.object({ … }) satisfies z.ZodType<Foo>` or `const fooSchema: z.ZodType<Foo> = …` (the `briefing.ts` / `triage.ts` contribution types) — the `interface Foo` is the source and the annotation is its drift guard. `type Foo = z.infer<typeof fooSchema>` then makes `Foo` derive from a schema that references `Foo`: a circular reference (TS2456). Only `z.infer` from a _plain_ schema with no such back-reference.
 
 After a derive lands, drop now-orphaned imports — the literal often named a union (e.g. `ActionStagingStatus`) the derived form no longer references, and `noUnusedLocals` fails the build otherwise.
 
@@ -136,4 +166,4 @@ Before moving a value into `@alfred/contracts`, confirm the web bundle is allowe
 9. Webhook HMAC verified against re-parsed (not raw) body.
 10. Unbilled `Promise.all` work that keeps running after a sibling fails.
 
-> Before claiming a library *can't* do something, check its `.d.ts`, its repo, or the relevant reference doc here. Most "limitations" are a missing option name.
+> Before claiming a library _can't_ do something, check its `.d.ts`, its repo, or the relevant reference doc here. Most "limitations" are a missing option name.
