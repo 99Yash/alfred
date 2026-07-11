@@ -1,4 +1,4 @@
-import type { MemorySource } from "@alfred/contracts";
+import { memorySourceSchema, type MemorySource } from "@alfred/contracts";
 import { sql } from "drizzle-orm";
 import type { AnyPgColumn } from "drizzle-orm/pg-core";
 import {
@@ -12,6 +12,7 @@ import {
   timestamp,
   uniqueIndex,
 } from "drizzle-orm/pg-core";
+import { createInsertSchema } from "drizzle-zod";
 import { createId, lifecycle_dates, vectorColumn } from "../helpers";
 import { user } from "./auth";
 import { documents } from "./documents";
@@ -109,6 +110,11 @@ export const userFacts = pgTable(
   ],
 );
 
+/** Runtime shape of a raw `user_facts` insert. */
+export const userFactInsertSchema = createInsertSchema(userFacts, {
+  source: memorySourceSchema.optional(),
+});
+
 // ---------------------------------------------------------------------------
 // user_preferences
 // ---------------------------------------------------------------------------
@@ -154,6 +160,15 @@ export const userPreferences = pgTable(
     check("user_preferences_source_shape", memorySourceShapeCheck(t.source)),
   ],
 );
+
+/**
+ * Runtime shape of a raw `user_preferences` insert. Drizzle owns column
+ * presence/default semantics; the contracts schema owns the JSONB source
+ * payload that Postgres cannot describe beyond `jsonb`.
+ */
+export const userPreferenceInsertSchema = createInsertSchema(userPreferences, {
+  source: memorySourceSchema.optional(),
+});
 
 // ---------------------------------------------------------------------------
 // style_profiles
@@ -217,6 +232,9 @@ export const styleProfiles = pgTable(
     index("style_profiles_lookup_idx").on(t.userId, t.channel, t.status),
   ],
 );
+
+/** Runtime shape of a raw `style_profiles` insert. */
+export const styleProfileInsertSchema = createInsertSchema(styleProfiles);
 
 // ---------------------------------------------------------------------------
 // entities + entity_relations
@@ -418,8 +436,11 @@ export const rejectedInferences = pgTable(
 );
 
 export type UserFact = typeof userFacts.$inferSelect;
+export type NewUserFact = typeof userFacts.$inferInsert;
 export type UserPreference = typeof userPreferences.$inferSelect;
+export type NewUserPreference = typeof userPreferences.$inferInsert;
 export type StyleProfile = typeof styleProfiles.$inferSelect;
+export type NewStyleProfile = typeof styleProfiles.$inferInsert;
 export type Entity = typeof entities.$inferSelect;
 export type EntityRelation = typeof entityRelations.$inferSelect;
 export type MemoryChunk = typeof memoryChunks.$inferSelect;

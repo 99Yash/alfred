@@ -65,8 +65,11 @@ const modelsDevModelSchema = z
       .optional(),
     limit: z
       .object({
-        context: z.number().int().positive().optional(),
-        output: z.number().int().positive().optional(),
+        // models.dev reports 0 for SKUs with no token context/output window
+        // (image, video, TTS, embedding). Our own providers carry these — e.g.
+        // OpenAI's gpt-image-* — so 0 is valid, not `too_small`.
+        context: z.number().int().nonnegative().optional(),
+        output: z.number().int().nonnegative().optional(),
       })
       .passthrough()
       .optional(),
@@ -153,7 +156,21 @@ async function fetchCatalog(): Promise<ModelsDevCatalog> {
   try {
     const res = await fetch(MODELS_DEV_URL, { signal: controller.signal });
     if (!res.ok) throw await httpErrorFromResponse("models.dev", res, { url: MODELS_DEV_URL });
-    return modelsDevCatalogSchema.parse(await res.json());
+    const raw: unknown = await res.json();
+    // models.dev is a large third-party catalog; we consume only PROVIDERS.
+    // Scope validation to those before parsing so shape drift in providers we
+    // ignore (0-valued limits, null enum values, new field types) can never
+    // fail predeploy — the whole-catalog parse is otherwise a standing outage
+    // risk every time upstream adds models.
+    const scoped = isRecord(raw)
+      ? Object.fromEntries(
+          PROVIDERS.filter((provider) => provider in raw).map((provider) => [
+            provider,
+            raw[provider],
+          ]),
+        )
+      : {};
+    return modelsDevCatalogSchema.parse(scoped);
   } finally {
     clearTimeout(timeoutId);
   }
