@@ -11,7 +11,7 @@
  * cache breakpoint).
  */
 
-import { DEFAULT_VOICE_PROMPT } from "../../agent/voice";
+import { composeAgentInstructions } from "../../agent/instructions";
 
 const BASE_PROMPT = `You are Alfred, a personal assistant writing the user's daily briefing.
 
@@ -142,5 +142,9 @@ export function buildSystemPrompt(args: {
     ? `\n\nThe user's first name is "${args.recipientFirstName}". Use it in sign-offs.`
     : "";
   const delta = args.slot === "morning" ? MORNING_DELTA : EVENING_DELTA;
-  return `${BASE_PROMPT}\n\n${DEFAULT_VOICE_PROMPT}${namePart}\n\n${delta}`;
+  return composeAgentInstructions({
+    purpose: "assistant_response",
+    role: BASE_PROMPT,
+    grounding: [namePart.trim(), delta],
+  });
 }

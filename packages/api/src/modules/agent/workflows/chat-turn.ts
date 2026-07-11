@@ -44,7 +44,7 @@ import {
   scheduleSubAgentJoinWakeJob,
 } from "../sub-agent-join-wake-queue";
 import { subAgentDoneSignalName } from "../sub-agent-metadata";
-import { DEFAULT_VOICE_PROMPT } from "../voice";
+import { composeAgentInstructions } from "../instructions";
 import {
   isTerminalChildStatus,
   listSpawnedChildRuns,
@@ -338,7 +338,12 @@ export function buildChatSystemPrompt(
   // house shell contract, the `art-*` vocabulary, archetypes, theme voice, and
   // authoring rules; without it artifact styling is reconstructed from memory
   // and drifts (the "vibes" gap behind the resume shitshow — see artifacts/read.ts).
-  return `${CHAT_SYSTEM_PROMPT_BASE}\n\n${ARTIFACT_DESIGN_PROMPT}${documentDesignBlock}\n\n${DEFAULT_VOICE_PROMPT}\n\nThe current date is ${grounding}.${artifactsBlock}\n\n${connectedSummary}`;
+  return composeAgentInstructions({
+    purpose: "assistant_response",
+    role: CHAT_SYSTEM_PROMPT_BASE,
+    rules: [`${ARTIFACT_DESIGN_PROMPT}${documentDesignBlock}`],
+    grounding: [`The current date is ${grounding}.${artifactsBlock}`, connectedSummary],
+  });
 }
 
 // ── helpers ─────────────────────────────────────────────────────────────────
