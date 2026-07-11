@@ -82,6 +82,16 @@ loops, they fight prompt cache, and "knowing your model is a skill." Each is tru
   image turns (#249). This plan handles the model-effort side only; serial historical
   image hydration stays a separate optimization if it reappears in traces.
 
+### Media-enrichment boundary (2026-07-11 amendment, #370)
+
+The chat-compaction design adds accepted input modalities and relevant media limits to the
+standalone model registry, but does **not** change this router's sticky answering-model rule.
+An asynchronous attachment-enrichment worker may choose a capability-compatible model per
+artifact, then persist a normalized text/image representation for chat, memory, and evidence
+retrieval. Media routing therefore lives at the enrichment boundary; it never pins or swaps the
+answering model for a thread. See
+[chat-compaction-and-overflow-v1.md](./chat-compaction-and-overflow-v1.md).
+
 ---
 
 ## 3. The model — locked decisions
