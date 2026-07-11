@@ -7,6 +7,7 @@ import {
   type EmailReadResult,
   type PriorBriefingSummary,
 } from "../read.js";
+import { sanitizeVoice } from "../../agent/voice-sanitize.js";
 import { tool, type ToolSet } from "@alfred/ai";
 import type { CalendarContribution, DayShape, IanaTimezone } from "@alfred/contracts";
 import { z } from "zod";
@@ -196,13 +197,15 @@ export function buildBriefingTools(args: BuildArgs): BriefingToolBag {
         "Terminal write. Submit the final composed briefing. Call this exactly once when you're done — calling it ends the loop. subject, bodyText, and bodyMarkdown are all required; cite documentIds for items you referenced inline. The body should be conversational prose (no bullets) and read naturally on its own.",
       inputSchema: dumpInputSchema,
       execute: async (input): Promise<{ ok: true }> => {
-        dumped = {
-          subject: input.subject,
-          bodyText: input.bodyText,
-          bodyMarkdown: input.bodyMarkdown,
+        // Strip em-dashes the model won't drop from the prompt alone. This is the
+        // single chokepoint before both the DB persist and the email send.
+        dumped = dumpInputSchema.parse({
+          subject: sanitizeVoice(input.subject),
+          bodyText: sanitizeVoice(input.bodyText),
+          bodyMarkdown: sanitizeVoice(input.bodyMarkdown),
           citedDocumentIds: input.citedDocumentIds,
           rationale: input.rationale,
-        };
+        });
         return { ok: true };
       },
     }),

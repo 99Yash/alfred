@@ -378,21 +378,8 @@ export function getChatModel(tier: ChatModelTier = "standard"): LanguageModel {
  * flows through the same table and capability map instead of reintroducing a
  * provider-options branch.
  */
-// ── TEMPORARY LIVE EXPERIMENT (edit-bakeoff: Sonnet Auto low vs medium) ──────
-// Forces the standard/Auto tier's reasoning effort so a live Chrome run can
-// compare Sonnet at `low` vs `medium` on iterative artifact editing. Flip the
-// value between runs; set to `null` to restore the production default. REMOVE
-// before committing — `rg "edit-bakeoff"` must be clean when done.
-const TEMP_STANDARD_EFFORT_OVERRIDE: EffortLevel | null = "medium";
-// ─────────────────────────────────────────────────────────────────────────────
-
 export function getChatProviderOptions(tier: ChatModelTier = "standard"): ChatProviderOptions {
-  const { primary, fallback, effort: tierEffort } = CHAT_TIERS[tier];
-  const effort =
-    tier === "standard" && TEMP_STANDARD_EFFORT_OVERRIDE ? TEMP_STANDARD_EFFORT_OVERRIDE : tierEffort;
-  if (TEMP_STANDARD_EFFORT_OVERRIDE) {
-    console.log(`[edit-bakeoff] tier=${tier} effort=${effort}`);
-  }
+  const { primary, fallback, effort } = CHAT_TIERS[tier];
   const options: ChatProviderOptions = {};
   for (const modelId of [primary, fallback]) {
     const { provider, options: next } = reasoningOptionsForModel(modelId, effort);

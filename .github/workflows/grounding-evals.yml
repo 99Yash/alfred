@@ -1,7 +1,7 @@
 # Behavioral grounding evals — VISIBILITY, not a gate (ADR-0055).
 #
 # Runs the live-LLM behavioral grounding suite (date / calendar / github /
-# sender-suppression) for regression awareness. Deliberately NON-gating: every
+# sender-suppression / voice) for regression awareness. Deliberately NON-gating: every
 # suite runs with `--threshold 0` so the job always exits 0 and never blocks a
 # PR (evalite's threshold DEFAULTS to 100 and fails below it — 0 is what makes
 # this a report rather than a gate). This is the counterpart to triage-eval.yml,
@@ -172,6 +172,7 @@ jobs:
           run_suite calendar-grounding
           run_suite github-grounding
           run_suite sender-suppression-grounding
+          run_suite voice-ai-tells
 
       - name: Upload eval JSON artifacts
         if: always()

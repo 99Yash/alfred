@@ -21,6 +21,10 @@ Domain terms used across Alfred's design. New terms land here as ADRs/grills min
 
 ## Pipeline & surfaces
 
+- **Agent output purpose** — A required, closed classification of model-authored output: `assistant_response`, `audience_content`, `source_faithful`, or `internal`. The purpose selects presentation defaults without making low-level model and metering APIs aware of Alfred's product voice.
+- **Voice policy** — The typed `default | none` presentation choice derived from an agent output purpose, with an explicit override for exceptional calls. Custom personas and audience guidance remain in validated request context rather than being promoted into a generic system-prompt constructor.
+- **Mechanical voice sanitization** — Field-aware deterministic cleanup applied at an owning stream or typed-output boundary. It is deliberately separate from prompt composition so quotations, code, URLs, identifiers, citations, and exact-copy content are not transformed indiscriminately.
+
 - **Extraction front-door** — The propose-only capture layer that turns inbound emails/docs into typed candidate keys (→ object-state) and work-signals (→ user-memory). One front-door, two sinks. Architecture deferred. (ADR-0063)
 - **Loop reconciliation** — Computing, at briefing-gather time, whether an open loop (e.g. a CI-failure email) is actually closed by consulting object-state, and demoting/recapping accordingly. (#212, ADR-0048/0062)
 - **Loop-opener** — The inbound item that starts an open loop in the briefing (v1: a GitHub Actions CI-failure email). Carries a matching key (`head_sha`) but often no direct object id. (ADR-0062)

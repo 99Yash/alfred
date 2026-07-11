@@ -146,6 +146,20 @@ test("the PDF guide is injected only for a selected PDF artifact", () => {
   assert.match(pdf, /\[Full name\]/);
 });
 
+test("chat keeps the voice contract near the end without displacing tool grounding", () => {
+  const connected = "Connected: none";
+  const prompt = buildChatSystemPrompt("July 10, 2026", connected);
+  const artifactIndex = prompt.indexOf(ARTIFACT_DESIGN_PROMPT);
+  const voiceIndex = prompt.indexOf("# Voice (default)");
+  const dateIndex = prompt.indexOf("The current date is July 10, 2026");
+  const connectedIndex = prompt.indexOf(connected);
+
+  assert.ok(artifactIndex >= 0);
+  assert.ok(artifactIndex < voiceIndex);
+  assert.ok(voiceIndex < dateIndex);
+  assert.ok(dateIndex < connectedIndex);
+});
+
 test("every documented PDF class exists in the render shell", () => {
   const html = buildArtifactDocument("", "pdf");
   const documentedClasses = [
