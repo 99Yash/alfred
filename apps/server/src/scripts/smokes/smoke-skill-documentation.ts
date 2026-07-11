@@ -44,7 +44,7 @@ import {
   user as userTable,
 } from "@alfred/db/schemas";
 import { and, desc, eq, sql } from "drizzle-orm";
-import { registerBuiltinWorkflows } from "../../builtins";
+import { registerBuiltinWorkflows } from "~/builtins";
 
 const POLL_INTERVAL_MS = 1_000;
 const LEARN_TIMEOUT_MS = 90_000;

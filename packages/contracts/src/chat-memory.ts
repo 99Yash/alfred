@@ -16,7 +16,7 @@
  */
 
 import { z } from "zod";
-import { confidenceSchema } from "./model-output.js";
+import { confidenceSchema } from "./model-output";
 
 /**
  * The value a proposition carries. Deliberately NOT the recursive

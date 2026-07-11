@@ -1,8 +1,8 @@
-import { publishEvent } from "../../events/publish.js";
-import { resolveFeatureFlags } from "../features/flags.js";
-import { getSenderSignificance } from "../memory/significance.js";
-import { findActiveSenderSuppression } from "../memory/standing-instructions.js";
-import { suggestTodo } from "../todos/suggest.js";
+import { publishEvent } from "../../events/publish";
+import { resolveFeatureFlags } from "../features/flags";
+import { getSenderSignificance } from "../memory/significance";
+import { findActiveSenderSuppression } from "../memory/standing-instructions";
+import { suggestTodo } from "../todos/suggest";
 import {
   classifyEmail,
   DEFAULT_TRIAGE_CATEGORY,
@@ -10,19 +10,19 @@ import {
   todoSuppressionReason,
   type ClassifyAudit,
   type TriageClassification,
-} from "./classify.js";
-import { isKnownContact } from "./contacts.js";
-import { extractSenderContext } from "./sender-context.js";
-import { senderExtractionEvent } from "./sender-extraction-event.js";
-import { resolveSenderKind, triageSenderKindProjectionEnabled } from "./sender-kind.js";
-import { resolveSenderRelationship } from "./sender-relationship.js";
+} from "./classify";
+import { isKnownContact } from "./contacts";
+import { extractSenderContext } from "./sender-context";
+import { senderExtractionEvent } from "./sender-extraction-event";
+import { resolveSenderKind, triageSenderKindProjectionEnabled } from "./sender-kind";
+import { resolveSenderRelationship } from "./sender-relationship";
 import {
   getSenderPrior,
   incrementSenderPrior,
   senderKeyFor,
   senderPriorWriteKeyFor,
-} from "./sender-priors.js";
-import { isSentGmailMetadata } from "./sent-mail.js";
+} from "./sender-priors";
+import { isSentGmailMetadata } from "./sent-mail";
 import {
   getDocumentAuthoredAt,
   getTriage,
@@ -30,11 +30,11 @@ import {
   markGmailDocumentSent,
   upsertTriage,
   type TriageDocumentContext,
-} from "./store.js";
-import { reconcileThreadLabel } from "./tags.js";
-import { getThreadState } from "./thread-state.js";
-import { assembleObservations, type Observations } from "./observations.js";
-import type { StepContext, StepResult } from "../agent/index.js";
+} from "./store";
+import { reconcileThreadLabel } from "./tags";
+import { getThreadState } from "./thread-state";
+import { assembleObservations, type Observations } from "./observations";
+import type { StepContext, StepResult } from "../agent/index";
 import {
   gmailTodoSources,
   isHttpError,

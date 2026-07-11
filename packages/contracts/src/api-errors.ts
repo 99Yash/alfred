@@ -1,4 +1,4 @@
-import { isNonEmptyString, isRecord } from "./guards.js";
+import { isNonEmptyString, isRecord } from "./guards";
 
 export const API_ERROR_CODES = [
   "BAD_REQUEST",

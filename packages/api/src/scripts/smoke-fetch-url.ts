@@ -16,7 +16,7 @@
  *   - a redirect into cloud-metadata space is BLOCKED at the hop.
  */
 
-import { runFetchUrl } from "../modules/tools/fetch-url.js";
+import { runFetchUrl } from "../modules/tools/fetch-url";
 
 interface Case {
   label: string;

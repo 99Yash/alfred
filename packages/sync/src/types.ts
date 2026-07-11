@@ -21,4 +21,4 @@ export type {
   SyncedTriageTag,
   SyncedWorkflow,
   WorkflowStatus,
-} from "./schemas.js";
+} from "./schemas";

@@ -1,4 +1,4 @@
-import { gatherCalendarContribution, gatherDayShape } from "../gather.js";
+import { gatherCalendarContribution, gatherDayShape } from "../gather";
 import {
   listEmailsSinceWatermark,
   listPriorBriefings,
@@ -6,8 +6,8 @@ import {
   type EmailListItem,
   type EmailReadResult,
   type PriorBriefingSummary,
-} from "../read.js";
-import { sanitizeVoice } from "../../agent/voice-sanitize.js";
+} from "../read";
+import { sanitizeVoice } from "../../agent/voice-sanitize";
 import { tool, type ToolSet } from "@alfred/ai";
 import type { CalendarContribution, DayShape, IanaTimezone } from "@alfred/contracts";
 import { z } from "zod";

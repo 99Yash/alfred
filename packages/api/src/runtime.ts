@@ -1,7 +1,7 @@
 export { closeConnections, warmPool } from "@alfred/db";
-export { closeRedis } from "./queue/connection.js";
-export { initEventBridge, closeEventBridge } from "./events/index.js";
-export { initReplicachePokeBridge, closeReplicachePokeBridge } from "./events/replicache-events.js";
+export { closeRedis } from "./queue/connection";
+export { initEventBridge, closeEventBridge } from "./events/index";
+export { initReplicachePokeBridge, closeReplicachePokeBridge } from "./events/replicache-events";
 export {
   closeAgentQueue,
   closeSubAgentJoinWakeQueue,
@@ -11,7 +11,7 @@ export {
   stopAgentWorker,
   stopSubAgentJoinWakeWorker,
   verifyMeteringModels,
-} from "./modules/agent/index.js";
+} from "./modules/agent/index";
 export {
   closeApprovalExpiryQueue,
   closeApprovalNotificationQueue,
@@ -19,36 +19,36 @@ export {
   startApprovalNotificationWorker,
   stopApprovalExpiryWorker,
   stopApprovalNotificationWorker,
-} from "./modules/approvals/index.js";
+} from "./modules/approvals/index";
 export {
   ensureDefaultActionPolicyForUser,
   startPolicyBustSubscriber,
   stopPolicyBustSubscriber,
-} from "./modules/action-policies/index.js";
+} from "./modules/action-policies/index";
 export {
   closeBriefingQueue,
   scheduleRepeatableBriefingJobs,
   startBriefingWorker,
   stopBriefingWorker,
-} from "./modules/briefing/index.js";
+} from "./modules/briefing/index";
 export {
   closeIngestionQueue,
   scheduleRepeatableIngestionJobs,
   startIngestionWorker,
   stopIngestionWorker,
-} from "./modules/integrations/index.js";
+} from "./modules/integrations/index";
 export {
   closeMemoryQueue,
   scheduleRepeatableMemoryJobs,
   startMemoryWorker,
   stopMemoryWorker,
-} from "./modules/memory/index.js";
+} from "./modules/memory/index";
 export {
   closeChatMemoryQueue,
   startChatMemoryWorker,
   stopChatMemoryWorker,
-} from "./modules/chat-memory/index.js";
-export { registerBuiltinTools } from "./modules/tools/index.js";
+} from "./modules/chat-memory/index";
+export { registerBuiltinTools } from "./modules/tools/index";
 export {
   scheduleRepeatableWorkflowsJobs,
   seedBuiltinWorkflowsForAllUsers,
@@ -56,5 +56,5 @@ export {
   closeWorkflowsQueue,
   startWorkflowsWorker,
   stopWorkflowsWorker,
-} from "./modules/workflows/index.js";
+} from "./modules/workflows/index";
 export { registerOnUserCreated, type OnUserCreatedHook } from "@alfred/auth";

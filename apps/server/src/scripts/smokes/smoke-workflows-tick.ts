@@ -32,7 +32,7 @@ import {
 import { db } from "@alfred/db";
 import { agentRuns, user as userTable, workflows } from "@alfred/db/schemas";
 import { and, eq } from "drizzle-orm";
-import { registerBuiltinWorkflows } from "../../builtins";
+import { registerBuiltinWorkflows } from "~/builtins";
 import { toMessage } from "@alfred/contracts";
 
 // Re-use the registered `echo-with-approval` slug so the dispatcher's
