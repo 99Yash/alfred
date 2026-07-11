@@ -46,10 +46,13 @@ import { parseScratchToolKey } from "./scratch-key";
 import { runWebSearch } from "./web-search";
 
 /**
- * Resolve the thread/message provenance an artifact tool needs from the call
- * context. Returns an honest refusal (not a throw) when the call didn't come
- * from a chat turn — an artifact is owned by the thread/message that produced
- * it, so a background/sub-agent run has nowhere to attach one (ADR-0075).
+ * Resolve the provenance an artifact tool needs from the call context. Returns
+ * an honest refusal (not a throw) when the call didn't come from a chat turn —
+ * an artifact is owned by the thread/run that produced it, so a
+ * background/sub-agent run has nowhere to attach one (ADR-0075). A live
+ * `messageId` is required as proof this is an interactive chat turn. It is
+ * associated with the artifact only when the turn finalizes because its row
+ * does not exist during tool execution.
  */
 function resolveArtifactContext(
   ctx: ToolExecuteContext,
@@ -71,7 +74,6 @@ function resolveArtifactContext(
       userId: ctx.userId,
       threadId: ctx.threadId,
       runId: ctx.runId,
-      messageId: ctx.messageId,
     },
   };
 }

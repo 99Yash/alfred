@@ -1904,7 +1904,7 @@ async function finalizeAssistantMessage(
   // Close out any artifacts this turn authored: flip still-`generating` rows to
   // `complete` so the sidebar leaves the placeholder state (ADR-0075). Tied to
   // the run lifecycle so the boss never has to call a separate "finish" tool.
-  await finalizeRunArtifacts(userId, runId, "complete");
+  await finalizeRunArtifacts(userId, runId, state.messageId, "complete");
 
   await publishEvent({
     userId,
@@ -2202,7 +2202,7 @@ async function finalizeFailedMessage(
 
   // Mark any in-flight artifacts from the faulted turn as `error` rather than
   // leaving them stuck `generating` (ADR-0075). Partial content stays visible.
-  await finalizeRunArtifacts(userId, runId, "error");
+  await finalizeRunArtifacts(userId, runId, state.messageId, "error");
 
   await publishEvent({
     userId,
