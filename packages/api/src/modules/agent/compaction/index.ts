@@ -22,3 +22,42 @@ export {
 } from "./handoff";
 export { COMPACTOR_SYSTEM_PROMPT } from "./prompt";
 export { estimateTranscriptTokens } from "./tokens";
+export {
+  conversationSummarySchema,
+  conversationSummarySourceSchema,
+  parsePersistedConversationSummary,
+  validateConversationSummary,
+  type ConversationSummary,
+  type ConversationSummarySource,
+  type EligibleConversationSummarySources,
+} from "./conversation-summary";
+export {
+  loadChatThreadContext,
+  persistConversationSummary,
+  type ChatSummaryWatermark,
+  type LoadedChatThreadContext,
+  type PersistConversationSummaryArgs,
+} from "./chat-context-store";
+export {
+  assembleChatContext,
+  conversationSummaryMessage,
+  selectVerbatimTail,
+  CHAT_VERBATIM_TAIL_BUDGET_TOKENS,
+  type AssembledChatContext,
+  type ChatContextMessage,
+} from "./chat-context-assembly";
+export {
+  assessChatRequestPressure,
+  estimateChatRequestTokens,
+  CHAT_HYDRATED_IMAGE_TOKENS,
+  CHAT_SYNC_COMPACTION_RATIO,
+  type ChatRequestPressure,
+  type ChatRequestTokenEstimate,
+} from "./chat-request-pressure";
+export {
+  eligibleConversationSummarySources,
+  generateConversationSummary,
+  CONVERSATION_SUMMARY_MAX_OUTPUT_TOKENS,
+  type ConversationSummaryEvidence,
+  type GenerateConversationSummaryArgs,
+} from "./conversation-summary-generator";

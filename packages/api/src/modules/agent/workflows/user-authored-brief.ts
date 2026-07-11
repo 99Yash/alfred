@@ -2,7 +2,7 @@ import {
   COMPACTOR_MODEL,
   getBossModel,
   getSubAgentModel,
-  resolveModelContextWindow,
+  resolveEffectiveInputWindowTokens,
   AlfredAgent,
   tool,
   type ModelMessage,
@@ -26,7 +26,11 @@ import { documents } from "@alfred/db/schemas";
 import { and, eq } from "drizzle-orm";
 import { z } from "zod";
 import { compactTranscript } from "../compaction";
-import { estimateTranscriptTokens } from "../compaction/tokens";
+import {
+  estimateNextTurnInputTokens,
+  estimateTranscriptTokens,
+  shouldSkipCompaction,
+} from "../compaction/tokens";
 import { appendModelResponseMessages } from "../transcript-dedup";
 import { dispatchToolCall, type DispatchResult } from "../../dispatch";
 import { writeScratch } from "../../scratchpad";
@@ -374,8 +378,10 @@ const dispatchToolsStep: Step<BriefRunState> = {
     // would otherwise sneak the estimate under the threshold.
     const isSubAgent = state.subAgent !== null;
     const threshold = await resolvePressureThresholdTokens(isSubAgent);
-    const tailChars = JSON.stringify(transcript.slice(state.inFlightTailStart)).length;
-    const estimated = state.lastInputTokens + Math.ceil(tailChars / 4);
+    const estimated = estimateNextTurnInputTokens({
+      priorInputTokens: state.lastInputTokens,
+      inFlightTail: transcript.slice(state.inFlightTailStart),
+    });
 
     if (estimated <= threshold) {
       return {
@@ -432,9 +438,17 @@ const compactTranscriptStep: Step<BriefRunState> = {
     // compactor so Guard 3 can fail loud if the tail cannot fit.
     const priorChars = JSON.stringify(prior).length;
     const pressureThreshold = await resolvePressureThresholdTokens(false);
+    const nextTurnInputTokens = estimateNextTurnInputTokens({
+      priorInputTokens: state.lastInputTokens,
+      inFlightTail,
+    });
     if (
-      priorChars < COMPACTION_MIN_PRIOR_CHARS &&
-      estimateTranscriptTokens(transcript) <= pressureThreshold
+      shouldSkipCompaction({
+        priorChars,
+        minimumPriorChars: COMPACTION_MIN_PRIOR_CHARS,
+        nextTurnInputTokens,
+        pressureThresholdTokens: pressureThreshold,
+      })
     ) {
       return { kind: "next", state, nextStep: "boss-turn" };
     }
@@ -491,12 +505,11 @@ const compactTranscriptStep: Step<BriefRunState> = {
 };
 
 async function resolvePressureThresholdTokens(isSubAgent: boolean): Promise<number> {
-  const agentWindow = await resolveModelContextWindow(
-    isSubAgent ? getSubAgentModel() : getBossModel(),
-  );
-  if (isSubAgent) return compactionThresholdTokens(agentWindow);
-  const compactorWindow = await resolveModelContextWindow(COMPACTOR_MODEL);
-  return compactionThresholdTokens(Math.min(agentWindow, compactorWindow));
+  const agentModel = isSubAgent ? getSubAgentModel() : getBossModel();
+  const effectiveWindow = await resolveEffectiveInputWindowTokens({
+    models: isSubAgent ? [agentModel] : [agentModel, COMPACTOR_MODEL],
+  });
+  return compactionThresholdTokens(effectiveWindow);
 }
 
 function sleepMs(ms: number): Promise<void> {
