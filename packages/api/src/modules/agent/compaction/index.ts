@@ -104,3 +104,10 @@ export {
   BACKGROUND_COMPACTION_ABSOLUTE_CAP_TOKENS,
   BACKGROUND_COMPACTION_RATIO,
 } from "./conversation-compaction-scheduler";
+export {
+  readChatHistory,
+  CHAT_HISTORY_EXCERPT_CHARS,
+  CHAT_HISTORY_RESULT_LIMIT,
+  type ChatHistoryRetrievalDependencies,
+  type ReadChatHistoryInput,
+} from "./chat-history-retrieval";
