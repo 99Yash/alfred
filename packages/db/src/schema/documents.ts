@@ -56,16 +56,18 @@ export const documents = pgTable(
      * transient dead-letter gate measures failure age from here rather than
      * from an attempt count: a 5-minute sweep would otherwise burn through an
      * attempt cap in ~25 minutes and permanently drop the whole backlog during
-     * a routine provider outage. Cleared implicitly when the row succeeds
-     * (embedding written → drops out of the sweep).
+     * a routine provider outage. Cleared on a successful (re-)embed
+     * (`EMBED_SUCCESS_RESET`) so the grace resets per failure-streak.
      */
     embedFirstFailedAt: timestamp("embed_first_failed_at", { withTimezone: true }),
     /**
-     * Set when embedding is abandoned — a permanent (4xx) error, a transient
-     * failure that has persisted past the retry window, or no embeddable
-     * content. A non-null value excludes the row from the embed sweep; null it
-     * to resurrect (rows are immutable, so a dead-lettered doc stays dead
-     * unless deliberately retried).
+     * Set when embedding is abandoned — a per-input-permanent error (400/413/422:
+     * the input itself is un-embeddable), a transient/systemic failure that has
+     * persisted past the retry window, or no embeddable content. A non-null value
+     * excludes the row from the embed sweep. Rows are immutable, so a dead-lettered
+     * doc stays dead unless deliberately retried: to resurrect, null BOTH this and
+     * `embed_first_failed_at` (nulling this alone leaves a days-old first-failure
+     * marker that re-dead-letters on the next blip).
      */
     embedFailedAt: timestamp("embed_failed_at", { withTimezone: true }),
     /** Bounded, secret-redacted last embed-failure message — ops diagnostics. */

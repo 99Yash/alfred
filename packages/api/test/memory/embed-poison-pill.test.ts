@@ -19,13 +19,21 @@ import {
  * and `documents`. It proves the retry storm terminates WITHOUT destroying the
  * backlog during a provider outage:
  *
- *   1. a permanent provider error (a 4xx that isn't 429) dead-letters the row
- *      on the FIRST failure, so it drops out of the embed-sweep candidate set;
- *   2. a 429 (rate-limit) is transient, not permanent;
- *   3. a transient error (5xx) is retried for a wall-clock window regardless of
+ *   1. a per-input-permanent error (400/413/422 — the input itself is
+ *      un-embeddable) dead-letters the row on the FIRST failure, so it drops out
+ *      of the embed-sweep candidate set;
+ *   2. a systemic error (401/403/404 — rotated key, quota trip, endpoint change)
+ *      is NOT per-input, so it must NOT dead-letter on the first failure; it
+ *      rides the wall-clock window like any transient failure. Regression guard
+ *      for the blocker: classifying these as permanent would dead-letter the
+ *      whole pending backlog on the first sweep of a key-rotation lag;
+ *   3. a 429 (rate-limit) is transient, not permanent;
+ *   4. a transient error (5xx) is retried for a wall-clock window regardless of
  *      how many sweeps hit it — the P1 regression guard: a 25-minute outage
  *      that burns >MAX attempts must NOT dead-letter — and only dead-letters
- *      once the *first* failure is older than `EMBED_RETRY_WINDOW_HOURS`.
+ *      once the *first* failure is older than `EMBED_RETRY_WINDOW_HOURS`;
+ *   5. the first-failure marker is stamped ONCE (COALESCE) — re-stamping every
+ *      sweep would perpetually reset the window and reintroduce the retry storm.
  *
  * The wall-clock window is 24h in the implementation; the tests backdate
  * `embed_first_failed_at` rather than sleeping, and assert structurally (never
@@ -88,13 +96,23 @@ async function seedUnembeddedDocument(userId: string): Promise<string> {
   return row.id;
 }
 
-async function readChunk(chunkId: string): Promise<{ embedAttempts: number; failed: boolean }> {
+async function readChunk(
+  chunkId: string,
+): Promise<{ embedAttempts: number; failed: boolean; firstFailedAt: Date | null }> {
   const [row] = await db()
-    .select({ embedAttempts: memoryChunks.embedAttempts, embedFailedAt: memoryChunks.embedFailedAt })
+    .select({
+      embedAttempts: memoryChunks.embedAttempts,
+      embedFailedAt: memoryChunks.embedFailedAt,
+      embedFirstFailedAt: memoryChunks.embedFirstFailedAt,
+    })
     .from(memoryChunks)
     .where(eq(memoryChunks.id, chunkId));
   assert.ok(row, "chunk row disappeared");
-  return { embedAttempts: row.embedAttempts, failed: row.embedFailedAt != null };
+  return {
+    embedAttempts: row.embedAttempts,
+    failed: row.embedFailedAt != null,
+    firstFailedAt: row.embedFirstFailedAt,
+  };
 }
 
 async function readDocument(docId: string): Promise<{ embedAttempts: number; failed: boolean }> {
@@ -182,6 +200,25 @@ describe("memory embed poison-pill guard (DB-backed)", { skip: SKIP }, () => {
     assert.ok(pending.includes(chunkId), "rate-limited chunk should remain a candidate");
   });
 
+  test("systemic (401/403/404) errors do NOT dead-letter on the first failure", async () => {
+    // Rotated key (401), quota/billing/permission trip (403), endpoint change
+    // (404): each returns the same status for every row while it lasts, then
+    // clears. The blocker regression guard — treating these as permanent would
+    // dead-letter the entire pending backlog on the first sweep of a routine
+    // key-rotation lag. They must ride the wall-clock window instead.
+    for (const status of [401, 403, 404]) {
+      const userId = await seedUser();
+      const chunkId = await seedUnembeddedChunk(userId);
+
+      await recordMemoryEmbedFailure(chunkId, userId, httpError(status));
+
+      const state = await readChunk(chunkId);
+      assert.equal(state.failed, false, `${status} is systemic — must not dead-letter early`);
+      const pending = await pendingEmbedChunkIds(userId);
+      assert.ok(pending.includes(chunkId), `${status} chunk should remain a candidate`);
+    }
+  });
+
   test("P1: a burst of transient (500) failures does NOT dead-letter within the window", async () => {
     const userId = await seedUser();
     const chunkId = await seedUnembeddedChunk(userId);
@@ -192,7 +229,11 @@ describe("memory embed poison-pill guard (DB-backed)", { skip: SKIP }, () => {
       await recordMemoryEmbedFailure(chunkId, userId, httpError(500));
       const mid = await readChunk(chunkId);
       assert.equal(mid.embedAttempts, i, `attempt ${i} counted`);
-      assert.equal(mid.failed, false, `outage must not dead-letter within the window (attempt ${i})`);
+      assert.equal(
+        mid.failed,
+        false,
+        `outage must not dead-letter within the window (attempt ${i})`,
+      );
     }
     const pending = await pendingEmbedChunkIds(userId);
     assert.ok(pending.includes(chunkId), "backlog survives a transient outage");
@@ -204,6 +245,32 @@ describe("memory embed poison-pill guard (DB-backed)", { skip: SKIP }, () => {
     assert.equal(final.failed, true, "dead-lettered once first failure is older than the window");
     const after = await pendingEmbedChunkIds(userId);
     assert.ok(!after.includes(chunkId), "capped chunk must drop out of the candidate set");
+  });
+
+  test("P1: embed_first_failed_at is stamped ONCE across repeated failures", async () => {
+    // The mechanism the whole wall-clock window rests on: the guard writes
+    // COALESCE(firstFailedAt, now()), so the ORIGINAL first-failure time must
+    // survive every subsequent sweep. Re-stamping it each failure would keep the
+    // window perpetually fresh — the infinite retry storm the guard terminates.
+    // Assert the column directly: the outcome-level tests can't catch a re-stamp
+    // because a fresh burst stays failed=false either way.
+    const userId = await seedUser();
+    const chunkId = await seedUnembeddedChunk(userId);
+
+    await recordMemoryEmbedFailure(chunkId, userId, httpError(500));
+    const first = await readChunk(chunkId);
+    assert.ok(first.firstFailedAt, "the first failure must stamp embed_first_failed_at");
+    const stampedAt = first.firstFailedAt;
+
+    for (let i = 2; i <= TRANSIENT_FAILURES_IN_WINDOW; i++) {
+      await recordMemoryEmbedFailure(chunkId, userId, httpError(500));
+      const state = await readChunk(chunkId);
+      assert.deepEqual(
+        state.firstFailedAt,
+        stampedAt,
+        `embed_first_failed_at must not re-stamp (failure ${i})`,
+      );
+    }
   });
 
   test("a fresh un-embedded document is a sweep candidate", async () => {
@@ -223,7 +290,10 @@ describe("memory embed poison-pill guard (DB-backed)", { skip: SKIP }, () => {
     assert.equal(state.embedAttempts, 1, "one attempt recorded");
     assert.equal(state.failed, true, "400 should dead-letter immediately");
     const pending = await findUnembeddedDocumentIds({ userId, limit: 5000 });
-    assert.ok(!pending.includes(docId), "dead-lettered document must drop out of the candidate set");
+    assert.ok(
+      !pending.includes(docId),
+      "dead-lettered document must drop out of the candidate set",
+    );
   });
 
   test("P1: a burst of transient (500) failures does NOT dead-letter a document within the window", async () => {
@@ -234,7 +304,11 @@ describe("memory embed poison-pill guard (DB-backed)", { skip: SKIP }, () => {
       await recordDocumentEmbedFailure(docId, httpError(500));
       const mid = await readDocument(docId);
       assert.equal(mid.embedAttempts, i, `attempt ${i} counted`);
-      assert.equal(mid.failed, false, `outage must not dead-letter within the window (attempt ${i})`);
+      assert.equal(
+        mid.failed,
+        false,
+        `outage must not dead-letter within the window (attempt ${i})`,
+      );
     }
     const pending = await findUnembeddedDocumentIds({ userId, limit: 5000 });
     assert.ok(pending.includes(docId), "backlog survives a transient outage");

@@ -117,7 +117,15 @@ async function processMemoryJob(job: Job<MemoryJobData>): Promise<unknown> {
           // Only the embed (Voyage) call counts toward the poison-pill guard —
           // record it so a genuinely un-embeddable chunk dead-letters instead of
           // being re-embedded every sweep forever (best-effort bookkeeping).
-          await recordMemoryEmbedFailure(c.id, c.userId, err).catch(() => {});
+          // Log a bookkeeping-write failure DISTINCTLY: a persistently-failing
+          // guard write (dropped column, bad migration order) would otherwise
+          // no-op silently while the backlog re-embeds forever.
+          await recordMemoryEmbedFailure(c.id, c.userId, err).catch((bookkeepingErr) => {
+            console.error(
+              `[memory:worker] memory.embed_sweep FAILED to record embed failure for ${c.id}:`,
+              toMessage(bookkeepingErr),
+            );
+          });
           console.warn(
             `[memory:worker] memory.embed_sweep embed failed for ${c.id}:`,
             toMessage(err),

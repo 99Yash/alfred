@@ -50,6 +50,15 @@ import { flushLangfuse, flushMeteringWrites } from "@alfred/ai";
 import { toMessage } from "@alfred/contracts";
 import { registerBuiltinWorkflows } from "./builtins";
 
+/**
+ * Upper bound on the observability flush during shutdown/crash. A stalled
+ * network flush (metering rows, Langfuse span batch, Sentry) must never hold
+ * teardown open until the platform SIGKILLs — a prompt exit matters more than a
+ * straggling cost row or span. Shared by graceful shutdown here and the crash
+ * handler in `index.ts` so the two bounds can't drift.
+ */
+export const OBSERVABILITY_FLUSH_TIMEOUT_MS = 2500;
+
 export async function startRuntime(): Promise<void> {
   await warmPool();
   // ADR-0035 guard: every agent model must have a populated
@@ -131,10 +140,13 @@ export async function stopRuntime(): Promise<void> {
     // network flush must not hold graceful shutdown open until the platform
     // SIGKILLs — the pool/Redis close below and a prompt exit matter more than a
     // straggling cost row or span batch. `allSettled` so one flush failing
-    // doesn't abort the other.
+    // doesn't abort the other. `.unref()` the timer so it can never itself keep
+    // the event loop alive past the flush it's bounding.
     await Promise.race([
       Promise.allSettled([flushMeteringWrites(), flushLangfuse()]),
-      new Promise((resolve) => setTimeout(resolve, 2500)),
+      new Promise((resolve) => {
+        setTimeout(resolve, OBSERVABILITY_FLUSH_TIMEOUT_MS).unref();
+      }),
     ]);
     console.log("Observability flushed");
   } catch (err) {

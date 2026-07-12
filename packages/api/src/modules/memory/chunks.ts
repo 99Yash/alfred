@@ -1,6 +1,6 @@
 import { EMBEDDING_DIMENSIONS, embed } from "@alfred/ai/embeddings";
 import { db } from "@alfred/db";
-import { buildEmbedFailureSet, formatVectorFloat32 } from "@alfred/db/helpers";
+import { buildEmbedFailureSet, EMBED_SUCCESS_RESET, formatVectorFloat32 } from "@alfred/db/helpers";
 import { memoryChunks, type MemoryChunk } from "@alfred/db/schemas";
 import { and, eq, isNotNull, isNull, sql } from "drizzle-orm";
 import { createHash } from "node:crypto";
@@ -99,8 +99,21 @@ export async function embedMemoryChunk(
   }
   await db()
     .update(memoryChunks)
-    .set({ embedding })
+    // Clear any prior poison-pill streak on success so the wall-clock grace is
+    // per-failure-streak, not lifetime — a resurrected chunk that embeds cleanly
+    // must not carry a stale `embed_first_failed_at` into its next blip.
+    .set({ embedding, ...EMBED_SUCCESS_RESET })
     .where(and(eq(memoryChunks.id, chunkId), eq(memoryChunks.userId, userId)));
+}
+
+/**
+ * The embed-sweep candidate predicate: a chunk with no embedding yet that hasn't
+ * been dead-lettered. Shared by both the per-user and global finders so a third
+ * finder can't silently forget the `embedFailedAt` guard and re-embed a
+ * dead-lettered row forever.
+ */
+function memoryChunkEmbedCandidateFilter() {
+  return and(isNull(memoryChunks.embedding), isNull(memoryChunks.embedFailedAt));
 }
 
 /**
@@ -137,13 +150,7 @@ export async function pendingEmbedChunkIds(userId: string, limit = 50): Promise<
   const rows = await db()
     .select({ id: memoryChunks.id })
     .from(memoryChunks)
-    .where(
-      and(
-        eq(memoryChunks.userId, userId),
-        isNull(memoryChunks.embedding),
-        isNull(memoryChunks.embedFailedAt),
-      ),
-    )
+    .where(and(eq(memoryChunks.userId, userId), memoryChunkEmbedCandidateFilter()))
     .limit(limit);
   return rows.map((r) => r.id);
 }
@@ -163,7 +170,7 @@ export async function findPendingEmbedChunks(
       content: memoryChunks.content,
     })
     .from(memoryChunks)
-    .where(and(isNull(memoryChunks.embedding), isNull(memoryChunks.embedFailedAt)))
+    .where(memoryChunkEmbedCandidateFilter())
     .limit(limit);
   return rows;
 }

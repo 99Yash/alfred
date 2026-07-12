@@ -10,7 +10,6 @@
   },
   "dependencies": {
     "@alfred/ai": "workspace:*",
-    "@alfred/contracts": "workspace:*",
     "@alfred/db": "workspace:*",
     "drizzle-orm": "^0.45.2"
   },
