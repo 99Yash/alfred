@@ -4,6 +4,7 @@ import {
   closeApprovalNotificationQueue,
   closeBriefingQueue,
   closeChatMemoryQueue,
+  closeConversationCompactionQueue,
   closeConnections,
   closeEventBridge,
   closeIngestionQueue,
@@ -28,6 +29,7 @@ import {
   startApprovalNotificationWorker,
   startBriefingWorker,
   startChatMemoryWorker,
+  startConversationCompactionWorker,
   startIngestionWorker,
   startMemoryWorker,
   startPolicyBustSubscriber,
@@ -38,6 +40,7 @@ import {
   stopApprovalNotificationWorker,
   stopBriefingWorker,
   stopChatMemoryWorker,
+  stopConversationCompactionWorker,
   stopIngestionWorker,
   stopMemoryWorker,
   stopPolicyBustSubscriber,
@@ -76,6 +79,7 @@ export async function startRuntime(): Promise<void> {
   await startIngestionWorker();
   await startMemoryWorker();
   await startChatMemoryWorker();
+  await startConversationCompactionWorker();
   await startBriefingWorker();
   await startWorkflowsWorker();
   await startApprovalNotificationWorker();
@@ -97,9 +101,11 @@ export async function stopRuntime(): Promise<void> {
     // The chat-memory debounce worker's fire creates + enqueues an agent run, so
     // it must stop before the agent queue closes — same rationale as join-wake.
     await stopChatMemoryWorker();
+    await stopConversationCompactionWorker();
     await closeAgentQueue();
     await closeSubAgentJoinWakeQueue();
     await closeChatMemoryQueue();
+    await closeConversationCompactionQueue();
     await stopApprovalNotificationWorker();
     await closeApprovalNotificationQueue();
     await stopApprovalExpiryWorker();
