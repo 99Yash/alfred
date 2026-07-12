@@ -2,6 +2,8 @@
 
 Distilled from the [review prompt](https://gist.github.com/99Yash/0ab2043d8f6281d82dea4f8d2599ea8a) and the conventions already in this tree. Read it before opening a PR and use it as the checklist when reviewing one. This is the _what to do here_ layer; the _why_ lives in [decisions.md](../../decisions.md) and the deeper mechanics in the sibling reference docs (linked inline).
 
+This doc is the **floor** — a closed list of known defects to match against. For the **ceiling** — improvements whose final shape cannot be enumerated in advance (spotting the registry, splitting the overloaded guard) — see [structural-review.md](./structural-review.md).
+
 ---
 
 ## 1. Never hand-roll a type that already exists
