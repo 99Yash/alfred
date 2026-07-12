@@ -71,6 +71,7 @@ import {
   compactConversationSynchronously,
   conversationSummaryMessage,
   loadChatThreadContext,
+  waitForActiveConversationCompaction,
   type ChatSummaryWatermark,
 } from "../compaction";
 
@@ -790,9 +791,19 @@ async function applyForegroundContextGuard({
   const initialPressure = await assess(composed);
   if (!initialPressure.requiresSynchronousCompaction) return composed;
 
+  const replayTail = latestUserSuffix(hydratedTranscript);
+  const backgroundWinner = await waitForActiveConversationCompaction(userId, threadId);
+  if (backgroundWinner?.summary) {
+    const reused = withArtifactReference(
+      [conversationSummaryMessage(backgroundWinner.summary), ...replayTail],
+      artifactReference,
+    );
+    const reusedPressure = await assess(reused);
+    if (!reusedPressure.requiresSynchronousCompaction) return reused;
+  }
+
   const boundary = await loadForegroundCompactionBoundary(userId, threadId, latestUserMessageId);
   if (!boundary) throw new Error("prompt is too long: no compactable history before latest user");
-  const replayTail = latestUserSuffix(hydratedTranscript);
   const result = await compactConversationSynchronously({
     userId,
     threadId,

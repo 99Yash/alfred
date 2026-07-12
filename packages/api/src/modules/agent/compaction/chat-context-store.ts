@@ -49,6 +49,57 @@ export interface PersistConversationSummaryArgs {
   eligibleSources: EligibleConversationSummarySources;
 }
 
+export async function markConversationCompactionRequested(
+  userId: string,
+  threadId: string,
+  ex: AgentDbExecutor = db(),
+): Promise<{ requestedAt: Date; generation: number }> {
+  const requestedAt = new Date();
+  const [row] = await ex
+    .insert(chatThreadContext)
+    .values({ userId, threadId, compactionRequestedAt: requestedAt })
+    .onConflictDoUpdate({
+      target: chatThreadContext.threadId,
+      set: { compactionRequestedAt: requestedAt, updatedAt: requestedAt },
+      setWhere: eq(chatThreadContext.userId, userId),
+    })
+    .returning({ generation: chatThreadContext.compactionGeneration });
+  if (!row) throw new Error("conversation_compaction_request_not_recorded");
+  return { requestedAt, generation: row.generation };
+}
+
+export async function recordConversationCompactionFailure(
+  args: {
+    userId: string;
+    threadId: string;
+    expectedGeneration: number;
+    expectedRequestedAt: Date;
+    category: string;
+    message: string;
+  },
+  ex: AgentDbExecutor = db(),
+): Promise<boolean> {
+  const failedAt = new Date();
+  const rows = await ex
+    .update(chatThreadContext)
+    .set({
+      compactionFailedAt: failedAt,
+      compactionFailureCategory: args.category.slice(0, 100),
+      compactionFailureMessage: args.message.slice(0, 1_000),
+      updatedAt: failedAt,
+    })
+    .where(
+      and(
+        eq(chatThreadContext.userId, args.userId),
+        eq(chatThreadContext.threadId, args.threadId),
+        eq(chatThreadContext.compactionGeneration, args.expectedGeneration),
+        eq(chatThreadContext.compactionRequestedAt, args.expectedRequestedAt),
+      ),
+    )
+    .returning({ threadId: chatThreadContext.threadId });
+  return rows.length === 1;
+}
+
 /**
  * Persist a validated summary only if the generation and compound watermark
  * still match the state read by the compactor. A losing job returns `false`

@@ -36,7 +36,9 @@ export {
 } from "./conversation-summary";
 export {
   loadChatThreadContext,
+  markConversationCompactionRequested,
   persistConversationSummary,
+  recordConversationCompactionFailure,
   type ChatSummaryWatermark,
   type LoadedChatThreadContext,
   type PersistConversationSummaryArgs,
@@ -79,3 +81,19 @@ export {
   type SynchronousConversationCompactionDependencies,
   type SynchronousConversationCompactionResult,
 } from "./synchronous-conversation-compaction";
+export {
+  isCompactionActive,
+  waitForActiveConversationCompaction,
+  FOREGROUND_COMPACTION_POLL_MS,
+  FOREGROUND_COMPACTION_WAIT_MS,
+  type ConversationCompactionWaitDependencies,
+} from "./conversation-compaction-wait";
+export {
+  closeConversationCompactionQueue,
+  conversationCompactionJobId,
+  enqueueConversationCompaction,
+  getConversationCompactionQueue,
+  startConversationCompactionWorker,
+  stopConversationCompactionWorker,
+  CONVERSATION_COMPACTION_QUEUE_NAME,
+} from "./conversation-compaction-queue";
