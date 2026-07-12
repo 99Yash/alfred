@@ -52,10 +52,20 @@ export const documents = pgTable(
      */
     embedAttempts: integer("embed_attempts").notNull().default(0),
     /**
-     * Set when embedding is abandoned — a permanent (4xx) error, the transient
-     * attempt cap, or no embeddable content. A non-null value excludes the row
-     * from the embed sweep; null it to resurrect (rows are immutable, so a
-     * dead-lettered doc stays dead unless deliberately retried).
+     * When embedding first started failing (set once, kept via COALESCE). The
+     * transient dead-letter gate measures failure age from here rather than
+     * from an attempt count: a 5-minute sweep would otherwise burn through an
+     * attempt cap in ~25 minutes and permanently drop the whole backlog during
+     * a routine provider outage. Cleared implicitly when the row succeeds
+     * (embedding written → drops out of the sweep).
+     */
+    embedFirstFailedAt: timestamp("embed_first_failed_at", { withTimezone: true }),
+    /**
+     * Set when embedding is abandoned — a permanent (4xx) error, a transient
+     * failure that has persisted past the retry window, or no embeddable
+     * content. A non-null value excludes the row from the embed sweep; null it
+     * to resurrect (rows are immutable, so a dead-lettered doc stays dead
+     * unless deliberately retried).
      */
     embedFailedAt: timestamp("embed_failed_at", { withTimezone: true }),
     /** Bounded, secret-redacted last embed-failure message — ops diagnostics. */

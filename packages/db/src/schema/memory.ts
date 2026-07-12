@@ -355,9 +355,17 @@ export const memoryChunks = pgTable(
      */
     embedAttempts: integer("embed_attempts").notNull().default(0),
     /**
-     * Set when embedding is abandoned (permanent 4xx error or transient attempt
-     * cap). A non-null value excludes the row from the embed sweep; a content
-     * change writes a new row (unique on content hash) that retries fresh.
+     * When embedding first started failing (set once, kept via COALESCE). The
+     * transient dead-letter gate measures failure age from here rather than
+     * from an attempt count, so a routine provider outage can't burn through an
+     * attempt cap in a few sweeps and permanently drop the backlog.
+     */
+    embedFirstFailedAt: timestamp("embed_first_failed_at", { withTimezone: true }),
+    /**
+     * Set when embedding is abandoned (permanent 4xx error, or a transient
+     * failure that has persisted past the retry window). A non-null value
+     * excludes the row from the embed sweep; a content change writes a new row
+     * (unique on content hash) that retries fresh.
      */
     embedFailedAt: timestamp("embed_failed_at", { withTimezone: true }),
     /** Bounded, secret-redacted last embed-failure message — ops diagnostics. */
