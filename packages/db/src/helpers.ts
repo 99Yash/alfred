@@ -3,13 +3,16 @@ import {
   canonicalizeIdentityValue,
   identityRefSchema,
   identityValueMatchesKind,
+  isHttpError,
+  redactSecrets,
   STABLE_ENTITY_ID_VERSION,
+  toMessage,
   type IdentityKind,
   type IdentityRef,
   type StableEntityIdInput,
 } from "@alfred/contracts";
-import { sql } from "drizzle-orm";
-import { customType, timestamp } from "drizzle-orm/pg-core";
+import { sql, type SQL } from "drizzle-orm";
+import { customType, timestamp, type AnyPgColumn } from "drizzle-orm/pg-core";
 import { customAlphabet } from "nanoid";
 
 // ---------------------------------------------------------------------------
@@ -247,3 +250,67 @@ export const vectorColumn = (name: string, dimensions: number) =>
       return JSON.parse(value) as number[];
     },
   })(name);
+
+// ---------------------------------------------------------------------------
+// Embedding poison-pill guard
+// ---------------------------------------------------------------------------
+
+/**
+ * How long a *transient* embed failure (a Voyage 5xx/429, a network blip, a
+ * whole-provider outage) is tolerated before the row is dead-lettered. Gated on
+ * the wall-clock age of the first failure, NOT an attempt count: the embed
+ * sweep runs every ~5 minutes, so a small attempt cap would be exhausted by a
+ * ~25-minute outage and permanently drop the entire pending backlog (silent
+ * data loss). A full day gives the provider time to recover while still
+ * terminating the retry storm for a genuinely un-embeddable input. A permanent
+ * error (a 4xx that isn't 429) dead-letters immediately regardless.
+ *
+ * Shared by every embeddable table (`documents`, `memory_chunks`) so the
+ * poison-pill policy is defined once — see `buildEmbedFailureSet`.
+ */
+export const EMBED_RETRY_WINDOW_HOURS = 24;
+
+/** Cap the persisted failure message; `HttpError` bodies are already bounded + redacted. */
+const MAX_EMBED_ERROR_CHARS = 500;
+
+/** Drizzle columns the embed poison-pill guard reads/stamps on the row it's recording against. */
+export interface EmbedFailureColumns {
+  attempts: AnyPgColumn;
+  firstFailedAt: AnyPgColumn;
+  failedAt: AnyPgColumn;
+}
+
+/**
+ * Build the drizzle `.set(...)` payload that records an embed failure and
+ * enforces the poison-pill dead-letter policy — the single source of truth
+ * shared across every embeddable table (`documents`, `memory_chunks`), so a
+ * change to the window, the redaction cap, or the transient/permanent
+ * classification is one edit, not N co-varying copies.
+ *
+ * A permanent error (a 4xx that isn't 429) dead-letters the row (`failedAt`)
+ * immediately; a transient error rides the wall-clock window and only
+ * dead-letters once the *first* failure is older than `EMBED_RETRY_WINDOW_HOURS`.
+ * `attempts` still counts every failure for diagnostics but no longer gates
+ * dead-lettering. Every `sql` expression references the row's PRE-update column
+ * values (Postgres evaluates the SET list against the old row), so the
+ * `COALESCE(firstFailedAt, now())` first-stamp and the CASE window behave as
+ * described no matter how many sweeps have already hit the row.
+ *
+ * The returned keys are the drizzle property names shared by both tables
+ * (`embedAttempts` / `embedFirstFailedAt` / `lastEmbedError` / `embedFailedAt`);
+ * table-specific concerns (userId scoping, empty-content terminal cases) stay
+ * with the caller.
+ */
+export function buildEmbedFailureSet(cols: EmbedFailureColumns, err: unknown) {
+  const permanent = isHttpError(err) && !err.retryable;
+  return {
+    embedAttempts: sql`${cols.attempts} + 1`,
+    // Stamp the first failure once so the transient gate can measure how long
+    // the failure has persisted (references the pre-update value).
+    embedFirstFailedAt: sql`COALESCE(${cols.firstFailedAt}, now())`,
+    lastEmbedError: redactSecrets(toMessage(err)).slice(0, MAX_EMBED_ERROR_CHARS),
+    embedFailedAt: permanent
+      ? sql`COALESCE(${cols.failedAt}, now())`
+      : sql`CASE WHEN COALESCE(${cols.firstFailedAt}, now()) <= now() - make_interval(hours => ${EMBED_RETRY_WINDOW_HOURS}) THEN COALESCE(${cols.failedAt}, now()) ELSE ${cols.failedAt} END`,
+  } satisfies Record<string, SQL | string>;
+}

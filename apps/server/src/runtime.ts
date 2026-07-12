@@ -126,8 +126,16 @@ export async function stopRuntime(): Promise<void> {
     // trace is otherwise dropped when a redeploy SIGTERM recycles the process
     // inside that window (the missing follow-up-turn trace). Sentry already
     // flushes on shutdown; this closes the same gap for the LLM observability.
-    await flushMeteringWrites();
-    await flushLangfuse();
+    //
+    // Bound the wait (mirrors the crash handler in `index.ts`): a stalled
+    // network flush must not hold graceful shutdown open until the platform
+    // SIGKILLs — the pool/Redis close below and a prompt exit matter more than a
+    // straggling cost row or span batch. `allSettled` so one flush failing
+    // doesn't abort the other.
+    await Promise.race([
+      Promise.allSettled([flushMeteringWrites(), flushLangfuse()]),
+      new Promise((resolve) => setTimeout(resolve, 2500)),
+    ]);
     console.log("Observability flushed");
   } catch (err) {
     console.error("Error flushing observability:", toMessage(err));

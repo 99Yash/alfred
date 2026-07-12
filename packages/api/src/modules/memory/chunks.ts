@@ -1,7 +1,6 @@
 import { EMBEDDING_DIMENSIONS, embed } from "@alfred/ai/embeddings";
-import { isHttpError, redactSecrets, toMessage } from "@alfred/contracts";
 import { db } from "@alfred/db";
-import { formatVectorFloat32 } from "@alfred/db/helpers";
+import { buildEmbedFailureSet, formatVectorFloat32 } from "@alfred/db/helpers";
 import { memoryChunks, type MemoryChunk } from "@alfred/db/schemas";
 import { and, eq, isNotNull, isNull, sql } from "drizzle-orm";
 import { createHash } from "node:crypto";
@@ -105,45 +104,31 @@ export async function embedMemoryChunk(
 }
 
 /**
- * How long a *transient* embed failure is tolerated before the chunk is
- * dead-lettered. Gated on wall-clock age of the first failure, NOT an attempt
- * count: the sweep runs every 5 minutes, so an attempt cap of a handful would
- * be exhausted by a ~25-minute Voyage outage and permanently drop the whole
- * pending backlog. A full day gives the provider time to recover; a genuine
- * poison pill that keeps 5xx-ing eventually gives up. A permanent (4xx≠429)
- * error dead-letters immediately regardless. Mirrors the `documents` embed
- * guard in `@alfred/ingestion`.
- */
-const EMBED_RETRY_WINDOW_HOURS = 24;
-
-/** Cap the persisted failure message; `HttpError` bodies are already bounded + redacted. */
-const MAX_EMBED_ERROR_CHARS = 500;
-
-/**
- * Record an embed failure on the chunk row. A permanent error dead-letters it
- * (via `embedFailedAt`) immediately; a transient error is retried by the sweep
- * until it has persisted past `EMBED_RETRY_WINDOW_HOURS`. `embedAttempts` still
- * counts every failure for diagnostics but no longer triggers dead-lettering.
- * Best-effort; the caller still logs the original error.
+ * Record an embed failure on the chunk row via the shared poison-pill guard
+ * (`buildEmbedFailureSet` in `@alfred/db/helpers`): a permanent error
+ * dead-letters the chunk immediately; a transient error is retried by the sweep
+ * until it has persisted past the shared retry window. `userId` scopes the
+ * write (single-ownership); the dead-letter policy itself is table-agnostic and
+ * owned by the shared helper. Best-effort; the caller still logs the original
+ * error.
  */
 export async function recordMemoryEmbedFailure(
   chunkId: string,
   userId: string,
   err: unknown,
 ): Promise<void> {
-  const permanent = isHttpError(err) && !err.retryable;
   await db()
     .update(memoryChunks)
-    .set({
-      embedAttempts: sql`${memoryChunks.embedAttempts} + 1`,
-      // Stamp the first failure once so the transient gate below can measure
-      // how long the failure has persisted (references the pre-update value).
-      embedFirstFailedAt: sql`COALESCE(${memoryChunks.embedFirstFailedAt}, now())`,
-      lastEmbedError: redactSecrets(toMessage(err)).slice(0, MAX_EMBED_ERROR_CHARS),
-      embedFailedAt: permanent
-        ? sql`COALESCE(${memoryChunks.embedFailedAt}, now())`
-        : sql`CASE WHEN COALESCE(${memoryChunks.embedFirstFailedAt}, now()) <= now() - make_interval(hours => ${EMBED_RETRY_WINDOW_HOURS}) THEN COALESCE(${memoryChunks.embedFailedAt}, now()) ELSE ${memoryChunks.embedFailedAt} END`,
-    })
+    .set(
+      buildEmbedFailureSet(
+        {
+          attempts: memoryChunks.embedAttempts,
+          firstFailedAt: memoryChunks.embedFirstFailedAt,
+          failedAt: memoryChunks.embedFailedAt,
+        },
+        err,
+      ),
+    )
     .where(and(eq(memoryChunks.id, chunkId), eq(memoryChunks.userId, userId)));
 }
 
