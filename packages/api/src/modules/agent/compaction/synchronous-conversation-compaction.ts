@@ -26,6 +26,7 @@ export interface SynchronousConversationCompactionArgs {
   threadId: string;
   throughWatermark: ChatSummaryWatermark;
   replayTail: readonly AgentTranscriptMessage[];
+  replayTailWatermark: ChatSummaryWatermark;
   attribution: Omit<AttributedCall, "kind" | "role">;
 }
 
@@ -67,6 +68,7 @@ export async function compactConversationSynchronously(
 
   const context = await loadContext(args.userId, args.threadId);
   const expectedWatermark = contextWatermark(context);
+  const expectedReplayEstimateWatermark = replayEstimateWatermark(context);
   const rebuildFromRaw = context?.invalidSummary === true;
   const loaded = await loadEvidence({
     userId: args.userId,
@@ -91,7 +93,9 @@ export async function compactConversationSynchronously(
     watermark: loaded.watermark,
     expectedGeneration: context?.compactionGeneration ?? 0,
     expectedWatermark,
+    expectedReplayEstimateWatermark,
     estimatedReplayTokens,
+    replayEstimateWatermark: args.replayTailWatermark,
     eligibleSources,
   });
   return persisted
@@ -104,5 +108,17 @@ function contextWatermark(context: LoadedChatThreadContext | null): ChatSummaryW
   return {
     createdAt: context.summaryWatermarkCreatedAt,
     messageId: context.summaryWatermarkMessageId,
+  };
+}
+
+function replayEstimateWatermark(
+  context: LoadedChatThreadContext | null,
+): ChatSummaryWatermark | null {
+  if (!context?.replayEstimateWatermarkCreatedAt || !context.replayEstimateWatermarkMessageId) {
+    return null;
+  }
+  return {
+    createdAt: context.replayEstimateWatermarkCreatedAt,
+    messageId: context.replayEstimateWatermarkMessageId,
   };
 }

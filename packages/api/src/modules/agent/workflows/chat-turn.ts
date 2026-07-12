@@ -68,9 +68,11 @@ import type { AgentDbExecutor, Step, StepContext, StepResult, Workflow } from ".
 import {
   assessChatRequestPressure,
   assembleChatContext,
+  CHAT_MAX_OUTPUT_TOKENS,
   compactConversationSynchronously,
   conversationSummaryMessage,
   loadChatThreadContext,
+  scheduleConversationCompactionIfNeeded,
   waitForActiveConversationCompaction,
   type ChatSummaryWatermark,
 } from "../compaction";
@@ -94,7 +96,7 @@ export const CHAT_TURN_WORKFLOW_SLUG = "__chat-turn__";
 
 const TURN_CAP_MAX = 24;
 /** Shared with the future pre-call context guard; never reserve a different output shape. */
-export const CHAT_MAX_OUTPUT_TOKENS = 16_000;
+export { CHAT_MAX_OUTPUT_TOKENS } from "../compaction";
 /**
  * How many consecutive empty completions (see `isRetryableEmptyCompletion`) to
  * regenerate before surfacing a failure. An empty `stop` with no text and no
@@ -807,8 +809,9 @@ async function applyForegroundContextGuard({
   const result = await compactConversationSynchronously({
     userId,
     threadId,
-    throughWatermark: boundary,
+    throughWatermark: boundary.compaction,
     replayTail,
+    replayTailWatermark: boundary.replayTail,
     attribution: { userId, runId, stepId, attempt, sessionId: threadId },
   });
   const winningSummary =
@@ -833,7 +836,7 @@ async function loadForegroundCompactionBoundary(
   userId: string,
   threadId: string,
   latestUserMessageId: string | undefined,
-): Promise<ChatSummaryWatermark | null> {
+): Promise<{ compaction: ChatSummaryWatermark; replayTail: ChatSummaryWatermark } | null> {
   const rows = await db()
     .select({
       id: chatMessages.id,
@@ -853,7 +856,11 @@ async function loadForegroundCompactionBoundary(
   }
   if (latestUserIndex <= 0) return null;
   const cutoff = rows[latestUserIndex - 1]!;
-  return { createdAt: cutoff.createdAt, messageId: cutoff.id };
+  const replayTail = rows[rows.length - 1]!;
+  return {
+    compaction: { createdAt: cutoff.createdAt, messageId: cutoff.id },
+    replayTail: { createdAt: replayTail.createdAt, messageId: replayTail.id },
+  };
 }
 
 function latestUserSuffix(transcript: readonly AgentTranscriptMessage[]): AgentTranscriptMessage[] {
@@ -2071,6 +2078,17 @@ async function finalizeAssistantMessage(
     userId,
     threadId: state.threadId,
     captureAfterMessageId: state.messageId,
+  });
+  void scheduleConversationCompactionIfNeeded({
+    userId,
+    threadId: state.threadId,
+    latestUserMessageId: state.userMessageId,
+    tier: state.tier,
+  }).catch((error) => {
+    logger.warn(
+      { err: error, event: "chat_compaction_schedule_failed", threadId: state.threadId },
+      "Chat background compaction scheduling failed",
+    );
   });
 
   // Name the thread from its opening exchange. Fire-and-forget: this does two

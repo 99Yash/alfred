@@ -29,6 +29,8 @@ function context(overrides: Partial<LoadedChatThreadContext> = {}): LoadedChatTh
     summaryWatermarkCreatedAt: null,
     summaryWatermarkMessageId: null,
     estimatedReplayTokens: 0,
+    replayEstimateWatermarkCreatedAt: null,
+    replayEstimateWatermarkMessageId: null,
     compactionRequestedAt: null,
     compactionCompletedAt: null,
     compactionFailedAt: null,

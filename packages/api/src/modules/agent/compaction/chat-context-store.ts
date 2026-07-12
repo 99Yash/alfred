@@ -45,7 +45,9 @@ export interface PersistConversationSummaryArgs {
   watermark: ChatSummaryWatermark;
   expectedGeneration: number;
   expectedWatermark: ChatSummaryWatermark | null;
+  expectedReplayEstimateWatermark: ChatSummaryWatermark | null;
   estimatedReplayTokens: number;
+  replayEstimateWatermark: ChatSummaryWatermark;
   eligibleSources: EligibleConversationSummarySources;
 }
 
@@ -100,6 +102,51 @@ export async function recordConversationCompactionFailure(
   return rows.length === 1;
 }
 
+/** CAS the replay estimate so turn retries cannot double-count persisted rows. */
+export async function persistConversationReplayEstimate(
+  args: {
+    userId: string;
+    threadId: string;
+    expectedGeneration: number;
+    expectedWatermark: ChatSummaryWatermark | null;
+    estimatedReplayTokens: number;
+    watermark: ChatSummaryWatermark;
+  },
+  ex: AgentDbExecutor = db(),
+): Promise<boolean> {
+  await ex
+    .insert(chatThreadContext)
+    .values({ userId: args.userId, threadId: args.threadId })
+    .onConflictDoNothing({ target: chatThreadContext.threadId });
+  const watermarkPredicate = args.expectedWatermark
+    ? and(
+        eq(chatThreadContext.replayEstimateWatermarkCreatedAt, args.expectedWatermark.createdAt),
+        eq(chatThreadContext.replayEstimateWatermarkMessageId, args.expectedWatermark.messageId),
+      )
+    : and(
+        isNull(chatThreadContext.replayEstimateWatermarkCreatedAt),
+        isNull(chatThreadContext.replayEstimateWatermarkMessageId),
+      );
+  const rows = await ex
+    .update(chatThreadContext)
+    .set({
+      estimatedReplayTokens: args.estimatedReplayTokens,
+      replayEstimateWatermarkCreatedAt: args.watermark.createdAt,
+      replayEstimateWatermarkMessageId: args.watermark.messageId,
+      updatedAt: new Date(),
+    })
+    .where(
+      and(
+        eq(chatThreadContext.userId, args.userId),
+        eq(chatThreadContext.threadId, args.threadId),
+        eq(chatThreadContext.compactionGeneration, args.expectedGeneration),
+        watermarkPredicate,
+      ),
+    )
+    .returning({ threadId: chatThreadContext.threadId });
+  return rows.length === 1;
+}
+
 /**
  * Persist a validated summary only if the generation and compound watermark
  * still match the state read by the compactor. A losing job returns `false`
@@ -133,6 +180,21 @@ export async function persistConversationSummary(
         isNull(chatThreadContext.summaryWatermarkCreatedAt),
         isNull(chatThreadContext.summaryWatermarkMessageId),
       );
+  const replayEstimatePredicate = args.expectedReplayEstimateWatermark
+    ? and(
+        eq(
+          chatThreadContext.replayEstimateWatermarkCreatedAt,
+          args.expectedReplayEstimateWatermark.createdAt,
+        ),
+        eq(
+          chatThreadContext.replayEstimateWatermarkMessageId,
+          args.expectedReplayEstimateWatermark.messageId,
+        ),
+      )
+    : and(
+        isNull(chatThreadContext.replayEstimateWatermarkCreatedAt),
+        isNull(chatThreadContext.replayEstimateWatermarkMessageId),
+      );
   const now = new Date();
   const rows = await db()
     .update(chatThreadContext)
@@ -141,6 +203,8 @@ export async function persistConversationSummary(
       summaryWatermarkCreatedAt: args.watermark.createdAt,
       summaryWatermarkMessageId: args.watermark.messageId,
       estimatedReplayTokens: args.estimatedReplayTokens,
+      replayEstimateWatermarkCreatedAt: args.replayEstimateWatermark.createdAt,
+      replayEstimateWatermarkMessageId: args.replayEstimateWatermark.messageId,
       compactionCompletedAt: now,
       compactionFailedAt: null,
       compactionFailureCategory: null,
@@ -154,6 +218,7 @@ export async function persistConversationSummary(
         eq(chatThreadContext.threadId, args.threadId),
         eq(chatThreadContext.compactionGeneration, args.expectedGeneration),
         watermarkPredicate,
+        replayEstimatePredicate,
       ),
     )
     .returning({ threadId: chatThreadContext.threadId });
