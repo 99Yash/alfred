@@ -99,10 +99,19 @@ jobs:
           --health-interval 10s
           --health-timeout 5s
           --health-retries 5
+      redis:
+        image: redis:7-alpine
+        ports:
+          - 6379:6379
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
     env:
       DATABASE_URL: postgresql://ci:ci@localhost:5432/alfred_ci
-      # Format-valid dummies required by serverEnv(); these focused tests do
-      # not connect to Redis or external providers.
+      # Format-valid dummies required by serverEnv(). The suite uses the local
+      # Postgres/Redis services and does not call external providers.
       REDIS_URL: redis://localhost:6379
       BETTER_AUTH_SECRET: ci-dummy-better-auth-secret-32chars-min
       BETTER_AUTH_URL: http://localhost:3001
@@ -147,10 +156,7 @@ jobs:
         run: corepack pnpm --filter @alfred/db db:migrate
 
       - name: API database regression tests
-        run: >-
-          corepack pnpm --filter @alfred/api exec tsx --test
-          test/artifacts/create-artifact-message-fk.test.ts
-          test/dispatch/staging.test.ts
+        run: corepack pnpm --filter @alfred/api test
 
   ai-unit-tests:
     name: ai-unit-tests

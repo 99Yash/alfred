@@ -267,6 +267,53 @@ describe("dispatch staging (DB-backed)", { skip: SKIP }, () => {
     assert.match(persisted, /tool_execution_failed/);
   });
 
+  test("invalid edited approval input persists and returns only the registered public error", async () => {
+    const { userId, runId } = await seedUserAndRun();
+    const toolCallId = `tc_${randomUUID().slice(0, 8)}`;
+    await db().insert(actionStagings).values({
+      userId,
+      runId,
+      stepId: "dispatch-tools",
+      toolCallId,
+      toolName: "system.load_integration",
+      integration: "system",
+      riskTier: "no_risk",
+      proposedInput: { slug: "github" },
+      proposedInputHash: "invalid-edit-test",
+      requiresApproval: true,
+      status: "approved",
+      decidedInput: { slug: 42, secret: "edited-private-value" },
+    });
+
+    const result = await dispatchToolCall({
+      runId,
+      stepId: "dispatch-tools",
+      toolCallId,
+      toolName: "system.load_integration",
+      input: { slug: "github" },
+      userId,
+      caller: "boss",
+    });
+
+    assert.deepEqual(result, {
+      kind: "failed",
+      stagingId: result.kind === "failed" ? result.stagingId : null,
+      error: {
+        code: "tool_input_invalid",
+        message: "The tool input is invalid. Correct it and try again.",
+      },
+    });
+    const [row] = await db()
+      .select({ executeError: actionStagings.executeError })
+      .from(actionStagings)
+      .where(and(eq(actionStagings.runId, runId), eq(actionStagings.toolCallId, toolCallId)));
+    assert.deepEqual(row?.executeError, {
+      code: "tool_input_invalid",
+      message: "The tool input is invalid. Correct it and try again.",
+    });
+    assert.doesNotMatch(JSON.stringify(row?.executeError), /edited-private-value|slug|42/);
+  });
+
   test("#293 redacts proposed_input for an autonomous tool while execute sees the raw url", async () => {
     const { userId, runId } = await seedUserAndRun();
     const toolCallId = `tc_${randomUUID().slice(0, 8)}`;
