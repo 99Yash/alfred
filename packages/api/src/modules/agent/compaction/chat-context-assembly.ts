@@ -1,4 +1,5 @@
 import type { AgentTranscriptMessage } from "@alfred/contracts";
+import type { ChatMessageRole } from "@alfred/db/schemas";
 
 import type { ConversationSummary } from "./conversation-summary";
 import type { ChatSummaryWatermark, LoadedChatThreadContext } from "./chat-context-store";
@@ -8,17 +9,16 @@ export const CHAT_VERBATIM_TAIL_BUDGET_TOKENS = 8_000;
 
 export interface ChatContextMessage {
   id: string;
-  role: "user" | "assistant";
+  role: ChatMessageRole;
   content: AgentTranscriptMessage["content"];
   createdAt: Date;
 }
 
 export interface AssembledChatContext {
-  transcript: AgentTranscriptMessage[];
+  summaryMessage: AgentTranscriptMessage | null;
   verbatimMessageIds: string[];
   summaryApplied: boolean;
   invalidSummary: boolean;
-  estimatedTranscriptTokens: number;
 }
 
 /**
@@ -41,26 +41,26 @@ export function assembleChatContext({
   }
 
   const watermark = completeWatermark(context);
-  const summaryApplied =
-    context?.invalidSummary !== true &&
-    context?.summary !== null &&
-    context?.summary !== undefined &&
-    watermark !== null;
-  const eligibleTail = summaryApplied
-    ? messages.filter((message) => isAfterWatermark(message, watermark))
-    : [...messages];
-  const selected = summaryApplied
-    ? selectVerbatimTail(eligibleTail, tailBudgetTokens)
-    : eligibleTail;
-  const transcript = selected.map(toTranscriptMessage);
-  if (summaryApplied) transcript.unshift(conversationSummaryMessage(context.summary!));
+  const candidate =
+    context?.invalidSummary !== true && context?.summary != null && watermark !== null
+      ? { summary: context.summary, watermark }
+      : null;
+  const watermarkIndex = candidate
+    ? messages.findIndex(
+        (message) =>
+          message.id === candidate.watermark.messageId &&
+          message.createdAt.getTime() === candidate.watermark.createdAt.getTime(),
+      )
+    : -1;
+  const applied = candidate && watermarkIndex >= 0 ? candidate : null;
+  const eligibleTail = applied ? messages.slice(watermarkIndex + 1) : [...messages];
+  const selected = applied ? selectVerbatimTail(eligibleTail, tailBudgetTokens) : eligibleTail;
 
   return {
-    transcript,
+    summaryMessage: applied ? conversationSummaryMessage(applied.summary) : null,
     verbatimMessageIds: selected.map((message) => message.id),
-    summaryApplied,
+    summaryApplied: applied !== null,
     invalidSummary: context?.invalidSummary ?? false,
-    estimatedTranscriptTokens: estimateTranscriptTokens(transcript),
   };
 }
 
@@ -107,11 +107,6 @@ function completeWatermark(context: LoadedChatThreadContext | null): ChatSummary
     createdAt: context.summaryWatermarkCreatedAt,
     messageId: context.summaryWatermarkMessageId,
   };
-}
-
-function isAfterWatermark(message: ChatContextMessage, watermark: ChatSummaryWatermark): boolean {
-  const timeDelta = message.createdAt.getTime() - watermark.createdAt.getTime();
-  return timeDelta > 0 || (timeDelta === 0 && message.id > watermark.messageId);
 }
 
 function toTranscriptMessage(message: ChatContextMessage): AgentTranscriptMessage {

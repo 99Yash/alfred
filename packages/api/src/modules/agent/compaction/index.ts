@@ -1,14 +1,15 @@
 /**
- * Transcript compaction primitive (ADR-0035).
+ * Agent context compaction has two related but distinct mechanisms:
  *
- * The `compact-transcript` executor step in `userAuthoredBriefWorkflow`
- * is the only call site today. The function is shaped as a reusable
- * primitive so the post-m13 chat surface (and any future long-running
- * agent driver) can import it without rework — the boss workflow holds
- * the policy (when to compact, how to retry); this module holds the
- * mechanism (one cheap-tier LLM round-trip that returns a
- * `<run_summary>`-prefixed transcript).
+ * - Run compaction (ADR-0035) produces an in-band `<run_summary>` for the
+ *   boss-only `compact-transcript` workflow step.
+ * - Chat compaction produces a structured, persisted, rolling
+ *   `<conversation_summary>` guarded by a compound watermark and CAS.
+ *
+ * They intentionally share token/window math, but not summary contracts,
+ * persistence, or lifecycle policy. Exports are grouped by mechanism below.
  */
+// Run transcript compaction.
 export {
   compactTranscript,
   type CompactTranscriptArgs,
@@ -21,7 +22,9 @@ export {
   type HandoffSection,
 } from "./handoff";
 export { COMPACTOR_SYSTEM_PROMPT } from "./prompt";
-export { estimateTranscriptTokens } from "./tokens";
+export { CHARS_PER_TOKEN, estimateSerializedTokens, estimateTranscriptTokens } from "./tokens";
+
+// Persisted chat compaction.
 export {
   conversationSummarySchema,
   conversationSummarySourceSchema,
@@ -55,9 +58,24 @@ export {
   type ChatRequestTokenEstimate,
 } from "./chat-request-pressure";
 export {
+  chooseConversationSummaryModel,
   eligibleConversationSummarySources,
   generateConversationSummary,
   CONVERSATION_SUMMARY_MAX_OUTPUT_TOKENS,
   type ConversationSummaryEvidence,
+  type ConversationSummaryGeneratorDependencies,
+  type ConversationSummaryModelRoute,
   type GenerateConversationSummaryArgs,
 } from "./conversation-summary-generator";
+export {
+  buildConversationSummaryEvidence,
+  loadConversationSummaryEvidence,
+  CONVERSATION_EVIDENCE_TEXT_LIMIT_CHARS,
+  type LoadedConversationSummaryEvidence,
+} from "./conversation-summary-evidence";
+export {
+  compactConversationSynchronously,
+  type SynchronousConversationCompactionArgs,
+  type SynchronousConversationCompactionDependencies,
+  type SynchronousConversationCompactionResult,
+} from "./synchronous-conversation-compaction";

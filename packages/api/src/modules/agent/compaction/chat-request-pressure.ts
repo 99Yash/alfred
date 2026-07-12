@@ -2,6 +2,8 @@ import { asSchema, type ModelMessage, type ToolSet } from "ai";
 
 import { effectiveInputWindowTokens } from "@alfred/ai";
 
+import { estimateSerializedTokens } from "./tokens";
+
 /** Synchronous chat compaction is the safety backstop, not the normal trigger. */
 export const CHAT_SYNC_COMPACTION_RATIO = 0.85;
 
@@ -98,10 +100,6 @@ export async function assessChatRequestPressure(args: {
     synchronousCompactionThresholdTokens: threshold,
     requiresSynchronousCompaction: estimate.inputTokens > threshold,
   };
-}
-
-function estimateSerializedTokens(value: unknown): number {
-  return Math.ceil(JSON.stringify(value).length / 4);
 }
 
 function normalizeTranscript(messages: readonly ModelMessage[]): {

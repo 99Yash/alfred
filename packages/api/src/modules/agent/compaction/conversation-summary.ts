@@ -85,13 +85,8 @@ export function validateConversationSummary(
     throw new Error("conversation_summary_invalid_provenance: overview range");
   }
 
-  for (const source of summarySources(summary)) {
-    const eligibleIds =
-      source.kind === "message"
-        ? eligible.messageIds
-        : source.kind === "tool"
-          ? eligible.toolIds
-          : eligible.attachmentIds;
+  for (const source of conversationSummarySources(summary)) {
+    const eligibleIds = eligibleIdsForSource(source, eligible);
     if (!eligibleIds.has(source.id)) {
       throw new Error(`conversation_summary_invalid_provenance: ${source.kind}:${source.id}`);
     }
@@ -99,7 +94,29 @@ export function validateConversationSummary(
   return summary;
 }
 
-function summarySources(summary: ConversationSummary): ConversationSummarySource[] {
+function eligibleIdsForSource(
+  source: ConversationSummarySource,
+  eligible: EligibleConversationSummarySources,
+): ReadonlySet<string> {
+  switch (source.kind) {
+    case "message":
+      return eligible.messageIds;
+    case "tool":
+      return eligible.toolIds;
+    case "attachment":
+      return eligible.attachmentIds;
+    default:
+      return assertNever(source.kind);
+  }
+}
+
+function assertNever(value: never): never {
+  throw new Error(`Unexpected conversation summary source kind: ${String(value)}`);
+}
+
+export function conversationSummarySources(
+  summary: ConversationSummary,
+): ConversationSummarySource[] {
   return [
     ...summary.facts,
     ...summary.preferences,

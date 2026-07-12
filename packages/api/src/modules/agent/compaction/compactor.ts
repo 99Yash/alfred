@@ -10,7 +10,7 @@ import {
 import type { AgentTranscriptMessage } from "@alfred/contracts";
 import { assertHandoffSections } from "./handoff";
 import { COMPACTOR_SYSTEM_PROMPT } from "./prompt";
-import { estimateTranscriptTokens } from "./tokens";
+import { CHARS_PER_TOKEN, estimateTranscriptTokens } from "./tokens";
 
 /**
  * Replace `prior` with a structured `<run_summary>` system message and
@@ -75,7 +75,8 @@ export const COMPACTOR_MAX_OUTPUT_TOKENS = 2000;
  *   - output: the reserved `maxOutputTokens` above.
  * chars/4 mirrors `estimateTranscriptTokens`; the wrapper is a small constant.
  */
-const COMPACTOR_FIXED_INPUT_OVERHEAD_TOKENS = Math.ceil(COMPACTOR_SYSTEM_PROMPT.length / 4) + 64;
+const COMPACTOR_FIXED_INPUT_OVERHEAD_TOKENS =
+  Math.ceil(COMPACTOR_SYSTEM_PROMPT.length / CHARS_PER_TOKEN) + 64;
 
 export async function compactTranscript(
   args: CompactTranscriptArgs,
