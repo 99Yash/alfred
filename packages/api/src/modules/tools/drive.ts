@@ -14,6 +14,7 @@ import {
   driveSearchInput,
 } from "@alfred/contracts";
 import {
+  DRIVE_SCOPE,
   downloadFile,
   exportFile,
   getFile,
@@ -24,13 +25,32 @@ import {
 import { AppError } from "../../lib/app-errors";
 import { liveTool, type RegisteredTool } from "./registry";
 
+/**
+ * Resolve an access token for a Drive call, scope-aware.
+ *
+ * A user can connect several Google accounts, and any one credential may be
+ * Gmail/Calendar-only (no Drive scope). "First active" therefore risks a
+ * silent 403 from Drive (valid token, insufficient scope) that collapses to
+ * the opaque `tool_execution_failed` — the failure this fixes. Mirror the
+ * Gmail/Calendar pickers: take the first active credential that actually
+ * grants `drive`, and raise a typed, actionable error otherwise.
+ *
+ * A dead refresh token self-heals into an actionable error too:
+ * `getFreshAccessToken` flips that credential to `needs_reauth`, so the next
+ * call finds no active Drive-scoped credential and raises
+ * `drive_connection_required` instead of the generic message.
+ */
 async function accessTokenFor(userId: string): Promise<string> {
   const creds = await listCredentials(userId, "google");
-  const active = creds.find((c) => c.status === "active");
-  if (!active) {
-    throw new AppError("google_connection_required");
+  const active = creds.filter((c) => c.status === "active");
+  if (active.length === 0) {
+    throw new AppError("drive_connection_required");
   }
-  return getFreshAccessToken(active.id);
+  const scoped = active.find((c) => c.scopes.includes(DRIVE_SCOPE));
+  if (!scoped) {
+    throw new AppError("drive_scope_required");
+  }
+  return getFreshAccessToken(scoped.id);
 }
 
 export const driveTools: readonly RegisteredTool[] = [
