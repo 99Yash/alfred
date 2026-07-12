@@ -46,6 +46,7 @@ import {
   verifyMeteringModels,
   warmPool,
 } from "@alfred/api/runtime";
+import { flushLangfuse, flushMeteringWrites } from "@alfred/ai";
 import { toMessage } from "@alfred/contracts";
 import { registerBuiltinWorkflows } from "./builtins";
 
@@ -115,6 +116,21 @@ export async function stopRuntime(): Promise<void> {
     console.log("Workers stopped");
   } catch (err) {
     console.error("Error stopping workers:", toMessage(err));
+  }
+
+  try {
+    // Workers are stopped, so no new metering rows or Langfuse spans will be
+    // produced. Flush both before the DB pool and Redis close below: metering
+    // writes are fire-and-forget into `api_call_log` and need the pool alive,
+    // and Langfuse batches spans on a 15-event / 10s timer — so a short turn's
+    // trace is otherwise dropped when a redeploy SIGTERM recycles the process
+    // inside that window (the missing follow-up-turn trace). Sentry already
+    // flushes on shutdown; this closes the same gap for the LLM observability.
+    await flushMeteringWrites();
+    await flushLangfuse();
+    console.log("Observability flushed");
+  } catch (err) {
+    console.error("Error flushing observability:", toMessage(err));
   }
 
   try {
