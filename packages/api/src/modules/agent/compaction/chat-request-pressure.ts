@@ -6,6 +6,7 @@ import { estimateSerializedTokens } from "./tokens";
 
 /** Synchronous chat compaction is the safety backstop, not the normal trigger. */
 export const CHAT_SYNC_COMPACTION_RATIO = 0.85;
+export const CHAT_MAX_OUTPUT_TOKENS = 16_000;
 
 /**
  * Provider image accounting is dimension-dependent and unavailable after the

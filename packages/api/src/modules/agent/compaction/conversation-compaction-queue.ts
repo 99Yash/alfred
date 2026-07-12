@@ -18,6 +18,8 @@ const jobDataSchema = z.object({
   threadId: z.string().min(1),
   throughMessageId: z.string().min(1),
   throughCreatedAt: z.iso.datetime(),
+  replayTailThroughMessageId: z.string().min(1),
+  replayTailThroughCreatedAt: z.iso.datetime(),
   requestedAt: z.iso.datetime(),
   expectedGeneration: z.number().int().nonnegative(),
   replayTail: z.array(
@@ -29,6 +31,18 @@ const jobDataSchema = z.object({
   ),
 });
 type ConversationCompactionJobData = z.infer<typeof jobDataSchema>;
+type ExistingJobState = "active" | "waiting" | "delayed" | string;
+
+export interface ConversationCompactionQueueDependencies {
+  enabled?: () => boolean;
+  getExisting?: (jobId: string) => Promise<
+    | { state: ExistingJobState; remove: () => Promise<void> }
+    | undefined
+  >;
+  markRequested?: typeof markConversationCompactionRequested;
+  add?: (jobId: string, data: ConversationCompactionJobData) => Promise<void>;
+  recordFailure?: typeof recordConversationCompactionFailure;
+}
 
 let queue: Queue<ConversationCompactionJobData> | undefined;
 let worker: Worker<ConversationCompactionJobData> | undefined;
@@ -56,36 +70,43 @@ export async function enqueueConversationCompaction(args: {
   threadId: string;
   throughWatermark: ChatSummaryWatermark;
   replayTail: readonly AgentTranscriptMessage[];
-}): Promise<"scheduled" | "deduplicated" | "disabled"> {
-  if (!isQueueEnabled()) return "disabled";
-  const targetQueue = getConversationCompactionQueue();
+  replayTailWatermark: ChatSummaryWatermark;
+}, dependencies: ConversationCompactionQueueDependencies = {}): Promise<"scheduled" | "deduplicated" | "disabled"> {
+  const enabled = dependencies.enabled ?? isQueueEnabled;
+  if (!enabled()) return "disabled";
   const jobId = conversationCompactionJobId(args.threadId);
-  const existing = await targetQueue.getJob(jobId);
+  const existing = dependencies.getExisting
+    ? await dependencies.getExisting(jobId)
+    : await getConversationCompactionQueue().getJob(jobId).then(async (job) =>
+        job ? { state: await job.getState(), remove: () => job.remove() } : undefined,
+      );
   if (existing) {
-    const state = await existing.getState();
+    const state = existing.state;
     if (state === "active" || state === "waiting" || state === "delayed") return "deduplicated";
     await existing.remove();
   }
 
-  const request = await markConversationCompactionRequested(args.userId, args.threadId);
+  const markRequested = dependencies.markRequested ?? markConversationCompactionRequested;
+  const request = await markRequested(args.userId, args.threadId);
+  const data: ConversationCompactionJobData = {
+    kind: "conversation.compact",
+    userId: args.userId,
+    threadId: args.threadId,
+    throughMessageId: args.throughWatermark.messageId,
+    throughCreatedAt: args.throughWatermark.createdAt.toISOString(),
+    replayTailThroughMessageId: args.replayTailWatermark.messageId,
+    replayTailThroughCreatedAt: args.replayTailWatermark.createdAt.toISOString(),
+    requestedAt: request.requestedAt.toISOString(),
+    expectedGeneration: request.generation,
+    replayTail: [...args.replayTail],
+  };
   try {
-    await targetQueue.add(
-      "conversation.compact",
-      {
-        kind: "conversation.compact",
-        userId: args.userId,
-        threadId: args.threadId,
-        throughMessageId: args.throughWatermark.messageId,
-        throughCreatedAt: args.throughWatermark.createdAt.toISOString(),
-        requestedAt: request.requestedAt.toISOString(),
-        expectedGeneration: request.generation,
-        replayTail: [...args.replayTail],
-      },
-      { jobId },
-    );
+    if (dependencies.add) await dependencies.add(jobId, data);
+    else await getConversationCompactionQueue().add("conversation.compact", data, { jobId });
     return "scheduled";
   } catch (error) {
-    await recordConversationCompactionFailure({
+    const recordFailure = dependencies.recordFailure ?? recordConversationCompactionFailure;
+    await recordFailure({
       userId: args.userId,
       threadId: args.threadId,
       expectedGeneration: request.generation,
@@ -134,6 +155,10 @@ async function processConversationCompactionJob(
         createdAt: new Date(data.throughCreatedAt),
       },
       replayTail: data.replayTail,
+      replayTailWatermark: {
+        messageId: data.replayTailThroughMessageId,
+        createdAt: new Date(data.replayTailThroughCreatedAt),
+      },
       attribution: { userId: data.userId, name: "chat.conversation-summary.background" },
     });
   } catch (error) {

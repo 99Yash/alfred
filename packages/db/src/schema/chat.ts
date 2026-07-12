@@ -155,6 +155,10 @@ export const chatThreadContext = pgTable(
     summaryWatermarkCreatedAt: timestamp("summary_watermark_created_at", { withTimezone: true }),
     summaryWatermarkMessageId: text("summary_watermark_message_id"),
     estimatedReplayTokens: integer("estimated_replay_tokens").notNull().default(0),
+    replayEstimateWatermarkCreatedAt: timestamp("replay_estimate_watermark_created_at", {
+      withTimezone: true,
+    }),
+    replayEstimateWatermarkMessageId: text("replay_estimate_watermark_message_id"),
     compactionRequestedAt: timestamp("compaction_requested_at", { withTimezone: true }),
     compactionCompletedAt: timestamp("compaction_completed_at", { withTimezone: true }),
     compactionFailedAt: timestamp("compaction_failed_at", { withTimezone: true }),
@@ -171,6 +175,10 @@ export const chatThreadContext = pgTable(
       sql`(${t.summaryWatermarkCreatedAt} IS NULL) = (${t.summaryWatermarkMessageId} IS NULL)`,
     ),
     check("chat_thread_context_estimated_tokens_chk", sql`${t.estimatedReplayTokens} >= 0`),
+    check(
+      "chat_thread_context_replay_estimate_watermark_pair_chk",
+      sql`(${t.replayEstimateWatermarkCreatedAt} IS NULL) = (${t.replayEstimateWatermarkMessageId} IS NULL)`,
+    ),
     check("chat_thread_context_generation_chk", sql`${t.compactionGeneration} >= 0`),
   ],
 );

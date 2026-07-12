@@ -47,6 +47,8 @@ function context(overrides: Partial<LoadedChatThreadContext> = {}): LoadedChatTh
     summaryWatermarkCreatedAt: null,
     summaryWatermarkMessageId: null,
     estimatedReplayTokens: 0,
+    replayEstimateWatermarkCreatedAt: null,
+    replayEstimateWatermarkMessageId: null,
     compactionRequestedAt: null,
     compactionCompletedAt: null,
     compactionFailedAt: null,
@@ -69,6 +71,7 @@ describe("synchronous conversation compaction", () => {
         threadId: "thread_1",
         throughWatermark: watermark,
         replayTail,
+        replayTailWatermark: { createdAt: at, messageId: "msg_latest" },
         attribution: { runId: "run_1" },
       },
       {
@@ -102,6 +105,7 @@ describe("synchronous conversation compaction", () => {
         threadId: "thread_1",
         throughWatermark: watermark,
         replayTail: [],
+        replayTailWatermark: watermark,
         attribution: {},
       },
       {
@@ -136,6 +140,7 @@ describe("synchronous conversation compaction", () => {
         threadId: "thread_1",
         throughWatermark: watermark,
         replayTail: [],
+        replayTailWatermark: watermark,
         attribution: {},
       },
       {

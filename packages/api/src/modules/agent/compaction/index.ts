@@ -55,6 +55,7 @@ export {
   assessChatRequestPressure,
   estimateChatRequestTokens,
   CHAT_HYDRATED_IMAGE_TOKENS,
+  CHAT_MAX_OUTPUT_TOKENS,
   CHAT_SYNC_COMPACTION_RATIO,
   type ChatRequestPressure,
   type ChatRequestTokenEstimate,
@@ -97,3 +98,9 @@ export {
   stopConversationCompactionWorker,
   CONVERSATION_COMPACTION_QUEUE_NAME,
 } from "./conversation-compaction-queue";
+export {
+  backgroundCompactionThresholdTokens,
+  scheduleConversationCompactionIfNeeded,
+  BACKGROUND_COMPACTION_ABSOLUTE_CAP_TOKENS,
+  BACKGROUND_COMPACTION_RATIO,
+} from "./conversation-compaction-scheduler";
