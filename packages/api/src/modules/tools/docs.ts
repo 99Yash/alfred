@@ -4,22 +4,22 @@
  * Read-only tool surface (the grant is now full `documents`, but write
  * tools are separate — ADR-0043): a single `get_document` that flattens a
  * Doc into plain text + a heading outline.
- * Mirrors gmail.ts — resolve the user's active google credential, mint a
- * fresh token, call the thin client.
+ * Resolve the user's active Docs-scoped google credential, mint a fresh
+ * token, call the thin client — via the shared credential resolver.
  */
 
 import { docsGetDocumentInput } from "@alfred/contracts";
-import { getDocument, getFreshAccessToken, listCredentials } from "@alfred/integrations/google";
-import { AppError } from "../../lib/app-errors";
+import { DOCS_SCOPE, getDocument } from "@alfred/integrations/google";
+import { resolveGoogleAccessToken } from "./google-credentials";
 import { liveTool, type RegisteredTool } from "./registry";
 
-async function accessTokenFor(userId: string): Promise<string> {
-  const creds = await listCredentials(userId, "google");
-  const active = creds.find((c) => c.status === "active");
-  if (!active) {
-    throw new AppError("google_connection_required");
-  }
-  return getFreshAccessToken(active.id);
+/** Resolve an access token for a Docs call — requires the `documents` scope. */
+function accessTokenFor(userId: string): Promise<string> {
+  return resolveGoogleAccessToken(userId, {
+    scopes: [DOCS_SCOPE],
+    noConnection: "google_connection_required",
+    noScope: "docs_scope_required",
+  });
 }
 
 export const docsTools: readonly RegisteredTool[] = [

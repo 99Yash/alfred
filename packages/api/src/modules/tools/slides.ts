@@ -21,24 +21,19 @@ import {
   addSlide,
   batchUpdatePresentation,
   createPresentation,
-  getFreshAccessToken,
   getPresentation,
-  listCredentials,
+  SLIDES_SCOPE,
 } from "@alfred/integrations/google";
-import { AppError } from "../../lib/app-errors";
+import { resolveGoogleAccessToken } from "./google-credentials";
 import { liveTool, type RegisteredTool } from "./registry";
 
-async function pickGoogleCredentialId(userId: string): Promise<string> {
-  const creds = await listCredentials(userId, "google");
-  const active = creds.find((c) => c.status === "active");
-  if (!active) {
-    throw new AppError("google_connection_required");
-  }
-  return active.id;
-}
-
-async function accessTokenFor(userId: string): Promise<string> {
-  return getFreshAccessToken(await pickGoogleCredentialId(userId));
+/** Resolve an access token for a Slides call — requires the `presentations` scope. */
+function accessTokenFor(userId: string): Promise<string> {
+  return resolveGoogleAccessToken(userId, {
+    scopes: [SLIDES_SCOPE],
+    noConnection: "google_connection_required",
+    noScope: "slides_scope_required",
+  });
 }
 
 export const slidesTools: readonly RegisteredTool[] = [

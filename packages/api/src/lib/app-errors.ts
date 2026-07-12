@@ -39,6 +39,18 @@ export const APP_ERROR_REGISTRY = {
     message:
       "The connected Google account does not grant Drive access. Reconnect with Drive enabled.",
   },
+  docs_scope_required: {
+    message:
+      "The connected Google account does not grant Docs access. Reconnect with Docs enabled.",
+  },
+  sheets_scope_required: {
+    message:
+      "The connected Google account does not grant Sheets access. Reconnect with Sheets enabled.",
+  },
+  slides_scope_required: {
+    message:
+      "The connected Google account does not grant Slides access. Reconnect with Slides enabled.",
+  },
   github_connection_required: {
     message: "GitHub account details are unavailable. Reconnect GitHub in settings.",
   },
