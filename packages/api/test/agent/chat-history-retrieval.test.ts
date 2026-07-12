@@ -105,11 +105,25 @@ describe("current-thread chat history retrieval", () => {
           degradedText: "Extracted notes",
           failureReason: null,
           createdAt: at,
+          representation: {
+            schemaVersion: 1,
+            attachmentId: "att_1",
+            messageId: "m1",
+            mime: "application/pdf",
+            visualDescription: null,
+            ocrText: "Exact OCR",
+            salientEntities: [],
+            evidence: [],
+          },
         }),
       },
     );
     assert.equal(JSON.stringify(result).includes("storageKey"), false);
     assert.equal((result as { result: { messageId: string } }).result.messageId, "m1");
+    assert.equal(
+      (result as { result: { representation: { ocrText: string } } }).result.representation.ocrText,
+      "Exact OCR",
+    );
   });
 
   test("does not disclose whether an out-of-scope id exists", async () => {

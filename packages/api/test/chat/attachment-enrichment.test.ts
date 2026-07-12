@@ -5,8 +5,10 @@ import {
   CHAT_ATTACHMENT_REPRESENTATION_VERSION,
   chatAttachmentRepresentationSchema,
   enrichClaimedChatAttachment,
+  estimateAttachmentEnrichmentCostMicrousd,
   mediaModalityForMime,
   selectAttachmentsWithinEnrichmentBudget,
+  shouldStartMediaEnrichment,
 } from "../../src/modules/chat/attachment-enrichment";
 
 describe("chat attachment enrichment", () => {
@@ -53,6 +55,16 @@ describe("chat attachment enrichment", () => {
       selected.map((item) => item.id),
       ["nearby", "small"],
     );
+  });
+
+  test("starts proactively only above 80% of the background threshold", () => {
+    assert.equal(shouldStartMediaEnrichment(80_000, 100_000), false);
+    assert.equal(shouldStartMediaEnrichment(80_001, 100_000), true);
+  });
+
+  test("estimates a bounded scheduling cost from attachment size", () => {
+    assert.equal(estimateAttachmentEnrichmentCostMicrousd(1), 20_000);
+    assert.equal(estimateAttachmentEnrichmentCostMicrousd(2 * 1024 * 1024), 30_000);
   });
 
   test("persists one generated representation with server-owned provenance", async () => {

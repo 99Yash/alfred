@@ -6,9 +6,16 @@ import {
 } from "@alfred/ai";
 import type { AgentTranscriptMessage } from "@alfred/contracts";
 import { db } from "@alfred/db";
-import { chatAttachments, chatMessages } from "@alfred/db/schemas";
-import { and, asc, eq, gt, inArray, or } from "drizzle-orm";
+import { chatAttachmentRepresentations, chatAttachments, chatMessages } from "@alfred/db/schemas";
+import { and, asc, desc, eq, gt, inArray, isNull, or } from "drizzle-orm";
 
+import {
+  CHAT_ATTACHMENT_REPRESENTATION_VERSION,
+  estimateAttachmentEnrichmentCostMicrousd,
+  selectAttachmentsWithinEnrichmentBudget,
+  shouldStartMediaEnrichment,
+} from "../../chat/attachment-enrichment";
+import { enqueueChatAttachmentEnrichment } from "../../integrations/queue";
 import { enqueueConversationCompaction } from "./conversation-compaction-queue";
 import {
   loadChatThreadContext,
@@ -88,7 +95,8 @@ export async function scheduleConversationCompactionIfNeeded(args: {
       ),
     );
   const estimatedReplayTokens =
-    (context?.estimatedReplayTokens ?? 0) + estimateSerializedTokens({ messages: rows, attachments });
+    (context?.estimatedReplayTokens ?? 0) +
+    estimateSerializedTokens({ messages: rows, attachments });
   const estimateThrough = rows[rows.length - 1]!;
   const advanced = await persistConversationReplayEstimate({
     userId: args.userId,
@@ -105,7 +113,11 @@ export async function scheduleConversationCompactionIfNeeded(args: {
     models: [getChatModel(args.tier), COMPACTOR_MODEL],
     outputReserveTokens: CHAT_MAX_OUTPUT_TOKENS,
   });
-  if (estimatedReplayTokens <= backgroundCompactionThresholdTokens(effectiveInputWindowTokens)) {
+  const backgroundThreshold = backgroundCompactionThresholdTokens(effectiveInputWindowTokens);
+  if (shouldStartMediaEnrichment(estimatedReplayTokens, backgroundThreshold)) {
+    await scheduleThreadMediaEnrichment(args.userId, args.threadId);
+  }
+  if (estimatedReplayTokens <= backgroundThreshold) {
     return "below_threshold";
   }
 
@@ -132,7 +144,51 @@ export async function scheduleConversationCompactionIfNeeded(args: {
   });
 }
 
-function replayEstimateWatermark(context: Awaited<ReturnType<typeof loadChatThreadContext>>): ChatSummaryWatermark | null {
+async function scheduleThreadMediaEnrichment(userId: string, threadId: string): Promise<void> {
+  const candidates = await db()
+    .select({ id: chatAttachments.id, size: chatAttachments.size })
+    .from(chatAttachments)
+    .innerJoin(chatMessages, eq(chatMessages.id, chatAttachments.messageId))
+    .leftJoin(
+      chatAttachmentRepresentations,
+      and(
+        eq(chatAttachmentRepresentations.attachmentId, chatAttachments.id),
+        eq(
+          chatAttachmentRepresentations.representationVersion,
+          CHAT_ATTACHMENT_REPRESENTATION_VERSION,
+        ),
+      ),
+    )
+    .where(
+      and(
+        eq(chatAttachments.userId, userId),
+        eq(chatMessages.userId, userId),
+        eq(chatMessages.threadId, threadId),
+        eq(chatAttachments.status, "ready"),
+        isNull(chatAttachmentRepresentations.attachmentId),
+      ),
+    )
+    .orderBy(desc(chatMessages.createdAt), desc(chatMessages.id), asc(chatAttachments.position));
+  const selected = selectAttachmentsWithinEnrichmentBudget(
+    candidates.map((candidate) => ({
+      ...candidate,
+      estimatedCostMicrousd: estimateAttachmentEnrichmentCostMicrousd(candidate.size),
+    })),
+  );
+  await Promise.all(
+    selected.map((candidate) =>
+      enqueueChatAttachmentEnrichment({
+        userId,
+        attachmentId: candidate.id,
+        estimatedCostMicrousd: candidate.estimatedCostMicrousd,
+      }),
+    ),
+  );
+}
+
+function replayEstimateWatermark(
+  context: Awaited<ReturnType<typeof loadChatThreadContext>>,
+): ChatSummaryWatermark | null {
   if (!context?.replayEstimateWatermarkCreatedAt || !context.replayEstimateWatermarkMessageId) {
     return null;
   }

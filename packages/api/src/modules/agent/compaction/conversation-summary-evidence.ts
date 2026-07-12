@@ -1,11 +1,16 @@
 import { db } from "@alfred/db";
 import {
+  chatAttachmentRepresentations,
   chatAttachments,
   chatMessages,
   type ChatAttachment,
   type ChatMessage,
 } from "@alfred/db/schemas";
 import { and, asc, eq, gt, inArray, lt, lte, or } from "drizzle-orm";
+import {
+  CHAT_ATTACHMENT_REPRESENTATION_VERSION,
+  chatAttachmentRepresentationSchema,
+} from "../../chat/attachment-enrichment";
 
 import type { AgentDbExecutor } from "../types";
 import type { ChatSummaryWatermark } from "./chat-context-store";
@@ -21,7 +26,7 @@ type EvidenceMessageRow = Pick<
 type EvidenceAttachmentRow = Pick<
   ChatAttachment,
   "id" | "messageId" | "name" | "mime" | "status" | "degradedText" | "failureReason"
->;
+> & { representation?: unknown };
 
 export interface LoadedConversationSummaryEvidence {
   evidence: ConversationSummaryEvidence;
@@ -99,8 +104,20 @@ export async function loadConversationSummaryEvidence({
       status: chatAttachments.status,
       degradedText: chatAttachments.degradedText,
       failureReason: chatAttachments.failureReason,
+      representation: chatAttachmentRepresentations.representation,
     })
     .from(chatAttachments)
+    .leftJoin(
+      chatAttachmentRepresentations,
+      and(
+        eq(chatAttachmentRepresentations.attachmentId, chatAttachments.id),
+        eq(
+          chatAttachmentRepresentations.representationVersion,
+          CHAT_ATTACHMENT_REPRESENTATION_VERSION,
+        ),
+        eq(chatAttachmentRepresentations.status, "ready"),
+      ),
+    )
     .where(and(eq(chatAttachments.userId, userId), inArray(chatAttachments.messageId, messageIds)))
     .orderBy(
       asc(chatAttachments.messageId),
@@ -149,17 +166,23 @@ export function buildConversationSummaryEvidence({
       },
     })),
     tools,
-    attachments: attachments.map((attachment) => ({
-      id: attachment.id,
-      content: {
-        messageId: attachment.messageId,
-        name: attachment.name,
-        mime: attachment.mime,
-        status: attachment.status,
-        degradedText: boundText(attachment.degradedText),
-        failureReason: boundText(attachment.failureReason),
-      },
-    })),
+    attachments: attachments.map((attachment) => {
+      const representation = chatAttachmentRepresentationSchema.safeParse(
+        attachment.representation,
+      );
+      return {
+        id: attachment.id,
+        content: {
+          messageId: attachment.messageId,
+          name: attachment.name,
+          mime: attachment.mime,
+          status: attachment.status,
+          representation: representation.success ? representation.data : null,
+          degradedText: boundText(attachment.degradedText),
+          failureReason: boundText(attachment.failureReason),
+        },
+      };
+    }),
   };
 }
 
