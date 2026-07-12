@@ -5,7 +5,7 @@ import { db } from "@alfred/db";
 import { createRedisConnection } from "../../queue/connection";
 import { createRun, enqueueRun } from "../agent/index";
 import { runDriftHealthCheck } from "../drift-audit/index";
-import { embedMemoryChunk, findPendingEmbedChunks } from "./chunks";
+import { embedMemoryChunk, findPendingEmbedChunks, recordMemoryEmbedFailure } from "./chunks";
 import { toMessage } from "@alfred/contracts";
 
 /**
@@ -115,6 +115,9 @@ async function processMemoryJob(job: Job<MemoryJobData>): Promise<unknown> {
           succeeded++;
         } catch (err) {
           failed++;
+          // Count the failure so a poison-pill chunk dead-letters instead of
+          // being re-embedded every sweep forever (best-effort bookkeeping).
+          await recordMemoryEmbedFailure(c.id, c.userId, err).catch(() => {});
           console.warn(`[memory:worker] memory.embed_sweep failed for ${c.id}:`, toMessage(err));
         }
       }
