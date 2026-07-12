@@ -30,6 +30,32 @@ export function isPlainRecord(value: unknown): value is Record<string, unknown> 
   return isRecord(value);
 }
 
+/**
+ * True for any non-null *reference* value — a plain object, array, `Date`,
+ * `Map`, class instance, driver error, or function. Put differently: anything
+ * you can safely read a property off of; primitives and `null` are the only
+ * things it rejects.
+ *
+ * This is the deliberately permissive counterpart to {@link isRecord}, and the
+ * two answer different questions. Use `isRecord` when you need a plain JSON
+ * object and want arrays, dates, and class instances rejected. Use
+ * `isIndexable` when the value is a *runtime* object you only mean to pull a
+ * field off — a caught error whose `.code`/`.cause` you're inspecting, an SDK
+ * instance, a Postgres `DatabaseError` — where `isRecord` would wrongly reject
+ * the very thing you're holding.
+ *
+ * The `|| typeof === "function"` arm matters because functions are objects you
+ * can index too, and `typeof null === "object"` is why the explicit `!== null`
+ * is required. Narrows to `object`, which is exactly what `Reflect.get`
+ * accepts, so the follow-up read needs no cast:
+ *
+ *   if (!isIndexable(err)) return undefined;
+ *   const code = Reflect.get(err, "code"); // `code` is `unknown` — narrow it
+ */
+export function isIndexable(value: unknown): value is object {
+  return (typeof value === "object" || typeof value === "function") && value !== null;
+}
+
 /** True for a usable string — the common "present and non-empty" check. */
 export function isNonEmptyString(value: unknown): value is string {
   return typeof value === "string" && value.length > 0;

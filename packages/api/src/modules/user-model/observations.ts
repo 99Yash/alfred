@@ -2,7 +2,7 @@ import { db } from "@alfred/db";
 import { observationFamilyHeads, observations, type Observation } from "@alfred/db/schemas";
 import { observationInsertSchema, type ObservationInsertInput } from "@alfred/contracts";
 import { and, eq, sql } from "drizzle-orm";
-import { type PgErrorLike } from "../../lib/pg-errors";
+import { pgErrorChain } from "../../lib/pg-errors";
 import { type DbExecutor } from "./executor";
 
 const OBSERVATION_APPEND_MAX_ATTEMPTS = 3;
@@ -26,19 +26,16 @@ export interface AppendObservationFamilyMemberResult extends InsertObservationRe
 }
 
 export function isObservationAppendConflict(err: unknown): boolean {
-  let cur: unknown = err;
   let sawUniqueViolation = false;
   let sawChainConstraint = false;
-  for (let i = 0; i < 5 && typeof cur === "object" && cur !== null; i++) {
-    const pg = cur as PgErrorLike;
-    const message = pg.message ?? "";
-    sawUniqueViolation ||= pg.code === "23505" || message.includes("23505");
+  for (const e of pgErrorChain(err)) {
+    const message = e.message ?? "";
+    sawUniqueViolation ||= e.code === "23505" || message.includes("23505");
     sawChainConstraint ||= Boolean(
-      (pg.constraint && OBSERVATION_CHAIN_CONSTRAINTS.has(pg.constraint)) ||
+      (e.constraint && OBSERVATION_CHAIN_CONSTRAINTS.has(e.constraint)) ||
       [...OBSERVATION_CHAIN_CONSTRAINTS].some((constraint) => message.includes(constraint)),
     );
     if (sawUniqueViolation && sawChainConstraint) return true;
-    cur = pg.cause;
   }
   return false;
 }

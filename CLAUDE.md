@@ -16,7 +16,7 @@ Read the nearest nested `AGENTS.md` before editing within its subtree.
 
 ## References
 
-- [Code style and review checklist](./docs/reference/code-style.md)
+- [Code style and review checklist](./docs/reference/code-style.md) and [structural review](./docs/reference/structural-review.md)
 - [Architecture and package boundaries](./docs/reference/architecture.md)
 - [TypeScript configuration](./docs/reference/typescript.md)
 - [Elysia request lifecycle](./docs/reference/elysia.md)

@@ -44,7 +44,7 @@ import { db } from "@alfred/db";
 import { integrationCredentials, observationFamilyHeads } from "@alfred/db/schemas";
 import { createHash } from "node:crypto";
 import { and, eq } from "drizzle-orm";
-import { type PgErrorLike } from "../../lib/pg-errors";
+import { pgErrorChain } from "../../lib/pg-errors";
 import { insertObservation } from "./observations";
 import { type DbExecutor } from "./executor";
 
@@ -84,13 +84,10 @@ const OBSERVATION_CHAIN_CONSTRAINTS = new Set([
 ]);
 
 export function isOrgAffiliationObservationAppendConflict(err: unknown): boolean {
-  for (let cur: unknown = err, depth = 0; cur != null && depth < 5; depth++) {
-    if (typeof cur !== "object") return false;
-    const pg = cur as PgErrorLike;
-    if (pg.code === "23505" && pg.constraint && OBSERVATION_CHAIN_CONSTRAINTS.has(pg.constraint)) {
+  for (const e of pgErrorChain(err)) {
+    if (e.code === "23505" && e.constraint && OBSERVATION_CHAIN_CONSTRAINTS.has(e.constraint)) {
       return true;
     }
-    cur = pg.cause;
   }
   return false;
 }

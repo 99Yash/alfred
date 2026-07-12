@@ -58,6 +58,7 @@ import { scheduleThreadIdleExtraction } from "../../chat-memory/queue";
 import { isSynthesizedToolDup } from "../transcript-dedup";
 import { buildThreadArtifactsContext } from "../../artifacts/read";
 import { finalizeRunArtifacts } from "../../artifacts/write";
+import { logger } from "../../../lib/logger";
 import { listToolsForIntegration } from "../../tools/registry";
 import { buildConnectedSummary } from "../connected-summary";
 import { formatDateGrounding, resolveUserTimezone } from "../grounding";
@@ -1904,7 +1905,7 @@ async function finalizeAssistantMessage(
   // Close out any artifacts this turn authored: flip still-`generating` rows to
   // `complete` so the sidebar leaves the placeholder state (ADR-0075). Tied to
   // the run lifecycle so the boss never has to call a separate "finish" tool.
-  await finalizeRunArtifacts(userId, runId, "complete");
+  await finalizeRunArtifacts(userId, runId, state.messageId, "complete");
 
   await publishEvent({
     userId,
@@ -2169,9 +2170,9 @@ async function finalizeFailedMessage(
     currentTurnHasImage: images.currentTurn,
     historicalHasImage: images.historical,
   });
-  console.warn(
-    `[chat-turn] run ${runId} failed (thread ${state.threadId}, kind=${errorKind}):`,
-    errorText(err),
+  logger.warn(
+    { err, event: "chat_turn_failed", runId, threadId: state.threadId, errorKind },
+    "Chat turn failed",
   );
   // ADR-0070 §1.3: a tool that streamed poison into any chat-message field
   // (content / reasoning / tool-call previews / narration) would re-throw on
@@ -2202,7 +2203,7 @@ async function finalizeFailedMessage(
 
   // Mark any in-flight artifacts from the faulted turn as `error` rather than
   // leaving them stuck `generating` (ADR-0075). Partial content stays visible.
-  await finalizeRunArtifacts(userId, runId, "error");
+  await finalizeRunArtifacts(userId, runId, state.messageId, "error");
 
   await publishEvent({
     userId,
@@ -2210,11 +2211,6 @@ async function finalizeFailedMessage(
     payload: { runId, threadId: state.threadId, messageId: state.messageId, phase: "completed" },
   });
   emitReplicachePokes([userId]);
-}
-
-function errorText(err: unknown): string {
-  const msg = toMessage(err);
-  return msg.length > 500 ? `${msg.slice(0, 499)}…` : msg;
 }
 
 /**
