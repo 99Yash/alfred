@@ -18,7 +18,12 @@ export type EffortLevel = (typeof EFFORT_LEVELS)[number];
 export interface ModelCapabilities {
   readonly effortValues: readonly EffortLevel[];
   readonly temperature: boolean;
+  readonly inputModalities: readonly MediaInputModality[];
+  readonly maxInlineMediaBytes: number;
 }
+
+export const MEDIA_INPUT_MODALITIES = ["text", "image", "audio", "video", "pdf"] as const;
+export type MediaInputModality = (typeof MEDIA_INPUT_MODALITIES)[number];
 
 interface ModelDefinition {
   readonly id: string;
@@ -37,17 +42,29 @@ export const MODEL_DEFINITIONS = [
     capabilities: {
       effortValues: ["low", "medium", "high", "xhigh", "max"],
       temperature: false,
+      inputModalities: ["text", "image", "pdf"],
+      maxInlineMediaBytes: 32 * 1024 * 1024,
     },
   },
   {
     id: "claude-sonnet-4-6",
     provider: "anthropic",
-    capabilities: { effortValues: ["low", "medium", "high", "max"], temperature: true },
+    capabilities: {
+      effortValues: ["low", "medium", "high", "max"],
+      temperature: true,
+      inputModalities: ["text", "image", "pdf"],
+      maxInlineMediaBytes: 32 * 1024 * 1024,
+    },
   },
   {
     id: "claude-haiku-4-5-20251001",
     provider: "anthropic",
-    capabilities: { effortValues: [], temperature: true },
+    capabilities: {
+      effortValues: [],
+      temperature: true,
+      inputModalities: ["text", "image", "pdf"],
+      maxInlineMediaBytes: 32 * 1024 * 1024,
+    },
   },
   {
     id: "gemini-3.5-flash",
@@ -55,17 +72,29 @@ export const MODEL_DEFINITIONS = [
     capabilities: {
       effortValues: ["minimal", "low", "medium", "high"],
       temperature: true,
+      inputModalities: ["text", "image", "audio", "video", "pdf"],
+      maxInlineMediaBytes: 50 * 1024 * 1024,
     },
   },
   {
     id: "gemini-2.5-flash",
     provider: "google",
-    capabilities: { effortValues: [], temperature: true },
+    capabilities: {
+      effortValues: [],
+      temperature: true,
+      inputModalities: ["text", "image", "audio", "video"],
+      maxInlineMediaBytes: 50 * 1024 * 1024,
+    },
   },
   {
     id: "gemini-2.5-flash-lite",
     provider: "google",
-    capabilities: { effortValues: [], temperature: true },
+    capabilities: {
+      effortValues: [],
+      temperature: true,
+      inputModalities: ["text", "image", "audio", "video", "pdf"],
+      maxInlineMediaBytes: 50 * 1024 * 1024,
+    },
   },
   {
     id: "gpt-5.6-sol",
@@ -73,6 +102,8 @@ export const MODEL_DEFINITIONS = [
     capabilities: {
       effortValues: ["none", "low", "medium", "high", "xhigh", "max"],
       temperature: false,
+      inputModalities: ["text", "image", "pdf"],
+      maxInlineMediaBytes: 20 * 1024 * 1024,
     },
   },
   {
@@ -81,6 +112,8 @@ export const MODEL_DEFINITIONS = [
     capabilities: {
       effortValues: ["none", "low", "medium", "high", "xhigh", "max"],
       temperature: false,
+      inputModalities: ["text", "image", "pdf"],
+      maxInlineMediaBytes: 20 * 1024 * 1024,
     },
   },
 ] as const satisfies readonly [ModelDefinition, ...ModelDefinition[]];
