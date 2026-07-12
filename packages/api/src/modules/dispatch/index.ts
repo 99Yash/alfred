@@ -665,11 +665,12 @@ export async function dispatchToolCall(args: DispatchArgs): Promise<DispatchResu
       const reparsed = tool.inputSchema.safeParse(useInput);
       if (!reparsed.success) {
         const now = new Date();
+        const error = toPublicAppError(undefined, "tool_input_invalid");
         await db()
           .update(actionStagings)
           .set({
             status: "failed",
-            executeError: { message: reparsed.error.message, issues: reparsed.error.issues },
+            executeError: error,
             executedAt: now,
             rowVersion: sql`${actionStagings.rowVersion} + 1`,
           })
@@ -682,14 +683,14 @@ export async function dispatchToolCall(args: DispatchArgs): Promise<DispatchResu
         recordRejection({
           dispatch: args,
           outcome: "failed",
-          reason: reparsed.error.message,
+          reason: error.message,
           issues: reparsed.error.issues,
           toolName,
         });
         return {
           kind: "failed",
           stagingId: row.id,
-          error: { message: reparsed.error.message },
+          error,
         };
       }
       return executeAndCommit(row, tool, reparsed.data as unknown, ctx, editedByUser);
@@ -761,11 +762,12 @@ export async function dispatchToolCall(args: DispatchArgs): Promise<DispatchResu
       // Unknown statuses surface as a failure rather than throwing —
       // the agent loop turns them into a tool result the boss can
       // reason about.
-      const message = `dispatcher saw unexpected staging status '${row.status}'`;
+      const diagnostic = `dispatcher saw unexpected staging status '${row.status}'`;
+      const error = toPublicAppError(undefined);
       recordRejection({
         dispatch: args,
         outcome: "failed",
-        reason: message,
+        reason: diagnostic,
         toolName,
         tool,
         input: row.proposedInput,
@@ -773,7 +775,7 @@ export async function dispatchToolCall(args: DispatchArgs): Promise<DispatchResu
       return {
         kind: "failed",
         stagingId: row.id,
-        error: { message },
+        error,
       };
     }
   }

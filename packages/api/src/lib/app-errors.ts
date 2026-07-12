@@ -56,7 +56,8 @@ export const APP_ERROR_REGISTRY = {
 } as const;
 
 export type AppErrorCode = keyof typeof APP_ERROR_REGISTRY;
-export type PublicAppError = { code?: AppErrorCode; message: string };
+type AppErrorMessage = (typeof APP_ERROR_REGISTRY)[AppErrorCode]["message"];
+export type PublicAppError = { code: AppErrorCode; message: AppErrorMessage };
 
 export function isAppErrorCode(value: unknown): value is AppErrorCode {
   return typeof value === "string" && value in APP_ERROR_REGISTRY;

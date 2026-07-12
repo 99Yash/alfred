@@ -52,13 +52,24 @@ test("logger serializer allowlists database diagnostics and drops SQL and params
   assert.ok(!text.includes("Failed query"));
   assert.equal(
     safeErrorDiagnostic(new AppError("artifact_create_failed", { cause: drizzleWrapper })),
-    "AppError sqlstate=23503 constraint=artifacts_message_id_chat_messages_id_fk",
+    "artifact_create_failed sqlstate=23503 constraint=artifacts_message_id_chat_messages_id_fk",
   );
+});
+
+test("logger serializer retains stack frames but drops every multiline message line", () => {
+  const err = new Error("Failed query: insert into secrets values ($1)\nparams: sk_private");
+  err.stack = `${err.name}: ${err.message}\n    at executeQuery (/srv/db.ts:42:7)`;
+
+  const serialized = serializeError(err);
+
+  assert.equal(serialized.stack, "at executeQuery (/srv/db.ts:42:7)");
+  assert.doesNotMatch(JSON.stringify(serialized), /sk_private|params:|insert into/i);
 });
 
 test("application error codes are not mislabeled as database diagnostics", () => {
   const serialized = serializeError(new AppError("artifact_create_failed"));
   assert.equal(serialized.database, undefined);
+  assert.equal(safeErrorDiagnostic(new AppError("artifact_create_failed")), "artifact_create_failed");
 });
 
 test("configured pino logger never writes raw error messages", () => {

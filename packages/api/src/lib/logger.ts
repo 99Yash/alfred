@@ -1,5 +1,7 @@
 import { isIndexable } from "@alfred/contracts";
 import pino, { type DestinationStream } from "pino";
+import { AppError } from "./app-errors";
+import { pgErrorChain } from "./pg-errors";
 
 const REDACT_PATHS = [
   "req.headers.authorization",
@@ -29,11 +31,6 @@ function stringField(value: unknown, key: string): string | undefined {
   return typeof field === "string" ? field : undefined;
 }
 
-function causeOf(value: unknown): unknown {
-  if (!isIndexable(value)) return undefined;
-  return Reflect.get(value, "cause");
-}
-
 function isPostgresDiagnostic(value: unknown): boolean {
   const code = stringField(value, "code");
   return code !== undefined && /^[0-9A-Z]{5}$/.test(code);
@@ -46,11 +43,9 @@ function isPostgresDiagnostic(value: unknown): boolean {
  */
 export function serializeError(err: unknown): SafeErrorLog {
   const error = err instanceof Error ? err : undefined;
-  let cause: unknown = err;
   let databaseSource: unknown;
-  for (let depth = 0; depth < 4 && cause !== undefined; depth += 1) {
-    if (isPostgresDiagnostic(cause)) databaseSource = cause;
-    cause = causeOf(cause);
+  for (const level of pgErrorChain(err)) {
+    if (isPostgresDiagnostic(level)) databaseSource = level;
   }
   const database = {
     code: stringField(databaseSource, "code"),
@@ -60,7 +55,11 @@ export function serializeError(err: unknown): SafeErrorLog {
     column: stringField(databaseSource, "column"),
   };
   const hasDatabaseField = Object.values(database).some((value) => value !== undefined);
-  const stack = error?.stack?.split("\n").slice(1).join("\n").trim();
+  const stack = error?.stack
+    ?.split("\n")
+    .filter((line) => /^\s*at\s/.test(line))
+    .join("\n")
+    .trim();
   return {
     type: error?.name ?? typeof err,
     ...(stack ? { stack } : {}),
@@ -73,7 +72,7 @@ export function safeErrorDiagnostic(err: unknown): string {
   const serialized = serializeError(err);
   const database = serialized.database;
   return [
-    serialized.type,
+    err instanceof AppError ? err.code : serialized.type,
     database?.code ? `sqlstate=${database.code}` : undefined,
     database?.constraint ? `constraint=${database.constraint}` : undefined,
   ]

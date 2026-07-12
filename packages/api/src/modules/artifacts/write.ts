@@ -6,8 +6,8 @@ import {
 } from "@alfred/contracts";
 import { validatePdfArtifactHtml } from "@alfred/artifacts-design/validation";
 import { db } from "@alfred/db";
-import { artifacts, type Artifact } from "@alfred/db/schemas";
-import { and, eq, sql } from "drizzle-orm";
+import { artifacts, chatMessages, type Artifact } from "@alfred/db/schemas";
+import { and, eq, exists, sql } from "drizzle-orm";
 import { emitReplicachePokes } from "../../events/replicache-events";
 import { AppError } from "../../lib/app-errors";
 import { artifactReplacementMatchesBase } from "./content-hash";
@@ -326,6 +326,14 @@ export async function finalizeRunArtifacts(
         eq(artifacts.userId, userId),
         eq(artifacts.runId, runId),
         eq(artifacts.status, "generating"),
+        exists(
+          db()
+            .select({ id: chatMessages.id })
+            .from(chatMessages)
+            .where(
+              and(eq(chatMessages.id, messageId), eq(chatMessages.userId, userId)),
+            ),
+        ),
       ),
     )
     .returning({ id: artifacts.id });

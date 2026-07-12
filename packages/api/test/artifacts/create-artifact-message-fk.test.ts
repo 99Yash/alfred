@@ -132,4 +132,22 @@ describe("createArtifact message_id FK ordering", { skip: SKIP }, () => {
       .where(eq(artifacts.id, result.artifactId));
     assert.deepEqual(finalized, { messageId, status: "complete" });
   });
+
+  test("does not finalize artifacts when the authoring message is still missing", async () => {
+    const { userId, threadId, runId } = await seedMidTurn();
+    const result = await createArtifact(
+      { userId, threadId, runId },
+      { title: "Still generating", kind: "document", markdown: "draft" },
+    );
+    assert.equal(result.ok, true);
+    if (!result.ok) return;
+
+    await finalizeRunArtifacts(userId, runId, `missing-${randomUUID()}`, "complete");
+
+    const [row] = await db()
+      .select({ messageId: artifacts.messageId, status: artifacts.status })
+      .from(artifacts)
+      .where(eq(artifacts.id, result.artifactId));
+    assert.deepEqual(row, { messageId: null, status: "generating" });
+  });
 });
