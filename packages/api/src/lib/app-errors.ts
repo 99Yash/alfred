@@ -32,6 +32,13 @@ export const APP_ERROR_REGISTRY = {
   google_connection_required: {
     message: "Google is not connected for this tool. Reconnect Google in settings.",
   },
+  drive_connection_required: {
+    message: "Drive is not connected. Reconnect Google with Drive access in settings.",
+  },
+  drive_scope_required: {
+    message:
+      "The connected Google account does not grant Drive access. Reconnect with Drive enabled.",
+  },
   github_connection_required: {
     message: "GitHub account details are unavailable. Reconnect GitHub in settings.",
   },
