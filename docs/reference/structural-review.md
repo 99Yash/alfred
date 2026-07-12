@@ -11,9 +11,9 @@ A review runs at two altitudes, and they behave differently at the root:
 - **Down is verification.** Match present code against a fixed vocabulary of known-bad patterns (the [code-style.md](./code-style.md) hit-list). The question and acceptance criterion are known in advance, so the work is bounded and repeatable; parts of it can be automated.
 - **Up is search.** The fix doesn't exist in the code yet — you have to *generate* the better shape and measure the gap. Open-ended, subjective, and impossible to cache into a list, because there's no present pattern to match against. This is where "these twelve `localStorage` calls should be one registry" and "`isRecord` is really two guards" live.
 
-You tool retrieval with a list. You tool search with a heuristic — *what to look for* and *how to score a candidate*. Handing an open search a closed list is why structural wins get missed.
+You tool verification with a list; you tool search with a heuristic — *what to look for* and *how to score a candidate*. Handing an open search a closed list is why structural wins get missed.
 
-**Fund up first.** Down pays a constant, certain reward (there's always another cast to flag), up pays an uncertain reward after a speculative claim. Under any attention budget, attention drifts toward the certain drip. So don't make them compete: run down as a cheap deterministic sweep, and protect a separate, earlier budget for up.
+**Fund up first.** Down pays a constant, certain reward (there's always another cast to flag), while up pays an uncertain reward after a speculative claim. Under any attention budget, attention drifts toward the certain drip. So sequence the work deliberately: reserve the first pass for wide structural search, run the known checks separately, then spend depth where either pass found risk.
 
 ---
 
@@ -42,7 +42,7 @@ The storage registry improves all three — one edit to add a key, the type forb
 Discovery is breadth-first; depth is earned. The microscope **confirms** a smell — it doesn't **discover** one.
 
 - **Pass 1 — wide, shallow, cheap (discovery).** Map where each fact/operation/shape lives and how many homes it has. Collect candidate smells, including structural ones you'd have to invent the fix for. Don't deep-read functions or dependency internals yet.
-- **Pass 2 — deep, only on the hits (confirmation).** Now microscope — but only what a smell flagged, verifying both the local correctness of the changed lines and the viability of the structural proposal.
+- **Pass 2 — deep, only on the hits (confirmation).** Now microscope the candidate smells and risky invariants. The ordinary verification sweep still covers all changed code; what is selective here is the expensive tracing through callers, dependencies, and substrate internals.
 
 Reading every function and every `node_modules` file with a microscope spends the whole budget on down-direction verification and none on up-direction perception. It is backwards for finding the high-value change.
 
@@ -87,7 +87,7 @@ Each axis carries a **tell** (a cheap trigger you can spot in the wide pass), a 
 - Pointer: *what does the library already give me that this rebuilds?*
 - Anti-pattern: coupling to a substrate detail that's actually more volatile than your own code.
 
-The highest-value moves usually satisfy several axes at once — the registry is **1 + 5 + 6**, the guard split is **2 + 5** — which is itself a signal the restructure is real and not aesthetic.
+High-value moves often improve several axes at once — the registry is **1 + 5 + 6**, the guard split is **2 + 5**. That convergence strengthens a proposal, but it is supporting evidence rather than a scoring system: one clearly demonstrated axis is enough.
 
 ### Where judgment actually goes
 
@@ -120,7 +120,7 @@ Grounded in this tree:
 - **Tier 2** — `setLocalStorageItem` `safeParse`-refuses an invalid value; boundary Zod parses on untrusted input.
 - **Tier 3** — the registry as the one catalog; `safeGet`/`safeSet`/`safeRemove` as the only door to `window.localStorage`; `parseEmailAddress` as the single matcher.
 - **Tier 4** — `guards.test.ts` catches an `isRecord` regression, but doesn't *prevent* someone re-widening it.
-- **Tier 5** — "don't call `window.localStorage` outside `storage.ts`" is a convention until a check enforces it. The move that made the browser/server boundary real was upgrading that convention to `check:web-boundaries` (tier 5 → tier 1).
+- **Tier 5** — "don't call `window.localStorage` outside `storage.ts`" is enforced by nothing but this sentence; it stays tier 5 until a check covers it. Contrast the sibling browser/server *import* rule, which was promoted out of tier 5 by `check:web-boundaries` (→ tier 1) — the upgrade move this whole ladder is asking for.
 
 A cast (`as`) asks the compiler to trust a claim it did not prove. That makes it a useful axis-5 tell, though not automatically a defect: the review still has to find the owning boundary and determine whether validation or a derived type can replace the claim.
 
@@ -131,7 +131,7 @@ A cast (`as`) asks the compiler to trust a claim it did not prove. That makes it
 Subjective doesn't mean unrigorous. A structural proposal earns its place only if it clears three gates:
 
 - **A. Name the change it de-risks.** "This should be a registry" is taste. "Adding the 13th key touches 4 files and can silently forget a default; a registry makes it one file and the type forbids forgetting" is an argument. No named change → rejected as aesthetics.
-- **B. Clear the axis's anti-pattern.** State that the things genuinely share a *truth or invariant*, not merely syntax — that they co-vary under every plausible change, or that the seam is the domain's real joint. This is the guardrail that stops "find the hidden registry" from becoming its own checklist that manufactures speculative architecture.
+- **B. Clear the axis's anti-pattern.** State that the things genuinely share a *truth or invariant*, not merely syntax — name the domain changes under which they co-vary, or show that the seam is the domain's real joint. This is the guardrail that stops "find the hidden registry" from becoming its own checklist that manufactures speculative architecture.
 - **C. Name the enforcement tier, and take the strongest available.** A registry held together by "please import from here" (tier 5) is a much weaker fix than one where the wrong thing won't compile (tier 1). Prefer the highest tier the substrate allows.
 
 ---
@@ -146,7 +146,7 @@ A review that returns only local nits has skipped the ceiling. Before finishing,
 
 1. For each fact the diff touches, **count its homes.** More than one, held by convention → candidate registry / source-of-truth (usually axis 1; axis 4 if ownership is inverted).
 2. For each name the diff adds or changes, ask **one concept or two.** An "and"/"or" description or a mode-switch boolean → candidate split (axis 2).
-3. Spot the **greppable tells** — `as`, `!`, duplicated shapes, hand-rolled-where-a-primitive-exists — and tighten toward tier 1 (axes 5, 6).
+3. Spot the **greppable tells** — `as`, `!`, duplicated shapes, hand-rolled-where-a-primitive-exists — then investigate whether they expose drift and whether stronger enforcement is available (axes 5, 6).
 4. For each structural proposal, clear the **three gates**: name the change, prove shared truth (not syntax), take the strongest enforcement tier.
 5. Emit the **required structural observation**, or an explicit reasoned "none applies."
 
