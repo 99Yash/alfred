@@ -1,54 +1,41 @@
 import { embedMany } from "@alfred/ai/embeddings";
-import { isHttpError, redactSecrets, toMessage } from "@alfred/contracts";
 import { db } from "@alfred/db";
+import { buildEmbedFailureSet } from "@alfred/db/helpers";
 import { chunks, documents } from "@alfred/db/schemas";
 import { and, desc, eq, isNull, notExists, sql } from "drizzle-orm";
 import { createHash } from "node:crypto";
 import { chunkText, type Chunk } from "./chunker";
 
-/**
- * How long a *transient* embed failure (a Voyage 5xx/429, a network blip, a
- * whole-provider outage) is tolerated before the document is dead-lettered.
- * Gated on the wall-clock age of the first failure, NOT an attempt count: the
- * sweep runs every 5 minutes, so a small attempt cap would be exhausted by a
- * ~25-minute outage and permanently drop the entire pending backlog (silent
- * data loss). A full day gives the provider time to recover while still
- * terminating the `embed-doc:` retry storm for a genuinely un-embeddable doc.
- * A permanent error (4xx≠429) or an empty doc dead-letters immediately.
- */
-export const EMBED_RETRY_WINDOW_HOURS = 24;
-
-/** Cap the persisted failure message; `HttpError` bodies are already bounded + redacted. */
-const MAX_EMBED_ERROR_CHARS = 500;
+// Re-exported on `@alfred/ingestion`'s public surface (see `index.ts`); the
+// poison-pill retry window itself is now defined once in `@alfred/db/helpers`
+// and shared with the `memory_chunks` guard.
+export { EMBED_RETRY_WINDOW_HOURS } from "@alfred/db/helpers";
 
 /**
- * Record an embed failure on the document row. A permanent error dead-letters
- * it (via `embedFailedAt`) immediately; a transient error is retried by the
- * sweep until it has persisted past `EMBED_RETRY_WINDOW_HOURS`. `embedAttempts`
- * still counts every failure for diagnostics but no longer triggers
- * dead-lettering. Best-effort: the caller always rethrows the original error.
+ * Record an embed failure on the document row via the shared poison-pill guard
+ * (`buildEmbedFailureSet` in `@alfred/db/helpers`): a permanent error (a 4xx
+ * that isn't 429) dead-letters the document immediately; a transient error
+ * rides the wall-clock retry window regardless of how many sweeps hit it.
+ * `embedAttempts` still counts every failure for diagnostics but no longer
+ * triggers dead-lettering. Best-effort: the caller always rethrows the original
+ * error.
  *
  * Exported for the DB-backed poison-pill test; `embedDocument` is the only
  * production caller.
  */
 export async function recordDocumentEmbedFailure(documentId: string, err: unknown): Promise<void> {
-  // A 4xx (that isn't 429) means the input itself is unacceptable to Voyage —
-  // retrying can never succeed, so give up now. A transient failure instead
-  // rides the wall-clock window: a provider outage that resolves inside a day
-  // must not dead-letter anything, no matter how many sweeps hit it meanwhile.
-  const permanent = isHttpError(err) && !err.retryable;
   await db()
     .update(documents)
-    .set({
-      embedAttempts: sql`${documents.embedAttempts} + 1`,
-      // Stamp the first failure once so the transient gate can measure how long
-      // the failure has persisted (references the pre-update value).
-      embedFirstFailedAt: sql`COALESCE(${documents.embedFirstFailedAt}, now())`,
-      lastEmbedError: redactSecrets(toMessage(err)).slice(0, MAX_EMBED_ERROR_CHARS),
-      embedFailedAt: permanent
-        ? sql`COALESCE(${documents.embedFailedAt}, now())`
-        : sql`CASE WHEN COALESCE(${documents.embedFirstFailedAt}, now()) <= now() - make_interval(hours => ${EMBED_RETRY_WINDOW_HOURS}) THEN COALESCE(${documents.embedFailedAt}, now()) ELSE ${documents.embedFailedAt} END`,
-    })
+    .set(
+      buildEmbedFailureSet(
+        {
+          attempts: documents.embedAttempts,
+          firstFailedAt: documents.embedFirstFailedAt,
+          failedAt: documents.embedFailedAt,
+        },
+        err,
+      ),
+    )
     .where(eq(documents.id, documentId));
 }
 
