@@ -7,7 +7,7 @@ import {
 import type { AgentTranscriptMessage } from "@alfred/contracts";
 import { db } from "@alfred/db";
 import { chatAttachmentRepresentations, chatAttachments, chatMessages } from "@alfred/db/schemas";
-import { and, asc, desc, eq, gt, inArray, isNull, or } from "drizzle-orm";
+import { and, asc, desc, eq, inArray, isNull } from "drizzle-orm";
 
 import {
   CHAT_ATTACHMENT_REPRESENTATION_VERSION,
@@ -17,6 +17,11 @@ import {
 } from "../../chat/attachment-enrichment";
 import { enqueueChatAttachmentEnrichment } from "../../integrations/queue";
 import { enqueueConversationCompaction } from "./conversation-compaction-queue";
+import {
+  afterChatMessageWatermark,
+  chatMessageWatermark,
+  nullableChatMessageWatermark,
+} from "./chat-message-watermark";
 import {
   loadChatThreadContext,
   persistConversationReplayEstimate,
@@ -48,13 +53,7 @@ export async function scheduleConversationCompactionIfNeeded(args: {
   const context = await loadChatThreadContext(args.userId, args.threadId);
   const estimateWatermark = replayEstimateWatermark(context);
   const afterEstimate = estimateWatermark
-    ? or(
-        gt(chatMessages.createdAt, estimateWatermark.createdAt),
-        and(
-          eq(chatMessages.createdAt, estimateWatermark.createdAt),
-          gt(chatMessages.id, estimateWatermark.messageId),
-        ),
-      )
+    ? afterChatMessageWatermark(chatMessages.createdAt, chatMessages.id, estimateWatermark)
     : undefined;
   const rows = await db()
     .select({
@@ -104,7 +103,7 @@ export async function scheduleConversationCompactionIfNeeded(args: {
     expectedGeneration: context?.compactionGeneration ?? 0,
     expectedWatermark: estimateWatermark,
     estimatedReplayTokens,
-    watermark: { messageId: estimateThrough.id, createdAt: estimateThrough.createdAt },
+    watermark: chatMessageWatermark(estimateThrough),
   });
   // A compactor or duplicate finalizer won the CAS. Its estimate is newer; the
   // next successful turn will advance from that watermark.
@@ -138,9 +137,9 @@ export async function scheduleConversationCompactionIfNeeded(args: {
   return enqueueConversationCompaction({
     userId: args.userId,
     threadId: args.threadId,
-    throughWatermark: { messageId: cutoff.id, createdAt: cutoff.createdAt },
+    throughWatermark: chatMessageWatermark(cutoff),
     replayTail,
-    replayTailWatermark: { messageId: estimateThrough.id, createdAt: estimateThrough.createdAt },
+    replayTailWatermark: chatMessageWatermark(estimateThrough),
   });
 }
 
@@ -189,11 +188,8 @@ async function scheduleThreadMediaEnrichment(userId: string, threadId: string): 
 function replayEstimateWatermark(
   context: Awaited<ReturnType<typeof loadChatThreadContext>>,
 ): ChatSummaryWatermark | null {
-  if (!context?.replayEstimateWatermarkCreatedAt || !context.replayEstimateWatermarkMessageId) {
-    return null;
-  }
-  return {
-    createdAt: context.replayEstimateWatermarkCreatedAt,
-    messageId: context.replayEstimateWatermarkMessageId,
-  };
+  return nullableChatMessageWatermark(
+    context?.replayEstimateWatermarkCreatedAt,
+    context?.replayEstimateWatermarkMessageId,
+  );
 }

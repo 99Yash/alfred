@@ -2,6 +2,7 @@ import type { AgentTranscriptMessage } from "@alfred/contracts";
 import type { ChatMessageRole } from "@alfred/db/schemas";
 
 import type { ConversationSummary } from "./conversation-summary";
+import { nullableChatMessageWatermark } from "./chat-message-watermark";
 import type { ChatSummaryWatermark, LoadedChatThreadContext } from "./chat-context-store";
 import { estimateTranscriptTokens } from "./tokens";
 
@@ -30,16 +31,10 @@ export interface AssembledChatContext {
 export function assembleChatContext({
   messages,
   context,
-  tailBudgetTokens = CHAT_VERBATIM_TAIL_BUDGET_TOKENS,
 }: {
   messages: readonly ChatContextMessage[];
   context: LoadedChatThreadContext | null;
-  tailBudgetTokens?: number;
 }): AssembledChatContext {
-  if (!Number.isInteger(tailBudgetTokens) || tailBudgetTokens < 0) {
-    throw new Error("tailBudgetTokens must be a non-negative integer");
-  }
-
   const watermark = completeWatermark(context);
   const candidate =
     context?.invalidSummary !== true && context?.summary != null && watermark !== null
@@ -54,11 +49,12 @@ export function assembleChatContext({
     : -1;
   const applied = candidate && watermarkIndex >= 0 ? candidate : null;
   const eligibleTail = applied ? messages.slice(watermarkIndex + 1) : [...messages];
-  const selected = applied ? selectVerbatimTail(eligibleTail, tailBudgetTokens) : eligibleTail;
 
   return {
     summaryMessage: applied ? conversationSummaryMessage(applied.summary) : null,
-    verbatimMessageIds: selected.map((message) => message.id),
+    // None of these records are represented by the summary yet. Dropping a
+    // middle span here would create a context hole until the next roll.
+    verbatimMessageIds: eligibleTail.map((message) => message.id),
     summaryApplied: applied !== null,
     invalidSummary: context?.invalidSummary ?? false,
   };
@@ -102,11 +98,10 @@ export function conversationSummaryMessage(summary: ConversationSummary): AgentT
 }
 
 function completeWatermark(context: LoadedChatThreadContext | null): ChatSummaryWatermark | null {
-  if (!context?.summaryWatermarkCreatedAt || !context.summaryWatermarkMessageId) return null;
-  return {
-    createdAt: context.summaryWatermarkCreatedAt,
-    messageId: context.summaryWatermarkMessageId,
-  };
+  return nullableChatMessageWatermark(
+    context?.summaryWatermarkCreatedAt,
+    context?.summaryWatermarkMessageId,
+  );
 }
 
 function toTranscriptMessage(message: ChatContextMessage): AgentTranscriptMessage {

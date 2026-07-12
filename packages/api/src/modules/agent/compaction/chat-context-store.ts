@@ -8,11 +8,9 @@ import {
   type ConversationSummary,
   type EligibleConversationSummarySources,
 } from "./conversation-summary";
+import type { ChatMessageWatermark } from "./chat-message-watermark";
 
-export interface ChatSummaryWatermark {
-  createdAt: Date;
-  messageId: string;
-}
+export type ChatSummaryWatermark = ChatMessageWatermark;
 
 export interface LoadedChatThreadContext extends Omit<ChatThreadContext, "summary"> {
   summary: ConversationSummary | null;
@@ -45,7 +43,6 @@ export interface PersistConversationSummaryArgs {
   watermark: ChatSummaryWatermark;
   expectedGeneration: number;
   expectedWatermark: ChatSummaryWatermark | null;
-  expectedReplayEstimateWatermark: ChatSummaryWatermark | null;
   estimatedReplayTokens: number;
   replayEstimateWatermark: ChatSummaryWatermark;
   eligibleSources: EligibleConversationSummarySources;
@@ -180,21 +177,6 @@ export async function persistConversationSummary(
         isNull(chatThreadContext.summaryWatermarkCreatedAt),
         isNull(chatThreadContext.summaryWatermarkMessageId),
       );
-  const replayEstimatePredicate = args.expectedReplayEstimateWatermark
-    ? and(
-        eq(
-          chatThreadContext.replayEstimateWatermarkCreatedAt,
-          args.expectedReplayEstimateWatermark.createdAt,
-        ),
-        eq(
-          chatThreadContext.replayEstimateWatermarkMessageId,
-          args.expectedReplayEstimateWatermark.messageId,
-        ),
-      )
-    : and(
-        isNull(chatThreadContext.replayEstimateWatermarkCreatedAt),
-        isNull(chatThreadContext.replayEstimateWatermarkMessageId),
-      );
   const now = new Date();
   const rows = await db()
     .update(chatThreadContext)
@@ -218,7 +200,6 @@ export async function persistConversationSummary(
         eq(chatThreadContext.threadId, args.threadId),
         eq(chatThreadContext.compactionGeneration, args.expectedGeneration),
         watermarkPredicate,
-        replayEstimatePredicate,
       ),
     )
     .returning({ threadId: chatThreadContext.threadId });
