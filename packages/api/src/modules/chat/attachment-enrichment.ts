@@ -7,6 +7,7 @@ import { readObject } from "./storage";
 
 export const CHAT_ATTACHMENT_REPRESENTATION_VERSION = 1;
 export const CHAT_MEDIA_ENRICHMENT_CYCLE_BUDGET_MICROUSD = 500_000;
+export const CHAT_MEDIA_ENRICHMENT_TRIGGER_RATIO = 0.8;
 
 const boundedText = z.string().max(20_000);
 const evidenceSchema = z
@@ -297,4 +298,31 @@ export function selectAttachmentsWithinEnrichmentBudget<
     remaining -= candidate.estimatedCostMicrousd;
   }
   return selected;
+}
+
+/** Conservative scheduling estimate; billing remains authoritative after the call. */
+export function estimateAttachmentEnrichmentCostMicrousd(byteSize: number): number {
+  if (!Number.isInteger(byteSize) || byteSize < 0) {
+    throw new Error("byteSize must be a non-negative integer");
+  }
+  const mebibytes = Math.max(1, Math.ceil(byteSize / (1024 * 1024)));
+  return 10_000 + mebibytes * 10_000;
+}
+
+export function shouldStartMediaEnrichment(
+  estimatedReplayTokens: number,
+  backgroundThresholdTokens: number,
+): boolean {
+  if (
+    !Number.isFinite(estimatedReplayTokens) ||
+    estimatedReplayTokens < 0 ||
+    !Number.isFinite(backgroundThresholdTokens) ||
+    backgroundThresholdTokens < 0
+  ) {
+    throw new Error("media enrichment pressure inputs must be non-negative");
+  }
+  return (
+    estimatedReplayTokens >
+    Math.floor(backgroundThresholdTokens * CHAT_MEDIA_ENRICHMENT_TRIGGER_RATIO)
+  );
 }

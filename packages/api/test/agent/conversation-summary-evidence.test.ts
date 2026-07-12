@@ -70,7 +70,21 @@ describe("conversation summary evidence", () => {
           ],
         }),
       ],
-      attachments: [attachment({})],
+      attachments: [
+        {
+          ...attachment({}),
+          representation: {
+            schemaVersion: 1,
+            attachmentId: "att_1",
+            messageId: "msg_2",
+            mime: "text/plain",
+            visualDescription: null,
+            ocrText: "compiler output",
+            salientEntities: [],
+            evidence: [],
+          },
+        },
+      ],
     });
     assert.equal(evidence.tools[0]?.id, "tool_1");
     assert.deepEqual(evidence.tools[0]?.content, {
@@ -82,6 +96,7 @@ describe("conversation summary evidence", () => {
       sanitized: false,
     });
     assert.equal(evidence.attachments[0]?.id, "att_1");
+    assert.match(JSON.stringify(evidence.attachments[0]?.content), /compiler output/);
     assert.doesNotMatch(JSON.stringify(evidence), /private\/key/);
   });
 

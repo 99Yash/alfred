@@ -1,7 +1,11 @@
 import type { ChatMessageToolCall } from "@alfred/db/schemas";
 import { db } from "@alfred/db";
-import { chatAttachments, chatMessages } from "@alfred/db/schemas";
+import { chatAttachmentRepresentations, chatAttachments, chatMessages } from "@alfred/db/schemas";
 import { and, desc, eq, ilike, sql } from "drizzle-orm";
+import {
+  CHAT_ATTACHMENT_REPRESENTATION_VERSION,
+  chatAttachmentRepresentationSchema,
+} from "../../chat/attachment-enrichment";
 
 export const CHAT_HISTORY_RESULT_LIMIT = 10;
 export const CHAT_HISTORY_EXCERPT_CHARS = 4_000;
@@ -22,6 +26,7 @@ type AttachmentRow = {
   degradedText: string | null;
   failureReason: string | null;
   createdAt: Date;
+  representation?: unknown;
 };
 
 export interface ChatHistoryRetrievalDependencies {
@@ -131,6 +136,7 @@ function messageEvidence(row: MessageRow) {
 }
 
 function attachmentEvidence(row: AttachmentRow) {
+  const parsed = chatAttachmentRepresentationSchema.safeParse(row.representation);
   return {
     kind: "attachment",
     id: row.id,
@@ -140,6 +146,7 @@ function attachmentEvidence(row: AttachmentRow) {
     mime: row.mime,
     status: row.status,
     extractedText: excerpt(row.degradedText ?? ""),
+    representation: parsed.success ? parsed.data : null,
     failureReason: row.failureReason ? excerpt(row.failureReason) : null,
   };
 }
@@ -232,9 +239,21 @@ async function fetchAttachment(args: { userId: string; threadId: string; id: str
       degradedText: chatAttachments.degradedText,
       failureReason: chatAttachments.failureReason,
       createdAt: chatAttachments.createdAt,
+      representation: chatAttachmentRepresentations.representation,
     })
     .from(chatAttachments)
     .innerJoin(chatMessages, eq(chatMessages.id, chatAttachments.messageId))
+    .leftJoin(
+      chatAttachmentRepresentations,
+      and(
+        eq(chatAttachmentRepresentations.attachmentId, chatAttachments.id),
+        eq(
+          chatAttachmentRepresentations.representationVersion,
+          CHAT_ATTACHMENT_REPRESENTATION_VERSION,
+        ),
+        eq(chatAttachmentRepresentations.status, "ready"),
+      ),
+    )
     .where(
       and(
         eq(chatAttachments.userId, args.userId),
