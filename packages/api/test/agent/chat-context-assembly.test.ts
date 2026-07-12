@@ -61,7 +61,7 @@ const summary = {
 describe("chat context assembly", () => {
   test("unsummarized threads retain full raw history", () => {
     const messages = [message("msg_1", "user", "one"), message("msg_2", "assistant", "two")];
-    const result = assembleChatContext({ messages, context: null, tailBudgetTokens: 0 });
+    const result = assembleChatContext({ messages, context: null });
     assert.equal(result.summaryApplied, false);
     assert.deepEqual(result.verbatimMessageIds, ["msg_1", "msg_2"]);
   });
@@ -97,6 +97,27 @@ describe("chat context assembly", () => {
       }),
     });
     assert.deepEqual(result.verbatimMessageIds, ["a"]);
+  });
+
+  test("retains the entire unsummarized span even when it exceeds the tail budget", () => {
+    const messages = [
+      message("msg_1", "user", "old user"),
+      message("msg_2", "assistant", "old answer"),
+      message("msg_3", "user", "x".repeat(40_000)),
+      message("msg_4", "assistant", "middle answer"),
+      message("msg_5", "user", "latest"),
+      message("msg_6", "assistant", "latest answer"),
+    ];
+    const result = assembleChatContext({
+      messages,
+      context: context({
+        summary,
+        summaryWatermarkCreatedAt: at,
+        summaryWatermarkMessageId: "msg_2",
+      }),
+    });
+
+    assert.deepEqual(result.verbatimMessageIds, ["msg_3", "msg_4", "msg_5", "msg_6"]);
   });
 
   test("missing watermark row safely falls back to full raw history", () => {

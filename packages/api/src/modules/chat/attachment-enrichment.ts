@@ -1,7 +1,7 @@
 import { getMediaEnrichmentModels, meteredGenerateObject, type AttributedCall } from "@alfred/ai";
 import { db } from "@alfred/db";
 import { chatAttachmentRepresentations, chatAttachments } from "@alfred/db/schemas";
-import { and, eq } from "drizzle-orm";
+import { and, eq, inArray } from "drizzle-orm";
 import { z } from "zod";
 import { readObject } from "./storage";
 
@@ -101,7 +101,7 @@ export async function persistChatAttachmentRepresentation(args: {
       and(
         eq(chatAttachmentRepresentations.attachmentId, representation.attachmentId),
         eq(chatAttachmentRepresentations.representationVersion, representation.schemaVersion),
-        eq(chatAttachmentRepresentations.status, "pending"),
+        inArray(chatAttachmentRepresentations.status, ["pending", "failed"]),
       ),
     )
     .returning({ attachmentId: chatAttachmentRepresentations.attachmentId });

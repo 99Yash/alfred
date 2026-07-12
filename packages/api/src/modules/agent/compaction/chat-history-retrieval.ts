@@ -1,7 +1,9 @@
+import { readChatHistoryInput } from "@alfred/contracts";
 import type { ChatMessageToolCall } from "@alfred/db/schemas";
 import { db } from "@alfred/db";
 import { chatAttachmentRepresentations, chatAttachments, chatMessages } from "@alfred/db/schemas";
 import { and, desc, eq, ilike, sql } from "drizzle-orm";
+import type { z } from "zod";
 import {
   CHAT_ATTACHMENT_REPRESENTATION_VERSION,
   chatAttachmentRepresentationSchema,
@@ -53,9 +55,7 @@ export interface ChatHistoryRetrievalDependencies {
   }) => Promise<AttachmentRow | null>;
 }
 
-export type ReadChatHistoryInput =
-  | { mode: "search"; query: string; limit: number }
-  | { mode: "fetch"; kind: "message" | "tool_call" | "attachment"; id: string };
+export type ReadChatHistoryInput = z.infer<typeof readChatHistoryInput>;
 
 /** Authenticated, current-thread-only access to raw evidence behind a lossy summary. */
 export async function readChatHistory(

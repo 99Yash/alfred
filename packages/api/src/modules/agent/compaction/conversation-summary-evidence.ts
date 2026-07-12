@@ -6,13 +6,14 @@ import {
   type ChatAttachment,
   type ChatMessage,
 } from "@alfred/db/schemas";
-import { and, asc, eq, gt, inArray, lt, lte, or } from "drizzle-orm";
+import { and, asc, eq, inArray } from "drizzle-orm";
 import {
   CHAT_ATTACHMENT_REPRESENTATION_VERSION,
   chatAttachmentRepresentationSchema,
 } from "../../chat/attachment-enrichment";
 
 import type { AgentDbExecutor } from "../types";
+import { afterChatMessageWatermark, throughChatMessageWatermark } from "./chat-message-watermark";
 import type { ChatSummaryWatermark } from "./chat-context-store";
 import type { ConversationSummaryEvidence } from "./conversation-summary-generator";
 import type { ConversationSummary } from "./conversation-summary";
@@ -50,20 +51,12 @@ export async function loadConversationSummaryEvidence({
   ex?: AgentDbExecutor;
 }): Promise<LoadedConversationSummaryEvidence> {
   const lowerBound = afterWatermark
-    ? or(
-        gt(chatMessages.createdAt, afterWatermark.createdAt),
-        and(
-          eq(chatMessages.createdAt, afterWatermark.createdAt),
-          gt(chatMessages.id, afterWatermark.messageId),
-        ),
-      )
+    ? afterChatMessageWatermark(chatMessages.createdAt, chatMessages.id, afterWatermark)
     : undefined;
-  const upperBound = or(
-    lt(chatMessages.createdAt, throughWatermark.createdAt),
-    and(
-      eq(chatMessages.createdAt, throughWatermark.createdAt),
-      lte(chatMessages.id, throughWatermark.messageId),
-    ),
+  const upperBound = throughChatMessageWatermark(
+    chatMessages.createdAt,
+    chatMessages.id,
+    throughWatermark,
   );
   const messages = await ex
     .select({
