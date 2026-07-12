@@ -29,6 +29,8 @@ export interface SynchronousConversationCompactionArgs {
   replayTail: readonly AgentTranscriptMessage[];
   replayTailWatermark: ChatSummaryWatermark;
   attribution: Omit<AttributedCall, "kind" | "role">;
+  abortSignal?: AbortSignal;
+  timeoutMs?: number;
 }
 
 export type SynchronousConversationCompactionResult =
@@ -80,6 +82,8 @@ export async function compactConversationSynchronously(
   const summary = await generateSummary({
     evidence: loaded.evidence,
     attribution: args.attribution,
+    abortSignal: args.abortSignal,
+    timeoutMs: args.timeoutMs,
   });
   const eligibleSources = eligibleConversationSummarySources(loaded.evidence);
   const estimatedReplayTokens = estimateTranscriptTokens([

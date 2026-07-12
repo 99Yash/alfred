@@ -152,4 +152,35 @@ describe("synchronous conversation compaction", () => {
     );
     assert.deepEqual(result, { kind: "superseded" });
   });
+
+  test("threads foreground cancellation and timeout through summary generation", async () => {
+    const controller = new AbortController();
+    let receivedSignal: AbortSignal | undefined;
+    let receivedTimeout: number | undefined;
+    await compactConversationSynchronously(
+      {
+        userId: "user_1",
+        threadId: "thread_1",
+        throughWatermark: watermark,
+        replayTail: [],
+        replayTailWatermark: watermark,
+        attribution: {},
+        abortSignal: controller.signal,
+        timeoutMs: 1234,
+      },
+      {
+        loadContext: async () => null,
+        loadEvidence: async () => ({ evidence, watermark }),
+        generateSummary: async (args) => {
+          receivedSignal = args.abortSignal;
+          receivedTimeout = args.timeoutMs;
+          return summary;
+        },
+        persistSummary: async () => true,
+      },
+    );
+
+    assert.equal(receivedSignal, controller.signal);
+    assert.equal(receivedTimeout, 1234);
+  });
 });

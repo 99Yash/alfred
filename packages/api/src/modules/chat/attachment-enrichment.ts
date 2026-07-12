@@ -8,6 +8,7 @@ import { readObject } from "./storage";
 export const CHAT_ATTACHMENT_REPRESENTATION_VERSION = 1;
 export const CHAT_MEDIA_ENRICHMENT_CYCLE_BUDGET_MICROUSD = 500_000;
 export const CHAT_MEDIA_ENRICHMENT_TRIGGER_RATIO = 0.8;
+export const CHAT_MEDIA_ENRICHMENT_CASCADE_TIMEOUT_MS = 3 * 60_000;
 
 const boundedText = z.string().max(20_000);
 const evidenceSchema = z
@@ -210,6 +211,7 @@ async function generateAttachmentRepresentation(args: {
   attribution: Omit<AttributedCall, "kind" | "role">;
 }) {
   const models = getMediaEnrichmentModels(args.modality, args.bytes.byteLength);
+  const abortSignal = AbortSignal.timeout(CHAT_MEDIA_ENRICHMENT_CASCADE_TIMEOUT_MS);
   let lastError: unknown;
   for (const [index, model] of models.entries()) {
     try {
@@ -241,6 +243,7 @@ async function generateAttachmentRepresentation(args: {
           ],
           temperature: 0,
           maxOutputTokens: 4_000,
+          abortSignal,
         },
         {
           ...args.attribution,

@@ -1,5 +1,5 @@
 import { toMessage, type AgentTranscriptMessage } from "@alfred/contracts";
-import { Queue, Worker, type Job } from "bullmq";
+import { Queue, UnrecoverableError, Worker, type Job } from "bullmq";
 import { z } from "zod";
 
 import { createRedisConnection, isQueueEnabled } from "../../../queue/connection";
@@ -35,10 +35,9 @@ type ExistingJobState = "active" | "waiting" | "delayed" | string;
 
 export interface ConversationCompactionQueueDependencies {
   enabled?: () => boolean;
-  getExisting?: (jobId: string) => Promise<
-    | { state: ExistingJobState; remove: () => Promise<void> }
-    | undefined
-  >;
+  getExisting?: (
+    jobId: string,
+  ) => Promise<{ state: ExistingJobState; remove: () => Promise<void> } | undefined>;
   markRequested?: typeof markConversationCompactionRequested;
   add?: (jobId: string, data: ConversationCompactionJobData) => Promise<void>;
   recordFailure?: typeof recordConversationCompactionFailure;
@@ -65,21 +64,26 @@ export function getConversationCompactionQueue(): Queue<ConversationCompactionJo
   return queue;
 }
 
-export async function enqueueConversationCompaction(args: {
-  userId: string;
-  threadId: string;
-  throughWatermark: ChatSummaryWatermark;
-  replayTail: readonly AgentTranscriptMessage[];
-  replayTailWatermark: ChatSummaryWatermark;
-}, dependencies: ConversationCompactionQueueDependencies = {}): Promise<"scheduled" | "deduplicated" | "disabled"> {
+export async function enqueueConversationCompaction(
+  args: {
+    userId: string;
+    threadId: string;
+    throughWatermark: ChatSummaryWatermark;
+    replayTail: readonly AgentTranscriptMessage[];
+    replayTailWatermark: ChatSummaryWatermark;
+  },
+  dependencies: ConversationCompactionQueueDependencies = {},
+): Promise<"scheduled" | "deduplicated" | "disabled"> {
   const enabled = dependencies.enabled ?? isQueueEnabled;
   if (!enabled()) return "disabled";
   const jobId = conversationCompactionJobId(args.threadId);
   const existing = dependencies.getExisting
     ? await dependencies.getExisting(jobId)
-    : await getConversationCompactionQueue().getJob(jobId).then(async (job) =>
-        job ? { state: await job.getState(), remove: () => job.remove() } : undefined,
-      );
+    : await getConversationCompactionQueue()
+        .getJob(jobId)
+        .then(async (job) =>
+          job ? { state: await job.getState(), remove: () => job.remove() } : undefined,
+        );
   if (existing) {
     const state = existing.state;
     if (state === "active" || state === "waiting" || state === "delayed") return "deduplicated";
@@ -170,6 +174,21 @@ async function processConversationCompactionJob(
       category: "background_failed",
       message: toMessage(error),
     });
+    if (isUnrecoverableConversationCompactionError(error)) {
+      throw new UnrecoverableError(toMessage(error));
+    }
     throw error;
   }
+}
+
+export function isUnrecoverableConversationCompactionError(error: unknown): boolean {
+  if (!(error instanceof Error)) return false;
+  return [
+    "conversation_summary_invalid_provenance",
+    "conversation_summary_requires_messages",
+    "conversation_summary_duplicate_source_id",
+    "conversation_summary_input_too_large",
+    "conversation_summary_no_new_messages",
+    "conversation_summary_watermark_not_loaded",
+  ].some((prefix) => error.message.startsWith(prefix));
 }
