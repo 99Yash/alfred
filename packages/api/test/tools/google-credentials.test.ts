@@ -4,11 +4,7 @@ import { after, before, describe, test } from "node:test";
 
 import { closeConnections, db } from "@alfred/db";
 import { integrationCredentials, user } from "@alfred/db/schemas";
-import {
-  DOCS_SCOPE,
-  DRIVE_SCOPE,
-  GMAIL_READONLY_SCOPE,
-} from "@alfred/integrations/google";
+import { DOCS_SCOPE, DRIVE_SCOPE, GMAIL_READONLY_SCOPE } from "@alfred/integrations/google";
 import { inArray, like } from "drizzle-orm";
 
 import { AppError } from "../../src/lib/app-errors";
@@ -150,13 +146,17 @@ describe("shared Google credential resolver (DB-backed)", { skip: SKIP }, () => 
     );
   });
 
-  test("scopeless policy accepts any active credential", async () => {
+  test("activeGoogleCredentials (scopeless) returns every active account", async () => {
+    // `resolveGoogleCredential` requires a scope policy (a scopeless resolve
+    // would reintroduce the first-active mis-routing bug), but the plural
+    // finder still accepts an omitted scope — the singular resolver relies on
+    // that to fetch all active accounts before filtering by policy scope.
     const userId = await seedUser();
-    const id = await seedCredential(userId, { scopes: [GMAIL_READONLY_SCOPE] });
-    const resolved = await resolveGoogleCredential(userId, {
-      noConnection: "google_connection_required",
-    });
-    assert.equal(resolved.id, id);
+    const a = await seedCredential(userId, { scopes: [GMAIL_READONLY_SCOPE] });
+    const b = await seedCredential(userId, { scopes: [DRIVE_SCOPE] });
+    await seedCredential(userId, { scopes: [DRIVE_SCOPE], status: "needs_reauth" }); // inactive
+    const ids = (await activeGoogleCredentials(userId)).map((c) => c.id).sort();
+    assert.deepEqual(ids, [a, b].sort(), "every active account, no scope filter");
   });
 
   test("activeGoogleCredentials returns every scope-satisfying active account", async () => {

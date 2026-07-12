@@ -4,7 +4,6 @@ export { chunkText, estimateTokens } from "./chunker";
 export type { Chunk, ChunkerOptions } from "./chunker";
 export {
   embedDocument,
-  EMBED_RETRY_WINDOW_HOURS,
   findUnembeddedDocumentIds,
   recordDocumentEmbedFailure,
 } from "./embed-document";

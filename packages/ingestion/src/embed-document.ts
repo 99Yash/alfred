@@ -1,24 +1,19 @@
 import { embedMany } from "@alfred/ai/embeddings";
 import { db } from "@alfred/db";
-import { buildEmbedFailureSet } from "@alfred/db/helpers";
+import { buildEmbedFailureSet, EMBED_SUCCESS_RESET } from "@alfred/db/helpers";
 import { chunks, documents } from "@alfred/db/schemas";
 import { and, desc, eq, isNull, notExists, sql } from "drizzle-orm";
 import { createHash } from "node:crypto";
 import { chunkText, type Chunk } from "./chunker";
 
-// Re-exported on `@alfred/ingestion`'s public surface (see `index.ts`); the
-// poison-pill retry window itself is now defined once in `@alfred/db/helpers`
-// and shared with the `memory_chunks` guard.
-export { EMBED_RETRY_WINDOW_HOURS } from "@alfred/db/helpers";
-
 /**
  * Record an embed failure on the document row via the shared poison-pill guard
- * (`buildEmbedFailureSet` in `@alfred/db/helpers`): a permanent error (a 4xx
- * that isn't 429) dead-letters the document immediately; a transient error
- * rides the wall-clock retry window regardless of how many sweeps hit it.
- * `embedAttempts` still counts every failure for diagnostics but no longer
- * triggers dead-lettering. Best-effort: the caller always rethrows the original
- * error.
+ * (`buildEmbedFailureSet` in `@alfred/db/helpers`): a per-input-permanent error
+ * (400/413/422 — the input itself is un-embeddable) dead-letters the document
+ * immediately; every other failure, including a systemic 4xx, rides the
+ * wall-clock retry window regardless of how many sweeps hit it. `embedAttempts`
+ * still counts every failure for diagnostics but no longer triggers
+ * dead-lettering. Best-effort: the caller always rethrows the original error.
  *
  * Exported for the DB-backed poison-pill test; `embedDocument` is the only
  * production caller.
@@ -43,7 +38,10 @@ export async function recordDocumentEmbedFailure(documentId: string, err: unknow
 async function markDocumentEmbedTerminal(documentId: string, reason: string): Promise<void> {
   await db()
     .update(documents)
-    .set({ embedFailedAt: sql`COALESCE(${documents.embedFailedAt}, now())`, lastEmbedError: reason })
+    .set({
+      embedFailedAt: sql`COALESCE(${documents.embedFailedAt}, now())`,
+      lastEmbedError: reason,
+    })
     .where(eq(documents.id, documentId));
 }
 
@@ -172,6 +170,14 @@ export async function embedDocument(args: EmbedDocumentArgs): Promise<EmbedDocum
           updatedAt: new Date(),
         },
       });
+  }
+
+  // Clear any prior poison-pill streak now that the doc embedded cleanly, so the
+  // wall-clock grace is per-failure-streak and a resurrected doc doesn't carry a
+  // stale `embed_first_failed_at` into its next blip. Gated on the pre-read row
+  // so an ordinary first-time embed (the common case) skips the extra write.
+  if (doc.embedAttempts > 0 || doc.embedFailedAt !== null || doc.embedFirstFailedAt !== null) {
+    await db().update(documents).set(EMBED_SUCCESS_RESET).where(eq(documents.id, doc.id));
   }
 
   return {

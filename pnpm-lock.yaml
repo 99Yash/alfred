@@ -683,9 +683,6 @@ importers:
       '@alfred/ai':
         specifier: workspace:*
         version: link:../ai
-      '@alfred/contracts':
-        specifier: workspace:*
-        version: link:../contracts
       '@alfred/db':
         specifier: workspace:*
         version: link:../db

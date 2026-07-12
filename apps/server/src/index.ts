@@ -15,7 +15,7 @@ import { cors } from "@elysiajs/cors";
 import { node } from "@elysiajs/node";
 import * as Sentry from "@sentry/node";
 import { Elysia } from "elysia";
-import { startRuntime, stopRuntime } from "./runtime";
+import { OBSERVABILITY_FLUSH_TIMEOUT_MS, startRuntime, stopRuntime } from "./runtime";
 
 // Global crash safety net, registered before any worker starts. An unhandled
 // rejection or uncaught exception in a background BullMQ processor or the event
@@ -38,7 +38,9 @@ async function handleFatal(kind: string, err: unknown): Promise<void> {
     // fast, clean exit matters more than the cost rows).
     await Promise.race([
       Promise.allSettled([Sentry.flush(2000), flushLangfuse()]),
-      new Promise((resolve) => setTimeout(resolve, 2500)),
+      new Promise((resolve) => {
+        setTimeout(resolve, OBSERVABILITY_FLUSH_TIMEOUT_MS).unref();
+      }),
     ]);
   } catch {
     // Never let the crash handler itself throw.
