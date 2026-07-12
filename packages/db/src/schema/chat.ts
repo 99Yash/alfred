@@ -6,6 +6,7 @@ import {
   index,
   integer,
   jsonb,
+  primaryKey,
   pgTable,
   text,
   timestamp,
@@ -244,9 +245,41 @@ export const chatAttachments = pgTable(
   ],
 );
 
+/**
+ * Versioned, reusable semantic representation of one attachment. The raw JSON
+ * remains unknown until the API owner validates it; compaction, memory, and
+ * history all read this row rather than paying for separate enrichment calls.
+ */
+export const chatAttachmentRepresentations = pgTable(
+  "chat_attachment_representations",
+  {
+    attachmentId: text("attachment_id")
+      .notNull()
+      .references(() => chatAttachments.id, { onDelete: "cascade" }),
+    representationVersion: integer("representation_version").notNull(),
+    status: text("status").notNull().$type<"pending" | "ready" | "failed">(),
+    representation: jsonb("representation"),
+    provider: text("provider"),
+    model: text("model"),
+    estimatedCostMicrousd: integer("estimated_cost_microusd"),
+    failureCategory: text("failure_category"),
+    ...lifecycle_dates,
+  },
+  (t) => [
+    primaryKey({ columns: [t.attachmentId, t.representationVersion] }),
+    check("chat_attachment_representations_version_chk", sql`${t.representationVersion} > 0`),
+    check(
+      "chat_attachment_representations_cost_chk",
+      sql`${t.estimatedCostMicrousd} IS NULL OR ${t.estimatedCostMicrousd} >= 0`,
+    ),
+  ],
+);
+
 export type ChatThread = typeof chatThreads.$inferSelect;
 export type ChatMessage = typeof chatMessages.$inferSelect;
 export type ChatThreadContext = typeof chatThreadContext.$inferSelect;
 export type NewChatThreadContext = typeof chatThreadContext.$inferInsert;
 export type ChatAttachment = typeof chatAttachments.$inferSelect;
 export type NewChatAttachment = typeof chatAttachments.$inferInsert;
+export type ChatAttachmentRepresentation = typeof chatAttachmentRepresentations.$inferSelect;
+export type NewChatAttachmentRepresentation = typeof chatAttachmentRepresentations.$inferInsert;
