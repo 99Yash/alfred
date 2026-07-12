@@ -1,4 +1,4 @@
-import { isNonEmptyString, isRecord } from "./guards";
+import { isIndexable, isNonEmptyString, isRecord } from "./guards";
 
 export const API_ERROR_CODES = [
   "BAD_REQUEST",
@@ -36,7 +36,7 @@ export function isApiErrorResponse(value: unknown): value is ApiErrorResponse {
 export function apiErrorMessage(value: unknown, fallback: string): string {
   if (isApiErrorResponse(value)) return value.error;
   if (value instanceof Error && value.message.length > 0) return value.message;
-  if (typeof value === "object" && value !== null) {
+  if (isIndexable(value)) {
     const message = Reflect.get(value, "message");
     if (isNonEmptyString(message)) return message;
   }

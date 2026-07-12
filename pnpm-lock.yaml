@@ -525,6 +525,9 @@ importers:
       pg:
         specifier: ^8.16.3
         version: 8.20.0
+      pino:
+        specifier: ^10.3.1
+        version: 10.3.1
       resend:
         specifier: 'catalog:'
         version: 6.12.2(@react-email/render@1.0.0(react-dom@19.2.5(react@19.2.5))(react@19.2.5))

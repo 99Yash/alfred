@@ -32,15 +32,14 @@ import {
   listCredentials,
   updateValues,
 } from "@alfred/integrations/google";
+import { AppError } from "../../lib/app-errors";
 import { liveTool, type RegisteredTool } from "./registry";
 
 async function pickGoogleCredentialId(userId: string): Promise<string> {
   const creds = await listCredentials(userId, "google");
   const active = creds.find((c) => c.status === "active");
   if (!active) {
-    throw new Error(
-      `[sheets.tools] user ${userId} has no active google credential — reconnect in settings`,
-    );
+    throw new AppError("google_connection_required");
   }
   return active.id;
 }

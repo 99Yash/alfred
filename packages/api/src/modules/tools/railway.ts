@@ -23,6 +23,7 @@ import {
   listActiveBearerCredentials,
   type ActiveBearerCredential,
 } from "@alfred/integrations/shared";
+import { AppError } from "../../lib/app-errors";
 import {
   credentialRef,
   listProjectsForCredentials,
@@ -35,9 +36,7 @@ import { liveTool, type RegisteredTool } from "./registry";
 async function credentialsFor(userId: string): Promise<ActiveBearerCredential[]> {
   const credentials = await listActiveBearerCredentials(userId, "railway");
   if (credentials.length === 0) {
-    throw new Error(
-      "[railway.credentials] no active Railway credential — connect Railway in settings",
-    );
+    throw new AppError("railway_connection_required");
   }
   return credentials;
 }
