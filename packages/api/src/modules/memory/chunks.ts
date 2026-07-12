@@ -1,5 +1,5 @@
 import { EMBEDDING_DIMENSIONS, embed } from "@alfred/ai/embeddings";
-import { isHttpError, toMessage } from "@alfred/contracts";
+import { isHttpError, redactSecrets, toMessage } from "@alfred/contracts";
 import { db } from "@alfred/db";
 import { formatVectorFloat32 } from "@alfred/db/helpers";
 import { memoryChunks, type MemoryChunk } from "@alfred/db/schemas";
@@ -105,20 +105,26 @@ export async function embedMemoryChunk(
 }
 
 /**
- * Transient embed failures are retried by the sweep; after this many the chunk
- * is dead-lettered so a poison-pill chunk stops being re-selected every sweep
- * forever. A permanent (4xx) error dead-letters immediately. Mirrors the
- * `documents` embed guard (`MAX_EMBED_ATTEMPTS` in `@alfred/ingestion`).
+ * How long a *transient* embed failure is tolerated before the chunk is
+ * dead-lettered. Gated on wall-clock age of the first failure, NOT an attempt
+ * count: the sweep runs every 5 minutes, so an attempt cap of a handful would
+ * be exhausted by a ~25-minute Voyage outage and permanently drop the whole
+ * pending backlog. A full day gives the provider time to recover; a genuine
+ * poison pill that keeps 5xx-ing eventually gives up. A permanent (4xx≠429)
+ * error dead-letters immediately regardless. Mirrors the `documents` embed
+ * guard in `@alfred/ingestion`.
  */
-const MAX_EMBED_ATTEMPTS = 5;
+const EMBED_RETRY_WINDOW_HOURS = 24;
 
 /** Cap the persisted failure message; `HttpError` bodies are already bounded + redacted. */
 const MAX_EMBED_ERROR_CHARS = 500;
 
 /**
- * Record an embed failure on the chunk row, dead-lettering it (via
- * `embedFailedAt`) on a permanent error or once the transient attempt cap is
- * reached. Best-effort; the caller still logs the original error.
+ * Record an embed failure on the chunk row. A permanent error dead-letters it
+ * (via `embedFailedAt`) immediately; a transient error is retried by the sweep
+ * until it has persisted past `EMBED_RETRY_WINDOW_HOURS`. `embedAttempts` still
+ * counts every failure for diagnostics but no longer triggers dead-lettering.
+ * Best-effort; the caller still logs the original error.
  */
 export async function recordMemoryEmbedFailure(
   chunkId: string,
@@ -130,10 +136,13 @@ export async function recordMemoryEmbedFailure(
     .update(memoryChunks)
     .set({
       embedAttempts: sql`${memoryChunks.embedAttempts} + 1`,
-      lastEmbedError: toMessage(err).slice(0, MAX_EMBED_ERROR_CHARS),
+      // Stamp the first failure once so the transient gate below can measure
+      // how long the failure has persisted (references the pre-update value).
+      embedFirstFailedAt: sql`COALESCE(${memoryChunks.embedFirstFailedAt}, now())`,
+      lastEmbedError: redactSecrets(toMessage(err)).slice(0, MAX_EMBED_ERROR_CHARS),
       embedFailedAt: permanent
         ? sql`COALESCE(${memoryChunks.embedFailedAt}, now())`
-        : sql`CASE WHEN ${memoryChunks.embedAttempts} + 1 >= ${MAX_EMBED_ATTEMPTS} THEN now() ELSE ${memoryChunks.embedFailedAt} END`,
+        : sql`CASE WHEN COALESCE(${memoryChunks.embedFirstFailedAt}, now()) <= now() - make_interval(hours => ${EMBED_RETRY_WINDOW_HOURS}) THEN COALESCE(${memoryChunks.embedFailedAt}, now()) ELSE ${memoryChunks.embedFailedAt} END`,
     })
     .where(and(eq(memoryChunks.id, chunkId), eq(memoryChunks.userId, userId)));
 }
