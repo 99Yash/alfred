@@ -43,6 +43,23 @@ export const documents = pgTable(
     metadata: jsonb("metadata")
       .notNull()
       .default(sql`'{}'::jsonb`),
+    /**
+     * Embedding retry bookkeeping (poison-pill guard). A document with no
+     * `chunks` rows is a candidate for the background embed sweep; without a
+     * cap, one whose Voyage call keeps failing (or that has no embeddable
+     * content) is re-selected every sweep forever. Count failures here and
+     * dead-letter via `embedFailedAt` so the sweep gives up.
+     */
+    embedAttempts: integer("embed_attempts").notNull().default(0),
+    /**
+     * Set when embedding is abandoned — a permanent (4xx) error, the transient
+     * attempt cap, or no embeddable content. A non-null value excludes the row
+     * from the embed sweep; null it to resurrect (rows are immutable, so a
+     * dead-lettered doc stays dead unless deliberately retried).
+     */
+    embedFailedAt: timestamp("embed_failed_at", { withTimezone: true }),
+    /** Bounded, secret-redacted last embed-failure message — ops diagnostics. */
+    lastEmbedError: text("last_embed_error"),
     ...lifecycle_dates,
   },
   (t) => [

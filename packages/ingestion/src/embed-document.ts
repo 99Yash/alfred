@@ -1,9 +1,51 @@
 import { embedMany } from "@alfred/ai/embeddings";
+import { isHttpError, toMessage } from "@alfred/contracts";
 import { db } from "@alfred/db";
 import { chunks, documents } from "@alfred/db/schemas";
-import { and, desc, eq, notExists, sql } from "drizzle-orm";
+import { and, desc, eq, isNull, notExists, sql } from "drizzle-orm";
 import { createHash } from "node:crypto";
 import { chunkText, type Chunk } from "./chunker";
+
+/**
+ * Transient embed failures (a Voyage 5xx/429, a network blip) are worth
+ * retrying on the next sweep; after this many consecutive attempts the
+ * document is dead-lettered so a genuinely un-embeddable doc stops being
+ * re-selected every sweep forever (the `embed-doc:` retry storm). A permanent
+ * error (4xx) or an empty doc dead-letters immediately.
+ */
+export const MAX_EMBED_ATTEMPTS = 5;
+
+/** Cap the persisted failure message; `HttpError` bodies are already bounded + redacted. */
+const MAX_EMBED_ERROR_CHARS = 500;
+
+/**
+ * Record an embed failure on the document row, dead-lettering it (via
+ * `embedFailedAt`) when the error is permanent or the transient attempt cap is
+ * reached. Best-effort: the caller always rethrows the original error.
+ */
+async function recordDocumentEmbedFailure(documentId: string, err: unknown): Promise<void> {
+  // A 4xx (that isn't 429) means the input itself is unacceptable to Voyage —
+  // retrying can never succeed, so give up now rather than after MAX attempts.
+  const permanent = isHttpError(err) && !err.retryable;
+  await db()
+    .update(documents)
+    .set({
+      embedAttempts: sql`${documents.embedAttempts} + 1`,
+      lastEmbedError: toMessage(err).slice(0, MAX_EMBED_ERROR_CHARS),
+      embedFailedAt: permanent
+        ? sql`COALESCE(${documents.embedFailedAt}, now())`
+        : sql`CASE WHEN ${documents.embedAttempts} + 1 >= ${MAX_EMBED_ATTEMPTS} THEN now() ELSE ${documents.embedFailedAt} END`,
+    })
+    .where(eq(documents.id, documentId));
+}
+
+/** Dead-letter a document that can never produce chunks (no embeddable content). */
+async function markDocumentEmbedTerminal(documentId: string, reason: string): Promise<void> {
+  await db()
+    .update(documents)
+    .set({ embedFailedAt: sql`COALESCE(${documents.embedFailedAt}, now())`, lastEmbedError: reason })
+    .where(eq(documents.id, documentId));
+}
 
 /**
  * Chunk + embed a single document. Idempotent on the unique
@@ -41,6 +83,9 @@ export async function embedDocument(args: EmbedDocumentArgs): Promise<EmbedDocum
 
   const splits = chunkText(doc.content);
   if (splits.length === 0) {
+    // No embeddable content, and documents are immutable — this row would
+    // otherwise be re-selected by the sweep on every tick. Dead-letter it.
+    await markDocumentEmbedTerminal(doc.id, "no embeddable content (0 chunks)");
     return { documentId: doc.id, chunksWritten: 0, chunksSkipped: 0, empty: true };
   }
 
@@ -68,47 +113,58 @@ export async function embedDocument(args: EmbedDocumentArgs): Promise<EmbedDocum
     return { documentId: doc.id, chunksWritten: 0, chunksSkipped: skipped, empty: false };
   }
 
-  const vectors = await embedMany(
-    toEmbed.map((c) => c.content),
-    {
-      userId: doc.userId,
-      inputType: "document",
-      idempotencyKey: args.idempotencyKey ?? `embed-doc:${doc.id}`,
-    },
-  );
-  if (vectors.length !== toEmbed.length) {
-    throw new Error(
-      `[embed-document] vector count mismatch: got ${vectors.length} for ${toEmbed.length} chunks`,
-    );
-  }
-
-  // Upsert per chunk position. The (document_id, position) unique index
-  // makes this a single-statement upsert per row.
-  for (let i = 0; i < toEmbed.length; i++) {
-    const chunk = toEmbed[i]!;
-    const vector = vectors[i]!;
-    const hash = toEmbedHashes[i]!;
-    await db()
-      .insert(chunks)
-      .values({
-        documentId: doc.id,
+  try {
+    const vectors = await embedMany(
+      toEmbed.map((c) => c.content),
+      {
         userId: doc.userId,
-        position: chunk.position,
-        content: chunk.content,
-        embedding: vector,
-        tokenCount: chunk.tokenCount,
-        contentHash: hash,
-      })
-      .onConflictDoUpdate({
-        target: [chunks.documentId, chunks.position],
-        set: {
+        inputType: "document",
+        idempotencyKey: args.idempotencyKey ?? `embed-doc:${doc.id}`,
+      },
+    );
+    if (vectors.length !== toEmbed.length) {
+      throw new Error(
+        `[embed-document] vector count mismatch: got ${vectors.length} for ${toEmbed.length} chunks`,
+      );
+    }
+
+    // Upsert per chunk position. The (document_id, position) unique index
+    // makes this a single-statement upsert per row.
+    for (let i = 0; i < toEmbed.length; i++) {
+      const chunk = toEmbed[i]!;
+      const vector = vectors[i]!;
+      const hash = toEmbedHashes[i]!;
+      await db()
+        .insert(chunks)
+        .values({
+          documentId: doc.id,
+          userId: doc.userId,
+          position: chunk.position,
           content: chunk.content,
           embedding: vector,
           tokenCount: chunk.tokenCount,
           contentHash: hash,
-          updatedAt: new Date(),
-        },
-      });
+        })
+        .onConflictDoUpdate({
+          target: [chunks.documentId, chunks.position],
+          set: {
+            content: chunk.content,
+            embedding: vector,
+            tokenCount: chunk.tokenCount,
+            contentHash: hash,
+            updatedAt: new Date(),
+          },
+        });
+    }
+  } catch (err) {
+    // Count the failure so the sweep dead-letters a poison-pill doc instead of
+    // re-embedding it forever, then rethrow so callers still log/handle it.
+    try {
+      await recordDocumentEmbedFailure(doc.id, err);
+    } catch {
+      // Best-effort bookkeeping — never mask the original embed error.
+    }
+    throw err;
   }
 
   return {
@@ -136,7 +192,9 @@ export async function findUnembeddedDocumentIds(opts: {
       .from(chunks)
       .where(eq(chunks.documentId, documents.id)),
   );
-  const filters = [noChunksFilter];
+  // Skip dead-lettered docs (permanent failure, attempt cap, or no embeddable
+  // content) so a poison pill doesn't get re-selected on every sweep forever.
+  const filters = [noChunksFilter, isNull(documents.embedFailedAt)];
   if (opts.userId) filters.push(eq(documents.userId, opts.userId));
   if (opts.source) filters.push(eq(documents.source, opts.source));
   const rows = await db()

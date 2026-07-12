@@ -346,6 +346,22 @@ export const memoryChunks = pgTable(
     metadata: jsonb("metadata")
       .notNull()
       .default(sql`'{}'::jsonb`),
+    /**
+     * Embedding retry bookkeeping (poison-pill guard) — mirrors `documents`.
+     * A chunk with a null `embedding` is a candidate for the background embed
+     * sweep; without a cap, one whose Voyage call keeps failing is re-selected
+     * every sweep forever. Count failures here and dead-letter via
+     * `embedFailedAt` so the sweep gives up.
+     */
+    embedAttempts: integer("embed_attempts").notNull().default(0),
+    /**
+     * Set when embedding is abandoned (permanent 4xx error or transient attempt
+     * cap). A non-null value excludes the row from the embed sweep; a content
+     * change writes a new row (unique on content hash) that retries fresh.
+     */
+    embedFailedAt: timestamp("embed_failed_at", { withTimezone: true }),
+    /** Bounded, secret-redacted last embed-failure message — ops diagnostics. */
+    lastEmbedError: text("last_embed_error"),
     ...lifecycle_dates,
   },
   (t) => [

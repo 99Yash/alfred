@@ -1,4 +1,5 @@
 import { EMBEDDING_DIMENSIONS, embed } from "@alfred/ai/embeddings";
+import { isHttpError, toMessage } from "@alfred/contracts";
 import { db } from "@alfred/db";
 import { formatVectorFloat32 } from "@alfred/db/helpers";
 import { memoryChunks, type MemoryChunk } from "@alfred/db/schemas";
@@ -103,12 +104,52 @@ export async function embedMemoryChunk(
     .where(and(eq(memoryChunks.id, chunkId), eq(memoryChunks.userId, userId)));
 }
 
+/**
+ * Transient embed failures are retried by the sweep; after this many the chunk
+ * is dead-lettered so a poison-pill chunk stops being re-selected every sweep
+ * forever. A permanent (4xx) error dead-letters immediately. Mirrors the
+ * `documents` embed guard (`MAX_EMBED_ATTEMPTS` in `@alfred/ingestion`).
+ */
+const MAX_EMBED_ATTEMPTS = 5;
+
+/** Cap the persisted failure message; `HttpError` bodies are already bounded + redacted. */
+const MAX_EMBED_ERROR_CHARS = 500;
+
+/**
+ * Record an embed failure on the chunk row, dead-lettering it (via
+ * `embedFailedAt`) on a permanent error or once the transient attempt cap is
+ * reached. Best-effort; the caller still logs the original error.
+ */
+export async function recordMemoryEmbedFailure(
+  chunkId: string,
+  userId: string,
+  err: unknown,
+): Promise<void> {
+  const permanent = isHttpError(err) && !err.retryable;
+  await db()
+    .update(memoryChunks)
+    .set({
+      embedAttempts: sql`${memoryChunks.embedAttempts} + 1`,
+      lastEmbedError: toMessage(err).slice(0, MAX_EMBED_ERROR_CHARS),
+      embedFailedAt: permanent
+        ? sql`COALESCE(${memoryChunks.embedFailedAt}, now())`
+        : sql`CASE WHEN ${memoryChunks.embedAttempts} + 1 >= ${MAX_EMBED_ATTEMPTS} THEN now() ELSE ${memoryChunks.embedFailedAt} END`,
+    })
+    .where(and(eq(memoryChunks.id, chunkId), eq(memoryChunks.userId, userId)));
+}
+
 /** Chunks awaiting embedding — used by the embed-sweep job. */
 export async function pendingEmbedChunkIds(userId: string, limit = 50): Promise<string[]> {
   const rows = await db()
     .select({ id: memoryChunks.id })
     .from(memoryChunks)
-    .where(and(eq(memoryChunks.userId, userId), isNull(memoryChunks.embedding)))
+    .where(
+      and(
+        eq(memoryChunks.userId, userId),
+        isNull(memoryChunks.embedding),
+        isNull(memoryChunks.embedFailedAt),
+      ),
+    )
     .limit(limit);
   return rows.map((r) => r.id);
 }
@@ -128,7 +169,7 @@ export async function findPendingEmbedChunks(
       content: memoryChunks.content,
     })
     .from(memoryChunks)
-    .where(isNull(memoryChunks.embedding))
+    .where(and(isNull(memoryChunks.embedding), isNull(memoryChunks.embedFailedAt)))
     .limit(limit);
   return rows;
 }

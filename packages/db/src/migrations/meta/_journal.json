@@ -547,6 +547,13 @@
       "when": 1783779506381,
       "tag": "0077_repair-artifact-foreign-keys",
       "breakpoints": true
+    },
+    {
+      "idx": 78,
+      "version": "7",
+      "when": 1783841607802,
+      "tag": "0078_embedding_poison_pill_guard",
+      "breakpoints": true
     }
   ]
 }
