@@ -94,6 +94,7 @@ export {
   conversationCompactionJobId,
   enqueueConversationCompaction,
   getConversationCompactionQueue,
+  isUnrecoverableConversationCompactionError,
   startConversationCompactionWorker,
   stopConversationCompactionWorker,
   CONVERSATION_COMPACTION_QUEUE_NAME,

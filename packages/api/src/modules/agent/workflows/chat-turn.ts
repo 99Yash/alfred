@@ -112,6 +112,7 @@ const DELTA_FLUSH_MS = 180;
 const DELTA_FLUSH_CHARS = 100;
 /** Poll the user-stop flag at most this often while draining the stream (ms). */
 const STOP_CHECK_MS = 400;
+const FOREGROUND_COMPACTION_TIMEOUT_MS = 2 * 60_000;
 const PREVIEW_CHARS = 2_000;
 /**
  * Pruning tiers tried loosest-first when a structured preview overflows
@@ -768,6 +769,7 @@ async function applyForegroundContextGuard({
   model,
   hydratedTranscript,
   artifactReference,
+  abortSignal,
 }: {
   userId: string;
   runId: string;
@@ -780,6 +782,7 @@ async function applyForegroundContextGuard({
   model: LanguageModel;
   hydratedTranscript: readonly AgentTranscriptMessage[];
   artifactReference: string;
+  abortSignal: AbortSignal;
 }): Promise<AgentTranscriptMessage[]> {
   const contextWindowTokens = await resolveModelContextWindow(model);
   const assess = (candidate: readonly AgentTranscriptMessage[]) =>
@@ -814,6 +817,8 @@ async function applyForegroundContextGuard({
     replayTail,
     replayTailWatermark: boundary.replayTail,
     attribution: { userId, runId, stepId, attempt, sessionId: threadId },
+    abortSignal,
+    timeoutMs: FOREGROUND_COMPACTION_TIMEOUT_MS,
   });
   const winningSummary =
     result.kind === "persisted"
@@ -1468,21 +1473,70 @@ const chatTurnStep: Step<ChatRunState> = {
       );
       const sdkTools = resolveSdkTools(state.activeIntegrations);
       const chatModel = getChatModel(state.tier);
+
+      // Own cancellation before the foreground context guard: compaction can
+      // make billable model calls too, so Stop must cover it as well as the
+      // subsequent streamed answer.
+      const stopController = new AbortController();
+      let stopRequested = false;
+      let lastStopCheck = Date.now();
+      let stopCheckInFlight: Promise<boolean> | undefined;
+      const checkStop = (): Promise<boolean> => {
+        if (stopRequested) return Promise.resolve(true);
+        if (Date.now() - lastStopCheck < STOP_CHECK_MS) return Promise.resolve(false);
+        if (stopCheckInFlight) return stopCheckInFlight;
+        lastStopCheck = Date.now();
+        stopCheckInFlight = isChatStopRequested(ctx.runId)
+          .then((requested) => {
+            if (requested) {
+              stopRequested = true;
+              stopController.abort();
+            }
+            return stopRequested;
+          })
+          .finally(() => {
+            stopCheckInFlight = undefined;
+          });
+        return stopCheckInFlight;
+      };
+
       let modelTranscript = withArtifactReference(hydratedTranscript, state.artifactReference);
       if (state.turnCount === 1) {
-        modelTranscript = await applyForegroundContextGuard({
-          userId: ctx.userId,
-          runId: ctx.runId,
-          stepId: ctx.idempotencyKey,
-          attempt: ctx.attempt,
-          threadId: state.threadId,
-          latestUserMessageId: state.userMessageId,
-          systemPrompt,
-          tools: sdkTools,
-          model: chatModel,
-          hydratedTranscript,
-          artifactReference: state.artifactReference,
-        });
+        const stopPoll = setInterval(() => {
+          void checkStop().catch((error: unknown) => {
+            console.warn(`[chat-turn] stop polling failed (run ${ctx.runId}):`, toMessage(error));
+          });
+        }, STOP_CHECK_MS);
+        try {
+          modelTranscript = await applyForegroundContextGuard({
+            userId: ctx.userId,
+            runId: ctx.runId,
+            stepId: ctx.idempotencyKey,
+            attempt: ctx.attempt,
+            threadId: state.threadId,
+            latestUserMessageId: state.userMessageId,
+            systemPrompt,
+            tools: sdkTools,
+            model: chatModel,
+            hydratedTranscript,
+            artifactReference: state.artifactReference,
+            abortSignal: AbortSignal.any([
+              stopController.signal,
+              AbortSignal.timeout(FOREGROUND_COMPACTION_TIMEOUT_MS),
+            ]),
+          });
+        } catch (error) {
+          if (!stopRequested) throw error;
+          await finalizeAssistantMessage(ctx.userId, ctx.runId, state);
+          return {
+            kind: "done",
+            state,
+            transcript,
+            output: { messageId: state.messageId, stopped: true },
+          };
+        } finally {
+          clearInterval(stopPoll);
+        }
       }
       const agent = new AlfredAgent({
         id: "chat",
@@ -1507,20 +1561,6 @@ const chatTurnStep: Step<ChatRunState> = {
       // User-initiated stop (composer stop button → Redis flag). Polled while
       // draining the stream; on stop we abort the provider call, keep whatever
       // streamed, and finalize through the normal completion path.
-      const stopController = new AbortController();
-      let stopRequested = false;
-      let lastStopCheck = Date.now();
-      const checkStop = async (): Promise<boolean> => {
-        if (stopRequested) return true;
-        if (Date.now() - lastStopCheck < STOP_CHECK_MS) return false;
-        lastStopCheck = Date.now();
-        if (await isChatStopRequested(ctx.runId)) {
-          stopRequested = true;
-          stopController.abort();
-        }
-        return stopRequested;
-      };
-
       const stream = await agent.streamTurn({
         ctx,
         transcript: modelTranscript as ModelMessage[],

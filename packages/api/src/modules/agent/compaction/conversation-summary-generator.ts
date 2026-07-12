@@ -31,12 +31,16 @@ export interface ConversationSummaryEvidence {
 export interface GenerateConversationSummaryArgs {
   evidence: ConversationSummaryEvidence;
   attribution: Omit<AttributedCall, "kind" | "role">;
+  abortSignal?: AbortSignal;
+  timeoutMs?: number;
 }
 
 type SummaryRunner = (args: {
   prompt: string;
   attribution: Omit<AttributedCall, "kind" | "role">;
   route: ConversationSummaryModelRoute;
+  abortSignal?: AbortSignal;
+  timeoutMs?: number;
 }) => Promise<unknown>;
 
 export type ConversationSummaryModelRoute = "primary" | "fallback";
@@ -66,7 +70,13 @@ export async function generateConversationSummary(
   const primaryAttempts = firstRoute === "primary" ? 2 : 0;
   for (let attempt = 0; attempt < primaryAttempts; attempt += 1) {
     try {
-      const output = await run({ prompt, attribution: args.attribution, route: "primary" });
+      const output = await run({
+        prompt,
+        attribution: args.attribution,
+        route: "primary",
+        abortSignal: args.abortSignal,
+        timeoutMs: args.timeoutMs,
+      });
       return validateConversationSummary(output, eligible);
     } catch (error) {
       lastError = error;
@@ -76,7 +86,13 @@ export async function generateConversationSummary(
     }
   }
   try {
-    const output = await run({ prompt, attribution: args.attribution, route: "fallback" });
+    const output = await run({
+      prompt,
+      attribution: args.attribution,
+      route: "fallback",
+      abortSignal: args.abortSignal,
+      timeoutMs: args.timeoutMs,
+    });
     return validateConversationSummary(output, eligible);
   } catch (error) {
     lastError = error;
@@ -119,6 +135,8 @@ async function runConversationSummaryModel(args: {
   prompt: string;
   attribution: Omit<AttributedCall, "kind" | "role">;
   route: ConversationSummaryModelRoute;
+  abortSignal?: AbortSignal;
+  timeoutMs?: number;
 }): Promise<unknown> {
   const model = modelForRoute(args.route);
   const result = await meteredGenerateObject(
@@ -131,6 +149,8 @@ async function runConversationSummaryModel(args: {
       prompt: args.prompt,
       temperature: 0,
       maxOutputTokens: CONVERSATION_SUMMARY_MAX_OUTPUT_TOKENS,
+      abortSignal: args.abortSignal,
+      ...(args.timeoutMs === undefined ? {} : { timeout: args.timeoutMs }),
       ...(args.route === "primary"
         ? { providerOptions: { anthropic: { thinking: { type: "disabled" } } } }
         : {}),

@@ -1,7 +1,10 @@
 import assert from "node:assert/strict";
 import { describe, test } from "node:test";
 
-import { enqueueConversationCompaction } from "../../src/modules/agent/compaction";
+import {
+  enqueueConversationCompaction,
+  isUnrecoverableConversationCompactionError,
+} from "../../src/modules/agent/compaction";
 
 const at = new Date("2026-07-12T00:00:00.000Z");
 const args = {
@@ -13,6 +16,25 @@ const args = {
 };
 
 describe("conversation compaction queue", () => {
+  test("classifies deterministic evidence failures as non-retryable", () => {
+    assert.equal(
+      isUnrecoverableConversationCompactionError(
+        new Error("conversation_summary_invalid_provenance: message:invented"),
+      ),
+      true,
+    );
+    assert.equal(
+      isUnrecoverableConversationCompactionError(
+        new Error("conversation_summary_watermark_not_loaded"),
+      ),
+      true,
+    );
+    assert.equal(
+      isUnrecoverableConversationCompactionError(new Error("provider overloaded")),
+      false,
+    );
+  });
+
   test("does no queue or database work when queues are disabled", async () => {
     let touched = false;
     const result = await enqueueConversationCompaction(args, {
@@ -47,9 +69,16 @@ describe("conversation compaction queue", () => {
     let added: { jobId: string; data: unknown } | undefined;
     const result = await enqueueConversationCompaction(args, {
       enabled: () => true,
-      getExisting: async () => ({ state: "completed", remove: async () => { removed = true; } }),
+      getExisting: async () => ({
+        state: "completed",
+        remove: async () => {
+          removed = true;
+        },
+      }),
       markRequested: async () => ({ requestedAt: at, generation: 4 }),
-      add: async (jobId, data) => { added = { jobId, data }; },
+      add: async (jobId, data) => {
+        added = { jobId, data };
+      },
     });
     assert.equal(result, "scheduled");
     assert.equal(removed, true);
@@ -75,7 +104,9 @@ describe("conversation compaction queue", () => {
         enabled: () => true,
         getExisting: async () => undefined,
         markRequested: async () => ({ requestedAt: at, generation: 7 }),
-        add: async () => { throw new Error("redis unavailable"); },
+        add: async () => {
+          throw new Error("redis unavailable");
+        },
         recordFailure: async (value) => {
           failure = value;
           return true;
