@@ -682,6 +682,15 @@ function serializeArtifact(a: Artifact): SyncedArtifact {
   });
 }
 
+/**
+ * Owner-only serializer: this is synced to the authenticated thread owner via
+ * Replicache and carries the raw `reasoning` (thinking), `narration`, and
+ * tool-call previews — which can echo internal artifact-engine details and
+ * stored user-memory. Do NOT reuse it (or `SyncedChatMessage`) for a shared /
+ * public thread reader if the "Share thread" affordance is ever wired up; a
+ * shared read path needs its own serializer that projects only `role` +
+ * `content` (and scrubbed tool calls) and drops `reasoning`/`narration`.
+ */
 function serializeChatMessage(m: ChatMessage): SyncedChatMessage {
   return syncedChatMessageSchema.parse({
     id: m.id,
