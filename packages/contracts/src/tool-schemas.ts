@@ -951,6 +951,23 @@ export const readUserContextInput = coerceJsonArrayFields(
   ),
 );
 
+export const readChatHistoryInput = z.discriminatedUnion("mode", [
+  z
+    .object({
+      mode: z.literal("search"),
+      query: z.string().trim().min(1).max(500),
+      limit: z.number().int().min(1).max(10).default(5),
+    })
+    .strict(),
+  z
+    .object({
+      mode: z.literal("fetch"),
+      kind: z.enum(["message", "tool_call", "attachment"]),
+      id: z.string().trim().min(1).max(240),
+    })
+    .strict(),
+]);
+
 export const rememberInput = z
   .object({
     kind: z
@@ -1296,6 +1313,7 @@ export const TOOL_INPUT_SCHEMAS = {
   "slides.add_slide": slidesAddSlideInput,
   "system.load_integration": loadIntegrationInput,
   "system.read_user_context": readUserContextInput,
+  "system.read_chat_history": readChatHistoryInput,
   "system.read_scratch": readScratchInput,
   "system.write_scratch": writeScratchInput,
   "system.promote": promoteScratchInput,
