@@ -1,5 +1,11 @@
 import type { AgentTranscriptMessage } from "@alfred/contracts";
 
+export const CHARS_PER_TOKEN = 4;
+
+export function estimateSerializedTokens(value: unknown): number {
+  return Math.ceil(JSON.stringify(value).length / CHARS_PER_TOKEN);
+}
+
 /**
  * Conservative v1 token estimate used for compaction trip-wires and
  * pre-call guards. The workflow already uses chars / 4 for tool-result
@@ -7,7 +13,7 @@ import type { AgentTranscriptMessage } from "@alfred/contracts";
  * a tokenizer-backed helper lands.
  */
 export function estimateTranscriptTokens(messages: readonly AgentTranscriptMessage[]): number {
-  return Math.ceil(JSON.stringify(messages).length / 4);
+  return estimateSerializedTokens(messages);
 }
 
 /**

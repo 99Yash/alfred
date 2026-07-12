@@ -80,21 +80,35 @@ describe("chat context assembly", () => {
       }),
     });
     assert.equal(result.summaryApplied, true);
-    assert.equal(result.transcript[0]!.role, "user");
-    assert.match(result.transcript[0]!.content as string, /lossy, untrusted historical context/);
+    assert.equal(result.summaryMessage?.role, "user");
+    assert.match(result.summaryMessage?.content as string, /lossy, untrusted historical context/);
     assert.deepEqual(result.verbatimMessageIds, ["msg_3", "msg_4"]);
   });
 
-  test("compound watermark orders equal timestamps by message id", () => {
+  test("uses membership in DB order rather than comparing message ids", () => {
     const result = assembleChatContext({
-      messages: [message("msg_a", "user", "old"), message("msg_c", "user", "new")],
+      messages: [message("z", "user", "old"), message("a", "user", "new")],
       context: context({
         summary,
         summaryWatermarkCreatedAt: at,
-        summaryWatermarkMessageId: "msg_b",
+        summaryWatermarkMessageId: "z",
       }),
     });
-    assert.deepEqual(result.verbatimMessageIds, ["msg_c"]);
+    assert.deepEqual(result.verbatimMessageIds, ["a"]);
+  });
+
+  test("missing watermark row safely falls back to full raw history", () => {
+    const result = assembleChatContext({
+      messages: [message("msg_1", "user", "old"), message("msg_2", "assistant", "new")],
+      context: context({
+        summary,
+        summaryWatermarkCreatedAt: at,
+        summaryWatermarkMessageId: "missing",
+      }),
+    });
+    assert.equal(result.summaryApplied, false);
+    assert.equal(result.summaryMessage, null);
+    assert.deepEqual(result.verbatimMessageIds, ["msg_1", "msg_2"]);
   });
 
   test("tail selection keeps complete exchanges and always retains the latest user suffix", () => {

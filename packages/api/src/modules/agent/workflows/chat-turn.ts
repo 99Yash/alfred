@@ -5,8 +5,10 @@ import {
   getChatProviderOptions,
   getCheapModel,
   meteredGenerateText,
+  resolveModelContextWindow,
   tool,
   type ChatModelTier,
+  type LanguageModel,
   type ModelMessage,
   type Tool,
   type ToolSet,
@@ -63,7 +65,14 @@ import { listToolsForIntegration } from "../../tools/registry";
 import { buildConnectedSummary } from "../connected-summary";
 import { formatDateGrounding, resolveUserTimezone } from "../grounding";
 import type { AgentDbExecutor, Step, StepContext, StepResult, Workflow } from "../types";
-import { assembleChatContext, loadChatThreadContext } from "../compaction";
+import {
+  assessChatRequestPressure,
+  assembleChatContext,
+  compactConversationSynchronously,
+  conversationSummaryMessage,
+  loadChatThreadContext,
+  type ChatSummaryWatermark,
+} from "../compaction";
 
 /**
  * Interactive streaming chat (streaming-chat plan). One run services one user
@@ -77,8 +86,8 @@ import { assembleChatContext, loadChatThreadContext } from "../compaction";
  * agent can `system.load_integration` to reach email/calendar/etc and
  * `system.spawn_sub_agent` for focused fan-out — same tool surface as the boss.
  *
- * Not yet handled (deferred, noted): transcript compaction for very long
- * threads (relies on the 1M-context models for now) and auto Opus escalation.
+ * Within-run tool-loop compaction remains deferred; persisted cross-turn
+ * history is guarded before the first provider call of each run.
  */
 export const CHAT_TURN_WORKFLOW_SLUG = "__chat-turn__";
 
@@ -743,6 +752,106 @@ function withArtifactReference(
   return [...transcript.slice(0, userIndex), message, ...transcript.slice(userIndex)];
 }
 
+async function applyForegroundContextGuard({
+  userId,
+  runId,
+  stepId,
+  attempt,
+  threadId,
+  latestUserMessageId,
+  systemPrompt,
+  tools,
+  model,
+  hydratedTranscript,
+  artifactReference,
+}: {
+  userId: string;
+  runId: string;
+  stepId: string;
+  attempt: number;
+  threadId: string;
+  latestUserMessageId: string | undefined;
+  systemPrompt: string;
+  tools: ToolSet;
+  model: LanguageModel;
+  hydratedTranscript: readonly AgentTranscriptMessage[];
+  artifactReference: string;
+}): Promise<AgentTranscriptMessage[]> {
+  const contextWindowTokens = await resolveModelContextWindow(model);
+  const assess = (candidate: readonly AgentTranscriptMessage[]) =>
+    assessChatRequestPressure({
+      systemPrompt,
+      tools,
+      transcript: candidate as ModelMessage[],
+      contextWindowTokens,
+      outputReserveTokens: CHAT_MAX_OUTPUT_TOKENS,
+    });
+  const composed = withArtifactReference(hydratedTranscript, artifactReference);
+  const initialPressure = await assess(composed);
+  if (!initialPressure.requiresSynchronousCompaction) return composed;
+
+  const boundary = await loadForegroundCompactionBoundary(userId, threadId, latestUserMessageId);
+  if (!boundary) throw new Error("prompt is too long: no compactable history before latest user");
+  const replayTail = latestUserSuffix(hydratedTranscript);
+  const result = await compactConversationSynchronously({
+    userId,
+    threadId,
+    throughWatermark: boundary,
+    replayTail,
+    attribution: { userId, runId, stepId, attempt, sessionId: threadId },
+  });
+  const winningSummary =
+    result.kind === "persisted"
+      ? result.summary
+      : (await loadChatThreadContext(userId, threadId))?.summary;
+  if (!winningSummary) {
+    throw new Error("prompt is too long: synchronous compaction lost without a valid winner");
+  }
+  const rebuilt = withArtifactReference(
+    [conversationSummaryMessage(winningSummary), ...replayTail],
+    artifactReference,
+  );
+  const rebuiltPressure = await assess(rebuilt);
+  if (rebuiltPressure.requiresSynchronousCompaction) {
+    throw new Error("prompt is too long after synchronous compaction");
+  }
+  return rebuilt;
+}
+
+async function loadForegroundCompactionBoundary(
+  userId: string,
+  threadId: string,
+  latestUserMessageId: string | undefined,
+): Promise<ChatSummaryWatermark | null> {
+  const rows = await db()
+    .select({
+      id: chatMessages.id,
+      role: chatMessages.role,
+      createdAt: chatMessages.createdAt,
+    })
+    .from(chatMessages)
+    .where(and(eq(chatMessages.userId, userId), eq(chatMessages.threadId, threadId)))
+    .orderBy(asc(chatMessages.createdAt), asc(chatMessages.id));
+  let latestUserIndex = -1;
+  for (let index = rows.length - 1; index >= 0; index -= 1) {
+    const row = rows[index]!;
+    if (row.role !== "user") continue;
+    if (latestUserMessageId && row.id !== latestUserMessageId) continue;
+    latestUserIndex = index;
+    break;
+  }
+  if (latestUserIndex <= 0) return null;
+  const cutoff = rows[latestUserIndex - 1]!;
+  return { createdAt: cutoff.createdAt, messageId: cutoff.id };
+}
+
+function latestUserSuffix(transcript: readonly AgentTranscriptMessage[]): AgentTranscriptMessage[] {
+  for (let index = transcript.length - 1; index >= 0; index -= 1) {
+    if (transcript[index]?.role === "user") return transcript.slice(index);
+  }
+  return [...transcript];
+}
+
 function toolResultMessage(
   call: PendingToolCall,
   result: Exclude<DispatchResult, { kind: "staged" | "parked" }>,
@@ -1312,7 +1421,7 @@ const chatTurnStep: Step<ChatRunState> = {
         });
       }
 
-      let modelTranscript = await hydrateTranscriptForModel(transcript);
+      const hydratedTranscript = await hydrateTranscriptForModel(transcript);
 
       if (state.timezone === undefined) {
         state.timezone = await resolveUserTimezone(ctx.userId);
@@ -1330,15 +1439,37 @@ const chatTurnStep: Step<ChatRunState> = {
         state.artifactReference = artifactContext.referenceMessage;
         state.artifactDesignMedium = artifactContext.designMedium;
       }
-      modelTranscript = withArtifactReference(modelTranscript, state.artifactReference);
-      const agent = new AlfredAgent({
-        id: "chat",
-        system: buildChatSystemPrompt(formatDateGrounding(state.timezone), state.connectedSummary, {
+      const systemPrompt = buildChatSystemPrompt(
+        formatDateGrounding(state.timezone),
+        state.connectedSummary,
+        {
           artifactsContext: state.artifactsContext,
           artifactDesignMedium: state.artifactDesignMedium,
-        }),
-        tools: () => resolveSdkTools(state.activeIntegrations),
-        model: getChatModel(state.tier),
+        },
+      );
+      const sdkTools = resolveSdkTools(state.activeIntegrations);
+      const chatModel = getChatModel(state.tier);
+      let modelTranscript = withArtifactReference(hydratedTranscript, state.artifactReference);
+      if (state.turnCount === 1) {
+        modelTranscript = await applyForegroundContextGuard({
+          userId: ctx.userId,
+          runId: ctx.runId,
+          stepId: ctx.idempotencyKey,
+          attempt: ctx.attempt,
+          threadId: state.threadId,
+          latestUserMessageId: state.userMessageId,
+          systemPrompt,
+          tools: sdkTools,
+          model: chatModel,
+          hydratedTranscript,
+          artifactReference: state.artifactReference,
+        });
+      }
+      const agent = new AlfredAgent({
+        id: "chat",
+        system: systemPrompt,
+        tools: () => sdkTools,
+        model: chatModel,
         maxOutputTokens: CHAT_MAX_OUTPUT_TOKENS,
         // Ask the model to expose its thinking so the turn streams
         // `reasoning-delta` parts → the chat UI's "Thinking…" accordion.
@@ -2377,8 +2508,8 @@ export const chatTurnWorkflow: Workflow<ChatRunState> = {
       ex,
     );
 
-    const out: AgentTranscriptMessage[] = assembled.summaryApplied
-      ? [assembled.transcript[0]!]
+    const out: AgentTranscriptMessage[] = assembled.summaryMessage
+      ? [assembled.summaryMessage]
       : [];
     for (const r of verbatimRows) {
       const atts = attachmentsByMessage.get(r.id) ?? [];
