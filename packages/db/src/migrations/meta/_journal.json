@@ -547,6 +547,27 @@
       "when": 1783779506381,
       "tag": "0077_repair-artifact-foreign-keys",
       "breakpoints": true
+    },
+    {
+      "idx": 78,
+      "version": "7",
+      "when": 1783837410394,
+      "tag": "0078_dear_whiplash",
+      "breakpoints": true
+    },
+    {
+      "idx": 79,
+      "version": "7",
+      "when": 1783853353096,
+      "tag": "0079_tricky_khan",
+      "breakpoints": true
+    },
+    {
+      "idx": 80,
+      "version": "7",
+      "when": 1783856228430,
+      "tag": "0080_gorgeous_luminals",
+      "breakpoints": true
     }
   ]
 }
