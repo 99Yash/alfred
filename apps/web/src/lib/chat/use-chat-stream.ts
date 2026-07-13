@@ -36,6 +36,8 @@ export interface StreamingMessage {
   tools: StreamingToolCall[];
   /** A write action is parked awaiting the user's approval. */
   awaitingApproval: boolean;
+  /** Context is being condensed before the next provider call. */
+  compacting: boolean;
   /** The turn finished; the durable synced message will replace this shortly. */
   done: boolean;
 }
@@ -63,6 +65,7 @@ interface StreamRef {
   reasoningSeq: number;
   tools: Map<string, StreamingToolCall>;
   awaitingApproval: boolean;
+  compacting: boolean;
   done: boolean;
   /**
    * The user hit stop locally. We flip to done immediately and ignore any late
@@ -150,6 +153,7 @@ export function useChatStream(threadId: string | undefined): ChatStream {
           reasoningMs: r.reasoningMs,
           tools: [...r.tools.values()],
           awaitingApproval: r.awaitingApproval,
+          compacting: r.compacting,
           done: r.done,
         };
         if (!streamSnapshotsEqual(lastSnapshotRef.current, nextSnapshot)) {
@@ -197,6 +201,7 @@ export function useChatStream(threadId: string | undefined): ChatStream {
         reasoningSeq: 0,
         tools: new Map(),
         awaitingApproval: false,
+        compacting: false,
         done: false,
         stopped: false,
       };
@@ -214,6 +219,7 @@ export function useChatStream(threadId: string | undefined): ChatStream {
       r.stopped = true;
       r.done = true;
       r.awaitingApproval = false;
+      r.compacting = false;
       // Freeze the current segment at what's shown so the bubble stops typing.
       const answer = r.segments.get(r.currentSegment) ?? "";
       r.segments.set(r.currentSegment, answer.slice(0, r.shown));
@@ -233,6 +239,13 @@ export function useChatStream(threadId: string | undefined): ChatStream {
           });
           ensureRaf();
         } else if (
+          (p.phase === "compaction_started" || p.phase === "compaction_finished") &&
+          ref.current?.messageId === p.messageId &&
+          ref.current.runId === p.runId
+        ) {
+          ref.current.compacting = p.phase === "compaction_started";
+          ensureRaf();
+        } else if (
           p.phase === "completed" &&
           ref.current?.messageId === p.messageId &&
           ref.current.runId === p.runId
@@ -244,6 +257,7 @@ export function useChatStream(threadId: string | undefined): ChatStream {
           });
           ref.current.done = true;
           ref.current.awaitingApproval = false;
+          ref.current.compacting = false;
           ensureRaf();
         }
       } else if (frame.kind === "chat.reasoning") {
@@ -377,6 +391,7 @@ function streamSnapshotsEqual(a: StreamingMessage | null, b: StreamingMessage): 
     a.reasoningActive !== b.reasoningActive ||
     a.reasoningMs !== b.reasoningMs ||
     a.awaitingApproval !== b.awaitingApproval ||
+    a.compacting !== b.compacting ||
     a.done !== b.done ||
     a.tools.length !== b.tools.length ||
     a.narration.length !== b.narration.length

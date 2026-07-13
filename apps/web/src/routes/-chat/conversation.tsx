@@ -236,6 +236,8 @@ export function Conversation({
                 />
               ) : null}
 
+              {stream.compacting ? <ThinkingIndicator label="Condensing conversation…" /> : null}
+
               {stream.text.length > 0 ? (
                 <div ref={streamBodyRef}>
                   <div ref={streamTimingRefs.text}>
@@ -244,7 +246,8 @@ export function Conversation({
                 </div>
               ) : stream.tools.length === 0 &&
                 stream.reasoning.length === 0 &&
-                !stream.reasoningActive ? (
+                !stream.reasoningActive &&
+                !stream.compacting ? (
                 <div ref={streamTimingRefs.thinking}>
                   <ThinkingIndicator />
                 </div>
@@ -452,7 +455,7 @@ function FollowUpSuggestions({
   );
 }
 
-function ThinkingIndicator() {
+function ThinkingIndicator({ label = "Thinking…" }: { label?: string }) {
   return (
     <div className="animate-chat-in flex items-center gap-2.5 text-[14px] text-app-fg-3">
       {/* Branded pulsing mark in place of a generic spinner — the Alfred glyph
@@ -461,7 +464,7 @@ function ThinkingIndicator() {
       <span className="chat-think-mark inline-flex shrink-0">
         <img src="/images/logo/alfred-logo.svg" alt="" className="size-[18px] rounded-[5px]" />
       </span>
-      <span className="animate-chat-shimmer">Thinking…</span>
+      <span className="animate-chat-shimmer">{label}</span>
     </div>
   );
 }

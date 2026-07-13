@@ -1,6 +1,6 @@
 {
-  "id": "d2420518-531e-4907-8fe6-3fcd16d7d2c9",
-  "prevId": "6682dd7b-890a-4b05-a523-559b1fa13593",
+  "id": "eba59ce5-218e-4f51-8907-021b7f112290",
+  "prevId": "ff8a7c26-a0ba-4ab8-b451-9295546437d4",
   "version": "7",
   "dialect": "postgresql",
   "tables": {
@@ -2599,6 +2599,179 @@
       "checkConstraints": {},
       "isRLSEnabled": false
     },
+    "public.chat_thread_context": {
+      "name": "chat_thread_context",
+      "schema": "",
+      "columns": {
+        "thread_id": {
+          "name": "thread_id",
+          "type": "text",
+          "primaryKey": true,
+          "notNull": true
+        },
+        "user_id": {
+          "name": "user_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "summary": {
+          "name": "summary",
+          "type": "jsonb",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "summary_watermark_created_at": {
+          "name": "summary_watermark_created_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "summary_watermark_message_id": {
+          "name": "summary_watermark_message_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "estimated_replay_tokens": {
+          "name": "estimated_replay_tokens",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "default": 0
+        },
+        "replay_estimate_watermark_created_at": {
+          "name": "replay_estimate_watermark_created_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "replay_estimate_watermark_message_id": {
+          "name": "replay_estimate_watermark_message_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "compaction_requested_at": {
+          "name": "compaction_requested_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "compaction_completed_at": {
+          "name": "compaction_completed_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "compaction_failed_at": {
+          "name": "compaction_failed_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "compaction_failure_category": {
+          "name": "compaction_failure_category",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "compaction_failure_message": {
+          "name": "compaction_failure_message",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "compaction_generation": {
+          "name": "compaction_generation",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "default": 0
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        },
+        "updated_at": {
+          "name": "updated_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": false,
+          "default": "current_timestamp"
+        }
+      },
+      "indexes": {
+        "chat_thread_context_user_idx": {
+          "name": "chat_thread_context_user_idx",
+          "columns": [
+            {
+              "expression": "user_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        }
+      },
+      "foreignKeys": {
+        "chat_thread_context_thread_id_chat_threads_id_fk": {
+          "name": "chat_thread_context_thread_id_chat_threads_id_fk",
+          "tableFrom": "chat_thread_context",
+          "tableTo": "chat_threads",
+          "columnsFrom": [
+            "thread_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "cascade",
+          "onUpdate": "no action"
+        },
+        "chat_thread_context_user_id_user_id_fk": {
+          "name": "chat_thread_context_user_id_user_id_fk",
+          "tableFrom": "chat_thread_context",
+          "tableTo": "user",
+          "columnsFrom": [
+            "user_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "cascade",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "policies": {},
+      "checkConstraints": {
+        "chat_thread_context_watermark_pair_chk": {
+          "name": "chat_thread_context_watermark_pair_chk",
+          "value": "(\"chat_thread_context\".\"summary_watermark_created_at\" IS NULL) = (\"chat_thread_context\".\"summary_watermark_message_id\" IS NULL)"
+        },
+        "chat_thread_context_estimated_tokens_chk": {
+          "name": "chat_thread_context_estimated_tokens_chk",
+          "value": "\"chat_thread_context\".\"estimated_replay_tokens\" >= 0"
+        },
+        "chat_thread_context_replay_estimate_watermark_pair_chk": {
+          "name": "chat_thread_context_replay_estimate_watermark_pair_chk",
+          "value": "(\"chat_thread_context\".\"replay_estimate_watermark_created_at\" IS NULL) = (\"chat_thread_context\".\"replay_estimate_watermark_message_id\" IS NULL)"
+        },
+        "chat_thread_context_generation_chk": {
+          "name": "chat_thread_context_generation_chk",
+          "value": "\"chat_thread_context\".\"compaction_generation\" >= 0"
+        }
+      },
+      "isRLSEnabled": false
+    },
     "public.chat_threads": {
       "name": "chat_threads",
       "schema": "",
@@ -2935,31 +3108,6 @@
           "primaryKey": false,
           "notNull": true,
           "default": "'{}'::jsonb"
-        },
-        "embed_attempts": {
-          "name": "embed_attempts",
-          "type": "integer",
-          "primaryKey": false,
-          "notNull": true,
-          "default": 0
-        },
-        "embed_first_failed_at": {
-          "name": "embed_first_failed_at",
-          "type": "timestamp with time zone",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "embed_failed_at": {
-          "name": "embed_failed_at",
-          "type": "timestamp with time zone",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "last_embed_error": {
-          "name": "last_embed_error",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false
         },
         "created_at": {
           "name": "created_at",
@@ -4706,31 +4854,6 @@
           "primaryKey": false,
           "notNull": true,
           "default": "'{}'::jsonb"
-        },
-        "embed_attempts": {
-          "name": "embed_attempts",
-          "type": "integer",
-          "primaryKey": false,
-          "notNull": true,
-          "default": 0
-        },
-        "embed_first_failed_at": {
-          "name": "embed_first_failed_at",
-          "type": "timestamp with time zone",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "embed_failed_at": {
-          "name": "embed_failed_at",
-          "type": "timestamp with time zone",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "last_embed_error": {
-          "name": "last_embed_error",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false
         },
         "created_at": {
           "name": "created_at",

@@ -1,6 +1,6 @@
 {
-  "id": "ff8a7c26-a0ba-4ab8-b451-9295546437d4",
-  "prevId": "961d666f-d1e9-4395-aa9c-9309205e40e4",
+  "id": "deaf055b-856f-4c58-9870-c51c4e3d73d4",
+  "prevId": "a8eed595-dacb-49a6-9834-c8ad0082d109",
   "version": "7",
   "dialect": "postgresql",
   "tables": {
@@ -2241,6 +2241,112 @@
       "checkConstraints": {},
       "isRLSEnabled": false
     },
+    "public.chat_attachment_representations": {
+      "name": "chat_attachment_representations",
+      "schema": "",
+      "columns": {
+        "attachment_id": {
+          "name": "attachment_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "representation_version": {
+          "name": "representation_version",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "status": {
+          "name": "status",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "representation": {
+          "name": "representation",
+          "type": "jsonb",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "provider": {
+          "name": "provider",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "model": {
+          "name": "model",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "estimated_cost_microusd": {
+          "name": "estimated_cost_microusd",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "failure_category": {
+          "name": "failure_category",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        },
+        "updated_at": {
+          "name": "updated_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": false,
+          "default": "current_timestamp"
+        }
+      },
+      "indexes": {},
+      "foreignKeys": {
+        "chat_attachment_representations_attachment_id_chat_attachments_id_fk": {
+          "name": "chat_attachment_representations_attachment_id_chat_attachments_id_fk",
+          "tableFrom": "chat_attachment_representations",
+          "tableTo": "chat_attachments",
+          "columnsFrom": [
+            "attachment_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "cascade",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {
+        "chat_attachment_representations_attachment_id_representation_version_pk": {
+          "name": "chat_attachment_representations_attachment_id_representation_version_pk",
+          "columns": [
+            "attachment_id",
+            "representation_version"
+          ]
+        }
+      },
+      "uniqueConstraints": {},
+      "policies": {},
+      "checkConstraints": {
+        "chat_attachment_representations_version_chk": {
+          "name": "chat_attachment_representations_version_chk",
+          "value": "\"chat_attachment_representations\".\"representation_version\" > 0"
+        },
+        "chat_attachment_representations_cost_chk": {
+          "name": "chat_attachment_representations_cost_chk",
+          "value": "\"chat_attachment_representations\".\"estimated_cost_microusd\" IS NULL OR \"chat_attachment_representations\".\"estimated_cost_microusd\" >= 0"
+        }
+      },
+      "isRLSEnabled": false
+    },
     "public.chat_attachments": {
       "name": "chat_attachments",
       "schema": "",
@@ -2640,6 +2746,18 @@
           "notNull": true,
           "default": 0
         },
+        "replay_estimate_watermark_created_at": {
+          "name": "replay_estimate_watermark_created_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "replay_estimate_watermark_message_id": {
+          "name": "replay_estimate_watermark_message_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
         "compaction_requested_at": {
           "name": "compaction_requested_at",
           "type": "timestamp with time zone",
@@ -2748,6 +2866,10 @@
         "chat_thread_context_estimated_tokens_chk": {
           "name": "chat_thread_context_estimated_tokens_chk",
           "value": "\"chat_thread_context\".\"estimated_replay_tokens\" >= 0"
+        },
+        "chat_thread_context_replay_estimate_watermark_pair_chk": {
+          "name": "chat_thread_context_replay_estimate_watermark_pair_chk",
+          "value": "(\"chat_thread_context\".\"replay_estimate_watermark_created_at\" IS NULL) = (\"chat_thread_context\".\"replay_estimate_watermark_message_id\" IS NULL)"
         },
         "chat_thread_context_generation_chk": {
           "name": "chat_thread_context_generation_chk",
@@ -3092,6 +3214,31 @@
           "primaryKey": false,
           "notNull": true,
           "default": "'{}'::jsonb"
+        },
+        "embed_attempts": {
+          "name": "embed_attempts",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "default": 0
+        },
+        "embed_first_failed_at": {
+          "name": "embed_first_failed_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "embed_failed_at": {
+          "name": "embed_failed_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "last_embed_error": {
+          "name": "last_embed_error",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
         },
         "created_at": {
           "name": "created_at",
@@ -4838,6 +4985,31 @@
           "primaryKey": false,
           "notNull": true,
           "default": "'{}'::jsonb"
+        },
+        "embed_attempts": {
+          "name": "embed_attempts",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "default": 0
+        },
+        "embed_first_failed_at": {
+          "name": "embed_first_failed_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "embed_failed_at": {
+          "name": "embed_failed_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "last_embed_error": {
+          "name": "last_embed_error",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
         },
         "created_at": {
           "name": "created_at",

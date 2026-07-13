@@ -2,6 +2,7 @@ import {
   COMPACTOR_FALLBACK_MODEL,
   COMPACTOR_MODEL,
   meteredGenerateText,
+  requestFitsContextWindow,
   resolveModelContextWindow,
   type AttributedCall,
   type ModelMessage,
@@ -9,7 +10,7 @@ import {
 import type { AgentTranscriptMessage } from "@alfred/contracts";
 import { assertHandoffSections } from "./handoff";
 import { COMPACTOR_SYSTEM_PROMPT } from "./prompt";
-import { estimateTranscriptTokens } from "./tokens";
+import { CHARS_PER_TOKEN, estimateTranscriptTokens } from "./tokens";
 
 /**
  * Replace `prior` with a structured `<run_summary>` system message and
@@ -44,6 +45,9 @@ export interface CompactTranscriptArgs {
    * accidentally bucket the spend into the wrong rollup.
    */
   attribution: Omit<AttributedCall, "role" | "kind">;
+  /** Chat foreground compaction must stop when the user presses Stop. */
+  abortSignal?: AbortSignal;
+  timeoutMs?: number;
 }
 
 export interface CompactTranscriptResult {
@@ -57,7 +61,7 @@ export interface CompactTranscriptResult {
  * model-selection fit check (`selectCompactorModel`) reserves the exact same
  * headroom it later sends as `maxOutputTokens` — the two must not drift.
  */
-const COMPACTOR_MAX_OUTPUT_TOKENS = 2000;
+export const COMPACTOR_MAX_OUTPUT_TOKENS = 2000;
 
 /**
  * Tokens that ride along in the compaction request on top of the `prior`
@@ -74,8 +78,8 @@ const COMPACTOR_MAX_OUTPUT_TOKENS = 2000;
  *   - output: the reserved `maxOutputTokens` above.
  * chars/4 mirrors `estimateTranscriptTokens`; the wrapper is a small constant.
  */
-const COMPACTOR_REQUEST_OVERHEAD_TOKENS =
-  Math.ceil(COMPACTOR_SYSTEM_PROMPT.length / 4) + 64 + COMPACTOR_MAX_OUTPUT_TOKENS;
+const COMPACTOR_FIXED_INPUT_OVERHEAD_TOKENS =
+  Math.ceil(COMPACTOR_SYSTEM_PROMPT.length / CHARS_PER_TOKEN) + 64;
 
 export async function compactTranscript(
   args: CompactTranscriptArgs,
@@ -88,6 +92,8 @@ export async function compactTranscript(
     {
       model,
       maxOutputTokens: COMPACTOR_MAX_OUTPUT_TOKENS,
+      abortSignal: args.abortSignal,
+      timeout: args.timeoutMs,
       temperature: 0,
       instructions: COMPACTOR_SYSTEM_PROMPT,
       messages: [transcriptPayloadMessage(prior)] as ModelMessage[],
@@ -127,7 +133,15 @@ async function selectCompactorModel(
 ): Promise<typeof COMPACTOR_MODEL> {
   const priorTokens = estimateTranscriptTokens(prior);
   const compactorWindow = await resolveModelContextWindow(COMPACTOR_MODEL);
-  if (priorTokens + COMPACTOR_REQUEST_OVERHEAD_TOKENS <= compactorWindow) return COMPACTOR_MODEL;
+  if (
+    requestFitsContextWindow(priorTokens, {
+      contextWindowTokens: compactorWindow,
+      outputReserveTokens: COMPACTOR_MAX_OUTPUT_TOKENS,
+      fixedInputOverheadTokens: COMPACTOR_FIXED_INPUT_OVERHEAD_TOKENS,
+    })
+  ) {
+    return COMPACTOR_MODEL;
+  }
   const fallbackWindow = await resolveModelContextWindow(COMPACTOR_FALLBACK_MODEL);
   return chooseCompactorModel({ priorTokens, compactorWindow, fallbackWindow });
 }
@@ -144,14 +158,32 @@ export function chooseCompactorModel(args: {
   compactorWindow: number;
   fallbackWindow: number;
 }): typeof COMPACTOR_MODEL {
-  const requiredTokens = args.priorTokens + COMPACTOR_REQUEST_OVERHEAD_TOKENS;
-  if (requiredTokens <= args.compactorWindow) return COMPACTOR_MODEL;
-  if (requiredTokens <= args.fallbackWindow) return COMPACTOR_FALLBACK_MODEL;
+  const budget = {
+    outputReserveTokens: COMPACTOR_MAX_OUTPUT_TOKENS,
+    fixedInputOverheadTokens: COMPACTOR_FIXED_INPUT_OVERHEAD_TOKENS,
+  };
+  if (
+    requestFitsContextWindow(args.priorTokens, {
+      ...budget,
+      contextWindowTokens: args.compactorWindow,
+    })
+  ) {
+    return COMPACTOR_MODEL;
+  }
+  if (
+    requestFitsContextWindow(args.priorTokens, {
+      ...budget,
+      contextWindowTokens: args.fallbackWindow,
+    })
+  ) {
+    return COMPACTOR_FALLBACK_MODEL;
+  }
   throw new Error("compactor_input_too_large");
 }
 
 /** Exported for the headroom regression test (#371). */
-export const compactorRequestOverheadTokens = COMPACTOR_REQUEST_OVERHEAD_TOKENS;
+export const compactorRequestOverheadTokens =
+  COMPACTOR_FIXED_INPUT_OVERHEAD_TOKENS + COMPACTOR_MAX_OUTPUT_TOKENS;
 
 function providerOptionsFor(model: typeof COMPACTOR_MODEL): Record<string, unknown> | undefined {
   if (model !== COMPACTOR_MODEL) return undefined;

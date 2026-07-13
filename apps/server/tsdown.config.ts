@@ -30,6 +30,7 @@ export default defineConfig({
     "./src/scripts/repairs/repair-sent-mislabeled-triage-committed.ts",
     "./src/scripts/backfills/backfill-purge-document-facts-committed.ts",
     "./src/scripts/backfills/backfill-org-affiliation-committed.ts",
+    "./src/scripts/backfills/backfill-chat-compaction-committed.ts",
     "./src/scripts/probes/probe-chat-ttft.ts",
   ],
   format: "esm",

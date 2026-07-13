@@ -33,6 +33,11 @@ import {
 } from "../triage/gmail-reconcile";
 import { enqueueTriageRelabel, reconcileThreadLabel } from "../triage/tags";
 import { deleteObjects, deletePrefix, isStorageConfigured } from "../chat/storage";
+import {
+  claimChatAttachmentEnrichment,
+  enrichClaimedChatAttachment,
+  recordChatAttachmentEnrichmentFailure,
+} from "../chat/attachment-enrichment";
 import { assertGmailPushOidcConfigured } from "./gmail-push-config";
 import {
   appendObservationFamilyMember,
@@ -138,6 +143,12 @@ export function hasGmailPostInsertSideEffects(args: {
 }
 
 export type IngestionJobData =
+  | {
+      kind: "media.enrich";
+      userId: string;
+      attachmentId: string;
+      estimatedCostMicrousd: number;
+    }
   | {
       kind: "gmail.ingest_recent";
       credentialId: string;
@@ -309,6 +320,28 @@ export async function enqueuePendingUploadCleanup(userId: string, key: string): 
       deduplication: { id: `media.cleanup_pending_upload.${key}` },
     },
   );
+}
+
+export async function enqueueChatAttachmentEnrichment(args: {
+  userId: string;
+  attachmentId: string;
+  estimatedCostMicrousd: number;
+}): Promise<"scheduled" | "existing"> {
+  const claim = await claimChatAttachmentEnrichment(args.attachmentId);
+  if (claim === "existing") return "existing";
+  try {
+    await getIngestionQueue().add(
+      "media.enrich",
+      { kind: "media.enrich", ...args },
+      {
+        jobId: `media-enrich.${args.attachmentId}`,
+      },
+    );
+    return "scheduled";
+  } catch (error) {
+    await recordChatAttachmentEnrichmentFailure(args.attachmentId, "enqueue_failed");
+    throw error;
+  }
 }
 
 export async function closeIngestionQueue(): Promise<void> {
@@ -651,6 +684,17 @@ async function processIngestionJob(job: Job<IngestionJobData>): Promise<unknown>
         `[ingestion:worker] media.cleanup prefix=${data.prefix} removed=${removed} user=${data.userId}`,
       );
       return { removed };
+    }
+    case "media.enrich": {
+      return enrichClaimedChatAttachment({
+        attachmentId: data.attachmentId,
+        estimatedCostMicrousd: data.estimatedCostMicrousd,
+        attribution: {
+          userId: data.userId,
+          idempotencyKey: `media-enrich:${data.attachmentId}`,
+          name: "chat.attachment-enrichment.background",
+        },
+      });
     }
     case "media.cleanup_pending_upload": {
       if (!isStorageConfigured()) {
