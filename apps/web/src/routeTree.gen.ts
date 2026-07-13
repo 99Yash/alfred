@@ -28,6 +28,7 @@ import { Route as ApprovalsRouteImport } from './routes/approvals'
 import { Route as IndexRouteImport } from './routes/index'
 import { Route as WorkflowsWorkflowRouteImport } from './routes/workflows.$workflow'
 import { Route as SkillsSlugRouteImport } from './routes/skills.$slug'
+import { Route as PreviewVirtuosoRouteImport } from './routes/preview.virtuoso'
 import { Route as PreviewLandingRouteImport } from './routes/preview.landing'
 import { Route as PreviewChatRouteImport } from './routes/preview.chat'
 import { Route as LibraryArtifactRouteImport } from './routes/library.$artifact'
@@ -132,6 +133,11 @@ const SkillsSlugRoute = SkillsSlugRouteImport.update({
   path: '/$slug',
   getParentRoute: () => SkillsRoute,
 } as any)
+const PreviewVirtuosoRoute = PreviewVirtuosoRouteImport.update({
+  id: '/preview/virtuoso',
+  path: '/preview/virtuoso',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const PreviewLandingRoute = PreviewLandingRouteImport.update({
   id: '/preview/landing',
   path: '/preview/landing',
@@ -198,6 +204,7 @@ export interface FileRoutesByFullPath {
   '/library/$artifact': typeof LibraryArtifactRoute
   '/preview/chat': typeof PreviewChatRouteWithChildren
   '/preview/landing': typeof PreviewLandingRoute
+  '/preview/virtuoso': typeof PreviewVirtuosoRoute
   '/skills/$slug': typeof SkillsSlugRoute
   '/workflows/$workflow': typeof WorkflowsWorkflowRoute
   '/preview/chat/$threadId': typeof PreviewChatThreadIdRoute
@@ -227,6 +234,7 @@ export interface FileRoutesByTo {
   '/library/$artifact': typeof LibraryArtifactRoute
   '/preview/chat': typeof PreviewChatRouteWithChildren
   '/preview/landing': typeof PreviewLandingRoute
+  '/preview/virtuoso': typeof PreviewVirtuosoRoute
   '/skills/$slug': typeof SkillsSlugRoute
   '/workflows/$workflow': typeof WorkflowsWorkflowRoute
   '/preview/chat/$threadId': typeof PreviewChatThreadIdRoute
@@ -257,6 +265,7 @@ export interface FileRoutesById {
   '/library/$artifact': typeof LibraryArtifactRoute
   '/preview/chat': typeof PreviewChatRouteWithChildren
   '/preview/landing': typeof PreviewLandingRoute
+  '/preview/virtuoso': typeof PreviewVirtuosoRoute
   '/skills/$slug': typeof SkillsSlugRoute
   '/workflows/$workflow': typeof WorkflowsWorkflowRoute
   '/preview/chat/$threadId': typeof PreviewChatThreadIdRoute
@@ -288,6 +297,7 @@ export interface FileRouteTypes {
     | '/library/$artifact'
     | '/preview/chat'
     | '/preview/landing'
+    | '/preview/virtuoso'
     | '/skills/$slug'
     | '/workflows/$workflow'
     | '/preview/chat/$threadId'
@@ -317,6 +327,7 @@ export interface FileRouteTypes {
     | '/library/$artifact'
     | '/preview/chat'
     | '/preview/landing'
+    | '/preview/virtuoso'
     | '/skills/$slug'
     | '/workflows/$workflow'
     | '/preview/chat/$threadId'
@@ -346,6 +357,7 @@ export interface FileRouteTypes {
     | '/library/$artifact'
     | '/preview/chat'
     | '/preview/landing'
+    | '/preview/virtuoso'
     | '/skills/$slug'
     | '/workflows/$workflow'
     | '/preview/chat/$threadId'
@@ -372,6 +384,7 @@ export interface RootRouteChildren {
   DebugEventsRoute: typeof DebugEventsRoute
   PreviewChatRoute: typeof PreviewChatRouteWithChildren
   PreviewLandingRoute: typeof PreviewLandingRoute
+  PreviewVirtuosoRoute: typeof PreviewVirtuosoRoute
 }
 
 declare module '@tanstack/react-router' {
@@ -508,6 +521,13 @@ declare module '@tanstack/react-router' {
       fullPath: '/skills/$slug'
       preLoaderRoute: typeof SkillsSlugRouteImport
       parentRoute: typeof SkillsRoute
+    }
+    '/preview/virtuoso': {
+      id: '/preview/virtuoso'
+      path: '/preview/virtuoso'
+      fullPath: '/preview/virtuoso'
+      preLoaderRoute: typeof PreviewVirtuosoRouteImport
+      parentRoute: typeof rootRouteImport
     }
     '/preview/landing': {
       id: '/preview/landing'
@@ -669,6 +689,7 @@ const rootRouteChildren: RootRouteChildren = {
   DebugEventsRoute: DebugEventsRoute,
   PreviewChatRoute: PreviewChatRouteWithChildren,
   PreviewLandingRoute: PreviewLandingRoute,
+  PreviewVirtuosoRoute: PreviewVirtuosoRoute,
 }
 export const routeTree = rootRouteImport
   ._addFileChildren(rootRouteChildren)
