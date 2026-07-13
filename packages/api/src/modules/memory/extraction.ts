@@ -66,7 +66,7 @@ Rules:
    - work: 'employer' (the org the user works for), 'job_title', 'team', 'manager', 'work_summary'
    - location: 'location', 'home_city', 'home_country', 'timezone'
    - online: 'personal_site', 'github_username', 'twitter_handle', 'linkedin_url'
-   - 'relationship:<email>' (value: { role, since? }) — the user's relationship to that person
+   - 'relationship:<email>' (value: { role, since? }) — the user's relationship to a REAL PERSON they personally correspond with. Emit ONLY for a human counterpart AND ONLY with a concrete role. NEVER for a no-reply / notifications / support / billing / automated or transactional sender (e.g. noreply@, notifications@, support@, help@, info@, updates@, sales@, or any address on a service/mailer domain) — those are not relationships. If you cannot state a concrete role, do NOT emit the fact.
 6. The 'value' must be the simplest correct shape: a string for atomic values, an object for structured ones. Prefer canonical forms (full names, ISO dates, lowercase emails).
 7. Confidence: 0.95+ for facts directly stated and authored by the user themselves; 0.7–0.9 for clearly implied; below 0.7 means SKIP — do not emit.
 8. Do NOT infer facts about other people unless the document directly establishes the user's relationship to them.
