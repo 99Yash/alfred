@@ -163,7 +163,8 @@ export function ChatShell({ threadId, title }: ChatShellProps) {
     () => (activeRunId ? approvalRows.filter((row) => row.runId === activeRunId) : []),
     [approvalRows, activeRunId],
   );
-  const approvalTrayActive = awaitingApproval || runApprovals.length > 0;
+  const hasPendingApproval = runApprovals.length > 0;
+  const approvalTrayActive = awaitingApproval || hasPendingApproval;
   const hasConversation = messages.length > 0 || showStream;
 
   // Chat "Auto" mode flips the user's global approval default
@@ -228,6 +229,7 @@ export function ChatShell({ threadId, title }: ChatShellProps) {
               followUps={chipFollowUps}
               onOpenArtifact={artifact.open}
               openArtifactId={artifact.selectedId}
+              hasPendingApproval={hasPendingApproval}
             />
             <div className="shrink-0 px-4 pb-4">
               <div className="mx-auto flex w-full max-w-3xl flex-col gap-2">

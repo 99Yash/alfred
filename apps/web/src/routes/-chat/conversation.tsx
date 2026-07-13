@@ -49,6 +49,7 @@ export function Conversation({
   followUps = EMPTY_FOLLOW_UPS,
   onOpenArtifact,
   openArtifactId,
+  hasPendingApproval = false,
 }: {
   messages: SyncedChatMessage[];
   stream: StreamingMessage | null;
@@ -69,6 +70,16 @@ export function Conversation({
   onOpenArtifact?: (artifactId: string) => void;
   /** The artifact currently open in the sidebar, so its card shows "Viewing". */
   openArtifactId?: string | null;
+  /**
+   * A staged action for the live run is still pending the user's decision. Gates
+   * the amber approval banner: `stream.awaitingApproval` stays true through the
+   * whole resumed turn (it only clears on completion), so on its own the banner
+   * would linger after a decision, overlapping the tray's "Resuming…" state
+   * (issue #494). The pending-row signal disappears the moment a decision syncs
+   * out, so the banner clears with it — and stays up while any row remains
+   * pending in a multi-step approval.
+   */
+  hasPendingApproval?: boolean;
 }) {
   const virtuosoRef = useRef<VirtuosoHandle | null>(null);
   const stickRef = useRef(true);
@@ -255,8 +266,9 @@ export function Conversation({
       streamBodyRef,
       followUps,
       onFollowUp,
+      hasPendingApproval,
     }),
-    [showStream, stream, streamTimingRefs, followUps, onFollowUp],
+    [showStream, stream, streamTimingRefs, followUps, onFollowUp, hasPendingApproval],
   );
 
   const followOutput = useCallback(() => (stickRef.current ? ("auto" as const) : false), []);
@@ -371,6 +383,7 @@ interface FeedFooterValue {
   streamBodyRef: React.RefObject<HTMLDivElement | null>;
   followUps: ReadonlyArray<FollowUpSuggestion>;
   onFollowUp?: (text: string) => void;
+  hasPendingApproval: boolean;
 }
 
 const FeedFooterContext = createContext<FeedFooterValue | null>(null);
@@ -395,7 +408,15 @@ function FeedHeader() {
 function FeedFooter() {
   const ctx = useContext(FeedFooterContext);
   if (!ctx) return <div className="h-6" />;
-  const { showStream, stream, streamTimingRefs, streamBodyRef, followUps, onFollowUp } = ctx;
+  const {
+    showStream,
+    stream,
+    streamTimingRefs,
+    streamBodyRef,
+    followUps,
+    onFollowUp,
+    hasPendingApproval,
+  } = ctx;
   return (
     <div className="flex flex-col gap-5 pb-6">
       {onFollowUp && followUps.length > 0 ? (
@@ -444,7 +465,7 @@ function FeedFooter() {
             <CopyMessageButton content={stream.text} htmlRef={streamBodyRef} />
           ) : null}
 
-          {stream.awaitingApproval ? <ApprovalNotice /> : null}
+          {stream.awaitingApproval && hasPendingApproval ? <ApprovalNotice /> : null}
           {stream.done ? <span ref={streamTimingRefs.done} hidden /> : null}
         </div>
       ) : null}
