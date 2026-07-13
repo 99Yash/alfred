@@ -190,6 +190,7 @@ async function main() {
           sender: metaStr(ctxData.document.metadata, "from"),
           subject: ctxData.document.title,
           signalText,
+          collabActivity: classification.collabActivity ?? null,
         })
       : null;
     if (resolved && !suppression) {
