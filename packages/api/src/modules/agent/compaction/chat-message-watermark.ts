@@ -18,6 +18,16 @@ export function nullableChatMessageWatermark(
   return { createdAt, messageId };
 }
 
+export function compareChatMessageWatermarks(
+  left: ChatMessageWatermark,
+  right: ChatMessageWatermark,
+): number {
+  const timestampDifference = left.createdAt.getTime() - right.createdAt.getTime();
+  if (timestampDifference !== 0) return timestampDifference;
+  if (left.messageId === right.messageId) return 0;
+  return left.messageId < right.messageId ? -1 : 1;
+}
+
 /**
  * Postgres timestamps can retain microseconds that JavaScript Date discards.
  * Compare message-stream cursors at the driver's millisecond precision so the

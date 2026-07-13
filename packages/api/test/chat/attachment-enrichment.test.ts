@@ -67,8 +67,10 @@ describe("chat attachment enrichment", () => {
     assert.equal(estimateAttachmentEnrichmentCostMicrousd(2 * 1024 * 1024), 30_000);
   });
 
-  test("persists one generated representation with server-owned provenance", async () => {
-    let persisted: unknown;
+  test("persists one generated representation with the successful route provenance", async () => {
+    let persisted:
+      | Parameters<NonNullable<Parameters<typeof enrichClaimedChatAttachment>[1]["persist"]>>[0]
+      | undefined;
     const result = await enrichClaimedChatAttachment(
       { attachmentId: "att_1", estimatedCostMicrousd: 12_000, attribution: { runId: "run_1" } },
       {
@@ -81,19 +83,23 @@ describe("chat attachment enrichment", () => {
         }),
         readBytes: async () => new Uint8Array([1, 2, 3]),
         generate: async () => ({
-          visualDescription: "A graph",
-          ocrText: null,
-          salientEntities: [],
-          evidence: [],
+          output: {
+            visualDescription: "A graph",
+            ocrText: null,
+            salientEntities: [],
+            evidence: [],
+          },
+          provider: "google",
+          model: "gemini-2.5-flash",
         }),
         persist: async (args) => {
-          persisted = args.representation;
+          persisted = args;
           return true;
         },
       },
     );
     assert.equal(result, "persisted");
-    assert.deepEqual(persisted, {
+    assert.deepEqual(persisted?.representation, {
       schemaVersion: 1,
       attachmentId: "att_1",
       messageId: "msg_1",
@@ -103,6 +109,8 @@ describe("chat attachment enrichment", () => {
       salientEntities: [],
       evidence: [],
     });
+    assert.equal(persisted?.provider, "google");
+    assert.equal(persisted?.model, "gemini-2.5-flash");
   });
 
   test("records a bounded failure category and rethrows", async () => {
@@ -136,5 +144,29 @@ describe("chat attachment enrichment", () => {
     assert.equal(mediaModalityForMime("application/pdf"), "pdf");
     assert.equal(mediaModalityForMime("video/mp4; codecs=h264"), "video");
     assert.throws(() => mediaModalityForMime("application/zip"), /unsupported/);
+  });
+
+  test("records unsupported MIME as a terminal enrichment failure", async () => {
+    let category: string | undefined;
+    await assert.rejects(
+      enrichClaimedChatAttachment(
+        { attachmentId: "att_1", estimatedCostMicrousd: 1, attribution: {} },
+        {
+          loadAttachment: async () => ({
+            id: "att_1",
+            messageId: "msg_1",
+            storageKey: "key",
+            mime: "application/zip",
+            size: 1,
+          }),
+          fail: async (_id, value) => {
+            category = value;
+            return true;
+          },
+        },
+      ),
+      /media_enrichment_mime_unsupported/,
+    );
+    assert.equal(category, "unsupported");
   });
 });

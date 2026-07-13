@@ -1,4 +1,9 @@
-import { getMediaEnrichmentModels, meteredGenerateObject, type AttributedCall } from "@alfred/ai";
+import {
+  getMediaEnrichmentModels,
+  identifyLanguageModel,
+  meteredGenerateObject,
+  type AttributedCall,
+} from "@alfred/ai";
 import { db } from "@alfred/db";
 import { chatAttachmentRepresentations, chatAttachments } from "@alfred/db/schemas";
 import { and, eq, inArray } from "drizzle-orm";
@@ -148,7 +153,11 @@ export interface EnrichChatAttachmentDependencies {
     bytes: Uint8Array;
     modality: "image" | "audio" | "video" | "pdf";
     attribution: Omit<AttributedCall, "kind" | "role">;
-  }) => Promise<z.infer<typeof enrichmentOutputSchema>>;
+  }) => Promise<{
+    output: z.infer<typeof enrichmentOutputSchema>;
+    provider: string;
+    model: string;
+  }>;
   persist?: typeof persistChatAttachmentRepresentation;
   fail?: typeof recordChatAttachmentEnrichmentFailure;
 }
@@ -165,10 +174,10 @@ export async function enrichClaimedChatAttachment(
     args.attachmentId,
   );
   if (!attachment) return "missing";
-  const modality = mediaModalityForMime(attachment.mime);
   try {
+    const modality = mediaModalityForMime(attachment.mime);
     const bytes = await (dependencies.readBytes ?? readObject)(attachment.storageKey);
-    const output = await (dependencies.generate ?? generateAttachmentRepresentation)({
+    const generated = await (dependencies.generate ?? generateAttachmentRepresentation)({
       attachment,
       bytes,
       modality,
@@ -181,10 +190,10 @@ export async function enrichClaimedChatAttachment(
         attachmentId: attachment.id,
         messageId: attachment.messageId,
         mime: attachment.mime,
-        ...output,
+        ...generated.output,
       },
-      provider: "cascade",
-      model: "media-enrichment",
+      provider: generated.provider,
+      model: generated.model,
       estimatedCostMicrousd: args.estimatedCostMicrousd,
     });
     return persisted ? "persisted" : "superseded";
@@ -252,7 +261,12 @@ async function generateAttachmentRepresentation(args: {
           name: `chat.attachment-enrichment.route-${index + 1}`,
         },
       );
-      return result.output;
+      const identifiers = identifyLanguageModel(model);
+      return {
+        output: result.output,
+        provider: identifiers.provider,
+        model: identifiers.modelId,
+      };
     } catch (error) {
       lastError = error;
     }
@@ -278,7 +292,11 @@ async function loadEnrichmentAttachment(
 }
 
 function mediaFailureCategory(error: unknown): string {
-  if (error instanceof Error && error.message === "media_enrichment_input_unsupported") {
+  if (
+    error instanceof Error &&
+    (error.message === "media_enrichment_input_unsupported" ||
+      error.message === "media_enrichment_mime_unsupported")
+  ) {
     return "unsupported";
   }
   return "generation_failed";

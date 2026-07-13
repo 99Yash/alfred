@@ -131,6 +131,12 @@ export async function startConversationCompactionWorker(): Promise<void> {
   worker.on("error", (error) =>
     console.error("[conversation-compaction] worker error:", error.message),
   );
+  worker.on("failed", (job, error) => {
+    console.error(
+      `[conversation-compaction] job failed id=${job?.id ?? "?"} ` +
+        `attempt=${job?.attemptsMade ?? "?"}: ${error.message}`,
+    );
+  });
 }
 
 export async function stopConversationCompactionWorker(): Promise<void> {
