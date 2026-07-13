@@ -118,6 +118,51 @@ describe("proposeFact capture invariants (DB-backed, #330)", { skip: SKIP }, () 
     );
   });
 
+  test("relationship junk floor rejects service-sender + empty edges for ALL sources (#492)", async () => {
+    const userId = await seedUser();
+
+    // A service/no-reply sender is never a relationship — even from a trusted
+    // (non-document) source, and even with a plausible role value.
+    assert.equal(
+      await proposeFact({
+        userId,
+        key: "relationship:help@sentry.io",
+        value: { role: "vendor" },
+        confidence: 0.99,
+        source: { kind: "agent" },
+      }),
+      null,
+      "service-sender relationship rejected for a non-document source",
+    );
+
+    // An empty/uninformative relationship value is rejected for all sources.
+    assert.equal(
+      await proposeFact({
+        userId,
+        key: "relationship:alice@oliv.ai",
+        value: {},
+        confidence: 0.99,
+        source: { kind: "agent" },
+      }),
+      null,
+      "empty relationship value rejected for a non-document source",
+    );
+
+    // A genuine relationship to a real person, with a concrete role, still lands.
+    const good = await proposeFact({
+      userId,
+      key: "relationship:alice@oliv.ai",
+      value: { role: "manager" },
+      confidence: 0.99,
+      source: { kind: "agent" },
+    });
+    assert.ok(good, "a genuine relationship to a real person persists");
+    assert.equal(good.key, "relationship:alice@oliv.ai");
+
+    // Nothing was persisted under the rejected service-sender edge.
+    assert.equal((await activeRows(userId, "relationship:help@sentry.io")).length, 0);
+  });
+
   test("persists an unknown key as-is for a trusted (non-document) source", async () => {
     const userId = await seedUser();
     const fact = await proposeFact({
