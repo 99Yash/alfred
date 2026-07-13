@@ -48,6 +48,11 @@ export {
   startChatMemoryWorker,
   stopChatMemoryWorker,
 } from "./modules/chat-memory/index";
+export {
+  closeConversationCompactionQueue,
+  startConversationCompactionWorker,
+  stopConversationCompactionWorker,
+} from "./modules/agent/compaction";
 export { registerBuiltinTools } from "./modules/tools/index";
 export {
   scheduleRepeatableWorkflowsJobs,
