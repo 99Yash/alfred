@@ -541,6 +541,10 @@ export async function runEmailTriageClassify<State extends EmailTriageOperationS
         ]
           .filter(Boolean)
           .join("\n"),
+        // The model's collaboration read drives the `tracker_owned` suppression
+        // (#353). Absent on the reuse path (not persisted); the task-tracker
+        // sender fallback still catches the common trackers there.
+        collabActivity: classification.collabActivity ?? null,
       })
     : null;
   // `written` gate: only the run that owns the canonical row proposes a
