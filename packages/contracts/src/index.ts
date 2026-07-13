@@ -20,6 +20,7 @@ export * from "./briefing-constants";
 export * from "./chat";
 export * from "./artifacts";
 export * from "./briefing-references";
+export * from "./briefing-signals";
 export * from "./attachments";
 export * from "./weather";
 export * from "./metering";
