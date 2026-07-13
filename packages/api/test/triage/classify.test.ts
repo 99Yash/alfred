@@ -11,6 +11,7 @@ import {
   resolveTodoSuggestion,
   sanitizeAssist,
   sanitizeTodoName,
+  todoSuppressionReason,
   triageClassificationSchema,
   type ClassifyEmailArgs,
   type RunPass,
@@ -2008,5 +2009,101 @@ describe("resolveTodoSuggestion", () => {
   test("null when todoSuggestion is absent (non-cheap producer)", () => {
     const c: TriageClassification = { category: "action_needed", confidence: 0.7, rationale: "x" };
     assert.equal(resolveTodoSuggestion(c), null);
+  });
+});
+
+describe("todoSuppressionReason", () => {
+  const base = { sender: null, subject: null, signalText: "", collabActivity: null } as const;
+
+  test("tracker_owned: a ClickUp assignment (model read: assigned_to_user) mints no todo", () => {
+    assert.equal(
+      todoSuppressionReason({
+        ...base,
+        sender: "Oliv AI <notifications@tasks.clickup.com>",
+        subject: "Customer / Netsmart",
+        signalText: "sakshi jindal mentioned @yash kar and asked him to fix the save button",
+        collabActivity: "assigned_to_user",
+      }),
+      "tracker_owned",
+    );
+  });
+
+  test("tracker_owned: an @-mention comment (model read: mentioned_user) mints no todo", () => {
+    assert.equal(
+      todoSuppressionReason({
+        ...base,
+        sender: "Oliv AI <notifications@tasks.clickup.com>",
+        signalText: "akshay jyothis mentioned @yash kar: have you checked this?",
+        collabActivity: "mentioned_user",
+      }),
+      "tracker_owned",
+    );
+  });
+
+  test("tracker_owned via sender fallback when the model OMITS collabActivity (~1-in-5)", () => {
+    // The #447 reality: flash-lite drops the collabActivity key on some collab
+    // mail. The known-tracker sender still suppresses so the rail is not clogged.
+    assert.equal(
+      todoSuppressionReason({
+        ...base,
+        sender: "notifications@tasks.clickup.com",
+        signalText: "assigned task to you",
+        collabActivity: null,
+      }),
+      "tracker_owned",
+    );
+  });
+
+  for (const sender of [
+    "notifications@linear.app",
+    "jira@oliv.atlassian.net",
+    "no-reply@asana.com",
+    "notifications@notify.notion.so",
+  ]) {
+    test(`tracker_owned: known tracker sender ${sender}`, () => {
+      assert.equal(
+        todoSuppressionReason({ ...base, sender, signalText: "assigned to you" }),
+        "tracker_owned",
+      );
+    });
+  }
+
+  test("KEEP: a genuine person-to-person ask is not tracker-owned", () => {
+    assert.equal(
+      todoSuppressionReason({
+        ...base,
+        sender: "Priya <priya@acme.com>",
+        subject: "Q3 budget",
+        signalText: "can you send me the signed SOW by friday?",
+        collabActivity: null,
+      }),
+      null,
+    );
+  });
+
+  test("KEEP: an exposed secret escapes tracker_owned suppression (still a todo)", () => {
+    // A leaked credential outlives the tracker item — rotate it regardless of
+    // where the notification came from. Mirrors the PR gate's secret escape.
+    assert.equal(
+      todoSuppressionReason({
+        ...base,
+        sender: "notifications@tasks.clickup.com",
+        signalText: "the aws secret access key was committed and exposed in the repo",
+        collabActivity: "mentioned_user",
+      }),
+      null,
+    );
+  });
+
+  test("precedence: Alfred's own approval mail is alfred_approval, not tracker_owned", () => {
+    assert.equal(
+      todoSuppressionReason({
+        ...base,
+        sender: "Alfred <alfred@example.com>",
+        subject: "[medium] Alfred wants to send an email",
+        signalText: "approve?",
+      }),
+      "alfred_approval",
+    );
   });
 });
