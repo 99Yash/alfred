@@ -23,7 +23,7 @@ import {
   ThumbsUp,
   X,
 } from "lucide-react";
-import { useRef, useState, type ReactNode } from "react";
+import { useEffect, useRef, useState, type ReactNode } from "react";
 import { ArtifactPageFrame } from "~/components/artifact-page-frame";
 import {
   DimensionComposerContextMenu,
@@ -961,7 +961,13 @@ function ThreadComposer({ onSubmit }: { onSubmit: (prompt: string) => void }) {
     setValue("");
     queueMicrotask(() => editor?.commands.focus());
   };
-  submitRef.current = submit;
+  // Keep the ref pointing at the latest `submit` for the editor's Enter
+  // handler (created once in `useEditor`). Mirrored in an effect rather than
+  // during render — a render-phase ref write can leak if React discards the
+  // render; the Enter handler only fires post-commit.
+  useEffect(() => {
+    submitRef.current = submit;
+  });
 
   const hasContent = value.trim().length > 0;
   const overflowItems: DimensionComposerMenuItem[] = [

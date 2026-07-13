@@ -1,4 +1,4 @@
-import { useCallback, useMemo, useRef, useState, type MutableRefObject } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type MutableRefObject } from "react";
 import { filterMentionOptions, type MentionOption } from "../mention-options";
 import type { SuggestionRenderState } from "../tiptap-composer";
 
@@ -25,9 +25,9 @@ export function useMentionController(): {
   // of an effect. `prevQuery` is only used to gate the reset, never read in
   // JSX, so a ref avoids a parallel state cell and the extra render it'd cost.
   const currentQuery = suggestion?.query ?? null;
-  const prevQueryRef = useRef<string | null>(currentQuery);
-  if (prevQueryRef.current !== currentQuery) {
-    prevQueryRef.current = currentQuery;
+  const [prevQuery, setPrevQuery] = useState<string | null>(currentQuery);
+  if (prevQuery !== currentQuery) {
+    setPrevQuery(currentQuery);
     setMentionIdx(0);
   }
 
@@ -47,33 +47,38 @@ export function useMentionController(): {
   // Bridge keyboard nav into the Tiptap suggestion plugin. Returning `true`
   // tells Tiptap to swallow the key so it doesn't also reach the editor.
   const suggestionKeyDownRef = useRef<((event: KeyboardEvent) => boolean) | null>(null);
-  suggestionKeyDownRef.current = (event) => {
-    if (!suggestion || mentionCandidates.length === 0) return false;
-    if (event.key === "ArrowDown") {
-      event.preventDefault();
-      setMentionIdx(Math.min(mentionCandidates.length - 1, visibleMentionIdx + 1));
-      return true;
-    }
-    if (event.key === "ArrowUp") {
-      event.preventDefault();
-      setMentionIdx(Math.max(0, visibleMentionIdx - 1));
-      return true;
-    }
-    if (event.key === "Enter" || event.key === "Tab") {
-      const pick = mentionCandidates[visibleMentionIdx];
-      if (pick) {
+  // Mirror the handler into the ref in an effect, not during render: a
+  // render-phase ref write can leak if React discards the render, and Tiptap
+  // only invokes this on a keydown (post-commit), so the timing is equivalent.
+  useEffect(() => {
+    suggestionKeyDownRef.current = (event) => {
+      if (!suggestion || mentionCandidates.length === 0) return false;
+      if (event.key === "ArrowDown") {
         event.preventDefault();
-        suggestion.command(pick);
+        setMentionIdx(Math.min(mentionCandidates.length - 1, visibleMentionIdx + 1));
         return true;
       }
-    }
-    if (event.key === "Escape") {
-      event.preventDefault();
-      suggestion.dismiss();
-      return true;
-    }
-    return false;
-  };
+      if (event.key === "ArrowUp") {
+        event.preventDefault();
+        setMentionIdx(Math.max(0, visibleMentionIdx - 1));
+        return true;
+      }
+      if (event.key === "Enter" || event.key === "Tab") {
+        const pick = mentionCandidates[visibleMentionIdx];
+        if (pick) {
+          event.preventDefault();
+          suggestion.command(pick);
+          return true;
+        }
+      }
+      if (event.key === "Escape") {
+        event.preventDefault();
+        suggestion.dismiss();
+        return true;
+      }
+      return false;
+    };
+  }, [suggestion, mentionCandidates, visibleMentionIdx, setMentionIdx]);
 
   return {
     suggestion,

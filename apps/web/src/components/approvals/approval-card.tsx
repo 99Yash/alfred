@@ -46,8 +46,8 @@ export function ApprovalCard({
   const displayInput = edited ? draftInput : staging.proposedInput;
   const reasonMissing = reason.trim().length === 0;
   const title = useMemo(
-    () => cardTitle(staging.toolName, displayInput),
-    [staging.toolName, displayInput],
+    () => cardTitle(staging.toolName, edited ? draftInput : staging.proposedInput),
+    [staging.toolName, edited, draftInput, staging.proposedInput],
   );
 
   useEffect(() => {

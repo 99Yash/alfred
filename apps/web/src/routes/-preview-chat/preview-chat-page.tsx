@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useChatContext } from "~/components/chat-context";
 import { useRightRail, useShellThreadViewModel } from "~/lib/shell/app-shell";
 import type { RailData } from "~/routes/-chat/rail/rail-data";
@@ -44,9 +44,9 @@ export function PreviewChatPage() {
 
   // When the viewport crosses the rail breakpoint, snap the rail to that
   // mode's sensible default: wide screens show it, narrow screens hide it.
-  const prevModeRef = useRef(railMode);
-  if (prevModeRef.current !== railMode) {
-    prevModeRef.current = railMode;
+  const [prevMode, setPrevMode] = useState(railMode);
+  if (prevMode !== railMode) {
+    setPrevMode(railMode);
     setRailOpen(railMode === "inline");
   }
 

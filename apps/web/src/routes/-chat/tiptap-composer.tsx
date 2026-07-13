@@ -99,9 +99,10 @@ export function TiptapComposer({
   onGhostDismiss,
 }: TiptapComposerProps) {
   // Stable refs so the closures captured by Tiptap's extension config don't
-  // need to be recreated on every parent render. Refs are mutable, so updating
-  // them inline during render is safe and avoids a useEffect that would re-run
-  // on every render just to mirror the latest props.
+  // need to be recreated on every parent render. The refs are mirrored from
+  // the latest props in an effect below (not during render — a render-phase
+  // ref write can leak if React discards the render); Tiptap's callbacks only
+  // read them post-commit, so the timing is equivalent.
   const onChangeRef = useRef(onChange);
   const onSubmitRef = useRef(onSubmit);
   const onSuggestionChangeRef = useRef(onSuggestionChange);
@@ -112,14 +113,16 @@ export function TiptapComposer({
   // Tracks whether the suggestion popup is open — used to skip Enter-submit
   // when the user is picking a mention.
   const suggestionOpenRef = useRef(false);
-  onChangeRef.current = onChange;
-  onSubmitRef.current = onSubmit;
-  onSuggestionChangeRef.current = onSuggestionChange;
-  disabledRef.current = disabled;
-  ghostTextRef.current = ghostText;
-  onGhostAcceptRef.current = onGhostAccept;
-  onGhostDismissRef.current = onGhostDismiss;
-  if (disabled) suggestionOpenRef.current = false;
+  useEffect(() => {
+    onChangeRef.current = onChange;
+    onSubmitRef.current = onSubmit;
+    onSuggestionChangeRef.current = onSuggestionChange;
+    disabledRef.current = disabled;
+    ghostTextRef.current = ghostText;
+    onGhostAcceptRef.current = onGhostAccept;
+    onGhostDismissRef.current = onGhostDismiss;
+    if (disabled) suggestionOpenRef.current = false;
+  }, [onChange, onSubmit, onSuggestionChange, disabled, ghostText, onGhostAccept, onGhostDismiss]);
 
   const editor = useEditor({
     extensions: [

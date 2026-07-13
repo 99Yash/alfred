@@ -59,10 +59,10 @@ export function ChatApprovalTray({
   const [recentDecision, setRecentDecision] = useState<"approve" | "reject" | "cancel_run" | null>(
     null,
   );
-  const previousRunIdRef = useRef(runId);
+  const [previousRunId, setPreviousRunId] = useState(runId);
 
-  if (runId !== previousRunIdRef.current) {
-    previousRunIdRef.current = runId;
+  if (runId !== previousRunId) {
+    setPreviousRunId(runId);
     setIndex(0);
     setRecentDecision(null);
   }
@@ -124,7 +124,7 @@ function ApprovalStep({
   const [busy, setBusy] = useState(false);
   const [decided, setDecided] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const previousStagingRef = useRef({
+  const [previousStaging, setPreviousStaging] = useState({
     id: staging.id,
     proposedInput: staging.proposedInput,
   });
@@ -133,10 +133,10 @@ function ApprovalStep({
   const { setIntegrationMode } = useActionPolicy();
 
   if (
-    staging.id !== previousStagingRef.current.id ||
-    staging.proposedInput !== previousStagingRef.current.proposedInput
+    staging.id !== previousStaging.id ||
+    staging.proposedInput !== previousStaging.proposedInput
   ) {
-    previousStagingRef.current = { id: staging.id, proposedInput: staging.proposedInput };
+    setPreviousStaging({ id: staging.id, proposedInput: staging.proposedInput });
     setDraftInput(staging.proposedInput);
     setEditing(false);
     setShowReason(false);
@@ -156,8 +156,8 @@ function ApprovalStep({
   );
   const displayInput = edited ? draftInput : staging.proposedInput;
   const title = useMemo(
-    () => cardTitle(staging.toolName, displayInput),
-    [staging.toolName, displayInput],
+    () => cardTitle(staging.toolName, edited ? draftInput : staging.proposedInput),
+    [staging.toolName, edited, draftInput, staging.proposedInput],
   );
   const reasonMissing = reason.trim().length === 0;
 

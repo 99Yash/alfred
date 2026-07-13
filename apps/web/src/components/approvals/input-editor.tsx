@@ -4,7 +4,7 @@ import {
   type FieldSpec,
   type ToolName,
 } from "@alfred/contracts";
-import { useRef, useState } from "react";
+import { useState } from "react";
 import type { z } from "zod";
 import { AppDateTimePicker, AppInput, AppSelect, AppSwitch, AppTextarea } from "~/components/ui/v2";
 import { asRecord, type JsonRecord } from "~/lib/json-record";
@@ -265,9 +265,9 @@ function JsonField({
 }) {
   const [text, setText] = useState(() => formatJson(value));
   const [error, setError] = useState<string | null>(null);
-  const previousValueRef = useRef(value);
-  if (value !== previousValueRef.current) {
-    previousValueRef.current = value;
+  const [prevValue, setPrevValue] = useState(value);
+  if (value !== prevValue) {
+    setPrevValue(value);
     setText(formatJson(value));
     setError(null);
   }
@@ -309,11 +309,14 @@ function JsonFallbackEditor({
 }) {
   const [text, setText] = useState(() => formatJson(value));
   const [error, setError] = useState<string | null>(null);
-  const previousValueRef = useRef(value);
   // Re-seed when the staged value changes underneath us (e.g. navigating
-  // between approvals reuses this component).
-  if (value !== previousValueRef.current) {
-    previousValueRef.current = value;
+  // between approvals reuses this component). Tracking the previous value in
+  // state (not a ref) keeps the reset a pure render-phase state adjustment —
+  // React discards the queued setState with the render if it bails out,
+  // whereas a ref write would leak and desync the tracker.
+  const [prevValue, setPrevValue] = useState(value);
+  if (value !== prevValue) {
+    setPrevValue(value);
     setText(formatJson(value));
     setError(null);
   }

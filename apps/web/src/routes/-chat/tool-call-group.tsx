@@ -1,6 +1,6 @@
 import * as Accordion from "@radix-ui/react-accordion";
 import { ChevronRight, Wrench } from "lucide-react";
-import { useId, useRef, useState } from "react";
+import { useId, useState } from "react";
 import { IntegrationIcon, type IntegrationBrand } from "~/lib/integrations/integration-icons";
 import { lowerFirst } from "~/lib/strings";
 import { cn } from "~/lib/utils";
@@ -172,9 +172,9 @@ export function ToolCallGroup({
   // render (rather than in an effect) avoids a flash and lets the user still
   // toggle freely between transitions.
   const [value, setValue] = useState(active ? ITEM : "");
-  const prevActive = useRef(active);
-  if (prevActive.current !== active) {
-    prevActive.current = active;
+  const [prevActive, setPrevActive] = useState(active);
+  if (prevActive !== active) {
+    setPrevActive(active);
     setValue(active ? ITEM : "");
   }
 

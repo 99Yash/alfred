@@ -58,7 +58,7 @@ export function useRailData(): RailData {
         });
       }
     }
-  }, [composing, briefingStatus]);
+  }, [composing, briefing.data?.status]);
   const onGenerateBriefing = useCallback(() => {
     runBriefing.mutate(undefined, {
       onSuccess: (data) => {
@@ -157,7 +157,7 @@ export function useRailData(): RailData {
     // spinner in the indicator.
     if (!pages[target]) void fetchNextPage();
     setInboxPageIndex(target);
-  }, [safeInboxPage, inboxPageCount, pages, fetchNextPage]);
+  }, [safeInboxPage, inboxPageCount, pages, inbox.fetchNextPage]);
 
   const onOpenInbox = useCallback((documentId: string) => {
     setSelectedInboxId(documentId);
@@ -175,7 +175,7 @@ export function useRailData(): RailData {
       if (ids.length === 0) return;
       markInboxReadMutate(ids);
     },
-    [markInboxReadMutate],
+    [markInboxRead.mutate],
   );
   const onOverrideTriageTag = useCallback(
     (threadId: string, category: TriageCategory) => {
