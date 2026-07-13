@@ -62,46 +62,57 @@ export async function readChatHistory(
   args: { userId: string; threadId: string; input: ReadChatHistoryInput },
   dependencies: ChatHistoryRetrievalDependencies = {},
 ): Promise<unknown> {
+  // `readChatHistoryInput` refinements guarantee `query` in search mode and
+  // `kind`+`id` in fetch mode, but the flattened object types them optional
+  // (the schema is one object, not a discriminated union — see tool-schemas.ts).
+  // Guard defensively so a direct caller that skips the dispatch-layer parse
+  // can't dereference an undefined.
   if (args.input.mode === "search") {
+    const { query } = args.input;
+    if (query === undefined) {
+      return { ok: false, mode: "search", error: "query is required in search mode" };
+    }
     const limit = Math.min(Math.max(args.input.limit, 1), CHAT_HISTORY_RESULT_LIMIT);
     const rows = await (dependencies.searchMessages ?? searchMessages)({
       userId: args.userId,
       threadId: args.threadId,
-      query: args.input.query,
+      query,
       limit,
     });
     return {
       ok: true,
       mode: "search",
-      query: args.input.query,
+      query,
       results: rows.slice(0, limit).map(messageEvidence),
     };
   }
 
-  if (args.input.kind === "attachment") {
+  const { kind, id } = args.input;
+  if (kind === undefined || id === undefined) {
+    return { ok: false, mode: "fetch", error: "kind and id are required in fetch mode" };
+  }
+
+  if (kind === "attachment") {
     const row = await (dependencies.fetchAttachment ?? fetchAttachment)({
       userId: args.userId,
       threadId: args.threadId,
-      id: args.input.id,
+      id,
     });
     return row
       ? { ok: true, mode: "fetch", found: true, result: attachmentEvidence(row) }
-      : { ok: true, mode: "fetch", found: false, kind: args.input.kind, id: args.input.id };
+      : { ok: true, mode: "fetch", found: false, kind, id };
   }
 
-  const fetchInput = args.input;
   const loader =
-    fetchInput.kind === "message"
+    kind === "message"
       ? (dependencies.fetchMessage ?? fetchMessage)
       : (dependencies.fetchToolCall ?? fetchToolCall);
-  const row = await loader({ userId: args.userId, threadId: args.threadId, id: fetchInput.id });
-  if (!row)
-    return { ok: true, mode: "fetch", found: false, kind: fetchInput.kind, id: fetchInput.id };
-  if (fetchInput.kind === "message") {
+  const row = await loader({ userId: args.userId, threadId: args.threadId, id });
+  if (!row) return { ok: true, mode: "fetch", found: false, kind, id };
+  if (kind === "message") {
     return { ok: true, mode: "fetch", found: true, result: messageEvidence(row) };
   }
-  const callId = fetchInput.id;
-  const call = row.toolCalls?.find((candidate) => candidate.toolCallId === callId);
+  const call = row.toolCalls?.find((candidate) => candidate.toolCallId === id);
   return call
     ? {
         ok: true,
@@ -119,7 +130,7 @@ export async function readChatHistory(
           sanitized: call.sanitized ?? false,
         },
       }
-    : { ok: true, mode: "fetch", found: false, kind: fetchInput.kind, id: fetchInput.id };
+    : { ok: true, mode: "fetch", found: false, kind, id };
 }
 
 function messageEvidence(row: MessageRow) {

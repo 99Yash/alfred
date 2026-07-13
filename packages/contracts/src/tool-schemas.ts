@@ -951,22 +951,54 @@ export const readUserContextInput = coerceJsonArrayFields(
   ),
 );
 
-export const readChatHistoryInput = z.discriminatedUnion("mode", [
-  z
-    .object({
-      mode: z.literal("search"),
-      query: z.string().trim().min(1).max(500),
-      limit: z.number().int().min(1).max(10).default(5),
-    })
-    .strict(),
-  z
-    .object({
-      mode: z.literal("fetch"),
-      kind: z.enum(["message", "tool_call", "attachment"]),
-      id: z.string().trim().min(1).max(240),
-    })
-    .strict(),
-]);
+// A model-facing tool `input_schema` MUST be a JSON Schema object with a
+// top-level `type: "object"`; Anthropic rejects a top-level union (a
+// `discriminatedUnion` serializes to a typeless `oneOf`) with
+// `tools.N.custom.input_schema.type: Field required`. So this stays a single
+// object with `mode` as the discriminant and the per-mode fields optional,
+// enforced by refinements — the same shape as `createArtifactInput`.
+export const readChatHistoryInput = z
+  .object({
+    mode: z
+      .enum(["search", "fetch"])
+      .describe(
+        "`search` runs a keyword lookup across this thread's messages; `fetch` pulls one item by id.",
+      ),
+    query: z
+      .string()
+      .trim()
+      .min(1)
+      .max(500)
+      .optional()
+      .describe("Required for `search`: the keyword query. Omit for `fetch`."),
+    limit: z
+      .number()
+      .int()
+      .min(1)
+      .max(10)
+      .default(5)
+      .describe("`search` only: max results to return (1-10, default 5)."),
+    kind: z
+      .enum(["message", "tool_call", "attachment"])
+      .optional()
+      .describe("Required for `fetch`: which kind of item `id` refers to. Omit for `search`."),
+    id: z
+      .string()
+      .trim()
+      .min(1)
+      .max(240)
+      .optional()
+      .describe("Required for `fetch`: the id of the message, tool call, or attachment."),
+  })
+  .strict()
+  .refine((v) => v.mode !== "search" || v.query !== undefined, {
+    message: "query is required when mode is 'search'",
+    path: ["query"],
+  })
+  .refine((v) => v.mode !== "fetch" || (v.kind !== undefined && v.id !== undefined), {
+    message: "kind and id are required when mode is 'fetch'",
+    path: ["kind"],
+  });
 
 export const rememberInput = z
   .object({

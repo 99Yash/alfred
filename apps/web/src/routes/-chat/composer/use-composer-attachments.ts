@@ -30,8 +30,14 @@ export interface ComposerAttachments {
  */
 export function useComposerAttachments(): ComposerAttachments {
   const [items, setItems] = useState<PendingAttachment[]>([]);
+  // Mirror the latest staged items into a ref so the memoized handlers below
+  // read the current selection without depending on `items`. Written in an
+  // effect (not during render): a render-phase ref write can leak if React
+  // discards the render, and every reader here runs post-commit.
   const itemsRef = useRef(items);
-  itemsRef.current = items;
+  useEffect(() => {
+    itemsRef.current = items;
+  }, [items]);
 
   // Cap the staged count/bytes *before* upload — the turn endpoint and server
   // mutator also enforce the caps, but bounding here means a user picking 11

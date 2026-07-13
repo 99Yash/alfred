@@ -1,6 +1,6 @@
 import * as Tooltip from "@radix-ui/react-tooltip";
 import { RefreshCw } from "lucide-react";
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { stopChatRun } from "~/lib/chat/turn-controls";
 import { useChatStream } from "~/lib/chat/use-chat-stream";
 import { useRunComplete } from "~/lib/chat/use-run-complete";
@@ -44,9 +44,9 @@ export function ChatShell({ threadId, title }: ChatShellProps) {
   // Snap the rail to each mode's sensible default when the viewport crosses
   // the breakpoint — wide screens get the inline rail, narrow screens hide
   // the overlay so it doesn't ambush the user on resize.
-  const prevModeRef = useRef(railMode);
-  if (prevModeRef.current !== railMode) {
-    prevModeRef.current = railMode;
+  const [prevMode, setPrevMode] = useState(railMode);
+  if (prevMode !== railMode) {
+    setPrevMode(railMode);
     setRailOpen(railMode === "inline");
   }
 
@@ -180,7 +180,7 @@ export function ChatShell({ threadId, title }: ChatShellProps) {
     // the baseline row if this is a legacy user without a synced policy yet.
     if (autoApprovePending) return;
     void setDefaultMode(autoApprove ? "gated" : "autonomy");
-  }, [autoApprove, autoApprovePending, setDefaultMode]);
+  }, [autoApprove, policyLoading, setDefaultMode]);
 
   // Follow-up suggestions for the last completed reply. We commit to a single
   // affordance per reply to avoid the split-brain of a ghosted prompt competing
