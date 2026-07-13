@@ -217,7 +217,7 @@ export function AppShell({ children }: { children: ReactNode }) {
    * stays fresh no matter which route the user entered through. */
   useEffect(() => {
     if (isPending) return;
-    writeAuthHint(!!sessionUser);
+    writeAuthHint(!!session?.user);
   }, [isPending, session?.user]);
   const { data: onboardingData } = useQuery({
     queryKey: ["me", "onboarding"],
@@ -242,8 +242,9 @@ export function AppShell({ children }: { children: ReactNode }) {
    * Written here for the same reason as the auth hint: AppShell wraps every
    * route, so the hint stays fresh no matter where the user entered. */
   useEffect(() => {
-    if (routeToOnboarding === undefined) return;
-    writeOnboardingHint(!routeToOnboarding);
+    const nextRoute = onboardingData?.routeToOnboarding;
+    if (nextRoute === undefined) return;
+    writeOnboardingHint(!nextRoute);
   }, [onboardingData?.routeToOnboarding]);
 
   /* First-paint guess (read once at mount): does this returning user appear to
@@ -251,11 +252,12 @@ export function AppShell({ children }: { children: ReactNode }) {
    * blanking while the query resolves. */
   const [onboardingHintComplete] = useState(readOnboardingHint);
   useEffect(() => {
-    if (!sessionUser) return;
-    if (routeToOnboarding === undefined) return;
-    if (routeToOnboarding && !onOnboardingRoute) {
+    if (!session?.user) return;
+    const nextRoute = onboardingData?.routeToOnboarding;
+    if (nextRoute === undefined) return;
+    if (nextRoute && !onOnboardingRoute) {
       void navigate({ to: "/onboarding", search: { step: 1 } });
-    } else if (!routeToOnboarding && onOnboardingRoute) {
+    } else if (!nextRoute && onOnboardingRoute) {
       void navigate({ to: "/" });
     }
   }, [onboardingData?.routeToOnboarding, onOnboardingRoute, session?.user, navigate]);
@@ -306,11 +308,10 @@ export function AppShell({ children }: { children: ReactNode }) {
   const pathname = location.pathname;
   const onPreviewChatRoute =
     pathname === "/preview/chat" || pathname.startsWith("/preview/chat/");
-  const searchStr = location.searchStr;
   const mustRedirectToLogin = !isPending && !sessionUser && !chromeless;
   useEffect(() => {
     if (!mustRedirectToLogin) return;
-    const target = pathname + searchStr;
+    const target = location.pathname + location.searchStr;
     void navigate({
       to: "/login",
       search: { redirect: target === "/" ? undefined : target },

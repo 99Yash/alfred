@@ -178,7 +178,7 @@ export function ChatShell({ threadId, title }: ChatShellProps) {
   const onToggleAutoApprove = useCallback(() => {
     // Wait for the subscription to settle, then let the server mutator upsert
     // the baseline row if this is a legacy user without a synced policy yet.
-    if (autoApprovePending) return;
+    if (policyLoading) return;
     void setDefaultMode(autoApprove ? "gated" : "autonomy");
   }, [autoApprove, policyLoading, setDefaultMode]);
 
