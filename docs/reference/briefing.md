@@ -49,6 +49,20 @@ Both surfaces read the **kind of day** before choosing their words: weekday vs w
 
 Email is the **push**; the in-app briefing is the **durable home** — a history to scroll back through, plus the silent-day escape hatch above. Email carries the tight paragraph + `View full briefing` link; the in-app surface is the canonical record. (ADR-0020: email-only at v1; in-app surface is Replicache-synced, read-only.)
 
+## Context signals and the memory write policy
+
+> **Added ADR-0083 (#415).** Contract lives in `@alfred/contracts/briefing-signals.ts`.
+
+Everything a briefing writer says flows through **three layers**, and the contract owns the boundary between them:
+
+1. **Source evidence** — the raw gather items (a Gmail thread, a calendar event, a GitHub activity row), each addressable by a `BriefingReference` token, validated at its owning boundary, never authored by a model.
+2. **Typed context signals** — the closed `BRIEFING_CONTEXT_SIGNAL_KINDS` vocabulary (`closed_work_loop`, `open_work_loop`, `shipping_momentum`, `job_search_event`, `recurring_machine_noise`, `integration_access_gap`), derived deterministically or by a bounded projection from Layer 1 and carrying their evidence back to it. `briefingContextSignalSchema` requires **non-empty** evidence ("no grounding, no row").
+3. **Generated prose** — the warm paragraph the writer emits. It consumes Layer 2, invents no durable facts, and is deliberately not a type: prose is ephemeral by construction.
+
+Each signal declares a `durability`: `grounded_projection` (object-state facts eligible to back a bounded projection) vs `ephemeral_query_time` (mood/momentum/warmth — render-time only). `isEphemeralBriefingSignal` names the class that must **never** be persisted.
+
+**Memory write policy.** Briefing signals are a namespace disjoint from `FACT_ONTOLOGY` — a signal is never a `user_facts.key`. Briefing work must not promote email/document metadata (subject, sender, message-id, dates) or a third party's attributes (a recruiter's company, a contact's city) into the user's identity/org facts, and must not persist a vague observation (shipping mood, motivation, warmth) as a durable fact. This is the `yash.k@oliv.ai` / `employer="Weekday"` failure mode (`.lessons/user-facts-document-metadata-noise.md`). Durable identity/org writes stay the job of the ADR-0080 projection (`PROJECTION_IDENTITY_KEYS`); enforcement lives in `fact-policy.ts` (ADR-0079) and the projection (ADR-0080). This module names the policy and pins the disjoint-namespace invariant in tests; it does not re-implement the gate.
+
 ## Parked
 
 Explicit non-goals for this iteration — each merits its own discussion:
