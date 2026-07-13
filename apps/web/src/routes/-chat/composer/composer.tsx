@@ -111,7 +111,7 @@ export function Composer({
     !transcribing;
 
   const insertAtTrigger = useCallback(() => {
-    if (composerDisabled) return;
+    if (disabled || sending) return;
     editorRef.current?.insertAtTrigger();
   }, [disabled, sending]);
 
@@ -123,7 +123,7 @@ export function Composer({
   // (pending approval) so we don't fight a parked turn.
   const appliedPrefillNonce = useRef<number | null>(null);
   useEffect(() => {
-    if (!prefill || composerDisabled) return;
+    if (!prefill || disabled || sending) return;
     // Ignore a prefill created for a different thread — the Composer remounts
     // per-thread, so without this a stale prefill would re-apply after the user
     // navigates away from the thread it was requested in.
@@ -143,7 +143,7 @@ export function Composer({
   );
 
   const onAttachClick = useCallback(() => {
-    if (composerDisabled || mic.recording) return;
+    if (disabled || sending || mic.recording) return;
     fileInputRef.current?.click();
   }, [disabled, sending, mic.recording]);
 
@@ -173,7 +173,7 @@ export function Composer({
     (e: DragEvent<HTMLDivElement>) => {
       if (!e.dataTransfer.files.length) return;
       e.preventDefault();
-      if (composerDisabled) return;
+      if (disabled || sending) return;
       attachments.addFiles(e.dataTransfer.files);
     },
     [disabled, sending, attachments],
@@ -186,7 +186,7 @@ export function Composer({
       // Only intercept when the clipboard carries files (pasted image); let
       // normal text paste fall through to the editor.
       e.preventDefault();
-      if (composerDisabled) return;
+      if (disabled || sending) return;
       attachments.addFiles(files);
     },
     [disabled, sending, attachments],

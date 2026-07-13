@@ -233,7 +233,7 @@ export function ReplicacheProvider({ children }: { children: React.ReactNode }) 
       dispatch({ type: "stop", lifecycle });
       close?.();
     };
-  }, [session?.user?.id, retryNonce]);
+  }, [userId, retryNonce]);
 
   return <ReplicacheContext.Provider value={contextValue}>{children}</ReplicacheContext.Provider>;
 }
