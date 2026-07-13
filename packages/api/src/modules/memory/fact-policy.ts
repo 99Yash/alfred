@@ -22,6 +22,7 @@
 
 import {
   canonicalizeFactKey,
+  classifyEmailDomain,
   getPath,
   isFactKey,
   isNonEmptyString,
@@ -60,6 +61,73 @@ export function classifyDocumentFactKey(canonicalKey: string): DocumentFactTier 
 }
 
 // ---------------------------------------------------------------------------
+// service-sender / uninformative relationship classifier (#491 / #492)
+// ---------------------------------------------------------------------------
+
+/**
+ * True iff `email` is a no-reply / service / role mailbox rather than a real
+ * person — `noreply@`, `support@`, `notifications@`, `help@`, `info@`, a
+ * bounce/mailer host, etc. The ONE definition of "service sender" for the memory
+ * module, shared by the read filter (#491), the write guard (#492), and the
+ * backfill purge (#493). Delegates to the contracts domain classifier (ADR-0080)
+ * so we do not fork yet another service-address list.
+ */
+export function isServiceSender(email: string): boolean {
+  return classifyEmailDomain({ email }) === "service_or_role_account";
+}
+
+/** The `<email>` half of a canonical `relationship:<email>` key, or null. */
+function relationshipEmail(canonicalKey: string): string | null {
+  if (!canonicalKey.startsWith(RELATIONSHIP_FACT_PREFIX)) return null;
+  const email = canonicalKey.slice(RELATIONSHIP_FACT_PREFIX.length).trim();
+  return email.length > 0 ? email : null;
+}
+
+/**
+ * True iff a canonical `relationship:<email>` key points at a service sender. For
+ * inbound mail the correspondent in the key IS the sender, so the key alone is
+ * enough — no document context needed. False for any non-relationship key.
+ */
+function isServiceSenderRelationshipKey(canonicalKey: string): boolean {
+  const email = relationshipEmail(canonicalKey);
+  return email != null && isServiceSender(email);
+}
+
+/** True iff a nested field carries any reviewable content. */
+function fieldHasContent(value: unknown): boolean {
+  if (typeof value === "string") return value.trim().length > 0;
+  if (typeof value === "number" || typeof value === "boolean") return true;
+  if (Array.isArray(value)) return value.some(fieldHasContent);
+  if (isRecord(value)) return Object.values(value).some(fieldHasContent);
+  return false;
+}
+
+/**
+ * True iff a `relationship:<email>` VALUE carries nothing a user could review —
+ * an empty `{}` / `""`, an object whose every field is blank, or a non-relationship
+ * shape (number/boolean/array/null). A non-empty role string or a `{ role, since? }`
+ * with content is informative. (#491/#492 reverses the prior "empty `{}` is a valid
+ * role-not-yet-captured placeholder" allowance — an empty edge is now junk.)
+ */
+export function isUninformativeRelationshipValue(value: unknown): boolean {
+  if (typeof value === "string") return value.trim().length === 0;
+  if (isRecord(value)) return !Object.values(value).some(fieldHasContent);
+  return true;
+}
+
+/**
+ * The ONE junk predicate for `relationship:<email>` facts: true iff the edge is
+ * to a service/no-reply sender OR its value is uninformative. Non-relationship
+ * keys are never junk by this predicate. Shared by the read-sync filter (#491),
+ * the `proposeFact` backstop (#492), and the backfill purge (#493) so "junk" has
+ * exactly one definition. Pass a CANONICAL key (post-`canonicalizeFactKey`).
+ */
+export function isUninformativeRelationshipFact(key: string, value: unknown): boolean {
+  if (!key.startsWith(RELATIONSHIP_FACT_PREFIX)) return false;
+  return isServiceSenderRelationshipKey(key) || isUninformativeRelationshipValue(value);
+}
+
+// ---------------------------------------------------------------------------
 // value-shape validation (source-agnostic, context-free)
 // ---------------------------------------------------------------------------
 
@@ -71,22 +139,22 @@ export type FactValueValidation = { ok: true } | { ok: false; reason: FactValueR
  * Structural value check for a CANONICAL key. Source-agnostic invariant (no
  * document context):
  *
- *  - `relationship:<email>` — the valid-email KEY is what establishes the
- *    social-graph edge (Tier A intent), so the value is permissive: a role
- *    string OR any object, INCLUDING an empty `{}` (a known correspondent whose
- *    role we haven't captured yet — `{role, since?}` is enrichment, not a floor).
- *    Only a clearly-wrong primitive (number/boolean/null/array/empty string) is
- *    rejected. Malformed relationship KEYS are caught upstream by
- *    `canonicalizeFactKey`, not here.
+ *  - `relationship:<email>` — the value must carry reviewable content: a non-empty
+ *    role string OR a `{ role, since? }` object with at least one non-blank field.
+ *    An empty `{}` / `""` (or a clearly-wrong number/boolean/null/array) is
+ *    rejected as `invalid_relationship_value` (#491/#492 — an empty edge is junk a
+ *    user cannot meaningfully confirm, not a "role not yet captured" placeholder).
+ *    Malformed relationship KEYS are caught upstream by `canonicalizeFactKey`; a
+ *    service/no-reply KEY is a separate concern (`isUninformativeRelationshipFact`).
  *  - `pref:<name>` — freeform (preferences hold arbitrary JSON).
  *  - every canonical identity/profile key — a non-empty string (names, summaries,
  *    cities, handles, URLs, timezone, birthday are all string-valued).
  */
 export function validateFactValueForKey(canonicalKey: string, value: unknown): FactValueValidation {
   if (canonicalKey.startsWith(RELATIONSHIP_FACT_PREFIX)) {
-    if (isNonEmptyString(value)) return { ok: true };
-    if (isRecord(value)) return { ok: true };
-    return { ok: false, reason: "invalid_relationship_value" };
+    return isUninformativeRelationshipValue(value)
+      ? { ok: false, reason: "invalid_relationship_value" }
+      : { ok: true };
   }
   if (canonicalKey.startsWith(PREF_FACT_PREFIX)) return { ok: true };
   if (isNonEmptyString(value)) return { ok: true };
@@ -486,6 +554,7 @@ export type DocumentFactGateReject =
   | "unknown_key"
   | "invalid_relationship_key"
   | "invalid_value"
+  | "service_sender_relationship"
   | "not_document_writable"
   | "authorship_required";
 
@@ -522,8 +591,11 @@ export interface DocumentFactGateInput {
  *  - unknown / bad relationship key → reject (`invalid_relationship_key` when the
  *    raw key was `relationship:*`, else `unknown_key`);
  *  - `not_writable` canonical key → `not_document_writable`;
+ *  - `relationship:<email>` to a service/no-reply sender → `service_sender_relationship`
+ *    (#492 — an inbound service mailbox is never a real relationship, even with a
+ *    plausible-looking role value);
  *  - invalid value shape → `invalid_value` (or `invalid_relationship_key` for a
- *    malformed relationship edge);
+ *    malformed/empty relationship edge);
  *  - Tier B (identity/profile) key whose document is NOT authored by the user →
  *    `authorship_required` (carries the authorship evidence for the trace);
  *  - Tier A (`relationship:<email>`) is authorship-free → passes.
@@ -545,6 +617,17 @@ export function gateDocumentFact(input: DocumentFactGateInput): DocumentFactGate
   const tier = classifyDocumentFactKey(canonicalKey);
   if (tier === "not_writable") {
     return { ok: false, reason: "not_document_writable", originalKey: proposal.key, canonicalKey };
+  }
+  // #492: a relationship edge to a service/no-reply sender is never a real
+  // relationship — drop it before the value check (an informative-looking role
+  // on a service address is still junk). No-op for non-relationship keys.
+  if (isServiceSenderRelationshipKey(canonicalKey)) {
+    return {
+      ok: false,
+      reason: "service_sender_relationship",
+      originalKey: proposal.key,
+      canonicalKey,
+    };
   }
   if (!validateFactValueForKey(canonicalKey, proposal.value).ok) {
     return {

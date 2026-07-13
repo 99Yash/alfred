@@ -5,7 +5,10 @@ import {
   authoredByUser,
   classifyDocumentFactKey,
   gateDocumentFact,
+  isServiceSender,
   isSingleValuedKey,
+  isUninformativeRelationshipFact,
+  isUninformativeRelationshipValue,
   SINGLE_VALUED_KEYS,
   validateFactValueForKey,
   type AuthorshipDocument,
@@ -60,15 +63,22 @@ describe("validateFactValueForKey", () => {
     });
   });
 
-  test("relationship accepts a role string or any object (incl empty — the edge is the signal)", () => {
+  test("relationship accepts an informative role string or object (#491/#492)", () => {
     assert.deepEqual(validateFactValueForKey("relationship:a@x.com", "mentor"), { ok: true });
     assert.deepEqual(validateFactValueForKey("relationship:a@x.com", { role: "friend" }), {
       ok: true,
     });
-    // An empty object is a known correspondent whose role wasn't captured — KEEP it.
-    assert.deepEqual(validateFactValueForKey("relationship:a@x.com", {}), { ok: true });
-    // Only clearly-wrong primitives are rejected.
-    for (const bad of [42, true, null, "", ["x"]]) {
+    assert.deepEqual(
+      validateFactValueForKey("relationship:a@x.com", { role: "friend", since: 2020 }),
+      {
+        ok: true,
+      },
+    );
+  });
+
+  test("relationship rejects empty / uninformative values (#491/#492 — empty edge is junk)", () => {
+    // The empty object is no longer a valid "role not yet captured" placeholder.
+    for (const bad of [{}, { role: "" }, { role: "  ", since: "" }, 42, true, null, "", ["x"]]) {
       assert.deepEqual(validateFactValueForKey("relationship:a@x.com", bad), {
         ok: false,
         reason: "invalid_relationship_value",
@@ -78,6 +88,95 @@ describe("validateFactValueForKey", () => {
 
   test("pref:* is freeform", () => {
     assert.deepEqual(validateFactValueForKey("pref:tone", { warmth: 3 }), { ok: true });
+  });
+});
+
+describe("isServiceSender (#491 — shared service/no-reply classifier)", () => {
+  test("no-reply / role / service mailboxes are service senders", () => {
+    for (const email of [
+      "noreply@acme.com",
+      "no-reply@acme.com",
+      "notifications@github.com",
+      "help@sentry.io",
+      "info@xing.com",
+      "support@stripe.com",
+      "billing@vendor.com",
+      "bounce@mailer.acme.com",
+    ]) {
+      assert.equal(isServiceSender(email), true, `${email} should be a service sender`);
+    }
+  });
+
+  test("real people are NOT service senders", () => {
+    for (const email of [
+      "alice@oliv.ai",
+      "yash@gmail.com",
+      "sandro@maglione.dev",
+      "paul.graham@ycombinator.com",
+    ]) {
+      assert.equal(isServiceSender(email), false, `${email} should not be a service sender`);
+    }
+  });
+});
+
+describe("isUninformativeRelationshipValue (#491/#492)", () => {
+  test("empty / blank / wrong-shaped values are uninformative", () => {
+    for (const v of [
+      {},
+      { role: "" },
+      { role: "  ", since: "" },
+      "",
+      "   ",
+      42,
+      true,
+      null,
+      ["x"],
+    ]) {
+      assert.equal(
+        isUninformativeRelationshipValue(v),
+        true,
+        `${JSON.stringify(v)} → uninformative`,
+      );
+    }
+  });
+
+  test("a concrete role string or object is informative", () => {
+    for (const v of ["mentor", { role: "friend" }, { role: "colleague", since: 2021 }]) {
+      assert.equal(
+        isUninformativeRelationshipValue(v),
+        false,
+        `${JSON.stringify(v)} → informative`,
+      );
+    }
+  });
+});
+
+describe("isUninformativeRelationshipFact (#491/#492 — the one junk predicate)", () => {
+  test("service-sender edge is junk even with a plausible role", () => {
+    assert.equal(
+      isUninformativeRelationshipFact("relationship:help@sentry.io", { role: "vendor" }),
+      true,
+    );
+    assert.equal(isUninformativeRelationshipFact("relationship:info@xing.com", {}), true);
+  });
+
+  test("empty-value edge to a real person is junk", () => {
+    assert.equal(isUninformativeRelationshipFact("relationship:paul@updates.cubic.dev", {}), true);
+    assert.equal(isUninformativeRelationshipFact("relationship:alice@oliv.ai", {}), true);
+  });
+
+  test("a genuine relationship to a real person is NOT junk", () => {
+    assert.equal(
+      isUninformativeRelationshipFact("relationship:alice@oliv.ai", { role: "manager" }),
+      false,
+    );
+    assert.equal(isUninformativeRelationshipFact("relationship:bob@acme.com", "cofounder"), false);
+  });
+
+  test("non-relationship keys are never junk by this predicate", () => {
+    assert.equal(isUninformativeRelationshipFact("employer", ""), false);
+    assert.equal(isUninformativeRelationshipFact("pref:tone", {}), false);
+    assert.equal(isUninformativeRelationshipFact("full_name", null), false);
   });
 });
 
@@ -221,5 +320,43 @@ describe("gateDocumentFact", () => {
       originalKey: "employer",
       canonicalKey: "employer",
     });
+  });
+
+  test("rejects a relationship edge to a service sender (#492), role notwithstanding", () => {
+    const r = gateDocumentFact({
+      proposal: { key: "relationship:help@sentry.io", value: { role: "vendor" } },
+      document: authoredDoc,
+      selfIdentity: self,
+    });
+    assert.deepEqual(r, {
+      ok: false,
+      reason: "service_sender_relationship",
+      originalKey: "relationship:help@sentry.io",
+      canonicalKey: "relationship:help@sentry.io",
+    });
+  });
+
+  test("rejects an empty relationship value (#491/#492)", () => {
+    const r = gateDocumentFact({
+      proposal: { key: "relationship:alice@oliv.ai", value: {} },
+      document: authoredDoc,
+      selfIdentity: self,
+    });
+    assert.deepEqual(r, {
+      ok: false,
+      reason: "invalid_relationship_key",
+      originalKey: "relationship:alice@oliv.ai",
+      canonicalKey: "relationship:alice@oliv.ai",
+    });
+  });
+
+  test("still admits a genuine relationship to a real person", () => {
+    const r = gateDocumentFact({
+      proposal: { key: "relationship:alice@oliv.ai", value: { role: "manager" } },
+      document: authoredDoc,
+      selfIdentity: self,
+    });
+    assert.equal(r.ok, true);
+    assert.equal(r.ok && r.key, "relationship:alice@oliv.ai");
   });
 });
