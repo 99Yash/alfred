@@ -161,7 +161,9 @@ export const chatMessageSchema = z.object({
   runId: z.string().min(1).max(120),
   threadId: z.string().min(1).max(120),
   messageId: z.string().min(1).max(120),
-  phase: z.enum(["started", "completed"]),
+  phase: z.enum(["started", "compaction_started", "compaction_finished", "completed"]),
+  /** Present only for the explicit compaction phases. */
+  compactionScope: z.enum(["foreground", "within_run"]).optional(),
 });
 
 export const eventPayloadSchemas = {

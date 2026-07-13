@@ -291,6 +291,35 @@ export function getCheapModel(): LanguageModel {
   return withFallback(googleModel("gemini-2.5-flash-lite"), googleModel("gemini-2.5-flash"));
 }
 
+const MEDIA_ENRICHMENT_ROUTES = [
+  "gemini-2.5-flash",
+  "gemini-2.5-flash-lite",
+  "claude-sonnet-4-6",
+] as const satisfies readonly ModelId[];
+
+export function mediaEnrichmentModelRoutes(
+  modality: import("./models").MediaInputModality,
+  byteSize: number,
+): ModelId[] {
+  if (!Number.isInteger(byteSize) || byteSize < 0) throw new Error("byteSize must be non-negative");
+  return MEDIA_ENRICHMENT_ROUTES.filter((id) => {
+    const capabilities = MODEL_CAPABILITIES[id];
+    const inputModalities: readonly import("./models").MediaInputModality[] =
+      capabilities.inputModalities;
+    return inputModalities.includes(modality) && byteSize <= capabilities.maxInlineMediaBytes;
+  });
+}
+
+/** Ordered multimodal routes, filtered before any provider receives the payload. */
+export function getMediaEnrichmentModels(
+  modality: import("./models").MediaInputModality,
+  byteSize: number,
+): LanguageModel[] {
+  const routes = mediaEnrichmentModelRoutes(modality, byteSize);
+  if (routes.length === 0) throw new Error("media_enrichment_input_unsupported");
+  return routes.map(modelForId);
+}
+
 /**
  * Transcript compaction is rare, latency-tolerant, and quality-critical.
  * Keep it decoupled from the cheap tier: a bad handoff corrupts the rest

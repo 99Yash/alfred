@@ -27,6 +27,9 @@ export {
 export {
   assertHandoffSections,
   compactTranscript,
+  scheduleConversationCompactionIfNeeded,
+  backgroundCompactionThresholdTokens,
+  CHAT_MAX_OUTPUT_TOKENS,
   COMPACTOR_SYSTEM_PROMPT,
   extractHandoffSection,
   HANDOFF_SECTIONS,

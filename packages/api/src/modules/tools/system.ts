@@ -9,6 +9,7 @@ import {
   promoteScratchInput,
   readScratchInput,
   readUserContextInput,
+  readChatHistoryInput,
   fetchUrlInput,
   rememberInput,
   resolveTodoInput,
@@ -32,6 +33,7 @@ import {
 } from "../agent/sub-agents";
 import type { ToolExecuteContext } from "./registry";
 import { readUserContext } from "../memory/user-context";
+import { readChatHistory } from "../agent/compaction";
 import {
   editStandingInstruction,
   forgetStandingInstruction,
@@ -99,6 +101,24 @@ export const systemTools: readonly RegisteredTool[] = [
       }
 
       return { ok: true, slug: input.slug };
+    },
+  }),
+  liveTool({
+    integration: "system",
+    action: "read_chat_history",
+    riskTier: "no_risk",
+    description:
+      "Search or fetch bounded raw evidence from the current chat thread when the conversation summary is insufficient. Fetch messages, tool outcomes, or attachment representations by their stable IDs. This never accesses another thread.",
+    inputSchema: readChatHistoryInput,
+    execute: async (input, ctx) => {
+      if (!ctx.threadId) {
+        return {
+          ok: false,
+          status: "no_thread",
+          reason: "Conversation history is available only inside the current chat thread.",
+        };
+      }
+      return readChatHistory({ userId: ctx.userId, threadId: ctx.threadId, input });
     },
   }),
   liveTool({

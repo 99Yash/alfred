@@ -1,6 +1,16 @@
 import type { ChatAttachmentStatus, ChatErrorKind } from "@alfred/contracts";
 import { sql } from "drizzle-orm";
-import { boolean, index, integer, jsonb, pgTable, text, timestamp } from "drizzle-orm/pg-core";
+import {
+  boolean,
+  check,
+  index,
+  integer,
+  jsonb,
+  primaryKey,
+  pgTable,
+  text,
+  timestamp,
+} from "drizzle-orm/pg-core";
 
 import { createId, lifecycle_dates } from "../helpers";
 import { agentRuns } from "./agent";
@@ -127,6 +137,54 @@ export const chatMessages = pgTable(
 );
 
 /**
+ * Server-internal working-context state for a chat thread. This table is
+ * deliberately absent from Replicache: summaries, pressure estimates, and job
+ * metadata are runtime implementation details rather than user-visible chat
+ * entities. `summary` stays `unknown` until the API's owning boundary validates
+ * its structure and source provenance.
+ */
+export const chatThreadContext = pgTable(
+  "chat_thread_context",
+  {
+    threadId: text("thread_id")
+      .primaryKey()
+      .references(() => chatThreads.id, { onDelete: "cascade" }),
+    userId: text("user_id")
+      .notNull()
+      .references(() => user.id, { onDelete: "cascade" }),
+    summary: jsonb("summary"),
+    summaryWatermarkCreatedAt: timestamp("summary_watermark_created_at", { withTimezone: true }),
+    summaryWatermarkMessageId: text("summary_watermark_message_id"),
+    estimatedReplayTokens: integer("estimated_replay_tokens").notNull().default(0),
+    replayEstimateWatermarkCreatedAt: timestamp("replay_estimate_watermark_created_at", {
+      withTimezone: true,
+    }),
+    replayEstimateWatermarkMessageId: text("replay_estimate_watermark_message_id"),
+    compactionRequestedAt: timestamp("compaction_requested_at", { withTimezone: true }),
+    compactionCompletedAt: timestamp("compaction_completed_at", { withTimezone: true }),
+    compactionFailedAt: timestamp("compaction_failed_at", { withTimezone: true }),
+    compactionFailureCategory: text("compaction_failure_category"),
+    compactionFailureMessage: text("compaction_failure_message"),
+    /** Monotonic compare-and-swap revision; incremented only by a winning summary write. */
+    compactionGeneration: integer("compaction_generation").notNull().default(0),
+    ...lifecycle_dates,
+  },
+  (t) => [
+    index("chat_thread_context_user_idx").on(t.userId),
+    check(
+      "chat_thread_context_watermark_pair_chk",
+      sql`(${t.summaryWatermarkCreatedAt} IS NULL) = (${t.summaryWatermarkMessageId} IS NULL)`,
+    ),
+    check("chat_thread_context_estimated_tokens_chk", sql`${t.estimatedReplayTokens} >= 0`),
+    check(
+      "chat_thread_context_replay_estimate_watermark_pair_chk",
+      sql`(${t.replayEstimateWatermarkCreatedAt} IS NULL) = (${t.replayEstimateWatermarkMessageId} IS NULL)`,
+    ),
+    check("chat_thread_context_generation_chk", sql`${t.compactionGeneration} >= 0`),
+  ],
+);
+
+/**
  * A file the user attached to a chat message (ADR-0065). The raw bytes live in
  * an object bucket under `chat/{userId}/{threadId}/{messageId}/{file}`; only the
  * `storageKey` is recorded here. The model never sees the raw media — at turn
@@ -187,7 +245,41 @@ export const chatAttachments = pgTable(
   ],
 );
 
+/**
+ * Versioned, reusable semantic representation of one attachment. The raw JSON
+ * remains unknown until the API owner validates it; compaction, memory, and
+ * history all read this row rather than paying for separate enrichment calls.
+ */
+export const chatAttachmentRepresentations = pgTable(
+  "chat_attachment_representations",
+  {
+    attachmentId: text("attachment_id")
+      .notNull()
+      .references(() => chatAttachments.id, { onDelete: "cascade" }),
+    representationVersion: integer("representation_version").notNull(),
+    status: text("status").notNull().$type<"pending" | "ready" | "failed">(),
+    representation: jsonb("representation"),
+    provider: text("provider"),
+    model: text("model"),
+    estimatedCostMicrousd: integer("estimated_cost_microusd"),
+    failureCategory: text("failure_category"),
+    ...lifecycle_dates,
+  },
+  (t) => [
+    primaryKey({ columns: [t.attachmentId, t.representationVersion] }),
+    check("chat_attachment_representations_version_chk", sql`${t.representationVersion} > 0`),
+    check(
+      "chat_attachment_representations_cost_chk",
+      sql`${t.estimatedCostMicrousd} IS NULL OR ${t.estimatedCostMicrousd} >= 0`,
+    ),
+  ],
+);
+
 export type ChatThread = typeof chatThreads.$inferSelect;
 export type ChatMessage = typeof chatMessages.$inferSelect;
+export type ChatThreadContext = typeof chatThreadContext.$inferSelect;
+export type NewChatThreadContext = typeof chatThreadContext.$inferInsert;
 export type ChatAttachment = typeof chatAttachments.$inferSelect;
 export type NewChatAttachment = typeof chatAttachments.$inferInsert;
+export type ChatAttachmentRepresentation = typeof chatAttachmentRepresentations.$inferSelect;
+export type NewChatAttachmentRepresentation = typeof chatAttachmentRepresentations.$inferInsert;
