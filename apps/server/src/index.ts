@@ -7,6 +7,7 @@
 // across inlined modules, so the preload is the authoritative fix there; this
 // import is then a harmless cache hit on the same module instance.
 import "./instrument";
+import { flushLangfuse } from "@alfred/ai";
 import { app, securityHeaders } from "@alfred/api";
 import { toMessage } from "@alfred/contracts";
 import { serverEnv } from "@alfred/env/server";
@@ -14,7 +15,7 @@ import { cors } from "@elysiajs/cors";
 import { node } from "@elysiajs/node";
 import * as Sentry from "@sentry/node";
 import { Elysia } from "elysia";
-import { startRuntime, stopRuntime } from "./runtime";
+import { OBSERVABILITY_FLUSH_TIMEOUT_MS, startRuntime, stopRuntime } from "./runtime";
 
 // Global crash safety net, registered before any worker starts. An unhandled
 // rejection or uncaught exception in a background BullMQ processor or the event
@@ -30,7 +31,17 @@ async function handleFatal(kind: string, err: unknown): Promise<void> {
   console.error(`Fatal ${kind}:`, err instanceof Error ? (err.stack ?? err.message) : String(err));
   try {
     Sentry.captureException(err);
-    await Sentry.flush(2000);
+    // Flush Sentry AND Langfuse before exit — both batch events in memory, so a
+    // crash otherwise drops the trace/spans for the turn that died. Bound the
+    // wait: a stuck network flush must never wedge the crash handler. Metering
+    // writes are skipped here (the DB pool may be unhealthy mid-crash and a
+    // fast, clean exit matters more than the cost rows).
+    await Promise.race([
+      Promise.allSettled([Sentry.flush(2000), flushLangfuse()]),
+      new Promise((resolve) => {
+        setTimeout(resolve, OBSERVABILITY_FLUSH_TIMEOUT_MS).unref();
+      }),
+    ]);
   } catch {
     // Never let the crash handler itself throw.
   }

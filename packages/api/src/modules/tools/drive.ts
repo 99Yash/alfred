@@ -14,23 +14,22 @@ import {
   driveSearchInput,
 } from "@alfred/contracts";
 import {
+  DRIVE_SCOPE,
   downloadFile,
   exportFile,
   getFile,
-  getFreshAccessToken,
-  listCredentials,
   listFiles,
 } from "@alfred/integrations/google";
-import { AppError } from "../../lib/app-errors";
+import { resolveGoogleAccessToken } from "./google-credentials";
 import { liveTool, type RegisteredTool } from "./registry";
 
-async function accessTokenFor(userId: string): Promise<string> {
-  const creds = await listCredentials(userId, "google");
-  const active = creds.find((c) => c.status === "active");
-  if (!active) {
-    throw new AppError("google_connection_required");
-  }
-  return getFreshAccessToken(active.id);
+/** Resolve an access token for a Drive call — requires the `drive` scope. */
+function accessTokenFor(userId: string): Promise<string> {
+  return resolveGoogleAccessToken(userId, {
+    scopes: [DRIVE_SCOPE],
+    noConnection: "drive_connection_required",
+    noScope: "drive_scope_required",
+  });
 }
 
 export const driveTools: readonly RegisteredTool[] = [

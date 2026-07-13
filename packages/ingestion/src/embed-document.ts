@@ -1,9 +1,49 @@
 import { embedMany } from "@alfred/ai/embeddings";
 import { db } from "@alfred/db";
+import { buildEmbedFailureSet, EMBED_SUCCESS_RESET } from "@alfred/db/helpers";
 import { chunks, documents } from "@alfred/db/schemas";
-import { and, desc, eq, notExists, sql } from "drizzle-orm";
+import { and, desc, eq, isNull, notExists, sql } from "drizzle-orm";
 import { createHash } from "node:crypto";
 import { chunkText, type Chunk } from "./chunker";
+
+/**
+ * Record an embed failure on the document row via the shared poison-pill guard
+ * (`buildEmbedFailureSet` in `@alfred/db/helpers`): a per-input-permanent error
+ * (400/413/422 — the input itself is un-embeddable) dead-letters the document
+ * immediately; every other failure, including a systemic 4xx, rides the
+ * wall-clock retry window regardless of how many sweeps hit it. `embedAttempts`
+ * still counts every failure for diagnostics but no longer triggers
+ * dead-lettering. Best-effort: the caller always rethrows the original error.
+ *
+ * Exported for the DB-backed poison-pill test; `embedDocument` is the only
+ * production caller.
+ */
+export async function recordDocumentEmbedFailure(documentId: string, err: unknown): Promise<void> {
+  await db()
+    .update(documents)
+    .set(
+      buildEmbedFailureSet(
+        {
+          attempts: documents.embedAttempts,
+          firstFailedAt: documents.embedFirstFailedAt,
+          failedAt: documents.embedFailedAt,
+        },
+        err,
+      ),
+    )
+    .where(eq(documents.id, documentId));
+}
+
+/** Dead-letter a document that can never produce chunks (no embeddable content). */
+async function markDocumentEmbedTerminal(documentId: string, reason: string): Promise<void> {
+  await db()
+    .update(documents)
+    .set({
+      embedFailedAt: sql`COALESCE(${documents.embedFailedAt}, now())`,
+      lastEmbedError: reason,
+    })
+    .where(eq(documents.id, documentId));
+}
 
 /**
  * Chunk + embed a single document. Idempotent on the unique
@@ -41,6 +81,9 @@ export async function embedDocument(args: EmbedDocumentArgs): Promise<EmbedDocum
 
   const splits = chunkText(doc.content);
   if (splits.length === 0) {
+    // No embeddable content, and documents are immutable — this row would
+    // otherwise be re-selected by the sweep on every tick. Dead-letter it.
+    await markDocumentEmbedTerminal(doc.id, "no embeddable content (0 chunks)");
     return { documentId: doc.id, chunksWritten: 0, chunksSkipped: 0, empty: true };
   }
 
@@ -68,18 +111,36 @@ export async function embedDocument(args: EmbedDocumentArgs): Promise<EmbedDocum
     return { documentId: doc.id, chunksWritten: 0, chunksSkipped: skipped, empty: false };
   }
 
-  const vectors = await embedMany(
-    toEmbed.map((c) => c.content),
-    {
-      userId: doc.userId,
-      inputType: "document",
-      idempotencyKey: args.idempotencyKey ?? `embed-doc:${doc.id}`,
-    },
-  );
-  if (vectors.length !== toEmbed.length) {
-    throw new Error(
-      `[embed-document] vector count mismatch: got ${vectors.length} for ${toEmbed.length} chunks`,
+  // Only the Voyage call (and validating its output) counts toward the embed
+  // poison-pill guard. The upsert loop below is deliberately outside this
+  // try: a DB write failure is a *persistence* error, not an embed failure —
+  // the (billed) embedding succeeded — so it must not increment `embedAttempts`
+  // or dead-letter a perfectly embeddable doc. It propagates untouched and the
+  // sweep retries (no chunks written → still a candidate).
+  let vectors: number[][];
+  try {
+    vectors = await embedMany(
+      toEmbed.map((c) => c.content),
+      {
+        userId: doc.userId,
+        inputType: "document",
+        idempotencyKey: args.idempotencyKey ?? `embed-doc:${doc.id}`,
+      },
     );
+    if (vectors.length !== toEmbed.length) {
+      throw new Error(
+        `[embed-document] vector count mismatch: got ${vectors.length} for ${toEmbed.length} chunks`,
+      );
+    }
+  } catch (err) {
+    // Count the failure so the sweep dead-letters a poison-pill doc instead of
+    // re-embedding it forever, then rethrow so callers still log/handle it.
+    try {
+      await recordDocumentEmbedFailure(doc.id, err);
+    } catch {
+      // Best-effort bookkeeping — never mask the original embed error.
+    }
+    throw err;
   }
 
   // Upsert per chunk position. The (document_id, position) unique index
@@ -111,6 +172,14 @@ export async function embedDocument(args: EmbedDocumentArgs): Promise<EmbedDocum
       });
   }
 
+  // Clear any prior poison-pill streak now that the doc embedded cleanly, so the
+  // wall-clock grace is per-failure-streak and a resurrected doc doesn't carry a
+  // stale `embed_first_failed_at` into its next blip. Gated on the pre-read row
+  // so an ordinary first-time embed (the common case) skips the extra write.
+  if (doc.embedAttempts > 0 || doc.embedFailedAt !== null || doc.embedFirstFailedAt !== null) {
+    await db().update(documents).set(EMBED_SUCCESS_RESET).where(eq(documents.id, doc.id));
+  }
+
   return {
     documentId: doc.id,
     chunksWritten: toEmbed.length,
@@ -136,7 +205,9 @@ export async function findUnembeddedDocumentIds(opts: {
       .from(chunks)
       .where(eq(chunks.documentId, documents.id)),
   );
-  const filters = [noChunksFilter];
+  // Skip dead-lettered docs (permanent failure, attempt cap, or no embeddable
+  // content) so a poison pill doesn't get re-selected on every sweep forever.
+  const filters = [noChunksFilter, isNull(documents.embedFailedAt)];
   if (opts.userId) filters.push(eq(documents.userId, opts.userId));
   if (opts.source) filters.push(eq(documents.source, opts.source));
   const rows = await db()

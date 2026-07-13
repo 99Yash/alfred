@@ -4,7 +4,6 @@ import {
   CALENDAR_READONLY_SCOPE,
   createEvent,
   getFreshAccessToken,
-  listCredentials,
   listEvents,
   requireScopes,
   type CalendarEvent,
@@ -14,6 +13,7 @@ import { AppError, toPublicAppError, type PublicAppError } from "../../lib/app-e
 import { logger } from "../../lib/logger";
 import { localDateInTimezone } from "../briefing/preferences";
 import { addLocalDays, localTimeInTimezone } from "../timezone";
+import { activeGoogleCredentials, resolveGoogleCredential } from "./google-credentials";
 import { liveTool, type RegisteredTool } from "./registry";
 
 const MS_PER_DAY = 86_400_000;
@@ -34,28 +34,26 @@ interface CalendarCredential {
 
 type CompactCalendarEvent = ReturnType<typeof compactEvent>;
 
-function hasCalendarReadScope(scopes: readonly string[]): boolean {
-  return scopes.includes(CALENDAR_READONLY_SCOPE) || scopes.includes(CALENDAR_EVENTS_SCOPE);
-}
+/** Read = either scope; write = the events scope. Matched any-of by the resolver. */
+const CALENDAR_READ_SCOPES = [CALENDAR_READONLY_SCOPE, CALENDAR_EVENTS_SCOPE] as const;
+const CALENDAR_WRITE_SCOPES = [CALENDAR_EVENTS_SCOPE] as const;
 
-function hasCalendarWriteScope(scopes: readonly string[]): boolean {
-  return scopes.includes(CALENDAR_EVENTS_SCOPE);
-}
-
+/**
+ * Every active Calendar-readable account — reads fan out across all of them
+ * (an event may live in a personal or a work calendar), unlike the
+ * single-credential Google tools.
+ */
 async function calendarReadCredentials(userId: string): Promise<CalendarCredential[]> {
-  const creds = await listCredentials(userId, "google");
-  return creds
-    .filter((c) => c.status === "active" && hasCalendarReadScope(c.scopes))
-    .map((c) => ({ id: c.id, accountLabel: c.accountLabel }));
+  const creds = await activeGoogleCredentials(userId, CALENDAR_READ_SCOPES);
+  return creds.map((c) => ({ id: c.id, accountLabel: c.accountLabel }));
 }
 
 async function calendarWriteCredential(userId: string): Promise<CalendarCredential> {
-  const creds = await listCredentials(userId, "google");
-  const active = creds.find((c) => c.status === "active" && hasCalendarWriteScope(c.scopes));
-  if (!active) {
-    throw new AppError("calendar_connection_required");
-  }
-  return { id: active.id, accountLabel: active.accountLabel };
+  const cred = await resolveGoogleCredential(userId, {
+    scopes: CALENDAR_WRITE_SCOPES,
+    noConnection: "calendar_connection_required",
+  });
+  return { id: cred.id, accountLabel: cred.accountLabel };
 }
 
 export function resolveCalendarListWindow(

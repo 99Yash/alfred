@@ -7,11 +7,11 @@
  * dispatcher's gate is `user_action_policies`, not the tier — the tier only
  * drives the staging-card UX (per the registry note / ADR-0034).
  *
- * Each execute mirrors the gmail tools: resolve the user's active google
- * credential, mint a fresh access token, then call the thin Sheets client.
- * The `spreadsheets` scope is granted when the user connects the Sheets
- * feature; a token without it surfaces the client's `[sheets] 403` error
- * onto the staging row.
+ * Each execute resolves the user's active Sheets-scoped google credential via
+ * the shared resolver, mints a fresh access token, then calls the thin Sheets
+ * client. The `spreadsheets` scope is granted when the user connects the Sheets
+ * feature; a connected account lacking it raises an actionable
+ * `sheets_scope_required` rather than a raw client `[sheets] 403`.
  */
 
 import {
@@ -27,25 +27,20 @@ import {
   appendValues,
   batchUpdateSpreadsheet,
   createSpreadsheet,
-  getFreshAccessToken,
   getValues,
-  listCredentials,
+  SHEETS_SCOPE,
   updateValues,
 } from "@alfred/integrations/google";
-import { AppError } from "../../lib/app-errors";
+import { resolveGoogleAccessToken } from "./google-credentials";
 import { liveTool, type RegisteredTool } from "./registry";
 
-async function pickGoogleCredentialId(userId: string): Promise<string> {
-  const creds = await listCredentials(userId, "google");
-  const active = creds.find((c) => c.status === "active");
-  if (!active) {
-    throw new AppError("google_connection_required");
-  }
-  return active.id;
-}
-
-async function accessTokenFor(userId: string): Promise<string> {
-  return getFreshAccessToken(await pickGoogleCredentialId(userId));
+/** Resolve an access token for a Sheets call — requires the `spreadsheets` scope. */
+function accessTokenFor(userId: string): Promise<string> {
+  return resolveGoogleAccessToken(userId, {
+    scopes: [SHEETS_SCOPE],
+    noConnection: "google_connection_required",
+    noScope: "sheets_scope_required",
+  });
 }
 
 export const sheetsTools: readonly RegisteredTool[] = [
