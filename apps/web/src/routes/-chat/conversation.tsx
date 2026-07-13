@@ -1,6 +1,19 @@
 import type { SyncedArtifact, SyncedChatAttachment, SyncedChatMessage } from "@alfred/sync";
 import { ArrowDown, ShieldQuestion } from "lucide-react";
-import { Fragment, useEffect, useEffectEvent, useMemo, useRef, useState } from "react";
+import {
+  createContext,
+  forwardRef,
+  memo,
+  useCallback,
+  useContext,
+  useEffect,
+  useEffectEvent,
+  useMemo,
+  useRef,
+  useState,
+  useSyncExternalStore,
+} from "react";
+import { Virtuoso, type Components, type ListRange, type VirtuosoHandle } from "react-virtuoso";
 import { markChatTimingByAssistant } from "~/lib/chat/timing";
 import { useChatAttachmentsByMessage } from "~/lib/replicache/use-chat";
 import { useThreadArtifacts } from "~/lib/replicache/use-artifacts";
@@ -21,6 +34,13 @@ import { ToolCallGroup } from "./tool-call-group";
  * turn is mid-flight and its durable copy hasn't synced yet — the live
  * streaming bubble. Auto-sticks to the bottom as content grows unless the
  * user has scrolled up to read history.
+ *
+ * The durable transcript is windowed by react-virtuoso (issue #496): because
+ * backend compaction never deletes raw messages, a long thread's rendered node
+ * count would otherwise grow without bound. Only rows near the viewport stay
+ * mounted; the rest are virtualized in on scroll. The full message array still
+ * lives in memory (Replicache syncs the whole thread and only ever appends), so
+ * this is pure DOM windowing — no prepend/`firstItemIndex` paging is needed.
  */
 export function Conversation({
   messages,
@@ -51,26 +71,25 @@ export function Conversation({
   /** The artifact currently open in the sidebar, so its card shows "Viewing". */
   openArtifactId?: string | null;
 }) {
-  const scrollRef = useRef<HTMLDivElement | null>(null);
+  const virtuosoRef = useRef<VirtuosoHandle | null>(null);
   const stickRef = useRef(true);
-  // Last observed scrollTop, so `onScroll` can tell a real user scroll-up (the
-  // value drops) from content growing under a pinned viewport (the value holds
-  // or rises). Without this, a streaming burst taller than the detach threshold
-  // — a reply paragraph, the tool trail expanding — lands between our
-  // programmatic scroll-to-bottom and the deferred scroll event, reads as "far
-  // from bottom", and wrongly detaches stick, stranding the live edge.
-  const lastScrollTopRef = useRef(0);
+  // Bottom-most mounted row index, so a jump can pick smooth (the live edge is
+  // near, animating through it reads as "catching up") over instant (the edge
+  // is hundreds of unmeasured rows away — a smooth scroll would animate toward a
+  // guessed height and stall partway, never reaching the bottom).
+  const lastRenderedIndexRef = useRef(0);
   // Body of the just-finished stream, so its copy button can lift the rendered
-  // HTML before the durable copy syncs in and takes over (see below).
+  // HTML before the durable copy syncs in and takes over (see the footer).
   const streamBodyRef = useRef<HTMLDivElement | null>(null);
   // Drives the floating "scroll to latest" button — shown only while the user
   // has scrolled up off the live edge.
   const [showJump, setShowJump] = useState(false);
+  const reducedMotion = usePrefersReducedMotion();
 
   const showStream = shouldShowStream(messages, stream);
 
   // Attachments for this thread, grouped by message id (ADR-0065). One
-  // subscription for the whole feed; each bubble looks up its own.
+  // subscription for the whole feed; each row looks up its own.
   const threadId = messages[0]?.threadId;
   const attachmentsByMessage = useChatAttachmentsByMessage(threadId);
 
@@ -89,11 +108,28 @@ export function Conversation({
     return map;
   }, [threadArtifacts]);
 
+  // Per-row data handed to Virtuoso's `context`. Stable between durable updates
+  // (it does not carry the streaming snapshot), so windowed rows stay memoized
+  // and do not re-render on every streaming frame — only the footer does.
+  const itemContext = useMemo<FeedItemContext>(
+    () => ({
+      messages,
+      attachmentsByMessage,
+      artifactsByMessage,
+      onRetry,
+      onOpenArtifact,
+      openArtifactId,
+    }),
+    [messages, attachmentsByMessage, artifactsByMessage, onRetry, onOpenArtifact, openArtifactId],
+  );
+
+  const streamTimingRefs = useStreamRenderTiming(showStream ? stream : null);
+
   // ---- Follow the live edge -------------------------------------------
   // While a turn is in flight the viewport rides the bottom so the newest
   // activity — reasoning, the tool group's current step, the reply text —
   // stays in view without the user touching the scrollbar. Scrolling up to
-  // read history detaches it (see `onScroll`); sending a new message
+  // read history detaches it (see `onAtBottomChange`); sending a new message
   // re-engages it so the next turn follows from the start.
   const lastUserId = useMemo(() => {
     for (let i = messages.length - 1; i >= 0; i--) {
@@ -103,39 +139,65 @@ export function Conversation({
     return null;
   }, [messages]);
   // Re-engage stick-to-bottom when the user sends a new message (the last
-  // user-message id changes). Done in an effect, not during render: writing
-  // stickRef in render is impure (React can discard the render and leak the
-  // write), and stickRef is only read post-commit — by onScroll and the
-  // re-stick effect below — so the timing is equivalent.
+  // user-message id changes) — even if they had scrolled up to read history.
+  // `followOutput`/`autoscrollToBottom` only pin when already near the bottom,
+  // so from far up we jump explicitly to the live edge. Skip the mount run
+  // (`initialTopMostItemIndex` + the thread-switch effect already open at the
+  // edge); this fires only on genuinely new user turns after that. An assistant
+  // message landing while detached is not a user turn, so it never yanks.
+  const firstUserTurn = useRef(true);
   useEffect(() => {
-    stickRef.current = true;
-  }, [lastUserId]);
-
-  // Detach only on a genuine upward user scroll (scrollTop actually drops);
-  // re-attach once they return to the bottom (within 80px). Content growth never
-  // lowers scrollTop, so a fast streaming burst can't masquerade as a scroll-up
-  // and falsely detach. Programmatic scroll-to-bottom raises scrollTop, so it
-  // re-confirms the attached state rather than tripping the detach.
-  const onScroll = () => {
-    const el = scrollRef.current;
-    if (!el) return;
-    const atBottom = el.scrollHeight - el.scrollTop - el.clientHeight < 80;
-    const scrolledUp = el.scrollTop < lastScrollTopRef.current - 1;
-    lastScrollTopRef.current = el.scrollTop;
-    if (atBottom) stickRef.current = true;
-    else if (scrolledUp) stickRef.current = false;
-    setShowJump(!stickRef.current);
-  };
-
-  // Jump back to the live edge and re-engage stick-to-bottom. Smooth so the
-  // motion reads as "catching up" rather than a teleport.
-  const jumpToBottom = () => {
-    const el = scrollRef.current;
-    if (!el) return;
+    if (firstUserTurn.current) {
+      firstUserTurn.current = false;
+      return;
+    }
     stickRef.current = true;
     setShowJump(false);
-    el.scrollTo({ top: el.scrollHeight, behavior: "smooth" });
-  };
+    virtuosoRef.current?.scrollToIndex({ index: "LAST", align: "end", behavior: "auto" });
+  }, [lastUserId]);
+
+  // Detach only when the viewport genuinely leaves the bottom (a user scroll-up)
+  // and re-attach when it returns. Because `autoscrollToBottom` below keeps us
+  // pinned while a turn streams, content growth never lowers the viewport off
+  // the bottom on its own — so a streaming burst can't masquerade as a scroll-up
+  // and falsely detach.
+  const onAtBottomChange = useCallback((atBottom: boolean) => {
+    stickRef.current = atBottom;
+    setShowJump(!atBottom);
+  }, []);
+
+  const onRangeChanged = useCallback((range: ListRange) => {
+    lastRenderedIndexRef.current = range.endIndex;
+  }, []);
+
+  // Follow the live edge as the footer's streaming bubble grows. `stream` is a
+  // fresh snapshot each drip tick, so this fires per frame during a turn and on
+  // each new durable message. `autoscrollToBottom` accounts for Virtuoso's
+  // async height measurement (a raw `scrollTop = scrollHeight` would race the
+  // ResizeObserver and land short); it only scrolls when already following.
+  useEffect(() => {
+    if (stickRef.current) virtuosoRef.current?.autoscrollToBottom();
+  }, [messages, stream]);
+
+  // Jump back to the live edge and re-engage stick-to-bottom. `scrollToIndex` is
+  // measurement-aware — it re-targets as it mounts unmeasured rows, so it lands
+  // exactly at the bottom (a raw `scrollTo(scrollHeight)` chases an estimated
+  // height and stalls partway). Smooth reads as "catching up" but can only
+  // animate through already-measured rows, so it's used only when the live edge
+  // is close; from far up (or under reduced motion) the jump is instant so it
+  // reliably reaches the bottom. If a turn is streaming, stick-to-bottom then
+  // rides the footer into view on the next drip tick.
+  const jumpToBottom = useCallback(() => {
+    stickRef.current = true;
+    setShowJump(false);
+    const lastIndex = Math.max(0, messages.length - 1);
+    const near = lastIndex - lastRenderedIndexRef.current <= 25;
+    virtuosoRef.current?.scrollToIndex({
+      index: "LAST",
+      align: "end",
+      behavior: !reducedMotion && near ? "smooth" : "auto",
+    });
+  }, [reducedMotion, messages.length]);
 
   // The finish toast's "Open" action jumps back to the live edge — useful when
   // the user had scrolled up before the away-reply landed.
@@ -146,22 +208,15 @@ export function Conversation({
     return () => window.removeEventListener(SCROLL_CHAT_TO_BOTTOM_EVENT, handler);
   }, []);
 
-  // Re-stick to the bottom whenever the feed grows. `stream` is a fresh
-  // snapshot each drip tick while a turn is in flight, so this fires per frame
-  // during streaming and on each new durable message — but not on unrelated
-  // re-renders (which a depless effect would).
+  // Re-land at the bottom when the user switches threads. The component stays
+  // mounted across `/chat/$threadId` navigations (only `messages` swaps), so
+  // `initialTopMostItemIndex` — which applies once on mount — can't do it.
   useEffect(() => {
-    const el = scrollRef.current;
-    if (!el || !stickRef.current) return;
-    el.scrollTop = el.scrollHeight;
-    // Some browsers coalesce programmatic scroll events during rapid streaming.
-    // Keep the direction detector in sync with the write above so the next real
-    // user scroll is compared against the actual pinned position, not an older
-    // event sample.
-    lastScrollTopRef.current = el.scrollTop;
-  }, [messages, stream]);
-
-  const streamTimingRefs = useStreamRenderTiming(showStream ? stream : null);
+    if (!threadId) return;
+    stickRef.current = true;
+    setShowJump(false);
+    virtuosoRef.current?.scrollToIndex({ index: "LAST", align: "end", behavior: "auto" });
+  }, [threadId]);
 
   useEffect(() => {
     for (const message of messages) {
@@ -179,102 +234,213 @@ export function Conversation({
     }
   }, [messages]);
 
+  const footerValue = useMemo<FeedFooterValue>(
+    () => ({
+      showStream,
+      stream,
+      streamTimingRefs,
+      streamBodyRef,
+      followUps,
+      onFollowUp,
+    }),
+    [showStream, stream, streamTimingRefs, followUps, onFollowUp],
+  );
+
+  const followOutput = useCallback(() => (stickRef.current ? ("auto" as const) : false), []);
+
+  // Open at the live edge. Virtuoso reads this once on mount, so a lazy initial
+  // state (rather than a memo over `messages`) captures the initial count
+  // without re-computing as the thread grows. Thread switches are re-landed by
+  // the `threadId` effect above.
+  const [initialIndex] = useState(() => ({
+    index: Math.max(0, messages.length - 1),
+    align: "end" as const,
+  }));
+
   return (
     <div className="relative flex min-h-0 flex-1 flex-col">
-      <div
-        ref={scrollRef}
-        onScroll={onScroll}
-        className="scroll-stable min-h-0 flex-1 overflow-y-auto"
-      >
-        <div className="mx-auto flex w-full max-w-3xl flex-col gap-5 px-4 py-6">
-          {messages.map((m, i) => {
-            const retry =
-              onRetry && m.role === "assistant" && m.status === "failed"
-                ? prevUserTurn(messages, i, attachmentsByMessage, onRetry)
-                : undefined;
-            const messageArtifacts = onOpenArtifact ? artifactsByMessage.get(m.id) : undefined;
-            return (
-              <Fragment key={m.id}>
-                <MessageBubble
-                  message={m}
-                  attachments={attachmentsByMessage[m.id]}
-                  onRetry={retry?.same}
-                  onRetryWithoutAttachments={retry?.withoutAttachments}
-                />
-                {messageArtifacts && onOpenArtifact
-                  ? messageArtifacts.map((artifact) => (
-                      <ArtifactTriggerCard
-                        key={artifact.id}
-                        artifact={artifact}
-                        active={artifact.id === openArtifactId}
-                        onOpen={onOpenArtifact}
-                      />
-                    ))
-                  : null}
-              </Fragment>
-            );
-          })}
-
-          {onFollowUp && followUps.length > 0 ? (
-            <FollowUpSuggestions suggestions={followUps} onPick={onFollowUp} />
-          ) : null}
-
-          {showStream && stream ? (
-            <div key={`${stream.messageId}:${stream.runId}`} className="flex flex-col gap-2">
-              {stream.reasoning.length > 0 || stream.reasoningActive ? (
-                <div ref={stream.reasoning.length > 0 ? streamTimingRefs.reasoning : undefined}>
-                  <ReasoningSection
-                    reasoning={stream.reasoning}
-                    active={stream.reasoningActive}
-                    durationMs={stream.reasoningMs}
-                  />
-                </div>
-              ) : null}
-
-              {stream.tools.length > 0 ? (
-                <ToolCallGroup
-                  tools={stream.tools}
-                  narration={stream.narration}
-                  active={!stream.done}
-                />
-              ) : null}
-
-              {stream.compacting ? <ThinkingIndicator label="Condensing conversation…" /> : null}
-
-              {stream.text.length > 0 ? (
-                <div ref={streamBodyRef}>
-                  <div ref={streamTimingRefs.text}>
-                    <AssistantMarkdown text={stream.text} streaming={!stream.done} />
-                  </div>
-                </div>
-              ) : stream.tools.length === 0 &&
-                stream.reasoning.length === 0 &&
-                !stream.reasoningActive &&
-                !stream.compacting ? (
-                <div ref={streamTimingRefs.thinking}>
-                  <ThinkingIndicator />
-                </div>
-              ) : null}
-
-              {stream.done ? <SourcesStrip sources={collectSources(stream.tools)} /> : null}
-
-              {/* The live bubble holds the copy affordance during the brief window
-               * between "done" and the durable copy syncing in (which then renders
-               * its own MessageBubble copy button). */}
-              {stream.done && stream.text.length > 0 ? (
-                <CopyMessageButton content={stream.text} htmlRef={streamBodyRef} />
-              ) : null}
-
-              {stream.awaitingApproval ? <ApprovalNotice /> : null}
-              {stream.done ? <span ref={streamTimingRefs.done} hidden /> : null}
-            </div>
-          ) : null}
-        </div>
-      </div>
+      <FeedFooterContext value={footerValue}>
+        <Virtuoso<SyncedChatMessage, FeedItemContext>
+          ref={virtuosoRef}
+          data={messages}
+          context={itemContext}
+          computeItemKey={computeItemKey}
+          itemContent={renderItem}
+          components={FEED_COMPONENTS}
+          followOutput={followOutput}
+          atBottomThreshold={80}
+          atBottomStateChange={onAtBottomChange}
+          rangeChanged={onRangeChanged}
+          initialTopMostItemIndex={initialIndex}
+          increaseViewportBy={{ top: 800, bottom: 800 }}
+          className="scroll-stable min-h-0 flex-1"
+        />
+      </FeedFooterContext>
       <ScrollToBottomButton show={showJump} onClick={jumpToBottom} />
     </div>
   );
 }
+
+// ---- Windowed rows ----------------------------------------------------
+
+interface FeedItemContext {
+  messages: SyncedChatMessage[];
+  attachmentsByMessage: Record<string, SyncedChatAttachment[]>;
+  artifactsByMessage: Map<string, SyncedArtifact[]>;
+  onRetry?: (
+    text: string,
+    retryAttachmentIds?: string[],
+    retryAttachmentMessageId?: string,
+  ) => void;
+  onOpenArtifact?: (artifactId: string) => void;
+  openArtifactId?: string | null;
+}
+
+const computeItemKey = (_: number, message: SyncedChatMessage) => message.id;
+
+const renderItem = (index: number, message: SyncedChatMessage, context: FeedItemContext) => (
+  <FeedRow index={index} message={message} context={context} />
+);
+
+/**
+ * One durable message and any artifact trigger cards it authored. Memoized on
+ * message identity so streaming re-renders (which change only the footer) leave
+ * the windowed rows untouched. The `pb-5` replaces the feed's old inter-row
+ * `gap-5`, since virtualized items stack with no gap of their own.
+ */
+const FeedRow = memo(function FeedRow({
+  index,
+  message,
+  context,
+}: {
+  index: number;
+  message: SyncedChatMessage;
+  context: FeedItemContext;
+}) {
+  const { onOpenArtifact, openArtifactId } = context;
+  const retry =
+    context.onRetry && message.role === "assistant" && message.status === "failed"
+      ? prevUserTurn(context.messages, index, context.attachmentsByMessage, context.onRetry)
+      : undefined;
+  const messageArtifacts = onOpenArtifact ? context.artifactsByMessage.get(message.id) : undefined;
+  return (
+    <div className="flex flex-col gap-5 pb-5">
+      <MessageBubble
+        message={message}
+        attachments={context.attachmentsByMessage[message.id]}
+        onRetry={retry?.same}
+        onRetryWithoutAttachments={retry?.withoutAttachments}
+      />
+      {messageArtifacts && onOpenArtifact
+        ? messageArtifacts.map((artifact) => (
+            <ArtifactTriggerCard
+              key={artifact.id}
+              artifact={artifact}
+              active={artifact.id === openArtifactId}
+              onOpen={onOpenArtifact}
+            />
+          ))
+        : null}
+    </div>
+  );
+});
+
+// ---- Header / List / Footer chrome ------------------------------------
+// Stable module-level component set so Virtuoso never remounts the chrome.
+// The footer reads the live streaming snapshot from React context, keeping it
+// out of Virtuoso's `context` (which would re-render every windowed row per
+// streaming frame).
+
+interface FeedFooterValue {
+  showStream: boolean;
+  stream: StreamingMessage | null;
+  streamTimingRefs: StreamRenderTiming;
+  streamBodyRef: React.RefObject<HTMLDivElement | null>;
+  followUps: ReadonlyArray<FollowUpSuggestion>;
+  onFollowUp?: (text: string) => void;
+}
+
+const FeedFooterContext = createContext<FeedFooterValue | null>(null);
+
+const FeedList = forwardRef<HTMLDivElement, React.HTMLAttributes<HTMLDivElement>>(
+  function FeedList({ style, children, ...props }, ref) {
+    return (
+      <div ref={ref} {...props} style={style} className="mx-auto w-full max-w-3xl px-4">
+        {children}
+      </div>
+    );
+  },
+);
+
+function FeedHeader() {
+  return <div className="h-6" />;
+}
+
+function FeedFooter() {
+  const ctx = useContext(FeedFooterContext);
+  if (!ctx) return <div className="h-6" />;
+  const { showStream, stream, streamTimingRefs, streamBodyRef, followUps, onFollowUp } = ctx;
+  return (
+    <div className="flex flex-col gap-5 pb-6">
+      {onFollowUp && followUps.length > 0 ? (
+        <FollowUpSuggestions suggestions={followUps} onPick={onFollowUp} />
+      ) : null}
+
+      {showStream && stream ? (
+        <div key={`${stream.messageId}:${stream.runId}`} className="flex flex-col gap-2">
+          {stream.reasoning.length > 0 || stream.reasoningActive ? (
+            <div ref={stream.reasoning.length > 0 ? streamTimingRefs.reasoning : undefined}>
+              <ReasoningSection
+                reasoning={stream.reasoning}
+                active={stream.reasoningActive}
+                durationMs={stream.reasoningMs}
+              />
+            </div>
+          ) : null}
+
+          {stream.tools.length > 0 ? (
+            <ToolCallGroup tools={stream.tools} narration={stream.narration} active={!stream.done} />
+          ) : null}
+
+          {stream.compacting ? <ThinkingIndicator label="Condensing conversation…" /> : null}
+
+          {stream.text.length > 0 ? (
+            <div ref={streamBodyRef}>
+              <div ref={streamTimingRefs.text}>
+                <AssistantMarkdown text={stream.text} streaming={!stream.done} />
+              </div>
+            </div>
+          ) : stream.tools.length === 0 &&
+            stream.reasoning.length === 0 &&
+            !stream.reasoningActive &&
+            !stream.compacting ? (
+            <div ref={streamTimingRefs.thinking}>
+              <ThinkingIndicator />
+            </div>
+          ) : null}
+
+          {stream.done ? <SourcesStrip sources={collectSources(stream.tools)} /> : null}
+
+          {/* The live bubble holds the copy affordance during the brief window
+           * between "done" and the durable copy syncing in (which then renders
+           * its own MessageBubble copy button). */}
+          {stream.done && stream.text.length > 0 ? (
+            <CopyMessageButton content={stream.text} htmlRef={streamBodyRef} />
+          ) : null}
+
+          {stream.awaitingApproval ? <ApprovalNotice /> : null}
+          {stream.done ? <span ref={streamTimingRefs.done} hidden /> : null}
+        </div>
+      ) : null}
+    </div>
+  );
+}
+
+const FEED_COMPONENTS: Components<SyncedChatMessage, FeedItemContext> = {
+  Header: FeedHeader,
+  List: FeedList,
+  Footer: FeedFooter,
+};
 
 /**
  * Resolves the user message preceding a failed reply into a bound retry handler.
@@ -338,12 +504,38 @@ function ScrollToBottomButton({ show, onClick }: { show: boolean; onClick: () =>
 
 const EMPTY_FOLLOW_UPS: ReadonlyArray<FollowUpSuggestion> = [];
 
-function useStreamRenderTiming(stream: StreamingMessage | null): {
+/**
+ * Tracks the user's reduced-motion preference reactively (SSR-safe). Used to
+ * turn the jump-to-latest scroll animation into an instant jump.
+ */
+function usePrefersReducedMotion(): boolean {
+  return useSyncExternalStore(
+    subscribeReducedMotion,
+    () => getReducedMotionSnapshot(),
+    () => false,
+  );
+}
+
+function subscribeReducedMotion(onChange: () => void): () => void {
+  if (typeof window === "undefined" || !window.matchMedia) return () => {};
+  const mql = window.matchMedia("(prefers-reduced-motion: reduce)");
+  mql.addEventListener("change", onChange);
+  return () => mql.removeEventListener("change", onChange);
+}
+
+function getReducedMotionSnapshot(): boolean {
+  if (typeof window === "undefined" || !window.matchMedia) return false;
+  return window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+}
+
+interface StreamRenderTiming {
   thinking: (el: HTMLDivElement | null) => void;
   reasoning: (el: HTMLDivElement | null) => void;
   text: (el: HTMLDivElement | null) => void;
   done: (el: HTMLSpanElement | null) => void;
-} {
+}
+
+function useStreamRenderTiming(stream: StreamingMessage | null): StreamRenderTiming {
   const thinking = useRefCallback((el: HTMLDivElement | null) => {
     if (!el || !stream) return;
     markChatTimingByAssistant(stream.messageId, "thinking_indicator_rendered", undefined, {
