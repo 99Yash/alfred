@@ -6,9 +6,9 @@ import {
   BRIEFING_SIGNAL_DURABILITIES,
   briefingContextSignalSchema,
   briefingSignalDurability,
-  CANONICAL_FACT_KEYS,
   isBriefingContextSignalKind,
   isEphemeralBriefingSignal,
+  isUserFactKey,
   MAX_BRIEFING_SIGNAL_DETAIL_LENGTH,
   MAX_BRIEFING_SIGNAL_EVIDENCE,
 } from "@alfred/contracts";
@@ -57,18 +57,18 @@ describe("briefing context signal taxonomy", () => {
 
 describe("briefing signal memory-write policy (ADR-0083 §3)", () => {
   test("signals are a namespace disjoint from durable facts — a signal is never a user_facts key", () => {
-    const factKeys = new Set<string>(CANONICAL_FACT_KEYS);
     for (const kind of BRIEFING_CONTEXT_SIGNAL_KINDS) {
       assert.equal(
-        factKeys.has(kind),
+        isUserFactKey(kind),
         false,
-        `signal "${kind}" collides with a durable fact key — signals must never masquerade as identity facts`,
+        `signal "${kind}" collides with a real user_facts key — signals must never masquerade as durable facts`,
       );
     }
   });
 
-  test("vague aggregate signals (mood/momentum) are ephemeral, never persistable", () => {
-    assert.equal(isEphemeralBriefingSignal("shipping_momentum"), true);
+  test("shipping momentum is the exact set of ephemeral, never-persistable signals", () => {
+    const ephemeral = BRIEFING_CONTEXT_SIGNAL_KINDS.filter(isEphemeralBriefingSignal);
+    assert.deepEqual(ephemeral, ["shipping_momentum"]);
     assert.equal(briefingSignalDurability("shipping_momentum"), "ephemeral_query_time");
   });
 
