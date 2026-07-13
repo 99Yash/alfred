@@ -93,6 +93,7 @@ import {
 } from "drizzle-orm";
 import { ZodError } from "zod";
 import { isInternalWorkflowSlug } from "../agent/registry";
+import { isUninformativeRelationshipFact } from "../memory/fact-policy";
 
 /**
  * One row's contribution to the patch: its row_version drives CVR diffing,
@@ -195,14 +196,21 @@ const ENTITY_FETCHERS = {
         and(eq(userFacts.userId, userId), inArray(userFacts.status, ["proposed", "confirmed"])),
       )
       .orderBy(asc(userFacts.id));
-    return rows.flatMap((f: UserFact) =>
-      toEntityRow({
+    return rows.flatMap((f: UserFact) => {
+      // #491: a proposed `relationship:<email>` edge to a service/no-reply sender,
+      // or with an empty/uninformative value, is unreviewable junk — keep the row
+      // server-side (intact + queryable) but never sync it to the /memory review
+      // queue. Confirmed facts and all non-relationship facts are unaffected.
+      if (f.status === "proposed" && isUninformativeRelationshipFact(f.key, f.value)) {
+        return [];
+      }
+      return toEntityRow({
         slug: "FACT",
         id: f.id,
         rowVersion: f.rowVersion,
         serialize: () => serializeFact(f),
-      }),
-    );
+      });
+    });
   },
 
   BRIEFING: async (tx, userId) => {

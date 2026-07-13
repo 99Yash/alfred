@@ -23,7 +23,12 @@ import {
 import { z } from "zod";
 import { publishEvent } from "../../events/publish";
 import { emitReplicachePokes } from "../../events/replicache-events";
-import { classifyDocumentFactKey, isSingleValuedKey, validateFactValueForKey } from "./fact-policy";
+import {
+  classifyDocumentFactKey,
+  isSingleValuedKey,
+  isUninformativeRelationshipFact,
+  validateFactValueForKey,
+} from "./fact-policy";
 import { valueSignature } from "./signature";
 import {
   AUTO_CONFIRM_THRESHOLD,
@@ -145,6 +150,11 @@ function rowToFact(r: UserFact): FactRow {
  *     `source.kind === "document"` (the polluted path); other sources persist
  *     it as-is with a `fact_key_unknown_non_document` trace (visible drift, no
  *     breakage to user/cold_start/tool_call/agent).
+ *  0a. **Relationship junk floor (ALL sources, #492).** A `relationship:<email>`
+ *     edge to a service/no-reply sender, or with an empty/uninformative value, is
+ *     never persisted regardless of source. Junk has ONE definition
+ *     (`isUninformativeRelationshipFact`) shared with the read filter (#491) and
+ *     the backfill purge (#493).
  *  1. **Document write policy (`document` only).** Reject `not_writable`
  *     (`pref:*`, `phone_number`, junk) and bad value shapes. Authorship
  *     ("is this doc by the user?") is NOT here — `proposeFact` lacks document
@@ -181,6 +191,11 @@ export async function proposeFact(args: ProposeFactArgs): Promise<FactRow | null
     canon.ok && canon.wasAlias
       ? { ...parsed.source, meta: { ...parsed.source.meta, originalKey: canon.originalKey } }
       : parsed.source;
+
+  // (0a) Relationship junk floor — ALL sources. A service/no-reply edge or an
+  // empty/uninformative relationship value is junk no matter who proposed it;
+  // never persist one. Shared definition with the read filter (#491) + backfill.
+  if (canon.ok && isUninformativeRelationshipFact(key, parsed.value)) return null;
 
   // (1) Document write policy — only the per-document path is allow-listed.
   if (isDocument && canon.ok) {
