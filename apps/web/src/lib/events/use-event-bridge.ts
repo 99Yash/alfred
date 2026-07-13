@@ -25,9 +25,9 @@ import { openEventStream } from "./stream";
 export function useEventBridge(): void {
   const queryClient = useQueryClient();
   const { data: session } = authClient.useSession();
-  const userId = session?.user?.id;
 
   useEffect(() => {
+    const userId = session?.user?.id;
     if (!userId) return;
     const close = openEventStream({
       onFrame: (frame) => {
@@ -44,5 +44,5 @@ export function useEventBridge(): void {
       },
     });
     return close;
-  }, [userId, queryClient]);
+  }, [session?.user?.id, queryClient]);
 }

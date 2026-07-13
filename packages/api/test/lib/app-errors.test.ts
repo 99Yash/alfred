@@ -84,3 +84,42 @@ test("configured pino logger never writes raw error messages", () => {
   assert.match(output, /safe public message/);
   assert.doesNotMatch(output, /usr_private|Failed query|insert into/i);
 });
+
+test("verbose serializer surfaces provider APICallError diagnostics for dev", () => {
+  const apiCallError = Object.assign(new Error("tools.9.custom.input_schema.type: Field required"), {
+    name: "AI_APICallError",
+    statusCode: 400,
+    url: "https://api.anthropic.com/v1/messages",
+    responseBody: `body-${"x".repeat(10_000)}`,
+  });
+
+  const strict = serializeError(apiCallError);
+  assert.equal(strict.message, undefined);
+  assert.equal(strict.statusCode, undefined);
+
+  const verbose = serializeError(apiCallError, true);
+  assert.equal(verbose.type, "AI_APICallError");
+  assert.equal(verbose.message, "tools.9.custom.input_schema.type: Field required");
+  assert.equal(verbose.statusCode, 400);
+  assert.equal(verbose.url, "https://api.anthropic.com/v1/messages");
+  // Response body is retained but capped so a large provider body can't flood logs.
+  assert.ok(verbose.responseBody !== undefined && verbose.responseBody.length <= 4_000);
+});
+
+test("verbose logger writes the raw message; default logger does not", () => {
+  const err = new Error("tools.9.custom.input_schema.type: Field required");
+
+  let verboseOut = "";
+  createLogger({ write: (c: string) => (verboseOut += c) }, { verboseErrors: true }).error(
+    { err },
+    "chat turn failed",
+  );
+  assert.match(verboseOut, /Field required/);
+
+  let strictOut = "";
+  createLogger({ write: (c: string) => (strictOut += c) }, { verboseErrors: false }).error(
+    { err },
+    "chat turn failed",
+  );
+  assert.doesNotMatch(strictOut, /Field required/);
+});

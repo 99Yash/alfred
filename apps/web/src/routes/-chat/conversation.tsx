@@ -102,11 +102,14 @@ export function Conversation({
     }
     return null;
   }, [messages]);
-  const seenUserIdRef = useRef<string | null>(null);
-  if (lastUserId !== seenUserIdRef.current) {
-    seenUserIdRef.current = lastUserId;
+  // Re-engage stick-to-bottom when the user sends a new message (the last
+  // user-message id changes). Done in an effect, not during render: writing
+  // stickRef in render is impure (React can discard the render and leak the
+  // write), and stickRef is only read post-commit — by onScroll and the
+  // re-stick effect below — so the timing is equivalent.
+  useEffect(() => {
     stickRef.current = true;
-  }
+  }, [lastUserId]);
 
   // Detach only on a genuine upward user scroll (scrollTop actually drops);
   // re-attach once they return to the bottom (within 80px). Content growth never
@@ -385,7 +388,9 @@ function useRefCallback<T extends Element>(
   callback: (el: T | null) => void,
 ): (el: T | null) => void {
   const callbackRef = useRef(callback);
-  callbackRef.current = callback;
+  useEffect(() => {
+    callbackRef.current = callback;
+  }, [callback]);
   return useMemo(() => (el: T | null) => callbackRef.current(el), []);
 }
 

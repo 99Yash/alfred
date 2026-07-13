@@ -11,7 +11,6 @@ import {
   useLayoutEffect,
   useMemo,
   useReducer,
-  useRef,
   useState,
   type ReactNode,
   type SetStateAction,
@@ -201,9 +200,9 @@ export function AppShell({ children }: { children: ReactNode }) {
   // viewports get it collapsed. Same during-render pattern as the
   // right-rail mode reset in `chat-shell.tsx`; the ref tracks the
   // previous mode so we only snap on the transition, not every render.
-  const prevSidebarModeRef = useRef(sidebarMode);
-  if (prevSidebarModeRef.current !== sidebarMode) {
-    prevSidebarModeRef.current = sidebarMode;
+  const [prevSidebarMode, setPrevSidebarMode] = useState(sidebarMode);
+  if (prevSidebarMode !== sidebarMode) {
+    setPrevSidebarMode(sidebarMode);
     setSidebarOpen(sidebarMode === "inline");
   }
 
@@ -218,8 +217,8 @@ export function AppShell({ children }: { children: ReactNode }) {
    * stays fresh no matter which route the user entered through. */
   useEffect(() => {
     if (isPending) return;
-    writeAuthHint(!!sessionUser);
-  }, [isPending, sessionUser]);
+    writeAuthHint(!!session?.user);
+  }, [isPending, session?.user]);
   const { data: onboardingData } = useQuery({
     queryKey: ["me", "onboarding"],
     queryFn: async () => {
@@ -243,31 +242,34 @@ export function AppShell({ children }: { children: ReactNode }) {
    * Written here for the same reason as the auth hint: AppShell wraps every
    * route, so the hint stays fresh no matter where the user entered. */
   useEffect(() => {
-    if (routeToOnboarding === undefined) return;
-    writeOnboardingHint(!routeToOnboarding);
-  }, [routeToOnboarding]);
+    const nextRoute = onboardingData?.routeToOnboarding;
+    if (nextRoute === undefined) return;
+    writeOnboardingHint(!nextRoute);
+  }, [onboardingData?.routeToOnboarding]);
 
   /* First-paint guess (read once at mount): does this returning user appear to
    * be already onboarded? Lets us render content optimistically instead of
    * blanking while the query resolves. */
   const [onboardingHintComplete] = useState(readOnboardingHint);
   useEffect(() => {
-    if (!sessionUser) return;
-    if (routeToOnboarding === undefined) return;
-    if (routeToOnboarding && !onOnboardingRoute) {
+    if (!session?.user) return;
+    const nextRoute = onboardingData?.routeToOnboarding;
+    if (nextRoute === undefined) return;
+    if (nextRoute && !onOnboardingRoute) {
       void navigate({ to: "/onboarding", search: { step: 1 } });
-    } else if (!routeToOnboarding && onOnboardingRoute) {
+    } else if (!nextRoute && onOnboardingRoute) {
       void navigate({ to: "/" });
     }
-  }, [routeToOnboarding, onOnboardingRoute, sessionUser, navigate]);
+  }, [onboardingData?.routeToOnboarding, onOnboardingRoute, session?.user, navigate]);
 
-  // Close the palette on route change. Tracking the previous location in a
-  // ref (not state — we never read it in render) and resetting during render
-  // replaces the prior useEffects that the linter flagged as derived-state
-  // effects.
-  const prevLocationRef = useRef(location);
-  if (prevLocationRef.current !== location) {
-    prevLocationRef.current = location;
+  // Close the palette on route change. Tracking the previous location in
+  // state (not a ref) and resetting during render replaces the prior
+  // useEffects that the linter flagged as derived-state effects — and keeps
+  // the reset a pure render-phase state adjustment (a ref write during render
+  // can leak if React discards the render; a queued setState cannot).
+  const [prevLocation, setPrevLocation] = useState(location);
+  if (prevLocation !== location) {
+    setPrevLocation(location);
     setPaletteOpen(false);
     setRightRailNode(null);
     setThreadViewModel(null);
@@ -306,17 +308,16 @@ export function AppShell({ children }: { children: ReactNode }) {
   const pathname = location.pathname;
   const onPreviewChatRoute =
     pathname === "/preview/chat" || pathname.startsWith("/preview/chat/");
-  const searchStr = location.searchStr;
   const mustRedirectToLogin = !isPending && !sessionUser && !chromeless;
   useEffect(() => {
     if (!mustRedirectToLogin) return;
-    const target = pathname + searchStr;
+    const target = location.pathname + location.searchStr;
     void navigate({
       to: "/login",
       search: { redirect: target === "/" ? undefined : target },
       replace: true,
     });
-  }, [mustRedirectToLogin, pathname, searchStr, navigate]);
+  }, [mustRedirectToLogin, location.pathname, location.searchStr, navigate]);
 
   // Global navigation chords while authenticated: ⌘/Ctrl+K toggles the command
   // palette, ⌘J starts a new chat (⌘N is browser-reserved, so we use ⌘J).

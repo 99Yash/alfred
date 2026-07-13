@@ -212,6 +212,6 @@ export function useSendMessage(): SendMessage {
       }
       return true;
     },
-    [rep, userId, navigate],
+    [rep, session?.user?.id, navigate],
   );
 }

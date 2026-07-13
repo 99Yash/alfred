@@ -45,9 +45,9 @@ export function ReasoningSection({
   // on the transition without an effect (an effect would flash the open panel
   // for a frame). The user can still toggle freely between transitions.
   const [value, setValue] = useState(active ? ITEM : "");
-  const prevActive = useRef(active);
-  if (prevActive.current !== active) {
-    prevActive.current = active;
+  const [prevActive, setPrevActive] = useState(active);
+  if (prevActive !== active) {
+    setPrevActive(active);
     if (!active) setValue("");
   }
 
