@@ -1,8 +1,15 @@
 # Chat compaction and overflow resilience — v1 (#369, #370)
 
-> **Status.** Grilled and locked 2026-07-11. This PRD supersedes the original
-> issue sketches for #369 and #370 and amends the chat/composer deferral in
-> ADR-0035. Implementation has not started.
+> **Status.** Grilled and locked 2026-07-11; implementation active in PR #485.
+> The authored-brief estimator, persisted cross-run summary path, foreground and
+> background coordinators, bounded history retrieval, media enrichment, runtime
+> lifecycle, explicit compaction UI phase, within-run tool-burst guard, and
+> existing-thread backfill and oversized-latest-message paths are wired.
+> Existing-thread backfill, oversized-latest-message handling, and structured
+> estimator-vs-billed-input reporting are also wired. Remaining acceptance work
+> is the live long-thread smoke/semantic eval gate. This PRD supersedes the
+> original issue sketches for #369 and #370 and amends the chat/composer deferral
+> in ADR-0035.
 
 ## Problem Statement
 
