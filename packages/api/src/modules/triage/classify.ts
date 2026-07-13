@@ -302,7 +302,7 @@ Rules:
     Apply five tests IN ORDER. Stop at the first that fails; report it in \`todoDecision.outcome\`. Only an email that passes all five gets a \`todoSuggestion\`.
     16a. Obligation on me (gate) — is there an action AND does the USER own it? Two ways to fail. (i) No action falls on the user: pure awareness, the sender's job, an invitation/opportunity/optional nicety, or a product nudging engagement → outcome \`no_obligation\`. A social-network connection request (LinkedIn/X/etc. — "wants to connect", "I want to connect", "would like to join your network") is the canonical optional nicety: the sender's want, not your obligation, and any urgency it phrases is THEIRS → \`no_obligation\` — regardless of the requester's stated title or seniority. A cold "Founder & CEO wants to connect" is still the sender's want, not the user's obligation; whether a connection or any other cold ask is worth a todo is decided by 16b's person-waiting test (the Sender relationship observation), NOT by the title in the email. Distribution-list/service mail (Sender kind \`group\` or \`service\`) is rarely individually actionable unless the body names, assigns, or directly @-mentions the user; do not mint a todo from a generic blast, shared-inbox update, or service activity feed. (ii) The action is real but the email assigns it to a DIFFERENT person: use the "You (the user being triaged)" block to know who you are, then check the owner — if the body hands the task to someone who is not the user ("Sakshi is running standup", "@alice please review the PR", "Karthik to send the deck"), the obligation is THEIRS, not the user's → outcome \`no_obligation\` (note who owns it). A newsletter or shipped-order notice leaves no ball in the user's court; an FYI that says "auto-renews in 30 days unless you cancel" DOES.
     16b. Significance — a REAL, EXTERNAL stake. The obligation must carry a real stake, one of: a real identifiable person waiting on the user; money owed or at risk; a hard deadline; loss of access; a commitment the user made to a human; OR a real-world consequence to the user judged from the content. That last clause is the ONLY way automated/bot mail earns a todo, and for code/PR/review findings (whether from a bot OR a human reviewer) it turns on LIVENESS — is something ALREADY LIVE at stake? A real stake = the issue affects PRODUCTION or already-merged (\`main\`) code: a secret already committed/exposed, a vulnerability in \`main\`, an outage, a broken or blocked production deploy, a same-day security deadline. NO stake = the issue exists only in the UNMERGED changes under review — nitpicks, style, perf suggestions, even a genuine vulnerability that lives only in the PR's proposed code and is not yet in \`main\`/production. That is pre-merge advisory (review working as intended; nothing live is at risk) → fail. The test is not "is a reviewer waiting" but "is something already live at stake." MECHANICAL RULE: a pull-request review comment — anything of the shape "<reviewer> commented on PR #N", "address the review feedback on PR #N", "apply these suggestions" — is BY DEFINITION about code not yet merged, so it is pre-merge advisory and emits NO todo (outcome \`not_significant\`, note \`advisory:\`), REGARDLESS of how concrete or severe the suggested fixes sound, UNLESS the body explicitly says the problem is already in production / \`main\` or a credential is already exposed. CodeRabbit/Greptile "consider…" comments and CVE-FYIs fail. Stakes a product MANUFACTURES to drive engagement OR conversion — gamification streaks ("play before midnight or lose your streak"), unread/notification counts, "N people viewed your profile", marketing scarcity ("ends tonight"), and upsell/quota pressure ("upgrade your plan", "trial ending", "you've hit your free quota", "upgrade to continue") where nothing is actually owed (rule 11a) — and CEREMONIAL obligations (AGM, "save the date") are NOT real stakes, however urgently phrased → outcome \`not_significant\` (set \`note\` prefix \`manufactured:\` or \`advisory:\`). Real-but-trivial asks also fail: rate-your-driver, surveys, "thoughts sometime?", optional feedback. Judge the INTRINSIC stakes — money owed/at-risk, a hard deadline, lost access, a commitment to a human, code/PR liveness — from the email content; they hold regardless of who sent it. The ONE stake you may NOT take from content alone is "a real identifiable PERSON is waiting on the user": it must be CORROBORATED by the Sender relationship observation. A weak / one-way-inbound / \`no prior contact on record\` sender is a cold contact, NOT a real person waiting — a cold ask ("give me a recommendation", "I want to connect", "can you intro me?", "endorse me") fails here however directly it is phrased and whatever the sender's stated title → outcome \`not_significant\` (note prefix \`cold_sender:\`). A strong / two-way relationship — or a known contact with real history — asking a direct question IS a real person waiting → passes. When NO Sender relationship line is present (a bot/service sender), there is no person waiting: judge only the intrinsic stakes. Never infer a relationship the observation does not state.
-    16c. Memorability. Would the user plausibly FORGET or DROP this if it is not tracked — or will they obviously handle it now / does it resolve itself? Self-initiated authentication mail (the rule-15 class: sign-in/magic links, one-time codes, email verification the user just requested), expiring codes, "thanks!", anything the user is already mid-flow on → nothing to remember → outcome \`would_not_forget\`. A todo here is noise.
+    16c. Memorability. Would the user plausibly FORGET or DROP this if it is not tracked — or will they obviously handle it now / does it resolve itself? Self-initiated authentication mail (the rule-15 class: sign-in/magic links, one-time codes, email verification the user just requested), expiring codes, "thanks!", anything the user is already mid-flow on → nothing to remember → outcome \`would_not_forget\`. A todo here is noise. A notification from a dedicated task/issue tracker or doc-comment tool the user works in (ClickUp, Linear, Jira, Asana, Notion, Google Docs/Drive/Figma comments) is ALREADY tracked and re-notified by that tool — the user will not forget it because the tool itself keeps and resurfaces it. So EVEN a task assigned to the user or a comment @-mentioning them with a concrete ask → \`would_not_forget\`: a rail todo only duplicates the tracker. (The CATEGORY still reflects the real obligation — an assignment/@-mention is honest \`action_needed\` per rule 12e — but the rail does not repeat what the tracker already holds. The exception is a stake that OUTLIVES the tracker item: an exposed secret to rotate stays a todo.)
     16d. Actionability. Can you write a SPECIFIC, self-contained action from the email alone? A vague ask ("something broke, please fix it" with no what/where, "let's catch up sometime", a problem report missing specifics) → outcome \`too_vague\`. A vague rail item is worse than none.
     16e. Already handled. Does thread state show the user already replied/acted, or the loop is closed with no new ask? → outcome \`already_handled\`.
     16f. All five pass → outcome \`proposed\` and set \`todoSuggestion\`. Write \`name\` the way the USER would jot it on a sticky note to themselves — short, plain, object-first — NOT the way the email phrased it. It is a second-person IMPERATIVE that leads with the real verb and names the object, ideally 3–6 words and HARD-CAPPED at 8: "Reply to Priya about Q3 budget", "Rotate the exposed Redis credential", "Add receipts to 4 Brex expenses", "Pay the Zerodha AMC charge". Strip scaffolding the user already knows from context — drop "request"/"notification"/"connection"/"on <Platform>" filler and the email's formal phrasing: "Reply to Ankur on LinkedIn", NOT "Respond to the LinkedIn connection request from Ankur Singh". Fold a count straight into the name ("Fix 3 blocking issues in PR #78", not name + "three items" in assist). NEVER a bare verb ("Log in", "Reply"), and NEVER a hedge or passive frame ("Review and address…", "Look into…", "Provide info for…", "Address the … on …", "Investigate the …") — name the actual action. \`assist\` is null BY DEFAULT — the \`name\` is the whole todo, and a sentence under it is just more for the user to read. Populate \`assist\` ONLY with a HARD FACT the name structurally cannot carry — a money amount, a hard deadline/date, or a genuine either/or decision — and then ONLY as a TERSE FRAGMENT, never a sentence: "₹88.5 · due Jun 11", "before Jun 30", "renews Jul 1 — keep or cancel". Always write a date as an ABSOLUTE calendar date ("Jun 11", "Jul 1") — NEVER a relative word like "tomorrow", "tonight", "today", or "next Friday". A rail todo persists for days, so "due tomorrow" is a lie the moment it goes stale; resolve any relative phrasing in the email against the email's Date shown above and write the actual date. NO verbs, NO restating the name, NO mechanical step ("click the link", "check the logs", "review the profile", "secure the account") — those are noise and MUST be null. When in doubt, null. Never invent specifics absent from the email.
@@ -364,7 +364,7 @@ Todo-decision exemplars (each illustrates the ONE rubric test that decides it �
 - Vendor/freemium "You've hit your free trial limit — upgrade your plan to continue" (Greptile/Vercel/Linear) → category marketing/fyi, no todo (11a + 16b: upsell, nothing owed, manufactured conversion stake). A real "Your invoice of $49 is past due" → category payment, todo only if action is owed and memorable.
 - A PR review (bot OR human) asking to add a timeout, optimize an index, fix style, or even patch a vulnerability that exists ONLY in the unmerged PR → category fyi, no todo (16b liveness: pre-merge advisory, nothing in production at stake). BUT a secret already committed/exposed, a vulnerability in \`main\`, or a blocked production deploy → todo (16b: a live consequence).
 - "Sakshi is running standup today while Dave is out" → category fyi/done, no todo (16a (ii): the action is owned by Sakshi, not the user — even though the user is the recipient).
-- A task-tracker notification (ClickUp/Linear/Jira) whose body is a third-party comment or a status change on a task NOT assigned to the user → category fyi/done, no todo (16a (i): pure awareness — the imperative task TITLE in the subject is not the user's obligation). A todo only when the body assigns the task to the user or @-mentions them with a concrete ask.
+- A task-tracker notification (ClickUp/Linear/Jira) whose body is a third-party comment or a status change on a task NOT assigned to the user → category fyi/done, no todo (16a (i): pure awareness — the imperative task TITLE in the subject is not the user's obligation). When the body DOES assign the task to the user or @-mentions them with a concrete ask → category \`action_needed\` (the obligation is real and honest) with \`collabActivity\` set to the ownership kind — but STILL no todo (16c: the item lives in the tracker, which keeps and re-notifies it; a rail todo only duplicates the tool).
 - LinkedIn "I want to connect" → category fyi (rule 8a: passive social activity), no todo (16a (i): optional nicety — the sender's want, not the user's obligation — regardless of the headline title, "Founder & CEO" / "CTO" included; the title never earns a nudge).
 - A cold ask — "give me a recommendation", "endorse my skills", "can you intro me?" — whose Sender relationship reads \`weak · one-way inbound\` or \`no prior contact on record\` → category awaiting_reply (an honest direct ask), no todo (16b person-waiting: a cold contact is not a real person waiting, note \`cold_sender:\`). The SAME ask from a \`strong · two-way\` contact (or a known contact with real history) → todo (a real person is waiting).
 - "Sundram Fasteners — 63rd Annual General Meeting" from a registrar → category fyi, no todo (16b: ceremonial, no real stake) — unless it asks the user to vote by a deadline (then a todo).
@@ -1196,9 +1196,15 @@ export function resolveTodoSuggestion(
 }
 
 /** Why a structurally-disqualified email yields no rail todo even when the cheap model proposed one. */
-export type TodoSuppressionReason = "alfred_approval" | "pre_merge_advisory";
+export type TodoSuppressionReason = "alfred_approval" | "pre_merge_advisory" | "tracker_owned";
 
 const GITHUB_NOTIFICATION_RE = /notifications@github\.com/i;
+// A dedicated task/issue tracker or doc-comment tool's notification address
+// (#353). Subdomains and per-site Atlassian hosts (`<site>.atlassian.net`) match
+// via the optional leading label group. Used as the deterministic fallback for
+// the `tracker_owned` suppression when the model omits `collabActivity`.
+const TASK_TRACKER_SENDER_RE =
+  /@(?:[\w.-]*\.)?(?:clickup\.com|linear\.app|atlassian\.net|asana\.com|monday\.com|trello\.com|notion\.so|height\.app|shortcut\.com)\b/i;
 // A GitHub PR-notification thread: the body carries a `/pull/N` link and the
 // subject a `(PR #N)` ref. `/issues/N` and issue refs deliberately don't match —
 // an issue can be a real ask; review of unmerged PR code is not (rule 16b).
@@ -1213,14 +1219,19 @@ const TODO_LIVENESS_RE =
 
 /**
  * Structural disqualifier for a rail todo, applied AFTER the cheap model proposed
- * one (rule 16). The cheap model won't reliably self-apply 16b's liveness clause
- * or recognize Alfred's own approval mail, so two whole-row leaks are killed here
- * deterministically from the email's shape:
+ * one (rule 16). The cheap model won't reliably self-apply 16b's liveness clause,
+ * recognize Alfred's own approval mail, or hold the tracker-ownership line, so
+ * three whole-row leaks are killed here deterministically from the email's shape:
  *   - `alfred_approval`    — Alfred's own HIL approval request; it lives on the
  *                            Approvals surface, never the todo rail.
  *   - `pre_merge_advisory` — a GitHub pull-request notification thread with no
  *                            liveness signal (nothing in production / `main`, no
  *                            exposed secret). Reviewing unmerged code is not a todo.
+ *   - `tracker_owned`      — a dedicated task/issue tracker or doc-comment tool's
+ *                            notification (ClickUp, Linear, Jira, …). The item is
+ *                            already tracked + re-notified there, so it fails rule
+ *                            16c memorability; the CATEGORY still surfaces it, but
+ *                            a rail todo only duplicates the tool (#353).
  * Returns null when nothing disqualifies it. PURE — the mint path and the
  * dry-run both apply it so KEEP/KILL stays consistent.
  */
@@ -1228,12 +1239,30 @@ export function todoSuppressionReason(email: {
   sender: string | null;
   subject: string | null;
   signalText: string;
+  collabActivity?: CollabActivityKind | null;
 }): TodoSuppressionReason | null {
   if (ALFRED_APPROVAL_SUBJECT_RE.test(email.subject ?? "")) return "alfred_approval";
   if (GITHUB_NOTIFICATION_RE.test(email.sender ?? "") && PR_THREAD_RE.test(email.signalText)) {
     const live =
       TODO_LIVENESS_RE.test(email.signalText) || OVERRIDE_FLOOR_SECRET_RE.test(email.signalText);
     if (!live) return "pre_merge_advisory";
+  }
+  // Tracker-owned (#353): an item living in a dedicated task/issue tracker or
+  // doc-comment tool the user actively works is ALREADY tracked and re-notified
+  // there — they will not forget it (rule 16c), so a rail todo only repeats the
+  // tool's own reminder. This holds even when the item is assigned to or
+  // @-mentions the user: the collab ownership veto keeps the CATEGORY at
+  // action_needed (that carries the "act on this" signal), while the rail stops
+  // duplicating it. Signaled by the model's own collaboration read (any non-null
+  // `collabActivity` = a ClickUp/Linear/Jira/… notification) OR, when the model
+  // omits the field (~1-in-5), a known task-tracker sender. Escape: an exposed
+  // secret earns a todo regardless of source — a leaked credential is never
+  // "already safely tracked" (mirrors the PR gate's secret escape).
+  if (
+    (email.collabActivity != null || TASK_TRACKER_SENDER_RE.test(email.sender ?? "")) &&
+    !OVERRIDE_FLOOR_SECRET_RE.test(email.signalText)
+  ) {
+    return "tracker_owned";
   }
   return null;
 }
