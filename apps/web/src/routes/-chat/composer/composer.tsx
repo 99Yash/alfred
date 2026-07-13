@@ -85,16 +85,14 @@ export function Composer({
   const hasAttachments = attachments.items.length > 0;
   const [sending, setSending] = useState(false);
   const artifactTargetKey = `alfred:chat-artifact-target:${threadId ?? "new"}`;
-  // Event-driven mutable state read only at submit time stays off the render path.
-  const artifactTargetIdRef = useRef<string | undefined>(undefined);
-  const artifactTargetInitRef = useRef(false);
-  if (!artifactTargetInitRef.current) {
-    artifactTargetInitRef.current = true;
-    // Target metadata belongs to the persisted draft. Ignore an orphaned target.
-    artifactTargetIdRef.current = initialJSON
-      ? (safeGet(artifactTargetKey) ?? undefined)
-      : undefined;
-  }
+  // Event-driven mutable state read only at submit time stays off the render
+  // path. Seed once from the persisted draft's target (ignoring an orphaned
+  // target that has no draft) with a lazy state initializer, so the ref starts
+  // correct without a render-phase write.
+  const [initialArtifactTarget] = useState<string | undefined>(() =>
+    initialJSON ? (safeGet(artifactTargetKey) ?? undefined) : undefined,
+  );
+  const artifactTargetIdRef = useRef<string | undefined>(initialArtifactTarget);
   const setArtifactTargetId = useCallback(
     (targetId: string | undefined) => {
       artifactTargetIdRef.current = targetId;
@@ -115,7 +113,7 @@ export function Composer({
   const insertAtTrigger = useCallback(() => {
     if (composerDisabled) return;
     editorRef.current?.insertAtTrigger();
-  }, [composerDisabled]);
+  }, [disabled, sending]);
 
   useTypeAnywhere(editorRef, composerDisabled);
 
@@ -134,7 +132,7 @@ export function Composer({
     appliedPrefillNonce.current = prefill.nonce;
     setArtifactTargetId(prefill.artifactTargetId);
     editorRef.current?.insertText(prefill.text);
-  }, [prefill, composerDisabled, threadId, setArtifactTargetId]);
+  }, [prefill, disabled, sending, threadId, setArtifactTargetId]);
 
   const handleEditorChange = useCallback(
     (nextText: string, nextJSON: JSONContent, nextEmpty: boolean) => {
@@ -147,7 +145,7 @@ export function Composer({
   const onAttachClick = useCallback(() => {
     if (composerDisabled || mic.recording) return;
     fileInputRef.current?.click();
-  }, [composerDisabled, mic.recording]);
+  }, [disabled, sending, mic.recording]);
 
   const handleSubmit = useCallback(() => {
     if (!canSend || !onSend) return;
@@ -178,7 +176,7 @@ export function Composer({
       if (composerDisabled) return;
       attachments.addFiles(e.dataTransfer.files);
     },
-    [composerDisabled, attachments],
+    [disabled, sending, attachments],
   );
 
   const onPaste = useCallback(
@@ -191,7 +189,7 @@ export function Composer({
       if (composerDisabled) return;
       attachments.addFiles(files);
     },
-    [composerDisabled, attachments],
+    [disabled, sending, attachments],
   );
 
   return (

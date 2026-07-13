@@ -32,7 +32,7 @@ export function useEventStream(limit = 50): EventStreamFrame[] {
       },
     });
     return close;
-  }, [userId, limit]);
+  }, [session?.user?.id, limit]);
 
   return frames;
 }
