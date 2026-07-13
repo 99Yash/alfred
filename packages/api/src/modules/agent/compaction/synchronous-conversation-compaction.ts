@@ -19,7 +19,10 @@ import {
   type GenerateConversationSummaryArgs,
 } from "./conversation-summary-generator";
 import type { ConversationSummary } from "./conversation-summary";
-import { nullableChatMessageWatermark } from "./chat-message-watermark";
+import {
+  compareChatMessageWatermarks,
+  nullableChatMessageWatermark,
+} from "./chat-message-watermark";
 import { estimateTranscriptTokens } from "./tokens";
 
 export interface SynchronousConversationCompactionArgs {
@@ -40,7 +43,8 @@ export type SynchronousConversationCompactionResult =
       estimatedReplayTokens: number;
       watermark: ChatSummaryWatermark;
     }
-  | { kind: "superseded" };
+  | { kind: "superseded" }
+  | { kind: "nothing_to_compact" };
 
 export interface SynchronousConversationCompactionDependencies {
   loadContext?: (userId: string, threadId: string) => Promise<LoadedChatThreadContext | null>;
@@ -72,6 +76,13 @@ export async function compactConversationSynchronously(
   const context = await loadContext(args.userId, args.threadId);
   const expectedWatermark = contextWatermark(context);
   const rebuildFromRaw = context?.invalidSummary === true;
+  if (
+    !rebuildFromRaw &&
+    expectedWatermark &&
+    compareChatMessageWatermarks(args.throughWatermark, expectedWatermark) <= 0
+  ) {
+    return { kind: "nothing_to_compact" };
+  }
   const loaded = await loadEvidence({
     userId: args.userId,
     threadId: args.threadId,

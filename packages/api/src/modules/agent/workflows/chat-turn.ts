@@ -906,7 +906,7 @@ async function applyForegroundContextGuard({
     let oversized: Awaited<ReturnType<typeof compactTranscript>>;
     try {
       oversized = await compactTranscript({
-        prior: [latestUser],
+        prior: storedCompactionPrefix(storedReplayTail, 1),
         inFlightTail: [],
         attribution: {
           userId,
@@ -1006,7 +1006,7 @@ async function applyWithinRunContextGuard({
   }
   await onCompactionStart?.();
   try {
-    const prior = hydratedTranscript.slice(0, inFlightTailStart);
+    const prior = storedCompactionPrefix(transcript, inFlightTailStart);
     const inFlightTail = hydratedTranscript.slice(inFlightTailStart);
     const storedInFlightTail = transcript.slice(inFlightTailStart);
     let compacted: Awaited<ReturnType<typeof compactTranscript>> | undefined;
@@ -1051,6 +1051,18 @@ async function applyWithinRunContextGuard({
   } finally {
     await onCompactionFinish?.();
   }
+}
+
+/**
+ * Compactor history must use storage references, never provider-hydrated media
+ * bytes. The generated summary replaces this prefix, so hydration adds cost
+ * without preserving any model-facing content.
+ */
+export function storedCompactionPrefix(
+  transcript: readonly AgentTranscriptMessage[],
+  endExclusive: number,
+): AgentTranscriptMessage[] {
+  return transcript.slice(0, endExclusive);
 }
 
 async function loadForegroundCompactionBoundary(

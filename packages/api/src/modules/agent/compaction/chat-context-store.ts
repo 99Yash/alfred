@@ -178,15 +178,28 @@ export async function persistConversationSummary(
         isNull(chatThreadContext.summaryWatermarkMessageId),
       );
   const now = new Date();
+  const retainNewerReplayEstimate = sql<boolean>`
+    (${chatThreadContext.replayEstimateWatermarkCreatedAt}, ${chatThreadContext.replayEstimateWatermarkMessageId}) >
+    (${args.replayEstimateWatermark.createdAt}, ${args.replayEstimateWatermark.messageId})
+  `;
   const rows = await db()
     .update(chatThreadContext)
     .set({
       summary,
       summaryWatermarkCreatedAt: args.watermark.createdAt,
       summaryWatermarkMessageId: args.watermark.messageId,
-      estimatedReplayTokens: args.estimatedReplayTokens,
-      replayEstimateWatermarkCreatedAt: args.replayEstimateWatermark.createdAt,
-      replayEstimateWatermarkMessageId: args.replayEstimateWatermark.messageId,
+      estimatedReplayTokens: sql<number>`CASE
+        WHEN ${retainNewerReplayEstimate} THEN ${chatThreadContext.estimatedReplayTokens}
+        ELSE ${args.estimatedReplayTokens}
+      END`,
+      replayEstimateWatermarkCreatedAt: sql<Date>`CASE
+        WHEN ${retainNewerReplayEstimate} THEN ${chatThreadContext.replayEstimateWatermarkCreatedAt}
+        ELSE ${args.replayEstimateWatermark.createdAt}
+      END`,
+      replayEstimateWatermarkMessageId: sql<string>`CASE
+        WHEN ${retainNewerReplayEstimate} THEN ${chatThreadContext.replayEstimateWatermarkMessageId}
+        ELSE ${args.replayEstimateWatermark.messageId}
+      END`,
       compactionCompletedAt: now,
       compactionFailedAt: null,
       compactionFailureCategory: null,

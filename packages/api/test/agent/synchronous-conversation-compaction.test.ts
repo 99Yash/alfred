@@ -153,6 +153,35 @@ describe("synchronous conversation compaction", () => {
     assert.deepEqual(result, { kind: "superseded" });
   });
 
+  test("returns a no-op when the persisted summary already covers the requested cutoff", async () => {
+    let loadedEvidence = false;
+    const result = await compactConversationSynchronously(
+      {
+        userId: "user_1",
+        threadId: "thread_1",
+        throughWatermark: watermark,
+        replayTail: [],
+        replayTailWatermark: watermark,
+        attribution: {},
+      },
+      {
+        loadContext: async () =>
+          context({
+            summary,
+            summaryWatermarkCreatedAt: watermark.createdAt,
+            summaryWatermarkMessageId: watermark.messageId,
+          }),
+        loadEvidence: async () => {
+          loadedEvidence = true;
+          throw new Error("conversation_summary_no_new_messages");
+        },
+      },
+    );
+
+    assert.deepEqual(result, { kind: "nothing_to_compact" });
+    assert.equal(loadedEvidence, false);
+  });
+
   test("threads foreground cancellation and timeout through summary generation", async () => {
     const controller = new AbortController();
     let receivedSignal: AbortSignal | undefined;

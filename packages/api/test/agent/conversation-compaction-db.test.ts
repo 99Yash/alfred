@@ -81,6 +81,10 @@ describe("conversation compaction database invariants", { skip: SKIP }, () => {
     const { userId, threadId } = await seedThread();
     const messageId = `msg_${randomUUID()}`;
     const watermark = { messageId, createdAt: new Date("2026-07-12T00:00:00.123Z") };
+    const advancedReplayWatermark = {
+      messageId: `msg_${randomUUID()}`,
+      createdAt: new Date("2026-07-12T00:00:01.123Z"),
+    };
     await db().insert(chatMessages).values({
       id: messageId,
       userId,
@@ -93,8 +97,8 @@ describe("conversation compaction database invariants", { skip: SKIP }, () => {
       userId,
       threadId,
       estimatedReplayTokens: 99,
-      replayEstimateWatermarkCreatedAt: watermark.createdAt,
-      replayEstimateWatermarkMessageId: messageId,
+      replayEstimateWatermarkCreatedAt: advancedReplayWatermark.createdAt,
+      replayEstimateWatermarkMessageId: advancedReplayWatermark.messageId,
     });
     const summary = {
       schemaVersion: 1 as const,
@@ -129,10 +133,21 @@ describe("conversation compaction database invariants", { skip: SKIP }, () => {
     assert.equal(await persistConversationSummary(args), true);
     assert.equal(await persistConversationSummary(args), false);
     const [context] = await db()
-      .select({ generation: chatThreadContext.compactionGeneration })
+      .select({
+        generation: chatThreadContext.compactionGeneration,
+        estimatedReplayTokens: chatThreadContext.estimatedReplayTokens,
+        replayEstimateWatermarkCreatedAt: chatThreadContext.replayEstimateWatermarkCreatedAt,
+        replayEstimateWatermarkMessageId: chatThreadContext.replayEstimateWatermarkMessageId,
+      })
       .from(chatThreadContext)
       .where(eq(chatThreadContext.threadId, threadId));
     assert.equal(context?.generation, 1);
+    assert.equal(context?.estimatedReplayTokens, 99);
+    assert.equal(
+      context?.replayEstimateWatermarkCreatedAt?.getTime(),
+      advancedReplayWatermark.createdAt.getTime(),
+    );
+    assert.equal(context?.replayEstimateWatermarkMessageId, advancedReplayWatermark.messageId);
   });
 
   test("a successful enrichment retry replaces the prior failed state", async () => {

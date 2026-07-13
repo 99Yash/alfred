@@ -5,6 +5,7 @@ import type { AgentTranscriptMessage } from "@alfred/contracts";
 import {
   buildCompactedChatTranscriptPair,
   oversizedUserMessageSummaryMessage,
+  storedCompactionPrefix,
 } from "../../src/modules/agent/workflows/chat-turn";
 
 describe("chat compaction continuation", () => {
@@ -44,6 +45,29 @@ describe("chat compaction continuation", () => {
 
     assert.deepEqual(paired.continuationTranscript, [summary, ...tail]);
     assert.deepEqual(paired.modelTranscript, [summary, ...tail]);
+  });
+
+  test("uses storage references instead of hydrated image bytes for compactor history", () => {
+    const stored = [
+      {
+        role: "user",
+        content: [{ type: "chat_attachment_image", storageKey: "private/thread/image.png" }],
+      } as AgentTranscriptMessage,
+      { role: "assistant", content: "I inspected the image." } as AgentTranscriptMessage,
+    ];
+    const hydrated = [
+      {
+        role: "user",
+        content: [{ type: "file", data: "base64-image-bytes", mediaType: "image/png" }],
+      } as AgentTranscriptMessage,
+      stored[1],
+    ];
+
+    const prior = storedCompactionPrefix(stored, 1);
+
+    assert.deepEqual(prior, [stored[0]]);
+    assert.doesNotMatch(JSON.stringify(prior), /base64-image-bytes/);
+    assert.match(JSON.stringify(hydrated[0]), /base64-image-bytes/);
   });
 
   test("marks an oversized latest-message summary as lossy and recoverable by source id", () => {

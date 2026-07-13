@@ -146,7 +146,7 @@ function attachmentEvidence(row: AttachmentRow) {
     mime: row.mime,
     status: row.status,
     extractedText: excerpt(row.degradedText ?? ""),
-    representation: parsed.success ? parsed.data : null,
+    representation: parsed.success ? excerpt(JSON.stringify(parsed.data)) : null,
     failureReason: row.failureReason ? excerpt(row.failureReason) : null,
   };
 }

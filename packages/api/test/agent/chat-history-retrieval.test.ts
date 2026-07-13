@@ -88,7 +88,7 @@ describe("current-thread chat history retrieval", () => {
     assert.equal((result as { result: { sanitized: boolean } }).result.sanitized, true);
   });
 
-  test("returns attachment representation without leaking its storage key", async () => {
+  test("returns a bounded attachment representation without leaking its storage key", async () => {
     const result = await readChatHistory(
       {
         userId: "user_1",
@@ -111,7 +111,7 @@ describe("current-thread chat history retrieval", () => {
             messageId: "m1",
             mime: "application/pdf",
             visualDescription: null,
-            ocrText: "Exact OCR",
+            ocrText: `Exact OCR ${"x".repeat(CHAT_HISTORY_EXCERPT_CHARS + 20)}`,
             salientEntities: [],
             evidence: [],
           },
@@ -120,10 +120,14 @@ describe("current-thread chat history retrieval", () => {
     );
     assert.equal(JSON.stringify(result).includes("storageKey"), false);
     assert.equal((result as { result: { messageId: string } }).result.messageId, "m1");
-    assert.equal(
-      (result as { result: { representation: { ocrText: string } } }).result.representation.ocrText,
-      "Exact OCR",
-    );
+    const representation = (
+      result as {
+        result: { representation: { text: string; truncated: boolean; originalChars: number } };
+      }
+    ).result.representation;
+    assert.equal(representation.text.length, CHAT_HISTORY_EXCERPT_CHARS);
+    assert.equal(representation.truncated, true);
+    assert.ok(representation.originalChars > CHAT_HISTORY_EXCERPT_CHARS);
   });
 
   test("does not disclose whether an out-of-scope id exists", async () => {
