@@ -2,7 +2,6 @@ import type { SyncedArtifact, SyncedChatAttachment, SyncedChatMessage } from "@a
 import { ArrowDown, ShieldQuestion } from "lucide-react";
 import {
   createContext,
-  forwardRef,
   memo,
   useCallback,
   useContext,
@@ -145,14 +144,22 @@ export function Conversation({
   // (`initialTopMostItemIndex` + the thread-switch effect already open at the
   // edge); this fires only on genuinely new user turns after that. An assistant
   // message landing while detached is not a user turn, so it never yanks.
+  //
+  // The jump-button reset is a state-on-prop-change, so it happens inline during
+  // render via a prev-id compare — routing it through the effect would leave the
+  // stale button up for a frame. The effect below only does the imperative jump.
   const firstUserTurn = useRef(true);
+  const [prevLastUserId, setPrevLastUserId] = useState(lastUserId);
+  if (lastUserId !== prevLastUserId) {
+    setPrevLastUserId(lastUserId);
+    if (!firstUserTurn.current) setShowJump(false);
+  }
   useEffect(() => {
     if (firstUserTurn.current) {
       firstUserTurn.current = false;
       return;
     }
     stickRef.current = true;
-    setShowJump(false);
     virtuosoRef.current?.scrollToIndex({ index: "LAST", align: "end", behavior: "auto" });
   }, [lastUserId]);
 
@@ -210,11 +217,17 @@ export function Conversation({
 
   // Re-land at the bottom when the user switches threads. The component stays
   // mounted across `/chat/$threadId` navigations (only `messages` swaps), so
-  // `initialTopMostItemIndex` — which applies once on mount — can't do it.
+  // `initialTopMostItemIndex` — which applies once on mount — can't do it. As
+  // above, the jump-button reset is a state-on-prop-change done inline during
+  // render (a prev-id compare); the effect just performs the imperative jump.
+  const [prevThreadId, setPrevThreadId] = useState(threadId);
+  if (threadId !== prevThreadId) {
+    setPrevThreadId(threadId);
+    setShowJump(false);
+  }
   useEffect(() => {
     if (!threadId) return;
     stickRef.current = true;
-    setShowJump(false);
     virtuosoRef.current?.scrollToIndex({ index: "LAST", align: "end", behavior: "auto" });
   }, [threadId]);
 
@@ -362,15 +375,18 @@ interface FeedFooterValue {
 
 const FeedFooterContext = createContext<FeedFooterValue | null>(null);
 
-const FeedList = forwardRef<HTMLDivElement, React.HTMLAttributes<HTMLDivElement>>(
-  function FeedList({ style, children, ...props }, ref) {
-    return (
-      <div ref={ref} {...props} style={style} className="mx-auto w-full max-w-3xl px-4">
-        {children}
-      </div>
-    );
-  },
-);
+function FeedList({
+  style,
+  children,
+  ref,
+  ...props
+}: React.HTMLAttributes<HTMLDivElement> & React.RefAttributes<HTMLDivElement>) {
+  return (
+    <div ref={ref} {...props} style={style} className="mx-auto w-full max-w-3xl px-4">
+      {children}
+    </div>
+  );
+}
 
 function FeedHeader() {
   return <div className="h-6" />;
