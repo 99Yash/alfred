@@ -3,13 +3,16 @@ import {
   canonicalizeIdentityValue,
   identityRefSchema,
   identityValueMatchesKind,
+  isHttpError,
+  redactSecrets,
   STABLE_ENTITY_ID_VERSION,
+  toMessage,
   type IdentityKind,
   type IdentityRef,
   type StableEntityIdInput,
 } from "@alfred/contracts";
-import { sql } from "drizzle-orm";
-import { customType, timestamp } from "drizzle-orm/pg-core";
+import { sql, type SQL } from "drizzle-orm";
+import { customType, timestamp, type AnyPgColumn } from "drizzle-orm/pg-core";
 import { customAlphabet } from "nanoid";
 
 // ---------------------------------------------------------------------------
@@ -247,3 +250,113 @@ export const vectorColumn = (name: string, dimensions: number) =>
       return JSON.parse(value) as number[];
     },
   })(name);
+
+// ---------------------------------------------------------------------------
+// Embedding poison-pill guard
+// ---------------------------------------------------------------------------
+
+/**
+ * How long a *transient or systemic* embed failure (a Voyage 5xx/429, a network
+ * blip, a rotated key, a quota trip, a whole-provider outage) is tolerated
+ * before the row is dead-lettered. Gated on the wall-clock age of the first
+ * failure, NOT an attempt count: the embed sweep runs every ~5 minutes, so a
+ * small attempt cap would be exhausted by a ~25-minute outage and permanently
+ * drop the entire pending backlog (silent data loss). A full day gives the
+ * provider (or ops) time to recover while still terminating the retry storm for
+ * a genuinely un-embeddable input. Only a *per-input-permanent* error
+ * (`PER_INPUT_PERMANENT_STATUSES`) dead-letters immediately regardless.
+ *
+ * Shared by every embeddable table (`documents`, `memory_chunks`) so the
+ * poison-pill policy is defined once — see `buildEmbedFailureSet`.
+ */
+export const EMBED_RETRY_WINDOW_HOURS = 24;
+
+/**
+ * HTTP statuses that mean THIS specific input is un-embeddable — a malformed
+ * request (400), a payload too large to embed (413), or content the provider
+ * semantically rejects (422). Safe to dead-letter on the FIRST failure: the
+ * same input will fail forever, so retrying only burns sweeps.
+ *
+ * Every OTHER non-`retryable` status is systemic and recoverable, NOT per-input:
+ * a rotated-then-valid key (401), a quota/billing/permission trip (403), an
+ * endpoint change (404), or a request timeout (408) return the same status for
+ * every row while the condition lasts, then clear. Classifying those as
+ * "permanent" would dead-letter the entire pending backlog on the first sweep
+ * of a 20-minute key-rotation lag — the exact irreversible-loss class this
+ * guard exists to prevent — so they ride the wall-clock window
+ * (`EMBED_RETRY_WINDOW_HOURS`) instead. (429 and 5xx are already `retryable`
+ * and never reach this set.)
+ */
+const PER_INPUT_PERMANENT_STATUSES: ReadonlySet<number> = new Set([400, 413, 422]);
+
+/** Cap the persisted failure message; `HttpError` bodies are already bounded + redacted. */
+const MAX_EMBED_ERROR_CHARS = 500;
+
+/** Drizzle columns the embed poison-pill guard reads/stamps on the row it's recording against. */
+export interface EmbedFailureColumns {
+  attempts: AnyPgColumn;
+  firstFailedAt: AnyPgColumn;
+  failedAt: AnyPgColumn;
+}
+
+/**
+ * Build the drizzle `.set(...)` payload that records an embed failure and
+ * enforces the poison-pill dead-letter policy — the single source of truth
+ * shared across every embeddable table (`documents`, `memory_chunks`), so a
+ * change to the window, the redaction cap, or the transient/permanent
+ * classification is one edit, not N co-varying copies.
+ *
+ * A per-input-permanent error (`PER_INPUT_PERMANENT_STATUSES` — the input
+ * itself is un-embeddable) dead-letters the row (`failedAt`) immediately;
+ * every other failure, INCLUDING a systemic 4xx (401/403/404 — a rotated key,
+ * a quota trip, an endpoint change), rides the wall-clock window and only
+ * dead-letters once the *first* failure is older than `EMBED_RETRY_WINDOW_HOURS`.
+ * `attempts` still counts every failure for diagnostics but no longer gates
+ * dead-lettering. Every `sql` expression references the row's PRE-update column
+ * values (Postgres evaluates the SET list against the old row), so the
+ * `COALESCE(firstFailedAt, now())` first-stamp and the CASE window behave as
+ * described no matter how many sweeps have already hit the row.
+ *
+ * The returned keys are the drizzle property names shared by both tables
+ * (`embedAttempts` / `embedFirstFailedAt` / `lastEmbedError` / `embedFailedAt`);
+ * the keyed `satisfies` below excess-checks them in-helper so a stray or
+ * renamed key is a compile error, not a column that silently never writes.
+ * Table-specific concerns (userId scoping, empty-content terminal cases) stay
+ * with the caller.
+ */
+export function buildEmbedFailureSet(cols: EmbedFailureColumns, err: unknown) {
+  const permanent = isHttpError(err) && PER_INPUT_PERMANENT_STATUSES.has(err.status);
+  return {
+    embedAttempts: sql`${cols.attempts} + 1`,
+    // Stamp the first failure once so the transient gate can measure how long
+    // the failure has persisted (references the pre-update value).
+    embedFirstFailedAt: sql`COALESCE(${cols.firstFailedAt}, now())`,
+    lastEmbedError: redactSecrets(toMessage(err)).slice(0, MAX_EMBED_ERROR_CHARS),
+    embedFailedAt: permanent
+      ? sql`COALESCE(${cols.failedAt}, now())`
+      : sql`CASE WHEN COALESCE(${cols.firstFailedAt}, now()) <= now() - make_interval(hours => ${EMBED_RETRY_WINDOW_HOURS}) THEN COALESCE(${cols.failedAt}, now()) ELSE ${cols.failedAt} END`,
+  } satisfies Record<
+    "embedAttempts" | "embedFirstFailedAt" | "lastEmbedError" | "embedFailedAt",
+    SQL | string
+  >;
+}
+
+/**
+ * The `.set(...)` fields that clear a poison-pill failure streak, so the
+ * wall-clock grace is measured PER failure-streak, not for the row's lifetime.
+ * Merge into the successful-(re-)embed write (`{ embedding, ...EMBED_SUCCESS_RESET }`).
+ *
+ * Also the correct way to resurrect a dead-lettered row: nulling `embedFailedAt`
+ * alone leaves a days-old `embedFirstFailedAt`, so the CASE above re-dead-letters
+ * the row on its very first transient blip (`COALESCE(old, now()) <= now()-24h`
+ * is already true). Clear both markers — this const — to genuinely revive it.
+ */
+export const EMBED_SUCCESS_RESET = {
+  embedAttempts: 0,
+  embedFirstFailedAt: null,
+  embedFailedAt: null,
+  lastEmbedError: null,
+} satisfies Record<
+  "embedAttempts" | "embedFirstFailedAt" | "embedFailedAt" | "lastEmbedError",
+  number | null
+>;

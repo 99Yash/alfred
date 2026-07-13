@@ -5,7 +5,7 @@ import { db } from "@alfred/db";
 import { createRedisConnection } from "../../queue/connection";
 import { createRun, enqueueRun } from "../agent/index";
 import { runDriftHealthCheck } from "../drift-audit/index";
-import { embedMemoryChunk, findPendingEmbedChunks } from "./chunks";
+import { embedMemoryChunk, findPendingEmbedChunks, recordMemoryEmbedFailure } from "./chunks";
 import { toMessage } from "@alfred/contracts";
 
 /**
@@ -105,17 +105,48 @@ async function processMemoryJob(job: Job<MemoryJobData>): Promise<unknown> {
       let succeeded = 0;
       let failed = 0;
       for (const c of candidates) {
+        let vec: number[];
         try {
-          const vec = await embed(c.content, {
+          vec = await embed(c.content, {
             inputType: "document",
             userId: c.userId,
             idempotencyKey: `memory-embed:${c.id}`,
           });
+        } catch (err) {
+          failed++;
+          // Only the embed (Voyage) call counts toward the poison-pill guard —
+          // record it so a genuinely un-embeddable chunk dead-letters instead of
+          // being re-embedded every sweep forever (best-effort bookkeeping).
+          // Log a bookkeeping-write failure DISTINCTLY: a persistently-failing
+          // guard write (dropped column, bad migration order) would otherwise
+          // no-op silently while the backlog re-embeds forever.
+          await recordMemoryEmbedFailure(c.id, c.userId, err).catch((bookkeepingErr) => {
+            console.error(
+              `[memory:worker] memory.embed_sweep FAILED to record embed failure for ${c.id}:`,
+              toMessage(bookkeepingErr),
+            );
+          });
+          console.warn(
+            `[memory:worker] memory.embed_sweep embed failed for ${c.id}:`,
+            toMessage(err),
+          );
+          continue;
+        }
+        try {
           await embedMemoryChunk(c.id, c.userId, vec);
           succeeded++;
         } catch (err) {
           failed++;
-          console.warn(`[memory:worker] memory.embed_sweep failed for ${c.id}:`, toMessage(err));
+          // A DB write failure is a *persistence* error, not an embed failure —
+          // the (billed) embedding already succeeded — so it must NOT record a
+          // failure (which would increment `embedAttempts` and eventually
+          // dead-letter a perfectly embeddable chunk). Leave the row a candidate
+          // (embedding still NULL) so the next sweep retries. Mirrors the
+          // documents path in `@alfred/ingestion`.
+          console.warn(
+            `[memory:worker] memory.embed_sweep write failed for ${c.id}:`,
+            toMessage(err),
+          );
         }
       }
       console.log(

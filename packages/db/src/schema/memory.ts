@@ -346,6 +346,34 @@ export const memoryChunks = pgTable(
     metadata: jsonb("metadata")
       .notNull()
       .default(sql`'{}'::jsonb`),
+    /**
+     * Embedding retry bookkeeping (poison-pill guard) — mirrors `documents`.
+     * A chunk with a null `embedding` is a candidate for the background embed
+     * sweep; without a cap, one whose Voyage call keeps failing is re-selected
+     * every sweep forever. Count failures here and dead-letter via
+     * `embedFailedAt` so the sweep gives up.
+     */
+    embedAttempts: integer("embed_attempts").notNull().default(0),
+    /**
+     * When embedding first started failing (set once, kept via COALESCE). The
+     * transient dead-letter gate measures failure age from here rather than
+     * from an attempt count, so a routine provider outage can't burn through an
+     * attempt cap in a few sweeps and permanently drop the backlog. Cleared on a
+     * successful (re-)embed (`EMBED_SUCCESS_RESET`) so the grace resets per
+     * failure-streak.
+     */
+    embedFirstFailedAt: timestamp("embed_first_failed_at", { withTimezone: true }),
+    /**
+     * Set when embedding is abandoned (a per-input-permanent error — 400/413/422,
+     * the input itself is un-embeddable — or a transient/systemic failure that has
+     * persisted past the retry window). A non-null value excludes the row from the
+     * embed sweep. A content change writes a new row (unique on content hash) that
+     * retries fresh; to resurrect this row in place, null BOTH this and
+     * `embed_first_failed_at` (a successful embed clears both).
+     */
+    embedFailedAt: timestamp("embed_failed_at", { withTimezone: true }),
+    /** Bounded, secret-redacted last embed-failure message — ops diagnostics. */
+    lastEmbedError: text("last_embed_error"),
     ...lifecycle_dates,
   },
   (t) => [

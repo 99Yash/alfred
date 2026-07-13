@@ -49,8 +49,18 @@ import {
   verifyMeteringModels,
   warmPool,
 } from "@alfred/api/runtime";
+import { flushLangfuse, flushMeteringWrites } from "@alfred/ai";
 import { toMessage } from "@alfred/contracts";
 import { registerBuiltinWorkflows } from "./builtins";
+
+/**
+ * Upper bound on the observability flush during shutdown/crash. A stalled
+ * network flush (metering rows, Langfuse span batch, Sentry) must never hold
+ * teardown open until the platform SIGKILLs — a prompt exit matters more than a
+ * straggling cost row or span. Shared by graceful shutdown here and the crash
+ * handler in `index.ts` so the two bounds can't drift.
+ */
+export const OBSERVABILITY_FLUSH_TIMEOUT_MS = 2500;
 
 export async function startRuntime(): Promise<void> {
   await warmPool();
@@ -121,6 +131,32 @@ export async function stopRuntime(): Promise<void> {
     console.log("Workers stopped");
   } catch (err) {
     console.error("Error stopping workers:", toMessage(err));
+  }
+
+  try {
+    // Workers are stopped, so no new metering rows or Langfuse spans will be
+    // produced. Flush both before the DB pool and Redis close below: metering
+    // writes are fire-and-forget into `api_call_log` and need the pool alive,
+    // and Langfuse batches spans on a 15-event / 10s timer — so a short turn's
+    // trace is otherwise dropped when a redeploy SIGTERM recycles the process
+    // inside that window (the missing follow-up-turn trace). Sentry already
+    // flushes on shutdown; this closes the same gap for the LLM observability.
+    //
+    // Bound the wait (mirrors the crash handler in `index.ts`): a stalled
+    // network flush must not hold graceful shutdown open until the platform
+    // SIGKILLs — the pool/Redis close below and a prompt exit matter more than a
+    // straggling cost row or span batch. `allSettled` so one flush failing
+    // doesn't abort the other. `.unref()` the timer so it can never itself keep
+    // the event loop alive past the flush it's bounding.
+    await Promise.race([
+      Promise.allSettled([flushMeteringWrites(), flushLangfuse()]),
+      new Promise((resolve) => {
+        setTimeout(resolve, OBSERVABILITY_FLUSH_TIMEOUT_MS).unref();
+      }),
+    ]);
+    console.log("Observability flushed");
+  } catch (err) {
+    console.error("Error flushing observability:", toMessage(err));
   }
 
   try {
