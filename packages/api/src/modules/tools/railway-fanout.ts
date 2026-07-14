@@ -19,6 +19,19 @@ export interface RailwayCredentialRef {
 export type RailwayProjectWithCredential = RailwayProject & RailwayCredentialRef;
 export type RailwayDeploymentWithCredential = RailwayDeployment & RailwayCredentialRef;
 
+/**
+ * A deployment surfaced by the cross-project activity sweep. Carries the project
+ * and service it belongs to (the flat `RailwayDeployment` only knows a
+ * `serviceId`) so the boss can say "alfred / server redeployed" without a second
+ * lookup, plus the credential provenance every fan-out result gets.
+ */
+export interface RailwayRecentDeployment extends RailwayDeploymentWithCredential {
+  projectId: string;
+  projectName: string;
+  /** Resolved from the project's service list by `serviceId`; null if unknown. */
+  serviceName: string | null;
+}
+
 export interface RailwayFanoutFailure extends PublicAppError {
   credentialId: string;
   credentialLabel: string;
@@ -131,4 +144,98 @@ export async function listProjectsForCredentials(
     throw new AppError("railway_unavailable");
   }
   return { projects: [...projectsById.values()], failures };
+}
+
+/** Newest first; a deployment with no `createdAt` can't claim recency, so it sorts last. */
+function byCreatedAtDesc(a: RailwayRecentDeployment, b: RailwayRecentDeployment): number {
+  const at = a.createdAt ? Date.parse(a.createdAt) : NaN;
+  const bt = b.createdAt ? Date.parse(b.createdAt) : NaN;
+  return (Number.isNaN(bt) ? -Infinity : bt) - (Number.isNaN(at) ? -Infinity : at);
+}
+
+/**
+ * Cross-project deployment activity sweep. Railway's `deployments` query requires
+ * a `projectId`, so "what deployed recently across everything" is a two-level
+ * fan-out: list every project across every credential (reusing
+ * {@link listProjectsForCredentials} and its partial-failure tolerance), then
+ * read each project's recent deployments concurrently, tag them with project +
+ * service + credential, merge, sort newest-first, and cap.
+ *
+ * Partial failures are tolerated the same way as the project fan-out: one
+ * project (or credential) failing to answer is recorded in `failures` and the
+ * sweep still returns everything else — an activity digest with most of the
+ * picture beats an all-or-nothing throw. `listProjectsForCredentials` still
+ * throws if the projects can't be read at all (nothing to sweep).
+ */
+export async function listRecentDeploymentsForCredentials(
+  credentials: ActiveBearerCredential[],
+  listProjects: (token: string) => Promise<{ projects: RailwayProject[] }>,
+  listDeployments: (args: {
+    token: string;
+    projectId: string;
+    limit: number;
+  }) => Promise<{ deployments: RailwayDeployment[] }>,
+  opts?: { perProjectLimit?: number; overallLimit?: number },
+): Promise<{ deployments: RailwayRecentDeployment[]; failures: RailwayFanoutFailure[] }> {
+  const perProjectLimit = opts?.perProjectLimit ?? 5;
+  const overallLimit = opts?.overallLimit ?? 15;
+
+  const { projects, failures } = await listProjectsForCredentials(credentials, listProjects);
+
+  // `RailwayProjectWithCredential` carries only the credential *ref*, but the
+  // deployments read needs the access token — recover it by credential id.
+  const credentialById = new Map(credentials.map((credential) => [credential.id, credential]));
+
+  const settled = await Promise.allSettled(
+    projects.map(async (project): Promise<RailwayRecentDeployment[]> => {
+      const credential = credentialById.get(project.credentialId);
+      // A project only surfaced because its credential listed it, so the lookup
+      // always resolves; guard defensively rather than assert.
+      if (!credential) return [];
+      const { deployments } = await listDeployments({
+        token: credential.accessToken,
+        projectId: project.id,
+        limit: perProjectLimit,
+      });
+      const serviceNameById = new Map(project.services.map((s) => [s.id, s.name]));
+      return deployments.map((deployment) => ({
+        ...withCredential(deployment, credential),
+        projectId: project.id,
+        projectName: project.name,
+        serviceName: deployment.serviceId
+          ? (serviceNameById.get(deployment.serviceId) ?? null)
+          : null,
+      }));
+    }),
+  );
+
+  const deployments: RailwayRecentDeployment[] = [];
+  const deploymentFailures: RailwayFanoutFailure[] = [...failures];
+  settled.forEach((outcome, index) => {
+    const project = projects[index];
+    if (!project) return;
+    if (outcome.status === "fulfilled") {
+      deployments.push(...outcome.value);
+      return;
+    }
+    // Tolerate one project's failure — the sweep still returns the rest.
+    const failure = toPublicAppError(outcome.reason, "railway_account_read_failed");
+    logger.error(
+      {
+        err: outcome.reason,
+        event: "railway_project_deployments_read_failed",
+        credentialId: project.credentialId,
+        projectId: project.id,
+      },
+      failure.message,
+    );
+    deploymentFailures.push({
+      credentialId: project.credentialId,
+      credentialLabel: project.credentialLabel,
+      ...failure,
+    });
+  });
+
+  deployments.sort(byCreatedAtDesc);
+  return { deployments: deployments.slice(0, overallLimit), failures: deploymentFailures };
 }

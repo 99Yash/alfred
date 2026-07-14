@@ -11,6 +11,7 @@ import {
   railwayGetLogsInput,
   railwayListDeploymentsInput,
   railwayListProjectsInput,
+  railwayRecentDeploymentsInput,
   railwayRedeployInput,
 } from "@alfred/contracts";
 import {
@@ -27,6 +28,7 @@ import { AppError } from "../../lib/app-errors";
 import {
   credentialRef,
   listProjectsForCredentials,
+  listRecentDeploymentsForCredentials,
   pickCredential,
   withCredential,
   type RailwayDeploymentWithCredential,
@@ -87,6 +89,26 @@ export const railwayTools: readonly RegisteredTool[] = [
           (deployment): RailwayDeploymentWithCredential => withCredential(deployment, credential),
         ),
       };
+    },
+  }),
+  liveTool({
+    integration: "railway",
+    action: "recent_deployments",
+    riskTier: "no_risk",
+    description:
+      "List the most recent deployments across ALL Railway projects and every connected credential, newest first — each tagged with its project, service, status, createdAt, and credentialId. Use this to answer 'what deployed recently' or to build an activity digest: it fans out across every project for you, so you never have to call list_projects and then list_deployments per project. Never claim there are no recent deployments without calling this first. To read one project's fuller deployment history (or a specific service/environment), use list_deployments; for a single deployment's logs, use get_logs.",
+    inputSchema: railwayRecentDeploymentsInput,
+    execute: async (input, ctx) => {
+      const { deployments, failures } = await listRecentDeploymentsForCredentials(
+        await credentialsFor(ctx.userId),
+        railwayListProjects,
+        railwayListDeployments,
+        { overallLimit: input.limit },
+      );
+      // Surface partial failures (a stale credential, a project that wouldn't
+      // answer) so the boss can tell the user its view is incomplete, but keep
+      // the happy-path output lean when nothing failed.
+      return failures.length > 0 ? { deployments, failures } : { deployments };
     },
   }),
   liveTool({
