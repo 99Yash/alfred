@@ -1,3 +1,4 @@
+import type { SyncedArtifact } from "@alfred/sync";
 import { useCallback, useEffect, useRef, useState } from "react";
 
 import { useThreadArtifacts } from "~/lib/replicache/use-artifacts";
@@ -22,6 +23,8 @@ export const ARTIFACT_PANEL_MAX_WIDTH = 760;
 const ARTIFACT_PANEL_DEFAULT_WIDTH = 460;
 
 export interface ArtifactPanelState {
+  /** This thread's artifacts, newest first (drives the top-bar quick-access menu). */
+  artifacts: SyncedArtifact[];
   /** The open artifact's id, or null when the panel is closed. */
   selectedId: string | null;
   /** True while an artifact is open (drives the right-rail slot swap). */
@@ -102,6 +105,7 @@ export function useArtifactPanel(
   }, []);
 
   return {
+    artifacts: threadArtifacts,
     selectedId,
     isOpen: selectedId !== null,
     width,
