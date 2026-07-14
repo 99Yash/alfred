@@ -46,6 +46,29 @@ export const artifactStatusValues = ["generating", "complete", "error"] as const
 export type ArtifactStatus = (typeof artifactStatusValues)[number];
 export const artifactStatusSchema = z.enum(artifactStatusValues);
 
+/**
+ * Hard ceiling on a `document`'s STORED markdown body (ADR-0075/0085). A long
+ * document accrues here across many capped authoring calls; this is the total,
+ * not the per-call budget. Single source for the schema bound and the write
+ * path's by-hand guard (`.$type<>()` is compile-time only, so `write.ts` cannot
+ * lean on Zod to enforce it — see {@link ARTIFACT_SECTION_MAX_CHARS}).
+ */
+export const DOCUMENT_MARKDOWN_MAX = 500_000;
+
+/**
+ * Per-call markdown budget for authoring a `document` (ADR-0085). Bounds one
+ * `create_artifact` / `append_artifact_section` INPUT (~1,800 words ≈ ~60s of
+ * generation ≈ ⅓ of the 180s stream ceiling) so a long document is authored as
+ * many capped sections that accrue into one body. The STORED total stays
+ * {@link DOCUMENT_MARKDOWN_MAX} (500K). Calibrated from a single 196 chars/s
+ * probe — tunable after the live re-probe. The tool description, not this cap,
+ * is the load-bearing forcing function: a document big enough to actually time
+ * out aborts mid-argument-generation before any complete call is validated, so
+ * the cap only hard-bounds a single stored write and chunks the non-compliant
+ * sub-timeout case.
+ */
+export const ARTIFACT_SECTION_MAX_CHARS = 12_000;
+
 /** One page of a `kind: "pages"` artifact: a title + body-level HTML. */
 export const artifactPageSchema = z.object({
   /** Short page title, shown on the thumbnail and the page chrome. */
@@ -68,7 +91,7 @@ export type ArtifactPage = z.infer<typeof artifactPageSchema>;
  * kind is a union edit, not a migration.
  */
 export const artifactContentSchema = z.discriminatedUnion("kind", [
-  z.object({ kind: z.literal("document"), markdown: z.string().max(500_000) }),
+  z.object({ kind: z.literal("document"), markdown: z.string().max(DOCUMENT_MARKDOWN_MAX) }),
   z.object({ kind: z.literal("pages"), pages: z.array(artifactPageSchema).max(100) }),
 ]);
 export type ArtifactContent = z.infer<typeof artifactContentSchema>;

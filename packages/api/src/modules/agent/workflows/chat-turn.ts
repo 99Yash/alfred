@@ -153,6 +153,7 @@ const TITLE_TIMEOUT_MS = 15_000;
 const ARTIFACT_MUTATION_TOOL_NAMES = [
   "system.create_artifact",
   "system.append_artifact_page",
+  "system.append_artifact_section",
   "system.update_artifact",
 ] as const satisfies readonly ToolName[];
 const ARTIFACT_MUTATION_TOOLS: ReadonlySet<string> = new Set(ARTIFACT_MUTATION_TOOL_NAMES);
