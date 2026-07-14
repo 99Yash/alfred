@@ -61,10 +61,17 @@ export function resolveCalendarListWindow(
   timezone: string,
   now: Date = new Date(),
 ): CalendarListWindow {
-  if (input.timeMin || input.timeMax) {
-    if (input.window || input.partOfDay) {
-      throw new AppError("calendar_bounds_conflict");
-    }
+  // Precedence when the model over-specifies both modes: a relative `window`
+  // wins over explicit bounds. A window value (today/tomorrow/next_7_days) can
+  // only come from a relative request — a specific-date ask has no matching enum
+  // — so a present `window` means the model *also* hand-computed bounds as a
+  // redundant belt-and-suspenders, and those bounds are the sloppy part (11/11
+  // observed failures were `{timeMin, timeMax, window, partOfDay}` with the
+  // bounds a noon-to-noon window for "today"). The server resolves `window` in
+  // the user's timezone, which is the reliable intent; the schema no longer
+  // rejects the mix (it just burned a turn), so resolve it here instead. Bounds
+  // are still honored when no window is set (the exact-date/time path).
+  if ((input.timeMin || input.timeMax) && !input.window) {
     const timeMin = input.timeMin ? new Date(input.timeMin) : now;
     const timeMax = input.timeMax
       ? new Date(input.timeMax)

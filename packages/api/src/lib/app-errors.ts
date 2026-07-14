@@ -16,10 +16,6 @@ export const APP_ERROR_REGISTRY = {
     message:
       "Calendar could not be read from any connected account. Reconnect Calendar in settings.",
   },
-  calendar_bounds_conflict: {
-    message:
-      "Calendar accepts either explicit timeMin/timeMax bounds or a relative window, not both.",
-  },
   calendar_bounds_order: {
     message: "Calendar requires timeMax to be after timeMin.",
   },
