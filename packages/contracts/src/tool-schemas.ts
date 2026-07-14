@@ -56,6 +56,42 @@ function modelToolEmail() {
 }
 
 /**
+ * Boundary-tolerance pipeline overview.
+ *
+ * A model's tool call is made lenient in a fixed two-layer order before the
+ * strict schema sees it, so every wrapper below knows where it slots in:
+ *
+ *   Layer 1 — dispatch (`packages/api`, `normalizeToolInputKeys`): generic,
+ *     all-tools casing/underscore canonicalization. Renames a model key to a
+ *     schema key that differs only in case or `_`/`-` (`max_results` →
+ *     `maxResults`). Mechanical and lossless, so it is safe to generalize over
+ *     every tool; it never touches genuine synonyms. Runs FIRST.
+ *   Layer 2 — schema preprocess wrappers (this file), applied inner→outer and
+ *     running before the `.strict()` object validates:
+ *       • withQueryAlias        — q ⇄ query search-field spelling
+ *       • withKeyAliases        — curated 1:1 synonyms (body→bodyText, limit→perPage)
+ *       • blankFieldToOmitted   — empty optional string → omitted
+ *       • coerceJsonArrayFields — JSON-stringified array → real array
+ *       • promoteWindowSynonym  — calendar: any window-valued key → window
+ *       • promoteDriveBareQuery — drive: bare term → a valid query clause
+ *       • withGithubItemUrl     — github: url/slug/number-synonym → owner/repo/<n>
+ *
+ * These are curated and per-tool (lossy or tool-specific), so they must NOT be
+ * generalized the way Layer 1 is; the package boundary also forbids contracts
+ * importing dispatch. In every case `z.toJSONSchema(schema, { io: "input" })`
+ * unwraps the wrappers, so the model and the approval UI still see only the
+ * canonical surface — only the server gets more tolerant. A new mechanism slots
+ * into Layer 2 here.
+ */
+
+/**
+ * Canonical form of a key for case/underscore-insensitive matching: lower-cased
+ * with `_`/`-` stripped. Mirrors dispatch's `normalizeToolInputKeys` canon so a
+ * curated alias folds the same cased/underscored variants the generic pass does.
+ */
+const canonicalKey = (key: string): string => key.toLowerCase().replace(/[_-]/g, "");
+
+/**
  * Search tools split on the query field name: `drive`/`gmail` use `q` (the
  * Google API param) while `github`/`notion` use `query`. The boss pattern-
  * matches across tools and routinely sends the off-name spelling — dispatch
@@ -77,6 +113,63 @@ function withQueryAlias<S extends z.ZodTypeAny>(canonical: "q" | "query", schema
       return rest;
     }
     return value;
+  }, schema);
+}
+
+/**
+ * Rename model-supplied parameter *synonyms* to the canonical field before
+ * validation. Generalizes {@link withQueryAlias} for the measured cross-tool
+ * fumbles where the model reaches for a natural name the strict schema doesn't
+ * accept but whose intent is unambiguous — `gmail.send_draft({ body })` for
+ * `bodyText`, `github.search({ limit })` for `perPage`. An alias is a
+ * hand-curated synonym that is NOT itself an accepted schema key, so it is
+ * always removed: folded into the canonical field when that field is absent, or
+ * dropped as redundant when the model set the canonical too (the explicit
+ * canonical wins — a rare, pathological both-present call is resolved silently
+ * rather than bounced, since bouncing a recognizable fumble is exactly what this
+ * pass exists to avoid). Wrapped at the object level like the other
+ * boundary-tolerance wrappers, so `z.toJSONSchema(schema, { io: "input" })` — and
+ * the approval UI — still advertise only the canonical field; only the server
+ * gets more tolerant.
+ *
+ * This is a high-confidence 1:1 synonym map. Pure casing/underscore variants of
+ * a *canonical* field (`max_results` → `maxResults`) are handled generically at
+ * the dispatch boundary by `normalizeToolInputKeys`, which is deliberately more
+ * conservative (it leaves an ambiguous both-present pair for strict validation)
+ * because its fuzzy canonical match spans every field, not a curated set. That
+ * generic pass only canonicalizes toward *accepted* keys, and an alias is never
+ * accepted, so a cased variant of the alias itself (`Limit`, `Body`) would
+ * otherwise fall through both layers and re-open the very bounce this wrapper
+ * exists to close — so the alias is matched case/underscore-insensitively here.
+ *
+ * The alias *targets* are constrained to the wrapped object's own keys, so a
+ * typo or a renamed field (`perPage` → `perPageCount`) fails to compile rather
+ * than silently reintroducing the fumble.
+ */
+function withKeyAliases<S extends z.ZodObject>(
+  aliases: Record<string, keyof S["shape"] & string>,
+  schema: S,
+) {
+  return z.preprocess((value) => {
+    if (!isRecord(value)) return value;
+    let next = value;
+    for (const [alias, canonical] of Object.entries(aliases)) {
+      // Match the alias case/underscore-insensitively (`Limit` → `limit`): the
+      // dispatch normalizer only canonicalizes toward accepted keys, and an
+      // alias is never accepted, so a cased variant reaches here untouched.
+      const key =
+        alias in next
+          ? alias
+          : Object.keys(next).find((k) => canonicalKey(k) === canonicalKey(alias));
+      if (key === undefined) continue;
+      if (next === value) next = { ...value };
+      // An alias is never itself an accepted key, so always remove it: fold it
+      // into the canonical field when that's absent, else drop it as redundant
+      // (the explicit canonical wins rather than the call bouncing).
+      if (!(canonical in next)) next[canonical] = next[key];
+      delete next[key];
+    }
+    return next;
   }, schema);
 }
 
@@ -188,15 +281,17 @@ const calendarListEventsObject = z
     // back to the model (same cosmetic behavior as github.search maxResults).
     maxResults: z.coerce.number().int().min(1).max(50).default(10).catch(10),
   })
-  .strict()
-  .refine(
-    (value) =>
-      !(Boolean(value.timeMin || value.timeMax) && Boolean(value.window || value.partOfDay)),
-    {
-      message: "Use either explicit timeMin/timeMax bounds or relative window/partOfDay, not both.",
-      path: ["window"],
-    },
-  );
+  .strict();
+// NOTE: explicit bounds and a relative window are NOT mutually exclusive at the
+// schema level. The model routinely over-specifies both — 11/11 observed
+// `calendar.list_events` failures were the kitchen-sink shape
+// `{ timeMin, timeMax, window, partOfDay, maxResults }`, with the model's own
+// hand-computed bounds being sloppy (a noon-to-noon window for "today"). A
+// mutual-exclusion refine here just bounced those and burned a boss turn. Both
+// fields now validate; `resolveCalendarListWindow` resolves the precedence — a
+// present `window` value can only come from a relative request, so it wins over
+// the redundant bounds and the server resolves it correctly in the user's
+// timezone (see the handler for the full rationale).
 
 // The model reliably emits the right relative *value* ("today") but keeps
 // guessing the *key* — `timeframe`, `range`, `time_range`, … — instead of
@@ -275,30 +370,68 @@ export const docsGetDocumentInput = z
 
 const driveFileId = z.string().min(1).max(200).describe("The Drive file id.");
 
+/**
+ * The one genuine Drive-DSL fumble class (rare): the model passes a bare search
+ * *term* instead of a Drive query clause. `q=resume` and `q=*` are not valid
+ * Drive query syntax — Drive returns a 400, wasting a boss turn. A valid clause
+ * always carries an operator (`name contains 'x'`, `mimeType = '...'`, a date
+ * comparison), so a token of only word chars / `.` / `-` (no operator, quote,
+ * space, or `=`) can never be a real query. Rewrite such a bare term into a
+ * name-or-fullText contains clause so it executes and finds the file the model
+ * was reaching for; drop a lone `*` (Drive rejects it) so the call lists recent
+ * files. Only rewrites inputs Drive would reject anyway — a well-formed clause
+ * is left untouched. fullText is included deliberately: when the model resorts
+ * to a bare term it is uncertain what it's looking for, so matching file bodies
+ * as well as names maximizes recall; a confident name-only search already writes
+ * `name contains '…'` itself.
+ */
+const DRIVE_BARE_TERM_RE = /^[\w.-]+$/;
+function promoteDriveBareQuery(value: unknown): unknown {
+  if (!isRecord(value)) return value;
+  const q = value.q;
+  if (typeof q !== "string") return value;
+  const trimmed = q.trim();
+  if (trimmed === "*") {
+    const next = { ...value };
+    delete next.q;
+    return next;
+  }
+  if (DRIVE_BARE_TERM_RE.test(trimmed)) {
+    // The regex admits only word chars / `.` / `-`, so `trimmed` can never carry
+    // a quote or backslash — it's safe to interpolate into the single-quoted
+    // Drive query value without escaping.
+    return { ...value, q: `name contains '${trimmed}' or fullText contains '${trimmed}'` };
+  }
+  return value;
+}
+
 export const driveSearchInput = withQueryAlias(
   "q",
   blankFieldToOmitted(
     ["q"],
-    z
-      .object({
-        q: z
-          .string()
-          .min(1)
-          .max(1000)
-          .optional()
-          .describe(
-            "Drive query, e.g. `name contains 'budget'` or `mimeType = 'application/vnd.google-apps.document'`. Omit to list recent files.",
-          ),
-        // Result-count cap — cosmetic; fall back to the default rather than error.
-        pageSize: z.coerce.number().int().min(1).max(100).default(25).catch(25),
-        pageToken: z.string().optional().describe("Cursor from a previous page's nextPageToken."),
-        orderBy: z
-          .string()
-          .max(100)
-          .optional()
-          .describe("Sort order, e.g. `modifiedTime desc` (default), `name`."),
-      })
-      .strict(),
+    z.preprocess(
+      promoteDriveBareQuery,
+      z
+        .object({
+          q: z
+            .string()
+            .min(1)
+            .max(1000)
+            .optional()
+            .describe(
+              "Drive query, e.g. `name contains 'budget'` or `mimeType = 'application/vnd.google-apps.document'`. Omit to list recent files.",
+            ),
+          // Result-count cap — cosmetic; fall back to the default rather than error.
+          pageSize: z.coerce.number().int().min(1).max(100).default(25).catch(25),
+          pageToken: z.string().optional().describe("Cursor from a previous page's nextPageToken."),
+          orderBy: z
+            .string()
+            .max(100)
+            .optional()
+            .describe("Sort order, e.g. `modifiedTime desc` (default), `name`."),
+        })
+        .strict(),
+    ),
   ),
 );
 
@@ -353,94 +486,196 @@ const githubOwnerRepo = {
   repo: z.string().min(1).max(100).describe("Repository name."),
 };
 
-export const githubSearchInput = z
-  .object({
-    type: z
-      .enum(["issue", "pr", "both"])
-      // No schema default: the query builder treats an omitted `type` as `pr`
-      // (its `?? "pr"`), but keeping it OPTIONAL here lets the sanitizer tell a
-      // deliberate `type:'pr'` apart from "unset". A free-typed `is:issue` with
-      // an unset type then resolves to `issue` instead of silently widening to
-      // `both` (which an applied default would have caused).
-      .optional()
-      .describe(
-        "What to search: `pr` (pull requests, the default when omitted), `issue` (issues only), or `both`. GitHub's search spans issues and PRs; this owns the is:pr/is:issue clause.",
-      ),
-    author: z
-      .string()
-      .min(1)
-      .max(100)
-      // No schema default. An applied `@me` default forces every search to be
-      // author-scoped, which silently narrows a repo/org search ("open issues in
-      // repo:X") to ones the user authored. The query builder defaults author to
-      // `@me` only for an otherwise-unscoped search (a bare "my PRs"); a query
-      // that names a repo/org/person is left author-unfiltered unless the model
-      // sets this. Set `@me` explicitly to force your own items even in a repo.
-      .optional()
-      .describe(
-        "Author login, or `@me` for the connected user. Omit to leave the search author-unscoped — an otherwise-unscoped search defaults to your items, but a repo-/org-scoped search is left unfiltered by author unless you set `@me`.",
-      ),
-    state: z
-      .enum(["open", "closed", "merged", "all"])
-      .default("all")
-      .describe(
-        "State filter. `closed` includes merged PRs; `merged` is merged-only (PRs). Issues are never `merged`.",
-      ),
-    closedWithinDays: z.coerce
-      .number()
-      .int()
-      .min(1)
-      .max(365)
-      .optional()
-      .describe(
-        "Only PRs closed within the last N calendar days in the user's timezone — N=1 means today, 7 means the past week. Prefer this over a free-form closed: qualifier.",
-      ),
-    createdWithinDays: z.coerce
-      .number()
-      .int()
-      .min(1)
-      .max(365)
-      .optional()
-      .describe(
-        "Only PRs created within the last N calendar days in the user's timezone (N=1 = today). Prefer this over a free-form created: qualifier.",
-      ),
-    mergedWithinDays: z.coerce
-      .number()
-      .int()
-      .min(1)
-      .max(365)
-      .optional()
-      .describe(
-        "Only PRs merged within the last N calendar days in the user's timezone — N=1 means today, 7 means the past week. Use with state:'merged' for 'how many PRs did I merge today/in the past week'. Prefer this over a free-form merged: qualifier.",
-      ),
-    query: z
-      .string()
-      .max(256)
-      .optional()
-      .describe(
-        "Extra GitHub search qualifiers appended verbatim, for filters the structured fields don't cover " +
-          '(e.g. "repo:owner/name label:bug review:approved"). Prefer the author/state/type/*WithinDays ' +
-          "fields for those — any author:/state:/is: you put here is folded into them automatically — and " +
-          "do NOT invent qualifiers: GitHub silently ignores unknown ones (there is no merged-by:, " +
-          "closed-by:, etc.) and returns an empty result.",
-      ),
-    perPage: z.coerce
-      .number()
-      .int()
-      .min(1)
-      .max(100)
-      .default(30)
-      // The count is always exact regardless of list size, so an out-of-range
-      // perPage (e.g. the model passing 0 to mean "count only") shouldn't burn a
-      // turn on a validation error — fall back to the default instead of throwing.
-      .catch(30)
-      .describe("Max items to return in the list (the total count is always exact)."),
-  })
-  .strict()
+/**
+ * A github.com issue/PR URL — `github.com/<owner>/<repo>/(pull|issues)/<n>`.
+ * Issues and PRs share one number namespace per repo, so the segment
+ * (`pull` vs `issues`) doesn't have to match the tool: the owner/repo/number it
+ * yields is correct for both `get_pull_request` and `get_issue`, and GitHub's
+ * own API 404s if the number is the wrong kind.
+ */
+const GITHUB_ITEM_URL_RE = /github\.com\/([^/\s]+)\/([^/\s]+)\/(?:pull|issues)\/(\d+)/i;
+
+/**
+ * `github.get_pull_request` / `get_issue` take `owner` + `repo` + the REST-named
+ * number, but the model overwhelmingly holds the wrong *shape*. Three fumbles,
+ * all measured on the search→fetch step (`github.search` hands back a `url` and
+ * an `owner/repo` slug, and the natural next step is "fetch that"):
+ *
+ *   1. a full github.com **URL** (the single biggest fumble — `url` ×11);
+ *   2. a combined **`owner/repo` slug** in the `repo` field (GitHub's own
+ *      notation) with no separate `owner` — observed live: `{ repo:
+ *      "99Yash/alfred", pullRequestNumber: "503" }`;
+ *   3. a **number synonym** — bare `number`, or `pullRequestNumber` / `prNumber`
+ *      / `issueNumber` — instead of the REST-named `pull_number`/`issue_number`.
+ *
+ * None validate against the strict schema, so the fetch dead-ends and burns a
+ * turn. Decompose the URL, split the slug, and fold the number synonym into the
+ * REST key — each only when the canonical field is absent, so an explicit
+ * owner/repo/number always wins. The number synonym is matched against a closed
+ * allowlist (`GITHUB_ITEM_NUMBER_SYNONYMS`), NOT an open-ended `endsWith(
+ * "number")` test: the latter would fold an unrelated numeric field such as
+ * `comment_number` into the item number and silently fetch the WRONG entity — a
+ * failure strictly worse than a bounce, which self-corrects. `z.toJSONSchema`
+ * unwraps the preprocess, so the model is still told the clean
+ * owner/repo/<numberKey> surface; only the server is tolerant. `numberKey` is
+ * tied to the wrapped object's keys, so it can't drift from the schema.
+ */
+const GITHUB_OWNER_REPO_SLUG_RE = /^([^/\s]+)\/([^/\s]+)$/;
+/**
+ * Canonical forms (see {@link canonicalKey}) of the number synonyms the model
+ * actually reaches for. Kept a closed set on purpose — see the wrapper's note.
+ */
+const GITHUB_ITEM_NUMBER_SYNONYMS: ReadonlySet<string> = new Set([
+  "number",
+  "prnumber",
+  "pullrequestnumber",
+  "issuenumber",
+]);
+function withGithubItemUrl<S extends z.ZodObject>(
+  numberKey: keyof S["shape"] & ("pull_number" | "issue_number"),
+  schema: S,
+) {
+  return z.preprocess((value) => {
+    if (!isRecord(value)) return value;
+    let next = value;
+    const fork = () => {
+      if (next === value) next = { ...value };
+    };
+
+    // 1. Decompose a full github.com URL the model was handed by github.search.
+    if (typeof next.url === "string") {
+      const match = GITHUB_ITEM_URL_RE.exec(next.url);
+      if (match) {
+        fork();
+        if (!("owner" in next)) next.owner = match[1];
+        if (!("repo" in next)) next.repo = match[2];
+        if (!(numberKey in next)) next[numberKey] = Number(match[3]);
+        delete next.url;
+      }
+    }
+
+    // 2. Split a combined `owner/repo` slug in `repo` when `owner` is absent —
+    //    a real repo name never contains a slash, so this can only be the slug.
+    if (typeof next.repo === "string" && !("owner" in next)) {
+      const slug = GITHUB_OWNER_REPO_SLUG_RE.exec(next.repo.trim());
+      if (slug) {
+        fork();
+        next.owner = slug[1];
+        next.repo = slug[2];
+      }
+    }
+
+    // 3. Fold whatever number synonym the model reached for into the REST key.
+    if (!(numberKey in next)) {
+      for (const key of Object.keys(next)) {
+        if (key === "owner" || key === "repo") continue;
+        if (!GITHUB_ITEM_NUMBER_SYNONYMS.has(canonicalKey(key))) continue;
+        fork();
+        next[numberKey] = next[key];
+        delete next[key];
+        break;
+      }
+    }
+    return next;
+  }, schema);
+}
+
+export const githubSearchInput = withKeyAliases(
+  // The model invents `limit` for the result cap; the field is `perPage`. The
+  // alias target `perPage` is now tied to the object's keys at compile time, so
+  // the wrapper must receive the plain `.strict()` object (not the refined
+  // schema); the query sanitizer runs as a `.superRefine` on the wrapper below.
+  { limit: "perPage" },
+  z
+    .object({
+      type: z
+        .enum(["issue", "pr", "both"])
+        // No schema default: the query builder treats an omitted `type` as `pr`
+        // (its `?? "pr"`), but keeping it OPTIONAL here lets the sanitizer tell a
+        // deliberate `type:'pr'` apart from "unset". A free-typed `is:issue` with
+        // an unset type then resolves to `issue` instead of silently widening to
+        // `both` (which an applied default would have caused).
+        .optional()
+        .describe(
+          "What to search: `pr` (pull requests, the default when omitted), `issue` (issues only), or `both`. GitHub's search spans issues and PRs; this owns the is:pr/is:issue clause.",
+        ),
+      author: z
+        .string()
+        .min(1)
+        .max(100)
+        // No schema default. An applied `@me` default forces every search to be
+        // author-scoped, which silently narrows a repo/org search ("open issues in
+        // repo:X") to ones the user authored. The query builder defaults author to
+        // `@me` only for an otherwise-unscoped search (a bare "my PRs"); a query
+        // that names a repo/org/person is left author-unfiltered unless the model
+        // sets this. Set `@me` explicitly to force your own items even in a repo.
+        .optional()
+        .describe(
+          "Author login, or `@me` for the connected user. Omit to leave the search author-unscoped — an otherwise-unscoped search defaults to your items, but a repo-/org-scoped search is left unfiltered by author unless you set `@me`.",
+        ),
+      state: z
+        .enum(["open", "closed", "merged", "all"])
+        .default("all")
+        .describe(
+          "State filter. `closed` includes merged PRs; `merged` is merged-only (PRs). Issues are never `merged`.",
+        ),
+      closedWithinDays: z.coerce
+        .number()
+        .int()
+        .min(1)
+        .max(365)
+        .optional()
+        .describe(
+          "Only PRs closed within the last N calendar days in the user's timezone — N=1 means today, 7 means the past week. Prefer this over a free-form closed: qualifier.",
+        ),
+      createdWithinDays: z.coerce
+        .number()
+        .int()
+        .min(1)
+        .max(365)
+        .optional()
+        .describe(
+          "Only PRs created within the last N calendar days in the user's timezone (N=1 = today). Prefer this over a free-form created: qualifier.",
+        ),
+      mergedWithinDays: z.coerce
+        .number()
+        .int()
+        .min(1)
+        .max(365)
+        .optional()
+        .describe(
+          "Only PRs merged within the last N calendar days in the user's timezone — N=1 means today, 7 means the past week. Use with state:'merged' for 'how many PRs did I merge today/in the past week'. Prefer this over a free-form merged: qualifier.",
+        ),
+      query: z
+        .string()
+        .max(256)
+        .optional()
+        .describe(
+          "Extra GitHub search qualifiers appended verbatim, for filters the structured fields don't cover " +
+            '(e.g. "repo:owner/name label:bug review:approved"). Prefer the author/state/type/*WithinDays ' +
+            "fields for those — any author:/state:/is: you put here is folded into them automatically — and " +
+            "do NOT invent qualifiers: GitHub silently ignores unknown ones (there is no merged-by:, " +
+            "closed-by:, etc.) and returns an empty result.",
+        ),
+      perPage: z.coerce
+        .number()
+        .int()
+        .min(1)
+        .max(100)
+        .default(30)
+        // The count is always exact regardless of list size, so an out-of-range
+        // perPage (e.g. the model passing 0 to mean "count only") shouldn't burn a
+        // turn on a validation error — fall back to the default instead of throwing.
+        .catch(30)
+        .describe("Max items to return in the list (the total count is always exact)."),
+    })
+    .strict(),
+)
   // Sanitize-and-merge first (fold colliding author:/state:/is:/date qualifiers
   // into the structured fields), then reject only the residue that has no safe
   // auto-fix: invented qualifiers (the silent zero-count `merged-by:` trap),
   // malformed date values, and contradictory field combinations (ADR-0071).
+  // Runs on the wrapper output (post key-alias fold), so it sees canonical keys.
   .superRefine((value, ctx) => {
     const { sanitized } = sanitizeGithubSearchQuery(value);
     for (const message of githubSearchQueryIssues(sanitized)) {
@@ -448,22 +683,28 @@ export const githubSearchInput = z
     }
   });
 
-export const githubGetPullRequestInput = z
-  .object({
-    ...githubOwnerRepo,
-    // Named to match GitHub's own REST path param (`/pulls/{pull_number}`) so
-    // the model passes the field it already knows.
-    pull_number: z.coerce.number().int().min(1).describe("Pull request number."),
-  })
-  .strict();
+export const githubGetPullRequestInput = withGithubItemUrl(
+  "pull_number",
+  z
+    .object({
+      ...githubOwnerRepo,
+      // Named to match GitHub's own REST path param (`/pulls/{pull_number}`) so
+      // the model passes the field it already knows.
+      pull_number: z.coerce.number().int().min(1).describe("Pull request number."),
+    })
+    .strict(),
+);
 
-export const githubGetIssueInput = z
-  .object({
-    ...githubOwnerRepo,
-    // Matches GitHub's REST path param (`/issues/{issue_number}`).
-    issue_number: z.coerce.number().int().min(1).describe("Issue number."),
-  })
-  .strict();
+export const githubGetIssueInput = withGithubItemUrl(
+  "issue_number",
+  z
+    .object({
+      ...githubOwnerRepo,
+      // Matches GitHub's REST path param (`/issues/{issue_number}`).
+      issue_number: z.coerce.number().int().min(1).describe("Issue number."),
+    })
+    .strict(),
+);
 
 /* ── gmail ────────────────────────────────────────────────────────────── */
 
@@ -521,27 +762,32 @@ export const gmailSearchInput = withQueryAlias(
 
 export const gmailSendDraftInput = coerceJsonArrayFields(
   ["to", "cc", "bcc"],
-  z
-    .object({
-      to: z.array(modelToolEmail()).min(1).max(25),
-      cc: z.array(modelToolEmail()).max(25).optional(),
-      bcc: z.array(modelToolEmail()).max(25).optional(),
-      subject: z
-        .string()
-        .min(1)
-        .max(1000)
-        .refine((s) => !/[\r\n]/.test(s), {
-          message: "subject must not contain line breaks",
-        }),
-      bodyText: z.string().min(1).max(50_000),
-      /**
-       * Optional `In-Reply-To` / `References` thread anchor — the dispatcher
-       * surfaces this on the approval card so the user can confirm what
-       * thread Alfred is replying into.
-       */
-      threadId: z.string().optional(),
-    })
-    .strict(),
+  // The model reaches for `body` (the plain-English name); the field is
+  // `bodyText`. Fold the synonym before validation.
+  withKeyAliases(
+    { body: "bodyText" },
+    z
+      .object({
+        to: z.array(modelToolEmail()).min(1).max(25),
+        cc: z.array(modelToolEmail()).max(25).optional(),
+        bcc: z.array(modelToolEmail()).max(25).optional(),
+        subject: z
+          .string()
+          .min(1)
+          .max(1000)
+          .refine((s) => !/[\r\n]/.test(s), {
+            message: "subject must not contain line breaks",
+          }),
+        bodyText: z.string().min(1).max(50_000),
+        /**
+         * Optional `In-Reply-To` / `References` thread anchor — the dispatcher
+         * surfaces this on the approval card so the user can confirm what
+         * thread Alfred is replying into.
+         */
+        threadId: z.string().optional(),
+      })
+      .strict(),
+  ),
 );
 
 export const gmailReadMessageInput = z

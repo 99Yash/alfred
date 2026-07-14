@@ -67,6 +67,7 @@ import {
 } from "../../lib/app-errors";
 import { logger, safeErrorDiagnostic } from "../../lib/logger";
 import { enrichInvalidInputMessage } from "./invalid-input";
+import { normalizeToolInputKeys } from "./normalize-keys";
 import { emitReplicachePokes } from "../../events/replicache-events";
 import { resolveApprovalNotifyDelayMs, resolvePolicyMode } from "../action-policies/resolve";
 import type { WakeCondition } from "../agent/types";
@@ -439,7 +440,23 @@ export async function dispatchToolCall(args: DispatchArgs): Promise<DispatchResu
     };
   }
 
-  const parsed = tool.inputSchema.safeParse(args.input);
+  // Normalize casing/underscore variants of real param names to the schema key
+  // before validation (param-ergonomics pass) — kills the dominant
+  // `unrecognized_keys` failure family (`max_results`→`maxResults`, snake↔camel)
+  // across every tool with one mechanism. Synonyms and the query DSL are still
+  // handled by the schema's own preprocess wrappers, which run inside safeParse.
+  const normalized = normalizeToolInputKeys(args.input, tool.inputSchema);
+  if (normalized.renamed.length > 0) {
+    // Surface the auto-repaired keys so prod traces can measure how often the
+    // ergonomics pass fires, and on which tools/keys, without re-running the
+    // 400-run scan — this is the signal for whether the tolerance is earning
+    // its keep or a schema key drifted from what the model reaches for.
+    logger.debug(
+      { event: "tool_input_keys_normalized", toolName, renamed: normalized.renamed },
+      "Normalized tool-input param keys before validation",
+    );
+  }
+  const parsed = tool.inputSchema.safeParse(normalized.input);
   if (!parsed.success) {
     const message = enrichInvalidInputMessage(
       parsed.error.message,
