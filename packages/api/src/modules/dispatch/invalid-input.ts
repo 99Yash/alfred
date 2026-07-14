@@ -15,16 +15,31 @@ import { z } from "zod";
  * Kept dependency-free (zod only) so it can be unit-tested without dragging in
  * the dispatcher's db/queue imports.
  */
-export function acceptedParamNames(schema: z.ZodTypeAny): string[] {
+// Tool input schemas are static module constants, so their accepted-key set is
+// invariant. `normalizeToolInputKeys` now calls this on the happy path of every
+// dispatch, so memoize per schema identity — `z.toJSONSchema` walks the whole
+// schema (every `.describe`, refine, wrapper) and that work is pure waste to
+// repeat. WeakMap keyed on the schema object so a schema that's ever GC'd
+// doesn't pin its cache entry.
+const acceptedParamCache = new WeakMap<z.ZodTypeAny, readonly string[]>();
+
+export function acceptedParamNames(schema: z.ZodTypeAny): readonly string[] {
+  const cached = acceptedParamCache.get(schema);
+  if (cached) return cached;
+  let names: readonly string[];
   try {
     const json = z.toJSONSchema(schema, { io: "input" }) as {
       properties?: Record<string, unknown>;
     };
-    return json.properties ? Object.keys(json.properties) : [];
+    names = json.properties ? Object.freeze(Object.keys(json.properties)) : EMPTY;
   } catch {
-    return [];
+    names = EMPTY;
   }
+  acceptedParamCache.set(schema, names);
+  return names;
 }
+
+const EMPTY: readonly string[] = Object.freeze([]);
 
 export function enrichInvalidInputMessage(
   baseMessage: string,

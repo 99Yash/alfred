@@ -39,31 +39,93 @@ describe("resolveCalendarListWindow", () => {
     assert.equal(window.timeMax.toISOString(), "2026-06-09T13:00:00.000Z");
   });
 
-  test("rejects mixed explicit and relative input modes", () => {
-    assert.throws(
-      () =>
-        calendarListEventsInput.parse({
-          timeMin: "2026-06-09T12:00:00.000Z",
-          timeMax: "2026-06-09T13:00:00.000Z",
-          window: "tomorrow",
-          maxResults: 10,
-        }),
-      /explicit timeMin\/timeMax/,
+  test("a relative window wins over redundant bounds that OVERLAP the same day", () => {
+    // The real over-specification shape — 11/11 observed failures were
+    // `{timeMin, timeMax, window, partOfDay}` where the model's own bounds were
+    // sloppy noon-to-noon spans that still overlap the intended day. The schema
+    // no longer rejects the mix (it just burned a turn); the relative window is
+    // the reliable intent and wins, resolved in the user's timezone.
+    // Parses instead of bouncing on a mutual-exclusion refine.
+    const parsed = calendarListEventsInput.parse({
+      timeMin: "2026-06-07T12:00:00.000Z",
+      timeMax: "2026-06-08T12:00:00.000Z",
+      window: "today",
+      partOfDay: "full_day",
+      maxResults: 10,
+    });
+    assert.equal((parsed as { window?: string }).window, "today");
+
+    const window = resolveCalendarListWindow(
+      {
+        // Noon-to-noon UTC bounds — sloppy, but they overlap "today" (7 June),
+        // so they're the redundant belt-and-suspenders the window supersedes.
+        timeMin: "2026-06-07T12:00:00.000Z",
+        timeMax: "2026-06-08T12:00:00.000Z",
+        window: "today",
+        partOfDay: "full_day",
+        maxResults: 10,
+      },
+      "UTC",
+      NOW,
     );
-    assert.throws(
-      () =>
-        resolveCalendarListWindow(
-          {
-            timeMin: "2026-06-09T12:00:00.000Z",
-            timeMax: "2026-06-09T13:00:00.000Z",
-            window: "tomorrow",
-            maxResults: 10,
-          },
-          "Asia/Kolkata",
-          NOW,
-        ),
-      /either explicit timeMin\/timeMax/,
+    // "today" (full_day) resolves to the whole of 7 June in UTC, ignoring the
+    // sloppy bounds.
+    assert.equal(window.timeMin.toISOString(), "2026-06-07T00:00:00.000Z");
+    assert.equal(window.timeMax.toISOString(), "2026-06-08T00:00:00.000Z");
+  });
+
+  test("explicit bounds DISJOINT from the window are honored (deliberate specific-date ask)", () => {
+    // The residual case "window always wins" got silently wrong: a specific-date
+    // ask ("events on 20 June") that the model *also* wrongly stamped a window
+    // onto. The bounds are entirely disjoint from the resolved window, so they
+    // can't be sloppy same-day bounds — they're the deliberate intent. Honor
+    // them instead of answering "today" and silently returning the wrong day.
+    const window = resolveCalendarListWindow(
+      {
+        timeMin: "2026-06-20T09:00:00.000Z",
+        timeMax: "2026-06-20T17:00:00.000Z",
+        window: "today",
+        partOfDay: "full_day",
+        maxResults: 10,
+      },
+      "UTC",
+      NOW,
     );
+    assert.equal(window.timeMin.toISOString(), "2026-06-20T09:00:00.000Z");
+    assert.equal(window.timeMax.toISOString(), "2026-06-20T17:00:00.000Z");
+  });
+
+  test("inverted bounds alongside a window fall back to the window (no bounce)", () => {
+    // Disjoint-but-inverted bounds are unusable; rather than throw (the pure
+    // bounds path's behavior) the over-specified path ignores them and resolves
+    // the window — a present window means we always have a usable fallback.
+    const window = resolveCalendarListWindow(
+      {
+        timeMin: "2026-06-20T17:00:00.000Z",
+        timeMax: "2026-06-20T09:00:00.000Z",
+        window: "today",
+        partOfDay: "full_day",
+        maxResults: 10,
+      },
+      "UTC",
+      NOW,
+    );
+    assert.equal(window.timeMin.toISOString(), "2026-06-07T00:00:00.000Z");
+    assert.equal(window.timeMax.toISOString(), "2026-06-08T00:00:00.000Z");
+  });
+
+  test("explicit bounds are still honored when no relative window is set", () => {
+    const window = resolveCalendarListWindow(
+      {
+        timeMin: "2026-06-09T12:00:00.000Z",
+        timeMax: "2026-06-09T13:00:00.000Z",
+        maxResults: 10,
+      },
+      "Asia/Kolkata",
+      NOW,
+    );
+    assert.equal(window.timeMin.toISOString(), "2026-06-09T12:00:00.000Z");
+    assert.equal(window.timeMax.toISOString(), "2026-06-09T13:00:00.000Z");
   });
 
   test("defaults next_7_days to local midnight through seven days later", () => {
