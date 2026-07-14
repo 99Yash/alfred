@@ -19,6 +19,7 @@ import { Check, ChevronDown } from "lucide-react";
 import { use, useId } from "react";
 import { AppThemeContext, type AppResolvedTheme } from "~/components/ui/v2/theme";
 import { cn } from "~/lib/utils";
+import { handleListboxKeyDown } from "./listbox-keynav";
 import { Tip } from "./tip";
 
 export type ChatTier = ChatModelTier;
@@ -117,10 +118,11 @@ export function ModelTierPicker({
           align="start"
           sideOffset={8}
           collisionPadding={16}
+          onKeyDown={handleListboxKeyDown}
           data-app-theme={dataTheme}
           className={cn(
             "app app-frost-overlay z-50 flex w-72 max-w-[calc(100vw-2rem)] flex-col gap-0.5 overflow-hidden rounded-2xl p-1.5",
-            "app-fade-in outline-none",
+            "app-pop outline-none",
           )}
         >
           {TIER_OPTIONS.map((option) => {
@@ -134,7 +136,7 @@ export function ModelTierPicker({
                 onClick={() => onChange(option.value)}
                 className={cn(
                   "flex w-full items-start gap-2.5 rounded-xl p-2 text-left transition-colors outline-none",
-                  "hover:bg-app-bg-a2 focus-visible:bg-app-bg-a2",
+                  "hover:bg-app-bg-a2 focus-visible:bg-app-bg-a2 active:bg-app-bg-3",
                   // Selected row holds a quiet tint so the active tier reads even
                   // before the eye finds the check.
                   checked && "bg-app-bg-a2",

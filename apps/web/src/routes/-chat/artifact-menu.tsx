@@ -1,9 +1,10 @@
 import type { SyncedArtifact } from "@alfred/sync";
 import * as PopoverPrimitive from "@radix-ui/react-popover";
-import { Check, FileText, Files, Layers, Loader2 } from "lucide-react";
+import { Check, FileText, Files, Layers, Loader2, Presentation } from "lucide-react";
 import { use, useId, useState } from "react";
 import { AppThemeContext } from "~/components/ui/v2/theme";
 import { cn } from "~/lib/utils";
+import { handleListboxKeyDown } from "./listbox-keynav";
 import { IconButton } from "./rail/icon-button";
 import { Tip } from "./tip";
 
@@ -25,7 +26,9 @@ import { Tip } from "./tip";
 
 function artifactIcon(artifact: SyncedArtifact, size: number) {
   if (artifact.status === "generating") return <Loader2 size={size} className="animate-spin" />;
-  return artifact.kind === "pages" ? <Layers size={size} /> : <FileText size={size} />;
+  if (artifact.kind === "pages")
+    return artifact.format === "slides" ? <Presentation size={size} /> : <Layers size={size} />;
+  return <FileText size={size} />;
 }
 
 function artifactSubtitle(artifact: SyncedArtifact): string {
@@ -97,7 +100,9 @@ export function ArtifactMenu({
             )}
           >
             <Files size={14} />
-            <span className="tabular-nums">{artifacts.length}</span>
+            <span key={artifacts.length} className="app-count-pop tabular-nums">
+              {artifacts.length}
+            </span>
           </button>
         </PopoverPrimitive.Trigger>
       </Tip>
@@ -110,10 +115,11 @@ export function ArtifactMenu({
           align="end"
           sideOffset={8}
           collisionPadding={16}
+          onKeyDown={handleListboxKeyDown}
           data-app-theme={dataTheme}
           className={cn(
             "app app-frost-overlay z-50 flex w-72 max-w-[calc(100vw-2rem)] flex-col gap-0.5 overflow-hidden rounded-2xl p-1.5",
-            "app-fade-in outline-none",
+            "app-pop outline-none",
           )}
         >
           {artifacts.map((artifact) => {
@@ -130,7 +136,7 @@ export function ArtifactMenu({
                 }}
                 className={cn(
                   "flex w-full items-center gap-2.5 rounded-xl p-2 text-left transition-colors outline-none",
-                  "hover:bg-app-bg-a2 focus-visible:bg-app-bg-a2",
+                  "hover:bg-app-bg-a2 focus-visible:bg-app-bg-a2 active:bg-app-bg-3",
                   checked && "bg-app-bg-a2",
                 )}
               >
