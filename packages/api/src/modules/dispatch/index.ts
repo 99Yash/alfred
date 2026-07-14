@@ -446,6 +446,16 @@ export async function dispatchToolCall(args: DispatchArgs): Promise<DispatchResu
   // across every tool with one mechanism. Synonyms and the query DSL are still
   // handled by the schema's own preprocess wrappers, which run inside safeParse.
   const normalized = normalizeToolInputKeys(args.input, tool.inputSchema);
+  if (normalized.renamed.length > 0) {
+    // Surface the auto-repaired keys so prod traces can measure how often the
+    // ergonomics pass fires, and on which tools/keys, without re-running the
+    // 400-run scan — this is the signal for whether the tolerance is earning
+    // its keep or a schema key drifted from what the model reaches for.
+    logger.debug(
+      { event: "tool_input_keys_normalized", toolName, renamed: normalized.renamed },
+      "Normalized tool-input param keys before validation",
+    );
+  }
   const parsed = tool.inputSchema.safeParse(normalized.input);
   if (!parsed.success) {
     const message = enrichInvalidInputMessage(

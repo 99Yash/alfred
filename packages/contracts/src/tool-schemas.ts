@@ -56,6 +56,42 @@ function modelToolEmail() {
 }
 
 /**
+ * Boundary-tolerance pipeline overview.
+ *
+ * A model's tool call is made lenient in a fixed two-layer order before the
+ * strict schema sees it, so every wrapper below knows where it slots in:
+ *
+ *   Layer 1 — dispatch (`packages/api`, `normalizeToolInputKeys`): generic,
+ *     all-tools casing/underscore canonicalization. Renames a model key to a
+ *     schema key that differs only in case or `_`/`-` (`max_results` →
+ *     `maxResults`). Mechanical and lossless, so it is safe to generalize over
+ *     every tool; it never touches genuine synonyms. Runs FIRST.
+ *   Layer 2 — schema preprocess wrappers (this file), applied inner→outer and
+ *     running before the `.strict()` object validates:
+ *       • withQueryAlias        — q ⇄ query search-field spelling
+ *       • withKeyAliases        — curated 1:1 synonyms (body→bodyText, limit→perPage)
+ *       • blankFieldToOmitted   — empty optional string → omitted
+ *       • coerceJsonArrayFields — JSON-stringified array → real array
+ *       • promoteWindowSynonym  — calendar: any window-valued key → window
+ *       • promoteDriveBareQuery — drive: bare term → a valid query clause
+ *       • withGithubItemUrl     — github: url/slug/number-synonym → owner/repo/<n>
+ *
+ * These are curated and per-tool (lossy or tool-specific), so they must NOT be
+ * generalized the way Layer 1 is; the package boundary also forbids contracts
+ * importing dispatch. In every case `z.toJSONSchema(schema, { io: "input" })`
+ * unwraps the wrappers, so the model and the approval UI still see only the
+ * canonical surface — only the server gets more tolerant. A new mechanism slots
+ * into Layer 2 here.
+ */
+
+/**
+ * Canonical form of a key for case/underscore-insensitive matching: lower-cased
+ * with `_`/`-` stripped. Mirrors dispatch's `normalizeToolInputKeys` canon so a
+ * curated alias folds the same cased/underscored variants the generic pass does.
+ */
+const canonicalKey = (key: string): string => key.toLowerCase().replace(/[_-]/g, "");
+
+/**
  * Search tools split on the query field name: `drive`/`gmail` use `q` (the
  * Google API param) while `github`/`notion` use `query`. The boss pattern-
  * matches across tools and routinely sends the off-name spelling — dispatch
@@ -96,24 +132,42 @@ function withQueryAlias<S extends z.ZodTypeAny>(canonical: "q" | "query", schema
  * the approval UI — still advertise only the canonical field; only the server
  * gets more tolerant.
  *
- * This is a high-confidence 1:1 synonym map. Pure casing/underscore variants
- * (`max_results` → `maxResults`) are handled generically at the dispatch
- * boundary by `normalizeToolInputKeys`, which is deliberately more conservative
- * (it leaves an ambiguous both-present pair for strict validation) because its
- * fuzzy canonical match spans every field, not a curated set.
+ * This is a high-confidence 1:1 synonym map. Pure casing/underscore variants of
+ * a *canonical* field (`max_results` → `maxResults`) are handled generically at
+ * the dispatch boundary by `normalizeToolInputKeys`, which is deliberately more
+ * conservative (it leaves an ambiguous both-present pair for strict validation)
+ * because its fuzzy canonical match spans every field, not a curated set. That
+ * generic pass only canonicalizes toward *accepted* keys, and an alias is never
+ * accepted, so a cased variant of the alias itself (`Limit`, `Body`) would
+ * otherwise fall through both layers and re-open the very bounce this wrapper
+ * exists to close — so the alias is matched case/underscore-insensitively here.
+ *
+ * The alias *targets* are constrained to the wrapped object's own keys, so a
+ * typo or a renamed field (`perPage` → `perPageCount`) fails to compile rather
+ * than silently reintroducing the fumble.
  */
-function withKeyAliases<S extends z.ZodTypeAny>(aliases: Record<string, string>, schema: S) {
+function withKeyAliases<S extends z.ZodObject>(
+  aliases: Record<string, keyof S["shape"] & string>,
+  schema: S,
+) {
   return z.preprocess((value) => {
     if (!isRecord(value)) return value;
     let next = value;
     for (const [alias, canonical] of Object.entries(aliases)) {
-      if (!(alias in next)) continue;
+      // Match the alias case/underscore-insensitively (`Limit` → `limit`): the
+      // dispatch normalizer only canonicalizes toward accepted keys, and an
+      // alias is never accepted, so a cased variant reaches here untouched.
+      const key =
+        alias in next
+          ? alias
+          : Object.keys(next).find((k) => canonicalKey(k) === canonicalKey(alias));
+      if (key === undefined) continue;
       if (next === value) next = { ...value };
       // An alias is never itself an accepted key, so always remove it: fold it
       // into the canonical field when that's absent, else drop it as redundant
       // (the explicit canonical wins rather than the call bouncing).
-      if (!(canonical in next)) next[canonical] = next[alias];
-      delete next[alias];
+      if (!(canonical in next)) next[canonical] = next[key];
+      delete next[key];
     }
     return next;
   }, schema);
@@ -443,44 +497,94 @@ const GITHUB_ITEM_URL_RE = /github\.com\/([^/\s]+)\/([^/\s]+)\/(?:pull|issues)\/
 
 /**
  * `github.get_pull_request` / `get_issue` take `owner` + `repo` + the REST-named
- * number, but the model overwhelmingly holds a *URL* (the single biggest measured
- * fumble — `url` ×11) because `github.search` RETURNS one and the natural next
- * step is "fetch that url". It also reaches for a bare `number`. Neither is in
- * the strict schema, so the fetch dead-ends and burns a turn. Decompose a full
- * github.com URL into owner/repo/<numberKey> and alias `number` → the REST key,
- * folding each only when the canonical field is absent (an explicit owner/repo/
- * number always wins). `z.toJSONSchema` unwraps the preprocess, so the model is
- * still told the clean owner/repo/<numberKey> surface; only the server is
- * tolerant.
+ * number, but the model overwhelmingly holds the wrong *shape*. Three fumbles,
+ * all measured on the search→fetch step (`github.search` hands back a `url` and
+ * an `owner/repo` slug, and the natural next step is "fetch that"):
+ *
+ *   1. a full github.com **URL** (the single biggest fumble — `url` ×11);
+ *   2. a combined **`owner/repo` slug** in the `repo` field (GitHub's own
+ *      notation) with no separate `owner` — observed live: `{ repo:
+ *      "99Yash/alfred", pullRequestNumber: "503" }`;
+ *   3. a **number synonym** — bare `number`, or `pullRequestNumber` / `prNumber`
+ *      / `issueNumber` — instead of the REST-named `pull_number`/`issue_number`.
+ *
+ * None validate against the strict schema, so the fetch dead-ends and burns a
+ * turn. Decompose the URL, split the slug, and fold the number synonym into the
+ * REST key — each only when the canonical field is absent, so an explicit
+ * owner/repo/number always wins. The number synonym is matched against a closed
+ * allowlist (`GITHUB_ITEM_NUMBER_SYNONYMS`), NOT an open-ended `endsWith(
+ * "number")` test: the latter would fold an unrelated numeric field such as
+ * `comment_number` into the item number and silently fetch the WRONG entity — a
+ * failure strictly worse than a bounce, which self-corrects. `z.toJSONSchema`
+ * unwraps the preprocess, so the model is still told the clean
+ * owner/repo/<numberKey> surface; only the server is tolerant. `numberKey` is
+ * tied to the wrapped object's keys, so it can't drift from the schema.
  */
-function withGithubItemUrl<S extends z.ZodTypeAny>(
-  numberKey: "pull_number" | "issue_number",
+const GITHUB_OWNER_REPO_SLUG_RE = /^([^/\s]+)\/([^/\s]+)$/;
+/**
+ * Canonical forms (see {@link canonicalKey}) of the number synonyms the model
+ * actually reaches for. Kept a closed set on purpose — see the wrapper's note.
+ */
+const GITHUB_ITEM_NUMBER_SYNONYMS: ReadonlySet<string> = new Set([
+  "number",
+  "prnumber",
+  "pullrequestnumber",
+  "issuenumber",
+]);
+function withGithubItemUrl<S extends z.ZodObject>(
+  numberKey: keyof S["shape"] & ("pull_number" | "issue_number"),
   schema: S,
 ) {
   return z.preprocess((value) => {
     if (!isRecord(value)) return value;
     let next = value;
+    const fork = () => {
+      if (next === value) next = { ...value };
+    };
+
+    // 1. Decompose a full github.com URL the model was handed by github.search.
     if (typeof next.url === "string") {
       const match = GITHUB_ITEM_URL_RE.exec(next.url);
       if (match) {
-        next = { ...next };
+        fork();
         if (!("owner" in next)) next.owner = match[1];
         if (!("repo" in next)) next.repo = match[2];
         if (!(numberKey in next)) next[numberKey] = Number(match[3]);
         delete next.url;
       }
     }
-    if ("number" in next && !(numberKey in next)) {
-      if (next === value) next = { ...value };
-      next[numberKey] = next.number;
-      delete next.number;
+
+    // 2. Split a combined `owner/repo` slug in `repo` when `owner` is absent —
+    //    a real repo name never contains a slash, so this can only be the slug.
+    if (typeof next.repo === "string" && !("owner" in next)) {
+      const slug = GITHUB_OWNER_REPO_SLUG_RE.exec(next.repo.trim());
+      if (slug) {
+        fork();
+        next.owner = slug[1];
+        next.repo = slug[2];
+      }
+    }
+
+    // 3. Fold whatever number synonym the model reached for into the REST key.
+    if (!(numberKey in next)) {
+      for (const key of Object.keys(next)) {
+        if (key === "owner" || key === "repo") continue;
+        if (!GITHUB_ITEM_NUMBER_SYNONYMS.has(canonicalKey(key))) continue;
+        fork();
+        next[numberKey] = next[key];
+        delete next[key];
+        break;
+      }
     }
     return next;
   }, schema);
 }
 
 export const githubSearchInput = withKeyAliases(
-  // The model invents `limit` for the result cap; the field is `perPage`.
+  // The model invents `limit` for the result cap; the field is `perPage`. The
+  // alias target `perPage` is now tied to the object's keys at compile time, so
+  // the wrapper must receive the plain `.strict()` object (not the refined
+  // schema); the query sanitizer runs as a `.superRefine` on the wrapper below.
   { limit: "perPage" },
   z
     .object({
@@ -565,18 +669,19 @@ export const githubSearchInput = withKeyAliases(
         .catch(30)
         .describe("Max items to return in the list (the total count is always exact)."),
     })
-    .strict()
-    // Sanitize-and-merge first (fold colliding author:/state:/is:/date qualifiers
-    // into the structured fields), then reject only the residue that has no safe
-    // auto-fix: invented qualifiers (the silent zero-count `merged-by:` trap),
-    // malformed date values, and contradictory field combinations (ADR-0071).
-    .superRefine((value, ctx) => {
-      const { sanitized } = sanitizeGithubSearchQuery(value);
-      for (const message of githubSearchQueryIssues(sanitized)) {
-        ctx.addIssue({ code: z.ZodIssueCode.custom, message, path: ["query"] });
-      }
-    }),
-);
+    .strict(),
+)
+  // Sanitize-and-merge first (fold colliding author:/state:/is:/date qualifiers
+  // into the structured fields), then reject only the residue that has no safe
+  // auto-fix: invented qualifiers (the silent zero-count `merged-by:` trap),
+  // malformed date values, and contradictory field combinations (ADR-0071).
+  // Runs on the wrapper output (post key-alias fold), so it sees canonical keys.
+  .superRefine((value, ctx) => {
+    const { sanitized } = sanitizeGithubSearchQuery(value);
+    for (const message of githubSearchQueryIssues(sanitized)) {
+      ctx.addIssue({ code: z.ZodIssueCode.custom, message, path: ["query"] });
+    }
+  });
 
 export const githubGetPullRequestInput = withGithubItemUrl(
   "pull_number",

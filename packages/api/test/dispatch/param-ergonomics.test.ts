@@ -87,6 +87,22 @@ const CASES: readonly Case[] = [
     input: { query: "repo:99Yash/alfred", limit: 5 },
     expect: (d) => assert.equal(d.perPage, 5),
   },
+  {
+    // A cased/underscored variant of an ALIAS (not an accepted key) can't be
+    // reached by the generic dispatch normalizer, so withKeyAliases matches the
+    // alias case/underscore-insensitively — otherwise `Limit`/`Body` would fall
+    // through both layers and re-open the exact bounce the wrapper closes.
+    name: "github.search Limit (cased alias) → perPage",
+    tool: "github.search",
+    input: { query: "repo:99Yash/alfred", Limit: 5 },
+    expect: (d) => assert.equal(d.perPage, 5),
+  },
+  {
+    name: "gmail.send_draft Body (cased alias) → bodyText",
+    tool: "gmail.send_draft",
+    input: { to: ["a@example.com"], subject: "Hi", Body: "The message body." },
+    expect: (d) => assert.equal(d.bodyText, "The message body."),
+  },
   // ── wrong shape (github url/number decompose — the biggest offender) ─────
   {
     name: "github.get_pull_request url → owner/repo/pull_number",
@@ -109,6 +125,29 @@ const CASES: readonly Case[] = [
     tool: "github.get_pull_request",
     input: { owner: "99Yash", repo: "alfred", number: 305 },
     expect: (d) => assert.equal(d.pull_number, 305),
+  },
+  {
+    // Live-caught (run_zontenz6gh4e, 2026-07-14): the search→fetch step emitted
+    // a combined `owner/repo` slug AND the `pullRequestNumber` synonym, bouncing
+    // the first fetch attempt. Both must now fold.
+    name: "github.get_pull_request combined slug + pullRequestNumber synonym",
+    tool: "github.get_pull_request",
+    input: { repo: "99Yash/alfred", pullRequestNumber: "503" },
+    expect: (d) => {
+      assert.equal(d.owner, "99Yash");
+      assert.equal(d.repo, "alfred");
+      assert.equal(d.pull_number, 503);
+    },
+  },
+  {
+    name: "github.get_issue combined slug + issueNumber synonym",
+    tool: "github.get_issue",
+    input: { repo: "99Yash/alfred", issueNumber: 218 },
+    expect: (d) => {
+      assert.equal(d.owner, "99Yash");
+      assert.equal(d.repo, "alfred");
+      assert.equal(d.issue_number, 218);
+    },
   },
   // ── real Drive-DSL guard ─────────────────────────────────────────────────
   {
@@ -150,4 +189,19 @@ describe("param-ergonomics: measured fumbles validate first-try through dispatch
       if (parsed.success && c.expect) c.expect(parsed.data as Record<string, unknown>);
     });
   }
+});
+
+describe("param-ergonomics: the github number-synonym fold stays a closed allowlist", () => {
+  // An unrelated numeric field must NOT be folded into the item number. Folding
+  // `comment_number` → `issue_number` would silently fetch the WRONG entity — a
+  // failure strictly worse than a bounce, which self-corrects. So this MUST
+  // bounce (unknown key + missing issue_number), never quietly succeed.
+  test("github.get_issue comment_number is not folded into issue_number", () => {
+    const parsed = dispatchParse("github.get_issue", {
+      owner: "99Yash",
+      repo: "alfred",
+      comment_number: 5,
+    });
+    assert.equal(parsed.success, false);
+  });
 });
