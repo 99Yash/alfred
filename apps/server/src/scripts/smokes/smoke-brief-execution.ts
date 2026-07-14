@@ -9,21 +9,17 @@
  *     run row and auto-approves any pending action_stagings inline,
  *     exercising both the autonomy and gated-resume dispatch paths.
  *   - At least one user with Google connected (gmail + calendar scopes).
- *     The smoke seeds activeIntegrations from `@gmail` in the brief and
- *     forces the boss to call `system.load_integration('calendar')`
- *     mid-run.
+ *     The smoke seeds exact Gmail tools from `@gmail` in the brief while
+ *     Calendar starts inactive, exercising exact-tool activation mid-run.
  *
  * What this verifies end-to-end (Phase 4 acceptance):
  *   1. createRun resolves the user-authored sentinel workflow without
  *      registering it, preserves the user-authored slug on the run row.
  *   2. boss-turn ↔ dispatch-tools ping-pong reaches `status='completed'`.
- *   3. `system.load_integration('calendar')` mid-run appends 'calendar'
- *      to `agent_runs.state.activeIntegrations` so subsequent boss
- *      turns see calendar tools in their toolset.
- *   4. action_stagings rows land for system.load_integration + the
- *      gmail/calendar tools the boss exercised, regardless of policy
- *      mode (system gets the autonomy override; non-system rides
- *      `user_action_policies`).
+ *   3. Calendar's exact tool schema lands in `agent_runs.state.activeTools`
+ *      before the corrected call executes on a subsequent boss turn.
+ *   4. action_stagings rows land for the gmail/calendar tools the boss
+ *      exercised, regardless of policy mode.
  *   5. One `api_call_log` row per `boss-turn` step (ADR-0026: one
  *      turn = one round-trip = one logged call).
  *   6. The run's final output carries a non-empty user-facing summary.
@@ -35,11 +31,7 @@
  *     (covered by smoke-sub-agents.ts at the plumbing level).
  */
 
-import {
-  createRun,
-  enqueueRun,
-  signalRun,
-} from "@alfred/api/backend";
+import { createRun, enqueueRun, signalRun } from "@alfred/api/backend";
 import { closeAgentQueue, closeConnections, closeRedis, warmPool } from "@alfred/api/runtime";
 import { getStringPath, toRecord } from "@alfred/contracts";
 import { db } from "@alfred/db";
@@ -299,10 +291,6 @@ async function main(): Promise<void> {
     stagings.filter((s) => s.status === "executed").map((s) => s.toolName),
   );
   assert(
-    executedToolNames.has("system.load_integration"),
-    "expected an executed system.load_integration staging",
-  );
-  assert(
     Array.from(executedToolNames).some((n) => n.startsWith("gmail.")),
     "expected at least one executed gmail.* staging",
   );
@@ -311,14 +299,14 @@ async function main(): Promise<void> {
     "expected at least one executed calendar.* staging",
   );
 
-  const activeIntegrations = final.state.activeIntegrations;
+  const activeTools = final.state.activeTools;
   assert(
-    isStringArray(activeIntegrations),
-    `expected state.activeIntegrations to be string[], got ${JSON.stringify(activeIntegrations)}`,
+    isStringArray(activeTools),
+    `expected state.activeTools to be string[], got ${JSON.stringify(activeTools)}`,
   );
   assert(
-    activeIntegrations.includes("calendar"),
-    `state.activeIntegrations did not grow to include 'calendar': ${JSON.stringify(activeIntegrations)}`,
+    activeTools.includes("calendar.list_events"),
+    `state.activeTools did not grow to include calendar.list_events: ${JSON.stringify(activeTools)}`,
   );
 
   const apiCallCount = await countApiCalls(runId);

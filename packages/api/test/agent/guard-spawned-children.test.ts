@@ -37,7 +37,7 @@ function baseState(overrides: Partial<ChatRunState> = {}): ChatRunState {
     threadId: "thread_1",
     messageId: "msg_1",
     tier: "standard",
-    activeIntegrations: [],
+    activeTools: [],
     allowedIntegrations: [],
     pendingToolCalls: [],
     assistantText: "premature answer",

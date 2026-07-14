@@ -167,6 +167,7 @@ describe("dispatch staging (DB-backed)", { skip: SKIP }, () => {
       stepId: "dispatch-tools",
       toolCallId,
       toolName: "system.load_integration",
+      activeTools: ["system.load_integration" as const],
       input: { slug: "github" },
       userId,
       caller: "boss" as const,
@@ -208,6 +209,7 @@ describe("dispatch staging (DB-backed)", { skip: SKIP }, () => {
       stepId: "dispatch-tools",
       toolCallId,
       toolName: "system.load_integration" as const,
+      activeTools: ["system.load_integration" as const],
       input: { slug: "poison" },
       userId,
       caller: "boss" as const,
@@ -244,6 +246,7 @@ describe("dispatch staging (DB-backed)", { skip: SKIP }, () => {
       stepId: "dispatch-tools",
       toolCallId,
       toolName: "system.load_integration",
+      activeTools: ["system.load_integration"],
       input: { slug: "sql-leak" },
       userId,
       caller: "boss",
@@ -270,20 +273,23 @@ describe("dispatch staging (DB-backed)", { skip: SKIP }, () => {
   test("invalid edited approval input persists and returns only the registered public error", async () => {
     const { userId, runId } = await seedUserAndRun();
     const toolCallId = `tc_${randomUUID().slice(0, 8)}`;
-    await db().insert(actionStagings).values({
-      userId,
-      runId,
-      stepId: "dispatch-tools",
-      toolCallId,
-      toolName: "system.load_integration",
-      integration: "system",
-      riskTier: "no_risk",
-      proposedInput: { slug: "github" },
-      proposedInputHash: "invalid-edit-test",
-      requiresApproval: true,
-      status: "approved",
-      decidedInput: { slug: 42, secret: "edited-private-value" },
-    });
+    await db()
+      .insert(actionStagings)
+      .values({
+        userId,
+        runId,
+        stepId: "dispatch-tools",
+        toolCallId,
+        toolName: "system.load_integration",
+        activeTools: ["system.load_integration"],
+        integration: "system",
+        riskTier: "no_risk",
+        proposedInput: { slug: "github" },
+        proposedInputHash: "invalid-edit-test",
+        requiresApproval: true,
+        status: "approved",
+        decidedInput: { slug: 42, secret: "edited-private-value" },
+      });
 
     const result = await dispatchToolCall({
       runId,
@@ -324,6 +330,7 @@ describe("dispatch staging (DB-backed)", { skip: SKIP }, () => {
       stepId: "dispatch-tools",
       toolCallId,
       toolName: "system.fetch_url",
+      activeTools: ["system.fetch_url"],
       input: { url: rawUrl },
       userId,
       caller: "boss",
@@ -355,6 +362,7 @@ describe("dispatch staging (DB-backed)", { skip: SKIP }, () => {
       stepId: "dispatch-tools",
       toolCallId: `tc_${randomUUID().slice(0, 8)}`,
       toolName: "system.load_integration",
+      activeTools: ["system.load_integration"],
       input: { slug: "calendar" },
       userId,
       caller: "boss",
@@ -370,6 +378,7 @@ describe("dispatch staging (DB-backed)", { skip: SKIP }, () => {
       stepId: "dispatch-tools",
       toolCallId,
       toolName: "system.load_integration",
+      activeTools: ["system.load_integration"],
       input: { slug: "github" },
       userId,
       caller: "boss",
@@ -383,6 +392,7 @@ describe("dispatch staging (DB-backed)", { skip: SKIP }, () => {
         stepId: "dispatch-tools",
         toolCallId,
         toolName: "system.spawn_sub_agent",
+        activeTools: ["system.spawn_sub_agent"],
         input: {},
         userId,
         caller: "boss",
