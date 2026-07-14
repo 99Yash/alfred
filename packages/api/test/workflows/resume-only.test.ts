@@ -9,14 +9,8 @@ import { serverEnv } from "@alfred/env/server";
 import { IDB_KEY } from "@alfred/sync";
 import { inArray } from "drizzle-orm";
 
-import {
-  _resetRegistryForTests,
-  registerWorkflow,
-} from "../../src/modules/agent/registry";
-import {
-  createRun,
-  resolveWorkflowForRun,
-} from "../../src/modules/agent/service";
+import { _resetRegistryForTests, registerWorkflow } from "../../src/modules/agent/registry";
+import { createRun, resolveWorkflowForRun } from "../../src/modules/agent/service";
 import type { AgentDbExecutor, Workflow } from "../../src/modules/agent/types";
 import { handlePull } from "../../src/modules/replicache/pull";
 import { seedBuiltinWorkflowsForUser } from "../../src/modules/workflows/seeder";
@@ -170,14 +164,16 @@ describe(
       await db()
         .insert(user)
         .values({ id: userId, name: "Test User", email: `${userId}@example.test` });
-      await db().insert(workflows).values({
-        userId,
-        slug: RESUME_ONLY_SLUG,
-        name: "Stale built-in",
-        trigger: { kind: "manual" },
-        status: "active",
-        isBuiltin: true,
-      });
+      await db()
+        .insert(workflows)
+        .values({
+          userId,
+          slug: RESUME_ONLY_SLUG,
+          name: "Stale built-in",
+          trigger: { kind: "manual" },
+          status: "active",
+          isBuiltin: true,
+        });
 
       const firstPull = await handlePull(userId, {
         pullVersion: 1,

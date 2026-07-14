@@ -144,6 +144,12 @@ export const chatToolSchema = z.object({
    */
   sanitized: z.boolean().optional(),
   /**
+   * The dispatcher rejected this call before execution. The client retracts
+   * any optimistic `started` card; the rejection remains in server traces and
+   * the model transcript for self-correction.
+   */
+  nonExecution: z.boolean().optional(),
+  /**
    * The narration segment this call follows (see `chatDeltaSchema.segmentIndex`)
    * so the client can order the card relative to the model's interleaved
    * narration. Defaults to 0.

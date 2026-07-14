@@ -864,7 +864,10 @@ interface KnownSentGmailDoc {
 async function partitionKnownGmailRefs(
   userId: string,
   refs: { id: string; threadId: string }[],
-): Promise<{ unknownRefs: { id: string; threadId: string }[]; knownSentDocs: KnownSentGmailDoc[] }> {
+): Promise<{
+  unknownRefs: { id: string; threadId: string }[];
+  knownSentDocs: KnownSentGmailDoc[];
+}> {
   const ids = refs.map((r) => r.id);
   const existing = await db()
     .select({

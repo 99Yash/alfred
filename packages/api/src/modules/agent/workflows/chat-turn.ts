@@ -62,7 +62,7 @@ import { finalizeRunArtifacts } from "../../artifacts/write";
 import { logger } from "../../../lib/logger";
 import { getTool } from "../../tools/registry";
 import { buildConnectedSummary } from "../connected-summary";
-import { formatDateGrounding, resolveUserTimezone } from "../grounding";
+import { formatDateGrounding, formatRuntimeTimeGrounding, resolveUserTimezone } from "../grounding";
 import {
   activateTool,
   migrateActiveTools,
@@ -194,10 +194,9 @@ const toolCallLogSchema = z.object({
   status: z.enum(["succeeded", "failed"]),
   argsPreview: z.string().optional(),
   resultPreview: z.string().optional(),
-  // A `failed` entry that never executed a side effect — a schema-invalid call
-  // the model self-corrects (`invalid_input`) or an invented tool name
-  // (`unknown_tool`). The honesty guard excludes these so a self-corrected
-  // first attempt can't make it claim a later, successful call failed.
+  // A `failed` entry rejected before execution: malformed, invented, inactive,
+  // or disallowed. The honesty guard excludes recovered entries so an internal
+  // first attempt cannot make it claim a later, successful call failed.
   nonExecution: z.boolean().optional(),
   segmentIndex: z.number().int().nonnegative().default(0),
 });
@@ -266,7 +265,9 @@ const chatRunStateSchema = z
     // counts a provider stuck returning empties — not scattered empties across a
     // long turn loop. Default 0 for runs minted before the field existed.
     emptyCompletionRetries: z.number().int().min(0).default(0),
-    started: z.boolean().default(false),
+    startedAt: z.string().datetime().optional(),
+    // Read only while resuming checkpoints created before `startedAt`.
+    started: z.boolean().optional(),
     // ADR-0073 finalization guard: child runs spawned this turn whose outcomes
     // are already accounted for in the transcript — either folded by the guard, or
     // surfaced because the boss explicitly called `await_sub_agent` (a successful
@@ -282,8 +283,11 @@ const chatRunStateSchema = z
     // surfaced to the model.
     notedFailureToolCallIds: z.array(z.string()).default([]),
   })
-  .transform(({ activeIntegrations, activeTools, ...state }) => ({
+  .transform(({ activeIntegrations, activeTools, started, ...state }) => ({
     ...state,
+    // The old boolean recorded only that the event fired. Runtime migration is
+    // the best timestamp available for an already-started legacy checkpoint.
+    startedAt: state.startedAt ?? (started ? new Date().toISOString() : undefined),
     activeTools: migrateActiveTools(
       activeTools,
       activeIntegrations,
@@ -765,8 +769,8 @@ async function hydrateTranscriptForModel(
   return reversed.reverse();
 }
 
-/** Place prior assistant-authored artifact data immediately before the request. */
-function withArtifactReference(
+/** Place ephemeral assistant-known run context immediately before the request. */
+export function withEphemeralReference(
   transcript: readonly AgentTranscriptMessage[],
   reference: string,
 ): AgentTranscriptMessage[] {
@@ -859,7 +863,7 @@ async function applyForegroundContextGuard({
       outputReserveTokens: CHAT_MAX_OUTPUT_TOKENS,
     });
   const initialPressure = await assess(
-    withArtifactReference(hydratedTranscript, artifactReference),
+    withEphemeralReference(hydratedTranscript, artifactReference),
   );
   if (!initialPressure.requiresSynchronousCompaction) {
     return {
@@ -877,7 +881,7 @@ async function applyForegroundContextGuard({
       const summaryMessage = conversationSummaryMessage(backgroundWinner.summary);
       const reused = buildCompactedChatTranscriptPair(summaryMessage, storedReplayTail, replayTail);
       const reusedPressure = await assess(
-        withArtifactReference(reused.modelTranscript, artifactReference),
+        withEphemeralReference(reused.modelTranscript, artifactReference),
       );
       if (!reusedPressure.requiresSynchronousCompaction) {
         return reused;
@@ -909,7 +913,7 @@ async function applyForegroundContextGuard({
       replayTail,
     );
     const rebuiltPressure = await assess(
-      withArtifactReference(rebuilt.modelTranscript, artifactReference),
+      withEphemeralReference(rebuilt.modelTranscript, artifactReference),
     );
     if (!rebuiltPressure.requiresSynchronousCompaction) {
       return rebuilt;
@@ -954,7 +958,7 @@ async function applyForegroundContextGuard({
       boundedModelTail,
     );
     const boundedPressure = await assess(
-      withArtifactReference(bounded.modelTranscript, artifactReference),
+      withEphemeralReference(bounded.modelTranscript, artifactReference),
     );
     if (boundedPressure.requiresSynchronousCompaction) {
       throw new Error("prompt is too long after oversized user message summarization");
@@ -1005,7 +1009,7 @@ async function applyWithinRunContextGuard({
     assessChatRequestPressure({
       systemPrompt,
       tools,
-      transcript: withArtifactReference(candidate, artifactReference) as ModelMessage[],
+      transcript: withEphemeralReference(candidate, artifactReference) as ModelMessage[],
       contextWindowTokens,
       outputReserveTokens: CHAT_MAX_OUTPUT_TOKENS,
     });
@@ -1556,11 +1560,10 @@ export function toolCallLogStatus(
 }
 
 /**
- * A dispatch failure that never executed a side effect: a schema-invalid call
- * (`invalid_input`) the dispatcher rejected at the boundary before any
- * execution, or an invented tool name (`unknown_tool`). The model self-corrects
- * these on the next step, and the prompt already says not to narrate internal
- * retries — so they are NOT "an action attempt that didn't complete" and the
+ * A dispatch failure rejected before execution: malformed, invented, inactive,
+ * or disallowed. The model self-corrects these on the next step, and the prompt
+ * already says not to narrate internal retries, so they are NOT "an action
+ * attempt that didn't complete" and the
  * #346 honesty guard must skip them. Counting them made a self-corrected first
  * attempt (e.g. `gmail.send_draft` with `to` as a string) force a misleading
  * regenerate that claimed the *later, approved, executed* send had failed.
@@ -1573,8 +1576,16 @@ export function isNonExecutionFailure(
   return (
     result.kind === "invalid_input" ||
     result.kind === "unknown_tool" ||
-    result.kind === "inactive_tool"
+    result.kind === "inactive_tool" ||
+    result.kind === "not_allowed"
   );
+}
+
+export function shouldPublishToolStarted(
+  activeTools: readonly ToolName[],
+  toolName: string,
+): boolean {
+  return activeTools.some((activeTool) => activeTool === toolName);
 }
 
 export interface GuardUnreportedToolFailuresDeps {
@@ -1709,8 +1720,8 @@ const chatTurnStep: Step<ChatRunState> = {
       // every image's bytes from storage, which is slow on image-heavy threads).
       // Firing the poke first lets the client paint the "Thinking…" indicator
       // immediately instead of staring at a dead composer while we hydrate.
-      if (!state.started) {
-        state.started = true;
+      if (!state.startedAt) {
+        state.startedAt = new Date().toISOString();
         await publishEvent({
           userId: ctx.userId,
           kind: "chat.message",
@@ -1742,13 +1753,19 @@ const chatTurnStep: Step<ChatRunState> = {
         state.artifactDesignMedium = artifactContext.designMedium;
       }
       const systemPrompt = buildChatSystemPrompt(
-        formatDateGrounding(state.timezone),
+        formatDateGrounding(state.timezone, new Date(state.startedAt)),
         state.connectedSummary,
         {
           artifactsContext: state.artifactsContext,
           artifactDesignMedium: state.artifactDesignMedium,
         },
       );
+      const ephemeralReference = [
+        formatRuntimeTimeGrounding(state.timezone, new Date(state.startedAt)),
+        state.artifactReference,
+      ]
+        .filter((value) => value.length > 0)
+        .join("\n\n");
       const sdkTools = resolveSdkTools(state.activeTools);
       const chatModel = getChatModel(state.tier);
 
@@ -1807,7 +1824,7 @@ const chatTurnStep: Step<ChatRunState> = {
               model: chatModel,
               storedTranscript: transcript,
               hydratedTranscript,
-              artifactReference: state.artifactReference,
+              artifactReference: ephemeralReference,
               abortSignal: guardAbortSignal,
               onCompactionStart: () =>
                 publishChatCompactionPhase({
@@ -1842,7 +1859,7 @@ const chatTurnStep: Step<ChatRunState> = {
               transcript: continuationTranscript,
               hydratedTranscript,
               inFlightTailStart: state.inFlightTailStart,
-              artifactReference: state.artifactReference,
+              artifactReference: ephemeralReference,
               abortSignal: guardAbortSignal,
               onCompactionStart: () =>
                 publishChatCompactionPhase({
@@ -1880,10 +1897,7 @@ const chatTurnStep: Step<ChatRunState> = {
           clearInterval(stopPoll);
         }
       }
-      const modelTranscript = withArtifactReference(
-        guardedModelTranscript,
-        state.artifactReference,
-      );
+      const modelTranscript = withEphemeralReference(guardedModelTranscript, ephemeralReference);
       const requestEstimate = await estimateChatRequestTokens({
         systemPrompt,
         tools: sdkTools,
@@ -2013,20 +2027,22 @@ const chatTurnStep: Step<ChatRunState> = {
             }
             await flushReasoning();
             await flush();
-            await publishEvent({
-              userId: ctx.userId,
-              kind: "chat.tool",
-              payload: {
-                runId: ctx.runId,
-                threadId: state.threadId,
-                messageId: state.messageId,
-                toolCallId: part.toolCallId,
-                toolName: part.toolName,
-                status: "started",
-                argsPreview: preview(part.input),
-                segmentIndex: state.segmentIndex,
-              },
-            });
+            if (shouldPublishToolStarted(state.activeTools, part.toolName)) {
+              await publishEvent({
+                userId: ctx.userId,
+                kind: "chat.tool",
+                payload: {
+                  runId: ctx.runId,
+                  threadId: state.threadId,
+                  messageId: state.messageId,
+                  toolCallId: part.toolCallId,
+                  toolName: part.toolName,
+                  status: "started",
+                  argsPreview: preview(part.input),
+                  segmentIndex: state.segmentIndex,
+                },
+              });
+            }
           } else if (part.type === "error") {
             // A mid-stream error (provider fault, timeout abort) surfaces here;
             // throw so the catch below finalizes the turn as failed. Our own
@@ -2424,6 +2440,7 @@ const dispatchToolsStep: Step<ChatRunState> = {
               status,
               resultPreview,
               ...(sanitized ? { sanitized } : {}),
+              ...(nonExecution ? { nonExecution } : {}),
               segmentIndex: call.segmentIndex,
             },
           });
@@ -2687,16 +2704,17 @@ function cleanTitle(raw: string): string | null {
  * *or* `narration` can never re-throw on the insert and wedge the turn. One
  * `sanitizeToolResult` pass covers nested structures and object keys.
  */
-function sanitizeChatMessageFields(state: ChatRunState): {
+export function sanitizeChatMessageFields(state: ChatRunState): {
   content: string;
   reasoning: string | null;
   toolCalls: ChatRunState["toolCallsLog"] | null;
   narration: ChatRunState["narration"] | null;
 } {
+  const visibleToolCalls = state.toolCallsLog.filter((toolCall) => !toolCall.nonExecution);
   const raw = {
     content: state.assistantText,
     reasoning: state.reasoningText.length > 0 ? state.reasoningText : null,
-    toolCalls: state.toolCallsLog.length > 0 ? state.toolCallsLog : null,
+    toolCalls: visibleToolCalls.length > 0 ? visibleToolCalls : null,
     narration: state.narration.length > 0 ? state.narration : null,
   };
   return sanitizeToolResult(raw).value as typeof raw;
@@ -2941,7 +2959,7 @@ export const chatTurnWorkflow: Workflow<ChatRunState> = {
       turnCount: 0,
       inFlightTailStart: 0,
       emptyCompletionRetries: 0,
-      started: false,
+      startedAt: undefined,
       foldedChildRunIds: [],
       notedFailureToolCallIds: [],
     };

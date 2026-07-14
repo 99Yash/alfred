@@ -5,10 +5,7 @@
  *
  *   $ pnpm tsx --env-file=.env src/scripts/smokes/smoke-agent-resume.ts <runId>
  */
-import {
-  enqueueRun,
-  signalRun,
-} from "@alfred/api/backend";
+import { enqueueRun, signalRun } from "@alfred/api/backend";
 import { closeAgentQueue, closeConnections, closeRedis, warmPool } from "@alfred/api/runtime";
 import { db } from "@alfred/db";
 import { agentRuns } from "@alfred/db/schemas";

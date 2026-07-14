@@ -306,8 +306,7 @@ export function AppShell({ children }: { children: ReactNode }) {
    * Covers chat, memory, notes, skills, settings, integrations, briefings,
    * library, workflows, approvals, debug — every route AppShell wraps. */
   const pathname = location.pathname;
-  const onPreviewChatRoute =
-    pathname === "/preview/chat" || pathname.startsWith("/preview/chat/");
+  const onPreviewChatRoute = pathname === "/preview/chat" || pathname.startsWith("/preview/chat/");
   const mustRedirectToLogin = !isPending && !sessionUser && !chromeless;
   useEffect(() => {
     if (!mustRedirectToLogin) return;

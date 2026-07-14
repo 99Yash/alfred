@@ -13,13 +13,9 @@ export { resolveUserTimezone };
  * One-line date grounding for an agent system prompt, e.g.
  * "Wednesday, 10 June 2026 (2026-06-10), timezone Asia/Kolkata".
  *
- * Deliberately date-only — no clock time. The system prompt carries an
- * `ephemeral` cache breakpoint (see `AlfredAgent`), so a value that changed
- * every minute would bust the system+tools prefix on every message. A
- * date is stable for the whole machine-day in the user's tz, so rapid
- * back-and-forth in a thread keeps hitting the cache. Intraday windows
- * (this morning/afternoon/tonight) are resolved server-side by the
- * calendar tool, so the model rarely needs the exact clock.
+ * Deliberately date-only so the stable system/tool prefix can be reused across
+ * chat runs. Exact run time belongs in ephemeral model context via
+ * {@link formatRuntimeTimeGrounding}, never in this cached string.
  */
 export function formatDateGrounding(timezone: string, now: Date = new Date()): string {
   const human = new Intl.DateTimeFormat("en-GB", {
@@ -31,4 +27,17 @@ export function formatDateGrounding(timezone: string, now: Date = new Date()): s
   }).format(now);
   const iso = localDateInTimezone(timezone, now);
   return `${human} (${iso}), timezone ${timezone}`;
+}
+
+/** Exact run-start anchor for hour-scale relative-time reasoning. */
+export function formatRuntimeTimeGrounding(timezone: string, now: Date): string {
+  const localTime = new Intl.DateTimeFormat("en-GB", {
+    timeZone: timezone,
+    hour: "2-digit",
+    minute: "2-digit",
+    second: "2-digit",
+    hourCycle: "h23",
+  }).format(now);
+  const local = `${localDateInTimezone(timezone, now)}T${localTime}`;
+  return `<runtime_context>Current time: ${now.toISOString()} (${local} in ${timezone}).</runtime_context>`;
 }

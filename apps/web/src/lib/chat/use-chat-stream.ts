@@ -3,18 +3,9 @@ import type { SyncedChatNarration } from "@alfred/sync";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { openEventStream, type EventStreamFrame } from "~/lib/events/stream";
 import { markChatTimingByAssistant } from "./timing";
+import { applyStreamingToolEvent, type StreamingToolCall } from "./streaming-tools";
 
-export interface StreamingToolCall {
-  toolCallId: string;
-  toolName: string;
-  status: "started" | "succeeded" | "failed";
-  argsPreview?: string;
-  resultPreview?: string;
-  /** ADR-0070: non-text bytes were stripped from this result before storage. */
-  sanitized?: boolean;
-  /** Narration segment this call follows — orders it against the narration trail. */
-  segmentIndex: number;
-}
+export type { StreamingToolCall } from "./streaming-tools";
 
 export interface StreamingMessage {
   messageId: string;
@@ -328,16 +319,11 @@ export function useChatStream(threadId: string | undefined): ChatStream {
         if (p.threadId !== threadId) return;
         const r = ensureStreamRef(p.messageId, p.runId);
         if (r.stopped) return;
-        const prev = r.tools.get(p.toolCallId);
-        r.tools.set(p.toolCallId, {
-          toolCallId: p.toolCallId,
-          toolName: p.toolName,
-          status: p.status,
-          argsPreview: p.argsPreview ?? prev?.argsPreview,
-          resultPreview: p.resultPreview ?? prev?.resultPreview,
-          sanitized: p.sanitized ?? prev?.sanitized,
-          segmentIndex: p.segmentIndex ?? prev?.segmentIndex ?? 0,
-        });
+        applyStreamingToolEvent(r.tools, p);
+        if (p.nonExecution) {
+          ensureRaf();
+          return;
+        }
         markChatTimingByAssistant(
           p.messageId,
           "first_tool_event",
