@@ -1,7 +1,11 @@
 import assert from "node:assert/strict";
 import { describe, test } from "node:test";
 
+import { z } from "zod";
 import {
+  githubGetIssueInput,
+  githubGetPullRequestInput,
+  githubSearchInput,
   githubSearchQueryIssues,
   queryHasNarrowingScope,
   sanitizeGithubSearchQuery,
@@ -386,6 +390,61 @@ describe("githubSearchQueryIssues (residue that has no safe auto-fix)", () => {
     const windowIssues = githubSearchQueryIssues({ query: "is:unmerged", mergedWithinDays: 7 });
     assert.equal(windowIssues.length, 1);
     assert.match(windowIssues[0]!, /is:unmerged.*conflicts/);
+  });
+});
+
+describe("github fetch tools accept a URL / number (param-ergonomics)", () => {
+  test("get_pull_request decomposes a full github.com PR url into owner/repo/pull_number", () => {
+    const parsed = githubGetPullRequestInput.parse({
+      url: "https://github.com/99Yash/alfred/pull/305",
+    });
+    assert.deepEqual(parsed, { owner: "99Yash", repo: "alfred", pull_number: 305 });
+  });
+
+  test("get_issue decomposes a full github.com issues url into owner/repo/issue_number", () => {
+    const parsed = githubGetIssueInput.parse({
+      url: "https://github.com/99Yash/alfred/issues/218",
+    });
+    assert.deepEqual(parsed, { owner: "99Yash", repo: "alfred", issue_number: 218 });
+  });
+
+  test("aliases a bare `number` to the REST-named number field", () => {
+    assert.deepEqual(
+      githubGetPullRequestInput.parse({ owner: "99Yash", repo: "alfred", number: 305 }),
+      { owner: "99Yash", repo: "alfred", pull_number: 305 },
+    );
+    assert.deepEqual(githubGetIssueInput.parse({ owner: "99Yash", repo: "alfred", number: 218 }), {
+      owner: "99Yash",
+      repo: "alfred",
+      issue_number: 218,
+    });
+  });
+
+  test("an explicit owner/repo/pull_number always wins over a conflicting url", () => {
+    // The canonical fields are present, so the url is ignored (dropped) rather
+    // than clobbering them.
+    const parsed = githubGetPullRequestInput.parse({
+      owner: "octocat",
+      repo: "hello",
+      pull_number: 1,
+      url: "https://github.com/99Yash/alfred/pull/305",
+    });
+    assert.deepEqual(parsed, { owner: "octocat", repo: "hello", pull_number: 1 });
+  });
+
+  test("the model-facing schema still advertises only owner/repo/pull_number", () => {
+    // z.toJSONSchema unwraps the preprocess, so the surface the model is told
+    // about is unchanged — url/number are accepted-input conveniences only.
+    const json = z.toJSONSchema(githubGetPullRequestInput, { io: "input" }) as {
+      properties?: Record<string, unknown>;
+    };
+    assert.deepEqual(Object.keys(json.properties ?? {}).sort(), ["owner", "pull_number", "repo"]);
+  });
+
+  test("github.search folds the invented `limit` into perPage", () => {
+    const parsed = githubSearchInput.parse({ query: "repo:99Yash/alfred", limit: 5 });
+    assert.equal((parsed as { perPage?: number }).perPage, 5);
+    assert.ok(!("limit" in (parsed as object)));
   });
 });
 
