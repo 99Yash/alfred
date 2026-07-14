@@ -29,7 +29,12 @@
  */
 
 import { z } from "zod";
-import { artifactFormatSchema, artifactKindSchema, artifactPageSchema } from "./artifacts";
+import {
+  ARTIFACT_SECTION_MAX_CHARS,
+  artifactFormatSchema,
+  artifactKindSchema,
+  artifactPageSchema,
+} from "./artifacts";
 import { githubSearchQueryIssues, sanitizeGithubSearchQuery } from "./github-search";
 import { isRecord } from "./guards";
 import { todoSourceSchema } from "./todos";
@@ -1537,10 +1542,10 @@ export const createArtifactInput = z
       ),
     markdown: z
       .string()
-      .max(500_000)
+      .max(ARTIFACT_SECTION_MAX_CHARS)
       .optional()
       .describe(
-        "Initial markdown body for a `document`. Author the whole document here in one call — content is not token-streamed. Invalid for `pages` (add pages with append_artifact_page).",
+        "Opening section for a `document` (≤~1,800 words). Author the first section here, then continue with append_artifact_section — each section renders in the sidebar as produced. Do NOT attempt the whole document in one call; a long body must be split into sections. Invalid for `pages` (add pages with append_artifact_page).",
       ),
   })
   .strict()
@@ -1568,6 +1573,22 @@ export const appendArtifactPageInput = z
       .max(200_000)
       .describe(
         "Body-level HTML for one page. Do not include <html>, <head>, <body>, <!doctype>, scripts, external links/CDNs, page geometry, body background, or font boilerplate; the renderer wraps it in the Alfred artifact shell. One call appends one page to the end; call again for each subsequent page.",
+      ),
+  })
+  .strict();
+
+export const appendArtifactSectionInput = z
+  .object({
+    artifactId: z
+      .string()
+      .min(1)
+      .describe("The artifactId returned by create_artifact. Must be a `document` artifact."),
+    markdown: z
+      .string()
+      .min(1)
+      .max(ARTIFACT_SECTION_MAX_CHARS)
+      .describe(
+        "One section of markdown (≤~1,800 words), appended to the end of the document after a blank line. Write your own `##` headings. Split at block boundaries and keep each section self-contained — close every code fence and finish every list/table within the section, because the sidebar re-renders the whole document as each section arrives. Call again for each subsequent section; also use this to add to a document from an earlier turn.",
       ),
   })
   .strict();
@@ -1665,6 +1686,7 @@ export const TOOL_INPUT_SCHEMAS = {
   "system.fetch_url": fetchUrlInput,
   "system.create_artifact": createArtifactInput,
   "system.append_artifact_page": appendArtifactPageInput,
+  "system.append_artifact_section": appendArtifactSectionInput,
   "system.update_artifact": updateArtifactInput,
 } satisfies Partial<Record<ToolName, z.ZodType>>;
 

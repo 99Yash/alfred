@@ -1,4 +1,5 @@
 import {
+  DOCUMENT_MARKDOWN_MAX,
   emptyArtifactContent,
   type ArtifactFormat,
   type ArtifactKind,
@@ -50,6 +51,14 @@ export type AppendArtifactPageResult =
   | {
       ok: false;
       status: "not_found" | "wrong_kind" | "page_limit" | "invalid_content";
+      reason: string;
+    };
+
+export type AppendArtifactSectionResult =
+  | { ok: true; artifactId: string; contentChars: number }
+  | {
+      ok: false;
+      status: "not_found" | "wrong_kind" | "content_limit";
       reason: string;
     };
 
@@ -188,6 +197,84 @@ export async function appendArtifactPage(
   }
   emitReplicachePokes([ctx.userId]);
   return { ok: true, artifactId: input.artifactId, pageCount: result.pageCount };
+}
+
+/**
+ * Append one markdown section to a `document` artifact (ADR-0085). The stored
+ * body is a long document authored as many capped sections; this concatenates
+ * `input.markdown` onto the end with a blank-line separator inside the same
+ * row-locking transaction {@link appendArtifactPage} uses, so concurrent appends
+ * serialize and preserve every section. Refuses a `pages` artifact, an unknown
+ * id, or accumulation past the stored {@link DOCUMENT_MARKDOWN_MAX} cap. Being
+ * additive and row-locked, it needs no `baseContentHash` and doubles as the safe
+ * cross-turn "extend this document" operation (leaving the row's existing
+ * `runId`/`messageId`/status untouched, matching {@link appendArtifactPage}).
+ */
+export async function appendArtifactSection(
+  ctx: ArtifactWriteContext,
+  input: { artifactId: string; markdown: string },
+): Promise<AppendArtifactSectionResult> {
+  const result = await db().transaction(async (tx) => {
+    const [row] = await tx
+      .select({ kind: artifacts.kind, content: artifacts.content })
+      .from(artifacts)
+      .where(
+        and(
+          eq(artifacts.id, input.artifactId),
+          eq(artifacts.userId, ctx.userId),
+          eq(artifacts.threadId, ctx.threadId),
+        ),
+      )
+      .for("update");
+
+    if (!row) return { status: "not_found" as const };
+    if (row.kind !== "document" || !row.content || row.content.kind !== "document") {
+      return { status: "wrong_kind" as const };
+    }
+
+    const current = row.content.markdown;
+    const next = current.length > 0 ? `${current}\n\n${input.markdown}` : input.markdown;
+    // The stored total cap must be enforced by hand: `content` binds via
+    // `.$type<>()` (compile-time only), so no Zod runs before this DB write —
+    // exactly why appendArtifactPage guards MAX_PAGES here rather than trusting
+    // the schema.
+    if (next.length > DOCUMENT_MARKDOWN_MAX) return { status: "content_limit" as const };
+
+    await tx
+      .update(artifacts)
+      .set({
+        content: { kind: "document", markdown: next },
+        rowVersion: sql`${artifacts.rowVersion} + 1`,
+      })
+      .where(
+        and(
+          eq(artifacts.id, input.artifactId),
+          eq(artifacts.userId, ctx.userId),
+          eq(artifacts.threadId, ctx.threadId),
+        ),
+      );
+    return { status: "ok" as const, contentChars: next.length };
+  });
+
+  if (result.status === "not_found") {
+    return { ok: false, status: "not_found", reason: "no artifact with that id for this user" };
+  }
+  if (result.status === "wrong_kind") {
+    return {
+      ok: false,
+      status: "wrong_kind",
+      reason: "append_artifact_section only works on a 'document' artifact",
+    };
+  }
+  if (result.status === "content_limit") {
+    return {
+      ok: false,
+      status: "content_limit",
+      reason: `a document holds at most ${DOCUMENT_MARKDOWN_MAX} characters`,
+    };
+  }
+  emitReplicachePokes([ctx.userId]);
+  return { ok: true, artifactId: input.artifactId, contentChars: result.contentChars };
 }
 
 /**

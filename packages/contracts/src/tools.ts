@@ -47,6 +47,7 @@ export const INTEGRATION_ACTIONS = {
     "fetch_url",
     "create_artifact",
     "append_artifact_page",
+    "append_artifact_section",
     "update_artifact",
   ],
   gmail: ["search", "read_message", "send_draft"],
@@ -260,6 +261,11 @@ export const TOOL_LABELS: Record<ToolName, ToolLabel> = {
     running: "Adding a page",
     done: "Added a page",
     title: "add an artifact page",
+  },
+  "system.append_artifact_section": {
+    running: "Writing a section",
+    done: "Wrote a section",
+    title: "write a document section",
   },
   "system.update_artifact": {
     running: "Updating an artifact",
