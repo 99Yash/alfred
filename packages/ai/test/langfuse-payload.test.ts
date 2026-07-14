@@ -5,6 +5,8 @@ import {
   buildDispatchRejectionSpanPayload,
   buildGenerationEndPayload,
   buildGenerationPayload,
+  buildRuntimeSpanEndPayload,
+  buildRuntimeSpanPayload,
   buildTracePayload,
   resolveTraceId,
   resolveTraceName,
@@ -277,5 +279,63 @@ describe("buildDispatchRejectionSpanPayload", () => {
     assert.equal(payload.span.metadata.candidateToolName, "list_events");
     assert.equal(payload.span.input, undefined);
     assert.deepEqual(payload.end, { level: "WARNING", statusMessage: "Tool is not declared" });
+  });
+});
+
+describe("buildRuntimeSpanPayload / buildRuntimeSpanEndPayload", () => {
+  const startedAt = new Date("2026-07-14T00:00:00.000Z");
+  const base = {
+    runId: "run_9",
+    name: "runtime.dispatch.batch",
+    startedAt,
+    metadata: { stepId: "dispatch-tools", workflow: "__chat-turn__", caller: "boss", callCount: 3 },
+  };
+
+  test("nests the span under the run trace and stamps the runtime kind + runId", () => {
+    const payload = buildRuntimeSpanPayload(base, false);
+    assert.equal(payload.traceId, "run_9");
+    assert.equal(payload.name, "runtime.dispatch.batch");
+    assert.equal(payload.startTime, startedAt);
+    assert.deepEqual(payload.metadata, {
+      kind: "runtime",
+      runId: "run_9",
+      stepId: "dispatch-tools",
+      workflow: "__chat-turn__",
+      caller: "boss",
+      callCount: 3,
+    });
+  });
+
+  test("attaches input only when capture is on (privacy gate)", () => {
+    const off = buildRuntimeSpanPayload({ ...base, input: { secret: "value" } }, false);
+    assert.equal(off.input, undefined);
+    const on = buildRuntimeSpanPayload({ ...base, input: { secret: "value" } }, true);
+    assert.deepEqual(on.input, { secret: "value" });
+  });
+
+  test("end payload defaults to DEFAULT level and folds status into metadata", () => {
+    const end = buildRuntimeSpanEndPayload(
+      { status: "committed", metadata: { executed: 2 } },
+      false,
+    );
+    assert.equal(end.level, "DEFAULT");
+    assert.equal(end.output, undefined);
+    assert.deepEqual(end.metadata, { status: "committed", executed: 2 });
+  });
+
+  test("end payload honors an explicit ERROR level and gates output", () => {
+    const errored = buildRuntimeSpanEndPayload(
+      { status: "error", level: "ERROR", output: "boom" },
+      false,
+    );
+    assert.equal(errored.level, "ERROR");
+    assert.equal(errored.output, undefined);
+    assert.deepEqual(errored.metadata, { status: "error" });
+
+    const captured = buildRuntimeSpanEndPayload(
+      { status: "committed", output: { ok: true } },
+      true,
+    );
+    assert.deepEqual(captured.output, { ok: true });
   });
 });
