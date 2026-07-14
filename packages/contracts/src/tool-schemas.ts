@@ -72,6 +72,7 @@ function modelToolEmail() {
  *       • withKeyAliases        — curated 1:1 synonyms (body→bodyText, limit→perPage)
  *       • blankFieldToOmitted   — empty optional string → omitted
  *       • coerceJsonArrayFields — JSON-stringified array → real array
+ *       • wrapScalarRecipients  — gmail: bare recipient string → [string]
  *       • promoteWindowSynonym  — calendar: any window-valued key → window
  *       • promoteDriveBareQuery — drive: bare term → a valid query clause
  *       • withGithubItemUrl     — github: url/slug/number-synonym → owner/repo/<n>
@@ -760,33 +761,76 @@ export const gmailSearchInput = withQueryAlias(
     .strict(),
 );
 
+/**
+ * Recipient fields are `z.array(email)`, but the model routinely emits a single
+ * recipient as a bare string (`to: "user@example.com"`) instead of a one-element
+ * array — dispatch traces run_4tvphr6ymih7 / run_daol4yqz8919 show every
+ * first-try `gmail.send_draft` bouncing `invalid_input` on `to: expected array,
+ * received string`, then self-correcting on the resend (one wasted boss turn + a
+ * spurious "Some steps failed" card per email). Wrap a bare recipient string as a
+ * single-element array before validation. Runs after `coerceJsonArrayFields`,
+ * which has already turned a JSON-array *string* into a real array, so a string
+ * reaching here is a plain address; a `[`-prefixed string is a malformed JSON
+ * array `coerceJsonArrayFields` declined and is left for strict validation to
+ * reject rather than double-wrapped. The scalar is passed through verbatim (no
+ * trim), so a padded address fails `modelToolEmail` exactly as it would inside an
+ * explicit array — this is a shape fix, not content normalization.
+ *
+ * Recipient-specific by design: wrapping a bare scalar into `[scalar]` is
+ * sensible for an address list but NOT for e.g. sheets `values` (an array *of
+ * arrays*), so this is a `send_draft`-local preprocess and is NOT folded into the
+ * shared `coerceJsonArrayFields`. `z.toJSONSchema(schema, { io: "input" })` still
+ * advertises an array, so the model and approval UI see the canonical shape —
+ * only the server gets more tolerant.
+ */
+const GMAIL_RECIPIENT_FIELDS = ["to", "cc", "bcc"] as const;
+function wrapScalarRecipients(value: unknown): unknown {
+  if (!isRecord(value)) return value;
+  let next = value;
+  for (const field of GMAIL_RECIPIENT_FIELDS) {
+    const raw = next[field];
+    if (typeof raw !== "string") continue;
+    // A `[`-prefixed string is a malformed JSON array coerceJsonArrayFields
+    // already declined; leave it to fail strict validation, don't wrap it.
+    if (raw.trim().startsWith("[")) continue;
+    if (next === value) next = { ...value };
+    next[field] = [raw];
+  }
+  return next;
+}
+
 export const gmailSendDraftInput = coerceJsonArrayFields(
-  ["to", "cc", "bcc"],
-  // The model reaches for `body` (the plain-English name); the field is
-  // `bodyText`. Fold the synonym before validation.
-  withKeyAliases(
-    { body: "bodyText" },
-    z
-      .object({
-        to: z.array(modelToolEmail()).min(1).max(25),
-        cc: z.array(modelToolEmail()).max(25).optional(),
-        bcc: z.array(modelToolEmail()).max(25).optional(),
-        subject: z
-          .string()
-          .min(1)
-          .max(1000)
-          .refine((s) => !/[\r\n]/.test(s), {
-            message: "subject must not contain line breaks",
-          }),
-        bodyText: z.string().min(1).max(50_000),
-        /**
-         * Optional `In-Reply-To` / `References` thread anchor — the dispatcher
-         * surfaces this on the approval card so the user can confirm what
-         * thread Alfred is replying into.
-         */
-        threadId: z.string().optional(),
-      })
-      .strict(),
+  GMAIL_RECIPIENT_FIELDS,
+  // A single recipient arrives as a bare string as often as an array; wrap it
+  // before validation (after the JSON-array-string coercion above).
+  z.preprocess(
+    wrapScalarRecipients,
+    // The model reaches for `body` (the plain-English name); the field is
+    // `bodyText`. Fold the synonym before validation.
+    withKeyAliases(
+      { body: "bodyText" },
+      z
+        .object({
+          to: z.array(modelToolEmail()).min(1).max(25),
+          cc: z.array(modelToolEmail()).max(25).optional(),
+          bcc: z.array(modelToolEmail()).max(25).optional(),
+          subject: z
+            .string()
+            .min(1)
+            .max(1000)
+            .refine((s) => !/[\r\n]/.test(s), {
+              message: "subject must not contain line breaks",
+            }),
+          bodyText: z.string().min(1).max(50_000),
+          /**
+           * Optional `In-Reply-To` / `References` thread anchor — the dispatcher
+           * surfaces this on the approval card so the user can confirm what
+           * thread Alfred is replying into.
+           */
+          threadId: z.string().optional(),
+        })
+        .strict(),
+    ),
   ),
 );
 

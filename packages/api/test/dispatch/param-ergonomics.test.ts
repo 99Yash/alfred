@@ -103,6 +103,49 @@ const CASES: readonly Case[] = [
     input: { to: ["a@example.com"], subject: "Hi", Body: "The message body." },
     expect: (d) => assert.equal(d.bodyText, "The message body."),
   },
+  // ── scalar → array (wrapScalarRecipients, #363) ──────────────────────────
+  {
+    // The measured first-try shape (traces run_4tvphr6ymih7 / run_daol4yqz8919):
+    // a single recipient emitted as a bare string, not a one-element array.
+    name: "gmail.send_draft bare-string to → [to]",
+    tool: "gmail.send_draft",
+    input: { to: "a@example.com", subject: "Hi", bodyText: "Body." },
+    expect: (d) => assert.deepEqual(d.to, ["a@example.com"]),
+  },
+  {
+    name: "gmail.send_draft bare-string cc/bcc → arrays",
+    tool: "gmail.send_draft",
+    input: {
+      to: ["a@example.com"],
+      cc: "c@example.com",
+      bcc: "d@example.com",
+      subject: "Hi",
+      bodyText: "Body.",
+    },
+    expect: (d) => {
+      assert.deepEqual(d.cc, ["c@example.com"]);
+      assert.deepEqual(d.bcc, ["d@example.com"]);
+    },
+  },
+  {
+    // The two #363 fumbles compound in the same call: bare-string `to` AND the
+    // `body` synonym. Both layers must fold so the first attempt validates.
+    name: "gmail.send_draft bare-string to + body synonym (compound #363)",
+    tool: "gmail.send_draft",
+    input: { to: "a@example.com", subject: "Hi", body: "Body." },
+    expect: (d) => {
+      assert.deepEqual(d.to, ["a@example.com"]);
+      assert.equal(d.bodyText, "Body.");
+    },
+  },
+  {
+    // A JSON-array *string* still routes through coerceJsonArrayFields (not the
+    // scalar wrap), proving the two mechanisms compose rather than double-wrap.
+    name: "gmail.send_draft JSON-array-string to → array (coerceJsonArrayFields)",
+    tool: "gmail.send_draft",
+    input: { to: '["a@example.com","b@example.com"]', subject: "Hi", bodyText: "Body." },
+    expect: (d) => assert.deepEqual(d.to, ["a@example.com", "b@example.com"]),
+  },
   // ── wrong shape (github url/number decompose — the biggest offender) ─────
   {
     name: "github.get_pull_request url → owner/repo/pull_number",
@@ -201,6 +244,33 @@ describe("param-ergonomics: the github number-synonym fold stays a closed allowl
       owner: "99Yash",
       repo: "alfred",
       comment_number: 5,
+    });
+    assert.equal(parsed.success, false);
+  });
+});
+
+describe("param-ergonomics: the send_draft scalar recipient wrap is not a blanket accept-anything", () => {
+  // Wrapping only fixes shape, never content: a bare string that isn't a valid
+  // address is wrapped into a one-element array and then bounces on the email
+  // regex, exactly as `to: ["not-an-email"]` would. So a garbage recipient must
+  // still fail — the wrap must not launder an invalid address into a "send".
+  test("gmail.send_draft bare-string non-email to still bounces", () => {
+    const parsed = dispatchParse("gmail.send_draft", {
+      to: "not-an-email",
+      subject: "Hi",
+      bodyText: "Body.",
+    });
+    assert.equal(parsed.success, false);
+  });
+
+  // A `[`-prefixed string that fails to JSON-parse is a malformed array, not a
+  // recipient; coerceJsonArrayFields declines it and the scalar wrap leaves it
+  // alone, so it bounces rather than being wrapped into a bogus one-element list.
+  test("gmail.send_draft malformed JSON-array to still bounces", () => {
+    const parsed = dispatchParse("gmail.send_draft", {
+      to: '["a@example.com"',
+      subject: "Hi",
+      bodyText: "Body.",
     });
     assert.equal(parsed.success, false);
   });
