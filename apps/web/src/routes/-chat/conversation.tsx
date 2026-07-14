@@ -418,7 +418,11 @@ function FeedFooter() {
     hasPendingApproval,
   } = ctx;
   return (
-    <div className="flex flex-col gap-5 pb-6">
+    // Match FeedList's column: Virtuoso renders the Footer as a *sibling* of the
+    // List (not a child), so without this the streaming bubble spans the full
+    // viewport width and then snaps into the padded column the instant the
+    // durable message syncs in as a list row.
+    <div className="mx-auto flex w-full max-w-3xl flex-col gap-5 px-4 pb-6">
       {onFollowUp && followUps.length > 0 ? (
         <FollowUpSuggestions suggestions={followUps} onPick={onFollowUp} />
       ) : null}
