@@ -57,17 +57,23 @@ export const DOCUMENT_MARKDOWN_MAX = 500_000;
 
 /**
  * Per-call markdown budget for authoring a `document` (ADR-0085). Bounds one
- * `create_artifact` / `append_artifact_section` INPUT (~1,800 words ≈ ~60s of
- * generation ≈ ⅓ of the 180s stream ceiling) so a long document is authored as
- * many capped sections that accrue into one body. The STORED total stays
- * {@link DOCUMENT_MARKDOWN_MAX} (500K). Calibrated from a single 196 chars/s
- * probe — tunable after the live re-probe. The tool description, not this cap,
- * is the load-bearing forcing function: a document big enough to actually time
- * out aborts mid-argument-generation before any complete call is validated, so
- * the cap only hard-bounds a single stored write and chunks the non-compliant
- * sub-timeout case.
+ * `create_artifact` / `append_artifact_section` INPUT (~2,200 words ≈ ~75s of
+ * generation ≈ under half the 180s stream ceiling) so a long document is
+ * authored as many capped sections that accrue into one body. The STORED total
+ * stays {@link DOCUMENT_MARKDOWN_MAX} (500K). The tool description, not this
+ * cap, is the load-bearing forcing function: a document big enough to actually
+ * time out aborts mid-argument-generation before any complete call is
+ * validated, so the cap only hard-bounds a single stored write and chunks the
+ * non-compliant sub-timeout case.
+ *
+ * Set to 15K after the live re-probe (2026-07-14, Auto/Sonnet, ~9K-word doc
+ * authored as create + 8 appends, every generation ≤73s, zero stream timeouts).
+ * The initial 12K under-fit its own "~1,800 words" guidance — 1,800 words of
+ * markdown prose is ~11–13K chars — so the model tripped `too_big` on ~20% of
+ * calls (self-correcting reissues, but wasted generations). 15K gives the
+ * ~1,800-word target real headroom while staying well under the ceiling.
  */
-export const ARTIFACT_SECTION_MAX_CHARS = 12_000;
+export const ARTIFACT_SECTION_MAX_CHARS = 15_000;
 
 /** One page of a `kind: "pages"` artifact: a title + body-level HTML. */
 export const artifactPageSchema = z.object({
