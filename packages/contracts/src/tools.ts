@@ -66,7 +66,7 @@ export const INTEGRATION_ACTIONS = {
   linear: [],
   github: ["search", "get_pull_request", "get_issue"],
   notion: ["search", "get_page", "create_page", "append_blocks"],
-  railway: ["list_projects", "list_deployments", "get_logs", "redeploy"],
+  railway: ["list_projects", "list_deployments", "recent_deployments", "get_logs", "redeploy"],
   vercel: ["list_projects", "list_deployments", "redeploy"],
   imessage: [],
 } as const satisfies Record<IntegrationSlug, readonly string[]>;
@@ -411,6 +411,11 @@ export const TOOL_LABELS: Record<ToolName, ToolLabel> = {
     running: "Checking Railway deployments",
     done: "Checked Railway deployments",
     title: "check Railway deployments",
+  },
+  "railway.recent_deployments": {
+    running: "Checking recent Railway deployments",
+    done: "Checked recent Railway deployments",
+    title: "check recent Railway deployments",
   },
   "railway.get_logs": {
     running: "Reading Railway logs",

@@ -4,17 +4,23 @@ import { describe, test } from "node:test";
 import {
   railwayGetLogsInput,
   railwayListDeploymentsInput,
+  railwayRecentDeploymentsInput,
   railwayRedeployInput,
 } from "@alfred/contracts";
 import {
   RailwayGraphqlError,
   railwayListProjects,
   railwayValidateToken,
+  type RailwayDeployment,
   type RailwayProject,
 } from "@alfred/integrations/railway";
 import type { ActiveBearerCredential } from "@alfred/integrations/shared";
 
-import { listProjectsForCredentials, pickCredential } from "../../src/modules/tools/railway-fanout";
+import {
+  listProjectsForCredentials,
+  listRecentDeploymentsForCredentials,
+  pickCredential,
+} from "../../src/modules/tools/railway-fanout";
 
 interface RecordedGraphqlRequest {
   query: string;
@@ -457,6 +463,139 @@ describe("Railway credential fan-out", () => {
   });
 });
 
+function dep(
+  id: string,
+  createdAt: string | null,
+  serviceId: string | null = null,
+  status = "SUCCESS",
+): RailwayDeployment {
+  return { id, status, createdAt, url: null, serviceId };
+}
+
+function projSvc(
+  id: string,
+  name: string,
+  services: Array<{ id: string; name: string }> = [],
+): RailwayProject {
+  return { id, name, services, environments: [] };
+}
+
+describe("Railway recent-deployment fan-out", () => {
+  test("merges deployments across projects and credentials, newest first, tagged with project/service/credential", async () => {
+    const projectsByToken: Record<string, RailwayProject[]> = {
+      tok_a: [projSvc("p1", "alfred", [{ id: "svc1", name: "server" }])],
+      tok_b: [projSvc("p2", "milkpod", [{ id: "svc2", name: "web" }])],
+    };
+    const depsByProject: Record<string, RailwayDeployment[]> = {
+      p1: [dep("d_a1", "2026-07-14T03:00:00Z", "svc1")],
+      p2: [dep("d_b1", "2026-07-14T05:00:00Z", "svc2"), dep("d_b2", "2026-07-14T01:00:00Z", "svc2")],
+    };
+    const { deployments, failures } = await listRecentDeploymentsForCredentials(
+      [cred("a", "A"), cred("b", "B")],
+      async (token) => ({ projects: projectsByToken[token] ?? [] }),
+      async ({ projectId }) => ({ deployments: depsByProject[projectId] ?? [] }),
+    );
+    assert.deepEqual(
+      deployments.map((d) => d.id),
+      ["d_b1", "d_a1", "d_b2"],
+    );
+    const newest = deployments[0];
+    assert.equal(newest?.projectId, "p2");
+    assert.equal(newest?.projectName, "milkpod");
+    assert.equal(newest?.serviceName, "web");
+    assert.equal(newest?.credentialId, "b");
+    assert.deepEqual(failures, []);
+  });
+
+  test("resolves serviceName from the project's services, null when the id is unknown or absent", async () => {
+    const { deployments } = await listRecentDeploymentsForCredentials(
+      [cred("a", "A")],
+      async () => ({ projects: [projSvc("p1", "alfred", [{ id: "svc1", name: "server" }])] }),
+      async () => ({
+        deployments: [
+          dep("known", "2026-07-14T03:00:00Z", "svc1"),
+          dep("unknown", "2026-07-14T02:00:00Z", "svcX"),
+          dep("none", "2026-07-14T01:00:00Z", null),
+        ],
+      }),
+    );
+    const serviceById = new Map(deployments.map((d) => [d.id, d.serviceName]));
+    assert.equal(serviceById.get("known"), "server");
+    assert.equal(serviceById.get("unknown"), null);
+    assert.equal(serviceById.get("none"), null);
+  });
+
+  test("caps to overallLimit after sorting newest first", async () => {
+    const { deployments } = await listRecentDeploymentsForCredentials(
+      [cred("a", "A")],
+      async () => ({ projects: [projSvc("p1", "alfred")] }),
+      async () => ({
+        deployments: [
+          dep("old", "2026-07-14T01:00:00Z"),
+          dep("new", "2026-07-14T09:00:00Z"),
+          dep("mid", "2026-07-14T05:00:00Z"),
+        ],
+      }),
+      { overallLimit: 2 },
+    );
+    assert.deepEqual(
+      deployments.map((d) => d.id),
+      ["new", "mid"],
+    );
+  });
+
+  test("sorts deployments with a missing createdAt last", async () => {
+    const { deployments } = await listRecentDeploymentsForCredentials(
+      [cred("a", "A")],
+      async () => ({ projects: [projSvc("p1", "alfred")] }),
+      async () => ({
+        deployments: [dep("nulltime", null), dep("real", "2026-07-14T03:00:00Z")],
+      }),
+    );
+    assert.deepEqual(
+      deployments.map((d) => d.id),
+      ["real", "nulltime"],
+    );
+  });
+
+  test("tolerates a single project's deployment failure and records it in failures", async () => {
+    const { deployments, failures } = await listRecentDeploymentsForCredentials(
+      [cred("a", "A")],
+      async () => ({ projects: [projSvc("good", "good-proj"), projSvc("bad", "bad-proj")] }),
+      async ({ projectId }) => {
+        if (projectId === "bad") throw authz();
+        return { deployments: [dep("d1", "2026-07-14T03:00:00Z")] };
+      },
+    );
+    assert.deepEqual(
+      deployments.map((d) => d.id),
+      ["d1"],
+    );
+    assert.equal(failures.length, 1);
+    assert.equal(failures[0]?.credentialId, "a");
+    assert.equal(failures[0]?.code, "railway_account_read_failed");
+    // The raw provider message must never leak into the surfaced failure.
+    assert.doesNotMatch(JSON.stringify(failures[0]), /Not Authorized/);
+  });
+
+  test("carries a project-list failure through into the combined failures", async () => {
+    const { deployments, failures } = await listRecentDeploymentsForCredentials(
+      [cred("dead", "Dead"), cred("ok", "Ok")],
+      async (token) => {
+        if (token === "tok_dead") throw authz();
+        return { projects: [projSvc("p1", "alfred")] };
+      },
+      async () => ({ deployments: [dep("d1", "2026-07-14T03:00:00Z")] }),
+    );
+    assert.deepEqual(
+      deployments.map((d) => d.id),
+      ["d1"],
+    );
+    assert.equal(failures.length, 1);
+    assert.equal(failures[0]?.credentialId, "dead");
+  });
+});
+
 describe("Railway tool schemas", () => {
   test("credentialId is optional on follow-up tools but validated when present", () => {
     assert.equal(
@@ -492,5 +631,14 @@ describe("Railway tool schemas", () => {
     assert.throws(() =>
       railwayListDeploymentsInput.parse({ credentialId: "", projectId: "project_1", limit: 5 }),
     );
+  });
+
+  test("recent_deployments takes no target ids, defaults limit to 15, and clamps out-of-range", () => {
+    assert.equal(railwayRecentDeploymentsInput.parse({}).limit, 15);
+    assert.equal(railwayRecentDeploymentsInput.parse({ limit: 5 }).limit, 5);
+    // out-of-range coerces back to the default via .catch rather than throwing
+    assert.equal(railwayRecentDeploymentsInput.parse({ limit: 999 }).limit, 15);
+    // it's a cross-project sweep, so per-project ids are not part of its shape
+    assert.throws(() => railwayRecentDeploymentsInput.parse({ projectId: "project_1" }));
   });
 });
