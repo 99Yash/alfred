@@ -52,7 +52,11 @@ interface SyntaxHighlighterProps {
 export function SyntaxHighlighter({ language, code }: SyntaxHighlighterProps) {
   return (
     <PrismAsyncLight
-      language={language}
+      // A fenced block with no language leaves `language` undefined, which makes
+      // `PrismAsyncLight` throw (`Expected string for aliasOrLanguage`) and takes
+      // the whole page down via the error boundary. Fall back to a plain, always-
+      // safe token — an unregistered grammar just renders unhighlighted.
+      language={language || "text"}
       style={coldarkDark}
       // `customStyle` is inline, so it overrides the wrapper's `[&_pre]` Tailwind
       // selectors (background/padding/margin) — the dark CodeBlock owns the chrome.
