@@ -265,7 +265,13 @@ export function startToolSpan(args: ToolSpanInput): ToolSpanCloser {
  * (found only by manual chat-card audit). `recordDispatchRejection` makes
  * every attempt a node.
  */
-export type DispatchRejectionOutcome = "unknown_tool" | "invalid_input" | "rejected" | "failed";
+export type DispatchRejectionOutcome =
+  | "unknown_tool"
+  | "inactive_tool"
+  | "not_allowed"
+  | "invalid_input"
+  | "rejected"
+  | "failed";
 
 /**
  * Trace severity per outcome. A schema/access/unknown miss or a failed
@@ -275,6 +281,8 @@ export type DispatchRejectionOutcome = "unknown_tool" | "invalid_input" | "rejec
  */
 const DISPATCH_OUTCOME_LEVEL: Record<DispatchRejectionOutcome, "DEFAULT" | "WARNING" | "ERROR"> = {
   unknown_tool: "WARNING",
+  inactive_tool: "WARNING",
+  not_allowed: "WARNING",
   invalid_input: "WARNING",
   rejected: "DEFAULT",
   failed: "ERROR",

@@ -9,11 +9,7 @@
  * writes into the parent run's scratchpad namespace.
  */
 
-import {
-  createRun,
-  dispatchToolCall,
-  readScratch,
-} from "@alfred/api/backend";
+import { createRun, dispatchToolCall, readScratch } from "@alfred/api/backend";
 import {
   closeAgentQueue,
   closeConnections,
@@ -91,6 +87,7 @@ async function main(): Promise<void> {
     stepId: "dispatch-tools",
     toolCallId: "tc_spawn_sub_a",
     toolName: "system.spawn_sub_agent",
+    activeTools: ["system.spawn_sub_agent"],
     input: {
       subId: "subA",
       brief: SUB_AGENT_BRIEF,
@@ -134,6 +131,7 @@ async function main(): Promise<void> {
     stepId: "dispatch-tools",
     toolCallId: "tc_spawn_sub_a",
     toolName: "system.spawn_sub_agent",
+    activeTools: ["system.spawn_sub_agent"],
     input: {
       subId: "subA",
       brief: "This payload should not create a second child.",
@@ -168,6 +166,7 @@ async function main(): Promise<void> {
     stepId: "dispatch-tools",
     toolCallId: "tc_nested_spawn",
     toolName: "system.spawn_sub_agent",
+    activeTools: ["system.spawn_sub_agent"],
     input: { subId: "subB", brief: "Nested spawn should be rejected.", allowedIntegrations: [] },
     userId,
     caller: { subId: "subA" },
@@ -184,6 +183,7 @@ async function main(): Promise<void> {
     stepId: "dispatch-tools",
     toolCallId: "tc_child_write",
     toolName: "system.write_scratch",
+    activeTools: ["system.write_scratch"],
     input: { key: "scratch.subA.findings", value: { threads: 3 } },
     userId,
     caller: { subId: "subA" },

@@ -107,6 +107,8 @@ export interface DispatchArgs {
    * it once per run). Omitted → the dispatcher reads the `"timezone"` pref.
    */
   timezone?: string;
+  /** Exact run-local capability surface. Registry membership alone is not executable. */
+  activeTools: readonly ToolName[];
   /** Workflow integration cap, used by system tools such as `system.load_integration`. */
   allowedIntegrations?: readonly string[];
 }
@@ -130,6 +132,20 @@ interface InvalidInputToolResult {
 interface UnknownToolResult {
   status: "unknown_tool";
   toolName: string;
+  message: string;
+}
+
+interface InactiveToolResult {
+  status: "inactive_tool";
+  toolName: ToolName;
+  message: string;
+  recovery: { kind: "activate_and_reissue"; toolName: ToolName };
+}
+
+interface NotAllowedToolResult {
+  status: "not_allowed";
+  toolName: ToolName;
+  integration: IntegrationSlug;
   message: string;
 }
 
@@ -179,6 +195,14 @@ export type DispatchResult =
   | {
       kind: "unknown_tool";
       result: UnknownToolResult;
+    }
+  | {
+      kind: "inactive_tool";
+      result: InactiveToolResult;
+    }
+  | {
+      kind: "not_allowed";
+      result: NotAllowedToolResult;
     };
 
 type StagingRow = Pick<
@@ -385,6 +409,36 @@ export async function dispatchToolCall(args: DispatchArgs): Promise<DispatchResu
     };
   }
 
+  const integration = integrationFromToolName(toolName);
+  if (
+    integration !== "system" &&
+    args.allowedIntegrations?.length &&
+    !args.allowedIntegrations.includes(integration)
+  ) {
+    const message = `Tool '${toolName}' is not allowed by this workflow`;
+    recordRejection({ dispatch: args, outcome: "not_allowed", reason: message, toolName });
+    return {
+      kind: "not_allowed",
+      result: { status: "not_allowed", toolName, integration, message },
+    };
+  }
+
+  if (!args.activeTools.includes(toolName)) {
+    const message =
+      `Tool '${toolName}' was inactive. Its exact schema will be available on the next turn; ` +
+      "issue a fresh call using that schema.";
+    recordRejection({ dispatch: args, outcome: "inactive_tool", reason: message, toolName });
+    return {
+      kind: "inactive_tool",
+      result: {
+        status: "inactive_tool",
+        toolName,
+        message,
+        recovery: { kind: "activate_and_reissue", toolName },
+      },
+    };
+  }
+
   const parsed = tool.inputSchema.safeParse(args.input);
   if (!parsed.success) {
     const message = enrichInvalidInputMessage(
@@ -515,7 +569,6 @@ export async function dispatchToolCall(args: DispatchArgs): Promise<DispatchResu
     };
   }
 
-  const integration: IntegrationSlug = integrationFromToolName(toolName);
   const riskTier: ToolRiskTier = tool.riskTier;
   const policyMode =
     integration === "system" ? "autonomy" : await resolvePolicyMode(args.userId, toolName);
