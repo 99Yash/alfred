@@ -130,10 +130,7 @@ function isNonProduction(): boolean {
   }
 }
 
-export function createLogger(
-  destination?: DestinationStream,
-  opts?: { verboseErrors?: boolean },
-) {
+export function createLogger(destination?: DestinationStream, opts?: { verboseErrors?: boolean }) {
   // Decided once at construction. The dev server loads `--env-file=.env` before
   // any import, so `serverEnv()` resolves here; production pins
   // `NODE_ENV=production` → strict. Tests pass `verboseErrors` explicitly.

@@ -24,12 +24,7 @@
  *      the latest message strips alfred labels from every sibling — Gmail
  *      ends up with one alfred label across the whole thread.
  */
-import {
-  createRun,
-  enqueueRun,
-  getTriage,
-  TRIAGE_WORKFLOW_SLUG,
-} from "@alfred/api/backend";
+import { createRun, enqueueRun, getTriage, TRIAGE_WORKFLOW_SLUG } from "@alfred/api/backend";
 import { closeAgentQueue, closeConnections, closeRedis, warmPool } from "@alfred/api/runtime";
 import { db } from "@alfred/db";
 import { agentRuns, documents, emailTriage, integrationCredentials } from "@alfred/db/schemas";

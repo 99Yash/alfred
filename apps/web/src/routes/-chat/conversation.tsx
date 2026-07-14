@@ -440,7 +440,11 @@ function FeedFooter() {
           ) : null}
 
           {stream.tools.length > 0 ? (
-            <ToolCallGroup tools={stream.tools} narration={stream.narration} active={!stream.done} />
+            <ToolCallGroup
+              tools={stream.tools}
+              narration={stream.narration}
+              active={!stream.done}
+            />
           ) : null}
 
           {stream.compacting ? <ThinkingIndicator label="Condensing conversation…" /> : null}

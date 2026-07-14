@@ -13,7 +13,8 @@ export const APP_ERROR_REGISTRY = {
     message: "A connected Calendar account could not be read. Reconnect it in settings.",
   },
   calendar_unavailable: {
-    message: "Calendar could not be read from any connected account. Reconnect Calendar in settings.",
+    message:
+      "Calendar could not be read from any connected account. Reconnect Calendar in settings.",
   },
   calendar_bounds_conflict: {
     message:

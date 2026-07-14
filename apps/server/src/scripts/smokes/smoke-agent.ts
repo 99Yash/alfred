@@ -7,11 +7,7 @@
  * actually runs the steps; this script just creates a run, watches it
  * progress, signals the HIL approval, and asserts the final output.
  */
-import {
-  createRun,
-  enqueueRun,
-  signalRun,
-} from "@alfred/api/backend";
+import { createRun, enqueueRun, signalRun } from "@alfred/api/backend";
 import { closeAgentQueue, closeConnections, closeRedis, warmPool } from "@alfred/api/runtime";
 import { db } from "@alfred/db";
 import { agentRuns, agentSteps, user as userTable } from "@alfred/db/schemas";

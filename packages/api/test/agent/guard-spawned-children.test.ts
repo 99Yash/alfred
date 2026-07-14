@@ -57,7 +57,7 @@ function baseState(overrides: Partial<ChatRunState> = {}): ChatRunState {
     reasoningSeq: 0,
     turnCount: 1,
     emptyCompletionRetries: 0,
-    started: true,
+    startedAt: "2026-07-14T02:50:11.451Z",
     foldedChildRunIds: [],
     notedFailureToolCallIds: [],
     ...overrides,
