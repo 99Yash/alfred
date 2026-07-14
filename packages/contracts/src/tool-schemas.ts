@@ -1042,6 +1042,21 @@ export const railwayListDeploymentsInput = z
   })
   .strict();
 
+export const railwayRecentDeploymentsInput = z
+  .object({
+    limit: z.coerce
+      .number()
+      .int()
+      .min(1)
+      .max(30)
+      .default(15)
+      .catch(15)
+      .describe(
+        "Max deployments to return, merged across all projects and Railway connections and sorted newest first.",
+      ),
+  })
+  .strict();
+
 export const railwayGetLogsInput = z
   .object({
     credentialId: railwayCredentialId,
@@ -1571,6 +1586,7 @@ export const TOOL_INPUT_SCHEMAS = {
   "notion.append_blocks": notionAppendBlocksInput,
   "railway.list_projects": railwayListProjectsInput,
   "railway.list_deployments": railwayListDeploymentsInput,
+  "railway.recent_deployments": railwayRecentDeploymentsInput,
   "railway.get_logs": railwayGetLogsInput,
   "railway.redeploy": railwayRedeployInput,
   "vercel.list_projects": vercelListProjectsInput,
