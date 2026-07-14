@@ -218,7 +218,15 @@ export function ChatShell({ threadId, title }: ChatShellProps) {
   return (
     <Tooltip.Provider delayDuration={300}>
       <div className="relative flex h-full min-w-0 flex-col">
-        <TopBar title={title} railOpen={railOpen} onToggleRail={() => setRailOpen((v) => !v)} />
+        <TopBar
+          title={title}
+          railOpen={railOpen}
+          onToggleRail={() => setRailOpen((v) => !v)}
+          artifacts={artifact.artifacts}
+          selectedArtifactId={artifact.selectedId}
+          onOpenArtifact={artifact.open}
+          onCloseArtifact={artifact.close}
+        />
         {hasConversation ? (
           <>
             <Conversation

@@ -1,6 +1,8 @@
+import type { SyncedArtifact } from "@alfred/sync";
 import { Ellipsis, PanelLeft, PanelRight, Share2 } from "lucide-react";
 import { useSidebarState } from "~/lib/shell/app-shell";
 import { cn } from "~/lib/utils";
+import { ArtifactMenu } from "./artifact-menu";
 import { IconButton } from "./rail/icon-button";
 import { Tip } from "./tip";
 
@@ -8,10 +10,18 @@ export function TopBar({
   title,
   railOpen,
   onToggleRail,
+  artifacts,
+  selectedArtifactId,
+  onOpenArtifact,
+  onCloseArtifact,
 }: {
   title: string;
   railOpen: boolean;
   onToggleRail: () => void;
+  artifacts: SyncedArtifact[];
+  selectedArtifactId: string | null;
+  onOpenArtifact: (artifactId: string) => void;
+  onCloseArtifact: () => void;
 }) {
   const { open: sidebarOpen, setOpen: setSidebarOpen } = useSidebarState();
   return (
@@ -41,6 +51,12 @@ export function TopBar({
           </IconButton>
         </Tip>
         <span aria-hidden className="mx-1 h-5 w-px bg-app-bg-3" />
+        <ArtifactMenu
+          artifacts={artifacts}
+          selectedId={selectedArtifactId}
+          onOpen={onOpenArtifact}
+          onClose={onCloseArtifact}
+        />
         <Tip label={railOpen ? "Hide today panel" : "Show today panel"}>
           <IconButton
             label={railOpen ? "Hide today panel" : "Show today panel"}
