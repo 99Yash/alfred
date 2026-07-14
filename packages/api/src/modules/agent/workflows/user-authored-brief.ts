@@ -6,8 +6,6 @@ import {
   AlfredAgent,
   tool,
   type ModelMessage,
-  type RuntimeSpanCloser,
-  type RuntimeSpanLevel,
   type Tool,
   type ToolSet,
 } from "@alfred/ai";
@@ -34,12 +32,8 @@ import {
   shouldSkipCompaction,
 } from "../compaction/tokens";
 import { appendModelResponseMessages } from "../transcript-dedup";
-import { dispatchToolCall, type DispatchResult } from "../../dispatch";
-import {
-  dispatchBatchEndMetadata,
-  startDispatchBatchSpan,
-  summarizeDispatchBatch,
-} from "../runtime-spans";
+import { callerLabel, dispatchToolCall, type DispatchResult } from "../../dispatch";
+import { startDispatchBatchSpan, type DispatchBatchSpanCloser } from "../runtime-spans";
 import { writeScratch } from "../../scratchpad";
 import { getTool } from "../../tools/registry";
 import { buildConnectedSummary } from "../connected-summary";
@@ -350,32 +344,23 @@ const dispatchToolsStep: Step<BriefRunState> = {
 
     // #406: trace this dispatch round as a `runtime.dispatch.batch` observation.
     // The brief workflow runs both the boss and every sub-agent, so `caller`
-    // carries the boss/`sub:<id>` distinction the chat path can't. Ended once at
-    // the first terminal (staged / parked / committed / a thrown fault).
+    // carries the boss/`sub:<id>` distinction the chat path can't — derived via
+    // the dispatcher's `callerLabel` so the batch span and this round's tool
+    // spans tag the caller identically. Ended once at the first terminal (staged
+    // / parked / committed / a thrown fault); the closer owns the fold + is
+    // idempotent.
     const batchCallCount = state.pendingToolCalls.length;
-    let batchSpan: RuntimeSpanCloser | null =
+    const batchSpan: DispatchBatchSpanCloser | null =
       batchCallCount > 0
         ? startDispatchBatchSpan({
             runId: ctx.runId,
-            stepId: "dispatch-tools",
             workflow: USER_AUTHORED_BRIEF_WORKFLOW_SLUG,
-            caller: state.subAgent ? `sub:${state.subAgent.subId}` : "boss",
+            caller: callerLabel(state.subAgent ? { subId: state.subAgent.subId } : "boss"),
             callCount: batchCallCount,
             startedAt: new Date(),
           })
         : null;
     const batchResults: (DispatchResult | undefined)[] = [];
-    const endBatchSpan = (status: string, level?: RuntimeSpanLevel): void => {
-      batchSpan?.end({
-        status,
-        level,
-        metadata:
-          level === "ERROR"
-            ? undefined
-            : dispatchBatchEndMetadata(summarizeDispatchBatch(batchResults)),
-      });
-      batchSpan = null;
-    };
 
     try {
       while (state.pendingToolCalls.length > 0) {
@@ -402,7 +387,7 @@ const dispatchToolsStep: Step<BriefRunState> = {
         }
 
         if (result.kind === "staged") {
-          endBatchSpan("staged");
+          batchSpan?.end("staged", batchResults);
           return {
             kind: "interrupt",
             state,
@@ -415,7 +400,7 @@ const dispatchToolsStep: Step<BriefRunState> = {
         // the child's completion signal. The pending call is left in place, so
         // on resume it re-dispatches and reads the child's terminal outcome.
         if (result.kind === "parked") {
-          endBatchSpan("parked");
+          batchSpan?.end("parked", batchResults);
           return {
             kind: "interrupt",
             state,
@@ -428,9 +413,9 @@ const dispatchToolsStep: Step<BriefRunState> = {
         transcript = [...transcript, toolResultMessage(call, result)];
         state.pendingToolCalls = state.pendingToolCalls.slice(1);
       }
-      endBatchSpan("committed");
+      batchSpan?.end("committed", batchResults);
     } catch (err) {
-      endBatchSpan("error", "ERROR");
+      batchSpan?.end("error");
       throw err;
     }
 

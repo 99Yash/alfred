@@ -254,11 +254,13 @@ let toolSpanStarter: (args: ToolSpanInput) => ToolSpanCloser = startToolSpan;
 type RejectionIssue = { code?: string; path?: readonly PropertyKey[] };
 
 /**
- * Caller label for trace metadata: `boss` or `sub:<id>`. Mirrors the
- * `executeToolWithSpan` derivation so reject spans and execute spans label the
- * same caller identically.
+ * Caller label for trace metadata: `boss` or `sub:<id>`. The single source for
+ * this format — execute spans, reject spans, sub-agent-await spans, and the
+ * workflow's `runtime.dispatch.batch` span all derive their caller through here,
+ * so a run's spans tag the same caller identically and the format lives in one
+ * place if it ever changes.
  */
-function callerLabel(caller: DispatchArgs["caller"]): string {
+export function callerLabel(caller: DispatchArgs["caller"]): string {
   if (caller === undefined || caller === "boss") return "boss";
   return `sub:${caller.subId}`;
 }
@@ -1073,7 +1075,7 @@ async function executeToolWithSpan(
     toolName: tool.name,
     toolCallId: ctx.toolCallId,
     userId: ctx.userId,
-    caller: ctx.caller === "boss" ? "boss" : `sub:${ctx.caller.subId}`,
+    caller: callerLabel(ctx.caller),
     stepId: ctx.stepId,
     // #293: the trace/span sink ALWAYS gets the redacted input — unlike
     // `proposed_input`, a span is never a resume payload, so there's no gated
@@ -1104,7 +1106,7 @@ async function resolveAwaitSubAgentWithSpan(
     toolName: tool.name,
     toolCallId: ctx.toolCallId,
     userId: ctx.userId,
-    caller: ctx.caller === "boss" ? "boss" : `sub:${ctx.caller.subId}`,
+    caller: callerLabel(ctx.caller),
     stepId: ctx.stepId,
     input: tool.redactInput ? tool.redactInput(input) : input,
     startedAt: new Date(),

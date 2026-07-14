@@ -24,6 +24,13 @@ import type { DispatchResult } from "../dispatch";
 /** Stable observation name for the dispatch-batch runtime span (PRD #405). */
 export const RUNTIME_DISPATCH_BATCH = "runtime.dispatch.batch";
 
+/**
+ * The executor step that owns a dispatch batch. Only the `dispatch-tools` step
+ * of either workflow opens this span, so the step id is a constant of the
+ * contract rather than a caller-supplied value.
+ */
+const DISPATCH_BATCH_STEP_ID = "dispatch-tools";
+
 /** Per-outcome tally of one dispatched tool-call batch. */
 export interface DispatchBatchSummary {
   /** Total calls in the batch, including undispatched (`undefined`) slots. */
@@ -97,26 +104,17 @@ export function summarizeDispatchBatch(
   return summary;
 }
 
-/** Coarse terminal status for the batch span. */
-export type DispatchBatchStatus = "committed" | "staged" | "parked";
-
 /**
- * Derive the batch's terminal status. A batch that parks — an HIL stage or a
- * still-running sub-agent await — is distinguished from one that ran every call
- * to completion, so the trace separates "run parked mid-batch" from "batch
- * committed". Staging takes precedence over a sub-agent park to mirror the
- * workflow's own precedence.
+ * Terminal outcome of a dispatched batch — the exact vocabulary the workflows
+ * emit at each `return`. A batch either committed every call, `staged` a gated
+ * write (HIL park), `parked` on a still-running sub-agent await, or faulted
+ * (`error`). This is the single source for that vocabulary; the closer's typed
+ * `end` makes a typo or a new-but-unhandled terminal a compile error.
  */
-export function dispatchBatchStatus(summary: DispatchBatchSummary): DispatchBatchStatus {
-  if (summary.staged > 0) return "staged";
-  if (summary.parked > 0) return "parked";
-  return "committed";
-}
+export type DispatchBatchTerminal = "committed" | "staged" | "parked" | "error";
 
 export interface DispatchBatchSpanArgs {
   runId: string;
-  /** Logical executor step that owns the batch (always `dispatch-tools`). */
-  stepId: string;
   /** Workflow slug — chat-turn vs user-authored-brief. */
   workflow: string;
   /** `boss` or `sub:<id>` — mirrors the dispatcher's caller label. */
@@ -132,7 +130,7 @@ export function buildDispatchBatchSpanInput(args: DispatchBatchSpanArgs): Runtim
     name: RUNTIME_DISPATCH_BATCH,
     startedAt: args.startedAt,
     metadata: {
-      stepId: args.stepId,
+      stepId: DISPATCH_BATCH_STEP_ID,
       workflow: args.workflow,
       caller: args.caller,
       callCount: args.callCount,
@@ -155,13 +153,43 @@ export function dispatchBatchEndMetadata(summary: DispatchBatchSummary): Record<
   };
 }
 
+/**
+ * Closer for a `runtime.dispatch.batch` span. Owns the one rule for how a batch
+ * span ends so it can't drift between the two workflows: a `committed`/`staged`/
+ * `parked` terminal folds the batch's per-outcome summary into end metadata; an
+ * `error` terminal records level `ERROR` with no summary (the batch faulted
+ * before a meaningful tally). Idempotent — only the first `end` closes the span.
+ */
+export interface DispatchBatchSpanCloser {
+  end(
+    terminal: "committed" | "staged" | "parked",
+    results: readonly (DispatchResult | undefined)[],
+  ): void;
+  end(terminal: "error"): void;
+}
+
 // Injectable starter so a test can observe the emitted span contract without a
 // live Langfuse client (mirrors dispatch's `_setDispatchTraceSinksForTests`).
 let runtimeSpanStarter: (input: RuntimeSpanInput) => RuntimeSpanCloser = startRuntimeSpan;
 
 /** Open the `runtime.dispatch.batch` span for a workflow's dispatch step. */
-export function startDispatchBatchSpan(args: DispatchBatchSpanArgs): RuntimeSpanCloser {
-  return runtimeSpanStarter(buildDispatchBatchSpanInput(args));
+export function startDispatchBatchSpan(args: DispatchBatchSpanArgs): DispatchBatchSpanCloser {
+  const span = runtimeSpanStarter(buildDispatchBatchSpanInput(args));
+  let ended = false;
+  return {
+    end(
+      terminal: DispatchBatchTerminal,
+      results?: readonly (DispatchResult | undefined)[],
+    ): void {
+      if (ended) return;
+      ended = true;
+      span.end({
+        status: terminal,
+        level: terminal === "error" ? "ERROR" : undefined,
+        metadata: results ? dispatchBatchEndMetadata(summarizeDispatchBatch(results)) : undefined,
+      });
+    },
+  };
 }
 
 export function _setRuntimeSpanStarterForTests(
