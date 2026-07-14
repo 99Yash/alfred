@@ -67,6 +67,10 @@ const FAILURE_PRESENTATION: Record<
     message: "I'm getting a lot of requests right now. Give it a moment, then try again.",
     retry: "same",
   },
+  timeout: {
+    message: "That one ran long and I had to stop before finishing. Try again.",
+    retry: "same",
+  },
   too_long: {
     message: "This conversation got too long for me to continue. Start a new chat to keep going.",
     retry: "none",

@@ -38,6 +38,13 @@ export const chatModelTierSchema = z.enum(chatModelTierValues);
  *   - `overloaded`    — a transient provider fault (5xx / "internal error" /
  *                       overloaded / network). Recoverable: retry.
  *   - `rate_limited`  — upstream throttling (429). Recoverable: wait + retry.
+ *   - `timeout`       — the streaming circuit-breaker aborted the turn: it ran
+ *                       past the total/chunk stream ceiling (most often the
+ *                       model thought for too long on one turn), not a provider
+ *                       fault. The server already auto-retries once from the
+ *                       pre-turn transcript; this kind surfaces only when that
+ *                       is exhausted. Recoverable: retry (thinking time is
+ *                       non-deterministic, so a fresh attempt may finish).
  *   - `too_long`      — the turn hit a length/turn cap and can't continue.
  *   - `generic`       — anything else; an unclassified interruption.
  */
@@ -46,6 +53,7 @@ export const chatErrorKindValues = [
   "attachment_history",
   "overloaded",
   "rate_limited",
+  "timeout",
   "too_long",
   "generic",
 ] as const;
