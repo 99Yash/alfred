@@ -6,6 +6,8 @@ import {
   AlfredAgent,
   tool,
   type ModelMessage,
+  type RuntimeSpanCloser,
+  type RuntimeSpanLevel,
   type Tool,
   type ToolSet,
 } from "@alfred/ai";
@@ -33,6 +35,11 @@ import {
 } from "../compaction/tokens";
 import { appendModelResponseMessages } from "../transcript-dedup";
 import { dispatchToolCall, type DispatchResult } from "../../dispatch";
+import {
+  dispatchBatchEndMetadata,
+  startDispatchBatchSpan,
+  summarizeDispatchBatch,
+} from "../runtime-spans";
 import { writeScratch } from "../../scratchpad";
 import { getTool } from "../../tools/registry";
 import { buildConnectedSummary } from "../connected-summary";
@@ -341,52 +348,90 @@ const dispatchToolsStep: Step<BriefRunState> = {
     };
     let transcript = [...ctx.transcript];
 
-    while (state.pendingToolCalls.length > 0) {
-      const call = state.pendingToolCalls[0]!;
-      const dispatchArgs = {
-        runId: ctx.runId,
-        stepId: "dispatch-tools",
-        toolCallId: call.toolCallId,
-        toolName: call.toolName,
-        input: call.input,
-        userId: ctx.userId,
-        caller: state.subAgent ? { subId: state.subAgent.subId } : "boss",
-        scratchpadRunId: state.subAgent?.parentRunId ?? ctx.runId,
-        timezone: state.timezone,
-        activeTools: state.activeTools,
-        allowedIntegrations: state.allowedIntegrations,
-      } as const;
-      const result = await dispatchToolCall(dispatchArgs);
-      if (result.kind === "inactive_tool") {
-        // Bounce the schema-blind call to the next model turn after exposing the
-        // exact schema; never validate or execute arguments the model guessed.
-        state.activeTools = activateTool(state.activeTools, result.result.recovery.toolName);
-      }
+    // #406: trace this dispatch round as a `runtime.dispatch.batch` observation.
+    // The brief workflow runs both the boss and every sub-agent, so `caller`
+    // carries the boss/`sub:<id>` distinction the chat path can't. Ended once at
+    // the first terminal (staged / parked / committed / a thrown fault).
+    const batchCallCount = state.pendingToolCalls.length;
+    let batchSpan: RuntimeSpanCloser | null =
+      batchCallCount > 0
+        ? startDispatchBatchSpan({
+            runId: ctx.runId,
+            stepId: "dispatch-tools",
+            workflow: USER_AUTHORED_BRIEF_WORKFLOW_SLUG,
+            caller: state.subAgent ? `sub:${state.subAgent.subId}` : "boss",
+            callCount: batchCallCount,
+            startedAt: new Date(),
+          })
+        : null;
+    const batchResults: (DispatchResult | undefined)[] = [];
+    const endBatchSpan = (status: string, level?: RuntimeSpanLevel): void => {
+      batchSpan?.end({
+        status,
+        level,
+        metadata:
+          level === "ERROR"
+            ? undefined
+            : dispatchBatchEndMetadata(summarizeDispatchBatch(batchResults)),
+      });
+      batchSpan = null;
+    };
 
-      if (result.kind === "staged") {
-        return {
-          kind: "interrupt",
-          state,
-          transcript,
-          wake: result.wake,
-        };
-      }
+    try {
+      while (state.pendingToolCalls.length > 0) {
+        const call = state.pendingToolCalls[0]!;
+        const dispatchArgs = {
+          runId: ctx.runId,
+          stepId: "dispatch-tools",
+          toolCallId: call.toolCallId,
+          toolName: call.toolName,
+          input: call.input,
+          userId: ctx.userId,
+          caller: state.subAgent ? { subId: state.subAgent.subId } : "boss",
+          scratchpadRunId: state.subAgent?.parentRunId ?? ctx.runId,
+          timezone: state.timezone,
+          activeTools: state.activeTools,
+          allowedIntegrations: state.allowedIntegrations,
+        } as const;
+        const result = await dispatchToolCall(dispatchArgs);
+        batchResults.push(result);
+        if (result.kind === "inactive_tool") {
+          // Bounce the schema-blind call to the next model turn after exposing the
+          // exact schema; never validate or execute arguments the model guessed.
+          state.activeTools = activateTool(state.activeTools, result.result.recovery.toolName);
+        }
 
-      // ADR-0073: await_sub_agent on a still-running child parks this run on
-      // the child's completion signal. The pending call is left in place, so
-      // on resume it re-dispatches and reads the child's terminal outcome.
-      if (result.kind === "parked") {
-        return {
-          kind: "interrupt",
-          state,
-          transcript,
-          wake: result.wake,
-        };
-      }
+        if (result.kind === "staged") {
+          endBatchSpan("staged");
+          return {
+            kind: "interrupt",
+            state,
+            transcript,
+            wake: result.wake,
+          };
+        }
 
-      applySystemToolEffect(state, call.toolName, result);
-      transcript = [...transcript, toolResultMessage(call, result)];
-      state.pendingToolCalls = state.pendingToolCalls.slice(1);
+        // ADR-0073: await_sub_agent on a still-running child parks this run on
+        // the child's completion signal. The pending call is left in place, so
+        // on resume it re-dispatches and reads the child's terminal outcome.
+        if (result.kind === "parked") {
+          endBatchSpan("parked");
+          return {
+            kind: "interrupt",
+            state,
+            transcript,
+            wake: result.wake,
+          };
+        }
+
+        applySystemToolEffect(state, call.toolName, result);
+        transcript = [...transcript, toolResultMessage(call, result)];
+        state.pendingToolCalls = state.pendingToolCalls.slice(1);
+      }
+      endBatchSpan("committed");
+    } catch (err) {
+      endBatchSpan("error", "ERROR");
+      throw err;
     }
 
     // ADR-0035: estimate next-turn input size and route through compaction

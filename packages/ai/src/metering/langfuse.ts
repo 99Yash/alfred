@@ -384,6 +384,120 @@ export function recordDispatchRejection(args: DispatchRejectionInput): void {
 }
 
 /**
+ * Non-LLM runtime observations (#406, PRD #405). The trace tree already covers
+ * the execution spine — LLM generations (`startLangfuseSpan`), tool executions
+ * (`startToolSpan`), and dispatch rejections (`recordDispatchRejection`) — but
+ * the deterministic orchestration *between* those (dispatch batch overhead,
+ * scratchpad round-trips, approval/sub-agent waits, queue/lease timing, lazy
+ * tool lookup) is invisible: an operator can't tell whether a run spent its
+ * wall-clock in the model, a tool, or orchestration glue. `startRuntimeSpan` is
+ * the shared helper for that class — a plain span nested under the run trace,
+ * stable-named (`runtime.<area>.<op>`), carrying only bounded, PII-free metadata.
+ *
+ * Same privacy posture as the sibling helpers: full I/O rides the
+ * `LANGFUSE_CAPTURE_IO` gate (off by default); metadata is timings / counts /
+ * statuses / hashes only, never raw payloads or keys. Every SDK call is
+ * swallowed so a tracing fault can never break the orchestration path it
+ * observes. Span duration is derived by Langfuse from start/end times, so
+ * callers need not compute it.
+ */
+
+/** Langfuse observation level for a runtime span's terminal status. */
+export type RuntimeSpanLevel = "DEFAULT" | "WARNING" | "ERROR";
+
+/**
+ * Bounded metadata value for a runtime span. Deliberately primitive-only so the
+ * type system keeps raw objects / keys / values (potential PII) off the span —
+ * runtime spans record counts, durations, statuses, and hashes, not payloads.
+ */
+export type RuntimeMetaValue = string | number | boolean | null | undefined;
+
+export interface RuntimeSpanInput {
+  /** Run id — doubles as the Langfuse trace id this span hangs under. */
+  runId: string;
+  /** Stable observation name, e.g. `runtime.dispatch.batch`. */
+  name: string;
+  startedAt: Date;
+  /** Bounded, PII-free metadata (timings / counts / statuses / hashes). */
+  metadata?: Record<string, RuntimeMetaValue>;
+  /** Full input — only attached when `LANGFUSE_CAPTURE_IO` is on. */
+  input?: unknown;
+}
+
+export interface RuntimeSpanEndArgs {
+  /** Terminal status, recorded in `metadata.status` (e.g. "committed", "staged", "error"). */
+  status: string;
+  /** Observation level. Defaults to `DEFAULT`; pass `ERROR` for a faulted span. */
+  level?: RuntimeSpanLevel;
+  /** Additional bounded metadata merged at end (final counts / durations). */
+  metadata?: Record<string, RuntimeMetaValue>;
+  /** Full output — only attached when `LANGFUSE_CAPTURE_IO` is on. */
+  output?: unknown;
+}
+
+export interface RuntimeSpanCloser {
+  end(args: RuntimeSpanEndArgs): void;
+}
+
+/** Pure builder for the opening `client.span()` payload. Exported for tests. */
+export function buildRuntimeSpanPayload(input: RuntimeSpanInput, captureIo: boolean) {
+  return {
+    traceId: input.runId,
+    name: input.name,
+    startTime: input.startedAt,
+    input: captureIo ? input.input : undefined,
+    metadata: {
+      kind: "runtime" as const,
+      runId: input.runId,
+      ...input.metadata,
+    },
+  };
+}
+
+/** Pure builder for the terminal `span.end()` payload. Exported for tests. */
+export function buildRuntimeSpanEndPayload(args: RuntimeSpanEndArgs, captureIo: boolean) {
+  return {
+    level: args.level ?? ("DEFAULT" as RuntimeSpanLevel),
+    output: captureIo ? args.output : undefined,
+    metadata: { status: args.status, ...args.metadata },
+  };
+}
+
+/**
+ * Open a runtime span under the run trace (#406). No-op closer when Langfuse
+ * keys are absent (mirrors `startToolSpan`). The defensive trace upsert is keyed
+ * on id so it merges rather than clobbers the run trace the boss generation
+ * already created. Every SDK call is swallowed.
+ */
+export function startRuntimeSpan(input: RuntimeSpanInput): RuntimeSpanCloser {
+  const client = getClient();
+  if (!client) {
+    return {
+      end() {
+        /* no-op when keys missing */
+      },
+    };
+  }
+  const captureIo = shouldCaptureIo();
+  let span: ReturnType<Langfuse["span"]> | null = null;
+  try {
+    client.trace({ id: input.runId });
+    span = client.span(buildRuntimeSpanPayload(input, captureIo));
+  } catch (err) {
+    console.warn("[langfuse] runtime span start failed:", toMessage(err));
+  }
+  return {
+    end(args) {
+      try {
+        span?.end(buildRuntimeSpanEndPayload(args, captureIo));
+      } catch (err) {
+        console.warn("[langfuse] runtime span end failed:", toMessage(err));
+      }
+    },
+  };
+}
+
+/**
  * Best-effort flush so a CLI script (smoke tests, sync-prices) doesn't
  * exit before in-flight Langfuse events are sent. Server processes
  * call this on graceful shutdown.

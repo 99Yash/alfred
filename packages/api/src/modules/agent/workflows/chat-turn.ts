@@ -10,6 +10,8 @@ import {
   type ChatModelTier,
   type LanguageModel,
   type ModelMessage,
+  type RuntimeSpanCloser,
+  type RuntimeSpanLevel,
   type Tool,
   type ToolSet,
 } from "@alfred/ai";
@@ -40,6 +42,12 @@ import { sniffPassThroughImageMime } from "../../chat/attachments";
 import { readObject } from "../../chat/storage";
 import { isChatStopRequested } from "../../chat/stop-signal";
 import { dispatchToolCall, toolCallWouldGate, type DispatchResult } from "../../dispatch";
+import {
+  dispatchBatchEndMetadata,
+  startDispatchBatchSpan,
+  summarizeDispatchBatch,
+  type DispatchBatchSummary,
+} from "../runtime-spans";
 import {
   AWAIT_SUB_AGENT_CEILING_MS,
   scheduleSubAgentJoinWakeJob,
@@ -1603,9 +1611,7 @@ export function shouldPublishToolStarted(
  * The other non-execution rejections (`invalid_input`, `unknown_tool`,
  * `not_allowed`) don't auto-activate anything, so they don't mark a reissue turn.
  */
-export function dispatchRoundReissued(
-  results: readonly (DispatchResult | undefined)[],
-): boolean {
+export function dispatchRoundReissued(results: readonly (DispatchResult | undefined)[]): boolean {
   return results.some((result) => result?.kind === "inactive_tool");
 }
 
@@ -2326,6 +2332,23 @@ const dispatchToolsStep: Step<ChatRunState> = {
     };
     let transcript = [...ctx.transcript];
 
+    // #406: trace this dispatch round as a `runtime.dispatch.batch` observation
+    // so orchestration overhead is separable from model + individual tool time.
+    // Ended exactly once at every terminal (staged / parked / committed / a
+    // thrown fault); the null-out makes a double-end impossible.
+    let batchSpan: RuntimeSpanCloser | null = null;
+    const endBatchSpan = (
+      status: string,
+      opts?: { summary?: DispatchBatchSummary; level?: RuntimeSpanLevel },
+    ): void => {
+      batchSpan?.end({
+        status,
+        level: opts?.level,
+        metadata: opts?.summary ? dispatchBatchEndMetadata(opts.summary) : undefined,
+      });
+      batchSpan = null;
+    };
+
     try {
       const calls = state.pendingToolCalls;
       if (calls.length > 0) {
@@ -2342,6 +2365,18 @@ const dispatchToolsStep: Step<ChatRunState> = {
             output: { messageId: state.messageId, stopped: true },
           };
         }
+
+        // Opened after the stop check so a stopped turn (no dispatch) records no
+        // batch span. `caller` is always `boss` on the chat path; sub-agents run
+        // in the brief workflow.
+        batchSpan = startDispatchBatchSpan({
+          runId: ctx.runId,
+          stepId: "dispatch-tools",
+          workflow: CHAT_TURN_WORKFLOW_SLUG,
+          caller: "boss",
+          callCount: calls.length,
+          startedAt: new Date(),
+        });
 
         // Dispatch the batch with HIL-safe parallelism. Autonomy calls (reads,
         // `system.*`) execute concurrently — that's the latency win, Σ(tool) →
@@ -2398,6 +2433,10 @@ const dispatchToolsStep: Step<ChatRunState> = {
           if (result.kind === "staged") break;
         }
 
+        // Every call was dispatched (or left as an undefined slot); fold the
+        // outcomes into the batch-span summary once, before any early return.
+        const batchSummary = summarizeDispatchBatch(results);
+
         // A gated write parks the run. Return the interrupt for the
         // first-staged call (in transcript order) WITHOUT committing any
         // sibling result: leave `pendingToolCalls` and `transcript` untouched
@@ -2409,6 +2448,7 @@ const dispatchToolsStep: Step<ChatRunState> = {
           (r): r is Extract<DispatchResult, { kind: "staged" }> => r?.kind === "staged",
         );
         if (stagedResult) {
+          endBatchSpan("staged", { summary: batchSummary });
           return { kind: "interrupt", state, transcript, wake: stagedResult.wake };
         }
 
@@ -2421,6 +2461,7 @@ const dispatchToolsStep: Step<ChatRunState> = {
           (r): r is Extract<DispatchResult, { kind: "parked" }> => r?.kind === "parked",
         );
         if (parkedResult) {
+          endBatchSpan("parked", { summary: batchSummary });
           return { kind: "interrupt", state, transcript, wake: parkedResult.wake };
         }
 
@@ -2513,12 +2554,15 @@ const dispatchToolsStep: Step<ChatRunState> = {
         // (#407), the next chat-turn is an internal reissue — mark it so its
         // lead-in narration ("tools warming up, retrying") is withheld.
         state.reissuePending = dispatchRoundReissued(results);
+        endBatchSpan("committed", { summary: batchSummary });
       }
 
       return { kind: "next", state, transcript, nextStep: "chat-turn" };
     } catch (err) {
       // Mirror chatTurnStep: an unexpected fault during dispatch still closes
       // the loop for the client instead of stranding the streaming bubble.
+      // Close the batch span as errored first (no-op if already ended).
+      endBatchSpan("error", { level: "ERROR" });
       await finalizeFailedMessage(ctx.userId, ctx.runId, state, err);
       throw err;
     }
