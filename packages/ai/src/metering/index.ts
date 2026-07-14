@@ -18,12 +18,20 @@ export {
   shutdownLangfuse,
   startToolSpan,
   recordDispatchRejection,
+  startRuntimeSpan,
+  buildRuntimeSpanPayload,
+  buildRuntimeSpanEndPayload,
 } from "./langfuse";
 export type {
   ToolSpanInput,
   ToolSpanCloser,
   DispatchRejectionInput,
   DispatchRejectionOutcome,
+  RuntimeSpanInput,
+  RuntimeSpanEndArgs,
+  RuntimeSpanCloser,
+  RuntimeSpanLevel,
+  RuntimeMetaValue,
 } from "./langfuse";
 export type {
   CallKind,
