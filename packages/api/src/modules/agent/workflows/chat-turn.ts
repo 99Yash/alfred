@@ -249,6 +249,13 @@ const chatRunStateSchema = z
     narration: z.array(narrationSegmentSchema).default([]),
     // Index of the current segment; bumped each time a tool-bearing step closes.
     segmentIndex: z.number().int().min(0).default(0),
+    // Set by the last dispatch round when it auto-activated ≥1 tool via an
+    // inactive-tool bounce (#407). While true, the next chat-turn's lead-in text
+    // is an internal reissue ("tools warming up, retrying") — machinery the
+    // prompt forbids surfacing and PR 503 already hides on the tool-card channel
+    // — so its narration segment and live deltas are withheld from the user.
+    // Default false for runs minted before the field existed.
+    reissuePending: z.boolean().default(false),
     reasoningText: z.string().default(""),
     reasoningMs: z.number().int().min(0).default(0),
     toolCallsLog: z.array(toolCallLogSchema).default([]),
@@ -1588,6 +1595,43 @@ export function shouldPublishToolStarted(
   return activeTools.some((activeTool) => activeTool === toolName);
 }
 
+/**
+ * Whether a completed dispatch round auto-activated ≥1 tool via an inactive-tool
+ * bounce (#407) — the signal that the NEXT chat-turn is an internal reissue. Only
+ * `inactive_tool` counts: it's the round that made a fresh schema available and
+ * asks the model to reissue, producing the "tools warming up, retrying" lead-in.
+ * The other non-execution rejections (`invalid_input`, `unknown_tool`,
+ * `not_allowed`) don't auto-activate anything, so they don't mark a reissue turn.
+ */
+export function dispatchRoundReissued(
+  results: readonly (DispatchResult | undefined)[],
+): boolean {
+  return results.some((result) => result?.kind === "inactive_tool");
+}
+
+/**
+ * Close the current narration segment as a tool-bearing step ends: the lead-in
+ * text was a preface to those tools, not the answer, so it moves onto the
+ * narration trail and the segment index advances so later tool cards stay
+ * aligned. When `reissuePending` is set the lead-in is instead an internal
+ * reissue of just-auto-activated tools (#407) — machinery the prompt forbids
+ * surfacing (see the "internal machinery" prompt rule) and PR 503 already hides
+ * on the tool-card channel — so its text is dropped from the trail while the
+ * index still advances. Pure so the drop/keep/advance behavior is unit-tested.
+ */
+export function closeLeadInNarration(
+  state: Pick<ChatRunState, "narration" | "assistantText" | "segmentIndex" | "reissuePending">,
+): Pick<ChatRunState, "narration" | "assistantText" | "segmentIndex"> {
+  const keep = !state.reissuePending && state.assistantText.trim().length > 0;
+  return {
+    narration: keep
+      ? [...state.narration, { index: state.segmentIndex, text: state.assistantText }]
+      : state.narration,
+    assistantText: "",
+    segmentIndex: state.segmentIndex + 1,
+  };
+}
+
 export interface GuardUnreportedToolFailuresDeps {
   isMutating: (toolName: string) => boolean;
   publish: typeof publishEvent;
@@ -1949,6 +1993,12 @@ const chatTurnStep: Step<ChatRunState> = {
       let buffer = "";
       let lastFlush = Date.now();
       const flush = async (): Promise<void> => {
+        // While a reissue is pending (#407) this turn's text is an internal
+        // reissue lead-in — withhold its live deltas so "tools warming up,
+        // retrying" never streams. Keep `buffer` intact: if the model answers
+        // instead of reissuing, the final-answer path clears the flag and
+        // flushes it as the real reply.
+        if (state.reissuePending) return;
         if (buffer.length === 0) return;
         const text = buffer;
         buffer = "";
@@ -2193,15 +2243,14 @@ const chatTurnStep: Step<ChatRunState> = {
         // step was a lead-in to these tools, not the answer. Stash it (if any)
         // and advance so the next step's text — and the eventual answer — lands
         // in a fresh segment. `assistantText` thus always holds just the latest
-        // segment, which at turn's end is the final reply.
-        if (state.assistantText.trim().length > 0) {
-          state.narration = [
-            ...state.narration,
-            { index: state.segmentIndex, text: state.assistantText },
-          ];
-        }
-        state.assistantText = "";
-        state.segmentIndex += 1;
+        // segment, which at turn's end is the final reply. When this turn is an
+        // internal reissue of just-auto-activated tools (#407) the lead-in text
+        // is machinery ("tools warming up, retrying") and is dropped instead —
+        // its live deltas were already withheld by the `flush` gate below.
+        const closed = closeLeadInNarration(state);
+        state.narration = closed.narration;
+        state.assistantText = closed.assistantText;
+        state.segmentIndex = closed.segmentIndex;
         return { kind: "next", state, transcript: nextTranscript, nextStep: "dispatch-tools" };
       }
 
@@ -2213,6 +2262,15 @@ const chatTurnStep: Step<ChatRunState> = {
         // failed assistant message for the client. (A retryable empty `stop`/
         // `error` is handled by the `outcome.kind === "empty"` branch above.)
         throw new Error("Assistant finished without producing a response.");
+      }
+
+      if (state.reissuePending) {
+        // A reissue was pending but the model produced a final answer instead of
+        // reissuing — so this text is the real reply, not an internal lead-in.
+        // Clear the flag and release the deltas the `flush` gate withheld before
+        // any guard can close this answer into a narration segment.
+        state.reissuePending = false;
+        await flush();
       }
 
       // This turn produced user-visible text. Reset before either finalization
@@ -2262,6 +2320,9 @@ const dispatchToolsStep: Step<ChatRunState> = {
       pendingToolCalls: [...ctx.state.pendingToolCalls],
       activeTools: [...ctx.state.activeTools],
       toolCallsLog: [...ctx.state.toolCallsLog],
+      // Recomputed from this round's results below; reset so it reflects only
+      // the round about to run, never a stale value carried across turns.
+      reissuePending: false,
     };
     let transcript = [...ctx.transcript];
 
@@ -2448,6 +2509,10 @@ const dispatchToolsStep: Step<ChatRunState> = {
           transcript = [...transcript, toolResultMessage(call, result)];
         }
         state.pendingToolCalls = [];
+        // If this round auto-activated any tool via an inactive-tool bounce
+        // (#407), the next chat-turn is an internal reissue — mark it so its
+        // lead-in narration ("tools warming up, retrying") is withheld.
+        state.reissuePending = dispatchRoundReissued(results);
       }
 
       return { kind: "next", state, transcript, nextStep: "chat-turn" };
@@ -2951,6 +3016,7 @@ export const chatTurnWorkflow: Workflow<ChatRunState> = {
       assistantText: "",
       narration: [],
       segmentIndex: 0,
+      reissuePending: false,
       reasoningText: "",
       reasoningMs: 0,
       toolCallsLog: [],
