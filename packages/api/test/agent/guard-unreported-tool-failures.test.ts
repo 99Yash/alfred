@@ -3,6 +3,9 @@ import { describe, test } from "node:test";
 
 import {
   guardUnreportedToolFailures,
+  isNonExecutionFailure,
+  sanitizeChatMessageFields,
+  shouldPublishToolStarted,
   toolCallLogStatus,
   type ChatRunState,
   type GuardUnreportedToolFailuresDeps,
@@ -25,7 +28,7 @@ function baseState(overrides: Partial<ChatRunState> = {}): ChatRunState {
     threadId: "thread_1",
     messageId: "msg_1",
     tier: "standard",
-    activeIntegrations: [],
+    activeTools: [],
     allowedIntegrations: [],
     pendingToolCalls: [],
     assistantText: "I've created your spreadsheet.",
@@ -38,7 +41,7 @@ function baseState(overrides: Partial<ChatRunState> = {}): ChatRunState {
     reasoningSeq: 0,
     turnCount: 1,
     emptyCompletionRetries: 0,
-    started: true,
+    startedAt: "2026-07-14T02:50:11.451Z",
     foldedChildRunIds: [],
     notedFailureToolCallIds: [],
     ...overrides,
@@ -369,5 +372,53 @@ describe("guardUnreportedToolFailures", () => {
       }),
       "succeeded",
     );
+  });
+
+  test("classifies every pre-execution dispatcher rejection as non-execution", () => {
+    assert.equal(
+      isNonExecutionFailure({
+        kind: "not_allowed",
+        result: {
+          status: "not_allowed",
+          toolName: "gmail.search",
+          integration: "gmail",
+          message: "not allowed",
+        },
+      }),
+      true,
+    );
+  });
+
+  test("hides non-execution attempts from persisted tool cards", () => {
+    const fields = sanitizeChatMessageFields(
+      baseState({
+        toolCallsLog: [
+          {
+            toolCallId: "tc_bounce",
+            toolName: "gmail.search",
+            status: "failed",
+            nonExecution: true,
+            segmentIndex: 0,
+          },
+          {
+            toolCallId: "tc_retry",
+            toolName: "gmail.search",
+            status: "succeeded",
+            segmentIndex: 1,
+          },
+        ],
+      }),
+    );
+
+    assert.deepEqual(
+      fields.toolCalls?.map((toolCall) => toolCall.toolCallId),
+      ["tc_retry"],
+    );
+  });
+
+  test("publishes optimistic cards only for active tools", () => {
+    assert.equal(shouldPublishToolStarted(["gmail.search"], "gmail.search"), true);
+    assert.equal(shouldPublishToolStarted([], "gmail.search"), false);
+    assert.equal(shouldPublishToolStarted(["gmail.search"], "gmail.invented"), false);
   });
 });

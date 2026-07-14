@@ -26,9 +26,7 @@ if (!authToken) {
   process.exit(0);
 }
 if (!org || !project) {
-  console.warn(
-    "[sentry-release] SENTRY_ORG/SENTRY_PROJECT unset - skipping upload.",
-  );
+  console.warn("[sentry-release] SENTRY_ORG/SENTRY_PROJECT unset - skipping upload.");
   process.exit(0);
 }
 
@@ -55,19 +53,12 @@ function run(args) {
   }
 }
 
-console.log(
-  `[sentry-release] org=${org} project=${project} release=${release || "(none)"}`,
-);
+console.log(`[sentry-release] org=${org} project=${project} release=${release || "(none)"}`);
 
 // Source maps match by injected debug IDs, so this works even without a release
 // name. Inject rewrites ./dist in place (same bundle that ships), then upload.
 run(["sourcemaps", "inject", "./dist"]);
-run([
-  "sourcemaps",
-  "upload",
-  ...(release ? ["--release", release] : []),
-  "./dist",
-]);
+run(["sourcemaps", "upload", ...(release ? ["--release", release] : []), "./dist"]);
 
 // Commit association (Suspect Commits / "resolved in commit") needs the release
 // name. Skip gracefully if the build didn't expose the commit SHA.

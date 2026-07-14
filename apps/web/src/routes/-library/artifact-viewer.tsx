@@ -94,8 +94,7 @@ function PopulatedArtifact({
 
   const onDownload = useCallback(() => {
     if (!canDownload) return;
-    const downloadablePages =
-      artifact.content?.kind === "pages" ? artifact.content.pages : [];
+    const downloadablePages = artifact.content?.kind === "pages" ? artifact.content.pages : [];
     const format: ArtifactFormat = artifact.format ?? "pdf";
     void printArtifactPages(
       downloadablePages.map((page) => page.html),
@@ -144,7 +143,11 @@ function PopulatedArtifact({
             <span>
               Showing a cached artifact. <span className="text-app-red-4">{syncError}</span>
             </span>
-            <button type="button" onClick={onRetry} className="shrink-0 font-medium hover:underline">
+            <button
+              type="button"
+              onClick={onRetry}
+              className="shrink-0 font-medium hover:underline"
+            >
               Retry
             </button>
           </div>

@@ -28,6 +28,7 @@ const baseDispatch: DispatchArgs = {
   input: { url: "https://example.com/?token=from-dispatch" },
   userId: "user_1",
   caller: "boss",
+  activeTools: ["system.fetch_url"],
 };
 
 const redactingTool: RegisteredTool = {
@@ -161,6 +162,7 @@ describe("dispatchToolCall rejection tracing", () => {
         ...baseDispatch,
         toolName: "system.load_integration",
         input: { slug: 42 },
+        activeTools: ["system.load_integration"],
       });
 
       assert.equal(result.kind, "invalid_input");
@@ -171,6 +173,28 @@ describe("dispatchToolCall rejection tracing", () => {
         captured[0]?.signature,
         "system.load_integration:invalid_input:invalid_type@slug",
       );
+      assert.equal(captured[0]?.input, undefined);
+    } finally {
+      restore();
+    }
+  });
+
+  test("records registered-but-inactive calls distinctly from schema failures", async () => {
+    registerTool(redactingTool);
+    const captured: DispatchRejectionInput[] = [];
+    const restore = _setDispatchTraceSinksForTests({
+      rejectionRecorder: (input) => captured.push(input),
+    });
+    try {
+      const result = await dispatchToolCall({
+        ...baseDispatch,
+        activeTools: [],
+      });
+
+      assert.equal(result.kind, "inactive_tool");
+      assert.equal(captured.length, 1);
+      assert.equal(captured[0]?.outcome, "inactive_tool");
+      assert.equal(captured[0]?.signature, "system.fetch_url:inactive_tool");
       assert.equal(captured[0]?.input, undefined);
     } finally {
       restore();
@@ -206,6 +230,7 @@ describe("dispatchToolCall rejection tracing", () => {
         ...baseDispatch,
         toolName: "system.await_sub_agent",
         input: { childRunId: "run_missing_child" },
+        activeTools: ["system.await_sub_agent"],
         timezone: "UTC",
       }).catch(() => null);
 

@@ -25,5 +25,9 @@ test("every registered tool input schema has a top-level object type", () => {
       }
     }
   }
-  assert.deepEqual(offenders, [], `tools with a non-object top-level input_schema: ${offenders.join(", ")}`);
+  assert.deepEqual(
+    offenders,
+    [],
+    `tools with a non-object top-level input_schema: ${offenders.join(", ")}`,
+  );
 });
