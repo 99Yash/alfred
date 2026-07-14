@@ -10,8 +10,6 @@ import {
   type ChatModelTier,
   type LanguageModel,
   type ModelMessage,
-  type RuntimeSpanCloser,
-  type RuntimeSpanLevel,
   type Tool,
   type ToolSet,
 } from "@alfred/ai";
@@ -42,12 +40,7 @@ import { sniffPassThroughImageMime } from "../../chat/attachments";
 import { readObject } from "../../chat/storage";
 import { isChatStopRequested } from "../../chat/stop-signal";
 import { dispatchToolCall, toolCallWouldGate, type DispatchResult } from "../../dispatch";
-import {
-  dispatchBatchEndMetadata,
-  startDispatchBatchSpan,
-  summarizeDispatchBatch,
-  type DispatchBatchSummary,
-} from "../runtime-spans";
+import { startDispatchBatchSpan, type DispatchBatchSpanCloser } from "../runtime-spans";
 import {
   AWAIT_SUB_AGENT_CEILING_MS,
   scheduleSubAgentJoinWakeJob,
@@ -2335,19 +2328,9 @@ const dispatchToolsStep: Step<ChatRunState> = {
     // #406: trace this dispatch round as a `runtime.dispatch.batch` observation
     // so orchestration overhead is separable from model + individual tool time.
     // Ended exactly once at every terminal (staged / parked / committed / a
-    // thrown fault); the null-out makes a double-end impossible.
-    let batchSpan: RuntimeSpanCloser | null = null;
-    const endBatchSpan = (
-      status: string,
-      opts?: { summary?: DispatchBatchSummary; level?: RuntimeSpanLevel },
-    ): void => {
-      batchSpan?.end({
-        status,
-        level: opts?.level,
-        metadata: opts?.summary ? dispatchBatchEndMetadata(opts.summary) : undefined,
-      });
-      batchSpan = null;
-    };
+    // thrown fault); the closer owns the fold + is idempotent (the `?.` guards
+    // the never-opened case: a stopped turn dispatches nothing).
+    let batchSpan: DispatchBatchSpanCloser | null = null;
 
     try {
       const calls = state.pendingToolCalls;
@@ -2371,7 +2354,6 @@ const dispatchToolsStep: Step<ChatRunState> = {
         // in the brief workflow.
         batchSpan = startDispatchBatchSpan({
           runId: ctx.runId,
-          stepId: "dispatch-tools",
           workflow: CHAT_TURN_WORKFLOW_SLUG,
           caller: "boss",
           callCount: calls.length,
@@ -2433,10 +2415,6 @@ const dispatchToolsStep: Step<ChatRunState> = {
           if (result.kind === "staged") break;
         }
 
-        // Every call was dispatched (or left as an undefined slot); fold the
-        // outcomes into the batch-span summary once, before any early return.
-        const batchSummary = summarizeDispatchBatch(results);
-
         // A gated write parks the run. Return the interrupt for the
         // first-staged call (in transcript order) WITHOUT committing any
         // sibling result: leave `pendingToolCalls` and `transcript` untouched
@@ -2448,7 +2426,7 @@ const dispatchToolsStep: Step<ChatRunState> = {
           (r): r is Extract<DispatchResult, { kind: "staged" }> => r?.kind === "staged",
         );
         if (stagedResult) {
-          endBatchSpan("staged", { summary: batchSummary });
+          batchSpan?.end("staged", results);
           return { kind: "interrupt", state, transcript, wake: stagedResult.wake };
         }
 
@@ -2461,7 +2439,7 @@ const dispatchToolsStep: Step<ChatRunState> = {
           (r): r is Extract<DispatchResult, { kind: "parked" }> => r?.kind === "parked",
         );
         if (parkedResult) {
-          endBatchSpan("parked", { summary: batchSummary });
+          batchSpan?.end("parked", results);
           return { kind: "interrupt", state, transcript, wake: parkedResult.wake };
         }
 
@@ -2554,7 +2532,7 @@ const dispatchToolsStep: Step<ChatRunState> = {
         // (#407), the next chat-turn is an internal reissue — mark it so its
         // lead-in narration ("tools warming up, retrying") is withheld.
         state.reissuePending = dispatchRoundReissued(results);
-        endBatchSpan("committed", { summary: batchSummary });
+        batchSpan?.end("committed", results);
       }
 
       return { kind: "next", state, transcript, nextStep: "chat-turn" };
@@ -2562,7 +2540,7 @@ const dispatchToolsStep: Step<ChatRunState> = {
       // Mirror chatTurnStep: an unexpected fault during dispatch still closes
       // the loop for the client instead of stranding the streaming bubble.
       // Close the batch span as errored first (no-op if already ended).
-      endBatchSpan("error", { level: "ERROR" });
+      batchSpan?.end("error");
       await finalizeFailedMessage(ctx.userId, ctx.runId, state, err);
       throw err;
     }
