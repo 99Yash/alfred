@@ -20,7 +20,6 @@ import {
   chatModelTierSchema,
   getPath,
   HttpError,
-  isIntegrationSlug,
   isPassThrough,
   isRecord,
   MAX_MODEL_ATTACHMENT_BYTES_PER_TURN,
@@ -61,9 +60,16 @@ import { appendModelResponseMessages } from "../transcript-dedup";
 import { buildThreadArtifactsContext } from "../../artifacts/read";
 import { finalizeRunArtifacts } from "../../artifacts/write";
 import { logger } from "../../../lib/logger";
-import { listToolsForIntegration } from "../../tools/registry";
+import { getTool } from "../../tools/registry";
 import { buildConnectedSummary } from "../connected-summary";
-import { formatDateGrounding, resolveUserTimezone } from "../grounding";
+import { formatDateGrounding, formatRuntimeTimeGrounding, resolveUserTimezone } from "../grounding";
+import {
+  activateTool,
+  migrateActiveTools,
+  registeredToolNamesForIntegrations,
+  systemToolKernel,
+  toolNameSchema,
+} from "../tool-surface";
 import type { AgentDbExecutor, Step, StepContext, StepResult, Workflow } from "../types";
 import {
   assessChatRequestPressure,
@@ -188,10 +194,9 @@ const toolCallLogSchema = z.object({
   status: z.enum(["succeeded", "failed"]),
   argsPreview: z.string().optional(),
   resultPreview: z.string().optional(),
-  // A `failed` entry that never executed a side effect — a schema-invalid call
-  // the model self-corrects (`invalid_input`) or an invented tool name
-  // (`unknown_tool`). The honesty guard excludes these so a self-corrected
-  // first attempt can't make it claim a later, successful call failed.
+  // A `failed` entry rejected before execution: malformed, invented, inactive,
+  // or disallowed. The honesty guard excludes recovered entries so an internal
+  // first attempt cannot make it claim a later, successful call failed.
   nonExecution: z.boolean().optional(),
   segmentIndex: z.number().int().nonnegative().default(0),
 });
@@ -201,78 +206,101 @@ const narrationSegmentSchema = z.object({
   text: z.string(),
 });
 
-const chatRunStateSchema = z.object({
-  threadId: z.string().min(1),
-  messageId: z.string().min(1),
-  // The triggering user message id (ADR-0072). Lets the failure path tell a
-  // *current-turn* image attachment (recoverable by "Send without it") apart
-  // from a *historical* one replayed in the transcript (recoverable only by a
-  // new chat). Optional for legacy runs minted before this field existed.
-  userMessageId: z.string().optional(),
-  // Structured artifact target selected by the sidebar. This is run metadata,
-  // never inferred from user-authored prose or attachment content.
-  artifactTargetId: z.string().optional(),
-  tier: chatModelTierSchema,
-  activeIntegrations: z.array(z.string().min(1)),
-  allowedIntegrations: z.array(z.string()),
-  // ADR-0053 connected summary, snapshotted once at run start (first turn) and
-  // reused every turn so the system-prompt prefix stays cache-stable.
-  connectedSummary: z.string().optional(),
-  // Safe system guidance for the thread's existing artifacts (generated
-  // ids/enums only). Refreshed after an artifact mutation so the next model step
-  // cannot operate from stale target metadata.
-  artifactsContext: z.string().optional(),
-  // Exact selected artifact body, carried as a lower-trust assistant reference
-  // message rather than system text. Empty when no artifact exists/was found.
-  artifactReference: z.string().optional(),
-  // Determines whether the PDF-only authoring guide belongs in the next model
-  // prompt. Refreshed with the selected artifact context after mutations.
-  artifactDesignMedium: artifactFormatSchema.optional(),
-  // User's IANA timezone, snapshotted once on the first turn — it can't change
-  // mid-run, so re-reading it from the DB every turn (like `connectedSummary`)
-  // is wasted latency.
-  timezone: z.string().optional(),
-  pendingToolCalls: z.array(pendingToolCallSchema),
-  // Text of the current (latest) narration segment. Accumulates within a step;
-  // when a step ends with tool calls it's pushed onto `narration` and reset,
-  // so by turn's end this holds only the final answer (what `content` persists).
-  assistantText: z.string().default(""),
-  // Closed narration segments — the brief lines written before each tool step.
-  narration: z.array(narrationSegmentSchema).default([]),
-  // Index of the current segment; bumped each time a tool-bearing step closes.
-  segmentIndex: z.number().int().min(0).default(0),
-  reasoningText: z.string().default(""),
-  reasoningMs: z.number().int().min(0).default(0),
-  toolCallsLog: z.array(toolCallLogSchema).default([]),
-  deltaSeq: z.number().int().min(0).default(0),
-  reasoningSeq: z.number().int().min(0).default(0),
-  turnCount: z.number().int().min(0).default(0),
-  // Index where the current within-run tool burst begins. The persisted
-  // foreground guard may replace the loaded transcript before the first model
-  // call; subsequent tool-loop turns must continue from that prepared
-  // transcript and compact only the older prefix when pressure grows.
-  inFlightTailStart: z.number().int().min(0).default(0),
-  // Consecutive empty completions retried this run (see EMPTY_COMPLETION_MAX_RETRIES).
-  // Reset to 0 whenever a turn is productive (tool calls or real text), so this
-  // counts a provider stuck returning empties — not scattered empties across a
-  // long turn loop. Default 0 for runs minted before the field existed.
-  emptyCompletionRetries: z.number().int().min(0).default(0),
-  started: z.boolean().default(false),
-  // ADR-0073 finalization guard: child runs spawned this turn whose outcomes
-  // are already accounted for in the transcript — either folded by the guard, or
-  // surfaced because the boss explicitly called `await_sub_agent` (a successful
-  // await commits the child's real outcome as a normal tool result). Lets the
-  // guard re-run on each resume without re-folding a child it already surfaced,
-  // and stops it from injecting a false "finished without you awaiting it" note
-  // for a child the boss did await.
-  foldedChildRunIds: z.array(z.string()).default([]),
-  // #346 honesty guard: toolCallIds of net-failed mutating calls the finalize
-  // guard has already injected a "do not claim this succeeded" note for. Mirrors
-  // `foldedChildRunIds` — tracking what's been handled keeps the guard idempotent
-  // across resumes and stops it re-firing (and looping) on a failure it already
-  // surfaced to the model.
-  notedFailureToolCallIds: z.array(z.string()).default([]),
-});
+const chatRunStateSchema = z
+  .object({
+    threadId: z.string().min(1),
+    messageId: z.string().min(1),
+    // The triggering user message id (ADR-0072). Lets the failure path tell a
+    // *current-turn* image attachment (recoverable by "Send without it") apart
+    // from a *historical* one replayed in the transcript (recoverable only by a
+    // new chat). Optional for legacy runs minted before this field existed.
+    userMessageId: z.string().optional(),
+    // Structured artifact target selected by the sidebar. This is run metadata,
+    // never inferred from user-authored prose or attachment content.
+    artifactTargetId: z.string().optional(),
+    tier: chatModelTierSchema,
+    activeTools: z.array(toolNameSchema).optional(),
+    // Read only while resuming checkpoints created before exact tool surfaces.
+    activeIntegrations: z.array(z.string().min(1)).optional(),
+    allowedIntegrations: z.array(z.string()),
+    // ADR-0053 connected summary, snapshotted once at run start (first turn) and
+    // reused every turn so the system-prompt prefix stays cache-stable.
+    connectedSummary: z.string().optional(),
+    // Safe system guidance for the thread's existing artifacts (generated
+    // ids/enums only). Refreshed after an artifact mutation so the next model step
+    // cannot operate from stale target metadata.
+    artifactsContext: z.string().optional(),
+    // Exact selected artifact body, carried as a lower-trust assistant reference
+    // message rather than system text. Empty when no artifact exists/was found.
+    artifactReference: z.string().optional(),
+    // Determines whether the PDF-only authoring guide belongs in the next model
+    // prompt. Refreshed with the selected artifact context after mutations.
+    artifactDesignMedium: artifactFormatSchema.optional(),
+    // User's IANA timezone, snapshotted once on the first turn — it can't change
+    // mid-run, so re-reading it from the DB every turn (like `connectedSummary`)
+    // is wasted latency.
+    timezone: z.string().optional(),
+    pendingToolCalls: z.array(pendingToolCallSchema),
+    // Text of the current (latest) narration segment. Accumulates within a step;
+    // when a step ends with tool calls it's pushed onto `narration` and reset,
+    // so by turn's end this holds only the final answer (what `content` persists).
+    assistantText: z.string().default(""),
+    // Closed narration segments — the brief lines written before each tool step.
+    narration: z.array(narrationSegmentSchema).default([]),
+    // Index of the current segment; bumped each time a tool-bearing step closes.
+    segmentIndex: z.number().int().min(0).default(0),
+    // Set by the last dispatch round when it auto-activated ≥1 tool via an
+    // inactive-tool bounce (#407). While true, the next chat-turn's lead-in text
+    // is an internal reissue ("tools warming up, retrying") — machinery the
+    // prompt forbids surfacing and PR 503 already hides on the tool-card channel
+    // — so its narration segment and live deltas are withheld from the user.
+    // Default false for runs minted before the field existed.
+    reissuePending: z.boolean().default(false),
+    reasoningText: z.string().default(""),
+    reasoningMs: z.number().int().min(0).default(0),
+    toolCallsLog: z.array(toolCallLogSchema).default([]),
+    deltaSeq: z.number().int().min(0).default(0),
+    reasoningSeq: z.number().int().min(0).default(0),
+    turnCount: z.number().int().min(0).default(0),
+    // Index where the current within-run tool burst begins. The persisted
+    // foreground guard may replace the loaded transcript before the first model
+    // call; subsequent tool-loop turns must continue from that prepared
+    // transcript and compact only the older prefix when pressure grows.
+    inFlightTailStart: z.number().int().min(0).default(0),
+    // Consecutive empty completions retried this run (see EMPTY_COMPLETION_MAX_RETRIES).
+    // Reset to 0 whenever a turn is productive (tool calls or real text), so this
+    // counts a provider stuck returning empties — not scattered empties across a
+    // long turn loop. Default 0 for runs minted before the field existed.
+    emptyCompletionRetries: z.number().int().min(0).default(0),
+    startedAt: z.string().datetime().optional(),
+    // Read only while resuming checkpoints created before `startedAt`.
+    started: z.boolean().optional(),
+    // ADR-0073 finalization guard: child runs spawned this turn whose outcomes
+    // are already accounted for in the transcript — either folded by the guard, or
+    // surfaced because the boss explicitly called `await_sub_agent` (a successful
+    // await commits the child's real outcome as a normal tool result). Lets the
+    // guard re-run on each resume without re-folding a child it already surfaced,
+    // and stops it from injecting a false "finished without you awaiting it" note
+    // for a child the boss did await.
+    foldedChildRunIds: z.array(z.string()).default([]),
+    // #346 honesty guard: toolCallIds of net-failed mutating calls the finalize
+    // guard has already injected a "do not claim this succeeded" note for. Mirrors
+    // `foldedChildRunIds` — tracking what's been handled keeps the guard idempotent
+    // across resumes and stops it re-firing (and looping) on a failure it already
+    // surfaced to the model.
+    notedFailureToolCallIds: z.array(z.string()).default([]),
+  })
+  .transform(({ activeIntegrations, activeTools, started, ...state }) => ({
+    ...state,
+    // The old boolean recorded only that the event fired. Runtime migration is
+    // the best timestamp available for an already-started legacy checkpoint.
+    startedAt: state.startedAt ?? (started ? new Date().toISOString() : undefined),
+    activeTools: migrateActiveTools(
+      activeTools,
+      activeIntegrations,
+      state.pendingToolCalls.map((call) => call.toolName),
+    ),
+  }));
 export type ChatRunState = z.infer<typeof chatRunStateSchema>;
 
 /**
@@ -440,28 +468,27 @@ function preview(value: unknown): string {
 }
 
 // The SDK calls `tools: () => resolveSdkTools(...)` once per turn, but the
-// registry is static, so the object graph only changes when the active slug set
-// does. Memoize per normalized slug key (the loadable integration set is small
+// registry is static, so the object graph only changes when the exact active set
+// does. Memoize per normalized name key (the registered tool set is small
 // and bounded, so the unevicted cache stays tiny). The returned `ToolSet` is
 // treated as read-only by the SDK, so sharing one instance across turns/users
 // is safe.
 const sdkToolsCache = new Map<string, ToolSet>();
 
-function resolveSdkTools(activeIntegrations: readonly string[]): ToolSet {
-  const slugs = [...new Set(["system", ...activeIntegrations])].sort();
-  const key = slugs.join(",");
+function resolveSdkTools(activeTools: readonly ToolName[]): ToolSet {
+  const names = [...new Set(activeTools)].sort();
+  const key = names.join(",");
   const cached = sdkToolsCache.get(key);
   if (cached) return cached;
 
   const out: Partial<Record<ToolName, Tool>> = {};
-  for (const slug of slugs) {
-    if (!isIntegrationSlug(slug)) continue;
-    for (const registered of listToolsForIntegration(slug)) {
-      out[registered.name] = tool({
-        description: registered.description,
-        inputSchema: registered.inputSchema,
-      });
-    }
+  for (const name of names) {
+    const registered = getTool(name);
+    if (!registered) continue;
+    out[registered.name] = tool({
+      description: registered.description,
+      inputSchema: registered.inputSchema,
+    });
   }
   const tools = out as ToolSet;
   sdkToolsCache.set(key, tools);
@@ -749,8 +776,8 @@ async function hydrateTranscriptForModel(
   return reversed.reverse();
 }
 
-/** Place prior assistant-authored artifact data immediately before the request. */
-function withArtifactReference(
+/** Place ephemeral assistant-known run context immediately before the request. */
+export function withEphemeralReference(
   transcript: readonly AgentTranscriptMessage[],
   reference: string,
 ): AgentTranscriptMessage[] {
@@ -843,7 +870,7 @@ async function applyForegroundContextGuard({
       outputReserveTokens: CHAT_MAX_OUTPUT_TOKENS,
     });
   const initialPressure = await assess(
-    withArtifactReference(hydratedTranscript, artifactReference),
+    withEphemeralReference(hydratedTranscript, artifactReference),
   );
   if (!initialPressure.requiresSynchronousCompaction) {
     return {
@@ -861,7 +888,7 @@ async function applyForegroundContextGuard({
       const summaryMessage = conversationSummaryMessage(backgroundWinner.summary);
       const reused = buildCompactedChatTranscriptPair(summaryMessage, storedReplayTail, replayTail);
       const reusedPressure = await assess(
-        withArtifactReference(reused.modelTranscript, artifactReference),
+        withEphemeralReference(reused.modelTranscript, artifactReference),
       );
       if (!reusedPressure.requiresSynchronousCompaction) {
         return reused;
@@ -893,7 +920,7 @@ async function applyForegroundContextGuard({
       replayTail,
     );
     const rebuiltPressure = await assess(
-      withArtifactReference(rebuilt.modelTranscript, artifactReference),
+      withEphemeralReference(rebuilt.modelTranscript, artifactReference),
     );
     if (!rebuiltPressure.requiresSynchronousCompaction) {
       return rebuilt;
@@ -938,7 +965,7 @@ async function applyForegroundContextGuard({
       boundedModelTail,
     );
     const boundedPressure = await assess(
-      withArtifactReference(bounded.modelTranscript, artifactReference),
+      withEphemeralReference(bounded.modelTranscript, artifactReference),
     );
     if (boundedPressure.requiresSynchronousCompaction) {
       throw new Error("prompt is too long after oversized user message summarization");
@@ -989,7 +1016,7 @@ async function applyWithinRunContextGuard({
     assessChatRequestPressure({
       systemPrompt,
       tools,
-      transcript: withArtifactReference(candidate, artifactReference) as ModelMessage[],
+      transcript: withEphemeralReference(candidate, artifactReference) as ModelMessage[],
       contextWindowTokens,
       outputReserveTokens: CHAT_MAX_OUTPUT_TOKENS,
     });
@@ -1162,13 +1189,10 @@ function applyLoadIntegrationEffect(
 ): void {
   if (toolName !== "system.load_integration" || result.kind !== "executed") return;
   const toolResult = result.toolResult;
-  if (
-    isRecord(toolResult) &&
-    toolResult.ok === true &&
-    typeof toolResult.slug === "string" &&
-    isIntegrationSlug(toolResult.slug)
-  ) {
-    state.activeIntegrations = [...new Set([...state.activeIntegrations, toolResult.slug])];
+  if (isRecord(toolResult) && toolResult.ok === true && typeof toolResult.slug === "string") {
+    state.activeTools = [
+      ...new Set([...state.activeTools, ...registeredToolNamesForIntegrations([toolResult.slug])]),
+    ].sort();
   }
 }
 
@@ -1543,11 +1567,10 @@ export function toolCallLogStatus(
 }
 
 /**
- * A dispatch failure that never executed a side effect: a schema-invalid call
- * (`invalid_input`) the dispatcher rejected at the boundary before any
- * execution, or an invented tool name (`unknown_tool`). The model self-corrects
- * these on the next step, and the prompt already says not to narrate internal
- * retries — so they are NOT "an action attempt that didn't complete" and the
+ * A dispatch failure rejected before execution: malformed, invented, inactive,
+ * or disallowed. The model self-corrects these on the next step, and the prompt
+ * already says not to narrate internal retries, so they are NOT "an action
+ * attempt that didn't complete" and the
  * #346 honesty guard must skip them. Counting them made a self-corrected first
  * attempt (e.g. `gmail.send_draft` with `to` as a string) force a misleading
  * regenerate that claimed the *later, approved, executed* send had failed.
@@ -1557,7 +1580,56 @@ export function toolCallLogStatus(
 export function isNonExecutionFailure(
   result: Exclude<DispatchResult, { kind: "staged" | "parked" }>,
 ): boolean {
-  return result.kind === "invalid_input" || result.kind === "unknown_tool";
+  return (
+    result.kind === "invalid_input" ||
+    result.kind === "unknown_tool" ||
+    result.kind === "inactive_tool" ||
+    result.kind === "not_allowed"
+  );
+}
+
+export function shouldPublishToolStarted(
+  activeTools: readonly ToolName[],
+  toolName: string,
+): boolean {
+  return activeTools.some((activeTool) => activeTool === toolName);
+}
+
+/**
+ * Whether a completed dispatch round auto-activated ≥1 tool via an inactive-tool
+ * bounce (#407) — the signal that the NEXT chat-turn is an internal reissue. Only
+ * `inactive_tool` counts: it's the round that made a fresh schema available and
+ * asks the model to reissue, producing the "tools warming up, retrying" lead-in.
+ * The other non-execution rejections (`invalid_input`, `unknown_tool`,
+ * `not_allowed`) don't auto-activate anything, so they don't mark a reissue turn.
+ */
+export function dispatchRoundReissued(
+  results: readonly (DispatchResult | undefined)[],
+): boolean {
+  return results.some((result) => result?.kind === "inactive_tool");
+}
+
+/**
+ * Close the current narration segment as a tool-bearing step ends: the lead-in
+ * text was a preface to those tools, not the answer, so it moves onto the
+ * narration trail and the segment index advances so later tool cards stay
+ * aligned. When `reissuePending` is set the lead-in is instead an internal
+ * reissue of just-auto-activated tools (#407) — machinery the prompt forbids
+ * surfacing (see the "internal machinery" prompt rule) and PR 503 already hides
+ * on the tool-card channel — so its text is dropped from the trail while the
+ * index still advances. Pure so the drop/keep/advance behavior is unit-tested.
+ */
+export function closeLeadInNarration(
+  state: Pick<ChatRunState, "narration" | "assistantText" | "segmentIndex" | "reissuePending">,
+): Pick<ChatRunState, "narration" | "assistantText" | "segmentIndex"> {
+  const keep = !state.reissuePending && state.assistantText.trim().length > 0;
+  return {
+    narration: keep
+      ? [...state.narration, { index: state.segmentIndex, text: state.assistantText }]
+      : state.narration,
+    assistantText: "",
+    segmentIndex: state.segmentIndex + 1,
+  };
 }
 
 export interface GuardUnreportedToolFailuresDeps {
@@ -1692,8 +1764,8 @@ const chatTurnStep: Step<ChatRunState> = {
       // every image's bytes from storage, which is slow on image-heavy threads).
       // Firing the poke first lets the client paint the "Thinking…" indicator
       // immediately instead of staring at a dead composer while we hydrate.
-      if (!state.started) {
-        state.started = true;
+      if (!state.startedAt) {
+        state.startedAt = new Date().toISOString();
         await publishEvent({
           userId: ctx.userId,
           kind: "chat.message",
@@ -1725,14 +1797,20 @@ const chatTurnStep: Step<ChatRunState> = {
         state.artifactDesignMedium = artifactContext.designMedium;
       }
       const systemPrompt = buildChatSystemPrompt(
-        formatDateGrounding(state.timezone),
+        formatDateGrounding(state.timezone, new Date(state.startedAt)),
         state.connectedSummary,
         {
           artifactsContext: state.artifactsContext,
           artifactDesignMedium: state.artifactDesignMedium,
         },
       );
-      const sdkTools = resolveSdkTools(state.activeIntegrations);
+      const ephemeralReference = [
+        formatRuntimeTimeGrounding(state.timezone, new Date(state.startedAt)),
+        state.artifactReference,
+      ]
+        .filter((value) => value.length > 0)
+        .join("\n\n");
+      const sdkTools = resolveSdkTools(state.activeTools);
       const chatModel = getChatModel(state.tier);
 
       // Own cancellation before the foreground context guard: compaction can
@@ -1790,7 +1868,7 @@ const chatTurnStep: Step<ChatRunState> = {
               model: chatModel,
               storedTranscript: transcript,
               hydratedTranscript,
-              artifactReference: state.artifactReference,
+              artifactReference: ephemeralReference,
               abortSignal: guardAbortSignal,
               onCompactionStart: () =>
                 publishChatCompactionPhase({
@@ -1825,7 +1903,7 @@ const chatTurnStep: Step<ChatRunState> = {
               transcript: continuationTranscript,
               hydratedTranscript,
               inFlightTailStart: state.inFlightTailStart,
-              artifactReference: state.artifactReference,
+              artifactReference: ephemeralReference,
               abortSignal: guardAbortSignal,
               onCompactionStart: () =>
                 publishChatCompactionPhase({
@@ -1863,10 +1941,7 @@ const chatTurnStep: Step<ChatRunState> = {
           clearInterval(stopPoll);
         }
       }
-      const modelTranscript = withArtifactReference(
-        guardedModelTranscript,
-        state.artifactReference,
-      );
+      const modelTranscript = withEphemeralReference(guardedModelTranscript, ephemeralReference);
       const requestEstimate = await estimateChatRequestTokens({
         systemPrompt,
         tools: sdkTools,
@@ -1918,6 +1993,12 @@ const chatTurnStep: Step<ChatRunState> = {
       let buffer = "";
       let lastFlush = Date.now();
       const flush = async (): Promise<void> => {
+        // While a reissue is pending (#407) this turn's text is an internal
+        // reissue lead-in — withhold its live deltas so "tools warming up,
+        // retrying" never streams. Keep `buffer` intact: if the model answers
+        // instead of reissuing, the final-answer path clears the flag and
+        // flushes it as the real reply.
+        if (state.reissuePending) return;
         if (buffer.length === 0) return;
         const text = buffer;
         buffer = "";
@@ -1996,20 +2077,22 @@ const chatTurnStep: Step<ChatRunState> = {
             }
             await flushReasoning();
             await flush();
-            await publishEvent({
-              userId: ctx.userId,
-              kind: "chat.tool",
-              payload: {
-                runId: ctx.runId,
-                threadId: state.threadId,
-                messageId: state.messageId,
-                toolCallId: part.toolCallId,
-                toolName: part.toolName,
-                status: "started",
-                argsPreview: preview(part.input),
-                segmentIndex: state.segmentIndex,
-              },
-            });
+            if (shouldPublishToolStarted(state.activeTools, part.toolName)) {
+              await publishEvent({
+                userId: ctx.userId,
+                kind: "chat.tool",
+                payload: {
+                  runId: ctx.runId,
+                  threadId: state.threadId,
+                  messageId: state.messageId,
+                  toolCallId: part.toolCallId,
+                  toolName: part.toolName,
+                  status: "started",
+                  argsPreview: preview(part.input),
+                  segmentIndex: state.segmentIndex,
+                },
+              });
+            }
           } else if (part.type === "error") {
             // A mid-stream error (provider fault, timeout abort) surfaces here;
             // throw so the catch below finalizes the turn as failed. Our own
@@ -2160,15 +2243,14 @@ const chatTurnStep: Step<ChatRunState> = {
         // step was a lead-in to these tools, not the answer. Stash it (if any)
         // and advance so the next step's text — and the eventual answer — lands
         // in a fresh segment. `assistantText` thus always holds just the latest
-        // segment, which at turn's end is the final reply.
-        if (state.assistantText.trim().length > 0) {
-          state.narration = [
-            ...state.narration,
-            { index: state.segmentIndex, text: state.assistantText },
-          ];
-        }
-        state.assistantText = "";
-        state.segmentIndex += 1;
+        // segment, which at turn's end is the final reply. When this turn is an
+        // internal reissue of just-auto-activated tools (#407) the lead-in text
+        // is machinery ("tools warming up, retrying") and is dropped instead —
+        // its live deltas were already withheld by the `flush` gate below.
+        const closed = closeLeadInNarration(state);
+        state.narration = closed.narration;
+        state.assistantText = closed.assistantText;
+        state.segmentIndex = closed.segmentIndex;
         return { kind: "next", state, transcript: nextTranscript, nextStep: "dispatch-tools" };
       }
 
@@ -2180,6 +2262,15 @@ const chatTurnStep: Step<ChatRunState> = {
         // failed assistant message for the client. (A retryable empty `stop`/
         // `error` is handled by the `outcome.kind === "empty"` branch above.)
         throw new Error("Assistant finished without producing a response.");
+      }
+
+      if (state.reissuePending) {
+        // A reissue was pending but the model produced a final answer instead of
+        // reissuing — so this text is the real reply, not an internal lead-in.
+        // Clear the flag and release the deltas the `flush` gate withheld before
+        // any guard can close this answer into a narration segment.
+        state.reissuePending = false;
+        await flush();
       }
 
       // This turn produced user-visible text. Reset before either finalization
@@ -2227,8 +2318,11 @@ const dispatchToolsStep: Step<ChatRunState> = {
     const state: ChatRunState = {
       ...ctx.state,
       pendingToolCalls: [...ctx.state.pendingToolCalls],
-      activeIntegrations: [...ctx.state.activeIntegrations],
+      activeTools: [...ctx.state.activeTools],
       toolCallsLog: [...ctx.state.toolCallsLog],
+      // Recomputed from this round's results below; reset so it reflects only
+      // the round about to run, never a stale value carried across turns.
+      reissuePending: false,
     };
     let transcript = [...ctx.transcript];
 
@@ -2267,8 +2361,8 @@ const dispatchToolsStep: Step<ChatRunState> = {
         const gateFlags = await Promise.all(
           calls.map((call) => toolCallWouldGate(ctx.userId, call.toolName)),
         );
-        const dispatch = (call: PendingToolCall) =>
-          dispatchToolCall({
+        const dispatch = async (call: PendingToolCall) => {
+          const dispatchArgs = {
             runId: ctx.runId,
             stepId: "dispatch-tools",
             toolCallId: call.toolCallId,
@@ -2280,8 +2374,17 @@ const dispatchToolsStep: Step<ChatRunState> = {
             messageId: state.messageId,
             scratchpadRunId: ctx.runId,
             timezone: state.timezone,
+            activeTools: state.activeTools,
             allowedIntegrations: state.allowedIntegrations,
-          });
+          } as const;
+          const result = await dispatchToolCall(dispatchArgs);
+          if (result.kind === "inactive_tool") {
+            // Do not validate the model's schema-blind guess. Make the exact
+            // schema visible on the next turn and ask the model to issue a new call.
+            state.activeTools = activateTool(state.activeTools, result.result.recovery.toolName);
+          }
+          return result;
+        };
 
         const results = await dispatchAutonomyCallsInSafeOrder(calls, gateFlags, dispatch);
         // Gated bucket — serial in transcript order, stop at the first that
@@ -2398,6 +2501,7 @@ const dispatchToolsStep: Step<ChatRunState> = {
               status,
               resultPreview,
               ...(sanitized ? { sanitized } : {}),
+              ...(nonExecution ? { nonExecution } : {}),
               segmentIndex: call.segmentIndex,
             },
           });
@@ -2405,6 +2509,10 @@ const dispatchToolsStep: Step<ChatRunState> = {
           transcript = [...transcript, toolResultMessage(call, result)];
         }
         state.pendingToolCalls = [];
+        // If this round auto-activated any tool via an inactive-tool bounce
+        // (#407), the next chat-turn is an internal reissue — mark it so its
+        // lead-in narration ("tools warming up, retrying") is withheld.
+        state.reissuePending = dispatchRoundReissued(results);
       }
 
       return { kind: "next", state, transcript, nextStep: "chat-turn" };
@@ -2661,16 +2769,17 @@ function cleanTitle(raw: string): string | null {
  * *or* `narration` can never re-throw on the insert and wedge the turn. One
  * `sanitizeToolResult` pass covers nested structures and object keys.
  */
-function sanitizeChatMessageFields(state: ChatRunState): {
+export function sanitizeChatMessageFields(state: ChatRunState): {
   content: string;
   reasoning: string | null;
   toolCalls: ChatRunState["toolCallsLog"] | null;
   narration: ChatRunState["narration"] | null;
 } {
+  const visibleToolCalls = state.toolCallsLog.filter((toolCall) => !toolCall.nonExecution);
   const raw = {
     content: state.assistantText,
     reasoning: state.reasoningText.length > 0 ? state.reasoningText : null,
-    toolCalls: state.toolCallsLog.length > 0 ? state.toolCallsLog : null,
+    toolCalls: visibleToolCalls.length > 0 ? visibleToolCalls : null,
     narration: state.narration.length > 0 ? state.narration : null,
   };
   return sanitizeToolResult(raw).value as typeof raw;
@@ -2901,12 +3010,13 @@ export const chatTurnWorkflow: Workflow<ChatRunState> = {
       userMessageId,
       artifactTargetId,
       tier,
-      activeIntegrations: [],
+      activeTools: systemToolKernel(),
       allowedIntegrations,
       pendingToolCalls: [],
       assistantText: "",
       narration: [],
       segmentIndex: 0,
+      reissuePending: false,
       reasoningText: "",
       reasoningMs: 0,
       toolCallsLog: [],
@@ -2915,7 +3025,7 @@ export const chatTurnWorkflow: Workflow<ChatRunState> = {
       turnCount: 0,
       inFlightTailStart: 0,
       emptyCompletionRetries: 0,
-      started: false,
+      startedAt: undefined,
       foldedChildRunIds: [],
       notedFailureToolCallIds: [],
     };

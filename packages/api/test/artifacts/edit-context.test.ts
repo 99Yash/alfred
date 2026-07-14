@@ -10,7 +10,10 @@ import {
 } from "@alfred/artifacts-design";
 import { updateArtifactInput } from "@alfred/contracts";
 import { z } from "zod";
-import { buildChatSystemPrompt } from "../../src/modules/agent/workflows/chat-turn";
+import {
+  buildChatSystemPrompt,
+  withEphemeralReference,
+} from "../../src/modules/agent/workflows/chat-turn";
 import {
   artifactContentHash,
   artifactReplacementMatchesBase,
@@ -144,6 +147,18 @@ test("the PDF guide is injected only for a selected PDF artifact", () => {
   });
   assert.doesNotMatch(ordinary, /\[Full name\]/);
   assert.match(pdf, /\[Full name\]/);
+});
+
+test("ephemeral run context is inserted before the request without entering the transcript", () => {
+  const transcript = [{ role: "user" as const, content: "What happened in the last 30h?" }];
+  const runtime =
+    "<runtime_context>Current time: 2026-07-14T02:50:11.451Z (2026-07-14T08:20:11 in Asia/Calcutta).</runtime_context>";
+
+  assert.deepEqual(withEphemeralReference(transcript, runtime), [
+    { role: "assistant", content: runtime },
+    transcript[0],
+  ]);
+  assert.deepEqual(transcript, [{ role: "user", content: "What happened in the last 30h?" }]);
 });
 
 test("chat keeps the voice contract near the end without displacing tool grounding", () => {

@@ -154,7 +154,12 @@ async function processUser(u: { userId: string; email: string }): Promise<void> 
     const res = await rejectFact({
       factId: r.id,
       userId: u.userId,
-      reason: { via: "backfill-purge-relationship-junk", issue: 493, key: r.key, reason: junkReason(r.key, r.value) },
+      reason: {
+        via: "backfill-purge-relationship-junk",
+        issue: 493,
+        key: r.key,
+        reason: junkReason(r.key, r.value),
+      },
     });
     if (res) rejected++;
   }

@@ -18,10 +18,7 @@
  *   6. The same scheduled instant is not re-fired even after the
  *      handler runs again (CAS on `next_run_at`).
  */
-import {
-  dispatchDueCronWorkflows,
-  getAgentQueue,
-} from "@alfred/api/backend";
+import { dispatchDueCronWorkflows, getAgentQueue } from "@alfred/api/backend";
 import {
   closeAgentQueue,
   closeConnections,

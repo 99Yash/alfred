@@ -34,10 +34,16 @@ import {
 import { appendModelResponseMessages } from "../transcript-dedup";
 import { dispatchToolCall, type DispatchResult } from "../../dispatch";
 import { writeScratch } from "../../scratchpad";
-import { listToolsForIntegration } from "../../tools/registry";
+import { getTool } from "../../tools/registry";
 import { buildConnectedSummary } from "../connected-summary";
 import { formatDateGrounding, resolveUserTimezone } from "../grounding";
 import { composeAgentInstructions } from "../instructions";
+import {
+  activateTool,
+  migrateActiveTools,
+  registeredToolNamesForIntegrations,
+  toolNameSchema,
+} from "../tool-surface";
 import {
   readSubAgentMetadata,
   subAgentMetadataSchema,
@@ -66,32 +72,43 @@ const pendingToolCallSchema = z.object({
 });
 type PendingToolCall = z.infer<typeof pendingToolCallSchema>;
 
-const briefRunStateSchema = z.object({
-  activeIntegrations: z.array(z.string().min(1)),
-  allowedIntegrations: z.array(z.string()),
-  // ADR-0053 connected summary, snapshotted once at run start (first boss turn)
-  // and reused every turn so the system-prompt prefix stays cache-stable.
-  connectedSummary: z.string().optional(),
-  // User's IANA timezone, snapshotted once per run so tool-dispatch windows
-  // match the date grounding shown to the boss.
-  timezone: z.string().optional(),
-  pendingToolCalls: z.array(pendingToolCallSchema),
-  subAgent: subAgentMetadataSchema.nullable(),
-  inFlightTailStart: z.number().int().min(0),
-  turnCount: z.number().int().min(0),
-  /**
-   * Input tokens reported by the last boss-turn (ADR-0035). `dispatch-tools`
-   * adds an estimate of tool-result chars-to-tokens on top to decide
-   * whether to route through the compactor before the next turn. Default
-   * 0 — the first boss-turn always fits under threshold.
-   */
-  lastInputTokens: z.number().int().min(0).default(0),
-  // Consecutive empty completions retried this run (see EMPTY_COMPLETION_MAX_RETRIES).
-  // Reset to 0 on any productive turn (tool calls or a real final), so this counts a
-  // provider stuck returning empties — not scattered empties across a long run.
-  // Default 0 for runs minted before the field existed.
-  emptyRetries: z.number().int().min(0).default(0),
-});
+const briefRunStateSchema = z
+  .object({
+    activeTools: z.array(toolNameSchema).optional(),
+    // Read only while resuming checkpoints created before exact tool surfaces.
+    activeIntegrations: z.array(z.string().min(1)).optional(),
+    allowedIntegrations: z.array(z.string()),
+    // ADR-0053 connected summary, snapshotted once at run start (first boss turn)
+    // and reused every turn so the system-prompt prefix stays cache-stable.
+    connectedSummary: z.string().optional(),
+    // User's IANA timezone, snapshotted once per run so tool-dispatch windows
+    // match the date grounding shown to the boss.
+    timezone: z.string().optional(),
+    pendingToolCalls: z.array(pendingToolCallSchema),
+    subAgent: subAgentMetadataSchema.nullable(),
+    inFlightTailStart: z.number().int().min(0),
+    turnCount: z.number().int().min(0),
+    /**
+     * Input tokens reported by the last boss-turn (ADR-0035). `dispatch-tools`
+     * adds an estimate of tool-result chars-to-tokens on top to decide
+     * whether to route through the compactor before the next turn. Default
+     * 0 — the first boss-turn always fits under threshold.
+     */
+    lastInputTokens: z.number().int().min(0).default(0),
+    // Consecutive empty completions retried this run (see EMPTY_COMPLETION_MAX_RETRIES).
+    // Reset to 0 on any productive turn (tool calls or a real final), so this counts a
+    // provider stuck returning empties — not scattered empties across a long run.
+    // Default 0 for runs minted before the field existed.
+    emptyRetries: z.number().int().min(0).default(0),
+  })
+  .transform(({ activeIntegrations, activeTools, ...state }) => ({
+    ...state,
+    activeTools: migrateActiveTools(
+      activeTools,
+      activeIntegrations,
+      state.pendingToolCalls.map((call) => call.toolName),
+    ),
+  }));
 type BriefRunState = z.infer<typeof briefRunStateSchema>;
 
 const COMPACT_TRANSCRIPT_STEP_ID = "compact-transcript";
@@ -210,7 +227,7 @@ const bossTurnStep: Step<BriefRunState> = {
       system: subAgent
         ? buildSubAgentSystemPrompt(grounding, state.connectedSummary, subAgent.subId)
         : buildBossSystemPrompt(grounding, state.connectedSummary),
-      tools: () => resolveSdkTools(state.activeIntegrations, subAgent !== null),
+      tools: () => resolveSdkTools(state.activeTools, subAgent !== null),
       model: subAgent ? getSubAgentModel() : getBossModel(),
       attribution: {
         kind: "llm",
@@ -320,13 +337,13 @@ const dispatchToolsStep: Step<BriefRunState> = {
     const state: BriefRunState = {
       ...ctx.state,
       pendingToolCalls: [...ctx.state.pendingToolCalls],
-      activeIntegrations: [...ctx.state.activeIntegrations],
+      activeTools: [...ctx.state.activeTools],
     };
     let transcript = [...ctx.transcript];
 
     while (state.pendingToolCalls.length > 0) {
       const call = state.pendingToolCalls[0]!;
-      const result = await dispatchToolCall({
+      const dispatchArgs = {
         runId: ctx.runId,
         stepId: "dispatch-tools",
         toolCallId: call.toolCallId,
@@ -336,8 +353,15 @@ const dispatchToolsStep: Step<BriefRunState> = {
         caller: state.subAgent ? { subId: state.subAgent.subId } : "boss",
         scratchpadRunId: state.subAgent?.parentRunId ?? ctx.runId,
         timezone: state.timezone,
+        activeTools: state.activeTools,
         allowedIntegrations: state.allowedIntegrations,
-      });
+      } as const;
+      const result = await dispatchToolCall(dispatchArgs);
+      if (result.kind === "inactive_tool") {
+        // Bounce the schema-blind call to the next model turn after exposing the
+        // exact schema; never validate or execute arguments the model guessed.
+        state.activeTools = activateTool(state.activeTools, result.result.recovery.toolName);
+      }
 
       if (result.kind === "staged") {
         return {
@@ -540,11 +564,12 @@ export const userAuthoredBriefWorkflow: Workflow<BriefRunState> = {
       isIntegrationSlug(input.trigger.source)
         ? [input.trigger.source]
         : [];
+    const seededIntegrations = uniqueIntegrations([
+      ...parseIntegrationMentions(input.brief, allowedIntegrations),
+      ...eventSeed.filter((slug) => integrationAllowed(slug, allowedIntegrations)),
+    ]);
     return {
-      activeIntegrations: uniqueIntegrations([
-        ...parseIntegrationMentions(input.brief, allowedIntegrations),
-        ...eventSeed.filter((slug) => integrationAllowed(slug, allowedIntegrations)),
-      ]),
+      activeTools: registeredToolNamesForIntegrations(["system", ...seededIntegrations]),
       allowedIntegrations: [...allowedIntegrations],
       pendingToolCalls: [],
       subAgent: readSubAgentMetadata(input.metadata),
@@ -583,28 +608,26 @@ export const userAuthoredBriefWorkflow: Workflow<BriefRunState> = {
   },
 };
 
-function resolveSdkTools(activeIntegrations: readonly string[], isSubAgent: boolean): ToolSet {
+function resolveSdkTools(activeTools: readonly ToolName[], isSubAgent: boolean): ToolSet {
   const out: Partial<Record<ToolName, Tool>> = {};
-  const slugs = uniqueIntegrations(["system", ...activeIntegrations]);
-  for (const slug of slugs) {
-    if (!isIntegrationSlug(slug)) continue;
-    for (const registered of listToolsForIntegration(slug)) {
-      if (
-        isSubAgent &&
-        (registered.name === "system.spawn_sub_agent" ||
-          registered.name === "system.await_sub_agent" ||
-          registered.name === "system.promote")
-      ) {
-        // The join tools are boss-only — the dispatcher rejects them for a
-        // sub-agent caller (ADR-0073). Hiding them here keeps a sub-agent from
-        // burning a turn on an invalid call the dispatcher would only bounce.
-        continue;
-      }
-      out[registered.name] = tool({
-        description: registered.description,
-        inputSchema: registered.inputSchema,
-      });
+  for (const name of [...new Set(activeTools)].sort()) {
+    const registered = getTool(name);
+    if (!registered) continue;
+    if (
+      isSubAgent &&
+      (registered.name === "system.spawn_sub_agent" ||
+        registered.name === "system.await_sub_agent" ||
+        registered.name === "system.promote")
+    ) {
+      // The join tools are boss-only — the dispatcher rejects them for a
+      // sub-agent caller (ADR-0073). Hiding them here keeps a sub-agent from
+      // burning a turn on an invalid call the dispatcher would only bounce.
+      continue;
     }
+    out[registered.name] = tool({
+      description: registered.description,
+      inputSchema: registered.inputSchema,
+    });
   }
   return out as ToolSet;
 }
@@ -634,7 +657,9 @@ function applySystemToolEffect(
   if (toolName !== "system.load_integration" || result.kind !== "executed") return;
   const toolResult = result.toolResult;
   if (!isSuccessfulLoadIntegrationResult(toolResult)) return;
-  state.activeIntegrations = uniqueIntegrations([...state.activeIntegrations, toolResult.slug]);
+  state.activeTools = [
+    ...new Set([...state.activeTools, ...registeredToolNamesForIntegrations([toolResult.slug])]),
+  ].sort();
 }
 
 function isSuccessfulLoadIntegrationResult(
@@ -700,6 +725,9 @@ function dispatchResultToToolOutput(
     case "invalid_input":
       return { type: "json", value: toJsonValue(boundToolResult(result.result).value) };
     case "unknown_tool":
+      return { type: "json", value: toJsonValue(boundToolResult(result.result).value) };
+    case "inactive_tool":
+    case "not_allowed":
       return { type: "json", value: toJsonValue(boundToolResult(result.result).value) };
   }
 }

@@ -330,9 +330,7 @@ export async function finalizeRunArtifacts(
           db()
             .select({ id: chatMessages.id })
             .from(chatMessages)
-            .where(
-              and(eq(chatMessages.id, messageId), eq(chatMessages.userId, userId)),
-            ),
+            .where(and(eq(chatMessages.id, messageId), eq(chatMessages.userId, userId))),
         ),
       ),
     )

@@ -164,6 +164,7 @@ async function main(): Promise<void> {
     stepId: "turn-1",
     toolCallId: "tc_search_auto",
     toolName: "gmail.search",
+    activeTools: ["gmail.search"],
     input: { q: "in:inbox newer_than:1d" },
     userId,
   });
@@ -194,6 +195,7 @@ async function main(): Promise<void> {
     stepId: "turn-1",
     toolCallId: "tc_search_auto",
     toolName: "gmail.search",
+    activeTools: ["gmail.search"],
     input: { q: "in:inbox newer_than:1d" },
     userId,
   });
@@ -209,6 +211,7 @@ async function main(): Promise<void> {
     stepId: "turn-1",
     toolCallId: "tc_unknown_tool",
     toolName: "gmail.hallucinated_action",
+    activeTools: [],
     input: { q: "in:inbox" },
     userId,
   });
@@ -231,6 +234,7 @@ async function main(): Promise<void> {
     stepId: "turn-1",
     toolCallId: "tc_draft_gated",
     toolName: "gmail.send_draft",
+    activeTools: ["gmail.send_draft"],
     input: { to: ["yash@example.com"], subject: "phase 3 smoke", bodyText: "hi" },
     userId,
   });
@@ -264,6 +268,7 @@ async function main(): Promise<void> {
     stepId: "turn-1",
     toolCallId: "tc_draft_gated",
     toolName: "gmail.send_draft",
+    activeTools: ["gmail.send_draft"],
     input: { to: ["yash@example.com"], subject: "phase 3 smoke", bodyText: "hi" },
     userId,
   });
@@ -325,6 +330,7 @@ async function main(): Promise<void> {
     stepId: "turn-1",
     toolCallId: "tc_draft_gated",
     toolName: "gmail.send_draft",
+    activeTools: ["gmail.send_draft"],
     input: {
       to: ["attacker@example.com"],
       subject: "smuggled payload",
@@ -354,6 +360,7 @@ async function main(): Promise<void> {
     stepId: "turn-1",
     toolCallId: "tc_draft_rs_1",
     toolName: "gmail.send_draft",
+    activeTools: ["gmail.send_draft"],
     input: { to: ["someone@example.com"], subject: "do not send", bodyText: "no" },
     userId,
   });
@@ -378,6 +385,7 @@ async function main(): Promise<void> {
     stepId: "turn-2",
     toolCallId: "tc_draft_rs_2",
     toolName: "gmail.send_draft",
+    activeTools: ["gmail.send_draft"],
     input: { to: ["someone@example.com"], subject: "do not send", bodyText: "no" },
     userId,
   });

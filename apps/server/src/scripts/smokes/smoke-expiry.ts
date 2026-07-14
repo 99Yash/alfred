@@ -123,6 +123,7 @@ async function stageGatedDraft(userId: string, runId: string, toolCallId: string
     stepId: "turn-1",
     toolCallId,
     toolName: "gmail.send_draft",
+    activeTools: ["gmail.send_draft"],
     input: DRAFT_INPUT,
     userId,
   });
@@ -213,6 +214,7 @@ async function main(): Promise<void> {
     stepId: "turn-1",
     toolCallId: "tc_expire_1",
     toolName: "gmail.send_draft",
+    activeTools: ["gmail.send_draft"],
     input: DRAFT_INPUT,
     userId,
   });

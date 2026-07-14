@@ -95,10 +95,10 @@ export const workflows = pgTable(
       .default(sql`'[]'::jsonb`),
     /**
      * Bound on which integrations the workflow's agent runs may load
-     * (ADR-0026 lazy-loading). The agent's initial `state.activeIntegrations`
-     * is seeded from `@`-mentions parsed out of the brief; mid-run
-     * `load_integration(slug)` calls grow that set, but cannot grow
-     * past this list. Empty = unrestricted (subject to the user's
+     * (ADR-0026 lazy-loading, amended by #407). The agent's exact `state.activeTools`
+     * is seeded from `@`-mentions parsed out of the brief; mid-run exact-tool
+     * activation and compatibility `load_integration(slug)` calls grow that set,
+     * but cannot grow past this list. Empty = unrestricted (subject to the user's
      * connected integrations).
      */
     allowedIntegrations: text("allowed_integrations")

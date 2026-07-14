@@ -42,7 +42,7 @@ regression. Verified against the canonical validation prompt
 ## react-doctor/async-await-in-loop
 
 - **`src/lib/chat/use-send-message.ts:185`** — sequential `await
-  rep.mutate.chatAttachmentCreate(...)` over `uploaded`. Recipe false-positive
+rep.mutate.chatAttachmentCreate(...)` over `uploaded`. Recipe false-positive
   clause: "iterations must complete in order for correctness — ordered DB
   writes." These are ordered Replicache write mutations (each carries a
   `position`); the code comment documents the intent, and Replicache serializes

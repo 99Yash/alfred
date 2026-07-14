@@ -69,7 +69,10 @@ test("logger serializer retains stack frames but drops every multiline message l
 test("application error codes are not mislabeled as database diagnostics", () => {
   const serialized = serializeError(new AppError("artifact_create_failed"));
   assert.equal(serialized.database, undefined);
-  assert.equal(safeErrorDiagnostic(new AppError("artifact_create_failed")), "artifact_create_failed");
+  assert.equal(
+    safeErrorDiagnostic(new AppError("artifact_create_failed")),
+    "artifact_create_failed",
+  );
 });
 
 test("configured pino logger never writes raw error messages", () => {
@@ -86,12 +89,15 @@ test("configured pino logger never writes raw error messages", () => {
 });
 
 test("verbose serializer surfaces provider APICallError diagnostics for dev", () => {
-  const apiCallError = Object.assign(new Error("tools.9.custom.input_schema.type: Field required"), {
-    name: "AI_APICallError",
-    statusCode: 400,
-    url: "https://api.anthropic.com/v1/messages",
-    responseBody: `body-${"x".repeat(10_000)}`,
-  });
+  const apiCallError = Object.assign(
+    new Error("tools.9.custom.input_schema.type: Field required"),
+    {
+      name: "AI_APICallError",
+      statusCode: 400,
+      url: "https://api.anthropic.com/v1/messages",
+      responseBody: `body-${"x".repeat(10_000)}`,
+    },
+  );
 
   const strict = serializeError(apiCallError);
   assert.equal(strict.message, undefined);

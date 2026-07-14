@@ -282,7 +282,7 @@ export class AlfredAgent<CTX = unknown> {
     const msg =
       `[AlfredAgent${tag}] system prompt changed between turns — kills the prompt cache. ` +
       `original_len=${this.pinnedSystem.length} new_len=${system.length}. ` +
-      `Pin the system to (userId, activeIntegrations) only; never include run state, timestamps, or ids.`;
+      `Pin the system to stable user/tool-surface context only; never include run state, timestamps, or ids.`;
     if (this.s.strictSystem === false) {
       console.warn(msg);
       this.pinnedSystem = system;

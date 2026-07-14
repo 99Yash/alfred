@@ -4,11 +4,7 @@ import { gateDocumentFact } from "./fact-policy";
 import { listFactsByStatus, proposeFact } from "./facts";
 import { loadSelfIdentity } from "./self-identity";
 import { runSignificancePass } from "./significance";
-import {
-  accumulateDoc,
-  applyCorrespondenceIncrements,
-  type ContactAggregate,
-} from "./team-graph";
+import { accumulateDoc, applyCorrespondenceIncrements, type ContactAggregate } from "./team-graph";
 import type { StepContext, StepResult } from "../agent/index";
 import { isRecord, toMessage } from "@alfred/contracts";
 import { db } from "@alfred/db";
