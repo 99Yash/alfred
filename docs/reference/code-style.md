@@ -2,7 +2,7 @@
 
 Distilled from the [review prompt](https://gist.github.com/99Yash/0ab2043d8f6281d82dea4f8d2599ea8a) and the conventions already in this tree. Read it before opening a PR and use it as the checklist when reviewing one. This is the _what to do here_ layer; the _why_ lives in [decisions.md](../../decisions.md) and the deeper mechanics in the sibling reference docs (linked inline).
 
-This doc is the **floor** — a closed list of known defects to match against. For the **ceiling** — improvements whose final shape cannot be enumerated in advance (spotting the registry, splitting the overloaded guard) — see [structural-review.md](./structural-review.md).
+This doc is the **surface sweep** — a bounded catalog of recurring review rules. For the open-ended directions the checklist cannot cover — looking up for a better structure and drilling down to prove an invariant end-to-end — see [structural-review.md](./structural-review.md).
 
 ---
 
@@ -162,7 +162,7 @@ Before moving a value into `@alfred/contracts`, confirm the web bundle is allowe
 3. External/LLM call with no timeout or `abortSignal`.
 4. New endpoint missing rate-limit / auth coverage.
 5. Silent `catch` with no user feedback.
-6. Duplicated logic across modules → extract a shared util.
+6. Duplicated logic that represents one co-changing domain truth → centralize it; leave coincidental similarity separate.
 7. Non-exhaustive switch over a union → add the `never` check.
 8. `useEffect` updating state after unmount / wrong deps.
 9. Webhook HMAC verified against re-parsed (not raw) body.
