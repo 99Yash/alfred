@@ -30,7 +30,7 @@ function buildArtifactDesignPrompt(): string {
     [
       "Hard rules:",
       "- Write body-level HTML only. Never emit <html>, <head>, <body>, <!doctype>, <script>, or external <link>/CDN tags. Scripts do not run (the page is sandboxed).",
-      `- Never set page width/height or margins on the root, and never fix a background on <body>: the shell owns page geometry (slides are ${slides.width}x${slides.height}, pdf pages ${pdf.width}x${pdf.height}) and the white surface.`,
+      `- Never set page width/height or margins on the root, and never fix a background on <body>: the shell owns page geometry (slides are ${slides.width}x${slides.height}, pdf pages ${pdf.width}x${pdf.height}) and the page surface (which follows a light or dark scheme at render time, so never hardcode a page color).`,
       "- Do NOT add your own padding or margin to the top-level wrapper. The shell already insets the page from every edge; extra outer padding stacks on top of it, shrinks the usable box, and pushes content off the bottom. Let the shell own the edge inset and only space elements WITHIN the content.",
       "- Everything must fit inside the page box. There is no scrolling; overflow is clipped. Author light: one idea per page, prefer more pages over a crammed one. As a budget, a slide holds roughly a heading plus 4-6 short lines or 3 small cards; if you have more, split it across pages.",
       "- Balance the page. Choose type sizes and spacing so content reads complete, not crammed into the top. Even, generous spacing between sections beats one large gap; some trailing whitespace at the bottom of a short page is fine, a void in the middle is not.",
@@ -45,12 +45,12 @@ function buildArtifactDesignPrompt(): string {
       "- Type: art-display, art-title, art-headline, art-subhead, art-body, art-caption, art-eyebrow.",
       "- Color: art-ink, art-muted, art-subtle, art-accent-text.",
       "- Surfaces/marks: art-card, art-panel, art-badge, art-rule, art-accent-mark, art-dot.",
-      "- Data: art-stat-value + art-stat-label; art-bar-track + art-bar-fill (a pure-CSS bar, sized with an inline width %); art-list (accent-marked bullets).",
+      "- Data: art-stat-value + art-stat-label (add the art-nums class to any figure so digits use tabular, non-jittering spacing); art-bar-track + art-bar-fill (a pure-CSS bar, sized with an inline width %); art-list (accent-marked bullets).",
       "- Code: a <pre> block (styled by the shell) or art-code for multi-line code; inline `<code>` for a token in prose.",
       '- Decor: art-aurora, a soft on-brand gradient wash for negative space. Drop a single empty `<div class="art-aurora"></div>` as a child of the page and the shell draws it behind your content.',
     ].join("\n"),
     `Pick ONE layout archetype per page and keep the whole deck on the same theme: ${archetypeList}.`,
-    "Use art-aurora only on sparse pages that carry a large empty area (cover, section divider, closing) to fill negative space; never on a content-dense page, and at most one per page. Scale it to the subject: skip it or keep decks minimal for serious or technical material, and reserve it for lighter, marketing, or celebratory decks. When in doubt, leave it off; plain white is always on-brand.",
+    "Use art-aurora only on sparse pages that carry a large empty area (cover, section divider, closing) to fill negative space; never on a content-dense page, and at most one per page. Scale it to the subject: skip it or keep decks minimal for serious or technical material, and reserve it for lighter, marketing, or celebratory decks. When in doubt, leave it off; a plain page surface is always on-brand.",
     [
       "Example page body (Title archetype):",
       '<div class="art-center art-stack">',

@@ -222,10 +222,10 @@ function ArtifactHeader({
         {isPages ? <Layers size={16} /> : <FileText size={16} />}
       </span>
       <div className="min-w-0 flex-1">
-        <h2 className="truncate text-sm font-medium text-app-fg-1">
+        <h2 className="truncate text-sm font-medium text-app-fg-4">
           {artifact?.title ?? "Artifact"}
         </h2>
-        <p className="mt-0.5 flex items-center gap-1.5 truncate text-[12px] text-app-fg-4">
+        <p className="mt-0.5 flex items-center gap-1.5 truncate text-[12px] text-app-fg-3">
           <ArtifactSubline artifact={artifact} pageCount={pageCount} />
         </p>
       </div>
@@ -671,7 +671,11 @@ function CopyMarkdownButton({ markdown }: { markdown: string }) {
   }, [markdown]);
   return (
     <IconButton label={copied ? "Copied" : "Copy markdown"} onClick={onCopy}>
-      {copied ? <Check size={14} className="text-emerald-500" /> : <Copy size={14} />}
+      {copied ? (
+        <Check size={14} className="animate-check-pop text-emerald-500" />
+      ) : (
+        <Copy size={14} />
+      )}
     </IconButton>
   );
 }
@@ -697,7 +701,7 @@ function IconButton({
         "grid size-7 shrink-0 place-items-center rounded-lg transition-colors focus-visible:ring-2 focus-visible:ring-app-fg-3/40 focus-visible:outline-none",
         tone === "dark"
           ? "text-white/70 hover:bg-white/10 hover:text-white"
-          : "text-app-fg-4 hover:bg-app-bg-a2 hover:text-app-fg-1",
+          : "text-app-fg-3 hover:bg-app-bg-a2 hover:text-app-fg-4",
       )}
     >
       {children}
