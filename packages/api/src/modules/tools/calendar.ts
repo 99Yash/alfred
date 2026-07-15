@@ -280,6 +280,21 @@ export const calendarTools: readonly RegisteredTool[] = [
     riskTier: "no_risk",
     description:
       "List Google Calendar events. Prefer the relative window fields for today/tomorrow/next-week questions; use explicit RFC3339 bounds only when the user gave exact dates or times.",
+    discovery: {
+      aliases: [
+        "check calendar",
+        "list calendar events",
+        "show my schedule",
+        "what's on my calendar",
+      ],
+      tags: ["calendar", "schedule", "time"],
+      entities: ["calendar", "event", "meeting", "schedule"],
+      verbs: ["list", "check", "show", "find", "read"],
+      relatedTools: ["calendar.create_event"],
+    },
+    availability: {
+      credential: { provider: "google", anyOfScopes: CALENDAR_READ_SCOPES },
+    },
     inputSchema: calendarListEventsInput,
     execute: async (input, ctx) => {
       return executeListEvents(input, ctx.userId, ctx.timezone);
@@ -290,6 +305,16 @@ export const calendarTools: readonly RegisteredTool[] = [
     action: "create_event",
     riskTier: "medium",
     description: "Create a Google Calendar event after the user approves the details.",
+    discovery: {
+      aliases: ["create calendar event", "schedule meeting", "add to calendar"],
+      tags: ["calendar", "schedule", "time", "write"],
+      entities: ["calendar", "event", "meeting"],
+      verbs: ["create", "schedule", "add", "book"],
+      relatedTools: ["calendar.list_events"],
+    },
+    availability: {
+      credential: { provider: "google", anyOfScopes: CALENDAR_WRITE_SCOPES },
+    },
     inputSchema: calendarCreateEventInput,
     execute: async (input, ctx) => {
       return executeCreateEvent(input, ctx.userId, ctx.timezone);

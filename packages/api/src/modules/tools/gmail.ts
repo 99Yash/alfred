@@ -90,6 +90,16 @@ export const gmailTools: readonly RegisteredTool[] = [
       "plus `messageId`/`threadId` (pass `messageId` straight to gmail.read_message) and a " +
       "`documentId` when the message has been ingested. Use `from`/`subject` to pick the right hit — " +
       "don't infer a sender from the query.",
+    discovery: {
+      aliases: ["search email", "find email", "search inbox"],
+      tags: ["email", "inbox", "communication"],
+      entities: ["email", "message", "thread"],
+      verbs: ["search", "find", "list"],
+      relatedTools: ["gmail.read_message"],
+    },
+    availability: {
+      credential: { provider: "google", anyOfScopes: GMAIL_READ_SCOPES },
+    },
     inputSchema: gmailSearchInput,
     execute: async (input, ctx) => {
       const accessToken = await resolveGoogleAccessToken(ctx.userId, GMAIL_READ_POLICY);
@@ -177,6 +187,16 @@ export const gmailTools: readonly RegisteredTool[] = [
       "Read the full text and metadata for one Gmail message. Pass the `messageId` from a " +
       "gmail.search hit (or a `documentId` for an ingested message). Reads the cached copy when " +
       "ingested, otherwise fetches it live from Gmail — so it works on fresh search results too.",
+    discovery: {
+      aliases: ["read email", "open email", "read message"],
+      tags: ["email", "inbox", "communication"],
+      entities: ["email", "message"],
+      verbs: ["read", "open", "get"],
+      relatedTools: ["gmail.search", "gmail.send_draft"],
+    },
+    availability: {
+      credential: { provider: "google", anyOfScopes: GMAIL_READ_SCOPES },
+    },
     inputSchema: gmailReadMessageInput,
     execute: async (input, ctx) => {
       const where = input.documentId
@@ -259,6 +279,16 @@ export const gmailTools: readonly RegisteredTool[] = [
     action: "send_draft",
     riskTier: "high",
     description: "Prepare or send a Gmail draft after the user approves the proposed message.",
+    discovery: {
+      aliases: ["send email", "reply to email", "draft email"],
+      tags: ["email", "communication", "write"],
+      entities: ["email", "message", "draft", "reply"],
+      verbs: ["send", "reply", "draft", "write"],
+      relatedTools: ["gmail.search", "gmail.read_message"],
+    },
+    availability: {
+      credential: { provider: "google", anyOfScopes: [GMAIL_SEND_SCOPE] },
+    },
     inputSchema: gmailSendDraftInput,
     execute: async (input, ctx) => {
       // The dispatcher only invokes execute on the approved-staging resume
