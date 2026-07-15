@@ -80,9 +80,15 @@ const MAX_PAGES = 100;
 /**
  * Validate one authored page against its format's authoring contract before it
  * is stored. `pdf` gets the full document contract (typography + motion);
- * `slides` gets the motion-only check (they keep inline-geometry freedom). A
- * `pages` row always has a format, but the column is nullable in the schema, so
- * an absent format simply skips validation.
+ * `slides` gets the motion-only check (they keep inline-geometry freedom).
+ *
+ * A `pages` row always carries a format IN PRACTICE — the `createArtifactInput`
+ * tool schema refine (`@alfred/contracts` tool-schemas) rejects a `pages` create
+ * that omits one — but the DB column is nullable (a `document` has no format), so
+ * this boundary cannot assert it in the type. A null format therefore skips
+ * validation rather than throwing: the check trusts that upstream refine, and the
+ * worst case of a hand-inserted formatless `pages` row is an unvalidated page,
+ * not a crash.
  */
 function validatePageForFormat(
   format: ArtifactFormat | null,
