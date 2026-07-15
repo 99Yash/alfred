@@ -1190,6 +1190,29 @@ export const vercelRedeployInput = z
 
 /* ── system ───────────────────────────────────────────────────────────── */
 
+export const searchToolsInput = z
+  .object({
+    query: z
+      .string()
+      .trim()
+      .min(1)
+      .max(240)
+      .describe("Capability to find, such as 'read a calendar event' or an exact tool name."),
+    limit: z.coerce.number().int().min(1).max(10).default(5).catch(5),
+  })
+  .strict();
+
+export const loadToolInput = z
+  .object({
+    name: z
+      .string()
+      .trim()
+      .min(1)
+      .max(120)
+      .describe("Exact qualified tool name returned by search_tools."),
+  })
+  .strict();
+
 export const loadIntegrationInput = z
   .object({
     slug: z.enum(INTEGRATION_SLUGS).refine((slug) => slug !== "system", {
@@ -1670,6 +1693,8 @@ export const TOOL_INPUT_SCHEMAS = {
   "slides.get_presentation": slidesGetInput,
   "slides.batch_update": slidesBatchUpdateInput,
   "slides.add_slide": slidesAddSlideInput,
+  "system.search_tools": searchToolsInput,
+  "system.load_tool": loadToolInput,
   "system.load_integration": loadIntegrationInput,
   "system.read_user_context": readUserContextInput,
   "system.read_chat_history": readChatHistoryInput,

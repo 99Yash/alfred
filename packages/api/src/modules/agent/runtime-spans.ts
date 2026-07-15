@@ -3,12 +3,9 @@
  *
  * The Langfuse trace tree already covers the execution spine: LLM generations,
  * tool executions, and dispatch rejections. What it does *not* separate is the
- * deterministic orchestration overhead *around* those — the priority blind
- * spot this slice closes is the **dispatch batch**: the workflow step that fans
- * a round of tool calls out to `dispatchToolCall` (concurrently for reads,
- * serially for gated writes). Without a span there, batch overhead is folded
- * invisibly into the gap between the boss generation and the individual tool
- * spans, so an operator can't tell orchestration time from model/tool time.
+ * deterministic orchestration overhead *around* those. This module separates
+ * dispatch batches, first-turn tool preloading, approval/sub-agent waits, and
+ * queue leases so operators can attribute time outside the model and tools.
  *
  * This module owns the batch-span contract (name, metadata, per-outcome
  * summary) as pure, testable helpers, plus a thin `startDispatchBatchSpan`
@@ -27,10 +24,74 @@
  */
 
 import { startRuntimeSpan, type RuntimeSpanCloser, type RuntimeSpanInput } from "@alfred/ai";
+import type { ToolName } from "@alfred/contracts";
 import type { DispatchResult } from "../dispatch";
 
 /** Stable observation name for the dispatch-batch runtime span (PRD #405). */
 export const RUNTIME_DISPATCH_BATCH = "runtime.dispatch.batch";
+
+/** Stable observation name for deterministic first-turn tool selection. */
+export const RUNTIME_TOOL_PRELOAD = "runtime.tool.preload";
+
+export interface ToolPreloadSpanArgs {
+  runId: string;
+  workflow: string;
+  caller: string;
+  activeBefore: number;
+  allowedIntegrationCount: number;
+  promptChars: number;
+  startedAt: Date;
+}
+
+/**
+ * Pure builder for preload telemetry. Raw prompt text is deliberately excluded:
+ * tool names and bounded counts are enough to review selection without putting
+ * user-authored content into always-on Langfuse metadata.
+ */
+export function buildToolPreloadSpanInput(args: ToolPreloadSpanArgs): RuntimeSpanInput {
+  return {
+    runId: args.runId,
+    name: RUNTIME_TOOL_PRELOAD,
+    startedAt: args.startedAt,
+    metadata: {
+      workflow: args.workflow,
+      caller: args.caller,
+      activeBefore: args.activeBefore,
+      allowedIntegrationCount: args.allowedIntegrationCount,
+      promptChars: args.promptChars,
+    },
+  };
+}
+
+export interface ToolPreloadSpanCloser {
+  end(selectedTools: readonly ToolName[], activeAfter: number): void;
+  error(): void;
+}
+
+/** Open a span around availability filtering, ranking, and activation. */
+export function startToolPreloadSpan(args: ToolPreloadSpanArgs): ToolPreloadSpanCloser {
+  const span = runtimeSpanStarter(buildToolPreloadSpanInput(args));
+  let ended = false;
+  return {
+    end(selectedTools, activeAfter) {
+      if (ended) return;
+      ended = true;
+      span.end({
+        status: selectedTools.length > 0 ? "selected" : "no_match",
+        metadata: {
+          selectedCount: selectedTools.length,
+          selectedTools: selectedTools.length > 0 ? selectedTools.join(",") : null,
+          activeAfter,
+        },
+      });
+    },
+    error() {
+      if (ended) return;
+      ended = true;
+      span.end({ status: "error", level: "ERROR" });
+    },
+  };
+}
 
 /**
  * The executor step that owns a dispatch batch. Only the `dispatch-tools` step
@@ -185,10 +246,7 @@ export function startDispatchBatchSpan(args: DispatchBatchSpanArgs): DispatchBat
   const span = runtimeSpanStarter(buildDispatchBatchSpanInput(args));
   let ended = false;
   return {
-    end(
-      terminal: DispatchBatchTerminal,
-      results?: readonly (DispatchResult | undefined)[],
-    ): void {
+    end(terminal: DispatchBatchTerminal, results?: readonly (DispatchResult | undefined)[]): void {
       if (ended) return;
       ended = true;
       span.end({
