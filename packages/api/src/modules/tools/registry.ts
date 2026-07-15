@@ -35,6 +35,8 @@ export interface ToolDiscoveryMetadata {
 }
 
 export interface ToolAvailabilityMetadata {
+  /** Always expose this tool in the run-local bootstrap surface. Omit for lazy-loaded tools. */
+  surface?: "kernel";
   /** Credential capability required by this exact tool, when narrower than its integration. */
   credential?: {
     provider: string;
@@ -198,6 +200,9 @@ export function registerTool(tool: RegisteredTool): void {
       `[tools] '${tool.name}' declared integration='${tool.integration}' but name resolves to '${expected}'`,
     );
   }
+  if (tool.availability?.surface === "kernel" && tool.integration !== "system") {
+    throw new Error(`[tools] only system tools may declare availability.surface='kernel'`);
+  }
   // And the action must be a known action slug for that integration —
   // mirrors the compile-time check `liveTool` enforces, but covers the
   // case where someone bypasses the factory and constructs a
@@ -230,6 +235,29 @@ export function listToolsForIntegration(slug: IntegrationSlug): RegisteredTool[]
 /** Stable snapshot of every executable the process currently knows about. */
 export function listRegisteredTools(): RegisteredTool[] {
   return [...REGISTRY.values()].sort((a, b) => a.name.localeCompare(b.name));
+}
+
+/** Stable snapshot of the tools that bootstrap every agent run. */
+export function listKernelTools(): RegisteredTool[] {
+  return listRegisteredTools().filter((tool) => tool.availability?.surface === "kernel");
+}
+
+export function assertKernelToolsRegistered(
+  declaredTools?: readonly RegisteredTool[],
+): void {
+  const declaredKernel = declaredTools?.filter(
+    (tool) => tool.availability?.surface === "kernel",
+  );
+  const kernel = listKernelTools();
+  if (kernel.length === 0 || declaredKernel?.length === 0) {
+    throw new Error("No system tools are registered for the kernel surface");
+  }
+  const missing = declaredKernel?.filter((tool) => getTool(tool.name) !== tool) ?? [];
+  if (missing.length > 0) {
+    throw new Error(
+      `Declared system kernel tools are not registered: ${missing.map((tool) => tool.name).join(", ")}`,
+    );
+  }
 }
 
 function humanizeAction(action: string): string {

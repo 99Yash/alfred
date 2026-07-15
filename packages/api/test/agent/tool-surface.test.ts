@@ -19,6 +19,7 @@ test("the default system kernel excludes loadable system capabilities", () => {
       integration: "system",
       action: "search_tools",
       riskTier: "no_risk",
+      availability: { surface: "kernel" },
       description: "Search tools.",
       inputSchema: z.object({}).strict(),
       execute: async () => ({}),
@@ -27,6 +28,7 @@ test("the default system kernel excludes loadable system capabilities", () => {
       integration: "system",
       action: "load_tool",
       riskTier: "no_risk",
+      availability: { surface: "kernel" },
       description: "Load a tool.",
       inputSchema: z.object({}).strict(),
       execute: async () => ({}),
@@ -35,6 +37,7 @@ test("the default system kernel excludes loadable system capabilities", () => {
       integration: "system",
       action: "current_time",
       riskTier: "no_risk",
+      availability: { surface: "kernel" },
       description: "Read the current time.",
       inputSchema: z.object({}).strict(),
       execute: async () => ({}),
@@ -56,10 +59,10 @@ test("the default system kernel excludes loadable system capabilities", () => {
   ]);
 });
 
-test("the system kernel fails loudly when a required tool is not registered", () => {
+test("the system kernel fails loudly when no kernel tools are registered", () => {
   assert.throws(
     () => systemToolKernel(),
-    /Required system tool kernel is not registered: system\.current_time, system\.load_tool, system\.search_tools/,
+    /No system tools are registered for the kernel surface/,
   );
 });
 
