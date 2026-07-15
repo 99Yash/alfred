@@ -34,6 +34,18 @@ export interface ToolDiscoveryMetadata {
   relatedTools?: readonly ToolName[];
 }
 
+export interface ToolAvailabilityMetadata {
+  /** Credential capability required by this exact tool, when narrower than its integration. */
+  credential?: {
+    provider: string;
+    anyOfScopes: readonly string[];
+  };
+  /** Caller kinds that may actually receive and invoke this tool. */
+  callers?: readonly ("boss" | "sub_agent")[];
+  /** True when execution requires an interactive chat thread. */
+  requiresThread?: boolean;
+}
+
 export interface ToolExecuteContext {
   runId: string;
   /**
@@ -96,6 +108,8 @@ export interface LiveToolArgs<
   description: string;
   /** Compact discovery copy co-located with the executable definition (#411). */
   discovery?: ToolDiscoveryMetadata;
+  /** Exact execution prerequisites used by search, preload, and load. */
+  availability?: ToolAvailabilityMetadata;
   inputSchema: S;
   /**
    * Pure side-effect: the dispatcher validates input against
@@ -123,6 +137,7 @@ export interface RegisteredTool {
   riskTier: ToolRiskTier;
   description: string;
   discovery: Required<Pick<ToolDiscoveryMetadata, "title" | "summary">> & ToolDiscoveryMetadata;
+  availability?: ToolAvailabilityMetadata;
   inputSchema: z.ZodTypeAny;
   execute: (input: unknown, ctx: ToolExecuteContext) => Promise<unknown>;
   /** See {@link LiveToolArgs.redactInput}. Erased to `unknown` at the registry boundary. */
@@ -153,6 +168,7 @@ export function liveTool<
       title,
       summary: args.discovery?.summary ?? args.description,
     },
+    availability: args.availability,
     inputSchema: args.inputSchema,
     execute: async (input, ctx) => {
       const parsed = args.inputSchema.parse(input);

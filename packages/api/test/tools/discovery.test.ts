@@ -11,6 +11,10 @@ import {
   type ToolCatalogAccess,
 } from "../../src/modules/tools/discovery";
 import {
+  availableToolNames,
+  type IntegrationAvailabilitySnapshot,
+} from "../../src/modules/integrations/availability";
+import {
   clearToolRegistryForTests,
   liveTool,
   registerTool,
@@ -27,7 +31,7 @@ const gmailSearch = liveTool({
   discovery: {
     title: "Search email",
     summary: "Find messages in the inbox.",
-    aliases: ["find mail"],
+    aliases: ["find mail", "common task"],
     tags: ["communication"],
     entities: ["message"],
     verbs: ["search"],
@@ -44,7 +48,7 @@ const calendarCreate = liveTool({
   discovery: {
     title: "Create event",
     summary: "Schedule a new meeting.",
-    aliases: ["book meeting"],
+    aliases: ["book meeting", "common task"],
     tags: ["calendar"],
     entities: ["meeting"],
     verbs: ["schedule"],
@@ -61,11 +65,31 @@ const calendarList = liveTool({
   discovery: {
     title: "List events",
     summary: "Show upcoming calendar events.",
-    aliases: ["what's on my calendar"],
+    aliases: ["what's on my calendar", "common task"],
     tags: ["calendar"],
     entities: ["calendar", "event", "meeting"],
     verbs: ["list", "show", "read"],
   },
+  inputSchema: z.object({}).strict(),
+  execute: async () => ({ ok: true }),
+});
+
+const gmailRead = liveTool({
+  integration: "gmail",
+  action: "read_message",
+  riskTier: "low",
+  description: "Read mail messages.",
+  discovery: { aliases: ["mail task", "common task"], entities: ["mail"], verbs: ["handle"] },
+  inputSchema: z.object({}).strict(),
+  execute: async () => ({ ok: true }),
+});
+
+const gmailSend = liveTool({
+  integration: "gmail",
+  action: "send_draft",
+  riskTier: "high",
+  description: "Send mail messages.",
+  discovery: { aliases: ["mail task", "common task"], entities: ["mail"], verbs: ["handle"] },
   inputSchema: z.object({}).strict(),
   execute: async () => ({ ok: true }),
 });
@@ -76,7 +100,15 @@ function access(
   available: readonly LoadableIntegrationSlug[],
   allowedIntegrations: readonly string[] = [],
 ): ToolCatalogAccess {
-  return { availableIntegrations: new Set(available), allowedIntegrations };
+  const availableSet = new Set(available);
+  return {
+    availableTools: new Set(
+      [gmailSearch, gmailRead, gmailSend, calendarCreate, calendarList]
+        .filter((tool) => availableSet.has(tool.integration as LoadableIntegrationSlug))
+        .map((tool) => tool.name),
+    ),
+    allowedIntegrations,
+  };
 }
 
 describe("tool discovery", () => {
@@ -152,6 +184,71 @@ describe("tool discovery", () => {
     ]);
     assert.deepEqual(preloadToolCatalog({ ...args, prompt: "calendar Friday" }), []);
   });
+
+  test("applies the preload limit after removing already-active candidates", () => {
+    const ranked = [calendarCreate, calendarList, gmailRead, gmailSearch, gmailSend];
+    const activeTools = ranked.slice(0, 4).map((tool) => tool.name);
+    assert.deepEqual(
+      preloadToolCatalog({
+        prompt: "common task",
+        limit: 4,
+        tools: ranked,
+        activeTools,
+        access: {
+          allowedIntegrations: [],
+          availableTools: new Set(ranked.map((tool) => tool.name)),
+        },
+      }),
+      ["gmail.send_draft"],
+    );
+  });
+});
+
+test("exact availability respects tool scopes and caller context", () => {
+  const readonlyScope = "gmail.readonly";
+  const read = liveTool({
+    integration: "gmail",
+    action: "search",
+    riskTier: "no_risk",
+    description: "Search mail.",
+    availability: { credential: { provider: "google", anyOfScopes: [readonlyScope] } },
+    inputSchema: z.object({}).strict(),
+    execute: async () => ({}),
+  });
+  const send = liveTool({
+    integration: "gmail",
+    action: "send_draft",
+    riskTier: "high",
+    description: "Send mail.",
+    availability: { credential: { provider: "google", anyOfScopes: ["gmail.send"] } },
+    inputSchema: z.object({}).strict(),
+    execute: async () => ({}),
+  });
+  const spawn = liveTool({
+    integration: "system",
+    action: "spawn_sub_agent",
+    riskTier: "no_risk",
+    description: "Spawn child.",
+    availability: { callers: ["boss"] },
+    inputSchema: z.object({}).strict(),
+    execute: async () => ({}),
+  });
+  const snapshot: IntegrationAvailabilitySnapshot = {
+    integrations: new Map([["gmail", { health: "active", accountLabel: null }]]),
+    providers: new Map([
+      ["google", [{ status: "active", scopes: new Set([readonlyScope]), accountLabel: null }]],
+    ]),
+  };
+
+  assert.deepEqual(
+    [
+      ...availableToolNames(snapshot, [read, send, spawn], [], {
+        caller: "sub_agent",
+        hasThread: false,
+      }),
+    ],
+    ["gmail.search"],
+  );
 });
 
 test("exact load result activates only the registered chosen tool", () => {

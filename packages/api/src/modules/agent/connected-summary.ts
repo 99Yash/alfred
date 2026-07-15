@@ -1,5 +1,11 @@
-import { INTEGRATION_ACTIONS, type LoadableIntegrationSlug } from "@alfred/contracts";
-import { readIntegrationAvailability } from "../integrations/availability";
+import type { LoadableIntegrationSlug } from "@alfred/contracts";
+import {
+  availableToolNames,
+  readIntegrationAvailability,
+  type IntegrationAvailabilitySnapshot,
+  type ToolAvailabilityContext,
+} from "../integrations/availability";
+import { listRegisteredTools } from "../tools/registry";
 
 /**
  * ADR-0053 connected summary: a frozen, human-readable one-line-per-integration
@@ -93,12 +99,29 @@ export async function buildConnectedSummary(
   allowedIntegrations: readonly string[],
 ): Promise<string> {
   const availability = await readIntegrationAvailability(userId);
+  return buildConnectedSummaryFromAvailability(availability, allowedIntegrations, {
+    caller: "boss",
+    hasThread: true,
+  });
+}
 
+export function buildConnectedSummaryFromAvailability(
+  availability: IntegrationAvailabilitySnapshot,
+  allowedIntegrations: readonly string[],
+  context: ToolAvailabilityContext,
+): string {
+  const registeredTools = listRegisteredTools();
+  const availableTools = availableToolNames(
+    availability,
+    registeredTools,
+    allowedIntegrations,
+    context,
+  );
   const allowed = new Set(allowedIntegrations);
   const lines: string[] = [];
   for (const spec of SUMMARY_SLUGS) {
     if (allowed.size > 0 && !allowed.has(spec.slug)) continue;
-    const access = availability.get(spec.slug);
+    const access = availability.integrations.get(spec.slug);
     if (!access || access.health === null) continue;
     // List the fully-qualified tool names (`calendar.list_events`), not the
     // bare actions. A slug-then-actions shape ("calendar — list_events, …")
@@ -108,20 +131,20 @@ export async function buildConnectedSummary(
     // `integration.action` strings is the shape it should paste verbatim.
     const identity = spec.showIdentity ? access.accountLabel : null;
     const binding = identity ? ` — connected as ${identity}` : "";
-    // A needs_reauth slug's tools will be rejected by the dispatcher, so don't
-    // list them as callable — naming them under an "authoritative" header
-    // invites calls that can only fail. Surface the reconnect state instead
-    // (#286 review).
-    if (access.health === "needs_reauth") {
+    const tools = registeredTools
+      .filter((tool) => tool.integration === spec.slug && availableTools.has(tool.name))
+      .map((tool) => tool.name)
+      .sort();
+    // A slug with credentials but no executable tools needs reauthorization.
+    // Exact tool availability wins when a narrower scope still supports part
+    // of the integration (for example Gmail read without Gmail send).
+    if (tools.length === 0 && access.health === "needs_reauth") {
       lines.push(
         `- ${spec.slug} — ${spec.blurb}${binding} (needs reauth — tell the user to reconnect ${spec.slug}; don't call its tools yet)`,
       );
       continue;
     }
-    const tools = INTEGRATION_ACTIONS[spec.slug]
-      .map((action) => `${spec.slug}.${action}`)
-      .join(", ");
-    lines.push(`- ${tools} — ${spec.blurb}${binding}`);
+    if (tools.length > 0) lines.push(`- ${tools.join(", ")} — ${spec.blurb}${binding}`);
   }
 
   if (lines.length === 0) return NO_INTEGRATIONS_TEXT;

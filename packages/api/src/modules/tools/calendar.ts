@@ -292,6 +292,9 @@ export const calendarTools: readonly RegisteredTool[] = [
       verbs: ["list", "check", "show", "find", "read"],
       relatedTools: ["calendar.create_event"],
     },
+    availability: {
+      credential: { provider: "google", anyOfScopes: CALENDAR_READ_SCOPES },
+    },
     inputSchema: calendarListEventsInput,
     execute: async (input, ctx) => {
       return executeListEvents(input, ctx.userId, ctx.timezone);
@@ -308,6 +311,9 @@ export const calendarTools: readonly RegisteredTool[] = [
       entities: ["calendar", "event", "meeting"],
       verbs: ["create", "schedule", "add", "book"],
       relatedTools: ["calendar.list_events"],
+    },
+    availability: {
+      credential: { provider: "google", anyOfScopes: CALENDAR_WRITE_SCOPES },
     },
     inputSchema: calendarCreateEventInput,
     execute: async (input, ctx) => {

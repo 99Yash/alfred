@@ -68,7 +68,8 @@ import { finalizeRunArtifacts } from "../../artifacts/write";
 import { logger } from "../../../lib/logger";
 import { getTool } from "../../tools/registry";
 import { latestUserPrompt, preloadToolsForPrompt } from "../../tools/discovery";
-import { buildConnectedSummary } from "../connected-summary";
+import { readIntegrationAvailability } from "../../integrations/availability";
+import { buildConnectedSummaryFromAvailability } from "../connected-summary";
 import { formatDateGrounding, formatRuntimeTimeGrounding, resolveUserTimezone } from "../grounding";
 import {
   activateTool,
@@ -1855,12 +1856,21 @@ const chatTurnStep: Step<ChatRunState> = {
       }
 
       const hydratedTranscript = await hydrateTranscriptForModel(transcript);
+      let availability: Awaited<ReturnType<typeof readIntegrationAvailability>> | undefined;
+      const loadAvailability = async () => {
+        availability ??= await readIntegrationAvailability(ctx.userId);
+        return availability;
+      };
 
       if (state.timezone === undefined) {
         state.timezone = await resolveUserTimezone(ctx.userId);
       }
       if (state.connectedSummary === undefined) {
-        state.connectedSummary = await buildConnectedSummary(ctx.userId, state.allowedIntegrations);
+        state.connectedSummary = buildConnectedSummaryFromAvailability(
+          await loadAvailability(),
+          state.allowedIntegrations,
+          { caller: "boss", hasThread: true },
+        );
       }
       if (!state.preloadApplied) {
         const prompt = latestUserPrompt(hydratedTranscript);
@@ -1879,6 +1889,8 @@ const chatTurnStep: Step<ChatRunState> = {
             prompt,
             allowedIntegrations: state.allowedIntegrations,
             activeTools: state.activeTools,
+            context: { caller: "boss", hasThread: true },
+            availability: await loadAvailability(),
           });
           for (const toolName of preloaded) {
             state.activeTools = activateTool(state.activeTools, toolName);
