@@ -53,6 +53,23 @@ const calendarCreate = liveTool({
   execute: async () => ({ ok: true }),
 });
 
+const calendarList = liveTool({
+  integration: "calendar",
+  action: "list_events",
+  riskTier: "no_risk",
+  description: "List calendar events.",
+  discovery: {
+    title: "List events",
+    summary: "Show upcoming calendar events.",
+    aliases: ["what's on my calendar"],
+    tags: ["calendar"],
+    entities: ["calendar", "event", "meeting"],
+    verbs: ["list", "show", "read"],
+  },
+  inputSchema: z.object({}).strict(),
+  execute: async () => ({ ok: true }),
+});
+
 const tools: readonly RegisteredTool[] = [gmailSearch, calendarCreate];
 
 function access(
@@ -122,6 +139,18 @@ describe("tool discovery", () => {
     } as const;
     assert.deepEqual(preloadToolCatalog({ ...args, activeTools: [] }), ["calendar.create_event"]);
     assert.deepEqual(preloadToolCatalog({ ...args, activeTools: ["calendar.create_event"] }), []);
+  });
+
+  test("preloads intent matches without activating a sibling write from a generic noun", () => {
+    const args = {
+      tools: [calendarList, calendarCreate],
+      access: access(["calendar"]),
+      activeTools: [],
+    } as const;
+    assert.deepEqual(preloadToolCatalog({ ...args, prompt: "What's on my calendar Friday?" }), [
+      "calendar.list_events",
+    ]);
+    assert.deepEqual(preloadToolCatalog({ ...args, prompt: "calendar Friday" }), []);
   });
 });
 
