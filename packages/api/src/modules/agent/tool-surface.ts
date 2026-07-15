@@ -1,6 +1,10 @@
 import { isIntegrationSlug, isRecord, isToolName, type ToolName } from "@alfred/contracts";
+import { tool, type Tool, type ToolSet } from "@alfred/ai";
 import { z } from "zod";
 import { getTool, listKernelTools, listToolsForIntegration } from "../tools/registry";
+import type { ToolAvailabilityContext, IntegrationAvailabilitySnapshot } from "../integrations/availability";
+import { latestUserPrompt, preloadToolsForPrompt } from "../tools/discovery";
+import { startToolPreloadSpan } from "./runtime-spans";
 
 export const toolNameSchema = z.custom<ToolName>(
   (value) => typeof value === "string" && isToolName(value),
@@ -84,4 +88,104 @@ export function applySystemToolEffect(
 
 function uniqueToolNames(toolNames: readonly ToolName[]): ToolName[] {
   return [...new Set(toolNames)].sort();
+}
+
+/**
+ * Memoized SDK `ToolSet` per (caller, hasThread, active-name-set). The registry
+ * is write-once at boot, so a tool's SDK definition is a pure function of its
+ * name; the returned object is treated as read-only by the SDK, so sharing one
+ * instance across turns and users is safe. Keyed by the availability context too
+ * because that changes which tools are exposed. Unbounded but bounded in
+ * practice — the registry is small and the distinct active-set count is tiny.
+ */
+const sdkToolSetCache = new Map<string, ToolSet>();
+
+/**
+ * Project the run's exact active tool names into the SDK `ToolSet` for a model
+ * turn, dropping tools the caller could never actually invoke so the model never
+ * burns a turn on a call the dispatcher would only bounce:
+ *   - `callers` gates boss-only tools (the sub-agent join tools) out of sub-agent
+ *     runs (ADR-0073), and
+ *   - `requiresThread` gates thread-only tools (chat history) out of thread-less
+ *     brief/sub-agent runs.
+ * This mirrors the same two predicates {@link availableToolNames} enforces for
+ * discovery, so a kernel tool like `read_chat_history` can be eager in chat yet
+ * stay invisible where it can't run. Shared by the chat-turn and brief workflows
+ * so the two SDK-tool builders can't drift.
+ */
+export function buildSdkToolSet(
+  activeTools: readonly ToolName[],
+  context: ToolAvailabilityContext,
+): ToolSet {
+  const names = [...new Set(activeTools)].sort();
+  const key = `${context.caller}:${context.hasThread}:${names.join(",")}`;
+  const cached = sdkToolSetCache.get(key);
+  if (cached) return cached;
+
+  const out: Partial<Record<ToolName, Tool>> = {};
+  for (const name of names) {
+    const registered = getTool(name);
+    if (!registered) continue;
+    const availability = registered.availability;
+    if (availability?.callers && !availability.callers.includes(context.caller)) continue;
+    if (availability?.requiresThread && !context.hasThread) continue;
+    out[registered.name] = tool({
+      description: registered.description,
+      inputSchema: registered.inputSchema,
+    });
+  }
+  const tools = out as ToolSet;
+  sdkToolSetCache.set(key, tools);
+  return tools;
+}
+
+/**
+ * First-turn deterministic preload, folded into the run's active surface and
+ * traced as a `runtime.tool.preload` span. Idempotent on `state.preloadApplied`,
+ * so it runs at most once per run. Shared by the chat-turn and brief workflows —
+ * both open the identical span, rank the latest user prompt, and activate the
+ * selected tools — so the selection policy and telemetry can't drift between the
+ * two entry points. A thrown ranking/availability error closes the span as an
+ * error and propagates (the caller's step-retry owns recovery).
+ */
+export async function applyPromptToolPreload(args: {
+  state: { activeTools: ToolName[]; allowedIntegrations: string[]; preloadApplied: boolean };
+  userId: string;
+  runId: string;
+  workflow: string;
+  /** Span caller label (`boss` | `sub:<id>`); distinct from the availability caller kind. */
+  spanCaller: string;
+  transcript: readonly { role: string; content: unknown }[];
+  context: ToolAvailabilityContext;
+  availability: IntegrationAvailabilitySnapshot;
+}): Promise<void> {
+  if (args.state.preloadApplied) return;
+  const prompt = latestUserPrompt(args.transcript);
+  const span = startToolPreloadSpan({
+    runId: args.runId,
+    workflow: args.workflow,
+    caller: args.spanCaller,
+    activeBefore: args.state.activeTools.length,
+    allowedIntegrationCount: args.state.allowedIntegrations.length,
+    promptChars: prompt.length,
+    startedAt: new Date(),
+  });
+  try {
+    const preloaded = await preloadToolsForPrompt({
+      userId: args.userId,
+      prompt,
+      allowedIntegrations: args.state.allowedIntegrations,
+      activeTools: args.state.activeTools,
+      context: args.context,
+      availability: args.availability,
+    });
+    for (const toolName of preloaded) {
+      args.state.activeTools = activateTool(args.state.activeTools, toolName);
+    }
+    span.end(preloaded, args.state.activeTools.length);
+  } catch (error) {
+    span.error();
+    throw error;
+  }
+  args.state.preloadApplied = true;
 }

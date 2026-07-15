@@ -203,7 +203,11 @@ export const systemTools: readonly RegisteredTool[] = [
     riskTier: "no_risk",
     description:
       "Search or fetch bounded raw evidence from the current chat thread when the conversation summary is insufficient. Fetch messages, tool outcomes, or attachment representations by their stable IDs. This never accesses another thread.",
-    availability: { requiresThread: true },
+    // Kernel: the chat prompt names this by name as a primary source, so it must
+    // be visible on turn one — otherwise every first use pays a search/load dance
+    // plus a mid-run prompt-cache invalidation. `requiresThread` still gates it out
+    // of thread-less brief/sub-agent runs at the SDK-tool boundary.
+    availability: { surface: "kernel", requiresThread: true },
     inputSchema: readChatHistoryInput,
     execute: async (input, ctx) => {
       if (!ctx.threadId) {
@@ -221,7 +225,9 @@ export const systemTools: readonly RegisteredTool[] = [
     action: "spawn_sub_agent",
     riskTier: "no_risk",
     description: "Spawn one focused sub-agent run with an isolated brief.",
-    availability: { callers: ["boss"] },
+    // Kernel: named in the chat/boss prompt as a primary capability; keep it
+    // visible on turn one. `callers` still hides it from sub-agent runs.
+    availability: { surface: "kernel", callers: ["boss"] },
     inputSchema: spawnSubAgentInputSchema,
     execute: async (input, ctx) => {
       const workflowAllowed = (ctx.allowedIntegrations ?? []).filter(isLoadableIntegrationSlug);
@@ -274,6 +280,10 @@ export const systemTools: readonly RegisteredTool[] = [
     riskTier: "no_risk",
     description:
       "Read Alfred's compact, bounded user context: profile, confirmed facts, preferences, known people/entities, relationship edges, and recent memory. Use before answering questions about people, relationships, standing instructions, preferences, or personal context.",
+    // Kernel: the single most-reached-for source in the chat/boss prompt. Off the
+    // kernel it never preloads (no intent-bearing discovery metadata), so every
+    // "what do you know about X" pays a search/load dance + a mid-run cache bust.
+    availability: { surface: "kernel" },
     inputSchema: readUserContextInput,
     execute: async (input, ctx) => {
       return await readUserContext(ctx.userId, {
@@ -491,6 +501,9 @@ export const systemTools: readonly RegisteredTool[] = [
     // `system.*` tools are always dispatched in autonomy mode, so this never awaits approval.
     // Cost is bucketed under api_call_log.kind = 'web_search', not the gate.
     riskTier: "no_risk",
+    // Kernel: the prompt's third rung (live web) and a hot path for person/company
+    // research. Eager on turn one so it never triggers the search/load dance.
+    availability: { surface: "kernel" },
     description:
       "Search the live web and get back what the search found: a synthesized answer, source results/citations behind it (open a result URL with fetch_url to read the page in full), and the queries actually run. Use this for current events, facts you're unsure of, or public background on a person or company — don't guess from memory when a lookup would settle it. It surfaces candidate matches even when uncertain rather than stopping at 'no confident match', so treat a thin result as a cue to search a different angle or drill a source, not a dead end.",
     inputSchema: webSearchInput,
