@@ -97,6 +97,9 @@ export const gmailTools: readonly RegisteredTool[] = [
       verbs: ["search", "find", "list"],
       relatedTools: ["gmail.read_message"],
     },
+    availability: {
+      credential: { provider: "google", anyOfScopes: GMAIL_READ_SCOPES },
+    },
     inputSchema: gmailSearchInput,
     execute: async (input, ctx) => {
       const accessToken = await resolveGoogleAccessToken(ctx.userId, GMAIL_READ_POLICY);
@@ -191,6 +194,9 @@ export const gmailTools: readonly RegisteredTool[] = [
       verbs: ["read", "open", "get"],
       relatedTools: ["gmail.search", "gmail.send_draft"],
     },
+    availability: {
+      credential: { provider: "google", anyOfScopes: GMAIL_READ_SCOPES },
+    },
     inputSchema: gmailReadMessageInput,
     execute: async (input, ctx) => {
       const where = input.documentId
@@ -279,6 +285,9 @@ export const gmailTools: readonly RegisteredTool[] = [
       entities: ["email", "message", "draft", "reply"],
       verbs: ["send", "reply", "draft", "write"],
       relatedTools: ["gmail.search", "gmail.read_message"],
+    },
+    availability: {
+      credential: { provider: "google", anyOfScopes: [GMAIL_SEND_SCOPE] },
     },
     inputSchema: gmailSendDraftInput,
     execute: async (input, ctx) => {

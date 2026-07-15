@@ -111,6 +111,10 @@ export const systemTools: readonly RegisteredTool[] = [
         query: input.query,
         limit: input.limit,
         allowedIntegrations: ctx.allowedIntegrations ?? [],
+        context: {
+          caller: ctx.caller === "boss" ? "boss" : "sub_agent",
+          hasThread: !!ctx.threadId,
+        },
       }),
     }),
   }),
@@ -135,6 +139,10 @@ export const systemTools: readonly RegisteredTool[] = [
         userId: ctx.userId,
         name: input.name,
         allowedIntegrations: ctx.allowedIntegrations ?? [],
+        context: {
+          caller: ctx.caller === "boss" ? "boss" : "sub_agent",
+          hasThread: !!ctx.threadId,
+        },
       }),
   }),
   liveTool({
@@ -164,6 +172,7 @@ export const systemTools: readonly RegisteredTool[] = [
     riskTier: "no_risk",
     description:
       "Search or fetch bounded raw evidence from the current chat thread when the conversation summary is insufficient. Fetch messages, tool outcomes, or attachment representations by their stable IDs. This never accesses another thread.",
+    availability: { requiresThread: true },
     inputSchema: readChatHistoryInput,
     execute: async (input, ctx) => {
       if (!ctx.threadId) {
@@ -181,6 +190,7 @@ export const systemTools: readonly RegisteredTool[] = [
     action: "spawn_sub_agent",
     riskTier: "no_risk",
     description: "Spawn one focused sub-agent run with an isolated brief.",
+    availability: { callers: ["boss"] },
     inputSchema: spawnSubAgentInputSchema,
     execute: async (input, ctx) => {
       const workflowAllowed = (ctx.allowedIntegrations ?? []).filter(isLoadableIntegrationSlug);
@@ -213,6 +223,7 @@ export const systemTools: readonly RegisteredTool[] = [
     riskTier: "no_risk",
     description:
       "Wait for a spawned sub-agent to finish and read its real result. Call this after system.spawn_sub_agent; it returns the child's terminal status, output, and any error. Never tell the user you'll notify them when a sub-agent is done later — there is no out-of-turn notification; await it here so the turn completes with the real result, or report honestly that it could not finish.",
+    availability: { callers: ["boss"] },
     inputSchema: awaitSubAgentInputSchema,
     // The dispatcher (dispatch/index.ts) intercepts this tool to park the parent
     // on a child-completion signal when the child is still running (ADR-0073).
@@ -300,6 +311,7 @@ export const systemTools: readonly RegisteredTool[] = [
     action: "promote",
     riskTier: "no_risk",
     description: "Copy a sub-agent scratch value into the boss-owned shared scratchpad.",
+    availability: { callers: ["boss"] },
     inputSchema: promoteScratchInput,
     execute: async (input, ctx) => {
       const from = parseScratchToolKey(input.fromKey);
@@ -490,6 +502,7 @@ export const systemTools: readonly RegisteredTool[] = [
     riskTier: "no_risk",
     description:
       "Produce a rich artifact the user reads in a side panel: a written `document` (markdown) or a deck/PDF of `pages` (HTML). Use this when the user asks you to write, draft, or build something substantial, instead of dumping it all into the chat reply. Pick the medium by how the deliverable is meant to be consumed, not by which looks more impressive: if it is read as prose — a brief, an overview, a primer, a report, notes, an explainer, a write-up — author a `document`. Reserve `pages` for deliverables that are inherently presentational or visually laid out — a slide deck or presentation to show, a pitch, a designed one-pager, a résumé, a printable PDF. When the ask is ambiguous, default to `document`: it is the right home for reading material and far cheaper to produce, so only reach for `pages` when the user actually signals slides, a deck, a presentation, or a designed/printable page. Opens the artifact; for a `document` author the opening section here (≤~1,800 words) and continue with append_artifact_section — do not attempt the whole document in one call; for `pages` follow with append_artifact_page per page. Each page is body-level HTML authored against the Alfred house shell: write only the page body, not a full standalone document. This is in-app content, not a downloadable file.",
+    availability: { requiresThread: true },
     inputSchema: createArtifactInput,
     execute: async (input, ctx) => {
       const resolved = resolveArtifactContext(ctx);
@@ -503,6 +516,7 @@ export const systemTools: readonly RegisteredTool[] = [
     riskTier: "no_risk",
     description:
       "Append one page to a `pages` artifact created with create_artifact. Call once per page, in order. Write body-level HTML only: never emit <html>, <head>, <body>, <!doctype>, <script>, external <link>/CDN tags, page width/height, page margins, or a body background. The Alfred house shell supplies page geometry, white surface, typography, tokens, and classes at render time. Preferred classes: art-stack, art-row, art-grid-2, art-split, art-center, art-between, art-fill, art-grow, art-wrap; art-display, art-title, art-headline, art-subhead, art-body, art-caption, art-eyebrow; art-card, art-panel, art-badge, art-rule, art-accent-mark, art-dot, art-list, art-stat-value, art-stat-label, art-bar-track, art-bar-fill. For a `pdf` document (resume, report, one-pager) use the denser document vocabulary instead of the big slide type: the first content wrapper must be art-doc, then compose with art-doc-name, art-doc-role, art-doc-section, art-doc-heading, art-doc-body, art-doc-meta, art-doc-header, art-doc-contact, art-doc-lede, art-doc-entry, art-doc-cols, art-doc-chips, and art-doc-rule. PDF pages that override --art-* tokens or declare custom font, font-family, or font-size values are rejected. Keep everything inside the fixed page box; there is no scrolling. Use one idea per page, split crowded content, keep code blocks short, and use a small inline <style> only for one-off geometry (reference the design tokens, never hardcode colors). Pages appear in the sidebar as you add them.",
+    availability: { requiresThread: true },
     inputSchema: appendArtifactPageInput,
     execute: async (input, ctx) => {
       const resolved = resolveArtifactContext(ctx);
@@ -516,6 +530,7 @@ export const systemTools: readonly RegisteredTool[] = [
     riskTier: "no_risk",
     description:
       "Append one section of markdown to a `document` created with create_artifact. Call once per section, in order — do not attempt the whole document in one call; each section renders in the sidebar as you add it. Write your own `##` headings and keep each section self-contained (close every code fence, finish every list/table) since the sidebar re-renders the accumulated document as each section arrives. Also use this to extend a document from an earlier turn.",
+    availability: { requiresThread: true },
     inputSchema: appendArtifactSectionInput,
     execute: async (input, ctx) => {
       const resolved = resolveArtifactContext(ctx);
@@ -529,6 +544,7 @@ export const systemTools: readonly RegisteredTool[] = [
     riskTier: "no_risk",
     description:
       "Revise an existing artifact: rename it, replace a document's markdown, or replace a deck's full page list. Use this when the user asks for an edit to something you already produced this conversation. For cross-turn content replacement, work only from a reference with contentComplete=true and copy its baseContentHash; never replace content from a partial reference. Rename-only edits need no hash.",
+    availability: { requiresThread: true },
     inputSchema: updateArtifactInput,
     execute: async (input, ctx) => {
       const resolved = resolveArtifactContext(ctx);

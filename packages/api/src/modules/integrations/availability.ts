@@ -11,6 +11,7 @@ import {
   SLIDES_SCOPE,
 } from "@alfred/integrations/google";
 import { eq } from "drizzle-orm";
+import type { RegisteredTool } from "../tools/registry";
 
 interface IntegrationAccessSpec {
   slug: LoadableIntegrationSlug;
@@ -46,10 +47,20 @@ export interface IntegrationAvailability {
   accountLabel: string | null;
 }
 
+export interface ToolAvailabilityContext {
+  caller: "boss" | "sub_agent";
+  hasThread: boolean;
+}
+
+export interface IntegrationAvailabilitySnapshot {
+  integrations: ReadonlyMap<LoadableIntegrationSlug, IntegrationAvailability>;
+  providers: ReadonlyMap<string, readonly ProviderRow[]>;
+}
+
 /** One credential read projected into exact per-integration capability health. */
 export async function readIntegrationAvailability(
   userId: string,
-): Promise<Map<LoadableIntegrationSlug, IntegrationAvailability>> {
+): Promise<IntegrationAvailabilitySnapshot> {
   const rows = await db()
     .select({
       provider: integrationCredentials.provider,
@@ -88,19 +99,41 @@ export async function readIntegrationAvailability(
       accountLabel: active?.accountLabel?.trim() || null,
     });
   }
-  return availability;
+  return { integrations: availability, providers: byProvider };
 }
 
-export async function availableIntegrationSlugs(
-  userId: string,
+export function availableToolNames(
+  snapshot: IntegrationAvailabilitySnapshot,
+  tools: readonly RegisteredTool[],
   allowedIntegrations: readonly string[],
-): Promise<Set<LoadableIntegrationSlug>> {
-  const availability = await readIntegrationAvailability(userId);
+  context: ToolAvailabilityContext,
+): Set<RegisteredTool["name"]> {
   const allowed = new Set(allowedIntegrations);
-  const available = new Set<LoadableIntegrationSlug>();
-  for (const [slug, access] of availability) {
-    if (allowed.size > 0 && !allowed.has(slug)) continue;
-    if (access.health === "active") available.add(slug);
+  const available = new Set<RegisteredTool["name"]>();
+  for (const tool of tools) {
+    if (tool.integration !== "system" && allowed.size > 0 && !allowed.has(tool.integration)) {
+      continue;
+    }
+    if (tool.availability?.callers && !tool.availability.callers.includes(context.caller)) continue;
+    if (tool.availability?.requiresThread && !context.hasThread) continue;
+
+    const credential = tool.availability?.credential;
+    if (credential) {
+      const providerRows = snapshot.providers.get(credential.provider) ?? [];
+      const credentialMatches = providerRows.some(
+        (row) =>
+          row.status === "active" &&
+          (credential.anyOfScopes.length === 0 ||
+            credential.anyOfScopes.some((scope) => row.scopes.has(scope))),
+      );
+      if (!credentialMatches) continue;
+    } else if (
+      tool.integration !== "system" &&
+      snapshot.integrations.get(tool.integration)?.health !== "active"
+    ) {
+      continue;
+    }
+    available.add(tool.name);
   }
   return available;
 }

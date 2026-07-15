@@ -2,11 +2,15 @@ import {
   integrationFromToolName,
   isToolName,
   type IntegrationSlug,
-  type LoadableIntegrationSlug,
   type ToolName,
   type ToolRiskTier,
 } from "@alfred/contracts";
-import { availableIntegrationSlugs } from "../integrations/availability";
+import {
+  availableToolNames,
+  readIntegrationAvailability,
+  type IntegrationAvailabilitySnapshot,
+  type ToolAvailabilityContext,
+} from "../integrations/availability";
 import { getTool, listRegisteredTools, type RegisteredTool } from "./registry";
 
 export interface ToolSearchCandidate {
@@ -25,7 +29,7 @@ interface RankedCandidate extends ToolSearchCandidate {
 
 export interface ToolCatalogAccess {
   allowedIntegrations: readonly string[];
-  availableIntegrations: ReadonlySet<LoadableIntegrationSlug>;
+  availableTools: ReadonlySet<ToolName>;
 }
 
 export function searchToolCatalog(args: {
@@ -34,9 +38,9 @@ export function searchToolCatalog(args: {
   tools?: readonly RegisteredTool[];
   access: ToolCatalogAccess;
 }): ToolSearchCandidate[] {
-  return rankToolCatalog(args).map(
-    ({ score: _score, preloadEligible: _preloadEligible, ...candidate }) => candidate,
-  );
+  return rankToolCatalog(args)
+    .slice(0, boundedLimit(args.limit, 5))
+    .map(({ score: _score, preloadEligible: _preloadEligible, ...candidate }) => candidate);
 }
 
 export async function searchAvailableTools(args: {
@@ -44,15 +48,22 @@ export async function searchAvailableTools(args: {
   query: string;
   limit?: number;
   allowedIntegrations: readonly string[];
+  context: ToolAvailabilityContext;
+  availability?: IntegrationAvailabilitySnapshot;
 }): Promise<ToolSearchCandidate[]> {
-  const availableIntegrations = await availableIntegrationSlugs(
-    args.userId,
+  const tools = listRegisteredTools();
+  const availability = args.availability ?? (await readIntegrationAvailability(args.userId));
+  const availableTools = availableToolNames(
+    availability,
+    tools,
     args.allowedIntegrations,
+    args.context,
   );
   return searchToolCatalog({
     query: args.query,
     limit: args.limit,
-    access: { allowedIntegrations: args.allowedIntegrations, availableIntegrations },
+    tools,
+    access: { allowedIntegrations: args.allowedIntegrations, availableTools },
   });
 }
 
@@ -63,16 +74,23 @@ export async function preloadToolsForPrompt(args: {
   allowedIntegrations: readonly string[];
   activeTools: readonly ToolName[];
   limit?: number;
+  context: ToolAvailabilityContext;
+  availability?: IntegrationAvailabilitySnapshot;
 }): Promise<ToolName[]> {
-  const availableIntegrations = await availableIntegrationSlugs(
-    args.userId,
+  const tools = listRegisteredTools();
+  const availability = args.availability ?? (await readIntegrationAvailability(args.userId));
+  const availableTools = availableToolNames(
+    availability,
+    tools,
     args.allowedIntegrations,
+    args.context,
   );
   return preloadToolCatalog({
     prompt: args.prompt,
     limit: args.limit,
+    tools,
     activeTools: args.activeTools,
-    access: { allowedIntegrations: args.allowedIntegrations, availableIntegrations },
+    access: { allowedIntegrations: args.allowedIntegrations, availableTools },
   });
 }
 
@@ -94,6 +112,7 @@ export function preloadToolCatalog(args: {
       (candidate) =>
         candidate.score >= 30 && candidate.preloadEligible && !active.has(candidate.name),
     )
+    .slice(0, boundedLimit(args.limit, 4))
     .map((candidate) => candidate.name);
 }
 
@@ -113,6 +132,8 @@ export async function resolveExactToolLoad(args: {
   userId: string;
   name: string;
   allowedIntegrations: readonly string[];
+  context: ToolAvailabilityContext;
+  availability?: IntegrationAvailabilitySnapshot;
 }): Promise<
   | { ok: true; name: ToolName }
   | { ok: false; status: "unknown_tool" | "not_allowed" | "unavailable"; reason: string }
@@ -132,15 +153,23 @@ export async function resolveExactToolLoad(args: {
       reason: `Tool '${args.name}' is outside this workflow's integration allowlist.`,
     };
   }
-  if (integration !== "system") {
-    const available = await availableIntegrationSlugs(args.userId, args.allowedIntegrations);
-    if (!available.has(integration)) {
-      return {
-        ok: false,
-        status: "unavailable",
-        reason: `Tool '${args.name}' is not available for the user's current connections.`,
-      };
-    }
+  const tool = getTool(args.name);
+  if (!tool) {
+    return { ok: false, status: "unknown_tool", reason: `Tool '${args.name}' is not registered.` };
+  }
+  const availability = args.availability ?? (await readIntegrationAvailability(args.userId));
+  const available = availableToolNames(
+    availability,
+    [tool],
+    args.allowedIntegrations,
+    args.context,
+  );
+  if (!available.has(args.name)) {
+    return {
+      ok: false,
+      status: "unavailable",
+      reason: `Tool '${args.name}' is not available in this run's current context.`,
+    };
   }
   return { ok: true, name: args.name };
 }
@@ -158,7 +187,8 @@ function rankToolCatalog(args: {
   const ranked: RankedCandidate[] = [];
 
   for (const tool of args.tools ?? listRegisteredTools()) {
-    if (!toolIsAvailable(tool.integration, allowed, args.access.availableIntegrations)) continue;
+    if (!toolIsAvailable(tool.name, tool.integration, allowed, args.access.availableTools))
+      continue;
     const match = scoreTool(tool, query, queryTokens);
     if (match.score <= 0) continue;
     ranked.push({
@@ -173,19 +203,21 @@ function rankToolCatalog(args: {
     });
   }
 
-  return ranked
-    .sort((a, b) => b.score - a.score || a.name.localeCompare(b.name))
-    .slice(0, Math.max(1, Math.min(args.limit ?? 5, 10)));
+  return ranked.sort((a, b) => b.score - a.score || a.name.localeCompare(b.name));
 }
 
 function toolIsAvailable(
+  name: ToolName,
   integration: IntegrationSlug,
   allowed: ReadonlySet<string>,
-  available: ReadonlySet<LoadableIntegrationSlug>,
+  available: ReadonlySet<ToolName>,
 ): boolean {
-  if (integration === "system") return true;
-  if (allowed.size > 0 && !allowed.has(integration)) return false;
-  return available.has(integration);
+  if (integration !== "system" && allowed.size > 0 && !allowed.has(integration)) return false;
+  return available.has(name);
+}
+
+function boundedLimit(limit: number | undefined, fallback: number): number {
+  return Math.max(1, Math.min(limit ?? fallback, 10));
 }
 
 function scoreTool(

@@ -41,7 +41,8 @@ import {
 import { writeScratch } from "../../scratchpad";
 import { getTool } from "../../tools/registry";
 import { latestUserPrompt, preloadToolsForPrompt } from "../../tools/discovery";
-import { buildConnectedSummary } from "../connected-summary";
+import { readIntegrationAvailability } from "../../integrations/availability";
+import { buildConnectedSummaryFromAvailability } from "../connected-summary";
 import { formatDateGrounding, resolveUserTimezone } from "../grounding";
 import { composeAgentInstructions } from "../instructions";
 import {
@@ -223,12 +224,21 @@ const bossTurnStep: Step<BriefRunState> = {
     };
     const transcript = [...ctx.transcript];
     const subAgent = state.subAgent;
+    let availability: Awaited<ReturnType<typeof readIntegrationAvailability>> | undefined;
+    const loadAvailability = async () => {
+      availability ??= await readIntegrationAvailability(ctx.userId);
+      return availability;
+    };
     if (state.timezone === undefined) {
       state.timezone = await resolveUserTimezone(ctx.userId);
     }
     const grounding = formatDateGrounding(state.timezone);
     if (state.connectedSummary === undefined) {
-      state.connectedSummary = await buildConnectedSummary(ctx.userId, state.allowedIntegrations);
+      state.connectedSummary = buildConnectedSummaryFromAvailability(
+        await loadAvailability(),
+        state.allowedIntegrations,
+        { caller: subAgent ? "sub_agent" : "boss", hasThread: false },
+      );
     }
     if (!state.preloadApplied) {
       const prompt = latestUserPrompt(transcript);
@@ -247,6 +257,8 @@ const bossTurnStep: Step<BriefRunState> = {
           prompt,
           allowedIntegrations: state.allowedIntegrations,
           activeTools: state.activeTools,
+          context: { caller: subAgent ? "sub_agent" : "boss", hasThread: false },
+          availability: await loadAvailability(),
         });
         for (const toolName of preloaded)
           state.activeTools = activateTool(state.activeTools, toolName);
