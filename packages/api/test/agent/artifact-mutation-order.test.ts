@@ -39,3 +39,52 @@ test("artifact mutations serialize in model order without blocking independent c
   releaseLookup();
   assert.deepEqual(await run, ["lookup", "page-1", "page-2"]);
 });
+
+test("document section appends serialize in model order (ADR-0085)", async () => {
+  // Sections concatenate onto one shared body, so out-of-order dispatch would
+  // scramble the document even though the row lock prevents lost writes.
+  const calls = [
+    { toolName: "system.create_artifact", id: "create" },
+    { toolName: "system.append_artifact_section", id: "section-1" },
+    { toolName: "system.web_search", id: "lookup" },
+    { toolName: "system.append_artifact_section", id: "section-2" },
+  ];
+  const events: string[] = [];
+  let releaseCreate!: () => void;
+  const createReleased = new Promise<void>((resolve) => {
+    releaseCreate = resolve;
+  });
+
+  const run = dispatchAutonomyCallsInSafeOrder(
+    calls,
+    [false, false, false, false],
+    async (call) => {
+      events.push(`start:${call.id}`);
+      if (call.id === "create") await createReleased;
+      await Promise.resolve();
+      events.push(`end:${call.id}`);
+      return call.id;
+    },
+  );
+
+  // The independent lookup is dispatched first and runs to completion; every
+  // artifact mutation waits its turn behind the blocked create, so neither
+  // section can begin until create commits.
+  await Promise.resolve();
+  await Promise.resolve();
+  await Promise.resolve();
+  assert.deepEqual(events, ["start:lookup", "start:create", "end:lookup"]);
+
+  releaseCreate();
+  assert.deepEqual(await run, ["create", "section-1", "lookup", "section-2"]);
+  assert.deepEqual(events, [
+    "start:lookup",
+    "start:create",
+    "end:lookup",
+    "end:create",
+    "start:section-1",
+    "end:section-1",
+    "start:section-2",
+    "end:section-2",
+  ]);
+});

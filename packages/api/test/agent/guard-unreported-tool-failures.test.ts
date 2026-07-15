@@ -41,6 +41,7 @@ function baseState(overrides: Partial<ChatRunState> = {}): ChatRunState {
     reasoningSeq: 0,
     turnCount: 1,
     emptyCompletionRetries: 0,
+    streamTimeoutRetries: 0,
     startedAt: "2026-07-14T02:50:11.451Z",
     foldedChildRunIds: [],
     notedFailureToolCallIds: [],
@@ -420,5 +421,66 @@ describe("guardUnreportedToolFailures", () => {
     assert.equal(shouldPublishToolStarted(["gmail.search"], "gmail.search"), true);
     assert.equal(shouldPublishToolStarted([], "gmail.search"), false);
     assert.equal(shouldPublishToolStarted(["gmail.search"], "gmail.invented"), false);
+  });
+});
+
+/**
+ * The chat boss is *told* DEFAULT_VOICE_PROMPT ("No em-dashes") but a prompt is
+ * not a guarantee, so `sanitizeChatMessageFields` mechanically enforces it on
+ * the two fields that are Alfred's own final prose — `content` and each
+ * `narration` segment — the same way briefing's `compose.ts` does. Reasoning
+ * (internal chain-of-thought) and tool previews (raw tool data) stay verbatim.
+ */
+describe("sanitizeChatMessageFields — voice enforcement", () => {
+  test("strips em-dashes from the final content", () => {
+    const fields = sanitizeChatMessageFields(
+      baseState({ assistantText: "The report is complete — just over 8,500 words." }),
+    );
+    assert.equal(fields.content, "The report is complete; just over 8,500 words.");
+  });
+
+  test("strips em-dashes from each narration segment", () => {
+    const fields = sanitizeChatMessageFields(
+      baseState({
+        assistantText: "Done.",
+        narration: [
+          { index: 0, text: "Searching your inbox — one moment." },
+          { index: 1, text: "Found it—drafting a reply." },
+        ],
+      }),
+    );
+    assert.deepEqual(fields.narration, [
+      { index: 0, text: "Searching your inbox; one moment." },
+      { index: 1, text: "Found it; drafting a reply." },
+    ]);
+  });
+
+  test("preserves code, quotations, and links in content verbatim", () => {
+    const fields = sanitizeChatMessageFields(
+      baseState({
+        assistantText:
+          'Run `foo—bar`, cite "keep this — exactly", see [docs](https://x.com/a—b) — done.',
+      }),
+    );
+    assert.equal(
+      fields.content,
+      'Run `foo—bar`, cite "keep this — exactly", see [docs](https://x.com/a—b); done.',
+    );
+  });
+
+  test("leaves reasoning (internal chain-of-thought) untouched", () => {
+    const fields = sanitizeChatMessageFields(
+      baseState({
+        assistantText: "Answer.",
+        reasoningText: "The user wants X — I should do Y.",
+      }),
+    );
+    assert.equal(fields.reasoning, "The user wants X — I should do Y.");
+  });
+
+  test("clean prose is unchanged", () => {
+    const clean = "Tuesday works. I'll send the deck beforehand.";
+    const fields = sanitizeChatMessageFields(baseState({ assistantText: clean }));
+    assert.equal(fields.content, clean);
   });
 });
