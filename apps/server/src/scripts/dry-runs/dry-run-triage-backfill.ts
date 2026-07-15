@@ -123,7 +123,7 @@ async function main() {
       resolveSenderKind(t.userId, scResult.senderAddress),
     ]);
     const usePersonTreatment = isHumanSender && senderKind == null;
-    const [knownContact, senderRelationship] = await Promise.all([
+    const [knownContact, relationship] = await Promise.all([
       usePersonTreatment && scResult.senderAddress
         ? isKnownContact(t.userId, scResult.senderAddress).catch(() => false)
         : Promise.resolve(false),
@@ -131,7 +131,7 @@ async function main() {
         userId: t.userId,
         senderAddress: scResult.senderAddress,
         isHumanSender: usePersonTreatment,
-      }).catch(() => null),
+      }).catch(() => ({ descriptor: null, isColdContact: false })),
     ]);
     const signalText = [
       metaStr(meta, "from"),
@@ -150,7 +150,8 @@ async function main() {
       persona: ctxData.persona,
       thread,
       knownContact,
-      senderRelationship,
+      senderRelationship: relationship.descriptor,
+      senderRelationshipIsCold: relationship.isColdContact,
       senderKind,
       labelIds,
       signalText,
@@ -191,6 +192,8 @@ async function main() {
           subject: ctxData.document.title,
           signalText,
           collabActivity: classification.collabActivity ?? null,
+          category: classification.category,
+          isColdContact: observations.senderRelationshipIsCold,
         })
       : null;
     if (resolved && !suppression) {
