@@ -44,7 +44,7 @@ import {
   GMAIL_SEARCH_QUERY_MAX_CHARS,
   GMAIL_SEARCH_SNIPPET_MAX_CHARS,
 } from "./tool-constants";
-import { INTEGRATION_SLUGS, type ToolName } from "./tools";
+import type { ToolName } from "./tools";
 
 /**
  * Zod's built-in email validator emits negative-lookahead assertions in JSON
@@ -1213,13 +1213,7 @@ export const loadToolInput = z
   })
   .strict();
 
-export const loadIntegrationInput = z
-  .object({
-    slug: z.enum(INTEGRATION_SLUGS).refine((slug) => slug !== "system", {
-      message: "system is always loaded and cannot be loaded as an integration",
-    }),
-  })
-  .strict();
+export const currentTimeInput = z.object({}).strict();
 
 const scratchKey = z.string().min(1).max(240);
 
@@ -1695,7 +1689,7 @@ export const TOOL_INPUT_SCHEMAS = {
   "slides.add_slide": slidesAddSlideInput,
   "system.search_tools": searchToolsInput,
   "system.load_tool": loadToolInput,
-  "system.load_integration": loadIntegrationInput,
+  "system.current_time": currentTimeInput,
   "system.read_user_context": readUserContextInput,
   "system.read_chat_history": readChatHistoryInput,
   "system.read_scratch": readScratchInput,

@@ -173,8 +173,8 @@ export interface Workflow<S = unknown> {
    */
   trigger: WorkflowTrigger;
   /**
-   * Optional explicit allowlist for `load_integration` during agent
-   * runs (ADR-0026). Mirrored onto the `workflows.allowed_integrations`
+   * Optional integration allowlist for exact tool discovery, loading, and
+   * dispatch. Mirrored onto the `workflows.allowed_integrations`
    * column; empty array = unrestricted (subject to the user's connected
    * integrations).
    */

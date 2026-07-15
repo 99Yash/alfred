@@ -75,7 +75,6 @@ import {
   activateTool,
   applyExactToolLoad,
   migrateActiveTools,
-  registeredToolNamesForIntegrations,
   systemToolKernel,
   toolNameSchema,
 } from "../tool-surface";
@@ -103,8 +102,8 @@ import {
  *
  * Models: `standard` (Sonnet 4.6) by default; `deep` (Opus 4.8) escalation is
  * wired through state for a future heuristic / the boss-worker harness. The
- * agent can `system.load_integration` to reach email/calendar/etc and
- * `system.spawn_sub_agent` for focused fan-out — same tool surface as the boss.
+ * agent can discover and exactly load capabilities, including
+ * `system.spawn_sub_agent` for focused fan-out.
  *
  * Within-run tool-loop compaction remains deferred; persisted cross-turn
  * history is guarded before the first provider call of each run.
@@ -1264,14 +1263,6 @@ function applySystemToolEffect(
 ): void {
   if (toolName === "system.load_tool" && result.kind === "executed") {
     state.activeTools = applyExactToolLoad(state.activeTools, result.toolResult);
-    return;
-  }
-  if (toolName !== "system.load_integration" || result.kind !== "executed") return;
-  const toolResult = result.toolResult;
-  if (isRecord(toolResult) && toolResult.ok === true && typeof toolResult.slug === "string") {
-    state.activeTools = [
-      ...new Set([...state.activeTools, ...registeredToolNamesForIntegrations([toolResult.slug])]),
-    ].sort();
   }
 }
 

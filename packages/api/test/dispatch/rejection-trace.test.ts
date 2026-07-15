@@ -146,7 +146,7 @@ describe("dispatchToolCall rejection tracing", () => {
     registerTool(
       liveTool({
         integration: "system",
-        action: "load_integration",
+        action: "load_tool",
         riskTier: "no_risk",
         description: "test tool",
         inputSchema: z.object({ slug: z.string() }).strict(),
@@ -160,18 +160,18 @@ describe("dispatchToolCall rejection tracing", () => {
     try {
       const result = await dispatchToolCall({
         ...baseDispatch,
-        toolName: "system.load_integration",
+        toolName: "system.load_tool",
         input: { slug: 42 },
-        activeTools: ["system.load_integration"],
+        activeTools: ["system.load_tool"],
       });
 
       assert.equal(result.kind, "invalid_input");
       assert.equal(captured.length, 1);
-      assert.equal(captured[0]?.toolName, "system.load_integration");
+      assert.equal(captured[0]?.toolName, "system.load_tool");
       assert.equal(captured[0]?.outcome, "invalid_input");
       assert.equal(
         captured[0]?.signature,
-        "system.load_integration:invalid_input:invalid_type@slug",
+        "system.load_tool:invalid_input:invalid_type@slug",
       );
       assert.equal(captured[0]?.input, undefined);
     } finally {

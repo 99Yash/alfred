@@ -84,7 +84,7 @@ const ACTION_VERBS = new Set([
  * carries no category field, so this is the one place that judgment lives.
  */
 export function toolCategory(toolName: string): ToolCategory {
-  if (toolName === "system.load_integration" || toolName === "system.spawn_sub_agent") {
+  if (toolName === "system.spawn_sub_agent") {
     return "system";
   }
   if (toolName === "system.web_search") return "source";
@@ -107,22 +107,6 @@ export function presentTool(tool: ToolCallView): ToolPresentation {
   const slug = tool.toolName.includes(".")
     ? tool.toolName.slice(0, tool.toolName.indexOf("."))
     : "";
-
-  if (tool.toolName === "system.load_integration") {
-    // argsPreview carries the slug live; on reload only resultPreview
-    // (`{"ok":true,"slug":"github"}`) is persisted, so fall back to it.
-    const result = parseJsonRecord(tool.resultPreview);
-    const target = asString(args?.slug) ?? asString(result?.slug);
-    const provider = target ? getIntegrationProvider(target) : undefined;
-    const name = provider?.name ?? "integration";
-    return {
-      brand: provider?.brand,
-      fallbackIcon: Wrench,
-      running: `Connecting to ${name}`,
-      done: `Connected to ${name}`,
-      failed: `Couldn't connect to ${name}`,
-    };
-  }
 
   if (tool.toolName === "system.spawn_sub_agent") {
     const allowed = Array.isArray(args?.allowedIntegrations)
