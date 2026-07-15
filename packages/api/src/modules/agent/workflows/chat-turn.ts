@@ -6,11 +6,9 @@ import {
   getCheapModel,
   meteredGenerateText,
   resolveModelContextWindow,
-  tool,
   type ChatModelTier,
   type LanguageModel,
   type ModelMessage,
-  type Tool,
   type ToolSet,
 } from "@alfred/ai";
 import { ARTIFACT_DESIGN_PROMPT, ARTIFACT_DOCUMENT_DESIGN_PROMPT } from "@alfred/artifacts-design";
@@ -40,11 +38,7 @@ import { sniffPassThroughImageMime } from "../../chat/attachments";
 import { readObject } from "../../chat/storage";
 import { isChatStopRequested } from "../../chat/stop-signal";
 import { dispatchToolCall, toolCallWouldGate, type DispatchResult } from "../../dispatch";
-import {
-  startDispatchBatchSpan,
-  startToolPreloadSpan,
-  type DispatchBatchSpanCloser,
-} from "../runtime-spans";
+import { startDispatchBatchSpan, type DispatchBatchSpanCloser } from "../runtime-spans";
 import {
   AWAIT_SUB_AGENT_CEILING_MS,
   scheduleSubAgentJoinWakeJob,
@@ -66,14 +60,14 @@ import { appendModelResponseMessages } from "../transcript-dedup";
 import { buildThreadArtifactsContext } from "../../artifacts/read";
 import { finalizeRunArtifacts } from "../../artifacts/write";
 import { logger } from "../../../lib/logger";
-import { getTool } from "../../tools/registry";
-import { latestUserPrompt, preloadToolsForPrompt } from "../../tools/discovery";
 import { readIntegrationAvailability } from "../../integrations/availability";
 import { buildConnectedSummaryFromAvailability } from "../connected-summary";
 import { formatDateGrounding, formatRuntimeTimeGrounding, resolveUserTimezone } from "../grounding";
 import {
   activateTool,
+  applyPromptToolPreload,
   applySystemToolEffect,
+  buildSdkToolSet,
   migrateActiveTools,
   systemToolKernel,
 } from "../tool-surface";
@@ -542,33 +536,6 @@ function preview(value: unknown): string {
   return `${full.slice(0, PREVIEW_CHARS - 1)}…`;
 }
 
-// The SDK calls `tools: () => resolveSdkTools(...)` once per turn, but the
-// registry is static, so the object graph only changes when the exact active set
-// does. Memoize per normalized name key (the registered tool set is small
-// and bounded, so the unevicted cache stays tiny). The returned `ToolSet` is
-// treated as read-only by the SDK, so sharing one instance across turns/users
-// is safe.
-const sdkToolsCache = new Map<string, ToolSet>();
-
-function resolveSdkTools(activeTools: readonly ToolName[]): ToolSet {
-  const names = [...new Set(activeTools)].sort();
-  const key = names.join(",");
-  const cached = sdkToolsCache.get(key);
-  if (cached) return cached;
-
-  const out: Partial<Record<ToolName, Tool>> = {};
-  for (const name of names) {
-    const registered = getTool(name);
-    if (!registered) continue;
-    out[registered.name] = tool({
-      description: registered.description,
-      inputSchema: registered.inputSchema,
-    });
-  }
-  const tools = out as ToolSet;
-  sdkToolsCache.set(key, tools);
-  return tools;
-}
 
 /** A `ready` attachment as the transcript builder needs it. */
 interface ReadyAttachment {
@@ -1854,36 +1821,16 @@ const chatTurnStep: Step<ChatRunState> = {
           { caller: "boss", hasThread: true },
         );
       }
-      if (!state.preloadApplied) {
-        const prompt = latestUserPrompt(hydratedTranscript);
-        const preloadSpan = startToolPreloadSpan({
-          runId: ctx.runId,
-          workflow: CHAT_TURN_WORKFLOW_SLUG,
-          caller: "boss",
-          activeBefore: state.activeTools.length,
-          allowedIntegrationCount: state.allowedIntegrations.length,
-          promptChars: prompt.length,
-          startedAt: new Date(),
-        });
-        try {
-          const preloaded = await preloadToolsForPrompt({
-            userId: ctx.userId,
-            prompt,
-            allowedIntegrations: state.allowedIntegrations,
-            activeTools: state.activeTools,
-            context: { caller: "boss", hasThread: true },
-            availability: await loadAvailability(),
-          });
-          for (const toolName of preloaded) {
-            state.activeTools = activateTool(state.activeTools, toolName);
-          }
-          preloadSpan.end(preloaded, state.activeTools.length);
-        } catch (error) {
-          preloadSpan.error();
-          throw error;
-        }
-        state.preloadApplied = true;
-      }
+      await applyPromptToolPreload({
+        state,
+        userId: ctx.userId,
+        runId: ctx.runId,
+        workflow: CHAT_TURN_WORKFLOW_SLUG,
+        spanCaller: "boss",
+        transcript: hydratedTranscript,
+        context: { caller: "boss", hasThread: true },
+        availability: await loadAvailability(),
+      });
       if (state.artifactsContext === undefined || state.artifactReference === undefined) {
         const artifactContext = await buildThreadArtifactsContext(
           ctx.userId,
@@ -1908,7 +1855,7 @@ const chatTurnStep: Step<ChatRunState> = {
       ]
         .filter((value) => value.length > 0)
         .join("\n\n");
-      const sdkTools = resolveSdkTools(state.activeTools);
+      const sdkTools = buildSdkToolSet(state.activeTools, { caller: "boss", hasThread: true });
       const chatModel = getChatModel(state.tier);
 
       // Own cancellation before the foreground context guard: compaction can

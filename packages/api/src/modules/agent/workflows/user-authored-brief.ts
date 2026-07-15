@@ -4,10 +4,7 @@ import {
   getSubAgentModel,
   resolveEffectiveInputWindowTokens,
   AlfredAgent,
-  tool,
   type ModelMessage,
-  type Tool,
-  type ToolSet,
 } from "@alfred/ai";
 import {
   boundToolResult,
@@ -17,7 +14,6 @@ import {
   toJsonValue,
   toRecord,
   type AgentTranscriptMessage,
-  type ToolName,
 } from "@alfred/contracts";
 import { db } from "@alfred/db";
 import { documents } from "@alfred/db/schemas";
@@ -31,21 +27,17 @@ import {
 } from "../compaction/tokens";
 import { appendModelResponseMessages } from "../transcript-dedup";
 import { callerLabel, dispatchToolCall, type DispatchResult } from "../../dispatch";
-import {
-  startDispatchBatchSpan,
-  startToolPreloadSpan,
-  type DispatchBatchSpanCloser,
-} from "../runtime-spans";
+import { startDispatchBatchSpan, type DispatchBatchSpanCloser } from "../runtime-spans";
 import { writeScratch } from "../../scratchpad";
-import { getTool } from "../../tools/registry";
-import { latestUserPrompt, preloadToolsForPrompt } from "../../tools/discovery";
 import { readIntegrationAvailability } from "../../integrations/availability";
 import { buildConnectedSummaryFromAvailability } from "../connected-summary";
 import { formatDateGrounding, resolveUserTimezone } from "../grounding";
 import { composeAgentInstructions } from "../instructions";
 import {
   activateTool,
+  applyPromptToolPreload,
   applySystemToolEffect,
+  buildSdkToolSet,
   migrateActiveTools,
   registeredToolNamesForIntegrations,
   systemToolKernel,
@@ -240,41 +232,26 @@ const bossTurnStep: Step<BriefRunState> = {
         { caller: subAgent ? "sub_agent" : "boss", hasThread: false },
       );
     }
-    if (!state.preloadApplied) {
-      const prompt = latestUserPrompt(transcript);
-      const preloadSpan = startToolPreloadSpan({
-        runId: ctx.runId,
-        workflow: USER_AUTHORED_BRIEF_WORKFLOW_SLUG,
-        caller: subAgent ? `sub:${subAgent.subId}` : "boss",
-        activeBefore: state.activeTools.length,
-        allowedIntegrationCount: state.allowedIntegrations.length,
-        promptChars: prompt.length,
-        startedAt: new Date(),
-      });
-      try {
-        const preloaded = await preloadToolsForPrompt({
-          userId: ctx.userId,
-          prompt,
-          allowedIntegrations: state.allowedIntegrations,
-          activeTools: state.activeTools,
-          context: { caller: subAgent ? "sub_agent" : "boss", hasThread: false },
-          availability: await loadAvailability(),
-        });
-        for (const toolName of preloaded)
-          state.activeTools = activateTool(state.activeTools, toolName);
-        preloadSpan.end(preloaded, state.activeTools.length);
-      } catch (error) {
-        preloadSpan.error();
-        throw error;
-      }
-      state.preloadApplied = true;
-    }
+    await applyPromptToolPreload({
+      state,
+      userId: ctx.userId,
+      runId: ctx.runId,
+      workflow: USER_AUTHORED_BRIEF_WORKFLOW_SLUG,
+      spanCaller: subAgent ? `sub:${subAgent.subId}` : "boss",
+      transcript,
+      context: { caller: subAgent ? "sub_agent" : "boss", hasThread: false },
+      availability: await loadAvailability(),
+    });
     const agent = new AlfredAgent({
       id: subAgent ? subAgent.subId : "boss",
       system: subAgent
         ? buildSubAgentSystemPrompt(grounding, state.connectedSummary, subAgent.subId)
         : buildBossSystemPrompt(grounding, state.connectedSummary),
-      tools: () => resolveSdkTools(state.activeTools, subAgent !== null),
+      tools: () =>
+        buildSdkToolSet(state.activeTools, {
+          caller: subAgent ? "sub_agent" : "boss",
+          hasThread: false,
+        }),
       model: subAgent ? getSubAgentModel() : getBossModel(),
       attribution: {
         kind: "llm",
@@ -687,30 +664,6 @@ export const userAuthoredBriefWorkflow: Workflow<BriefRunState> = {
     return sub ? `sub:${sub.parentRunId}:${sub.parentToolCallId}` : null;
   },
 };
-
-function resolveSdkTools(activeTools: readonly ToolName[], isSubAgent: boolean): ToolSet {
-  const out: Partial<Record<ToolName, Tool>> = {};
-  for (const name of [...new Set(activeTools)].sort()) {
-    const registered = getTool(name);
-    if (!registered) continue;
-    if (
-      isSubAgent &&
-      (registered.name === "system.spawn_sub_agent" ||
-        registered.name === "system.await_sub_agent" ||
-        registered.name === "system.promote")
-    ) {
-      // The join tools are boss-only — the dispatcher rejects them for a
-      // sub-agent caller (ADR-0073). Hiding them here keeps a sub-agent from
-      // burning a turn on an invalid call the dispatcher would only bounce.
-      continue;
-    }
-    out[registered.name] = tool({
-      description: registered.description,
-      inputSchema: registered.inputSchema,
-    });
-  }
-  return out as ToolSet;
-}
 
 async function writeSubAgentSummary(args: {
   parentRunId: string;
