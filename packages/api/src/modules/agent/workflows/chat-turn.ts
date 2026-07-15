@@ -40,7 +40,11 @@ import { sniffPassThroughImageMime } from "../../chat/attachments";
 import { readObject } from "../../chat/storage";
 import { isChatStopRequested } from "../../chat/stop-signal";
 import { dispatchToolCall, toolCallWouldGate, type DispatchResult } from "../../dispatch";
-import { startDispatchBatchSpan, type DispatchBatchSpanCloser } from "../runtime-spans";
+import {
+  startDispatchBatchSpan,
+  startToolPreloadSpan,
+  type DispatchBatchSpanCloser,
+} from "../runtime-spans";
 import {
   AWAIT_SUB_AGENT_CEILING_MS,
   scheduleSubAgentJoinWakeJob,
@@ -1859,14 +1863,30 @@ const chatTurnStep: Step<ChatRunState> = {
         state.connectedSummary = await buildConnectedSummary(ctx.userId, state.allowedIntegrations);
       }
       if (!state.preloadApplied) {
-        const preloaded = await preloadToolsForPrompt({
-          userId: ctx.userId,
-          prompt: latestUserPrompt(hydratedTranscript),
-          allowedIntegrations: state.allowedIntegrations,
-          activeTools: state.activeTools,
+        const prompt = latestUserPrompt(hydratedTranscript);
+        const preloadSpan = startToolPreloadSpan({
+          runId: ctx.runId,
+          workflow: CHAT_TURN_WORKFLOW_SLUG,
+          caller: "boss",
+          activeBefore: state.activeTools.length,
+          allowedIntegrationCount: state.allowedIntegrations.length,
+          promptChars: prompt.length,
+          startedAt: new Date(),
         });
-        for (const toolName of preloaded) {
-          state.activeTools = activateTool(state.activeTools, toolName);
+        try {
+          const preloaded = await preloadToolsForPrompt({
+            userId: ctx.userId,
+            prompt,
+            allowedIntegrations: state.allowedIntegrations,
+            activeTools: state.activeTools,
+          });
+          for (const toolName of preloaded) {
+            state.activeTools = activateTool(state.activeTools, toolName);
+          }
+          preloadSpan.end(preloaded, state.activeTools.length);
+        } catch (error) {
+          preloadSpan.error();
+          throw error;
         }
         state.preloadApplied = true;
       }

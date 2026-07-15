@@ -281,7 +281,12 @@ export const calendarTools: readonly RegisteredTool[] = [
     description:
       "List Google Calendar events. Prefer the relative window fields for today/tomorrow/next-week questions; use explicit RFC3339 bounds only when the user gave exact dates or times.",
     discovery: {
-      aliases: ["check calendar", "list calendar events", "show my schedule"],
+      aliases: [
+        "check calendar",
+        "list calendar events",
+        "show my schedule",
+        "what's on my calendar",
+      ],
       tags: ["calendar", "schedule", "time"],
       entities: ["calendar", "event", "meeting", "schedule"],
       verbs: ["list", "check", "show", "find", "read"],

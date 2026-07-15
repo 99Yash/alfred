@@ -33,7 +33,11 @@ import {
 } from "../compaction/tokens";
 import { appendModelResponseMessages } from "../transcript-dedup";
 import { callerLabel, dispatchToolCall, type DispatchResult } from "../../dispatch";
-import { startDispatchBatchSpan, type DispatchBatchSpanCloser } from "../runtime-spans";
+import {
+  startDispatchBatchSpan,
+  startToolPreloadSpan,
+  type DispatchBatchSpanCloser,
+} from "../runtime-spans";
 import { writeScratch } from "../../scratchpad";
 import { getTool } from "../../tools/registry";
 import { latestUserPrompt, preloadToolsForPrompt } from "../../tools/discovery";
@@ -227,14 +231,30 @@ const bossTurnStep: Step<BriefRunState> = {
       state.connectedSummary = await buildConnectedSummary(ctx.userId, state.allowedIntegrations);
     }
     if (!state.preloadApplied) {
-      const preloaded = await preloadToolsForPrompt({
-        userId: ctx.userId,
-        prompt: latestUserPrompt(transcript),
-        allowedIntegrations: state.allowedIntegrations,
-        activeTools: state.activeTools,
+      const prompt = latestUserPrompt(transcript);
+      const preloadSpan = startToolPreloadSpan({
+        runId: ctx.runId,
+        workflow: USER_AUTHORED_BRIEF_WORKFLOW_SLUG,
+        caller: subAgent ? `sub:${subAgent.subId}` : "boss",
+        activeBefore: state.activeTools.length,
+        allowedIntegrationCount: state.allowedIntegrations.length,
+        promptChars: prompt.length,
+        startedAt: new Date(),
       });
-      for (const toolName of preloaded)
-        state.activeTools = activateTool(state.activeTools, toolName);
+      try {
+        const preloaded = await preloadToolsForPrompt({
+          userId: ctx.userId,
+          prompt,
+          allowedIntegrations: state.allowedIntegrations,
+          activeTools: state.activeTools,
+        });
+        for (const toolName of preloaded)
+          state.activeTools = activateTool(state.activeTools, toolName);
+        preloadSpan.end(preloaded, state.activeTools.length);
+      } catch (error) {
+        preloadSpan.error();
+        throw error;
+      }
       state.preloadApplied = true;
     }
     const agent = new AlfredAgent({

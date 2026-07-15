@@ -20,6 +20,7 @@ export interface ToolSearchCandidate {
 
 interface RankedCandidate extends ToolSearchCandidate {
   score: number;
+  preloadEligible: boolean;
 }
 
 export interface ToolCatalogAccess {
@@ -33,7 +34,9 @@ export function searchToolCatalog(args: {
   tools?: readonly RegisteredTool[];
   access: ToolCatalogAccess;
 }): ToolSearchCandidate[] {
-  return rankToolCatalog(args).map(({ score: _score, ...candidate }) => candidate);
+  return rankToolCatalog(args).map(
+    ({ score: _score, preloadEligible: _preloadEligible, ...candidate }) => candidate,
+  );
 }
 
 export async function searchAvailableTools(args: {
@@ -87,7 +90,10 @@ export function preloadToolCatalog(args: {
     tools: args.tools,
     access: args.access,
   })
-    .filter((candidate) => candidate.score >= 30 && !active.has(candidate.name))
+    .filter(
+      (candidate) =>
+        candidate.score >= 30 && candidate.preloadEligible && !active.has(candidate.name),
+    )
     .map((candidate) => candidate.name);
 }
 
@@ -163,6 +169,7 @@ function rankToolCatalog(args: {
       availability: "available",
       reason: match.reason,
       score: match.score,
+      preloadEligible: match.preloadEligible,
     });
   }
 
@@ -185,26 +192,37 @@ function scoreTool(
   tool: RegisteredTool,
   query: string,
   queryTokens: ReadonlySet<string>,
-): { score: number; reason: string } {
+): { score: number; reason: string; preloadEligible: boolean } {
   const name = normalize(tool.name);
-  if (query === name) return { score: 1_000, reason: "exact tool name" };
+  if (query === name) return { score: 1_000, reason: "exact tool name", preloadEligible: true };
 
   const aliases = tool.discovery.aliases ?? [];
   for (const alias of aliases) {
-    if (query === normalize(alias)) return { score: 900, reason: `exact alias: ${alias}` };
+    if (query === normalize(alias))
+      return { score: 900, reason: `exact alias: ${alias}`, preloadEligible: true };
   }
 
   let score = 0;
   let reason = "catalog text match";
+  let matchedAlias = false;
+  let matchedEntity = false;
+  let matchedVerb = false;
   for (const alias of aliases) {
     if (containsPhrase(query, alias)) {
       score += 120;
       reason = `alias match: ${alias}`;
+      matchedAlias = true;
     }
   }
   score += scorePhrases(tool.discovery.tags, query, 35, "tag", (value) => (reason = value));
-  score += scorePhrases(tool.discovery.entities, query, 35, "entity", (value) => (reason = value));
-  score += scorePhrases(tool.discovery.verbs, query, 30, "verb", (value) => (reason = value));
+  score += scorePhrases(tool.discovery.entities, query, 35, "entity", (value) => {
+    reason = value;
+    matchedEntity = true;
+  });
+  score += scorePhrases(tool.discovery.verbs, query, 30, "verb", (value) => {
+    reason = value;
+    matchedVerb = true;
+  });
 
   const nameTokens = meaningfulTokens(name);
   for (const token of nameTokens) if (queryTokens.has(token)) score += 20;
@@ -214,7 +232,14 @@ function scoreTool(
   for (const token of meaningfulTokens(normalize(tool.discovery.summary))) {
     if (queryTokens.has(token)) score += 2;
   }
-  return { score, reason };
+  return {
+    score,
+    reason,
+    // Search may rank broad noun/tag matches, but preloading a full schema
+    // requires intent evidence: a known phrase, or an action applied to an
+    // entity. This keeps sibling read/write tools out of ambiguous prompts.
+    preloadEligible: matchedAlias || (matchedEntity && matchedVerb),
+  };
 }
 
 function scorePhrases(
