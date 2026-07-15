@@ -1,5 +1,9 @@
 import type { ArtifactFormat } from "@alfred/contracts";
-import { cssVariables, font, pageGeometry, spacing, type } from "./tokens";
+import { FONT_FACE_CSS } from "./fonts";
+import { cssVariables, cssVariablesDark, font, pageGeometry, spacing, type } from "./tokens";
+
+/** The two color schemes the shell can stamp; drives the `data-theme` attribute. */
+export type ArtifactColorScheme = "light" | "dark";
 
 /**
  * The render-time house shell for artifact pages (pristine-artifacts Phase 1).
@@ -14,10 +18,13 @@ import { cssVariables, font, pageGeometry, spacing, type } from "./tokens";
  *
  * Hard constraint that shapes the design: the renderer's iframe keeps an
  * opaque-origin sandbox and does not permit scripts — so NO Tailwind CDN, NO
- * Font Awesome JS, NO runtime framework. Everything here is pure CSS. The shell
- * deliberately does not declare the app's own `/fonts/*.woff2`; the preview's
- * opaque-origin sandbox cannot consistently load those fonts, so export uses
- * the same system-sans fallback contract for visual parity.
+ * Font Awesome JS, NO runtime framework. Everything here is pure CSS. The brand
+ * face (Open Runde) cannot be fetched from `/fonts/*.woff2` under that sandbox,
+ * so the shell inlines a base64 `data:` subset of it (see `./fonts`) — a `data:`
+ * @font-face has no network request and loads where a URL reference is rejected,
+ * giving on-screen render AND print export the real brand type instead of the
+ * system-sans fallback. The fallback stack still catches any glyph outside the
+ * Latin subset.
  */
 
 /**
@@ -42,12 +49,37 @@ img, svg, canvas { display: block; max-width: 100%; }
 p, h1, h2, h3, h4, h5, h6, ul, ol, figure, blockquote { margin: 0; }
 ul, ol { padding: 0; list-style-position: inside; }`;
 
-/** `:root { --art-*: … }` from the token source of truth. */
+/** `:root { --art-*: … }` from the token source of truth (the light defaults). */
 function rootVariables(): string {
   const decls = cssVariables()
     .map((token) => `  --${token.name}: ${token.value};`)
     .join("\n");
-  return `:root {\n${decls}\n}`;
+  return `:root {\n  color-scheme: light;\n${decls}\n}`;
+}
+
+/**
+ * The dark override: `:root[data-theme="dark"]` re-points only the `--art-*`
+ * properties that differ (from `cssVariablesDark`), so stamping `data-theme` on
+ * `<html>` reskins every surface, mark, and shadow at once — retroactively,
+ * with no restored bytes. A couple of rules that can't be expressed purely
+ * through a variable swap (the aurora's `color-mix` percentages are literals,
+ * not custom-property-interpolable) get a scoped dark form: the wash needs more
+ * presence over near-black than over white to stay perceptible without muddying
+ * the ink.
+ */
+function darkRootVariables(): string {
+  const decls = cssVariablesDark()
+    .map((token) => `  --${token.name}: ${token.value};`)
+    .join("\n");
+  return `:root[data-theme="dark"] {
+  color-scheme: dark;
+${decls}
+}
+:root[data-theme="dark"] .art-aurora {
+  background:
+    radial-gradient(58% 74% at 90% 4%, color-mix(in srgb, var(--art-accent) 26%, transparent), transparent 60%),
+    radial-gradient(50% 62% at 2% 100%, color-mix(in srgb, var(--art-hue-purple) 16%, transparent), transparent 64%);
+}`;
 }
 
 /**
@@ -64,7 +96,10 @@ html, body { width: 100%; height: 100%; }
 
 body {
   font-family: ${font.stack};
-  font-feature-settings: "cv11", "ss01", "ss03";
+  /* kern/liga/calt help every face; ss01/ss03/cv11 refine Open Runde and are
+   * silently ignored by the system-sans fallback. */
+  font-feature-settings: "kern" 1, "liga" 1, "calt" 1, "cv11" 1, "ss01" 1, "ss03" 1;
+  text-rendering: optimizeLegibility;
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
   color: var(--art-ink);
@@ -100,20 +135,23 @@ body {
 .art-end { justify-content: flex-end; }
 .art-wrap { flex-wrap: wrap; }
 
-/* Type ramp */
-.art-display { font-size: ${type.display}; font-weight: 700; line-height: ${type.lineTight}; letter-spacing: -0.03em; }
-.art-title { font-size: ${type.title}; font-weight: 700; line-height: ${type.lineTight}; letter-spacing: -0.025em; }
-.art-headline { font-size: ${type.headline}; font-weight: 650; line-height: ${type.lineSnug}; letter-spacing: -0.02em; }
-.art-subhead { font-size: ${type.subhead}; font-weight: 550; line-height: ${type.lineSnug}; }
-.art-body { font-size: ${type.body}; font-weight: 450; line-height: ${type.lineBody}; }
-.art-caption { font-size: ${type.caption}; font-weight: 450; line-height: ${type.lineSnug}; color: var(--art-fg-muted); }
+/* Type ramp — each step carries its own size-specific tracking (heads tighten,
+ * body sits near zero, the smallest caps open up). */
+.art-display { font-size: ${type.display}; font-weight: 700; line-height: ${type.lineTight}; letter-spacing: ${type.track.display}; }
+.art-title { font-size: ${type.title}; font-weight: 700; line-height: ${type.lineTight}; letter-spacing: ${type.track.title}; }
+.art-headline { font-size: ${type.headline}; font-weight: 650; line-height: ${type.lineSnug}; letter-spacing: ${type.track.headline}; }
+.art-subhead { font-size: ${type.subhead}; font-weight: 500; line-height: ${type.lineSnug}; letter-spacing: ${type.track.subhead}; color: var(--art-ink); }
+.art-body { font-size: ${type.body}; font-weight: 450; line-height: ${type.lineBody}; letter-spacing: ${type.track.body}; }
+.art-caption { font-size: ${type.caption}; font-weight: 450; line-height: ${type.lineSnug}; letter-spacing: ${type.track.caption}; color: var(--art-fg-muted); }
 .art-eyebrow {
   font-size: ${type.eyebrow};
   font-weight: 650;
-  letter-spacing: 0.08em;
+  letter-spacing: ${type.track.eyebrow};
   text-transform: uppercase;
   color: var(--art-accent);
 }
+/* Tabular figures — use on any run of numbers that should align or not jitter. */
+.art-nums { font-variant-numeric: tabular-nums; }
 
 /* Color helpers */
 .art-ink { color: var(--art-ink); }
@@ -122,15 +160,21 @@ body {
 .art-accent-text { color: var(--art-accent); }
 
 /* Surfaces + primitives */
+/* Card: the raised surface. A faint top-lighter gradient plus the layered md
+ * elevation make it read as a real material lit from above, not a grey box. */
 .art-card {
-  background: var(--art-surface-raised);
+  background: linear-gradient(180deg, var(--art-surface-hi), var(--art-surface-raised));
   border-radius: var(--art-radius-lg);
   box-shadow: var(--art-shadow);
   padding: ${spacing.lg};
 }
+/* Panel: the quieter, RECESSED surface — a sunken fill with a soft inset so it
+ * reads as carved into the page rather than floating above it. */
 .art-panel {
   background: var(--art-surface-sunken);
+  border: 1px solid var(--art-border);
   border-radius: var(--art-radius-md);
+  box-shadow: var(--art-inset);
   padding: ${spacing.md};
 }
 .art-badge {
@@ -138,29 +182,42 @@ body {
   align-items: center;
   gap: ${spacing.xs};
   padding: 6px 14px;
-  border-radius: var(--art-radius-sm);
+  border-radius: var(--art-radius-full, 9999px);
   background: var(--art-accent-soft);
+  border: 1px solid color-mix(in srgb, var(--art-accent) 18%, transparent);
   color: var(--art-accent-to);
   font-size: ${type.eyebrow};
   font-weight: 650;
   letter-spacing: 0.02em;
 }
 .art-rule { height: 1px; width: 100%; background: var(--art-border); border: 0; }
-.art-accent-mark { width: 48px; height: 5px; border-radius: var(--art-radius-sm); background: linear-gradient(90deg, var(--art-accent-from), var(--art-accent-to)); }
-.art-dot { width: 10px; height: 10px; border-radius: 9999px; background: var(--art-accent); flex: 0 0 auto; }
+.art-accent-mark { width: 44px; height: 4px; border-radius: 9999px; background: linear-gradient(90deg, var(--art-accent-from), var(--art-accent-to)); }
+.art-dot { width: 9px; height: 9px; border-radius: 9999px; background: var(--art-accent); flex: 0 0 auto; }
 
-/* Stat block */
-.art-stat-value { font-size: ${type.display}; font-weight: 700; line-height: 1; letter-spacing: -0.03em; color: var(--art-ink); }
-.art-stat-label { font-size: ${type.caption}; color: var(--art-fg-muted); margin-top: ${spacing.xs}; }
+/* Stat block. Values use tabular figures so a row of numbers aligns and does not
+ * jitter, and tighten their tracking the way large display type should. */
+.art-stat-value { font-size: ${type.display}; font-weight: 700; line-height: 1; letter-spacing: -0.035em; color: var(--art-ink); font-variant-numeric: tabular-nums; }
+.art-stat-label { font-size: ${type.caption}; color: var(--art-fg-muted); margin-top: 6px; letter-spacing: 0em; }
 
-/* CSS bar chart (no JS): a track + an accent-filled bar sized inline via width. */
-.art-bar-track { width: 100%; height: 14px; border-radius: 9999px; background: var(--art-surface-deep); overflow: hidden; }
-.art-bar-fill { height: 100%; border-radius: 9999px; background: linear-gradient(90deg, var(--art-accent-from), var(--art-accent-to)); }
+/* CSS bar chart (no JS): a recessed track + an accent-filled bar sized inline via
+ * width. The track is inset (carved in), the fill carries the accent gradient
+ * plus a faint top sheen so it reads as a lit, rounded object. */
+.art-bar-track { width: 100%; height: 12px; border-radius: 9999px; background: var(--art-surface-sunken); box-shadow: var(--art-inset-strong); overflow: hidden; }
+.art-bar-fill { height: 100%; border-radius: 9999px; background: linear-gradient(90deg, var(--art-accent-from), var(--art-accent-to)); box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.28); }
 
-/* Bulleted list styled with accent markers */
-.art-list { display: flex; flex-direction: column; gap: ${spacing.sm}; list-style: none; }
-.art-list li { display: flex; align-items: flex-start; gap: ${spacing.sm}; }
-.art-list li::before { content: ""; margin-top: 10px; width: 8px; height: 8px; border-radius: 9999px; background: var(--art-accent); flex: 0 0 auto; }
+/* Bulleted list styled with accent markers. The marker is a small accent dot
+ * with a soft tinted halo, optically centered to the first line's x-height. */
+.art-list { display: flex; flex-direction: column; gap: ${spacing.md}; list-style: none; }
+.art-list li { display: flex; align-items: flex-start; gap: 14px; }
+.art-list li::before {
+  content: "";
+  margin-top: 9px;
+  width: 8px; height: 8px;
+  border-radius: 9999px;
+  background: var(--art-accent);
+  box-shadow: 0 0 0 4px var(--art-accent-soft);
+  flex: 0 0 auto;
+}
 
 /* Inline code: a quiet mono token that sits inside body copy. */
 code {
@@ -230,7 +287,7 @@ code {
 .art-doc-lede { font-size: var(--art-doc-role); color: var(--art-fg-muted); line-height: 1.5; margin-top: 12px; max-width: 92%; }
 
 /* Section label: uppercase, tracked. Quiet but legible. */
-.art-doc-section { font-size: var(--art-doc-section); font-weight: 650; text-transform: uppercase; letter-spacing: 0.14em; color: var(--art-fg-muted); margin: 0 0 10px; }
+.art-doc-section { font-size: var(--art-doc-section); font-weight: 650; text-transform: uppercase; letter-spacing: 0.11em; color: var(--art-fg-muted); margin: 0 0 10px; }
 
 /* Section header: a label with a hairline trailing to the page edge, carrying
  * the inter-section rhythm. Replaces a stack of identical standalone rules —
@@ -258,7 +315,7 @@ code {
 
 /* Keyword / skill chips: a crisp hairline pill, not a flat grey blob. */
 .art-doc-chips { display: flex; flex-wrap: wrap; gap: 7px; }
-.art-doc-chip { background: var(--art-surface-raised); border: 1px solid var(--art-border); border-radius: 999px; padding: 4px 12px; font-size: var(--art-doc-meta); color: var(--art-ink); }
+.art-doc-chip { background: linear-gradient(180deg, var(--art-surface-hi), var(--art-surface-raised)); border: 1px solid var(--art-border); border-radius: 999px; padding: 4px 12px; font-size: var(--art-doc-meta); color: var(--art-ink); box-shadow: var(--art-shadow-sm); }
 
 /* Decorative aurora: a soft, on-brand gradient wash for pages with large
  * negative space (cover / section / closing). Built from the accent + hue
@@ -271,22 +328,23 @@ code {
  * positioning). */
 .art-aurora {
   position: absolute;
-  inset: 0;
+  inset: -12%;
   z-index: 0;
   overflow: hidden;
   pointer-events: none;
   background:
-    radial-gradient(42% 55% at 84% 12%, color-mix(in srgb, var(--art-accent) 38%, transparent), transparent 70%),
-    radial-gradient(38% 50% at 8% 90%, color-mix(in srgb, var(--art-hue-sky) 28%, transparent), transparent 70%),
-    radial-gradient(30% 42% at 92% 90%, color-mix(in srgb, var(--art-hue-purple) 24%, transparent), transparent 72%);
-  filter: blur(10px);
+    radial-gradient(58% 74% at 90% 4%, color-mix(in srgb, var(--art-accent) 15%, transparent), transparent 60%),
+    radial-gradient(50% 62% at 2% 100%, color-mix(in srgb, var(--art-hue-purple) 8%, transparent), transparent 64%);
+  filter: blur(28px);
 }
 .art-page:has(> .art-aurora) > :not(.art-aurora) { z-index: 1; }`;
 }
 
-/** The full shell stylesheet: token vars, reset, and primitives. */
+/** The full shell stylesheet: inlined brand font, token vars, reset, primitives. */
 function shellStyles(): string {
-  return `${rootVariables()}
+  return `${FONT_FACE_CSS}
+${rootVariables()}
+${darkRootVariables()}
 ${RESET}
 ${baseStyles()}`;
 }
@@ -301,11 +359,20 @@ ${baseStyles()}`;
  * an accepted tradeoff for a single-user app with disposable historical
  * artifacts (see the plan) and keeps the shell a pure, retroactive render-time
  * transform with no migration.
+ *
+ * `theme` stamps `data-theme` on `<html>`; `"dark"` selects the dark override
+ * block. It is a render-time input (the caller passes the viewer's resolved app
+ * theme), NOT part of the stored artifact — the same body renders in either
+ * scheme, so a deck follows the app instead of being pinned to one look.
  */
-export function buildArtifactDocument(bodyHtml: string, format: ArtifactFormat = "pdf"): string {
+export function buildArtifactDocument(
+  bodyHtml: string,
+  format: ArtifactFormat = "pdf",
+  theme: ArtifactColorScheme = "light",
+): string {
   const { width, height } = pageGeometry[format];
   return `<!doctype html>
-<html lang="en">
+<html lang="en" data-theme="${theme}">
 <head>
 <meta charset="utf-8" />
 <meta name="viewport" content="width=${width}, height=${height}" />
@@ -342,7 +409,7 @@ function printStyles(format: ArtifactFormat): string {
   return `
 @page { size: ${width}px ${height}px; margin: 0; }
 html, body { width: auto; height: auto; overflow: visible; }
-body.art-print { background: #fff; }
+body.art-print { background: var(--art-surface); }
 .art-print-page {
   position: relative;
   width: ${width}px;
@@ -381,6 +448,11 @@ body.art-print { background: #fff; }
  * default PDF filename. Pure string output — the caller (web) drives the actual
  * print via an off-screen iframe, since the render iframe is `sandbox=""` and
  * cannot script `print()` itself.
+ *
+ * An exported PDF is always LIGHT (`data-theme="light"`) — it is a shareable,
+ * print-bound artifact, so it stays ink-friendly and reads the same on any
+ * screen or paper regardless of the theme the author was viewing in. This is a
+ * property of the medium, not a caller choice, so it is not a parameter.
  */
 export function buildArtifactPrintDocument(
   pages: readonly string[],
@@ -396,7 +468,7 @@ ${bodyHtml}
     )
     .join("\n");
   return `<!doctype html>
-<html lang="en">
+<html lang="en" data-theme="light">
 <head>
 <meta charset="utf-8" />
 <title>${escapeHtml(title)}</title>

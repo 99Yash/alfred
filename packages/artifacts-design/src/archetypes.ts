@@ -65,20 +65,20 @@ const contentSplit: Archetype = {
   name: "Content split",
   description:
     "Asymmetric two-column — narrative on one side, a supporting card or figure on the other.",
-  html: `<div class="art-stack" style="gap: 8px; margin-bottom: 32px;">
+  html: `<div class="art-stack" style="gap: 6px; margin-bottom: 44px;">
   <span class="art-eyebrow">Overview</span>
   <h2 class="art-headline">A calmer inbox, by default</h2>
 </div>
-<div class="art-split art-fill">
-  <div class="art-stack">
-    <p class="art-body">Triage now runs before you wake up, so the first thing you see is a short, ranked list instead of a wall of unread mail.</p>
-    <p class="art-body art-muted">Everything else stays in Gmail untouched. Nothing is deleted; it is only reordered by what needs you.</p>
+<div class="art-split art-fill" style="align-items: stretch;">
+  <div class="art-stack" style="justify-content: center; gap: 20px;">
+    <p class="art-subhead">Triage runs before you wake up, so the first thing you see is a short, ranked list instead of a wall of unread mail.</p>
+    <p class="art-body art-muted">Everything else stays in Gmail, untouched. Nothing is deleted; it is only reordered by what actually needs you.</p>
   </div>
-  <div class="art-card art-stack">
+  <div class="art-card art-stack" style="justify-content: center; gap: 18px;">
     <span class="art-eyebrow">At a glance</span>
-    <div><div class="art-stat-value">3</div><div class="art-stat-label">threads need a reply</div></div>
+    <div><div class="art-stat-value art-nums">3</div><div class="art-stat-label">threads need a reply</div></div>
     <hr class="art-rule" />
-    <div><div class="art-stat-value">18</div><div class="art-stat-label">quietly filed</div></div>
+    <div><div class="art-stat-value art-nums">18</div><div class="art-stat-label">quietly filed</div></div>
   </div>
 </div>`,
 };
@@ -88,14 +88,29 @@ const list: Archetype = {
   id: "list",
   name: "Bulleted list",
   description: "A heading followed by a small set of scannable points with accent markers.",
-  html: `<div class="art-stack" style="gap: 8px; margin-bottom: 32px;">
+  html: `<div class="art-stack" style="gap: 6px; margin-bottom: 40px;">
   <span class="art-eyebrow">What changed</span>
   <h2 class="art-headline">Three things are new this week</h2>
 </div>
-<ul class="art-list art-fill" style="justify-content: center;">
-  <li><span class="art-body">Morning briefings arrive as a single card, not five separate notifications.</span></li>
-  <li><span class="art-body">You can ask Alfred to build a deck or doc and read it in the side panel.</span></li>
-  <li><span class="art-body">Sender suppression is one tap and never touches your actual mailbox.</span></li>
+<ul class="art-list art-fill" style="justify-content: center; gap: 28px;">
+  <li>
+    <div class="art-stack" style="gap: 4px;">
+      <span class="art-subhead">One morning card</span>
+      <span class="art-body art-muted">Briefings arrive as a single card, not five separate notifications.</span>
+    </div>
+  </li>
+  <li>
+    <div class="art-stack" style="gap: 4px;">
+      <span class="art-subhead">Decks and docs on demand</span>
+      <span class="art-body art-muted">Ask Alfred to build one and read it in the side panel, no export step.</span>
+    </div>
+  </li>
+  <li>
+    <div class="art-stack" style="gap: 4px;">
+      <span class="art-subhead">Quiet a sender in one tap</span>
+      <span class="art-body art-muted">Suppression never touches your actual mailbox or deletes a thing.</span>
+    </div>
+  </li>
 </ul>`,
 };
 
@@ -104,26 +119,27 @@ const stat: Archetype = {
   id: "stat",
   name: "Stat / chart",
   description: "Headline numbers and a pure-CSS bar chart — no scripts, sized with inline widths.",
-  html: `<div class="art-stack" style="gap: 8px; margin-bottom: 32px;">
+  html: `<div class="art-stack" style="gap: 6px; margin-bottom: 40px;">
   <span class="art-eyebrow">Impact</span>
   <h2 class="art-headline">Time back, measured</h2>
 </div>
-<div class="art-grid-2 art-fill" style="align-items: center;">
-  <div class="art-row" style="gap: 48px;">
-    <div><div class="art-stat-value">6.2h</div><div class="art-stat-label">saved per week</div></div>
-    <div><div class="art-stat-value">92%</div><div class="art-stat-label">triaged automatically</div></div>
+<div class="art-fill art-stack" style="justify-content: center; gap: 48px;">
+  <div class="art-row" style="gap: 72px;">
+    <div><div class="art-stat-value art-nums">6.2h</div><div class="art-stat-label">saved per week</div></div>
+    <div><div class="art-stat-value art-nums">92%</div><div class="art-stat-label">triaged automatically</div></div>
+    <div><div class="art-stat-value art-nums">3.1k</div><div class="art-stat-label">emails handled</div></div>
   </div>
-  <div class="art-stack">
-    <div class="art-stack" style="gap: 6px;">
-      <span class="art-caption">Email</span>
+  <div class="art-stack" style="gap: 18px;">
+    <div class="art-stack" style="gap: 8px;">
+      <div class="art-row art-between"><span class="art-caption">Email</span><span class="art-caption art-subtle art-nums">84%</span></div>
       <div class="art-bar-track"><div class="art-bar-fill" style="width: 84%;"></div></div>
     </div>
-    <div class="art-stack" style="gap: 6px;">
-      <span class="art-caption">Calendar</span>
+    <div class="art-stack" style="gap: 8px;">
+      <div class="art-row art-between"><span class="art-caption">Calendar</span><span class="art-caption art-subtle art-nums">61%</span></div>
       <div class="art-bar-track"><div class="art-bar-fill" style="width: 61%;"></div></div>
     </div>
-    <div class="art-stack" style="gap: 6px;">
-      <span class="art-caption">Research</span>
+    <div class="art-stack" style="gap: 8px;">
+      <div class="art-row art-between"><span class="art-caption">Research</span><span class="art-caption art-subtle art-nums">47%</span></div>
       <div class="art-bar-track"><div class="art-bar-fill" style="width: 47%;"></div></div>
     </div>
   </div>
