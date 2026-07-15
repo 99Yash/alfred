@@ -14,7 +14,9 @@
  */
 
 import {
+  logicalScratchKey,
   parseJsonWith,
+  scratchKeyPrefix,
   SCRATCH_TTL_SECONDS,
   SCRATCH_ZONES,
   sharedKey,
@@ -27,6 +29,24 @@ import { sql } from "drizzle-orm";
 import type IORedis from "ioredis";
 import { z } from "zod";
 import { createRedisConnection } from "../../queue/connection";
+import {
+  buildScratchPromoteSpanInput,
+  buildScratchReadSpanInput,
+  buildScratchSnapshotSpanInput,
+  buildScratchWriteSpanInput,
+  startScratchSpan,
+} from "./health";
+
+// Re-export the scratch health-span contract so it reaches `@alfred/api/backend`
+// (the barrel does `export * from "./modules/scratchpad/index"`) for the smoke's
+// span-capture seam and for callers that want the stable observation names.
+export {
+  RUNTIME_SCRATCH_READ,
+  RUNTIME_SCRATCH_WRITE,
+  RUNTIME_SCRATCH_PROMOTE,
+  RUNTIME_SCRATCH_SNAPSHOT,
+  _setScratchRuntimeSpanStarterForTests,
+} from "./health";
 
 /**
  * Validates the scratch *envelope* on read — `value`'s concrete type is the
@@ -56,6 +76,32 @@ function resolveKey(target: ScratchTargetArgs): string {
     : subAgentKey(target.runId, target.subId, target.path);
 }
 
+/**
+ * Serialize an entry and SET it with the scratch TTL. Returns the UTF-8 byte
+ * size written, for health metadata. The un-instrumented core shared by
+ * `writeScratch` and `promoteScratch` so a promote emits exactly one
+ * `runtime.scratch.promote` span rather than nesting a spurious write span.
+ */
+async function putEntry(fullKey: string, entry: ScratchEntry<unknown>): Promise<number> {
+  const payload = JSON.stringify(entry);
+  await client().set(fullKey, payload, "EX", SCRATCH_TTL_SECONDS);
+  return Buffer.byteLength(payload, "utf8");
+}
+
+/**
+ * GET + envelope-parse. `raw` (null when the key is absent/expired) drives the
+ * read span's hit/miss + byte size; `entry` is the parsed envelope, or null when
+ * absent OR corrupt — `readScratch`'s existing degrade-to-null contract. The
+ * un-instrumented core shared by `readScratch` and `promoteScratch`.
+ */
+async function fetchEntry(
+  fullKey: string,
+): Promise<{ raw: string | null; entry: ScratchEntry<unknown> | null }> {
+  const raw = await client().get(fullKey);
+  if (raw === null) return { raw: null, entry: null };
+  return { raw, entry: parseJsonWith(raw, scratchEntrySchema) };
+}
+
 export interface WriteScratchArgs<T = unknown> {
   runId: string;
   zone: ScratchZone;
@@ -69,13 +115,29 @@ export interface WriteScratchArgs<T = unknown> {
 
 export async function writeScratch<T>(args: WriteScratchArgs<T>): Promise<void> {
   const target = toTarget(args);
-  const entry: ScratchEntry<T> = {
-    value: args.value,
-    zone: target.zone,
-    writtenBy: args.writtenBy,
-    writtenAt: Date.now(),
-  };
-  await client().set(resolveKey(target), JSON.stringify(entry), "EX", SCRATCH_TTL_SECONDS);
+  const fullKey = resolveKey(target);
+  const span = startScratchSpan(
+    buildScratchWriteSpanInput({
+      runId: args.runId,
+      zone: target.zone,
+      logicalKey: logicalScratchKey(args.runId, fullKey),
+      writtenBy: args.writtenBy,
+      startedAt: new Date(),
+    }),
+  );
+  try {
+    const entry: ScratchEntry<T> = {
+      value: args.value,
+      zone: target.zone,
+      writtenBy: args.writtenBy,
+      writtenAt: Date.now(),
+    };
+    const byteSize = await putEntry(fullKey, entry);
+    span.end({ status: "ok", metadata: { byteSize } });
+  } catch (err) {
+    span.end({ status: "error", level: "ERROR" });
+    throw err;
+  }
 }
 
 export interface ReadScratchArgs {
@@ -86,10 +148,35 @@ export interface ReadScratchArgs {
 }
 
 export async function readScratch<T>(args: ReadScratchArgs): Promise<ScratchEntry<T> | null> {
-  const raw = await client().get(resolveKey(toTarget(args)));
-  if (raw === null) return null;
-  const entry = parseJsonWith(raw, scratchEntrySchema);
-  return entry === null ? null : (entry as ScratchEntry<T>);
+  const target = toTarget(args);
+  const fullKey = resolveKey(target);
+  const span = startScratchSpan(
+    buildScratchReadSpanInput({
+      runId: args.runId,
+      zone: target.zone,
+      logicalKey: logicalScratchKey(args.runId, fullKey),
+      startedAt: new Date(),
+    }),
+  );
+  try {
+    const { raw, entry } = await fetchEntry(fullKey);
+    const hit = raw !== null;
+    span.end({
+      status: "ok",
+      metadata: {
+        hit,
+        // A present-but-unparseable entry (corrupt/stale envelope) degrades to
+        // null — flag it so a read miss caused by corruption is distinguishable
+        // from a genuinely absent key.
+        corrupt: hit && entry === null,
+        byteSize: raw === null ? 0 : Buffer.byteLength(raw, "utf8"),
+      },
+    });
+    return entry === null ? null : (entry as ScratchEntry<T>);
+  } catch (err) {
+    span.end({ status: "error", level: "ERROR" });
+    throw err;
+  }
 }
 
 export interface PromoteScratchArgs {
@@ -113,27 +200,47 @@ export interface PromoteScratchArgs {
 export async function promoteScratch(
   args: PromoteScratchArgs,
 ): Promise<ScratchEntry<unknown> | null> {
-  const source = await readScratch<unknown>({
+  const from: ScratchTarget = {
     runId: args.runId,
     zone: "scratch",
     subId: args.fromSubId,
     path: args.fromPath,
-  });
-  if (source === null) return null;
-  const writtenBy = args.writtenBy ?? "boss";
-  await writeScratch({
-    runId: args.runId,
-    zone: "shared",
-    path: args.toSharedPath,
-    value: source.value,
-    writtenBy,
-  });
-  return {
-    value: source.value,
-    zone: "shared",
-    writtenBy,
-    writtenAt: Date.now(),
   };
+  const to: SharedTarget = { runId: args.runId, zone: "shared", path: args.toSharedPath };
+  const fromKey = resolveKey(from);
+  const toKey = resolveKey(to);
+  const writtenBy = args.writtenBy ?? "boss";
+  // Read the source and write the destination through the un-instrumented cores
+  // so the promote is a single `runtime.scratch.promote` span, not a promote
+  // wrapping a spurious read+write span pair.
+  const span = startScratchSpan(
+    buildScratchPromoteSpanInput({
+      runId: args.runId,
+      fromLogicalKey: logicalScratchKey(args.runId, fromKey),
+      toLogicalKey: logicalScratchKey(args.runId, toKey),
+      writtenBy,
+      startedAt: new Date(),
+    }),
+  );
+  try {
+    const { entry: source } = await fetchEntry(fromKey);
+    if (source === null) {
+      span.end({ status: "ok", metadata: { hit: false } });
+      return null;
+    }
+    const promoted: ScratchEntry<unknown> = {
+      value: source.value,
+      zone: "shared",
+      writtenBy,
+      writtenAt: Date.now(),
+    };
+    const byteSize = await putEntry(toKey, promoted);
+    span.end({ status: "ok", metadata: { hit: true, byteSize } });
+    return promoted;
+  } catch (err) {
+    span.end({ status: "error", level: "ERROR" });
+    throw err;
+  }
 }
 
 /**
@@ -145,11 +252,56 @@ export async function promoteScratch(
  * Returns the number of keys persisted.
  */
 export async function snapshotScratchToPostgres(runId: string): Promise<number> {
-  const prefix = `alfred:scratch:${runId}:`;
+  const span = startScratchSpan(buildScratchSnapshotSpanInput({ runId, startedAt: new Date() }));
+  try {
+    const persisted = await snapshotScratchToPostgresCore(runId, (counts) => {
+      // Fold the terminal counts onto the span. Entry count is the PRD's headline
+      // durability signal; scanned/corrupt/zone split explain a count that looks
+      // wrong without ever emitting a raw key or value.
+      span.end({
+        status: "ok",
+        metadata: {
+          scanned: counts.scanned,
+          persisted: counts.persisted,
+          corrupt: counts.corrupt,
+          sharedCount: counts.sharedCount,
+          scratchCount: counts.scratchCount,
+        },
+      });
+    });
+    return persisted;
+  } catch (err) {
+    span.end({ status: "error", level: "ERROR" });
+    throw err;
+  }
+}
+
+interface SnapshotCounts {
+  /** Keys with a live value that we attempted to parse. */
+  scanned: number;
+  /** Rows upserted into Postgres. */
+  persisted: number;
+  /** Present-but-unparseable keys skipped (corrupt/stale envelope). */
+  corrupt: number;
+  sharedCount: number;
+  scratchCount: number;
+}
+
+/**
+ * The un-instrumented snapshot body. Invokes `onCounts` with the terminal tally
+ * on success so the span closer stays out of the SCAN/upsert logic.
+ */
+async function snapshotScratchToPostgresCore(
+  runId: string,
+  onCounts: (counts: SnapshotCounts) => void,
+): Promise<number> {
+  const prefix = scratchKeyPrefix(runId);
   const match = `${prefix}*`;
   const conn = client();
 
   const rows: AgentRunContextRow[] = [];
+  let scanned = 0;
+  let corrupt = 0;
 
   let cursor = "0";
   do {
@@ -165,8 +317,10 @@ export async function snapshotScratchToPostgres(runId: string): Promise<number> 
       if (raw === null || raw === undefined || fullKey === undefined) continue;
       const dotted = fullKey.slice(prefix.length);
       if (dotted.length === 0) continue;
+      scanned += 1;
       const entry = parseJsonWith(raw, scratchEntrySchema);
       if (entry === null) {
+        corrupt += 1;
         console.warn(`[scratchpad] skipping corrupt scratch key during snapshot: ${fullKey}`);
         continue;
       }
@@ -181,7 +335,19 @@ export async function snapshotScratchToPostgres(runId: string): Promise<number> 
     }
   } while (cursor !== "0");
 
-  if (rows.length === 0) return 0;
+  const sharedCount = rows.filter((r) => r.zone === "shared").length;
+  const counts: SnapshotCounts = {
+    scanned,
+    persisted: rows.length,
+    corrupt,
+    sharedCount,
+    scratchCount: rows.length - sharedCount,
+  };
+
+  if (rows.length === 0) {
+    onCounts(counts);
+    return 0;
+  }
 
   // Chunked upsert. Each row carries 6 parameters; Postgres caps bind
   // params at 65535 (`$1`..`$65535`), so a single VALUES list maxes out
@@ -205,6 +371,7 @@ export async function snapshotScratchToPostgres(runId: string): Promise<number> 
       });
   }
 
+  onCounts(counts);
   return rows.length;
 }
 
