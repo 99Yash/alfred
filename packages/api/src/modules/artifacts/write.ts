@@ -5,7 +5,11 @@ import {
   type ArtifactKind,
   type ArtifactPage,
 } from "@alfred/contracts";
-import { validatePdfArtifactHtml } from "@alfred/artifacts-design/validation";
+import {
+  validatePdfArtifactHtml,
+  validateSlideArtifactHtml,
+  type ArtifactHtmlValidation,
+} from "@alfred/artifacts-design/validation";
 import { db } from "@alfred/db";
 import { artifacts, chatMessages, type Artifact } from "@alfred/db/schemas";
 import { and, eq, exists, sql } from "drizzle-orm";
@@ -72,6 +76,22 @@ export type UpdateArtifactResult =
 
 /** Hard ceiling on pages per artifact — mirrors the `artifactContentSchema` cap. */
 const MAX_PAGES = 100;
+
+/**
+ * Validate one authored page against its format's authoring contract before it
+ * is stored. `pdf` gets the full document contract (typography + motion);
+ * `slides` gets the motion-only check (they keep inline-geometry freedom). A
+ * `pages` row always has a format, but the column is nullable in the schema, so
+ * an absent format simply skips validation.
+ */
+function validatePageForFormat(
+  format: ArtifactFormat | null,
+  html: string,
+): ArtifactHtmlValidation {
+  if (format === "pdf") return validatePdfArtifactHtml(html);
+  if (format === "slides") return validateSlideArtifactHtml(html);
+  return { ok: true };
+}
 
 /**
  * Create a new artifact row in `generating` status. `document` seeds its
@@ -150,11 +170,9 @@ export async function appendArtifactPage(
     if (row.kind !== "pages" || !row.content || row.content.kind !== "pages") {
       return { status: "wrong_kind" as const };
     }
-    if (row.format === "pdf") {
-      const validation = validatePdfArtifactHtml(page.html);
-      if (!validation.ok) {
-        return { status: "invalid_content" as const, reason: validation.reason };
-      }
+    const validation = validatePageForFormat(row.format, page.html);
+    if (!validation.ok) {
+      return { status: "invalid_content" as const, reason: validation.reason };
     }
     if (row.content.pages.length >= MAX_PAGES) return { status: "page_limit" as const };
 
@@ -320,9 +338,9 @@ export async function updateArtifact(
     if (input.pages !== undefined && row.kind !== "pages") {
       return { status: "wrong_kind" as const, want: "pages" };
     }
-    if (input.pages !== undefined && row.format === "pdf") {
+    if (input.pages !== undefined) {
       for (const page of input.pages) {
-        const validation = validatePdfArtifactHtml(page.html);
+        const validation = validatePageForFormat(row.format, page.html);
         if (!validation.ok) {
           return { status: "invalid_content" as const, reason: validation.reason };
         }
