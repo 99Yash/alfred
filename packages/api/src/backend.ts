@@ -19,6 +19,15 @@ export type {
   Workflow,
   WorkflowInput,
 } from "./modules/agent/index";
+export {
+  getRunBottleneckSummary,
+  summarizeRunBottlenecks,
+  type RunBottleneckApiCall,
+  type RunBottleneckInput,
+  type RunBottleneckStaging,
+  type RunBottleneckStep,
+  type RunBottleneckSummary,
+} from "./modules/agent/run-bottlenecks";
 export { chatTurnWorkflow, CHAT_TURN_WORKFLOW_SLUG } from "./modules/agent/workflows/chat-turn";
 export {
   userAuthoredBriefWorkflow,
