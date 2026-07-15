@@ -47,6 +47,7 @@ import {
 } from "../sub-agent-join-wake-queue";
 import { subAgentDoneSignalName } from "../sub-agent-metadata";
 import { composeAgentInstructions } from "../instructions";
+import { createVoiceStreamSanitizer, sanitizeVoice } from "../voice-sanitize";
 import {
   isTerminalChildStatus,
   listSpawnedChildRuns,
@@ -2054,19 +2055,18 @@ const chatTurnStep: Step<ChatRunState> = {
       // `chat.reasoning`, and surface each tool call as a `chat.tool` started
       // card. Reasoning and reply text get independent buffers + seqs so the
       // client orders each track on its own.
+      // Enforce the deterministic half of DEFAULT_VOICE_PROMPT ("No em-dashes")
+      // on the live stream, not just the persisted row. One sanitizer per
+      // streamTurn (one prose segment): coalesced deltas run through it before
+      // publishing. It is chunk-invariant and shares its lexical transform with
+      // the batch `sanitizeVoice` that finalize applies to `content`/`narration`,
+      // so the streamed text equals the reconciled bubble exactly — no mid-stream
+      // em-dash that "corrects itself" on completion. Code, quotations, links,
+      // and identifiers are preserved verbatim.
+      const voiceSanitizer = createVoiceStreamSanitizer();
       let buffer = "";
       let lastFlush = Date.now();
-      const flush = async (): Promise<void> => {
-        // While a reissue is pending (#407) this turn's text is an internal
-        // reissue lead-in — withhold its live deltas so "tools warming up,
-        // retrying" never streams. Keep `buffer` intact: if the model answers
-        // instead of reissuing, the final-answer path clears the flag and
-        // flushes it as the real reply.
-        if (state.reissuePending) return;
-        if (buffer.length === 0) return;
-        const text = buffer;
-        buffer = "";
-        lastFlush = Date.now();
+      const publishTextDelta = async (text: string): Promise<void> => {
         for (const chunk of splitEventText(text)) {
           state.deltaSeq += 1;
           await publishEvent({
@@ -2082,6 +2082,30 @@ const chatTurnStep: Step<ChatRunState> = {
             },
           });
         }
+      };
+      const flush = async (): Promise<void> => {
+        // While a reissue is pending (#407) this turn's text is an internal
+        // reissue lead-in — withhold its live deltas so "tools warming up,
+        // retrying" never streams. Keep `buffer` intact and the sanitizer
+        // untouched: if the model answers instead of reissuing, the final-answer
+        // path clears the flag and flushes it as the real reply.
+        if (state.reissuePending) return;
+        if (buffer.length === 0) return;
+        // `push` may hold back a trailing dash/space until the next chunk fixes
+        // its meaning; `flushVoiceTail` releases the remainder after the drain.
+        const text = voiceSanitizer.push(buffer);
+        buffer = "";
+        lastFlush = Date.now();
+        if (text.length === 0) return;
+        await publishTextDelta(text);
+      };
+      // Release whatever the streaming sanitizer held back, closing the segment's
+      // live text. Safe on an empty sanitizer (returns ""). Gated on
+      // `reissuePending` for the same reason as `flush`.
+      const flushVoiceTail = async (): Promise<void> => {
+        if (state.reissuePending) return;
+        const tail = voiceSanitizer.flush();
+        if (tail.length > 0) await publishTextDelta(tail);
       };
 
       let reasoningBuffer = "";
@@ -2178,6 +2202,11 @@ const chatTurnStep: Step<ChatRunState> = {
       }
       await flushReasoning();
       await flush();
+      // Segment complete: release any dash/whitespace the sanitizer held back so
+      // the live text matches the persisted `sanitizeVoice(content)`. Runs before
+      // the stop/tool-call/final-answer branches so it lands on the current
+      // segment index (a tool-call turn bumps the index only afterward).
+      await flushVoiceTail();
 
       if (stopRequested) {
         // User hit stop: persist whatever streamed and complete the run.
@@ -2369,6 +2398,9 @@ const chatTurnStep: Step<ChatRunState> = {
         // any guard can close this answer into a narration segment.
         state.reissuePending = false;
         await flush();
+        // The drain-end `flushVoiceTail` above no-op'd while the reissue flag was
+        // set (the sanitizer never saw `buffer`); release the now-flushed tail.
+        await flushVoiceTail();
       }
 
       // This turn produced user-visible text. Reset before either finalization
@@ -2890,6 +2922,17 @@ function cleanTitle(raw: string): string | null {
  * surrogate that streamed into `content`, `reasoning`, the tool-call previews,
  * *or* `narration` can never re-throw on the insert and wedge the turn. One
  * `sanitizeToolResult` pass covers nested structures and object keys.
+ *
+ * `content` and each `narration` segment are Alfred's own final prose, so they
+ * also run through {@link sanitizeVoice} — the deterministic half of
+ * `DEFAULT_VOICE_PROMPT` (the chat boss is told "No em-dashes" but a prompt is
+ * not a guarantee; this is the same mechanical enforcement briefing already
+ * applies in `compose.ts`). It preserves code, quotations, links, and
+ * identifiers, so exact-copy material inside those stays verbatim. `reasoning`
+ * (internal chain-of-thought) and the tool previews (raw tool data, not Alfred
+ * prose) are left untouched. This matches the live stream, which coalesces
+ * deltas through a `createVoiceStreamSanitizer`; both share the same lexical
+ * transform, so the reconciled bubble is identical to what streamed.
  */
 export function sanitizeChatMessageFields(state: ChatRunState): {
   content: string;
@@ -2899,10 +2942,13 @@ export function sanitizeChatMessageFields(state: ChatRunState): {
 } {
   const visibleToolCalls = state.toolCallsLog.filter((toolCall) => !toolCall.nonExecution);
   const raw = {
-    content: state.assistantText,
+    content: sanitizeVoice(state.assistantText),
     reasoning: state.reasoningText.length > 0 ? state.reasoningText : null,
     toolCalls: visibleToolCalls.length > 0 ? visibleToolCalls : null,
-    narration: state.narration.length > 0 ? state.narration : null,
+    narration:
+      state.narration.length > 0
+        ? state.narration.map((segment) => ({ ...segment, text: sanitizeVoice(segment.text) }))
+        : null,
   };
   return sanitizeToolResult(raw).value as typeof raw;
 }
