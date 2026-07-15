@@ -7,6 +7,7 @@ import { z } from "zod";
 import { applyExactToolLoad } from "../../src/modules/agent/tool-surface";
 import {
   preloadToolCatalog,
+  resolveExactToolLoad,
   searchToolCatalog,
   type ToolCatalogAccess,
 } from "../../src/modules/tools/discovery";
@@ -94,6 +95,16 @@ const gmailSend = liveTool({
   execute: async () => ({ ok: true }),
 });
 
+const systemFetch = liveTool({
+  integration: "system",
+  action: "fetch_url",
+  riskTier: "no_risk",
+  description: "Read a known web page.",
+  discovery: { aliases: ["read webpage"] },
+  inputSchema: z.object({}).strict(),
+  execute: async () => ({ ok: true }),
+});
+
 const tools: readonly RegisteredTool[] = [gmailSearch, calendarCreate];
 
 function access(
@@ -161,6 +172,27 @@ describe("tool discovery", () => {
       access: access(["gmail", "calendar"], ["calendar"]),
     });
     assert.deepEqual(found, []);
+  });
+
+  test("discovers and exactly loads a non-kernel system capability", async () => {
+    registerTool(systemFetch);
+    const found = searchToolCatalog({
+      query: "read webpage",
+      tools: [systemFetch],
+      access: { allowedIntegrations: [], availableTools: new Set([systemFetch.name]) },
+    });
+    assert.equal(found[0]?.name, "system.fetch_url");
+
+    assert.deepEqual(
+      await resolveExactToolLoad({
+        userId: "user_1",
+        name: "system.fetch_url",
+        allowedIntegrations: [],
+        context: { caller: "boss", hasThread: true },
+        availability: { integrations: new Map(), providers: new Map() },
+      }),
+      { ok: true, name: "system.fetch_url" },
+    );
   });
 
   test("deterministically preloads likely exact tools and skips active ones", () => {

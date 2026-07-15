@@ -2,6 +2,12 @@ import { isIntegrationSlug, isRecord, isToolName, type ToolName } from "@alfred/
 import { z } from "zod";
 import { getTool, listToolsForIntegration } from "../tools/registry";
 
+const SYSTEM_TOOL_KERNEL = [
+  "system.current_time",
+  "system.load_tool",
+  "system.search_tools",
+] as const satisfies readonly ToolName[];
+
 export const toolNameSchema = z.custom<ToolName>(
   (value) => typeof value === "string" && isToolName(value),
   "Invalid tool name",
@@ -17,7 +23,7 @@ export function registeredToolNamesForIntegrations(integrations: readonly string
 }
 
 export function systemToolKernel(): ToolName[] {
-  return registeredToolNamesForIntegrations(["system"]);
+  return SYSTEM_TOOL_KERNEL.filter((name) => getTool(name) !== undefined);
 }
 
 /** Expand persisted integration-level state once, then checkpoint exact names. */
@@ -31,7 +37,8 @@ export function migrateActiveTools(
     (name): name is ToolName => isToolName(name) && getTool(name) !== undefined,
   );
   return uniqueToolNames([
-    ...registeredToolNamesForIntegrations(["system", ...(legacyActiveIntegrations ?? [])]),
+    ...systemToolKernel(),
+    ...registeredToolNamesForIntegrations(legacyActiveIntegrations ?? []),
     ...pendingTools,
   ]);
 }

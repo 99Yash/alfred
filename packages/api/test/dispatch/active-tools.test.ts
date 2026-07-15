@@ -110,6 +110,7 @@ describe("exact active tool dispatch", () => {
 
 describe("legacy active integration migration", () => {
   test("expands legacy integration state into registered exact names", () => {
+    registerKernelTools();
     registerTool(scratchReadTool(() => {}));
     registerTool(
       liveTool({
@@ -124,15 +125,21 @@ describe("legacy active integration migration", () => {
 
     assert.deepEqual(migrateActiveTools(undefined, ["github"]), [
       "github.search",
-      "system.read_scratch",
+      "system.current_time",
+      "system.load_tool",
+      "system.search_tools",
     ]);
   });
 
   test("preserves a registered pending call while resuming legacy state", () => {
+    registerKernelTools();
     registerTool(scratchReadTool(() => {}));
 
     assert.deepEqual(migrateActiveTools(undefined, [], ["system.read_scratch", "made.up"]), [
+      "system.current_time",
+      "system.load_tool",
       "system.read_scratch",
+      "system.search_tools",
     ]);
   });
 });
@@ -160,4 +167,37 @@ function scratchReadTool(onExecute: () => void) {
       return { ok: true };
     },
   });
+}
+
+function registerKernelTools() {
+  registerTool(
+    liveTool({
+      integration: "system",
+      action: "current_time",
+      riskTier: "no_risk",
+      description: "current time",
+      inputSchema: z.object({}).strict(),
+      execute: async () => ({}),
+    }),
+  );
+  registerTool(
+    liveTool({
+      integration: "system",
+      action: "load_tool",
+      riskTier: "no_risk",
+      description: "load tool",
+      inputSchema: z.object({}).strict(),
+      execute: async () => ({}),
+    }),
+  );
+  registerTool(
+    liveTool({
+      integration: "system",
+      action: "search_tools",
+      riskTier: "no_risk",
+      description: "search tools",
+      inputSchema: z.object({}).strict(),
+      execute: async () => ({}),
+    }),
+  );
 }

@@ -14,11 +14,9 @@ import {
   compactionThresholdTokens,
   parseIntegrationMentions,
   isIntegrationSlug,
-  isRecord,
   toJsonValue,
   toRecord,
   type AgentTranscriptMessage,
-  type IntegrationSlug,
   type ToolName,
 } from "@alfred/contracts";
 import { db } from "@alfred/db";
@@ -50,6 +48,7 @@ import {
   applyExactToolLoad,
   migrateActiveTools,
   registeredToolNamesForIntegrations,
+  systemToolKernel,
   toolNameSchema,
 } from "../tool-surface";
 import {
@@ -645,7 +644,10 @@ export const userAuthoredBriefWorkflow: Workflow<BriefRunState> = {
       ...eventSeed.filter((slug) => integrationAllowed(slug, allowedIntegrations)),
     ]);
     return {
-      activeTools: registeredToolNamesForIntegrations(["system", ...seededIntegrations]),
+      activeTools: [
+        ...systemToolKernel(),
+        ...registeredToolNamesForIntegrations(seededIntegrations),
+      ],
       preloadApplied: false,
       allowedIntegrations: [...allowedIntegrations],
       pendingToolCalls: [],
@@ -733,25 +735,7 @@ function applySystemToolEffect(
 ): void {
   if (toolName === "system.load_tool" && result.kind === "executed") {
     state.activeTools = applyExactToolLoad(state.activeTools, result.toolResult);
-    return;
   }
-  if (toolName !== "system.load_integration" || result.kind !== "executed") return;
-  const toolResult = result.toolResult;
-  if (!isSuccessfulLoadIntegrationResult(toolResult)) return;
-  state.activeTools = [
-    ...new Set([...state.activeTools, ...registeredToolNamesForIntegrations([toolResult.slug])]),
-  ].sort();
-}
-
-function isSuccessfulLoadIntegrationResult(
-  value: unknown,
-): value is { ok: true; slug: IntegrationSlug } {
-  return (
-    isRecord(value) &&
-    value.ok === true &&
-    typeof value.slug === "string" &&
-    isIntegrationSlug(value.slug)
-  );
 }
 
 function toolResultMessage(

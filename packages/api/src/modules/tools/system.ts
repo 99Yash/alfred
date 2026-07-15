@@ -7,7 +7,7 @@ import {
   isLoadableIntegrationSlug,
   listInstructionsInput,
   loadToolInput,
-  loadIntegrationInput,
+  currentTimeInput,
   promoteScratchInput,
   readScratchInput,
   readUserContextInput,
@@ -86,6 +86,38 @@ function resolveArtifactContext(
   };
 }
 
+export function currentTimeSnapshot(timezone: string, now: Date = new Date()) {
+  const parts = new Intl.DateTimeFormat("en-CA", {
+    timeZone: timezone,
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+    second: "2-digit",
+    hourCycle: "h23",
+    timeZoneName: "longOffset",
+  }).formatToParts(now);
+  const part = (type: Intl.DateTimeFormatPartTypes) =>
+    parts.find((candidate) => candidate.type === type)?.value ?? "";
+  const offset = part("timeZoneName");
+  const offsetMatch = /^GMT(?:(?<sign>[+-])(?<hours>\d{1,2})(?::(?<minutes>\d{2}))?)?$/.exec(
+    offset,
+  );
+  const utcOffset = offsetMatch?.groups?.sign
+    ? `${offsetMatch.groups.sign}${(offsetMatch.groups.hours ?? "0").padStart(2, "0")}:${offsetMatch.groups.minutes ?? "00"}`
+    : "+00:00";
+
+  return {
+    isoTime: now.toISOString(),
+    localDate: `${part("year")}-${part("month")}-${part("day")}`,
+    localTime: `${part("hour")}:${part("minute")}:${part("second")}`,
+    weekday: new Intl.DateTimeFormat("en-US", { timeZone: timezone, weekday: "long" }).format(now),
+    timezone,
+    utcOffset,
+  };
+}
+
 export const systemTools: readonly RegisteredTool[] = [
   liveTool({
     integration: "system",
@@ -147,24 +179,20 @@ export const systemTools: readonly RegisteredTool[] = [
   }),
   liveTool({
     integration: "system",
-    action: "load_integration",
+    action: "current_time",
     riskTier: "no_risk",
     description:
-      "Load another integration's tools for future turns when the workflow allowlist permits it.",
-    inputSchema: loadIntegrationInput,
-    execute: async (input, ctx) => {
-      const allowed = ctx.allowedIntegrations ?? [];
-      if (allowed.length > 0 && !allowed.includes(input.slug)) {
-        return {
-          ok: false,
-          status: "not_allowed",
-          slug: input.slug,
-          reason: "workflow_allowed_integrations_cap",
-        };
-      }
-
-      return { ok: true, slug: input.slug };
+      "Return the current instant and the user's local date, time, weekday, timezone, and UTC offset.",
+    discovery: {
+      title: "Current time",
+      summary: "Read the current time in the user's operational timezone.",
+      aliases: ["what time is it", "today's date", "current date"],
+      tags: ["time", "date", "temporal grounding"],
+      entities: ["time", "date", "timezone"],
+      verbs: ["read", "check"],
     },
+    inputSchema: currentTimeInput,
+    execute: async (_input, ctx) => currentTimeSnapshot(ctx.timezone),
   }),
   liveTool({
     integration: "system",

@@ -31,7 +31,7 @@ export const INTEGRATION_ACTIONS = {
   system: [
     "search_tools",
     "load_tool",
-    "load_integration",
+    "current_time",
     "spawn_sub_agent",
     "await_sub_agent",
     "read_user_context",
@@ -177,9 +177,8 @@ export interface ToolLabel {
  * `snake_case` symbol again. Pure + zero-dep so the server notification worker,
  * the approvals card, and the chat transcript all import the one map.
  *
- * `system.load_integration` and `system.spawn_sub_agent` carry static fallbacks
- * here; their chat rows refine them with the live target (e.g. "Connecting to
- * GitHub") at the call site, where the integration catalog is available.
+ * `system.spawn_sub_agent` carries a static fallback here; its chat row refines
+ * it with the live target at the call site when one is available.
  */
 export const TOOL_LABELS: Record<ToolName, ToolLabel> = {
   "system.search_tools": {
@@ -192,10 +191,10 @@ export const TOOL_LABELS: Record<ToolName, ToolLabel> = {
     done: "Loaded a tool",
     title: "load a tool",
   },
-  "system.load_integration": {
-    running: "Connecting an integration",
-    done: "Connected an integration",
-    title: "connect an integration",
+  "system.current_time": {
+    running: "Checking the current time",
+    done: "Checked the current time",
+    title: "check the current time",
   },
   "system.spawn_sub_agent": {
     running: "Delegating a sub-task",

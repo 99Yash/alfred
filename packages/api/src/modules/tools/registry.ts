@@ -86,8 +86,8 @@ export interface ToolExecuteContext {
   messageId?: string;
   /**
    * Workflow-level integration cap. Empty or undefined means unrestricted.
-   * Internal system tools such as `system.load_integration` use this to
-   * validate without reading or mutating run state.
+   * Exact tool discovery and loading use this to validate without reading or
+   * mutating run state.
    */
   allowedIntegrations?: readonly string[];
   // TODO(#286): no abortSignal is threaded here yet, so a long network tool
