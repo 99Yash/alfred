@@ -56,6 +56,13 @@ test("the default system kernel excludes loadable system capabilities", () => {
   ]);
 });
 
+test("the system kernel fails loudly when a required tool is not registered", () => {
+  assert.throws(
+    () => systemToolKernel(),
+    /Required system tool kernel is not registered: system\.current_time, system\.load_tool, system\.search_tools/,
+  );
+});
+
 test("a hidden system capability becomes active only after exact load", () => {
   registerTools([
     liveTool({

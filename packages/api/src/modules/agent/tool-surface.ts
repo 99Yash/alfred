@@ -23,24 +23,32 @@ export function registeredToolNamesForIntegrations(integrations: readonly string
 }
 
 export function systemToolKernel(): ToolName[] {
-  return SYSTEM_TOOL_KERNEL.filter((name) => getTool(name) !== undefined);
+  const missingTools = SYSTEM_TOOL_KERNEL.filter((name) => getTool(name) === undefined);
+  if (missingTools.length > 0) {
+    throw new Error(`Required system tool kernel is not registered: ${missingTools.join(", ")}`);
+  }
+  return [...SYSTEM_TOOL_KERNEL];
 }
 
 /** Expand persisted integration-level state once, then checkpoint exact names. */
 export function migrateActiveTools(
-  activeTools: readonly ToolName[] | undefined,
+  activeTools: readonly string[] | undefined,
   legacyActiveIntegrations: readonly string[] | undefined,
   legacyPendingToolNames: readonly string[] = [],
 ): ToolName[] {
-  if (activeTools) return uniqueToolNames(activeTools);
-  const pendingTools = legacyPendingToolNames.filter(
-    (name): name is ToolName => isToolName(name) && getTool(name) !== undefined,
-  );
+  if (activeTools) return uniqueToolNames(registeredToolNames(activeTools));
+  const pendingTools = registeredToolNames(legacyPendingToolNames);
   return uniqueToolNames([
     ...systemToolKernel(),
     ...registeredToolNamesForIntegrations(legacyActiveIntegrations ?? []),
     ...pendingTools,
   ]);
+}
+
+function registeredToolNames(toolNames: readonly string[]): ToolName[] {
+  return toolNames.filter(
+    (name): name is ToolName => isToolName(name) && getTool(name) !== undefined,
+  );
 }
 
 export function activateTool(activeTools: readonly ToolName[], toolName: ToolName): ToolName[] {

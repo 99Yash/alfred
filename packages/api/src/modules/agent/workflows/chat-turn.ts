@@ -76,7 +76,6 @@ import {
   applyExactToolLoad,
   migrateActiveTools,
   systemToolKernel,
-  toolNameSchema,
 } from "../tool-surface";
 import type { AgentDbExecutor, Step, StepContext, StepResult, Workflow } from "../types";
 import {
@@ -239,7 +238,9 @@ const chatRunStateSchema = z
     // never inferred from user-authored prose or attachment content.
     artifactTargetId: z.string().optional(),
     tier: chatModelTierSchema,
-    activeTools: z.array(toolNameSchema).optional(),
+    // Persisted under an older deploy, so names may refer to tools that have
+    // since been retired. The transform below drops anything not in today's registry.
+    activeTools: z.array(z.string()).optional(),
     // Read only while resuming checkpoints created before exact tool surfaces.
     activeIntegrations: z.array(z.string().min(1)).optional(),
     preloadApplied: z.boolean().default(false),
