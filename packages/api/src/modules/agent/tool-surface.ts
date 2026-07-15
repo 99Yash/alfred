@@ -1,12 +1,11 @@
 import { isIntegrationSlug, isRecord, isToolName, type ToolName } from "@alfred/contracts";
 import { z } from "zod";
-import { getTool, listToolsForIntegration } from "../tools/registry";
-
-const SYSTEM_TOOL_KERNEL = [
-  "system.current_time",
-  "system.load_tool",
-  "system.search_tools",
-] as const satisfies readonly ToolName[];
+import {
+  assertKernelToolsRegistered,
+  getTool,
+  listKernelTools,
+  listToolsForIntegration,
+} from "../tools/registry";
 
 export const toolNameSchema = z.custom<ToolName>(
   (value) => typeof value === "string" && isToolName(value),
@@ -23,11 +22,8 @@ export function registeredToolNamesForIntegrations(integrations: readonly string
 }
 
 export function systemToolKernel(): ToolName[] {
-  const missingTools = SYSTEM_TOOL_KERNEL.filter((name) => getTool(name) === undefined);
-  if (missingTools.length > 0) {
-    throw new Error(`Required system tool kernel is not registered: ${missingTools.join(", ")}`);
-  }
-  return [...SYSTEM_TOOL_KERNEL];
+  assertKernelToolsRegistered();
+  return listKernelTools().map((tool) => tool.name);
 }
 
 /** Expand persisted integration-level state once, then checkpoint exact names. */

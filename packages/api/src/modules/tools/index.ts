@@ -14,7 +14,7 @@ import { githubTools } from "./github";
 import { gmailTools } from "./gmail";
 import { notionTools } from "./notion";
 import { railwayTools } from "./railway";
-import { registerTools } from "./registry";
+import { assertKernelToolsRegistered, registerTools } from "./registry";
 import { sheetsTools } from "./sheets";
 import { slidesTools } from "./slides";
 import { systemTools } from "./system";
@@ -46,4 +46,5 @@ export function registerBuiltinTools(): void {
   registerTools(notionTools);
   registerTools(railwayTools);
   registerTools(vercelTools);
+  assertKernelToolsRegistered(systemTools);
 }

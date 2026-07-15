@@ -123,6 +123,7 @@ export const systemTools: readonly RegisteredTool[] = [
     integration: "system",
     action: "search_tools",
     riskTier: "no_risk",
+    availability: { surface: "kernel" },
     description:
       "Search the available tool catalog by capability without loading full schemas. Returns exact names for system.load_tool.",
     discovery: {
@@ -154,6 +155,7 @@ export const systemTools: readonly RegisteredTool[] = [
     integration: "system",
     action: "load_tool",
     riskTier: "no_risk",
+    availability: { surface: "kernel" },
     description:
       "Load one exact available tool by the qualified name returned from system.search_tools. Its schema is available on the next model turn.",
     discovery: {
@@ -181,6 +183,7 @@ export const systemTools: readonly RegisteredTool[] = [
     integration: "system",
     action: "current_time",
     riskTier: "no_risk",
+    availability: { surface: "kernel" },
     description:
       "Return the current instant and the user's local date, time, weekday, timezone, and UTC offset.",
     discovery: {
