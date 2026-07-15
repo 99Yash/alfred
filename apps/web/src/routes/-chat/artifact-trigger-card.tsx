@@ -55,12 +55,12 @@ export function ArtifactTriggerCard({
         )}
       </span>
       <div className="min-w-0 flex-1">
-        <p className="truncate text-sm font-medium text-app-fg-1">{artifact.title}</p>
-        <p className="truncate text-[12px] text-app-fg-4">{subtitle}</p>
+        <p className="truncate text-sm font-medium text-app-fg-4">{artifact.title}</p>
+        <p className="truncate text-[12px] text-app-fg-3">{subtitle}</p>
       </div>
-      <span className="flex shrink-0 items-center gap-1 text-[12px] text-app-fg-4 group-hover:text-app-fg-2">
+      <span className="flex shrink-0 items-center gap-1 text-[12px] text-app-fg-3 transition-colors group-hover:text-app-fg-4">
         {active ? "Viewing" : "Open"}
-        <ArrowRight size={13} />
+        <ArrowRight size={13} className="transition-[translate] group-hover:translate-x-0.5" />
       </span>
     </button>
   );

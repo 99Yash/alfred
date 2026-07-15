@@ -29,7 +29,7 @@ export const houseTheme: ArtifactTheme = {
   id: "alfred-light",
   name: "Alfred Light",
   voice:
-    "Calm, editorial, and confident: brand ink on white, generous whitespace, one purple accent used sparingly for emphasis.",
+    "Calm, editorial, and confident: brand ink on a clean surface, generous whitespace, one purple accent used sparingly for emphasis.",
   font: font.family,
   ink: palette.ink,
   surface: palette.surface,
