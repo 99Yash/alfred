@@ -2,7 +2,7 @@ import type { ArtifactFormat } from "@alfred/contracts";
 import type { SyncedArtifact } from "@alfred/sync";
 import { Link, useNavigate, useParams } from "@tanstack/react-router";
 import { AlertTriangle, Download, FileText, Layers, Loader2, X } from "lucide-react";
-import { useCallback, useEffect, type ReactNode } from "react";
+import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
 import { ArtifactPageFrame } from "~/components/artifact-page-frame";
 import { MarkdownRenderer } from "~/components/markdown-renderer";
 import { AppButton } from "~/components/ui/v2";
@@ -223,7 +223,7 @@ function ArtifactContent({ artifact }: { artifact: SyncedArtifact }) {
               {index + 1} / {pages.length}
             </span>
           </div>
-          <ArtifactPageFrame
+          <LazyArtifactPage
             html={page.html}
             title={`${artifact.title} page ${index + 1}`}
             format={format}
@@ -231,6 +231,68 @@ function ArtifactContent({ artifact }: { artifact: SyncedArtifact }) {
         </section>
       ))}
     </div>
+  );
+}
+
+/** Page aspect per format — mirrors `PAGE_ASPECT` in artifact-page-frame.tsx. */
+const PAGE_ASPECT: Record<ArtifactFormat, string> = {
+  pdf: "aspect-[8.5/11]",
+  slides: "aspect-video",
+};
+
+/**
+ * Mount each page's sandboxed iframe only once it first scrolls into view, then
+ * keep it mounted. The artifact iframe is `sandbox=""` + `pointer-events: none`,
+ * so the only motion it can carry is an autoplay-on-mount entrance (ADR-0086);
+ * mounting every page on load would spend those entrances at once, long before
+ * the reader reaches page N. Gating the mount on intersection makes
+ * mount == reveal, so each page's entrance fires as it arrives — and it is also
+ * a paint-cost win for long decks. Until intersection we render a same-aspect
+ * placeholder so the scroll height is stable (the observer for later pages can
+ * fire) and the swap causes no layout shift. The observer sits in the parent app
+ * DOM, where JS is allowed — the sealed iframe never sees it.
+ */
+function LazyArtifactPage({
+  html,
+  title,
+  format,
+}: {
+  html: string;
+  title: string;
+  format: ArtifactFormat;
+}) {
+  const ref = useRef<HTMLDivElement | null>(null);
+  const [mounted, setMounted] = useState(false);
+
+  useEffect(() => {
+    if (mounted) return;
+    const el = ref.current;
+    if (!el) return;
+    const observer = new IntersectionObserver(
+      ([entry]) => {
+        if (entry?.isIntersecting) {
+          setMounted(true);
+          observer.disconnect();
+        }
+      },
+      // A small positive margin pre-mounts just before the page enters view so
+      // the iframe has loaded by the time it is looked at, without spending the
+      // entrance far off-screen.
+      { rootMargin: "96px 0px", threshold: 0 },
+    );
+    observer.observe(el);
+    return () => observer.disconnect();
+  }, [mounted]);
+
+  if (mounted) {
+    return <ArtifactPageFrame html={html} title={title} format={format} />;
+  }
+  return (
+    <div
+      ref={ref}
+      aria-hidden
+      className={cn("rounded-lg bg-app-bg-2 shadow-2xl", PAGE_ASPECT[format])}
+    />
   );
 }
 
