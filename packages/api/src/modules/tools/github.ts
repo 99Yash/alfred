@@ -133,6 +133,13 @@ export const githubTools: readonly RegisteredTool[] = [
     riskTier: "no_risk",
     description:
       "Search the user's GitHub issues and pull requests by author, state, type, and time window. Returns an exact total count plus the matching items. Use the structured fields for type/author/state/recency — anything you put in `query` (author:, is:, state:) is folded into them automatically. 'How many PRs did I merge today' → type:'pr', state:'merged', mergedWithinDays:1. 'My open issues' → type:'issue', state:'open'. type defaults to pr; author defaults to @me ONLY for an unscoped search — a repo:/org:-scoped search is NOT narrowed to your items unless you set author:'@me'.",
+    discovery: {
+      aliases: ["search GitHub", "find pull requests", "find issues"],
+      tags: ["github", "code", "development"],
+      entities: ["pull request", "pr", "issue", "repository"],
+      verbs: ["search", "find", "list", "count"],
+      relatedTools: ["github.get_pull_request", "github.get_issue"],
+    },
     inputSchema: githubSearchInput,
     execute: async (input, ctx) => {
       const credential = await credentialFor(ctx.userId);
@@ -175,6 +182,13 @@ export const githubTools: readonly RegisteredTool[] = [
     riskTier: "no_risk",
     description:
       "Fetch one pull request by owner/repo/number. Returns diff stats — additions, deletions, changed_files, commits — that search cannot. To total lines changed across several PRs, search first, then call this for each hit and sum.",
+    discovery: {
+      aliases: ["get pull request", "read PR", "pull request details"],
+      tags: ["github", "code", "development"],
+      entities: ["pull request", "pr", "diff"],
+      verbs: ["get", "read", "inspect"],
+      relatedTools: ["github.search"],
+    },
     inputSchema: githubGetPullRequestInput,
     execute: async (input, ctx) => {
       const credential = await credentialFor(ctx.userId);
@@ -193,6 +207,13 @@ export const githubTools: readonly RegisteredTool[] = [
     riskTier: "no_risk",
     description:
       "Fetch one issue by owner/repo/number. Returns the issue body, labels, and comment count (search returns only the title and metadata).",
+    discovery: {
+      aliases: ["get issue", "read GitHub issue", "issue details"],
+      tags: ["github", "code", "development"],
+      entities: ["issue", "ticket"],
+      verbs: ["get", "read", "inspect"],
+      relatedTools: ["github.search"],
+    },
     inputSchema: githubGetIssueInput,
     execute: async (input, ctx) => {
       const credential = await credentialFor(ctx.userId);

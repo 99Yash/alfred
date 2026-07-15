@@ -6,6 +6,7 @@ import {
   forgetInstructionInput,
   isLoadableIntegrationSlug,
   listInstructionsInput,
+  loadToolInput,
   loadIntegrationInput,
   promoteScratchInput,
   readScratchInput,
@@ -13,6 +14,7 @@ import {
   readChatHistoryInput,
   fetchUrlInput,
   rememberInput,
+  searchToolsInput,
   resolveTodoInput,
   suggestTodoInput,
   updateArtifactInput,
@@ -49,6 +51,7 @@ import { redactCredentialUrl, runFetchUrl } from "./fetch-url";
 import { liveTool, type RegisteredTool } from "./registry";
 import { parseScratchToolKey } from "./scratch-key";
 import { runWebSearch } from "./web-search";
+import { resolveExactToolLoad, searchAvailableTools } from "./discovery";
 
 /**
  * Resolve the provenance an artifact tool needs from the call context. Returns
@@ -84,6 +87,56 @@ function resolveArtifactContext(
 }
 
 export const systemTools: readonly RegisteredTool[] = [
+  liveTool({
+    integration: "system",
+    action: "search_tools",
+    riskTier: "no_risk",
+    description:
+      "Search the available tool catalog by capability without loading full schemas. Returns exact names for system.load_tool.",
+    discovery: {
+      title: "Search tools",
+      summary:
+        "Find an available capability and its exact tool name without exposing full schemas.",
+      aliases: ["find a tool", "discover tools", "tool catalog"],
+      tags: ["tools", "capabilities", "discovery"],
+      entities: ["tool", "capability"],
+      verbs: ["search", "find", "discover"],
+      relatedTools: ["system.load_tool"],
+    },
+    inputSchema: searchToolsInput,
+    execute: async (input, ctx) => ({
+      ok: true,
+      candidates: await searchAvailableTools({
+        userId: ctx.userId,
+        query: input.query,
+        limit: input.limit,
+        allowedIntegrations: ctx.allowedIntegrations ?? [],
+      }),
+    }),
+  }),
+  liveTool({
+    integration: "system",
+    action: "load_tool",
+    riskTier: "no_risk",
+    description:
+      "Load one exact available tool by the qualified name returned from system.search_tools. Its schema is available on the next model turn.",
+    discovery: {
+      title: "Load tool",
+      summary: "Add one exact available tool to the run-local active surface for the next turn.",
+      aliases: ["activate tool", "enable tool"],
+      tags: ["tools", "capabilities", "discovery"],
+      entities: ["tool", "capability"],
+      verbs: ["load", "activate", "enable"],
+      relatedTools: ["system.search_tools"],
+    },
+    inputSchema: loadToolInput,
+    execute: async (input, ctx) =>
+      resolveExactToolLoad({
+        userId: ctx.userId,
+        name: input.name,
+        allowedIntegrations: ctx.allowedIntegrations ?? [],
+      }),
+  }),
   liveTool({
     integration: "system",
     action: "load_integration",
