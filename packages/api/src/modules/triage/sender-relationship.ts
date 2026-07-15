@@ -16,8 +16,15 @@
  *
  * A human sender with no graph row renders `no prior contact on record`, so the
  * rubric degrades to exactly today's intrinsic-only behavior (safe by
- * construction). Returns `null` for non-human senders — the line is then
- * omitted (bots/services are reasoned via `sender_priors`, never the graph).
+ * construction). Returns a `null` descriptor for non-human senders — the line is
+ * then omitted (bots/services are reasoned via `sender_priors`, never the graph).
+ *
+ * Alongside the prose it now returns a TYPED `isColdContact` flag derived from
+ * the same signals, so the rule-16b person-waiting todo gate can branch on it
+ * deterministically instead of trusting the cheap model to self-apply the
+ * `cold_sender:` rubric (which it doesn't — a cold cold-outreach mail minted a
+ * rail todo the model itself tagged `cold_sender:`). The prose stays the model's
+ * input; the flag is the floor's.
  */
 import { bucketSignificance } from "@alfred/contracts";
 import { db } from "@alfred/db";
@@ -63,20 +70,44 @@ async function loadUserRole(userId: string): Promise<string | null> {
 }
 
 /**
- * Resolve the rendered `Sender relationship` descriptor for a human sender, or
- * `null` for a non-human sender (caller omits the line). Best-effort: any DB
- * blip yields `no prior contact on record` rather than failing classify.
- *
- * Returns only the value part — `renderObservations` owns the `Sender
- * relationship:` label, mirroring how it owns `Known contact:`.
+ * Structured result of the sender-relationship resolve. `descriptor` is the
+ * prose line the cheap classifier reads (`renderObservations` owns the `Sender
+ * relationship:` label); `null` for a non-human sender, whose line is omitted.
+ */
+export interface SenderRelationshipSignal {
+  descriptor: string | null;
+  /**
+   * True when this HUMAN sender is a cold contact under rule 16b — `weak`
+   * significance, one-way inbound (the user never replied), or no prior contact
+   * on record. A two-way relationship (even `unscored`) is NOT cold. Always
+   * `false` for a non-human sender: there is no "real person waiting" stake to
+   * corroborate, and bots/services are reasoned via `sender_priors`.
+   */
+  isColdContact: boolean;
+}
+
+// A non-human sender: no relationship line, and no person-waiting stake to gate.
+const NON_HUMAN_RELATIONSHIP: SenderRelationshipSignal = { descriptor: null, isColdContact: false };
+// A human sender with no graph row (or a DB blip). Cold by construction: the
+// person-waiting stake is uncorroborated, exactly rule 16b's cold default.
+const NO_PRIOR_CONTACT: SenderRelationshipSignal = {
+  descriptor: "no prior contact on record",
+  isColdContact: true,
+};
+
+/**
+ * Resolve the `Sender relationship` signal for a human sender (prose + the typed
+ * cold-contact flag), or the non-human default (`null` descriptor) otherwise.
+ * Best-effort: any DB blip degrades to the safe cold "no prior contact" default
+ * rather than failing classify.
  */
 export async function resolveSenderRelationship(args: {
   userId: string;
   senderAddress: string | null;
   /** Only `'person'` senders carry a relationship line. */
   isHumanSender: boolean;
-}): Promise<string | null> {
-  if (!args.isHumanSender || !args.senderAddress) return null;
+}): Promise<SenderRelationshipSignal> {
+  if (!args.isHumanSender || !args.senderAddress) return NON_HUMAN_RELATIONSHIP;
 
   // Shared alias→metadata lookup (one read path for both the resolver prose and
   // the ADR-0064 getSenderSignificance read). Null (no row) or any DB blip
@@ -85,9 +116,9 @@ export async function resolveSenderRelationship(args: {
   try {
     meta = await findPersonMetadataByAddress(args.userId, args.senderAddress);
   } catch {
-    return "no prior contact on record";
+    return NO_PRIOR_CONTACT;
   }
-  if (!meta) return "no prior contact on record";
+  if (!meta) return NO_PRIOR_CONTACT;
 
   const stats = meta.correspondence ?? { inbound: 0, outbound: 0, coRecipient: 0 };
   const significance = meta.significance;
@@ -95,11 +126,18 @@ export async function resolveSenderRelationship(args: {
   // A row with correspondence but no significance pass yet is `unscored`, NOT
   // `weak` — `weak` is a real low score the rubric reads as cold, and a
   // not-yet-scored two-way contact must not be mistaken for one. With no score,
-  // reciprocity (below) carries the relationship signal.
-  const parts: string[] = [
-    significance ? bucketSignificance(significance.score) : "unscored",
-    reciprocityPhrase(stats),
-  ];
+  // reciprocity carries the relationship signal.
+  const bucket = significance ? bucketSignificance(significance.score) : "unscored";
+
+  // Cold (rule 16b) = NOT a two-way thread AND (one-way inbound OR `weak`). A
+  // two-way thread — the user sent at least one message back — is a real person
+  // waiting even when `unscored`, so it is never cold. Absent any outbound the
+  // thread is one-way inbound → cold regardless of score. `weak` demotes a
+  // scored-but-low one-directional contact.
+  const twoWay = stats.inbound > 0 && stats.outbound > 0;
+  const isColdContact = !twoWay && (stats.outbound === 0 || bucket === "weak");
+
+  const parts: string[] = [bucket, reciprocityPhrase(stats)];
   // same-org is read straight from the stored significance components — no
   // separate domains query. Omit the clause when the row hasn't been scored yet.
   if (significance) {
@@ -109,5 +147,5 @@ export async function resolveSenderRelationship(args: {
   const role = await loadUserRole(args.userId);
   if (role) parts.push(`you: "${role}"`);
 
-  return parts.join(" · ");
+  return { descriptor: parts.join(" · "), isColdContact };
 }

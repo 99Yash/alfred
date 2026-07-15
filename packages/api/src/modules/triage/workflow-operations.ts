@@ -545,6 +545,13 @@ export async function runEmailTriageClassify<State extends EmailTriageOperationS
         // (#353). Absent on the reuse path (not persisted); the task-tracker
         // sender fallback still catches the common trackers there.
         collabActivity: classification.collabActivity ?? null,
+        // Cold-sender gate (rule 16b): the final category + the typed cold-contact
+        // flag from the sender-relationship observation. `observations` is null on
+        // the reuse path (not re-gathered), so this gate is fresh-path only there;
+        // the `noteMarksFailingOutcome` backstop in `resolveTodoSuggestion` still
+        // catches a persisted `cold_sender:` decision on reuse.
+        category: classification.category,
+        isColdContact: observations?.senderRelationshipIsCold ?? false,
       })
     : null;
   // `written` gate: only the run that owns the canonical row proposes a
@@ -750,7 +757,7 @@ async function gatherObservations(args: {
     ? await getSenderPrior(args.userId, senderKey).catch(() => null)
     : null;
   const usePersonTreatment = isHumanSender && senderKind == null;
-  const [knownContact, senderRelationship] = await Promise.all([
+  const [knownContact, relationship] = await Promise.all([
     usePersonTreatment && args.senderAddress
       ? isKnownContact(args.userId, args.senderAddress).catch(() => false)
       : Promise.resolve(false),
@@ -758,7 +765,9 @@ async function gatherObservations(args: {
       userId: args.userId,
       senderAddress: args.senderAddress,
       isHumanSender: usePersonTreatment,
-    }).catch(() => null),
+      // An unexpected throw degrades to "not cold" (keep the todo) rather than the
+      // resolver's own cold default — err toward a real todo, not over-suppression.
+    }).catch(() => ({ descriptor: null, isColdContact: false })),
   ]);
 
   const signalText = [
@@ -779,7 +788,8 @@ async function gatherObservations(args: {
     persona: args.persona,
     thread,
     knownContact,
-    senderRelationship,
+    senderRelationship: relationship.descriptor,
+    senderRelationshipIsCold: relationship.isColdContact,
     senderKind,
     labelIds,
     signalText,

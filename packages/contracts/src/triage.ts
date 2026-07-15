@@ -95,6 +95,12 @@ export type TriageTodoSuggestion = z.infer<typeof triageTodoSuggestionSchema>;
  * Always-present rubric trace: which test decided the todo call, so a wrong
  * suggestion AND a wrong omission are both debuggable. Invariant:
  * `outcome === 'proposed'` iff the suggestion is non-null.
+ *
+ * The cheap model sometimes VIOLATES its own rubric — returning `proposed` while
+ * the `note` carries a failing-outcome prefix (`cold_sender:` / `manufactured:` /
+ * `advisory:`, all documented to accompany `not_significant`). `resolveTodoSuggestion`
+ * treats that contradiction as a suppression (no todo), so a `proposed` decision
+ * whose note names a disqualifying reason is honored downstream as `not_significant`.
  */
 export const triageTodoDecisionSchema = z.object({
   outcome: z.enum(TODO_DECISION_OUTCOMES),
