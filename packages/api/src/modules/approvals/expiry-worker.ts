@@ -24,6 +24,7 @@ import { Worker, type Job } from "bullmq";
 import { emitReplicachePokes } from "../../events/replicache-events";
 import { createRedisConnection } from "../../queue/connection";
 import { enqueueRun, signalRunInTx } from "../agent";
+import { startApprovalWaitSpan } from "../agent/runtime-spans";
 import {
   APPROVAL_EXPIRY_QUEUE_NAME,
   approvalExpiryJobDataSchema,
@@ -91,7 +92,16 @@ export async function expireStaging(args: {
   // lock and expire). The `for update` lock serializes against
   // `POST /approvals/:id/decision`.
   const outcome = await db().transaction<
-    { kind: "expired"; runId: string; shouldEnqueue: boolean } | { kind: "skipped"; reason: string }
+    | {
+        kind: "expired";
+        runId: string;
+        shouldEnqueue: boolean;
+        startedAt: Date;
+        toolName: string;
+        integration: string;
+        riskTier: string;
+      }
+    | { kind: "skipped"; reason: string }
   >(async (tx) => {
     const rows = await tx
       .select({
@@ -99,6 +109,10 @@ export async function expireStaging(args: {
         runId: actionStagings.runId,
         status: actionStagings.status,
         requiresApproval: actionStagings.requiresApproval,
+        createdAt: actionStagings.createdAt,
+        toolName: actionStagings.toolName,
+        integration: actionStagings.integration,
+        riskTier: actionStagings.riskTier,
       })
       .from(actionStagings)
       .where(and(eq(actionStagings.id, stagingId), eq(actionStagings.userId, userId)))
@@ -131,12 +145,29 @@ export async function expireStaging(args: {
       })
       .where(eq(actionStagings.id, row.id));
 
-    return { kind: "expired", runId: row.runId, shouldEnqueue: true };
+    return {
+      kind: "expired",
+      runId: row.runId,
+      shouldEnqueue: true,
+      startedAt: row.createdAt,
+      toolName: row.toolName,
+      integration: row.integration,
+      riskTier: row.riskTier,
+    };
   });
 
   if (outcome.kind === "skipped") return { status: "skipped", reason: outcome.reason, stagingId };
 
   emitReplicachePokes([userId], stagingId);
+  // Best-effort approval-wait span (#409): the gated action sat unanswered from
+  // its request until this auto-expiry. Backdated to createdAt, closed now.
+  startApprovalWaitSpan({
+    runId: outcome.runId,
+    startedAt: outcome.startedAt,
+    toolName: outcome.toolName,
+    integration: outcome.integration,
+    riskTier: outcome.riskTier,
+  }).end("expired", new Date());
   // The notify debounce normally fired long before expiry; remove it
   // defensively so a still-queued notification can't email about an
   // action we just expired.

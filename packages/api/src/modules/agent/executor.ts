@@ -7,6 +7,7 @@ import { and, eq, sql } from "drizzle-orm";
 import { publishEvent } from "../../events/publish";
 import { normalizeDecisionTraceKey, type DecisionTraceRecord } from "./decision-traces";
 import { isUniqueViolation, resolveStaleAfterMs, resolveWorkflowForRun } from "./service";
+import { startQueueLeaseSpan, type QueueLeaseFromStatus } from "./runtime-spans";
 import {
   isTerminalStatus,
   type RunStatus,
@@ -70,9 +71,23 @@ export type RunOutcome =
  *  - `none` — no lease: held by a live worker, already terminal, or waiting.
  */
 export type LeaseResult =
-  | { kind: "leased"; run: RunRow; attempt: number }
-  | { kind: "backstopped"; run: RunRow; error: string }
+  | { kind: "leased"; run: RunRow; attempt: number; queue: LeaseQueueInfo }
+  | { kind: "backstopped"; run: RunRow; error: string; queue: LeaseQueueInfo }
   | { kind: "none" };
+
+/**
+ * Queue-timing snapshot captured while leasing, threaded out so `runOnce` can
+ * emit the `runtime.queue.lease` span *outside* the `FOR UPDATE` tx (#409) —
+ * keeping tracing off the hot lock path.
+ */
+export interface LeaseQueueInfo {
+  /** now - last_checkpoint_at at lease time (ms); null when the row was never checkpointed. */
+  staleMs: number | null;
+  /** Run status observed just before this lease flipped it to `running`. */
+  fromStatus: QueueLeaseFromStatus;
+  /** True when a stale `running` row was reclaimed (previous worker presumed dead). */
+  reclaimed: boolean;
+}
 
 interface RunRow {
   id: string;
@@ -122,6 +137,20 @@ export async function runOnce(runId: string, opts: RunOnceOptions = {}): Promise
   const { run, attempt } = leased;
   const stepId = run.currentStep;
   const idempotencyKey = `${run.id}:${stepId}:${attempt}`;
+
+  // #409: record the queue/reclaim wall-clock this lease just closed — the time
+  // the run sat between steps (or, on reclaim, since the dead worker's last
+  // heartbeat). Emitted here, outside `leaseRun`'s FOR UPDATE tx, so tracing
+  // never touches the hot lock path; the helper swallows any SDK fault.
+  startQueueLeaseSpan({
+    runId: run.id,
+    workflow: run.workflowSlug,
+    stepId,
+    fromStatus: leased.queue.fromStatus,
+    reclaimed: leased.queue.reclaimed,
+    queueMs: leased.queue.staleMs,
+    leasedAt: new Date(),
+  }).end();
 
   // 2) Resolve workflow + step. If the deploy dropped them, fail hard —
   //    silent skip would leave a zombie run.
@@ -240,9 +269,18 @@ export async function leaseRun(runId: string): Promise<LeaseResult> {
     // attempt so the in-flight `agent_steps` row's unique key (run, step,
     // attempt) doesn't collide on the next insert. The orphan step row
     // is marked failed for audit visibility.
+    // now - last_checkpoint_at at lease time. Doubles as the queue/reclaim delay
+    // the `runtime.queue.lease` span reports (#409); computed for every status,
+    // not just `running`. Null when the row was never checkpointed (fresh pending).
+    const staleMs =
+      row.staleMs == null
+        ? null
+        : typeof row.staleMs === "string"
+          ? Number(row.staleMs)
+          : row.staleMs;
+
     let isStaleRunning = false;
     if (status === "running") {
-      const staleMs = typeof row.staleMs === "string" ? Number(row.staleMs) : row.staleMs;
       // Per-step stale window (ADR-0070 §1.4, Lever A): a long model-call step
       // (a boss turn) declares a wider window so a heartbeat blip can't reclaim
       // a live, expensive turn. Unset steps use the default STALE_RUN_LEASE_MS.
@@ -343,6 +381,9 @@ export async function leaseRun(runId: string): Promise<LeaseResult> {
           kind: "backstopped",
           run: { ...row, status, attempt: row.attempt },
           error: backstopError,
+          // A backstop only trips on a stale `running` row, so this is always a
+          // reclaim from `running`.
+          queue: { staleMs, fromStatus: "running", reclaimed: true },
         };
       }
     }
@@ -389,7 +430,14 @@ export async function leaseRun(runId: string): Promise<LeaseResult> {
       });
     }
 
-    return { kind: "leased", run: { ...row, status, attempt }, attempt };
+    // `status` is narrowed to pending | runnable | running here (terminal and
+    // waiting returned above), which is exactly `QueueLeaseFromStatus`.
+    const queue: LeaseQueueInfo = {
+      staleMs,
+      fromStatus: status as QueueLeaseFromStatus,
+      reclaimed: isStaleRunning,
+    };
+    return { kind: "leased", run: { ...row, status, attempt }, attempt, queue };
   });
 }
 
