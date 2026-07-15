@@ -17,17 +17,49 @@
  */
 
 import {
+  _setScratchRuntimeSpanStarterForTests,
   dispatchToolCall,
   promoteScratch,
   readScratch,
+  RUNTIME_SCRATCH_PROMOTE,
+  RUNTIME_SCRATCH_READ,
+  RUNTIME_SCRATCH_SNAPSHOT,
+  RUNTIME_SCRATCH_WRITE,
   snapshotScratchToPostgres,
   writeScratch,
 } from "@alfred/api/backend";
+import type { RuntimeSpanEndArgs, RuntimeSpanInput } from "@alfred/ai";
 import { closeConnections, closeRedis, registerBuiltinTools, warmPool } from "@alfred/api/runtime";
 import { db } from "@alfred/db";
 import { actionStagings, agentRunContext, agentRuns, user as userTable } from "@alfred/db/schemas";
 import { createRedisConnection } from "@alfred/api/queue/connection";
 import { and, eq } from "drizzle-orm";
+
+/**
+ * Captured scratch health spans (#408). The injected starter records the opening
+ * input and the terminal end args so the smoke can assert the runtime-span
+ * contract — stable names + safe (hashed, count-only) metadata — alongside the
+ * real Redis/Postgres behavior, without a live Langfuse client.
+ */
+interface CapturedScratchSpan {
+  input: RuntimeSpanInput;
+  end?: RuntimeSpanEndArgs;
+}
+
+/** Assert no captured span leaked a raw scratch value or an un-hashed key/path. */
+function assertNoRawLeak(spans: CapturedScratchSpan[]): void {
+  const forbidden = ["inbox-debt", "answer inbox by EOD", "sub-owned", "findings", "goal"];
+  for (const span of spans) {
+    const serialized = JSON.stringify({ metadata: span.input.metadata, end: span.end?.metadata });
+    for (const needle of forbidden) {
+      if (serialized.includes(needle)) {
+        throw new Error(
+          `[smoke-scratchpad] health span leaked raw scratch content "${needle}": ${serialized}`,
+        );
+      }
+    }
+  }
+}
 
 const SMOKE_USER_EMAIL = "smoke-scratchpad@alfred.local";
 
@@ -65,6 +97,19 @@ function deepEqual(a: unknown, b: unknown): boolean {
 async function main(): Promise<void> {
   await warmPool();
   registerBuiltinTools();
+
+  // Capture every scratch health span emitted below so we can assert the
+  // runtime-span contract end-to-end alongside the real behavior (#408).
+  const capturedSpans: CapturedScratchSpan[] = [];
+  const restoreSpanCapture = _setScratchRuntimeSpanStarterForTests((input) => {
+    const record: CapturedScratchSpan = { input };
+    capturedSpans.push(record);
+    return {
+      end(args) {
+        record.end = args;
+      },
+    };
+  });
 
   const userId = await findOrCreateSmokeUser();
   const runId = await createSmokeRun(userId);
@@ -293,6 +338,151 @@ async function main(): Promise<void> {
     );
   }
   console.log(`[smoke-scratchpad] second snapshot idempotent (${secondCount} rows, same shape)`);
+
+  // 5. Health-span contract: every operation above emitted a stable runtime
+  //    observation with safe (hashed, count-only) metadata.
+  restoreSpanCapture();
+
+  const byName = (name: string): CapturedScratchSpan[] =>
+    capturedSpans.filter((s) => s.input.name === name);
+
+  for (const name of [
+    RUNTIME_SCRATCH_READ,
+    RUNTIME_SCRATCH_WRITE,
+    RUNTIME_SCRATCH_PROMOTE,
+    RUNTIME_SCRATCH_SNAPSHOT,
+  ]) {
+    if (byName(name).length === 0) {
+      throw new Error(`[smoke-scratchpad] expected at least one ${name} span, got none`);
+    }
+  }
+
+  // Every span must close with a status and — for keyed ops — carry the hashed
+  // key identity by its expected field name. Asserting the hash is *present and
+  // sha256-prefixed* is what actually proves the key was fingerprinted rather
+  // than emitted raw; `assertNoRawLeak` below covers the raw-value direction.
+  const isKeyHash = (v: unknown): boolean => typeof v === "string" && v.startsWith("sha256:");
+  for (const span of capturedSpans) {
+    if (!span.end?.status) {
+      throw new Error(`[smoke-scratchpad] span ${span.input.name} never closed with a status`);
+    }
+    const meta = span.input.metadata ?? {};
+    if (span.input.name === RUNTIME_SCRATCH_READ || span.input.name === RUNTIME_SCRATCH_WRITE) {
+      if (!isKeyHash(meta.keyHash)) {
+        throw new Error(
+          `[smoke-scratchpad] ${span.input.name} span missing sha256 keyHash: ${JSON.stringify(meta)}`,
+        );
+      }
+    }
+    if (span.input.name === RUNTIME_SCRATCH_PROMOTE) {
+      if (!isKeyHash(meta.fromKeyHash) || !isKeyHash(meta.toKeyHash)) {
+        throw new Error(
+          `[smoke-scratchpad] promote span missing sha256 from/to key hash: ${JSON.stringify(meta)}`,
+        );
+      }
+    }
+  }
+
+  // Reads recorded hit/miss: the promote-source reads and round-trips are hits;
+  // no genuine miss is expected in this happy-path run.
+  const readEnds = byName(RUNTIME_SCRATCH_READ).map((s) => s.end?.metadata ?? {});
+  if (!readEnds.some((m) => m.hit === true)) {
+    throw new Error("[smoke-scratchpad] expected at least one read span with hit=true");
+  }
+
+  // The two terminal snapshots each persisted 6 rows with zero corruption.
+  const snapshotEnds = byName(RUNTIME_SCRATCH_SNAPSHOT).map((s) => s.end?.metadata ?? {});
+  for (const meta of snapshotEnds) {
+    const persisted = Number(meta.persisted);
+    const corrupt = Number(meta.corrupt);
+    const sharedCount = Number(meta.sharedCount ?? 0);
+    const scratchCount = Number(meta.scratchCount ?? 0);
+    if (persisted !== 6 || corrupt !== 0) {
+      throw new Error(
+        `[smoke-scratchpad] snapshot span metadata off: ${JSON.stringify(meta)} (want persisted=6, corrupt=0)`,
+      );
+    }
+    if (sharedCount + scratchCount !== persisted) {
+      throw new Error(
+        `[smoke-scratchpad] snapshot zone split does not sum to persisted: ${JSON.stringify(meta)}`,
+      );
+    }
+  }
+
+  assertNoRawLeak(capturedSpans);
+  console.log(
+    `[smoke-scratchpad] health spans ok (${capturedSpans.length} spans, no raw values/keys leaked)`,
+  );
+
+  // 6. Corrupt/miss contract. The happy path never exercises an unparseable
+  //    entry or a genuine miss, yet those are exactly what the read `corrupt`
+  //    flag and the snapshot `corrupt`/`scanned` counters exist to surface.
+  //    Install a fresh capture, plant one unparseable key beside the 6 live
+  //    ones, and assert the spans tell corruption apart from an absent key.
+  const corruptSpans: CapturedScratchSpan[] = [];
+  const restoreCorruptCapture = _setScratchRuntimeSpanStarterForTests((input) => {
+    const record: CapturedScratchSpan = { input };
+    corruptSpans.push(record);
+    return {
+      end(args) {
+        record.end = args;
+      },
+    };
+  });
+
+  const seedConn = createRedisConnection();
+  try {
+    // Bypass writeScratch so the envelope is deliberately unparseable.
+    await seedConn.set(`alfred:scratch:${runId}:shared.corrupt`, "{ not valid json", "EX", 300);
+  } finally {
+    await seedConn.quit().catch(() => seedConn.disconnect());
+  }
+
+  // Present-but-unparseable: hit=true (the key exists) yet corrupt=true, and
+  // readScratch still honors its degrade-to-null contract.
+  if ((await readScratch({ runId, zone: "shared", path: "corrupt" })) !== null) {
+    throw new Error("[smoke-scratchpad] corrupt read should degrade to null");
+  }
+  // Genuinely absent: hit=false, corrupt=false.
+  if ((await readScratch({ runId, zone: "shared", path: "absent" })) !== null) {
+    throw new Error("[smoke-scratchpad] absent read should be null");
+  }
+
+  const corruptCount = await snapshotScratchToPostgres(runId);
+  if (corruptCount !== 6) {
+    throw new Error(
+      `[smoke-scratchpad] corrupt key must be skipped, expected 6 persisted, got ${corruptCount}`,
+    );
+  }
+  restoreCorruptCapture();
+
+  const corruptReadEnds = corruptSpans
+    .filter((s) => s.input.name === RUNTIME_SCRATCH_READ)
+    .map((s) => s.end?.metadata ?? {});
+  if (!corruptReadEnds.some((m) => m.hit === true && m.corrupt === true)) {
+    throw new Error("[smoke-scratchpad] expected a read span with hit=true, corrupt=true");
+  }
+  if (!corruptReadEnds.some((m) => m.hit === false && m.corrupt === false)) {
+    throw new Error("[smoke-scratchpad] expected a read span with hit=false (genuine miss)");
+  }
+
+  const corruptSnapshotEnd =
+    corruptSpans.find((s) => s.input.name === RUNTIME_SCRATCH_SNAPSHOT)?.end?.metadata ?? {};
+  const cScanned = Number(corruptSnapshotEnd.scanned);
+  const cPersisted = Number(corruptSnapshotEnd.persisted);
+  const cCorrupt = Number(corruptSnapshotEnd.corrupt);
+  if (cPersisted !== 6 || cCorrupt !== 1) {
+    throw new Error(
+      `[smoke-scratchpad] corrupt snapshot span off: ${JSON.stringify(corruptSnapshotEnd)} (want persisted=6, corrupt=1)`,
+    );
+  }
+  if (cScanned !== cPersisted + cCorrupt) {
+    throw new Error(
+      `[smoke-scratchpad] snapshot scanned should equal persisted+corrupt: ${JSON.stringify(corruptSnapshotEnd)}`,
+    );
+  }
+  assertNoRawLeak(corruptSpans);
+  console.log("[smoke-scratchpad] corrupt/miss health spans ok (corruption distinct from absent)");
 
   // Cleanup: scratchpad keys (best-effort), then DB rows. SCAN+DEL
   // instead of KEYS so the script stays safe if it ever points at a
