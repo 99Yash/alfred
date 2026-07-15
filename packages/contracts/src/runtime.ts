@@ -30,13 +30,23 @@ function assertScratchKeyPart(name: string, value: string): void {
   }
 }
 
+/**
+ * The run-scoped prefix shared by every scratch key (`alfred:scratch:<runId>:`).
+ * Single source for the key grammar's prefix so the builders below and any code
+ * that strips it back to the logical (dotted) form derive the same offset and
+ * can never drift apart.
+ */
+export function scratchKeyPrefix(runId: string): `alfred:scratch:${string}:` {
+  return `alfred:scratch:${runId}:`;
+}
+
 export function sharedKey(
   runId: string,
   path: string,
 ): `alfred:scratch:${string}:shared.${string}` {
   assertScratchKeyPart("runId", runId);
   assertScratchKeyPart("path", path);
-  return `alfred:scratch:${runId}:shared.${path}`;
+  return `${scratchKeyPrefix(runId)}shared.${path}`;
 }
 
 export function subAgentKey(
@@ -47,7 +57,18 @@ export function subAgentKey(
   assertScratchKeyPart("runId", runId);
   assertScratchKeyPart("subId", subId);
   assertScratchKeyPart("path", path);
-  return `alfred:scratch:${runId}:scratch.${subId}.${path}`;
+  return `${scratchKeyPrefix(runId)}scratch.${subId}.${path}`;
+}
+
+/**
+ * Strip the run prefix from a full scratch key, yielding its logical (dotted)
+ * form (`shared.<path>` / `scratch.<subId>.<path>`) — the form persisted as the
+ * Postgres snapshot `key` and the only key identity health spans hash. The
+ * slice offset comes from `scratchKeyPrefix`, so it cannot drift from the
+ * builders' prefix.
+ */
+export function logicalScratchKey(runId: string, fullKey: string): string {
+  return fullKey.slice(scratchKeyPrefix(runId).length);
 }
 
 /** The two scratchpad zones: boss-owned `shared.*` and per-sub-agent `scratch.*`. */
