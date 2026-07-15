@@ -15,7 +15,7 @@ import { isKnownContact } from "./contacts";
 import { extractSenderContext } from "./sender-context";
 import { senderExtractionEvent } from "./sender-extraction-event";
 import { resolveSenderKind, triageSenderKindProjectionEnabled } from "./sender-kind";
-import { resolveSenderRelationship } from "./sender-relationship";
+import { RELATIONSHIP_READ_FAILED, resolveSenderRelationship } from "./sender-relationship";
 import {
   getSenderPrior,
   incrementSenderPrior,
@@ -423,6 +423,11 @@ export async function runEmailTriageClassify<State extends EmailTriageOperationS
       todoSuggestion: classification.todoSuggestion ?? null,
       todoDecision: classification.todoDecision ?? null,
       senderSignificanceBand: senderSignificance?.band ?? null,
+      // Persist the cold-contact verdict with the row (#517 D1) so a same-run
+      // reuse re-attempt re-applies the cold-sender gate from the row instead of
+      // re-deriving it from observations it no longer has. Fresh path only —
+      // `observations` is always set here (the new-classification branch).
+      senderRelationshipIsCold: observations?.senderRelationshipIsCold ?? null,
       decisionTrace: decisionTrace
         ? {
             stepId: "classify",
@@ -546,12 +551,17 @@ export async function runEmailTriageClassify<State extends EmailTriageOperationS
         // sender fallback still catches the common trackers there.
         collabActivity: classification.collabActivity ?? null,
         // Cold-sender gate (rule 16b): the final category + the typed cold-contact
-        // flag from the sender-relationship observation. `observations` is null on
-        // the reuse path (not re-gathered), so this gate is fresh-path only there;
-        // the `noteMarksFailingOutcome` backstop in `resolveTodoSuggestion` still
-        // catches a persisted `cold_sender:` decision on reuse.
+        // flag. On the fresh path it comes from the observation just gathered; on
+        // the reuse path (#157 stale-lease reclaim) `observations` is null, so read
+        // the verdict THIS run persisted on the row (#517 D1) — the gate is decided
+        // once and owned by the row, so fresh and reuse suppress identically. A cold
+        // ask that self-tagged its note is still caught on reuse by the
+        // `noteMarksFailingOutcome` backstop; this covers the arm-only case (the
+        // model proposed without the `cold_sender:` note) that the backstop cannot.
         category: classification.category,
-        isColdContact: observations?.senderRelationshipIsCold ?? false,
+        isColdContact:
+          observations?.senderRelationshipIsCold ??
+          (reusedExistingRow ? (existing?.senderRelationshipIsCold ?? false) : false),
       })
     : null;
   // `written` gate: only the run that owns the canonical row proposes a
@@ -767,7 +777,9 @@ async function gatherObservations(args: {
       isHumanSender: usePersonTreatment,
       // An unexpected throw degrades to "not cold" (keep the todo) rather than the
       // resolver's own cold default — err toward a real todo, not over-suppression.
-    }).catch(() => ({ descriptor: null, isColdContact: false })),
+      // Same verdict the resolver's own read-failure path takes, so a graph read
+      // that fails inside vs outside the resolver lands identically.
+    }).catch(() => RELATIONSHIP_READ_FAILED),
   ]);
 
   const signalText = [

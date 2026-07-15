@@ -117,6 +117,13 @@ export interface UpsertTriageArgs {
    */
   senderSignificanceBand?: SignificanceBand | null;
   /**
+   * Typed rule-16b cold-contact verdict at classify time (#517). Persisted so a
+   * same-run `classify` retry on the reuse path re-applies the cold-sender todo
+   * gate from the row instead of re-deriving it from observations it no longer
+   * has. Null/omitted when the sender is non-human / unscored / had no graph row.
+   */
+  senderRelationshipIsCold?: boolean | null;
+  /**
    * Durable forensic trace for this classifier decision. Written in the same
    * transaction as the canonical triage row so a worker crash after row write
    * cannot leave a tag without its "why" record.
@@ -224,6 +231,7 @@ export async function upsertTriage(args: UpsertTriageArgs): Promise<UpsertTriage
       todoSuggestion: args.todoSuggestion ?? null,
       todoDecision: args.todoDecision ?? null,
       senderSignificanceBand: args.senderSignificanceBand ?? null,
+      senderRelationshipIsCold: args.senderRelationshipIsCold ?? null,
       rowVersion: sql`${emailTriage.rowVersion} + 1`,
       updatedAt: now,
     };
@@ -244,6 +252,7 @@ export async function upsertTriage(args: UpsertTriageArgs): Promise<UpsertTriage
         todoSuggestion: args.todoSuggestion ?? null,
         todoDecision: args.todoDecision ?? null,
         senderSignificanceBand: args.senderSignificanceBand ?? null,
+        senderRelationshipIsCold: args.senderRelationshipIsCold ?? null,
         source: "auto",
         overriddenAt: null,
         rowVersion: 0,
@@ -522,6 +531,7 @@ function rowToTriage(row: EmailTriage): TriageRow {
     todoSuggestion: row.todoSuggestion ?? null,
     todoDecision: row.todoDecision ?? null,
     senderSignificanceBand: row.senderSignificanceBand,
+    senderRelationshipIsCold: row.senderRelationshipIsCold,
     source: row.source,
     overriddenAt: row.overriddenAt,
     rowVersion: row.rowVersion,

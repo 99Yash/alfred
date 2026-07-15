@@ -246,7 +246,7 @@ const OVERRIDE_FLOOR_SECRET_RE = new RegExp(
   "i",
 );
 
-const SYSTEM_PROMPT = `You triage emails for a personal assistant. Classify each email into EXACTLY ONE category:
+export const SYSTEM_PROMPT = `You triage emails for a personal assistant. Classify each email into EXACTLY ONE category:
 
 - urgent: action needed within hours, not days. Unsolicited security alerts (unrecognized/suspicious sign-in "was this you?", password or 2FA changed without the user, account compromised), billing failure that breaks access today, deadline today, critical CI/CD blocking ship. NOT a routine login link or code the user requested themselves — that is fyi (rule 15).
 - action_needed: the user must take a concrete step that isn't time-critical. Reply, decide, complete a task, rotate a credential, update a card before its actual deadline, verify identity, fix a broken build, respond to a code review. (Self-initiated sign-in/magic links, one-time login codes, and email-verification are NOT here — they are fyi per rule 15. Persistent account-access changes — OAuth apps, passkeys, 2FA/MFA, recovery emails/phones, or login methods being added/changed — are surfaced here unless the body proves this was only a transient same-flow verification with no future access grant.)
