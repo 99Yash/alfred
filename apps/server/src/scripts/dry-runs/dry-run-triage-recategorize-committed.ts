@@ -120,7 +120,7 @@ async function processUser(u: TargetUser): Promise<void> {
       resolveSenderKind(u.userId, scResult.senderAddress),
     ]);
     const usePersonTreatment = isHumanSender && senderKind == null;
-    const [knownContact, senderRelationship] = await Promise.all([
+    const [knownContact, relationship] = await Promise.all([
       usePersonTreatment && scResult.senderAddress
         ? isKnownContact(u.userId, scResult.senderAddress).catch(() => false)
         : Promise.resolve(false),
@@ -128,7 +128,7 @@ async function processUser(u: TargetUser): Promise<void> {
         userId: u.userId,
         senderAddress: scResult.senderAddress,
         isHumanSender: usePersonTreatment,
-      }).catch(() => null),
+      }).catch(() => ({ descriptor: null, isColdContact: false })),
     ]);
 
     const signalText = [
@@ -149,7 +149,8 @@ async function processUser(u: TargetUser): Promise<void> {
       persona: ctxData.persona,
       thread,
       knownContact,
-      senderRelationship,
+      senderRelationship: relationship.descriptor,
+      senderRelationshipIsCold: relationship.isColdContact,
       senderKind,
       labelIds,
       signalText,

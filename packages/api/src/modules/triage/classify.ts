@@ -1171,6 +1171,20 @@ export function sanitizeTodoName(name: string): string {
   return /^[a-z]/.test(rest) ? rest.charAt(0).toUpperCase() + rest.slice(1) : rest;
 }
 
+// A `todoDecision.note` prefix that belongs to a FAILING rubric outcome (rule
+// 16b): a cold contact (`cold_sender:`), a product-manufactured stake
+// (`manufactured:`), or pre-merge PR advisory (`advisory:`). Each is documented
+// to accompany `not_significant` — so a `proposed` decision carrying one is the
+// cheap model contradicting itself (it named the disqualifying reason, then
+// proposed anyway; the exact HyperNexus cold-outreach leak). Resolve the
+// contradiction the way the note leans: no todo.
+const FAILING_OUTCOME_NOTE_PREFIX_RE = /^\s*(?:cold_sender|manufactured|advisory)\s*:/i;
+
+/** True when a `proposed` decision's note names a disqualifying (failing) reason. */
+export function noteMarksFailingOutcome(note: string | null | undefined): boolean {
+  return note != null && FAILING_OUTCOME_NOTE_PREFIX_RE.test(note);
+}
+
 /**
  * Resolve the rail todo to mint from a FINAL classification (ADR-0050 amendment
  * 2026-06-06). Returns the suggestion ONLY when the cheap model proposed one
@@ -1189,6 +1203,9 @@ export function resolveTodoSuggestion(
   const suggestion = classification.todoSuggestion ?? null;
   if (!suggestion) return null;
   if (classification.todoDecision?.outcome !== "proposed") return null;
+  // Contradiction backstop: a `proposed` decision whose note carries a
+  // failing-outcome prefix is the model disagreeing with itself — drop it.
+  if (noteMarksFailingOutcome(classification.todoDecision?.note)) return null;
   if (TODO_INELIGIBLE_CATEGORIES.has(classification.category)) return null;
   const name = sanitizeTodoName(suggestion.name);
   const assist = sanitizeAssist(suggestion.assist, emailAuthoredAt);
@@ -1196,7 +1213,11 @@ export function resolveTodoSuggestion(
 }
 
 /** Why a structurally-disqualified email yields no rail todo even when the cheap model proposed one. */
-export type TodoSuppressionReason = "alfred_approval" | "pre_merge_advisory" | "tracker_owned";
+export type TodoSuppressionReason =
+  | "alfred_approval"
+  | "pre_merge_advisory"
+  | "tracker_owned"
+  | "cold_sender";
 
 const GITHUB_NOTIFICATION_RE = /notifications@github\.com/i;
 // A dedicated task/issue tracker or doc-comment tool's notification address
@@ -1212,6 +1233,27 @@ const PR_THREAD_RE = /\/pull\/\d+|\bpull request\b|\bpr #\d+\b/i;
 // Alfred's own human-in-the-loop approval mail: "[medium] Alfred wants to …".
 const ALFRED_APPROVAL_SUBJECT_RE =
   /^\s*\[(?:no_risk|low|medium|high|critical)\]\s+alfred wants to\b/i;
+// The reply-shape categories where the ONLY stake is "a person is waiting on a
+// reply" — the exact stake rule 16b says a cold contact does NOT carry. A cold
+// sender landing any OTHER category (payment, action_needed with a real task,
+// urgent) is judged on that category's intrinsic stake, not gated here.
+const COLD_SENDER_GATED_CATEGORIES = new Set<TriageCategory>(["awaiting_reply", "follow_up"]);
+
+/**
+ * A cold sender still earns a todo when the mail carries a real INTRINSIC stake
+ * (rule 16b): money owed / at risk, a hard deadline, an exposed secret, or an
+ * access/security/payment consequence. Reuse the floors' existing detectors so
+ * the carve-out matches what the sender-kind and monitoring floors already honor
+ * — a cold contact with a genuine stake is not suppressed. PURE.
+ */
+function hasIntrinsicStakeSignal(signalText: string): boolean {
+  return (
+    OVERRIDE_FLOOR_SECRET_RE.test(signalText) ||
+    COLLAB_INTRINSIC_STAKE_RE.test(signalText) ||
+    ASSIST_AMOUNT_RE.test(signalText) ||
+    ASSIST_DATE_RE.test(signalText)
+  );
+}
 // Liveness escape for the PR gate — something already in production / `main` /
 // an exposed secret makes a PR thread a real stake (rule 16b), not advisory.
 const TODO_LIVENESS_RE =
@@ -1232,6 +1274,13 @@ const TODO_LIVENESS_RE =
  *                            already tracked + re-notified there, so it fails rule
  *                            16c memorability; the CATEGORY still surfaces it, but
  *                            a rail todo only duplicates the tool (#353).
+ *   - `cold_sender`        — a reply-shape ask (awaiting_reply/follow_up) from a
+ *                            COLD human contact (`isColdContact`, rule 16b) whose
+ *                            ONLY stake is "a person is waiting", with no intrinsic
+ *                            stake in the body. The typed corroboration the cheap
+ *                            model won't reliably self-apply (the HyperNexus
+ *                            cold-outreach leak). The CATEGORY is untouched — the
+ *                            thread keeps its honest awaiting_reply chip.
  * Returns null when nothing disqualifies it. PURE — the mint path and the
  * dry-run both apply it so KEEP/KILL stays consistent.
  */
@@ -1240,6 +1289,10 @@ export function todoSuppressionReason(email: {
   subject: string | null;
   signalText: string;
   collabActivity?: CollabActivityKind | null;
+  /** Final category — the cold-sender gate only fires on the reply-shape lanes. */
+  category?: TriageCategory | null;
+  /** Typed rule-16b cold-contact flag from the sender-relationship observation. */
+  isColdContact?: boolean;
 }): TodoSuppressionReason | null {
   if (ALFRED_APPROVAL_SUBJECT_RE.test(email.subject ?? "")) return "alfred_approval";
   if (GITHUB_NOTIFICATION_RE.test(email.sender ?? "") && PR_THREAD_RE.test(email.signalText)) {
@@ -1263,6 +1316,18 @@ export function todoSuppressionReason(email: {
     !OVERRIDE_FLOOR_SECRET_RE.test(email.signalText)
   ) {
     return "tracker_owned";
+  }
+  // Cold-sender (rule 16b): a reply-shape ask from a cold human contact whose
+  // only stake is "a person is waiting" mints no rail todo. Gated hard on the
+  // reply-shape lanes AND the absence of any intrinsic stake, so a cold sender
+  // who genuinely owes money / names a deadline / exposed a secret still passes.
+  if (
+    email.isColdContact &&
+    email.category != null &&
+    COLD_SENDER_GATED_CATEGORIES.has(email.category) &&
+    !hasIntrinsicStakeSignal(email.signalText)
+  ) {
+    return "cold_sender";
   }
   return null;
 }

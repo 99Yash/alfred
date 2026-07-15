@@ -30,6 +30,7 @@ function observations(overrides: Partial<Observations> = {}): Observations {
     thread: { lastUserReplyAt: null, newestDirection: null, messageCount: 0, recentMessages: [] },
     knownContact: false,
     senderRelationship: null,
+    senderRelationshipIsCold: false,
     senderKind: null,
     gmail: { categories: [], important: false, starred: false, inInbox: true },
     content: {
@@ -1999,6 +2000,38 @@ describe("resolveTodoSuggestion", () => {
     );
   });
 
+  // Contradiction backstop: the model returns `proposed` but names a
+  // disqualifying reason in the note (the HyperNexus cold-outreach leak: it
+  // wrote `cold_sender:` yet proposed anyway). Drop it — the note is the model
+  // disagreeing with its own outcome.
+  for (const note of ["cold_sender:", "cold_sender: pelloni.robert@gmail.com", "manufactured:", "advisory: pre-merge PR review"]) {
+    test(`backstop: proposed with a failing-outcome note ("${note}") mints no todo`, () => {
+      assert.equal(
+        resolveTodoSuggestion(
+          classification({
+            category: "awaiting_reply",
+            todoSuggestion: suggestion,
+            todoDecision: { outcome: "proposed", note },
+          }),
+        ),
+        null,
+      );
+    });
+  }
+
+  test("backstop: a benign note on a proposed decision still passes", () => {
+    assert.deepEqual(
+      resolveTodoSuggestion(
+        classification({
+          category: "action_needed",
+          todoSuggestion: suggestion,
+          todoDecision: { outcome: "proposed", note: "real two-way contact, direct ask" },
+        }),
+      ),
+      suggestion,
+    );
+  });
+
   test("null when the model proposed no todo (eligible category)", () => {
     assert.equal(
       resolveTodoSuggestion(classification({ category: "action_needed", todoSuggestion: null })),
@@ -2106,4 +2139,72 @@ describe("todoSuppressionReason", () => {
       "alfred_approval",
     );
   });
+
+  // cold_sender (rule 16b): a reply-shape ask from a cold human contact whose
+  // only stake is "a person is waiting" — the HyperNexus cold-outreach shape.
+  for (const category of ["awaiting_reply", "follow_up"] as const) {
+    test(`cold_sender: a cold contact's ${category} ask with no intrinsic stake mints no todo`, () => {
+      assert.equal(
+        todoSuppressionReason({
+          ...base,
+          sender: "HyperNexus Sales Team <pelloni.robert@gmail.com>",
+          subject: "Re: TormentNexus for 99Yash -- Thoughts?",
+          signalText: "just following up on my previous note. worth a conversation? i'd love to share a quick demo.",
+          category,
+          isColdContact: true,
+        }),
+        "cold_sender",
+      );
+    });
+  }
+
+  test("KEEP: a cold contact is NOT gated outside the reply-shape lanes (e.g. action_needed)", () => {
+    // A cold sender landing action_needed/payment/urgent is judged on that
+    // category's intrinsic stake, not the person-waiting gate.
+    assert.equal(
+      todoSuppressionReason({
+        ...base,
+        sender: "Unknown <cold@example.com>",
+        signalText: "please rotate the exposed key",
+        category: "action_needed",
+        isColdContact: true,
+      }),
+      null,
+    );
+  });
+
+  test("KEEP: a NON-cold (two-way) contact's direct ask is never cold_sender", () => {
+    assert.equal(
+      todoSuppressionReason({
+        ...base,
+        sender: "Priya <priya@acme.com>",
+        signalText: "can you send me the signed sow?",
+        category: "awaiting_reply",
+        isColdContact: false,
+      }),
+      null,
+    );
+  });
+
+  // A cold sender still earns a todo when the body carries a real intrinsic
+  // stake (rule 16b): money owed, a hard deadline, or an exposed secret.
+  for (const signalText of [
+    "your invoice of $96.00 is past due",
+    "can you confirm the contract before jun 30?",
+    "the aws secret access key was committed and exposed",
+    "your payment failed — update your card",
+  ]) {
+    test(`KEEP: cold contact with an intrinsic stake is not suppressed ("${signalText.slice(0, 24)}…")`, () => {
+      assert.equal(
+        todoSuppressionReason({
+          ...base,
+          sender: "Unknown <cold@example.com>",
+          signalText,
+          category: "awaiting_reply",
+          isColdContact: true,
+        }),
+        null,
+      );
+    });
+  }
 });

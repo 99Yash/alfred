@@ -80,6 +80,12 @@ interface Case {
    * deterministically without a populated graph. `undefined` → no line.
    */
   senderRelationship?: string | null;
+  /**
+   * Typed rule-16b cold-contact flag (what `resolveSenderRelationship` derives in
+   * prod) — set alongside the prose so the deterministic cold-sender todo gate is
+   * exercised through the production mint path. Defaults to `false`.
+   */
+  isColdContact?: boolean;
   /** Prior-key + histogram for senders that should carry a prior (services/bulk). */
   senderKey?: string | null;
   senderPrior?: Record<string, number>;
@@ -367,6 +373,7 @@ const CASES: Case[] = [
     persona: "personal",
     sender: { fromKind: "person", effectiveAuthor: "person" },
     senderRelationship: "no prior contact on record",
+    isColdContact: true,
     messageCount: 2,
     newestDirection: "sent",
     lastUserReplyAt: new Date("2026-06-10T11:30:00Z"),
@@ -420,10 +427,32 @@ const CASES: Case[] = [
     persona: "work",
     sender: { fromKind: "person", effectiveAuthor: "person" },
     senderRelationship: "no prior contact on record",
+    isColdContact: true,
     expected: {
       category: "awaiting_reply",
       todo: "suppress",
       note: "Cold sender, no correspondence history — not a real person waiting (16b cold_sender). The direct ask keeps awaiting_reply honest, but no todo. THIS is failure A.",
+    },
+  },
+  {
+    // The HyperNexus prod leak (thread 19f639e4c5bb290c, 2026-07-15): an
+    // AI-generated cold sales follow-up from a personal-gmail "sales team" with
+    // no prior contact. flash-lite tagged awaiting_reply and PROPOSED a todo
+    // while writing note `cold_sender:` — the self-contradiction the backstop +
+    // deterministic cold-sender floor now catch.
+    label: "cold-outreach-sales-followup",
+    from: "HyperNexus Sales Team <pelloni.robert@gmail.com>",
+    subject: "Re: TormentNexus for 99Yash -- Thoughts?",
+    body: "Just wanted to follow up on my previous note about TormentNexus. I'll keep this brief: it provides progressive MCP tool routing, dual-tier memory, and a resilient LLM waterfall with zero downtime. If you're even remotely curious about improving your agent coordination, I'd love to share a quick demo. Worth a conversation?",
+    persona: "personal",
+    sender: { fromKind: "person", effectiveAuthor: "person" },
+    senderRelationship: "no prior contact on record",
+    isColdContact: true,
+    authoredAt: NOW,
+    expected: {
+      category: "awaiting_reply",
+      todo: "suppress",
+      note: "Cold sales follow-up from a personal-gmail 'sales team', no prior contact — the person-waiting stake is uncorroborated (16b cold_sender). 'Worth a conversation?' keeps awaiting_reply honest, but no rail todo. The HyperNexus prod leak.",
     },
   },
   {
@@ -449,6 +478,7 @@ const CASES: Case[] = [
     persona: "work",
     sender: { fromKind: "person", effectiveAuthor: "person" },
     senderRelationship: "no prior contact on record",
+    isColdContact: true,
     expected: {
       category: "payment",
       todo: "mint",
@@ -476,6 +506,7 @@ const CASES: Case[] = [
     persona: "work",
     sender: { fromKind: "person", effectiveAuthor: "person" },
     senderRelationship: "weak · one-way inbound (you never replied)",
+    isColdContact: true,
     authoredAt: NOW,
     expected: {
       category: "action_needed",
@@ -696,6 +727,7 @@ function buildArgs(c: Case): ClassifyEmailArgs {
     },
     knownContact: c.knownContact ?? false,
     senderRelationship: c.senderRelationship ?? null,
+    senderRelationshipIsCold: c.isColdContact ?? false,
     senderKind: c.senderKind ?? null,
     labelIds: c.labelIds ?? ["INBOX"],
     signalText,
@@ -806,6 +838,8 @@ evalite<Case, TaskOutput, Expected>("Triage classifier", {
       sender: input.from,
       subject: input.subject,
       signalText: `${input.subject}\n${input.body}\n${input.snippet ?? ""}`,
+      category: classification.category,
+      isColdContact: input.isColdContact ?? false,
     });
     const wouldMintTodo = resolved !== null && suppression === null;
     return {

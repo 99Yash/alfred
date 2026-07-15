@@ -154,6 +154,13 @@ export interface Observations {
    */
   senderRelationship: string | null;
   /**
+   * Typed cold-contact flag (rule 16b) derived from the same signals as
+   * `senderRelationship` — `weak`/one-way-inbound/no-prior-contact human sender.
+   * The prose feeds the model; this feeds the deterministic person-waiting todo
+   * gate. `false` for non-human senders (no person-waiting stake).
+   */
+  senderRelationshipIsCold: boolean;
+  /**
    * Active user-model projection says this sender address is a non-person.
    * Null means no active/confident opinion, not "person".
    */
@@ -175,6 +182,13 @@ export interface AssembleObservationsArgs {
   knownContact: boolean;
   /** Pre-resolved `Sender relationship` descriptor (ADR-0059); `null` for non-human senders. */
   senderRelationship: string | null;
+  /**
+   * Pre-resolved typed cold-contact flag (rule 16b); `false` for non-human
+   * senders. Optional here (defaults to `false`) so eval/smoke harnesses that do
+   * not exercise the cold-sender gate need not thread it; the production
+   * `gatherObservations` always passes it.
+   */
+  senderRelationshipIsCold?: boolean;
   /** Active projection-backed non-person sender kind, if confidently known. */
   senderKind: TriageSenderKindSignal | null;
   labelIds: readonly string[];
@@ -197,6 +211,7 @@ export function assembleObservations(args: AssembleObservationsArgs): Observatio
     thread: args.thread,
     knownContact: args.knownContact,
     senderRelationship: args.senderRelationship,
+    senderRelationshipIsCold: args.senderRelationshipIsCold ?? false,
     senderKind: args.senderKind,
     gmail: extractGmailSignals(args.labelIds),
     content: extractContentFlags(args.signalText),
