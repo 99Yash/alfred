@@ -103,3 +103,34 @@ test("structured signals still classify correctly (image flags don't touch them)
   );
   assert.equal(classifyChatFailure(new Error("something odd"), NO_IMAGE), "generic");
 });
+
+test("the streaming circuit-breaker abort classifies timeout, not overloaded", () => {
+  // The #406-branch incident: a turn that thought for ~200s hit the 180s stream
+  // ceiling and the SDK aborted the call with a `TimeoutError` DOMException,
+  // which `classifyChatFailure` mis-bucketed as `overloaded` (its transient net
+  // matched the bare "timeout" substring). It's our circuit-breaker firing, not
+  // a provider fault — so it must read as `timeout`.
+  const domTimeout = new DOMException("The operation was aborted due to timeout", "TimeoutError");
+  assert.equal(classifyChatFailure(domTimeout, NO_IMAGE), "timeout");
+  // Stringified fallback (raw name lost) — the total-ceiling message.
+  assert.equal(
+    classifyChatFailure(new Error("The operation was aborted due to timeout"), NO_IMAGE),
+    "timeout",
+  );
+  // Stringified fallback — the chunk/step-ceiling message shape.
+  assert.equal(
+    classifyChatFailure(new Error("chunk timeout of 30000ms exceeded"), NO_IMAGE),
+    "timeout",
+  );
+});
+
+test("a provider transient fault still classifies overloaded (timeout split stays narrow)", () => {
+  // The `timeout` split must not steal genuine transient provider faults: a
+  // 5xx, an "overloaded" body, or a provider "gateway timeout" all stay
+  // `overloaded` (retryable, but a provider glitch, not our circuit-breaker).
+  const http = (status: number) =>
+    new HttpError({ provider: "test", status, url: "https://x.test", body: "" });
+  assert.equal(classifyChatFailure(http(503), NO_IMAGE), "overloaded");
+  assert.equal(classifyChatFailure(new Error("model is overloaded"), NO_IMAGE), "overloaded");
+  assert.equal(classifyChatFailure(new Error("504 gateway timeout"), NO_IMAGE), "overloaded");
+});

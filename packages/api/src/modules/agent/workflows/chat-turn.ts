@@ -47,6 +47,7 @@ import {
 } from "../sub-agent-join-wake-queue";
 import { subAgentDoneSignalName } from "../sub-agent-metadata";
 import { composeAgentInstructions } from "../instructions";
+import { createVoiceStreamSanitizer, sanitizeVoice } from "../voice-sanitize";
 import {
   isTerminalChildStatus,
   listSpawnedChildRuns,
@@ -116,6 +117,17 @@ export { CHAT_MAX_OUTPUT_TOKENS } from "../compaction";
  * retries.
  */
 const EMPTY_COMPLETION_MAX_RETRIES = 2;
+/**
+ * Bounded auto-retries after the streaming circuit-breaker aborts a turn
+ * (see {@link isStreamTimeoutAbort}). One, not the empty-completion budget of
+ * two: a timeout retry costs up to a full stream ceiling (~180s) plus full
+ * token spend, so a second would leave the user staring at "Thinking…" for the
+ * better part of ten minutes. One retry is strictly better than the blank
+ * failure it replaces; bounding per-turn work *by construction* for large
+ * deliverables is the structural fix (Gap 2 — incremental artifact authoring),
+ * not more retries.
+ */
+const STREAM_TIMEOUT_MAX_RETRIES = 1;
 /** Flush coalesced text deltas at least this often (ms) and at this size (chars). */
 const DELTA_FLUSH_MS = 180;
 const DELTA_FLUSH_CHARS = 100;
@@ -142,6 +154,7 @@ const TITLE_TIMEOUT_MS = 15_000;
 const ARTIFACT_MUTATION_TOOL_NAMES = [
   "system.create_artifact",
   "system.append_artifact_page",
+  "system.append_artifact_section",
   "system.update_artifact",
 ] as const satisfies readonly ToolName[];
 const ARTIFACT_MUTATION_TOOLS: ReadonlySet<string> = new Set(ARTIFACT_MUTATION_TOOL_NAMES);
@@ -273,6 +286,11 @@ const chatRunStateSchema = z
     // counts a provider stuck returning empties — not scattered empties across a
     // long turn loop. Default 0 for runs minted before the field existed.
     emptyCompletionRetries: z.number().int().min(0).default(0),
+    // Consecutive stream-timeout retries this run (see STREAM_TIMEOUT_MAX_RETRIES).
+    // Sibling of `emptyCompletionRetries`: reset to 0 on any productive turn, so
+    // it counts retries of the *same* stuck turn — not one timeout per tool-loop
+    // step. Default 0 for runs minted before the field existed.
+    streamTimeoutRetries: z.number().int().min(0).default(0),
     startedAt: z.string().datetime().optional(),
     // Read only while resuming checkpoints created before `startedAt`.
     started: z.boolean().optional(),
@@ -316,6 +334,54 @@ export function planEmptyChatCompletionRetry(
   return {
     kind: "next",
     state: { ...state, emptyCompletionRetries: state.emptyCompletionRetries + 1 },
+    transcript,
+    nextStep: "chat-turn",
+  };
+}
+
+/**
+ * True when a thrown error is the streaming circuit-breaker aborting the turn:
+ * the stream ran past its total (default 180s) or chunk-gap (30s) ceiling and
+ * the AI SDK aborted the provider call. The SDK signals this with a
+ * `DOMException` whose `name` is `"TimeoutError"` — `AbortSignal.timeout` for
+ * the total ceiling, an explicit `DOMException(..., "TimeoutError")` for the
+ * chunk/step ceilings — which then rejects `stream.finalStep`.
+ *
+ * This is structurally distinct from the two aborts we already handle: a user
+ * stop is an unnamed `AbortError` (and gated on `stopRequested`), and a
+ * provider fault is an `HttpError`/APICallError. A timeout means the model ran
+ * long, not that anything is broken — so it's recoverable by re-issuing the
+ * turn from the unchanged pre-turn transcript. `DOMException` is not an
+ * `Error` subclass in Node, so match structurally on `name` rather than
+ * `instanceof`.
+ */
+function isStreamTimeoutAbort(err: unknown): boolean {
+  return (
+    typeof err === "object" &&
+    err !== null &&
+    "name" in err &&
+    (err as { name?: unknown }).name === "TimeoutError"
+  );
+}
+
+/**
+ * Plan a bounded retry after the streaming circuit-breaker aborted the turn
+ * (see {@link isStreamTimeoutAbort}). Sibling of
+ * {@link planEmptyChatCompletionRetry}: regenerate from the *pre-turn*
+ * transcript (never the in-flight response), which already holds every tool
+ * result gathered this run — so the retry re-issues just the model call that
+ * ran long, exactly like the manual resend that recovers today. The budget is
+ * {@link STREAM_TIMEOUT_MAX_RETRIES}. Kept pure so tests can assert the budget
+ * and the pre-turn-transcript contract directly.
+ */
+export function planStreamTimeoutRetry(
+  state: ChatRunState,
+  transcript: AgentTranscriptMessage[],
+): StepResult<ChatRunState> | null {
+  if (state.streamTimeoutRetries >= STREAM_TIMEOUT_MAX_RETRIES) return null;
+  return {
+    kind: "next",
+    state: { ...state, streamTimeoutRetries: state.streamTimeoutRetries + 1 },
     transcript,
     nextStep: "chat-turn",
   };
@@ -1989,19 +2055,18 @@ const chatTurnStep: Step<ChatRunState> = {
       // `chat.reasoning`, and surface each tool call as a `chat.tool` started
       // card. Reasoning and reply text get independent buffers + seqs so the
       // client orders each track on its own.
+      // Enforce the deterministic half of DEFAULT_VOICE_PROMPT ("No em-dashes")
+      // on the live stream, not just the persisted row. One sanitizer per
+      // streamTurn (one prose segment): coalesced deltas run through it before
+      // publishing. It is chunk-invariant and shares its lexical transform with
+      // the batch `sanitizeVoice` that finalize applies to `content`/`narration`,
+      // so the streamed text equals the reconciled bubble exactly — no mid-stream
+      // em-dash that "corrects itself" on completion. Code, quotations, links,
+      // and identifiers are preserved verbatim.
+      const voiceSanitizer = createVoiceStreamSanitizer();
       let buffer = "";
       let lastFlush = Date.now();
-      const flush = async (): Promise<void> => {
-        // While a reissue is pending (#407) this turn's text is an internal
-        // reissue lead-in — withhold its live deltas so "tools warming up,
-        // retrying" never streams. Keep `buffer` intact: if the model answers
-        // instead of reissuing, the final-answer path clears the flag and
-        // flushes it as the real reply.
-        if (state.reissuePending) return;
-        if (buffer.length === 0) return;
-        const text = buffer;
-        buffer = "";
-        lastFlush = Date.now();
+      const publishTextDelta = async (text: string): Promise<void> => {
         for (const chunk of splitEventText(text)) {
           state.deltaSeq += 1;
           await publishEvent({
@@ -2017,6 +2082,30 @@ const chatTurnStep: Step<ChatRunState> = {
             },
           });
         }
+      };
+      const flush = async (): Promise<void> => {
+        // While a reissue is pending (#407) this turn's text is an internal
+        // reissue lead-in — withhold its live deltas so "tools warming up,
+        // retrying" never streams. Keep `buffer` intact and the sanitizer
+        // untouched: if the model answers instead of reissuing, the final-answer
+        // path clears the flag and flushes it as the real reply.
+        if (state.reissuePending) return;
+        if (buffer.length === 0) return;
+        // `push` may hold back a trailing dash/space until the next chunk fixes
+        // its meaning; `flushVoiceTail` releases the remainder after the drain.
+        const text = voiceSanitizer.push(buffer);
+        buffer = "";
+        lastFlush = Date.now();
+        if (text.length === 0) return;
+        await publishTextDelta(text);
+      };
+      // Release whatever the streaming sanitizer held back, closing the segment's
+      // live text. Safe on an empty sanitizer (returns ""). Gated on
+      // `reissuePending` for the same reason as `flush`.
+      const flushVoiceTail = async (): Promise<void> => {
+        if (state.reissuePending) return;
+        const tail = voiceSanitizer.flush();
+        if (tail.length > 0) await publishTextDelta(tail);
       };
 
       let reasoningBuffer = "";
@@ -2113,6 +2202,11 @@ const chatTurnStep: Step<ChatRunState> = {
       }
       await flushReasoning();
       await flush();
+      // Segment complete: release any dash/whitespace the sanitizer held back so
+      // the live text matches the persisted `sanitizeVoice(content)`. Runs before
+      // the stop/tool-call/final-answer branches so it lands on the current
+      // segment index (a tool-call turn bumps the index only afterward).
+      await flushVoiceTail();
 
       if (stopRequested) {
         // User hit stop: persist whatever streamed and complete the run.
@@ -2142,7 +2236,39 @@ const chatTurnStep: Step<ChatRunState> = {
         };
       }
 
-      const { toolCalls, finishReason, response, warnings, usage } = await stream.finalStep;
+      let finalStep: Awaited<typeof stream.finalStep>;
+      try {
+        finalStep = await stream.finalStep;
+      } catch (err) {
+        // The streaming circuit-breaker aborted this turn: it ran past the
+        // total (180s) or chunk-gap (30s) ceiling, so the SDK aborted the
+        // provider call and rejected `finalStep` with a `TimeoutError` (see
+        // isStreamTimeoutAbort). The pre-turn transcript is unchanged — no step
+        // committed — so regenerate from it, the same recovery the user's
+        // manual resend performs today. Auto-retry only when nothing
+        // user-visible streamed this turn (the over-thinking case): if a
+        // partial answer already streamed, keep it (finalizeFailedMessage
+        // salvages `state.assistantText`) rather than regenerating over the top
+        // of deltas the client has already rendered. A user stop is not a
+        // timeout (unnamed AbortError, and `stopRequested`), so it never enters
+        // here; the throw falls through to the terminal-failure path below.
+        if (
+          isStreamTimeoutAbort(err) &&
+          !stopRequested &&
+          state.assistantText.trim().length === 0
+        ) {
+          const retry = planStreamTimeoutRetry(state, continuationTranscript);
+          if (retry) {
+            console.warn(
+              `[chat-turn] stream timeout abort; retry ` +
+                `${retry.state.streamTimeoutRetries}/${STREAM_TIMEOUT_MAX_RETRIES} (run ${ctx.runId})`,
+            );
+            return retry;
+          }
+        }
+        throw err;
+      }
+      const { toolCalls, finishReason, response, warnings, usage } = finalStep;
       const billedInputTokens = usage.inputTokens;
       if (typeof billedInputTokens === "number" && billedInputTokens > 0) {
         const errorRatio = (requestEstimate.inputTokens - billedInputTokens) / billedInputTokens;
@@ -2227,8 +2353,10 @@ const chatTurnStep: Step<ChatRunState> = {
       }
 
       if (outcome.kind === "tool-calls") {
-        // Productive turn — reset the consecutive-empty counter.
+        // Productive turn — reset the consecutive-failure counters so they
+        // count retries of a single stuck turn, not one per tool-loop step.
         state.emptyCompletionRetries = 0;
+        state.streamTimeoutRetries = 0;
         if (state.inFlightTailStart === 0) {
           state.inFlightTailStart = continuationTranscript.length;
         }
@@ -2270,12 +2398,16 @@ const chatTurnStep: Step<ChatRunState> = {
         // any guard can close this answer into a narration segment.
         state.reissuePending = false;
         await flush();
+        // The drain-end `flushVoiceTail` above no-op'd while the reissue flag was
+        // set (the sanitizer never saw `buffer`); release the now-flushed tail.
+        await flushVoiceTail();
       }
 
       // This turn produced user-visible text. Reset before either finalization
       // guard: both guards can regenerate another chat turn, and that next turn
-      // must receive a fresh consecutive-empty retry budget.
+      // must receive a fresh consecutive-failure retry budget.
       state.emptyCompletionRetries = 0;
+      state.streamTimeoutRetries = 0;
 
       // ADR-0073 runtime invariant: before completing, never let the parent
       // answer while a sub-agent it spawned is still running. If the boss skipped
@@ -2790,6 +2922,17 @@ function cleanTitle(raw: string): string | null {
  * surrogate that streamed into `content`, `reasoning`, the tool-call previews,
  * *or* `narration` can never re-throw on the insert and wedge the turn. One
  * `sanitizeToolResult` pass covers nested structures and object keys.
+ *
+ * `content` and each `narration` segment are Alfred's own final prose, so they
+ * also run through {@link sanitizeVoice} — the deterministic half of
+ * `DEFAULT_VOICE_PROMPT` (the chat boss is told "No em-dashes" but a prompt is
+ * not a guarantee; this is the same mechanical enforcement briefing already
+ * applies in `compose.ts`). It preserves code, quotations, links, and
+ * identifiers, so exact-copy material inside those stays verbatim. `reasoning`
+ * (internal chain-of-thought) and the tool previews (raw tool data, not Alfred
+ * prose) are left untouched. This matches the live stream, which coalesces
+ * deltas through a `createVoiceStreamSanitizer`; both share the same lexical
+ * transform, so the reconciled bubble is identical to what streamed.
  */
 export function sanitizeChatMessageFields(state: ChatRunState): {
   content: string;
@@ -2799,10 +2942,13 @@ export function sanitizeChatMessageFields(state: ChatRunState): {
 } {
   const visibleToolCalls = state.toolCallsLog.filter((toolCall) => !toolCall.nonExecution);
   const raw = {
-    content: state.assistantText,
+    content: sanitizeVoice(state.assistantText),
     reasoning: state.reasoningText.length > 0 ? state.reasoningText : null,
     toolCalls: visibleToolCalls.length > 0 ? visibleToolCalls : null,
-    narration: state.narration.length > 0 ? state.narration : null,
+    narration:
+      state.narration.length > 0
+        ? state.narration.map((segment) => ({ ...segment, text: sanitizeVoice(segment.text) }))
+        : null,
   };
   return sanitizeToolResult(raw).value as typeof raw;
 }
@@ -2987,6 +3133,24 @@ export function classifyChatFailure(
     return "rate_limited";
   }
 
+  // Our own streaming circuit-breaker aborted the turn (it ran past the total
+  // or chunk stream ceiling): the model ran long, not a provider fault, so tag
+  // it `timeout` — the client can say "that took too long" and offer a plain
+  // retry, distinct from the `overloaded` glitch copy. Checked *before* the
+  // transient-fault net below, whose bare `timeout`/`timed out` substrings
+  // would otherwise swallow it. The structural check catches the raw
+  // `TimeoutError` DOMException; the message patterns are the stringified
+  // fallback and stay narrow so a provider "gateway timeout" still reads as a
+  // transient fault below.
+  if (
+    isStreamTimeoutAbort(err) ||
+    msg.includes("aborted due to timeout") ||
+    msg.includes("operation timed out") ||
+    msg.includes("timeout of ")
+  ) {
+    return "timeout";
+  }
+
   // Transient provider faults — 5xx, "internal error", overloaded, network.
   if (err instanceof HttpError && err.status >= 500) return "overloaded";
   if (
@@ -3047,6 +3211,7 @@ export const chatTurnWorkflow: Workflow<ChatRunState> = {
       turnCount: 0,
       inFlightTailStart: 0,
       emptyCompletionRetries: 0,
+      streamTimeoutRetries: 0,
       startedAt: undefined,
       foldedChildRunIds: [],
       notedFailureToolCallIds: [],

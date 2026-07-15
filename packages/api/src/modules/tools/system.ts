@@ -1,5 +1,6 @@
 import {
   appendArtifactPageInput,
+  appendArtifactSectionInput,
   createArtifactInput,
   editInstructionInput,
   forgetInstructionInput,
@@ -21,6 +22,7 @@ import {
 import { AppError } from "../../lib/app-errors";
 import {
   appendArtifactPage,
+  appendArtifactSection,
   createArtifact,
   updateArtifact,
   type ArtifactWriteContext,
@@ -434,7 +436,7 @@ export const systemTools: readonly RegisteredTool[] = [
     // side effect, so it stays off the approvals path like other system tools.
     riskTier: "no_risk",
     description:
-      "Produce a rich artifact the user reads in a side panel: a written `document` (markdown) or a deck/PDF of `pages` (HTML). Use this when the user asks you to write, draft, or build something substantial they'll want to read or present — a one-pager, a brief, a report, a slide deck, a PDF — instead of dumping it all into the chat reply. Opens the artifact; for a `document` author the whole markdown here, for `pages` follow with append_artifact_page per page. Each page is body-level HTML authored against the Alfred house shell: write only the page body, not a full standalone document. This is in-app content, not a downloadable file.",
+      "Produce a rich artifact the user reads in a side panel: a written `document` (markdown) or a deck/PDF of `pages` (HTML). Use this when the user asks you to write, draft, or build something substantial, instead of dumping it all into the chat reply. Pick the medium by how the deliverable is meant to be consumed, not by which looks more impressive: if it is read as prose — a brief, an overview, a primer, a report, notes, an explainer, a write-up — author a `document`. Reserve `pages` for deliverables that are inherently presentational or visually laid out — a slide deck or presentation to show, a pitch, a designed one-pager, a résumé, a printable PDF. When the ask is ambiguous, default to `document`: it is the right home for reading material and far cheaper to produce, so only reach for `pages` when the user actually signals slides, a deck, a presentation, or a designed/printable page. Opens the artifact; for a `document` author the opening section here (≤~1,800 words) and continue with append_artifact_section — do not attempt the whole document in one call; for `pages` follow with append_artifact_page per page. Each page is body-level HTML authored against the Alfred house shell: write only the page body, not a full standalone document. This is in-app content, not a downloadable file.",
     inputSchema: createArtifactInput,
     execute: async (input, ctx) => {
       const resolved = resolveArtifactContext(ctx);
@@ -453,6 +455,19 @@ export const systemTools: readonly RegisteredTool[] = [
       const resolved = resolveArtifactContext(ctx);
       if (!resolved.ok) return resolved.result;
       return await appendArtifactPage(resolved.ctx, input);
+    },
+  }),
+  liveTool({
+    integration: "system",
+    action: "append_artifact_section",
+    riskTier: "no_risk",
+    description:
+      "Append one section of markdown to a `document` created with create_artifact. Call once per section, in order — do not attempt the whole document in one call; each section renders in the sidebar as you add it. Write your own `##` headings and keep each section self-contained (close every code fence, finish every list/table) since the sidebar re-renders the accumulated document as each section arrives. Also use this to extend a document from an earlier turn.",
+    inputSchema: appendArtifactSectionInput,
+    execute: async (input, ctx) => {
+      const resolved = resolveArtifactContext(ctx);
+      if (!resolved.ok) return resolved.result;
+      return await appendArtifactSection(resolved.ctx, input);
     },
   }),
   liveTool({

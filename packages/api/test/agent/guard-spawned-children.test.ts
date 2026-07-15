@@ -7,6 +7,7 @@ import {
   awaitedChildRunId,
   guardSpawnedChildren,
   planEmptyChatCompletionRetry,
+  planStreamTimeoutRetry,
   type ChatRunState,
   type GuardSpawnedChildrenDeps,
 } from "../../src/modules/agent/workflows/chat-turn";
@@ -57,6 +58,7 @@ function baseState(overrides: Partial<ChatRunState> = {}): ChatRunState {
     reasoningSeq: 0,
     turnCount: 1,
     emptyCompletionRetries: 0,
+    streamTimeoutRetries: 0,
     startedAt: "2026-07-14T02:50:11.451Z",
     foldedChildRunIds: [],
     notedFailureToolCallIds: [],
@@ -224,6 +226,26 @@ describe("guardSpawnedChildren (ADR-0073 runtime invariant)", () => {
   test("the empty-completion retry budget is bounded", () => {
     const state = baseState({ emptyCompletionRetries: 2 });
     assert.equal(planEmptyChatCompletionRetry(state, []), null);
+  });
+
+  test("a stream-timeout retries from the exact pre-turn transcript", () => {
+    const state = baseState({ streamTimeoutRetries: 0 });
+    const transcript = [{ role: "user" as const, content: "Build the resume" }];
+    const result = planStreamTimeoutRetry(state, transcript);
+
+    assert.equal(result?.kind, "next");
+    assert.equal(result?.state.streamTimeoutRetries, 1);
+    assert.equal(state.streamTimeoutRetries, 0, "planning does not mutate checkpoint state");
+    assert.strictEqual(
+      result?.kind === "next" ? result.transcript : undefined,
+      transcript,
+      "the retry re-issues the model call from the unchanged pre-turn transcript",
+    );
+  });
+
+  test("the stream-timeout retry budget is bounded to one", () => {
+    const state = baseState({ streamTimeoutRetries: 1 });
+    assert.equal(planStreamTimeoutRetry(state, []), null);
   });
 
   test("one terminal + one running child: folds the terminal, parks on the running one", async () => {
