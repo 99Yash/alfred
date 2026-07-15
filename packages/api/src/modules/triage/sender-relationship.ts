@@ -26,11 +26,39 @@
  * rail todo the model itself tagged `cold_sender:`). The prose stays the model's
  * input; the flag is the floor's.
  */
-import { bucketSignificance } from "@alfred/contracts";
+import { bucketSignificance, type SignificanceBand } from "@alfred/contracts";
 import { db } from "@alfred/db";
 import { userFacts } from "@alfred/db/schemas";
 import { and, eq, inArray } from "drizzle-orm";
 import { findPersonMetadataByAddress } from "../memory/significance";
+
+/**
+ * The buckets the cold-contact test reads: the significance band, or `unscored`
+ * when there IS correspondence history but no significance pass has scored it
+ * yet. `unscored` is deliberately NOT `weak` — `weak` is a real low score the
+ * rubric reads as cold, `unscored` is the absence of a score.
+ */
+export type SenderSignificanceBucket = SignificanceBand | "unscored";
+
+/**
+ * Cold-contact test (rule 16b), PURE and directly testable — the producer of the
+ * typed `isColdContact` signal the todo gate branches on. A HUMAN sender is cold
+ * when the correspondence is NOT two-way AND is either one-way inbound (the user
+ * never replied) OR scored `weak`:
+ *   - two-way (inbound and outbound both > 0) → never cold, even `unscored`: the
+ *     user sent at least one message back, so a real person is waiting;
+ *   - one-way inbound (no outbound) → cold regardless of score;
+ *   - one-way outbound ("you reached out") → cold only when scored `weak`;
+ *   - `unscored` one-directional history → not cold unless one-way inbound.
+ */
+export function isColdContactFromSignals(args: {
+  inbound: number;
+  outbound: number;
+  bucket: SenderSignificanceBucket;
+}): boolean {
+  const twoWay = args.inbound > 0 && args.outbound > 0;
+  return !twoWay && (args.outbound === 0 || args.bucket === "weak");
+}
 
 function reciprocityPhrase(stats: { inbound: number; outbound: number }): string {
   if (stats.inbound > 0 && stats.outbound > 0) return "two-way thread";
@@ -87,19 +115,40 @@ export interface SenderRelationshipSignal {
 }
 
 // A non-human sender: no relationship line, and no person-waiting stake to gate.
-const NON_HUMAN_RELATIONSHIP: SenderRelationshipSignal = { descriptor: null, isColdContact: false };
-// A human sender with no graph row (or a DB blip). Cold by construction: the
-// person-waiting stake is uncorroborated, exactly rule 16b's cold default.
+export const NON_HUMAN_RELATIONSHIP: SenderRelationshipSignal = {
+  descriptor: null,
+  isColdContact: false,
+};
+// A human sender whose graph read SUCCEEDED and found no row — genuinely no
+// history. Cold by construction: the person-waiting stake is uncorroborated,
+// exactly rule 16b's cold default.
 const NO_PRIOR_CONTACT: SenderRelationshipSignal = {
   descriptor: "no prior contact on record",
   isColdContact: true,
+};
+// A human sender whose graph read FAILED — coldness is UNKNOWN, not confirmed
+// absent, so this must NOT feed the deterministic gate as cold: a transient DB
+// blip on a genuine two-way stakeholder would silently drop their real todo.
+// Degrade to "keep the todo" (`isColdContact: false`), the same direction the
+// caller's own outer catch takes ("err toward a real todo, not over-suppression")
+// — the two "can't read the graph" events now fail the SAME way regardless of
+// where the throw lands. Descriptor is null (no line) rather than a false "no
+// prior contact on record": with the read failed we cannot honestly assert the
+// history is empty. Distinct from NO_PRIOR_CONTACT (read succeeded → correctly
+// cold) despite the identical shape to NON_HUMAN_RELATIONSHIP — the two carry
+// different meaning (not-a-person vs could-not-read).
+export const RELATIONSHIP_READ_FAILED: SenderRelationshipSignal = {
+  descriptor: null,
+  isColdContact: false,
 };
 
 /**
  * Resolve the `Sender relationship` signal for a human sender (prose + the typed
  * cold-contact flag), or the non-human default (`null` descriptor) otherwise.
- * Best-effort: any DB blip degrades to the safe cold "no prior contact" default
- * rather than failing classify.
+ * Best-effort: never fails classify. A successful read with no history is the
+ * cold `no prior contact` default; a READ FAILURE degrades to `unknown`
+ * (`isColdContact: false`, keep the todo), NOT cold — the two must not be fused
+ * because only the former is corroborated (#517 D2).
  */
 export async function resolveSenderRelationship(args: {
   userId: string;
@@ -110,14 +159,18 @@ export async function resolveSenderRelationship(args: {
   if (!args.isHumanSender || !args.senderAddress) return NON_HUMAN_RELATIONSHIP;
 
   // Shared alias→metadata lookup (one read path for both the resolver prose and
-  // the ADR-0064 getSenderSignificance read). Null (no row) or any DB blip
-  // degrades to the safe "no prior contact" default rather than failing classify.
+  // the ADR-0064 getSenderSignificance read). A null result (no row) is genuine
+  // no-history (cold); a THROWN read failure degrades to unknown (not cold) —
+  // distinct verdicts, neither fails classify.
   let meta: Awaited<ReturnType<typeof findPersonMetadataByAddress>>;
   try {
     meta = await findPersonMetadataByAddress(args.userId, args.senderAddress);
   } catch {
-    return NO_PRIOR_CONTACT;
+    // Read failed — coldness is UNKNOWN, so degrade to "keep the todo" rather
+    // than the cold default that would over-suppress a real stakeholder on a blip.
+    return RELATIONSHIP_READ_FAILED;
   }
+  // A successful read that found no row is genuine no-history → correctly cold.
   if (!meta) return NO_PRIOR_CONTACT;
 
   const stats = meta.correspondence ?? { inbound: 0, outbound: 0, coRecipient: 0 };
@@ -127,15 +180,17 @@ export async function resolveSenderRelationship(args: {
   // `weak` — `weak` is a real low score the rubric reads as cold, and a
   // not-yet-scored two-way contact must not be mistaken for one. With no score,
   // reciprocity carries the relationship signal.
-  const bucket = significance ? bucketSignificance(significance.score) : "unscored";
+  const bucket: SenderSignificanceBucket = significance
+    ? bucketSignificance(significance.score)
+    : "unscored";
 
-  // Cold (rule 16b) = NOT a two-way thread AND (one-way inbound OR `weak`). A
-  // two-way thread — the user sent at least one message back — is a real person
-  // waiting even when `unscored`, so it is never cold. Absent any outbound the
-  // thread is one-way inbound → cold regardless of score. `weak` demotes a
-  // scored-but-low one-directional contact.
-  const twoWay = stats.inbound > 0 && stats.outbound > 0;
-  const isColdContact = !twoWay && (stats.outbound === 0 || bucket === "weak");
+  // Cold (rule 16b): resolved by the pure {@link isColdContactFromSignals} test
+  // so the derivation is directly unit-covered.
+  const isColdContact = isColdContactFromSignals({
+    inbound: stats.inbound,
+    outbound: stats.outbound,
+    bucket,
+  });
 
   const parts: string[] = [bucket, reciprocityPhrase(stats)];
   // same-org is read straight from the stored significance components — no

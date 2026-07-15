@@ -7,10 +7,12 @@ import {
   applySenderKindDemotionFloor,
   classifyEmail,
   detectConflict,
+  noteMarksFailingOutcome,
   normalizeClassifierOutput,
   resolveTodoSuggestion,
   sanitizeAssist,
   sanitizeTodoName,
+  SYSTEM_PROMPT,
   todoSuppressionReason,
   triageClassificationSchema,
   type ClassifyEmailArgs,
@@ -2031,6 +2033,20 @@ describe("resolveTodoSuggestion", () => {
       suggestion,
     );
   });
+
+  // Coupling guard: the backstop only works if the prompt actually instructs the
+  // model to emit these exact note prefixes on a failing outcome. If the prompt
+  // convention drifts (`cold-sender:`, `[cold_sender]`, …) the backstop silently
+  // dies — pin the three markers to the prompt AND to the matcher.
+  for (const prefix of ["cold_sender:", "manufactured:", "advisory:"] as const) {
+    test(`coupling: SYSTEM_PROMPT emits the "${prefix}" note the backstop matches`, () => {
+      assert.ok(
+        SYSTEM_PROMPT.includes(prefix),
+        `prompt must instruct the model to emit note prefix "${prefix}"`,
+      );
+      assert.equal(noteMarksFailingOutcome(`${prefix} some detail`), true);
+    });
+  }
 
   test("null when the model proposed no todo (eligible category)", () => {
     assert.equal(
