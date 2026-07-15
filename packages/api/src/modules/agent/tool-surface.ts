@@ -1,4 +1,4 @@
-import { isIntegrationSlug, isToolName, type ToolName } from "@alfred/contracts";
+import { isIntegrationSlug, isRecord, isToolName, type ToolName } from "@alfred/contracts";
 import { z } from "zod";
 import { getTool, listToolsForIntegration } from "../tools/registry";
 
@@ -38,6 +38,20 @@ export function migrateActiveTools(
 
 export function activateTool(activeTools: readonly ToolName[], toolName: ToolName): ToolName[] {
   return uniqueToolNames([...activeTools, toolName]);
+}
+
+/** Apply the bounded effect returned by `system.load_tool`; all other output is inert. */
+export function applyExactToolLoad(activeTools: readonly ToolName[], result: unknown): ToolName[] {
+  if (
+    !isRecord(result) ||
+    result.ok !== true ||
+    typeof result.name !== "string" ||
+    !isToolName(result.name) ||
+    getTool(result.name) === undefined
+  ) {
+    return uniqueToolNames(activeTools);
+  }
+  return activateTool(activeTools, result.name);
 }
 
 function uniqueToolNames(toolNames: readonly ToolName[]): ToolName[] {

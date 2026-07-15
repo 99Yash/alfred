@@ -29,6 +29,8 @@ export type IntegrationSlug = (typeof INTEGRATION_SLUGS)[number];
  */
 export const INTEGRATION_ACTIONS = {
   system: [
+    "search_tools",
+    "load_tool",
     "load_integration",
     "spawn_sub_agent",
     "await_sub_agent",
@@ -180,6 +182,16 @@ export interface ToolLabel {
  * GitHub") at the call site, where the integration catalog is available.
  */
 export const TOOL_LABELS: Record<ToolName, ToolLabel> = {
+  "system.search_tools": {
+    running: "Searching available tools",
+    done: "Searched available tools",
+    title: "search available tools",
+  },
+  "system.load_tool": {
+    running: "Loading a tool",
+    done: "Loaded a tool",
+    title: "load a tool",
+  },
   "system.load_integration": {
     running: "Connecting an integration",
     done: "Connected an integration",

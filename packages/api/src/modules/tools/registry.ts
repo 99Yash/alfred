@@ -17,6 +17,23 @@ import type { ActionSlug, IntegrationSlug, ToolName, ToolRiskTier } from "@alfre
 import { buildToolName, INTEGRATION_ACTIONS, integrationFromToolName } from "@alfred/contracts";
 import type { z } from "zod";
 
+export interface ToolDiscoveryMetadata {
+  /** Compact model-facing name; defaults to the humanized action slug. */
+  title?: string;
+  /** One-sentence catalog copy; defaults to the tool description. */
+  summary?: string;
+  /** Alternative phrases users or models commonly use for this capability. */
+  aliases?: readonly string[];
+  /** Broad capability groupings such as `communication` or `research`. */
+  tags?: readonly string[];
+  /** Nouns this tool operates on, such as `message`, `event`, or `issue`. */
+  entities?: readonly string[];
+  /** User-intent verbs such as `search`, `read`, `create`, or `send`. */
+  verbs?: readonly string[];
+  /** Exact companion tools that are often useful after this one. */
+  relatedTools?: readonly ToolName[];
+}
+
 export interface ToolExecuteContext {
   runId: string;
   /**
@@ -77,6 +94,8 @@ export interface LiveToolArgs<
   action: A;
   riskTier: ToolRiskTier;
   description: string;
+  /** Compact discovery copy co-located with the executable definition (#411). */
+  discovery?: ToolDiscoveryMetadata;
   inputSchema: S;
   /**
    * Pure side-effect: the dispatcher validates input against
@@ -103,6 +122,7 @@ export interface RegisteredTool {
   action: string;
   riskTier: ToolRiskTier;
   description: string;
+  discovery: Required<Pick<ToolDiscoveryMetadata, "title" | "summary">> & ToolDiscoveryMetadata;
   inputSchema: z.ZodTypeAny;
   execute: (input: unknown, ctx: ToolExecuteContext) => Promise<unknown>;
   /** See {@link LiveToolArgs.redactInput}. Erased to `unknown` at the registry boundary. */
@@ -121,12 +141,18 @@ export function liveTool<
   S extends z.ZodTypeAny,
 >(args: LiveToolArgs<I, A, S>): RegisteredTool {
   const name = buildToolName(args.integration, args.action);
+  const title = args.discovery?.title ?? humanizeAction(args.action);
   return {
     name,
     integration: args.integration,
     action: args.action,
     riskTier: args.riskTier,
     description: args.description,
+    discovery: {
+      ...args.discovery,
+      title,
+      summary: args.discovery?.summary ?? args.description,
+    },
     inputSchema: args.inputSchema,
     execute: async (input, ctx) => {
       const parsed = args.inputSchema.parse(input);
@@ -183,6 +209,15 @@ export function listToolsForIntegration(slug: IntegrationSlug): RegisteredTool[]
     if (t.integration === slug) out.push(t);
   }
   return out;
+}
+
+/** Stable snapshot of every executable the process currently knows about. */
+export function listRegisteredTools(): RegisteredTool[] {
+  return [...REGISTRY.values()].sort((a, b) => a.name.localeCompare(b.name));
+}
+
+function humanizeAction(action: string): string {
+  return action.replaceAll("_", " ").replace(/\b\w/g, (character) => character.toUpperCase());
 }
 
 /** Per-tier counts for one integration. UX hint only (see file header). */

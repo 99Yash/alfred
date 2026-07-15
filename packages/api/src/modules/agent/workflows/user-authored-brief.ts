@@ -36,11 +36,13 @@ import { callerLabel, dispatchToolCall, type DispatchResult } from "../../dispat
 import { startDispatchBatchSpan, type DispatchBatchSpanCloser } from "../runtime-spans";
 import { writeScratch } from "../../scratchpad";
 import { getTool } from "../../tools/registry";
+import { latestUserPrompt, preloadToolsForPrompt } from "../../tools/discovery";
 import { buildConnectedSummary } from "../connected-summary";
 import { formatDateGrounding, resolveUserTimezone } from "../grounding";
 import { composeAgentInstructions } from "../instructions";
 import {
   activateTool,
+  applyExactToolLoad,
   migrateActiveTools,
   registeredToolNamesForIntegrations,
   toolNameSchema,
@@ -78,6 +80,7 @@ const briefRunStateSchema = z
     activeTools: z.array(toolNameSchema).optional(),
     // Read only while resuming checkpoints created before exact tool surfaces.
     activeIntegrations: z.array(z.string().min(1)).optional(),
+    preloadApplied: z.boolean().default(false),
     allowedIntegrations: z.array(z.string()),
     // ADR-0053 connected summary, snapshotted once at run start (first boss turn)
     // and reused every turn so the system-prompt prefix stays cache-stable.
@@ -135,7 +138,7 @@ const BOSS_SYSTEM_PROMPT_BASE = [
     "How you work:",
     "- Use integration tools for external data and actions. Integration tools are named integration.action (for example calendar.list_events); never call a bare action name like list_events.",
     "- Use only tools that exist. Never invent a plausible-sounding tool name — pick the closest real tool over guessing, and never ask the user for a parameter (a repo, an account, a date) you can resolve or look up yourself.",
-    "- When a needed allowed integration is not active yet, call system.load_integration yourself. Do not ask the user to load an integration just to proceed.",
+    "- If the needed exact tool is not visible, call system.search_tools for the capability, then system.load_tool with an exact returned name and issue the real call on the next turn. Do not ask the user to load a tool.",
     '- Resolve relative or partial dates yourself from today\'s date (stated below) — "this week", "in October", "October 2026", "next Tuesday" — and never ask the user to clarify a date you can work out. For a calendar range the relative window fields (today, tomorrow, next_7_days) don\'t cover, call calendar.list_events with explicit RFC3339 timeMin/timeMax bounds.',
     "- Use system.read_user_context before answering questions or making judgments about the user's people, relationships, preferences, standing instructions, projects, or personal context. Do not guess from generic memory when this tool can read Alfred's stored context.",
     "- Use system.spawn_sub_agent for focused independent investigation, then call system.await_sub_agent with its childRunId to get the real result before you continue; read sub-agent findings from scratch.<subId>.* and promote verified findings to shared.*. Never promise an out-of-turn notification when a sub-agent finishes — await it and use the result, or report honestly that it could not complete.",
@@ -222,6 +225,17 @@ const bossTurnStep: Step<BriefRunState> = {
     const grounding = formatDateGrounding(state.timezone);
     if (state.connectedSummary === undefined) {
       state.connectedSummary = await buildConnectedSummary(ctx.userId, state.allowedIntegrations);
+    }
+    if (!state.preloadApplied) {
+      const preloaded = await preloadToolsForPrompt({
+        userId: ctx.userId,
+        prompt: latestUserPrompt(transcript),
+        allowedIntegrations: state.allowedIntegrations,
+        activeTools: state.activeTools,
+      });
+      for (const toolName of preloaded)
+        state.activeTools = activateTool(state.activeTools, toolName);
+      state.preloadApplied = true;
     }
     const agent = new AlfredAgent({
       id: subAgent ? subAgent.subId : "boss",
@@ -600,6 +614,7 @@ export const userAuthoredBriefWorkflow: Workflow<BriefRunState> = {
     ]);
     return {
       activeTools: registeredToolNamesForIntegrations(["system", ...seededIntegrations]),
+      preloadApplied: false,
       allowedIntegrations: [...allowedIntegrations],
       pendingToolCalls: [],
       subAgent: readSubAgentMetadata(input.metadata),
@@ -684,6 +699,10 @@ function applySystemToolEffect(
   toolName: string,
   result: DispatchResult,
 ): void {
+  if (toolName === "system.load_tool" && result.kind === "executed") {
+    state.activeTools = applyExactToolLoad(state.activeTools, result.toolResult);
+    return;
+  }
   if (toolName !== "system.load_integration" || result.kind !== "executed") return;
   const toolResult = result.toolResult;
   if (!isSuccessfulLoadIntegrationResult(toolResult)) return;
