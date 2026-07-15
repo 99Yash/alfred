@@ -671,7 +671,11 @@ function CopyMarkdownButton({ markdown }: { markdown: string }) {
   }, [markdown]);
   return (
     <IconButton label={copied ? "Copied" : "Copy markdown"} onClick={onCopy}>
-      {copied ? <Check size={14} className="text-emerald-500" /> : <Copy size={14} />}
+      {copied ? (
+        <Check size={14} className="animate-check-pop text-emerald-500" />
+      ) : (
+        <Copy size={14} />
+      )}
     </IconButton>
   );
 }

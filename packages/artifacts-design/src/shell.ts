@@ -340,13 +340,104 @@ code {
 .art-page:has(> .art-aurora) > :not(.art-aurora) { z-index: 1; }`;
 }
 
-/** The full shell stylesheet: inlined brand font, token vars, reset, primitives. */
+/**
+ * Motion vocabulary (ADR-0086, the "still -> lively -> showcase" dial's motion
+ * realization). A small, NAMED, OPT-IN set of autoplay-on-mount entrances — the
+ * only motion the sealed sandbox permits (no scripts, `pointer-events: none`, so
+ * nothing hover/scroll/click-driven; motion can only fire on mount). It follows
+ * the same rules that make the rest of the system safe:
+ *
+ *  - Every keyframe animates FROM a hidden state TO the element's RESTING state,
+ *    and resting == the final visible frame. So the ONE guard at the bottom
+ *    (`@media print, (prefers-reduced-motion: reduce)` -> `animation: none`)
+ *    always lands on the finished look, and a future primitive physically
+ *    cannot forget its guard — stillness is just the resting frame.
+ *  - Classes are opt-in and never auto-applied, so every existing artifact stays
+ *    perfectly still (zero regression to the hard-won restraint); the expression
+ *    dial decides when to reach for them.
+ *  - Timing and easing mirror the app's own motion language
+ *    (`cubic-bezier(0.22, 1, 0.36, 1)`), so an artifact animates like the rest of
+ *    Alfred, not like a different product.
+ *  - Entrances only fade + lift WITHIN the page box; no edge slide-in (`.art-page`
+ *    clips), so a reveal never fights the page geometry.
+ *
+ * Timing note: an on-mount entrance fires when the iframe mounts. Once the
+ * viewer lazy-mounts each page on first scroll into view (plan constraint 3),
+ * mount == reveal and each entrance is seen as its page arrives; until then all
+ * pages mount together and the entrances play at once on load. Either way the
+ * resting frame is correct, so this ships safely ahead of that viewer change.
+ */
+function motionStyles(): string {
+  return `/* Entrance: fade + gentle lift. */
+@keyframes art-rise {
+  from { opacity: 0; transform: translateY(12px); }
+  to { opacity: 1; transform: none; }
+}
+.art-rise { animation: art-rise 0.55s cubic-bezier(0.22, 1, 0.36, 1) both; }
+
+/* Staggered children: each direct child rises in turn, a soft cascade. Capped at
+ * eight distinct delays; a ninth+ child shares the last one so nothing pops in
+ * un-animated. */
+.art-stagger > * { animation: art-rise 0.55s cubic-bezier(0.22, 1, 0.36, 1) both; }
+.art-stagger > *:nth-child(1) { animation-delay: 0s; }
+.art-stagger > *:nth-child(2) { animation-delay: 0.07s; }
+.art-stagger > *:nth-child(3) { animation-delay: 0.14s; }
+.art-stagger > *:nth-child(4) { animation-delay: 0.21s; }
+.art-stagger > *:nth-child(5) { animation-delay: 0.28s; }
+.art-stagger > *:nth-child(6) { animation-delay: 0.35s; }
+.art-stagger > *:nth-child(7) { animation-delay: 0.42s; }
+.art-stagger > *:nth-child(n + 8) { animation-delay: 0.49s; }
+
+/* Bar-fill sheen: one slow light-sweep across a filled bar, once. The bar is the
+ * resting object; the sweep is a pseudo-element parked OFF the right edge at rest
+ * (transform 340%), so \`animation: none\` leaves nothing on screen. */
+@keyframes art-sheen {
+  from { transform: translateX(-160%); }
+  to { transform: translateX(340%); }
+}
+.art-sheen { position: relative; overflow: hidden; }
+.art-sheen::after {
+  content: "";
+  position: absolute;
+  top: 0; bottom: 0; left: 0;
+  width: 42%;
+  border-radius: inherit;
+  background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.5), transparent);
+  transform: translateX(340%);
+  animation: art-sheen 1.25s cubic-bezier(0.4, 0, 0.2, 1) 0.5s 1;
+}
+
+/* Aurora drift: a very slow, small float on the decorative wash — the only loop
+ * in the set. The aurora bleeds -12% past every edge, so the drift never exposes
+ * a hard edge. */
+@keyframes art-drift {
+  0% { transform: translate3d(0, 0, 0) scale(1); }
+  50% { transform: translate3d(-2%, 1.6%, 0) scale(1.06); }
+  100% { transform: translate3d(0, 0, 0) scale(1); }
+}
+.art-drift { animation: art-drift 24s ease-in-out infinite; will-change: transform; }
+
+/* THE central guard. Print flattens a mid-flight frame and reduced-motion asks
+ * for stillness — both resolve to the resting state, which every keyframe above
+ * is authored to equal. One rule; covers every present and future primitive. */
+@media print, (prefers-reduced-motion: reduce) {
+  .art-rise,
+  .art-stagger > *,
+  .art-drift,
+  .art-sheen::after {
+    animation: none !important;
+  }
+}`;
+}
+
+/** The full shell stylesheet: inlined brand font, token vars, reset, primitives, motion. */
 function shellStyles(): string {
   return `${FONT_FACE_CSS}
 ${rootVariables()}
 ${darkRootVariables()}
 ${RESET}
-${baseStyles()}`;
+${baseStyles()}
+${motionStyles()}`;
 }
 
 /**
