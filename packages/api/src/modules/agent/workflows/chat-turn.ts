@@ -73,7 +73,7 @@ import { buildConnectedSummaryFromAvailability } from "../connected-summary";
 import { formatDateGrounding, formatRuntimeTimeGrounding, resolveUserTimezone } from "../grounding";
 import {
   activateTool,
-  applyExactToolLoad,
+  applySystemToolEffect,
   migrateActiveTools,
   systemToolKernel,
 } from "../tool-surface";
@@ -1254,16 +1254,6 @@ function dispatchResultToToolOutput(
       };
     default:
       return { type: "json", value: toJsonValue(boundToolResult(result.result).value) };
-  }
-}
-
-function applySystemToolEffect(
-  state: ChatRunState,
-  toolName: string,
-  result: DispatchResult,
-): void {
-  if (toolName === "system.load_tool" && result.kind === "executed") {
-    state.activeTools = applyExactToolLoad(state.activeTools, result.toolResult);
   }
 }
 

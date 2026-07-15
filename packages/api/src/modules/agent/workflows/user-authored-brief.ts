@@ -45,7 +45,7 @@ import { formatDateGrounding, resolveUserTimezone } from "../grounding";
 import { composeAgentInstructions } from "../instructions";
 import {
   activateTool,
-  applyExactToolLoad,
+  applySystemToolEffect,
   migrateActiveTools,
   registeredToolNamesForIntegrations,
   systemToolKernel,
@@ -727,16 +727,6 @@ async function writeSubAgentSummary(args: {
     writtenBy: args.subId,
   });
   return { text: args.text, scratchKey };
-}
-
-function applySystemToolEffect(
-  state: BriefRunState,
-  toolName: string,
-  result: DispatchResult,
-): void {
-  if (toolName === "system.load_tool" && result.kind === "executed") {
-    state.activeTools = applyExactToolLoad(state.activeTools, result.toolResult);
-  }
 }
 
 function toolResultMessage(

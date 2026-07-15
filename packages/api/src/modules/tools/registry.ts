@@ -184,6 +184,16 @@ export function liveTool<
 
 const REGISTRY = new Map<ToolName, RegisteredTool>();
 
+/**
+ * Cached sorted snapshot for {@link listRegisteredTools}. The registry is
+ * write-once at boot and frozen thereafter, so the sorted copy is stable for
+ * the process lifetime; recomputing it on every discovery/search/preload/kernel
+ * read is pure waste. Invalidated (set back to `null`) on any registry mutation
+ * — `registerTool` and the test-only `clearToolRegistryForTests` — so it can
+ * never go stale.
+ */
+let cachedSortedTools: readonly RegisteredTool[] | null = null;
+
 export function registerTool(tool: RegisteredTool): void {
   const existing = REGISTRY.get(tool.name);
   if (existing && existing !== tool) {
@@ -214,6 +224,7 @@ export function registerTool(tool: RegisteredTool): void {
     );
   }
   REGISTRY.set(tool.name, tool);
+  cachedSortedTools = null;
 }
 
 export function registerTools(tools: readonly RegisteredTool[]): void {
@@ -232,9 +243,17 @@ export function listToolsForIntegration(slug: IntegrationSlug): RegisteredTool[]
   return out;
 }
 
-/** Stable snapshot of every executable the process currently knows about. */
-export function listRegisteredTools(): RegisteredTool[] {
-  return [...REGISTRY.values()].sort((a, b) => a.name.localeCompare(b.name));
+/**
+ * Stable snapshot of every executable the process currently knows about.
+ * Read-only and shared: the returned array is memoized and frozen, so callers
+ * must not mutate it (all current readers iterate, `.filter`, or pass it to
+ * `readonly RegisteredTool[]` params). The cache is rebuilt only after a
+ * registry mutation.
+ */
+export function listRegisteredTools(): readonly RegisteredTool[] {
+  return (cachedSortedTools ??= Object.freeze(
+    [...REGISTRY.values()].sort((a, b) => a.name.localeCompare(b.name)),
+  ));
 }
 
 /** Stable snapshot of the tools that bootstrap every agent run. */
@@ -242,17 +261,18 @@ export function listKernelTools(): RegisteredTool[] {
   return listRegisteredTools().filter((tool) => tool.availability?.surface === "kernel");
 }
 
-export function assertKernelToolsRegistered(
-  declaredTools?: readonly RegisteredTool[],
-): void {
-  const declaredKernel = declaredTools?.filter(
-    (tool) => tool.availability?.surface === "kernel",
-  );
-  const kernel = listKernelTools();
-  if (kernel.length === 0 || declaredKernel?.length === 0) {
-    throw new Error("No system tools are registered for the kernel surface");
+/**
+ * Boot-time invariant, called once from `registerBuiltinTools`: every tool the
+ * caller declares as kernel surface is registered as that exact object, and at
+ * least one exists. The runtime kernel read (`systemToolKernel`) trusts this ran
+ * at boot and does not re-validate on every call.
+ */
+export function assertKernelToolsRegistered(declaredTools: readonly RegisteredTool[]): void {
+  const declaredKernel = declaredTools.filter((tool) => tool.availability?.surface === "kernel");
+  if (declaredKernel.length === 0) {
+    throw new Error("No system tools are declared for the kernel surface");
   }
-  const missing = declaredKernel?.filter((tool) => getTool(tool.name) !== tool) ?? [];
+  const missing = declaredKernel.filter((tool) => getTool(tool.name) !== tool);
   if (missing.length > 0) {
     throw new Error(
       `Declared system kernel tools are not registered: ${missing.map((tool) => tool.name).join(", ")}`,
@@ -286,4 +306,5 @@ export function riskTierCountsForIntegration(slug: IntegrationSlug): RiskTierCou
 /** Test-only: drop every registration. Production code never calls this. */
 export function clearToolRegistryForTests(): void {
   REGISTRY.clear();
+  cachedSortedTools = null;
 }
