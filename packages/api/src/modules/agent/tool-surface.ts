@@ -1,11 +1,6 @@
 import { isIntegrationSlug, isRecord, isToolName, type ToolName } from "@alfred/contracts";
 import { z } from "zod";
-import {
-  assertKernelToolsRegistered,
-  getTool,
-  listKernelTools,
-  listToolsForIntegration,
-} from "../tools/registry";
+import { getTool, listKernelTools, listToolsForIntegration } from "../tools/registry";
 
 export const toolNameSchema = z.custom<ToolName>(
   (value) => typeof value === "string" && isToolName(value),
@@ -22,8 +17,11 @@ export function registeredToolNamesForIntegrations(integrations: readonly string
 }
 
 export function systemToolKernel(): ToolName[] {
-  assertKernelToolsRegistered();
-  return listKernelTools().map((tool) => tool.name);
+  const kernel = listKernelTools();
+  if (kernel.length === 0) {
+    throw new Error("No system tools are registered for the kernel surface");
+  }
+  return kernel.map((tool) => tool.name);
 }
 
 /** Expand persisted integration-level state once, then checkpoint exact names. */
@@ -63,6 +61,25 @@ export function applyExactToolLoad(activeTools: readonly ToolName[], result: unk
     return uniqueToolNames(activeTools);
   }
   return activateTool(activeTools, result.name);
+}
+
+/**
+ * Fold a completed system tool call's run-state effect into the active surface.
+ * Only `system.load_tool` mutates it — a successful load adds one exact tool for
+ * the next model turn; every other system tool is inert here. The result is
+ * treated as untrusted and validated by {@link applyExactToolLoad}, so the
+ * dispatch envelope is typed structurally rather than coupling this module to
+ * the dispatcher. Shared by the chat-turn and brief workflows so the two paths
+ * can't drift.
+ */
+export function applySystemToolEffect(
+  state: { activeTools: ToolName[] },
+  toolName: string,
+  result: { readonly kind: string; readonly toolResult?: unknown },
+): void {
+  if (toolName === "system.load_tool" && result.kind === "executed") {
+    state.activeTools = applyExactToolLoad(state.activeTools, result.toolResult);
+  }
 }
 
 function uniqueToolNames(toolNames: readonly ToolName[]): ToolName[] {
