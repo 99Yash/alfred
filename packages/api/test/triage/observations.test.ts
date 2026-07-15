@@ -145,6 +145,7 @@ describe("assembleObservations", () => {
       thread,
       knownContact: false,
       senderRelationship: "weak · one-way inbound (you never replied)",
+      senderRelationshipIsCold: true,
       senderKind: {
         kind: "group",
         confidence: 0.99,
@@ -166,6 +167,7 @@ describe("assembleObservations", () => {
       thread,
       knownContact: false,
       senderRelationship: "weak · one-way inbound (you never replied)",
+      senderRelationshipIsCold: true,
       senderKind: {
         kind: "group",
         confidence: 0.99,
@@ -202,6 +204,7 @@ describe("assembleObservations", () => {
     assert.equal(obs.persona, null);
     assert.equal(obs.knownContact, true);
     assert.equal(obs.senderRelationship, null);
+    assert.equal(obs.senderRelationshipIsCold, false);
     assert.equal(obs.senderKind, null);
   });
 });

@@ -3,6 +3,7 @@ import { db, rowsFromExecute } from "@alfred/db";
 import {
   actionStagings,
   agentRuns,
+  agentSteps,
   workflows,
   type Workflow as WorkflowRow,
 } from "@alfred/db/schemas";
@@ -12,13 +13,17 @@ import {
   wakeConditionSchema,
   type AgentRunTrigger,
 } from "@alfred/contracts";
-import { and, eq, sql } from "drizzle-orm";
+import { and, desc, eq, sql } from "drizzle-orm";
 import { publishEvent } from "../../events/publish";
 import { pgErrorChain } from "../../lib/pg-errors";
 import { snapshotScratchToPostgres } from "../scratchpad";
 import { enqueueRun } from "./queue";
 import { getWorkflow, listWorkflows } from "./registry";
 import { readSubAgentMetadata, subAgentDoneSignalName } from "./sub-agent-metadata";
+import {
+  startSubAgentWaitSpan,
+  type SubAgentWaitOutcome,
+} from "./runtime-spans";
 import {
   isTerminalStatus,
   type ApprovalKind,
@@ -325,7 +330,7 @@ export async function signalRunInTx(tx: AgentTx, args: SignalArgs): Promise<Sign
  */
 export async function signalParentOfSubAgent(childRunId: string): Promise<string | null> {
   const rows = await db()
-    .select({ metadata: agentRuns.metadata })
+    .select({ metadata: agentRuns.metadata, status: agentRuns.status })
     .from(agentRuns)
     .where(eq(agentRuns.id, childRunId))
     .limit(1);
@@ -335,7 +340,54 @@ export async function signalParentOfSubAgent(childRunId: string): Promise<string
     runId: sub.parentRunId,
     match: { kind: "signal", name: subAgentDoneSignalName(childRunId) },
   });
+  if (woken) {
+    // #409: the parent just woke from its `await_sub_agent` park — record the
+    // wait it spent joining this child, tagged with the child's terminal status.
+    const outcome = subAgentOutcomeFromStatus(rows[0]?.status);
+    if (outcome) {
+      await emitSubAgentWaitSpan({ ex: db(), parentRunId: sub.parentRunId, childRunId, outcome });
+    }
+  }
   return woken ? sub.parentRunId : null;
+}
+
+/** Map a child run's raw status to a sub-agent-wait outcome; null when non-terminal. */
+function subAgentOutcomeFromStatus(status: string | undefined): SubAgentWaitOutcome | null {
+  if (status === "completed" || status === "failed" || status === "cancelled") return status;
+  return null;
+}
+
+/**
+ * Best-effort `runtime.sub_agent.wait` span for the parent that just woke from
+ * an `await_sub_agent` park (#409). The park instant is the parent's latest
+ * `interrupted` step's `ended_at`; if it can't be resolved we skip the span
+ * rather than block the wake. Accepts an executor so it can run on the caller's
+ * transaction (in-tx cancel) or a fresh connection (terminal-child signal).
+ */
+async function emitSubAgentWaitSpan(args: {
+  ex: AgentDbExecutor;
+  parentRunId: string;
+  childRunId: string;
+  outcome: SubAgentWaitOutcome;
+}): Promise<void> {
+  try {
+    const rows = await args.ex
+      .select({ stepId: agentSteps.stepId, endedAt: agentSteps.endedAt })
+      .from(agentSteps)
+      .where(and(eq(agentSteps.runId, args.parentRunId), eq(agentSteps.status, "interrupted")))
+      .orderBy(desc(agentSteps.id))
+      .limit(1);
+    const park = rows[0];
+    if (!park?.endedAt) return;
+    startSubAgentWaitSpan({
+      runId: args.parentRunId,
+      startedAt: park.endedAt,
+      childRunId: args.childRunId,
+      parentStepId: park.stepId,
+    }).end(args.outcome, new Date());
+  } catch (err) {
+    console.warn("[agent] sub-agent wait span failed for", args.childRunId, toMessage(err));
+  }
 }
 
 export interface CancelRunArgs {
@@ -452,7 +504,18 @@ export async function cancelRunInTx(tx: AgentTx, args: CancelRunArgs): Promise<C
       runId: sub.parentRunId,
       match: { kind: "signal", name: subAgentDoneSignalName(args.runId) },
     });
-    if (signalOutcome === "woken") wokenParentRunId = sub.parentRunId;
+    if (signalOutcome === "woken") {
+      wokenParentRunId = sub.parentRunId;
+      // #409: the parent woke because we cancelled the child it was joining;
+      // record its sub-agent wait with a `cancelled` outcome. Runs on the
+      // caller's tx so the lookup sees the same snapshot.
+      await emitSubAgentWaitSpan({
+        ex: tx,
+        parentRunId: sub.parentRunId,
+        childRunId: args.runId,
+        outcome: "cancelled",
+      });
+    }
   }
 
   const rejectedStagings = await tx

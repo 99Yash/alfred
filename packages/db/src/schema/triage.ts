@@ -5,6 +5,7 @@ import type {
   TriageTodoSuggestion,
 } from "@alfred/contracts";
 import {
+  boolean,
   index,
   integer,
   jsonb,
@@ -89,6 +90,17 @@ export const emailTriage = pgTable(
      * classify, not on every significance pass.
      */
     senderSignificanceBand: text("sender_significance_band").$type<SignificanceBand>(),
+    /**
+     * Typed rule-16b cold-contact verdict at classify time, persisted so the
+     * cold-sender todo gate is decided ONCE and owned by the row. A same-run
+     * `classify` retry that takes the reuse path (#157 stale-lease reclaim) does
+     * not re-gather observations, so without this it re-derived the verdict from
+     * missing context and resurrected a suppressed cold todo. Reading it back keeps
+     * the fresh and reuse paths identical. Null when the sender is non-human /
+     * unscored / had no graph row, and on legacy rows written before this column —
+     * all read as not-cold (keep the todo), never as suppress.
+     */
+    senderRelationshipIsCold: boolean("sender_relationship_is_cold"),
     classifiedAt: timestamp("classified_at", { withTimezone: true }).defaultNow().notNull(),
     /** Pointer to the originating `agent_runs.id`. */
     runId: text("run_id"),

@@ -1,0 +1,1 @@
+ALTER TABLE "email_triage" ADD COLUMN "sender_relationship_is_cold" boolean;

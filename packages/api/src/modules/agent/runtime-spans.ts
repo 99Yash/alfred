@@ -16,6 +16,14 @@
  * (`_setRuntimeSpanStarterForTests`) so a test can assert the emitted contract
  * without a live Langfuse client — mirroring the dispatcher's
  * `_setDispatchTraceSinksForTests` seam.
+ *
+ * #409 (PRD #405) extends this module with three *wait/queue* spans that cover
+ * the wall-clock a run spends *outside* the model and tools — waiting on a
+ * human approval (`runtime.approval.wait`), waiting on a sub-agent child
+ * (`runtime.sub_agent.wait`), and sitting in the queue between steps, including
+ * stale-lease reclaim (`runtime.queue.lease`). They live here alongside the
+ * batch span because all four are agent-orchestration runtime observations, and
+ * they share the same injectable `runtimeSpanStarter` seam.
  */
 
 import { startRuntimeSpan, type RuntimeSpanCloser, type RuntimeSpanInput } from "@alfred/ai";
@@ -187,6 +195,196 @@ export function startDispatchBatchSpan(args: DispatchBatchSpanArgs): DispatchBat
         status: terminal,
         level: terminal === "error" ? "ERROR" : undefined,
         metadata: results ? dispatchBatchEndMetadata(summarizeDispatchBatch(results)) : undefined,
+      });
+    },
+  };
+}
+
+/* ---------------------------------------------------------------------------
+ * Wait & queue spans (#409, PRD #405)
+ *
+ * The batch span above measures orchestration *inside* a step. These three
+ * measure the wall-clock a run spends *between* / *outside* model and tool work
+ * — the time an operator otherwise can't attribute. Each is emitted after the
+ * fact as a point observation: opened backdated to the wait's start and closed
+ * `now`, so Langfuse derives the true duration. All three swallow SDK faults
+ * via the shared `runtimeSpanStarter`, so a tracing hiccup never breaks the
+ * orchestration path they observe.
+ * ------------------------------------------------------------------------- */
+
+/** Non-negative elapsed ms between two instants (clamped against clock skew). */
+function waitMsBetween(startedAt: Date, endedAt: Date): number {
+  return Math.max(0, endedAt.getTime() - startedAt.getTime());
+}
+
+/** Stable observation name for the approval-wait runtime span (PRD #405). */
+export const RUNTIME_APPROVAL_WAIT = "runtime.approval.wait";
+
+/** How a gated action's approval wait ended. */
+export type ApprovalWaitOutcome = "approved" | "rejected" | "expired" | "cancelled";
+
+export interface ApprovalWaitSpanArgs {
+  /** Run id whose gated action was parked — doubles as the trace id. */
+  runId: string;
+  /** `action_stagings.created_at` — the instant the approval was requested. */
+  startedAt: Date;
+  toolName: string;
+  integration: string;
+  riskTier: string;
+}
+
+/** Pure builder for the `runtime.approval.wait` opening span. Exported for tests. */
+export function buildApprovalWaitSpanInput(args: ApprovalWaitSpanArgs): RuntimeSpanInput {
+  return {
+    runId: args.runId,
+    name: RUNTIME_APPROVAL_WAIT,
+    startedAt: args.startedAt,
+    metadata: {
+      toolName: args.toolName,
+      integration: args.integration,
+      riskTier: args.riskTier,
+    },
+  };
+}
+
+export interface ApprovalWaitSpanCloser {
+  /** Close the wait with its outcome; `endedAt` is the decision/expiry instant. */
+  end(outcome: ApprovalWaitOutcome, endedAt: Date): void;
+}
+
+/**
+ * Open a `runtime.approval.wait` span. An approval wait is expected, not an
+ * error, so it always closes at level DEFAULT; the `outcome` distinguishes an
+ * approve from a reject/expire/cancel. Idempotent — only the first `end` closes.
+ */
+export function startApprovalWaitSpan(args: ApprovalWaitSpanArgs): ApprovalWaitSpanCloser {
+  const span = runtimeSpanStarter(buildApprovalWaitSpanInput(args));
+  let ended = false;
+  return {
+    end(outcome, endedAt) {
+      if (ended) return;
+      ended = true;
+      span.end({
+        status: outcome,
+        metadata: { outcome, waitMs: waitMsBetween(args.startedAt, endedAt) },
+      });
+    },
+  };
+}
+
+/** Stable observation name for the sub-agent-wait runtime span (PRD #405). */
+export const RUNTIME_SUB_AGENT_WAIT = "runtime.sub_agent.wait";
+
+/** Terminal status of the awaited sub-agent child. */
+export type SubAgentWaitOutcome = "completed" | "failed" | "cancelled";
+
+export interface SubAgentWaitSpanArgs {
+  /** Parent run id — the trace this wait hangs under. */
+  runId: string;
+  /** Parent park instant: its interrupted step's `ended_at`. */
+  startedAt: Date;
+  childRunId: string;
+  parentStepId: string;
+}
+
+/** Pure builder for the `runtime.sub_agent.wait` opening span. Exported for tests. */
+export function buildSubAgentWaitSpanInput(args: SubAgentWaitSpanArgs): RuntimeSpanInput {
+  return {
+    runId: args.runId,
+    name: RUNTIME_SUB_AGENT_WAIT,
+    startedAt: args.startedAt,
+    metadata: {
+      childRunId: args.childRunId,
+      parentStepId: args.parentStepId,
+    },
+  };
+}
+
+export interface SubAgentWaitSpanCloser {
+  /** Close the wait with the child's terminal status; `endedAt` is the wake instant. */
+  end(outcome: SubAgentWaitOutcome, endedAt: Date): void;
+}
+
+/**
+ * Open a `runtime.sub_agent.wait` span. Like an approval wait, a join is
+ * expected work, so it closes at level DEFAULT and the `outcome` carries the
+ * child's terminal status. Idempotent — only the first `end` closes.
+ */
+export function startSubAgentWaitSpan(args: SubAgentWaitSpanArgs): SubAgentWaitSpanCloser {
+  const span = runtimeSpanStarter(buildSubAgentWaitSpanInput(args));
+  let ended = false;
+  return {
+    end(outcome, endedAt) {
+      if (ended) return;
+      ended = true;
+      span.end({
+        status: outcome,
+        metadata: { outcome, waitMs: waitMsBetween(args.startedAt, endedAt) },
+      });
+    },
+  };
+}
+
+/** Stable observation name for the queue/lease runtime span (PRD #405). */
+export const RUNTIME_QUEUE_LEASE = "runtime.queue.lease";
+
+/** Run status observed just before a lease flipped it to `running`. */
+export type QueueLeaseFromStatus = "pending" | "runnable" | "running";
+
+export interface QueueLeaseSpanArgs {
+  runId: string;
+  /** Workflow slug of the leased run. */
+  workflow: string;
+  /** Step this lease is about to run. */
+  stepId: string;
+  fromStatus: QueueLeaseFromStatus;
+  /** True when a stale `running` row was reclaimed (previous worker presumed dead). */
+  reclaimed: boolean;
+  /**
+   * `now - last_checkpoint_at` at lease time (ms); null when the row was never
+   * checkpointed (a fresh `pending` run). The span backdates its start by this.
+   */
+  queueMs: number | null;
+  /** The lease instant — the span's end time and the anchor for backdating. */
+  leasedAt: Date;
+}
+
+/** Pure builder for the `runtime.queue.lease` opening span. Exported for tests. */
+export function buildQueueLeaseSpanInput(args: QueueLeaseSpanArgs): RuntimeSpanInput {
+  const startedAt =
+    args.queueMs == null ? args.leasedAt : new Date(args.leasedAt.getTime() - args.queueMs);
+  return {
+    runId: args.runId,
+    name: RUNTIME_QUEUE_LEASE,
+    startedAt,
+    metadata: {
+      fromStatus: args.fromStatus,
+      workflow: args.workflow,
+      stepId: args.stepId,
+    },
+  };
+}
+
+export interface QueueLeaseSpanCloser {
+  end(): void;
+}
+
+/**
+ * Open (and, on `end`, close) a `runtime.queue.lease` span. A reclaim is a
+ * stale-lease recovery — an unhealthy signal — so it closes at level WARNING; a
+ * normal lease closes at DEFAULT. Idempotent — only the first `end` closes.
+ */
+export function startQueueLeaseSpan(args: QueueLeaseSpanArgs): QueueLeaseSpanCloser {
+  const span = runtimeSpanStarter(buildQueueLeaseSpanInput(args));
+  let ended = false;
+  return {
+    end() {
+      if (ended) return;
+      ended = true;
+      span.end({
+        status: args.reclaimed ? "reclaimed" : "leased",
+        level: args.reclaimed ? "WARNING" : "DEFAULT",
+        metadata: { reclaimed: args.reclaimed, queueMs: args.queueMs },
       });
     },
   };

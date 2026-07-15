@@ -14,6 +14,7 @@ import {
 } from "../agent";
 import { removeApprovalExpiryJob } from "./expiry-queue";
 import { removeApprovalNotificationJob } from "./notification-queue";
+import { startApprovalWaitSpan, type ApprovalWaitOutcome } from "../agent/runtime-spans";
 import { toMessage } from "@alfred/contracts";
 
 type Decision = "approve" | "reject" | "cancel_run";
@@ -34,6 +35,22 @@ interface DecisionOutcome {
    * was joining (ADR-0073). Enqueued after commit so the boss resumes promptly.
    */
   wokenParentRunId?: string | null;
+  /**
+   * Approval-wait observation to emit after commit (#409). Carries the staging's
+   * bounded, PII-free timing/identity so `runtime.approval.wait` spans the
+   * request→decision wall-clock without re-reading the row post-commit.
+   */
+  approvalWait?: ApprovalWaitEmit;
+}
+
+interface ApprovalWaitEmit {
+  runId: string;
+  /** `action_stagings.created_at` — when approval was requested. */
+  startedAt: Date;
+  toolName: string;
+  integration: string;
+  riskTier: string;
+  outcome: ApprovalWaitOutcome;
 }
 
 /**
@@ -68,6 +85,10 @@ export const approvalsRoutes = new Elysia({ prefix: "/api/approvals", normalize:
               runId: actionStagings.runId,
               status: actionStagings.status,
               requiresApproval: actionStagings.requiresApproval,
+              createdAt: actionStagings.createdAt,
+              toolName: actionStagings.toolName,
+              integration: actionStagings.integration,
+              riskTier: actionStagings.riskTier,
             })
             .from(actionStagings)
             .where(and(eq(actionStagings.id, params.stagingId), eq(actionStagings.userId, user.id)))
@@ -109,6 +130,7 @@ export const approvalsRoutes = new Elysia({ prefix: "/api/approvals", normalize:
               decision,
               status: "approved",
               shouldEnqueue: signalOutcome === "woken",
+              approvalWait: approvalWaitEmit(row, "approved"),
             };
           }
 
@@ -134,6 +156,7 @@ export const approvalsRoutes = new Elysia({ prefix: "/api/approvals", normalize:
               // If the cancelled run was itself a sub-agent child, a parent
               // boss joining it was woken in-tx — enqueue it after commit too.
               wokenParentRunId,
+              approvalWait: approvalWaitEmit(row, "cancelled"),
             };
           } else {
             const signalOutcome = await signalRunInTx(tx, {
@@ -158,7 +181,13 @@ export const approvalsRoutes = new Elysia({ prefix: "/api/approvals", normalize:
               rowVersion: sql`${actionStagings.rowVersion} + 1`,
             })
             .where(eq(actionStagings.id, row.id));
-          return { runId: row.runId, decision, status: "rejected", shouldEnqueue };
+          return {
+            runId: row.runId,
+            decision,
+            status: "rejected",
+            shouldEnqueue,
+            approvalWait: approvalWaitEmit(row, "rejected"),
+          };
         });
 
         if ("notFound" in outcome) throw new NotFoundError("Approval not found");
@@ -206,6 +235,20 @@ export const approvalsRoutes = new Elysia({ prefix: "/api/approvals", normalize:
           }
         }
 
+        // Best-effort approval-wait span (#409): the gated action's
+        // request→decision wall-clock, opened backdated to the staging's
+        // createdAt and closed now. Swallowed inside the runtime-span helper.
+        if (outcome.approvalWait) {
+          const wait = outcome.approvalWait;
+          startApprovalWaitSpan({
+            runId: wait.runId,
+            startedAt: wait.startedAt,
+            toolName: wait.toolName,
+            integration: wait.integration,
+            riskTier: wait.riskTier,
+          }).end(wait.outcome, new Date());
+        }
+
         return { ok: true, runId: outcome.runId, status: outcome.status, enqueued };
       },
       {
@@ -222,6 +265,21 @@ export const approvalsRoutes = new Elysia({ prefix: "/api/approvals", normalize:
 function parseDecision(value: string): Decision | null {
   if (value === "approve" || value === "reject" || value === "cancel_run") return value;
   return null;
+}
+
+/** Build the after-commit approval-wait emission from the locked staging row. */
+function approvalWaitEmit(
+  row: { runId: string; createdAt: Date; toolName: string; integration: string; riskTier: string },
+  outcome: ApprovalWaitOutcome,
+): ApprovalWaitEmit {
+  return {
+    runId: row.runId,
+    startedAt: row.createdAt,
+    toolName: row.toolName,
+    integration: row.integration,
+    riskTier: row.riskTier,
+    outcome,
+  };
 }
 
 function signalOutcomeConflict(outcome: SignalOutcome): string | null {
