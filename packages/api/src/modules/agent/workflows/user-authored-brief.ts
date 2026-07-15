@@ -49,7 +49,6 @@ import {
   migrateActiveTools,
   registeredToolNamesForIntegrations,
   systemToolKernel,
-  toolNameSchema,
 } from "../tool-surface";
 import {
   readSubAgentMetadata,
@@ -81,7 +80,9 @@ type PendingToolCall = z.infer<typeof pendingToolCallSchema>;
 
 const briefRunStateSchema = z
   .object({
-    activeTools: z.array(toolNameSchema).optional(),
+    // Persisted under an older deploy, so names may refer to tools that have
+    // since been retired. The transform below drops anything not in today's registry.
+    activeTools: z.array(z.string()).optional(),
     // Read only while resuming checkpoints created before exact tool surfaces.
     activeIntegrations: z.array(z.string().min(1)).optional(),
     preloadApplied: z.boolean().default(false),
