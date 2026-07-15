@@ -145,6 +145,13 @@ const report: DocumentTemplate = {
 
   <div class="art-doc-lede">Uptime held at 99.95 percent through the quarter. Two incidents drove the remaining budget; both are now covered by automated failover.</div>
 
+  <div class="art-doc-sectionhead"><div class="art-doc-section">By the numbers</div></div>
+  <div style="display: grid; grid-template-columns: repeat(3, 1fr); gap: 14px;">
+    <div class="art-panel"><div class="art-doc-name art-nums">99.95%</div><div class="art-doc-meta">uptime, up from 99.9</div></div>
+    <div class="art-panel"><div class="art-doc-name art-nums">+60%</div><div class="art-doc-meta">traffic, flat median latency</div></div>
+    <div class="art-panel"><div class="art-doc-name art-nums">30s</div><div class="art-doc-meta">failover detection window</div></div>
+  </div>
+
   <div class="art-doc-sectionhead"><div class="art-doc-section">What happened</div></div>
   <p class="art-doc-entry-desc" style="color: var(--art-ink); margin: 0;">Traffic grew 60 percent quarter over quarter with no added latency at the median. The two incidents that consumed error budget were both single-region database failovers that took longer than target to promote a replica.</p>
 
@@ -210,6 +217,13 @@ const onePager: DocumentTemplate = {
       <div class="art-doc-entry-title art-accent-text">03</div>
       <div class="art-doc-entry-desc">Wake up to a short list, not a full inbox.</div>
     </div>
+  </div>
+
+  <div class="art-doc-sectionhead"><div class="art-doc-section">Proof</div></div>
+  <div style="display: grid; grid-template-columns: repeat(3, 1fr); gap: 14px;">
+    <div class="art-panel"><div class="art-doc-name art-nums">6.2h</div><div class="art-doc-meta">saved per week</div></div>
+    <div class="art-panel"><div class="art-doc-name art-nums">92%</div><div class="art-doc-meta">triaged automatically</div></div>
+    <div class="art-panel"><div class="art-doc-name art-nums">5 min</div><div class="art-doc-meta">to set up</div></div>
   </div>
 
   <hr class="art-doc-rule" />

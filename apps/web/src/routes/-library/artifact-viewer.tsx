@@ -1,8 +1,9 @@
+import { pageGeometry } from "@alfred/artifacts-design/tokens";
 import type { ArtifactFormat } from "@alfred/contracts";
 import type { SyncedArtifact } from "@alfred/sync";
 import { Link, useNavigate, useParams } from "@tanstack/react-router";
 import { AlertTriangle, Download, FileText, Layers, Loader2, X } from "lucide-react";
-import { useCallback, useEffect, type ReactNode } from "react";
+import { useCallback, useEffect, useRef, useState, type ReactNode, type RefObject } from "react";
 import { ArtifactPageFrame } from "~/components/artifact-page-frame";
 import { MarkdownRenderer } from "~/components/markdown-renderer";
 import { AppButton } from "~/components/ui/v2";
@@ -91,6 +92,10 @@ function PopulatedArtifact({
   const pages = artifact.content?.kind === "pages" ? artifact.content.pages : [];
   const canDownload =
     artifact.kind === "pages" && pages.length > 0 && artifact.status !== "generating";
+  // The dialog scrolls inside this `<main>`, not the window. Lazy page mounting
+  // roots its IntersectionObserver on this element so the gate tracks the real
+  // scroller rather than the viewport.
+  const scrollRef = useRef<HTMLElement | null>(null);
 
   const onDownload = useCallback(() => {
     if (!canDownload) return;
@@ -137,7 +142,10 @@ function PopulatedArtifact({
         </div>
       </header>
 
-      <main className="scroll-stable relative min-h-0 flex-1 overflow-y-auto px-4 py-8">
+      <main
+        ref={scrollRef}
+        className="scroll-stable relative min-h-0 flex-1 overflow-y-auto px-4 py-8"
+      >
         {syncError ? (
           <div className="mx-auto mb-5 flex w-full max-w-[720px] items-center justify-between gap-3 rounded-xl bg-app-bg-2 px-3 py-2 text-xs text-app-fg-3">
             <span>
@@ -153,7 +161,7 @@ function PopulatedArtifact({
           </div>
         ) : null}
         <ArtifactStatus artifact={artifact} />
-        <ArtifactContent artifact={artifact} />
+        <ArtifactContent artifact={artifact} scrollRef={scrollRef} />
       </main>
 
       <div className="pointer-events-none absolute right-5 bottom-4 text-[11.5px] text-app-fg-2">
@@ -176,7 +184,13 @@ function ArtifactStatus({ artifact }: { artifact: SyncedArtifact }) {
   );
 }
 
-function ArtifactContent({ artifact }: { artifact: SyncedArtifact }) {
+function ArtifactContent({
+  artifact,
+  scrollRef,
+}: {
+  artifact: SyncedArtifact;
+  scrollRef: RefObject<HTMLElement | null>;
+}) {
   if (artifact.kind === "document") {
     const markdown = artifact.content?.kind === "document" ? artifact.content.markdown : "";
     if (!markdown.trim()) {
@@ -223,14 +237,85 @@ function ArtifactContent({ artifact }: { artifact: SyncedArtifact }) {
               {index + 1} / {pages.length}
             </span>
           </div>
-          <ArtifactPageFrame
+          <LazyArtifactPage
             html={page.html}
             title={`${artifact.title} page ${index + 1}`}
             format={format}
+            scrollRef={scrollRef}
           />
         </section>
       ))}
     </div>
+  );
+}
+
+/**
+ * Mount each page's sandboxed iframe only once it first scrolls into view (with a
+ * small pre-margin), then keep it mounted. The live win TODAY is paint cost: a
+ * long deck no longer spins up every sandboxed iframe on open, only the few near
+ * the viewport. It is ALSO the seam for artifact motion (ADR-0086): the shell
+ * defines autoplay-on-mount entrance classes, the only motion a `sandbox=""` +
+ * `pointer-events: none` iframe can carry. That vocabulary is still dormant — not
+ * yet named in the authoring prompt — so nothing animates yet; but once the
+ * expression dial enables it, gating the mount on intersection makes
+ * mount == reveal, so each page's entrance will fire as it arrives rather than
+ * all at once on open. The seam is in place ahead of the vocabulary, not the
+ * reverse.
+ *
+ * Until a page mounts we render a same-aspect placeholder so scroll height is
+ * stable (the observer for later pages can fire) and the swap causes no layout
+ * shift. The observer roots on the real scroll container (`scrollRef` -> the
+ * dialog's `<main>`), not the viewport, so the gate stays correct if the viewer
+ * layout ever nests that scroller; it falls back to the viewport (`null`) if the
+ * ref is not attached yet. The observer lives in the parent app DOM, where JS is
+ * allowed — the sealed iframe never sees it.
+ */
+function LazyArtifactPage({
+  html,
+  title,
+  format,
+  scrollRef,
+}: {
+  html: string;
+  title: string;
+  format: ArtifactFormat;
+  scrollRef: RefObject<HTMLElement | null>;
+}) {
+  const ref = useRef<HTMLDivElement | null>(null);
+  const [mounted, setMounted] = useState(false);
+
+  useEffect(() => {
+    if (mounted) return;
+    const el = ref.current;
+    if (!el) return;
+    const observer = new IntersectionObserver(
+      ([entry]) => {
+        if (entry?.isIntersecting) {
+          setMounted(true);
+          observer.disconnect();
+        }
+      },
+      // Root on the scroll container so the gate tracks the real scroller. A
+      // small positive margin pre-mounts just before the page enters view so the
+      // iframe has loaded by the time it is looked at, without spending the
+      // entrance far off-screen.
+      { root: scrollRef.current, rootMargin: "96px 0px", threshold: 0 },
+    );
+    observer.observe(el);
+    return () => observer.disconnect();
+  }, [mounted, scrollRef]);
+
+  if (mounted) {
+    return <ArtifactPageFrame html={html} title={title} format={format} />;
+  }
+  const { width, height } = pageGeometry[format];
+  return (
+    <div
+      ref={ref}
+      aria-hidden
+      className="rounded-lg bg-app-bg-2 shadow-2xl"
+      style={{ aspectRatio: `${width} / ${height}` }}
+    />
   );
 }
 
