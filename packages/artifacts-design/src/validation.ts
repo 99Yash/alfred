@@ -18,15 +18,16 @@
  *     would freeze it at that base — invisible in print/reduced-motion. So the
  *     hole is closed here: authored `@keyframes` and `animation`/`animation-*`
  *     declarations are rejected outright. Motion may come ONLY from the guarded
- *     shell classes (`art-rise`, `art-stagger`, `art-drift`, `art-sheen`,
- *     `art-draw`). Transitions are NOT rejected — a transition needs a property
- *     change to fire, which cannot happen in a static `pointer-events: none`
- *     sandbox, so it always rests at its declared state and is safe by
- *     construction.
+ *     shell classes (`MOTION_CLASS_NAMES`). Transitions are NOT rejected — a
+ *     transition needs a property change to fire, which cannot happen in a static
+ *     `pointer-events: none` sandbox, so it always rests at its declared state
+ *     and is safe by construction.
  *
  * The slide check is motion-ONLY: it deliberately does not impose the pdf
  * font/root rules, so slides keep their inline-geometry freedom.
  */
+
+import { MOTION_CLASS_NAMES } from "./shell";
 
 const DOCUMENT_ROOT_CLASS =
   /^\s*(?:(?:<!--[\s\S]*?-->|<style\b[^>]*>[\s\S]*?<\/style\s*>)\s*)*<([a-z][\w:-]*)\b[^>]*\bclass\s*=\s*(["'])[^"']*\bart-doc\b[^"']*\2[^>]*>/i;
@@ -90,9 +91,13 @@ export function authoredMotionViolations(html: string): readonly MotionViolation
   return violations;
 }
 
-/** The model-facing hint for a motion rejection, shared by both formats. */
+/**
+ * The model-facing hint for a motion rejection, shared by both formats. Names
+ * the allowed classes from {@link MOTION_CLASS_NAMES} (the shell's own list) so
+ * the hint can never drift into advertising a class the shell does not define.
+ */
 function motionRejectionHint(): string {
-  return "Do not author @keyframes or animation declarations: motion has no print/reduced-motion guard when authored and can freeze content hidden. Use the shell motion classes instead (art-rise, art-stagger, art-drift, art-sheen, art-draw).";
+  return `Do not author @keyframes or animation declarations: motion has no print/reduced-motion guard when authored and can freeze content hidden. Use the shell motion classes instead (${MOTION_CLASS_NAMES.join(", ")}).`;
 }
 
 export function pdfArtifactHtmlViolations(

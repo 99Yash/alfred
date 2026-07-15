@@ -361,11 +361,26 @@ code {
  *  - Entrances only fade + lift WITHIN the page box; no edge slide-in (`.art-page`
  *    clips), so a reveal never fights the page geometry.
  *
- * Timing note: an on-mount entrance fires when the iframe mounts. Once the
- * viewer lazy-mounts each page on first scroll into view (plan constraint 3),
- * mount == reveal and each entrance is seen as its page arrives; until then all
- * pages mount together and the entrances play at once on load. Either way the
- * resting frame is correct, so this ships safely ahead of that viewer change.
+ * Reachability note: this vocabulary is built but DORMANT. No archetype,
+ * template, or authoring-prompt line names these classes yet — prompt-wiring and
+ * the expression dial are deferred (ADR-0086, governance-first: "fancy undoes
+ * restraint"), so NO model-authored artifact animates today. It ships ahead of
+ * that wiring only because it is retroactive and safe by construction: the guard
+ * below rests every class at its final visible frame, so existing decks stay
+ * perfectly still. When the dial does name these classes, the viewer already
+ * lazy-mounts each page on first scroll into view (see `LazyArtifactPage`), so
+ * mount == reveal and each entrance will fire as its page arrives rather than all
+ * at once on load — the seam is in place, waiting on the vocabulary, not the
+ * other way around.
+ */
+export const MOTION_CLASS_NAMES = ["art-rise", "art-stagger", "art-drift", "art-sheen"] as const;
+
+/**
+ * The CSS for {@link MOTION_CLASS_NAMES}. That exported array is the single
+ * source of truth for the set of motion classes: the write-boundary rejection
+ * hint (`validation.ts`) reads it rather than restating it, so the hint can never
+ * advertise a class this shell does not define (an earlier hint named a phantom
+ * `art-draw`). A test asserts every name renders as a real selector here.
  */
 function motionStyles(): string {
   return `/* Entrance: fade + gentle lift. */
@@ -417,14 +432,19 @@ function motionStyles(): string {
 }
 .art-drift { animation: art-drift 24s ease-in-out infinite; will-change: transform; }
 
-/* THE central guard. Print flattens a mid-flight frame and reduced-motion asks
- * for stillness — both resolve to the resting state, which every keyframe above
- * is authored to equal. One rule; covers every present and future primitive. */
+/* THE central guard, and it is genuinely universal. Print flattens a mid-flight
+ * frame and reduced-motion asks for stillness — both resolve to the resting
+ * state, which every keyframe above is authored to equal (hidden -> resting,
+ * resting == the final visible frame). The wildcard is safe here BY
+ * CONSTRUCTION, not by luck: this sandbox has exactly one motion source — these
+ * shell classes — because an authored @keyframes / animation is rejected at the
+ * write boundary (see validation.ts). So there is nothing else for the wildcard
+ * to over-reach onto, and a future shell primitive rests still without editing
+ * this rule: it cannot forget a guard that names no selectors. */
 @media print, (prefers-reduced-motion: reduce) {
-  .art-rise,
-  .art-stagger > *,
-  .art-drift,
-  .art-sheen::after {
+  *,
+  *::before,
+  *::after {
     animation: none !important;
   }
 }`;

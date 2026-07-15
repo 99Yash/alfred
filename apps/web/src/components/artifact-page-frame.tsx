@@ -5,11 +5,6 @@ import { use, useCallback, useState } from "react";
 import { AppThemeContext } from "~/components/ui/v2/theme";
 import { cn } from "~/lib/utils";
 
-const PAGE_ASPECT: Record<ArtifactFormat, string> = {
-  pdf: "aspect-[8.5/11]",
-  slides: "aspect-video",
-};
-
 export function ArtifactPageFrame({
   html,
   title,
@@ -23,7 +18,6 @@ export function ArtifactPageFrame({
   format?: ArtifactFormat;
 }) {
   const { width: pageWidth, height: pageHeight } = pageGeometry[format];
-  const aspect = PAGE_ASPECT[format];
 
   // Follow the app's resolved theme so an artifact rendered inside dark Alfred
   // reads as a dark sheet instead of a white blowout. Read the context
@@ -61,10 +55,13 @@ export function ArtifactPageFrame({
   return (
     <div
       ref={frameRef}
-      className={cn("relative overflow-hidden rounded-lg shadow-2xl", aspect, className)}
+      className={cn("relative overflow-hidden rounded-lg shadow-2xl", className)}
       // Match the page surface so the rounded frame and any pre-paint flash read
       // as the artifact's own background, not a stray white edge in dark mode.
-      style={{ backgroundColor: surfaceColor }}
+      // Aspect is derived from the one geometry source (`pageGeometry`) rather
+      // than a parallel Tailwind class table, so the frame box can never drift
+      // from the logical page it scales.
+      style={{ backgroundColor: surfaceColor, aspectRatio: `${pageWidth} / ${pageHeight}` }}
     >
       <iframe
         title={title}
