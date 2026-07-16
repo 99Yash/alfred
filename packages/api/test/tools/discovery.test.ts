@@ -15,6 +15,7 @@ import {
   availableToolNames,
   evaluateToolAvailability,
   type IntegrationAvailabilitySnapshot,
+  type ToolAvailabilityResult,
 } from "../../src/modules/integrations/availability";
 import {
   clearToolRegistryForTests,
@@ -113,14 +114,20 @@ function access(
   allowedIntegrations: readonly string[] = [],
 ): ToolCatalogAccess {
   const availableSet = new Set(available);
-  return {
-    availableTools: new Set(
-      [gmailSearch, gmailRead, gmailSend, calendarCreate, calendarList]
-        .filter((tool) => availableSet.has(tool.integration as LoadableIntegrationSlug))
-        .map((tool) => tool.name),
-    ),
-    allowedIntegrations,
-  };
+  const availability = new Map<ToolName, ToolAvailabilityResult>();
+  for (const tool of [gmailSearch, gmailRead, gmailSend, calendarCreate, calendarList]) {
+    availability.set(
+      tool.name,
+      availableSet.has(tool.integration as LoadableIntegrationSlug)
+        ? { available: true }
+        : {
+            available: false,
+            code: "not_connected",
+            reason: `${tool.integration} is not connected.`,
+          },
+    );
+  }
+  return { allowedIntegrations, availability };
 }
 
 describe("tool discovery", () => {
@@ -180,7 +187,12 @@ describe("tool discovery", () => {
     const found = searchToolCatalog({
       query: "read webpage",
       tools: [systemFetch],
-      access: { allowedIntegrations: [], availableTools: new Set([systemFetch.name]) },
+      access: {
+        allowedIntegrations: [],
+        availability: new Map<ToolName, ToolAvailabilityResult>([
+          [systemFetch.name, { available: true }],
+        ]),
+      },
     });
     assert.equal(found[0]?.name, "system.fetch_url");
 
@@ -229,7 +241,9 @@ describe("tool discovery", () => {
         activeTools,
         access: {
           allowedIntegrations: [],
-          availableTools: new Set(ranked.map((tool) => tool.name)),
+          availability: new Map<ToolName, ToolAvailabilityResult>(
+            ranked.map((tool) => [tool.name, { available: true }]),
+          ),
         },
       }),
       ["gmail.send_draft"],
@@ -411,7 +425,10 @@ describe("derived-metadata discovery (#413)", () => {
       tools: [notionCreate, notionGet],
       access: {
         allowedIntegrations: [],
-        availableTools: new Set<ToolName>([notionCreate.name, notionGet.name]),
+        availability: new Map<ToolName, ToolAvailabilityResult>([
+          [notionCreate.name, { available: true }],
+          [notionGet.name, { available: true }],
+        ]),
       },
     } as const;
     assert.equal(
@@ -435,9 +452,13 @@ describe("derived-metadata discovery (#413)", () => {
   test("surfaces a strong unavailable match with a reason, sorted after runnable tools", () => {
     const access: ToolCatalogAccess = {
       allowedIntegrations: [],
-      availableTools: new Set<ToolName>([notionGet.name]),
-      explainUnavailable: (name) =>
-        name === notionCreate.name ? "Notion is not connected." : null,
+      availability: new Map<ToolName, ToolAvailabilityResult>([
+        [notionGet.name, { available: true }],
+        [
+          notionCreate.name,
+          { available: false, code: "not_connected", reason: "Notion is not connected." },
+        ],
+      ]),
     };
     const found = searchToolCatalog({
       query: "page",
@@ -459,8 +480,12 @@ describe("derived-metadata discovery (#413)", () => {
   test("hides unavailable matches unless the caller opts in", () => {
     const access: ToolCatalogAccess = {
       allowedIntegrations: [],
-      availableTools: new Set<ToolName>(),
-      explainUnavailable: () => "Notion is not connected.",
+      availability: new Map<ToolName, ToolAvailabilityResult>([
+        [
+          notionCreate.name,
+          { available: false, code: "not_connected", reason: "Notion is not connected." },
+        ],
+      ]),
     };
     assert.deepEqual(
       searchToolCatalog({ query: "create page", tools: [notionCreate], access }),
@@ -477,8 +502,12 @@ describe("derived-metadata discovery (#413)", () => {
       tools: [notionGet],
       access: {
         allowedIntegrations: [],
-        availableTools: new Set<ToolName>(),
-        explainUnavailable: () => "Notion is not connected.",
+        availability: new Map<ToolName, ToolAvailabilityResult>([
+          [
+            notionGet.name,
+            { available: false, code: "not_connected", reason: "Notion is not connected." },
+          ],
+        ]),
       },
       includeUnavailable: true,
     });
@@ -491,8 +520,12 @@ describe("derived-metadata discovery (#413)", () => {
       tools: [notionCreate],
       access: {
         allowedIntegrations: ["gmail"],
-        availableTools: new Set<ToolName>(),
-        explainUnavailable: () => "Notion is not connected.",
+        availability: new Map<ToolName, ToolAvailabilityResult>([
+          [
+            notionCreate.name,
+            { available: false, code: "not_connected", reason: "Notion is not connected." },
+          ],
+        ]),
       },
       includeUnavailable: true,
     });
