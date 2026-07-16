@@ -191,6 +191,7 @@ export const systemTools: readonly RegisteredTool[] = [
         runId: ctx.runId,
         caller: callerLabel(ctx.caller),
         toolName: input.name,
+        source: "model_load",
         startedAt: new Date(),
       });
       const startMs = Date.now();

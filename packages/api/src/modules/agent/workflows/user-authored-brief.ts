@@ -34,7 +34,7 @@ import { buildConnectedSummaryFromAvailability } from "../connected-summary";
 import { formatDateGrounding, resolveUserTimezone } from "../grounding";
 import { composeAgentInstructions } from "../instructions";
 import {
-  activateTool,
+  applyInactiveToolBounce,
   applyPromptToolPreload,
   applySystemToolEffect,
   buildTurnToolSurface,
@@ -415,7 +415,14 @@ const dispatchToolsStep: Step<BriefRunState> = {
         if (result.kind === "inactive_tool") {
           // Bounce the schema-blind call to the next model turn after exposing the
           // exact schema; never validate or execute arguments the model guessed.
-          state.activeTools = activateTool(state.activeTools, result.result.recovery.toolName);
+          // Traced as a tool_load span (source: inactive_bounce) so lazy
+          // activations are counted whichever path surfaced the tool (#414).
+          applyInactiveToolBounce({
+            state,
+            toolName: result.result.recovery.toolName,
+            runId: ctx.runId,
+            spanCaller: callerLabel(state.subAgent ? { subId: state.subAgent.subId } : "boss"),
+          });
         }
 
         if (result.kind === "staged") {

@@ -12,8 +12,16 @@
  *
  * The single derivation path is {@link deriveToolDiscovery}; `liveTool` calls it
  * for every builtin, and a future MCP importer should call it with the imported
- * server slug, tool name, description, and translated zod schema so external
- * providers get the same treatment for free.
+ * server slug, tool name, description, and translated zod schema to get the same
+ * search baseline.
+ *
+ * This module is only the *discovery* seam. Discovery metadata alone does not
+ * make an imported tool loadable: two closed-world layers must open first — the
+ * registry (`RegisteredTool.integration` / `liveTool` are keyed on the builtin
+ * `IntegrationSlug`) and availability (`evaluateToolAvailability` keys on the
+ * closed `ACCESS_SPECS`, so an unknown slug reads as permanently not-connected).
+ * Until both open, a derived-metadata imported tool can be ranked in text but
+ * never surfaced as runnable — this is a foundation, not a finished MCP path.
  */
 
 import { humanizeSlug } from "@alfred/contracts";
@@ -184,6 +192,19 @@ function singularize(word: string): string {
   if (/(ss|sh|ch|x|z)es$/.test(word)) return word.slice(0, -2);
   if (word.endsWith("s") && !/(ss|us|is|ous)$/.test(word)) return word.slice(0, -1);
   return word;
+}
+
+/**
+ * Singularize each word of a normalized phrase. Search/preload matching (#414)
+ * reduces both the query and every catalog phrase to this form so a plural
+ * prompt ("my pull requests") matches a singular authored entity ("pull
+ * request") and vice versa. It reuses {@link singularize} word-by-word rather
+ * than reimplementing the rules, so the matcher and the derived-entity forms
+ * share one notion of "singular" and cannot drift. Expects an already-normalized,
+ * single-spaced string (see the discovery ranker's `normalize`).
+ */
+export function singularizePhrase(value: string): string {
+  return value.split(" ").map(singularize).join(" ");
 }
 
 /**

@@ -114,17 +114,27 @@ function access(
   allowedIntegrations: readonly string[] = [],
 ): ToolCatalogAccess {
   const availableSet = new Set(available);
+  const allowed = new Set(allowedIntegrations);
   const availability = new Map<ToolName, ToolAvailabilityResult>();
   for (const tool of [gmailSearch, gmailRead, gmailSend, calendarCreate, calendarList]) {
+    // Mirror evaluateToolCatalog's precedence: the allowlist is decided first
+    // and surfaces as a `not_allowed` result, so the map is the single source
+    // of both availability and reason (no parallel allowlist predicate).
     availability.set(
       tool.name,
-      availableSet.has(tool.integration as LoadableIntegrationSlug)
-        ? { available: true }
-        : {
+      allowed.size > 0 && !allowed.has(tool.integration)
+        ? {
             available: false,
-            code: "not_connected",
-            reason: `${tool.integration} is not connected.`,
-          },
+            code: "not_allowed",
+            reason: "Outside this workflow's integration allowlist.",
+          }
+        : availableSet.has(tool.integration as LoadableIntegrationSlug)
+          ? { available: true }
+          : {
+              available: false,
+              code: "not_connected",
+              reason: `${tool.integration} is not connected.`,
+            },
     );
   }
   return { allowedIntegrations, availability };
@@ -205,6 +215,54 @@ describe("tool discovery", () => {
         availability: { integrations: new Map(), providers: new Map() },
       }),
       { ok: true, name: "system.fetch_url" },
+    );
+  });
+
+  test("exact load returns the specific unavailability code and reason, not a generic string", async () => {
+    registerTool(notionCreate);
+    // The credential-health snapshot has no Notion provider, so the shared
+    // evaluator returns not_connected — and the load path hands that exact
+    // reason to the model instead of "not available in this run's context".
+    assert.deepEqual(
+      await resolveExactToolLoad({
+        userId: "user_1",
+        name: "notion.create_page",
+        allowedIntegrations: [],
+        context: { caller: "boss", hasThread: true },
+        availability: { integrations: new Map(), providers: new Map() },
+      }),
+      { ok: false, status: "not_connected", reason: "Notion is not connected." },
+    );
+  });
+
+  test("exact load reports the allowlist as not_allowed", async () => {
+    registerTool(notionCreate);
+    assert.deepEqual(
+      await resolveExactToolLoad({
+        userId: "user_1",
+        name: "notion.create_page",
+        allowedIntegrations: ["gmail"],
+        context: { caller: "boss", hasThread: true },
+        availability: { integrations: new Map(), providers: new Map() },
+      }),
+      {
+        ok: false,
+        status: "not_allowed",
+        reason: "Outside this workflow's integration allowlist.",
+      },
+    );
+  });
+
+  test("exact load rejects an unregistered name as unknown_tool", async () => {
+    assert.deepEqual(
+      await resolveExactToolLoad({
+        userId: "user_1",
+        name: "notion.nope",
+        allowedIntegrations: [],
+        context: { caller: "boss", hasThread: true },
+        availability: { integrations: new Map(), providers: new Map() },
+      }),
+      { ok: false, status: "unknown_tool", reason: "Tool 'notion.nope' is not registered." },
     );
   });
 
@@ -515,6 +573,9 @@ describe("derived-metadata discovery (#413)", () => {
   });
 
   test("never surfaces tools outside the workflow allowlist, available or not", () => {
+    // The allowlist is a hard scope, so the evaluator marks an out-of-allowlist
+    // tool `not_allowed`; the ranker hides it even with includeUnavailable set,
+    // because that reason is not a gap the user can close in-run.
     const found = searchToolCatalog({
       query: "create page",
       tools: [notionCreate],
@@ -523,12 +584,79 @@ describe("derived-metadata discovery (#413)", () => {
         availability: new Map<ToolName, ToolAvailabilityResult>([
           [
             notionCreate.name,
-            { available: false, code: "not_connected", reason: "Notion is not connected." },
+            {
+              available: false,
+              code: "not_allowed",
+              reason: "Outside this workflow's integration allowlist.",
+            },
           ],
         ]),
       },
       includeUnavailable: true,
     });
     assert.deepEqual(found, []);
+  });
+});
+
+// #414: the deterministic preloader must fire for natural chat phrasing, where
+// the prompt is plural ("my pull requests") and the verb is a generic
+// information-seeking word ("give me a summary of…") the narrow catalog verbs
+// don't list — while still refusing to force-load a state-changing sibling.
+describe("preload recall for natural phrasing (#414)", () => {
+  const mailSearch = liveTool({
+    integration: "gmail",
+    action: "search",
+    riskTier: "no_risk",
+    description: "Search mail.",
+    discovery: { entities: ["email", "message"], verbs: ["search", "find"] },
+    inputSchema: z.object({ query: z.string() }).strict(),
+    execute: async () => ({ ok: true }),
+  });
+  const mailSend = liveTool({
+    integration: "gmail",
+    action: "send_draft",
+    riskTier: "high",
+    description: "Send a mail draft.",
+    discovery: { entities: ["email", "draft"], verbs: ["send", "reply"] },
+    inputSchema: z.object({ to: z.string() }).strict(),
+    execute: async () => ({ ok: true }),
+  });
+  const catalog = {
+    tools: [mailSearch, mailSend],
+    access: {
+      allowedIntegrations: [],
+      availability: new Map<ToolName, ToolAvailabilityResult>([
+        [mailSearch.name, { available: true }],
+        [mailSend.name, { available: true }],
+      ]),
+    },
+  } as const;
+
+  test("a plural prompt matches a singular authored entity", () => {
+    // Without number-insensitive matching, "emails" would miss the entity "email"
+    // and the tool would be invisible to a plural prompt.
+    assert.ok(
+      searchToolCatalog({ query: "anything new in my emails", ...catalog }).some(
+        (candidate) => candidate.name === "gmail.search",
+      ),
+    );
+  });
+
+  test("a generic read request preloads the read tool but never the write sibling", () => {
+    // "give"/"summary" are not catalog verbs, and "emails" is plural — the fix
+    // makes both resolve. The high-risk send tool shares the entity but has no
+    // matching catalog verb, so a read-flavored request must not force-load it.
+    assert.deepEqual(
+      preloadToolCatalog({
+        prompt: "Give me a summary of my emails",
+        activeTools: [],
+        ...catalog,
+      }),
+      ["gmail.search"],
+    );
+  });
+
+  test("a bare noun with no verb of any kind still preloads nothing", () => {
+    assert.deepEqual(preloadToolCatalog({ prompt: "emails", activeTools: [], ...catalog }), []);
   });
 });
