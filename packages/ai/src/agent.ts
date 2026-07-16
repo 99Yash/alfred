@@ -123,7 +123,7 @@ export interface TurnArgs<CTX> {
  * generation), with a 3-minute total ceiling as a hard backstop. Without this
  * a hung stream holds the workflow step open indefinitely.
  */
-const DEFAULT_TURN_STREAM_TIMEOUT = { chunkMs: 30_000, totalMs: 180_000 } as const;
+export const DEFAULT_TURN_STREAM_TIMEOUT = { chunkMs: 30_000, totalMs: 180_000 } as const;
 
 /**
  * Discriminated result of a single turn. The executor consumes `kind`:
