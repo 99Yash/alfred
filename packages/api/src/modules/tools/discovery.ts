@@ -7,6 +7,7 @@ import {
 } from "@alfred/contracts";
 import {
   availableToolNames,
+  evaluateToolAvailability,
   readIntegrationAvailability,
   type IntegrationAvailabilitySnapshot,
   type ToolAvailabilityContext,
@@ -18,29 +19,52 @@ export interface ToolSearchCandidate {
   title: string;
   summary: string;
   risk: ToolRiskTier;
-  availability: "available";
+  /** Whether this exact tool can run right now in the current run context. */
+  availability: "available" | "unavailable";
   reason: string;
+  /** Present only when `availability === "unavailable"`: why it can't run yet. */
+  unavailableReason?: string;
 }
 
 interface RankedCandidate extends ToolSearchCandidate {
   score: number;
   preloadEligible: boolean;
+  /** True for runnable tools; false for surfaced-but-unavailable ones (sorted last). */
+  available: boolean;
 }
 
 export interface ToolCatalogAccess {
   allowedIntegrations: readonly string[];
   availableTools: ReadonlySet<ToolName>;
+  /**
+   * Reason a matched-but-unavailable tool can't run, or `null` when it can.
+   * Supplied only by callers that opt into {@link ToolSearchArgs.includeUnavailable};
+   * without it, unavailable matches stay hidden.
+   */
+  explainUnavailable?: (name: ToolName) => string | null;
 }
 
-export function searchToolCatalog(args: {
+interface ToolSearchArgs {
   query: string;
   limit?: number;
   tools?: readonly RegisteredTool[];
   access: ToolCatalogAccess;
-}): ToolSearchCandidate[] {
+  /**
+   * Include strong matches the run can't execute yet, flagged with a reason, so
+   * the model can explain the gap ("Gmail isn't connected") instead of getting
+   * an empty result and guessing. Off by default — internal ranking (preload)
+   * only ever wants runnable tools.
+   */
+  includeUnavailable?: boolean;
+}
+
+export function searchToolCatalog(args: ToolSearchArgs): ToolSearchCandidate[] {
   return rankToolCatalog(args)
     .slice(0, boundedLimit(args.limit, 5))
-    .map(({ score: _score, preloadEligible: _preloadEligible, ...candidate }) => candidate);
+    .map(
+      ({ score: _score, preloadEligible: _preloadEligible, available: _available, ...candidate }) =>
+        candidate,
+    );
 }
 
 export async function searchAvailableTools(args: {
@@ -59,11 +83,22 @@ export async function searchAvailableTools(args: {
     args.allowedIntegrations,
     args.context,
   );
+  const allowed = new Set(args.allowedIntegrations);
   return searchToolCatalog({
     query: args.query,
     limit: args.limit,
     tools,
-    access: { allowedIntegrations: args.allowedIntegrations, availableTools },
+    includeUnavailable: true,
+    access: {
+      allowedIntegrations: args.allowedIntegrations,
+      availableTools,
+      explainUnavailable: (name) => {
+        const tool = getTool(name);
+        if (!tool) return null;
+        const result = evaluateToolAvailability(availability, tool, allowed, args.context);
+        return result.available ? null : result.reason;
+      },
+    },
   });
 }
 
@@ -174,12 +209,16 @@ export async function resolveExactToolLoad(args: {
   return { ok: true, name: args.name };
 }
 
-function rankToolCatalog(args: {
-  query: string;
-  limit?: number;
-  tools?: readonly RegisteredTool[];
-  access: ToolCatalogAccess;
-}): RankedCandidate[] {
+/**
+ * Minimum score for an *unavailable* tool to be surfaced. A tool the run can't
+ * execute is only worth mentioning when the query clearly intends it (a known
+ * phrase or an action on an entity — the same evidence bar as preload); a weak
+ * incidental token match stays hidden so the catalog isn't polluted with tools
+ * the user would have to go connect.
+ */
+const UNAVAILABLE_MIN_SCORE = 30;
+
+function rankToolCatalog(args: ToolSearchArgs): RankedCandidate[] {
   const query = normalize(args.query);
   if (!query) return [];
   const queryTokens = meaningfulTokens(query);
@@ -187,33 +226,50 @@ function rankToolCatalog(args: {
   const ranked: RankedCandidate[] = [];
 
   for (const tool of args.tools ?? listRegisteredTools()) {
-    if (!toolIsAvailable(tool.name, tool.integration, allowed, args.access.availableTools))
-      continue;
+    // The workflow integration allowlist is a hard scope, not a fixable gap:
+    // tools outside it are never surfaced, available or not.
+    if (!withinAllowlist(tool.integration, allowed)) continue;
+
+    const available = args.access.availableTools.has(tool.name);
+    let unavailableReason: string | undefined;
+    if (!available) {
+      if (!args.includeUnavailable) continue;
+      unavailableReason = args.access.explainUnavailable?.(tool.name) ?? undefined;
+      // No reason means the gate considers it runnable (or the caller can't
+      // explain it) — don't surface a contradiction.
+      if (!unavailableReason) continue;
+    }
+
     const match = scoreTool(tool, query, queryTokens);
     if (match.score <= 0) continue;
+    if (!available && match.score < UNAVAILABLE_MIN_SCORE) continue;
+
     ranked.push({
       name: tool.name,
       title: tool.discovery.title,
       summary: tool.discovery.summary,
       risk: tool.riskTier,
-      availability: "available",
+      availability: available ? "available" : "unavailable",
       reason: match.reason,
+      ...(unavailableReason ? { unavailableReason } : {}),
       score: match.score,
       preloadEligible: match.preloadEligible,
+      available,
     });
   }
 
-  return ranked.sort((a, b) => b.score - a.score || a.name.localeCompare(b.name));
+  // Runnable tools first, then by match strength — an unavailable exact match
+  // never crowds a runnable tool out of the limited result window.
+  return ranked.sort(
+    (a, b) =>
+      Number(b.available) - Number(a.available) ||
+      b.score - a.score ||
+      a.name.localeCompare(b.name),
+  );
 }
 
-function toolIsAvailable(
-  name: ToolName,
-  integration: IntegrationSlug,
-  allowed: ReadonlySet<string>,
-  available: ReadonlySet<ToolName>,
-): boolean {
-  if (integration !== "system" && allowed.size > 0 && !allowed.has(integration)) return false;
-  return available.has(name);
+function withinAllowlist(integration: IntegrationSlug, allowed: ReadonlySet<string>): boolean {
+  return integration === "system" || allowed.size === 0 || allowed.has(integration);
 }
 
 function boundedLimit(limit: number | undefined, fallback: number): number {

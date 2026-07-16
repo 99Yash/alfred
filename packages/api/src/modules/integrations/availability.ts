@@ -1,4 +1,4 @@
-import { toStringArray, type LoadableIntegrationSlug } from "@alfred/contracts";
+import { humanizeSlug, toStringArray, type LoadableIntegrationSlug } from "@alfred/contracts";
 import { db } from "@alfred/db";
 import { integrationCredentials } from "@alfred/db/schemas";
 import {
@@ -102,6 +102,92 @@ export async function readIntegrationAvailability(
   return { integrations: availability, providers: byProvider };
 }
 
+/** Why an exact tool cannot run in a given run context. */
+export type ToolUnavailabilityCode =
+  | "not_allowed"
+  | "wrong_caller"
+  | "requires_thread"
+  | "not_connected"
+  | "needs_reauth"
+  | "missing_scope";
+
+export type ToolAvailabilityResult =
+  | { available: true }
+  | { available: false; code: ToolUnavailabilityCode; reason: string };
+
+/**
+ * Single source of truth for whether one exact tool can run, and if not, why.
+ * Gate order matches the surfaces that consume it: the workflow integration
+ * allowlist, then caller/thread context, then credential health. {@link
+ * availableToolNames} keeps the `available === true` names; tool discovery
+ * (#413) uses the `reason` to explain a strong-but-unavailable match instead of
+ * silently dropping it.
+ */
+export function evaluateToolAvailability(
+  snapshot: IntegrationAvailabilitySnapshot,
+  tool: RegisteredTool,
+  allowed: ReadonlySet<string>,
+  context: ToolAvailabilityContext,
+): ToolAvailabilityResult {
+  const name = humanizeSlug(tool.integration);
+
+  if (tool.integration !== "system" && allowed.size > 0 && !allowed.has(tool.integration)) {
+    return {
+      available: false,
+      code: "not_allowed",
+      reason: "Outside this workflow's integration allowlist.",
+    };
+  }
+  if (tool.availability?.callers && !tool.availability.callers.includes(context.caller)) {
+    return {
+      available: false,
+      code: "wrong_caller",
+      reason: `Only the ${tool.availability.callers.join(" / ")} caller may use this tool.`,
+    };
+  }
+  if (tool.availability?.requiresThread && !context.hasThread) {
+    return {
+      available: false,
+      code: "requires_thread",
+      reason: "Runs only inside an interactive chat thread.",
+    };
+  }
+
+  const credential = tool.availability?.credential;
+  if (credential) {
+    const providerRows = snapshot.providers.get(credential.provider) ?? [];
+    if (providerRows.length === 0) {
+      return { available: false, code: "not_connected", reason: `${name} is not connected.` };
+    }
+    const activeRows = providerRows.filter((row) => row.status === "active");
+    if (activeRows.length === 0) {
+      return { available: false, code: "needs_reauth", reason: `${name} needs to be reconnected.` };
+    }
+    const scopeMatches =
+      credential.anyOfScopes.length === 0 ||
+      activeRows.some((row) => credential.anyOfScopes.some((scope) => row.scopes.has(scope)));
+    if (!scopeMatches) {
+      return {
+        available: false,
+        code: "missing_scope",
+        reason: `${name} is connected but missing a required permission; reconnect to grant it.`,
+      };
+    }
+    return { available: true };
+  }
+
+  if (tool.integration !== "system") {
+    const health = snapshot.integrations.get(tool.integration)?.health;
+    if (health === "needs_reauth") {
+      return { available: false, code: "needs_reauth", reason: `${name} needs to be reconnected.` };
+    }
+    if (health !== "active") {
+      return { available: false, code: "not_connected", reason: `${name} is not connected.` };
+    }
+  }
+  return { available: true };
+}
+
 export function availableToolNames(
   snapshot: IntegrationAvailabilitySnapshot,
   tools: readonly RegisteredTool[],
@@ -111,29 +197,9 @@ export function availableToolNames(
   const allowed = new Set(allowedIntegrations);
   const available = new Set<RegisteredTool["name"]>();
   for (const tool of tools) {
-    if (tool.integration !== "system" && allowed.size > 0 && !allowed.has(tool.integration)) {
-      continue;
+    if (evaluateToolAvailability(snapshot, tool, allowed, context).available) {
+      available.add(tool.name);
     }
-    if (tool.availability?.callers && !tool.availability.callers.includes(context.caller)) continue;
-    if (tool.availability?.requiresThread && !context.hasThread) continue;
-
-    const credential = tool.availability?.credential;
-    if (credential) {
-      const providerRows = snapshot.providers.get(credential.provider) ?? [];
-      const credentialMatches = providerRows.some(
-        (row) =>
-          row.status === "active" &&
-          (credential.anyOfScopes.length === 0 ||
-            credential.anyOfScopes.some((scope) => row.scopes.has(scope))),
-      );
-      if (!credentialMatches) continue;
-    } else if (
-      tool.integration !== "system" &&
-      snapshot.integrations.get(tool.integration)?.health !== "active"
-    ) {
-      continue;
-    }
-    available.add(tool.name);
   }
   return available;
 }
