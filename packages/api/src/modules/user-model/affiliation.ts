@@ -44,7 +44,7 @@ import { db } from "@alfred/db";
 import { integrationCredentials, observationFamilyHeads } from "@alfred/db/schemas";
 import { createHash } from "node:crypto";
 import { and, eq } from "drizzle-orm";
-import { pgErrorChain } from "../../lib/pg-errors";
+import { uniqueViolationConstraint } from "../../lib/pg-errors";
 import { insertObservation } from "./observations";
 import { type DbExecutor } from "./executor";
 
@@ -84,12 +84,8 @@ const OBSERVATION_CHAIN_CONSTRAINTS = new Set([
 ]);
 
 export function isOrgAffiliationObservationAppendConflict(err: unknown): boolean {
-  for (const e of pgErrorChain(err)) {
-    if (e.code === "23505" && e.constraint && OBSERVATION_CHAIN_CONSTRAINTS.has(e.constraint)) {
-      return true;
-    }
-  }
-  return false;
+  const constraint = uniqueViolationConstraint(err);
+  return constraint !== null && OBSERVATION_CHAIN_CONSTRAINTS.has(constraint);
 }
 
 async function retryOrgAffiliationAppend<T>(fn: () => Promise<T>): Promise<T> {

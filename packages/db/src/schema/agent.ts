@@ -18,6 +18,15 @@ export { agentRunTriggerSchema };
 export type { AgentRunTrigger };
 
 /**
+ * Name of the partial unique index that enforces one non-terminal chat turn
+ * per (user, thread). Exported so the turn-kick catch can match the exact
+ * constraint name on a 23505 and distinguish a "thread busy" collision from a
+ * same-user-message double-submit (which trips the dedup index instead). See
+ * the index definition below and issue #488.
+ */
+export const CHAT_THREAD_ACTIVE_RUN_INDEX = "agent_runs_chat_thread_active_idx";
+
+/**
  * Trigger that caused an `agent_runs` row to be inserted (ADR-0027).
  *
  * Mirrors `workflows.trigger`'s shape at the union level but carries the
@@ -129,6 +138,22 @@ export const agentRuns = pgTable(
     index("agent_runs_active_event_idx")
       .on(t.userId, t.workflowSlug)
       .where(sql`${t.status} NOT IN ('completed', 'failed', 'cancelled')`),
+    // Enforces "at most one non-terminal chat turn per (user, thread)" (#488).
+    // The chat-turn workflow keeps its thread id in `metadata.threadId`, so this
+    // indexes that jsonb expression. The dedup index above is keyed on
+    // `userMessageId` and only stops an *exact* double-submit; a genuinely new
+    // turn (fresh userMessageId) on a thread whose prior run is still in flight
+    // slips past it. This index is the race-safe boundary the turn kick relies
+    // on: two concurrent kicks with different user messages both try to insert,
+    // one wins, the loser hits a 23505 on THIS constraint and is translated to a
+    // typed "thread busy" response. `completed` is excluded (unlike the dedup
+    // index) so the next turn is admitted once the prior run reaches any
+    // terminal state.
+    uniqueIndex(CHAT_THREAD_ACTIVE_RUN_INDEX)
+      .on(t.userId, sql`(${t.metadata} ->> 'threadId')`)
+      .where(
+        sql`${t.workflowSlug} = '__chat-turn__' AND (${t.metadata} ->> 'threadId') IS NOT NULL AND ${t.status} NOT IN ('completed', 'failed', 'cancelled')`,
+      ),
   ],
 );
 

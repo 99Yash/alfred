@@ -2,7 +2,7 @@ import { db } from "@alfred/db";
 import { observationFamilyHeads, observations, type Observation } from "@alfred/db/schemas";
 import { observationInsertSchema, type ObservationInsertInput } from "@alfred/contracts";
 import { and, eq, sql } from "drizzle-orm";
-import { pgErrorChain } from "../../lib/pg-errors";
+import { PG_UNIQUE_VIOLATION, pgErrorChain } from "../../lib/pg-errors";
 import { type DbExecutor } from "./executor";
 
 const OBSERVATION_APPEND_MAX_ATTEMPTS = 3;
@@ -30,7 +30,7 @@ export function isObservationAppendConflict(err: unknown): boolean {
   let sawChainConstraint = false;
   for (const e of pgErrorChain(err)) {
     const message = e.message ?? "";
-    sawUniqueViolation ||= e.code === "23505" || message.includes("23505");
+    sawUniqueViolation ||= e.code === PG_UNIQUE_VIOLATION || message.includes(PG_UNIQUE_VIOLATION);
     sawChainConstraint ||= Boolean(
       (e.constraint && OBSERVATION_CHAIN_CONSTRAINTS.has(e.constraint)) ||
       [...OBSERVATION_CHAIN_CONSTRAINTS].some((constraint) => message.includes(constraint)),

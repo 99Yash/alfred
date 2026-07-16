@@ -6,7 +6,8 @@ import { runStatusSchema } from "@alfred/contracts";
 import { and, eq, sql } from "drizzle-orm";
 import { publishEvent } from "../../events/publish";
 import { normalizeDecisionTraceKey, type DecisionTraceRecord } from "./decision-traces";
-import { isUniqueViolation, resolveStaleAfterMs, resolveWorkflowForRun } from "./service";
+import { resolveStaleAfterMs, resolveWorkflowForRun } from "./service";
+import { isUniqueViolation } from "../../lib/pg-errors";
 import { startQueueLeaseSpan, type QueueLeaseFromStatus } from "./runtime-spans";
 import {
   isTerminalStatus,
