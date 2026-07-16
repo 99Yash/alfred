@@ -81,7 +81,7 @@ import {
   type ChildRunOutcome,
 } from "../sub-agents";
 import {
-  activateTool,
+  applyInactiveToolBounce,
   applyPromptToolPreload,
   applySystemToolEffect,
   buildTurnToolSurface,
@@ -2610,8 +2610,16 @@ const dispatchToolsStep: Step<ChatRunState> = {
           const result = await dispatchToolCall(dispatchArgs);
           if (result.kind === "inactive_tool") {
             // Do not validate the model's schema-blind guess. Make the exact
-            // schema visible on the next turn and ask the model to issue a new call.
-            state.activeTools = activateTool(state.activeTools, result.result.recovery.toolName);
+            // schema visible on the next turn and ask the model to issue a new
+            // call. The auto-activation is traced as a tool_load span (source:
+            // inactive_bounce) so lazy activations are counted whichever path
+            // surfaced the tool (#414).
+            applyInactiveToolBounce({
+              state,
+              toolName: result.result.recovery.toolName,
+              runId: ctx.runId,
+              spanCaller: "boss",
+            });
           }
           return result;
         };
