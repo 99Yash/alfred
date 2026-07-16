@@ -84,8 +84,9 @@ import {
   activateTool,
   applyPromptToolPreload,
   applySystemToolEffect,
-  buildSdkToolSet,
+  buildTurnToolSurface,
   migrateActiveTools,
+  migrateRecordedToolNames,
   systemToolKernel,
 } from "../tool-surface";
 import { appendModelResponseMessages } from "../transcript-dedup";
@@ -241,6 +242,9 @@ const chatRunStateSchema = z
     // Persisted under an older deploy, so names may refer to tools that have
     // since been retired. The transform below drops anything not in today's registry.
     activeTools: z.array(z.string()).optional(),
+    // Exact first-turn deterministic selections, persisted so #414 can measure
+    // preload hits/misses against the durable transcript. Optional for legacy runs.
+    preloadedTools: z.array(z.string()).default([]),
     // Read only while resuming checkpoints created before exact tool surfaces.
     activeIntegrations: z.array(z.string().min(1)).optional(),
     preloadApplied: z.boolean().default(false),
@@ -332,7 +336,7 @@ const chatRunStateSchema = z
     // surfaced to the model.
     notedFailureToolCallIds: z.array(z.string()).default([]),
   })
-  .transform(({ activeIntegrations, activeTools, started, ...state }) => ({
+  .transform(({ activeIntegrations, activeTools, preloadedTools, started, ...state }) => ({
     ...state,
     // The old boolean recorded only that the event fired. Runtime migration is
     // the best timestamp available for an already-started legacy checkpoint.
@@ -341,6 +345,9 @@ const chatRunStateSchema = z
       activeTools,
       activeIntegrations,
       state.pendingToolCalls.map((call) => call.toolName),
+    ),
+    preloadedTools: migrateRecordedToolNames(preloadedTools).filter(
+      (name) => !systemToolKernel().includes(name),
     ),
   }));
 export type ChatRunState = z.infer<typeof chatRunStateSchema>;
@@ -1943,7 +1950,13 @@ const chatTurnStep: Step<ChatRunState> = {
       ]
         .filter((value) => value.length > 0)
         .join("\n\n");
-      const sdkTools = buildSdkToolSet(state.activeTools, { caller: "boss", hasThread: true });
+      const sdkTools = buildTurnToolSurface({
+        activeTools: state.activeTools,
+        context: { caller: "boss", hasThread: true },
+        runId: ctx.runId,
+        workflow: CHAT_TURN_WORKFLOW_SLUG,
+        spanCaller: "boss",
+      });
       const chatModel = getChatModel(state.tier);
 
       // Own cancellation before the foreground context guard: compaction can
@@ -3268,6 +3281,7 @@ export const chatTurnWorkflow: Workflow<ChatRunState> = {
       artifactTargetId,
       tier,
       activeTools: systemToolKernel(),
+      preloadedTools: [],
       preloadApplied: false,
       allowedIntegrations,
       pendingToolCalls: [],
