@@ -66,7 +66,7 @@ export interface AlfredAgentSettings<CTX = unknown> {
 
   /**
    * Active tools for this turn. Called per-turn so callers can swap the
-   * set when run state changes (e.g. after a `load_integration` tool
+   * set when run state changes (e.g. after an exact `load_tool` call
    * call). Whatever order the resolver returns is fine — AlfredAgent
    * sorts alphabetically before the call. `execute` on returned tools is
    * stripped: the executor dispatches, not the SDK.

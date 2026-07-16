@@ -4,6 +4,8 @@ import { afterEach, beforeEach, describe, test } from "node:test";
 import { z } from "zod";
 
 import { activateTool, migrateActiveTools } from "../../src/modules/agent/tool-surface";
+import { chatTurnWorkflow } from "../../src/modules/agent/workflows/chat-turn";
+import { userAuthoredBriefWorkflow } from "../../src/modules/agent/workflows/user-authored-brief";
 import { _setDispatchTraceSinksForTests, dispatchToolCall } from "../../src/modules/dispatch";
 import {
   clearToolRegistryForTests,
@@ -109,7 +111,21 @@ describe("exact active tool dispatch", () => {
 });
 
 describe("legacy active integration migration", () => {
+  test("drops retired and unknown names from persisted exact-tool state", () => {
+    registerKernelTools();
+    registerTool(scratchReadTool(() => {}));
+
+    assert.deepEqual(
+      migrateActiveTools(
+        ["system.read_scratch", "system.load_integration", "made.up"],
+        undefined,
+      ),
+      ["system.read_scratch"],
+    );
+  });
+
   test("expands legacy integration state into registered exact names", () => {
+    registerKernelTools();
     registerTool(scratchReadTool(() => {}));
     registerTool(
       liveTool({
@@ -124,16 +140,54 @@ describe("legacy active integration migration", () => {
 
     assert.deepEqual(migrateActiveTools(undefined, ["github"]), [
       "github.search",
-      "system.read_scratch",
+      "system.current_time",
+      "system.load_tool",
+      "system.search_tools",
     ]);
   });
 
   test("preserves a registered pending call while resuming legacy state", () => {
+    registerKernelTools();
     registerTool(scratchReadTool(() => {}));
 
     assert.deepEqual(migrateActiveTools(undefined, [], ["system.read_scratch", "made.up"]), [
+      "system.current_time",
+      "system.load_tool",
       "system.read_scratch",
+      "system.search_tools",
     ]);
+  });
+});
+
+describe("persisted active tool state", () => {
+  test("chat terminal-failure parsing tolerates a retired tool name", () => {
+    registerTool(scratchReadTool(() => {}));
+
+    const state = chatTurnWorkflow.stateSchema?.parse({
+      threadId: "thread_1",
+      messageId: "message_1",
+      tier: "standard",
+      activeTools: ["system.read_scratch", "system.load_integration"],
+      allowedIntegrations: [],
+      pendingToolCalls: [],
+    });
+
+    assert.deepEqual(state?.activeTools, ["system.read_scratch"]);
+  });
+
+  test("brief parsing tolerates a retired tool name", () => {
+    registerTool(scratchReadTool(() => {}));
+
+    const state = userAuthoredBriefWorkflow.stateSchema?.parse({
+      activeTools: ["system.read_scratch", "system.load_integration"],
+      allowedIntegrations: [],
+      pendingToolCalls: [],
+      subAgent: null,
+      inFlightTailStart: 0,
+      turnCount: 0,
+    });
+
+    assert.deepEqual(state?.activeTools, ["system.read_scratch"]);
   });
 });
 
@@ -160,4 +214,40 @@ function scratchReadTool(onExecute: () => void) {
       return { ok: true };
     },
   });
+}
+
+function registerKernelTools() {
+  registerTool(
+    liveTool({
+      integration: "system",
+      action: "current_time",
+      riskTier: "no_risk",
+      availability: { surface: "kernel" },
+      description: "current time",
+      inputSchema: z.object({}).strict(),
+      execute: async () => ({}),
+    }),
+  );
+  registerTool(
+    liveTool({
+      integration: "system",
+      action: "load_tool",
+      riskTier: "no_risk",
+      availability: { surface: "kernel" },
+      description: "load tool",
+      inputSchema: z.object({}).strict(),
+      execute: async () => ({}),
+    }),
+  );
+  registerTool(
+    liveTool({
+      integration: "system",
+      action: "search_tools",
+      riskTier: "no_risk",
+      availability: { surface: "kernel" },
+      description: "search tools",
+      inputSchema: z.object({}).strict(),
+      execute: async () => ({}),
+    }),
+  );
 }

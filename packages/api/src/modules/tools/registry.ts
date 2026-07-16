@@ -35,6 +35,8 @@ export interface ToolDiscoveryMetadata {
 }
 
 export interface ToolAvailabilityMetadata {
+  /** Always expose this tool in the run-local bootstrap surface. Omit for lazy-loaded tools. */
+  surface?: "kernel";
   /** Credential capability required by this exact tool, when narrower than its integration. */
   credential?: {
     provider: string;
@@ -86,8 +88,8 @@ export interface ToolExecuteContext {
   messageId?: string;
   /**
    * Workflow-level integration cap. Empty or undefined means unrestricted.
-   * Internal system tools such as `system.load_integration` use this to
-   * validate without reading or mutating run state.
+   * Exact tool discovery and loading use this to validate without reading or
+   * mutating run state.
    */
   allowedIntegrations?: readonly string[];
   // TODO(#286): no abortSignal is threaded here yet, so a long network tool
@@ -182,6 +184,16 @@ export function liveTool<
 
 const REGISTRY = new Map<ToolName, RegisteredTool>();
 
+/**
+ * Cached sorted snapshot for {@link listRegisteredTools}. The registry is
+ * write-once at boot and frozen thereafter, so the sorted copy is stable for
+ * the process lifetime; recomputing it on every discovery/search/preload/kernel
+ * read is pure waste. Invalidated (set back to `null`) on any registry mutation
+ * — `registerTool` and the test-only `clearToolRegistryForTests` — so it can
+ * never go stale.
+ */
+let cachedSortedTools: readonly RegisteredTool[] | null = null;
+
 export function registerTool(tool: RegisteredTool): void {
   const existing = REGISTRY.get(tool.name);
   if (existing && existing !== tool) {
@@ -198,6 +210,9 @@ export function registerTool(tool: RegisteredTool): void {
       `[tools] '${tool.name}' declared integration='${tool.integration}' but name resolves to '${expected}'`,
     );
   }
+  if (tool.availability?.surface === "kernel" && tool.integration !== "system") {
+    throw new Error(`[tools] only system tools may declare availability.surface='kernel'`);
+  }
   // And the action must be a known action slug for that integration —
   // mirrors the compile-time check `liveTool` enforces, but covers the
   // case where someone bypasses the factory and constructs a
@@ -209,6 +224,7 @@ export function registerTool(tool: RegisteredTool): void {
     );
   }
   REGISTRY.set(tool.name, tool);
+  cachedSortedTools = null;
 }
 
 export function registerTools(tools: readonly RegisteredTool[]): void {
@@ -227,9 +243,41 @@ export function listToolsForIntegration(slug: IntegrationSlug): RegisteredTool[]
   return out;
 }
 
-/** Stable snapshot of every executable the process currently knows about. */
-export function listRegisteredTools(): RegisteredTool[] {
-  return [...REGISTRY.values()].sort((a, b) => a.name.localeCompare(b.name));
+/**
+ * Stable snapshot of every executable the process currently knows about.
+ * Read-only and shared: the returned array is memoized and frozen, so callers
+ * must not mutate it (all current readers iterate, `.filter`, or pass it to
+ * `readonly RegisteredTool[]` params). The cache is rebuilt only after a
+ * registry mutation.
+ */
+export function listRegisteredTools(): readonly RegisteredTool[] {
+  return (cachedSortedTools ??= Object.freeze(
+    [...REGISTRY.values()].sort((a, b) => a.name.localeCompare(b.name)),
+  ));
+}
+
+/** Stable snapshot of the tools that bootstrap every agent run. */
+export function listKernelTools(): RegisteredTool[] {
+  return listRegisteredTools().filter((tool) => tool.availability?.surface === "kernel");
+}
+
+/**
+ * Boot-time invariant, called once from `registerBuiltinTools`: every tool the
+ * caller declares as kernel surface is registered as that exact object, and at
+ * least one exists. The runtime kernel read (`systemToolKernel`) trusts this ran
+ * at boot and does not re-validate on every call.
+ */
+export function assertKernelToolsRegistered(declaredTools: readonly RegisteredTool[]): void {
+  const declaredKernel = declaredTools.filter((tool) => tool.availability?.surface === "kernel");
+  if (declaredKernel.length === 0) {
+    throw new Error("No system tools are declared for the kernel surface");
+  }
+  const missing = declaredKernel.filter((tool) => getTool(tool.name) !== tool);
+  if (missing.length > 0) {
+    throw new Error(
+      `Declared system kernel tools are not registered: ${missing.map((tool) => tool.name).join(", ")}`,
+    );
+  }
 }
 
 function humanizeAction(action: string): string {
@@ -258,4 +306,5 @@ export function riskTierCountsForIntegration(slug: IntegrationSlug): RiskTierCou
 /** Test-only: drop every registration. Production code never calls this. */
 export function clearToolRegistryForTests(): void {
   REGISTRY.clear();
+  cachedSortedTools = null;
 }

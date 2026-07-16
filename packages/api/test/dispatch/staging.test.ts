@@ -42,7 +42,7 @@ const SKIP = process.env.DATABASE_URL ? false : "DATABASE_URL not set — skippi
 const ID_PREFIX = "test-dispatch-";
 const createdUserIds: string[] = [];
 
-// Bumped every time the registered `load_integration` double actually runs, so
+// Bumped every time the registered `load_tool` double actually runs, so
 // a test can prove a re-dispatch did NOT re-execute (count stays put).
 let executeCount = 0;
 
@@ -84,14 +84,14 @@ describe("dispatch staging (DB-backed)", { skip: SKIP }, () => {
   before(async () => {
     // The tool registry is process-local and starts empty in the test runner
     // (production tools self-register at server boot, which we never trigger).
-    // Register controlled `system.*` doubles: `load_integration` counts its
+    // Register controlled `system.*` doubles: `load_tool` counts its
     // executions; `spawn_sub_agent` exists only so a toolName-mismatch can be
     // dispatched against a real, known name.
     clearToolRegistryForTests();
     registerTool(
       liveTool({
         integration: "system",
-        action: "load_integration",
+        action: "load_tool",
         riskTier: "no_risk",
         description: "test double — counts executions",
         inputSchema: z.object({ slug: z.string() }),
@@ -166,8 +166,8 @@ describe("dispatch staging (DB-backed)", { skip: SKIP }, () => {
       runId,
       stepId: "dispatch-tools",
       toolCallId,
-      toolName: "system.load_integration",
-      activeTools: ["system.load_integration" as const],
+      toolName: "system.load_tool",
+      activeTools: ["system.load_tool" as const],
       input: { slug: "github" },
       userId,
       caller: "boss" as const,
@@ -208,8 +208,8 @@ describe("dispatch staging (DB-backed)", { skip: SKIP }, () => {
       runId,
       stepId: "dispatch-tools",
       toolCallId,
-      toolName: "system.load_integration" as const,
-      activeTools: ["system.load_integration" as const],
+      toolName: "system.load_tool" as const,
+      activeTools: ["system.load_tool" as const],
       input: { slug: "poison" },
       userId,
       caller: "boss" as const,
@@ -245,8 +245,8 @@ describe("dispatch staging (DB-backed)", { skip: SKIP }, () => {
       runId,
       stepId: "dispatch-tools",
       toolCallId,
-      toolName: "system.load_integration",
-      activeTools: ["system.load_integration"],
+      toolName: "system.load_tool",
+      activeTools: ["system.load_tool"],
       input: { slug: "sql-leak" },
       userId,
       caller: "boss",
@@ -280,8 +280,8 @@ describe("dispatch staging (DB-backed)", { skip: SKIP }, () => {
         runId,
         stepId: "dispatch-tools",
         toolCallId,
-        toolName: "system.load_integration",
-        activeTools: ["system.load_integration"],
+        toolName: "system.load_tool",
+        activeTools: ["system.load_tool"],
         integration: "system",
         riskTier: "no_risk",
         proposedInput: { slug: "github" },
@@ -295,8 +295,9 @@ describe("dispatch staging (DB-backed)", { skip: SKIP }, () => {
       runId,
       stepId: "dispatch-tools",
       toolCallId,
-      toolName: "system.load_integration",
+      toolName: "system.load_tool",
       input: { slug: "github" },
+      activeTools: ["system.load_tool"],
       userId,
       caller: "boss",
     });
@@ -361,8 +362,8 @@ describe("dispatch staging (DB-backed)", { skip: SKIP }, () => {
       runId,
       stepId: "dispatch-tools",
       toolCallId: `tc_${randomUUID().slice(0, 8)}`,
-      toolName: "system.load_integration",
-      activeTools: ["system.load_integration"],
+      toolName: "system.load_tool",
+      activeTools: ["system.load_tool"],
       input: { slug: "calendar" },
       userId,
       caller: "boss",
@@ -377,8 +378,8 @@ describe("dispatch staging (DB-backed)", { skip: SKIP }, () => {
       runId,
       stepId: "dispatch-tools",
       toolCallId,
-      toolName: "system.load_integration",
-      activeTools: ["system.load_integration"],
+      toolName: "system.load_tool",
+      activeTools: ["system.load_tool"],
       input: { slug: "github" },
       userId,
       caller: "boss",
@@ -416,7 +417,7 @@ describe("dispatch staging (DB-backed)", { skip: SKIP }, () => {
           runId,
           stepId: "dispatch-tools",
           toolCallId,
-          toolName: "system.load_integration",
+          toolName: "system.load_tool",
           integration: "system",
           riskTier: "no_risk",
           proposedInput: { slug: "github" },

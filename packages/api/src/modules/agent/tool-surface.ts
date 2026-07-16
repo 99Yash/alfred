@@ -1,6 +1,11 @@
 import { isIntegrationSlug, isRecord, isToolName, type ToolName } from "@alfred/contracts";
+import { tool, type Tool, type ToolSet } from "@alfred/ai";
 import { z } from "zod";
-import { getTool, listToolsForIntegration } from "../tools/registry";
+import { getTool, listKernelTools, listToolsForIntegration } from "../tools/registry";
+import type { ToolAvailabilityContext, IntegrationAvailabilitySnapshot } from "../integrations/availability";
+import { latestUserPrompt, preloadToolsForPrompt } from "../tools/discovery";
+import type { DispatchResult } from "../dispatch";
+import { startToolPreloadSpan } from "./runtime-spans";
 
 export const toolNameSchema = z.custom<ToolName>(
   (value) => typeof value === "string" && isToolName(value),
@@ -17,23 +22,34 @@ export function registeredToolNamesForIntegrations(integrations: readonly string
 }
 
 export function systemToolKernel(): ToolName[] {
-  return registeredToolNamesForIntegrations(["system"]);
+  const kernel = listKernelTools();
+  if (kernel.length === 0) {
+    throw new Error("No system tools are registered for the kernel surface");
+  }
+  return kernel.map((tool) => tool.name);
 }
 
 /** Expand persisted integration-level state once, then checkpoint exact names. */
 export function migrateActiveTools(
-  activeTools: readonly ToolName[] | undefined,
+  activeTools: readonly string[] | undefined,
   legacyActiveIntegrations: readonly string[] | undefined,
   legacyPendingToolNames: readonly string[] = [],
 ): ToolName[] {
-  if (activeTools) return uniqueToolNames(activeTools);
-  const pendingTools = legacyPendingToolNames.filter(
-    (name): name is ToolName => isToolName(name) && getTool(name) !== undefined,
-  );
+  if (activeTools) return uniqueToolNames(registeredToolNames(activeTools));
+  const pendingTools = registeredToolNames(legacyPendingToolNames);
   return uniqueToolNames([
-    ...registeredToolNamesForIntegrations(["system", ...(legacyActiveIntegrations ?? [])]),
+    ...systemToolKernel(),
+    ...registeredToolNamesForIntegrations(
+      (legacyActiveIntegrations ?? []).filter((integration) => integration !== "system"),
+    ),
     ...pendingTools,
   ]);
+}
+
+function registeredToolNames(toolNames: readonly string[]): ToolName[] {
+  return toolNames.filter(
+    (name): name is ToolName => isToolName(name) && getTool(name) !== undefined,
+  );
 }
 
 export function activateTool(activeTools: readonly ToolName[], toolName: ToolName): ToolName[] {
@@ -54,6 +70,128 @@ export function applyExactToolLoad(activeTools: readonly ToolName[], result: unk
   return activateTool(activeTools, result.name);
 }
 
+/**
+ * Fold a completed system tool call's run-state effect into the active surface.
+ * Only `system.load_tool` mutates it — a successful load adds one exact tool for
+ * the next model turn; every other system tool is inert here. The result is
+ * treated as untrusted and validated by {@link applyExactToolLoad}. The
+ * type-only dispatcher import preserves the real result discriminant without
+ * adding a runtime dependency. Shared by the chat-turn and brief workflows so
+ * the two paths can't drift.
+ */
+export function applySystemToolEffect(
+  state: { activeTools: ToolName[] },
+  toolName: string,
+  result: Pick<DispatchResult, "kind"> & { readonly toolResult?: unknown },
+): void {
+  if (toolName === "system.load_tool" && result.kind === "executed") {
+    state.activeTools = applyExactToolLoad(state.activeTools, result.toolResult);
+  }
+}
+
 function uniqueToolNames(toolNames: readonly ToolName[]): ToolName[] {
   return [...new Set(toolNames)].sort();
+}
+
+/**
+ * Memoized SDK `ToolSet` per (caller, hasThread, active-name-set). The registry
+ * is write-once at boot, so a tool's SDK definition is a pure function of its
+ * name; the returned object is treated as read-only by the SDK, so sharing one
+ * instance across turns and users is safe. Keyed by the availability context too
+ * because that changes which tools are exposed. Unbounded but bounded in
+ * practice — the registry is small and the distinct active-set count is tiny.
+ */
+const sdkToolSetCache = new Map<string, ToolSet>();
+
+/**
+ * Project the run's exact active tool names into the SDK `ToolSet` for a model
+ * turn, dropping tools the caller could never actually invoke so the model never
+ * burns a turn on a call the dispatcher would only bounce:
+ *   - `callers` gates boss-only tools (the sub-agent join tools) out of sub-agent
+ *     runs (ADR-0073), and
+ *   - `requiresThread` gates thread-only tools (chat history) out of thread-less
+ *     brief/sub-agent runs.
+ * These are the caller-context predicates also used by
+ * {@link availableToolNames}. Integration allowlists and credential health are
+ * load-time gates: they were checked before a name entered `activeTools` and are
+ * intentionally not re-checked at this SDK projection boundary. Thus a kernel
+ * tool like `read_chat_history` can be eager in chat yet stay invisible where it
+ * can't run. Shared by the chat-turn and brief workflows so the two SDK-tool
+ * builders can't drift.
+ */
+export function buildSdkToolSet(
+  activeTools: readonly ToolName[],
+  context: ToolAvailabilityContext,
+): ToolSet {
+  const names = [...new Set(activeTools)].sort();
+  const key = `${context.caller}:${context.hasThread}:${names.join(",")}`;
+  const cached = sdkToolSetCache.get(key);
+  if (cached) return cached;
+
+  const out: Partial<Record<ToolName, Tool>> = {};
+  for (const name of names) {
+    const registered = getTool(name);
+    if (!registered) continue;
+    const availability = registered.availability;
+    if (availability?.callers && !availability.callers.includes(context.caller)) continue;
+    if (availability?.requiresThread && !context.hasThread) continue;
+    out[registered.name] = tool({
+      description: registered.description,
+      inputSchema: registered.inputSchema,
+    });
+  }
+  const tools = out as ToolSet;
+  sdkToolSetCache.set(key, tools);
+  return tools;
+}
+
+/**
+ * First-turn deterministic preload, folded into the run's active surface and
+ * traced as a `runtime.tool.preload` span. Idempotent on `state.preloadApplied`,
+ * so it runs at most once per run. Shared by the chat-turn and brief workflows —
+ * both open the identical span, rank the latest user prompt, and activate the
+ * selected tools — so the selection policy and telemetry can't drift between the
+ * two entry points. A thrown ranking/availability error closes the span as an
+ * error and propagates (the caller's step-retry owns recovery).
+ */
+export async function applyPromptToolPreload(args: {
+  state: { activeTools: ToolName[]; allowedIntegrations: string[]; preloadApplied: boolean };
+  userId: string;
+  runId: string;
+  workflow: string;
+  /** Span caller label (`boss` | `sub:<id>`); distinct from the availability caller kind. */
+  spanCaller: string;
+  transcript: readonly { role: string; content: unknown }[];
+  context: ToolAvailabilityContext;
+  availability: IntegrationAvailabilitySnapshot;
+}): Promise<void> {
+  if (args.state.preloadApplied) return;
+  const prompt = latestUserPrompt(args.transcript);
+  const span = startToolPreloadSpan({
+    runId: args.runId,
+    workflow: args.workflow,
+    caller: args.spanCaller,
+    activeBefore: args.state.activeTools.length,
+    allowedIntegrationCount: args.state.allowedIntegrations.length,
+    promptChars: prompt.length,
+    startedAt: new Date(),
+  });
+  try {
+    const preloaded = await preloadToolsForPrompt({
+      userId: args.userId,
+      prompt,
+      allowedIntegrations: args.state.allowedIntegrations,
+      activeTools: args.state.activeTools,
+      context: args.context,
+      availability: args.availability,
+    });
+    for (const toolName of preloaded) {
+      args.state.activeTools = activateTool(args.state.activeTools, toolName);
+    }
+    span.end(preloaded, args.state.activeTools.length);
+  } catch (error) {
+    span.error();
+    throw error;
+  }
+  args.state.preloadApplied = true;
 }

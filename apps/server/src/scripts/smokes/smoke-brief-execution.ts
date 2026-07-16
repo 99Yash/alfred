@@ -52,7 +52,7 @@ const WORKFLOW_SLUG = "smoke-brief-execution";
 const SMOKE_BRIEF =
   "@gmail — Read my most recent inbox email and summarize it in one sentence. Then tell me what's on my calendar tomorrow morning.";
 
-// The boss may iterate a few times: gmail.search → load_integration →
+// The boss may iterate a few times: search_tools → load_tool → gmail.search →
 // calendar.list_events → final summary. Five minutes is comfortable.
 const POLL_INTERVAL_MS = 500;
 const POLL_TIMEOUT_MS = 5 * 60_000;

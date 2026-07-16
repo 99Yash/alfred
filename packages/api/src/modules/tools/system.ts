@@ -7,7 +7,7 @@ import {
   isLoadableIntegrationSlug,
   listInstructionsInput,
   loadToolInput,
-  loadIntegrationInput,
+  currentTimeInput,
   promoteScratchInput,
   readScratchInput,
   readUserContextInput,
@@ -86,11 +86,44 @@ function resolveArtifactContext(
   };
 }
 
+export function currentTimeSnapshot(timezone: string, now: Date = new Date()) {
+  const parts = new Intl.DateTimeFormat("en-CA", {
+    timeZone: timezone,
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+    second: "2-digit",
+    hourCycle: "h23",
+    timeZoneName: "longOffset",
+  }).formatToParts(now);
+  const part = (type: Intl.DateTimeFormatPartTypes) =>
+    parts.find((candidate) => candidate.type === type)?.value ?? "";
+  const offset = part("timeZoneName");
+  const offsetMatch = /^GMT(?:(?<sign>[+-])(?<hours>\d{1,2})(?::(?<minutes>\d{2}))?)?$/.exec(
+    offset,
+  );
+  const utcOffset = offsetMatch?.groups?.sign
+    ? `${offsetMatch.groups.sign}${(offsetMatch.groups.hours ?? "0").padStart(2, "0")}:${offsetMatch.groups.minutes ?? "00"}`
+    : "+00:00";
+
+  return {
+    isoTime: now.toISOString(),
+    localDate: `${part("year")}-${part("month")}-${part("day")}`,
+    localTime: `${part("hour")}:${part("minute")}:${part("second")}`,
+    weekday: new Intl.DateTimeFormat("en-US", { timeZone: timezone, weekday: "long" }).format(now),
+    timezone,
+    utcOffset,
+  };
+}
+
 export const systemTools: readonly RegisteredTool[] = [
   liveTool({
     integration: "system",
     action: "search_tools",
     riskTier: "no_risk",
+    availability: { surface: "kernel" },
     description:
       "Search the available tool catalog by capability without loading full schemas. Returns exact names for system.load_tool.",
     discovery: {
@@ -122,6 +155,7 @@ export const systemTools: readonly RegisteredTool[] = [
     integration: "system",
     action: "load_tool",
     riskTier: "no_risk",
+    availability: { surface: "kernel" },
     description:
       "Load one exact available tool by the qualified name returned from system.search_tools. Its schema is available on the next model turn.",
     discovery: {
@@ -147,24 +181,21 @@ export const systemTools: readonly RegisteredTool[] = [
   }),
   liveTool({
     integration: "system",
-    action: "load_integration",
+    action: "current_time",
     riskTier: "no_risk",
+    availability: { surface: "kernel" },
     description:
-      "Load another integration's tools for future turns when the workflow allowlist permits it.",
-    inputSchema: loadIntegrationInput,
-    execute: async (input, ctx) => {
-      const allowed = ctx.allowedIntegrations ?? [];
-      if (allowed.length > 0 && !allowed.includes(input.slug)) {
-        return {
-          ok: false,
-          status: "not_allowed",
-          slug: input.slug,
-          reason: "workflow_allowed_integrations_cap",
-        };
-      }
-
-      return { ok: true, slug: input.slug };
+      "Return the current instant and the user's local date, time, weekday, timezone, and UTC offset.",
+    discovery: {
+      title: "Current time",
+      summary: "Read the current time in the user's operational timezone.",
+      aliases: ["what time is it", "today's date", "current date"],
+      tags: ["time", "date", "temporal grounding"],
+      entities: ["time", "date", "timezone"],
+      verbs: ["read", "check"],
     },
+    inputSchema: currentTimeInput,
+    execute: async (_input, ctx) => currentTimeSnapshot(ctx.timezone),
   }),
   liveTool({
     integration: "system",
@@ -172,7 +203,11 @@ export const systemTools: readonly RegisteredTool[] = [
     riskTier: "no_risk",
     description:
       "Search or fetch bounded raw evidence from the current chat thread when the conversation summary is insufficient. Fetch messages, tool outcomes, or attachment representations by their stable IDs. This never accesses another thread.",
-    availability: { requiresThread: true },
+    // Kernel: the chat prompt names this by name as a primary source, so it must
+    // be visible on turn one — otherwise every first use pays a search/load dance
+    // plus a mid-run prompt-cache invalidation. `requiresThread` still gates it out
+    // of thread-less brief/sub-agent runs at the SDK-tool boundary.
+    availability: { surface: "kernel", requiresThread: true },
     inputSchema: readChatHistoryInput,
     execute: async (input, ctx) => {
       if (!ctx.threadId) {
@@ -190,7 +225,9 @@ export const systemTools: readonly RegisteredTool[] = [
     action: "spawn_sub_agent",
     riskTier: "no_risk",
     description: "Spawn one focused sub-agent run with an isolated brief.",
-    availability: { callers: ["boss"] },
+    // Kernel: named in the chat/boss prompt as a primary capability; keep it
+    // visible on turn one. `callers` still hides it from sub-agent runs.
+    availability: { surface: "kernel", callers: ["boss"] },
     inputSchema: spawnSubAgentInputSchema,
     execute: async (input, ctx) => {
       const workflowAllowed = (ctx.allowedIntegrations ?? []).filter(isLoadableIntegrationSlug);
@@ -223,7 +260,11 @@ export const systemTools: readonly RegisteredTool[] = [
     riskTier: "no_risk",
     description:
       "Wait for a spawned sub-agent to finish and read its real result. Call this after system.spawn_sub_agent; it returns the child's terminal status, output, and any error. Never tell the user you'll notify them when a sub-agent is done later — there is no out-of-turn notification; await it here so the turn completes with the real result, or report honestly that it could not finish.",
-    availability: { callers: ["boss"] },
+    // Kernel: the prompt teaches spawn -> await as one delegation move. Keeping
+    // only spawn eager would make the required join pay an activation bounce and
+    // invalidate the prompt cache mid-run. `callers` still hides both join tools
+    // from sub-agent runs.
+    availability: { surface: "kernel", callers: ["boss"] },
     inputSchema: awaitSubAgentInputSchema,
     // The dispatcher (dispatch/index.ts) intercepts this tool to park the parent
     // on a child-completion signal when the child is still running (ADR-0073).
@@ -243,6 +284,10 @@ export const systemTools: readonly RegisteredTool[] = [
     riskTier: "no_risk",
     description:
       "Read Alfred's compact, bounded user context: profile, confirmed facts, preferences, known people/entities, relationship edges, and recent memory. Use before answering questions about people, relationships, standing instructions, preferences, or personal context.",
+    // Kernel: the single most-reached-for source in the chat/boss prompt. Off the
+    // kernel it never preloads (no intent-bearing discovery metadata), so every
+    // "what do you know about X" pays a search/load dance + a mid-run cache bust.
+    availability: { surface: "kernel" },
     inputSchema: readUserContextInput,
     execute: async (input, ctx) => {
       return await readUserContext(ctx.userId, {
@@ -460,6 +505,9 @@ export const systemTools: readonly RegisteredTool[] = [
     // `system.*` tools are always dispatched in autonomy mode, so this never awaits approval.
     // Cost is bucketed under api_call_log.kind = 'web_search', not the gate.
     riskTier: "no_risk",
+    // Kernel: the prompt's third rung (live web) and a hot path for person/company
+    // research. Eager on turn one so it never triggers the search/load dance.
+    availability: { surface: "kernel" },
     description:
       "Search the live web and get back what the search found: a synthesized answer, source results/citations behind it (open a result URL with fetch_url to read the page in full), and the queries actually run. Use this for current events, facts you're unsure of, or public background on a person or company — don't guess from memory when a lookup would settle it. It surfaces candidate matches even when uncertain rather than stopping at 'no confident match', so treat a thin result as a cue to search a different angle or drill a source, not a dead end.",
     inputSchema: webSearchInput,

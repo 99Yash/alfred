@@ -20,7 +20,7 @@ describe("toolCallWouldGate", () => {
     for (const name of [
       "system.read_user_context",
       "system.spawn_sub_agent",
-      "system.load_integration",
+      "system.load_tool",
       "system.remember",
     ]) {
       assert.equal(await toolCallWouldGate(userId, name), false, name);

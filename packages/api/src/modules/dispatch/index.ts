@@ -110,7 +110,7 @@ export interface DispatchArgs {
   timezone?: string;
   /** Exact run-local capability surface. Registry membership alone is not executable. */
   activeTools: readonly ToolName[];
-  /** Workflow integration cap, used by system tools such as `system.load_integration`. */
+  /** Workflow integration cap, enforced by exact tool discovery, load, and dispatch. */
   allowedIntegrations?: readonly string[];
 }
 
@@ -914,17 +914,16 @@ export function undeclaredToolMessage(
       : suggestion.inputWasQualified
         ? `Use '${suggestion.toolName}' instead.`
         : `Integration tools use qualified names like '${suggestion.toolName}'.`;
-  const loadHint =
-    suggestion.toolName === null
-      ? `Call system.load_integration with slug '${suggestion.integration}' first.`
-      : `Call system.load_integration with slug '${suggestion.integration}' first if that integration is not active,`;
+  const loadHint = suggestion.toolName
+    ? `Call system.load_tool with name '${suggestion.toolName}' first,`
+    : `Call system.search_tools for '${suggestion.integration}' to choose an exact tool, then call system.load_tool with its returned name.`;
   return [
     `Tool '${toolName}' is not declared.`,
     validActions,
     retry,
     loadHint,
     suggestion.toolName === null ? null : `then retry '${suggestion.toolName}'.`,
-    "Do not ask the user just to load an integration.",
+    "Do not ask the user to load a tool.",
   ]
     .filter((part): part is string => part !== null)
     .join(" ");
@@ -955,14 +954,14 @@ function integrationActionSuggestion(
   // A bare integration slug (`calendar`) — the boss mistook the integration for
   // a single tool and called it with an `action` arg. We can't recover the
   // intended action from the tool name alone (it lived in the rejected args),
-  // so enumerate the integration's tools and point at load_integration; the
+  // so enumerate the integration's tools and point at exact search/load; the
   // model picks the right `integration.action` on retry.
   if (isIntegrationSlug(input) && input !== "system") {
     if (allowedIntegrations.length > 0 && !allowedIntegrations.includes(input)) {
       return null;
     }
     // No tools to point at — recovering would loop the boss through a
-    // load_integration that yields nothing callable (#286 review).
+    // a discovery loop that yields nothing callable (#286 review).
     if (INTEGRATION_ACTIONS[input].length === 0) return null;
     return {
       integration: input,

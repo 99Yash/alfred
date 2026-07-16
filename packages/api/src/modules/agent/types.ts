@@ -173,8 +173,8 @@ export interface Workflow<S = unknown> {
    */
   trigger: WorkflowTrigger;
   /**
-   * Optional explicit allowlist for `load_integration` during agent
-   * runs (ADR-0026). Mirrored onto the `workflows.allowed_integrations`
+   * Optional integration allowlist for exact tool discovery, loading, and
+   * dispatch. Mirrored onto the `workflows.allowed_integrations`
    * column; empty array = unrestricted (subject to the user's connected
    * integrations).
    */
@@ -189,7 +189,7 @@ export interface Workflow<S = unknown> {
   /** Step the executor enters first. */
   initialStep: string;
   steps: Record<string, Step<S>>;
-  /** Optional zod schema validating `initialState` shape. Run on every load to catch state drift after deploys. */
+  /** Optional parser used to validate and migrate persisted state before terminal-failure hooks. */
   stateSchema?: z.ZodType<S>;
   /**
    * Optional hook invoked when a run is terminally failed *outside* the step

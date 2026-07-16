@@ -4,13 +4,13 @@ import { describe, test } from "node:test";
 import { undeclaredToolMessage } from "../../src/modules/dispatch";
 
 describe("undeclaredToolMessage", () => {
-  test("points bare integration actions at load_integration and the qualified tool name", () => {
+  test("points bare integration actions at exact loading and the qualified tool name", () => {
     const message = undeclaredToolMessage("list_events");
 
     assert.match(message, /calendar\.list_events/);
     assert.match(message, /calendar exposes: `list_events`, `create_event`/);
-    assert.match(message, /system\.load_integration/);
-    assert.match(message, /slug 'calendar'/);
+    assert.match(message, /system\.load_tool/);
+    assert.match(message, /name 'calendar\.list_events'/);
     assert.match(message, /Do not ask the user/);
   });
 
@@ -21,7 +21,7 @@ describe("undeclaredToolMessage", () => {
     // An invented `list_*` tool wants to enumerate; the recovery hint must point
     // at `search` (which can list), not `get_pull_request` (needs a known PR #).
     assert.match(message, /Use 'github\.search' instead/);
-    assert.match(message, /system\.load_integration/);
+    assert.match(message, /system\.load_tool/);
   });
 
   test("does not suggest integrations outside a workflow allowlist", () => {
@@ -39,11 +39,12 @@ describe("undeclaredToolMessage", () => {
   test("recovers a bare integration slug (the boss mistook the integration for a tool)", () => {
     // The boss emitted `calendar {action:"list_events"}` — a bare slug, not a
     // real tool. The recovery must enumerate the integration's qualified tools
-    // and point at load_integration, not dead-end at "not declared".
+    // and point at exact search/load, not dead-end at "not declared".
     const message = undeclaredToolMessage("calendar");
 
     assert.match(message, /calendar exposes: `list_events`, `create_event`/);
-    assert.match(message, /system\.load_integration with slug 'calendar' first\./);
+    assert.match(message, /system\.search_tools for 'calendar'/);
+    assert.match(message, /system\.load_tool/);
     assert.match(message, /Do not ask the user/);
   });
 
