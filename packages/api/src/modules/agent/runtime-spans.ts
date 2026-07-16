@@ -26,6 +26,7 @@
 import { startRuntimeSpan, type RuntimeSpanCloser, type RuntimeSpanInput } from "@alfred/ai";
 import type { ToolName } from "@alfred/contracts";
 import type { DispatchResult } from "../dispatch";
+import { classifyLatency } from "./runtime-thresholds";
 
 /** Stable observation name for the dispatch-batch runtime span (PRD #405). */
 export const RUNTIME_DISPATCH_BATCH = "runtime.dispatch.batch";
@@ -54,6 +55,7 @@ export function buildToolPreloadSpanInput(args: ToolPreloadSpanArgs): RuntimeSpa
     name: RUNTIME_TOOL_PRELOAD,
     startedAt: args.startedAt,
     metadata: {
+      source: "deterministic_preload",
       workflow: args.workflow,
       caller: args.caller,
       activeBefore: args.activeBefore,
@@ -444,6 +446,234 @@ export function startQueueLeaseSpan(args: QueueLeaseSpanArgs): QueueLeaseSpanClo
         level: args.reclaimed ? "WARNING" : "DEFAULT",
         metadata: { reclaimed: args.reclaimed, queueMs: args.queueMs },
       });
+    },
+  };
+}
+
+/* ---------------------------------------------------------------------------
+ * Lazy-tool quality spans (#414, PRD #405)
+ *
+ * The preload span above measures deterministic first-turn selection. These
+ * three measure the *rest* of the lazy-tool surface: what the model was shown on
+ * a given turn (`runtime.tool_surface` — active/kernel/loaded counts + estimated
+ * schema payload), and the escape-hatch discovery calls (`runtime.tool_search` /
+ * `runtime.tool_load`). Together they let an operator judge whether lazy loading
+ * is shrinking the payload rather than moving latency around, and where discovery
+ * metadata is too weak for search to find the right tool.
+ * ------------------------------------------------------------------------- */
+
+/** Cap a joined tool-name list so span metadata stays bounded. */
+function boundedNameList(names: readonly string[]): string | null {
+  if (names.length === 0) return null;
+  const joined = names.join(",");
+  return joined.length <= 800 ? joined : `${joined.slice(0, 797)}...`;
+}
+
+/** Stable observation name for the per-turn tool-surface runtime span (PRD #405). */
+export const RUNTIME_TOOL_SURFACE = "runtime.tool_surface";
+
+export interface ToolSurfaceSpanArgs {
+  runId: string;
+  /** Workflow slug — chat-turn vs user-authored-brief. */
+  workflow: string;
+  /** `boss` or `sub:<id>` — mirrors the dispatcher's caller label. */
+  caller: string;
+  startedAt: Date;
+}
+
+/** Pure builder for the tool-surface span's opening input. Exported for tests. */
+export function buildToolSurfaceSpanInput(args: ToolSurfaceSpanArgs): RuntimeSpanInput {
+  return {
+    runId: args.runId,
+    name: RUNTIME_TOOL_SURFACE,
+    startedAt: args.startedAt,
+    metadata: {
+      workflow: args.workflow,
+      caller: args.caller,
+    },
+  };
+}
+
+/** The surface the model was shown this turn, folded onto the span at end. */
+export interface ToolSurfaceSummary {
+  /** Total tools the model can call this turn (after caller/thread gating). */
+  activeCount: number;
+  /** Of those, the always-on kernel tools. */
+  kernelCount: number;
+  /** Of those, lazily loaded (preloaded or searched-and-loaded) tools. */
+  loadedCount: number;
+  /** The lazily loaded tool names — the surface's growth over the kernel. */
+  loadedTools: readonly ToolName[];
+  /** Estimated serialized JSON-schema payload (bytes) for the whole surface. */
+  schemaBytes: number;
+  /** The same payload as an approximate token count. */
+  schemaTokens: number;
+  /** Wall time to build + estimate the surface (ms); judged against `schema_build`. */
+  schemaBuildMs: number;
+}
+
+export interface ToolSurfaceSpanCloser {
+  end(summary: ToolSurfaceSummary): void;
+  error(): void;
+}
+
+/**
+ * Open a `runtime.tool_surface` span for one model turn. Records the active
+ * surface size, the kernel/loaded split, the loaded tool names, and the
+ * estimated schema payload, plus a `schema_build` health band so an over-budget
+ * surface is filterable. Building the surface is expected work, so it closes at
+ * level DEFAULT. Idempotent — only the first `end`/`error` closes.
+ */
+export function startToolSurfaceSpan(args: ToolSurfaceSpanArgs): ToolSurfaceSpanCloser {
+  const span = runtimeSpanStarter(buildToolSurfaceSpanInput(args));
+  let ended = false;
+  return {
+    end(summary) {
+      if (ended) return;
+      ended = true;
+      span.end({
+        status: "measured",
+        metadata: {
+          activeCount: summary.activeCount,
+          kernelCount: summary.kernelCount,
+          loadedCount: summary.loadedCount,
+          loadedTools: boundedNameList(summary.loadedTools),
+          schemaBytes: summary.schemaBytes,
+          schemaTokens: summary.schemaTokens,
+          schemaBuildMs: summary.schemaBuildMs,
+          schemaBuildHealth: classifyLatency("schema_build", summary.schemaBuildMs),
+        },
+      });
+    },
+    error() {
+      if (ended) return;
+      ended = true;
+      span.end({ status: "error", level: "ERROR" });
+    },
+  };
+}
+
+/** Stable observation name for the model-facing tool-search runtime span (PRD #405). */
+export const RUNTIME_TOOL_SEARCH = "runtime.tool_search";
+
+export interface ToolSearchSpanArgs {
+  runId: string;
+  /** `boss` or `sub:<id>`. */
+  caller: string;
+  /** Length of the search query in chars — never the raw query text. */
+  queryChars: number;
+  startedAt: Date;
+}
+
+/** Pure builder for the `runtime.tool_search` opening span. Exported for tests. */
+export function buildToolSearchSpanInput(args: ToolSearchSpanArgs): RuntimeSpanInput {
+  return {
+    runId: args.runId,
+    name: RUNTIME_TOOL_SEARCH,
+    startedAt: args.startedAt,
+    metadata: {
+      source: "model_search",
+      caller: args.caller,
+      queryChars: args.queryChars,
+    },
+  };
+}
+
+export interface ToolSearchSpanCloser {
+  /** Close with the candidate count and measured latency; a zero count is a miss. */
+  end(result: { candidateCount: number; latencyMs: number }): void;
+  error(): void;
+}
+
+/**
+ * Open a `runtime.tool_search` span around a model-facing catalog search. A
+ * search returning no candidates is a `miss` — the discovery-metadata gap the
+ * PRD wants visible (User Story 17) — not an error, so it closes at DEFAULT with
+ * `status:"miss"`. Latency is judged against the `tool_search` debug band.
+ * Idempotent — only the first `end`/`error` closes.
+ */
+export function startToolSearchSpan(args: ToolSearchSpanArgs): ToolSearchSpanCloser {
+  const span = runtimeSpanStarter(buildToolSearchSpanInput(args));
+  let ended = false;
+  return {
+    end({ candidateCount, latencyMs }) {
+      if (ended) return;
+      ended = true;
+      span.end({
+        status: candidateCount > 0 ? "hit" : "miss",
+        metadata: {
+          candidateCount,
+          latencyMs,
+          latencyHealth: classifyLatency("tool_search", latencyMs),
+        },
+      });
+    },
+    error() {
+      if (ended) return;
+      ended = true;
+      span.end({ status: "error", level: "ERROR" });
+    },
+  };
+}
+
+/** Stable observation name for the exact-tool-load runtime span (PRD #405). */
+export const RUNTIME_TOOL_LOAD = "runtime.tool_load";
+
+/** Outcome of an exact tool load — mirrors `resolveExactToolLoad`. */
+export type ToolLoadOutcome = "ok" | "unknown_tool" | "not_allowed" | "unavailable";
+
+export interface ToolLoadSpanArgs {
+  runId: string;
+  /** `boss` or `sub:<id>`. */
+  caller: string;
+  /** Bounded exact-name candidate requested by the model (`loadToolInput` caps it at 120 chars). */
+  toolName: string;
+  startedAt: Date;
+}
+
+/** Pure builder for the `runtime.tool_load` opening span. Exported for tests. */
+export function buildToolLoadSpanInput(args: ToolLoadSpanArgs): RuntimeSpanInput {
+  return {
+    runId: args.runId,
+    name: RUNTIME_TOOL_LOAD,
+    startedAt: args.startedAt,
+    metadata: {
+      source: "model_load",
+      caller: args.caller,
+      toolName: args.toolName,
+    },
+  };
+}
+
+export interface ToolLoadSpanCloser {
+  /** Close with the load outcome and measured latency. */
+  end(result: { outcome: ToolLoadOutcome; latencyMs: number }): void;
+  error(): void;
+}
+
+/**
+ * Open a `runtime.tool_load` span around an exact tool load. A failed load is
+ * recoverable (the model can search again), so a non-`ok` outcome closes at
+ * WARNING rather than ERROR — visible for discovery tuning without reading as a
+ * fault. Idempotent — only the first `end`/`error` closes.
+ */
+export function startToolLoadSpan(args: ToolLoadSpanArgs): ToolLoadSpanCloser {
+  const span = runtimeSpanStarter(buildToolLoadSpanInput(args));
+  let ended = false;
+  return {
+    end({ outcome, latencyMs }) {
+      if (ended) return;
+      ended = true;
+      span.end({
+        status: outcome,
+        level: outcome === "ok" ? "DEFAULT" : "WARNING",
+        metadata: { latencyMs, loaded: outcome === "ok" },
+      });
+    },
+    error() {
+      if (ended) return;
+      ended = true;
+      span.end({ status: "error", level: "ERROR" });
     },
   };
 }

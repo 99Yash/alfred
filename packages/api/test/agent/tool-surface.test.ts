@@ -3,7 +3,11 @@ import { afterEach, test } from "node:test";
 
 import { z } from "zod";
 
-import { applyExactToolLoad, systemToolKernel } from "../../src/modules/agent/tool-surface";
+import {
+  applyExactToolLoad,
+  migrateRecordedToolNames,
+  systemToolKernel,
+} from "../../src/modules/agent/tool-surface";
 import { currentTimeSnapshot } from "../../src/modules/tools/system";
 import {
   clearToolRegistryForTests,
@@ -60,10 +64,7 @@ test("the default system kernel excludes loadable system capabilities", () => {
 });
 
 test("the system kernel fails loudly when no kernel tools are registered", () => {
-  assert.throws(
-    () => systemToolKernel(),
-    /No system tools are registered for the kernel surface/,
-  );
+  assert.throws(() => systemToolKernel(), /No system tools are registered for the kernel surface/);
 });
 
 test("a hidden system capability becomes active only after exact load", () => {
@@ -84,16 +85,32 @@ test("a hidden system capability becomes active only after exact load", () => {
   ]);
 });
 
-test("current time reports a deterministic local snapshot", () => {
+test("persisted preload attribution is narrowed without seeding the kernel", () => {
+  registerTools([
+    liveTool({
+      integration: "system",
+      action: "fetch_url",
+      riskTier: "no_risk",
+      description: "Fetch a URL.",
+      inputSchema: z.object({}).strict(),
+      execute: async () => ({}),
+    }),
+  ]);
+
   assert.deepEqual(
-    currentTimeSnapshot("Asia/Kolkata", new Date("2026-07-15T18:45:30.000Z")),
-    {
-      isoTime: "2026-07-15T18:45:30.000Z",
-      localDate: "2026-07-16",
-      localTime: "00:15:30",
-      weekday: "Thursday",
-      timezone: "Asia/Kolkata",
-      utcOffset: "+05:30",
-    },
+    migrateRecordedToolNames(["system.fetch_url", "retired.tool", "system.fetch_url"]),
+    ["system.fetch_url"],
   );
+  assert.deepEqual(migrateRecordedToolNames([]), []);
+});
+
+test("current time reports a deterministic local snapshot", () => {
+  assert.deepEqual(currentTimeSnapshot("Asia/Kolkata", new Date("2026-07-15T18:45:30.000Z")), {
+    isoTime: "2026-07-15T18:45:30.000Z",
+    localDate: "2026-07-16",
+    localTime: "00:15:30",
+    weekday: "Thursday",
+    timezone: "Asia/Kolkata",
+    utcOffset: "+05:30",
+  });
 });
