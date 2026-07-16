@@ -7,9 +7,9 @@ import ReactMarkdown from "react-markdown";
 import remend from "remend";
 import remarkBreaks from "remark-breaks";
 import remarkGfm from "remark-gfm";
+import { MarkdownPre } from "~/components/markdown-renderer";
 import { animateWords } from "~/lib/chat/animate-text";
 import { cn } from "~/lib/utils";
-import { CodeBlock, InlineCode } from "./code-block";
 import { ReasoningSection } from "./reasoning-section";
 import { SourcesStrip } from "./sources-strip";
 import { collectSources } from "./sources";
@@ -20,7 +20,10 @@ const MARKDOWN_CLASSES = cn(
   "[&_p]:leading-relaxed [&_p]:tracking-tight [&>*+*]:mt-6",
   "[&_a]:text-app-purple-4 [&_a]:underline [&_a]:underline-offset-2",
   "[&_li]:my-0.5 [&_ol]:list-decimal [&_ol]:pl-5 [&_ul]:list-disc [&_ul]:pl-5",
-  "[&_code]:rounded [&_code]:bg-app-bg-2 [&_code]:px-1 [&_code]:py-0.5 [&_code]:text-[0.9em]",
+  // Inline code only — scope to `:not(pre)>code` so this chip styling never
+  // bleeds onto the `<code>` inside a fenced CodeBlock (which owns its own
+  // dark-card chrome). Fenced blocks render through `MarkdownPre` below.
+  "[&_:not(pre)>code]:rounded [&_:not(pre)>code]:bg-app-bg-2 [&_:not(pre)>code]:px-1 [&_:not(pre)>code]:py-0.5 [&_:not(pre)>code]:text-[0.9em]",
   "[&_h1]:text-lg [&_h1]:font-semibold [&_h2]:text-base [&_h2]:font-semibold",
   "[&_blockquote]:border-l-2 [&_blockquote]:border-app-fg-a1 [&_blockquote]:pl-3 [&_blockquote]:text-app-fg-3 [&_strong]:font-semibold",
   // Tables — GFM tables (remark-gfm). The browser default renders these as
@@ -90,8 +93,13 @@ const FAILURE_ACTION_CLASS = cn(
   "focus-visible:ring-offset-2 focus-visible:ring-offset-app-background",
 );
 
-/** Fenced code → highlighted card; inline code keeps the markdown chip styling. */
-const BASE_COMPONENTS: Components = { pre: CodeBlock, code: InlineCode };
+/**
+ * Fenced code → the shared dark `CodeBlock` card (same one briefings, artifacts,
+ * and the reasoning/narration prose use, via `MarkdownPre`). Inline code has no
+ * `<pre>` parent, so it falls through to the wrapper's `[&_:not(pre)>code]` chip
+ * styling above.
+ */
+const BASE_COMPONENTS: Components = { pre: MarkdownPre };
 
 /** Streaming variant: each word in a paragraph / list item fades up out of a blur. */
 const STREAMING_COMPONENTS: Components = {
@@ -174,7 +182,13 @@ function healStreamingMarkdown(text: string): string {
 export function AssistantMarkdown({ text, streaming }: { text: string; streaming?: boolean }) {
   const body = streaming ? healStreamingMarkdown(text) : text;
   return (
-    <div className={cn("text-sm leading-relaxed tracking-tight text-app-fg-4", MARKDOWN_CLASSES)}>
+    <div
+      // The reply reads at a larger scale than the rail, so its fenced code
+      // stays 13px; `--md-code-fs` cascades into the shared CodeBlock's
+      // highlighter (which defaults to the rail's 11.5px).
+      style={{ "--md-code-fs": "13px" } as React.CSSProperties}
+      className={cn("text-sm leading-relaxed tracking-tight text-app-fg-4", MARKDOWN_CLASSES)}
+    >
       <ReactMarkdown
         remarkPlugins={REMARK_PLUGINS}
         components={streaming ? STREAMING_COMPONENTS : BASE_COMPONENTS}
