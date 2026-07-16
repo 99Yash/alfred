@@ -82,6 +82,14 @@ export function Conversation({
   hasPendingApproval?: boolean;
 }) {
   const virtuosoRef = useRef<VirtuosoHandle | null>(null);
+  // The raw Virtuoso scroller element, captured via `scrollerRef`. The live
+  // reply streams into the list *Footer* (not a data row); Virtuoso's own
+  // `autoscrollToBottom` is gated by `atBottomThreshold`, so it ignores the
+  // small per-drip growth and only nudges once the gap crosses the threshold —
+  // leaving the newest text streaming in just below the fold ("the chat doesn't
+  // go down as the response streams in"). Pinning this element straight to
+  // `scrollHeight` each drip follows the footer exactly, with no threshold lag.
+  const scrollerElRef = useRef<HTMLElement | null>(null);
   const stickRef = useRef(true);
   // Bottom-most mounted row index, so a jump can pick smooth (the live edge is
   // near, animating through it reads as "catching up") over instant (the edge
@@ -174,15 +182,57 @@ export function Conversation({
     virtuosoRef.current?.scrollToIndex({ index: "LAST", align: "end", behavior: "auto" });
   }, [lastUserId]);
 
-  // Detach only when the viewport genuinely leaves the bottom (a user scroll-up)
-  // and re-attach when it returns. Because `autoscrollToBottom` below keeps us
-  // pinned while a turn streams, content growth never lowers the viewport off
-  // the bottom on its own — so a streaming burst can't masquerade as a scroll-up
-  // and falsely detach.
+  // Re-attach when the viewport returns to the bottom. Detach is driven by
+  // `releasePin` below, not here: the streaming pin re-writes `scrollTop` every
+  // drip, so by the time Virtuoso re-evaluates `atBottom` the pin has already
+  // yanked us back — this callback would never see the scroll-up. It still
+  // handles the re-attach edge (returning to the bottom flips `atBottom` true)
+  // and keeps the jump button in sync with a genuine bottom arrival.
   const onAtBottomChange = useCallback((atBottom: boolean) => {
-    stickRef.current = atBottom;
-    setShowJump(!atBottom);
+    if (atBottom) {
+      stickRef.current = true;
+      setShowJump(false);
+    }
   }, []);
+
+  // Release the pin the instant the user tries to scroll up. We detect the
+  // *intent* (a wheel-up or a touch drag) rather than a scroll-position delta:
+  // the pin re-writes `scrollTop` every drip, so any position-based check either
+  // loses the race to the next pin or misses a slow drag whose per-event steps
+  // never accumulate. Intent fires ahead of the pin and needs no accumulation.
+  // Downward wheels are ignored — at the live edge there's nowhere further down,
+  // and this must not fight the feed's own downward pins. Re-attach (returning
+  // to the bottom) is handled by `onAtBottomChange`.
+  const releasePin = useCallback(() => {
+    if (!stickRef.current) return;
+    stickRef.current = false;
+    setShowJump(true);
+  }, []);
+  const onWheel = useCallback(
+    (e: WheelEvent) => {
+      if (e.deltaY < 0) releasePin();
+    },
+    [releasePin],
+  );
+
+  // Capture the scroller element and own its input listeners. Stable identity so
+  // Virtuoso doesn't tear the listeners down and rebuild them every render.
+  const attachScroller = useCallback(
+    (ref: HTMLElement | Window | null) => {
+      const prev = scrollerElRef.current;
+      if (prev) {
+        prev.removeEventListener("wheel", onWheel);
+        prev.removeEventListener("touchmove", releasePin);
+      }
+      const el = ref instanceof HTMLElement ? ref : null;
+      scrollerElRef.current = el;
+      if (el) {
+        el.addEventListener("wheel", onWheel, { passive: true });
+        el.addEventListener("touchmove", releasePin, { passive: true });
+      }
+    },
+    [onWheel, releasePin],
+  );
 
   const onRangeChanged = useCallback((range: ListRange) => {
     lastRenderedIndexRef.current = range.endIndex;
@@ -190,11 +240,20 @@ export function Conversation({
 
   // Follow the live edge as the footer's streaming bubble grows. `stream` is a
   // fresh snapshot each drip tick, so this fires per frame during a turn and on
-  // each new durable message. `autoscrollToBottom` accounts for Virtuoso's
-  // async height measurement (a raw `scrollTop = scrollHeight` would race the
-  // ResizeObserver and land short); it only scrolls when already following.
+  // each new durable message. The footer is fully rendered (not a virtualized
+  // row), so its height is exact in the DOM — pinning the scroller straight to
+  // its bottom rides the newest text with zero lag. `autoscrollToBottom` alone
+  // can't: it's gated by `atBottomThreshold`, so it skips the small per-drip
+  // growth and only jerks the view down once the gap exceeds the threshold,
+  // leaving the live text below the fold. We still call it afterward — it's a
+  // no-op while pinned, but for a freshly appended durable row whose height
+  // Virtuoso hasn't measured yet it supplies the measurement-aware scroll a raw
+  // `scrollTop` would land short of.
   useEffect(() => {
-    if (stickRef.current) virtuosoRef.current?.autoscrollToBottom();
+    if (!stickRef.current) return;
+    const el = scrollerElRef.current;
+    if (el) el.scrollTop = el.scrollHeight;
+    virtuosoRef.current?.autoscrollToBottom();
   }, [messages, stream]);
 
   // Jump back to the live edge and re-engage stick-to-bottom. `scrollToIndex` is
@@ -287,6 +346,7 @@ export function Conversation({
       <FeedFooterContext value={footerValue}>
         <Virtuoso<SyncedChatMessage, FeedItemContext>
           ref={virtuosoRef}
+          scrollerRef={attachScroller}
           data={messages}
           context={itemContext}
           computeItemKey={computeItemKey}

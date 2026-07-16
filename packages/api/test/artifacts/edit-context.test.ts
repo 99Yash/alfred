@@ -10,7 +10,9 @@ import {
 } from "@alfred/artifacts-design";
 import { updateArtifactInput } from "@alfred/contracts";
 import { z } from "zod";
+import { formatRuntimeTimeGrounding } from "../../src/modules/agent/grounding";
 import {
+  assertStableChatSystem,
   buildChatSystemPrompt,
   withEphemeralReference,
 } from "../../src/modules/agent/workflows/chat-turn";
@@ -151,14 +153,51 @@ test("the PDF guide is injected only for a selected PDF artifact", () => {
 
 test("ephemeral run context is inserted before the request without entering the transcript", () => {
   const transcript = [{ role: "user" as const, content: "What happened in the last 30h?" }];
-  const runtime =
-    "<runtime_context>Current time: 2026-07-14T02:50:11.451Z (2026-07-14T08:20:11 in Asia/Calcutta).</runtime_context>";
+  const runtime = formatRuntimeTimeGrounding("Asia/Calcutta", new Date("2026-07-14T02:50:11.451Z"));
 
   assert.deepEqual(withEphemeralReference(transcript, runtime), [
     { role: "assistant", content: runtime },
     transcript[0],
   ]);
   assert.deepEqual(transcript, [{ role: "user", content: "What happened in the last 30h?" }]);
+});
+
+test("chat's prod system prompt states no date — the runtime line is the single 'now' (#410)", () => {
+  // The chat path builds its prompt with no date grounding, so the one
+  // re-anchorable runtime_context line is the sole statement of "now". A date
+  // pinned into this cached prefix would go stale when a parked run resumes
+  // across midnight — and re-stamping it here would trip assertStableSystem.
+  const connected = "Connected: none";
+  const prompt = buildChatSystemPrompt("", connected);
+  assert.doesNotMatch(prompt, /current date/i);
+  // Connected summary still anchors the end of the prompt (ADR-0077).
+  assert.ok(prompt.trimEnd().endsWith(connected));
+  // The single source rides the transcript, right before the user turn.
+  const [reference] = withEphemeralReference(
+    [{ role: "user" as const, content: "anything on for tomorrow?" }],
+    formatRuntimeTimeGrounding("Asia/Calcutta", new Date("2026-07-14T02:50:11.451Z")),
+  );
+  assert.equal(reference?.role, "assistant");
+  assert.match(String(reference?.content), /Current date and time: Tuesday, 14 July 2026/);
+});
+
+test("chat persists system stability across short-lived AlfredAgent instances", () => {
+  const state: { systemPromptHash?: string } = {};
+  assertStableChatSystem(state, "stable prompt");
+  const pinned = state.systemPromptHash;
+  assert.ok(pinned);
+  assertStableChatSystem(state, "stable prompt");
+  assert.equal(state.systemPromptHash, pinned);
+  assert.throws(
+    () => assertStableChatSystem(state, "prompt with a drifting timestamp"),
+    /system prompt changed within a cache-stable chat run/,
+  );
+
+  // Artifact mutation is an explicit system-context lifecycle seam. The
+  // workflow clears the hash there, after which the new stable prompt can pin.
+  state.systemPromptHash = undefined;
+  assertStableChatSystem(state, "intentional refreshed artifact context");
+  assert.notEqual(state.systemPromptHash, pinned);
 });
 
 test("chat keeps the voice contract near the end without displacing tool grounding", () => {

@@ -5,7 +5,7 @@ import { serverEnv } from "@alfred/env/server";
 import { generateText, tool } from "ai";
 import { config as loadEnv } from "dotenv";
 import { evalite } from "evalite";
-import { formatDateGrounding } from "../src/modules/agent/grounding";
+import { formatRuntimeTimeGrounding } from "../src/modules/agent/grounding";
 import { buildChatSystemPrompt } from "../src/modules/agent/workflows/chat-turn";
 
 // ADR-0055: behavioral eval for agent date grounding. Guards the regression
@@ -106,11 +106,18 @@ evalite<string, TaskOutput, TargetWindow | null>("Agent date grounding", {
   data: () => CASES.map((c) => ({ input: c.input, expected: c.target })),
   task: async (input) => {
     void serverEnv().ANTHROPIC_API_KEY;
-    const system = buildChatSystemPrompt(formatDateGrounding(TIMEZONE, NOW), CONNECTED_SUMMARY);
+    // Mirror an artifact-free first prod call: chat's system prompt states no
+    // date, and "now" rides the ephemeral runtime line as an assistant turn just
+    // before the user's message (withEphemeralReference). Grounding the eval the
+    // same way keeps it a faithful guard for the single-source path (#410).
+    const system = buildChatSystemPrompt("", CONNECTED_SUMMARY);
     const result = await generateText({
       model: getChatModel("standard"),
       system,
-      prompt: input,
+      messages: [
+        { role: "assistant", content: formatRuntimeTimeGrounding(TIMEZONE, NOW) },
+        { role: "user", content: input },
+      ],
       temperature: 0,
       timeout: { totalMs: EVAL_TIMEOUT_MS },
       tools: {

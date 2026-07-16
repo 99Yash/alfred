@@ -1,5 +1,7 @@
+import { createHash } from "node:crypto";
 import {
   AlfredAgent,
+  DEFAULT_TURN_STREAM_TIMEOUT,
   classifyStreamFinish,
   getChatModel,
   getChatProviderOptions,
@@ -23,29 +25,54 @@ import {
   MAX_MODEL_ATTACHMENT_BYTES_PER_TURN,
   sanitizeToolResult,
   toJsonValue,
+  toMessage,
   type AgentTranscriptMessage,
   type ArtifactFormat,
   type ChatErrorKind,
   type ToolName,
-  toMessage,
 } from "@alfred/contracts";
+import { CHAT_DELTA_MAX } from "@alfred/contracts/events";
 import { db } from "@alfred/db";
 import { chatAttachments, chatMessages, chatThreads } from "@alfred/db/schemas";
-import { CHAT_DELTA_MAX } from "@alfred/contracts/events";
 import { and, asc, eq, inArray, like, ne, or, sql } from "drizzle-orm";
 import { z } from "zod";
+import { publishEvent } from "../../../events/publish";
+import { emitReplicachePokes } from "../../../events/replicache-events";
+import { logger } from "../../../lib/logger";
+import { buildThreadArtifactsContext } from "../../artifacts/read";
+import { finalizeRunArtifacts } from "../../artifacts/write";
+import { scheduleThreadIdleExtraction } from "../../chat-memory/queue";
 import { sniffPassThroughImageMime } from "../../chat/attachments";
-import { readObject } from "../../chat/storage";
 import { isChatStopRequested } from "../../chat/stop-signal";
+import { readObject } from "../../chat/storage";
 import { dispatchToolCall, toolCallWouldGate, type DispatchResult } from "../../dispatch";
+import { readIntegrationAvailability } from "../../integrations/availability";
+import {
+  assembleChatContext,
+  assessChatRequestPressure,
+  CHAT_MAX_OUTPUT_TOKENS,
+  compactConversationSynchronously,
+  compactTranscript,
+  conversationSummaryMessage,
+  estimateChatRequestTokens,
+  loadChatThreadContext,
+  scheduleConversationCompactionIfNeeded,
+  waitForActiveConversationCompaction,
+  type ChatSummaryWatermark,
+} from "../compaction";
+import { buildConnectedSummaryFromAvailability } from "../connected-summary";
+import {
+  formatRuntimeTimeGrounding,
+  resolveRuntimeGroundingAnchor,
+  resolveUserTimezone,
+} from "../grounding";
+import { composeAgentInstructions } from "../instructions";
 import { startDispatchBatchSpan, type DispatchBatchSpanCloser } from "../runtime-spans";
 import {
   AWAIT_SUB_AGENT_CEILING_MS,
   scheduleSubAgentJoinWakeJob,
 } from "../sub-agent-join-wake-queue";
 import { subAgentDoneSignalName } from "../sub-agent-metadata";
-import { composeAgentInstructions } from "../instructions";
-import { createVoiceStreamSanitizer, sanitizeVoice } from "../voice-sanitize";
 import {
   isTerminalChildStatus,
   listSpawnedChildRuns,
@@ -53,16 +80,6 @@ import {
   shouldResolveWithoutParking,
   type ChildRunOutcome,
 } from "../sub-agents";
-import { emitReplicachePokes } from "../../../events/replicache-events";
-import { publishEvent } from "../../../events/publish";
-import { scheduleThreadIdleExtraction } from "../../chat-memory/queue";
-import { appendModelResponseMessages } from "../transcript-dedup";
-import { buildThreadArtifactsContext } from "../../artifacts/read";
-import { finalizeRunArtifacts } from "../../artifacts/write";
-import { logger } from "../../../lib/logger";
-import { readIntegrationAvailability } from "../../integrations/availability";
-import { buildConnectedSummaryFromAvailability } from "../connected-summary";
-import { formatDateGrounding, formatRuntimeTimeGrounding, resolveUserTimezone } from "../grounding";
 import {
   activateTool,
   applyPromptToolPreload,
@@ -71,20 +88,9 @@ import {
   migrateActiveTools,
   systemToolKernel,
 } from "../tool-surface";
+import { appendModelResponseMessages } from "../transcript-dedup";
 import type { AgentDbExecutor, Step, StepContext, StepResult, Workflow } from "../types";
-import {
-  assessChatRequestPressure,
-  assembleChatContext,
-  CHAT_MAX_OUTPUT_TOKENS,
-  compactTranscript,
-  compactConversationSynchronously,
-  conversationSummaryMessage,
-  estimateChatRequestTokens,
-  loadChatThreadContext,
-  scheduleConversationCompactionIfNeeded,
-  waitForActiveConversationCompaction,
-  type ChatSummaryWatermark,
-} from "../compaction";
+import { createVoiceStreamSanitizer, sanitizeVoice } from "../voice-sanitize";
 
 /**
  * Interactive streaming chat (streaming-chat plan). One run services one user
@@ -242,6 +248,15 @@ const chatRunStateSchema = z
     // ADR-0053 connected summary, snapshotted once at run start (first turn) and
     // reused every turn so the system-prompt prefix stays cache-stable.
     connectedSummary: z.string().optional(),
+    // SHA-256 of the cache-stable system prompt. AlfredAgent is constructed per
+    // model step on this workflow, so its instance-local stability assertion
+    // cannot compare chat turns; the durable workflow state owns that check.
+    // Cleared only when an artifact mutation intentionally changes system
+    // context. Optional for legacy checkpoints.
+    systemPromptHash: z
+      .string()
+      .regex(/^[a-f0-9]{64}$/)
+      .optional(),
     // Safe system guidance for the thread's existing artifacts (generated
     // ids/enums only). Refreshed after an artifact mutation so the next model step
     // cannot operate from stale target metadata.
@@ -293,9 +308,15 @@ const chatRunStateSchema = z
     // it counts retries of the *same* stuck turn — not one timeout per tool-loop
     // step. Default 0 for runs minted before the field existed.
     streamTimeoutRetries: z.number().int().min(0).default(0),
-    startedAt: z.string().datetime().optional(),
+    startedAt: z.iso.datetime().optional(),
     // Read only while resuming checkpoints created before `startedAt`.
     started: z.boolean().optional(),
+    // Instant the ephemeral `<runtime_context>` line — the chat run's single
+    // source of the current date and time — is anchored to (#410). Held stable
+    // across a contiguous execution slice so the tool-result tail stays
+    // cacheable. Every interrupt clears it, so any resumed invocation re-stamps
+    // to wake-time regardless of how short the park was. Absent on legacy runs.
+    runtimeGroundingAnchor: z.iso.datetime().optional(),
     // ADR-0073 finalization guard: child runs spawned this turn whose outcomes
     // are already accounted for in the transcript — either folded by the guard, or
     // surfaced because the boss explicitly called `await_sub_agent` (a successful
@@ -323,6 +344,39 @@ const chatRunStateSchema = z
     ),
   }));
 export type ChatRunState = z.infer<typeof chatRunStateSchema>;
+
+/**
+ * Own the chat path's cross-turn system stability invariant in durable state.
+ * `AlfredAgent` is intentionally short-lived here (one instance per model
+ * step), so its instance-local assertion cannot protect the prompt cache.
+ */
+export function assertStableChatSystem(
+  state: Pick<ChatRunState, "systemPromptHash">,
+  systemPrompt: string,
+): void {
+  const hash = createHash("sha256").update(systemPrompt).digest("hex");
+  if (state.systemPromptHash === undefined) {
+    state.systemPromptHash = hash;
+    return;
+  }
+  if (state.systemPromptHash === hash) return;
+  throw new Error(
+    "[chat] system prompt changed within a cache-stable chat run. " +
+      "Clear systemPromptHash only at the lifecycle seam that intentionally changes system context.",
+  );
+}
+
+/** Build the only allowed chat interrupt and invalidate wake-sensitive state. */
+export function interruptChatRun(
+  state: ChatRunState,
+  transcript: AgentTranscriptMessage[],
+  wake: Extract<StepResult<ChatRunState>, { kind: "interrupt" }>["wake"],
+): Extract<StepResult<ChatRunState>, { kind: "interrupt" }> {
+  // A park is the real discontinuity. Clearing here makes even a millisecond
+  // park refresh grounding, while a long uninterrupted tool loop retains it.
+  state.runtimeGroundingAnchor = undefined;
+  return { kind: "interrupt", state, transcript, wake };
+}
 
 /**
  * Plan a bounded retry from the pre-turn transcript. Kept pure so tests can
@@ -390,9 +444,10 @@ export function planStreamTimeoutRetry(
 }
 
 // ADR-0077: charter, not a rulebook. Keep mission + capabilities + judgment
-// principles here; `buildChatSystemPrompt` appends date grounding and the
-// ADR-0053 connected catalog last so the strongest tool-grounding anchor still
-// sits at the end of the prompt.
+// principles here; `buildChatSystemPrompt` appends the ADR-0053 connected
+// catalog last so the strongest tool-grounding anchor still sits at the end of
+// the prompt. "Now" is not in this prompt at all — it rides the ephemeral
+// runtime_context line (#410), the single source of the current date and time.
 const CHAT_SYSTEM_PROMPT_BASE = [
   "You are Alfred, the user's personal assistant. You're chatting with them directly — be warm, concise, and direct: answer the question and don't pad.",
   [
@@ -413,8 +468,8 @@ const CHAT_SYSTEM_PROMPT_BASE = [
     '- A follow-up phrased as "find more about her/him/them", "can we know something more", "anything else", or similar is not a request to re-check the same internal sources. Treat it as an explicit breadth escalation: after any thin memory/email result, use system.web_search or system.spawn_sub_agent in that same turn before the final answer.',
     "- For person or company research, Alfred's memory and the user's accounts tell you why the subject matters to the user; the live web is the normal source for public background, current roles, company context, and anything outside private data. Use both when the user asks to find out more. A person's name is enough to try a public lookup; enrich the query with company, project, or email clues if you have them, but don't ask the user for those clues before trying.",
     '- If you find yourself about to say "I can look that up on the web" or "if you know their company, I can search", stop and do the lookup first with the best query available. Only ask for more identifiers after a real lookup fails or returns genuinely many ambiguous matches.',
-    '- Prefer acting to asking. Resolve the specifics yourself — a person or sender named by role or description, a thread by its topic, a relative date ("this week", "next Tuesday") from today\'s date below — by looking them up with the right tool before you act. Only ask the user to choose when the candidates are genuinely many or ambiguous, or when acting would send or change something. Fan out independent lookups in the same turn, then synthesize.',
-    "- Resolve relative or partial dates yourself from today's date (stated below). For a calendar range the relative window fields (today, tomorrow, next_7_days) don't cover, call calendar.list_events with explicit RFC3339 timeMin/timeMax bounds.",
+    '- Prefer acting to asking. Resolve the specifics yourself — a person or sender named by role or description, a thread by its topic, a relative date ("this week", "next Tuesday") from the runtime_context snapshot — by looking them up with the right tool before you act. Only ask the user to choose when the candidates are genuinely many or ambiguous, or when acting would send or change something. Fan out independent lookups in the same turn, then synthesize.',
+    "- Resolve relative or partial dates and times yourself from the runtime_context line in the conversation: it is the authoritative snapshot for the start of this model turn, and a resumed chat re-stamps it, so trust it over any date mentioned earlier and never assume the start of some other day. If exact wall-clock time matters after slow tool work, system.current_time is the live execution-time escape hatch; use its newer result. For a calendar range the relative window fields (today, tomorrow, next_7_days) don't cover, call calendar.list_events with explicit RFC3339 timeMin/timeMax bounds derived from the authoritative snapshot.",
     '- When the ask is open-ended research ("find out everything about X", "get me up to speed on Y", or a plain "tell me more" after you\'ve exhausted the easy sources), delegate it: spawn a sub-agent with a clear brief to investigate across memory, the user\'s accounts, and the web; await it with system.await_sub_agent; answer with its synthesis. Reserve direct tool calls for single lookups — a sub-agent for one lookup is far too costly. Never promise to follow up "when it\'s done": there is no out-of-turn notification, so either finish in this turn or say plainly what you couldn\'t complete.',
   ].join("\n"),
   [
@@ -454,12 +509,20 @@ export function buildChatSystemPrompt(
   } = {},
 ): string {
   const artifactsContext = options.artifactsContext ?? "";
-  const artifactsBlock = artifactsContext ? `\n\n${artifactsContext}` : "";
   const documentDesignBlock =
     options.artifactDesignMedium === "pdf" ? `\n\n${ARTIFACT_DOCUMENT_DESIGN_PROMPT}` : "";
+  // The chat path passes no `grounding` date: its "now" (date and time both)
+  // rides the single re-anchorable `formatRuntimeTimeGrounding` line in the
+  // transcript. A date pinned into this cached prefix would go stale when a
+  // parked run resumes across midnight. The chat workflow persists a hash of
+  // this prompt because its AlfredAgent instance is minted per model step; that
+  // durable guard, not AlfredAgent's instance-local pin, enforces stability.
+  // A non-chat caller (or an eval) may still supply a date for a single-turn,
+  // non-parking context.
+  const dateLine = grounding ? `The current date is ${grounding}.` : "";
   // The artifact design-system block (`@alfred/artifacts-design`) is identical
   // every turn, so it sits right after the constant base — the largest possible
-  // cache-stable prefix (#223) — and ahead of the date/catalog so the connected
+  // cache-stable prefix (#223) — and ahead of the catalog so the connected
   // catalog stays the last, strongest anchor (ADR-0077). It teaches the boss the
   // house shell contract, the `art-*` vocabulary, archetypes, theme voice, and
   // authoring rules; without it artifact styling is reconstructed from memory
@@ -468,7 +531,7 @@ export function buildChatSystemPrompt(
     purpose: "assistant_response",
     role: CHAT_SYSTEM_PROMPT_BASE,
     rules: [`${ARTIFACT_DESIGN_PROMPT}${documentDesignBlock}`],
-    grounding: [`The current date is ${grounding}.${artifactsBlock}`, connectedSummary],
+    grounding: [dateLine, artifactsContext, connectedSummary],
   });
 }
 
@@ -535,7 +598,6 @@ function preview(value: unknown): string {
   // ellipsis.
   return `${full.slice(0, PREVIEW_CHARS - 1)}…`;
 }
-
 
 /** A `ready` attachment as the transcript builder needs it. */
 interface ReadyAttachment {
@@ -1499,12 +1561,10 @@ export async function guardSpawnedChildren(
     foldMessages.length > 0 ? [...baseTranscript, ...foldMessages] : baseTranscript;
 
   if (parkOn.length > 0) {
-    return {
-      kind: "interrupt",
-      state,
-      transcript: nextTranscript,
-      wake: { kind: "signal", name: subAgentDoneSignalName(parkOn[0]!) },
-    };
+    return interruptChatRun(state, nextTranscript, {
+      kind: "signal",
+      name: subAgentDoneSignalName(parkOn[0]!),
+    });
   }
   return { kind: "next", state, transcript: nextTranscript, nextStep: "chat-turn" };
 }
@@ -1792,12 +1852,14 @@ export async function guardUnreportedToolFailures(
 const chatTurnStep: Step<ChatRunState> = {
   id: "chat-turn",
   // The streaming boss turn is bounded by the stream circuit-breaker
-  // (DEFAULT_TURN_STREAM_TIMEOUT — 3min total) but the default 60s stale window
-  // is far tighter than that cap, so a slow-but-healthy generation could be
-  // reclaimed mid-turn → a duplicate full-price model call. Set the window above
-  // the stream cap so the stream guard (not the lease) is what ends a genuinely
-  // wedged turn.
-  staleAfterMs: 4 * 60_000,
+  // (`DEFAULT_TURN_STREAM_TIMEOUT.totalMs`), but the default 60s stale window is
+  // far tighter than that cap, so a slow-but-healthy generation could be
+  // reclaimed mid-turn → a duplicate full-price model call. Derive the window
+  // from the stream ceiling (+60s for tool-execution/dispatch overhead) so the
+  // relation holds structurally: the stream guard, not the lease, ends a
+  // genuinely wedged turn. This lease-reclaim duration is unrelated to runtime
+  // grounding freshness, which is keyed to actual park/resume lifecycle events.
+  staleAfterMs: DEFAULT_TURN_STREAM_TIMEOUT.totalMs + 60_000,
   async run(ctx) {
     const state: ChatRunState = { ...ctx.state, turnCount: ctx.state.turnCount + 1 };
     try {
@@ -1861,16 +1923,22 @@ const chatTurnStep: Step<ChatRunState> = {
         state.artifactReference = artifactContext.referenceMessage;
         state.artifactDesignMedium = artifactContext.designMedium;
       }
-      const systemPrompt = buildChatSystemPrompt(
-        formatDateGrounding(state.timezone, new Date(state.startedAt)),
-        state.connectedSummary,
-        {
-          artifactsContext: state.artifactsContext,
-          artifactDesignMedium: state.artifactDesignMedium,
-        },
+      // No date in the system prompt: a stable cached prefix cannot carry a
+      // "now" that stays fresh across a park. Both date and time ride the one
+      // ephemeral runtime line below. The anchor stays stable throughout a
+      // contiguous execution slice and every interrupt clears it, so resume
+      // re-stamps to wake-time without using elapsed time as a park proxy (#410).
+      const systemPrompt = buildChatSystemPrompt("", state.connectedSummary, {
+        artifactsContext: state.artifactsContext,
+        artifactDesignMedium: state.artifactDesignMedium,
+      });
+      assertStableChatSystem(state, systemPrompt);
+      const runtimeGroundingAnchor = resolveRuntimeGroundingAnchor(
+        state.runtimeGroundingAnchor ? new Date(state.runtimeGroundingAnchor) : undefined,
       );
+      state.runtimeGroundingAnchor = runtimeGroundingAnchor.toISOString();
       const ephemeralReference = [
-        formatRuntimeTimeGrounding(state.timezone, new Date(state.startedAt)),
+        formatRuntimeTimeGrounding(state.timezone, runtimeGroundingAnchor),
         state.artifactReference,
       ]
         .filter((value) => value.length > 0)
@@ -2559,7 +2627,7 @@ const dispatchToolsStep: Step<ChatRunState> = {
         );
         if (stagedResult) {
           batchSpan?.end("staged", results);
-          return { kind: "interrupt", state, transcript, wake: stagedResult.wake };
+          return interruptChatRun(state, transcript, stagedResult.wake);
         }
 
         // ADR-0073: an `await_sub_agent` on a still-running child parks the run
@@ -2572,7 +2640,7 @@ const dispatchToolsStep: Step<ChatRunState> = {
         );
         if (parkedResult) {
           batchSpan?.end("parked", results);
-          return { kind: "interrupt", state, transcript, wake: parkedResult.wake };
+          return interruptChatRun(state, transcript, parkedResult.wake);
         }
 
         // No gate in the batch — commit every result in original call order
@@ -2593,6 +2661,9 @@ const dispatchToolsStep: Step<ChatRunState> = {
             // the selected/default artifact after create/update commits.
             state.artifactsContext = undefined;
             state.artifactReference = undefined;
+            // Artifact metadata is the one intentionally mutable system block.
+            // Release the durable pin at the same explicit mutation seam.
+            state.systemPromptHash = undefined;
             if (call.toolName === "system.create_artifact") {
               const createdFormat = artifactFormatSchema.safeParse(
                 getPath(result.toolResult, "format"),

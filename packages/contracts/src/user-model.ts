@@ -1111,7 +1111,7 @@ export type ProjectionRunStatus = (typeof PROJECTION_RUN_STATUS)[number];
 export const projectionCursorValueSchema = z
   .object({
     lastObservationId: z.string().optional(),
-    occurredAt: z.string().datetime().optional(),
+    occurredAt: z.iso.datetime().optional(),
     sourceCursor: jsonValueSchema.optional(),
   })
   .strict();
