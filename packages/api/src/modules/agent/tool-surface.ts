@@ -1,11 +1,20 @@
 import { isIntegrationSlug, isRecord, isToolName, type ToolName } from "@alfred/contracts";
 import { tool, type Tool, type ToolSet } from "@alfred/ai";
 import { z } from "zod";
-import { getTool, listKernelTools, listToolsForIntegration } from "../tools/registry";
-import type { ToolAvailabilityContext, IntegrationAvailabilitySnapshot } from "../integrations/availability";
+import {
+  getTool,
+  listKernelTools,
+  listToolsForIntegration,
+  type RegisteredTool,
+} from "../tools/registry";
+import type {
+  ToolAvailabilityContext,
+  IntegrationAvailabilitySnapshot,
+} from "../integrations/availability";
 import { latestUserPrompt, preloadToolsForPrompt } from "../tools/discovery";
 import type { DispatchResult } from "../dispatch";
-import { startToolPreloadSpan } from "./runtime-spans";
+import { startToolPreloadSpan, startToolSurfaceSpan } from "./runtime-spans";
+import { estimateToolSurfaceBudget } from "./schema-budget";
 
 export const toolNameSchema = z.custom<ToolName>(
   (value) => typeof value === "string" && isToolName(value),
@@ -35,7 +44,7 @@ export function migrateActiveTools(
   legacyActiveIntegrations: readonly string[] | undefined,
   legacyPendingToolNames: readonly string[] = [],
 ): ToolName[] {
-  if (activeTools) return uniqueToolNames(registeredToolNames(activeTools));
+  if (activeTools) return migrateRecordedToolNames(activeTools);
   const pendingTools = registeredToolNames(legacyPendingToolNames);
   return uniqueToolNames([
     ...systemToolKernel(),
@@ -44,6 +53,11 @@ export function migrateActiveTools(
     ),
     ...pendingTools,
   ]);
+}
+
+/** Narrow a persisted auxiliary tool-name list without seeding the active kernel. */
+export function migrateRecordedToolNames(toolNames: readonly string[]): ToolName[] {
+  return uniqueToolNames(registeredToolNames(toolNames));
 }
 
 function registeredToolNames(toolNames: readonly string[]): ToolName[] {
@@ -146,6 +160,58 @@ export function buildSdkToolSet(
 }
 
 /**
+ * Build the SDK tool set for one model turn and emit a `runtime.tool_surface`
+ * span describing what the model was shown: the active count, the kernel/loaded
+ * split, the loaded tool names, and the estimated schema payload (#414). The
+ * payload (`schemaBytes`/`schemaTokens`) is the budget signal; the span also
+ * carries a `schema_rebuild` band that only registers on a cold rebuild (both
+ * the SDK set and the schema estimate are memoized). Prefer this over calling
+ * {@link buildSdkToolSet} directly at a turn's model-call site so both workflows
+ * measure the surface identically; the underlying set is still memoized, so the
+ * only per-turn cost is the (memoized) schema estimate and one best-effort span.
+ * Observability never changes the returned set.
+ */
+export function buildTurnToolSurface(args: {
+  activeTools: readonly ToolName[];
+  context: ToolAvailabilityContext;
+  runId: string;
+  workflow: string;
+  /** Span caller label (`boss` | `sub:<id>`); distinct from the availability caller kind. */
+  spanCaller: string;
+}): ToolSet {
+  const startedAt = new Date();
+  const startMs = Date.now();
+  const tools = buildSdkToolSet(args.activeTools, args.context);
+  const surfaced: RegisteredTool[] = [];
+  for (const name of Object.keys(tools)) {
+    if (!isToolName(name)) continue;
+    const registered = getTool(name);
+    if (registered) surfaced.push(registered);
+  }
+  const budget = estimateToolSurfaceBudget(surfaced);
+  // Only the loaded (non-kernel) names are carried on the span; the kernel count
+  // is the complement, so there's no need to materialize a second array for it.
+  const loaded = surfaced
+    .filter((tool) => tool.availability?.surface !== "kernel")
+    .map((tool) => tool.name);
+  startToolSurfaceSpan({
+    runId: args.runId,
+    workflow: args.workflow,
+    caller: args.spanCaller,
+    startedAt,
+  }).end({
+    activeCount: surfaced.length,
+    kernelCount: surfaced.length - loaded.length,
+    loadedCount: loaded.length,
+    loadedTools: loaded,
+    schemaBytes: budget.schemaBytes,
+    schemaTokens: budget.schemaTokens,
+    schemaRebuildMs: Date.now() - startMs,
+  });
+  return tools;
+}
+
+/**
  * First-turn deterministic preload, folded into the run's active surface and
  * traced as a `runtime.tool.preload` span. Idempotent on `state.preloadApplied`,
  * so it runs at most once per run. Shared by the chat-turn and brief workflows —
@@ -155,7 +221,12 @@ export function buildSdkToolSet(
  * error and propagates (the caller's step-retry owns recovery).
  */
 export async function applyPromptToolPreload(args: {
-  state: { activeTools: ToolName[]; allowedIntegrations: string[]; preloadApplied: boolean };
+  state: {
+    activeTools: ToolName[];
+    preloadedTools: ToolName[];
+    allowedIntegrations: string[];
+    preloadApplied: boolean;
+  };
   userId: string;
   runId: string;
   workflow: string;
@@ -188,6 +259,7 @@ export async function applyPromptToolPreload(args: {
     for (const toolName of preloaded) {
       args.state.activeTools = activateTool(args.state.activeTools, toolName);
     }
+    args.state.preloadedTools = uniqueToolNames([...args.state.preloadedTools, ...preloaded]);
     span.end(preloaded, args.state.activeTools.length);
   } catch (error) {
     span.error();

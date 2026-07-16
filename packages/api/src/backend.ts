@@ -28,6 +28,12 @@ export {
   type RunBottleneckStep,
   type RunBottleneckSummary,
 } from "./modules/agent/run-bottlenecks";
+export {
+  getRunToolSurfaceUsage,
+  invokedToolNamesFromTranscript,
+  summarizeToolSurfaceUsage,
+  type ToolSurfaceUsage,
+} from "./modules/agent/tool-surface-usage";
 export { chatTurnWorkflow, CHAT_TURN_WORKFLOW_SLUG } from "./modules/agent/workflows/chat-turn";
 export {
   userAuthoredBriefWorkflow,
