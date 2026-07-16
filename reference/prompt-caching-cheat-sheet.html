@@ -1,0 +1,58 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Prompt caching cheat sheet</title>
+  <link rel="stylesheet" href="../assets/lesson.css">
+</head>
+<body>
+<main>
+  <p class="frame-no">Alfred harness · Reference</p>
+  <h1>Prompt caching<br>cheat sheet</h1>
+  <p class="thesis"><code>cache_control</code> on X = create/check one cumulative prefix ending at X.</p>
+
+  <h2>Wire order</h2>
+  <p class="equation">tools → system → messages</p>
+  <p>A change invalidates its section and every section to its right.</p>
+
+  <h2>Modes</h2>
+  <table class="compact-table">
+    <tbody>
+      <tr><th>Automatic</th><td>Top-level marker; Anthropic targets the last eligible block and advances it as history grows.</td></tr>
+      <tr><th>Explicit</th><td>Block-level markers; you choose up to four prefix endpoints.</td></tr>
+      <tr><th>Combined</th><td>Allowed; the automatic endpoint consumes one of four slots.</td></tr>
+    </tbody>
+  </table>
+
+  <h2>Lifecycle</h2>
+  <p class="equation">miss → process prefix → write when response begins<br>hit → read prefix cheaply → process new suffix → refresh TTL</p>
+  <p>Default TTL is 5 minutes; 1 hour is available at a higher write price. The cache is only usable after the first response begins.</p>
+
+  <h2>Growing chat</h2>
+  <p class="equation">R1: T + S + U1 ◀ write<br>R2: [T + S + U1] + A1 + U2 ◀ read + delta write</p>
+  <p>An assistant answer becomes cacheable only when it returns as input in a later request.</p>
+
+  <h2>Alfred-specific</h2>
+  <ul>
+    <li>Active tools are alphabetically sorted before serialization.</li>
+    <li>Explicit endpoints: last tool, system, last message, and sometimes the message before a trailing tool-result burst.</li>
+    <li>Alfred's current client-side loaded tool changes the earliest prefix and causes one cold transition.</li>
+    <li>Anthropic-native <code>defer_loading</code> is different: discovered schemas are inserted later as <code>tool_reference</code> blocks, preserving the early prefix.</li>
+    <li>Changing runtime time stays in a later suffix, preserving stable endpoints.</li>
+    <li>Verify with cache read/write token fields, never latency alone.</li>
+  </ul>
+
+  <h2>Frequent traps</h2>
+  <ul>
+    <li>“The marked block alone is cached.” False: the whole preceding prefix is included.</li>
+    <li>“Stable content behind a changing marker will be discovered.” Only if a prior request actually wrote an entry within the 20-block lookback window.</li>
+    <li>“Automatic mode survives ordinary tool-array changes.” False: it automates endpoint placement, not prefix identity.</li>
+    <li>“All lazy loading must break the cache.” False: provider-native deferred tool search preserves the prefix by changing where schemas appear.</li>
+    <li>“A successful answer proves a cache hit.” Caching affects cost and latency, not logical correctness.</li>
+  </ul>
+
+  <p class="sources"><a href="../lessons/0002-explicit-vs-automatic-prompt-caching.html">Interactive lesson</a> · <a href="https://platform.claude.com/docs/en/build-with-claude/prompt-caching">Anthropic primary documentation</a></p>
+</main>
+</body>
+</html>
