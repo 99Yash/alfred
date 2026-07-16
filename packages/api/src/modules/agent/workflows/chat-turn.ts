@@ -1446,7 +1446,8 @@ export async function guardSpawnedChildren(
   // boundary `assistantText` is always non-empty; the guard only runs after the
   // empty-text check above it. The guard still gates on it to stay correct if
   // re-ordered.)
-  if (state.assistantText.trim().length > 0) {
+  const closedPrematureAnswer = state.assistantText.trim().length > 0;
+  if (closedPrematureAnswer) {
     state.narration = [
       ...state.narration,
       { index: state.segmentIndex, text: state.assistantText },
@@ -1476,7 +1477,26 @@ export async function guardSpawnedChildren(
     });
   }
 
-  const nextTranscript = foldMessages.length > 0 ? [...transcript, ...foldMessages] : transcript;
+  // The premature assistant answer we just closed into narration is still the
+  // tail of `transcript` (`appendModelResponseMessages` appended it before the
+  // guard ran). Drop it so the transcript we forward never ends in that
+  // assistant message. This is load-bearing on the PARK path: the parked
+  // transcript becomes `ctx.transcript` and the resumed step re-invokes the
+  // model with it (top of `chat-turn`) BEFORE this guard runs again to fold the
+  // now-terminal child. A transcript ending in an assistant message is an
+  // illegal prefill under extended thinking — Anthropic 400s with "the
+  // conversation must end with a user message", which previously retried 9× and
+  // failed the turn ("Something interrupted this reply."). Stripping it leaves
+  // the tail at the tool results (park with no folds) or the synthetic user
+  // fold (folds present), both legal turn-enders, and keeps the regenerated
+  // reply from being anchored to the uninformed answer. `state.narration`
+  // already carries that text for the UI, so nothing is lost.
+  const baseTranscript =
+    closedPrematureAnswer && transcript.at(-1)?.role === "assistant"
+      ? transcript.slice(0, -1)
+      : transcript;
+  const nextTranscript =
+    foldMessages.length > 0 ? [...baseTranscript, ...foldMessages] : baseTranscript;
 
   if (parkOn.length > 0) {
     return {
