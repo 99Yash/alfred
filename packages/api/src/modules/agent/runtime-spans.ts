@@ -25,6 +25,7 @@
 
 import { startRuntimeSpan, type RuntimeSpanCloser, type RuntimeSpanInput } from "@alfred/ai";
 import type { ToolName } from "@alfred/contracts";
+import type { ToolUnavailabilityCode } from "../integrations/availability";
 import type { DispatchResult } from "../dispatch";
 import { classifyLatency } from "./runtime-thresholds";
 
@@ -641,7 +642,17 @@ export function startToolSearchSpan(args: ToolSearchSpanArgs): ToolSearchSpanClo
 export const RUNTIME_TOOL_LOAD = "runtime.tool_load";
 
 /** Outcome of an exact tool load — mirrors `resolveExactToolLoad`. */
-export type ToolLoadOutcome = "ok" | "unknown_tool" | "not_allowed" | "unavailable";
+export type ToolLoadOutcome = "ok" | "unknown_tool" | ToolUnavailabilityCode;
+
+/**
+ * How a lazy tool reached the active surface. A `runtime.tool_load` span is
+ * emitted for both, so a count of the span reflects every lazy activation — not
+ * only the explicit half (#414). `model_load`: the model called
+ * `system.load_tool`. `inactive_bounce`: the model called the tool directly, the
+ * dispatcher bounced the schema-blind call, and the workflow auto-activated it
+ * for the next turn.
+ */
+export type ToolLoadSource = "model_load" | "inactive_bounce";
 
 export interface ToolLoadSpanArgs {
   runId: string;
@@ -649,6 +660,8 @@ export interface ToolLoadSpanArgs {
   caller: string;
   /** Bounded exact-name candidate requested by the model (`loadToolInput` caps it at 120 chars). */
   toolName: string;
+  /** Which path activated the tool; separable in dashboards without splitting the span name. */
+  source: ToolLoadSource;
   startedAt: Date;
 }
 
@@ -659,7 +672,7 @@ export function buildToolLoadSpanInput(args: ToolLoadSpanArgs): RuntimeSpanInput
     name: RUNTIME_TOOL_LOAD,
     startedAt: args.startedAt,
     metadata: {
-      source: "model_load",
+      source: args.source,
       caller: args.caller,
       toolName: args.toolName,
     },

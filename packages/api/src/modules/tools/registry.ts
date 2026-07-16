@@ -16,6 +16,7 @@
 import type { ActionSlug, IntegrationSlug, ToolName, ToolRiskTier } from "@alfred/contracts";
 import { buildToolName, INTEGRATION_ACTIONS, integrationFromToolName } from "@alfred/contracts";
 import type { z } from "zod";
+import { deriveToolDiscovery, type ResolvedDiscovery } from "./metadata-defaults";
 
 export interface ToolDiscoveryMetadata {
   /** Compact model-facing name; defaults to the humanized action slug. */
@@ -138,7 +139,7 @@ export interface RegisteredTool {
   action: string;
   riskTier: ToolRiskTier;
   description: string;
-  discovery: Required<Pick<ToolDiscoveryMetadata, "title" | "summary">> & ToolDiscoveryMetadata;
+  discovery: ResolvedDiscovery;
   availability?: ToolAvailabilityMetadata;
   inputSchema: z.ZodTypeAny;
   execute: (input: unknown, ctx: ToolExecuteContext) => Promise<unknown>;
@@ -158,18 +159,22 @@ export function liveTool<
   S extends z.ZodTypeAny,
 >(args: LiveToolArgs<I, A, S>): RegisteredTool {
   const name = buildToolName(args.integration, args.action);
-  const title = args.discovery?.title ?? humanizeAction(args.action);
   return {
     name,
     integration: args.integration,
     action: args.action,
     riskTier: args.riskTier,
     description: args.description,
-    discovery: {
-      ...args.discovery,
-      title,
-      summary: args.discovery?.summary ?? args.description,
-    },
+    // Every tool carries a derived discovery baseline (#413) so it is findable
+    // by capability, not only by its exact canonical name; hand-authored copy in
+    // `args.discovery` merges on top as a local override.
+    discovery: deriveToolDiscovery({
+      integration: args.integration,
+      action: args.action,
+      description: args.description,
+      inputSchema: args.inputSchema,
+      overrides: args.discovery,
+    }),
     availability: args.availability,
     inputSchema: args.inputSchema,
     execute: async (input, ctx) => {
@@ -278,10 +283,6 @@ export function assertKernelToolsRegistered(declaredTools: readonly RegisteredTo
       `Declared system kernel tools are not registered: ${missing.map((tool) => tool.name).join(", ")}`,
     );
   }
-}
-
-function humanizeAction(action: string): string {
-  return action.replaceAll("_", " ").replace(/\b\w/g, (character) => character.toUpperCase());
 }
 
 /** Per-tier counts for one integration. UX hint only (see file header). */
