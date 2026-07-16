@@ -158,7 +158,10 @@ export const systemTools: readonly RegisteredTool[] = [
             hasThread: !!ctx.threadId,
           },
         });
-        span.end({ candidateCount: candidates.length, latencyMs: Date.now() - startMs });
+        span.end({
+          candidateNames: candidates.map((candidate) => candidate.name),
+          latencyMs: Date.now() - startMs,
+        });
         return { ok: true, candidates };
       } catch (error) {
         span.error();

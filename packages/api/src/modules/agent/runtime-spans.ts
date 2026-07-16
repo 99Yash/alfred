@@ -28,6 +28,19 @@ import type { ToolName } from "@alfred/contracts";
 import type { DispatchResult } from "../dispatch";
 import { classifyLatency } from "./runtime-thresholds";
 
+/**
+ * Cap a joined tool-name list so span metadata stays bounded — the single owner
+ * of that rule. Every runtime span that emits a tool-name list (preload,
+ * surface, search) routes through this, so an unbounded `join(",")` can't leak
+ * back into span metadata one closer at a time. Returns null for an empty list
+ * so a "no names" span reads as absent rather than an empty string.
+ */
+function boundedNameList(names: readonly string[]): string | null {
+  if (names.length === 0) return null;
+  const joined = names.join(",");
+  return joined.length <= 800 ? joined : `${joined.slice(0, 797)}...`;
+}
+
 /** Stable observation name for the dispatch-batch runtime span (PRD #405). */
 export const RUNTIME_DISPATCH_BATCH = "runtime.dispatch.batch";
 
@@ -82,7 +95,7 @@ export function startToolPreloadSpan(args: ToolPreloadSpanArgs): ToolPreloadSpan
         status: selectedTools.length > 0 ? "selected" : "no_match",
         metadata: {
           selectedCount: selectedTools.length,
-          selectedTools: selectedTools.length > 0 ? selectedTools.join(",") : null,
+          selectedTools: boundedNameList(selectedTools),
           activeAfter,
         },
       });
@@ -462,13 +475,6 @@ export function startQueueLeaseSpan(args: QueueLeaseSpanArgs): QueueLeaseSpanClo
  * metadata is too weak for search to find the right tool.
  * ------------------------------------------------------------------------- */
 
-/** Cap a joined tool-name list so span metadata stays bounded. */
-function boundedNameList(names: readonly string[]): string | null {
-  if (names.length === 0) return null;
-  const joined = names.join(",");
-  return joined.length <= 800 ? joined : `${joined.slice(0, 797)}...`;
-}
-
 /** Stable observation name for the per-turn tool-surface runtime span (PRD #405). */
 export const RUNTIME_TOOL_SURFACE = "runtime.tool_surface";
 
@@ -508,8 +514,14 @@ export interface ToolSurfaceSummary {
   schemaBytes: number;
   /** The same payload as an approximate token count. */
   schemaTokens: number;
-  /** Wall time to build + estimate the surface (ms); judged against `schema_build`. */
-  schemaBuildMs: number;
+  /**
+   * Wall time to *rebuild* the surface (ms) — the SDK tool set and per-tool
+   * schema sizes are both memoized, so this is near-zero on a steady-state turn
+   * and only spikes when a never-before-seen active-set forces a cold rebuild.
+   * It measures rebuild cost / cache churn, not the surface's size (that is
+   * `schemaBytes`/`schemaTokens`); judged against the `schema_rebuild` band.
+   */
+  schemaRebuildMs: number;
 }
 
 export interface ToolSurfaceSpanCloser {
@@ -520,9 +532,10 @@ export interface ToolSurfaceSpanCloser {
 /**
  * Open a `runtime.tool_surface` span for one model turn. Records the active
  * surface size, the kernel/loaded split, the loaded tool names, and the
- * estimated schema payload, plus a `schema_build` health band so an over-budget
- * surface is filterable. Building the surface is expected work, so it closes at
- * level DEFAULT. Idempotent — only the first `end`/`error` closes.
+ * estimated schema payload (the budget signal), plus a `schema_rebuild` health
+ * band that flags a cold surface rebuild (near-zero on memoized turns).
+ * Building the surface is expected work, so it closes at level DEFAULT.
+ * Idempotent — only the first `end`/`error` closes.
  */
 export function startToolSurfaceSpan(args: ToolSurfaceSpanArgs): ToolSurfaceSpanCloser {
   const span = runtimeSpanStarter(buildToolSurfaceSpanInput(args));
@@ -540,8 +553,8 @@ export function startToolSurfaceSpan(args: ToolSurfaceSpanArgs): ToolSurfaceSpan
           loadedTools: boundedNameList(summary.loadedTools),
           schemaBytes: summary.schemaBytes,
           schemaTokens: summary.schemaTokens,
-          schemaBuildMs: summary.schemaBuildMs,
-          schemaBuildHealth: classifyLatency("schema_build", summary.schemaBuildMs),
+          schemaRebuildMs: summary.schemaRebuildMs,
+          schemaRebuildHealth: classifyLatency("schema_rebuild", summary.schemaRebuildMs),
         },
       });
     },
@@ -580,8 +593,13 @@ export function buildToolSearchSpanInput(args: ToolSearchSpanArgs): RuntimeSpanI
 }
 
 export interface ToolSearchSpanCloser {
-  /** Close with the candidate count and measured latency; a zero count is a miss. */
-  end(result: { candidateCount: number; latencyMs: number }): void;
+  /**
+   * Close with the candidate tool names the search returned and measured
+   * latency. An empty list is a `miss`. The names are recorded (bounded) so
+   * discovery tuning can tell "found the wrong tools" from "found nothing" —
+   * the more common metadata gap — instead of collapsing to a hit/miss binary.
+   */
+  end(result: { candidateNames: readonly ToolName[]; latencyMs: number }): void;
   error(): void;
 }
 
@@ -589,20 +607,23 @@ export interface ToolSearchSpanCloser {
  * Open a `runtime.tool_search` span around a model-facing catalog search. A
  * search returning no candidates is a `miss` — the discovery-metadata gap the
  * PRD wants visible (User Story 17) — not an error, so it closes at DEFAULT with
- * `status:"miss"`. Latency is judged against the `tool_search` debug band.
- * Idempotent — only the first `end`/`error` closes.
+ * `status:"miss"`. The returned candidate names (not PII) are recorded bounded
+ * so an operator can see *what* was surfaced, not just how many. Latency is
+ * judged against the `tool_search` debug band. Idempotent — only the first
+ * `end`/`error` closes.
  */
 export function startToolSearchSpan(args: ToolSearchSpanArgs): ToolSearchSpanCloser {
   const span = runtimeSpanStarter(buildToolSearchSpanInput(args));
   let ended = false;
   return {
-    end({ candidateCount, latencyMs }) {
+    end({ candidateNames, latencyMs }) {
       if (ended) return;
       ended = true;
       span.end({
-        status: candidateCount > 0 ? "hit" : "miss",
+        status: candidateNames.length > 0 ? "hit" : "miss",
         metadata: {
-          candidateCount,
+          candidateCount: candidateNames.length,
+          candidateTools: boundedNameList(candidateNames),
           latencyMs,
           latencyHealth: classifyLatency("tool_search", latencyMs),
         },
