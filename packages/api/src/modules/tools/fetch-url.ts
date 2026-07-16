@@ -33,6 +33,8 @@ import dns from "node:dns";
 import { isIP, type LookupFunction } from "node:net";
 import { Readable, type Transform } from "node:stream";
 import { createBrotliDecompress, createGunzip, createInflate } from "node:zlib";
+import { getPath, isNonEmptyString } from "@alfred/contracts";
+import { serverEnv } from "@alfred/env/server";
 import { Agent, request as undiciRequest } from "undici";
 
 /** Hard cap on returned text so a large page can't blow the caller's context. */
@@ -51,6 +53,21 @@ const USER_AGENT = "Mozilla/5.0 (compatible; AlfredBot/1.0; +https://github.com/
 
 const ACCEPT = "text/html,application/xhtml+xml,text/plain,application/json;q=0.9,*/*;q=0.5";
 const ACCEPT_ENCODING = "br, gzip, deflate";
+
+/**
+ * Below this many non-whitespace characters, an HTML page has effectively no
+ * readable copy — treated as {@link FetchUrlError.reason} `"empty_content"`
+ * (#509) rather than a successful empty read.
+ */
+const MIN_READABLE_CHARS = 20;
+
+/**
+ * …but only when the raw markup was non-trivial. A tiny real page (a bare
+ * redirect stub) is legitimately empty; a client-rendered app ships a large
+ * `<script>`-heavy shell. This guards against flagging the former.
+ */
+const NONTRIVIAL_HTML_BYTES = 500;
+
 
 /** Control bytes to drop from extracted text (keeps tab `\t` and newline `\n`). */
 // eslint-disable-next-line no-control-regex -- matching control bytes is the point: we strip them.
@@ -93,7 +110,12 @@ export interface FetchUrlError {
     | "unsupported_content_type"
     | "too_large"
     | "http_error"
-    | "fetch_failed";
+    | "fetch_failed"
+    // The page returned a 200 with markup but no extractable text — a
+    // client-rendered app whose content needs a browser to run its JS (#509).
+    // Distinct from a genuinely empty page so the boss can pivot/relay instead
+    // of reading silence as absence.
+    | "empty_content";
   /** A plain-language explanation the boss can relay to the user. */
   message: string;
   /** Redirect hops taken before the failure, when any (see {@link FetchUrlOk.redirects}). */
@@ -445,6 +467,23 @@ export interface RawResponse {
 }
 
 export type Transport = (url: string, signal: AbortSignal) => Promise<RawResponse>;
+
+/**
+ * Renders a JS-heavy URL through a headless browser and returns its extracted
+ * text, or `null` when rendering is unavailable (no key) or yields nothing.
+ * Injectable so tests don't hit the network.
+ */
+export type Renderer = (
+  url: string,
+  signal: AbortSignal,
+) => Promise<{ text: string; title?: string } | null>;
+
+export interface FetchUrlDeps {
+  /** Injectable HTTP seam for the direct fetch (tests). Defaults to {@link safeRequest}. */
+  transport?: Transport;
+  /** Injectable render seam for the #509/#510 escalation. Defaults to Firecrawl. */
+  render?: Renderer;
+}
 
 /** The slice of `undici.request` {@link safeRequest} uses — injectable for tests. */
 export interface UndiciResponseLike {
@@ -1002,16 +1041,109 @@ function redactFetchResult(r: FetchUrlResult): FetchUrlResult {
   };
 }
 
+const FIRECRAWL_TIMEOUT_MS = 30_000;
+
+/**
+ * Live Firecrawl `/v1/scrape` render (#510). Runs the page in a headless browser
+ * and returns extracted markdown. Returns `null` — never throws to the caller —
+ * when no key is configured, the request fails, or the render is empty, so the
+ * honest `empty_content` result stands. Firecrawl is a trusted first party (our
+ * own key), so this bypasses the SSRF-pinned {@link safeRequest}; the arbitrary
+ * user URL is the *payload*, rendered on Firecrawl's side, not a socket we open.
+ */
+const liveFirecrawlRender: Renderer = async (url, signal) => {
+  const env = serverEnv();
+  if (!env.FIRECRAWL_API_KEY) return null;
+  let res: Response;
+  try {
+    res = await fetch(`${env.FIRECRAWL_BASE_URL}/v1/scrape`, {
+      method: "POST",
+      headers: {
+        authorization: `Bearer ${env.FIRECRAWL_API_KEY}`,
+        "content-type": "application/json",
+      },
+      body: JSON.stringify({ url, formats: ["markdown"], onlyMainContent: true }),
+      signal,
+    });
+  } catch {
+    return null;
+  }
+  if (!res.ok) return null;
+  let json: unknown;
+  try {
+    json = await res.json();
+  } catch {
+    return null;
+  }
+  // External JSON — validate the shape we read rather than trust it (#286 posture).
+  const markdown = getPath(json, "data", "markdown");
+  if (!isNonEmptyString(markdown)) return null;
+  const title = getPath(json, "data", "metadata", "title");
+  return { text: markdown, ...(isNonEmptyString(title) ? { title } : {}) };
+};
+
+/**
+ * The #509/#510 escalation body: render {@link args.url}, and on a usable result
+ * return it as a normal {@link FetchUrlOk} (text capped like the direct path).
+ * Returns `null` when the renderer yields nothing, so the caller keeps the
+ * honest `empty_content`.
+ */
+async function renderViaFirecrawl(
+  args: FetchUrlArgs,
+  deps: FetchUrlDeps,
+): Promise<FetchUrlResult | null> {
+  const render = deps.render ?? liveFirecrawlRender;
+  const signal = args.abortSignal ?? AbortSignal.timeout(FIRECRAWL_TIMEOUT_MS);
+  let out: Awaited<ReturnType<Renderer>>;
+  try {
+    out = await render(args.url, signal);
+  } catch {
+    return null;
+  }
+  if (!out || out.text.replace(/\s+/g, "").length < MIN_READABLE_CHARS) return null;
+
+  const truncated = out.text.length > MAX_TEXT_CHARS;
+  const text = truncated ? out.text.slice(0, MAX_TEXT_CHARS) : out.text;
+  return {
+    ok: true,
+    url: args.url,
+    finalUrl: args.url,
+    contentType: "text/markdown",
+    ...(out.title ? { title: out.title } : {}),
+    text,
+    chars: text.length,
+    truncated,
+  };
+}
+
 export async function runFetchUrl(
   args: FetchUrlArgs,
-  deps: { transport?: Transport } = {},
+  deps: FetchUrlDeps = {},
 ): Promise<FetchUrlResult> {
-  return redactFetchResult(await runFetchUrlImpl(args, deps));
+  const direct = await runFetchUrlImpl(args, deps);
+
+  // #509/#510 — a JS-rendered page (x.com, LinkedIn, many SPAs) reads back
+  // empty. Escalate that one honest signal to a headless render+extract pass
+  // (Firecrawl) against the SAME URL: general, not per-host. When no renderer is
+  // configured, or it also comes back empty, the honest `empty_content` stands
+  // so the boss can relay or pivot rather than treat silence as absence.
+  //
+  // SSRF: escalation only fires on `empty_content`, which the direct fetch only
+  // returns after safeRequest already resolved + connect-pinned the host (and
+  // every redirect hop) to a public IP and got a 200 HTML shell back. So a URL
+  // that reaches Firecrawl has already cleared our host guard — a blocked/
+  // private host errors as `blocked_host` upstream and never gets here.
+  if (!direct.ok && direct.reason === "empty_content") {
+    const rendered = await renderViaFirecrawl(args, deps);
+    if (rendered) return redactFetchResult(rendered);
+  }
+
+  return redactFetchResult(direct);
 }
 
 async function runFetchUrlImpl(
   args: FetchUrlArgs,
-  deps: { transport?: Transport } = {},
+  deps: FetchUrlDeps = {},
 ): Promise<FetchUrlResult> {
   const transport = deps.transport ?? safeRequest;
   const signal = args.abortSignal ?? AbortSignal.timeout(FETCH_TIMEOUT_MS);
@@ -1133,6 +1265,30 @@ async function runFetchUrlImpl(
 
   const truncated = body.length > MAX_TEXT_CHARS;
   const text = truncated ? body.slice(0, MAX_TEXT_CHARS) : body;
+
+  // #509 — a client-rendered SPA (x.com, many JS apps) serves a 200 text/html
+  // shell that's almost all <script>, so extraction yields no readable copy. A
+  // successful-but-empty read is indistinguishable from a page that genuinely
+  // has nothing, so the boss reads "I couldn't read this" as "there's nothing
+  // here" and moves on silently. Flag it as a distinct, honest failure: the page
+  // HAD markup but no extractable text. Plain-text bodies are exempt — an empty
+  // .txt is legitimately empty, not an unrendered app.
+  if (
+    looksHtml &&
+    text.replace(/\s+/g, "").length < MIN_READABLE_CHARS &&
+    decoded.trim().length >= NONTRIVIAL_HTML_BYTES
+  ) {
+    return {
+      ok: false,
+      url: args.url,
+      finalUrl,
+      contentType: contentType || "text/html",
+      reason: "empty_content",
+      message:
+        "This page returned no readable text — it looks like a client-rendered app that needs a browser to run its JavaScript before any content appears. Its text can't be read directly.",
+      ...(raw.redirectChain && raw.redirectChain.length > 0 ? { redirects: raw.redirectChain } : {}),
+    };
+  }
 
   return {
     ok: true,

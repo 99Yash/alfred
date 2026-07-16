@@ -283,6 +283,76 @@ describe("runFetchUrl (stubbed transport)", () => {
     }
   });
 
+  // #509 — a client-rendered shell: lots of markup, no extractable text.
+  const jsShell = `<!doctype html><html><head><title>x</title></head><body>${"<script>var a=1;</script>".repeat(50)}<div id="root"></div></body></html>`;
+
+  test("#509 flags a JS shell (markup but no text) as empty_content", async () => {
+    const r = await runFetchUrl(
+      { url: "https://x.com/thdxr" },
+      { transport: transportOf({ contentType: "text/html", body: jsShell }), render: async () => null },
+    );
+    assert.equal(r.ok, false);
+    if (!r.ok) assert.equal(r.reason, "empty_content");
+  });
+
+  test("#509 does NOT flag a small legitimately-empty page", async () => {
+    // Below NONTRIVIAL_HTML_BYTES — a bare stub is genuinely empty, not unrendered.
+    const r = await runFetchUrl(
+      { url: "https://example.com/blank" },
+      { transport: transportOf({ contentType: "text/html", body: "<html><body></body></html>" }) },
+    );
+    assert.equal(r.ok, true);
+    if (r.ok) assert.equal(r.chars, 0);
+  });
+
+  test("#510 escalates empty_content to the renderer and returns its text", async () => {
+    const r = await runFetchUrl(
+      { url: "https://x.com/thdxr" },
+      {
+        transport: transportOf({ contentType: "text/html", body: jsShell }),
+        render: async (url) => {
+          assert.equal(url, "https://x.com/thdxr"); // renders the SAME url
+          return { text: "building @opencode at @anomalyco / not the ceo", title: "dax (@thdxr)" };
+        },
+      },
+    );
+    assert.equal(r.ok, true);
+    if (r.ok) {
+      assert.match(r.text, /building @opencode/);
+      assert.equal(r.title, "dax (@thdxr)");
+      assert.equal(r.contentType, "text/markdown");
+      assert.equal(r.finalUrl, "https://x.com/thdxr");
+    }
+  });
+
+  test("#510 keeps honest empty_content when the renderer yields nothing", async () => {
+    const r = await runFetchUrl(
+      { url: "https://x.com/thdxr" },
+      {
+        transport: transportOf({ contentType: "text/html", body: jsShell }),
+        render: async () => ({ text: "   " }), // whitespace-only → below MIN_READABLE_CHARS
+      },
+    );
+    assert.equal(r.ok, false);
+    if (!r.ok) assert.equal(r.reason, "empty_content");
+  });
+
+  test("#510 does not escalate a normal readable page", async () => {
+    let rendered = false;
+    const r = await runFetchUrl(
+      { url: "https://www.yashk.xyz" },
+      {
+        transport: transportOf({ body: "<html><body><p>a real page with plenty of readable copy here</p></body></html>" }),
+        render: async () => {
+          rendered = true;
+          return { text: "should not be used" };
+        },
+      },
+    );
+    assert.equal(r.ok, true);
+    assert.equal(rendered, false);
+  });
+
   test("passes plain text through without HTML stripping", async () => {
     const r = await runFetchUrl(
       { url: "https://example.com/robots.txt" },
