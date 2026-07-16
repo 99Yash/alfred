@@ -5,6 +5,7 @@ import { IntegrationIcon, type IntegrationBrand } from "~/lib/integrations/integ
 import { lowerFirst } from "~/lib/strings";
 import { cn } from "~/lib/utils";
 import { animatedToolIcon, type AnimatedIcon } from "./animated-tool-icons";
+import { ChatProse } from "./chat-prose";
 import { ToolCallCard } from "./tool-call-card";
 import { presentTool, toolCategory, type ToolCallView } from "./tool-call-presentation";
 
@@ -269,11 +270,11 @@ export function ToolCallGroup({
  */
 function NarrationRow({ text }: { text: string }) {
   return (
-    <div className="animate-chat-in flex items-start gap-2 text-[13px] leading-relaxed text-app-fg-3">
+    <div className="animate-chat-in flex items-start gap-2">
       <span aria-hidden className="flex size-6 shrink-0 items-center justify-center">
         <span className="size-1.5 rounded-full bg-app-fg-2" />
       </span>
-      <span className="min-w-0 py-0.5">{text}</span>
+      <ChatProse className="min-w-0 flex-1 py-0.5">{text}</ChatProse>
     </div>
   );
 }

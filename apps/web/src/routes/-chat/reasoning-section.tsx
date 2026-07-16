@@ -1,10 +1,8 @@
 import * as Accordion from "@radix-ui/react-accordion";
 import { ChevronRight } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
-import ReactMarkdown from "react-markdown";
-import remarkBreaks from "remark-breaks";
-import remarkGfm from "remark-gfm";
 import { cn } from "~/lib/utils";
+import { ChatProse } from "./chat-prose";
 
 const ITEM = "reasoning";
 
@@ -112,15 +110,9 @@ export function ReasoningSection({
         <Accordion.Content className="data-[state=closed]:animate-chat-accordion-up data-[state=open]:animate-chat-accordion-down overflow-hidden">
           <div
             ref={contentRef}
-            className={cn(
-              "mt-1.5 max-h-72 overflow-y-auto overscroll-contain border-l-2 border-app-fg-a1 pr-1 pl-3 text-[13px] leading-relaxed text-app-fg-3",
-              "[&_p]:my-1.5 [&_p:first-child]:mt-0 [&_p:last-child]:mb-0",
-              "[&_ol]:my-1.5 [&_ol]:list-decimal [&_ol]:pl-4 [&_ul]:my-1.5 [&_ul]:list-disc [&_ul]:pl-4",
-              "[&_code]:rounded [&_code]:bg-app-bg-2 [&_code]:px-1 [&_code]:py-0.5 [&_code]:text-[0.9em]",
-              "[&_strong]:font-semibold [&_strong]:text-app-fg-4",
-            )}
+            className="mt-1.5 max-h-72 overflow-y-auto overscroll-contain border-l-2 border-app-fg-a1 pr-1 pl-3"
           >
-            <ReactMarkdown remarkPlugins={[remarkGfm, remarkBreaks]}>{reasoning}</ReactMarkdown>
+            <ChatProse>{reasoning}</ChatProse>
           </div>
         </Accordion.Content>
       </Accordion.Item>
