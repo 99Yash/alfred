@@ -37,8 +37,9 @@ import {
   activateTool,
   applyPromptToolPreload,
   applySystemToolEffect,
-  buildSdkToolSet,
+  buildTurnToolSurface,
   migrateActiveTools,
+  migrateRecordedToolNames,
   registeredToolNamesForIntegrations,
   systemToolKernel,
 } from "../tool-surface";
@@ -75,6 +76,8 @@ const briefRunStateSchema = z
     // Persisted under an older deploy, so names may refer to tools that have
     // since been retired. The transform below drops anything not in today's registry.
     activeTools: z.array(z.string()).optional(),
+    // Exact first-turn deterministic selections for #414 preload hit/miss accounting.
+    preloadedTools: z.array(z.string()).default([]),
     // Read only while resuming checkpoints created before exact tool surfaces.
     activeIntegrations: z.array(z.string().min(1)).optional(),
     preloadApplied: z.boolean().default(false),
@@ -102,12 +105,15 @@ const briefRunStateSchema = z
     // Default 0 for runs minted before the field existed.
     emptyRetries: z.number().int().min(0).default(0),
   })
-  .transform(({ activeIntegrations, activeTools, ...state }) => ({
+  .transform(({ activeIntegrations, activeTools, preloadedTools, ...state }) => ({
     ...state,
     activeTools: migrateActiveTools(
       activeTools,
       activeIntegrations,
       state.pendingToolCalls.map((call) => call.toolName),
+    ),
+    preloadedTools: migrateRecordedToolNames(preloadedTools).filter(
+      (name) => !systemToolKernel().includes(name),
     ),
   }));
 type BriefRunState = z.infer<typeof briefRunStateSchema>;
@@ -248,9 +254,12 @@ const bossTurnStep: Step<BriefRunState> = {
         ? buildSubAgentSystemPrompt(grounding, state.connectedSummary, subAgent.subId)
         : buildBossSystemPrompt(grounding, state.connectedSummary),
       tools: () =>
-        buildSdkToolSet(state.activeTools, {
-          caller: subAgent ? "sub_agent" : "boss",
-          hasThread: false,
+        buildTurnToolSurface({
+          activeTools: state.activeTools,
+          context: { caller: subAgent ? "sub_agent" : "boss", hasThread: false },
+          runId: ctx.runId,
+          workflow: USER_AUTHORED_BRIEF_WORKFLOW_SLUG,
+          spanCaller: subAgent ? `sub:${subAgent.subId}` : "boss",
         }),
       model: subAgent ? getSubAgentModel() : getBossModel(),
       attribution: {
@@ -621,11 +630,10 @@ export const userAuthoredBriefWorkflow: Workflow<BriefRunState> = {
       ...parseIntegrationMentions(input.brief, allowedIntegrations),
       ...eventSeed.filter((slug) => integrationAllowed(slug, allowedIntegrations)),
     ]);
+    const preloadedTools = registeredToolNamesForIntegrations(seededIntegrations);
     return {
-      activeTools: [
-        ...systemToolKernel(),
-        ...registeredToolNamesForIntegrations(seededIntegrations),
-      ],
+      activeTools: [...systemToolKernel(), ...preloadedTools],
+      preloadedTools,
       preloadApplied: false,
       allowedIntegrations: [...allowedIntegrations],
       pendingToolCalls: [],

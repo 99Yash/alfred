@@ -38,6 +38,8 @@ import {
 import type { ToolExecuteContext } from "./registry";
 import { readUserContext } from "../memory/user-context";
 import { readChatHistory } from "../agent/compaction";
+import { startToolLoadSpan, startToolSearchSpan } from "../agent/runtime-spans";
+import { callerLabel } from "../dispatch";
 import {
   editStandingInstruction,
   forgetStandingInstruction,
@@ -137,19 +139,35 @@ export const systemTools: readonly RegisteredTool[] = [
       relatedTools: ["system.load_tool"],
     },
     inputSchema: searchToolsInput,
-    execute: async (input, ctx) => ({
-      ok: true,
-      candidates: await searchAvailableTools({
-        userId: ctx.userId,
-        query: input.query,
-        limit: input.limit,
-        allowedIntegrations: ctx.allowedIntegrations ?? [],
-        context: {
-          caller: ctx.caller === "boss" ? "boss" : "sub_agent",
-          hasThread: !!ctx.threadId,
-        },
-      }),
-    }),
+    execute: async (input, ctx) => {
+      const span = startToolSearchSpan({
+        runId: ctx.runId,
+        caller: callerLabel(ctx.caller),
+        queryChars: input.query.length,
+        startedAt: new Date(),
+      });
+      const startMs = Date.now();
+      try {
+        const candidates = await searchAvailableTools({
+          userId: ctx.userId,
+          query: input.query,
+          limit: input.limit,
+          allowedIntegrations: ctx.allowedIntegrations ?? [],
+          context: {
+            caller: ctx.caller === "boss" ? "boss" : "sub_agent",
+            hasThread: !!ctx.threadId,
+          },
+        });
+        span.end({
+          candidateNames: candidates.map((candidate) => candidate.name),
+          latencyMs: Date.now() - startMs,
+        });
+        return { ok: true, candidates };
+      } catch (error) {
+        span.error();
+        throw error;
+      }
+    },
   }),
   liveTool({
     integration: "system",
@@ -168,16 +186,34 @@ export const systemTools: readonly RegisteredTool[] = [
       relatedTools: ["system.search_tools"],
     },
     inputSchema: loadToolInput,
-    execute: async (input, ctx) =>
-      resolveExactToolLoad({
-        userId: ctx.userId,
-        name: input.name,
-        allowedIntegrations: ctx.allowedIntegrations ?? [],
-        context: {
-          caller: ctx.caller === "boss" ? "boss" : "sub_agent",
-          hasThread: !!ctx.threadId,
-        },
-      }),
+    execute: async (input, ctx) => {
+      const span = startToolLoadSpan({
+        runId: ctx.runId,
+        caller: callerLabel(ctx.caller),
+        toolName: input.name,
+        startedAt: new Date(),
+      });
+      const startMs = Date.now();
+      try {
+        const result = await resolveExactToolLoad({
+          userId: ctx.userId,
+          name: input.name,
+          allowedIntegrations: ctx.allowedIntegrations ?? [],
+          context: {
+            caller: ctx.caller === "boss" ? "boss" : "sub_agent",
+            hasThread: !!ctx.threadId,
+          },
+        });
+        span.end({
+          outcome: result.ok ? "ok" : result.status,
+          latencyMs: Date.now() - startMs,
+        });
+        return result;
+      } catch (error) {
+        span.error();
+        throw error;
+      }
+    },
   }),
   liveTool({
     integration: "system",

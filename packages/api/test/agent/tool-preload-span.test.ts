@@ -43,6 +43,7 @@ describe("runtime.tool.preload", () => {
     assert.equal(input.runId, "run_preload");
     assert.equal(input.startedAt, args.startedAt);
     assert.deepEqual(input.metadata, {
+      source: "deterministic_preload",
       workflow: "__chat-turn__",
       caller: "boss",
       activeBefore: 8,
