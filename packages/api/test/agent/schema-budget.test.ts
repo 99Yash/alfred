@@ -20,15 +20,18 @@ import { registerBuiltinTools } from "../../src/modules/tools";
  * registry: a giant schema slipping into the kernel, or an integration doubling
  * its surface, trips a ceiling here instead of silently inflating every prompt.
  *
- * Ceilings sit ~30-40% above the measured surface so ordinary description edits
- * pass, but adding a whole tool to the kernel (the smallest bad regression, ~2KB)
- * or a large new integration to the full surface fails. When a ceiling legitimately
- * needs to rise, bump it deliberately — the bump is the review signal.
+ * The kernel ceiling is a *tight* ratchet: the kernel schema is paid on every
+ * single prompt, so it sits only ~10-15% above the measured surface — enough for
+ * ordinary description edits, but a new tool declared `surface:"kernel"` (even a
+ * medium ~1KB one, well under the old 8KB ceiling) trips it. The full-surface
+ * ceiling keeps a looser ~30% margin since it is only paid when everything loads.
+ * When a ceiling legitimately needs to rise, bump it deliberately — the bump is
+ * the review signal.
  */
 
-// Measured 2026-07-16: kernel 5,900 B; full 51,037 B across 57 tools.
-const KERNEL_SCHEMA_BYTES_CEILING = 8_000;
-const KERNEL_SCHEMA_TOKENS_CEILING = 2_000;
+// Measured 2026-07-16: kernel 5,904 B / 1,477 tok across 8 tools; full 51,127 B across 57 tools.
+const KERNEL_SCHEMA_BYTES_CEILING = 6_600;
+const KERNEL_SCHEMA_TOKENS_CEILING = 1_700;
 const FULL_SCHEMA_BYTES_CEILING = 68_000;
 
 /** The artifact/search giants must never bootstrap the kernel. */

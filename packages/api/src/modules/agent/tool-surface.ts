@@ -163,8 +163,9 @@ export function buildSdkToolSet(
  * Build the SDK tool set for one model turn and emit a `runtime.tool_surface`
  * span describing what the model was shown: the active count, the kernel/loaded
  * split, the loaded tool names, and the estimated schema payload (#414). The
- * span is judged against the `schema_build` debug band so an over-budget or
- * slow-to-build surface is filterable. Prefer this over calling
+ * payload (`schemaBytes`/`schemaTokens`) is the budget signal; the span also
+ * carries a `schema_rebuild` band that only registers on a cold rebuild (both
+ * the SDK set and the schema estimate are memoized). Prefer this over calling
  * {@link buildSdkToolSet} directly at a turn's model-call site so both workflows
  * measure the surface identically; the underlying set is still memoized, so the
  * only per-turn cost is the (memoized) schema estimate and one best-effort span.
@@ -188,12 +189,11 @@ export function buildTurnToolSurface(args: {
     if (registered) surfaced.push(registered);
   }
   const budget = estimateToolSurfaceBudget(surfaced);
-  const kernel: ToolName[] = [];
-  const loaded: ToolName[] = [];
-  for (const tool of surfaced) {
-    if (tool.availability?.surface === "kernel") kernel.push(tool.name);
-    else loaded.push(tool.name);
-  }
+  // Only the loaded (non-kernel) names are carried on the span; the kernel count
+  // is the complement, so there's no need to materialize a second array for it.
+  const loaded = surfaced
+    .filter((tool) => tool.availability?.surface !== "kernel")
+    .map((tool) => tool.name);
   startToolSurfaceSpan({
     runId: args.runId,
     workflow: args.workflow,
@@ -201,12 +201,12 @@ export function buildTurnToolSurface(args: {
     startedAt,
   }).end({
     activeCount: surfaced.length,
-    kernelCount: kernel.length,
+    kernelCount: surfaced.length - loaded.length,
     loadedCount: loaded.length,
     loadedTools: loaded,
     schemaBytes: budget.schemaBytes,
     schemaTokens: budget.schemaTokens,
-    schemaBuildMs: Date.now() - startMs,
+    schemaRebuildMs: Date.now() - startMs,
   });
   return tools;
 }

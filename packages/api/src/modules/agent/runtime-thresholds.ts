@@ -7,6 +7,12 @@
  * lazy-tool bands from the PRD's threshold table; the wait/queue/scratch bands
  * live with their own spans and are intentionally out of this slice's scope.
  *
+ * `schema_rebuild` is the PRD's "schema build" band renamed to what it actually
+ * measures: because the SDK tool set and per-tool schema sizes are both memoized,
+ * the timed work is near-zero on a steady-state turn and only registers on a cold
+ * rebuild of a never-before-seen active-set. The band therefore flags cache churn
+ * / rebuild cost, not the size of the surface (`schemaBytes`/`schemaTokens`).
+ *
  * Pure and side-effect free so a test pins the exact band edges — the whole
  * point of a debug threshold is that it can drift silently unless something
  * asserts it.
@@ -24,12 +30,12 @@ interface LatencyThreshold {
 
 /**
  * Default debug thresholds for the lazy-tool spans (PRD "Implementation
- * Decisions"): tool search yellow >25ms / red >100ms; schema build yellow
+ * Decisions"): tool search yellow >25ms / red >100ms; schema rebuild yellow
  * >50ms / red >200ms. Frozen so a consumer can read but never mutate them.
  */
 export const RUNTIME_LATENCY_THRESHOLDS = Object.freeze({
   tool_search: { yellowMs: 25, redMs: 100 },
-  schema_build: { yellowMs: 50, redMs: 200 },
+  schema_rebuild: { yellowMs: 50, redMs: 200 },
 } satisfies Record<string, LatencyThreshold>);
 
 export type RuntimeLatencyKind = keyof typeof RUNTIME_LATENCY_THRESHOLDS;

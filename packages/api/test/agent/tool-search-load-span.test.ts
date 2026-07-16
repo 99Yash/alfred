@@ -48,27 +48,49 @@ describe("runtime.tool_search", () => {
     assert.equal(input.input, undefined);
   });
 
-  test("a hit records the candidate count and a healthy latency band", () => {
+  test("a hit records the candidate names, count, and a healthy latency band", () => {
     const { ended } = capture(() =>
-      startToolSearchSpan(args).end({ candidateCount: 3, latencyMs: 12 }),
+      startToolSearchSpan(args).end({
+        candidateNames: ["calendar.list_events", "calendar.get_event", "gmail.search"],
+        latencyMs: 12,
+      }),
     );
     assert.deepEqual(ended, [
-      { status: "hit", metadata: { candidateCount: 3, latencyMs: 12, latencyHealth: "ok" } },
+      {
+        status: "hit",
+        metadata: {
+          candidateCount: 3,
+          candidateTools: "calendar.list_events,calendar.get_event,gmail.search",
+          latencyMs: 12,
+          latencyHealth: "ok",
+        },
+      },
     ]);
   });
 
   test("zero candidates is a miss, not an error (a discovery-metadata gap)", () => {
     const { ended } = capture(() =>
-      startToolSearchSpan(args).end({ candidateCount: 0, latencyMs: 40 }),
+      startToolSearchSpan(args).end({ candidateNames: [], latencyMs: 40 }),
     );
     assert.deepEqual(ended, [
-      { status: "miss", metadata: { candidateCount: 0, latencyMs: 40, latencyHealth: "yellow" } },
+      {
+        status: "miss",
+        metadata: {
+          candidateCount: 0,
+          candidateTools: null,
+          latencyMs: 40,
+          latencyHealth: "yellow",
+        },
+      },
     ]);
   });
 
   test("a slow search degrades the latency band to red", () => {
     const { ended } = capture(() =>
-      startToolSearchSpan(args).end({ candidateCount: 2, latencyMs: 150 }),
+      startToolSearchSpan(args).end({
+        candidateNames: ["calendar.list_events", "gmail.search"],
+        latencyMs: 150,
+      }),
     );
     assert.equal(ended[0]?.metadata?.latencyHealth, "red");
   });

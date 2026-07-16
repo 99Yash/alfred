@@ -47,7 +47,7 @@ describe("runtime.tool_surface", () => {
     assert.equal(input.input, undefined);
   });
 
-  test("records the kernel/loaded split, loaded names, payload size, and build health", () => {
+  test("records the kernel/loaded split, loaded names, payload size, and rebuild health", () => {
     const { opened, ended } = capture(() => {
       startToolSurfaceSpan(args).end({
         activeCount: 10,
@@ -56,7 +56,7 @@ describe("runtime.tool_surface", () => {
         loadedTools: ["calendar.get_event", "calendar.list_events"],
         schemaBytes: 7878,
         schemaTokens: 1970,
-        schemaBuildMs: 3,
+        schemaRebuildMs: 3,
       });
     });
     assert.equal(opened.length, 1);
@@ -70,8 +70,8 @@ describe("runtime.tool_surface", () => {
           loadedTools: "calendar.get_event,calendar.list_events",
           schemaBytes: 7878,
           schemaTokens: 1970,
-          schemaBuildMs: 3,
-          schemaBuildHealth: "ok",
+          schemaRebuildMs: 3,
+          schemaRebuildHealth: "ok",
         },
       },
     ]);
@@ -86,14 +86,14 @@ describe("runtime.tool_surface", () => {
         loadedTools: [],
         schemaBytes: 5900,
         schemaTokens: 1475,
-        schemaBuildMs: 1,
+        schemaRebuildMs: 1,
       }),
     );
     assert.equal(ended[0]?.metadata?.loadedCount, 0);
     assert.equal(ended[0]?.metadata?.loadedTools, null);
   });
 
-  test("a slow schema build degrades the health band", () => {
+  test("a slow cold rebuild degrades the health band", () => {
     const { ended } = capture(() =>
       startToolSurfaceSpan(args).end({
         activeCount: 40,
@@ -102,10 +102,10 @@ describe("runtime.tool_surface", () => {
         loadedTools: ["gmail.search"],
         schemaBytes: 40_000,
         schemaTokens: 10_000,
-        schemaBuildMs: 250,
+        schemaRebuildMs: 250,
       }),
     );
-    assert.equal(ended[0]?.metadata?.schemaBuildHealth, "red");
+    assert.equal(ended[0]?.metadata?.schemaRebuildHealth, "red");
   });
 
   test("error closes once and suppresses a later end", () => {
@@ -119,7 +119,7 @@ describe("runtime.tool_surface", () => {
         loadedTools: [],
         schemaBytes: 1,
         schemaTokens: 1,
-        schemaBuildMs: 0,
+        schemaRebuildMs: 0,
       });
     });
     assert.deepEqual(ended, [{ status: "error", level: "ERROR" }]);

@@ -9,7 +9,7 @@ import {
 describe("classifyLatency", () => {
   test("pins the PRD default debug bands", () => {
     assert.deepEqual(RUNTIME_LATENCY_THRESHOLDS.tool_search, { yellowMs: 25, redMs: 100 });
-    assert.deepEqual(RUNTIME_LATENCY_THRESHOLDS.schema_build, { yellowMs: 50, redMs: 200 });
+    assert.deepEqual(RUNTIME_LATENCY_THRESHOLDS.schema_rebuild, { yellowMs: 50, redMs: 200 });
   });
 
   test("both edges are strictly-above, so a value on the edge stays healthier", () => {
@@ -20,10 +20,10 @@ describe("classifyLatency", () => {
     assert.equal(classifyLatency("tool_search", 100), "yellow");
     assert.equal(classifyLatency("tool_search", 101), "red");
 
-    // schema_build: yellow >50, red >200
-    assert.equal(classifyLatency("schema_build", 50), "ok");
-    assert.equal(classifyLatency("schema_build", 51), "yellow");
-    assert.equal(classifyLatency("schema_build", 200), "yellow");
-    assert.equal(classifyLatency("schema_build", 201), "red");
+    // schema_rebuild: yellow >50, red >200
+    assert.equal(classifyLatency("schema_rebuild", 50), "ok");
+    assert.equal(classifyLatency("schema_rebuild", 51), "yellow");
+    assert.equal(classifyLatency("schema_rebuild", 200), "yellow");
+    assert.equal(classifyLatency("schema_rebuild", 201), "red");
   });
 });
