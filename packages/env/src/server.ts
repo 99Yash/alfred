@@ -73,6 +73,14 @@ const serverEnvSchema = z.object({
   VOYAGE_API_KEY: z.string().optional(),
   PERPLEXITY_API_KEY: z.string().optional(),
   /**
+   * Firecrawl render+extract API — the escalation path for JS-rendered pages
+   * that `system.fetch_url` reads back empty (#509/#510). Optional: when unset,
+   * fetch_url reports `empty_content` honestly instead of escalating. Base URL
+   * is overridable so the OSS self-hosted Firecrawl is a config swap.
+   */
+  FIRECRAWL_API_KEY: z.string().optional(),
+  FIRECRAWL_BASE_URL: z.string().url().default("https://api.firecrawl.dev"),
+  /**
    * HMAC namespace for ADR-0067 stable entity IDs. Optional during P0 because no
    * projection writer computes IDs yet; P1 must require it before writing
    * `entity_nodes.id`, and it must be backed up like an auth secret because

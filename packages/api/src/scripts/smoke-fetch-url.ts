@@ -13,7 +13,10 @@
  *   - IANA special-use IPv4 literals are BLOCKED before the socket path;
  *   - an IPv4-mapped IPv6 literal is BLOCKED;
  *   - an IPv4-compatible IPv6 literal is BLOCKED;
- *   - a redirect into cloud-metadata space is BLOCKED at the hop.
+ *   - a redirect into cloud-metadata space is BLOCKED at the hop;
+ *   - a client-rendered SPA (x.com) reads back empty_content, not a silent
+ *     ok:chars:0 (#509) — and escalates to the Firecrawl renderer when a key is
+ *     set (#510). With no FIRECRAWL_API_KEY the honest empty_content stands.
  */
 
 import { runFetchUrl } from "../modules/tools/fetch-url";
@@ -21,12 +24,20 @@ import { runFetchUrl } from "../modules/tools/fetch-url";
 interface Case {
   label: string;
   url: string;
-  expect: "ok" | "blocked";
+  expect: "ok" | "blocked" | "empty_content";
   contains?: string;
 }
 
 const CASES: Case[] = [
   { label: "public page reads as text", url: "https://www.yashk.xyz", expect: "ok" },
+  {
+    // #509/#510: with no Firecrawl key this is empty_content; with a key it flips
+    // to ok (rendered bio). Either is a pass for the honesty contract — a silent
+    // ok:chars:0 is the failure this guards against.
+    label: "x.com is empty_content (or rendered when FIRECRAWL_API_KEY is set)",
+    url: "https://x.com/thdxr",
+    expect: process.env.FIRECRAWL_API_KEY ? "ok" : "empty_content",
+  },
   {
     label: "gzip response decompresses before text sniffing",
     url: "https://nghttp2.org/httpbin/gzip",
@@ -69,7 +80,9 @@ async function main(): Promise<void> {
     const pass =
       c.expect === "blocked"
         ? got === "blocked"
-        : got === "ok" && (!c.contains || (r.ok && r.text.includes(c.contains)));
+        : c.expect === "empty_content"
+          ? got === "error:empty_content"
+          : got === "ok" && (!c.contains || (r.ok && r.text.includes(c.contains)));
     if (!pass) failures++;
     const detail = r.ok
       ? `title=${JSON.stringify(r.title)} chars=${r.chars} ct=${r.contentType}`
