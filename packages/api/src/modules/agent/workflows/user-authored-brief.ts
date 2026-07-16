@@ -4,22 +4,16 @@ import {
   getSubAgentModel,
   resolveEffectiveInputWindowTokens,
   AlfredAgent,
-  tool,
   type ModelMessage,
-  type Tool,
-  type ToolSet,
 } from "@alfred/ai";
 import {
   boundToolResult,
   compactionThresholdTokens,
   parseIntegrationMentions,
   isIntegrationSlug,
-  isRecord,
   toJsonValue,
   toRecord,
   type AgentTranscriptMessage,
-  type IntegrationSlug,
-  type ToolName,
 } from "@alfred/contracts";
 import { db } from "@alfred/db";
 import { documents } from "@alfred/db/schemas";
@@ -33,24 +27,20 @@ import {
 } from "../compaction/tokens";
 import { appendModelResponseMessages } from "../transcript-dedup";
 import { callerLabel, dispatchToolCall, type DispatchResult } from "../../dispatch";
-import {
-  startDispatchBatchSpan,
-  startToolPreloadSpan,
-  type DispatchBatchSpanCloser,
-} from "../runtime-spans";
+import { startDispatchBatchSpan, type DispatchBatchSpanCloser } from "../runtime-spans";
 import { writeScratch } from "../../scratchpad";
-import { getTool } from "../../tools/registry";
-import { latestUserPrompt, preloadToolsForPrompt } from "../../tools/discovery";
 import { readIntegrationAvailability } from "../../integrations/availability";
 import { buildConnectedSummaryFromAvailability } from "../connected-summary";
 import { formatDateGrounding, resolveUserTimezone } from "../grounding";
 import { composeAgentInstructions } from "../instructions";
 import {
   activateTool,
-  applyExactToolLoad,
+  applyPromptToolPreload,
+  applySystemToolEffect,
+  buildSdkToolSet,
   migrateActiveTools,
   registeredToolNamesForIntegrations,
-  toolNameSchema,
+  systemToolKernel,
 } from "../tool-surface";
 import {
   readSubAgentMetadata,
@@ -82,7 +72,9 @@ type PendingToolCall = z.infer<typeof pendingToolCallSchema>;
 
 const briefRunStateSchema = z
   .object({
-    activeTools: z.array(toolNameSchema).optional(),
+    // Persisted under an older deploy, so names may refer to tools that have
+    // since been retired. The transform below drops anything not in today's registry.
+    activeTools: z.array(z.string()).optional(),
     // Read only while resuming checkpoints created before exact tool surfaces.
     activeIntegrations: z.array(z.string().min(1)).optional(),
     preloadApplied: z.boolean().default(false),
@@ -240,41 +232,26 @@ const bossTurnStep: Step<BriefRunState> = {
         { caller: subAgent ? "sub_agent" : "boss", hasThread: false },
       );
     }
-    if (!state.preloadApplied) {
-      const prompt = latestUserPrompt(transcript);
-      const preloadSpan = startToolPreloadSpan({
-        runId: ctx.runId,
-        workflow: USER_AUTHORED_BRIEF_WORKFLOW_SLUG,
-        caller: subAgent ? `sub:${subAgent.subId}` : "boss",
-        activeBefore: state.activeTools.length,
-        allowedIntegrationCount: state.allowedIntegrations.length,
-        promptChars: prompt.length,
-        startedAt: new Date(),
-      });
-      try {
-        const preloaded = await preloadToolsForPrompt({
-          userId: ctx.userId,
-          prompt,
-          allowedIntegrations: state.allowedIntegrations,
-          activeTools: state.activeTools,
-          context: { caller: subAgent ? "sub_agent" : "boss", hasThread: false },
-          availability: await loadAvailability(),
-        });
-        for (const toolName of preloaded)
-          state.activeTools = activateTool(state.activeTools, toolName);
-        preloadSpan.end(preloaded, state.activeTools.length);
-      } catch (error) {
-        preloadSpan.error();
-        throw error;
-      }
-      state.preloadApplied = true;
-    }
+    await applyPromptToolPreload({
+      state,
+      userId: ctx.userId,
+      runId: ctx.runId,
+      workflow: USER_AUTHORED_BRIEF_WORKFLOW_SLUG,
+      spanCaller: subAgent ? `sub:${subAgent.subId}` : "boss",
+      transcript,
+      context: { caller: subAgent ? "sub_agent" : "boss", hasThread: false },
+      availability: await loadAvailability(),
+    });
     const agent = new AlfredAgent({
       id: subAgent ? subAgent.subId : "boss",
       system: subAgent
         ? buildSubAgentSystemPrompt(grounding, state.connectedSummary, subAgent.subId)
         : buildBossSystemPrompt(grounding, state.connectedSummary),
-      tools: () => resolveSdkTools(state.activeTools, subAgent !== null),
+      tools: () =>
+        buildSdkToolSet(state.activeTools, {
+          caller: subAgent ? "sub_agent" : "boss",
+          hasThread: false,
+        }),
       model: subAgent ? getSubAgentModel() : getBossModel(),
       attribution: {
         kind: "llm",
@@ -645,7 +622,10 @@ export const userAuthoredBriefWorkflow: Workflow<BriefRunState> = {
       ...eventSeed.filter((slug) => integrationAllowed(slug, allowedIntegrations)),
     ]);
     return {
-      activeTools: registeredToolNamesForIntegrations(["system", ...seededIntegrations]),
+      activeTools: [
+        ...systemToolKernel(),
+        ...registeredToolNamesForIntegrations(seededIntegrations),
+      ],
       preloadApplied: false,
       allowedIntegrations: [...allowedIntegrations],
       pendingToolCalls: [],
@@ -685,30 +665,6 @@ export const userAuthoredBriefWorkflow: Workflow<BriefRunState> = {
   },
 };
 
-function resolveSdkTools(activeTools: readonly ToolName[], isSubAgent: boolean): ToolSet {
-  const out: Partial<Record<ToolName, Tool>> = {};
-  for (const name of [...new Set(activeTools)].sort()) {
-    const registered = getTool(name);
-    if (!registered) continue;
-    if (
-      isSubAgent &&
-      (registered.name === "system.spawn_sub_agent" ||
-        registered.name === "system.await_sub_agent" ||
-        registered.name === "system.promote")
-    ) {
-      // The join tools are boss-only — the dispatcher rejects them for a
-      // sub-agent caller (ADR-0073). Hiding them here keeps a sub-agent from
-      // burning a turn on an invalid call the dispatcher would only bounce.
-      continue;
-    }
-    out[registered.name] = tool({
-      description: registered.description,
-      inputSchema: registered.inputSchema,
-    });
-  }
-  return out as ToolSet;
-}
-
 async function writeSubAgentSummary(args: {
   parentRunId: string;
   subId: string;
@@ -724,34 +680,6 @@ async function writeSubAgentSummary(args: {
     writtenBy: args.subId,
   });
   return { text: args.text, scratchKey };
-}
-
-function applySystemToolEffect(
-  state: BriefRunState,
-  toolName: string,
-  result: DispatchResult,
-): void {
-  if (toolName === "system.load_tool" && result.kind === "executed") {
-    state.activeTools = applyExactToolLoad(state.activeTools, result.toolResult);
-    return;
-  }
-  if (toolName !== "system.load_integration" || result.kind !== "executed") return;
-  const toolResult = result.toolResult;
-  if (!isSuccessfulLoadIntegrationResult(toolResult)) return;
-  state.activeTools = [
-    ...new Set([...state.activeTools, ...registeredToolNamesForIntegrations([toolResult.slug])]),
-  ].sort();
-}
-
-function isSuccessfulLoadIntegrationResult(
-  value: unknown,
-): value is { ok: true; slug: IntegrationSlug } {
-  return (
-    isRecord(value) &&
-    value.ok === true &&
-    typeof value.slug === "string" &&
-    isIntegrationSlug(value.slug)
-  );
 }
 
 function toolResultMessage(

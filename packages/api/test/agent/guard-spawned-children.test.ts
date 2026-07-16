@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { describe, test } from "node:test";
 
+import type { AgentTranscriptMessage } from "@alfred/contracts";
 import type { ChildRunOutcome } from "../../src/modules/agent/sub-agents";
 import { AWAIT_SUB_AGENT_CEILING_MS } from "../../src/modules/agent/sub-agent-join-wake-queue";
 import {
@@ -265,6 +266,118 @@ describe("guardSpawnedChildren (ADR-0073 runtime invariant)", () => {
     assert.equal(result?.kind, "interrupt");
     assert.deepEqual(state.foldedChildRunIds, ["child_done"], "only the terminal child is folded");
     assert.deepEqual(rec.scheduleCalls, ["child_run"], "the timer is armed for the running child");
+  });
+
+  // A turn that spawns a child, skips the prompted `await_sub_agent`, and then
+  // streams a final answer arrives here with the transcript tail
+  // `…, tool, assistant[reasoning,text]` — the last assistant message is the
+  // premature answer `appendModelResponseMessages` appended. The guard closes
+  // that answer into narration, so it must also drop it from the transcript it
+  // forwards: on the PARK path the parked transcript becomes `ctx.transcript`
+  // and the resumed step re-invokes the model with it BEFORE the guard runs
+  // again — a transcript ending in an assistant message is an illegal prefill
+  // under extended thinking (Anthropic 400 "the conversation must end with a
+  // user message", which previously retried 9× and failed the turn).
+  const prematureTail = (): AgentTranscriptMessage[] => [
+    { role: "user", content: "summarize my open PRs" },
+    {
+      role: "assistant",
+      content: [{ type: "tool-call", toolCallId: "tc_spawn", toolName: "system.spawn_sub_agent" }],
+    },
+    {
+      role: "tool",
+      content: [{ type: "tool-result", toolCallId: "tc_spawn", output: { childRunId: "child_a" } }],
+    },
+    {
+      role: "assistant",
+      content: [
+        { type: "reasoning", text: "…" },
+        { type: "text", text: "premature answer" },
+      ],
+    },
+  ];
+
+  test("parking strips the premature assistant tail (no illegal-prefill 400 on resume)", async () => {
+    const state = baseState({ assistantText: "premature answer" });
+    const rec = recorder({
+      children: [{ id: "child_a", status: "running" }],
+      outcomes: { child_a: { ok: true, done: false, status: "running", runningMs: 1_000 } },
+      scheduleResult: "scheduled",
+    });
+    const result = await guardSpawnedChildren(
+      baseCtx(state),
+      state,
+      prematureTail(),
+      rec.deps,
+    );
+    assert.equal(result?.kind, "interrupt", "a still-running child parks");
+    const forwarded = result?.kind === "interrupt" ? (result.transcript ?? []) : [];
+    assert.notEqual(
+      forwarded.at(-1)?.role,
+      "assistant",
+      "the parked transcript must NOT end in an assistant message (prefill 400)",
+    );
+    assert.equal(
+      forwarded.at(-1)?.role,
+      "tool",
+      "it ends at the tool results — a legal turn-ender the resumed model call accepts",
+    );
+    assert.equal(forwarded.length, 3, "exactly the premature assistant tail was dropped");
+  });
+
+  test("folding a terminal child drops the premature assistant tail and ends in the user fold", async () => {
+    const state = baseState({ assistantText: "premature answer" });
+    const rec = recorder({
+      children: [{ id: "child_a", status: "completed" }],
+      outcomes: {
+        child_a: { ok: true, done: true, status: "completed", output: { summary: "did the thing" } },
+      },
+    });
+    const result = await guardSpawnedChildren(
+      baseCtx(state),
+      state,
+      prematureTail(),
+      rec.deps,
+    );
+    assert.equal(result?.kind, "next");
+    const forwarded = result?.kind === "next" ? (result.transcript ?? []) : [];
+    assert.equal(forwarded.at(-1)?.role, "user", "the regenerate transcript ends in the synthetic fold");
+    assert.match(
+      String(forwarded.at(-1)?.content ?? ""),
+      /finished without you awaiting it — it completed/,
+    );
+    assert.ok(
+      !forwarded.some(
+        (m) => m.role === "assistant" && JSON.stringify(m.content).includes('"text":"premature answer"'),
+      ),
+      "the uninformed premature answer is not carried into the regenerate transcript (narration keeps it for the UI)",
+    );
+  });
+
+  test("mixed terminal + running with a premature tail: parks on a transcript ending in the fold, not the assistant", async () => {
+    const state = baseState({ assistantText: "premature answer" });
+    const rec = recorder({
+      children: [
+        { id: "child_done", status: "completed" },
+        { id: "child_run", status: "running" },
+      ],
+      outcomes: {
+        child_done: { ok: true, done: true, status: "completed", output: { ok: 1 } },
+        child_run: { ok: true, done: false, status: "running", runningMs: 500 },
+      },
+      scheduleResult: "scheduled",
+    });
+    const result = await guardSpawnedChildren(
+      baseCtx(state),
+      state,
+      prematureTail(),
+      rec.deps,
+    );
+    assert.equal(result?.kind, "interrupt");
+    const forwarded = result?.kind === "interrupt" ? (result.transcript ?? []) : [];
+    assert.equal(forwarded.at(-1)?.role, "user", "the terminal fold is the legal turn-ender, not the assistant tail");
+    assert.deepEqual(state.foldedChildRunIds, ["child_done"]);
+    assert.deepEqual(rec.scheduleCalls, ["child_run"]);
   });
 
   test("an already-folded child is skipped (idempotent across resumes)", async () => {

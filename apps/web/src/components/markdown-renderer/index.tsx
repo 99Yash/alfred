@@ -10,6 +10,14 @@ import { markdownComponents } from "./elements";
 
 import "katex/dist/katex.min.css";
 
+// Re-export the shared fenced-code `pre` renderer so surfaces with their own
+// wrapper typography (e.g. the chat reply's `AssistantMarkdown`) can render the
+// same dark CodeBlock card instead of forking a second one. `CodeBlock` itself
+// is exported too, for surfaces that show a code/data payload outside markdown
+// (e.g. a tool result's pretty-printed JSON).
+export { MarkdownPre } from "./markdown-pre";
+export { CodeBlock } from "./code-block";
+
 type RemarkPlugins = ComponentProps<typeof ReactMarkdown>["remarkPlugins"];
 
 interface MarkdownRendererProps {

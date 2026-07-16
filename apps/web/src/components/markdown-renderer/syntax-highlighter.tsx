@@ -64,7 +64,12 @@ export function SyntaxHighlighter({ language, code }: SyntaxHighlighterProps) {
         margin: 0,
         padding: 0,
         background: "transparent",
-        fontSize: "11.5px",
+        // Code size follows the surface. The dense rail / briefing default is
+        // 11.5px; the chat reply sets `--md-code-fs: 13px` on its markdown
+        // wrapper. CSS custom properties inherit through the DOM, so the var
+        // set on an ancestor resolves here inside react-syntax-highlighter's
+        // inline style — no prop threading through the component registry.
+        fontSize: "var(--md-code-fs, 11.5px)",
         lineHeight: 1.55,
       }}
       wrapLongLines

@@ -6,11 +6,9 @@ import {
   getCheapModel,
   meteredGenerateText,
   resolveModelContextWindow,
-  tool,
   type ChatModelTier,
   type LanguageModel,
   type ModelMessage,
-  type Tool,
   type ToolSet,
 } from "@alfred/ai";
 import { ARTIFACT_DESIGN_PROMPT, ARTIFACT_DOCUMENT_DESIGN_PROMPT } from "@alfred/artifacts-design";
@@ -40,11 +38,7 @@ import { sniffPassThroughImageMime } from "../../chat/attachments";
 import { readObject } from "../../chat/storage";
 import { isChatStopRequested } from "../../chat/stop-signal";
 import { dispatchToolCall, toolCallWouldGate, type DispatchResult } from "../../dispatch";
-import {
-  startDispatchBatchSpan,
-  startToolPreloadSpan,
-  type DispatchBatchSpanCloser,
-} from "../runtime-spans";
+import { startDispatchBatchSpan, type DispatchBatchSpanCloser } from "../runtime-spans";
 import {
   AWAIT_SUB_AGENT_CEILING_MS,
   scheduleSubAgentJoinWakeJob,
@@ -66,18 +60,16 @@ import { appendModelResponseMessages } from "../transcript-dedup";
 import { buildThreadArtifactsContext } from "../../artifacts/read";
 import { finalizeRunArtifacts } from "../../artifacts/write";
 import { logger } from "../../../lib/logger";
-import { getTool } from "../../tools/registry";
-import { latestUserPrompt, preloadToolsForPrompt } from "../../tools/discovery";
 import { readIntegrationAvailability } from "../../integrations/availability";
 import { buildConnectedSummaryFromAvailability } from "../connected-summary";
 import { formatDateGrounding, formatRuntimeTimeGrounding, resolveUserTimezone } from "../grounding";
 import {
   activateTool,
-  applyExactToolLoad,
+  applyPromptToolPreload,
+  applySystemToolEffect,
+  buildSdkToolSet,
   migrateActiveTools,
-  registeredToolNamesForIntegrations,
   systemToolKernel,
-  toolNameSchema,
 } from "../tool-surface";
 import type { AgentDbExecutor, Step, StepContext, StepResult, Workflow } from "../types";
 import {
@@ -103,8 +95,8 @@ import {
  *
  * Models: `standard` (Sonnet 4.6) by default; `deep` (Opus 4.8) escalation is
  * wired through state for a future heuristic / the boss-worker harness. The
- * agent can `system.load_integration` to reach email/calendar/etc and
- * `system.spawn_sub_agent` for focused fan-out — same tool surface as the boss.
+ * agent can discover and exactly load capabilities, including
+ * `system.spawn_sub_agent` for focused fan-out.
  *
  * Within-run tool-loop compaction remains deferred; persisted cross-turn
  * history is guarded before the first provider call of each run.
@@ -240,7 +232,9 @@ const chatRunStateSchema = z
     // never inferred from user-authored prose or attachment content.
     artifactTargetId: z.string().optional(),
     tier: chatModelTierSchema,
-    activeTools: z.array(toolNameSchema).optional(),
+    // Persisted under an older deploy, so names may refer to tools that have
+    // since been retired. The transform below drops anything not in today's registry.
+    activeTools: z.array(z.string()).optional(),
     // Read only while resuming checkpoints created before exact tool surfaces.
     activeIntegrations: z.array(z.string().min(1)).optional(),
     preloadApplied: z.boolean().default(false),
@@ -542,33 +536,6 @@ function preview(value: unknown): string {
   return `${full.slice(0, PREVIEW_CHARS - 1)}…`;
 }
 
-// The SDK calls `tools: () => resolveSdkTools(...)` once per turn, but the
-// registry is static, so the object graph only changes when the exact active set
-// does. Memoize per normalized name key (the registered tool set is small
-// and bounded, so the unevicted cache stays tiny). The returned `ToolSet` is
-// treated as read-only by the SDK, so sharing one instance across turns/users
-// is safe.
-const sdkToolsCache = new Map<string, ToolSet>();
-
-function resolveSdkTools(activeTools: readonly ToolName[]): ToolSet {
-  const names = [...new Set(activeTools)].sort();
-  const key = names.join(",");
-  const cached = sdkToolsCache.get(key);
-  if (cached) return cached;
-
-  const out: Partial<Record<ToolName, Tool>> = {};
-  for (const name of names) {
-    const registered = getTool(name);
-    if (!registered) continue;
-    out[registered.name] = tool({
-      description: registered.description,
-      inputSchema: registered.inputSchema,
-    });
-  }
-  const tools = out as ToolSet;
-  sdkToolsCache.set(key, tools);
-  return tools;
-}
 
 /** A `ready` attachment as the transcript builder needs it. */
 interface ReadyAttachment {
@@ -1257,24 +1224,6 @@ function dispatchResultToToolOutput(
   }
 }
 
-function applySystemToolEffect(
-  state: ChatRunState,
-  toolName: string,
-  result: DispatchResult,
-): void {
-  if (toolName === "system.load_tool" && result.kind === "executed") {
-    state.activeTools = applyExactToolLoad(state.activeTools, result.toolResult);
-    return;
-  }
-  if (toolName !== "system.load_integration" || result.kind !== "executed") return;
-  const toolResult = result.toolResult;
-  if (isRecord(toolResult) && toolResult.ok === true && typeof toolResult.slug === "string") {
-    state.activeTools = [
-      ...new Set([...state.activeTools, ...registeredToolNamesForIntegrations([toolResult.slug])]),
-    ].sort();
-  }
-}
-
 /**
  * All of this turn's assistant prose in order: the closed narration segments
  * followed by the current segment. Used where the transcript needs the full
@@ -1497,7 +1446,8 @@ export async function guardSpawnedChildren(
   // boundary `assistantText` is always non-empty; the guard only runs after the
   // empty-text check above it. The guard still gates on it to stay correct if
   // re-ordered.)
-  if (state.assistantText.trim().length > 0) {
+  const closedPrematureAnswer = state.assistantText.trim().length > 0;
+  if (closedPrematureAnswer) {
     state.narration = [
       ...state.narration,
       { index: state.segmentIndex, text: state.assistantText },
@@ -1527,7 +1477,26 @@ export async function guardSpawnedChildren(
     });
   }
 
-  const nextTranscript = foldMessages.length > 0 ? [...transcript, ...foldMessages] : transcript;
+  // The premature assistant answer we just closed into narration is still the
+  // tail of `transcript` (`appendModelResponseMessages` appended it before the
+  // guard ran). Drop it so the transcript we forward never ends in that
+  // assistant message. This is load-bearing on the PARK path: the parked
+  // transcript becomes `ctx.transcript` and the resumed step re-invokes the
+  // model with it (top of `chat-turn`) BEFORE this guard runs again to fold the
+  // now-terminal child. A transcript ending in an assistant message is an
+  // illegal prefill under extended thinking — Anthropic 400s with "the
+  // conversation must end with a user message", which previously retried 9× and
+  // failed the turn ("Something interrupted this reply."). Stripping it leaves
+  // the tail at the tool results (park with no folds) or the synthetic user
+  // fold (folds present), both legal turn-enders, and keeps the regenerated
+  // reply from being anchored to the uninformed answer. `state.narration`
+  // already carries that text for the UI, so nothing is lost.
+  const baseTranscript =
+    closedPrematureAnswer && transcript.at(-1)?.role === "assistant"
+      ? transcript.slice(0, -1)
+      : transcript;
+  const nextTranscript =
+    foldMessages.length > 0 ? [...baseTranscript, ...foldMessages] : baseTranscript;
 
   if (parkOn.length > 0) {
     return {
@@ -1872,36 +1841,16 @@ const chatTurnStep: Step<ChatRunState> = {
           { caller: "boss", hasThread: true },
         );
       }
-      if (!state.preloadApplied) {
-        const prompt = latestUserPrompt(hydratedTranscript);
-        const preloadSpan = startToolPreloadSpan({
-          runId: ctx.runId,
-          workflow: CHAT_TURN_WORKFLOW_SLUG,
-          caller: "boss",
-          activeBefore: state.activeTools.length,
-          allowedIntegrationCount: state.allowedIntegrations.length,
-          promptChars: prompt.length,
-          startedAt: new Date(),
-        });
-        try {
-          const preloaded = await preloadToolsForPrompt({
-            userId: ctx.userId,
-            prompt,
-            allowedIntegrations: state.allowedIntegrations,
-            activeTools: state.activeTools,
-            context: { caller: "boss", hasThread: true },
-            availability: await loadAvailability(),
-          });
-          for (const toolName of preloaded) {
-            state.activeTools = activateTool(state.activeTools, toolName);
-          }
-          preloadSpan.end(preloaded, state.activeTools.length);
-        } catch (error) {
-          preloadSpan.error();
-          throw error;
-        }
-        state.preloadApplied = true;
-      }
+      await applyPromptToolPreload({
+        state,
+        userId: ctx.userId,
+        runId: ctx.runId,
+        workflow: CHAT_TURN_WORKFLOW_SLUG,
+        spanCaller: "boss",
+        transcript: hydratedTranscript,
+        context: { caller: "boss", hasThread: true },
+        availability: await loadAvailability(),
+      });
       if (state.artifactsContext === undefined || state.artifactReference === undefined) {
         const artifactContext = await buildThreadArtifactsContext(
           ctx.userId,
@@ -1926,7 +1875,7 @@ const chatTurnStep: Step<ChatRunState> = {
       ]
         .filter((value) => value.length > 0)
         .join("\n\n");
-      const sdkTools = resolveSdkTools(state.activeTools);
+      const sdkTools = buildSdkToolSet(state.activeTools, { caller: "boss", hasThread: true });
       const chatModel = getChatModel(state.tier);
 
       // Own cancellation before the foreground context guard: compaction can

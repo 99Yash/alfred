@@ -1,6 +1,7 @@
 import { getStringPath } from "@alfred/contracts";
 import { Check, ChevronRight, Scissors, X } from "lucide-react";
 import { useId, useState } from "react";
+import { CodeBlock } from "~/components/markdown-renderer";
 import { IntegrationIcon } from "~/lib/integrations/integration-icons";
 import { parseJsonRecord } from "~/lib/json-record";
 import { cn } from "~/lib/utils";
@@ -9,6 +10,23 @@ import { presentTool, type ToolCallView } from "./tool-call-presentation";
 
 function asString(value: unknown): string | undefined {
   return typeof value === "string" && value.length > 0 ? value : undefined;
+}
+
+/**
+ * A successful tool result is JSON in almost every case, but the tool returns it
+ * minified — one long wrapped line that reads as a wall of text. Re-indent it so
+ * the expanded card is scannable. Returns null for anything that isn't a JSON
+ * object/array (plain-text results, a bare scalar, or a truncated/sanitized
+ * preview that no longer parses), so the caller falls back to the raw text.
+ */
+function prettyJson(text: string): string | null {
+  try {
+    const parsed: unknown = JSON.parse(text);
+    if (parsed === null || typeof parsed !== "object") return null;
+    return JSON.stringify(parsed, null, 2);
+  } catch {
+    return null;
+  }
 }
 
 /** Pull a clean reason out of a failed tool's result preview. */
@@ -160,22 +178,45 @@ export function ToolCallCard({ tools }: { tools: ToolCallView[] }) {
             </p>
           ) : null}
           {/* One block per collapsed call — a single call renders exactly as
-              before; a folded run stacks each call's result in arrival order. */}
+              before; a folded run stacks each call's result in arrival order.
+              A successful JSON result renders pretty-printed in the shared dark
+              CodeBlock card (label + copy + highlighting); a failure reason or a
+              non-JSON preview stays a quiet muted line. */}
           {tools.map((t, i) => {
-            const text = failed
-              ? (failureReason(t.resultPreview) ?? t.resultPreview)
-              : t.resultPreview;
-            if (!text) return null;
+            if (failed) {
+              const reason = failureReason(t.resultPreview) ?? t.resultPreview;
+              if (!reason) return null;
+              return (
+                <pre
+                  key={t.toolCallId}
+                  className={cn(
+                    "overflow-x-auto border-l-2 border-app-fg-a1 pl-3 text-[12px] leading-relaxed whitespace-pre-wrap text-app-red-4/90",
+                    i > 0 && "mt-1.5",
+                  )}
+                >
+                  {reason}
+                </pre>
+              );
+            }
+            const raw = t.resultPreview;
+            if (!raw) return null;
+            const json = prettyJson(raw);
+            if (json !== null) {
+              return (
+                <div key={t.toolCallId} className={cn(i > 0 && "mt-1.5")}>
+                  <CodeBlock language="json" code={json} />
+                </div>
+              );
+            }
             return (
               <pre
                 key={t.toolCallId}
                 className={cn(
-                  "overflow-x-auto border-l-2 border-app-fg-a1 pl-3 text-[12px] leading-relaxed whitespace-pre-wrap",
-                  failed ? "text-app-red-4/90" : "text-app-fg-3",
+                  "overflow-x-auto border-l-2 border-app-fg-a1 pl-3 text-[12px] leading-relaxed whitespace-pre-wrap text-app-fg-3",
                   i > 0 && "mt-1.5",
                 )}
               >
-                {text}
+                {raw}
               </pre>
             );
           })}
