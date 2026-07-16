@@ -4,12 +4,19 @@ import type { ToolName } from "@alfred/contracts";
 import {
   applyExactToolLoad,
   applySystemToolEffect,
+  buildSdkToolSet,
   migrateActiveTools,
   registeredToolNamesForIntegrations,
   systemToolKernel,
 } from "../../src/modules/agent/tool-surface";
+import { preloadToolCatalog, type ToolCatalogAccess } from "../../src/modules/tools/discovery";
 import { registerBuiltinTools } from "../../src/modules/tools/index";
-import { clearToolRegistryForTests, getTool, listKernelTools } from "../../src/modules/tools/registry";
+import {
+  clearToolRegistryForTests,
+  getTool,
+  listKernelTools,
+  listToolsForIntegration,
+} from "../../src/modules/tools/registry";
 
 /**
  * Regression coverage for the run-local tool surface + persisted-state
@@ -49,6 +56,120 @@ describe("systemToolKernel", () => {
       assert.equal(tool?.integration, "system");
       assert.equal(tool?.availability?.surface, "kernel");
     }
+  });
+
+  // The kernel is the eager tool surface every turn starts with, and the chat
+  // system prompt advertises exactly these tools by name. Pinning the exact set
+  // (not just "matches listKernelTools") keeps the two in lockstep: adding or
+  // retiring a kernel tool without updating the prompt fails here (#411/#412,
+  // PR #519 — system tools promoted into the eager kernel).
+  test("is exactly the seven prompt-advertised system tools", () => {
+    assert.deepEqual([...systemToolKernel()].sort(), [
+      "system.current_time",
+      "system.load_tool",
+      "system.read_chat_history",
+      "system.read_user_context",
+      "system.search_tools",
+      "system.spawn_sub_agent",
+      "system.web_search",
+    ]);
+  });
+});
+
+describe("buildSdkToolSet caller/thread projection", () => {
+  // The kernel is one set of names; what actually reaches the model is filtered
+  // by caller (boss vs sub_agent) and whether the run has a thread. The ladder
+  // tools (search_tools/load_tool) must survive EVERY projection — they are the
+  // only route to any non-preloaded capability, so a caller that lost them
+  // could never climb to a tool it needs.
+  const kernelNames = () => listKernelTools().map((t) => t.name);
+
+  test("chat (boss + thread) projects all seven kernel tools", () => {
+    const chat = Object.keys(buildSdkToolSet(kernelNames(), { caller: "boss", hasThread: true }));
+    assert.equal(chat.length, 7, `[${[...chat].sort().join(", ")}]`);
+  });
+
+  test("a thread-less brief drops read_chat_history (requiresThread) → six", () => {
+    const brief = Object.keys(buildSdkToolSet(kernelNames(), { caller: "boss", hasThread: false }));
+    assert.equal(brief.length, 6);
+    assert.ok(!brief.includes("system.read_chat_history"), `[${[...brief].sort().join(", ")}]`);
+  });
+
+  test("a sub-agent also drops spawn_sub_agent (boss-only caller) → five", () => {
+    const sub = Object.keys(
+      buildSdkToolSet(kernelNames(), { caller: "sub_agent", hasThread: false }),
+    );
+    assert.equal(sub.length, 5);
+    assert.ok(!sub.includes("system.read_chat_history"));
+    assert.ok(!sub.includes("system.spawn_sub_agent"), `[${[...sub].sort().join(", ")}]`);
+  });
+
+  test("the ladder (search_tools + load_tool) is projected in every context", () => {
+    for (const context of [
+      { caller: "boss", hasThread: true },
+      { caller: "boss", hasThread: false },
+      { caller: "sub_agent", hasThread: false },
+    ] as const) {
+      const names = Object.keys(buildSdkToolSet(kernelNames(), context));
+      assert.ok(
+        names.includes("system.search_tools") && names.includes("system.load_tool"),
+        `ladder missing for ${JSON.stringify(context)}: [${[...names].sort().join(", ")}]`,
+      );
+    }
+  });
+});
+
+describe("preloadToolCatalog against the real registry", () => {
+  // Path B (deterministic preload) vs path C (the model must climb the ladder).
+  // discovery.test.ts covers the mechanics with mock tools; this pins them
+  // against the REAL github discovery metadata, where the nuance bites:
+  // `github.search`'s entity phrase is the singular "pull request", so a
+  // word-boundary match on the plural "pull requests" misses it and the ask
+  // falls through to the ladder rather than preloading.
+  const githubAccess = (): { access: ToolCatalogAccess; kernelNames: ToolName[] } => {
+    const kernelNames = listKernelTools().map((t) => t.name);
+    const githubNames = listToolsForIntegration("github").map((t) => t.name);
+    return {
+      kernelNames,
+      access: {
+        allowedIntegrations: ["github"],
+        availableTools: new Set<ToolName>([...kernelNames, ...githubNames]),
+      },
+    };
+  };
+
+  test("a strong-intent prompt preloads a non-kernel github tool (path B)", () => {
+    const { access, kernelNames } = githubAccess();
+    const selected = preloadToolCatalog({
+      prompt: "find the pull request assigned to me",
+      activeTools: kernelNames,
+      access,
+    });
+    assert.ok(selected.length > 0, "expected at least one preloaded tool");
+    assert.ok(
+      selected.every((n) => n.startsWith("github.")),
+      `selected [${selected.join(", ")}]`,
+    );
+  });
+
+  test("a github-relevant but loosely phrased ask preloads nothing → ladder only (path C)", () => {
+    const { access, kernelNames } = githubAccess();
+    const selected = preloadToolCatalog({
+      prompt: "give me a summary of my github activity",
+      activeTools: kernelNames,
+      access,
+    });
+    assert.deepEqual(selected, [], `selected [${selected.join(", ")}]`);
+  });
+
+  test("a kernel tool is never re-preloaded (already active)", () => {
+    const { access, kernelNames } = githubAccess();
+    const selected = preloadToolCatalog({
+      prompt: "what do you know about me? read my user context",
+      activeTools: kernelNames,
+      access,
+    });
+    assert.ok(!selected.includes("system.read_user_context" as ToolName), `[${selected.join(", ")}]`);
   });
 });
 
