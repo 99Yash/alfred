@@ -52,6 +52,12 @@ export function createVoiceStreamSanitizer(): VoiceStreamSanitizer {
   let currentProseToken = "";
   let lineStartHyphens = "";
   let structuralMarkdownLine = false;
+  // A line that begins with `|` and so far holds only pipes, hyphens, colons,
+  // and horizontal whitespace: a GFM table delimiter row (`| --- | --- |`).
+  // Buffered until the newline proves it structural, or a prose char reveals it
+  // is a content row and the buffer is replayed through the normal path.
+  let structuralPipeScan: string | null = null;
+  let replayingPipeScan = false;
 
   const takeOutput = (): string => {
     const next = output;
@@ -179,6 +185,31 @@ export function createVoiceStreamSanitizer(): VoiceStreamSanitizer {
       return;
     }
 
+    if (structuralPipeScan !== null) {
+      if (char === "\n" || char === "\r") {
+        // The whole line was pipes, hyphens, colons, and horizontal space: a
+        // table delimiter row. Emit it verbatim so GFM still parses the table
+        // instead of seeing the dashes collapsed into prose punctuation.
+        output += structuralPipeScan + char;
+        structuralPipeScan = null;
+        atLineStart = true;
+        return;
+      }
+      if (char === "|" || char === "-" || char === ":" || char === " " || char === "\t") {
+        structuralPipeScan += char;
+        return;
+      }
+      // A prose character means this is a table content row, not a delimiter.
+      // Replay the buffered prefix through the normal path, then fall through
+      // to handle the current character.
+      const buffered = structuralPipeScan;
+      structuralPipeScan = null;
+      replayingPipeScan = true;
+      for (const bufferedChar of buffered) processChar(bufferedChar);
+      replayingPipeScan = false;
+      previousInputChar = char; // replay overwrote this; restore for the current char
+    }
+
     if (lineStartHyphens.length > 0) {
       if (char === "-") {
         lineStartHyphens += char;
@@ -275,6 +306,16 @@ export function createVoiceStreamSanitizer(): VoiceStreamSanitizer {
       return;
     }
 
+    if (atLineStart && char === "|" && !replayingPipeScan) {
+      // Start scanning a potential table delimiter row. Flush any held
+      // whitespace (the preceding newline/indent) so the buffered row stays
+      // in order relative to earlier output.
+      resolveDash();
+      emitWhitespace();
+      structuralPipeScan = char;
+      return;
+    }
+
     if (char === "-") {
       if (atLineStart && mode === "prose") {
         lineStartHyphens = "-";
@@ -294,6 +335,11 @@ export function createVoiceStreamSanitizer(): VoiceStreamSanitizer {
       return takeOutput();
     },
     flush(): string {
+      if (structuralPipeScan !== null) {
+        // Segment ended mid-row (no closing newline). Emit the buffer verbatim.
+        output += structuralPipeScan;
+        structuralPipeScan = null;
+      }
       resolveLineStartHyphensAsProse();
       resolveTicks();
       emitSingleHyphen();
@@ -323,6 +369,8 @@ export function createVoiceStreamSanitizer(): VoiceStreamSanitizer {
       currentProseToken = "";
       lineStartHyphens = "";
       structuralMarkdownLine = false;
+      structuralPipeScan = null;
+      replayingPipeScan = false;
       return finalOutput;
     },
   };

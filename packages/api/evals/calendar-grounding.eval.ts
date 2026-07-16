@@ -6,7 +6,7 @@ import { generateText, tool } from "ai";
 import { config as loadEnv } from "dotenv";
 import { evalite } from "evalite";
 import { z } from "zod";
-import { formatDateGrounding } from "../src/modules/agent/grounding";
+import { formatRuntimeTimeGrounding } from "../src/modules/agent/grounding";
 import { buildChatSystemPrompt } from "../src/modules/agent/workflows/chat-turn";
 
 // GROUND: behavioral guard that the boss answers relative calendar questions
@@ -37,7 +37,10 @@ const CONNECTED_SUMMARY = [
   "- github.search, github.get_pull_request, github.get_issue — the user's GitHub issues and pull requests — connected as 99Yash",
 ].join("\n");
 
-const SYSTEM = buildChatSystemPrompt(formatDateGrounding(TIMEZONE, NOW), CONNECTED_SUMMARY);
+// Mirror prod: chat's system prompt states no date; "now" rides the ephemeral
+// runtime line delivered as an assistant turn just before the user's message
+// (see runFirstCall), the single source of the current date and time (#410).
+const SYSTEM = buildChatSystemPrompt("", CONNECTED_SUMMARY);
 
 // The advertised parameters (from the model-facing JSON schema). The runtime
 // schema also tolerates window-key synonyms (`timeframe`/`range`/…), but the
@@ -89,7 +92,10 @@ function runFirstCall(input: string) {
   return generateText({
     model: getChatModel("standard"),
     instructions: SYSTEM,
-    prompt: input,
+    messages: [
+      { role: "assistant", content: formatRuntimeTimeGrounding(TIMEZONE, NOW) },
+      { role: "user", content: input },
+    ],
     temperature: 0,
     timeout: { totalMs: EVAL_TIMEOUT_MS },
     // The real calendar tool, execute-less so the run halts on the first tool

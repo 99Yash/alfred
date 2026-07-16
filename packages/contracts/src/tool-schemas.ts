@@ -722,7 +722,7 @@ export const gmailSearchHitSchema = z
     from: z.string().nullable(),
     subject: z.string().nullable(),
     snippet: z.string().max(GMAIL_SEARCH_SNIPPET_MAX_CHARS).nullable(),
-    authoredAt: z.string().datetime().nullable(),
+    authoredAt: z.iso.datetime().nullable(),
     url: z.string().nullable(),
   })
   .strict();

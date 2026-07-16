@@ -104,6 +104,29 @@ describe("sanitizeVoice — batch", () => {
   test("collapses an adjacent-dash run", () => {
     assert.equal(sanitizeVoice("a —— b"), "a; b");
   });
+
+  test("preserves a GFM table delimiter row", () => {
+    const table = "| Layer | How it works |\n| --- | --- |\n| a | b — c |";
+    assert.equal(
+      sanitizeVoice(table),
+      "| Layer | How it works |\n| --- | --- |\n| a | b; c |",
+    );
+  });
+
+  test("preserves tight and alignment delimiter rows", () => {
+    assert.equal(sanitizeVoice("| a | b |\n|---|---|\n| 1 | 2 |"), "| a | b |\n|---|---|\n| 1 | 2 |");
+    assert.equal(
+      sanitizeVoice("| a | b |\n| :--- | ---: |\n| 1 | 2 |"),
+      "| a | b |\n| :--- | ---: |\n| 1 | 2 |",
+    );
+  });
+
+  test("still sanitizes dashes inside table content cells", () => {
+    assert.equal(
+      sanitizeVoice("| col |\n| --- |\n| the plan — shipped |"),
+      "| col |\n| --- |\n| the plan; shipped |",
+    );
+  });
 });
 
 describe("createVoiceStreamSanitizer — straddling deltas", () => {
@@ -156,6 +179,13 @@ describe("createVoiceStreamSanitizer — straddling deltas", () => {
     assert.equal(stream(["Monday", "–", "Friday"]), "Monday-Friday");
   });
 
+  test("preserves a table delimiter row split across provider chunks", () => {
+    assert.equal(
+      stream(["| a | b |\n| ---", " | --- |\n", "| 1 | 2 |"]),
+      "| a | b |\n| --- | --- |\n| 1 | 2 |",
+    );
+  });
+
   test("streaming is invariant across every two-chunk split", () => {
     const samples = [
       "Use `a—b`, then continue — carefully.",
@@ -166,6 +196,8 @@ describe("createVoiceStreamSanitizer — straddling deltas", () => {
       "ready -- ship it",
       "before\n---\nafter — done",
       "---\ntitle: Briefing\n---",
+      "| Layer | How it works |\n| --- | --- |\n| retry | backs off — then throws |",
+      "| a | b |\n|:--|--:|\n| 1 | 2 |",
     ];
     for (const sample of samples) {
       const expected = sanitizeVoice(sample);

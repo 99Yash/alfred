@@ -298,19 +298,22 @@ describe("guardSpawnedChildren (ADR-0073 runtime invariant)", () => {
   ];
 
   test("parking strips the premature assistant tail (no illegal-prefill 400 on resume)", async () => {
-    const state = baseState({ assistantText: "premature answer" });
+    const state = baseState({
+      assistantText: "premature answer",
+      runtimeGroundingAnchor: "2026-07-15T03:58:00.000Z",
+    });
     const rec = recorder({
       children: [{ id: "child_a", status: "running" }],
       outcomes: { child_a: { ok: true, done: false, status: "running", runningMs: 1_000 } },
       scheduleResult: "scheduled",
     });
-    const result = await guardSpawnedChildren(
-      baseCtx(state),
-      state,
-      prematureTail(),
-      rec.deps,
-    );
+    const result = await guardSpawnedChildren(baseCtx(state), state, prematureTail(), rec.deps);
     assert.equal(result?.kind, "interrupt", "a still-running child parks");
+    assert.equal(
+      state.runtimeGroundingAnchor,
+      undefined,
+      "the park lifecycle seam invalidates grounding even for a short wake gap",
+    );
     const forwarded = result?.kind === "interrupt" ? (result.transcript ?? []) : [];
     assert.notEqual(
       forwarded.at(-1)?.role,
@@ -330,25 +333,30 @@ describe("guardSpawnedChildren (ADR-0073 runtime invariant)", () => {
     const rec = recorder({
       children: [{ id: "child_a", status: "completed" }],
       outcomes: {
-        child_a: { ok: true, done: true, status: "completed", output: { summary: "did the thing" } },
+        child_a: {
+          ok: true,
+          done: true,
+          status: "completed",
+          output: { summary: "did the thing" },
+        },
       },
     });
-    const result = await guardSpawnedChildren(
-      baseCtx(state),
-      state,
-      prematureTail(),
-      rec.deps,
-    );
+    const result = await guardSpawnedChildren(baseCtx(state), state, prematureTail(), rec.deps);
     assert.equal(result?.kind, "next");
     const forwarded = result?.kind === "next" ? (result.transcript ?? []) : [];
-    assert.equal(forwarded.at(-1)?.role, "user", "the regenerate transcript ends in the synthetic fold");
+    assert.equal(
+      forwarded.at(-1)?.role,
+      "user",
+      "the regenerate transcript ends in the synthetic fold",
+    );
     assert.match(
       String(forwarded.at(-1)?.content ?? ""),
       /finished without you awaiting it — it completed/,
     );
     assert.ok(
       !forwarded.some(
-        (m) => m.role === "assistant" && JSON.stringify(m.content).includes('"text":"premature answer"'),
+        (m) =>
+          m.role === "assistant" && JSON.stringify(m.content).includes('"text":"premature answer"'),
       ),
       "the uninformed premature answer is not carried into the regenerate transcript (narration keeps it for the UI)",
     );
@@ -367,15 +375,14 @@ describe("guardSpawnedChildren (ADR-0073 runtime invariant)", () => {
       },
       scheduleResult: "scheduled",
     });
-    const result = await guardSpawnedChildren(
-      baseCtx(state),
-      state,
-      prematureTail(),
-      rec.deps,
-    );
+    const result = await guardSpawnedChildren(baseCtx(state), state, prematureTail(), rec.deps);
     assert.equal(result?.kind, "interrupt");
     const forwarded = result?.kind === "interrupt" ? (result.transcript ?? []) : [];
-    assert.equal(forwarded.at(-1)?.role, "user", "the terminal fold is the legal turn-ender, not the assistant tail");
+    assert.equal(
+      forwarded.at(-1)?.role,
+      "user",
+      "the terminal fold is the legal turn-ender, not the assistant tail",
+    );
     assert.deepEqual(state.foldedChildRunIds, ["child_done"]);
     assert.deepEqual(rec.scheduleCalls, ["child_run"]);
   });

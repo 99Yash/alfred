@@ -185,7 +185,7 @@ export const systemTools: readonly RegisteredTool[] = [
     riskTier: "no_risk",
     availability: { surface: "kernel" },
     description:
-      "Return the current instant and the user's local date, time, weekday, timezone, and UTC offset.",
+      "Return a live execution-time snapshot of the current instant and the user's local date, time, weekday, timezone, and UTC offset. In chat, use this live result over the turn-start runtime_context when an exact later instant matters.",
     discovery: {
       title: "Current time",
       summary: "Read the current time in the user's operational timezone.",
