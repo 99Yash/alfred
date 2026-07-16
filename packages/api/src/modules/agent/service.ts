@@ -15,7 +15,6 @@ import {
 } from "@alfred/contracts";
 import { and, desc, eq, sql } from "drizzle-orm";
 import { publishEvent } from "../../events/publish";
-import { pgErrorChain } from "../../lib/pg-errors";
 import { snapshotScratchToPostgres } from "../scratchpad";
 import { enqueueRun } from "./queue";
 import { getWorkflow, listWorkflows } from "./registry";
@@ -34,27 +33,6 @@ import {
   type WorkflowInput,
 } from "./types";
 import { userAuthoredBriefWorkflow } from "./workflows/user-authored-brief";
-
-/**
- * `true` when the given error is a Postgres unique-violation (SQLSTATE
- * 23505). Used by `/api/agent/runs`, the OAuth-callback trigger, and the
- * chat-turn double-submit dedup to detect a duplicate `agent_runs.dedup_key`
- * and recover (return the in-flight run / 409 / no-op) instead of leaking the
- * raw constraint name.
- *
- * Drizzle query execution wraps pg driver errors in a `DrizzleQueryError`,
- * whose own `.code` is undefined — the node-postgres `DatabaseError` (which
- * carries `code: "23505"`) sits on `.cause`. So we walk a short cause chain
- * rather than only checking the top-level error; otherwise a wrapped violation
- * reads as a generic failure and the recovery path never fires (the concurrent
- * double-submit 500 this fixes).
- */
-export function isUniqueViolation(err: unknown): boolean {
-  for (const e of pgErrorChain(err)) {
-    if (e.code === "23505") return true;
-  }
-  return false;
-}
 
 /**
  * After this much silence on `last_checkpoint_at`, a `running` row is

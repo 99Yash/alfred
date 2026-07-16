@@ -14,11 +14,11 @@ import {
   cancelRunInTx,
   createRun,
   getRun,
-  isUniqueViolation,
   signalRun,
   signalRunInTx,
   type SignalArgs,
 } from "./service";
+import { isUniqueViolation } from "../../lib/pg-errors";
 import { closeSubAgentJoinWakeQueue } from "./sub-agent-join-wake-queue";
 import {
   startSubAgentJoinWakeWorker,
@@ -34,7 +34,6 @@ export {
   listPublicWorkflows,
   createRun,
   getRun,
-  isUniqueViolation,
   signalRun,
   signalRunInTx,
   cancelRun,

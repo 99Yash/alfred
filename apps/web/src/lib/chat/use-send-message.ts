@@ -1,7 +1,6 @@
-import { toMessage, type ChatModelTier } from "@alfred/contracts";
+import { toMessage, turnKickResponseSchema, type ChatModelTier } from "@alfred/contracts";
 import { useNavigate } from "@tanstack/react-router";
 import { useCallback } from "react";
-import { z } from "zod";
 import { authClient } from "~/lib/auth/auth-client";
 import { useReplicache } from "~/lib/replicache/context";
 import { toast } from "~/lib/toast";
@@ -35,11 +34,6 @@ export type SendMessage = (
   /** Structured target selected by the artifact sidebar; never parsed from prose. */
   artifactTargetId?: string,
 ) => Promise<boolean>;
-
-const turnKickResponseSchema = z.object({
-  runId: z.string().nullable(),
-  assistantMessageId: z.string().min(1),
-});
 
 /**
  * The kick just stages the message + enqueues the run (the reply streams back
@@ -152,6 +146,19 @@ export function useSendMessage(): SendMessage {
 
         const payload = turnKickResponseSchema.safeParse(await res.json().catch(() => null));
         if (payload.success) {
+          if (payload.data.outcome === "busy") {
+            // The thread already has a turn in flight (#488). No run was created
+            // for this message. Keep the composer's text and attachments (return
+            // false → the composer does NOT clear) so the user can retry once
+            // the in-flight reply finishes; don't surface it as a failure.
+            markChatTimingByUser(
+              userMessageId,
+              "turn_request_thread_busy",
+              { status: res.status, blockingRunId: payload.data.runId },
+              { summarize: true },
+            );
+            return false;
+          }
           attachChatAssistantTiming({
             userMessageId,
             assistantMessageId: payload.data.assistantMessageId,

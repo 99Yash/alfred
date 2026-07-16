@@ -6,6 +6,7 @@ import {
   MAX_ATTACHMENT_BYTES,
   MAX_ATTACHMENTS_PER_MESSAGE,
   toMessage,
+  type TurnKickResponse,
 } from "@alfred/contracts";
 import { db } from "@alfred/db";
 import { createId } from "@alfred/db/helpers";
@@ -15,6 +16,7 @@ import {
   chatAttachments,
   chatMessages,
   chatThreads,
+  CHAT_THREAD_ACTIVE_RUN_INDEX,
 } from "@alfred/db/schemas";
 import type { ChatAttachment, NewChatAttachment } from "@alfred/db/schemas";
 import { serverEnv } from "@alfred/env/server";
@@ -31,7 +33,8 @@ import {
   TooManyRequestsError,
 } from "../../middleware/errors";
 import { createCacheRedisConnection } from "../../queue/connection";
-import { createRun, enqueueRun, getRun, isUniqueViolation } from "../agent/index";
+import { createRun, enqueueRun, getRun } from "../agent/index";
+import { uniqueViolationConstraint } from "../../lib/pg-errors";
 import { CHAT_TURN_WORKFLOW_SLUG } from "../agent/workflows/chat-turn";
 import { enqueuePendingUploadCleanup } from "../integrations/queue";
 import {
@@ -200,6 +203,45 @@ async function findExistingChatTurnRun(
       ? existingAssistantId
       : fallbackAssistantMessageId,
   };
+}
+
+/**
+ * The id of a non-terminal chat-turn run already in flight on this thread for a
+ * DIFFERENT user message, or `null` if the thread is free (or the only in-flight
+ * run is this same message's — an idempotent retry, handled by
+ * {@link findExistingChatTurnRun}). This is the per-thread concurrency guard
+ * (#488): the client's "not streaming" submit gate is the ONLY thing stopping
+ * overlapping runs today, and once the composer can auto-fire queued/steered
+ * turns that gate no longer holds. The DB partial unique index
+ * ({@link CHAT_THREAD_ACTIVE_RUN_INDEX}) is the race-safe boundary; this lookup
+ * is the cheap fast path that rejects a busy thread before any attachment
+ * copying or durable writes, and the recovery read after that index fires.
+ */
+async function findBlockingChatTurnRun(
+  ex: DbExecutor,
+  userId: string,
+  threadId: string,
+  userMessageId: string,
+): Promise<string | null> {
+  const active = await ex
+    .select({ id: agentRuns.id, metadata: agentRuns.metadata })
+    .from(agentRuns)
+    .where(
+      and(
+        eq(agentRuns.userId, userId),
+        eq(agentRuns.workflowSlug, CHAT_TURN_WORKFLOW_SLUG),
+        sql`${agentRuns.metadata} ->> 'threadId' = ${threadId}`,
+        notInArray(agentRuns.status, ["completed", "failed", "cancelled"]),
+      ),
+    )
+    .limit(1);
+  const existing = active[0];
+  if (!existing) return null;
+  const runUserMessageId = getPath(existing.metadata, "userMessageId");
+  // Same user message → this is a retry of the in-flight turn, not a busy
+  // collision; the caller's idempotent existing-run path returns it as started.
+  if (runUserMessageId === userMessageId) return null;
+  return existing.id;
 }
 
 function freshAttachmentRowsMatchSubset(
@@ -584,6 +626,25 @@ export const chatRoutes = new Elysia({ prefix: "/api/chat", normalize: "typebox"
             throw new ConflictError("Message id already belongs to a different chat turn");
           }
 
+          // Per-thread concurrency guard (#488): if a different turn is still in
+          // flight on this thread, don't create a second run — return a typed
+          // "busy" outcome so the client can keep this message queued and retry
+          // when that run completes. Checked here, before any attachment copies
+          // or durable writes, so a busy kick has no side effects. This is the
+          // fast path; the DB partial unique index below is the race-safe
+          // backstop for two kicks that both pass this check concurrently. An
+          // exact duplicate submit (same user message) is NOT busy — it falls
+          // through to the idempotent existing-run path.
+          const blockingRunId = await findBlockingChatTurnRun(
+            db(),
+            user.id,
+            threadId,
+            body.userMessageId,
+          );
+          if (blockingRunId) {
+            return { outcome: "busy", runId: blockingRunId } satisfies TurnKickResponse;
+          }
+
           const retrySources: RetryAttachmentSource[] = [];
           if (retryAttachmentIds.length > 0) {
             const sources = await db()
@@ -666,7 +727,7 @@ export const chatRoutes = new Elysia({ prefix: "/api/chat", normalize: "typebox"
             );
             if (existingRun) {
               await enqueueChatTurnRunBestEffort(existingRun.runId);
-              return existingRun;
+              return { outcome: "started", ...existingRun } satisfies TurnKickResponse;
             }
           }
 
@@ -750,7 +811,7 @@ export const chatRoutes = new Elysia({ prefix: "/api/chat", normalize: "typebox"
 
           const assistantMessageId = createId("msg");
           let acceptedFreshAttachmentBytes = 0;
-          const result = await db().transaction<ExistingChatTurnRun>(async (tx) => {
+          const result = await db().transaction<TurnKickResponse>(async (tx) => {
             if (!thread) {
               await tx
                 .insert(chatThreads)
@@ -872,14 +933,32 @@ export const chatRoutes = new Elysia({ prefix: "/api/chat", normalize: "typebox"
                   sp,
                 ),
               );
-              return { runId, assistantMessageId };
+              return { outcome: "started", runId, assistantMessageId };
             } catch (err) {
-              // Double-submit / retry collided on the partial unique index. Treat
-              // that as success: a run for this exact turn is already in flight,
-              // so return it instead of spawning a duplicate reply. The savepoint
-              // rolled back the failed insert, so the outer tx is still alive for
-              // this lookup.
-              if (!isUniqueViolation(err)) throw err;
+              // A unique violation here means one of two invariants collided —
+              // the savepoint rolled back only the failed insert, so the outer tx
+              // is still alive to recover. Discriminate on WHICH index tripped.
+              const constraint = uniqueViolationConstraint(err);
+              if (constraint === null) throw err;
+              // Per-thread guard (#488): a concurrent kick with a DIFFERENT user
+              // message already has a run in flight on this thread and won the
+              // race. This is the race-safe backstop for two kicks that both
+              // passed the pre-tx `findBlockingChatTurnRun` check. Report busy —
+              // no second run was created — carrying the in-flight run when it's
+              // still visible so the client can await it before retrying.
+              if (constraint === CHAT_THREAD_ACTIVE_RUN_INDEX) {
+                const blockingRunId = await findBlockingChatTurnRun(
+                  tx,
+                  user.id,
+                  threadId,
+                  body.userMessageId,
+                );
+                return { outcome: "busy", runId: blockingRunId };
+              }
+              // Otherwise this is a same-user-message double-submit that collided
+              // on the dedup index. Treat it as success: a run for this exact
+              // turn is already in flight, so return it instead of spawning a
+              // duplicate reply.
               const existingRun = await findExistingChatTurnRun(
                 tx,
                 user.id,
@@ -887,7 +966,9 @@ export const chatRoutes = new Elysia({ prefix: "/api/chat", normalize: "typebox"
                 assistantMessageId,
                 artifactTargetId,
               );
-              return existingRun ?? { runId: null, assistantMessageId };
+              return existingRun
+                ? { outcome: "started", ...existingRun }
+                : { outcome: "started", runId: null, assistantMessageId };
             }
           });
           if (attachmentRows.length > 0) {
@@ -898,7 +979,12 @@ export const chatRoutes = new Elysia({ prefix: "/api/chat", normalize: "typebox"
             }
           }
           await releasePendingUploadBudget(user.id, acceptedFreshAttachmentBytes);
-          await enqueueChatTurnRunBestEffort(result.runId);
+          // Only a started turn owns a run to enqueue. A busy outcome created no
+          // run — the in-flight one it points at is already enqueued by its own
+          // kick — so don't re-enqueue another turn's work.
+          if (result.outcome === "started") {
+            await enqueueChatTurnRunBestEffort(result.runId);
+          }
           return result;
         },
         {

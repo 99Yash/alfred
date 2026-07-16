@@ -1,0 +1,1 @@
+CREATE UNIQUE INDEX "agent_runs_chat_thread_active_idx" ON "agent_runs" USING btree ("user_id",("metadata" ->> 'threadId')) WHERE "agent_runs"."workflow_slug" = '__chat-turn__' AND ("agent_runs"."metadata" ->> 'threadId') IS NOT NULL AND "agent_runs"."status" NOT IN ('completed', 'failed', 'cancelled');

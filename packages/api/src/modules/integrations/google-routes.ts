@@ -22,7 +22,7 @@ import { and, eq } from "drizzle-orm";
 import { authMacro } from "../../middleware/auth";
 import { BadRequestError, NotFoundError, ServiceUnavailableError } from "../../middleware/errors";
 import { createRun, enqueueRun } from "../agent";
-import { isUniqueViolation } from "../agent/service";
+import { isUniqueViolation } from "../../lib/pg-errors";
 import { COLD_START_WORKFLOW_SLUG } from "../cold-start";
 import { getIngestionQueue } from "./queue";
 import {

@@ -3,7 +3,8 @@ import { toMessage } from "@alfred/contracts";
 import { Queue, Worker, type Job } from "bullmq";
 import { z } from "zod";
 import { createRedisConnection, isQueueEnabled } from "../../queue/connection";
-import { createRun, enqueueRun, isUniqueViolation } from "../agent/index";
+import { createRun, enqueueRun } from "../agent/index";
+import { isUniqueViolation } from "../../lib/pg-errors";
 
 /**
  * Chat → memory idle-debounce trigger (chat-memory-capture-v1.md, #398; D9).
