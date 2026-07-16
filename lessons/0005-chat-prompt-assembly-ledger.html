@@ -1,0 +1,111 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Case 1.5 — Chat prompt assembly ledger</title>
+  <link rel="stylesheet" href="../assets/lesson.css">
+</head>
+<body>
+<main>
+  <p class="frame-no">Alfred harness · Case 1.5</p>
+  <h1>Watch the prompt<br>come into focus.</h1>
+  <p class="lede">Same direct-answer happy path. This time the camera stays on what gets loaded, where it lives, and what the provider actually receives.</p>
+
+  <p class="thesis"><strong>The one sentence to keep:</strong> Alfred has a durable canonical transcript, then derives a richer provider-only prompt from it immediately before inference.</p>
+
+  <h2>Frame 1 — run creation</h2>
+  <table class="compact-table">
+    <thead><tr><th>Lane</th><th>What exists now</th></tr></thead>
+    <tbody>
+      <tr><td><strong>Run state</strong></td><td>Thread/message ids, tier, empty counters, and <code>activeTools = systemToolKernel()</code>.</td></tr>
+      <tr><td><strong>Canonical transcript</strong></td><td>Loaded from <code>chat_messages</code>: optional persisted conversation summary plus the verbatim tail, including the newest user message. Ready attachment rows are represented by storage references.</td></tr>
+      <tr><td><strong>Provider prompt</strong></td><td>Does not exist yet.</td></tr>
+      <tr><td><strong>Cache</strong></td><td>No cache decision yet.</td></tr>
+    </tbody>
+  </table>
+  <p class="state">Both state and transcript are inserted into <code>agent_runs</code> with <code>status=pending</code>. BullMQ receives only the run id.</p>
+
+  <h2>Frame 2 — the leased chat step enriches state</h2>
+  <div class="timeline">
+    <article class="frame"><div class="frame-no">Load A</div><div><h3>Hydrate attachments</h3><p>Storage references in the transcript become bounded image bytes for model input.</p><p class="state">Provider-only. Raw bytes are not checkpointed back into the canonical transcript.</p></div></article>
+    <article class="frame"><div class="frame-no">Load B</div><div><h3>Resolve user environment</h3><p>Load timezone and integration availability. Build the human-readable connected-services catalog.</p><p class="state">Timezone and <code>connectedSummary</code> are copied into run state so later steps reuse the same snapshot.</p></div></article>
+    <article class="frame"><div class="frame-no">Load C</div><div><h3>Preload likely tools</h3><p>The latest user message is ranked once. Selected exact tools are added to <code>state.activeTools</code>.</p><p class="state">This happens before tool schemas and the system prompt are finalized. A changed active set changes the earliest provider prefix.</p></div></article>
+    <article class="frame"><div class="frame-no">Load D</div><div><h3>Load artifact context</h3><p>Safe generated artifact metadata is prepared for the system prompt. The selected artifact body becomes a lower-trust assistant-role reference.</p><p class="state">Metadata is stored in run state; the body reference is request-only.</p></div></article>
+  </div>
+
+  <h2>Frame 3 — assemble the three provider sections</h2>
+  <div class="request-stack">
+    <div class="prompt-block cache-write"><strong>Tools</strong><span>Exact active schemas: kernel + deterministic preloads. Sorted alphabetically; <code>execute</code> removed.</span><span class="breakpoint">after last tool</span></div>
+    <div class="prompt-block cache-write"><strong>System</strong><span>Alfred charter + artifact design rules + safe artifact metadata + frozen connected-services catalog. No live date/time.</span><span class="breakpoint">after system</span></div>
+    <div class="prompt-block cache-fresh"><strong>Messages</strong><span>Optional conversation summary + verbatim history + hydrated attachments.</span><span></span></div>
+    <div class="prompt-block cache-fresh"><strong>Request only</strong><span><code>&lt;runtime_context&gt;</code> and selected artifact body are inserted as an assistant message immediately before the newest user message.</span><span></span></div>
+    <div class="prompt-block cache-write"><strong>Newest user</strong><span>The actual current ask remains the final message.</span><span class="breakpoint">after last message</span></div>
+  </div>
+
+  <p>The step hashes the completed system text into <code>state.systemPromptHash</code>. A later model step in the same run must reproduce that hash unless an explicit lifecycle seam, such as an artifact mutation, clears it.</p>
+
+  <h2>Frame 4 — context guard, then cache decoration</h2>
+  <p>Before inference, Alfred estimates the whole request against the selected model’s context window. If needed, it compacts old history while retaining a separate storage-safe continuation transcript. Only after that does <code>AlfredAgent</code> attach Anthropic’s 1-hour cache markers.</p>
+
+  <pre>wire order
+TOOLS ◀ breakpoint 1
+SYSTEM ◀ breakpoint 2
+MESSAGES
+  old history
+  assistant: &lt;runtime_context&gt; + artifact reference  (request-only)
+  user: newest ask ◀ breakpoint 3
+MODEL GENERATES NEW OUTPUT</pre>
+
+  <h2>Frame 5 — what survives the answer?</h2>
+  <table class="compact-table">
+    <thead><tr><th>Item</th><th>After direct completion</th></tr></thead>
+    <tbody>
+      <tr><td>Final assistant response</td><td>Appended to the run transcript and persisted as a <code>chat_messages</code> row.</td></tr>
+      <tr><td>Connected summary, timezone, active tools, system hash</td><td>Persisted in final run state for audit/replay of this run.</td></tr>
+      <tr><td>Hydrated image bytes</td><td>Discarded; storage references remain canonical.</td></tr>
+      <tr><td>Runtime context and artifact body reference</td><td>Discarded from the checkpoint; reconstructed when needed.</td></tr>
+      <tr><td>Provider cache entry</td><td>Provider-owned, temporary, and only a performance optimization.</td></tr>
+    </tbody>
+  </table>
+
+  <p class="thesis"><strong>Cache nuance:</strong> the tool and system prefixes can be reused across runs when identical. The full message-prefix breakpoint is especially useful inside a contiguous tool loop because the runtime timestamp is deliberately held stable there. After a real park, Alfred clears that time anchor and rebuilds the request with fresh time.</p>
+
+  <div class="quiz">
+    <h2 style="margin-top:0">Storage check</h2>
+    <p>Where does the canonical transcript live while the run is between steps?</p>
+    <div class="answers">
+      <button data-ok="true">Postgres</button>
+      <button data-ok="false">Provider</button>
+      <button data-ok="false">Frontend</button>
+    </div>
+    <p class="feedback" id="feedback" aria-live="polite"></p>
+  </div>
+
+  <h2>Pause here</h2>
+  <p>Try to reconstruct the final wire request using only five labels: <em>tools, system, history, runtime reference, newest user</em>. Ask your agent about any label whose source or lifetime is unclear.</p>
+
+  <h2>Source trail</h2>
+  <ul class="sources">
+    <li><a href="../packages/api/src/modules/agent/service.ts">Run creation</a> and <a href="../packages/api/src/modules/agent/workflows/chat-turn.ts">chat prompt assembly</a>.</li>
+    <li><a href="../packages/api/src/modules/agent/tool-surface.ts">Kernel, deterministic preload, and exact tool surface</a>.</li>
+    <li><a href="../packages/ai/src/agent.ts">Wire decoration and cache breakpoints</a>.</li>
+    <li><a href="https://platform.claude.com/docs/en/build-with-claude/prompt-caching">Anthropic prompt-caching documentation</a>.</li>
+    <li><a href="../reference/chat-prompt-ledger.html">Reference: chat prompt ledger</a>.</li>
+    <li><a href="0001-direct-chat-happy-path.html">Previous: direct chat happy path</a>.</li>
+  </ul>
+</main>
+<script>
+  const feedback = document.querySelector('#feedback');
+  document.querySelectorAll('button[data-ok]').forEach((button) => {
+    button.addEventListener('click', () => {
+      const correct = button.dataset.ok === 'true';
+      feedback.textContent = correct
+        ? 'Correct. Postgres is the durable source; model-ready request data is derived from it.'
+        : 'Try again. This component may hold a temporary copy, but it is not the durable checkpoint.';
+      feedback.style.color = correct ? 'var(--success)' : 'var(--error)';
+    });
+  });
+</script>
+</body>
+</html>

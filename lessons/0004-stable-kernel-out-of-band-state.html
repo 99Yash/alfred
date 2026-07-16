@@ -1,0 +1,101 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Case 4 — Stable kernel, out-of-band state</title>
+  <link rel="stylesheet" href="../assets/lesson.css">
+</head>
+<body>
+<main>
+  <p class="frame-no">Alfred harness · Cache case 3</p>
+  <h1>Keep the kernel.<br>Move the bulk.</h1>
+  <p class="lede">A provider-agnostic design cannot own hosted KV caches, but it can own what stays stable, what is discovered, and what never enters the transcript.</p>
+
+  <p class="thesis"><strong>The one sentence to keep:</strong> separate tool-schema churn from tool-result bulk; they need different registries and different remedies.</p>
+
+  <h2>What a harness can and cannot own</h2>
+  <table class="compact-table">
+    <tbody>
+      <tr><th>Harness owns</th><td>Canonical prompt segments, hashes, versions, tool catalog, object handles, provider compilation, authorization, dispatch, and cache telemetry.</td></tr>
+      <tr><th>Provider owns</th><td>The actual precomputed model state, cache identity rules, TTL, minimum length, billing, and whether schemas may be injected after the prefix.</td></tr>
+    </tbody>
+  </table>
+  <p>A local “prompt-cache registry” can say <em>this logical segment is stable and has hash H</em>. It cannot make Anthropic’s cached activations reusable by Gemini.</p>
+
+  <h2>Three external registries</h2>
+  <div class="timeline">
+    <article class="frame"><div class="frame-no">Registry 1</div><div><h3>Prompt segments</h3><p>Stable instructions, current version hashes, ordering constraints, and provider-specific compilation rules.</p></div></article>
+    <article class="frame"><div class="frame-no">Registry 2</div><div><h3>Tool catalog</h3><p>Canonical names, descriptions, schemas, authorization, availability, provider representations, and version hashes.</p></div></article>
+    <article class="frame"><div class="frame-no">Registry 3</div><div><h3>Context objects</h3><p>Large tool results and generated datasets stored by handle with shape, provenance, permissions, lifecycle, and query operations.</p></div></article>
+  </div>
+
+  <h2>The stable execution kernel</h2>
+  <p class="equation">stable system prompt
+stable catalog.search(query)
+stable object.query(handle, expression)
+stable code.run(source, capabilities, objectHandles)
+stable action.invoke(name, input)  ← optional generic escape hatch</p>
+  <p>Everything else stays outside the initial prompt. A provider compiler uses native deferred tools when available. The portable fallback exposes a small fixed meta-tool surface and returns only the selected signatures or handles in later messages.</p>
+
+  <h2>“Recompute schemas on the fly” has two meanings</h2>
+  <table class="compact-table">
+    <thead><tr><th>Meaning</th><th>Result</th></tr></thead>
+    <tbody>
+      <tr><td>Rebuild schemas locally, then resend them in the ordinary tools array</td><td>No escape: changed prefix, changed provider cache key.</td></tr>
+      <tr><td>Keep schemas in the registry/runtime and expose only a fixed generic executor</td><td>Provider-agnostic stable prefix, but native per-tool argument guidance moves into runtime discovery and validation.</td></tr>
+    </tbody>
+  </table>
+
+  <h2>Your dataset-artifact idea</h2>
+  <p>Suppose <code>gmail.search</code> returns 20,000 messages. Do not append the dataset to every later prompt:</p>
+  <p class="equation">tool result → object store
+transcript ← { handle, preview, schema, rowCount, provenance }
+
+follow-up → code.run("group/filter/join object(handle)")
+transcript ← small derived answer or another artifact handle</p>
+  <p>This is strong for deterministic work: filtering, aggregation, joins, statistics, sorting, and rendering. For open-ended semantic inference over every row, the model still needs selected rows, chunked model passes, embeddings, or summaries. The handle does not remove reasoning; it makes retrieval deliberate.</p>
+
+  <h2>Why code mode is not free</h2>
+  <ul>
+    <li>Agent-authored code needs isolation, CPU/memory/time limits, and controlled egress.</li>
+    <li>Capabilities must be injected explicitly; authorization cannot live only in generated code.</li>
+    <li>Writes still require idempotency, approvals, audit, and durable resume.</li>
+    <li>Objects need lifecycle, garbage collection, provenance, and permissions.</li>
+    <li>The model needs discoverable types or signatures, even if it retrieves only a small subset.</li>
+  </ul>
+
+  <p class="thesis"><strong>Alfred’s practical first slice:</strong> park oversized tool results and return <code>preview + handle</code>; add a fixed <code>read_object(handle, jsonpath, page)</code> tool. This solves result bloat without building a code sandbox. Native provider tool search separately solves schema churn.</p>
+
+  <div class="quiz">
+    <h2>Retrieval check</h2>
+    <p>Which mechanism prevents a 20,000-row tool result from being rebilled in every later turn?</p>
+    <div class="answer-grid">
+      <button data-ok="false">Deferred tool schema loading</button>
+      <button data-ok="true">Object handle plus bounded retrieval</button>
+      <button data-ok="false">A separate local prompt hash</button>
+    </div>
+    <p class="feedback" id="feedback" aria-live="polite"></p>
+  </div>
+
+  <h2>Source trail</h2>
+  <ul class="sources">
+    <li><a href="../docs/plans/context-working-set-considered.md">Alfred: context working set / Code Mode / self-syncing — considered and shelved</a>.</li>
+    <li><a href="../decisions.md">Alfred decisions: artifacts, tool surfaces, and durable dispatch</a>.</li>
+    <li><a href="0003-deferred-tools-preserve-the-prefix.html">Previous lesson: deferred tools preserve the prefix</a>.</li>
+    <li><a href="../reference/provider-tool-loading-capability-matrix.html">Provider capability matrix</a>.</li>
+  </ul>
+</main>
+<script>
+  const feedback = document.querySelector('#feedback');
+  document.querySelectorAll('button[data-ok]').forEach((button) => {
+    button.addEventListener('click', () => {
+      feedback.textContent = button.dataset.ok === 'true'
+        ? 'Correct. Schema loading controls what the model can call; object handles control how much returned data remains in its transcript.'
+        : 'Separate the two axes: schemas describe capabilities, while object handles keep large results outside the transcript.';
+      feedback.style.color = button.dataset.ok === 'true' ? 'var(--success)' : 'var(--error)';
+    });
+  });
+</script>
+</body>
+</html>
