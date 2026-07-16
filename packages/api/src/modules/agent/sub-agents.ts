@@ -3,7 +3,8 @@ import { db } from "@alfred/db";
 import { agentRuns } from "@alfred/db/schemas";
 import { and, eq, sql } from "drizzle-orm";
 import { z } from "zod";
-import { createRun, isUniqueViolation } from "./service";
+import { createRun } from "./service";
+import { isUniqueViolation } from "../../lib/pg-errors";
 import { enqueueRun } from "./queue";
 import { AWAIT_SUB_AGENT_CEILING_MS } from "./sub-agent-join-wake-queue";
 import {

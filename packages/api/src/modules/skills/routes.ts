@@ -6,7 +6,7 @@ import { emitReplicachePokes } from "../../events/replicache-events";
 import { authMacro } from "../../middleware/auth";
 import { ConflictError, InternalServerError, NotFoundError } from "../../middleware/errors";
 import { createRun, enqueueRun } from "../agent";
-import { isUniqueViolation } from "../agent/service";
+import { isUniqueViolation } from "../../lib/pg-errors";
 import { recordSkillRun } from "./revisions";
 import { slugifyForUser } from "./slug";
 import {

@@ -33,3 +33,40 @@ export function* pgErrorChain(err: unknown, maxDepth = 5): Generator<PgErrorLike
     cur = Reflect.get(cur, "cause");
   }
 }
+
+/** SQLSTATE class 23 — unique-violation (a duplicate key / partial-index collision). */
+export const PG_UNIQUE_VIOLATION = "23505";
+
+/**
+ * `true` when the given error is a Postgres unique-violation (SQLSTATE 23505).
+ * Callers use it to detect a duplicate key and recover (return the in-flight
+ * row / 409 / no-op) instead of leaking the raw constraint name.
+ *
+ * Walks the `.cause` chain via {@link pgErrorChain}: Drizzle query execution
+ * wraps pg driver errors in a `DrizzleQueryError` whose own `.code` is
+ * undefined — the node-postgres `DatabaseError` that carries `code: "23505"`
+ * sits on `.cause`. Checking only the top-level error would read a wrapped
+ * violation as a generic failure and skip the recovery path.
+ */
+export function isUniqueViolation(err: unknown): boolean {
+  for (const e of pgErrorChain(err)) {
+    if (e.code === PG_UNIQUE_VIOLATION) return true;
+  }
+  return false;
+}
+
+/**
+ * The name of the unique index a 23505 violated, or `null` if the error is not
+ * a unique violation. Lets a caller that owns more than one partial unique
+ * index (e.g. the chat turn kick: a `userMessageId` dedup index and a
+ * per-thread active-run index) tell WHICH invariant collided and branch
+ * accordingly — double-submit recovery vs. a typed "thread busy" response
+ * (#488). Walks the same wrapped-cause chain as {@link isUniqueViolation};
+ * node-postgres carries the index name on `.constraint`.
+ */
+export function uniqueViolationConstraint(err: unknown): string | null {
+  for (const e of pgErrorChain(err)) {
+    if (e.code === PG_UNIQUE_VIOLATION) return e.constraint ?? null;
+  }
+  return null;
+}
