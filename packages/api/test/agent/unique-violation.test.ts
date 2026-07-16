@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { describe, test } from "node:test";
 
-import { isUniqueViolation } from "../../src/modules/agent/service";
+import { isUniqueViolation, uniqueViolationConstraint } from "../../src/modules/agent/service";
 
 /**
  * `isUniqueViolation` must recognize a Postgres 23505 even when Drizzle has
@@ -43,5 +43,38 @@ describe("isUniqueViolation", () => {
     const cyclic: { code?: string; cause?: unknown } = {};
     cyclic.cause = cyclic;
     assert.equal(isUniqueViolation(cyclic), false);
+  });
+});
+
+/**
+ * `uniqueViolationConstraint` lets the chat turn kick tell WHICH partial unique
+ * index a 23505 tripped — the per-thread active-run index ("thread busy") vs.
+ * the userMessageId dedup index (double-submit recovery) (#488). node-postgres
+ * carries the index name on `.constraint`, one level down the wrapped chain.
+ */
+describe("uniqueViolationConstraint", () => {
+  test("returns the constraint name from a raw pg unique violation", () => {
+    assert.equal(
+      uniqueViolationConstraint({ code: "23505", constraint: "agent_runs_chat_thread_active_idx" }),
+      "agent_runs_chat_thread_active_idx",
+    );
+  });
+
+  test("reads the constraint off a Drizzle-wrapped violation (.cause)", () => {
+    const wrapped = {
+      name: "DrizzleQueryError",
+      cause: { name: "DatabaseError", code: "23505", constraint: "agent_runs_dedup_key_idx" },
+    };
+    assert.equal(uniqueViolationConstraint(wrapped), "agent_runs_dedup_key_idx");
+  });
+
+  test("returns null for a 23505 without a constraint name", () => {
+    assert.equal(uniqueViolationConstraint({ code: "23505" }), null);
+  });
+
+  test("returns null for non-unique-violation and nullish errors", () => {
+    assert.equal(uniqueViolationConstraint({ code: "23503", constraint: "some_fk" }), null);
+    assert.equal(uniqueViolationConstraint(new Error("boom")), null);
+    assert.equal(uniqueViolationConstraint(null), null);
   });
 });

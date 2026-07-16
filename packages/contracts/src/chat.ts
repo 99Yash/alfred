@@ -59,3 +59,34 @@ export const chatErrorKindValues = [
 ] as const;
 export type ChatErrorKind = (typeof chatErrorKindValues)[number];
 export const chatErrorKindSchema = z.enum(chatErrorKindValues);
+
+/**
+ * Response of the turn-kick endpoint (`POST /api/chat/threads/:id/turn`),
+ * discriminated on `outcome` so the client can tell three things apart on a
+ * `2xx`: the turn started (a run exists for it), or the thread is busy (a
+ * different turn is still in flight, so no run was created for this message).
+ * A hard failure stays a non-`2xx` `ApiErrorResponse` — busy is deliberately
+ * NOT an error, so the client can keep the message queued and retry when the
+ * in-flight run completes rather than surfacing a failure toast (#488).
+ *
+ *   - `started` — a run for this exact user message exists (freshly created, or
+ *                 the idempotent existing one for a duplicate submit). `runId`
+ *                 may be `null` only in the rare recovery path where the run row
+ *                 could not be re-read after a concurrent insert.
+ *   - `busy`    — the thread already has a non-terminal run for a *different*
+ *                 user message, so this kick created nothing. `runId`, when
+ *                 present, is that in-flight run — the one to await before
+ *                 retrying.
+ */
+export const turnKickResponseSchema = z.discriminatedUnion("outcome", [
+  z.object({
+    outcome: z.literal("started"),
+    runId: z.string().nullable(),
+    assistantMessageId: z.string().min(1),
+  }),
+  z.object({
+    outcome: z.literal("busy"),
+    runId: z.string().nullable(),
+  }),
+]);
+export type TurnKickResponse = z.infer<typeof turnKickResponseSchema>;
