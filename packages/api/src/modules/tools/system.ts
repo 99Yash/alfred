@@ -568,7 +568,7 @@ export const systemTools: readonly RegisteredTool[] = [
     // binary resources reported rather than garbled; host-guarded for SSRF.
     riskTier: "no_risk",
     description:
-      "Read the contents of a known http(s) URL in as sanitized text. Use this when you already hold a link (from the user, read_user_context, or a prior tool result) and need what the page actually says — 'read my website', 'summarize this page', 'what does this link say'. This reads a page you can name; use web_search to discover sources for a question instead. Returns readable text (HTML stripped), the page title, and the final URL; binary resources (PDFs, images) are reported honestly, not downloaded.",
+      "Read the contents of a known http(s) URL in as sanitized text. Use this when you already hold a link (from the user, read_user_context, or a prior tool result) and need what the page actually says — 'read my website', 'summarize this page', 'what does this link say'. This reads a page you can name; use web_search to discover sources for a question instead. Reads JavaScript-rendered pages too (X/Twitter profiles and tweets, and other single-page apps): when the plain read comes back empty it re-fetches through a headless renderer, so prefer it over web_search for 'what's in his bio', 'read his recent tweets' — web_search only sees lagged second-hand commentary about X. Returns readable text (HTML stripped), the page title, and the final URL; binary resources (PDFs, images) are reported honestly, not downloaded.",
     inputSchema: fetchUrlInput,
     execute: async (input) => {
       return await runFetchUrl({ url: input.url });
