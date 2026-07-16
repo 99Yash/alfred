@@ -1,0 +1,108 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Case 1 — Direct chat, no tools</title>
+  <link rel="stylesheet" href="../assets/lesson.css">
+</head>
+<body>
+<main>
+  <p class="frame-no">Alfred harness · Case 1</p>
+  <h1>Direct chat.<br>No tools.</h1>
+  <p class="lede">The user says something the model can answer immediately. We follow one run from the HTTP request to a completed Postgres row.</p>
+
+  <p class="thesis"><strong>The one sentence to keep:</strong> the workflow engine owns the durable loop; <code>AlfredAgent</code> performs exactly one model request inside one workflow step.</p>
+
+  <section class="legend" aria-label="cast">
+    <div><strong>Director</strong> Workflow + executor choose what runs next.</div>
+    <div><strong>Actor</strong> <code>AlfredAgent</code> performs one provider request.</div>
+    <div><strong>Film</strong> Postgres stores state and transcript between frames.</div>
+  </section>
+
+  <h2>The film</h2>
+  <div class="timeline">
+    <article class="frame">
+      <div class="frame-no">Frame 01</div>
+      <div><h3>The route records the turn</h3><p>The chat route writes the user message, creates an assistant placeholder, and calls <code>createRun</code> for <code>__chat-turn__</code>.</p><p class="state">Run: <code>status=pending</code>, <code>currentStep=chat-turn</code>, initial state + transcript persisted.</p></div>
+    </article>
+    <article class="frame">
+      <div class="frame-no">Frame 02</div>
+      <div><h3>BullMQ rings the bell</h3><p>The route enqueues the run id. The queue contains a pointer, not the authoritative workflow state.</p><p class="state">Redis/BullMQ says “work on run X”; Postgres still says what run X means.</p></div>
+    </article>
+    <article class="frame">
+      <div class="frame-no">Frame 03</div>
+      <div><h3>The executor claims one frame</h3><p><code>runOnce</code> leases the run, resolves the workflow and <code>chat-turn</code> step, inserts an <code>agent_steps</code> row, and starts a heartbeat.</p><p class="state">Run: <code>pending → running</code>. Step identity: <code>(runId, chat-turn, attempt)</code>.</p></div>
+    </article>
+    <article class="frame">
+      <div class="frame-no">Frame 04</div>
+      <div><h3>The chat step builds one request</h3><p>It hydrates history, freezes connected/tool/artifact context into run state, builds the system prompt, and checks its SHA-256 against <code>state.systemPromptHash</code>.</p><p class="state">A timestamp does not enter the stable system prompt; fresh runtime time is placed in an ephemeral transcript suffix.</p></div>
+    </article>
+    <article class="frame">
+      <div class="frame-no">Frame 05</div>
+      <div><h3>Prompt-cache breakpoints are attached</h3><p><code>AlfredAgent</code> sorts tool definitions, strips their <code>execute</code> functions, and marks the system block, final tool, and last transcript message with a 1-hour Anthropic cache breakpoint.</p><p class="state">Cache order is <code>tools → system → messages</code>. A matching byte prefix can be read cheaply; the new suffix is processed normally.</p></div>
+    </article>
+    <article class="frame">
+      <div class="frame-no">Frame 06</div>
+      <div><h3>The actor gets one take</h3><p><code>agent.streamTurn()</code> calls AI SDK <code>streamText</code> with <code>stopWhen: isStepCount(1)</code> and execute-less tools. Text deltas stream to the UI while the durable step remains open.</p><p class="state">Important: neither the AI SDK nor the model owns a multi-turn tool loop here.</p></div>
+    </article>
+    <article class="frame">
+      <div class="frame-no">Frame 07</div>
+      <div><h3>The model answers directly</h3><p>No tool calls are returned. The step appends the provider response to the canonical transcript, persists the assistant message, and returns <code>{ kind: "done" }</code>.</p><p class="state">There is no visit to <code>dispatch-tools</code> in this case.</p></div>
+    </article>
+    <article class="frame">
+      <div class="frame-no">Frame 08</div>
+      <div><h3>The executor commits the ending</h3><p><code>commitStepSuccess</code> atomically marks the step completed and the run completed, storing the final state, transcript, and output.</p><p class="state">Run: <code>running → completed</code>. The worker snapshots scratch state best-effort and does not re-enqueue.</p></div>
+    </article>
+  </div>
+
+  <h2>What the prompt cache is — and is not</h2>
+  <pre>workflow iteration
+  └─ builds provider request
+       ├─ stable prefix: tools + system + old transcript  ← cache candidate
+       └─ fresh suffix: runtime context + newest content ← processed now
+
+prompt cache ≠ workflow state
+prompt cache ≠ model response cache
+prompt cache = reuse of provider-side prompt-prefix processing</pre>
+
+  <p>If this first request is cold, it writes eligible prefixes. A later request with the same prefix can read them. Correctness does not depend on a hit: a miss costs more latency/tokens but produces the same logical workflow behavior.</p>
+
+  <div class="quiz">
+    <h2 style="margin-top:0">Director check</h2>
+    <p>Who decides whether another step runs after the model returns?</p>
+    <div class="answers">
+      <button data-ok="true">Workflow</button>
+      <button data-ok="false">Provider</button>
+      <button data-ok="false">Frontend</button>
+    </div>
+    <p class="feedback" id="feedback" aria-live="polite"></p>
+  </div>
+
+  <h2>Pause before Case 2</h2>
+  <p>Without looking above, explain the handoff in one line: <em>route → queue → executor → chat step → model → commit</em>. Then ask your agent any question that still feels foggy. Case 2 should add exactly one complication: the model emits one safe tool call.</p>
+
+  <h2>Source trail</h2>
+  <ul class="sources">
+    <li><a href="../packages/api/src/modules/chat/index.ts">Chat route</a></li>
+    <li><a href="../packages/api/src/modules/agent/service.ts">Run creation</a> and <a href="../packages/api/src/modules/agent/worker.ts">worker</a></li>
+    <li><a href="../packages/api/src/modules/agent/executor.ts">One-step executor</a></li>
+    <li><a href="../packages/api/src/modules/agent/workflows/chat-turn.ts">Chat workflow</a></li>
+    <li><a href="../packages/ai/src/agent.ts">Single-turn LLM driver and cache decoration</a></li>
+    <li><a href="https://platform.claude.com/docs/en/build-with-claude/prompt-caching">Anthropic prompt-caching documentation</a></li>
+    <li><a href="https://ai-sdk.dev/docs/ai-sdk-core/tools-and-tool-calling">AI SDK tool-calling documentation</a></li>
+  </ul>
+</main>
+<script>
+  const feedback = document.querySelector('#feedback');
+  document.querySelectorAll('button[data-ok]').forEach((button) => {
+    button.addEventListener('click', () => {
+      feedback.textContent = button.dataset.ok === 'true'
+        ? 'Yes. The workflow step returns an outcome; the executor commits it and the worker decides whether to enqueue again.'
+        : 'Not this one. The provider returns text or tool calls, but Alfred’s workflow runtime decides the next durable step.';
+      feedback.style.color = button.dataset.ok === 'true' ? 'var(--success)' : 'var(--error)';
+    });
+  });
+</script>
+</body>
+</html>

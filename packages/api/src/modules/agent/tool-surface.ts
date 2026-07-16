@@ -13,7 +13,7 @@ import type {
 } from "../integrations/availability";
 import { latestUserPrompt, preloadToolsForPrompt } from "../tools/discovery";
 import type { DispatchResult } from "../dispatch";
-import { startToolPreloadSpan, startToolSurfaceSpan } from "./runtime-spans";
+import { startToolLoadSpan, startToolPreloadSpan, startToolSurfaceSpan } from "./runtime-spans";
 import { estimateToolSurfaceBudget } from "./schema-budget";
 
 export const toolNameSchema = z.custom<ToolName>(
@@ -68,6 +68,39 @@ function registeredToolNames(toolNames: readonly string[]): ToolName[] {
 
 export function activateTool(activeTools: readonly ToolName[], toolName: ToolName): ToolName[] {
   return uniqueToolNames([...activeTools, toolName]);
+}
+
+/**
+ * Fold a dispatcher inactive-tool bounce into the run's active surface and trace
+ * it as a `runtime.tool_load` span with `source: "inactive_bounce"`. A lazy tool
+ * reaches the surface two ways — the model calls `system.load_tool` (traced by
+ * that tool as `source: "model_load"`) or it calls the tool directly and the
+ * dispatcher bounces the schema-blind call, auto-activating it here. Only the
+ * first used to emit a `tool_load` span, so a count of the span undercounted true
+ * lazy activations by the bounce half (#414); emitting here makes the count
+ * whole. The dispatcher returns `inactive_tool` only for a registered, allowed
+ * tool that is not yet active, so the activation always succeeds; the span
+ * carries no latency because it is a pure in-memory surface mutation — the schema
+ * cost lands on the next turn's `runtime.tool_surface` rebuild, already traced
+ * there. Shared by the chat-turn and brief workflows so the two bounce sites
+ * cannot drift.
+ */
+export function applyInactiveToolBounce(args: {
+  state: { activeTools: ToolName[] };
+  toolName: ToolName;
+  runId: string;
+  /** Span caller label (`boss` | `sub:<id>`), matching the dispatcher's `callerLabel`. */
+  spanCaller: string;
+}): void {
+  const span = startToolLoadSpan({
+    runId: args.runId,
+    caller: args.spanCaller,
+    toolName: args.toolName,
+    source: "inactive_bounce",
+    startedAt: new Date(),
+  });
+  args.state.activeTools = activateTool(args.state.activeTools, args.toolName);
+  span.end({ outcome: "ok", latencyMs: 0 });
 }
 
 /** Apply the bounded effect returned by `system.load_tool`; all other output is inert. */
