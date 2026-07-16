@@ -11,6 +11,7 @@ import {
   systemToolKernel,
 } from "../../src/modules/agent/tool-surface";
 import { preloadToolCatalog, type ToolCatalogAccess } from "../../src/modules/tools/discovery";
+import type { ToolAvailabilityResult } from "../../src/modules/integrations/availability";
 import { registerBuiltinTools } from "../../src/modules/tools/index";
 import {
   clearToolRegistryForTests,
@@ -146,7 +147,9 @@ describe("preloadToolCatalog against the real registry", () => {
       kernelNames,
       access: {
         allowedIntegrations: ["github"],
-        availableTools: new Set<ToolName>([...kernelNames, ...githubNames]),
+        availability: new Map<ToolName, ToolAvailabilityResult>(
+          [...kernelNames, ...githubNames].map((name) => [name, { available: true }]),
+        ),
       },
     };
   };
@@ -182,7 +185,10 @@ describe("preloadToolCatalog against the real registry", () => {
       activeTools: kernelNames,
       access,
     });
-    assert.ok(!selected.includes("system.read_user_context" as ToolName), `[${selected.join(", ")}]`);
+    assert.ok(
+      !selected.includes("system.read_user_context" as ToolName),
+      `[${selected.join(", ")}]`,
+    );
   });
 });
 

@@ -16,7 +16,7 @@
 import type { ActionSlug, IntegrationSlug, ToolName, ToolRiskTier } from "@alfred/contracts";
 import { buildToolName, INTEGRATION_ACTIONS, integrationFromToolName } from "@alfred/contracts";
 import type { z } from "zod";
-import { deriveToolDiscovery } from "./metadata-defaults";
+import { deriveToolDiscovery, type ResolvedDiscovery } from "./metadata-defaults";
 
 export interface ToolDiscoveryMetadata {
   /** Compact model-facing name; defaults to the humanized action slug. */
@@ -139,7 +139,7 @@ export interface RegisteredTool {
   action: string;
   riskTier: ToolRiskTier;
   description: string;
-  discovery: Required<Pick<ToolDiscoveryMetadata, "title" | "summary">> & ToolDiscoveryMetadata;
+  discovery: ResolvedDiscovery;
   availability?: ToolAvailabilityMetadata;
   inputSchema: z.ZodTypeAny;
   execute: (input: unknown, ctx: ToolExecuteContext) => Promise<unknown>;

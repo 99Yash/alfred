@@ -7,10 +7,11 @@ import {
 } from "@alfred/contracts";
 import {
   availableToolNames,
-  evaluateToolAvailability,
+  evaluateToolCatalog,
   readIntegrationAvailability,
   type IntegrationAvailabilitySnapshot,
   type ToolAvailabilityContext,
+  type ToolAvailabilityResult,
 } from "../integrations/availability";
 import { getTool, listRegisteredTools, type RegisteredTool } from "./registry";
 
@@ -35,13 +36,14 @@ interface RankedCandidate extends ToolSearchCandidate {
 
 export interface ToolCatalogAccess {
   allowedIntegrations: readonly string[];
-  availableTools: ReadonlySet<ToolName>;
   /**
-   * Reason a matched-but-unavailable tool can't run, or `null` when it can.
-   * Supplied only by callers that opt into {@link ToolSearchArgs.includeUnavailable};
-   * without it, unavailable matches stay hidden.
+   * Availability of every candidate tool, evaluated once by the caller (see
+   * {@link evaluateToolCatalog}). Both "can it run" and "why not" read from the
+   * same {@link ToolAvailabilityResult}, so a surfaced tool can't disagree with
+   * its own reason. A tool absent from the map is treated as unavailable with no
+   * explanation — hidden even when {@link ToolSearchArgs.includeUnavailable} is set.
    */
-  explainUnavailable?: (name: ToolName) => string | null;
+  availability: ReadonlyMap<ToolName, ToolAvailabilityResult>;
 }
 
 interface ToolSearchArgs {
@@ -76,29 +78,14 @@ export async function searchAvailableTools(args: {
   availability?: IntegrationAvailabilitySnapshot;
 }): Promise<ToolSearchCandidate[]> {
   const tools = listRegisteredTools();
-  const availability = args.availability ?? (await readIntegrationAvailability(args.userId));
-  const availableTools = availableToolNames(
-    availability,
-    tools,
-    args.allowedIntegrations,
-    args.context,
-  );
-  const allowed = new Set(args.allowedIntegrations);
+  const snapshot = args.availability ?? (await readIntegrationAvailability(args.userId));
+  const availability = evaluateToolCatalog(snapshot, tools, args.allowedIntegrations, args.context);
   return searchToolCatalog({
     query: args.query,
     limit: args.limit,
     tools,
     includeUnavailable: true,
-    access: {
-      allowedIntegrations: args.allowedIntegrations,
-      availableTools,
-      explainUnavailable: (name) => {
-        const tool = getTool(name);
-        if (!tool) return null;
-        const result = evaluateToolAvailability(availability, tool, allowed, args.context);
-        return result.available ? null : result.reason;
-      },
-    },
+    access: { allowedIntegrations: args.allowedIntegrations, availability },
   });
 }
 
@@ -113,19 +100,14 @@ export async function preloadToolsForPrompt(args: {
   availability?: IntegrationAvailabilitySnapshot;
 }): Promise<ToolName[]> {
   const tools = listRegisteredTools();
-  const availability = args.availability ?? (await readIntegrationAvailability(args.userId));
-  const availableTools = availableToolNames(
-    availability,
-    tools,
-    args.allowedIntegrations,
-    args.context,
-  );
+  const snapshot = args.availability ?? (await readIntegrationAvailability(args.userId));
+  const availability = evaluateToolCatalog(snapshot, tools, args.allowedIntegrations, args.context);
   return preloadToolCatalog({
     prompt: args.prompt,
     limit: args.limit,
     tools,
     activeTools: args.activeTools,
-    access: { allowedIntegrations: args.allowedIntegrations, availableTools },
+    access: { allowedIntegrations: args.allowedIntegrations, availability },
   });
 }
 
@@ -230,13 +212,15 @@ function rankToolCatalog(args: ToolSearchArgs): RankedCandidate[] {
     // tools outside it are never surfaced, available or not.
     if (!withinAllowlist(tool.integration, allowed)) continue;
 
-    const available = args.access.availableTools.has(tool.name);
+    const result = args.access.availability.get(tool.name);
+    const available = result?.available === true;
     let unavailableReason: string | undefined;
     if (!available) {
       if (!args.includeUnavailable) continue;
-      unavailableReason = args.access.explainUnavailable?.(tool.name) ?? undefined;
-      // No reason means the gate considers it runnable (or the caller can't
-      // explain it) — don't surface a contradiction.
+      // Availability and reason come from the one result object, so they can't
+      // diverge. Only a genuine unavailable result carries a reason; a tool
+      // absent from the map has none and stays hidden.
+      unavailableReason = result && !result.available ? result.reason : undefined;
       if (!unavailableReason) continue;
     }
 

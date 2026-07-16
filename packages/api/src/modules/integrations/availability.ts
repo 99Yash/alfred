@@ -203,3 +203,24 @@ export function availableToolNames(
   }
   return available;
 }
+
+/**
+ * Evaluate every candidate tool once and keep the whole {@link
+ * ToolAvailabilityResult} — availability *and*, when unavailable, the reason.
+ * Tool discovery (#413) consumes this as its single availability source: whether
+ * a tool can run and why-not read from the same result object, so a surfaced
+ * tool can never contradict its own reason and no tool is evaluated twice.
+ */
+export function evaluateToolCatalog(
+  snapshot: IntegrationAvailabilitySnapshot,
+  tools: readonly RegisteredTool[],
+  allowedIntegrations: readonly string[],
+  context: ToolAvailabilityContext,
+): Map<RegisteredTool["name"], ToolAvailabilityResult> {
+  const allowed = new Set(allowedIntegrations);
+  const out = new Map<RegisteredTool["name"], ToolAvailabilityResult>();
+  for (const tool of tools) {
+    out.set(tool.name, evaluateToolAvailability(snapshot, tool, allowed, context));
+  }
+  return out;
+}
