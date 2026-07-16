@@ -1,0 +1,53 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Provider tool-loading capability matrix</title>
+  <link rel="stylesheet" href="../assets/lesson.css">
+</head>
+<body>
+<main>
+  <p class="frame-no">Alfred harness · Reference</p>
+  <h1>Provider tool-loading<br>capability matrix</h1>
+  <p class="lede">Verified against provider documentation on 16 July 2026. Capabilities must be keyed by provider adapter and model, not assumed from a common AI SDK tool type.</p>
+
+  <table class="compact-table">
+    <thead><tr><th>Provider</th><th>Cache-preserving deferred custom tools</th><th>Discovery modes</th><th>Important boundary</th></tr></thead>
+    <tbody>
+      <tr><td><strong>Anthropic</strong></td><td>Yes: <code>defer_loading</code>; discovered definitions become inline <code>tool_reference</code> blocks.</td><td>Hosted regex or BM25 search.</td><td>Supported-model and platform differences; deferred tools cannot carry the cache breakpoint.</td></tr>
+      <tr><td><strong>OpenAI</strong></td><td>Yes: <code>defer_loading</code>; loaded tools are injected at the end of context to preserve cache.</td><td>Hosted search or client-executed search; namespaces and MCP recommended.</td><td>Only <code>gpt-5.4</code> and later; individual model pages may still mark Tool Search unsupported.</td></tr>
+      <tr><td><strong>Google Gemini</strong></td><td>No equivalent documented in current public Gemini API docs.</td><td>Application-side dynamic selection.</td><td>Gemini recommends only 10–20 active tools. Implicit/explicit context caching exists, but cached tool lists are stable/immutable rather than lazily injected.</td></tr>
+    </tbody>
+  </table>
+
+  <h2>Harness rule</h2>
+  <p class="equation">resolve concrete provider + model
+→ read capability profile
+→ choose tool-loading strategy
+→ build provider request
+→ execute</p>
+  <p>Do not choose a provider-native tool representation after wrapping several providers behind an opaque retry/fallback model. A fallback can change not only model quality but the valid request protocol.</p>
+
+  <h2>Capability shape worth tracking</h2>
+  <pre>toolLoading:
+  mode: "native-hosted" | "native-client" | "application"
+  preservesPromptPrefix: boolean
+  supportsNamespaces: boolean
+  modelMinimum?: string
+  platformRestrictions?: string[]
+
+promptCaching:
+  mode: "automatic" | "breakpoints" | "cache-resource"
+  minimumTokens: number
+  usageAccounting: ...</pre>
+
+  <p class="sources">
+    <a href="https://platform.claude.com/docs/en/agents-and-tools/tool-use/tool-search-tool">Anthropic tool search</a> ·
+    <a href="https://developers.openai.com/api/docs/guides/tools-tool-search">OpenAI tool search</a> ·
+    <a href="https://ai.google.dev/gemini-api/docs/function-calling">Gemini function calling</a> ·
+    <a href="https://ai.google.dev/gemini-api/docs/caching/">Gemini context caching</a>
+  </p>
+</main>
+</body>
+</html>

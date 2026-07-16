@@ -24,7 +24,7 @@
   <div class="timeline">
     <article class="frame">
       <div class="frame-no">Frame 01</div>
-      <div><h3>The route records the turn</h3><p>The chat route writes the user message, creates an assistant placeholder, and calls <code>createRun</code> for <code>__chat-turn__</code>.</p><p class="state">Run: <code>status=pending</code>, <code>currentStep=chat-turn</code>, initial state + transcript persisted.</p></div>
+      <div><h3>The route records the turn</h3><p>The chat route writes the user message, mints the future assistant-message id, and calls <code>createRun</code> for <code>__chat-turn__</code>.</p><p class="state">Run: <code>status=pending</code>, <code>currentStep=chat-turn</code>, initial state + transcript persisted. The durable assistant row is written at finalization.</p></div>
     </article>
     <article class="frame">
       <div class="frame-no">Frame 02</div>
@@ -81,6 +81,7 @@ prompt cache = reuse of provider-side prompt-prefix processing</pre>
 
   <h2>Pause before Case 2</h2>
   <p>Without looking above, explain the handoff in one line: <em>route → queue → executor → chat step → model → commit</em>. Then ask your agent any question that still feels foggy. Case 2 should add exactly one complication: the model emits one safe tool call.</p>
+  <p><a href="0005-chat-prompt-assembly-ledger.html">Continue to Case 1.5: what exactly enters the prompt, and when?</a></p>
 
   <h2>Source trail</h2>
   <ul class="sources">
