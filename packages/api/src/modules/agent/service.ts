@@ -57,6 +57,22 @@ export function isUniqueViolation(err: unknown): boolean {
 }
 
 /**
+ * The name of the unique index a 23505 violated, or `null` if the error is not
+ * a unique violation. Lets a caller that owns more than one partial unique index
+ * (e.g. the chat turn kick: a `userMessageId` dedup index and a per-thread
+ * active-run index) tell WHICH invariant collided and branch accordingly —
+ * double-submit recovery vs. a typed "thread busy" response (#488). Walks the
+ * same wrapped-cause chain as {@link isUniqueViolation}; node-postgres carries
+ * the index name on `.constraint`.
+ */
+export function uniqueViolationConstraint(err: unknown): string | null {
+  for (const e of pgErrorChain(err)) {
+    if (e.code === "23505") return e.constraint ?? null;
+  }
+  return null;
+}
+
+/**
  * After this much silence on `last_checkpoint_at`, a `running` row is
  * presumed abandoned and may be reclaimed by another worker. Shared
  * between the resume sweep (which re-enqueues stale rows) and the
