@@ -33,7 +33,8 @@ import {
   TooManyRequestsError,
 } from "../../middleware/errors";
 import { createCacheRedisConnection } from "../../queue/connection";
-import { createRun, enqueueRun, getRun, uniqueViolationConstraint } from "../agent/index";
+import { createRun, enqueueRun, getRun } from "../agent/index";
+import { uniqueViolationConstraint } from "../../lib/pg-errors";
 import { CHAT_TURN_WORKFLOW_SLUG } from "../agent/workflows/chat-turn";
 import { enqueuePendingUploadCleanup } from "../integrations/queue";
 import {

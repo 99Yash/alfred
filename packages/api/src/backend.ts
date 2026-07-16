@@ -7,9 +7,9 @@ export {
   createRun,
   enqueueRun,
   getAgentQueue,
-  isUniqueViolation,
   signalRun,
 } from "./modules/agent/index";
+export { isUniqueViolation, uniqueViolationConstraint } from "./lib/pg-errors";
 export type {
   RunStatus,
   Step,

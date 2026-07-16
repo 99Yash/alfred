@@ -8,7 +8,7 @@ import { databaseEnv } from "@alfred/env/database";
 import { and, eq, inArray, sql } from "drizzle-orm";
 
 import { closeRedis } from "../../src/queue/connection";
-import { uniqueViolationConstraint } from "../../src/modules/agent/service";
+import { uniqueViolationConstraint } from "../../src/lib/pg-errors";
 
 /**
  * DB-backed guard for the per-thread turn concurrency invariant (#488).
