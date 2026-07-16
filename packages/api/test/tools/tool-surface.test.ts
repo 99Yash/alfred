@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { after, before, describe, test } from "node:test";
-import type { ToolName } from "@alfred/contracts";
+import { isToolName, type ToolName } from "@alfred/contracts";
+import { buildChatSystemPrompt } from "../../src/modules/agent/workflows/chat-turn";
 import {
   applyExactToolLoad,
   applySystemToolEffect,
@@ -58,21 +59,33 @@ describe("systemToolKernel", () => {
     }
   });
 
-  // The kernel is the eager tool surface every turn starts with, and the chat
-  // system prompt advertises exactly these tools by name. Pinning the exact set
-  // (not just "matches listKernelTools") keeps the two in lockstep: adding or
-  // retiring a kernel tool without updating the prompt fails here (#411/#412,
-  // PR #519 — system tools promoted into the eager kernel).
-  test("is exactly the seven prompt-advertised system tools", () => {
-    assert.deepEqual([...systemToolKernel()].sort(), [
-      "system.current_time",
-      "system.load_tool",
-      "system.read_chat_history",
-      "system.read_user_context",
-      "system.search_tools",
-      "system.spawn_sub_agent",
-      "system.web_search",
+  test("every system tool named by the composed chat prompt is eager or intentionally lazy", () => {
+    // Artifact mutation schemas are intentionally the largest system tools, so
+    // they stay lazy even when the prompt explains the artifact workflow. Any
+    // other newly named system tool must be promoted or deliberately added here.
+    const intentionallyLazy = new Set<ToolName>([
+      "system.create_artifact",
+      "system.append_artifact_page",
+      "system.append_artifact_section",
+      "system.update_artifact",
     ]);
+    const prompt = buildChatSystemPrompt("Thursday, July 16, 2026", "", {
+      artifactsContext:
+        "An artifact is selected. For an edit, use system.update_artifact on the selected id.",
+    });
+    const namedSystemTools = new Set(prompt.match(/\bsystem\.[a-z_]+\b/g) ?? []);
+    const kernel = new Set<string>(systemToolKernel());
+
+    for (const name of namedSystemTools) {
+      assert.ok(isToolName(name), `prompt-named tool ${name} must be a canonical tool name`);
+      assert.ok(getTool(name), `prompt-named tool ${name} must be registered`);
+      assert.ok(
+        kernel.has(name) || intentionallyLazy.has(name),
+        `prompt-named tool ${name} must be kernel or explicitly intentionally lazy`,
+      );
+    }
+    assert.ok(namedSystemTools.has("system.await_sub_agent"));
+    assert.ok(kernel.has("system.await_sub_agent"));
   });
 });
 
@@ -84,14 +97,14 @@ describe("buildSdkToolSet caller/thread projection", () => {
   // could never climb to a tool it needs.
   const kernelNames = () => listKernelTools().map((t) => t.name);
 
-  test("chat (boss + thread) projects all seven kernel tools", () => {
+  test("chat (boss + thread) projects all eight kernel tools", () => {
     const chat = Object.keys(buildSdkToolSet(kernelNames(), { caller: "boss", hasThread: true }));
-    assert.equal(chat.length, 7, `[${[...chat].sort().join(", ")}]`);
+    assert.equal(chat.length, 8, `[${[...chat].sort().join(", ")}]`);
   });
 
-  test("a thread-less brief drops read_chat_history (requiresThread) → six", () => {
+  test("a thread-less brief drops read_chat_history (requiresThread) → seven", () => {
     const brief = Object.keys(buildSdkToolSet(kernelNames(), { caller: "boss", hasThread: false }));
-    assert.equal(brief.length, 6);
+    assert.equal(brief.length, 7);
     assert.ok(!brief.includes("system.read_chat_history"), `[${[...brief].sort().join(", ")}]`);
   });
 
@@ -206,6 +219,11 @@ describe("migrateActiveTools", () => {
     for (const name of registeredToolNamesForIntegrations(["gmail"])) {
       assert.ok(migrated.includes(name), `gmail tool ${name} retained`);
     }
+  });
+
+  test("legacy expansion never treats system as an eager integration", () => {
+    const migrated = migrateActiveTools(undefined, ["system"], []);
+    assert.deepEqual(migrated, systemToolKernel());
   });
 
   test("legacy expansion unions a valid pending tool from outside the active integrations", () => {
