@@ -260,7 +260,11 @@ export const systemTools: readonly RegisteredTool[] = [
     riskTier: "no_risk",
     description:
       "Wait for a spawned sub-agent to finish and read its real result. Call this after system.spawn_sub_agent; it returns the child's terminal status, output, and any error. Never tell the user you'll notify them when a sub-agent is done later — there is no out-of-turn notification; await it here so the turn completes with the real result, or report honestly that it could not finish.",
-    availability: { callers: ["boss"] },
+    // Kernel: the prompt teaches spawn -> await as one delegation move. Keeping
+    // only spawn eager would make the required join pay an activation bounce and
+    // invalidate the prompt cache mid-run. `callers` still hides both join tools
+    // from sub-agent runs.
+    availability: { surface: "kernel", callers: ["boss"] },
     inputSchema: awaitSubAgentInputSchema,
     // The dispatcher (dispatch/index.ts) intercepts this tool to park the parent
     // on a child-completion signal when the child is still running (ADR-0073).

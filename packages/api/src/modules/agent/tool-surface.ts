@@ -4,6 +4,7 @@ import { z } from "zod";
 import { getTool, listKernelTools, listToolsForIntegration } from "../tools/registry";
 import type { ToolAvailabilityContext, IntegrationAvailabilitySnapshot } from "../integrations/availability";
 import { latestUserPrompt, preloadToolsForPrompt } from "../tools/discovery";
+import type { DispatchResult } from "../dispatch";
 import { startToolPreloadSpan } from "./runtime-spans";
 
 export const toolNameSchema = z.custom<ToolName>(
@@ -38,7 +39,9 @@ export function migrateActiveTools(
   const pendingTools = registeredToolNames(legacyPendingToolNames);
   return uniqueToolNames([
     ...systemToolKernel(),
-    ...registeredToolNamesForIntegrations(legacyActiveIntegrations ?? []),
+    ...registeredToolNamesForIntegrations(
+      (legacyActiveIntegrations ?? []).filter((integration) => integration !== "system"),
+    ),
     ...pendingTools,
   ]);
 }
@@ -71,15 +74,15 @@ export function applyExactToolLoad(activeTools: readonly ToolName[], result: unk
  * Fold a completed system tool call's run-state effect into the active surface.
  * Only `system.load_tool` mutates it — a successful load adds one exact tool for
  * the next model turn; every other system tool is inert here. The result is
- * treated as untrusted and validated by {@link applyExactToolLoad}, so the
- * dispatch envelope is typed structurally rather than coupling this module to
- * the dispatcher. Shared by the chat-turn and brief workflows so the two paths
- * can't drift.
+ * treated as untrusted and validated by {@link applyExactToolLoad}. The
+ * type-only dispatcher import preserves the real result discriminant without
+ * adding a runtime dependency. Shared by the chat-turn and brief workflows so
+ * the two paths can't drift.
  */
 export function applySystemToolEffect(
   state: { activeTools: ToolName[] },
   toolName: string,
-  result: { readonly kind: string; readonly toolResult?: unknown },
+  result: Pick<DispatchResult, "kind"> & { readonly toolResult?: unknown },
 ): void {
   if (toolName === "system.load_tool" && result.kind === "executed") {
     state.activeTools = applyExactToolLoad(state.activeTools, result.toolResult);
@@ -108,10 +111,13 @@ const sdkToolSetCache = new Map<string, ToolSet>();
  *     runs (ADR-0073), and
  *   - `requiresThread` gates thread-only tools (chat history) out of thread-less
  *     brief/sub-agent runs.
- * This mirrors the same two predicates {@link availableToolNames} enforces for
- * discovery, so a kernel tool like `read_chat_history` can be eager in chat yet
- * stay invisible where it can't run. Shared by the chat-turn and brief workflows
- * so the two SDK-tool builders can't drift.
+ * These are the caller-context predicates also used by
+ * {@link availableToolNames}. Integration allowlists and credential health are
+ * load-time gates: they were checked before a name entered `activeTools` and are
+ * intentionally not re-checked at this SDK projection boundary. Thus a kernel
+ * tool like `read_chat_history` can be eager in chat yet stay invisible where it
+ * can't run. Shared by the chat-turn and brief workflows so the two SDK-tool
+ * builders can't drift.
  */
 export function buildSdkToolSet(
   activeTools: readonly ToolName[],
