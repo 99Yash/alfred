@@ -30,6 +30,15 @@ function isInitialContentEmpty(initialJSON?: JSONContent): boolean {
   return false;
 }
 
+/**
+ * True on touch/pen primary-input devices. Used to switch Enter from
+ * send-message (desktop) to insert-newline (mobile), where there's no reliable
+ * Shift+Enter and the on-screen return key is expected to add a line.
+ */
+function isCoarsePointer(): boolean {
+  return typeof window !== "undefined" && Boolean(window.matchMedia?.("(pointer: coarse)").matches);
+}
+
 export interface SuggestionRenderState {
   query: string;
   /** Commits the picked option as a mention node and closes the popup. */
@@ -201,6 +210,11 @@ export function TiptapComposer({
           "tiptap tiptap-minimum-input composer-editor",
           "break-words whitespace-pre-wrap outline-none",
           "max-h-64 min-h-[64px] overflow-y-auto px-3 pt-2 pb-1.5",
+          // Dissolve overflowing content into the top/bottom edges instead of a
+          // hard clip. The fade sits within the pt-2/pb-1.5 padding, so at rest
+          // the text is untouched; only content scrolled under the padding fades.
+          "[mask-image:linear-gradient(to_bottom,transparent,#000_10px,#000_calc(100%_-_8px),transparent)]",
+          "[-webkit-mask-image:linear-gradient(to_bottom,transparent,#000_10px,#000_calc(100%_-_8px),transparent)]",
           "text-[15px] leading-7 font-medium tracking-tight text-app-fg-4",
           "caret-app-purple-3",
           className ?? "",
@@ -212,6 +226,11 @@ export function TiptapComposer({
         // onKeyDown above. Only step in when it's closed.
         if (suggestionOpenRef.current) return false;
         if (event.key === "Enter" && !event.shiftKey) {
+          // Touch devices have no reliable Shift+Enter, and their return key
+          // should behave like every mobile chat app: insert a newline (falls
+          // through to ProseMirror's default) and reserve sending for the Send
+          // button. Desktop keeps Enter-to-send.
+          if (isCoarsePointer()) return false;
           event.preventDefault();
           onSubmitRef.current();
           return true;
