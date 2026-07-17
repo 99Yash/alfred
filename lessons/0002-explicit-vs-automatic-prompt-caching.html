@@ -1,0 +1,134 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Case 2 — Prompt caching as prefix reuse</title>
+  <link rel="stylesheet" href="../assets/lesson.css">
+</head>
+<body>
+<main>
+  <p class="frame-no">Alfred harness · Cache case 1</p>
+  <h1>Cache a prefix.<br>Not a response.</h1>
+  <p class="lede">One practical model for automatic caching, explicit breakpoints, and what Alfred’s lazy tool surface does to both.</p>
+
+  <p class="thesis"><strong>The one sentence to keep:</strong> <code>cache_control</code> marks the end of a reusable input prefix; it does not cache only the marked block, and it never caches the model’s future answer.</p>
+
+  <h2>First, correct the mental model</h2>
+  <p>A Claude request is serialized in this order:</p>
+  <p class="equation">tools → system → messages → model generates a new answer</p>
+  <p>The provider can reuse work for an identical prefix of that input. The answer being generated is output, so it is not part of this request’s cache. On the next request, however, that old assistant answer is usually sent back inside <code>messages</code>. At that point it is input and can be part of a cached prefix.</p>
+
+  <div class="request-stack" aria-label="explicit cache breakpoint example">
+    <div class="prompt-block cache-write"><strong>Tools A–D</strong><span>Definitions and schemas</span><span></span></div>
+    <div class="prompt-block cache-write"><strong>System</strong><span>Stable Alfred instructions</span><span></span></div>
+    <div class="prompt-block cache-write"><strong>User 1</strong><span>“Check my calendar”</span><span class="breakpoint">cache_control</span></div>
+    <div class="prompt-block cache-fresh"><strong>Output</strong><span>Claude’s new answer</span><span>not input yet</span></div>
+  </div>
+  <p>That marker on <strong>User 1</strong> writes one entry for <code>Tools A–D + System + User 1</code>. It does not write three independent entries, and it does not cache just User 1.</p>
+
+  <h2>Automatic versus explicit</h2>
+  <table class="compact-table">
+    <thead><tr><th>Mode</th><th>Where you put it</th><th>What Anthropic does</th></tr></thead>
+    <tbody>
+      <tr><td><strong>Automatic</strong></td><td>One top-level <code>cache_control</code></td><td>Places a breakpoint on the last eligible input block for each request. As history grows, that endpoint moves forward.</td></tr>
+      <tr><td><strong>Explicit</strong></td><td><code>cache_control</code> on chosen tool/system/message blocks</td><td>Creates/checks prefix entries at exactly those endpoints, giving control over stable islands and the 20-block lookback window.</td></tr>
+    </tbody>
+  </table>
+  <p>Both modes use the same prefix cache. “Automatic” automates breakpoint placement; it does not use a different cache and does not make changing bytes reusable.</p>
+
+  <h2>Watch a normal conversation grow</h2>
+  <div class="timeline">
+    <article class="frame">
+      <div class="frame-no">Request 1</div>
+      <div><h3>Cold write</h3><p><code>T + S + U1 ◀</code></p><p class="state">No prior entry. Process the whole input, then write the prefix ending at U1.</p></div>
+    </article>
+    <article class="frame">
+      <div class="frame-no">Request 2</div>
+      <div><h3>Read old, write delta</h3><p><code>[T + S + U1] + A1 + U2 ◀</code></p><p class="state">The bracketed prefix is identical and can be read. A1 and U2 are new input; the new endpoint is written.</p></div>
+    </article>
+    <article class="frame">
+      <div class="frame-no">Request 3</div>
+      <div><h3>The assistant message is now cacheable</h3><p><code>[T + S + U1 + A1 + U2] + A2 + U3 ◀</code></p><p class="state">A1 was output in Request 1, but it became input in Requests 2 and 3.</p></div>
+    </article>
+  </div>
+
+  <h2>Alfred’s actual explicit breakpoints</h2>
+  <p><code>AlfredAgent</code> currently marks up to four endpoints:</p>
+  <ol>
+    <li>The alphabetically last active tool, covering the entire active tool array.</li>
+    <li>The system block, covering tools plus system.</li>
+    <li>Usually the last transcript message, covering tools plus system plus history.</li>
+    <li>Sometimes a pre-tool-burst message, so a large result burst cannot push the prior entry outside Anthropic’s 20-block search window.</li>
+  </ol>
+  <p>Sorting is load-bearing: the same tool set must serialize in the same order. The system prompt is pinned and excludes changing time. Fresh time and artifact references ride in a later message suffix.</p>
+
+  <h2>Lazy tools: simulate the consequence</h2>
+  <p>Choose what happens between two otherwise-identical requests.</p>
+  <div class="controls" aria-label="cache simulation choices">
+    <button type="button" data-case="same" aria-pressed="true">Same tool surface</button>
+    <button type="button" data-case="load" aria-pressed="false">Load calendar.create</button>
+    <button type="button" data-case="time" aria-pressed="false">Change only runtime time</button>
+  </div>
+  <div class="result" id="simulation" aria-live="polite"></div>
+
+  <p class="thesis"><strong>Alfred consequence today:</strong> Alfred's client-side lazy load changes the <em>earliest</em> section, <code>tools</code>. Because the cache hierarchy is <code>tools → system → messages</code>, that invalidates every later prefix for the first request with the expanded surface. No breakpoint placement can rescue that non-identical prefix. If the expanded surface stays stable, the following request can hit the newly written prefix.</p>
+
+  <h2>Why Alfred’s explicit policy is reasonable</h2>
+  <p>Automatic caching would be convenient for ordinary append-only chat. Alfred has two extra needs: a stable early breakpoint before changing runtime context, and an extra boundary around large tool-result bursts. Explicit markers make those endpoints deliberate. Lazy loading still causes a cold transition, but it also keeps the steady-state tool prefix much smaller than sending every integration schema on every turn.</p>
+
+  <p><strong>Provider-native exception:</strong> Anthropic's tool-search API supports <code>defer_loading</code>. Deferred definitions are excluded from the early tools prefix and discovered schemas are expanded later as <code>tool_reference</code> blocks, preserving the cache. Alfred does not currently use that representation. Continue to <a href="0003-deferred-tools-preserve-the-prefix.html">Case 3: deferred tools preserve the prefix</a>.</p>
+
+  <div class="quiz">
+    <h2>Retrieval check</h2>
+    <p>Alfred loads one new tool, then sends a request with the same system and old transcript. What can it reuse from the old prompt cache?</p>
+    <div class="answer-grid">
+      <button data-ok="false">The unchanged system and transcript prefixes</button>
+      <button data-ok="true">No old prefix; tools changed before them</button>
+      <button data-ok="false">Only the newly loaded tool definition itself</button>
+    </div>
+    <p class="feedback" id="feedback" aria-live="polite"></p>
+  </div>
+
+  <h2>Use the real accounting</h2>
+  <p>Do not infer hits from latency. Inspect <code>cache_creation_input_tokens</code> and <code>cache_read_input_tokens</code>. Alfred already contains a two-call probe at <a href="../packages/ai/src/scripts/probe-transcript-cache.ts"><code>probe-transcript-cache.ts</code></a>: first call should create; second should read the old prefix and create only the appended delta.</p>
+
+  <h2>Pause here</h2>
+  <p>From memory, finish this sentence: “A breakpoint on block X means …” Then ask your agent anything that remains unclear. The next useful lesson is a four-request Alfred trace: kernel → preload → <code>system.load_tool</code> → stable expanded surface.</p>
+
+  <h2>Primary source</h2>
+  <ul class="sources">
+    <li><a href="https://platform.claude.com/docs/en/build-with-claude/prompt-caching">Anthropic prompt-caching documentation</a> — prefix order, automatic mode, explicit breakpoints, 20-block lookback, invalidation, TTLs, and usage fields.</li>
+    <li><a href="../packages/ai/src/agent.ts">AlfredAgent cache decoration</a> — tool sorting and explicit system/tool/transcript endpoints.</li>
+    <li><a href="../packages/api/src/modules/agent/tool-surface.ts">Alfred lazy tool surface</a> — first-turn preload and active tool-set projection.</li>
+    <li><a href="0001-direct-chat-happy-path.html">Previous lesson: direct chat happy path</a>.</li>
+    <li><a href="../reference/prompt-caching-cheat-sheet.html">Reference: prompt-caching cheat sheet</a>.</li>
+  </ul>
+</main>
+<script>
+  const cases = {
+    same: '<strong>Cache hit.</strong> Tools, system, and old messages are byte-identical. Read the prior prefix; process only the appended suffix.',
+    load: '<strong>Cold transition.</strong> Adding a tool changes the tools prefix. That invalidates tool, system, and message entries. This request writes new entries for the expanded surface.',
+    time: '<strong>Cache hit in Alfred.</strong> Runtime time is deliberately placed after the stable explicit endpoints. Reuse the earlier prefix; process the changing suffix normally.'
+  };
+  const simulation = document.querySelector('#simulation');
+  const controls = document.querySelectorAll('[data-case]');
+  function selectCase(name) {
+    simulation.innerHTML = cases[name];
+    controls.forEach((button) => button.setAttribute('aria-pressed', String(button.dataset.case === name)));
+  }
+  controls.forEach((button) => button.addEventListener('click', () => selectCase(button.dataset.case)));
+  selectCase('same');
+
+  const feedback = document.querySelector('#feedback');
+  document.querySelectorAll('button[data-ok]').forEach((button) => {
+    button.addEventListener('click', () => {
+      feedback.textContent = button.dataset.ok === 'true'
+        ? 'Correct. Tool definitions come first, so their mutation changes every cumulative hash after them. The expanded prefix can become warm on the next request.'
+        : 'Try the serialized order: tools → system → messages. A change near the front changes every prefix that follows it.';
+      feedback.style.color = button.dataset.ok === 'true' ? 'var(--success)' : 'var(--error)';
+    });
+  });
+</script>
+</body>
+</html>

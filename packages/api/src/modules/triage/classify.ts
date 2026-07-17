@@ -1,0 +1,1557 @@
+import { getCheapModel, identifyLanguageModel, meteredGenerateObject } from "@alfred/ai";
+import {
+  TODO_DECISION_OUTCOMES,
+  clamp01,
+  collabActivitySchema,
+  confidenceSchema,
+  isOwnershipCollabActivity,
+  isPassiveCollabActivity,
+  triageTodoDecisionSchema,
+  triageTodoSuggestionSchema,
+  type CollabActivityKind,
+  type SenderContext,
+  type TodoDecisionOutcome,
+  toMessage,
+} from "@alfred/contracts";
+import { TRIAGE_CATEGORIES, type TriageCategory } from "@alfred/integrations/google";
+import { z } from "zod";
+import type { Observations } from "./observations";
+import { canonicalizeEmailForMatch, recipientAddresses } from "./sender-context";
+
+/**
+ * Email triage classifier — context-rich, cheap-model-always (ADR-0051).
+ *
+ * Cheap-tier model (gemini-2.5-flash-lite) classifies a single email into one
+ * of ten categories matching the user's numbered Gmail labels. Intelligence
+ * comes not from a bigger model but from deterministic **observations** fed in
+ * (sender prior histogram, account persona, thread state, known-contact flag,
+ * Gmail-native signals, regex content flags — assembled by the workflow, see
+ * `observations.ts`). Two deterministic nets wrap the model:
+ *
+ *  - a **conditional second cheap pass** ({@link detectConflict}) re-runs the
+ *    model once with a hard conflict spelled out; the second output is final;
+ *  - a small high-precision **override floor** ({@link applyOverrideFloor})
+ *    forces `urgent` on the one unambiguous severity signal (exposed secret).
+ *
+ * `classifyEmail` owns the whole sequence and returns the final classification
+ * plus an audit object for the `triage.classification` decision trace. There is no boss
+ * `deepen` escalation (ADR-0051 superseded ADR-0042's classifier shape).
+ *
+ * The four added buckets are narrow seams against existing ones — `urgent` vs
+ * `action_needed`, `follow_up` vs `awaiting_reply`, `done` vs `fyi`, `marketing`
+ * vs `newsletter` — each disambiguated by an explicit prompt rule.
+ */
+
+/**
+ * Todo-worthiness rubric outcomes (ADR-0050 amendment 2026-06-06). Reports which
+ * of the five ordered rubric tests (rule 16) decided the todo call: `proposed`
+ * only when all pass, otherwise the FIRST test that failed. Stored on the
+ * `triage.classification` decision trace so the rubric is tuned from real misses (which
+ * dimension fails on which class of mail), not by appending example #N.
+ *
+ * Defined in `@alfred/contracts` (so the `email_triage` row can persist it
+ * without a db→api dependency) and re-exported here for the existing importers.
+ */
+export { TODO_DECISION_OUTCOMES, type TodoDecisionOutcome };
+
+export const triageClassificationSchema = z.object({
+  category: z.enum(TRIAGE_CATEGORIES),
+  /**
+   * [0, 1] — surfaced in the UI for low-confidence soft-confirms. Below
+   * 0.5 the workflow still applies the chosen label (we always pick one,
+   * to avoid leaving the message untriaged), but flags it for the briefing
+   * to optionally surface as "alfred wasn't sure."
+   *
+   * Bare number (no `.min(0).max(1)`) so it round-trips through providers that
+   * reject numeric bounds in structured output schemas — see `confidenceSchema`.
+   * The range is enforced by clamping at the producer boundary (`defaultRunPass`),
+   * the one place a documented threshold (< 0.5 soft-confirm) keys off it.
+   */
+  confidence: confidenceSchema,
+  /** Short rationale grounded in the email — used for audit and debugging. */
+  rationale: z.string().min(1).max(500),
+  /**
+   * Real-time todo proposal for the rail (ADR-0050, amended 2026-06-06 to the
+   * todo-worthiness rubric). Non-null ONLY when the email clears all five rubric
+   * tests (rule 16) — the email-triage tail step turns it into a `suggested`
+   * todo via `system.suggest_todo`. The decision is ORTHOGONAL to the category
+   * and evaluated over the whole email (a `done` closure with a significant
+   * trailing ask can still yield one); `todoDecision` reports which test fired.
+   * The model must always emit the key (null when no todo) — this is one field
+   * on the existing cheap call, not a second call.
+   */
+  // Schemas owned by `@alfred/contracts` (so the persisted `email_triage` row
+  // can share them). `.optional()` on the TYPE so non-cheap-classifier producers
+  // need not set them; the cheap call is prompted to always emit them (the
+  // suggestion null when no todo, the decision always present).
+  todoSuggestion: triageTodoSuggestionSchema.optional(),
+  todoDecision: triageTodoDecisionSchema.optional(),
+  /**
+   * Collaboration-tool activity kind (#218). Non-null ONLY for a task/issue
+   * tracker or doc-comment notification (ClickUp, Linear, Jira, Asana, Notion,
+   * Trello, …); null for every other email. The sender-kind floor reads it to
+   * demote PASSIVE team activity (`state_change`/`other_activity`/`digest`) from
+   * a confident group/service sender while KEEPING work directed at the user
+   * (`assigned_to_user`/`mentioned_user`/`comment_to_user`). `.nullable()` so the
+   * cheap model's explicit `null` validates; `.optional()` so non-cheap producers
+   * need not emit it.
+   */
+  collabActivity: collabActivitySchema.nullable().optional(),
+});
+export type TriageClassification = z.infer<typeof triageClassificationSchema>;
+
+/** A single cheap-model pass — the seam the second pass and tests drive. */
+export type RunPass = (input: {
+  system: string;
+  prompt: string;
+  pass: "first" | "second";
+}) => Promise<TriageClassification>;
+
+export interface ClassifyEmailArgs {
+  /** Optional metering attribution; the userId itself is never sent to the model. */
+  userId?: string;
+  /**
+   * Minimal identity signal (ADR-0050/0051 amendment 2026-06-09) — the user's
+   * display name + the account email being triaged. The ONLY user-identity the
+   * cheap classifier gets: it powers the todo ownership-attribution gate (rule
+   * 16a) so an action the email assigns to a *named third party* is not minted
+   * as the user's todo (the "Sakshi standup" bug). Deliberately NOT role /
+   * projects / relationships — those stay parked under ADR-0050 D1. The first
+   * surgical brick toward the full `User context` projection.
+   */
+  identity?: { name?: string | null; email?: string | null };
+  document: {
+    id: string;
+    title: string | null;
+    content: string;
+    authoredAt: Date | null;
+    /** Provider metadata — `from`, `to`, `cc`, `labelIds`, `snippet`. */
+    metadata: Record<string, unknown>;
+  };
+  /**
+   * Deterministic parse of the sender/envelope/body actor (ADR-0042 #1,
+   * unchanged). The classifier uses this typed context but loads no broader
+   * user profile or memory.
+   */
+  senderContext: SenderContext;
+  /**
+   * Deterministic pre-model observations (ADR-0051 §4a). Assembled by the
+   * workflow (sender prior, persona, thread state, known-contact, Gmail
+   * signals, content flags) and fed into the prompt as hints — never verdicts.
+   */
+  observations: Observations;
+  /** Run/step ids forwarded to the metering log + Langfuse trace. */
+  runId?: string;
+  stepId?: string;
+  /** Stable per-call idempotency key — caller derives from `(runId, stepId, doc.id, attempt)`. */
+  idempotencyKey?: string;
+  /**
+   * Override the AI SDK retry count for the cheap-model call. Production leaves
+   * this unset (SDK default = 2 retries / 3 attempts). The eval lowers it so a
+   * provider-overload blip fails fast to the configured cheap-model fallback
+   * instead of burning three exponential-backoff cycles per case — without that,
+   * a CI run under sustained provider throttling exceeds the eval job's
+   * wall-clock budget.
+   */
+  maxRetries?: number;
+  /**
+   * Test/seam override for the cheap model call. Production leaves this unset
+   * and the real metered `getCheapModel()` call is used; tests inject canned
+   * pass outputs to exercise the conflict/second-pass/floor logic without a
+   * live LLM (no model mocking framework in the repo).
+   */
+  runPass?: RunPass;
+}
+
+/** Why the conditional second cheap pass fired (ADR-0051 §4b, Phase 3 seed). */
+export interface TriageConflict {
+  kind: "under_classification" | "over_classification";
+  /** Human-readable conflict spelled out into the second-pass prompt + audit. */
+  message: string;
+}
+
+/** Audit trail of the full classify sequence, stored in the `triage.classification` trace. */
+export interface ClassifyAudit {
+  firstPass: TriageClassification;
+  conflict: TriageConflict | null;
+  secondPass: TriageClassification | null;
+  secondPassFailure: { message: string } | null;
+  /** True when the sender-kind floor demoted `awaiting_reply` → `fyi` (#210 / #218). */
+  senderKindDemoted: boolean;
+  /** Structured reason consumed by the sender-kind category demotion floor, if it fired. */
+  senderKindDemotionReason: SenderKindDemotionReason | null;
+  /** True when the override-floor signal matched, even if the model already said urgent. */
+  floorMatched: boolean;
+  /** True when the override floor forced a category change (not merely matched). */
+  floorForced: boolean;
+  /** True when the meeting-gate floor demoted `meeting` → `fyi`. */
+  meetingDemoted: boolean;
+  /** Structured reason the meeting-gate floor fired, if it did. */
+  meetingDemotionReason: MeetingDemotionReason | null;
+}
+
+const PASSIVE_CATEGORIES = new Set<TriageCategory>(["fyi", "done", "newsletter", "marketing"]);
+const IMPORTANT_CATEGORIES = new Set<TriageCategory>(["urgent", "action_needed"]);
+/**
+ * Categories that NEVER carry a rail todo regardless of model output (ADR-0050
+ * amendment 2026-06-06). Shrunk to `{marketing, newsletter}`: these are the
+ * broadcast buckets where a genuine personal obligation would be, by definition,
+ * a MISCLASSIFICATION leaking through — so this is a CONSISTENCY GUARD against
+ * classifier leakage, not a relevance judgment. `fyi`/`done` deliberately do NOT
+ * live here: an `fyi` can carry a real obligation ("auto-renews unless you
+ * cancel") and a `done` closure can end with a significant trailing ask — both
+ * go through the rubric (rule 16), which owns the todo decision everywhere else.
+ */
+const TODO_INELIGIBLE_CATEGORIES = new Set<TriageCategory>(["marketing", "newsletter"]);
+/** Categories that count toward a sender's "bulk" share for the over-classification net. */
+const BULK_PRIOR_CATEGORIES = new Set<string>(["newsletter", "marketing", "fyi", "done"]);
+const STRONG_BULK_MIN_TOTAL = 5;
+const STRONG_BULK_MIN_SHARE = 0.8;
+/**
+ * Thresholds for the SERVICE-PRIOR `action_needed` over-classification challenge
+ * (#351 partial mitigation). A collaboration/task-tracker service whose prior
+ * has skewed heavily `action_needed` feeds that histogram back as a "repeat the
+ * category" justification — a self-reinforcing loop past rule 12e (status
+ * changes / watch-activity keep landing `action_needed` because past mail did).
+ * When the loop is this pronounced we spell out 12e and re-ask ONCE; the model
+ * KEEPS `action_needed` if the body genuinely assigns the item — NOT a forced
+ * downgrade. The durable fix is sender-prior decay in the user-model epic (#218);
+ * this only challenges the spike. Higher volume floor than the bulk net: a
+ * service prior must be well-established before its skew is evidence of a loop.
+ */
+const SERVICE_ACTION_LOOP_MIN_TOTAL = 8;
+const SERVICE_ACTION_LOOP_MIN_SHARE = 0.5;
+const OVERRIDE_FLOOR_CONFIDENCE_FLOOR = 0.85;
+const SECOND_PASS_FAILURE_CONFIDENCE_FLOOR = 0.6;
+const MAX_RATIONALE_LEN = 500;
+
+/**
+ * Override-floor predicate (ADR-0051 §5, Phase 3 seed = ONE signal). Keys on
+ * EXPOSURE VERBS, deliberately narrower than the broad `hasSecurityKeyword`
+ * content flag — a self-initiated "sign in"/"your code is 123456" link contains
+ * none of these verbs, so it never trips the floor (the bug that opened v3).
+ * `[\s\S]` (dotall) so the noun and verb can wrap onto separate lines, as
+ * security-bot bodies do.
+ *
+ * The noun set is narrower than `hasSecurityKeyword` ON PURPOSE: the generic
+ * `credential` is excluded here (it stays in the broad hint regex) because
+ * `credential` + `exposed` over an 80-char window matches ordinary engineering
+ * prose ("the credential object is exposed to the network") and the floor is
+ * unrecoverable — a false positive force-tags an architecture email `urgent`.
+ */
+const OVERRIDE_FLOOR_SECRET_NOUN = String.raw`(?:secret|api[ -]?key|token|private key|password)`;
+const OVERRIDE_FLOOR_EXPOSURE_VERB = String.raw`(?:exposed|leaked|committed|compromised|found|detected)`;
+const OVERRIDE_FLOOR_SECRET_RE = new RegExp(
+  String.raw`\b(?:${OVERRIDE_FLOOR_SECRET_NOUN}\b[\s\S]{0,100}\b${OVERRIDE_FLOOR_EXPOSURE_VERB}|${OVERRIDE_FLOOR_EXPOSURE_VERB}\b[\s\S]{0,100}\b${OVERRIDE_FLOOR_SECRET_NOUN})\b`,
+  "i",
+);
+
+export const SYSTEM_PROMPT = `You triage emails for a personal assistant. Classify each email into EXACTLY ONE category:
+
+- urgent: action needed within hours, not days. Unsolicited security alerts (unrecognized/suspicious sign-in "was this you?", password or 2FA changed without the user, account compromised), billing failure that breaks access today, deadline today, critical CI/CD blocking ship. NOT a routine login link or code the user requested themselves — that is fyi (rule 15).
+- action_needed: the user must take a concrete step that isn't time-critical. Reply, decide, complete a task, rotate a credential, update a card before its actual deadline, verify identity, fix a broken build, respond to a code review. (Self-initiated sign-in/magic links, one-time login codes, and email-verification are NOT here — they are fyi per rule 15. Persistent account-access changes — OAuth apps, passkeys, 2FA/MFA, recovery emails/phones, or login methods being added/changed — are surfaced here unless the body proves this was only a transient same-flow verification with no future access grant.)
+- follow_up: a soft check-in or nudge on a prior thread — "any update on...?", "circling back", "just following up." The sender already knows the user is aware; they're probing for status.
+- awaiting_reply: someone is asking the user a direct first question, and the only action is to write back. Pick this when no prior thread exists or the message is a fresh ask. A bulk social-network invitation or connection request is NOT a direct question the user must answer — it is passive social activity (rule 8a → fyi). Once the user has sent a reply that answers the ask, the thread is NO LONGER awaiting_reply — the user owes nothing (rule 18).
+- meeting: a LIVE calendar event with a scheduling or attendance action open to the user right now — a direct calendar invite the user is on, a reschedule/time-change to their event, a room/availability negotiation, or a "your meeting starts soon" ping. NOT a recap/notes/minutes/summary of a meeting that ALREADY happened (→ fyi, or done if it explicitly closes a loop), NOT a pre-meeting prep/agenda brief (→ fyi), NOT an event merely ANNOUNCED for the future with no invite and no confirmed date yet (→ fyi), and NOT a collaboration-tool (ClickUp/Linear/Jira/…) comment or notification that only MENTIONS meeting language (route by rule 12e ownership). A calendar meeting the user attends arrives from a real organizer or as a calendar invite, never as a task-tracker/product-notification relay. The words "meet"/"meeting"/"offsite"/"standup" are never enough on their own (rule 7).
+- fyi: passive awareness items. Self-initiated sign-in/magic links, one-time and step-up/sudo login codes, email-verification, and transient same-flow security confirmations that do NOT add/change future account access ("security verification completed") (rule 15), resolved-incident status posts, a third-party vendor's own status/incident post for a service the user only consumes (rule 12f), product release notes without action, social activity digests, social-network connection/invitation requests ("X wants to connect", "I want to connect") and network-growth / profile-activity nudges ("people you may know", "you appeared in N searches", "N people viewed your profile") (rule 8a), "we updated our terms" notices, GitHub notifications that don't require review, legal/investor/shareholder notices with no user action.
+- done: explicit closure or completion notice — the user's underlying request/loop is RESOLVED. Order shipped, payment received, deploy succeeded, ticket resolved, "your request has been processed." A task/ticket being CREATED, FILED, OPENED, logged, or "added to the backlog" is the START of work, NOT a closure — never \`done\`, even when an automation reports "Done" about having created it ("Brain: Done. Created [task] in the backlog" = the bot finished FILING the task, the user's request is now OPEN, not resolved). Route task creation by ownership (rule 12e), never to \`done\`. Also \`done\` when the user has sent the latest reply and owes nothing further on the thread — the user's side of the loop is closed, and waiting on the counterparty's response is not a user action (rule 18).
+- payment: invoices, receipts that need attention, payment failures, billing notices, refunds, statements.
+- newsletter: subscription content the user opted into — weekly digests, Substack posts, professional newsletters, automated content publication.
+- marketing: promotional / sales blasts. "20% off this weekend", product launches, public brand events/webinars/keynotes, cold outbound sales, growth-team nurture sequences.
+
+How to use the Observations block:
+- The observations are DETERMINISTIC CONTEXT — hints to focus your attention, never verdicts. You still decide the category from the email itself.
+- Sender prior is this sender's past category histogram. A 99%-newsletter sender can still send one genuinely urgent message — trust the message over the prior when they disagree. The prior breaks routine ties, it does not override a clear signal.
+- Account persona (work/personal) frames what "urgent"/"action_needed" mean for this account.
+- Thread state ("you last replied on <date>") and the recent-thread-messages excerpts are context for follow_up vs awaiting_reply vs done — not a deterministic mapping. You classify the WHOLE THREAD and a new message OVERWRITES the thread's single tag, so read the recent messages: if an earlier one carries a live, unanswered ask or assignment to the user, a trailing low-signal line (a bot confirming it filed a task, an acknowledgement, a reaction) must NOT bury it.
+- Known contact = the sender is in the user's contacts. A direct ask from a known contact is more likely a real awaiting_reply/action_needed.
+- Sender relationship (when present) describes the user's correspondence history WITH this sender: significance (strong/moderate/weak, or \`unscored\` when there IS history but it has not been scored yet — then judge from reciprocity, do NOT treat \`unscored\` as cold), reciprocity (two-way / you reached out / one-way inbound — the user never replied), same-org, and the user's own role. \`no prior contact on record\` means a cold sender with NO history. This is the ONLY way to judge whether a real PERSON is waiting on the user (todo rubric 16b): a weak / one-way / no-prior-contact sender is a cold contact, NOT a real stakeholder, however the email is phrased; a two-way relationship (even \`unscored\`) is a real one. Never infer a relationship beyond what this line states. It does NOT change the category — a cold ask is still an honest awaiting_reply; it only gates the todo.
+- Sender kind (when present) is an active user-model projection's confident non-person classification for the sender address: \`group\` means a distribution list/shared mailbox; \`service\` means automated or product-originated mail. Absence of this line means no active/confident projection opinion. When present, do NOT treat the address as a known person or infer a personal relationship from display name alone.
+- Gmail signals (categories, IMPORTANT, STARRED) are Gmail's own priors — lean on them when they align.
+- Content flags are cheap regex tells: unsubscribe → newsletter/marketing; currency → payment; security → look harder at severity; calendar → meeting; investorNotice → rule 9; publicEvent → rule 8. They are signals to weigh, not commands.
+
+Rules:
+1. Pick exactly one category — the dominant one if multiple apply.
+2. Time-pressure: prefer 'urgent' over 'action_needed' when consequence-of-delay is hours-not-days (account compromise, security breach, billing failure that breaks access today). A login link or code merely expiring is NOT such a consequence — the user just requests a fresh one.
+3. Reply-shape: prefer 'awaiting_reply' over 'action_needed' when the action IS the reply.
+4. Reply-shape (continued): prefer 'follow_up' over 'awaiting_reply' when the sender is nudging on an existing thread, not opening a new ask. "Any update?" / "Just circling back" → follow_up.
+5. Closure: prefer 'done' over 'fyi' when the message explicitly marks something as finished/shipped/resolved/succeeded. 'fyi' is for informational items that don't close a loop. Closure means the USER'S underlying request/loop is resolved — NOT that an intermediate actor reported finishing a sub-step. Creating, filing, or opening a task/ticket (even one phrased "Done. Created …") OPENS a loop; it is never closure.
+6. Promo split: prefer 'marketing' over 'newsletter' for unsolicited promotional blasts, sales pitches, cold outbound, public product launches, brand events, webinars, and keynotes. 'newsletter' is for subscribed editorial/digest content the user opted into.
+7. Meeting gate: choose 'meeting' only when the user is a participant (or likely participant) in a LIVE personal/work calendar-style meeting AND there is a concrete scheduling/attendance action for them — an invite to accept, a time to confirm, availability to answer, or an imminent join. The words "meeting", "event", "offsite", "standup", "conference", "webinar", "keynote", "AGM", or "annual general meeting" are NOT enough by themselves. A meeting that ALREADY happened (its notes/recap/minutes/summary), a prep/agenda brief for a meeting, and an event merely ANNOUNCED for the future with no invite or set date are NOT 'meeting' → they are 'fyi' (a recap that explicitly closes a loop may be 'done'). A calendar meeting the user attends arrives from a real organizer or a calendar invite, not as a task-tracker/product-notification relay.
+8. Bulk/public event rule: public events, brand announcements, product launches, webinars, conferences, keynotes, and "save the date" blasts are marketing/newsletter/fyi, not meeting, unless the email is a direct calendar invite or scheduling thread for the user. (The publicEvent content flag marks this language.)
+    8a. Social-network activity rule: connection / invitation requests ("X wants to connect", "I want to connect", "would like to join your network"), network-growth nudges ("people you may know", "add X to your network"), and profile-activity notifications ("you appeared in N searches", "N people viewed your profile", "your post got N reactions") relayed by a social platform (LinkedIn, X, Instagram, etc.) are passive social activity → 'fyi'. They are NOT 'awaiting_reply'/'action_needed'/'urgent': accepting or ignoring an invitation is the SENDER'S want, not a question the user must answer or a task the user owns (rule 16a-i no_obligation), however senior the requester's stated title. EXCEPTION: an actual personal message a real correspondent sent the user THROUGH the platform — where the body carries a genuine ask, not a templated invite — is judged on its content (awaiting_reply/follow_up), gated as always by the Sender relationship observation; a digest relaying a cold/unknown sender's message stays 'fyi'.
+9. Investor/legal notice rule: stock-market, shareholder, AGM, proxy/e-voting, annual report, exchange filing, and registrar/depository notices are usually 'fyi'. Use 'action_needed' only when the email asks the user to vote, register, submit a form, make a decision, or meet a concrete deadline. Do not use 'meeting' for a corporate AGM notice just because the notice says "meeting". (The investorNotice content flag marks this language.) More broadly — manufactured or ceremonial urgency (engagement/gamification nudges, "save the date" galas, AGMs) is 'fyi' (or 'marketing') unless it imposes a concrete action + deadline on the user; never 'meeting'/'urgent' on ceremony or a manufactured stake alone.
+10. 'meeting' takes precedence over 'action_needed' / 'awaiting_reply' only after the Meeting gate is satisfied.
+11. 'payment' takes precedence over 'fyi' / 'done' for any financial transaction notice.
+    11a. Owed vs upsell — the discriminator is whether MONEY IS OWED, not whether money is mentioned. Mail that pressures the user to START or EXPAND paid usage — "upgrade your plan", "you've hit your free/trial quota", "trial ending", "unlock more", "running low on credits", "add a seat", "continue receiving X — upgrade" — is OPTIONAL conversion pressure the vendor MANUFACTURES; nothing is owed → 'marketing' (a plain neutral usage/quota notice with no pitch → 'fyi'), NEVER 'payment'/'action_needed'/'urgent', however the quota cap or "to continue" framing is phrased. Money is OWED only on an EXISTING paid relationship — "payment failed", "card declined", "invoice due", "subscription past due", "your card will be charged $X on <date>" — which is 'payment' (rule 11), and 'urgent'/'action_needed' when access breaks. A freemium product hitting its free ceiling (Greptile/Vercel/Linear "upgrade to keep using it") is upsell, not a bill — this holds whether the sender is the vendor directly or a '[bot]' relay (rule 12a still applies). A manufactured DEADLINE on an upsell — "trial ends tomorrow", "capped — act by <date>", "tracking ends soon", "upgrade before you lose the free tier" — does NOT promote it to 'urgent' or 'payment': the deadline is the vendor's CONVERSION lever (manufactured scarcity, rule 16b), not a consequence-of-delay on a commitment the user made. Losing a FREE tier the user never paid for is not the access-loss rule 2 means; stay 'marketing'/'fyi' however near the date.
+12. Automated/service mail:
+    12a. Bot review comments — any SenderContext.effectiveAuthor='bot' (a GitHub '[bot]' account such as greptile-apps[bot], coderabbit, copilot-review, github-actions, dependabot, renovate, or any other) — are advisory review noise by default → 'fyi', even when they contain suggested fixes or CVE identifiers. Do not gate on a specific bot name.
+    12b. Escalate a bot review comment to 'action_needed' or 'urgent' only when the body itself shows severe impact: exposed secret/token/key, auth bypass, data loss, production outage, blocked deploy, or a same-day security/account deadline.
+    12c. Severity-suspect bot alerts where botSlug is sentry, stripe-billing, google-security, vercel, or datadog should be classified from body content alone: 'urgent' if same-day actionable, 'action_needed' if remediation is needed but not immediate, otherwise 'fyi'/'done'.
+    12d. Unknown service envelopes classify from body content alone.
+    12e. Activity-feed notifications from collaboration tools — task/issue trackers (ClickUp, Linear, Asana, Jira, Trello, Monday, Notion, GitHub Issues), doc/design comment threads (Google Docs/Drive, Figma, Confluence), and support/CRM/chat notifications (Zendesk, Intercom, Slack/Discord mention forwards) — share one trap: the SUBJECT is the work ITEM'S name (frequently an imperative task title like "Fix X" or "Debug Y"), NOT an instruction to the user. Classify from the BODY event and OWNERSHIP, never the subject. Use the "You (the user being triaged)" block to decide ownership. Use 'action_needed'/'awaiting_reply' ONLY when the body shows the item is ASSIGNED to the user, the user is @-mentioned with a concrete ask, or a reply is owed BY the user. A third-party comment, a status change, or activity on an item the user merely watches / is CC'd on → 'fyi'; an explicit closure ("resolved", "moved to Done", "nothing to do here") → 'done'. A task/ticket being CREATED, FILED, OPENED, or added to a list/backlog — INCLUDING an AI/bot replying "Done. Created [task] …" — is the OPENING of work, never 'done': route it by ownership exactly like any other item (assigned to / @-mentioned the user with a concrete ask → action_needed; a direct unanswered question → awaiting_reply; pure activity on someone else's item → fyi). Use the recent-thread-messages context to find the ownership: a trailing "task created" line whose thread shows the user was asked to fix/handle the item stays action_needed. Inside a product team's task comment, "the user"/"the customer" means an END USER of the product, NOT the email recipient — never read it as an obligation on the recipient.
+    12f. Ownership of the failing system — a third-party vendor's own SERVICE-STATUS / incident notification about THE VENDOR'S systems (status-page posts, "Incident: elevated error rates", "degraded performance", "we've suspended access to X", "scheduled maintenance") for a service the user merely CONSUMES is informational: the user cannot act on the outage, they wait it out → 'fyi' while ongoing, 'done' on an explicit "resolved" post — NEVER 'urgent'/'action_needed'. The vendor's "production issue" is not the USER'S production; do not conflate them. The ONLY exception is a body that imposes a concrete action on the user with a consequence (migrate off a deprecated API by a date, rotate a key the vendor exposed) → then judge that action normally. This is DISTINCT from an alert on the user's OWN / their org's infrastructure (their Sentry project, their CloudWatch alarm, their app's build) — that is judged on real impact per 12c. The discriminator is WHOSE system is failing, not the word "incident".
+13. Confidence:
+    - 0.9+: unambiguous (newsletter from a clearly subscribed sender, payment receipt with amount, secret-scanning alert from GitHub).
+    - 0.7-0.9: clear category but with some overlap.
+    - 0.5-0.7: educated guess; pick the best fit but flag uncertainty.
+    - Below 0.5: only when no category fits well; still pick the closest one. Low scores get surfaced to the user as "alfred wasn't sure."
+14. Rationale: 1-2 sentences grounded in concrete cues: cite subject/body phrasing and any decisive observation you used (sender relationship, recent-thread message, sender prior, or content flag). Do not merely restate the rule. Never invent contact history, ownership, or relationship strength: do not call a sender known/strong/two-way/cold unless the Observations block says so. If the sender relationship affects the todo decision, name the exact observation ("no prior contact", "weak one-way", "strong two-way", etc.).
+15. Self-initiated authentication mail is the EXPECTED ECHO of an action the user just took → fyi, not action_needed and not urgent. This covers sign-in / magic links, one-time login codes AND step-up / sudo / re-authentication codes ("Sudo email verification code", "your verification code is 123456"), email-address verification the user just requested, and transient same-flow confirmations that do NOT add/change future account access ("security verification completed"). The user is mid-flow; codes expire harmlessly and transient confirmations are moot by the time they surface — nothing to track, nothing to remember (rule 16c). DO NOT extend this demotion to persistent account-access grants or auth settings such as "passkey created", "two-factor authentication enabled/disabled", "OAuth application added", recovery email/phone updated, or login method added/changed: the email alone cannot prove the user initiated them, and these changes affect future account access. Keep those surfaced at 'action_needed' (not 'urgent' absent an explicit same-day compromise signal). Reserve urgent for the unsolicited inverse: an unrecognized sign-in, a "was this you?" challenge, account compromised, password/2FA changed without the user, or any body that says to secure the account immediately.
+16. Todo suggestion (rail) — decide, SEPARATELY from the category, whether this email puts a commitment on the USER worth tracking on their todo rail. This is orthogonal to the category: evaluate the WHOLE email — including a secondary or trailing ask — and do NOT bend the category to fit it (a closure email that ends with a real request stays \`done\` AND may still yield a todo). A todo is a MEMORY AID: it earns its place only if the user could plausibly forget or drop it. Most actionable mail does not clear this bar.
+    Apply five tests IN ORDER. Stop at the first that fails; report it in \`todoDecision.outcome\`. Only an email that passes all five gets a \`todoSuggestion\`.
+    16a. Obligation on me (gate) — is there an action AND does the USER own it? Two ways to fail. (i) No action falls on the user: pure awareness, the sender's job, an invitation/opportunity/optional nicety, or a product nudging engagement → outcome \`no_obligation\`. A social-network connection request (LinkedIn/X/etc. — "wants to connect", "I want to connect", "would like to join your network") is the canonical optional nicety: the sender's want, not your obligation, and any urgency it phrases is THEIRS → \`no_obligation\` — regardless of the requester's stated title or seniority. A cold "Founder & CEO wants to connect" is still the sender's want, not the user's obligation; whether a connection or any other cold ask is worth a todo is decided by 16b's person-waiting test (the Sender relationship observation), NOT by the title in the email. Distribution-list/service mail (Sender kind \`group\` or \`service\`) is rarely individually actionable unless the body names, assigns, or directly @-mentions the user; do not mint a todo from a generic blast, shared-inbox update, or service activity feed. (ii) The action is real but the email assigns it to a DIFFERENT person: use the "You (the user being triaged)" block to know who you are, then check the owner — if the body hands the task to someone who is not the user ("Sakshi is running standup", "@alice please review the PR", "Karthik to send the deck"), the obligation is THEIRS, not the user's → outcome \`no_obligation\` (note who owns it). A newsletter or shipped-order notice leaves no ball in the user's court; an FYI that says "auto-renews in 30 days unless you cancel" DOES.
+    16b. Significance — a REAL, EXTERNAL stake. The obligation must carry a real stake, one of: a real identifiable person waiting on the user; money owed or at risk; a hard deadline; loss of access; a commitment the user made to a human; OR a real-world consequence to the user judged from the content. That last clause is the ONLY way automated/bot mail earns a todo, and for code/PR/review findings (whether from a bot OR a human reviewer) it turns on LIVENESS — is something ALREADY LIVE at stake? A real stake = the issue affects PRODUCTION or already-merged (\`main\`) code: a secret already committed/exposed, a vulnerability in \`main\`, an outage, a broken or blocked production deploy, a same-day security deadline. NO stake = the issue exists only in the UNMERGED changes under review — nitpicks, style, perf suggestions, even a genuine vulnerability that lives only in the PR's proposed code and is not yet in \`main\`/production. That is pre-merge advisory (review working as intended; nothing live is at risk) → fail. The test is not "is a reviewer waiting" but "is something already live at stake." MECHANICAL RULE: a pull-request review comment — anything of the shape "<reviewer> commented on PR #N", "address the review feedback on PR #N", "apply these suggestions" — is BY DEFINITION about code not yet merged, so it is pre-merge advisory and emits NO todo (outcome \`not_significant\`, note \`advisory:\`), REGARDLESS of how concrete or severe the suggested fixes sound, UNLESS the body explicitly says the problem is already in production / \`main\` or a credential is already exposed. CodeRabbit/Greptile "consider…" comments and CVE-FYIs fail. Stakes a product MANUFACTURES to drive engagement OR conversion — gamification streaks ("play before midnight or lose your streak"), unread/notification counts, "N people viewed your profile", marketing scarcity ("ends tonight"), and upsell/quota pressure ("upgrade your plan", "trial ending", "you've hit your free quota", "upgrade to continue") where nothing is actually owed (rule 11a) — and CEREMONIAL obligations (AGM, "save the date") are NOT real stakes, however urgently phrased → outcome \`not_significant\` (set \`note\` prefix \`manufactured:\` or \`advisory:\`). Real-but-trivial asks also fail: rate-your-driver, surveys, "thoughts sometime?", optional feedback. Judge the INTRINSIC stakes — money owed/at-risk, a hard deadline, lost access, a commitment to a human, code/PR liveness — from the email content; they hold regardless of who sent it. The ONE stake you may NOT take from content alone is "a real identifiable PERSON is waiting on the user": it must be CORROBORATED by the Sender relationship observation. A weak / one-way-inbound / \`no prior contact on record\` sender is a cold contact, NOT a real person waiting — a cold ask ("give me a recommendation", "I want to connect", "can you intro me?", "endorse me") fails here however directly it is phrased and whatever the sender's stated title → outcome \`not_significant\` (note prefix \`cold_sender:\`). A strong / two-way relationship — or a known contact with real history — asking a direct question IS a real person waiting → passes. When NO Sender relationship line is present (a bot/service sender), there is no person waiting: judge only the intrinsic stakes. Never infer a relationship the observation does not state.
+    16c. Memorability. Would the user plausibly FORGET or DROP this if it is not tracked — or will they obviously handle it now / does it resolve itself? Self-initiated authentication mail (the rule-15 class: sign-in/magic links, one-time codes, email verification the user just requested), expiring codes, "thanks!", anything the user is already mid-flow on → nothing to remember → outcome \`would_not_forget\`. A todo here is noise. A notification from a dedicated task/issue tracker or doc-comment tool the user works in (ClickUp, Linear, Jira, Asana, Notion, Google Docs/Drive/Figma comments) is ALREADY tracked and re-notified by that tool — the user will not forget it because the tool itself keeps and resurfaces it. So EVEN a task assigned to the user or a comment @-mentioning them with a concrete ask → \`would_not_forget\`: a rail todo only duplicates the tracker. (The CATEGORY still reflects the real obligation — an assignment/@-mention is honest \`action_needed\` per rule 12e — but the rail does not repeat what the tracker already holds. The exception is a stake that OUTLIVES the tracker item: an exposed secret to rotate stays a todo.)
+    16d. Actionability. Can you write a SPECIFIC, self-contained action from the email alone? A vague ask ("something broke, please fix it" with no what/where, "let's catch up sometime", a problem report missing specifics) → outcome \`too_vague\`. A vague rail item is worse than none.
+    16e. Already handled. Does thread state show the user already replied/acted, or the loop is closed with no new ask? → outcome \`already_handled\`.
+    16f. All five pass → outcome \`proposed\` and set \`todoSuggestion\`. Write \`name\` the way the USER would jot it on a sticky note to themselves — short, plain, object-first — NOT the way the email phrased it. It is a second-person IMPERATIVE that leads with the real verb and names the object, ideally 3–6 words and HARD-CAPPED at 8: "Reply to Priya about Q3 budget", "Rotate the exposed Redis credential", "Add receipts to 4 Brex expenses", "Pay the Zerodha AMC charge". Strip scaffolding the user already knows from context — drop "request"/"notification"/"connection"/"on <Platform>" filler and the email's formal phrasing: "Reply to Ankur on LinkedIn", NOT "Respond to the LinkedIn connection request from Ankur Singh". Fold a count straight into the name ("Fix 3 blocking issues in PR #78", not name + "three items" in assist). NEVER a bare verb ("Log in", "Reply"), and NEVER a hedge or passive frame ("Review and address…", "Look into…", "Provide info for…", "Address the … on …", "Investigate the …") — name the actual action. \`assist\` is null BY DEFAULT — the \`name\` is the whole todo, and a sentence under it is just more for the user to read. Populate \`assist\` ONLY with a HARD FACT the name structurally cannot carry — a money amount, a hard deadline/date, or a genuine either/or decision — and then ONLY as a TERSE FRAGMENT, never a sentence: "₹88.5 · due Jun 11", "before Jun 30", "renews Jul 1 — keep or cancel". Always write a date as an ABSOLUTE calendar date ("Jun 11", "Jul 1") — NEVER a relative word like "tomorrow", "tonight", "today", or "next Friday". A rail todo persists for days, so "due tomorrow" is a lie the moment it goes stale; resolve any relative phrasing in the email against the email's Date shown above and write the actual date. NO verbs, NO restating the name, NO mechanical step ("click the link", "check the logs", "review the profile", "secure the account") — those are noise and MUST be null. When in doubt, null. Never invent specifics absent from the email.
+    16g. ALWAYS emit \`todoDecision\`: { "outcome": <one of the six above>, "note"?: "<≤1 short clause if useful>" }. \`todoSuggestion\` is null unless outcome is \`proposed\`.
+17. Thread tag is the LIVE loop, not the last keystroke. The thread carries ONE tag and the newest message rewrites it for the whole thread. Do not let a trailing low-signal message — an automation/bot status line ("Done. Created the task", "moved to In Progress"), an acknowledgement, or a reaction — overwrite an open ask from earlier in the thread. When the recent-thread-messages show the user was assigned a task or asked a direct question that is still unanswered, the thread stays \`action_needed\`/\`awaiting_reply\` even when the latest line is a bot's "done". Judge what the thread still needs FROM THE USER, not the wording of the final line.
+18. Your own reply closes the loop (the inverse of rule 17). When the MOST RECENT message in the thread is FROM THE USER — thread state reads "you last replied on <date>" and the recent-thread-messages show the user's send as the latest line — and that reply answers the thread's outstanding ask, the thread no longer needs anything FROM THE USER. It is NOT \`awaiting_reply\`/\`action_needed\`: the user does not owe a reply they have already sent. Route it to \`done\` — the user's side of the loop is closed; waiting on the counterparty to respond is THEIR move, not a user action, so do not re-tag it as a thing the user must do. The recruiter who got a reply, the question the user already answered, the request the user already actioned all land here. EXCEPTION: the user's own latest message itself poses a NEW unanswered question to the counterparty or commits the user to a concrete next step — then classify on that open ask, not on the closed one. Rule 17 keeps a trailing low-signal BOT line from burying an open ask; rule 18 recognizes the user's OWN substantive reply as the line that closes it.
+19. Collaboration-tool activity (\`collabActivity\`) — SEPARATELY from the category, for a notification from a task/issue tracker or doc-comment thread (ClickUp, Linear, Jira, Asana, Monday, Trello, Notion, GitHub Issues, Google Docs/Drive or Figma comments, and similar collaboration tools), emit \`collabActivity\` naming WHAT the notification is — the same ownership read rule 12e asks for, surfaced as a field:
+    - \`assigned_to_user\`: the body assigns / hands the item to the user.
+    - \`mentioned_user\`: the user is @-mentioned with a concrete ask.
+    - \`comment_to_user\`: a comment or reply directed AT the user — on the user's own item, or answering/asking the user — that expects a response.
+    - \`state_change\`: a status/stage change, move, close, or reopen — nobody is asked to do anything.
+    - \`other_activity\`: activity on an item the user only watches or is CC'd on — a third-party comment, a newly created item, someone else's edit — NOT directed at the user.
+    - \`digest\`: a periodic activity roundup ("N updates in your workspace this week").
+    Emit \`null\` for ANY email that is not a collaboration-tool notification (ordinary person-to-person mail, newsletters, marketing, security/auth, payments, calendar invites, social networks, vendor status pages). This is a FACTUAL read of the notification and is independent of the category — set it even when the category is fyi/done. It does not change your category choice; it records the ownership you already judged.
+
+Examples (subject → category):
+- "[acme/repo] Redis URI exposed on GitHub" from noreply@github.com → urgent (credential must be rotated today).
+- "Sign-in attempt from a NEW device — was this you?" from security@google.com → urgent (unsolicited compromise alert).
+- "Sign in to Anthropic" / "Your login code is 123456" / "Verify your email address" the user just requested → fyi (self-initiated auth, expires harmlessly, action is moot by the time it surfaces — rule 15, NOT action_needed, NOT urgent), and no todo (rule 16c memorability — nothing to remember).
+- "[GitHub] Sudo email verification code" the user just triggered → fyi (rule 15: a self-initiated step-up code, moot by the time it surfaces), no todo (rule 16c). "Security verification completed" → fyi when it is only a transient same-flow confirmation. "Passkey created" / "Two-factor authentication enabled" / "A third-party OAuth application was added to your account" → action_needed (ambiguous persistent access grant/settings change, keep surfaced but not urgent), and "Sign-in from a NEW device — was this you?" → urgent (unsolicited).
+- "@alice requested your review on PR #42" from noreply@github.com → action_needed (review owed, not time-critical).
+- "Any update on the proposal?" from a client → follow_up (nudge on existing thread).
+- "Quick question about Q3 numbers" from a colleague → awaiting_reply (fresh ask, reply IS the action).
+- A recruiter's direct ask the user has ALREADY replied to (thread state shows "you last replied …" and the user's send is the latest message) → done (the user's side of the loop is closed; no longer awaiting_reply — rule 18; waiting on the recruiter to write back is not a user action).
+- "Your order has shipped — tracking #..." from amazon.com → done (closure notice).
+- "Incident resolved: API latency" from status@vercel.com → done (explicit resolution).
+- "We updated our Privacy Policy" from a service → fyi (informational, no closure).
+- "Arjun Rao wants to connect" / "I want to connect" from invitations@linkedin.com → fyi (social-network invitation, passive social activity — rule 8a; NOT awaiting_reply/action_needed, however senior the title), and no todo (rule 16a-i optional nicety).
+- "You appeared in 13 searches this week" from notifications@linkedin.com → fyi (profile-activity nudge — rule 8a).
+- "Your payment failed — update your card" from billing@stripe.com → payment (rule 11) — bump to urgent if access breaks today.
+- "**coderabbitai** commented on this pull request" with normal review suggestions → fyi (bot review, advisory by default).
+- "**coderabbitai** commented: API key exposed in this PR" → urgent (secret/security exception).
+- "Dependabot alert: CVE-2024-1234 in lodash (moderate)" → fyi (advisory bot, no exposed secret — rule 12a).
+- "**greptile-apps[bot]** commented: 99Yash has reached the 50-review trial limit — upgrade your plan to continue" → marketing (rule 11a: upsell, nothing owed; the trial cap is manufactured conversion pressure, NOT a bill — never payment/action_needed). Contrast "Your Greptile subscription payment failed" → payment.
+- "Conservice : Fix deal views resetting after saving" from ClickUp/Linear, body is a third-party comment "Nothing to be done here — product gap for the user" → done (rule 12e: closure on someone else's investigation; the subject is the task NAME, not your action, and "the user" is the product's end user).
+- "Fix login redirect loop" from a task tracker, body "Akshay assigned this to you · due Jun 14" → action_needed (rule 12e: the body shows the item is owned by the user).
+- ClickUp/Linear bot, body "Brain: Done. Created [Fix imports not triggering deal driver messages] in the 26.3 Backlog list", recent-thread-messages show "dvd assigned you a comment: there is still a bug … please make sure this is fixed" → action_needed, NOT done (rules 5/12e/17: filing a backlog task OPENS work, and the thread shows a live bug assigned to the user — the bot's "Done" is the filing, not the fix). With NO such earlier ask in the thread, the same line is fyi (a task was filed; awareness only) — never done.
+- "Errors spiking in production" from Sentry (the USER'S own project) → urgent/action_needed depending on immediacy and the user's project context.
+- "Claude Incident — elevated error rate on Opus 4.8" / "We've suspended access to X" from a vendor's status page → fyi (rule 12f: the VENDOR'S own outage, the user only consumes the service; 'done' once the same thread posts "resolved") — NEVER urgent, however alarming "production issue / elevated error rate" sounds. The discriminator vs the Sentry line above is WHOSE system is failing.
+- "Weekly digest from Substack: 5 stories" → newsletter (subscribed content).
+- "20% off everything this weekend only!" from a retailer → marketing (promotional blast).
+- "See you next week." from Apple / Inside Apple with WWDC or product-event content → marketing (public brand event, not the user's meeting).
+- "Join our launch webinar on Thursday" from a vendor → marketing (public event blast, not a personal meeting).
+- "Sundram Fasteners Limited — 63rd Annual General Meeting..." from a registrar/depository → fyi (shareholder/legal notice, not the user's meeting).
+- "Proxy voting closes tomorrow — cast your vote" from a registrar/depository → action_needed (concrete user action/deadline).
+- "Design review moved to 3pm — can you attend?" from a colleague/client → meeting (user participation/scheduling).
+- "Meeting notes: Eng standup • …" / "Post Meet Summary" from an automated meeting-assistant → fyi (a recap of a meeting that ALREADY happened — rule 7; nothing to attend or schedule), no todo.
+- "Meeting prep: Weekly Sync • …" / an agenda brief from an automated assistant → fyi (a pre-meeting brief, not a calendar action — rule 7).
+- A ClickUp/Linear comment "@everyone we'll meet in-person for the offsite in Aug, I'll confirm the dates" → fyi (rule 12e collab-tool relay + rule 7: a future event with no invite or set date; "meet" is not enough), no todo (16a: an @everyone broadcast, the sender owns confirming the dates).
+
+Todo-decision exemplars (each illustrates the ONE rubric test that decides it — note category and todo can disagree):
+- "Sign in to Anthropic" / "Your login code is 123456" the user requested → no todo (16c memorability: self-initiated, nothing to remember).
+- "Rate your recent delivery" / "How did we do? Leave a quick review" → no todo (16b significance: real ask, but trivial, no stake).
+- Amazon "Your order shipped" ending "…complete this 1-question survey" → category done, no todo (16b significance).
+- Client "Order shipped — also, please send the signed SOW by Friday" → category done, todo "Send the signed SOW to <client> by Friday" (16a+16b+16c all pass; category and todo disagree).
+- Vendor FYI "Your plan auto-renews on Jul 1 unless you cancel" → category fyi, todo "Decide whether to cancel <vendor> before the Jul 1 auto-renew" (16a obligation holds on an fyi).
+- "something broke on the site, can you look?" with no specifics → category action_needed, no todo (16d actionability: too vague).
+- "Your 100-day Chess.com streak is paused — play before midnight" → no todo (16b: manufactured stake, a counter resetting is not a real consequence). Same for "You have 7 unread on Linear" / "5 people viewed your profile".
+- Vendor/freemium "You've hit your free trial limit — upgrade your plan to continue" (Greptile/Vercel/Linear) → category marketing/fyi, no todo (11a + 16b: upsell, nothing owed, manufactured conversion stake). A real "Your invoice of $49 is past due" → category payment, todo only if action is owed and memorable.
+- A PR review (bot OR human) asking to add a timeout, optimize an index, fix style, or even patch a vulnerability that exists ONLY in the unmerged PR → category fyi, no todo (16b liveness: pre-merge advisory, nothing in production at stake). BUT a secret already committed/exposed, a vulnerability in \`main\`, or a blocked production deploy → todo (16b: a live consequence).
+- "Sakshi is running standup today while Dave is out" → category fyi/done, no todo (16a (ii): the action is owned by Sakshi, not the user — even though the user is the recipient).
+- A task-tracker notification (ClickUp/Linear/Jira) whose body is a third-party comment or a status change on a task NOT assigned to the user → category fyi/done, no todo (16a (i): pure awareness — the imperative task TITLE in the subject is not the user's obligation). When the body DOES assign the task to the user or @-mentions them with a concrete ask → category \`action_needed\` (the obligation is real and honest) with \`collabActivity\` set to the ownership kind — but STILL no todo (16c: the item lives in the tracker, which keeps and re-notifies it; a rail todo only duplicates the tool).
+- LinkedIn "I want to connect" → category fyi (rule 8a: passive social activity), no todo (16a (i): optional nicety — the sender's want, not the user's obligation — regardless of the headline title, "Founder & CEO" / "CTO" included; the title never earns a nudge).
+- A cold ask — "give me a recommendation", "endorse my skills", "can you intro me?" — whose Sender relationship reads \`weak · one-way inbound\` or \`no prior contact on record\` → category awaiting_reply (an honest direct ask), no todo (16b person-waiting: a cold contact is not a real person waiting, note \`cold_sender:\`). The SAME ask from a \`strong · two-way\` contact (or a known contact with real history) → todo (a real person is waiting).
+- "Sundram Fasteners — 63rd Annual General Meeting" from a registrar → category fyi, no todo (16b: ceremonial, no real stake) — unless it asks the user to vote by a deadline (then a todo).
+
+Output JSON: { "category": "...", "confidence": 0.0-1.0, "rationale": "...", "todoSuggestion": { "name": "...", "assist": "..." } | null, "todoDecision": { "outcome": "proposed|no_obligation|not_significant|would_not_forget|too_vague|already_handled", "note": "..." }, "collabActivity": "assigned_to_user|mentioned_user|comment_to_user|state_change|other_activity|digest" | null }`;
+
+function renderObservations(obs: Observations): string {
+  const lines: string[] = ["=== Observations (deterministic context — hints, not verdicts) ==="];
+  lines.push(`Account persona: ${obs.persona ?? "unknown"}`);
+
+  const counts = obs.senderPrior.categoryCounts;
+  const keys = Object.keys(counts);
+  if (obs.senderPrior.key && keys.length) {
+    const hist = keys.map((k) => `${k}:${counts[k]}`).join(", ");
+    lines.push(
+      `Sender prior [${obs.senderPrior.key}]: { ${hist} } (last: ${obs.senderPrior.lastCategory ?? "n/a"})`,
+    );
+  } else if (obs.senderPrior.key) {
+    lines.push(`Sender prior [${obs.senderPrior.key}]: no history yet`);
+  } else {
+    lines.push(`Sender prior: n/a (human sender — judge per message)`);
+  }
+
+  lines.push(`Known contact: ${obs.knownContact ? "yes" : "no"}`);
+
+  if (obs.senderRelationship) {
+    lines.push(`Sender relationship: ${obs.senderRelationship}`);
+  }
+  if (obs.senderKind) {
+    const evidence = obs.senderKind.evidenceCodes.length
+      ? `; evidence=${obs.senderKind.evidenceCodes.join(",")}`
+      : "";
+    lines.push(
+      `Sender kind: ${obs.senderKind.kind} (active projection confidence=${obs.senderKind.confidence.toFixed(2)}${evidence})`,
+    );
+  }
+
+  const t = obs.thread;
+  if (t.messageCount > 0) {
+    const replied = t.lastUserReplyAt
+      ? `you last replied ${t.lastUserReplyAt.toISOString()}`
+      : "you have not replied";
+    lines.push(
+      `Thread: ${t.messageCount} prior message(s); ${replied}; newest is ${t.newestDirection ?? "unknown"}`,
+    );
+    // Prior-message excerpts (newest first). The fed context that lets the
+    // classifier of a trailing low-signal message see an earlier open ask in the
+    // SAME thread (ADR-0051 amendment 2026-06-13). Labelled by direction so the
+    // model knows which side spoke; "you sent" vs "you received".
+    if (t.recentMessages.length) {
+      lines.push(`Recent thread messages (newest first — the email below may be even newer):`);
+      for (const m of t.recentMessages) {
+        const who = m.direction === "sent" ? "you sent" : "received";
+        lines.push(`  - [${who}] ${m.snippet}`);
+      }
+    }
+  } else {
+    lines.push(`Thread: new (no prior messages on file)`);
+  }
+
+  const g = obs.gmail;
+  lines.push(
+    `Gmail signals: categories=[${g.categories.join(", ")}]; important=${g.important}; starred=${g.starred}; inbox=${g.inInbox}`,
+  );
+
+  const c = obs.content;
+  lines.push(
+    `Content flags: unsubscribe=${c.hasUnsubscribe}; currency=${c.hasCurrencyAmount}; security=${c.hasSecurityKeyword}; ` +
+      `calendar=${c.hasCalendarInvite}; investorNotice=${c.hasInvestorNotice}; publicEvent=${c.hasPublicEventLanguage}`,
+  );
+  return lines.join("\n");
+}
+
+function userPrompt(args: ClassifyEmailArgs, conflict: TriageConflict | null): string {
+  const lines: string[] = [];
+  const meta = args.document.metadata;
+  const from = typeof meta.from === "string" ? meta.from : null;
+  const to = typeof meta.to === "string" ? meta.to : null;
+  const cc = typeof meta.cc === "string" ? meta.cc : null;
+
+  lines.push("=== SenderContext ===");
+  lines.push(JSON.stringify(args.senderContext));
+  lines.push("");
+
+  // Minimal identity for the ownership-attribution gate (rule 16a). One line,
+  // name + account email; absent → the gate degrades to the model's best guess.
+  const idName = args.identity?.name?.trim();
+  const idEmail = args.identity?.email?.trim();
+  if (idName || idEmail) {
+    lines.push(
+      `=== You (the user being triaged) ===\n${[idName, idEmail && `<${idEmail}>`].filter(Boolean).join(" ")}`,
+    );
+    lines.push("");
+  }
+
+  lines.push(renderObservations(args.observations));
+  lines.push("");
+
+  if (from) lines.push(`From: ${from}`);
+  if (to) lines.push(`To: ${to}`);
+  if (cc) lines.push(`Cc: ${cc}`);
+  if (args.document.title) lines.push(`Subject: ${args.document.title}`);
+  if (args.document.authoredAt) lines.push(`Date: ${args.document.authoredAt.toISOString()}`);
+  lines.push("");
+
+  lines.push("=== Body ===");
+  // Cap to keep token budget bounded — most emails fit easily; the rare long
+  // thread gets truncated, which is fine for triage (the lede usually suffices).
+  const content =
+    args.document.content.length > 6_000
+      ? args.document.content.slice(0, 6_000) + "\n[…truncated]"
+      : args.document.content;
+  lines.push(content);
+
+  if (conflict) {
+    lines.push("");
+    lines.push("=== INCONSISTENCY DETECTED (reconsider) ===");
+    lines.push(conflict.message);
+    lines.push(
+      "A deterministic check flags your first answer as a likely error. Re-read the email and the observations: if your first classification was right, keep it and say why; otherwise correct it.",
+    );
+  }
+  return lines.join("\n");
+}
+
+/**
+ * Sum a sender prior histogram and the share that falls in bulk categories.
+ * Used by the over-classification conflict net.
+ */
+function priorBulkProfile(categoryCounts: Record<string, number>): {
+  total: number;
+  bulkShare: number;
+} {
+  let total = 0;
+  let bulk = 0;
+  for (const [cat, n] of Object.entries(categoryCounts)) {
+    total += n;
+    if (BULK_PRIOR_CATEGORIES.has(cat)) bulk += n;
+  }
+  return { total, bulkShare: total > 0 ? bulk / total : 0 };
+}
+
+/**
+ * Sum a sender prior histogram and the share that falls in `action_needed`.
+ * Used by the service-prior over-classification challenge (#351). PURE.
+ */
+function priorActionShare(categoryCounts: Record<string, number>): {
+  total: number;
+  actionShare: number;
+} {
+  let total = 0;
+  let action = 0;
+  for (const [cat, n] of Object.entries(categoryCounts)) {
+    total += n;
+    if (cat === "action_needed") action += n;
+  }
+  return { total, actionShare: total > 0 ? action / total : 0 };
+}
+
+/**
+ * Detect a hard deterministic conflict between the model's output and a strong
+ * expectation (ADR-0051 §4b, Phase 3 seed — two tightly-gated nets). Returns the
+ * conflict to spell into a single second cheap pass, or null. PURE.
+ *
+ * `floorMatches` is the override-floor predicate result — passed in so the
+ * under-classification net doesn't fire a redundant second pass when the floor
+ * will force `urgent` regardless.
+ */
+export function detectConflict(
+  classification: TriageClassification,
+  observations: Observations,
+  floorMatches: boolean,
+  senderContext?: Pick<SenderContext, "effectiveAuthor">,
+): TriageConflict | null {
+  // Under-classification: a security signal is present but the model chose a
+  // passive category, and the floor won't already fix it. The dangerous miss.
+  if (
+    observations.content.hasSecurityKeyword &&
+    PASSIVE_CATEGORIES.has(classification.category) &&
+    !floorMatches
+  ) {
+    return {
+      kind: "under_classification",
+      message: `A security-related signal was detected in the body, but you classified this as "${classification.category}" (a passive category). Security/account signals usually warrant urgent or action_needed unless this is clearly self-initiated auth or routine advisory bot noise.`,
+    };
+  }
+
+  // Over-classification A: the model spiked to an important category for a sender
+  // whose prior is overwhelmingly bulk, with nothing objective supporting the
+  // severity. Gated on `!floorMatches` (NOT `!hasSecurityKeyword`): the override
+  // floor already force-tags a genuine exposed-secret body urgent regardless, so
+  // a bulk sender's mail that merely MENTIONS a security topic ("stop storing
+  // your API keys in your repo", a vendor's status post) — no exposure verb, so
+  // the floor stays silent — is exactly the false-urgent this net should re-ask,
+  // not skip. Keying off `hasSecurityKeyword` instead let ANY bulk-sender
+  // security mention sail through to urgent unchallenged (the educational-
+  // newsletter miss; #263-adjacent).
+  if (
+    IMPORTANT_CATEGORIES.has(classification.category) &&
+    !floorMatches &&
+    !observations.gmail.important
+  ) {
+    const { total, bulkShare } = priorBulkProfile(observations.senderPrior.categoryCounts);
+    if (total >= STRONG_BULK_MIN_TOTAL && bulkShare >= STRONG_BULK_MIN_SHARE) {
+      return {
+        kind: "over_classification",
+        message: `You classified this as "${classification.category}", but this sender is historically bulk mail (${Math.round(bulkShare * 100)}% of ${total} prior messages were newsletter/marketing/fyi/done), Gmail did not mark it IMPORTANT, and no exposed-secret signal fired. Promotional-urgency language ("act now", "last chance"), an educational or security-topic MENTION, or a third-party vendor's own status/incident post is not a real deadline or YOUR incident — confirm this is genuinely actionable BY the user (rules 12f, 16b).`,
+      };
+    }
+  }
+
+  // Over-classification B (#351 partial mitigation): the model tagged a SERVICE
+  // sender's mail `action_needed`, and that sender's prior is a well-established,
+  // action_needed-heavy histogram — the self-reinforcing loop past rule 12e
+  // (status changes / watch-activity keep landing `action_needed` because past
+  // mail did, and that histogram is fed back as justification). Re-ask ONCE with
+  // 12e spelled out; the model KEEPS it if the body truly assigns the item — not
+  // a forced downgrade, so the ~genuine assignment/@-mention notifications the
+  // issue flags as correct are preserved. Gated to service/bot senders so a real
+  // person's direct ask is never challenged here. (Net A misses these: an
+  // action_needed-heavy prior is not "bulk", so its bulkShare stays low.)
+  if (
+    classification.category === "action_needed" &&
+    !floorMatches &&
+    !observations.gmail.important
+  ) {
+    const priorKey = observations.senderPrior.key;
+    const isService =
+      senderContext?.effectiveAuthor === "service" ||
+      observations.senderKind?.kind === "service" ||
+      (priorKey?.startsWith("service:") ?? false);
+    const { total, actionShare } = priorActionShare(observations.senderPrior.categoryCounts);
+    if (
+      isService &&
+      total >= SERVICE_ACTION_LOOP_MIN_TOTAL &&
+      actionShare >= SERVICE_ACTION_LOOP_MIN_SHARE
+    ) {
+      return {
+        kind: "over_classification",
+        message: `You classified this as "action_needed", but this is an automated collaboration/task-tracker service and its prior is ${Math.round(actionShare * 100)}% action_needed across ${total} messages — a self-reinforcing histogram, not evidence. Re-read the BODY per rule 12e: action_needed requires the item to be ASSIGNED to the user, the user @-mentioned with a concrete ask, or a reply owed BY the user. A third-party comment, a status change ("set status to X", "moved to Done", "re-opened QA"), or activity on an item the user merely watches is 'fyi'. If the body genuinely assigns it to the user, KEEP action_needed and name the line that shows it.`,
+      };
+    }
+  }
+
+  return null;
+}
+
+/**
+ * Override floor (ADR-0051 §5, Phase 3 seed = ONE signal). Forces `urgent` when
+ * an exposed/leaked/committed secret is present, regardless of model output.
+ * PURE. Returns the (possibly forced) classification and whether it changed.
+ */
+export function applyOverrideFloor(
+  classification: TriageClassification,
+  signalText: string,
+): { classification: TriageClassification; matched: boolean; forced: boolean } {
+  if (!OVERRIDE_FLOOR_SECRET_RE.test(signalText)) {
+    return { classification, matched: false, forced: false };
+  }
+  if (classification.category === "urgent") {
+    // Floor agrees with the model — no change, nothing to force.
+    return { classification, matched: true, forced: false };
+  }
+  return {
+    classification: {
+      ...classification,
+      category: "urgent",
+      confidence: Math.max(classification.confidence, OVERRIDE_FLOOR_CONFIDENCE_FLOOR),
+      rationale: truncateRationale(
+        `${classification.rationale} Override floor: exposed secret material was detected — forced urgent.`,
+      ),
+    },
+    matched: true,
+    forced: true,
+  };
+}
+
+/**
+ * Sender-kind demotion floor (#210, on the #218 activated projection). A
+ * confident `group` sender or no-reply/bot-shaped `service` sender is not a
+ * person the user owes a reply to — you do not write back to a distribution
+ * list or a `noreply`/bot address — so `awaiting_reply` from one is
+ * definitionally wrong. Demote it to `fyi`:
+ * DEMOTE, NEVER BURY (#210 asymmetry) — the thread stays visible, it just leaves
+ * the demanding lane.
+ *
+ * `awaiting_reply` is the zero-bury-risk case and is always demoted for a
+ * confident sender kind. `action_needed`/`urgent` require a narrow structural
+ * reason: passive collaboration state transitions, passive GitHub PR/CI
+ * notifications, group-broadcast sign-in confirmations where the body also says
+ * no action is needed if the sign-in was recognized, or monitoring-alarm
+ * broadcasts (CloudWatch/SNS-style) fanned out to a distribution address the user
+ * is not a direct recipient of (#354 — shape AND audience, never shape alone).
+ *
+ * `senderKind` is non-null ONLY for a confident group/service — `resolveSenderKind`
+ * already gates kind ∈ {group,service} AND confidence >=
+ * `TRIAGE_SENDER_KIND_CONFIDENCE_THRESHOLD`. Service senders get one extra
+ * precision gate here: role mailboxes like support@/billing@ can legitimately
+ * ask for a reply, while strong no-reply/notification or auto-submitted
+ * evidence cannot. PURE.
+ */
+type SenderKindDemotionFloorContext = {
+  signalText?: string;
+  /**
+   * Body/snippet text used for collabActivity intrinsic-stake vetoes. Task-tracker
+   * subjects are often imperative task titles, not ownership/evidence; scanning
+   * them for "critical"/"security"/"payment" would let passive activity on a
+   * scary-named task escape demotion. Absent → falls back to signalText for tests
+   * and legacy callers.
+   */
+  collabVetoText?: string;
+  sender?: string | null;
+  subject?: string | null;
+  to?: string | null;
+  cc?: string | null;
+  /**
+   * The connected account's own address (the user being triaged). The AUDIENCE
+   * half of the monitoring-alarm gate (#354): a broadcast the user is not a
+   * direct recipient of is not their personal action. Absent → the audience gate
+   * is a conservative no-op (we cannot prove a broadcast, so we do not demote).
+   */
+  accountEmail?: string | null;
+  /**
+   * The cheap model's collaboration-tool activity read (#218). Present only for
+   * task/issue-tracker and doc-comment notifications; passive kinds drive the
+   * `collab_passive_activity` reason, ownership kinds keep the category. Absent
+   * → the model saw no collaboration activity, so the body-regex path applies.
+   */
+  collabActivity?: CollabActivityKind | null;
+};
+
+export function applySenderKindDemotionFloor(
+  classification: TriageClassification,
+  senderKind: Observations["senderKind"],
+  context: SenderKindDemotionFloorContext = {},
+): {
+  classification: TriageClassification;
+  demoted: boolean;
+  reason: SenderKindDemotionReason | null;
+} {
+  // An ownership collabActivity is a model-emitted "this is directed at the user"
+  // read. Treat it as a veto over every passive sender-kind demotion path,
+  // including the broad awaiting_reply demotion and GitHub reason aliases.
+  if (context.collabActivity != null && isOwnershipCollabActivity(context.collabActivity)) {
+    return { classification, demoted: false, reason: null };
+  }
+
+  const reason = senderKind ? senderKindDemotionReason(context, senderKind) : null;
+  if (
+    !senderKind ||
+    !senderKindCanDemoteDemand(senderKind) ||
+    !senderKindFloorShouldDemoteCategory(classification.category, reason)
+  ) {
+    return { classification, demoted: false, reason: null };
+  }
+  const note =
+    classification.category === "awaiting_reply"
+      ? `${senderKind.kind} sender is not awaiting a reply`
+      : reason === "github_passive_pr_or_ci"
+        ? `${senderKind.kind} sender sent a passive GitHub PR/CI notification`
+        : reason === "broadcast_auth_signin_confirmation"
+          ? `${senderKind.kind} sender sent a broadcast sign-in confirmation`
+          : reason === "monitoring_alarm"
+            ? `${senderKind.kind} sender broadcast a monitoring alarm the user was not addressed on`
+            : reason === "collab_passive_activity"
+              ? `${senderKind.kind} sender sent passive collaboration activity not directed at the user`
+              : `${senderKind.kind} sender sent a passive collaboration state transition`;
+  return {
+    classification: {
+      ...classification,
+      category: "fyi",
+      todoSuggestion: null,
+      todoDecision: {
+        outcome: "no_obligation",
+        note: `sender_kind_floor: ${note}`,
+      },
+      rationale: truncateRationale(
+        `${classification.rationale} Sender-kind floor: ${senderKind.kind} sender ` +
+          `(active projection confidence=${senderKind.confidence.toFixed(2)}) is not awaiting the ` +
+          `user's action — demoted ${classification.category} → fyi (demote, never bury).`,
+      ),
+    },
+    demoted: true,
+    reason,
+  };
+}
+
+function senderKindCanDemoteDemand(senderKind: NonNullable<Observations["senderKind"]>) {
+  if (senderKind.kind === "group") return true;
+  return senderKind.evidenceCodes.some(
+    (code) => code === "email:local:service_strong" || code === "gmail:auto_submitted",
+  );
+}
+
+function senderKindFloorShouldDemoteCategory(
+  category: TriageClassification["category"],
+  reason: SenderKindDemotionReason | null,
+): boolean {
+  if (category === "awaiting_reply") return true;
+  if (category === "urgent") {
+    return reason === "broadcast_auth_signin_confirmation" || reason === "monitoring_alarm";
+  }
+  if (category !== "action_needed") return false;
+  return reason !== null;
+}
+
+const COLLAB_STATE_TRANSITION_RE =
+  /\b(?:changed status|set the status to|moved (?:task )?(?:to|from)|marked (?:as )?(?:done|complete|completed|resolved|closed)|status changed|re-?opened|closed task)\b/i;
+const COLLAB_DIRECT_OWNERSHIP_RE =
+  /\b(?:assigned (?:task )?to you|assigned you\b|you were assigned|mentioned you|can you|could you|please|pls\s+merge|review and merge|pick this up)\b/i;
+const COLLAB_INTRINSIC_STAKE_RE =
+  /\b(?:payment failed|card declined|invoice due|past due|access (?:will be )?(?:disabled|suspended|lost)|security|compromis|exposed|leaked|secret|token|api[ -]?key|private key|production outage|prod outage|blocked deploy|critical)\b/i;
+
+function isPassiveCollaborationStateTransition(signalText: string): boolean {
+  return (
+    COLLAB_STATE_TRANSITION_RE.test(signalText) &&
+    !COLLAB_DIRECT_OWNERSHIP_RE.test(signalText) &&
+    !COLLAB_INTRINSIC_STAKE_RE.test(signalText)
+  );
+}
+
+type SenderKindDemotionReason =
+  | "collab_state_transition"
+  | "collab_passive_activity"
+  | "github_passive_pr_or_ci"
+  | "broadcast_auth_signin_confirmation"
+  | "monitoring_alarm";
+
+function senderKindDemotionReason(
+  context: SenderKindDemotionFloorContext,
+  senderKind: NonNullable<Observations["senderKind"]>,
+): SenderKindDemotionReason | null {
+  // Model-authoritative collaboration signal (#218). When the cheap model tagged
+  // the notification's activity kind, it is a stronger, per-message read than the
+  // body-regex heuristic — so it takes precedence over `collab_state_transition`.
+  // Ownership kinds are handled as a hard veto in `applySenderKindDemotionFloor`.
+  // Passive kinds demote, subject to the SAME secret + intrinsic-stake vetoes the
+  // regex path honors (a "someone changed status" line that also names an exposed
+  // secret or a past-due invoice keeps its escalation).
+  const collab = context.collabActivity;
+  if (collab != null) {
+    if (isPassiveCollabActivity(collab)) {
+      const signalText = context.collabVetoText ?? context.signalText ?? "";
+      if (
+        !OVERRIDE_FLOOR_SECRET_RE.test(signalText) &&
+        !COLLAB_INTRINSIC_STAKE_RE.test(signalText)
+      ) {
+        return "collab_passive_activity";
+      }
+    }
+  } else if (isPassiveCollaborationStateTransition(context.signalText ?? "")) {
+    return "collab_state_transition";
+  }
+  if (isPassiveGithubPrOrCiNotification(context)) return "github_passive_pr_or_ci";
+  if (isBroadcastAuthSignInConfirmation(context, senderKind)) {
+    return "broadcast_auth_signin_confirmation";
+  }
+  if (isMonitoringAlarmBroadcast(context)) return "monitoring_alarm";
+  return null;
+}
+
+const GITHUB_REASON_ALIAS_RE = /<([^>]+@noreply\.github\.com)>/gi;
+const PASSIVE_GITHUB_REASON_ALIASES = new Set([
+  "author@noreply.github.com",
+  "ci_activity@noreply.github.com",
+  "state_change@noreply.github.com",
+]);
+
+function isPassiveGithubPrOrCiNotification(context: SenderKindDemotionFloorContext): boolean {
+  if (!GITHUB_NOTIFICATION_RE.test(context.sender ?? "")) return false;
+  const reasons = githubReasonAliases(context.cc);
+  if (!reasons.some((r) => PASSIVE_GITHUB_REASON_ALIASES.has(r))) return false;
+  if (reasons.includes("ci_activity@noreply.github.com")) return true;
+  return PR_THREAD_RE.test(context.subject ?? "");
+}
+
+function githubReasonAliases(cc: string | null | undefined): string[] {
+  return [...String(cc ?? "").matchAll(GITHUB_REASON_ALIAS_RE)].map((m) =>
+    (m[1] ?? "").toLowerCase(),
+  );
+}
+
+const AUTH_SIGNIN_NOTICE_RE = /\b(?:new sign-?in|new login|new sign in|new device sign-?in)\b/i;
+const AUTH_NO_ACTION_IF_YOU_RE = /\bif this was you,\s*no action is needed\b/i;
+const AUTH_UNRECOGNIZED_RE = /\b(?:if you (?:do not|don't) recognize|if this wasn't you)\b/i;
+
+function isBroadcastAuthSignInConfirmation(
+  context: SenderKindDemotionFloorContext,
+  senderKind: NonNullable<Observations["senderKind"]>,
+): boolean {
+  if (senderKind.kind !== "group") return false;
+  const text = [context.subject, context.signalText].filter(Boolean).join("\n");
+  return (
+    AUTH_SIGNIN_NOTICE_RE.test(text) &&
+    AUTH_NO_ACTION_IF_YOU_RE.test(text) &&
+    AUTH_UNRECOGNIZED_RE.test(text)
+  );
+}
+
+// A monitoring/alarm broadcast (#354). CloudWatch/SNS-style alarms fan out to a
+// team address the user is not a direct recipient of — a team FYI, not the user's
+// personal urgent/action_needed. The cheap model reliably reads the alarming body
+// as demanding; the floor demotes it to fyi (visible, never buried) ONLY when the
+// SHAPE is a monitoring alarm AND the AUDIENCE is broadcast (`isBroadcastAudience`:
+// the user is not in To/Cc — broader than a literal distribution address; an alarm
+// To a single other individual also qualifies). Shape alone is not enough: an alarm
+// the user is directly To/Cc'd on (they own it, or are on-call for it) keeps its
+// category (ADR-0066 audience gate).
+//
+// Only the AWS SNS `group`-classified case is observed in prod. CloudWatch itself is
+// delivered VIA SNS (`no-reply@sns.amazonaws.com` + an `ALARM:` subject), so the SNS
+// sender + subject tokens already cover it; PagerDuty/Grafana/Datadog/Opsgenie are a
+// HYPOTHESIS — they only fire if `resolveSenderKind` confidently tags them group/
+// service, and are unverified against real mail.
+const MONITORING_SENDER_RE = /sns\.amazonaws\.com|pagerduty|opsgenie|grafana|datadog/i;
+const MONITORING_ALARM_SUBJECT_RE = /^\s*(?:ALARM|ALERT)\b\s*:/i;
+function isMonitoringAlarmBroadcast(context: SenderKindDemotionFloorContext): boolean {
+  const shaped =
+    MONITORING_SENDER_RE.test(context.sender ?? "") ||
+    MONITORING_ALARM_SUBJECT_RE.test(context.subject ?? "");
+  if (!shaped) return false;
+  const signalText = context.signalText ?? "";
+  // A leaked-secret alarm must escape demotion entirely — keep the security
+  // escalation + any legitimate rotate-now todo (mirrors the collab carve-out).
+  if (OVERRIDE_FLOOR_SECRET_RE.test(signalText)) return false;
+  // Do not infer ownership from body prose here. Monitoring/list mail is wrapped
+  // in provider and distribution-list boilerplate, so generic second-person or
+  // request language is not reliable evidence that THIS user owns the alarm.
+  // This interim floor only claims the deterministic envelope fact below: a user
+  // directly present in To/Cc keeps the model's category; a provable broadcast is
+  // demoted. Role/object ownership belongs to the ADR-0066/0067 user-context
+  // consumer, not another alarm-specific phrase vocabulary.
+  // DELIBERATE ASYMMETRY with the collaboration path: we do NOT honor
+  // COLLAB_INTRINSIC_STAKE_RE here. Every alarm body reads as threshold-crossing /
+  // "critical" / "outage" by construction, so an intrinsic-stake veto would neuter
+  // the floor entirely. The audience gate is what makes this safe: a genuine SEV1
+  // the user is not To/Cc'd on is a team FYI, not their personal urgent — and it
+  // still renders (demote to fyi, never bury). A SEV1 that IS the user's own is
+  // caught by the ownership veto above or by them being a direct recipient below.
+  return isBroadcastAudience(context);
+}
+
+/**
+ * The audience half of the monitoring-alarm gate: true only when we can PROVE the
+ * user was not a direct recipient — the connected account's own address is known
+ * AND absent from both To and Cc. Missing identity or missing recipient headers
+ * are conservative no-ops (we cannot prove a broadcast, so we do not demote). A
+ * user in Cc counts as directly addressed. PURE.
+ *
+ * Membership is by EXACT parsed address, not raw-header substring: a substring
+ * test over-demotes a user addressed via a Gmail plus-tag (`u+alerts@x` does not
+ * contain `u@x`) and under-demotes on an incidental substring (`u@x` inside
+ * `notu@x`). `recipientAddresses` parses each To/Cc token and folds the plus-tag,
+ * so a plus-addressed direct recipient still counts as addressed.
+ */
+function isBroadcastAudience(context: SenderKindDemotionFloorContext): boolean {
+  const account = canonicalizeEmailForMatch(context.accountEmail);
+  if (!account) return false;
+  const to = context.to ?? "";
+  const cc = context.cc ?? "";
+  if (!to.trim() && !cc.trim()) return false;
+  const addressed = new Set([...recipientAddresses(to), ...recipientAddresses(cc)]);
+  return !addressed.has(account);
+}
+
+/**
+ * Meeting-gate demotion floor. `meeting` is the highest-precedence category
+ * (rule 10) and the ONLY demand lane the sender-kind floor never covers, so a
+ * false meeting rides entirely on cheap-model judgment — and it leaks on a few
+ * recurring shapes the model reads as "meeting" from the words alone:
+ *
+ *   - `meeting_recap`  — notes/minutes/recap/summary of a meeting that ALREADY
+ *                        happened. Not something to attend or schedule → fyi.
+ *   - `meeting_prep`   — a pre-meeting prep / agenda brief. A document about a
+ *                        meeting, not a calendar action → fyi.
+ *   - `automated_relay`— an automated product/task-tracker (ClickUp/Linear/…)
+ *                        notification that merely MENTIONS meeting language
+ *                        (the "@everyone offsite in Aug" ClickUp comment). A
+ *                        real calendar meeting arrives from a person organizer
+ *                        or as a calendar invite, never as a notification relay.
+ *   - `investor_notice`— an AGM / shareholder / proxy / e-voting / registrar
+ *                        notice (rule 9 already says a corporate "meeting" is
+ *                        not the user's meeting) → fyi.
+ *   - `public_event`   — a webinar / conference / keynote / summit / launch /
+ *                        "save the date" blast (rule 8: public events are not
+ *                        the user's calendar meeting) → fyi.
+ *
+ * Keys on CONTENT SHAPE (subject regex) for the recap/prep pair — the reliable
+ * signal, since the automated meeting-assistant senders that emit these parse as
+ * `person` (no `noreply`/`notifications` envelope) and carry no projection kind.
+ * The `automated_relay` trigger keys on a passive `collabActivity` read from
+ * the cheap model. Sender shape alone is deliberately too broad: real Calendar
+ * mail also comes from service/no-reply addresses. `investor_notice`/`public_event`
+ * key on the deterministic content flags Alfred already computes. All are
+ * carved out by the calendar-action subject shape so a real Google-Calendar
+ * "Invitation:"/"Proposed new time:"/"starts in 10 minutes" subject is preserved,
+ * even one that mentions the event topic in its body.
+ *
+ * DEMOTE, NEVER BURY (#210 asymmetry) — demoted to `fyi` (still visible), with
+ * the stray todo the model minted from the same misread cleared. PURE.
+ */
+export type MeetingDemotionReason =
+  | "meeting_recap"
+  | "meeting_prep"
+  | "automated_relay"
+  | "investor_notice"
+  | "public_event";
+
+// Subject shapes. Anchored at the start so a mid-body mention ("see the meeting
+// notes") never trips them — only a subject that IS a recap/prep does.
+const MEETING_RECAP_SUBJECT_RE =
+  /^\s*(?:re:\s*|fwd:\s*)*(?:meeting\s+(?:notes|minutes|recap|summary)|notes\s+from\b|minutes\s+(?:from|of)\b|recap\s+of\b|recap:|post[- ]?meet(?:ing)?\s+summary)/i;
+const MEETING_PREP_SUBJECT_RE =
+  /^\s*(?:\[[^\]]*\]\s*)*(?:meeting\s+prep\b|prep\s+for\b|agenda\s+for\b|pre[- ]?read\s+for\b)/i;
+// Google-Calendar action subject shapes — the carve-out that keeps genuine
+// invite/schedule/attendance mail from a service/no-reply calendar address in
+// `meeting`.
+const CALENDAR_ACTION_SUBJECT_RE =
+  /^\s*(?:re:\s*)?(?:(?:updated\s+)?invitation(?:\s+with\s+note)?|proposed\s+new\s+time|new\s+time\s+proposed|(?:cancelled|canceled)(?:\s+event)?|accepted|declined|tentatively\s+accepted|this\s+event\s+has\s+been\s+(?:updated|cancelled|canceled)|reminder:?\s+.*\bstarts\s+in\b)\b|\binvitation:/i;
+
+export function applyMeetingDemotionFloor(
+  classification: TriageClassification,
+  context: {
+    effectiveAuthor?: SenderContext["effectiveAuthor"] | null;
+    senderKind?: Observations["senderKind"];
+    subject?: string | null;
+    collabActivity?: CollabActivityKind | null;
+    /** Deterministic content flags (rules 8/9 backstops); optional for callers/tests. */
+    contentFlags?: Pick<Observations["content"], "hasInvestorNotice" | "hasPublicEventLanguage">;
+  },
+): {
+  classification: TriageClassification;
+  demoted: boolean;
+  reason: MeetingDemotionReason | null;
+} {
+  if (classification.category !== "meeting") {
+    return { classification, demoted: false, reason: null };
+  }
+  const subject = context.subject ?? "";
+  // The calendar-action subject shape is the single carve-out shared by every
+  // trigger: a genuine "Invitation:"/"Proposed new time:" stays `meeting` even
+  // when it comes from a service or mentions the event topic in its body.
+  const isCalendarAction = CALENDAR_ACTION_SUBJECT_RE.test(subject);
+  const collabActivity = classification.collabActivity ?? context.collabActivity ?? null;
+  const reason: MeetingDemotionReason | null = MEETING_RECAP_SUBJECT_RE.test(subject)
+    ? "meeting_recap"
+    : MEETING_PREP_SUBJECT_RE.test(subject)
+      ? "meeting_prep"
+      : collabActivity != null && isPassiveCollabActivity(collabActivity) && !isCalendarAction
+        ? "automated_relay"
+        : context.contentFlags?.hasInvestorNotice && !isCalendarAction
+          ? "investor_notice"
+          : context.contentFlags?.hasPublicEventLanguage && !isCalendarAction
+            ? "public_event"
+            : null;
+  if (!reason) return { classification, demoted: false, reason: null };
+  const note =
+    reason === "meeting_recap"
+      ? "recap of a meeting that already happened"
+      : reason === "meeting_prep"
+        ? "pre-meeting prep/agenda brief, not a calendar action"
+        : reason === "automated_relay"
+          ? "automated relay merely mentioning a meeting, not the user's calendar event"
+          : reason === "investor_notice"
+            ? "AGM/shareholder/proxy notice, not the user's meeting (rule 9)"
+            : "public event (webinar/conference/launch), not the user's meeting (rule 8)";
+  return {
+    classification: {
+      ...classification,
+      category: "fyi",
+      todoSuggestion: null,
+      todoDecision: { outcome: "no_obligation", note: `meeting_floor: ${note}` },
+      rationale: truncateRationale(
+        `${classification.rationale} Meeting floor: ${note} — demoted meeting → fyi (demote, never bury).`,
+      ),
+    },
+    demoted: true,
+    reason,
+  };
+}
+
+/** A resolved rail todo to mint — the cheap model's proposal after the gate. */
+export type ResolvedTodoSuggestion = { name: string; assist?: string };
+
+// The rail title IS the todo; an `assist` line earns the user's eyes only if it
+// carries a HARD FACT the title structurally can't — a money amount or a
+// date/deadline. The cheap model reliably *extracts* those but will NOT reliably
+// *self-censor*: it pads `assist` with URLs, prose, mechanical steps, and
+// restatements. Prompting harder is whack-a-mole, so the keep/drop is enforced
+// deterministically here instead. Anything that isn't a short amount/date
+// fragment collapses to a title-only row.
+const ASSIST_URL_RE = /https?:\/\//i;
+const ASSIST_AMOUNT_RE =
+  /[₹$€£¥]\s?\d|\b\d+(?:[.,]\d+)?\s?(?:usd|eur|gbp|inr|rs\.?|rupees?|dollars?)\b/i;
+const ASSIST_DATE_RE =
+  /\b(?:jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec)[a-z]*\.?\s+\d{1,2}\b|\b\d{1,2}\s+(?:jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec)[a-z]*\b|\b\d{4}-\d{2}-\d{2}\b/i;
+/** A real hard-fact fragment is short; longer means the model wrote a sentence. */
+const ASSIST_MAX_LEN = 40;
+
+// A rail todo persists for days, so a relative date word ("due tomorrow") reads
+// as a lie the moment it goes stale — the absolute calendar date is always the
+// better fact. The prompt tells the cheap model to resolve relative phrasing
+// against the email's send date, but it won't reliably comply, so we enforce it
+// here against the same anchor. `tonight`/`today` map to the send day; offsets
+// are in days. Anything we can't resolve to a date is dropped (see below).
+const MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+const RELATIVE_DAY_OFFSETS: ReadonlyArray<readonly [RegExp, number]> = [
+  [/\btomorrow\b/gi, 1],
+  [/\byesterday\b/gi, -1],
+  [/\b(?:today|tonight)\b/gi, 0],
+];
+// Relative phrasing we can't pin to a single calendar day ("next Friday", "in 3
+// days"). Left in place these go stale, so an assist that still contains one
+// after resolution is dropped rather than shown.
+const RESIDUAL_RELATIVE_RE =
+  /\b(?:next|this|last)\s+(?:week|month|year|mon|tue|wed|thu|fri|sat|sun)[a-z]*\b|\bin\s+\d+\s+(?:day|week|month)s?\b|\b(?:today|tonight|tomorrow|yesterday)\b/i;
+
+/** Format a UTC date as a terse "Jun 11" fragment. PURE. */
+function formatAssistDate(d: Date): string {
+  return `${MONTHS[d.getUTCMonth()]} ${d.getUTCDate()}`;
+}
+
+/**
+ * Rewrite relative date words in an assist fragment to an absolute calendar date
+ * anchored on the email's send time. Without an anchor the word can't be
+ * resolved, so it's stripped — a stale relative date is worse than none. PURE.
+ */
+function resolveRelativeDates(text: string, anchor: Date | null): string {
+  let out = text;
+  for (const [re, offset] of RELATIVE_DAY_OFFSETS) {
+    const replacement = anchor
+      ? formatAssistDate(new Date(anchor.getTime() + offset * 86_400_000))
+      : "";
+    out = out.replace(re, replacement);
+  }
+  // Tidy separators/words left dangling by stripped dates ("₹88.5 · due " → "₹88.5").
+  let cleaned = out.replace(/\s{2,}/g, " ").trim();
+  let previous: string;
+  do {
+    previous = cleaned;
+    cleaned = cleaned.replace(/\s*(?:·|,|—|-|\bdue\b|\bby\b)\s*$/gi, "").trim();
+  } while (cleaned !== previous);
+  return cleaned;
+}
+
+/**
+ * Keep `assist` only when it reads as a hard fact (an amount or an absolute date)
+ * and is short enough to be a fragment, never a URL. Relative date words are
+ * first resolved to an absolute date against `anchor` (the email's send time);
+ * anything still relative afterward is dropped. Returns `undefined` otherwise so
+ * the row renders title-only. PURE.
+ */
+export function sanitizeAssist(
+  assist: string | null | undefined,
+  anchor: Date | null = null,
+): string | undefined {
+  const trimmed = assist?.trim();
+  if (!trimmed) return undefined;
+  const text = resolveRelativeDates(trimmed, anchor);
+  if (!text || text.length > ASSIST_MAX_LEN) return undefined;
+  if (ASSIST_URL_RE.test(text)) return undefined;
+  if (RESIDUAL_RELATIVE_RE.test(text)) return undefined;
+  if (!ASSIST_AMOUNT_RE.test(text) && !ASSIST_DATE_RE.test(text)) return undefined;
+  return text;
+}
+
+// Rule 16f bans hedge/passive todo titles ("Look into…", "Investigate the…",
+// "View task…") and demands a real verb + object — but the cheap model keeps
+// emitting them, and prompting harder is whack-a-mole (same reasoning as
+// `sanitizeAssist`). So the clear cases are repaired deterministically here.
+//
+// SCOPE IS DELIBERATELY NARROW: only verbs with NO legitimate "the action IS
+// this verb" reading. Stripping the prefix off "Investigate the X alarm" yields
+// a strictly better object-led reminder ("X alarm"). Verbs that CAN be the real
+// action — review (a contract), check (a number), confirm, verify, update,
+// address — are EXCLUDED: auto-stripping them would destroy a legitimate title,
+// so they stay model-owned via rule 16f. And we NEVER drop the todo: a hedged
+// title still beats losing a real obligation (unlike `assist`, which is droppable).
+const TODO_HEDGE_PREFIX_RE =
+  /^(?:please\s+)?(?:look into|look at|dig into|take a look at|provide (?:info|information|details)|investigate|view)\b/i;
+// Filler left dangling after the verb is stripped — a leading article, "into"/
+// "at" preposition, or the "task" noun ("View task Eng…" → "Eng…").
+const TODO_HEDGE_FILLER_RE = /^(?:the|a|an|this|that|into|at|on|for|about|tasks?)\s+/i;
+
+/**
+ * Repair an unambiguous hedge-shaped todo title into an object-led one (rule
+ * 16f). Returns the original UNCHANGED when it isn't hedged or when stripping
+ * would leave nothing usable — never empties or drops a real obligation. PURE.
+ */
+export function sanitizeTodoName(name: string): string {
+  const trimmed = name.trim();
+  if (!TODO_HEDGE_PREFIX_RE.test(trimmed)) return trimmed;
+  let rest = trimmed.replace(TODO_HEDGE_PREFIX_RE, "").trimStart();
+  let prev: string;
+  do {
+    prev = rest;
+    rest = rest.replace(TODO_HEDGE_FILLER_RE, "").trimStart();
+  } while (rest !== prev);
+  rest = rest.replace(/^[\s:–—-]+/, "").trim();
+  // A one-word or empty remainder means the hedge verb carried the meaning —
+  // keep the original rather than mint a bare fragment.
+  if (rest.split(/\s+/).filter(Boolean).length < 2 || rest.length < 4) return trimmed;
+  // Capitalize a leading lowercase word ("baserow alarm" → "Baserow alarm").
+  return /^[a-z]/.test(rest) ? rest.charAt(0).toUpperCase() + rest.slice(1) : rest;
+}
+
+// A `todoDecision.note` prefix that belongs to a FAILING rubric outcome (rule
+// 16b): a cold contact (`cold_sender:`), a product-manufactured stake
+// (`manufactured:`), or pre-merge PR advisory (`advisory:`). Each is documented
+// to accompany `not_significant` — so a `proposed` decision carrying one is the
+// cheap model contradicting itself (it named the disqualifying reason, then
+// proposed anyway; the exact HyperNexus cold-outreach leak). Resolve the
+// contradiction the way the note leans: no todo.
+const FAILING_OUTCOME_NOTE_PREFIX_RE = /^\s*(?:cold_sender|manufactured|advisory)\s*:/i;
+
+/** True when a `proposed` decision's note names a disqualifying (failing) reason. */
+export function noteMarksFailingOutcome(note: string | null | undefined): boolean {
+  return note != null && FAILING_OUTCOME_NOTE_PREFIX_RE.test(note);
+}
+
+/**
+ * Resolve the rail todo to mint from a FINAL classification (ADR-0050 amendment
+ * 2026-06-06). Returns the suggestion ONLY when the cheap model proposed one
+ * AND the category is todo-eligible; the floor ({@link TODO_INELIGIBLE_CATEGORIES},
+ * now just `{marketing, newsletter}`) suppresses a stray suggestion that leaked
+ * onto a broadcast bucket. The real todo decision is the rubric (rule 16) the
+ * model already applied; this is a thin consistency guard, not the judgment.
+ * The name is run through {@link sanitizeTodoName} to repair the hedge titles
+ * the model emits despite rule 16f. PURE — the `email-triage` tail step calls
+ * this and, on a non-null result, writes the todo via `suggestTodo`.
+ */
+export function resolveTodoSuggestion(
+  classification: TriageClassification,
+  emailAuthoredAt: Date | null = null,
+): ResolvedTodoSuggestion | null {
+  const suggestion = classification.todoSuggestion ?? null;
+  if (!suggestion) return null;
+  if (classification.todoDecision?.outcome !== "proposed") return null;
+  // Contradiction backstop: a `proposed` decision whose note carries a
+  // failing-outcome prefix is the model disagreeing with itself — drop it.
+  if (noteMarksFailingOutcome(classification.todoDecision?.note)) return null;
+  if (TODO_INELIGIBLE_CATEGORIES.has(classification.category)) return null;
+  const name = sanitizeTodoName(suggestion.name);
+  const assist = sanitizeAssist(suggestion.assist, emailAuthoredAt);
+  return assist ? { name, assist } : { name };
+}
+
+/** Why a structurally-disqualified email yields no rail todo even when the cheap model proposed one. */
+export type TodoSuppressionReason =
+  | "alfred_approval"
+  | "pre_merge_advisory"
+  | "tracker_owned"
+  | "cold_sender";
+
+const GITHUB_NOTIFICATION_RE = /notifications@github\.com/i;
+// A dedicated task/issue tracker or doc-comment tool's notification address
+// (#353). Subdomains and per-site Atlassian hosts (`<site>.atlassian.net`) match
+// via the optional leading label group. Used as the deterministic fallback for
+// the `tracker_owned` suppression when the model omits `collabActivity`.
+const TASK_TRACKER_SENDER_RE =
+  /@(?:[\w.-]*\.)?(?:clickup\.com|linear\.app|atlassian\.net|asana\.com|monday\.com|trello\.com|notion\.so|height\.app|shortcut\.com)\b/i;
+// A GitHub PR-notification thread: the body carries a `/pull/N` link and the
+// subject a `(PR #N)` ref. `/issues/N` and issue refs deliberately don't match —
+// an issue can be a real ask; review of unmerged PR code is not (rule 16b).
+const PR_THREAD_RE = /\/pull\/\d+|\bpull request\b|\bpr #\d+\b/i;
+// Alfred's own human-in-the-loop approval mail: "[medium] Alfred wants to …".
+const ALFRED_APPROVAL_SUBJECT_RE =
+  /^\s*\[(?:no_risk|low|medium|high|critical)\]\s+alfred wants to\b/i;
+// The reply-shape categories where the ONLY stake is "a person is waiting on a
+// reply" — the exact stake rule 16b says a cold contact does NOT carry. A cold
+// sender landing any OTHER category (payment, action_needed with a real task,
+// urgent) is judged on that category's intrinsic stake, not gated here.
+const COLD_SENDER_GATED_CATEGORIES = new Set<TriageCategory>(["awaiting_reply", "follow_up"]);
+
+/**
+ * A cold sender still earns a todo when the mail carries a real INTRINSIC stake
+ * (rule 16b): money owed / at risk, a hard deadline, an exposed secret, or an
+ * access/security/payment consequence. Reuse the floors' existing detectors so
+ * the carve-out matches what the sender-kind and monitoring floors already honor
+ * — a cold contact with a genuine stake is not suppressed. PURE.
+ */
+function hasIntrinsicStakeSignal(signalText: string): boolean {
+  return (
+    OVERRIDE_FLOOR_SECRET_RE.test(signalText) ||
+    COLLAB_INTRINSIC_STAKE_RE.test(signalText) ||
+    ASSIST_AMOUNT_RE.test(signalText) ||
+    ASSIST_DATE_RE.test(signalText)
+  );
+}
+// Liveness escape for the PR gate — something already in production / `main` /
+// an exposed secret makes a PR thread a real stake (rule 16b), not advisory.
+const TODO_LIVENESS_RE =
+  /\bproduction\b|\bprod\b|\boutage\b|\bincident\b|\balready merged\b|\bin main\b|\bblocked deploy|\bdeploy(?:ment)? (?:failing|blocked|broken)\b/i;
+
+/**
+ * Structural disqualifier for a rail todo, applied AFTER the cheap model proposed
+ * one (rule 16). The cheap model won't reliably self-apply 16b's liveness clause,
+ * recognize Alfred's own approval mail, or hold the tracker-ownership line, so
+ * three whole-row leaks are killed here deterministically from the email's shape:
+ *   - `alfred_approval`    — Alfred's own HIL approval request; it lives on the
+ *                            Approvals surface, never the todo rail.
+ *   - `pre_merge_advisory` — a GitHub pull-request notification thread with no
+ *                            liveness signal (nothing in production / `main`, no
+ *                            exposed secret). Reviewing unmerged code is not a todo.
+ *   - `tracker_owned`      — a dedicated task/issue tracker or doc-comment tool's
+ *                            notification (ClickUp, Linear, Jira, …). The item is
+ *                            already tracked + re-notified there, so it fails rule
+ *                            16c memorability; the CATEGORY still surfaces it, but
+ *                            a rail todo only duplicates the tool (#353).
+ *   - `cold_sender`        — a reply-shape ask (awaiting_reply/follow_up) from a
+ *                            COLD human contact (`isColdContact`, rule 16b) whose
+ *                            ONLY stake is "a person is waiting", with no intrinsic
+ *                            stake in the body. The typed corroboration the cheap
+ *                            model won't reliably self-apply (the HyperNexus
+ *                            cold-outreach leak). The CATEGORY is untouched — the
+ *                            thread keeps its honest awaiting_reply chip.
+ * Returns null when nothing disqualifies it. PURE — the mint path and the
+ * dry-run both apply it so KEEP/KILL stays consistent.
+ */
+export function todoSuppressionReason(email: {
+  sender: string | null;
+  subject: string | null;
+  signalText: string;
+  collabActivity?: CollabActivityKind | null;
+  /** Final category — the cold-sender gate only fires on the reply-shape lanes. */
+  category?: TriageCategory | null;
+  /** Typed rule-16b cold-contact flag from the sender-relationship observation. */
+  isColdContact?: boolean;
+}): TodoSuppressionReason | null {
+  if (ALFRED_APPROVAL_SUBJECT_RE.test(email.subject ?? "")) return "alfred_approval";
+  if (GITHUB_NOTIFICATION_RE.test(email.sender ?? "") && PR_THREAD_RE.test(email.signalText)) {
+    const live =
+      TODO_LIVENESS_RE.test(email.signalText) || OVERRIDE_FLOOR_SECRET_RE.test(email.signalText);
+    if (!live) return "pre_merge_advisory";
+  }
+  // Tracker-owned (#353): an item living in a dedicated task/issue tracker or
+  // doc-comment tool the user actively works is ALREADY tracked and re-notified
+  // there — they will not forget it (rule 16c), so a rail todo only repeats the
+  // tool's own reminder. This holds even when the item is assigned to or
+  // @-mentions the user: the collab ownership veto keeps the CATEGORY at
+  // action_needed (that carries the "act on this" signal), while the rail stops
+  // duplicating it. Signaled by the model's own collaboration read (any non-null
+  // `collabActivity` = a ClickUp/Linear/Jira/… notification) OR, when the model
+  // omits the field (~1-in-5), a known task-tracker sender. Escape: an exposed
+  // secret earns a todo regardless of source — a leaked credential is never
+  // "already safely tracked" (mirrors the PR gate's secret escape).
+  if (
+    (email.collabActivity != null || TASK_TRACKER_SENDER_RE.test(email.sender ?? "")) &&
+    !OVERRIDE_FLOOR_SECRET_RE.test(email.signalText)
+  ) {
+    return "tracker_owned";
+  }
+  // Cold-sender (rule 16b): a reply-shape ask from a cold human contact whose
+  // only stake is "a person is waiting" mints no rail todo. Gated hard on the
+  // reply-shape lanes AND the absence of any intrinsic stake, so a cold sender
+  // who genuinely owes money / names a deadline / exposed a secret still passes.
+  if (
+    email.isColdContact &&
+    email.category != null &&
+    COLD_SENDER_GATED_CATEGORIES.has(email.category) &&
+    !hasIntrinsicStakeSignal(email.signalText)
+  ) {
+    return "cold_sender";
+  }
+  return null;
+}
+
+/** Concatenated lowercased text the floor predicate scans (subject + body + snippet). */
+function floorSignalText(document: ClassifyEmailArgs["document"]): string {
+  const parts: string[] = [];
+  if (document.title) parts.push(document.title);
+  parts.push(document.content);
+  const snippet = document.metadata.snippet;
+  if (typeof snippet === "string") parts.push(snippet);
+  return parts.join("\n").toLowerCase();
+}
+
+/** Body + snippet only: task/issue titles are not intrinsic-stake evidence for collab floors. */
+function floorBodySignalText(document: ClassifyEmailArgs["document"]): string {
+  const parts: string[] = [document.content];
+  const snippet = document.metadata.snippet;
+  if (typeof snippet === "string") parts.push(snippet);
+  return parts.join("\n").toLowerCase();
+}
+
+/**
+ * Run the context-rich classify sequence over a single email: first cheap pass
+ * → conditional second pass on a detected conflict → override floor. Returns
+ * the final classification, the resolved model id, and an audit trail.
+ */
+export async function classifyEmail(
+  args: ClassifyEmailArgs,
+): Promise<{ classification: TriageClassification; model: string; audit: ClassifyAudit }> {
+  const useInjected = Boolean(args.runPass);
+  const model = useInjected ? null : getCheapModel();
+  const baseModelId = model ? identifyLanguageModel(model).modelId : "injected";
+  const runPass: RunPass = args.runPass ?? defaultRunPass(model, args);
+
+  const signalText = floorSignalText(args.document);
+  const collabVetoText = floorBodySignalText(args.document);
+  const floorMatches = OVERRIDE_FLOOR_SECRET_RE.test(signalText);
+
+  const firstPass = await runPass({
+    system: SYSTEM_PROMPT,
+    prompt: userPrompt(args, null),
+    pass: "first",
+  });
+
+  const conflict = detectConflict(firstPass, args.observations, floorMatches, args.senderContext);
+  let working = firstPass;
+  let secondPass: TriageClassification | null = null;
+  let secondPassFailure: { message: string } | null = null;
+  if (conflict) {
+    // The second pass is an OPTIONAL re-check. A failure on it must NOT discard
+    // the already-valid first pass: if the error propagated, the workflow's
+    // catch would force the whole message to the default `fyi`, silently
+    // DE-escalating a real urgent/action_needed (the exact opposite of what the
+    // under-classification net is for). Fall back to the first pass instead.
+    try {
+      secondPass = await runPass({
+        system: SYSTEM_PROMPT,
+        prompt: userPrompt(args, conflict),
+        pass: "second",
+      });
+      working = secondPass;
+    } catch (err) {
+      secondPassFailure = { message: errorMessage(err) };
+      secondPass = null;
+      working =
+        conflict.kind === "under_classification"
+          ? conservativeUnderClassificationFallback(firstPass, secondPassFailure.message)
+          : firstPass;
+    }
+  }
+
+  // Deterministic post-classification floors. The secret ESCALATION floor runs
+  // first so a leaked secret escapes the sender-kind demotion entirely and keeps
+  // any legitimate security todo. The sender-kind DEMOTION then handles
+  // confident group/no-reply senders when the demand is structurally passive.
+  const floorResult = applyOverrideFloor(working, signalText);
+  const meta = args.document.metadata;
+  const from = typeof meta.from === "string" ? meta.from : null;
+  const to = typeof meta.to === "string" ? meta.to : null;
+  const cc = typeof meta.cc === "string" ? meta.cc : null;
+  const kindFloor = applySenderKindDemotionFloor(
+    floorResult.classification,
+    args.observations.senderKind,
+    {
+      signalText,
+      collabVetoText,
+      sender: from,
+      subject: args.document.title,
+      to,
+      cc,
+      accountEmail: args.identity?.email ?? null,
+      collabActivity: floorResult.classification.collabActivity ?? null,
+    },
+  );
+
+  // Meeting-gate floor runs last: it only fires on a surviving `meeting` tag, so
+  // a secret-escalated `urgent` or a sender-kind-demoted `fyi` is already past
+  // meeting and left untouched. Catches the recap/prep/relay leaks the model
+  // reads as "meeting" from the words alone (the ClickUp offsite, oliv.guide
+  // "Meeting notes"/"Meeting prep").
+  const meetingFloor = applyMeetingDemotionFloor(kindFloor.classification, {
+    effectiveAuthor: args.senderContext.effectiveAuthor,
+    senderKind: args.observations.senderKind,
+    subject: args.document.title,
+    collabActivity: kindFloor.classification.collabActivity ?? null,
+    contentFlags: args.observations.content,
+  });
+  const classification = meetingFloor.classification;
+
+  let model_id = baseModelId;
+  if (secondPass) model_id += "+2pass";
+  if (secondPassFailure) model_id += "+2pass_failed";
+  if (kindFloor.demoted) model_id += "+kindfloor";
+  if (meetingFloor.demoted) model_id += "+meetingfloor";
+  if (floorResult.forced) model_id += "+floor";
+
+  return {
+    classification,
+    model: model_id,
+    audit: {
+      firstPass,
+      conflict,
+      secondPass,
+      secondPassFailure,
+      senderKindDemoted: kindFloor.demoted,
+      senderKindDemotionReason: kindFloor.reason,
+      floorMatched: floorResult.matched,
+      floorForced: floorResult.forced,
+      meetingDemoted: meetingFloor.demoted,
+      meetingDemotionReason: meetingFloor.reason,
+    },
+  };
+}
+
+/** Build the production cheap-model pass runner (metered, Zod-validated). */
+function defaultRunPass(
+  model: ReturnType<typeof getCheapModel> | null,
+  args: ClassifyEmailArgs,
+): RunPass {
+  return async ({ system, prompt, pass }) => {
+    if (!model) throw new Error("[triage] classifyEmail: no cheap model and no runPass injected");
+    const result = await meteredGenerateObject<TriageClassification>(
+      {
+        model,
+        instructions: system,
+        prompt,
+        schema: triageClassificationSchema,
+        temperature: 0,
+        // Triage answers are tiny — cap hard so a misbehaving model can't burn
+        // tokens on a wall-of-text rationale.
+        maxOutputTokens: 400,
+        // Bound the call so a hung/slow Gemini connection can't stall the
+        // single-concurrency triage worker indefinitely. The workflow catches a
+        // timeout and falls through to the default category (better a label than
+        // a blocked queue).
+        timeout: { totalMs: 30_000 },
+        // Undefined in production (SDK default). The eval lowers it to fail fast
+        // to the configured cheap-model fallback under provider overload — see
+        // `maxRetries` doc.
+        ...(args.maxRetries !== undefined ? { maxRetries: args.maxRetries } : {}),
+      },
+      {
+        role: "triage",
+        userId: args.userId,
+        runId: args.runId,
+        stepId: args.stepId,
+        // Distinct idempotency key per pass so the second pass isn't deduped
+        // against the first within the same attempt.
+        idempotencyKey: args.idempotencyKey ? `${args.idempotencyKey}:${pass}` : undefined,
+        requestMeta: {
+          purpose: pass === "second" ? "triage.classify.second_pass" : "triage.classify",
+          documentId: args.document.id,
+        },
+        name: pass === "second" ? "triage.classify.second_pass" : "triage.classify",
+      },
+    );
+    const object = result.output;
+    // Clamp confidence into [0, 1] here rather than in the schema: the range
+    // can't be expressed in the cheap-model structured-output JSON schema (see
+    // `confidenceSchema`). `clamp01` is the shared boundary clamp.
+    return normalizeClassifierOutput(object);
+  };
+}
+
+export function normalizeClassifierOutput(object: TriageClassification): TriageClassification {
+  return {
+    ...object,
+    confidence: clamp01(object.confidence),
+    // `collabActivity` is an OPTIONAL field, so the cheap model is free to omit
+    // the key — flash-lite does on ~1-in-5 non-collab emails. Treat omission as
+    // `null` (no collaboration-tool activity), never a throw: an unhandled throw
+    // here propagates out of the un-caught first pass and the workflow buries the
+    // real classification as the fallback `fyi` (and a second-pass throw escalates
+    // passive → action_needed via the conservative fallback). The sender-kind
+    // floor only demotes on a non-null PASSIVE kind, so omitted and null are
+    // already equivalent downstream — the guarantee the throw tried to enforce
+    // has no consumer.
+    collabActivity: object.collabActivity ?? null,
+  };
+}
+
+function truncateRationale(value: string): string {
+  return value.length > MAX_RATIONALE_LEN ? `${value.slice(0, MAX_RATIONALE_LEN - 3)}...` : value;
+}
+
+function conservativeUnderClassificationFallback(
+  firstPass: TriageClassification,
+  message: string,
+): TriageClassification {
+  if (!PASSIVE_CATEGORIES.has(firstPass.category)) return firstPass;
+  return {
+    ...firstPass,
+    category: "action_needed",
+    confidence: Math.max(firstPass.confidence, SECOND_PASS_FAILURE_CONFIDENCE_FLOOR),
+    rationale: truncateRationale(
+      `${firstPass.rationale} Second-pass failed after a security under-classification conflict; conservatively escalated to action_needed. err=${message.slice(0, 160)}`,
+    ),
+  };
+}
+
+function errorMessage(err: unknown): string {
+  return toMessage(err);
+}
+
+/** Default category for failure paths — keep it as `fyi` so we never drop a message untriaged. */
+export const DEFAULT_TRIAGE_CATEGORY: TriageCategory = "fyi";

@@ -1,0 +1,1 @@
+ALTER TABLE "briefings" ADD COLUMN "compose_fallback" boolean DEFAULT false NOT NULL;

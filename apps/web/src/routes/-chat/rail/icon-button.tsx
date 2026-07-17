@@ -1,0 +1,44 @@
+import { type ButtonHTMLAttributes, type ReactNode, type Ref } from "react";
+import { cn } from "~/lib/utils";
+
+/**
+ * Forwards its ref and spreads extra props so it can sit inside a Radix
+ * `Tooltip.Trigger asChild` (which injects pointer handlers + a ref).
+ */
+export function IconButton({
+  label,
+  children,
+  onClick,
+  active = false,
+  className,
+  ref,
+  ...rest
+}: {
+  label: string;
+  children: ReactNode;
+  onClick?: () => void;
+  active?: boolean;
+  ref?: Ref<HTMLButtonElement>;
+} & Omit<ButtonHTMLAttributes<HTMLButtonElement>, "onClick">) {
+  return (
+    <button
+      ref={ref}
+      type="button"
+      aria-label={label}
+      aria-pressed={onClick ? active : undefined}
+      onClick={onClick}
+      className={cn(
+        "inline-flex size-8 items-center justify-center rounded-lg",
+        "app-press transition-colors",
+        "outline-none focus-visible:ring-2 focus-visible:ring-app-purple-2 focus-visible:ring-offset-2 focus-visible:ring-offset-app-background",
+        active
+          ? "bg-app-bg-2 text-app-fg-4 hover:bg-app-bg-a2"
+          : "text-app-fg-3 hover:bg-app-bg-a2 hover:text-app-fg-4",
+        className,
+      )}
+      {...rest}
+    >
+      {children}
+    </button>
+  );
+}

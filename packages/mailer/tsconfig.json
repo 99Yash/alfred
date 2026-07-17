@@ -1,0 +1,17 @@
+{
+  "extends": "@alfred/config/tsconfig.base.json",
+  "compilerOptions": {
+    "declaration": true,
+    "declarationMap": true,
+    "sourceMap": true,
+    "outDir": "dist",
+    "rootDir": "src",
+    "composite": true,
+    // Classic runtime (React.createElement) with an explicit `import React`.
+    // The runtime transformers (tsx and the server's tsdown bundle) default
+    // to classic, so matching them here keeps tsc and runtime in agreement.
+    "jsx": "react",
+    "types": ["node"]
+  },
+  "include": ["src"]
+}

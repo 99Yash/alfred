@@ -1,0 +1,39 @@
+{
+  "name": "alfred",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "turbo run dev",
+    "build": "turbo run build",
+    "check-types": "turbo run check-types",
+    "dev:web": "turbo run dev --filter=web",
+    "dev:server": "turbo run dev --filter=server",
+    "check:web-boundaries": "node scripts/check-web-boundaries.mjs",
+    "check:imports": "node scripts/relative-to-alias.mjs --check",
+    "lint": "oxlint",
+    "lint:fix": "oxlint --fix --fix-suggestions",
+    "lint:fix:all": "oxlint --fix-dangerously",
+    "db:push": "turbo run db:push --filter=@alfred/db",
+    "db:studio": "turbo run db:studio --filter=@alfred/db",
+    "db:generate": "turbo run db:generate --filter=@alfred/db",
+    "db:migrate": "turbo run db:migrate --filter=@alfred/db",
+    "db:sync-prices": "turbo run db:sync-prices --filter=@alfred/db",
+    "db:predeploy": "pnpm --filter @alfred/db db:migrate && pnpm --filter @alfred/db db:sync-prices",
+    "format": "oxfmt --write --ignore-path .prettierignore apps packages package.json pnpm-workspace.yaml turbo.json .oxlintrc.json .oxfmtrc.json",
+    "check": "node scripts/check-web-boundaries.mjs && node scripts/relative-to-alias.mjs --check && oxlint && oxfmt --write --ignore-path .prettierignore apps packages package.json pnpm-workspace.yaml turbo.json .oxlintrc.json .oxfmtrc.json",
+    "doctor": "pnpm exec react-doctor"
+  },
+  "devDependencies": {
+    "@types/node": "^22.13.11",
+    "oxfmt": "^0.26.0",
+    "oxlint": "^1.62.0",
+    "oxlint-tailwindcss": "^1.3.3",
+    "react-doctor": "^0.2.10",
+    "turbo": "^2.8.10",
+    "typescript": "catalog:"
+  },
+  "engines": {
+    "node": ">=22.12.0"
+  },
+  "packageManager": "pnpm@11.7.0"
+}

@@ -1,0 +1,1 @@
+ALTER TABLE "entity_nodes" ALTER COLUMN "first_seen_at" DROP DEFAULT;

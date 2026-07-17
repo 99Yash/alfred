@@ -1,0 +1,3 @@
+ALTER TABLE "chat_thread_context" ADD COLUMN "replay_estimate_watermark_created_at" timestamp with time zone;--> statement-breakpoint
+ALTER TABLE "chat_thread_context" ADD COLUMN "replay_estimate_watermark_message_id" text;--> statement-breakpoint
+ALTER TABLE "chat_thread_context" ADD CONSTRAINT "chat_thread_context_replay_estimate_watermark_pair_chk" CHECK (("chat_thread_context"."replay_estimate_watermark_created_at" IS NULL) = ("chat_thread_context"."replay_estimate_watermark_message_id" IS NULL));

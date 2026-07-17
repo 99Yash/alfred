@@ -1,0 +1,37 @@
+{
+  "name": "@alfred/db",
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts",
+    "./*": "./src/*.ts"
+  },
+  "scripts": {
+    "build": "node ../../scripts/clean-package-dist.mjs && tsc -b --emitDeclarationOnly --force",
+    "check-types": "tsc -b --emitDeclarationOnly",
+    "db:push": "drizzle-kit push",
+    "db:studio": "drizzle-kit studio",
+    "dev": "drizzle-kit studio",
+    "db:generate": "drizzle-kit generate",
+    "db:migrate": "drizzle-kit migrate",
+    "db:sync-prices": "tsx --env-file-if-exists=../../apps/server/.env src/scripts/sync-prices.ts"
+  },
+  "dependencies": {
+    "@alfred/contracts": "workspace:*",
+    "@alfred/env": "workspace:*",
+    "dotenv": "catalog:",
+    "drizzle-orm": "^0.45.2",
+    "drizzle-zod": "^0.8.3",
+    "pg": "^8.16.3",
+    "zod": "catalog:"
+  },
+  "devDependencies": {
+    "@alfred/config": "workspace:*",
+    "@types/pg": "^8.18.0",
+    "drizzle-kit": "^0.31.2",
+    "nanoid": "5.1.5",
+    "tsx": "^4.19.2"
+  },
+  "peerDependencies": {
+    "typescript": "catalog:"
+  }
+}

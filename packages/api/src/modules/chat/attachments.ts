@@ -1,0 +1,253 @@
+import {
+  classifyUpload,
+  isPassThrough,
+  MAX_ATTACHMENT_BYTES_PER_MESSAGE,
+  MAX_ATTACHMENTS_PER_MESSAGE,
+  type IngestPolicyEntry,
+} from "@alfred/contracts";
+import type { NewChatAttachment } from "@alfred/db/schemas";
+import sharp from "sharp";
+import { BadRequestError } from "../../middleware/errors";
+import { buildAttachmentKey, headObject } from "./storage";
+
+/**
+ * Shared validation + row construction for chat attachments (ADR-0065). Used by
+ * the upload / turn HTTP endpoints so all durable write paths agree on the
+ * policy and storage-key convention — and so the client never gets to choose
+ * where its bytes live.
+ */
+
+/** A client-supplied attachment descriptor (the bytes are already uploaded). */
+export interface AttachmentInput {
+  id: string;
+  name: string;
+  mime: string;
+  size: number;
+  position: number;
+}
+
+const MIN_MODEL_IMAGE_EDGE_PX = 64;
+// Anthropic rejects images whose longest edge exceeds 8000px; stay at that
+// ceiling so an accepted upload never depends on the Gemini fallback to render.
+const MAX_MODEL_IMAGE_EDGE_PX = 8_000;
+const MAX_MODEL_IMAGE_PIXELS = 40_000_000;
+
+function normalizedMime(mime: string): string {
+  return mime.split(";")[0]?.trim().toLowerCase() ?? "";
+}
+
+/**
+ * Minimal phase-1 image signature sniff. This is deliberately narrower than the
+ * MIME whitelist: it proves the uploaded bytes are one of the pass-through image
+ * formats before a row can become `ready` and enter the model transcript.
+ */
+export function sniffPassThroughImageMime(bytes: Uint8Array): string | null {
+  if (
+    bytes.length >= 8 &&
+    bytes[0] === 0x89 &&
+    bytes[1] === 0x50 &&
+    bytes[2] === 0x4e &&
+    bytes[3] === 0x47 &&
+    bytes[4] === 0x0d &&
+    bytes[5] === 0x0a &&
+    bytes[6] === 0x1a &&
+    bytes[7] === 0x0a
+  ) {
+    return "image/png";
+  }
+  if (bytes.length >= 3 && bytes[0] === 0xff && bytes[1] === 0xd8 && bytes[2] === 0xff) {
+    return "image/jpeg";
+  }
+  if (
+    bytes.length >= 12 &&
+    bytes[0] === 0x52 &&
+    bytes[1] === 0x49 &&
+    bytes[2] === 0x46 &&
+    bytes[3] === 0x46 &&
+    bytes[8] === 0x57 &&
+    bytes[9] === 0x45 &&
+    bytes[10] === 0x42 &&
+    bytes[11] === 0x50
+  ) {
+    return "image/webp";
+  }
+  return null;
+}
+
+function sharpFormatToMime(format: string | undefined): string | null {
+  switch (format) {
+    case "jpeg":
+      return "image/jpeg";
+    case "png":
+      return "image/png";
+    case "webp":
+      return "image/webp";
+    default:
+      return null;
+  }
+}
+
+export async function assertPassThroughImageBytes(
+  bytes: Uint8Array,
+  declaredMime: string,
+): Promise<void> {
+  const actualMime = sniffPassThroughImageMime(bytes);
+  if (!actualMime) {
+    throw new BadRequestError("File contents are not a supported image");
+  }
+  if (actualMime !== normalizedMime(declaredMime)) {
+    throw new BadRequestError("File contents don't match the declared image type");
+  }
+  try {
+    const input = Buffer.from(bytes);
+    const metadata = await sharp(input, {
+      failOn: "error",
+      limitInputPixels: MAX_MODEL_IMAGE_PIXELS,
+    }).metadata();
+    const decodedMime = sharpFormatToMime(metadata.format);
+    if (!decodedMime) {
+      throw new BadRequestError("File contents are not a supported image");
+    }
+    if (decodedMime !== normalizedMime(declaredMime)) {
+      throw new BadRequestError("File contents don't match the declared image type");
+    }
+    const width = metadata.width ?? 0;
+    const height = metadata.height ?? 0;
+    if (width < MIN_MODEL_IMAGE_EDGE_PX || height < MIN_MODEL_IMAGE_EDGE_PX) {
+      throw new BadRequestError("Image is too small to attach");
+    }
+    if (width > MAX_MODEL_IMAGE_EDGE_PX || height > MAX_MODEL_IMAGE_EDGE_PX) {
+      throw new BadRequestError("Image dimensions are too large");
+    }
+
+    // Force libvips to decode pixels, not just parse container metadata.
+    await sharp(input, {
+      failOn: "error",
+      limitInputPixels: MAX_MODEL_IMAGE_PIXELS,
+    })
+      .resize({ width: 1, height: 1, fit: "inside" })
+      .toBuffer();
+  } catch (err) {
+    if (err instanceof BadRequestError) throw err;
+    throw new BadRequestError("Image could not be decoded");
+  }
+}
+
+/**
+ * Validate an upload against the ingest policy. Phase 1 accepts only
+ * `pass-through` images end to end; audio / pdf / docs / video gain support when
+ * the degrade worker lands (Phase 2/3), at which point this gate relaxes.
+ * Returns the matched policy entry so callers can enforce the per-type size cap
+ * consistently at every upload boundary.
+ */
+export function assertUploadAllowed(mime: string, size: number): IngestPolicyEntry {
+  const policy = classifyUpload(mime);
+  if (!policy) {
+    throw new BadRequestError(`Unsupported file type: ${mime || "unknown"}`);
+  }
+  if (!isPassThrough(mime)) {
+    throw new BadRequestError(
+      "Only image uploads are supported right now — other file types are coming soon.",
+    );
+  }
+  if (size <= 0) throw new BadRequestError("File must not be empty");
+  if (size > policy.maxBytes) {
+    const mb = Math.round(policy.maxBytes / (1024 * 1024));
+    throw new BadRequestError(`File is too large — the limit is ${mb} MB`);
+  }
+  return policy;
+}
+
+export function assertAttachmentBatchAllowed(
+  attachments: readonly Pick<AttachmentInput, "size">[],
+): void {
+  if (attachments.length > MAX_ATTACHMENTS_PER_MESSAGE) {
+    throw new BadRequestError(`You can attach up to ${MAX_ATTACHMENTS_PER_MESSAGE} files`);
+  }
+  const totalBytes = attachments.reduce((sum, attachment) => sum + attachment.size, 0);
+  if (totalBytes > MAX_ATTACHMENT_BYTES_PER_MESSAGE) {
+    const mb = Math.round(MAX_ATTACHMENT_BYTES_PER_MESSAGE / (1024 * 1024));
+    throw new BadRequestError(`Attachments are too large — the combined limit is ${mb} MB`);
+  }
+}
+
+/**
+ * Build the durable `chat_attachments` insert row for one upload — validating
+ * the policy and rebuilding the storage key server-side. Phase 1 images are
+ * pass-through, so the row lands `ready` (no degrade). Insert with
+ * `onConflictDoNothing` on the id so retries remain idempotent.
+ */
+export function toAttachmentRow(opts: {
+  userId: string;
+  threadId: string;
+  messageId: string;
+  attachment: AttachmentInput;
+}): NewChatAttachment {
+  const { userId, threadId, messageId, attachment } = opts;
+  assertUploadAllowed(attachment.mime, attachment.size);
+  return {
+    id: attachment.id,
+    userId,
+    messageId,
+    storageKey: buildAttachmentKey({
+      userId,
+      threadId,
+      messageId,
+      attachmentId: attachment.id,
+      fileName: attachment.name,
+    }),
+    name: attachment.name,
+    mime: attachment.mime,
+    size: attachment.size,
+    position: attachment.position,
+    status: "ready",
+  };
+}
+
+/**
+ * Pure check that a stored object's metadata matches what the sender declared.
+ * Split out from {@link assertStoredAttachmentReady} so the mismatch branches —
+ * the security-load-bearing part — are unit-testable without an object store.
+ * A blank stored content-type is tolerated (some providers omit it on HEAD);
+ * the existence + size match still pin the object to the declared payload.
+ */
+export function validateStoredMeta(opts: {
+  stored: { size: number; contentType: string };
+  declared: { mime: string; size: number };
+}): void {
+  if (opts.stored.size !== opts.declared.size) {
+    throw new BadRequestError("Attachment upload size doesn't match the sent message");
+  }
+  const storedMime = normalizedMime(opts.stored.contentType);
+  const declaredMime = normalizedMime(opts.declared.mime);
+  if (storedMime && storedMime !== declaredMime) {
+    throw new BadRequestError("Stored attachment type doesn't match the sent message");
+  }
+}
+
+/**
+ * Prove that the object referenced by a would-be ready row actually exists and
+ * matches the declared size + type. This closes forged turn payloads: a row only
+ * becomes `ready` when the canonical key holds an object of the declared size.
+ *
+ * Deliberately a cheap `headObject` (no body download, no re-decode): the
+ * `/attachments/upload` route is the *sole* ingest path and already sniffs +
+ * libvips-decodes the bytes before writing them, and the storage key is built
+ * server-side from the caller's id — so the bytes at the key are already proven
+ * to be a valid pass-through image. Re-downloading and re-decoding here only
+ * added a full bucket read + decode to the user-blocking send path for no extra
+ * safety (ADR-0065).
+ */
+export async function assertStoredAttachmentReady(opts: {
+  storageKey: string;
+  mime: string;
+  size: number;
+}): Promise<void> {
+  let meta: { size: number; contentType: string };
+  try {
+    meta = await headObject(opts.storageKey);
+  } catch {
+    throw new BadRequestError("Attachment upload is missing or incomplete");
+  }
+  validateStoredMeta({ stored: meta, declared: { mime: opts.mime, size: opts.size } });
+}

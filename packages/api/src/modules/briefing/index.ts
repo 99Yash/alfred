@@ -1,0 +1,113 @@
+/**
+ * Morning briefing (ADR-0025 #2).
+ *
+ * Cron → multi-source query → email send. v1 is inbox-only: the
+ * priority list is driven by triage tags from m9; calendar +
+ * "relevant updates" land in a follow-up milestone.
+ *
+ * Module shape mirrors triage:
+ *   - `gather`     pure query helpers (no LLM)
+ *   - `compose`    v2 structured briefing composer + legacy inbox renderer
+ *   - `preferences` timezone + delivery-hour resolution
+ *   - `workflow-input` slug + zod schema for callers that enqueue
+ */
+
+export {
+  resolveBriefingPreferences,
+  localDateInTimezone,
+  localHourInTimezone,
+  isValidTimezone,
+  DEFAULT_BRIEFING_TIMEZONE,
+  DEFAULT_BRIEFING_DELIVERY_HOUR,
+} from "./preferences";
+export type { BriefingPreferences } from "./preferences";
+
+export {
+  gatherBriefing,
+  gatherBriefingWithSuppressionAudit,
+  gatherBriefingDigest,
+  gatherCalendarContribution,
+  gatherDayShape,
+  PRIORITY_CATEGORIES,
+  SUPPRESSED_CATEGORIES,
+} from "./gather";
+export type {
+  BriefingDigest,
+  BriefingItem,
+  PriorityCategory,
+  SuppressedCategory,
+  BriefingInstructionSuppression,
+  GatherBriefingDigestArgs,
+  GatherBriefingArgs,
+  GatherCalendarArgs,
+  GatherBriefingWithSuppressionAuditResult,
+} from "./gather";
+
+export { composeBriefing, composeInboxBriefing } from "./compose";
+export type { ComposedBriefing, ComposeBriefingArgs, ComposeInboxBriefingArgs } from "./compose";
+
+export {
+  buildBriefingSourcePanels,
+  referencesFromSections,
+  renderBriefingEmailHtml,
+  resolveBriefingReferences,
+  type BriefingReference,
+  type BriefingSegment,
+  type RenderBriefingEmailArgs,
+  type RenderedBriefingEmail,
+  type ResolveBriefingReferencesResult,
+} from "./references";
+
+export {
+  beginBriefing,
+  markBriefingComposed,
+  markBriefingComposing,
+  markBriefingFailed,
+  markBriefingGathering,
+  markBriefingSent,
+  markBriefingSuppressed,
+  type BeginBriefingResult,
+  type BriefingRow,
+} from "./store";
+
+export {
+  DAILY_BRIEFING_WORKFLOW_SLUG,
+  LEGACY_MORNING_BRIEFING_WORKFLOW_SLUG,
+  dailyBriefingWorkflowInputSchema,
+  legacyMorningBriefingWorkflowInputSchema,
+} from "./workflow-input";
+export type {
+  DailyBriefingWorkflowInput,
+  LegacyMorningBriefingWorkflowInput,
+} from "./workflow-input";
+
+export {
+  listEmailsSinceWatermark,
+  readEmailDocument,
+  listPriorBriefings,
+  fetchLatestWatermark,
+  scorePriorityEmailDemand,
+  isQuietMorning,
+  type EmailListItem,
+  type EmailReadResult,
+  type PriorBriefingSummary,
+  type PriorityEmailDemand,
+  type PriorityEmailDemandItem,
+} from "./read";
+
+export {
+  startBriefingWorker,
+  stopBriefingWorker,
+  closeBriefingQueue,
+  getBriefingQueue,
+  enqueueBriefingRun,
+  type BriefingJobData,
+} from "./queue";
+export { scheduleRepeatableBriefingJobs } from "./repeatable";
+export { buildSystemPrompt } from "./agent/prompt";
+export {
+  runDailyBriefingCompose,
+  runDailyBriefingGather,
+  runDailyBriefingSend,
+  type DailyBriefingOperationState,
+} from "./workflow-operations";

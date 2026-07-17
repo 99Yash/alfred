@@ -1,0 +1,172 @@
+<!doctype html>
+<html lang="en" class="dark" style="color-scheme: dark; background-color: #0a0a0a">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+    <meta name="color-scheme" content="dark" />
+
+    <!--
+      Anti-FOUC theme stamp. Runs synchronously, before first paint and before
+      the JS bundle / index.css load — so the canvas is correct on the very
+      first frame, not after React mounts and stamps `.app` (see
+      components/ui/v2/themed.tsx). Without this, a cold load (dev recompile,
+      or a slow mobile / in-app webview on prod) paints the hardcoded-dark
+      <html> canvas while `.app` still falls through to the LIGHT `:root`
+      baseline — a light flash / white focus-ring band until React catches up.
+      A reload doesn't help because the race re-runs every cold load.
+
+      Mirrors the resolution in the theme provider exactly: persisted mode from
+      localStorage("app-theme") (JSON, tolerating the legacy raw-string form),
+      defaulting to "system", resolved against prefers-color-scheme. We set an
+      inline background-color (not just color-scheme) so the right canvas paints
+      even before any stylesheet applies. Idempotent: `.app[data-app-theme]`
+      re-applies the same tokens once CSS arrives.
+
+      CSP: this inline script is SHA-256 hash-pinned in the root Caddyfile's
+      `script-src` (#295). Edit the script body below and you MUST regenerate
+      that hash (command is in the Caddyfile) or CSP silently blocks it.
+    -->
+    <script>
+      (function () {
+        try {
+          var raw = localStorage.getItem("app-theme");
+          var mode = "system";
+          if (raw) {
+            try {
+              mode = JSON.parse(raw);
+            } catch (e) {
+              mode = raw;
+            }
+          }
+          var dark =
+            mode === "dark" ||
+            (mode !== "light" &&
+              window.matchMedia &&
+              window.matchMedia("(prefers-color-scheme: dark)").matches);
+          var el = document.documentElement;
+          el.classList.toggle("dark", dark);
+          el.style.colorScheme = dark ? "dark" : "light";
+          el.style.backgroundColor = dark ? "#0a0a0a" : "#ffffff";
+        } catch (e) {
+          /* storage/matchMedia unavailable — keep the dark default from <html>. */
+        }
+      })();
+    </script>
+
+    <link rel="icon" type="image/svg+xml" href="/images/logo/alfred-logo.svg" />
+    <link rel="icon" type="image/png" sizes="32x32" href="/images/logo/favicon-32.png" />
+    <link rel="icon" type="image/png" sizes="16x16" href="/images/logo/favicon-16.png" />
+    <link rel="icon" href="/favicon.ico" sizes="any" />
+    <link rel="apple-touch-icon" sizes="180x180" href="/images/logo/apple-touch-icon.png" />
+    <link rel="manifest" href="/site.webmanifest" />
+    <meta name="theme-color" content="#5B43E0" />
+
+    <!--
+      Stale-chunk recovery. When a new release deploys, the old content-hashed
+      chunks are removed. A tab that booted on the previous release still holds
+      that release's index.html in memory, so navigating to a not-yet-loaded
+      route triggers a lazy import() for a chunk hash that now 404s. Vite turns
+      that into a `vite:preloadError` window event; left unhandled it rethrows
+      and the user sees a white screen. We reload once to pull the current
+      index.html + chunk graph (the no-cache header on index.html guarantees the
+      reload sees the new release). A timestamp throttle prevents a reload loop
+      if a chunk is genuinely, permanently missing (a bad deploy). Inline + first
+      in <head> so it's registered before any module preloads can fail.
+
+      CSP: like the theme stamp above, this inline script is SHA-256 hash-pinned
+      in the root Caddyfile's `script-src` (#295). If you edit it, regenerate the
+      hash (command is in the Caddyfile) or CSP silently blocks it.
+    -->
+    <script>
+      window.addEventListener("vite:preloadError", function () {
+        var KEY = "alfred:lastChunkReload";
+        var now = Date.now();
+        var last = Number(sessionStorage.getItem(KEY) || 0);
+        if (now - last < 10000) return; // reloaded moments ago — don't loop
+        sessionStorage.setItem(KEY, String(now));
+        window.location.reload();
+      });
+    </script>
+
+    <!--
+      Static SEO/social baseline for crawlers and link unfurlers that DON'T run
+      JS (Slack, iMessage, Discord, WhatsApp, most Twitter/Facebook scrapers).
+      They only ever see this server-sent HTML, never the client-rendered head.
+      Once the app boots, main.tsx strips every `data-seo-baseline` tag so
+      TanStack Router's <HeadContent /> is the single source of truth at runtime
+      (React 19 does not dedupe metadata, so leaving these would double the tags
+      for JS-running consumers). Keep these values in sync with `siteMeta()` in
+      src/lib/page-meta.ts.
+    -->
+    <title data-seo-baseline>Alfred · The AI coworker that never sleeps.</title>
+    <meta
+      data-seo-baseline
+      name="description"
+      content="Alfred is a personal AI assistant wired into your email, calendar, and the tools you already use. One place to get real work done."
+    />
+    <link data-seo-baseline rel="canonical" href="https://alfred.beauty" />
+    <meta data-seo-baseline property="og:site_name" content="Alfred" />
+    <meta data-seo-baseline property="og:type" content="website" />
+    <meta data-seo-baseline property="og:url" content="https://alfred.beauty" />
+    <meta
+      data-seo-baseline
+      property="og:title"
+      content="Alfred · The AI coworker that never sleeps."
+    />
+    <meta
+      data-seo-baseline
+      property="og:description"
+      content="Alfred is a personal AI assistant wired into your email, calendar, and the tools you already use. One place to get real work done."
+    />
+    <meta
+      data-seo-baseline
+      property="og:image"
+      content="https://alfred.beauty/images/og-card.png"
+    />
+    <meta data-seo-baseline property="og:image:width" content="1200" />
+    <meta data-seo-baseline property="og:image:height" content="630" />
+    <meta
+      data-seo-baseline
+      property="og:image:alt"
+      content="Alfred — The AI coworker that never sleeps."
+    />
+    <meta data-seo-baseline name="twitter:card" content="summary_large_image" />
+    <meta
+      data-seo-baseline
+      name="twitter:title"
+      content="Alfred · The AI coworker that never sleeps."
+    />
+    <meta
+      data-seo-baseline
+      name="twitter:description"
+      content="Alfred is a personal AI assistant wired into your email, calendar, and the tools you already use. One place to get real work done."
+    />
+    <meta
+      data-seo-baseline
+      name="twitter:image"
+      content="https://alfred.beauty/images/og-card.png"
+    />
+    <!-- Preload Open Runde so the brand font is discovered immediately rather
+         than after the JS bundle parses index.css. Both weights render above
+         the fold (Medium=body, Semibold=hero heading). crossorigin is required
+         even same-origin: fonts are always fetched in CORS mode. -->
+    <link
+      rel="preload"
+      href="/fonts/OpenRunde-Semibold.woff2"
+      as="font"
+      type="font/woff2"
+      crossorigin
+    />
+    <link
+      rel="preload"
+      href="/fonts/OpenRunde-Medium.woff2"
+      as="font"
+      type="font/woff2"
+      crossorigin
+    />
+  </head>
+  <body>
+    <div id="root"></div>
+    <script type="module" src="/src/main.tsx"></script>
+  </body>
+</html>

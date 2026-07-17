@@ -1,0 +1,119 @@
+# Custom Caddyfile for the `web` service's static deploy.
+#
+# Railpack serves the Vite build with Caddy and generates a default Caddyfile,
+# but that default emits NO Cache-Control headers. The result on prod:
+#   - hashed /assets/* chunks get re-validated on every reload (~45 round-trips
+#     to the edge), so reloads feel slow; and
+#   - index.html can be heuristically cached by the browser, so after a deploy
+#     it points at chunk hashes that no longer exist -> 404 -> white screen.
+#
+# Railpack uses our Caddyfile verbatim when one exists at the build-context root
+# (the repo root — the `web` service builds with `turbo run build --filter=web`
+# from here). This file is the stock Railpack node template plus three cache
+# rules. Keep it in sync with upstream if Railpack's template changes:
+#   https://github.com/railwayapp/railpack/blob/main/core/providers/node/Caddyfile.template
+
+# global options
+{
+	admin off
+	persist_config off
+	auto_https off
+
+	log {
+		format json
+	}
+
+	servers {
+		trusted_proxies static private_ranges 100.0.0.0/8 # trust railway's proxy
+	}
+}
+
+# site block, listens on the $PORT environment variable, automatically assigned by railway
+:{$PORT:80} {
+	log {
+		format json
+	}
+
+	respond /health 200
+
+	# Security headers, applied to every response (#295).
+	#
+	# The CSP is scoped to what alfred.beauty actually loads at runtime — derived
+	# from a live capture of the authed app, not guessed. Deployment-varying
+	# origins use Caddy env placeholders with production defaults so preview /
+	# staging can follow VITE_API_URL, VITE_POSTHOG_HOST, and VITE_SENTRY_DSN
+	# without editing source. Only script-src and the connect-src exfil channel
+	# are locked to explicit origins; style/img/font are widened to https: so
+	# rendered artifacts and email HTML (sandboxed srcdoc iframes inherit this
+	# CSP) keep their external styling/images. Sandboxed iframes carry no
+	# allow-scripts, so no inline-script allowance is needed there.
+	#
+	# script-src pins the two first-party inline bootstraps in apps/web/index.html
+	# by SHA-256 (anti-FOUC theme stamp + vite:preloadError chunk recovery) instead
+	# of 'unsafe-inline'. If you EDIT either inline <script>, regenerate its hash or
+	# the script is silently blocked (theme flash / stale-chunk reload stops working):
+	#   python3 - <<'PY'
+	#   import re,hashlib,base64
+	#   html=open('apps/web/index.html').read()
+	#   for m in re.finditer(r'<script(?![^>]*\bsrc=)[^>]*>(.*?)</script>', html, re.S):
+	#       print('sha256-'+base64.b64encode(hashlib.sha256(m.group(1).encode()).digest()).decode())
+	#   PY
+	header {
+		# Prevent some browsers from MIME-sniffing a response away from the declared Content-Type
+		X-Content-Type-Options "nosniff"
+		# Clickjacking: no one may frame alfred.beauty (frame-ancestors is the modern
+		# form; X-Frame-Options covers browsers that predate it). The app's own
+		# previews are srcdoc iframes, which this does not affect.
+		X-Frame-Options "DENY"
+		Referrer-Policy "strict-origin-when-cross-origin"
+		# geolocation=(self): the weather hero reads navigator.geolocation on this
+		# origin — do NOT drop to () or it silently falls back to IP location.
+		Permissions-Policy "camera=(), microphone=(), geolocation=(self), browsing-topics=()"
+		# Railway terminates TLS at the edge, so HSTS is always safe here.
+		Strict-Transport-Security "max-age=63072000; includeSubDomains; preload"
+		Content-Security-Policy "default-src 'self'; base-uri 'self'; object-src 'none'; frame-ancestors 'none'; form-action 'self'; upgrade-insecure-requests; script-src 'self' 'sha256-i082Sz2M8uEvihxRvSiOEljQmUYkyY0jvJpe3LAQZnw=' 'sha256-wDPEyhz9ait0i5PrDghV0h4JogRyc6sbtMSmknQNv5o=' {$WEB_CSP_POSTHOG_ASSET_ORIGIN:https://us-assets.i.posthog.com}; style-src 'self' 'unsafe-inline' https:; img-src 'self' data: blob: https:; font-src 'self' data: https:; media-src 'self' blob:; worker-src 'self' blob:; frame-src 'self' blob: data:; connect-src 'self' {$WEB_CSP_API_ORIGIN:https://api.alfred.beauty} {$WEB_CSP_POSTHOG_CONNECT_SRC:https://us.i.posthog.com https://us-assets.i.posthog.com} {$WEB_CSP_SENTRY_CONNECT_SRC:https://*.ingest.de.sentry.io} https://api.bigdatacloud.net https://api.open-meteo.com https://get.geojs.io https://*.r2.cloudflarestorage.com"
+		# Remove Server header
+		-Server
+	}
+
+	# Vite emits content-hashed filenames under /assets (e.g. index-o6_ZGOXw.js):
+	# the hash changes whenever the bytes change, so the URL is immutable and safe
+	# to cache forever. This is what lets repeat visits and reloads skip the
+	# network entirely instead of re-validating every chunk.
+	@hashed path /assets/*
+	header @hashed Cache-Control "public, max-age=31536000, immutable"
+
+	# Fonts / images / icons have stable (non-hashed) names, so we can't pin them
+	# forever — but a week of caching with revalidation kills the per-load
+	# round-trip without risking long-term staleness.
+	@static path /fonts/* /images/* /favicon.ico /site.webmanifest
+	header @static Cache-Control "public, max-age=604800"
+
+	# index.html (and every SPA route that falls back to it) must NEVER be cached:
+	# each load has to re-read it to discover the current release's chunk hashes.
+	# `no-cache` still allows cheap ETag 304s — it just forces revalidation, so a
+	# browser can never serve stale HTML that references deleted chunks.
+	@html {
+		not path /assets/* /fonts/* /images/* /favicon.ico /site.webmanifest
+	}
+	header @html Cache-Control "no-cache"
+
+	# serve from the 'dist' folder (Vite builds into the 'dist' folder).
+	# Absolute path confirmed from the build log: `copy /app/apps/web/dist`.
+	root * /app/apps/web/dist
+
+	# Handle static files
+	file_server {
+		hide .git
+		hide .env*
+	}
+
+	# Compression with more formats
+	encode {
+		gzip
+		zstd
+	}
+
+	# Try files with HTML extension and handle SPA routing
+	try_files {path} {path}.html {path}/index.html /index.html
+}

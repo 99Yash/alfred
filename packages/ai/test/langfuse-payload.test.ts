@@ -1,0 +1,341 @@
+import assert from "node:assert/strict";
+import { describe, test } from "node:test";
+
+import {
+  buildDispatchRejectionSpanPayload,
+  buildGenerationEndPayload,
+  buildGenerationPayload,
+  buildRuntimeSpanEndPayload,
+  buildRuntimeSpanPayload,
+  buildTracePayload,
+  resolveTraceId,
+  resolveTraceName,
+  traceTags,
+} from "../src/metering/langfuse";
+import type { MeteredMeta } from "../src/metering/types";
+
+/**
+ * The Langfuse envelope (#216/#226) is the code most likely to regress
+ * silently — the fallback smoke proves `api_call_log` reattributes the served
+ * model but never asserts the generation model, requestedModel, root I/O
+ * mirroring, sessionId, or tags. These cover the pure payload builders so a
+ * regression fails here instead of only surfacing in the Langfuse UI.
+ */
+
+const baseMeta: MeteredMeta = {
+  kind: "llm",
+  provider: "anthropic",
+  model: "claude-sonnet-4-6",
+};
+
+describe("traceTags", () => {
+  test("splits call shape and surface into independent namespaces", () => {
+    assert.deepEqual(traceTags({ ...baseMeta, role: "boss", kind: "llm" }), [
+      "role:boss",
+      "call_kind:llm",
+    ]);
+  });
+
+  test("normalizes the briefing cost bucket to its llm shape + a cost_kind tag", () => {
+    // Both briefing call sites (agent kind:'briefing', compose kind:'briefing')
+    // must be reachable by a `call_kind:llm` filter, with the cost bucket on a
+    // separate dimension (#226 review).
+    assert.deepEqual(traceTags({ ...baseMeta, role: "briefing", kind: "briefing" }), [
+      "role:briefing",
+      "call_kind:llm",
+      "cost_kind:briefing",
+    ]);
+  });
+
+  test("embedding/web_search stay as their own shape with no cost_kind", () => {
+    assert.deepEqual(traceTags({ ...baseMeta, kind: "embedding" }), ["call_kind:embedding"]);
+    assert.deepEqual(traceTags({ ...baseMeta, kind: "web_search" }), ["call_kind:web_search"]);
+  });
+
+  test("returns undefined when neither role nor kind is present", () => {
+    // kind is required on MeteredMeta, so exercise the empty path via a cast to
+    // the attribution-only shape the builder actually guards against.
+    assert.equal(traceTags({ provider: "x", model: "y" } as unknown as MeteredMeta), undefined);
+  });
+});
+
+describe("resolveTraceId / resolveTraceName", () => {
+  test("runId groups calls into one trace tree", () => {
+    const meta = { ...baseMeta, runId: "run_123" };
+    assert.equal(resolveTraceId(meta), "run_123");
+    assert.equal(resolveTraceName(meta), "run:run_123");
+  });
+
+  test("ad-hoc calls key off the idempotency key", () => {
+    const meta = { ...baseMeta, idempotencyKey: "idem_abc", name: "probe" };
+    assert.equal(resolveTraceId(meta), "adhoc:idem_abc");
+    assert.equal(resolveTraceName(meta), "probe");
+  });
+
+  test("ad-hoc name falls back to provider/model", () => {
+    assert.equal(resolveTraceName(baseMeta), "anthropic/claude-sonnet-4-6");
+  });
+});
+
+describe("buildTracePayload", () => {
+  test("sets sessionId only when the caller supplies a real one", () => {
+    // Chat passes threadId → grouped session.
+    const chat = buildTracePayload({
+      meta: { ...baseMeta, runId: "run_1", sessionId: "thread_42" },
+      captureIo: false,
+    });
+    assert.equal(chat.sessionId, "thread_42");
+
+    // Background/job run with no session → sessionless (NOT runId), so the
+    // Sessions view isn't polluted with one-trace "sessions" (#226 review).
+    const job = buildTracePayload({ meta: { ...baseMeta, runId: "run_1" }, captureIo: false });
+    assert.equal(job.sessionId, undefined);
+  });
+
+  test("mirrors input to the root only for ad-hoc traces with capture on", () => {
+    const adhocOn = buildTracePayload({
+      meta: { ...baseMeta, input: "hello" },
+      captureIo: true,
+    });
+    assert.equal(adhocOn.input, "hello");
+
+    // A run trace holds many generations — never mirror one call's input up.
+    const runOn = buildTracePayload({
+      meta: { ...baseMeta, runId: "run_1", input: "hello" },
+      captureIo: true,
+    });
+    assert.equal(runOn.input, undefined);
+
+    // Capture off → no input regardless of trace shape.
+    const adhocOff = buildTracePayload({
+      meta: { ...baseMeta, input: "hello" },
+      captureIo: false,
+    });
+    assert.equal(adhocOff.input, undefined);
+  });
+});
+
+describe("buildGenerationPayload", () => {
+  const startedAt = new Date("2026-06-26T00:00:00.000Z");
+
+  test("opens the generation with the requested model and attribution metadata", () => {
+    const gen = buildGenerationPayload({
+      meta: { ...baseMeta, runId: "run_1", stepId: "step_1", role: "boss", attempt: 2 },
+      startedAt,
+      captureIo: false,
+    });
+    assert.equal(gen.traceId, "run_1");
+    assert.equal(gen.model, "claude-sonnet-4-6");
+    assert.equal(gen.startTime, startedAt);
+    assert.equal(gen.input, undefined);
+    assert.deepEqual(gen.metadata, {
+      kind: "llm",
+      role: "boss",
+      userId: undefined,
+      runId: "run_1",
+      stepId: "step_1",
+      attempt: 2,
+      idempotencyKey: undefined,
+    });
+  });
+
+  test("attaches input only when capture is on", () => {
+    const gen = buildGenerationPayload({
+      meta: { ...baseMeta, input: { prompt: "hi" } },
+      startedAt,
+      captureIo: true,
+    });
+    assert.deepEqual(gen.input, { prompt: "hi" });
+  });
+});
+
+describe("buildGenerationEndPayload", () => {
+  test("keeps the requested model when the served model is unchanged", () => {
+    const end = buildGenerationEndPayload({
+      meta: baseMeta,
+      costUsd: 0.01,
+      servedModel: "claude-sonnet-4-6",
+      usage: { inputTokens: 10, outputTokens: 5, cachedInputTokens: 2 },
+      responseMeta: { finishReason: "stop" },
+      captureIo: false,
+    });
+    // Unchanged served model → leave generation model untouched (undefined).
+    assert.equal(end.model, undefined);
+    assert.deepEqual(end.metadata, { finishReason: "stop" });
+    assert.deepEqual(end.usage, { input: 10, output: 5, total: 15, unit: "TOKENS" });
+    assert.deepEqual(end.usageDetails, { input: 10, output: 5, cached: 2 });
+    assert.deepEqual(end.costDetails, { total: 0.01 });
+  });
+
+  test("restamps the model and records requestedModel when fallback diverges", () => {
+    const end = buildGenerationEndPayload({
+      meta: baseMeta,
+      costUsd: 0.02,
+      servedModel: "gemini-2.5-flash",
+      responseMeta: { finishReason: "stop" },
+      captureIo: false,
+    });
+    assert.equal(end.model, "gemini-2.5-flash");
+    assert.deepEqual(end.metadata, {
+      finishReason: "stop",
+      requestedModel: "claude-sonnet-4-6",
+    });
+  });
+
+  test("attaches output only when capture is on", () => {
+    const on = buildGenerationEndPayload({
+      meta: baseMeta,
+      costUsd: 0,
+      output: "the answer",
+      captureIo: true,
+    });
+    assert.equal(on.output, "the answer");
+
+    const off = buildGenerationEndPayload({
+      meta: baseMeta,
+      costUsd: 0,
+      output: "the answer",
+      captureIo: false,
+    });
+    assert.equal(off.output, undefined);
+  });
+});
+
+describe("buildDispatchRejectionSpanPayload", () => {
+  const startedAt = new Date("2026-06-29T00:00:00.000Z");
+  const base = {
+    runId: "run_1",
+    toolName: "sheets.update_values",
+    toolCallId: "tc_1",
+    outcome: "invalid_input" as const,
+    reason: "Invalid input: expected array, received string",
+    signature: "sheets.update_values:invalid_input:invalid_type@values",
+    userId: "user_1",
+    caller: "boss",
+    stepId: "dispatch-tools",
+    detail: [{ code: "invalid_type", path: ["values"] }],
+    input: { values: "[[1]]" },
+    startedAt,
+  };
+
+  test("omits input and issue detail when capture is off", () => {
+    const payload = buildDispatchRejectionSpanPayload(base, false);
+
+    assert.equal(payload.span.traceId, "run_1");
+    assert.equal(payload.span.name, "tool:sheets.update_values");
+    assert.equal(payload.span.input, undefined);
+    assert.deepEqual(payload.span.metadata, {
+      kind: "tool",
+      outcome: "invalid_input",
+      rejectionSignature: "sheets.update_values:invalid_input:invalid_type@values",
+      toolName: "sheets.update_values",
+      candidateToolName: undefined,
+      toolCallId: "tc_1",
+      caller: "boss",
+      userId: "user_1",
+      runId: "run_1",
+      stepId: "dispatch-tools",
+      detail: undefined,
+    });
+    assert.deepEqual(payload.end, {
+      level: "WARNING",
+      statusMessage: "sheets.update_values:invalid_input:invalid_type@values",
+    });
+  });
+
+  test("attaches only caller-supplied safe input, detail, and reason when capture is on", () => {
+    const payload = buildDispatchRejectionSpanPayload(
+      {
+        ...base,
+        input: { url: "https://example.com/?token=[REDACTED]" },
+      },
+      true,
+    );
+
+    assert.deepEqual(payload.span.input, { url: "https://example.com/?token=[REDACTED]" });
+    assert.deepEqual(payload.span.metadata.detail, [{ code: "invalid_type", path: ["values"] }]);
+    assert.deepEqual(payload.end, {
+      level: "WARNING",
+      statusMessage: "Invalid input: expected array, received string",
+    });
+  });
+
+  test("normalizes unknown tool observations and keeps only a sanitized candidate hint", () => {
+    const payload = buildDispatchRejectionSpanPayload(
+      {
+        ...base,
+        toolName: "<unknown>",
+        candidateToolName: "list_events",
+        outcome: "unknown_tool",
+        reason: "Tool is not declared",
+        signature: "<unknown>:unknown_tool",
+        input: undefined,
+      },
+      true,
+    );
+
+    assert.equal(payload.span.name, "tool:<unknown>");
+    assert.equal(payload.span.metadata.toolName, "<unknown>");
+    assert.equal(payload.span.metadata.candidateToolName, "list_events");
+    assert.equal(payload.span.input, undefined);
+    assert.deepEqual(payload.end, { level: "WARNING", statusMessage: "Tool is not declared" });
+  });
+});
+
+describe("buildRuntimeSpanPayload / buildRuntimeSpanEndPayload", () => {
+  const startedAt = new Date("2026-07-14T00:00:00.000Z");
+  const base = {
+    runId: "run_9",
+    name: "runtime.dispatch.batch",
+    startedAt,
+    metadata: { stepId: "dispatch-tools", workflow: "__chat-turn__", caller: "boss", callCount: 3 },
+  };
+
+  test("nests the span under the run trace and stamps the runtime kind + runId", () => {
+    const payload = buildRuntimeSpanPayload(base, false);
+    assert.equal(payload.traceId, "run_9");
+    assert.equal(payload.name, "runtime.dispatch.batch");
+    assert.equal(payload.startTime, startedAt);
+    assert.deepEqual(payload.metadata, {
+      kind: "runtime",
+      runId: "run_9",
+      stepId: "dispatch-tools",
+      workflow: "__chat-turn__",
+      caller: "boss",
+      callCount: 3,
+    });
+  });
+
+  test("attaches input only when capture is on (privacy gate)", () => {
+    const off = buildRuntimeSpanPayload({ ...base, input: { secret: "value" } }, false);
+    assert.equal(off.input, undefined);
+    const on = buildRuntimeSpanPayload({ ...base, input: { secret: "value" } }, true);
+    assert.deepEqual(on.input, { secret: "value" });
+  });
+
+  test("end payload defaults to DEFAULT level and folds status into metadata", () => {
+    const end = buildRuntimeSpanEndPayload(
+      { status: "committed", metadata: { executed: 2 } },
+      false,
+    );
+    assert.equal(end.level, "DEFAULT");
+    assert.equal(end.output, undefined);
+    assert.deepEqual(end.metadata, { status: "committed", executed: 2 });
+  });
+
+  test("end payload honors an explicit ERROR level and gates output", () => {
+    const errored = buildRuntimeSpanEndPayload(
+      { status: "error", level: "ERROR", output: "boom" },
+      false,
+    );
+    assert.equal(errored.level, "ERROR");
+    assert.equal(errored.output, undefined);
+    assert.deepEqual(errored.metadata, { status: "error" });
+
+    const captured = buildRuntimeSpanEndPayload(
+      { status: "committed", output: { ok: true } },
+      true,
+    );
+    assert.deepEqual(captured.output, { ok: true });
+  });
+});

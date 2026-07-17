@@ -1,0 +1,35 @@
+<svg width="512" height="512" viewBox="0 0 512 512" fill="none" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="Alfred">
+  <!-- Full-bleed variant for apple-touch-icon & maskable PWA icons: the platform
+       applies its own corner mask, so the gradient must reach all four edges. -->
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="512" y2="512" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#8170F8"/>
+      <stop offset="0.55" stop-color="#5B43E0"/>
+      <stop offset="1" stop-color="#3A24B0"/>
+    </linearGradient>
+    <radialGradient id="glow" cx="0.5" cy="0.34" r="0.7">
+      <stop offset="0" stop-color="#FFFFFF" stop-opacity="0.16"/>
+      <stop offset="1" stop-color="#FFFFFF" stop-opacity="0"/>
+    </radialGradient>
+    <linearGradient id="shell" x1="150" y1="130" x2="372" y2="392" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#FFFFFF"/>
+      <stop offset="1" stop-color="#EFE6F2"/>
+    </linearGradient>
+    <linearGradient id="pill" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#FFD3EC"/>
+      <stop offset="1" stop-color="#F77FB0"/>
+    </linearGradient>
+    <filter id="soft" x="-30%" y="-30%" width="160%" height="160%">
+      <feDropShadow dx="0" dy="9" stdDeviation="13" flood-color="#1B0E45" flood-opacity="0.4"/>
+    </filter>
+  </defs>
+
+  <rect x="0" y="0" width="512" height="512" fill="url(#bg)"/>
+  <rect x="0" y="0" width="512" height="512" fill="url(#glow)"/>
+
+  <!-- Mark sits inside the central ~62% (maskable safe zone). -->
+  <g transform="translate(96,96) scale(20)" filter="url(#soft)">
+    <path fill="url(#shell)" d="M14.9883 5.92857C14.8396 3.57429 13.1304 1.54 10.7329 0.868574L8.39958 0.214286C7.87458 0.0714286 7.34958 0 6.83333 0C3.61625 0 1 2.56286 1 5.71429V10.2857C1 13.4371 3.61625 16 6.83333 16C7.34958 16 7.87457 15.9286 8.39082 15.7886L10.7329 15.1314C13.1304 14.46 14.8396 12.4257 14.9883 10.0714C14.9971 9.95429 15 9.83429 15 9.71429V6.28571C15 6.16571 14.9971 6.04571 14.9883 5.92857ZM13.8333 9.71429C13.8333 9.81143 13.8304 9.90571 13.8246 10C13.705 11.9086 12.2904 13.5057 10.4121 14.0314L8.07874 14.6857C7.68207 14.7943 7.265 14.8571 6.83333 14.8571C4.26083 14.8571 2.16667 12.8057 2.16667 10.2857V5.71429C2.16667 3.19429 4.26083 1.14286 6.83333 1.14286C7.265 1.14286 7.68207 1.20572 8.07874 1.31429L10.4121 1.96858C12.2875 2.49429 13.705 4.09143 13.8246 6C13.8304 6.09429 13.8333 6.19143 13.8333 6.28571V9.71429Z"/>
+    <path fill="url(#pill)" d="M6.83333 2.28571C4.89958 2.28571 3.33333 3.82 3.33333 5.71429V10.2857C3.33333 12.18 4.89958 13.7143 6.83333 13.7143C8.76708 13.7143 10.3333 12.18 10.3333 10.2857V5.71429C10.3333 3.82 8.76708 2.28571 6.83333 2.28571Z"/>
+  </g>
+</svg>

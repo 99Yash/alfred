@@ -1,0 +1,282 @@
+import { readChatHistoryInput } from "@alfred/contracts";
+import type { ChatMessageToolCall } from "@alfred/db/schemas";
+import { db } from "@alfred/db";
+import { chatAttachmentRepresentations, chatAttachments, chatMessages } from "@alfred/db/schemas";
+import { and, desc, eq, ilike, sql } from "drizzle-orm";
+import type { z } from "zod";
+import {
+  CHAT_ATTACHMENT_REPRESENTATION_VERSION,
+  chatAttachmentRepresentationSchema,
+} from "../../chat/attachment-enrichment";
+
+export const CHAT_HISTORY_RESULT_LIMIT = 10;
+export const CHAT_HISTORY_EXCERPT_CHARS = 4_000;
+
+type MessageRow = {
+  id: string;
+  role: "user" | "assistant";
+  content: string;
+  toolCalls: ChatMessageToolCall[] | null;
+  createdAt: Date;
+};
+type AttachmentRow = {
+  id: string;
+  messageId: string;
+  name: string;
+  mime: string;
+  status: string;
+  degradedText: string | null;
+  failureReason: string | null;
+  createdAt: Date;
+  representation?: unknown;
+};
+
+export interface ChatHistoryRetrievalDependencies {
+  searchMessages?: (args: {
+    userId: string;
+    threadId: string;
+    query: string;
+    limit: number;
+  }) => Promise<MessageRow[]>;
+  fetchMessage?: (args: {
+    userId: string;
+    threadId: string;
+    id: string;
+  }) => Promise<MessageRow | null>;
+  fetchToolCall?: (args: {
+    userId: string;
+    threadId: string;
+    id: string;
+  }) => Promise<MessageRow | null>;
+  fetchAttachment?: (args: {
+    userId: string;
+    threadId: string;
+    id: string;
+  }) => Promise<AttachmentRow | null>;
+}
+
+export type ReadChatHistoryInput = z.infer<typeof readChatHistoryInput>;
+
+/** Authenticated, current-thread-only access to raw evidence behind a lossy summary. */
+export async function readChatHistory(
+  args: { userId: string; threadId: string; input: ReadChatHistoryInput },
+  dependencies: ChatHistoryRetrievalDependencies = {},
+): Promise<unknown> {
+  // `readChatHistoryInput` refinements guarantee `query` in search mode and
+  // `kind`+`id` in fetch mode, but the flattened object types them optional
+  // (the schema is one object, not a discriminated union — see tool-schemas.ts).
+  // Guard defensively so a direct caller that skips the dispatch-layer parse
+  // can't dereference an undefined.
+  if (args.input.mode === "search") {
+    const { query } = args.input;
+    if (query === undefined) {
+      return { ok: false, mode: "search", error: "query is required in search mode" };
+    }
+    const limit = Math.min(Math.max(args.input.limit, 1), CHAT_HISTORY_RESULT_LIMIT);
+    const rows = await (dependencies.searchMessages ?? searchMessages)({
+      userId: args.userId,
+      threadId: args.threadId,
+      query,
+      limit,
+    });
+    return {
+      ok: true,
+      mode: "search",
+      query,
+      results: rows.slice(0, limit).map(messageEvidence),
+    };
+  }
+
+  const { kind, id } = args.input;
+  if (kind === undefined || id === undefined) {
+    return { ok: false, mode: "fetch", error: "kind and id are required in fetch mode" };
+  }
+
+  if (kind === "attachment") {
+    const row = await (dependencies.fetchAttachment ?? fetchAttachment)({
+      userId: args.userId,
+      threadId: args.threadId,
+      id,
+    });
+    return row
+      ? { ok: true, mode: "fetch", found: true, result: attachmentEvidence(row) }
+      : { ok: true, mode: "fetch", found: false, kind, id };
+  }
+
+  const loader =
+    kind === "message"
+      ? (dependencies.fetchMessage ?? fetchMessage)
+      : (dependencies.fetchToolCall ?? fetchToolCall);
+  const row = await loader({ userId: args.userId, threadId: args.threadId, id });
+  if (!row) return { ok: true, mode: "fetch", found: false, kind, id };
+  if (kind === "message") {
+    return { ok: true, mode: "fetch", found: true, result: messageEvidence(row) };
+  }
+  const call = row.toolCalls?.find((candidate) => candidate.toolCallId === id);
+  return call
+    ? {
+        ok: true,
+        mode: "fetch",
+        found: true,
+        result: {
+          kind: "tool_call",
+          id: call.toolCallId,
+          messageId: row.id,
+          createdAt: row.createdAt.toISOString(),
+          toolName: call.toolName,
+          status: call.status,
+          args: excerpt(call.argsPreview ?? ""),
+          outcome: excerpt(call.resultPreview ?? ""),
+          sanitized: call.sanitized ?? false,
+        },
+      }
+    : { ok: true, mode: "fetch", found: false, kind, id };
+}
+
+function messageEvidence(row: MessageRow) {
+  return {
+    kind: "message",
+    id: row.id,
+    role: row.role,
+    createdAt: row.createdAt.toISOString(),
+    content: excerpt(row.content),
+    toolCallIds: (row.toolCalls ?? [])
+      .map((call) => call.toolCallId)
+      .slice(0, CHAT_HISTORY_RESULT_LIMIT),
+  };
+}
+
+function attachmentEvidence(row: AttachmentRow) {
+  const parsed = chatAttachmentRepresentationSchema.safeParse(row.representation);
+  return {
+    kind: "attachment",
+    id: row.id,
+    messageId: row.messageId,
+    createdAt: row.createdAt.toISOString(),
+    name: row.name,
+    mime: row.mime,
+    status: row.status,
+    extractedText: excerpt(row.degradedText ?? ""),
+    representation: parsed.success ? excerpt(JSON.stringify(parsed.data)) : null,
+    failureReason: row.failureReason ? excerpt(row.failureReason) : null,
+  };
+}
+
+function excerpt(value: string): { text: string; truncated: boolean; originalChars: number } {
+  const clean = value.replaceAll("\u0000", "");
+  return {
+    text: clean.slice(0, CHAT_HISTORY_EXCERPT_CHARS),
+    truncated: clean.length > CHAT_HISTORY_EXCERPT_CHARS,
+    originalChars: clean.length,
+  };
+}
+
+async function searchMessages(args: {
+  userId: string;
+  threadId: string;
+  query: string;
+  limit: number;
+}) {
+  return db()
+    .select({
+      id: chatMessages.id,
+      role: chatMessages.role,
+      content: chatMessages.content,
+      toolCalls: chatMessages.toolCalls,
+      createdAt: chatMessages.createdAt,
+    })
+    .from(chatMessages)
+    .where(
+      and(
+        eq(chatMessages.userId, args.userId),
+        eq(chatMessages.threadId, args.threadId),
+        ilike(chatMessages.content, `%${escapeLike(args.query)}%`),
+      ),
+    )
+    .orderBy(desc(chatMessages.createdAt), desc(chatMessages.id))
+    .limit(args.limit);
+}
+
+async function fetchMessage(args: { userId: string; threadId: string; id: string }) {
+  const [row] = await db()
+    .select({
+      id: chatMessages.id,
+      role: chatMessages.role,
+      content: chatMessages.content,
+      toolCalls: chatMessages.toolCalls,
+      createdAt: chatMessages.createdAt,
+    })
+    .from(chatMessages)
+    .where(
+      and(
+        eq(chatMessages.userId, args.userId),
+        eq(chatMessages.threadId, args.threadId),
+        eq(chatMessages.id, args.id),
+      ),
+    )
+    .limit(1);
+  return row ?? null;
+}
+
+async function fetchToolCall(args: { userId: string; threadId: string; id: string }) {
+  const [row] = await db()
+    .select({
+      id: chatMessages.id,
+      role: chatMessages.role,
+      content: chatMessages.content,
+      toolCalls: chatMessages.toolCalls,
+      createdAt: chatMessages.createdAt,
+    })
+    .from(chatMessages)
+    .where(
+      and(
+        eq(chatMessages.userId, args.userId),
+        eq(chatMessages.threadId, args.threadId),
+        sql`${chatMessages.toolCalls} @> ${JSON.stringify([{ toolCallId: args.id }])}::jsonb`,
+      ),
+    )
+    .limit(1);
+  return row ?? null;
+}
+
+async function fetchAttachment(args: { userId: string; threadId: string; id: string }) {
+  const [row] = await db()
+    .select({
+      id: chatAttachments.id,
+      messageId: chatAttachments.messageId,
+      name: chatAttachments.name,
+      mime: chatAttachments.mime,
+      status: chatAttachments.status,
+      degradedText: chatAttachments.degradedText,
+      failureReason: chatAttachments.failureReason,
+      createdAt: chatAttachments.createdAt,
+      representation: chatAttachmentRepresentations.representation,
+    })
+    .from(chatAttachments)
+    .innerJoin(chatMessages, eq(chatMessages.id, chatAttachments.messageId))
+    .leftJoin(
+      chatAttachmentRepresentations,
+      and(
+        eq(chatAttachmentRepresentations.attachmentId, chatAttachments.id),
+        eq(
+          chatAttachmentRepresentations.representationVersion,
+          CHAT_ATTACHMENT_REPRESENTATION_VERSION,
+        ),
+        eq(chatAttachmentRepresentations.status, "ready"),
+      ),
+    )
+    .where(
+      and(
+        eq(chatAttachments.userId, args.userId),
+        eq(chatMessages.userId, args.userId),
+        eq(chatMessages.threadId, args.threadId),
+        eq(chatAttachments.id, args.id),
+      ),
+    )
+    .limit(1);
+  return row ?? null;
+}
+
+function escapeLike(value: string): string {
+  return value.replaceAll("\\", "\\\\").replaceAll("%", "\\%").replaceAll("_", "\\_");
+}

@@ -1,0 +1,77 @@
+{
+  "name": "directive-verbatim",
+  "description": "User intent statements must survive a compaction verbatim — paraphrasing strips the directive's force and the boss starts re-asking for approval. The exact quote must appear in the compactor output.",
+  "prior": [
+    {
+      "role": "user",
+      "content": "@gmail — Triage my inbox this morning. Reply where I have an obvious answer, draft replies otherwise."
+    },
+    {
+      "role": "assistant",
+      "content": "I'll start by searching unread inbox threads from this morning."
+    },
+    {
+      "role": "tool",
+      "content": [
+        {
+          "type": "tool-result",
+          "toolCallId": "call_001",
+          "toolName": "gmail.search",
+          "output": {
+            "type": "json",
+            "value": {
+              "status": "executed",
+              "result": {
+                "threads": [
+                  { "id": "thread_alice", "from": "alice@acme.test", "subject": "Q3 plan" },
+                  { "id": "thread_bob", "from": "bob@acme.test", "subject": "1:1 reschedule" },
+                  { "id": "thread_carol", "from": "carol@acme.test", "subject": "Vendor renewal" }
+                ]
+              }
+            }
+          }
+        }
+      ]
+    },
+    {
+      "role": "assistant",
+      "content": "Found 3 unread threads. I'll draft a reply for the Q3 plan thread first."
+    },
+    {
+      "role": "user",
+      "content": "trust gmail entirely for this conversation — go ahead and send drafts directly without staging them"
+    },
+    {
+      "role": "assistant",
+      "content": "Acknowledged. I'll send replies directly for the remainder of this run."
+    }
+  ],
+  "inFlightTail": [
+    {
+      "role": "assistant",
+      "content": "Sending draft reply to alice@acme.test about the Q3 plan."
+    },
+    {
+      "role": "tool",
+      "content": [
+        {
+          "type": "tool-result",
+          "toolCallId": "call_002",
+          "toolName": "gmail.send_draft",
+          "output": {
+            "type": "json",
+            "value": {
+              "status": "executed",
+              "result": { "messageId": "msg_alice_q3" }
+            }
+          }
+        }
+      ]
+    }
+  ],
+  "assertions": [
+    { "section": "user_directives", "contains": "trust gmail entirely for this conversation" },
+    { "section": "decisions", "absent": "trust gmail entirely for this conversation" },
+    { "section": "key_entities", "contains": "thread_alice" }
+  ]
+}

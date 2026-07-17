@@ -1,0 +1,1 @@
+DROP INDEX "chat_attachments_message_idx";

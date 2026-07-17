@@ -1,0 +1,32 @@
+{
+  "name": "@alfred/integrations",
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts",
+    "./google": "./src/google/index.ts",
+    "./github": "./src/github/index.ts",
+    "./notion": "./src/notion/index.ts",
+    "./railway": "./src/railway/index.ts",
+    "./vercel": "./src/vercel/index.ts",
+    "./shared": "./src/shared/credentials.ts"
+  },
+  "scripts": {
+    "build": "node ../../scripts/clean-package-dist.mjs && tsc -b --emitDeclarationOnly --force",
+    "check-types": "tsc -b --emitDeclarationOnly"
+  },
+  "dependencies": {
+    "@alfred/contracts": "workspace:*",
+    "@alfred/db": "workspace:*",
+    "@alfred/env": "workspace:*",
+    "@alfred/ingestion": "workspace:*",
+    "drizzle-orm": "^0.45.2",
+    "jose": "^6.2.2",
+    "zod": "catalog:"
+  },
+  "devDependencies": {
+    "@alfred/config": "workspace:*"
+  },
+  "peerDependencies": {
+    "typescript": "catalog:"
+  }
+}

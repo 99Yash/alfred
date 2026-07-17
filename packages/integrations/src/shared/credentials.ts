@@ -1,0 +1,196 @@
+import { db } from "@alfred/db";
+import { integrationCredentials, type IntegrationCredential } from "@alfred/db/schemas";
+import { and, desc, eq } from "drizzle-orm";
+
+/**
+ * Shared persistence layer for providers whose access is a single long-lived
+ * bearer token — Notion (OAuth, non-expiring access token), Vercel (OAuth,
+ * non-expiring), and Railway (a pasted account/workspace API token). None of them need
+ * Google's refresh-on-demand machinery, so the whole layer is "store one
+ * bearer token, read it back." Google and GitHub keep their bespoke modules
+ * (refresh rotation / installation-token minting); this is the third pattern.
+ *
+ * Known v1 limitation — staleness is discovered lazily: a token revoked on the
+ * provider side stays `status: 'active'` here until the next tool call fails
+ * authz (surfaced as a fan-out `failure` or a thrown connect-me error). Nothing
+ * proactively flips a dead token to a needs-reauth state, so the settings UI
+ * shows "Connected" for a revoked token until something tries to use it. Fine at
+ * single-user scale; a background health-check that demotes failing credentials
+ * is the obvious follow-up.
+ */
+
+export interface UpsertBearerCredentialArgs {
+  userId: string;
+  /** `integration_credentials.provider` — e.g. `'notion'`, `'railway'`, `'vercel'`. */
+  provider: string;
+  /** Provider-side stable id (workspace id, team/user id, account id). */
+  accountId: string;
+  accountLabel?: string | null;
+  accessToken: string;
+  /** Most bearer providers issue none; kept for parity with the column. */
+  refreshToken?: string | null;
+  /** Null for non-expiring tokens (the common case here). */
+  expiresAt?: Date | null;
+  scopes?: string[];
+  metadata?: Record<string, unknown>;
+}
+
+/**
+ * Insert or replace the credential row for `(user, provider, account)`. The
+ * unique index makes a re-connect of the same account a clean in-place update
+ * rather than a duplicate, exactly like the Google/GitHub upserts.
+ */
+export async function upsertBearerCredential(
+  args: UpsertBearerCredentialArgs,
+): Promise<{ id: string }> {
+  const result = await db()
+    .insert(integrationCredentials)
+    .values({
+      userId: args.userId,
+      provider: args.provider,
+      accountId: args.accountId,
+      accountLabel: args.accountLabel ?? null,
+      accessToken: args.accessToken,
+      refreshToken: args.refreshToken ?? null,
+      expiresAt: args.expiresAt ?? null,
+      scopes: args.scopes ?? [],
+      metadata: args.metadata ?? {},
+      status: "active",
+    })
+    .onConflictDoUpdate({
+      target: [
+        integrationCredentials.userId,
+        integrationCredentials.provider,
+        integrationCredentials.accountId,
+      ],
+      set: {
+        accessToken: args.accessToken,
+        refreshToken: args.refreshToken ?? null,
+        expiresAt: args.expiresAt ?? null,
+        scopes: args.scopes ?? [],
+        metadata: args.metadata ?? {},
+        status: "active",
+        accountLabel: args.accountLabel ?? null,
+        lastRefreshedAt: new Date(),
+        updatedAt: new Date(),
+      },
+    })
+    .returning({ id: integrationCredentials.id });
+  const row = result[0];
+  if (!row) throw new Error(`[${args.provider}.credentials] upsert returned no row`);
+  return { id: row.id };
+}
+
+/**
+ * Delete one credential row, scoped to its owner and provider. Returns the
+ * deleted id, or `null` when nothing matched (wrong owner, already gone, or a
+ * provider mismatch) so callers can turn that into a 404. Generic across every
+ * provider — Google/GitHub rows live in the same table, so a disconnect is the
+ * same scoped row delete regardless of how the token was originally minted.
+ */
+export async function deleteIntegrationCredential(args: {
+  userId: string;
+  provider: string;
+  id: string;
+}): Promise<{ id: string } | null> {
+  const deleted = await db()
+    .delete(integrationCredentials)
+    .where(
+      and(
+        eq(integrationCredentials.id, args.id),
+        eq(integrationCredentials.userId, args.userId),
+        eq(integrationCredentials.provider, args.provider),
+      ),
+    )
+    .returning({ id: integrationCredentials.id });
+  return deleted[0] ?? null;
+}
+
+export type BearerCredentialSummary = Pick<
+  IntegrationCredential,
+  | "id"
+  | "status"
+  | "accountId"
+  | "accountLabel"
+  | "scopes"
+  | "expiresAt"
+  | "createdAt"
+  | "lastRefreshedAt"
+>;
+
+/** List a user's credential rows for a bearer-token provider (UI status + management). */
+export async function listBearerCredentials(
+  userId: string,
+  provider: string,
+): Promise<BearerCredentialSummary[]> {
+  return db()
+    .select({
+      id: integrationCredentials.id,
+      status: integrationCredentials.status,
+      accountId: integrationCredentials.accountId,
+      accountLabel: integrationCredentials.accountLabel,
+      scopes: integrationCredentials.scopes,
+      expiresAt: integrationCredentials.expiresAt,
+      createdAt: integrationCredentials.createdAt,
+      lastRefreshedAt: integrationCredentials.lastRefreshedAt,
+    })
+    .from(integrationCredentials)
+    .where(
+      and(eq(integrationCredentials.userId, userId), eq(integrationCredentials.provider, provider)),
+    )
+    .orderBy(desc(integrationCredentials.createdAt))
+    .limit(100);
+}
+
+export type ActiveBearerCredential = Pick<
+  IntegrationCredential,
+  "id" | "accessToken" | "accountId" | "accountLabel" | "metadata"
+>;
+
+/** List active bearer credentials, newest-updated first (capped at `limit`). */
+export async function listActiveBearerCredentials(
+  userId: string,
+  provider: string,
+  limit = 100,
+): Promise<ActiveBearerCredential[]> {
+  const rows = await db()
+    .select({
+      id: integrationCredentials.id,
+      accessToken: integrationCredentials.accessToken,
+      accountId: integrationCredentials.accountId,
+      accountLabel: integrationCredentials.accountLabel,
+      metadata: integrationCredentials.metadata,
+    })
+    .from(integrationCredentials)
+    .where(
+      and(
+        eq(integrationCredentials.userId, userId),
+        eq(integrationCredentials.provider, provider),
+        eq(integrationCredentials.status, "active"),
+      ),
+    )
+    .orderBy(desc(integrationCredentials.updatedAt))
+    .limit(limit);
+  return rows;
+}
+
+/**
+ * Resolve the most-recently-updated active bearer credential for a provider.
+ * Throws a connect-me error when none exists — tool code surfaces that to the
+ * boss so it asks the user to connect rather than inventing an answer.
+ */
+export async function getActiveBearerCredential(
+  userId: string,
+  provider: string,
+): Promise<ActiveBearerCredential> {
+  const rows = await listActiveBearerCredentials(userId, provider, 1);
+  const row = rows[0];
+  if (!row) {
+    throw new Error(
+      `[${provider}.credentials] no active ${provider} credential — connect ${provider} in settings`,
+    );
+  }
+  // `row` is already an ActiveBearerCredential (the list query selects exactly
+  // these columns), so no re-map is needed.
+  return row;
+}

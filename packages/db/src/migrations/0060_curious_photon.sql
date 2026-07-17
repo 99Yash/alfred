@@ -1,0 +1,3 @@
+CREATE UNIQUE INDEX "observations_single_root_idx" ON "observations" USING btree ("user_id","family_key") WHERE "observations"."supersedes_observation_id" IS NULL;--> statement-breakpoint
+ALTER TABLE "observations" ADD CONSTRAINT "observations_family_key_nonempty" CHECK (length("observations"."family_key") > 0);--> statement-breakpoint
+ALTER TABLE "observations" ADD CONSTRAINT "observations_evidence_hash_nonempty" CHECK (length("observations"."evidence_hash") > 0);

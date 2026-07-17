@@ -1,0 +1,47 @@
+{
+  "plugins": null,
+  "jsPlugins": ["oxlint-tailwindcss"],
+  "categories": {},
+  "rules": {
+    "tailwindcss/enforce-sort-order": ["warn", { "entryPoint": "apps/web/src/index.css" }],
+    "tailwindcss/enforce-shorthand": "warn",
+    "tailwindcss/no-deprecated-classes": ["warn", { "entryPoint": "apps/web/src/index.css" }]
+  },
+  "settings": {
+    "tailwindcss": {
+      "entryPoint": "apps/web/src/index.css"
+    },
+    "jsx-a11y": {
+      "polymorphicPropName": null,
+      "components": {},
+      "attributes": {}
+    },
+    "next": {
+      "rootDir": []
+    },
+    "react": {
+      "formComponents": [],
+      "linkComponents": [],
+      "version": null,
+      "componentWrapperFunctions": []
+    },
+    "jsdoc": {
+      "ignorePrivate": false,
+      "ignoreInternal": false,
+      "ignoreReplacesDocs": true,
+      "overrideReplacesDocs": true,
+      "augmentsExtendsReplacesDocs": false,
+      "implementsReplacesDocs": false,
+      "exemptDestructuredRootsFromChecks": false,
+      "tagNamePreference": {}
+    },
+    "vitest": {
+      "typecheck": false
+    }
+  },
+  "env": {
+    "builtin": true
+  },
+  "globals": {},
+  "ignorePatterns": []
+}

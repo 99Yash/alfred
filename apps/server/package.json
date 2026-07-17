@@ -1,0 +1,47 @@
+{
+  "name": "server",
+  "type": "module",
+  "main": "src/index.ts",
+  "scripts": {
+    "build": "tsdown && node ./scripts/sentry-release.mjs",
+    "check-types": "tsc -b",
+    "dev": "tsx watch --env-file=.env src/index.ts",
+    "start": "node --env-file=.env --import ./dist/instrument.js dist/index.js",
+    "deploy": "pnpm --filter @alfred/db db:migrate",
+    "eval": "evalite run",
+    "eval:watch": "evalite watch"
+  },
+  "dependencies": {
+    "@alfred/ai": "workspace:*",
+    "@alfred/api": "workspace:*",
+    "@alfred/contracts": "workspace:*",
+    "@alfred/db": "workspace:*",
+    "@alfred/env": "workspace:*",
+    "@alfred/ingestion": "workspace:*",
+    "@alfred/integrations": "workspace:*",
+    "@alfred/mailer": "workspace:*",
+    "@elysiajs/cors": "catalog:",
+    "@elysiajs/node": "catalog:",
+    "@sentry/node": "catalog:",
+    "drizzle-orm": "^0.45.2",
+    "elysia": "catalog:",
+    "isomorphic-dompurify": "^2.36.0",
+    "jsdom": "^28.1.0",
+    "sharp": "^0.35.2",
+    "zod": "catalog:"
+  },
+  "devDependencies": {
+    "@ai-sdk/anthropic": "catalog:",
+    "@ai-sdk/google": "catalog:",
+    "@alfred/config": "workspace:*",
+    "@sentry/cli": "^3.6.0",
+    "@types/node": "catalog:",
+    "@types/react": "^19.0.0",
+    "ai": "catalog:",
+    "dotenv": "catalog:",
+    "evalite": "1.0.0-beta.16",
+    "tsdown": "catalog:",
+    "tsx": "^4.19.2",
+    "typescript": "catalog:"
+  }
+}

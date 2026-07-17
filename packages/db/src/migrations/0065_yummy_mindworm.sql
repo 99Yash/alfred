@@ -1,0 +1,23 @@
+ALTER TABLE "active_projection_versions" DROP CONSTRAINT "active_projection_versions_name_nonempty";--> statement-breakpoint
+ALTER TABLE "entity_identities" DROP CONSTRAINT "entity_identities_value_nonempty";--> statement-breakpoint
+ALTER TABLE "observations" DROP CONSTRAINT "observations_family_key_nonempty";--> statement-breakpoint
+ALTER TABLE "observations" DROP CONSTRAINT "observations_evidence_hash_nonempty";--> statement-breakpoint
+ALTER TABLE "projection_cursors" DROP CONSTRAINT "projection_cursors_name_nonempty";--> statement-breakpoint
+ALTER TABLE "projection_runs" DROP CONSTRAINT "projection_runs_name_nonempty";--> statement-breakpoint
+ALTER TABLE "projection_sync_state" DROP CONSTRAINT "projection_sync_state_sync_slug_nonempty";--> statement-breakpoint
+ALTER TABLE "projection_sync_state" DROP CONSTRAINT "projection_sync_state_stable_key_nonempty";--> statement-breakpoint
+ALTER TABLE "projection_sync_state" DROP CONSTRAINT "projection_sync_state_content_hash_nonempty";--> statement-breakpoint
+ALTER TABLE "entity_edges" ALTER COLUMN "valid_from" DROP DEFAULT;--> statement-breakpoint
+ALTER TABLE "entity_identities" ALTER COLUMN "valid_from" DROP DEFAULT;--> statement-breakpoint
+ALTER TABLE "active_projection_versions" ADD CONSTRAINT "active_projection_versions_name_nonempty" CHECK (length("active_projection_versions"."projection_name") > 0 AND octet_length("active_projection_versions"."projection_name") <= 128 AND "active_projection_versions"."projection_name" !~ '^[[:space:]]|[[:space:]]$');--> statement-breakpoint
+ALTER TABLE "entity_edges" ADD CONSTRAINT "entity_edges_valid_window" CHECK ("entity_edges"."valid_until" IS NULL OR "entity_edges"."valid_until" >= "entity_edges"."valid_from");--> statement-breakpoint
+ALTER TABLE "entity_identities" ADD CONSTRAINT "entity_identities_valid_window" CHECK ("entity_identities"."valid_until" IS NULL OR "entity_identities"."valid_until" >= "entity_identities"."valid_from");--> statement-breakpoint
+ALTER TABLE "entity_identities" ADD CONSTRAINT "entity_identities_value_nonempty" CHECK (length("entity_identities"."value") > 0 AND octet_length("entity_identities"."value") <= 1024 AND "entity_identities"."value" !~ '^[[:space:]]|[[:space:]]$');--> statement-breakpoint
+ALTER TABLE "observations" ADD CONSTRAINT "observations_family_key_nonempty" CHECK (length("observations"."family_key") > 0 AND octet_length("observations"."family_key") <= 512 AND "observations"."family_key" !~ '^[[:space:]]|[[:space:]]$');--> statement-breakpoint
+ALTER TABLE "observations" ADD CONSTRAINT "observations_evidence_hash_nonempty" CHECK (length("observations"."evidence_hash") > 0 AND octet_length("observations"."evidence_hash") <= 256 AND "observations"."evidence_hash" !~ '^[[:space:]]|[[:space:]]$');--> statement-breakpoint
+ALTER TABLE "projection_cursors" ADD CONSTRAINT "projection_cursors_name_nonempty" CHECK (length("projection_cursors"."projection_name") > 0 AND octet_length("projection_cursors"."projection_name") <= 128 AND "projection_cursors"."projection_name" !~ '^[[:space:]]|[[:space:]]$');--> statement-breakpoint
+ALTER TABLE "projection_runs" ADD CONSTRAINT "projection_runs_completed_checksum_present" CHECK ("projection_runs"."status" <> 'completed' OR ("projection_runs"."checksum" IS NOT NULL AND length("projection_runs"."checksum") > 0 AND octet_length("projection_runs"."checksum") <= 256 AND "projection_runs"."checksum" !~ '^[[:space:]]|[[:space:]]$'));--> statement-breakpoint
+ALTER TABLE "projection_runs" ADD CONSTRAINT "projection_runs_name_nonempty" CHECK (length("projection_runs"."projection_name") > 0 AND octet_length("projection_runs"."projection_name") <= 128 AND "projection_runs"."projection_name" !~ '^[[:space:]]|[[:space:]]$');--> statement-breakpoint
+ALTER TABLE "projection_sync_state" ADD CONSTRAINT "projection_sync_state_sync_slug_nonempty" CHECK (length("projection_sync_state"."sync_slug") > 0 AND octet_length("projection_sync_state"."sync_slug") <= 128 AND "projection_sync_state"."sync_slug" !~ '^[[:space:]]|[[:space:]]$');--> statement-breakpoint
+ALTER TABLE "projection_sync_state" ADD CONSTRAINT "projection_sync_state_stable_key_nonempty" CHECK (length("projection_sync_state"."stable_key") > 0 AND octet_length("projection_sync_state"."stable_key") <= 1024 AND "projection_sync_state"."stable_key" !~ '^[[:space:]]|[[:space:]]$');--> statement-breakpoint
+ALTER TABLE "projection_sync_state" ADD CONSTRAINT "projection_sync_state_content_hash_nonempty" CHECK (length("projection_sync_state"."content_hash") > 0 AND octet_length("projection_sync_state"."content_hash") <= 256 AND "projection_sync_state"."content_hash" !~ '^[[:space:]]|[[:space:]]$');

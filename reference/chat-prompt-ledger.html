@@ -1,0 +1,38 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Reference — Alfred chat prompt ledger</title>
+  <link rel="stylesheet" href="../assets/lesson.css">
+</head>
+<body>
+<main>
+  <p class="frame-no">Quick reference</p>
+  <h1>Chat prompt ledger</h1>
+  <p class="lede">Use this while tracing any <code>__chat-turn__</code> model step.</p>
+
+  <table class="compact-table">
+    <thead><tr><th>Component</th><th>Loaded</th><th>Provider placement</th><th>Checkpointed?</th></tr></thead>
+    <tbody>
+      <tr><td>Kernel tools</td><td><code>initialState</code></td><td>Tools array</td><td>Yes, names in run state</td></tr>
+      <tr><td>Prompt preloads</td><td>First <code>chat-turn</code>, from latest user ask</td><td>Tools array</td><td>Yes, names in run state</td></tr>
+      <tr><td>Alfred charter/design rules</td><td>Code constants</td><td>System</td><td>Hash only</td></tr>
+      <tr><td>Connected catalog</td><td>First <code>chat-turn</code>, from availability</td><td>System suffix</td><td>Yes, run state</td></tr>
+      <tr><td>Artifact metadata</td><td>First relevant step</td><td>System suffix</td><td>Yes, run state</td></tr>
+      <tr><td>Conversation summary/history</td><td><code>initialTranscript</code></td><td>Messages</td><td>Yes, run transcript</td></tr>
+      <tr><td>Attachment bytes</td><td>Each model step, from object storage</td><td>Message content</td><td>No</td></tr>
+      <tr><td>Runtime date/time</td><td>Execution slice start</td><td>Assistant message before latest user</td><td>Anchor only; message no</td></tr>
+      <tr><td>Artifact body reference</td><td>First relevant step</td><td>Assistant message before latest user</td><td>State copy; injected message no</td></tr>
+      <tr><td>Model response</td><td>Inference output</td><td>Not input until replayed later</td><td>Yes after commit</td></tr>
+    </tbody>
+  </table>
+
+  <h2>Cache endpoints</h2>
+  <p class="equation">last sorted tool → system → last transcript message<br>optional extra: message before a trailing tool-call/result burst</p>
+  <p>Cache markers describe cumulative provider prefixes. They do not change what Alfred checkpoints.</p>
+
+  <p class="sources"><a href="../lessons/0005-chat-prompt-assembly-ledger.html">Lesson: watch the prompt come into focus</a> · <a href="prompt-caching-cheat-sheet.html">Prompt-caching cheat sheet</a></p>
+</main>
+</body>
+</html>

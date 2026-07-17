@@ -1,0 +1,183 @@
+# Behavioral grounding evals — VISIBILITY, not a gate (ADR-0055).
+#
+# Runs the live-LLM behavioral grounding suite (date / calendar / github /
+# sender-suppression / voice) for regression awareness. Deliberately NON-gating: every
+# suite runs with `--threshold 0` so the job always exits 0 and never blocks a
+# PR (evalite's threshold DEFAULTS to 100 and fails below it — 0 is what makes
+# this a report rather than a gate). This is the counterpart to triage-eval.yml,
+# which IS a gate but is scoped to the single deterministic-enough
+# triage-classify suite. The grounding evals call the live chat model (Sonnet)
+# and score 0 — not skip — on a provider blip, so gating on their average would
+# redden PRs with no code defect (see the note in triage-eval.yml). Here we
+# surface the scores on a schedule + on demand instead; read them in the run
+# summary and the uploaded JSON artifacts.
+#
+# Triggers:
+#   - schedule: a nightly run so a behavioral regression (or a model/SDK drift)
+#     gets noticed within a day, decoupled from any single PR.
+#   - workflow_dispatch: run it by hand after touching a prompt or tool surface.
+#
+# Read the result in the job summary or the evalite JSON artifact. To turn any
+# single suite into a hard gate later, copy triage-eval.yml's `--threshold`
+# pattern scoped to that suite by name — don't gate the whole glob.
+#
+# Required repo secrets (same as triage-eval.yml):
+#   - ANTHROPIC_API_KEY             (the standard chat tier under test)
+#   - GOOGLE_GENERATIVE_AI_API_KEY  (cheap-tier + the Gemini fallback path)
+name: grounding-evals
+
+on:
+  schedule:
+    # 07:00 UTC daily (~12:30 IST) — off-peak, well clear of working hours.
+    - cron: "0 7 * * *"
+  workflow_dispatch:
+
+# A newer dispatch supersedes an in-flight (token-spending) run.
+concurrency:
+  group: grounding-evals-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  evals:
+    runs-on: ubuntu-latest
+    # The LLM portion is a few minutes; a longer hang means something is wedged.
+    timeout-minutes: 15
+    services:
+      postgres:
+        # pgvector image, not plain postgres — a migration does CREATE EXTENSION
+        # vector for the embeddings column, which the stock image can't satisfy.
+        image: pgvector/pgvector:pg16
+        env:
+          POSTGRES_USER: ci
+          POSTGRES_PASSWORD: ci
+          POSTGRES_DB: alfred_ci
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U ci"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+    env:
+      # Real secrets — the only external services the evals actually call.
+      ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+      GOOGLE_GENERATIVE_AI_API_KEY: ${{ secrets.GOOGLE_GENERATIVE_AI_API_KEY }}
+      # Throwaway Postgres for the metering writes (migrated below, empty data).
+      DATABASE_URL: postgresql://ci:ci@localhost:5432/alfred_ci
+      # Format-valid dummies so serverEnv() passes; never used to connect.
+      REDIS_URL: redis://localhost:6379
+      BETTER_AUTH_SECRET: ci-dummy-better-auth-secret-32chars-min
+      BETTER_AUTH_URL: http://localhost:3001
+      ALFRED_ALLOWED_EMAIL: ci@example.com
+      RESEND_API_KEY: re_ci_dummy
+      RESEND_FROM_EMAIL: Alfred <noreply@example.com>
+      GOOGLE_OAUTH_CLIENT_ID: ci-dummy
+      GOOGLE_OAUTH_CLIENT_SECRET: ci-dummy
+      GOOGLE_OAUTH_REDIRECT_URI: http://localhost:3001/api/integrations/google/callback
+      GITHUB_APP_ID: "1"
+      GITHUB_APP_SLUG: ci-dummy
+      GITHUB_APP_CLIENT_ID: ci-dummy
+      GITHUB_APP_CLIENT_SECRET: ci-dummy
+      GITHUB_APP_PRIVATE_KEY: ci-dummy
+      GITHUB_WEBHOOK_SECRET: ci-dummy
+      GITHUB_APP_REDIRECT_URI: http://localhost:3001/api/integrations/github/callback
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Enable Corepack
+        run: corepack enable
+
+      - name: Resolve pnpm store path
+        run: echo "PNPM_STORE_PATH=$(corepack pnpm store path --silent)" >> "$GITHUB_ENV"
+
+      - uses: actions/cache@v4
+        with:
+          path: ${{ env.PNPM_STORE_PATH }}
+          key: ${{ runner.os }}-pnpm-store-${{ hashFiles('pnpm-lock.yaml') }}
+          restore-keys: ${{ runner.os }}-pnpm-store-
+
+      - name: Install dependencies
+        run: corepack pnpm install --frozen-lockfile
+
+      - name: Apply database migrations
+        run: corepack pnpm --filter @alfred/db db:migrate
+
+      - name: Run grounding evals (reports scores; never fails the job)
+        # `evalite run` takes a SINGLE path filter, so each suite is its own
+        # invocation. The shell deliberately does not fail fast: provider blips
+        # and runner errors are reported as warnings and the later suites still
+        # run, preserving the "visibility, not gate" contract.
+        run: |
+          results_dir="${GITHUB_WORKSPACE}/.eval-results"
+          mkdir -p "$results_dir"
+          echo "## Grounding evals" >> "$GITHUB_STEP_SUMMARY"
+          echo "" >> "$GITHUB_STEP_SUMMARY"
+
+          run_suite() {
+            suite="$1"
+            # evalite resolves --outputPath against ITS cwd — under
+            # `corepack pnpm --filter @alfred/api exec` that is packages/api, not the
+            # repo root this step runs in. An absolute path keeps the write and
+            # the read pointed at the same file. A relative path silently wrote
+            # the report under packages/api/ while the reader looked at the
+            # root — ENOENT, which reddened this non-gating job on every
+            # scheduled run since the workflow was added.
+            output="${results_dir}/${suite}.json"
+            set +e
+            corepack pnpm --filter @alfred/api exec evalite run "$suite" --threshold 0 --outputPath "$output"
+            status="$?"
+            set -e
+
+            if [ "$status" -ne 0 ]; then
+              echo "::warning title=${suite} eval failed::evalite exited ${status}; see this step's log"
+              echo "- \`${suite}\`: failed to run (exit ${status}); see log." >> "$GITHUB_STEP_SUMMARY"
+              return 0
+            fi
+
+            if [ ! -f "$output" ]; then
+              echo "::warning title=${suite} report missing::evalite exited 0 but wrote no report at ${output}"
+              echo "- \`${suite}\`: ran but produced no report; see log." >> "$GITHUB_STEP_SUMMARY"
+              return 0
+            fi
+
+            # A malformed/partial report must not redden this visibility-only
+            # job either — the summariser is guarded the same way evalite is.
+            set +e
+            node - "$suite" "$output" <<'NODE' >> "$GITHUB_STEP_SUMMARY"
+          const [suite, path] = process.argv.slice(2);
+          const fs = require("node:fs");
+          const report = JSON.parse(fs.readFileSync(path, "utf8"));
+          const suites = report.suites ?? [];
+          const evalCount = suites.reduce((sum, s) => sum + (s.evals?.length ?? 0), 0);
+          const score =
+            suites.length === 0
+              ? "n/a"
+              : `${Math.round((suites.reduce((sum, s) => sum + (s.averageScore ?? 0), 0) / suites.length) * 100)}%`;
+          console.log(`- \`${suite}\`: ${score} across ${evalCount} evals`);
+          NODE
+            summary_status="$?"
+            set -e
+            if [ "$summary_status" -ne 0 ]; then
+              echo "::warning title=${suite} summary failed::could not summarise ${output} (exit ${summary_status})"
+              echo "- \`${suite}\`: report unreadable; see log." >> "$GITHUB_STEP_SUMMARY"
+            fi
+            return 0
+          }
+
+          run_suite date-grounding
+          run_suite calendar-grounding
+          run_suite github-grounding
+          run_suite sender-suppression-grounding
+          run_suite voice-ai-tells
+
+      - name: Upload eval JSON artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: grounding-eval-results
+          path: .eval-results/*.json
+          if-no-files-found: ignore

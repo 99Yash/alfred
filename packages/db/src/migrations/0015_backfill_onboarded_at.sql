@@ -1,0 +1,13 @@
+-- Backfill `onboarded_at` for users that existed before the onboarding
+-- feature shipped. Without this, every pre-feature user has NULL here,
+-- and the gating logic in apps/web/src/lib/app-shell.tsx forcibly
+-- redirects them to /onboarding?step=1 on next page load — forcing a
+-- re-OAuth even though their Google credential is already connected.
+--
+-- We backfill to `created_at` (not `now()`) so the column reflects
+-- "this user was effectively onboarded when they signed up" rather
+-- than the artificial deploy timestamp.
+--
+-- Idempotent: the WHERE clause excludes rows that have already been
+-- backfilled or that completed onboarding through the UI flow.
+UPDATE "user" SET "onboarded_at" = "created_at" WHERE "onboarded_at" IS NULL;

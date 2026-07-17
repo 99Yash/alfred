@@ -1,0 +1,1 @@
+ALTER TABLE "action_stagings" ADD COLUMN "execute_sanitized" boolean DEFAULT false NOT NULL;

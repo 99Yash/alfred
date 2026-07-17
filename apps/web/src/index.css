@@ -1,0 +1,2655 @@
+@import "tailwindcss";
+@plugin "@tailwindcss/typography";
+
+/* -----------------------------------------------------------------------------
+ * Fonts
+ * Open Runde (local, preloaded in index.html) is the only web font we ship —
+ * it's the rendered face everywhere. `Inter` and `Newsreader` survive only as
+ * names in the --font-sans / --font-serif fallback stacks below, so they apply
+ * solely when a visitor already has them installed locally.
+ *
+ * We deliberately do NOT `@import` them from Google Fonts: that pulls a
+ * render-blocking remote stylesheet (then a gstatic font fetch) into the
+ * critical path of every route, for faces that never win the race against the
+ * preloaded local Open Runde. Open Runde ships Medium + Semibold; the metric-
+ * matched "Open Runde Fallback" below covers the swap window with no FOUT.
+ * If a real serif/UI face is needed later, self-host it like Open Runde rather
+ * than reintroducing the remote import.
+ * -------------------------------------------------------------------------- */
+
+@font-face {
+  font-family: "Open Runde";
+  src: url("/fonts/OpenRunde-Medium.woff2") format("woff2");
+  font-weight: 400 550;
+  font-style: normal;
+  font-display: swap;
+}
+
+@font-face {
+  font-family: "Open Runde";
+  src: url("/fonts/OpenRunde-Semibold.woff2") format("woff2");
+  font-weight: 551 800;
+  font-style: normal;
+  font-display: swap;
+}
+
+/* Metric-matched fallback (Arial reshaped to Open Runde's box) so the
+ * font-display: swap above is invisible — no reflow when Open Runde arrives.
+ * Overrides generated from the real font metrics via @capsizecss/core
+ * (Open Runde: unitsPerEm 2816, ascent 2728, descent -680, xWidthAvg 1373).
+ * Regenerate with capsize if the font file changes. */
+@font-face {
+  font-family: "Open Runde Fallback";
+  src: local("Arial"), local("ArialMT");
+  ascent-override: 88.5757%;
+  descent-override: 22.079%;
+  line-gap-override: 0%;
+  size-adjust: 109.3697%;
+}
+
+/* -----------------------------------------------------------------------------
+ * Theme tokens (dark-only — Alfred ships a single Dimension-grammar surface)
+ * Tokens live as raw CSS vars on :root, then @theme inline maps them to
+ * Tailwind's color tokens so utilities like bg-background / text-foreground
+ * resolve through them. The legacy `.dark` selector is kept as a no-op alias
+ * so any stray `dark:` utilities still match.
+ * -------------------------------------------------------------------------- */
+
+@custom-variant dark (&:where(.dark, .dark *));
+
+:root {
+  --radius: 0.625rem;
+
+  /* -------------------------------------------------------------------------
+   * Dimension token scales (captured 2026-05-18 from dimension.dev live recon).
+   * RGB triplets stored space-separated so they compose with `rgb(var(--…))`
+   * and `rgb(var(--…) / 0.5)` for opacity.
+   * --------------------------------------------------------------------- */
+
+  /* Neutral (16 stops). */
+  --gray-0: 0 0 0;
+  --gray-25: 16 16 16; /* rail bottom, popover surface */
+  --gray-50: 28 28 28; /* input fill at 50% opacity */
+  --gray-100: 35 35 35; /* input default border, switch off track */
+  --gray-200: 40 40 40; /* input hover border */
+  --gray-300: 46 46 46; /* input focus border */
+  --gray-400: 52 52 52;
+  --gray-500: 62 62 62;
+  --gray-600: 80 80 80; /* dividers */
+  --gray-700: 112 112 112; /* disabled text */
+  --gray-800: 160 160 160; /* muted text */
+  --gray-850: 190 190 190;
+  --gray-900: 209 209 209; /* hover text uplift */
+  --gray-950: 237 237 237; /* default body text */
+  --gray-1000: 255 255 255;
+
+  /* Brand purple (11 stops). Primary CTA uses the inline gradient
+   * #5d44df → #4f37cb which sits between purple-300 and purple-400. */
+  --purple-50: 34 27 75;
+  --purple-100: 55 45 130;
+  --purple-200: 64 47 164;
+  --purple-300: 79 55 203;
+  --purple-400: 83 59 229;
+  --purple-500: 107 98 242; /* focus ring */
+  --purple-600: 128 129 249;
+  --purple-700: 164 172 253;
+  --purple-800: 199 205 254;
+  --purple-900: 224 228 255;
+  --purple-950: 238 241 255;
+
+  /* Frost composition vars. Per-component overrides take precedence
+   * (e.g. the Upgrade pill bumps both higher for a louder hairline). */
+  --frost-strength: 1; /* multiplier on inset white glow opacity */
+  --frost-border-strength: 1; /* multiplier on hairline gradient opacity */
+
+  /* Motion. Active-press is instant (no transition) per Dimension. */
+  --motion-hover: 200ms;
+  --motion-easing: cubic-bezier(0.2, 0, 0, 1);
+  --press-scale: 0.96;
+
+  /* Semantic surface tokens — Dimension's exact body bg `rgb(12, 12, 12)`
+   * (#0c0c0c). All contrast comes from the foreground; the body stays calm. */
+  --background: rgb(12, 12, 12);
+  --foreground: oklch(0.96 0.005 95);
+  --card: oklch(0.185 0.005 280);
+  --card-foreground: oklch(0.96 0.005 95);
+  --popover: oklch(0.185 0.005 280);
+  --popover-foreground: oklch(0.96 0.005 95);
+  --primary: oklch(0.96 0.005 95);
+  --primary-foreground: oklch(0.185 0.005 280);
+  --secondary: oklch(0.235 0.005 280);
+  --secondary-foreground: oklch(0.96 0.005 95);
+  --muted: oklch(0.23 0.005 280);
+  --muted-foreground: oklch(0.66 0.01 280);
+  --accent: oklch(0.255 0.005 280);
+  --accent-foreground: oklch(0.96 0.005 95);
+  --destructive: oklch(0.5 0.18 27);
+  --destructive-foreground: oklch(0.985 0 0);
+  --border: oklch(0.275 0.005 280);
+  --input: oklch(0.24 0.005 280);
+  --ring: oklch(0.55 0.02 280);
+
+  --shadow-soft: 0 1px 2px oklch(0 0 0 / 0.4), 0 4px 12px oklch(0 0 0 / 0.4);
+  --shadow-pop: 0 1px 2px oklch(0 0 0 / 0.5), 0 12px 24px oklch(0 0 0 / 0.55);
+}
+
+/* -------------------------------------------------------------------------
+   * App token scales (captured 2026-05-23 from visitors.now live
+   * recon — see archive/visitors-now/design-notes.md).
+   *
+   * Light-surface design system. Lives behind a `app-` prefix so utilities
+   * (bg-app-bg-2, text-app-fg-4, ring-app-purple-2) cannot collide with the
+   * existing dimension grammar. Wrap any route or subtree in `.app` to
+   * enable the global behaviors (cursor:default, tracking:-0.02em,
+   * background:white, default text:fg-3). Untouched routes keep the
+   * dimension dark surface.
+   *
+   * 4-stop scale per hue: -1 = lightest tint, -2 = soft / borders / focus,
+   * -3 = icon / chart, -4 = saturated accent. Each hue also exposes -a1..a4
+   * alpha variants of the -4 stop.
+   *
+   * Selector note: also scoped to `.app[data-app-theme="light"]` so a
+   * forced-light subtree nested inside a dark `.app` ancestor (e.g. the
+   * styleguide's side-by-side theme panes) re-declares the light values
+   * instead of inheriting the ancestor's dark custom properties.
+   * --------------------------------------------------------------------- */
+:root,
+.app[data-app-theme="light"] {
+  /* Surfaces */
+  --app-background: #ffffff;
+  --app-background-subtle: #fafafa;
+  --app-bg-1: #ffffff;
+  --app-bg-2: #f5f5f5;
+  --app-bg-3: #f0f0f0;
+  --app-bg-4: #e8e8e8;
+  --app-bg-a1: rgba(0, 0, 0, 0.03);
+  --app-bg-a2: rgba(0, 0, 0, 0.05);
+  --app-bg-a3: rgba(0, 0, 0, 0.08);
+  --app-bg-a4: rgba(0, 0, 0, 0.12);
+
+  /* Foreground (text). `--app-fg-4` (#181925) is the brand ink — never #000. */
+  --app-fg-1: #b3b3b3;
+  --app-fg-2: #999999;
+  --app-fg-3: #666666;
+  --app-fg-4: #181925;
+  --app-fg-a1: rgba(0, 0, 0, 0.3);
+  --app-fg-a2: rgba(0, 0, 0, 0.4);
+  --app-fg-a3: rgba(0, 0, 0, 0.6);
+  --app-fg-a4: rgba(24, 25, 37, 0.88);
+
+  /* Hue scale — 10 hues × 4 stops + 4 alpha variants of the -4 stop. */
+  --app-gray-1: #f7f7f7;
+  --app-gray-2: #e0e0e0;
+  --app-gray-3: #cccccc;
+  --app-gray-4: #b3b3b3;
+
+  --app-blue-1: #f0fbff;
+  --app-blue-2: #c2f1ff;
+  --app-blue-3: #4cd5ff;
+  --app-blue-4: #00c4ff;
+
+  --app-red-1: #fff3f0;
+  --app-red-2: #ffe2db;
+  --app-red-3: #ffd5cc;
+  --app-red-4: #ff2f00;
+
+  --app-green-1: #effbf2;
+  --app-green-2: #c2efcd;
+  --app-green-3: #71da8b;
+  --app-green-4: #33c758;
+
+  --app-amber-1: #fff8eb;
+  --app-amber-2: #ffeac2;
+  --app-amber-3: #ffc65c;
+  --app-amber-4: #ffa600;
+
+  --app-purple-1: #f1f1fe;
+  --app-purple-2: #dad9fc;
+  --app-purple-3: #b5b3f9;
+  --app-purple-4: #918df6;
+
+  --app-sky-1: #ebf2ff;
+  --app-sky-2: #bed5fe;
+  --app-sky-3: #689ffd;
+  --app-sky-4: #2c78fc;
+
+  --app-yellow-1: #fffdeb;
+  --app-yellow-2: #fff6b3;
+  --app-yellow-3: #ffec5c;
+  --app-yellow-4: #f5d90a;
+
+  --app-pink-1: #fff0f9;
+  --app-pink-2: #ffc2e9;
+  --app-pink-3: #f075c3;
+  --app-pink-4: #d6409f;
+
+  --app-orange-1: #fff6f0;
+  --app-orange-2: #ffdac2;
+  --app-orange-3: #ffa366;
+  --app-orange-4: #f76808;
+
+  /* Radius scale — app grammar lives at the extremes (small + 16px + full). */
+  --app-radius-1: 0.125rem;
+  --app-radius-2: 0.25rem;
+  --app-radius-3: 0.375rem;
+  --app-radius-4: 0.5rem;
+  --app-radius-5: 0.75rem;
+  --app-radius-6: 1rem;
+
+  /* Shadow stack used everywhere — drop + hairline-as-border, all in one box-shadow */
+  --app-shadow-elevated: 0 1px 1px rgba(0, 0, 0, 0.08), 0 0 0 1px rgba(0, 0, 0, 0.05);
+  --app-shadow-elevated-hover: 0 1px 1px rgba(0, 0, 0, 0.12), 0 0 0 1px rgba(0, 0, 0, 0.1);
+
+  /* Brand accent — the CTA color. Separate from the -hue scale because
+   * the -4 of any hue is tuned for icons/dots (mid-saturation), not for
+   * a button that has to dominate the page. Accent is a saturated brand
+   * purple between dimension's #5d44df and visitors.now's #918df6. */
+  --app-accent-from: #6b62f2;
+  --app-accent-to: #4f37cb;
+  --app-accent-fg: #ffffff;
+  --app-accent-ring: rgba(107, 98, 242, 0.45);
+  --app-accent-glow: rgba(107, 98, 242, 0.35);
+
+  /* Primary CTA background. Light mode = the saturated brand gradient
+   * (works on white — the bloom reads as "alive"). Dark mode overrides
+   * this to a dimension-inspired ink chip — accent-tinted top highlight
+   * delivered via the shadow stack, not via the fill, so dark mode reads
+   * as "polished onyx" rather than "loud purple on near-black". */
+  --app-cta-bg: linear-gradient(180deg, var(--app-accent-from) 0%, var(--app-accent-to) 100%);
+
+  /* Primary CTA shadow stack — theme-aware. Light mode lifts the button
+   * with an accent-tinted bloom (works on white where the bloom reads as
+   * "alive"). The dark-mode override below kills the bloom and leans on
+   * the inset highlight + a tight black drop instead — accent halos
+   * over near-black read as muddy/leaky. */
+  --app-button-primary-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.2), 0 1px 2px rgba(0, 0, 0, 0.18),
+    0 8px 24px var(--app-accent-glow);
+  --app-button-primary-shadow-hover:
+    inset 0 1px 0 rgba(255, 255, 255, 0.22), 0 2px 4px rgba(0, 0, 0, 0.22),
+    0 12px 32px var(--app-accent-glow);
+
+  /* Sidebar active/hover "glass tile" — the lifted chip behind the active nav
+   * row and the minimized rail icon. Theme-aware: a soft raised chip on light,
+   * a frosted highlight on dark. Consumed by `.sidebar-tile`. */
+  --app-sidebar-tile-bg: linear-gradient(180deg, rgba(0, 0, 0, 0.015), rgba(0, 0, 0, 0.045));
+  --app-sidebar-tile-border: rgba(0, 0, 0, 0.07);
+  --app-sidebar-tile-highlight: rgba(255, 255, 255, 0.7);
+  --app-sidebar-tile-shadow: 0 1px 2px rgba(0, 0, 0, 0.05);
+}
+
+/* -----------------------------------------------------------------------------
+ * App dark-mode tokens.
+ *
+ * Three resolution rules, in order:
+ *   1. `.app[data-app-theme="dark"]`  → forced dark (manual override)
+ *   2. `.app[data-app-theme="light"]` → forced light (manual override, uses :root)
+ *   3. `.app` with no attribute      → tracks `prefers-color-scheme`
+ *
+ * Dark is the default mood for Alfred per design: dimension was 100% dark,
+ * visitors.now is 100% light, so the compromise is "respect system, default
+ * dark when the user has no preference." See archive/visitors-now/design-notes.md.
+ *
+ * Hue scale flips in dark mode: -1 becomes an alpha tint of the accent over
+ * near-black (so e.g. `bg-app-purple-1` reads as a faintly-purple raised
+ * surface in dark mode the same way it reads as a faintly-purple tint in
+ * light mode). -3 / -4 brighten slightly for contrast on dark.
+ * -------------------------------------------------------------------------- */
+/* System-preference fallback — applies only when no explicit data-app-theme
+ * is set on the .app element. The explicit override block (.app[data-app-theme="dark"])
+ * below this rule always wins. */
+@media (prefers-color-scheme: dark) {
+  .app:not([data-app-theme="light"]) {
+    --app-background: #0a0a0a;
+    --app-background-subtle: #060606;
+    --app-bg-1: #0a0a0a;
+    --app-bg-2: #141414;
+    --app-bg-3: #1c1c1c;
+    --app-bg-4: #242424;
+    --app-bg-a1: rgba(255, 255, 255, 0.04);
+    --app-bg-a2: rgba(255, 255, 255, 0.06);
+    --app-bg-a3: rgba(255, 255, 255, 0.09);
+    --app-bg-a4: rgba(255, 255, 255, 0.14);
+
+    --app-fg-1: #5a5a5a;
+    --app-fg-2: #888888;
+    --app-fg-3: #b5b5b5;
+    --app-fg-4: #ededed;
+    --app-fg-a1: rgba(255, 255, 255, 0.3);
+    --app-fg-a2: rgba(255, 255, 255, 0.5);
+    --app-fg-a3: rgba(255, 255, 255, 0.7);
+    --app-fg-a4: rgba(237, 237, 237, 0.92);
+
+    --app-gray-1: #181818;
+    --app-gray-2: #303030;
+    --app-gray-3: #505050;
+    --app-gray-4: #808080;
+
+    --app-blue-1: rgba(76, 213, 255, 0.08);
+    --app-blue-2: rgba(76, 213, 255, 0.16);
+    --app-blue-3: #4cd5ff;
+    --app-blue-4: #7ee0ff;
+
+    --app-red-1: rgba(255, 99, 71, 0.08);
+    --app-red-2: rgba(255, 99, 71, 0.16);
+    --app-red-3: #ff6347;
+    --app-red-4: #ff8470;
+
+    --app-green-1: rgba(113, 218, 139, 0.08);
+    --app-green-2: rgba(113, 218, 139, 0.16);
+    --app-green-3: #71da8b;
+    --app-green-4: #9ce6ad;
+
+    --app-amber-1: rgba(255, 198, 92, 0.08);
+    --app-amber-2: rgba(255, 198, 92, 0.16);
+    --app-amber-3: #ffc65c;
+    --app-amber-4: #ffd58a;
+
+    --app-purple-1: rgba(181, 179, 249, 0.08);
+    --app-purple-2: rgba(181, 179, 249, 0.18);
+    --app-purple-3: #b5b3f9;
+    --app-purple-4: #cbcafb;
+
+    --app-sky-1: rgba(104, 159, 253, 0.08);
+    --app-sky-2: rgba(104, 159, 253, 0.18);
+    --app-sky-3: #689ffd;
+    --app-sky-4: #92baff;
+
+    --app-yellow-1: rgba(255, 236, 92, 0.08);
+    --app-yellow-2: rgba(255, 236, 92, 0.16);
+    --app-yellow-3: #ffec5c;
+    --app-yellow-4: #fff394;
+
+    --app-pink-1: rgba(240, 117, 195, 0.08);
+    --app-pink-2: rgba(240, 117, 195, 0.16);
+    --app-pink-3: #f075c3;
+    --app-pink-4: #f8a7d6;
+
+    --app-orange-1: rgba(255, 163, 102, 0.08);
+    --app-orange-2: rgba(255, 163, 102, 0.16);
+    --app-orange-3: #ffa366;
+    --app-orange-4: #ffc191;
+
+    --app-shadow-elevated:
+      0 0 0 1px rgba(255, 255, 255, 0.06), inset 0 1px 0 rgba(255, 255, 255, 0.04);
+    --app-shadow-elevated-hover:
+      0 0 0 1px rgba(255, 255, 255, 0.12), inset 0 1px 0 rgba(255, 255, 255, 0.06);
+
+    /* Accent — kept available for the focus ring, .switch checked-state,
+     * and any explicitly-purple surface. The dark CTA itself does NOT
+     * use this gradient (see --app-cta-bg below). */
+    --app-accent-from: #7e75f5;
+    --app-accent-to: #5d44df;
+    --app-accent-fg: #ffffff;
+    --app-accent-ring: rgba(126, 117, 245, 0.55);
+    --app-accent-glow: rgba(126, 117, 245, 0.3);
+
+    /* Dimension's "Get Started" CTA recipe — polished obsidian. Pure dark
+     * gradient (no accent purple in the fill, which read muddy in V1), a
+     * strong inset-top white highlight for the milled edge, a hairline
+     * white inset that reads as a 1px border, and a layered drop for
+     * elevation. The accent identity comes back via the focus ring
+     * (--app-purple-2), not the resting fill.
+     *
+     * V3 (ported from Dimension's black colored-frost button): the
+     * V2 fill bottomed out at #0c0c10 on the #0a0a0a page bg, so the
+     * button read as transparent. Fill now lifts to #26262c→#131318 and
+     * gains dimension's omnidirectional inset frost glow
+     * (0 0 7px 1px white @ ~0.10, hover ~0.18) on top of the milled edge. */
+    --app-cta-bg: linear-gradient(180deg, #26262c 0%, #131318 100%);
+
+    --app-button-primary-shadow:
+      inset 0 1px 0 rgba(255, 255, 255, 0.2), inset 0 0 0 1px rgba(255, 255, 255, 0.08),
+      inset 0 0 7px 1px rgba(255, 255, 255, 0.1), 0 1px 2px rgba(0, 0, 0, 0.6),
+      0 8px 22px rgba(0, 0, 0, 0.45);
+    --app-button-primary-shadow-hover:
+      inset 0 1px 0 rgba(255, 255, 255, 0.26), inset 0 0 0 1px rgba(255, 255, 255, 0.12),
+      inset 0 0 8px 1px rgba(255, 255, 255, 0.18), 0 2px 4px rgba(0, 0, 0, 0.7),
+      0 12px 28px rgba(0, 0, 0, 0.5);
+
+    --app-sidebar-tile-bg:
+      radial-gradient(120% 100% at 12% -24%, rgba(255, 255, 255, 0.1), transparent 62%),
+      linear-gradient(180deg, rgba(255, 255, 255, 0.07), rgba(255, 255, 255, 0.022));
+    --app-sidebar-tile-border: rgba(255, 255, 255, 0.09);
+    --app-sidebar-tile-highlight: rgba(255, 255, 255, 0.08);
+    --app-sidebar-tile-shadow: 0 1px 2px rgba(0, 0, 0, 0.32);
+  }
+}
+
+/* Explicit override — always wins, works without system preference. */
+.app[data-app-theme="dark"] {
+  --app-background: #0a0a0a;
+  --app-background-subtle: #060606;
+  --app-bg-1: #0a0a0a;
+  --app-bg-2: #141414;
+  --app-bg-3: #1c1c1c;
+  --app-bg-4: #242424;
+  --app-bg-a1: rgba(255, 255, 255, 0.04);
+  --app-bg-a2: rgba(255, 255, 255, 0.06);
+  --app-bg-a3: rgba(255, 255, 255, 0.09);
+  --app-bg-a4: rgba(255, 255, 255, 0.14);
+
+  --app-fg-1: #5a5a5a;
+  --app-fg-2: #888888;
+  --app-fg-3: #b5b5b5;
+  --app-fg-4: #ededed;
+  --app-fg-a1: rgba(255, 255, 255, 0.3);
+  --app-fg-a2: rgba(255, 255, 255, 0.5);
+  --app-fg-a3: rgba(255, 255, 255, 0.7);
+  --app-fg-a4: rgba(237, 237, 237, 0.92);
+
+  --app-gray-1: #181818;
+  --app-gray-2: #303030;
+  --app-gray-3: #505050;
+  --app-gray-4: #808080;
+
+  --app-blue-1: rgba(76, 213, 255, 0.08);
+  --app-blue-2: rgba(76, 213, 255, 0.16);
+  --app-blue-3: #4cd5ff;
+  --app-blue-4: #7ee0ff;
+
+  --app-red-1: rgba(255, 99, 71, 0.08);
+  --app-red-2: rgba(255, 99, 71, 0.16);
+  --app-red-3: #ff6347;
+  --app-red-4: #ff8470;
+
+  --app-green-1: rgba(113, 218, 139, 0.08);
+  --app-green-2: rgba(113, 218, 139, 0.16);
+  --app-green-3: #71da8b;
+  --app-green-4: #9ce6ad;
+
+  --app-amber-1: rgba(255, 198, 92, 0.08);
+  --app-amber-2: rgba(255, 198, 92, 0.16);
+  --app-amber-3: #ffc65c;
+  --app-amber-4: #ffd58a;
+
+  --app-purple-1: rgba(181, 179, 249, 0.08);
+  --app-purple-2: rgba(181, 179, 249, 0.18);
+  --app-purple-3: #b5b3f9;
+  --app-purple-4: #cbcafb;
+
+  --app-sky-1: rgba(104, 159, 253, 0.08);
+  --app-sky-2: rgba(104, 159, 253, 0.18);
+  --app-sky-3: #689ffd;
+  --app-sky-4: #92baff;
+
+  --app-yellow-1: rgba(255, 236, 92, 0.08);
+  --app-yellow-2: rgba(255, 236, 92, 0.16);
+  --app-yellow-3: #ffec5c;
+  --app-yellow-4: #fff394;
+
+  --app-pink-1: rgba(240, 117, 195, 0.08);
+  --app-pink-2: rgba(240, 117, 195, 0.16);
+  --app-pink-3: #f075c3;
+  --app-pink-4: #f8a7d6;
+
+  --app-orange-1: rgba(255, 163, 102, 0.08);
+  --app-orange-2: rgba(255, 163, 102, 0.16);
+  --app-orange-3: #ffa366;
+  --app-orange-4: #ffc191;
+
+  --app-shadow-elevated:
+    0 0 0 1px rgba(255, 255, 255, 0.06), inset 0 1px 0 rgba(255, 255, 255, 0.04);
+  --app-shadow-elevated-hover:
+    0 0 0 1px rgba(255, 255, 255, 0.12), inset 0 1px 0 rgba(255, 255, 255, 0.06);
+
+  --app-accent-from: #7e75f5;
+  --app-accent-to: #5d44df;
+  --app-accent-fg: #ffffff;
+  --app-accent-ring: rgba(126, 117, 245, 0.55);
+  --app-accent-glow: rgba(126, 117, 245, 0.3);
+
+  /* Keep in sync with the @media block above — see the V3 note there. */
+  --app-cta-bg: linear-gradient(180deg, #26262c 0%, #131318 100%);
+
+  --app-button-primary-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.2), inset 0 0 0 1px rgba(255, 255, 255, 0.08),
+    inset 0 0 7px 1px rgba(255, 255, 255, 0.1), 0 1px 2px rgba(0, 0, 0, 0.6),
+    0 8px 22px rgba(0, 0, 0, 0.45);
+  --app-button-primary-shadow-hover:
+    inset 0 1px 0 rgba(255, 255, 255, 0.26), inset 0 0 0 1px rgba(255, 255, 255, 0.12),
+    inset 0 0 8px 1px rgba(255, 255, 255, 0.18), 0 2px 4px rgba(0, 0, 0, 0.7),
+    0 12px 28px rgba(0, 0, 0, 0.5);
+
+  --app-sidebar-tile-bg:
+    radial-gradient(120% 100% at 12% -24%, rgba(255, 255, 255, 0.1), transparent 62%),
+    linear-gradient(180deg, rgba(255, 255, 255, 0.07), rgba(255, 255, 255, 0.022));
+  --app-sidebar-tile-border: rgba(255, 255, 255, 0.09);
+  --app-sidebar-tile-highlight: rgba(255, 255, 255, 0.08);
+  --app-sidebar-tile-shadow: 0 1px 2px rgba(0, 0, 0, 0.32);
+}
+
+@theme inline {
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --color-card: var(--card);
+  --color-card-foreground: var(--card-foreground);
+  --color-popover: var(--popover);
+  --color-popover-foreground: var(--popover-foreground);
+  --color-primary: var(--primary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-secondary: var(--secondary);
+  --color-secondary-foreground: var(--secondary-foreground);
+  --color-muted: var(--muted);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-accent: var(--accent);
+  --color-accent-foreground: var(--accent-foreground);
+  --color-destructive: var(--destructive);
+  --color-destructive-foreground: var(--destructive-foreground);
+  --color-border: var(--border);
+  --color-input: var(--input);
+  --color-ring: var(--ring);
+
+  /* Dimension gray + purple — emit utilities like bg-gray-50, text-gray-800,
+   * border-gray-300, ring-purple-500, etc. RGB triplets in --gray-N and
+   * --purple-N expand here through rgb(var(...)). */
+  --color-gray-0: rgb(var(--gray-0));
+  --color-gray-25: rgb(var(--gray-25));
+  --color-gray-50: rgb(var(--gray-50));
+  --color-gray-100: rgb(var(--gray-100));
+  --color-gray-200: rgb(var(--gray-200));
+  --color-gray-300: rgb(var(--gray-300));
+  --color-gray-400: rgb(var(--gray-400));
+  --color-gray-500: rgb(var(--gray-500));
+  --color-gray-600: rgb(var(--gray-600));
+  --color-gray-700: rgb(var(--gray-700));
+  --color-gray-800: rgb(var(--gray-800));
+  --color-gray-850: rgb(var(--gray-850));
+  --color-gray-900: rgb(var(--gray-900));
+  --color-gray-950: rgb(var(--gray-950));
+  --color-gray-1000: rgb(var(--gray-1000));
+
+  --color-purple-50: rgb(var(--purple-50));
+  --color-purple-100: rgb(var(--purple-100));
+  --color-purple-200: rgb(var(--purple-200));
+  --color-purple-300: rgb(var(--purple-300));
+  --color-purple-400: rgb(var(--purple-400));
+  --color-purple-500: rgb(var(--purple-500));
+  --color-purple-600: rgb(var(--purple-600));
+  --color-purple-700: rgb(var(--purple-700));
+  --color-purple-800: rgb(var(--purple-800));
+  --color-purple-900: rgb(var(--purple-900));
+  --color-purple-950: rgb(var(--purple-950));
+
+  --font-sans:
+    "Open Runde", "Open Runde Fallback", "Inter", ui-sans-serif, system-ui, -apple-system,
+    "Segoe UI", Roboto, sans-serif;
+  --font-serif: "Newsreader", ui-serif, Georgia, Cambria, "Times New Roman", Times, serif;
+  --font-mono:
+    ui-monospace, "SF Mono", SFMono-Regular, "Menlo", "Consolas", "Liberation Mono", monospace;
+
+  --radius-sm: calc(var(--radius) - 4px);
+  --radius-md: calc(var(--radius) - 2px);
+  --radius-lg: var(--radius);
+  --radius-xl: calc(var(--radius) + 4px);
+
+  --shadow-soft: var(--shadow-soft);
+  --shadow-pop: var(--shadow-pop);
+
+  /* App palette — emits utilities like bg-app-bg-2, text-app-fg-4,
+   * ring-app-purple-2, border-app-gray-2. Kept on a separate namespace so
+   * Dimension grammar (bg-gray-50, text-gray-950, ring-purple-500) is
+   * untouched. */
+  --color-app-background: var(--app-background);
+  --color-app-background-subtle: var(--app-background-subtle);
+
+  --color-app-bg-1: var(--app-bg-1);
+  --color-app-bg-2: var(--app-bg-2);
+  --color-app-bg-3: var(--app-bg-3);
+  --color-app-bg-4: var(--app-bg-4);
+  --color-app-bg-a1: var(--app-bg-a1);
+  --color-app-bg-a2: var(--app-bg-a2);
+  --color-app-bg-a3: var(--app-bg-a3);
+  --color-app-bg-a4: var(--app-bg-a4);
+
+  --color-app-fg-1: var(--app-fg-1);
+  --color-app-fg-2: var(--app-fg-2);
+  --color-app-fg-3: var(--app-fg-3);
+  --color-app-fg-4: var(--app-fg-4);
+  --color-app-fg-a1: var(--app-fg-a1);
+  --color-app-fg-a2: var(--app-fg-a2);
+  --color-app-fg-a3: var(--app-fg-a3);
+  --color-app-fg-a4: var(--app-fg-a4);
+
+  --color-app-gray-1: var(--app-gray-1);
+  --color-app-gray-2: var(--app-gray-2);
+  --color-app-gray-3: var(--app-gray-3);
+  --color-app-gray-4: var(--app-gray-4);
+
+  --color-app-blue-1: var(--app-blue-1);
+  --color-app-blue-2: var(--app-blue-2);
+  --color-app-blue-3: var(--app-blue-3);
+  --color-app-blue-4: var(--app-blue-4);
+
+  --color-app-red-1: var(--app-red-1);
+  --color-app-red-2: var(--app-red-2);
+  --color-app-red-3: var(--app-red-3);
+  --color-app-red-4: var(--app-red-4);
+
+  --color-app-green-1: var(--app-green-1);
+  --color-app-green-2: var(--app-green-2);
+  --color-app-green-3: var(--app-green-3);
+  --color-app-green-4: var(--app-green-4);
+
+  --color-app-amber-1: var(--app-amber-1);
+  --color-app-amber-2: var(--app-amber-2);
+  --color-app-amber-3: var(--app-amber-3);
+  --color-app-amber-4: var(--app-amber-4);
+
+  --color-app-purple-1: var(--app-purple-1);
+  --color-app-purple-2: var(--app-purple-2);
+  --color-app-purple-3: var(--app-purple-3);
+  --color-app-purple-4: var(--app-purple-4);
+
+  --color-app-sky-1: var(--app-sky-1);
+  --color-app-sky-2: var(--app-sky-2);
+  --color-app-sky-3: var(--app-sky-3);
+  --color-app-sky-4: var(--app-sky-4);
+
+  --color-app-yellow-1: var(--app-yellow-1);
+  --color-app-yellow-2: var(--app-yellow-2);
+  --color-app-yellow-3: var(--app-yellow-3);
+  --color-app-yellow-4: var(--app-yellow-4);
+
+  --color-app-pink-1: var(--app-pink-1);
+  --color-app-pink-2: var(--app-pink-2);
+  --color-app-pink-3: var(--app-pink-3);
+  --color-app-pink-4: var(--app-pink-4);
+
+  --color-app-orange-1: var(--app-orange-1);
+  --color-app-orange-2: var(--app-orange-2);
+  --color-app-orange-3: var(--app-orange-3);
+  --color-app-orange-4: var(--app-orange-4);
+
+  /* Radius utilities — rounded-app-1 .. rounded-app-6 */
+  --radius-app-1: var(--app-radius-1);
+  --radius-app-2: var(--app-radius-2);
+  --radius-app-3: var(--app-radius-3);
+  --radius-app-4: var(--app-radius-4);
+  --radius-app-5: var(--app-radius-5);
+  --radius-app-6: var(--app-radius-6);
+}
+
+@layer base {
+  *,
+  ::before,
+  ::after {
+    border-color: var(--color-border);
+  }
+
+  html {
+    /* Avoid the iOS Safari zoom-on-focus tax on small inputs. */
+    -webkit-text-size-adjust: 100%;
+    text-rendering: optimizeLegibility;
+  }
+
+  html,
+  body {
+    background-color: var(--color-background);
+    color: var(--color-foreground);
+  }
+
+  body {
+    font-family: var(--font-sans);
+    font-feature-settings: "cv11", "ss01", "ss03";
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+    min-height: 100dvh;
+  }
+
+  /* Tabular numbers for time / counts. */
+  .tabular {
+    font-variant-numeric: tabular-nums;
+  }
+
+  /* Selection styling — quiet, not aggressive. */
+  ::selection {
+    background-color: color-mix(in oklch, var(--color-foreground) 18%, transparent);
+  }
+
+  /* Native form reset for the inputs we wire raw (no shadcn primitives yet). */
+  input,
+  textarea,
+  button,
+  select {
+    font: inherit;
+    color: inherit;
+  }
+
+  /* Custom scrollbars — only inside scrollable panes (opt-in via .scrollbar). */
+  .scrollbar {
+    scrollbar-width: thin;
+    scrollbar-color: var(--color-border) transparent;
+  }
+  .scrollbar::-webkit-scrollbar {
+    width: 8px;
+    height: 8px;
+  }
+  .scrollbar::-webkit-scrollbar-thumb {
+    background-color: var(--color-border);
+    border-radius: 9999px;
+  }
+
+  /* Reserve the scrollbar gutter on a vertical scroll pane so content doesn't
+   * shift sideways when the scrollbar appears/disappears (e.g. collapsing a
+   * sidebar group, or a list shrinking below the fold). Opt in on full-height
+   * page columns / chat scrollers — NOT on short popovers/dropdowns, where a
+   * permanently reserved gutter reads as an empty gap. Only does anything when
+   * the OS uses classic (space-taking) scrollbars; harmless with overlay ones. */
+  .scroll-stable {
+    scrollbar-gutter: stable;
+  }
+
+  /* Mobile nav drawer slide-in. */
+  @keyframes drawer-slide-in {
+    from {
+      transform: translateX(-100%);
+      opacity: 0.6;
+    }
+    to {
+      transform: translateX(0);
+      opacity: 1;
+    }
+  }
+  .drawer-slide-in {
+    animation: drawer-slide-in 180ms cubic-bezier(0.22, 1, 0.36, 1);
+  }
+
+  /* Toast slide-up + fade-in. */
+  @keyframes toast-in {
+    from {
+      transform: translateY(8px);
+      opacity: 0;
+    }
+    to {
+      transform: translateY(0);
+      opacity: 1;
+    }
+  }
+  .animate-toast-in {
+    animation: toast-in 200ms cubic-bezier(0.22, 1, 0.36, 1);
+  }
+
+  /* Small contextual menu entrance for composer mention/dropdown surfaces. */
+  @keyframes menu-pop-in {
+    from {
+      opacity: 0;
+      transform: translateY(4px) scale(0.98);
+      filter: blur(2px);
+    }
+    to {
+      opacity: 1;
+      transform: translateY(0) scale(1);
+      filter: blur(0);
+    }
+  }
+  .animate-menu-pop-in {
+    animation: menu-pop-in 140ms cubic-bezier(0.2, 0, 0, 1);
+  }
+
+  /* Settings section changes: quick fade/slide so tabbed panels do not snap. */
+  @keyframes settings-panel-in {
+    from {
+      opacity: 0;
+      transform: translateY(6px) scale(0.995);
+      filter: blur(2px);
+    }
+    to {
+      opacity: 1;
+      transform: translateY(0) scale(1);
+      filter: blur(0);
+    }
+  }
+  .animate-settings-panel-in {
+    animation: settings-panel-in 180ms cubic-bezier(0.22, 1, 0.36, 1);
+    transform-origin: top center;
+  }
+
+  /* Onboarding feature-carousel auto-advance progress bar — fills the width
+   * of the active pill over CAROUSEL_INTERVAL_MS (kept in sync with the
+   * timer in onboarding.tsx). */
+  @keyframes carousel-progress {
+    from {
+      transform: scaleX(0);
+    }
+    to {
+      transform: scaleX(1);
+    }
+  }
+  .animate-carousel-progress {
+    animation: carousel-progress 3200ms linear forwards;
+  }
+
+  /* Chat streaming: tool cards + streamed blocks ease in; a running tool /
+   * "thinking" label shimmers; the assistant caret blinks while a turn streams. */
+  @keyframes chat-in {
+    from {
+      opacity: 0;
+      transform: translateY(4px);
+    }
+    to {
+      opacity: 1;
+      transform: translateY(0);
+    }
+  }
+  .animate-chat-in {
+    animation: chat-in 180ms cubic-bezier(0.22, 1, 0.36, 1);
+  }
+  @keyframes chat-shimmer {
+    0%,
+    100% {
+      opacity: 0.5;
+    }
+    50% {
+      opacity: 1;
+    }
+  }
+  .animate-chat-shimmer {
+    animation: chat-shimmer 1.4s ease-in-out infinite;
+  }
+  @keyframes chat-caret {
+    0%,
+    49% {
+      opacity: 1;
+    }
+    50%,
+    100% {
+      opacity: 0;
+    }
+  }
+  .animate-chat-caret {
+    animation: chat-caret 1s steps(1) infinite;
+  }
+  /* Each freshly-streamed word fades up out of a blur — the per-token reveal.
+   * Append-only streaming keeps prior words' keys stable, so already-shown
+   * words don't re-animate; only the new tail plays. */
+  @keyframes chat-word-in {
+    from {
+      opacity: 0;
+      transform: translateY(6px) scale(0.985);
+      filter: blur(3px);
+    }
+    to {
+      opacity: 1;
+      transform: translateY(0) scale(1);
+      filter: blur(0);
+    }
+  }
+  .animate-chat-word {
+    display: inline-block;
+    animation: chat-word-in 0.42s cubic-bezier(0.22, 1, 0.36, 1) forwards;
+  }
+  /* The "Thinking" label sweeps a brightness mask while reasoning streams. */
+  @keyframes chat-shimmer-mask {
+    0% {
+      -webkit-mask-position: 200% 0%;
+      mask-position: 200% 0%;
+    }
+    100% {
+      -webkit-mask-position: -200% 0%;
+      mask-position: -200% 0%;
+    }
+  }
+  .animate-chat-shimmer-mask {
+    -webkit-mask-image: linear-gradient(to left, black, rgba(0, 0, 0, 0.35), black);
+    mask-image: linear-gradient(to left, black, rgba(0, 0, 0, 0.35), black);
+    -webkit-mask-size: 200% 100%;
+    mask-size: 200% 100%;
+    animation: chat-shimmer-mask 2s linear infinite;
+  }
+  /* Brand "thinking" mark — the Alfred glyph breathes with a soft indigo halo
+   * while a turn is spinning up, standing in for a generic spinner. Mirrors
+   * dimension's pulsing AI icon to the left of its working state. */
+  .chat-think-mark {
+    position: relative;
+    isolation: isolate;
+    animation: chat-think-breathe 1.8s cubic-bezier(0.45, 0, 0.55, 1) infinite;
+  }
+  .chat-think-mark::before {
+    content: "";
+    position: absolute;
+    inset: -5px;
+    z-index: -1;
+    border-radius: 9999px;
+    background: radial-gradient(circle, rgb(129 112 248 / 0.55), transparent 70%);
+    filter: blur(4px);
+    opacity: 0.35;
+    animation: chat-think-halo 1.8s cubic-bezier(0.45, 0, 0.55, 1) infinite;
+  }
+  @keyframes chat-think-breathe {
+    0%,
+    100% {
+      transform: scale(0.9);
+    }
+    50% {
+      transform: scale(1);
+    }
+  }
+  @keyframes chat-think-halo {
+    0%,
+    100% {
+      opacity: 0.22;
+      transform: scale(0.85);
+    }
+    50% {
+      opacity: 0.6;
+      transform: scale(1.12);
+    }
+  }
+  /* Radix accordion height collapse for the reasoning section. */
+  @keyframes chat-accordion-down {
+    from {
+      height: 0;
+    }
+    to {
+      height: var(--radix-accordion-content-height);
+    }
+  }
+  @keyframes chat-accordion-up {
+    from {
+      height: var(--radix-accordion-content-height);
+    }
+    to {
+      height: 0;
+    }
+  }
+  .animate-chat-accordion-down {
+    animation: chat-accordion-down 200ms cubic-bezier(0.22, 1, 0.36, 1);
+  }
+  .animate-chat-accordion-up {
+    animation: chat-accordion-up 200ms cubic-bezier(0.22, 1, 0.36, 1);
+  }
+  /* The node of the step Alfred is *currently* running glows — a soft indigo→
+   * violet halo drifting behind the icon tile, standing in for a dead spinner.
+   * Mirrors dimension's frosted, gradient-lit active trail node. The halo lives
+   * on a ::before so it sits under the icon and bleeds slightly past the tile. */
+  .chat-node-glow {
+    position: relative;
+    isolation: isolate;
+  }
+  .chat-node-glow::before {
+    content: "";
+    position: absolute;
+    inset: -3px;
+    z-index: -1;
+    border-radius: inherit;
+    background:
+      radial-gradient(60% 80% at 25% 100%, rgb(199 162 252 / 0.55) 0%, transparent 70%),
+      radial-gradient(90% 70% at 80% 100%, rgb(129 112 248 / 0.6) 0%, transparent 70%);
+    filter: blur(5px);
+    animation: chat-node-glow 2.4s ease-in-out infinite;
+  }
+  @keyframes chat-node-glow {
+    0%,
+    100% {
+      opacity: 0.45;
+      transform: scale(0.92);
+    }
+    50% {
+      opacity: 0.95;
+      transform: scale(1.08);
+    }
+  }
+  .tool-animated-icon {
+    flex-shrink: 0;
+    transform-origin: center;
+  }
+  .tool-animated-icon--running {
+    animation: tool-icon-running 1.8s cubic-bezier(0.45, 0, 0.55, 1) infinite;
+  }
+  .group\/tools:hover .tool-animated-icon--hoverable {
+    animation: tool-icon-hover 420ms cubic-bezier(0.22, 1, 0.36, 1);
+  }
+  @keyframes tool-icon-running {
+    0%,
+    100% {
+      opacity: 0.75;
+      transform: scale(0.94) rotate(0deg);
+    }
+    45% {
+      opacity: 1;
+      transform: scale(1.08) rotate(4deg);
+    }
+    70% {
+      opacity: 0.95;
+      transform: scale(1) rotate(-3deg);
+    }
+  }
+  @keyframes tool-icon-hover {
+    0%,
+    100% {
+      transform: scale(1) rotate(0deg);
+    }
+    50% {
+      transform: scale(1.12) rotate(5deg);
+    }
+  }
+
+  /* Right-rail header entrance. Each row of the weather hero (greeting,
+   * temperature, caption, date) fades up in sequence via staggered
+   * `animation-delay` arbitrary classes on the elements. `both` fill holds
+   * the from-state through the delay so nothing flashes before its turn. */
+  @keyframes rail-head-in {
+    from {
+      opacity: 0;
+      transform: translateY(6px);
+    }
+    to {
+      opacity: 1;
+      transform: translateY(0);
+    }
+  }
+  .animate-rail-head {
+    animation: rail-head-in 0.5s cubic-bezier(0.22, 1, 0.36, 1) both;
+  }
+
+  /* Sidebar expand reveal. When the icon rail expands to the full sidebar, the
+   * nav sections blur + slide in with a short stagger (via `animation-delay`
+   * arbitrary classes on each block). `both` holds the from-state through the
+   * delay so nothing flashes before its turn. */
+  @keyframes sidebar-reveal {
+    from {
+      opacity: 0;
+      filter: blur(4px);
+      transform: translateX(-5px);
+    }
+    to {
+      opacity: 1;
+      filter: blur(0);
+      transform: translateX(0);
+    }
+  }
+  .animate-sidebar-reveal {
+    animation: sidebar-reveal 0.32s cubic-bezier(0.22, 1, 0.36, 1) both;
+  }
+
+  /* Artifact sidebar entrance (ADR-0075 Phase 4). Slides in from the right
+   * edge + fades; the inline panel and the overlay drawer share it. */
+  @keyframes artifact-panel-in {
+    from {
+      opacity: 0;
+      transform: translateX(24px);
+    }
+    to {
+      opacity: 1;
+      transform: translateX(0);
+    }
+  }
+  .animate-artifact-panel {
+    animation: artifact-panel-in 0.26s cubic-bezier(0.22, 1, 0.36, 1) both;
+  }
+
+  /* Fullscreen "present" entrance: the scrim fades while the page stage zooms
+   * up from slightly small + low, so expanding an artifact reads as a
+   * deliberate lift rather than a hard cut. */
+  @keyframes artifact-fullscreen-in {
+    from {
+      opacity: 0;
+    }
+    to {
+      opacity: 1;
+    }
+  }
+  @keyframes artifact-fullscreen-content-in {
+    from {
+      opacity: 0;
+      transform: translateY(12px) scale(0.96);
+    }
+    to {
+      opacity: 1;
+      transform: translateY(0) scale(1);
+    }
+  }
+  /* Copy-success tick: the check that replaces the copy glyph springs in with a
+   * small overshoot, so the confirmation reads as a satisfying beat rather than
+   * a swap. Resting frame is the settled, visible check — reduced motion lands
+   * there directly. */
+  @keyframes check-pop {
+    from {
+      opacity: 0;
+      transform: scale(0.6);
+    }
+    60% {
+      transform: scale(1.15);
+    }
+    to {
+      opacity: 1;
+      transform: scale(1);
+    }
+  }
+  .animate-check-pop {
+    animation: check-pop 0.28s cubic-bezier(0.22, 1, 0.36, 1) both;
+  }
+
+  .animate-artifact-fullscreen {
+    animation: artifact-fullscreen-in 0.2s ease-out both;
+  }
+  .animate-artifact-fullscreen-content {
+    animation: artifact-fullscreen-content-in 0.34s cubic-bezier(0.22, 1, 0.36, 1) both;
+    /* Start a touch after the scrim so the stage rises onto a settled backdrop. */
+    animation-delay: 0.04s;
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    .animate-rail-head,
+    .dimension-weather-surface::before,
+    .animate-artifact-panel,
+    .animate-check-pop,
+    .animate-artifact-fullscreen,
+    .animate-artifact-fullscreen-content,
+    .animate-sidebar-reveal,
+    .animate-settings-panel-in,
+    .animate-carousel-progress,
+    .drawer-slide-in,
+    .animate-toast-in,
+    .animate-menu-pop-in,
+    .animate-chat-in,
+    .animate-chat-shimmer,
+    .animate-chat-shimmer-mask,
+    .animate-chat-word,
+    .animate-chat-accordion-down,
+    .animate-chat-accordion-up,
+    .chat-think-mark,
+    .chat-think-mark::before,
+    .chat-node-glow::before,
+    .tool-animated-icon--running,
+    .tool-animated-icon--hoverable,
+    .animate-chat-caret {
+      animation: none !important;
+      transform: none !important;
+    }
+  }
+
+  /* Dialog/CommandPalette entrance: overlay fades, content fades + zooms.
+   * Used by [data-state] attributes from Radix Dialog. */
+  @keyframes dialog-overlay-in {
+    from {
+      opacity: 0;
+    }
+    to {
+      opacity: 1;
+    }
+  }
+  @keyframes dialog-overlay-out {
+    from {
+      opacity: 1;
+    }
+    to {
+      opacity: 0;
+    }
+  }
+  /*
+   * Only animate scale here. Centering lives on the `translate` CSS property
+   * (Tailwind v4's `-translate-x-1/2 -translate-y-1/2` on DialogContent), which
+   * composes with `transform: scale()`. Do NOT re-apply translate(-50%, -50%)
+   * inside `transform` — in v4 the two properties stack, so the panel would
+   * animate in from the top-left quadrant and snap to center on completion.
+   */
+  @keyframes dialog-content-in {
+    from {
+      opacity: 0;
+      transform: scale(0.96);
+    }
+    to {
+      opacity: 1;
+      transform: scale(1);
+    }
+  }
+  @keyframes dialog-content-out {
+    from {
+      opacity: 1;
+      transform: scale(1);
+    }
+    to {
+      opacity: 0;
+      transform: scale(0.96);
+    }
+  }
+}
+
+@layer components {
+  /* ---------------------------------------------------------------------------
+   * Dimension primitives (added 2026-05-18)
+   * -------------------------------------------------------------------------*/
+
+  /* `frost-border` — pure-white hairline gradient painted via ::before, plus
+   * an inset white glow on the element itself. Recipe pulled from live
+   * inspection of Dimension's Upgrade Plan button on 2026-05-18:
+   *
+   *   ::before {
+   *     inset: -0.5px;                         (overshoots half-pixel)
+   *     padding: 0.5px;                        (ring is half a pixel wide)
+   *     background: linear-gradient(to bottom right,
+   *       white 0%, white/25 42%, white/25 62%, white 100%);
+   *     opacity: calc(0.25 * var(--frost-border-strength));   (hover → 0.35)
+   *     mask: linear-gradient(#000 0 0) content-box exclude,
+   *           linear-gradient(#000 0 0) exclude;
+   *   }
+   *
+   * Parameterized by --frost-strength (inset white glow) and
+   * --frost-border-strength (hairline opacity multiplier). Defaults to
+   * 1 / 1; the Upgrade Plan variant bumps to 0.8 / 3.
+   *
+   * Usage: add `frost-border` class to any pill/panel that should feel
+   * "lifted" — primary buttons, floating overlays, agent panels. The
+   * element must be `position: relative` (handled by the class).
+   */
+  .frost-border {
+    position: relative;
+    isolation: isolate;
+    box-shadow: inset 0 0 7px 1px rgba(255, 255, 255, calc(0.13 * var(--frost-strength)));
+    transition: box-shadow var(--motion-hover) var(--motion-easing);
+  }
+  .frost-border::before {
+    content: "";
+    position: absolute;
+    inset: -0.5px;
+    border-radius: inherit;
+    padding: 0.5px;
+    background: linear-gradient(
+      to bottom right,
+      rgba(255, 255, 255, 1) 0%,
+      rgba(255, 255, 255, 0.25) 42%,
+      rgba(255, 255, 255, 0.25) 62%,
+      rgba(255, 255, 255, 1) 100%
+    );
+    opacity: calc(0.25 * var(--frost-border-strength));
+    -webkit-mask:
+      linear-gradient(#000 0 0) content-box,
+      linear-gradient(#000 0 0);
+    mask:
+      linear-gradient(#000 0 0) content-box,
+      linear-gradient(#000 0 0);
+    -webkit-mask-composite: xor;
+    mask-composite: exclude;
+    pointer-events: none;
+    transition: opacity var(--motion-hover) var(--motion-easing);
+  }
+  .frost-border:hover {
+    box-shadow: inset 0 0 8px 1px rgba(255, 255, 255, calc(0.22 * var(--frost-strength)));
+  }
+  .frost-border:hover::before {
+    opacity: calc(0.35 * var(--frost-border-strength));
+  }
+  .frost-border:active {
+    box-shadow: inset 0 0 7px 1px rgba(255, 255, 255, calc(0.13 * var(--frost-strength)));
+  }
+  .frost-border:active::before {
+    opacity: calc(0.25 * var(--frost-border-strength));
+  }
+  .frost-border:disabled::before,
+  .frost-border[data-disabled]::before {
+    opacity: 0;
+  }
+
+  /* `heading-display` — gradient text fade used on every Dimension route
+   * title (white → white/60 vertical). Lavender variant for active tabs. */
+  .heading-display {
+    background: linear-gradient(180deg, rgb(var(--gray-1000)), rgb(var(--gray-1000) / 0.6));
+    background-clip: text;
+    -webkit-background-clip: text;
+    color: transparent;
+  }
+  .heading-display-lavender {
+    background: linear-gradient(180deg, rgb(var(--gray-1000)), #bfbcef);
+    background-clip: text;
+    -webkit-background-clip: text;
+    color: transparent;
+  }
+
+  /* Active-press helper. Applied via `:active` from inside primitives.
+   * Snap; no transition. */
+  .press-scale:active {
+    transform: scale(var(--press-scale));
+  }
+
+  .frost-popover {
+    background:
+      radial-gradient(
+        120% 90% at 8% -12%,
+        rgba(255, 255, 255, 0.16),
+        rgba(255, 255, 255, 0.04) 34%,
+        transparent 62%
+      ),
+      linear-gradient(
+        145deg,
+        rgba(39, 39, 39, 0.98) 0%,
+        rgba(18, 18, 18, 0.96) 52%,
+        rgba(8, 8, 8, 0.98) 100%
+      );
+    border: 1px solid rgba(255, 255, 255, 0.14);
+    color: rgba(255, 255, 255, 0.86);
+    box-shadow:
+      inset 0 1px 0 rgba(255, 255, 255, 0.16),
+      inset 0 -1px 0 rgba(255, 255, 255, 0.05),
+      0 18px 48px rgba(0, 0, 0, 0.58),
+      0 3px 12px rgba(0, 0, 0, 0.42);
+    backdrop-filter: blur(22px) saturate(1.25);
+    -webkit-backdrop-filter: blur(22px) saturate(1.25);
+  }
+
+  .frost-panel {
+    background:
+      radial-gradient(
+        130% 90% at 10% -16%,
+        rgba(255, 255, 255, 0.14),
+        rgba(255, 255, 255, 0.045) 38%,
+        transparent 66%
+      ),
+      linear-gradient(
+        145deg,
+        rgba(34, 34, 34, 0.94) 0%,
+        rgba(17, 17, 17, 0.95) 54%,
+        rgba(9, 9, 9, 0.96) 100%
+      );
+    border: 1px solid rgba(255, 255, 255, 0.13);
+    color: rgba(255, 255, 255, 0.9);
+    box-shadow:
+      inset 0 1px 0 rgba(255, 255, 255, 0.14),
+      inset 0 -1px 0 rgba(255, 255, 255, 0.045),
+      0 14px 38px rgba(0, 0, 0, 0.44),
+      0 2px 10px rgba(0, 0, 0, 0.32);
+    backdrop-filter: blur(18px) saturate(1.18);
+    -webkit-backdrop-filter: blur(18px) saturate(1.18);
+  }
+
+  /* Sidebar active/hover glass chip — see `--app-sidebar-tile-*` tokens.
+   * Border-radius is inherited from the host element's `rounded-*` class. */
+  .sidebar-tile {
+    background: var(--app-sidebar-tile-bg);
+    border: 1px solid var(--app-sidebar-tile-border);
+    box-shadow:
+      inset 0 1px 0 var(--app-sidebar-tile-highlight),
+      var(--app-sidebar-tile-shadow);
+  }
+
+  /* Soft fade at the top + bottom of the scrolling thread list so rows trail
+   * out under the nav block instead of clipping at a hard edge. */
+  .sidebar-scroll-fade {
+    -webkit-mask-image: linear-gradient(
+      to bottom,
+      transparent 0,
+      #000 14px,
+      #000 calc(100% - 16px),
+      transparent 100%
+    );
+    mask-image: linear-gradient(
+      to bottom,
+      transparent 0,
+      #000 14px,
+      #000 calc(100% - 16px),
+      transparent 100%
+    );
+  }
+
+  .frost-icon-tile {
+    background:
+      linear-gradient(145deg, rgba(255, 255, 255, 0.08), rgba(255, 255, 255, 0.02)),
+      rgba(14, 14, 14, 0.9);
+    border: 1px solid rgba(255, 255, 255, 0.12);
+    box-shadow:
+      inset 0 1px 0 rgba(255, 255, 255, 0.1),
+      0 1px 2px rgba(0, 0, 0, 0.28);
+  }
+
+  .frost-badge {
+    background:
+      linear-gradient(135deg, rgba(255, 255, 255, 0.105), rgba(255, 255, 255, 0.04)),
+      rgba(18, 18, 18, 0.72);
+    border: 1px solid rgba(255, 255, 255, 0.1);
+    box-shadow:
+      inset 0 1px 0 rgba(255, 255, 255, 0.08),
+      0 1px 2px rgba(0, 0, 0, 0.18);
+  }
+
+  .mention-menu-row[data-selected="true"] {
+    background:
+      linear-gradient(135deg, rgba(255, 255, 255, 0.13), rgba(255, 255, 255, 0.055)),
+      rgba(40, 40, 40, 0.72);
+    box-shadow:
+      inset 0 1px 0 rgba(255, 255, 255, 0.1),
+      0 1px 3px rgba(0, 0, 0, 0.18);
+  }
+
+  /* `composer-editor` — applied to the home composer textarea. Matches the
+   * Dimension /chat composer's fade: the top 12px and bottom 12px of any
+   * long input fades to transparent so scrolled-off content trails out
+   * gracefully instead of clipping at the viewport edge. */
+  .composer-editor {
+    -webkit-mask-image: linear-gradient(
+      to bottom,
+      transparent 0,
+      #000 12px,
+      #000 calc(100% - 12px),
+      transparent 100%
+    );
+    mask-image: linear-gradient(
+      to bottom,
+      transparent 0,
+      #000 12px,
+      #000 calc(100% - 12px),
+      transparent 100%
+    );
+  }
+
+  .tiptap-minimum-input {
+    white-space: pre-wrap;
+  }
+
+  .tiptap-minimum-input p {
+    margin: 0;
+  }
+
+  /* Fallback sky shown when the weather videos 404 or haven't loaded.
+   * The static structure (top light ramp, base sky) lives on the element;
+   * the drifting cloud/light radials live on an oversized ::before that is
+   * animated with `transform` — never `background-position` — so the drift
+   * stays on the compositor and doesn't repaint the full-bleed surface each
+   * frame (apple-design §11). */
+  .dimension-weather-surface {
+    overflow: hidden;
+    background:
+      linear-gradient(
+        180deg,
+        rgba(255, 255, 255, 0.26) 0%,
+        rgba(255, 255, 255, 0.04) 22%,
+        rgba(9, 22, 40, 0.58) 100%
+      ),
+      linear-gradient(152deg, #86aade 0%, #5d8bcf 33%, #4878bd 63%, #20365f 100%);
+  }
+
+  .dimension-weather-surface::before {
+    content: "";
+    position: absolute;
+    inset: -20%;
+    pointer-events: none;
+    background:
+      radial-gradient(
+        ellipse 74% 26% at 0% 7%,
+        rgba(255, 255, 255, 0.6) 0%,
+        rgba(212, 231, 255, 0.38) 24%,
+        transparent 60%
+      ),
+      radial-gradient(
+        ellipse 70% 30% at 60% 0%,
+        rgba(229, 241, 255, 0.33) 0%,
+        rgba(166, 198, 236, 0.22) 33%,
+        transparent 62%
+      ),
+      radial-gradient(
+        ellipse 92% 38% at 18% 55%,
+        rgba(222, 237, 255, 0.2) 0%,
+        rgba(162, 193, 232, 0.13) 34%,
+        transparent 70%
+      ),
+      radial-gradient(
+        ellipse 110% 42% at 92% 76%,
+        rgba(51, 88, 144, 0.28) 0%,
+        rgba(22, 46, 86, 0.18) 44%,
+        transparent 72%
+      );
+    filter: blur(10px);
+    animation: dimension-cloud-drift 34s ease-in-out infinite alternate;
+  }
+
+  .dimension-weather-surface::after {
+    content: "";
+    position: absolute;
+    inset: 0;
+    pointer-events: none;
+    background: linear-gradient(
+      180deg,
+      transparent 0%,
+      rgba(15, 34, 63, 0.08) 48%,
+      rgba(7, 18, 33, 0.62) 100%
+    );
+    opacity: 0.9;
+  }
+
+  /* Compositor-only drift — transform, never background-position. */
+  @keyframes dimension-cloud-drift {
+    from {
+      transform: translate3d(-2%, -1.5%, 0) scale(1.05);
+    }
+    to {
+      transform: translate3d(2.5%, 2%, 0) scale(1.09);
+    }
+  }
+
+  /* ---------------------------------------------------------------------------
+   * Landing primitives (added 2026-05-20 after dimension.dev sunset archive).
+   * -------------------------------------------------------------------------*/
+
+  /* 100rem (1600px) max-width landing container — Dimension's `new-landing-layout`. */
+  .new-landing-layout {
+    margin-inline: auto;
+    max-width: 100rem;
+    padding-inline: 1rem;
+  }
+  @media (min-width: 768px) {
+    .new-landing-layout {
+      padding-inline: 2rem;
+    }
+  }
+
+  /* Neumorphic gradient text — engraved-metal sheen sliding across glyphs.
+   * Two stacked backgrounds + background-clip: text. The shine color changes
+   * per variant; the metal base + animation + text-shadow are shared.
+   * Stagger with inline style="animation-delay: Ns" on each word. */
+  @keyframes gradient-text-slide {
+    0% {
+      background-position:
+        -80% 50%,
+        0 0;
+    }
+    25% {
+      background-position:
+        150% 50%,
+        0 0;
+    }
+    100% {
+      background-position:
+        150% 50%,
+        0 0;
+    }
+  }
+
+  .neumorphic-text {
+    background-size:
+      200% 100%,
+      100% 100%;
+    background-position:
+      150% 50%,
+      0 0;
+    background-clip: text;
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+    color: transparent;
+    animation: gradient-text-slide 13s linear infinite;
+    text-shadow:
+      0 1px 2px rgba(255, 255, 255, 0.1),
+      0 0 2.3px rgba(255, 255, 255, 0.25);
+  }
+  .neumorphic-text-default {
+    background-image:
+      linear-gradient(
+        90deg,
+        transparent,
+        transparent 40%,
+        rgb(var(--purple-500) / 0.56) 50%,
+        transparent 60%,
+        transparent
+      ),
+      linear-gradient(180deg, #9695a0, #ddd 130%);
+  }
+  .neumorphic-text-yellow {
+    background-image:
+      linear-gradient(
+        90deg,
+        transparent,
+        transparent 40%,
+        #ffcf5290 50%,
+        transparent 60%,
+        transparent
+      ),
+      linear-gradient(180deg, #9695a0, #ddd 130%);
+  }
+  .neumorphic-text-orange {
+    background-image:
+      linear-gradient(
+        90deg,
+        transparent,
+        transparent 40%,
+        #f7711f90 50%,
+        transparent 60%,
+        transparent
+      ),
+      linear-gradient(180deg, #9695a0, #ddd 130%);
+  }
+  .neumorphic-text-blue {
+    background-image:
+      linear-gradient(
+        90deg,
+        transparent,
+        transparent 40%,
+        #3094ff90 50%,
+        transparent 60%,
+        transparent
+      ),
+      linear-gradient(180deg, #9695a0, #ddd 130%);
+  }
+  .neumorphic-text-green {
+    background-image:
+      linear-gradient(
+        90deg,
+        transparent,
+        transparent 40%,
+        #73d60090 50%,
+        transparent 60%,
+        transparent
+      ),
+      linear-gradient(180deg, #9695a0, #ddd 130%);
+  }
+  .neumorphic-text-purple {
+    background-image:
+      linear-gradient(
+        90deg,
+        transparent,
+        transparent 40%,
+        #b072c690 50%,
+        transparent 60%,
+        transparent
+      ),
+      linear-gradient(180deg, #9695a0, #ddd 130%);
+  }
+  .neumorphic-text-black {
+    background-image:
+      linear-gradient(
+        90deg,
+        transparent,
+        transparent 40%,
+        #00000090 50%,
+        transparent 60%,
+        transparent
+      ),
+      linear-gradient(180deg, #9695a0, #ddd 130%);
+  }
+
+  /* Dark-text variant of the neumorphic shine — used on the LIGHT footer
+   * background. Base color is a deep gray that fades to a lighter steel,
+   * with a colored sheen sliding across (same animation as the dark
+   * variant). Matches dimension's `animate-neumorphic-gradient-text-default`
+   * on the footer "Dimension/Menu/Socials/Legal" headers. */
+  .neumorphic-text-on-light {
+    background-size:
+      200% 100%,
+      100% 100%;
+    background-position:
+      150% 50%,
+      0 0;
+    background-image:
+      linear-gradient(
+        90deg,
+        transparent,
+        transparent 40%,
+        rgb(var(--purple-500) / 0.48) 50%,
+        transparent 60%,
+        transparent
+      ),
+      linear-gradient(180deg, #2a2a35, #6e6e7e 130%);
+    background-clip: text;
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+    color: transparent;
+    animation: gradient-text-slide 13s linear infinite;
+    text-shadow: 0 1px 1px rgba(255, 255, 255, 0.4);
+  }
+
+  /* Animated gradient stop positions for the integration / frost-icon cards.
+   * Requires CSS @property so percentage values are interpolatable. Without
+   * @property the browser treats custom props as strings and won't animate. */
+  @property --gradient-pos-x {
+    syntax: "<percentage>";
+    initial-value: 30%;
+    inherits: false;
+  }
+  @property --gradient-size-x {
+    syntax: "<percentage>";
+    initial-value: 55%;
+    inherits: false;
+  }
+  @property --gradient-size-y {
+    syntax: "<percentage>";
+    initial-value: 70%;
+    inherits: false;
+  }
+  @property --gradient-pos-x2 {
+    syntax: "<percentage>";
+    initial-value: 75%;
+    inherits: false;
+  }
+  @property --gradient-size-x2 {
+    syntax: "<percentage>";
+    initial-value: 100%;
+    inherits: false;
+  }
+  @property --gradient-size-y2 {
+    syntax: "<percentage>";
+    initial-value: 52%;
+    inherits: false;
+  }
+  @keyframes gradient-frost-icon {
+    0%,
+    100% {
+      --gradient-pos-x: 20%;
+      --gradient-size-x: 40%;
+      --gradient-size-y: 70%;
+      --gradient-pos-x2: 65%;
+      --gradient-size-x2: 100%;
+      --gradient-size-y2: 50%;
+    }
+    50% {
+      --gradient-pos-x: 35%;
+      --gradient-size-x: 50%;
+      --gradient-size-y: 80%;
+      --gradient-pos-x2: 55%;
+      --gradient-size-x2: 110%;
+      --gradient-size-y2: 60%;
+    }
+  }
+  .animate-gradient-highlight {
+    animation: gradient-frost-icon 4s ease-in-out infinite;
+  }
+
+  /* Scroll-reveal helper. Apply `.reveal-on-scroll` to set the resting state
+   * (opacity:0 + translateY). When an IntersectionObserver detects the element
+   * entering the viewport, swap in `.reveal-shown` to play the fade-in.
+   * Wired up in components/landing/fade-in-on-scroll.tsx. */
+  .reveal-on-scroll {
+    opacity: 0;
+    transform: translateY(40px);
+    transition:
+      opacity 600ms cubic-bezier(0.22, 1, 0.36, 1),
+      transform 600ms cubic-bezier(0.22, 1, 0.36, 1);
+    will-change: opacity, transform;
+  }
+  .reveal-shown {
+    opacity: 1;
+    transform: translateY(0);
+  }
+  @media (prefers-reduced-motion: reduce) {
+    .reveal-on-scroll,
+    .reveal-shown {
+      opacity: 1;
+      transform: none;
+      transition: none;
+    }
+  }
+
+  /* `moon-glow` — the landing statement's signature delight. A soft indigo
+   * halo breathes behind the "never sleeps" Moon icon: slow (5s), low-contrast,
+   * never demanding attention. Echoes Dimension's night time-of-day theme.
+   * The icon itself sits above the halo via the negative-z pseudo + `isolate`. */
+  .moon-glow {
+    position: relative;
+    isolation: isolate;
+  }
+  .moon-glow::before {
+    content: "";
+    position: absolute;
+    inset: -7px;
+    z-index: -1;
+    border-radius: 9999px;
+    background: radial-gradient(circle, rgb(165 180 252 / 0.6), transparent 70%);
+    filter: blur(4px);
+    opacity: 0.3;
+    animation: moon-breathe 5s cubic-bezier(0.45, 0, 0.55, 1) infinite;
+  }
+  @keyframes moon-breathe {
+    0%,
+    100% {
+      opacity: 0.22;
+      transform: scale(0.85);
+    }
+    50% {
+      opacity: 0.65;
+      transform: scale(1.12);
+    }
+  }
+  @media (prefers-reduced-motion: reduce) {
+    .moon-glow::before {
+      animation: none;
+      opacity: 0.4;
+      transform: none;
+    }
+  }
+
+  /* `footnote-glow` — the hero asterisk that points at the access notice.
+   * Amber-tinted to match its destination, with a slow (3.5s) halo breathing
+   * behind it so the eye catches the footnote without it shouting over the CTA.
+   * Pseudo sits behind the glyph via negative-z + `isolate`. */
+  .footnote-glow {
+    position: relative;
+    isolation: isolate;
+  }
+  .footnote-glow::before {
+    content: "";
+    position: absolute;
+    inset: -5px -4px;
+    z-index: -1;
+    border-radius: 9999px;
+    background: radial-gradient(circle, rgb(251 191 36 / 0.55), transparent 68%);
+    filter: blur(3px);
+    opacity: 0.2;
+    animation: footnote-breathe 3.5s cubic-bezier(0.45, 0, 0.55, 1) infinite;
+  }
+  @keyframes footnote-breathe {
+    0%,
+    100% {
+      opacity: 0.15;
+      transform: scale(0.8);
+    }
+    50% {
+      opacity: 0.55;
+      transform: scale(1.15);
+    }
+  }
+  @media (prefers-reduced-motion: reduce) {
+    .footnote-glow::before {
+      animation: none;
+      opacity: 0.35;
+      transform: none;
+    }
+  }
+
+  /* Hero atmospheric backdrop — Dimension's exact three-stop sky gradient
+   * (#4867AF → #9CAFB8 via 62% → #C49577). Base layer that always paints;
+   * the day/evening/night layers below crossfade ON TOP via scroll progress. */
+  .landing-hero-sky {
+    background: linear-gradient(180deg, #4867af 0%, #9cafb8 62%, #c49577 100%);
+  }
+
+  /* Morning — cool dawn blues with a pink horizon. */
+  .landing-sky-morning {
+    background: linear-gradient(180deg, #2c4a82 0%, #6f8fc8 50%, #d8a890 100%);
+  }
+
+  /* Midday — bright clear sky, washed warm at the bottom. */
+  .landing-sky-midday {
+    background: linear-gradient(180deg, #4d7fcb 0%, #a3bcd6 55%, #e6c4a3 100%);
+  }
+
+  /* Evening — peach + violet horizon, hint of indigo at the top. */
+  .landing-sky-evening {
+    background: linear-gradient(180deg, #3d3a72 0%, #7d5a8e 35%, #d27c66 75%, #f3a779 100%);
+  }
+
+  /* Night — deep indigo with a soft star vignette at the top. */
+  .landing-sky-night {
+    background:
+      radial-gradient(ellipse 90% 60% at 70% 20%, rgba(120, 130, 200, 0.18), transparent 60%),
+      linear-gradient(180deg, #0c1029 0%, #1d2348 45%, #2a2452 100%);
+  }
+
+  /* The chromatic lens-flare is now a real texture (hero/sun-halo.png)
+   * blended at screen in hero-atmosphere.tsx, replacing the earlier
+   * CSS-faked conic ring + core that used to live here. */
+
+  /* Hide native scrollbar on scroll containers that should feel "edge-to-edge"
+   * (e.g. the landing scroll root). Mirrors dimension's `hide-scrollbar`. */
+  .hide-scrollbar {
+    scrollbar-width: none;
+  }
+  .hide-scrollbar::-webkit-scrollbar {
+    display: none;
+  }
+
+  /* Notification-badge breathing animation used by the morning-briefing
+   * integration tile row — the badges pulse at staggered delays so the row
+   * doesn't read as fully static (dimension's source-of-truth is an MP4). */
+  @keyframes morning-briefing-badge-pulse {
+    0%,
+    100% {
+      transform: scale(1);
+      box-shadow: 0 2px 8px -2px rgba(255, 58, 58, 0.5);
+    }
+    50% {
+      transform: scale(1.08);
+      box-shadow: 0 4px 14px -2px rgba(255, 58, 58, 0.75);
+    }
+  }
+  .morning-briefing-badge-pulse {
+    animation: morning-briefing-badge-pulse 2.4s ease-in-out infinite;
+  }
+  @media (prefers-reduced-motion: reduce) {
+    .morning-briefing-badge-pulse {
+      animation: none;
+    }
+  }
+
+  /* Morning Briefing showcase surface — translucent blue panel with a slight
+   * directional gradient + light spec at top-right that mirrors dimension's
+   * hero showcase. Layered radials sit on top of an indigo base so the panel
+   * reads as a single piece of frosted glass on the sky. */
+  /* ---------------------------------------------------------------------------
+   * App grammar (added 2026-05-23)
+   * See archive/visitors-now/design-notes.md.
+   *
+   * Wrap any route, page, or subtree in `.app` to opt in: flips the
+   * background to white, the default text to `--app-fg-3`, sets the
+   * Linear-style `cursor: default`, and applies the global -0.02em
+   * tracking that the visitors.now site uses on `<body>`.
+   *
+   * Existing dimension-grammar routes are untouched; they live outside
+   * any `.app` ancestor.
+   * -------------------------------------------------------------------------*/
+  .app {
+    background-color: var(--app-background);
+    color: var(--app-fg-3);
+    letter-spacing: -0.02em;
+    cursor: default;
+  }
+  .app h1,
+  .app h2,
+  .app h3,
+  .app h4 {
+    color: var(--app-fg-4);
+  }
+  .app a,
+  .app button,
+  .app [role="button"] {
+    cursor: pointer;
+  }
+  .app input,
+  .app textarea,
+  .app [contenteditable="true"] {
+    cursor: text;
+  }
+
+  /* Make the native scrollbar (and form controls) follow the .app theme.
+   * The default is `color-scheme: light`, which leaves scrollbars white-on-
+   * grey even on near-black surfaces. Explicit attribute overrides win;
+   * system mode falls through to `light dark` so the OS picks. */
+  .app[data-app-theme="dark"] {
+    color-scheme: dark;
+  }
+  .app[data-app-theme="light"] {
+    color-scheme: light;
+  }
+  .app:not([data-app-theme="dark"]):not([data-app-theme="light"]) {
+    color-scheme: light dark;
+  }
+
+  /* Themed scrollbar — default styling for every scroll container inside
+   * `.app`. `scrollbar-width` doesn't inherit, so we have to splat the rule
+   * across all descendants; `scrollbar-color` does inherit but we keep it
+   * paired with the width selector for clarity. Webkit pseudo-elements use
+   * the descendant combinator so any nested scroll container picks them up.
+   *
+   * Use the `.app-scrollbar-none` opt-out below to hide the scrollbar on a
+   * specific surface (e.g. internal scroll regions where the bar would
+   * distract). */
+  .app,
+  .app * {
+    scrollbar-width: thin;
+    scrollbar-color: var(--app-bg-4) transparent;
+  }
+  .app ::-webkit-scrollbar,
+  .app::-webkit-scrollbar {
+    width: 8px;
+    height: 8px;
+  }
+  .app ::-webkit-scrollbar-thumb,
+  .app::-webkit-scrollbar-thumb {
+    background-color: var(--app-bg-4);
+    border-radius: 9999px;
+  }
+  .app ::-webkit-scrollbar-thumb:hover,
+  .app::-webkit-scrollbar-thumb:hover {
+    background-color: var(--app-fg-1);
+  }
+  .app ::-webkit-scrollbar-track,
+  .app::-webkit-scrollbar-track {
+    background-color: transparent;
+  }
+  .app .app-scrollbar-none,
+  .app .app-scrollbar-none * {
+    scrollbar-width: none;
+  }
+  .app .app-scrollbar-none::-webkit-scrollbar,
+  .app .app-scrollbar-none *::-webkit-scrollbar {
+    display: none;
+  }
+
+  /* `app-elevated` — the two-shadow stack that gives every interactive
+   * surface (button, input, pill, card) its hairline + 1px drop in one
+   * declaration. Hover bumps both opacities slightly. */
+  .app-elevated {
+    box-shadow: var(--app-shadow-elevated);
+    transition: box-shadow 150ms ease-out;
+  }
+  .app-elevated:hover {
+    box-shadow: var(--app-shadow-elevated-hover);
+  }
+
+  /* `composer-frost` — the chat composer's floating frosted-glass surface,
+   * ported from dimension's input material (archive/dimension) and re-expressed
+   * in Alfred's tokens. Three ingredients carry the "physical glass panel" feel:
+   *
+   *   1. A beveled gradient border via the ::before mask-composite trick — the
+   *      edge gradient is bright at the top-left/bottom-right corners and dim
+   *      through the middle, so the hairline reads as a lit glass rim rather
+   *      than a flat 1px stroke. (@see stackoverflow.com/a/71935982)
+   *   2. backdrop-blur + a translucent fill so the chat scrolling underneath
+   *      shows through faintly, and a top-left specular sheen for gloss.
+   *   3. A layered soft drop shadow so the panel floats above the page.
+   *
+   * The float shadow is consumed in JSX via `shadow-[var(--frost-shadow)]`
+   * (feeding Tailwind's --tw-shadow) so it composes with — instead of being
+   * wiped by — the purple `focus-within:ring`. Light values are the default;
+   * the dark overrides below flip the edge to a white glass rim and deepen the
+   * drop, matching how the token blocks scope per theme. */
+  .composer-frost {
+    position: relative;
+    --frost-bw: 1px;
+    --frost-fill: rgba(255, 255, 255, 0.72);
+    --frost-sheen: 0.55;
+    --frost-edge: linear-gradient(
+      to bottom right,
+      rgba(255, 255, 255, 0.9) 0%,
+      rgba(17, 17, 17, 0.12) 44%,
+      rgba(17, 17, 17, 0.08) 60%,
+      rgba(255, 255, 255, 0.5) 100%
+    );
+    --frost-shadow:
+      0 0 0 0.5px rgba(17, 17, 17, 0.1), 0 2px 4px rgba(17, 17, 17, 0.04),
+      0 8px 16px -4px rgba(17, 17, 17, 0.06), 0 20px 40px -12px rgba(17, 17, 17, 0.12);
+    background-color: var(--frost-fill);
+    background-image: radial-gradient(
+      120% 100% at 12% -10%,
+      rgba(255, 255, 255, var(--frost-sheen)),
+      transparent 58%
+    );
+    backdrop-filter: blur(16px) saturate(1.4);
+    -webkit-backdrop-filter: blur(16px) saturate(1.4);
+    transition: box-shadow 200ms ease-out;
+  }
+  .composer-frost::before {
+    content: "";
+    position: absolute;
+    inset: 0;
+    border-radius: inherit;
+    padding: var(--frost-bw);
+    background: var(--frost-edge);
+    -webkit-mask:
+      linear-gradient(#fff 0 0) content-box,
+      linear-gradient(#fff 0 0);
+    mask:
+      linear-gradient(#fff 0 0) content-box,
+      linear-gradient(#fff 0 0);
+    -webkit-mask-composite: xor;
+    mask-composite: exclude;
+    pointer-events: none;
+  }
+  /* Forced dark — a lit white glass rim over a near-black translucent fill, with
+   * a deeper drop since the dark page swallows the softer light-mode shadow. */
+  .app[data-app-theme="dark"] .composer-frost {
+    --frost-fill: rgba(20, 20, 22, 0.72);
+    --frost-sheen: 0.08;
+    --frost-edge: linear-gradient(
+      to bottom right,
+      rgba(255, 255, 255, 0.5) 0%,
+      rgba(255, 255, 255, 0.06) 42%,
+      rgba(255, 255, 255, 0.05) 62%,
+      rgba(255, 255, 255, 0.22) 100%
+    );
+    --frost-shadow:
+      0 0 0 0.5px rgba(255, 255, 255, 0.06), 0 2px 4px rgba(0, 0, 0, 0.3),
+      0 10px 20px -6px rgba(0, 0, 0, 0.5), 0 28px 50px -16px rgba(0, 0, 0, 0.7);
+  }
+  /* System mode leaves the attribute off entirely — match the OS preference. */
+  @media (prefers-color-scheme: dark) {
+    .app:not([data-app-theme="light"]) .composer-frost {
+      --frost-fill: rgba(20, 20, 22, 0.72);
+      --frost-sheen: 0.08;
+      --frost-edge: linear-gradient(
+        to bottom right,
+        rgba(255, 255, 255, 0.5) 0%,
+        rgba(255, 255, 255, 0.06) 42%,
+        rgba(255, 255, 255, 0.05) 62%,
+        rgba(255, 255, 255, 0.22) 100%
+      );
+      --frost-shadow:
+        0 0 0 0.5px rgba(255, 255, 255, 0.06), 0 2px 4px rgba(0, 0, 0, 0.3),
+        0 10px 20px -6px rgba(0, 0, 0, 0.5), 0 28px 50px -16px rgba(0, 0, 0, 0.7);
+    }
+  }
+
+  /* `app-toast` — the floating frosted notification used by callToast().
+   * A translucent panel with backdrop blur, a theme-aware hairline (the
+   * elevated-shadow ring) and a soft drop so it reads as lifted above the
+   * chat. Because the card is stamped with `.app` + the resolved
+   * `data-app-theme`, every token flips with the user's theme even though
+   * sonner renders it outside the themed subtree. */
+  .app-toast {
+    position: relative;
+    /* Own stacking context so the negative-z glow (below) paints above the
+     * solid fill but below the text + controls. */
+    isolation: isolate;
+    /* Opaque surface — the card itself is solid so page content never bleeds
+     * through; only the gradients on top of it (the top-left specular sheen
+     * here + the per-variant edge-glow below) carry any transparency. The sheen
+     * is a white wash whose strength flips per theme (invisible on the light
+     * surface, a quiet edge-light on the dark one). */
+    background-color: var(--app-bg-2);
+    background-image: radial-gradient(
+      132% 104% at 6% -18%,
+      rgba(255, 255, 255, var(--app-toast-sheen, 0.045)),
+      transparent 58%
+    );
+    box-shadow:
+      var(--app-shadow-elevated),
+      0 16px 40px -16px rgba(0, 0, 0, 0.55);
+    color: var(--app-fg-4);
+    /* Land the card with a gentle scale-up. sonner already owns the wrapper's
+     * opacity + slide, so we add scale only — a second opacity ramp here would
+     * read as a double-fade. */
+    animation: app-toast-in 260ms cubic-bezier(0.2, 0, 0, 1) both;
+  }
+  @media (prefers-reduced-motion: reduce) {
+    .app-toast {
+      animation: none;
+    }
+  }
+  @keyframes app-toast-in {
+    from {
+      transform: translateY(3px) scale(0.965);
+    }
+    to {
+      transform: translateY(0) scale(1);
+    }
+  }
+
+  /* Stacked-pile peek. When toasts collapse into sonner's stack, the cards
+   * behind the front one should read as clean frosted slivers, not a busy
+   * pile of legible content. sonner does this for its own toasts via
+   * `[data-styled=true][data-front=false]>*{opacity:0}`, but our cards come
+   * from `toast.custom()` which renders `data-styled=false`, so that rule
+   * never matches. Mirror it here: fade the inner content (icon, text,
+   * buttons) of every non-front collapsed toast while the card surface keeps
+   * peeking. On hover the stack expands (`data-expanded=true`) and the
+   * content fades back in. */
+  [data-sonner-toast][data-expanded="false"][data-front="false"] .app-toast > * {
+    opacity: 0;
+    transition: opacity 0.3s;
+  }
+
+  /* Semantic glow — a soft brand-colored gradient bleeds from the leading edge
+   * and dissolves across the card, echoing the emoji-bleed of `--emoji` but
+   * keyed off the variant's vivid `-3` token (which holds its hue across both
+   * themes). Only the intensity flips per mode: gentle on light frost, a touch
+   * more present on the dark fill. `default` opts out — it stays calm neutral. */
+  .app-toast[data-variant="success"] {
+    --app-toast-glow: var(--app-green-3);
+  }
+  .app-toast[data-variant="info"] {
+    --app-toast-glow: var(--app-blue-3);
+  }
+  .app-toast[data-variant="warning"] {
+    --app-toast-glow: var(--app-amber-3);
+  }
+  .app-toast[data-variant="error"] {
+    --app-toast-glow: var(--app-red-3);
+  }
+  .app-toast[data-variant="success"]::before,
+  .app-toast[data-variant="info"]::before,
+  .app-toast[data-variant="warning"]::before,
+  .app-toast[data-variant="error"]::before {
+    content: "";
+    position: absolute;
+    inset: 0;
+    z-index: -1;
+    border-radius: inherit;
+    pointer-events: none;
+    /* Origin sits off the left edge (-8%) so only the gradient's soft falloff
+     * lands on the card — the hot center never shows — and the peak strength is
+     * gentle. Keeps the wash present without the bright leading edge. */
+    background: radial-gradient(
+      88% 140% at -8% 50%,
+      color-mix(in srgb, var(--app-toast-glow) var(--app-toast-glow-strength, 15%), transparent),
+      transparent 64%
+    );
+  }
+  /* Dark fill swallows more light, so push the wash a little harder and let the
+   * specular sheen read as a real edge-light. */
+  .app-toast[data-app-theme="dark"] {
+    --app-toast-glow-strength: 30%;
+    --app-toast-sheen: 0.07;
+  }
+  /* System mode leaves the attribute off entirely — match the OS preference. */
+  @media (prefers-color-scheme: dark) {
+    .app-toast:not([data-app-theme="light"]) {
+      --app-toast-glow-strength: 30%;
+      --app-toast-sheen: 0.07;
+    }
+  }
+  /* Soft tinted disc behind the leading icon. */
+  .app-toast-icon {
+    background-color: var(--app-bg-a2);
+  }
+  /* Danger variant — a present red wash + a crisp red hairline so the card
+   * clearly reads as a failure, with neutral high-contrast text on top. (Red
+   * text on the pale fill never cleared 4.5:1; the red identity now lives in
+   * the fill, hairline, icon disc, and edge-glow instead.) */
+  .app-toast--danger {
+    /* No full-card red wash — that read as "completely red". The surface stays
+     * the same neutral opaque fill as every other intent; the error identity is
+     * carried by the red icon disc, the soft red edge-glow gradient (the shared
+     * ::before below), and a slightly stronger red hairline ring. */
+    box-shadow:
+      0 0 0 1px color-mix(in srgb, var(--app-red-4) 40%, transparent),
+      0 16px 40px -16px rgba(0, 0, 0, 0.55);
+  }
+
+  /* Semantic icon discs — the card stays the calm frosted neutral; only the
+   * leading disc + glyph carry the intent color, so success/info/warning read
+   * as a quiet accent rather than a shouting card. Each accent declares its hue
+   * via --accent (glyph) + --accent-2 (disc fill); the shared rules below pick
+   * contrast-correct values per theme. */
+  .app-toast-icon--success {
+    --accent: var(--app-green-4);
+    --accent-2: var(--app-green-2);
+  }
+  .app-toast-icon--info {
+    --accent: var(--app-blue-4);
+    --accent-2: var(--app-blue-2);
+  }
+  .app-toast-icon--warning {
+    --accent: var(--app-amber-4);
+    --accent-2: var(--app-amber-2);
+  }
+  .app-toast-icon--danger {
+    --accent: var(--app-red-4);
+    --accent-2: var(--app-red-2);
+  }
+  /* Light: the bright `-4` accents read too faint on the pale disc, so darken
+   * the glyph for legibility and let the disc tint sit quiet and transparent. */
+  .app-toast-icon--success,
+  .app-toast-icon--info,
+  .app-toast-icon--warning,
+  .app-toast-icon--danger {
+    background-color: color-mix(in srgb, var(--accent-2) 45%, transparent);
+    color: color-mix(in srgb, var(--accent) 60%, #000);
+  }
+  /* Dark: the `-4` accents are already light, so they pop on the dark frost —
+   * use them straight over a slightly fuller disc. */
+  .app-toast[data-app-theme="dark"] .app-toast-icon--success,
+  .app-toast[data-app-theme="dark"] .app-toast-icon--info,
+  .app-toast[data-app-theme="dark"] .app-toast-icon--warning,
+  .app-toast[data-app-theme="dark"] .app-toast-icon--danger {
+    background-color: color-mix(in srgb, var(--accent-2) 90%, transparent);
+    color: var(--accent);
+  }
+  @media (prefers-color-scheme: dark) {
+    .app-toast:not([data-app-theme="light"]) .app-toast-icon--success,
+    .app-toast:not([data-app-theme="light"]) .app-toast-icon--info,
+    .app-toast:not([data-app-theme="light"]) .app-toast-icon--warning,
+    .app-toast:not([data-app-theme="light"]) .app-toast-icon--danger {
+      background-color: color-mix(in srgb, var(--accent-2) 90%, transparent);
+      color: var(--accent);
+    }
+  }
+
+  /* Corner close button — sonner's signature affordance, rebuilt for our custom
+   * card (sonner doesn't render its own close button for `toast.custom`). A
+   * small circle cut into the top-right corner, filled with the card surface +
+   * a hairline so it reads as part of the card. Always visible so dismissal is
+   * one click away. */
+  .app-toast-close {
+    background-color: var(--app-bg-2);
+    color: var(--app-fg-3);
+    box-shadow: 0 0 0 1px var(--app-fg-a1);
+    opacity: 1;
+    transition:
+      color 150ms ease,
+      box-shadow 150ms ease;
+    z-index: 1;
+  }
+  .app-toast-close:hover {
+    color: var(--app-fg-4);
+    box-shadow: 0 0 0 1px var(--app-fg-a2);
+  }
+
+  /* `app-toast--emoji` — the emoji confirmation drops the icon-disc tint and
+   * lets a giant blurred emoji bleed off the leading edge. */
+  .app-toast--emoji {
+    cursor: pointer;
+  }
+  @keyframes app-toast-emoji-in {
+    from {
+      opacity: 0;
+      transform: translateX(-44%) scale(0.85);
+    }
+    to {
+      opacity: 0.15;
+      transform: translateX(-28%) scale(1);
+    }
+  }
+
+  /* `app-frost-overlay` — frosted glass for floating surfaces that sit
+   * above page content (chat approval tray; reach for it for future
+   * popovers/menus too). Ported from dimension's frost-popover recipe,
+   * translated to app-grammar tokens: translucent bg-2 fill + backdrop
+   * blur + a faint top-left radial sheen + the theme-aware elevated
+   * hairline, finished with a layered drop so it reads as lifted. */
+  .app-frost-overlay {
+    background:
+      radial-gradient(120% 90% at 8% -12%, rgba(255, 255, 255, 0.09), transparent 60%),
+      color-mix(in srgb, var(--app-bg-2) 95%, transparent);
+    backdrop-filter: blur(28px) saturate(1.2);
+    -webkit-backdrop-filter: blur(28px) saturate(1.2);
+    box-shadow:
+      var(--app-shadow-elevated),
+      0 2px 8px rgba(0, 0, 0, 0.07),
+      0 16px 40px -12px rgba(0, 0, 0, 0.22);
+  }
+
+  /* `app-frost-header` — masked backdrop-blur that fades to no-blur at the
+   * very top. Page background shows through the top edge, blur kicks in
+   * over content lower down. Use on any sticky header. */
+  .app-frost-header {
+    position: relative;
+  }
+  .app-frost-header::before {
+    content: "";
+    position: absolute;
+    inset: 0 0 -1rem 0;
+    background-color: color-mix(in srgb, var(--app-background) 80%, transparent);
+    backdrop-filter: blur(16px) saturate(1.1);
+    -webkit-backdrop-filter: blur(16px) saturate(1.1);
+    -webkit-mask: linear-gradient(to top, rgba(0, 0, 0, 0) 0%, rgba(0, 0, 0, 1) 50%);
+    mask: linear-gradient(to top, rgba(0, 0, 0, 0) 0%, rgba(0, 0, 0, 1) 50%);
+    pointer-events: none;
+    z-index: -1;
+  }
+
+  /* Active-press microinteraction used across primitives. Subtle — 1%,
+   * not 5% — just enough to feel responsive. */
+  .app-press:active:not(:disabled) {
+    transform: scale(0.99);
+  }
+
+  /* Card entrance — fade + 6px rise + slight blur. Use with inline
+   * style="animation-delay: <n>ms" on each card for a stagger effect. */
+  @keyframes app-card-in {
+    from {
+      opacity: 0;
+      transform: translateY(6px);
+      filter: blur(2px);
+    }
+    to {
+      opacity: 1;
+      transform: translateY(0);
+      filter: blur(0);
+    }
+  }
+  .app-card-in {
+    animation: app-card-in 360ms cubic-bezier(0.22, 1, 0.36, 1) backwards;
+  }
+
+  /* Overlay entrance — plain fade. Used by modal scrims and popover
+   * frames that mount instantly when an open state flips true. */
+  @keyframes app-fade-in {
+    from {
+      opacity: 0;
+    }
+    to {
+      opacity: 1;
+    }
+  }
+  .app-fade-in {
+    animation: app-fade-in 180ms cubic-bezier(0.22, 1, 0.36, 1) backwards;
+  }
+
+  /* Tooltip reveal — fade + a touch of scale and rise. Borrowed from
+   * dimension's tooltip, whose pills zoom-in-95 + slide-in on open. */
+  @keyframes app-tooltip-in {
+    from {
+      opacity: 0;
+      transform: scale(0.96) translateY(2px);
+    }
+    to {
+      opacity: 1;
+      transform: scale(1) translateY(0);
+    }
+  }
+
+  /* Hover-lift — 2px rise + shadow bump. The transform is on a
+   * `transition-transform` so it interpolates smoothly. Use on cards
+   * that benefit from a "comes towards you" hover affordance. */
+  .app-hover-lift {
+    transition:
+      transform 220ms cubic-bezier(0.22, 1, 0.36, 1),
+      box-shadow 220ms cubic-bezier(0.22, 1, 0.36, 1);
+  }
+  .app-hover-lift:hover {
+    transform: translateY(-2px);
+  }
+
+  /* Hero-stack child reveal — when a parent gets `:hover`, immediate
+   * stack siblings fan out a touch and rotate microscopically. Used by
+   * the workflow card hero previews. */
+  .app-stack {
+    transition: transform 280ms cubic-bezier(0.22, 1, 0.36, 1);
+  }
+  .app-hover-lift:hover .app-stack-back {
+    transform: translate(-6px, -2px) rotate(-2deg);
+  }
+  .app-hover-lift:hover .app-stack-mid {
+    transform: translateY(-1px);
+  }
+  .app-hover-lift:hover .app-stack-front {
+    transform: translate(6px, -2px) rotate(2deg);
+  }
+  @media (prefers-reduced-motion: reduce) {
+    .app-card-in,
+    .app-fade-in,
+    .app-tooltip-in,
+    .app-hover-lift,
+    .app-stack {
+      animation: none !important;
+      transition: none !important;
+      transform: none !important;
+    }
+  }
+
+  /* Chat composer — per-character entrance (monkeytype-feel typing).
+   * Each <span class="chat-char"> in the textarea mirror animates exactly
+   * once when it mounts. Keep the animation short so fast typing doesn't
+   * feel laggy, and use `backwards` so the from-state applies before the
+   * first frame paints — otherwise React's render → animation gap shows
+   * one frame of fully visible char. */
+  @keyframes chat-char-in {
+    from {
+      opacity: 0;
+      transform: translateY(-2px);
+      filter: blur(0.4px);
+    }
+    to {
+      opacity: 1;
+      transform: translateY(0);
+      filter: blur(0);
+    }
+  }
+  .chat-char {
+    display: inline;
+    animation: chat-char-in 140ms cubic-bezier(0.22, 1, 0.36, 1) backwards;
+  }
+
+  /* Soft pulsing dot for the recording timer indicator — slower than a
+   * notification beat so the user reads it as "live" rather than alarm. */
+  @keyframes chat-rec-pulse {
+    0%,
+    100% {
+      opacity: 1;
+      transform: scale(1);
+    }
+    50% {
+      opacity: 0.55;
+      transform: scale(0.86);
+    }
+  }
+  .chat-rec-dot {
+    animation: chat-rec-pulse 1.4s ease-in-out infinite;
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    .chat-char,
+    .chat-rec-dot {
+      animation: none !important;
+    }
+  }
+
+  /* ---------------------------------------------------------------------------
+   * Feature-grid living mockups (added 2026-05-31)
+   *
+   * The "Everything Alfred handles for you" cards used to hold fully static
+   * mockups. visitors.now's equivalents breathe — a live ping dot, content
+   * that populates on reveal. These give each Alfred card ONE purposeful,
+   * quiet motion that says "Alfred is doing this for you right now".
+   *
+   * One-shot reveals are gated under `.reveal-shown` (set on each card wrapper
+   * by FadeInOnScroll's IntersectionObserver) so they fire as the card scrolls
+   * in, then rest. Base opacity stays 1 — the `backwards` fill holds the
+   * from-state through `animation-delay`, and the card's own reveal hides the
+   * pre-roll. All reduced-motion guarded at the bottom.
+   * ------------------------------------------------------------------------- */
+
+  /* Rows / takeaways populating into a card — inbox threads, meeting cues. */
+  @keyframes fg-row-in {
+    from {
+      opacity: 0;
+      transform: translateY(8px);
+    }
+    to {
+      opacity: 1;
+      transform: none;
+    }
+  }
+  .reveal-shown .fg-row {
+    animation: fg-row-in 420ms cubic-bezier(0.22, 1, 0.36, 1) backwards;
+  }
+  .reveal-shown .fg-row:nth-child(1) {
+    animation-delay: 300ms;
+  }
+  .reveal-shown .fg-row:nth-child(2) {
+    animation-delay: 410ms;
+  }
+  .reveal-shown .fg-row:nth-child(3) {
+    animation-delay: 520ms;
+  }
+
+  /* Status chip "stamping" onto a row a beat after it lands — the visual
+   * tell that Alfred just finished triaging that thread. Crisp scale-in,
+   * no overshoot (bounce reads cheap against this restrained surface). */
+  @keyframes fg-stamp-in {
+    from {
+      opacity: 0;
+      transform: scale(0.6);
+    }
+    to {
+      opacity: 1;
+      transform: scale(1);
+    }
+  }
+  .reveal-shown .fg-stamp {
+    animation: fg-stamp-in 360ms cubic-bezier(0.22, 1, 0.36, 1) backwards;
+    animation-delay: 720ms;
+  }
+
+  /* Live "synced" indicator — a solid dot with an expanding ring pinging out
+   * of it. visitors.now's realtime signature, dialed to Alfred's calm. The
+   * ring rides the green-300 the badge already uses. */
+  @keyframes fg-ping {
+    0% {
+      transform: scale(1);
+      opacity: 0.55;
+    }
+    70%,
+    100% {
+      transform: scale(2.6);
+      opacity: 0;
+    }
+  }
+  .fg-ping {
+    animation: fg-ping 2s cubic-bezier(0, 0, 0.2, 1) infinite;
+  }
+
+  /* Imminent-meeting badge breathing — low amplitude, slow, so "In 8 min"
+   * reads as a quietly ticking countdown rather than an alert. */
+  @keyframes fg-tick {
+    0%,
+    100% {
+      opacity: 0.85;
+    }
+    50% {
+      opacity: 1;
+    }
+  }
+  .fg-tick {
+    animation: fg-tick 2.6s ease-in-out infinite;
+  }
+
+  /* Chat message entrance — each bubble slides up as it's appended to the
+   * conversation. Driven by per-phase mount in feature-grid.tsx, so the
+   * animation plays once per bubble. */
+  @keyframes fg-msg-in {
+    from {
+      opacity: 0;
+      transform: translateY(8px) scale(0.98);
+    }
+    to {
+      opacity: 1;
+      transform: none;
+    }
+  }
+  .fg-msg-in {
+    animation: fg-msg-in 320ms cubic-bezier(0.22, 1, 0.36, 1) backwards;
+  }
+
+  /* Three-dot typing indicator while Alfred "thinks" before replying. */
+  @keyframes fg-typing {
+    0%,
+    80%,
+    100% {
+      transform: translateY(0);
+      opacity: 0.4;
+    }
+    40% {
+      transform: translateY(-3px);
+      opacity: 1;
+    }
+  }
+  .fg-typing-dot {
+    animation: fg-typing 1.1s ease-in-out infinite;
+  }
+  .fg-typing-dot:nth-child(2) {
+    animation-delay: 0.15s;
+  }
+  .fg-typing-dot:nth-child(3) {
+    animation-delay: 0.3s;
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    .reveal-shown .fg-row,
+    .reveal-shown .fg-stamp,
+    .fg-ping,
+    .fg-tick,
+    .fg-msg-in,
+    .fg-typing-dot {
+      animation: none !important;
+    }
+  }
+
+  .morning-briefing-surface {
+    background:
+      radial-gradient(
+        ellipse 60% 40% at 100% 0%,
+        rgba(255, 255, 255, 0.28),
+        rgba(255, 255, 255, 0.06) 38%,
+        transparent 70%
+      ),
+      radial-gradient(ellipse 80% 50% at 0% 100%, rgba(72, 103, 175, 0.55), transparent 70%),
+      linear-gradient(
+        160deg,
+        rgba(72, 103, 175, 0.78) 0%,
+        rgba(58, 88, 156, 0.82) 55%,
+        rgba(64, 96, 168, 0.85) 100%
+      );
+    box-shadow:
+      inset 0 1px 0 rgba(255, 255, 255, 0.18),
+      inset 0 -1px 0 rgba(0, 0, 0, 0.18);
+    backdrop-filter: blur(4px) saturate(1.05);
+    -webkit-backdrop-filter: blur(4px) saturate(1.05);
+  }
+}

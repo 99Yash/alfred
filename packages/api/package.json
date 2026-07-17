@@ -1,0 +1,64 @@
+{
+  "name": "@alfred/api",
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts",
+    "./backend": "./src/backend.ts",
+    "./runtime": "./src/runtime.ts",
+    "./modules/triage/classify": "./src/modules/triage/classify.ts",
+    "./modules/triage/gmail-reconcile": "./src/modules/triage/gmail-reconcile.ts",
+    "./modules/triage/observations": "./src/modules/triage/observations.ts",
+    "./modules/triage/sender-context": "./src/modules/triage/sender-context.ts",
+    "./modules/triage/sent-mail": "./src/modules/triage/sent-mail.ts",
+    "./modules/triage/store": "./src/modules/triage/store.ts",
+    "./queue/connection": "./src/queue/connection.ts"
+  },
+  "scripts": {
+    "build": "node ../../scripts/clean-package-dist.mjs && tsc -b --emitDeclarationOnly --force",
+    "check-types": "tsc -b --emitDeclarationOnly",
+    "test": "tsx --test test/**/*.test.ts",
+    "eval": "evalite run",
+    "eval:watch": "evalite watch"
+  },
+  "dependencies": {
+    "@alfred/ai": "workspace:*",
+    "@alfred/artifacts-design": "workspace:*",
+    "@alfred/auth": "workspace:*",
+    "@alfred/contracts": "workspace:*",
+    "@alfred/db": "workspace:*",
+    "@alfred/env": "workspace:*",
+    "@alfred/ingestion": "workspace:*",
+    "@alfred/integrations": "workspace:*",
+    "@alfred/mailer": "workspace:*",
+    "@alfred/sync": "workspace:*",
+    "@aws-sdk/client-s3": "^3.1073.0",
+    "@aws-sdk/s3-presigned-post": "^3.1073.0",
+    "@aws-sdk/s3-request-presigner": "^3.1073.0",
+    "bullmq": "catalog:",
+    "cron-parser": "^5.5.0",
+    "drizzle-orm": "^0.45.2",
+    "elysia": "catalog:",
+    "files-sdk": "^2.0.0",
+    "ioredis": "catalog:",
+    "isomorphic-dompurify": "^2.36.0",
+    "jose": "^6.2.2",
+    "pg": "^8.16.3",
+    "pino": "^10.3.1",
+    "resend": "catalog:",
+    "sharp": "^0.35.2",
+    "undici": "^7.25.0",
+    "zod": "catalog:"
+  },
+  "devDependencies": {
+    "@alfred/config": "workspace:*",
+    "@types/pg": "^8.18.0",
+    "ai": "catalog:",
+    "dotenv": "catalog:",
+    "evalite": "1.0.0-beta.16",
+    "tsx": "^4.21.0",
+    "vitest": "^4.0.16"
+  },
+  "peerDependencies": {
+    "typescript": "catalog:"
+  }
+}

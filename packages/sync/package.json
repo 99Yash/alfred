@@ -1,0 +1,29 @@
+{
+  "name": "@alfred/sync",
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts",
+    "./*": "./src/*.ts"
+  },
+  "scripts": {
+    "build": "node ../../scripts/clean-package-dist.mjs && tsc -b --emitDeclarationOnly --force",
+    "check-types": "tsc -b --emitDeclarationOnly"
+  },
+  "dependencies": {
+    "@alfred/contracts": "workspace:*",
+    "zod": "catalog:"
+  },
+  "devDependencies": {
+    "@alfred/config": "workspace:*",
+    "replicache": "catalog:"
+  },
+  "peerDependencies": {
+    "replicache": "^15",
+    "typescript": "catalog:"
+  },
+  "peerDependenciesMeta": {
+    "replicache": {
+      "optional": true
+    }
+  }
+}

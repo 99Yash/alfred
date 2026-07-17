@@ -1,0 +1,52 @@
+import { ChevronRight } from "lucide-react";
+import { useState, type ReactNode } from "react";
+import { cn } from "~/lib/utils";
+
+export function RunGroup({
+  title,
+  itemCount,
+  defaultOpen = true,
+  children,
+}: {
+  title: string;
+  itemCount?: number;
+  defaultOpen?: boolean;
+  children: ReactNode;
+}) {
+  const [open, setOpen] = useState(defaultOpen);
+  return (
+    <div className="-mx-1">
+      <button
+        type="button"
+        onClick={() => setOpen((v) => !v)}
+        aria-expanded={open}
+        className={cn(
+          "group/run flex w-full items-center gap-2 rounded-lg px-1.5 py-1 text-left",
+          "outline-none focus-visible:ring-2 focus-visible:ring-app-purple-2 focus-visible:ring-offset-2 focus-visible:ring-offset-app-background",
+        )}
+      >
+        <ChevronRight
+          size={14}
+          aria-hidden
+          className={cn(
+            "shrink-0 text-app-fg-2 transition-transform duration-200",
+            open && "rotate-90",
+          )}
+        />
+        <span className="text-sm font-medium text-app-fg-4">{title}</span>
+        {typeof itemCount === "number" ? (
+          <span className="ml-auto text-xs text-app-fg-2 tabular-nums">
+            {itemCount} {itemCount === 1 ? "step" : "steps"}
+          </span>
+        ) : null}
+      </button>
+
+      {open ? (
+        <div className="relative mt-1.5 ml-[7px] pb-1 pl-5">
+          <span aria-hidden className="absolute top-1.5 bottom-2.5 left-0 w-px bg-app-bg-3" />
+          <div className="space-y-1.5">{children}</div>
+        </div>
+      ) : null}
+    </div>
+  );
+}

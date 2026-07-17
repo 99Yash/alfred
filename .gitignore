@@ -1,0 +1,88 @@
+# Dependencies
+node_modules
+.pnp
+.pnp.js
+
+# Build outputs
+dist
+build
+*.tsbuildinfo
+
+# Environment variables
+.env
+.env*.local
+!.env.example
+.pnpm-store
+
+# IDEs and editors
+.vscode/*
+!.vscode/settings.json
+!.vscode/tasks.json
+!.vscode/launch.json
+!.vscode/extensions.json
+.idea
+*.swp
+*.swo
+*~
+.DS_Store
+
+# Logs
+logs
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+lerna-debug.log*
+.pnpm-debug.log*
+
+# Turbo
+.turbo
+
+# Better-T-Stack
+.alchemy
+
+# Testing
+coverage
+.nyc_output
+
+# Misc
+*.tgz
+.cache
+tmp
+temp
+PRD.md
+plan.md
+progress.txt
+ralph.sh
+ralph-loop.sh
+distill-plan.md
+distill-progress.txt
+review-prompt.md
+distill-loop.sh
+ui-polish-plan.md
+ui-polish-progress.txt
+ui-polish-loop.sh
+
+# warden
+.warden/
+
+# Local design recon dumps (screenshots, DOM/network captures)
+references/
+
+# Local design archive (snapshot only, never shipped)
+archive/
+
+# Local browser/chrome-devtools screenshots + scratch
+apps/web/.screenshots/
+.tmp-screens/
+.tmp/
+
+# Lessons system: personal durable lessons + ephemeral handoff docs.
+# The machinery (.claude/skills, .claude/hooks) is shareable; the content is not.
+.lessons/
+.handoff/
+.artifacts/
+teaching/
+
+# Teaching workspace (/teach skill) — local only
+.teach/

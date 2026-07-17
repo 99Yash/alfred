@@ -1,0 +1,73 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Case 3 — Deferred tools preserve the prefix</title>
+  <link rel="stylesheet" href="../assets/lesson.css">
+</head>
+<body>
+<main>
+  <p class="frame-no">Alfred harness · Cache case 2</p>
+  <h1>There is an<br>escape hatch.</h1>
+  <p class="lede">Your objection is valid. Changing the ordinary tools array is expensive, but Anthropic has a special representation for lazy tools that does not change the cached prefix.</p>
+
+  <p class="thesis"><strong>The one sentence to keep:</strong> ordinary lazy loading mutates the tools prefix; Anthropic <code>defer_loading</code> keeps tools out of that prefix and inserts discovered schemas later in message history.</p>
+
+  <h2>Alfred today: client-side lazy loading</h2>
+  <p class="equation">R1: [kernel tools → system → history] ◀ warm<br>load calendar.create<br>R2: [kernel + calendar.create → system → history] ◀ cold write<br>R3: [kernel + calendar.create → system → history] ◀ warm</p>
+  <p>The cold request is unavoidable <em>given this representation</em>: Alfred rebuilds the actual active <code>tools</code> array after <code>system.load_tool</code>.</p>
+
+  <h2>Anthropic-native deferred loading</h2>
+  <p>You still send every definition to the API, but mark most with <code>defer_loading: true</code>. Anthropic excludes those definitions from Claude’s initial rendered tools prefix. Its server-side tool-search tool returns a <code>tool_reference</code>, and the matching schema is expanded inline later in the conversation.</p>
+  <p class="equation">R1: [kernel → system → history] ◀ warm<br>discover calendar.create<br>R2: [kernel → system → history] + tool_reference(calendar.create)<br>    └──────── same cached prefix ────────┘</p>
+  <p>The schema still reaches Claude, but it arrives after the stable prefix. Therefore discovery does not invalidate that prefix.</p>
+
+  <h2>The three designs</h2>
+  <table class="compact-table">
+    <thead><tr><th>Design</th><th>Cache behavior</th><th>Cost</th></tr></thead>
+    <tbody>
+      <tr><td><strong>All tools eager</strong></td><td>Very stable prefix</td><td>Large baseline context; worse tool selection</td></tr>
+      <tr><td><strong>Alfred today</strong></td><td>Cold once when active set expands</td><td>Provider-neutral, durable and observable; extra model turn</td></tr>
+      <tr><td><strong>Anthropic deferred</strong></td><td>Discovery preserves stable prefix</td><td>Provider-specific server-tool semantics</td></tr>
+      <tr><td><strong>Generic proxy tool</strong></td><td>One permanently stable schema</td><td>Loses native per-tool schemas and strong argument guidance</td></tr>
+    </tbody>
+  </table>
+
+  <h2>What this means for Alfred</h2>
+  <p>Alfred’s current behavior is not fundamentally required. Its installed <code>@ai-sdk/anthropic</code> version already exposes <code>providerOptions.anthropic.deferLoading</code> and Anthropic’s BM25/regex tool-search tools. A migration is technically plausible.</p>
+  <p>But it is an architectural change, not a flag flip. Alfred would need to reconcile provider-specific search results with its one-model-request workflow step, provider fallback behavior, tool-surface telemetry, availability filtering, deterministic preload, and durable transcripts. The likely good design is hybrid: keep a tiny provider-neutral kernel; use native deferred search on Anthropic; retain Alfred’s current discovery path as the portable fallback.</p>
+
+  <div class="quiz">
+    <h2>Retrieval check</h2>
+    <p>Why does <code>defer_loading</code> preserve the cache when Alfred’s current <code>system.load_tool</code> does not?</p>
+    <div class="answer-grid">
+      <button data-ok="false">It caches each tool schema independently</button>
+      <button data-ok="true">It inserts discovered schemas after the prefix</button>
+      <button data-ok="false">It makes schema tokens free permanently</button>
+    </div>
+    <p class="feedback" id="feedback" aria-live="polite"></p>
+  </div>
+
+  <h2>Primary source</h2>
+  <ul class="sources">
+    <li><a href="https://platform.claude.com/docs/en/agents-and-tools/tool-use/tool-use-with-prompt-caching">Anthropic: Tool use with prompt caching</a>.</li>
+    <li><a href="https://platform.claude.com/docs/en/agents-and-tools/tool-use/tool-search-tool">Anthropic: Tool search and deferred loading</a>.</li>
+    <li><a href="../packages/api/src/modules/agent/tool-surface.ts">Alfred’s current active tool-surface projection</a>.</li>
+    <li><a href="../packages/ai/src/agent.ts">AlfredAgent’s cache decoration</a>.</li>
+    <li><a href="0002-explicit-vs-automatic-prompt-caching.html">Previous lesson: prefix caching</a>.</li>
+  </ul>
+</main>
+<script>
+  const feedback = document.querySelector('#feedback');
+  document.querySelectorAll('button[data-ok]').forEach((button) => {
+    button.addEventListener('click', () => {
+      feedback.textContent = button.dataset.ok === 'true'
+        ? 'Correct. The early tools → system → history bytes stay identical; the discovered definition is represented later as a tool_reference.'
+        : 'Look at placement, not storage: ask whether the discovered schema changes the beginning of the serialized prompt or is appended later.';
+      feedback.style.color = button.dataset.ok === 'true' ? 'var(--success)' : 'var(--error)';
+    });
+  });
+</script>
+</body>
+</html>

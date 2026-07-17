@@ -1,0 +1,18 @@
+# Heavyweight local-only reference snapshots — not needed in prod builds.
+references/*
+.warden/
+.tmp/
+*.log
+
+# Loops + plans — local-only working files.
+plan.md
+PRD.md
+progress.txt
+*-plan.md
+*-progress.txt
+*-loop.sh
+ralph.sh
+
+# Misc dev tooling output.
+.cache/
+coverage/

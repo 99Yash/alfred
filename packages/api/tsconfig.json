@@ -1,0 +1,18 @@
+{
+  "extends": "@alfred/config/tsconfig.base.json",
+  "compilerOptions": {
+    "declaration": true,
+    "declarationMap": true,
+    "sourceMap": true,
+    "outDir": "dist",
+    "rootDir": "src",
+    "composite": true,
+    // `@alfred/mailer` exports React (`.tsx`) source; the approval and
+    // skill-doc notifications render those emails to a string server-side.
+    // jsx here lets tsc parse the sources (classic runtime, matching the
+    // mailer package). Server-side rendering only — no React reaches the web
+    // bundle (the web-boundary check governs that direction).
+    "jsx": "react"
+  },
+  "include": ["src"]
+}

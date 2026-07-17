@@ -1,0 +1,67 @@
+import type { LucideIcon } from "lucide-react";
+import { IntegrationGlyph, type IntegrationBrand } from "~/lib/integrations/integration-icons";
+import { cn } from "~/lib/utils";
+import { RAIL_TOOL_TONE, type RailToolTone } from "~/routes/-chat/rail/models";
+
+/**
+ * `sources` footer under an assistant turn. Each pill is either an integration
+ * (Gmail/Calendar/…) — brand glyph on a neutral chip — or a generic internal
+ * source (Memory, Contacts) — Lucide icon on a toned chip.
+ */
+type SourceItem =
+  | {
+      integration: IntegrationBrand;
+      label: string;
+      count: number;
+      icon?: LucideIcon;
+      tone?: RailToolTone;
+    }
+  | {
+      integration?: undefined;
+      icon: LucideIcon;
+      tone: RailToolTone;
+      label: string;
+      count: number;
+    };
+
+export function SourcesRow({ items }: { items: SourceItem[] }) {
+  return (
+    <div className="flex flex-wrap items-center gap-1.5 pt-1">
+      {items.map((item) => (
+        <SourcePill key={sourceItemKey(item)} item={item} />
+      ))}
+    </div>
+  );
+}
+
+function sourceItemKey(item: SourceItem): string {
+  return item.integration
+    ? `integration:${item.integration}:${item.label}`
+    : `source:${item.tone}:${item.label}`;
+}
+
+function SourcePill({ item: props }: { item: SourceItem }) {
+  const { label, count } = props;
+  if (props.integration) {
+    return (
+      <span className="inline-flex h-6 items-center gap-1.5 rounded-lg bg-app-bg-2 px-2 text-[11px] font-medium text-app-fg-4">
+        <IntegrationGlyph brand={props.integration} size={12} />
+        {label}
+        <span className="text-app-fg-2 tabular-nums">{count}</span>
+      </span>
+    );
+  }
+  const Icon = props.icon;
+  return (
+    <span
+      className={cn(
+        "inline-flex h-6 items-center gap-1.5 rounded-lg px-2 text-[11px] font-medium",
+        RAIL_TOOL_TONE[props.tone],
+      )}
+    >
+      <Icon size={11} />
+      {label}
+      <span className="text-app-fg-2 tabular-nums">{count}</span>
+    </span>
+  );
+}

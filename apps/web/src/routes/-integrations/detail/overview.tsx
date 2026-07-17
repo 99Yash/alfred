@@ -1,0 +1,23 @@
+import type { IntegrationProvider } from "~/lib/integrations/integrations";
+import { SectionHeading } from "./section-heading";
+
+export function Overview({ provider }: { provider: IntegrationProvider }) {
+  return (
+    <section className="app-card-in space-y-4 pb-8" style={{ animationDelay: "360ms" }}>
+      <SectionHeading>Overview</SectionHeading>
+      <p className="text-[12.5px] leading-5 text-app-fg-3">{provider.overview.body}</p>
+      <div>
+        <h3 className="text-sm font-medium text-app-fg-4">{provider.overview.heading}</h3>
+        <p className="mt-1 text-[12.5px] leading-5 text-app-fg-3">{provider.overview.detail}</p>
+      </div>
+      {provider.overview.extraHeading && provider.overview.extraDetail ? (
+        <div>
+          <h3 className="text-sm font-medium text-app-fg-4">{provider.overview.extraHeading}</h3>
+          <p className="mt-1 text-[12.5px] leading-5 text-app-fg-3">
+            {provider.overview.extraDetail}
+          </p>
+        </div>
+      ) : null}
+    </section>
+  );
+}
