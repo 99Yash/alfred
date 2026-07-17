@@ -1,14 +1,16 @@
 import type { SyncedActionStaging } from "@alfred/sync";
 import { Link } from "@tanstack/react-router";
 import { AlertTriangle, Ban, Check, Pencil, RefreshCw, Workflow, X } from "lucide-react";
-import { useEffect, useMemo, useRef, useState } from "react";
 import { AppButton, AppCard, AppTextarea } from "~/components/ui/v2";
 import { cn } from "~/lib/utils";
-import { cardTitle, toolChipLabel } from "./card-spec";
-import { formatJson, formatTimestamp, shortId, triggerLabel } from "./format";
+import { toolChipLabel } from "./card-spec";
+import { formatTimestamp, shortId, triggerLabel } from "./format";
 import { ApprovalInputEditor } from "./input-editor";
 import { RiskPill } from "./risk-pill";
 import { ToolIcon } from "./tool-icon";
+import { useApprovalDecision, type ApprovalDecision } from "./use-approval-decision";
+
+export type { ApprovalDecision } from "./use-approval-decision";
 
 // Hoisted so the `leading` props below don't allocate a fresh element per render.
 const ICON_X = <X size={14} />;
@@ -16,11 +18,6 @@ const ICON_PENCIL = <Pencil size={14} />;
 const ICON_REVISE = <RefreshCw size={14} />;
 const ICON_REVISE_SM = <RefreshCw size={13} />;
 const ICON_CHECK = <Check size={14} />;
-
-export type ApprovalDecision =
-  | { decision: "approve"; editedInput?: unknown; reason?: undefined }
-  | { decision: "reject"; reason: string }
-  | { decision: "cancel_run"; reason: string };
 
 export function ApprovalCard({
   staging,
@@ -30,40 +27,26 @@ export function ApprovalCard({
   /** Resolves when the decision is recorded; throws with a message on failure. */
   onDecide: (decision: ApprovalDecision) => Promise<void>;
 }) {
-  const [draftInput, setDraftInput] = useState<unknown>(() => staging.proposedInput);
-  const [showReason, setShowReason] = useState(false);
-  const [reason, setReason] = useState("");
-  const [busy, setBusy] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-  const reasonRef = useRef<HTMLTextAreaElement>(null);
+  const {
+    draftInput,
+    setDraftInput,
+    showReason,
+    setShowReason,
+    reason,
+    setReason,
+    reasonRef,
+    busy,
+    error,
+    edited,
+    reasonMissing,
+    title,
+    approveDecision,
+    run,
+  } = useApprovalDecision(staging);
 
-  const edited = useMemo(
-    () => formatJson(draftInput).trim() !== formatJson(staging.proposedInput).trim(),
-    [draftInput, staging.proposedInput],
-  );
-  const reasonMissing = reason.trim().length === 0;
-  const title = useMemo(
-    () => cardTitle(staging.toolName, edited ? draftInput : staging.proposedInput),
-    [staging.toolName, edited, draftInput, staging.proposedInput],
-  );
-
-  useEffect(() => {
-    if (showReason) reasonRef.current?.focus();
-  }, [showReason]);
-
-  const decide = async (decision: ApprovalDecision) => {
-    if (busy) return;
-    setBusy(true);
-    setError(null);
-    try {
-      await onDecide(decision);
-      // On success the row leaves the pending queue and Replicache removes the
-      // card; no local state cleanup needed.
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Failed to record decision");
-      setBusy(false);
-    }
-  };
+  // On success the row leaves the pending queue and Replicache removes the
+  // card; `run` leaves `busy` set and no local cleanup is needed.
+  const decide = (decision: ApprovalDecision) => run(() => onDecide(decision));
 
   return (
     <AppCard className="space-y-4">
@@ -197,11 +180,7 @@ export function ApprovalCard({
           leading={edited ? ICON_PENCIL : ICON_CHECK}
           loading={busy}
           disabled={busy}
-          onClick={() =>
-            decide(
-              edited ? { decision: "approve", editedInput: draftInput } : { decision: "approve" },
-            )
-          }
+          onClick={() => decide(approveDecision())}
         >
           {edited ? "Approve changes" : "Approve"}
         </AppButton>

@@ -75,6 +75,7 @@ import {
   scheduleSubAgentJoinWakeJob,
 } from "../sub-agent-join-wake-queue";
 import { subAgentDoneSignalName } from "../sub-agent-metadata";
+import { foldModelUsage } from "../usage-fold";
 import {
   isTerminalChildStatus,
   listSpawnedChildRuns,
@@ -2264,26 +2265,33 @@ const chatTurnStep: Step<ChatRunState> = {
         const title = isRecord(value) && typeof value.title === "string" ? value.title : undefined;
         const artifactId =
           isRecord(value) && typeof value.artifactId === "string" ? value.artifactId : undefined;
-        const text = markdown.slice(s.sentLen);
+        const tail = markdown.slice(s.sentLen);
         s.sentLen = markdown.length;
-        s.seq += 1;
         s.lastFlush = Date.now();
-        const includeTitle = !s.titleSent && title !== undefined;
-        if (includeTitle) s.titleSent = true;
-        await publishEvent({
-          userId: ctx.userId,
-          kind: "artifact.delta",
-          payload: {
-            runId: ctx.runId,
-            threadId: state.threadId,
-            toolCallId,
-            seq: s.seq,
-            text,
-            mode: s.mode,
-            ...(includeTitle ? { title } : {}),
-            ...(artifactId ? { artifactId } : {}),
-          },
-        });
+        // Chunk the tail like chat deltas (splitEventText): the reducer appends
+        // each `text`, so a big final burst — or a single >16k tool-input-delta —
+        // becomes several in-cap events instead of one over-cap payload that
+        // `publishEvent` would reject (its schema caps `text` at CHAT_DELTA_MAX),
+        // which would throw inside the stream loop and fault the turn.
+        for (const [i, chunk] of splitEventText(tail).entries()) {
+          s.seq += 1;
+          const includeTitle = i === 0 && !s.titleSent && title !== undefined;
+          if (includeTitle) s.titleSent = true;
+          await publishEvent({
+            userId: ctx.userId,
+            kind: "artifact.delta",
+            payload: {
+              runId: ctx.runId,
+              threadId: state.threadId,
+              toolCallId,
+              seq: s.seq,
+              text: chunk,
+              mode: s.mode,
+              ...(includeTitle ? { title } : {}),
+              ...(artifactId ? { artifactId } : {}),
+            },
+          });
+        }
       };
 
       try {
@@ -2909,26 +2917,8 @@ async function aggregateRunUsage(runId: string): Promise<ChatMessageUsage | null
     .where(eq(apiCallLog.runId, runId))
     .groupBy(apiCallLog.model);
   if (rows.length === 0) return null;
-  const usage: ChatMessageUsage = {
-    inputTokens: 0,
-    outputTokens: 0,
-    cachedInputTokens: 0,
-    costUsd: 0,
-    calls: 0,
-    models: [],
-  };
-  for (const row of rows) {
-    const calls = Number(row.calls) || 0;
-    usage.inputTokens += Number(row.inputTokens) || 0;
-    usage.outputTokens += Number(row.outputTokens) || 0;
-    usage.cachedInputTokens += Number(row.cachedInputTokens) || 0;
-    usage.costUsd += Number(row.costUsd) || 0;
-    usage.calls += calls;
-    usage.models.push({ model: row.model, calls });
-  }
-  if (usage.calls === 0) return null;
-  usage.models.sort((a, b) => b.calls - a.calls);
-  return usage;
+  const usage = foldModelUsage(rows);
+  return usage.calls === 0 ? null : usage;
 }
 
 /**

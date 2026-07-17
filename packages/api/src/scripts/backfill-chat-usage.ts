@@ -31,6 +31,7 @@ import { db, closeConnections } from "@alfred/db";
 import { apiCallLog, chatMessages } from "@alfred/db/schemas";
 import { chatMessageUsageSchema, type ChatMessageUsage } from "@alfred/contracts";
 import { and, eq, isNotNull, sql } from "drizzle-orm";
+import { foldModelUsage } from "../modules/agent/usage-fold";
 
 const COMMIT = process.argv.includes("--commit");
 
@@ -73,26 +74,22 @@ async function loadGroups(): Promise<
     .groupBy(chatMessages.id, sql`coalesce(${apiCallLog.model}, 'unknown')`);
 }
 
-/** Fold per-model groups into one validated ChatMessageUsage per message. */
-function foldUsage(
-  groups: Awaited<ReturnType<typeof loadGroups>>,
-): Map<string, ChatMessageUsage> {
-  const byMessage = new Map<string, ChatMessageUsage>();
+/**
+ * Bucket the per-(message, model) groups by message, then fold each bucket into
+ * one validated ChatMessageUsage via the shared {@link foldModelUsage} — the
+ * same rollup the live `aggregateRunUsage` runs, so the backfill can't drift
+ * from the finalize path.
+ */
+function foldUsage(groups: Awaited<ReturnType<typeof loadGroups>>): Map<string, ChatMessageUsage> {
+  const rowsByMessage = new Map<string, Awaited<ReturnType<typeof loadGroups>>>();
   for (const row of groups) {
-    const usage =
-      byMessage.get(row.messageId) ??
-      { inputTokens: 0, outputTokens: 0, cachedInputTokens: 0, costUsd: 0, calls: 0, models: [] };
-    const calls = Number(row.calls) || 0;
-    usage.inputTokens += Number(row.inputTokens) || 0;
-    usage.outputTokens += Number(row.outputTokens) || 0;
-    usage.cachedInputTokens += Number(row.cachedInputTokens) || 0;
-    usage.costUsd += Number(row.costUsd) || 0;
-    usage.calls += calls;
-    usage.models.push({ model: row.model, calls });
-    byMessage.set(row.messageId, usage);
+    const rows = rowsByMessage.get(row.messageId) ?? [];
+    rows.push(row);
+    rowsByMessage.set(row.messageId, rows);
   }
-  for (const usage of byMessage.values()) {
-    usage.models.sort((a, b) => b.calls - a.calls);
+  const byMessage = new Map<string, ChatMessageUsage>();
+  for (const [messageId, rows] of rowsByMessage) {
+    byMessage.set(messageId, foldModelUsage(rows));
   }
   return byMessage;
 }

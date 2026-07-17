@@ -2,7 +2,7 @@ import { toolLabel } from "@alfred/contracts";
 import { Sparkles, Wrench, type LucideIcon } from "lucide-react";
 import { type IntegrationBrand } from "~/lib/integrations/integration-icons";
 import { getIntegrationProvider } from "~/lib/integrations/integrations";
-import { parseJsonRecord } from "~/lib/json-record";
+import { asString, parseJsonRecord } from "~/lib/json-record";
 
 export interface ToolCallView {
   toolCallId: string;
@@ -36,10 +36,6 @@ export interface ToolPresentation {
 function humanizeTool(toolName: string): string {
   const last = toolName.includes(".") ? toolName.slice(toolName.lastIndexOf(".") + 1) : toolName;
   return last.replace(/_/g, " ");
-}
-
-function asString(value: unknown): string | undefined {
-  return typeof value === "string" && value.length > 0 ? value : undefined;
 }
 
 /** What a tool *did*, for the run summary. */

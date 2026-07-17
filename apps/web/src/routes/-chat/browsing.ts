@@ -1,15 +1,18 @@
+import type { ToolName } from "@alfred/contracts";
 import { domainOf } from "~/lib/favicon";
-import { parseJsonRecord } from "~/lib/json-record";
+import { asString, parseJsonRecord } from "~/lib/json-record";
 import { toSource, type Source } from "./sources";
 import type { ToolCallView } from "./tool-call-presentation";
 
 /**
  * The two system tools that read the live web. Everything about a "browsing"
  * card — the site favicon on the coin, the domain subline, the rich result
- * list instead of a raw JSON dump — is gated on this.
+ * list instead of a raw JSON dump — is gated on this. `satisfies ToolName`
+ * pins each to the canonical contracts key, so a rename there fails to compile
+ * here instead of leaving these literals silently wrong.
  */
-export const WEB_SEARCH_TOOL = "system.web_search";
-export const FETCH_URL_TOOL = "system.fetch_url";
+export const WEB_SEARCH_TOOL = "system.web_search" satisfies ToolName;
+export const FETCH_URL_TOOL = "system.fetch_url" satisfies ToolName;
 
 export function isBrowsingTool(toolName: string): boolean {
   return toolName === WEB_SEARCH_TOOL || toolName === FETCH_URL_TOOL;
@@ -36,10 +39,6 @@ export interface WebSearchView {
 }
 
 export type BrowsingView = FetchUrlView | WebSearchView;
-
-function asString(value: unknown): string | undefined {
-  return typeof value === "string" && value.length > 0 ? value : undefined;
-}
 
 /**
  * Read the display shape out of a browsing tool call's args + result preview.

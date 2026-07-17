@@ -10,8 +10,8 @@ import { cn } from "~/lib/utils";
  * `onError` path additionally swaps in a neutral globe when the request truly
  * fails (offline, blocked), so a browsing card never shows a broken image.
  *
- * Shared by the tool-call cards (the site Alfred is reading) and the web-search
- * result list; the standalone {@link SourcesStrip} keeps its own bespoke chip.
+ * Shared by the tool-call cards (the site Alfred is reading), the web-search
+ * result list, and the standalone `SourcesStrip` — one chip everywhere.
  */
 export function Favicon({
   domain,

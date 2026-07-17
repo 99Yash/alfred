@@ -3,16 +3,12 @@ import { Check, ChevronRight, ExternalLink, Scissors, X } from "lucide-react";
 import { useId, useState } from "react";
 import { CodeBlock } from "~/components/markdown-renderer";
 import { IntegrationIcon } from "~/lib/integrations/integration-icons";
-import { parseJsonRecord } from "~/lib/json-record";
+import { asString, parseJsonRecord } from "~/lib/json-record";
 import { cn } from "~/lib/utils";
 import { animatedToolIcon, RunningToolIcon } from "./animated-tool-icons";
 import { presentBrowsing, type FetchUrlView, type WebSearchView } from "./browsing";
 import { Favicon } from "./favicon";
 import { presentTool, type ToolCallView } from "./tool-call-presentation";
-
-function asString(value: unknown): string | undefined {
-  return typeof value === "string" && value.length > 0 ? value : undefined;
-}
 
 /**
  * A successful tool result is JSON in almost every case, but the tool returns it
