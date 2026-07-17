@@ -12,6 +12,7 @@ import {
   briefingStatusSchema,
   chatAttachmentStatusSchema,
   chatErrorKindSchema,
+  chatMessageUsageSchema,
   fullBriefingSchema,
   isIntegrationSlug,
   isToolName,
@@ -304,6 +305,12 @@ export const syncedChatMessageSchema = z.object({
    * field existed still parse (they read back with no narration).
    */
   narration: z.array(syncedChatNarrationSchema).nullable().default(null),
+  /**
+   * Token usage + cost for this turn, powering a dev-gated readout under the
+   * reply. Defaulted so rows cached before this field existed still parse (they
+   * read back with no usage line).
+   */
+  usage: chatMessageUsageSchema.nullable().default(null),
   runId: z.string().nullable(),
   rowVersion: z.number(),
   createdAt: isoDateTimeStringSchema,

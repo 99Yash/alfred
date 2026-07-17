@@ -1,3 +1,4 @@
+import { useAutoAnimate } from "@formkit/auto-animate/react";
 import * as Accordion from "@radix-ui/react-accordion";
 import { ChevronRight, Wrench } from "lucide-react";
 import { useId, useState } from "react";
@@ -168,6 +169,12 @@ export function ToolCallGroup({
   narration?: readonly TrailNarration[];
 }) {
   const contentId = useId();
+  // Auto-animate the trail's height/insertions: as tool cards and narration
+  // rows stream in during a turn, the container grows smoothly and each new row
+  // slides into place instead of the whole trail jumping. auto-animate owns the
+  // enter/move animation here (the cards drop their own `animate-chat-in` via
+  // `inTrail`), and it self-disables under prefers-reduced-motion.
+  const [trailRef] = useAutoAnimate<HTMLDivElement>();
   // Open while the turn runs so narration + tools stream into view; collapse to
   // the summary once it finishes. Re-asserting on the active transition during
   // render (rather than in an effect) avoids a flash and lets the user still
@@ -247,10 +254,13 @@ export function ToolCallGroup({
            * or nested scrollbar. The feed's own stick-to-bottom keeps the
            * model's current step in view as the trail grows, so a long agentic
            * run reads as one continuous timeline rather than a cramped box. */}
-          <div className="mt-1.5 ml-3 flex flex-col gap-1.5 border-l-2 border-app-fg-a1 pl-3">
+          <div
+            ref={trailRef}
+            className="mt-1.5 ml-3 flex flex-col gap-1.5 border-l-2 border-app-fg-a1 pl-3"
+          >
             {trail.map((item) =>
               item.kind === "tool" ? (
-                <ToolCallCard key={item.key} tools={item.tools} />
+                <ToolCallCard key={item.key} tools={item.tools} inTrail />
               ) : (
                 <NarrationRow key={item.key} text={item.text} />
               ),
@@ -270,7 +280,9 @@ export function ToolCallGroup({
  */
 function NarrationRow({ text }: { text: string }) {
   return (
-    <div className="animate-chat-in flex items-start gap-2">
+    // No `animate-chat-in` here — the trail's `useAutoAnimate` owns this row's
+    // enter/move animation (see `ToolCallGroup`); the two would fight otherwise.
+    <div className="flex items-start gap-2">
       <span aria-hidden className="flex size-6 shrink-0 items-center justify-center">
         <span className="size-1.5 rounded-full bg-app-fg-2" />
       </span>

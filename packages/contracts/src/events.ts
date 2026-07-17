@@ -155,6 +155,56 @@ export const chatToolSchema = z.object({
    * narration. Defaults to 0.
    */
   segmentIndex: z.number().int().nonnegative().default(0),
+  /**
+   * For an executed artifact-authoring tool (`create_artifact` etc.): the row
+   * id the call created or edited. Lets the client bind a live artifact stream
+   * (keyed by `toolCallId`, which is all `create_artifact` has before it runs)
+   * to its durable synced `artifacts` row. Absent on non-artifact tools and on
+   * non-executed (nonExecution) results.
+   */
+  artifactId: z.string().min(1).max(200).optional(),
+});
+
+/**
+ * Live body of a `document` artifact as the boss authors it. The artifact body
+ * is the `markdown` argument of `system.create_artifact` /
+ * `append_artifact_section` / `update_artifact`; the SDK streams that argument
+ * incrementally as `tool-input-delta` parts while the model generates, so the
+ * worker extracts the growing `markdown` field and publishes its growth here.
+ * This lets the sidebar fill token-by-token during authoring instead of the
+ * body popping in whole when the tool finally executes (the v1 page-granularity
+ * poke).
+ *
+ * Keyed by `toolCallId` because `create_artifact` has no artifact id until it
+ * executes; for `append_artifact_section` / `update_artifact` the id is in the
+ * tool args, so `artifactId` is carried from the first delta. The client binds
+ * `create_artifact`'s id via the tool's `chat.tool` succeeded event (which now
+ * carries `artifactId`). Ephemeral: reconciled against the durable synced
+ * `artifacts` row on completion, exactly like `chat.delta`. `pages`/HTML
+ * artifacts are not streamed here — they already appear at page granularity.
+ */
+export const artifactDeltaSchema = z.object({
+  runId: z.string().min(1).max(120),
+  threadId: z.string().min(1).max(120),
+  toolCallId: z.string().min(1).max(200),
+  seq: z.number().int().nonnegative(),
+  /** Markdown appended since the previous delta for this toolCallId (not the full body). */
+  text: z.string().max(CHAT_DELTA_MAX),
+  /**
+   * How the streamed text composes against the synced row:
+   *  - `replace` (create/update): the streamed markdown *is* the whole body.
+   *  - `append` (append_artifact_section): the streamed markdown is a new
+   *    section to render after the existing synced content.
+   */
+  mode: z.enum(["replace", "append"]),
+  /** The document title, extracted from the args; present once known (create/update). */
+  title: z.string().max(200).optional(),
+  /**
+   * The target artifact id when the tool already carries one in its args
+   * (`append_artifact_section` / `update_artifact`). Absent for
+   * `create_artifact` until its `chat.tool` succeeded event binds it.
+   */
+  artifactId: z.string().min(1).max(200).optional(),
 });
 
 /**
@@ -183,6 +233,7 @@ export const eventPayloadSchemas = {
   "chat.reasoning": chatReasoningSchema,
   "chat.tool": chatToolSchema,
   "chat.message": chatMessageSchema,
+  "artifact.delta": artifactDeltaSchema,
 } as const satisfies Record<string, z.ZodType>;
 
 export type EventKind = keyof typeof eventPayloadSchemas;

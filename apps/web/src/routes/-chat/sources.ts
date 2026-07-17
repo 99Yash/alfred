@@ -23,7 +23,7 @@ function looksLikeDomain(value: string): boolean {
  * present, falling back to the url's host. Tolerates the legacy `string`
  * citation shape persisted on older messages.
  */
-function toSource(citation: unknown): Source | null {
+export function toSource(citation: unknown): Source | null {
   if (typeof citation === "string") {
     if (citation.length === 0) return null;
     const domain = domainOf(citation);

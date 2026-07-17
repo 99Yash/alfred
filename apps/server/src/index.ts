@@ -65,9 +65,19 @@ const server = new Elysia({ adapter: node(), normalize: "typebox" })
   // where the Railway edge serves HTTPS — never on the local http origin.
   .use(securityHeaders({ hsts: serverEnv().NODE_ENV === "production" }))
   .use(app)
-  .listen({ port: serverEnv().PORT, hostname: "0.0.0.0" }, () => {
-    console.log(`Alfred server running on http://0.0.0.0:${serverEnv().PORT}`);
-  });
+  // Dev binds dual-stack (`::`) so `localhost` resolves work whether the browser
+  // picks IPv6 (`::1`) or IPv4 (`127.0.0.1`) — Chrome prefers `::1`, and an
+  // IPv4-only `0.0.0.0` bind leaves it hitting a black hole (every authed
+  // request hangs). Prod keeps `0.0.0.0` unchanged (Railway edge is IPv4).
+  .listen(
+    {
+      port: serverEnv().PORT,
+      hostname: serverEnv().NODE_ENV === "production" ? "0.0.0.0" : "::",
+    },
+    () => {
+      console.log(`Alfred server running on port ${serverEnv().PORT}`);
+    },
+  );
 
 let shuttingDown = false;
 

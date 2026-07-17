@@ -61,6 +61,33 @@ export type ChatErrorKind = (typeof chatErrorKindValues)[number];
 export const chatErrorKindSchema = z.enum(chatErrorKindValues);
 
 /**
+ * Token usage + cost for one assistant turn, aggregated at finalize from the
+ * turn's `api_call_log` rows (the boss run — sub-agent child runs are billed
+ * separately and not folded in here). Surfaced only in a dev-gated readout
+ * under the reply; the numbers already live in `api_call_log`, this is just the
+ * per-message rollup carried to the client. All counts are whole tokens;
+ * `costUsd` is the summed snapshot cost in dollars.
+ */
+export const chatMessageUsageSchema = z.object({
+  inputTokens: z.number().int().nonnegative(),
+  outputTokens: z.number().int().nonnegative(),
+  cachedInputTokens: z.number().int().nonnegative(),
+  costUsd: z.number().nonnegative(),
+  /** How many LLM calls this turn made (one per generation / tool round). */
+  calls: z.number().int().nonnegative(),
+  /**
+   * The distinct models that actually served this turn, with each one's call
+   * count, most-used first. Reveals a silent provider fallback — e.g. a turn you
+   * expected on `claude-sonnet-4-6` showing `gemini-3.5-flash` means the
+   * Anthropic primary errored and `withFallback` degraded it (spend cap, 429).
+   */
+  models: z
+    .array(z.object({ model: z.string(), calls: z.number().int().positive() }))
+    .default([]),
+});
+export type ChatMessageUsage = z.infer<typeof chatMessageUsageSchema>;
+
+/**
  * Response of the turn-kick endpoint (`POST /api/chat/threads/:id/turn`),
  * discriminated on `outcome` so the client can tell three things apart on a
  * `2xx`: the turn started (a run exists for it), or the thread is busy (a
