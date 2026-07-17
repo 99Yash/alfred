@@ -1,5 +1,5 @@
 import { Globe2 } from "lucide-react";
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import { faviconFor } from "~/lib/favicon";
 import { cn } from "~/lib/utils";
 
@@ -23,9 +23,15 @@ export function Favicon({
   className?: string;
 }) {
   // Re-attempt the load when the domain changes (a card can be reused for a
-  // different URL as a streaming run reissues), clearing a prior failure.
+  // different URL as a streaming run reissues), clearing a prior failure. This
+  // resets during render off a prev-prop comparison rather than in an effect,
+  // so the stale failure never flashes for a frame after the domain swaps.
   const [failed, setFailed] = useState(false);
-  useEffect(() => setFailed(false), [domain]);
+  const [prevDomain, setPrevDomain] = useState(domain);
+  if (domain !== prevDomain) {
+    setPrevDomain(domain);
+    setFailed(false);
+  }
 
   return (
     <span
