@@ -1,4 +1,4 @@
-import { AnimatePresence, motion, useReducedMotion } from "framer-motion";
+import { AnimatePresence, m, useReducedMotion } from "framer-motion";
 import { X } from "lucide-react";
 import { cn } from "~/lib/utils";
 import type { PendingAttachment } from "./use-composer-attachments";
@@ -25,7 +25,7 @@ export function AttachmentChips({
        * attachments don't pop in on thread load — only newly added tiles animate. */}
       <AnimatePresence initial={false} mode="popLayout">
         {items.map((a) => (
-          <motion.div
+          <m.div
             key={a.key}
             layout
             initial={leave}
@@ -48,7 +48,7 @@ export function AttachmentChips({
             >
               <X size={12} />
             </button>
-          </motion.div>
+          </m.div>
         ))}
       </AnimatePresence>
     </div>
