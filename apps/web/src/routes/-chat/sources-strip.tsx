@@ -1,5 +1,5 @@
-import { faviconFor } from "~/lib/favicon";
 import { cn } from "~/lib/utils";
+import { Favicon } from "./favicon";
 import type { Source } from "./sources";
 
 /**
@@ -34,15 +34,7 @@ export function SourcesStrip({ sources }: { sources: Source[] }) {
             "outline-none focus-visible:ring-2 focus-visible:ring-app-purple-3",
           )}
         >
-          <span className="grid size-4 shrink-0 place-items-center overflow-hidden rounded-[4px] ring-1 ring-white/10 ring-inset">
-            <img
-              src={faviconFor(source.faviconDomain)}
-              alt=""
-              aria-hidden
-              loading="lazy"
-              className="size-full object-cover"
-            />
-          </span>
+          <Favicon domain={source.faviconDomain} size={16} />
           <span className="max-w-[22ch] truncate">{source.label}</span>
         </a>
       ))}

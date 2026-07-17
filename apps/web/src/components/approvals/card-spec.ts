@@ -5,8 +5,8 @@ import { stringArray, stringValue } from "./format";
 
 /**
  * Input-aware card titles. The card *body* (the field layout) is now derived
- * from each tool's schema — see `toolInputFields` / `InputRenderer` — so the
- * only per-tool customization left here is the headline: e.g. an email reads
+ * from each tool's schema — see `toolInputFields` / `ApprovalInputEditor` — so
+ * the only per-tool customization left here is the headline: e.g. an email reads
  * "Email maya@…" rather than the generic "Send draft". Tools without an entry
  * use the shared `humanizeToolName`, so new tools title themselves safely.
  *

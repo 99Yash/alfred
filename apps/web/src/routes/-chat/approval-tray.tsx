@@ -13,13 +13,16 @@ import {
   ShieldCheck,
   X,
 } from "lucide-react";
-import { useEffect, useMemo, useRef, useState } from "react";
-import type { ApprovalDecision } from "~/components/approvals/approval-card";
+import { useEffect, useRef, useState } from "react";
 import { cardTitle, toolChipLabel } from "~/components/approvals/card-spec";
-import { formatJson, formatTimestamp } from "~/components/approvals/format";
+import { formatTimestamp } from "~/components/approvals/format";
 import { ApprovalInputEditor } from "~/components/approvals/input-editor";
 import { RiskPill } from "~/components/approvals/risk-pill";
 import { ToolIcon } from "~/components/approvals/tool-icon";
+import {
+  useApprovalDecision,
+  type ApprovalDecision,
+} from "~/components/approvals/use-approval-decision";
 import { AppButton, AppTextarea } from "~/components/ui/v2";
 import { responseErrorMessage } from "~/lib/api-error";
 import { client } from "~/lib/eden";
@@ -130,56 +133,30 @@ function InlineApprovalCard({
   preview?: boolean;
   onDecision: () => void;
 }) {
-  const [draftInput, setDraftInput] = useState<unknown>(() => staging.proposedInput);
-  const [showReason, setShowReason] = useState(false);
-  const [reason, setReason] = useState("");
-  const [busy, setBusy] = useState(false);
-  const [decided, setDecided] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-  const [previousStaging, setPreviousStaging] = useState({
-    id: staging.id,
-    proposedInput: staging.proposedInput,
-  });
-  const reasonRef = useRef<HTMLTextAreaElement>(null);
+  const {
+    draftInput,
+    setDraftInput,
+    showReason,
+    setShowReason,
+    reason,
+    setReason,
+    reasonRef,
+    busy,
+    decided,
+    setDecided,
+    error,
+    setError,
+    edited,
+    reasonMissing,
+    title,
+    approveDecision,
+    run,
+  } = useApprovalDecision(staging);
   const { setIntegrationMode } = useActionPolicy();
 
-  // Re-seed when the staged value changes underneath us (streamed edits, or the
-  // same card component being reused for a different row). A render-phase state
-  // adjustment, so React discards the queued setState with the render if it
-  // bails out — a ref write would leak and desync the tracker.
-  if (
-    staging.id !== previousStaging.id ||
-    staging.proposedInput !== previousStaging.proposedInput
-  ) {
-    setPreviousStaging({ id: staging.id, proposedInput: staging.proposedInput });
-    setDraftInput(staging.proposedInput);
-    setShowReason(false);
-    setReason("");
-    setBusy(false);
-    setDecided(false);
-    setError(null);
-  }
-
-  useEffect(() => {
-    if (showReason) reasonRef.current?.focus();
-  }, [showReason]);
-
-  const edited = useMemo(
-    () => formatJson(draftInput).trim() !== formatJson(staging.proposedInput).trim(),
-    [draftInput, staging.proposedInput],
-  );
-  const title = useMemo(
-    () => cardTitle(staging.toolName, edited ? draftInput : staging.proposedInput),
-    [staging.toolName, edited, draftInput, staging.proposedInput],
-  );
-  const reasonMissing = reason.trim().length === 0;
-
-  const decide = async (decision: ApprovalDecision, alwaysAllowName?: string) => {
-    if (busy || decided) return;
+  const decide = (decision: ApprovalDecision, alwaysAllowName?: string) => {
     if (preview) return;
-    setBusy(true);
-    setError(null);
-    try {
+    return run(async () => {
       const { error: responseError } = await client.api
         .approvals({ stagingId: staging.id })
         .decision.post(decision);
@@ -206,10 +183,7 @@ function InlineApprovalCard({
             : "Alfred is resuming the run.",
         position: "top-center",
       });
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Failed to record decision");
-      setBusy(false);
-    }
+    });
   };
 
   // "Always allow" flips the whole integration to autonomy, then approves this
@@ -232,10 +206,7 @@ function InlineApprovalCard({
       setError(err instanceof Error ? err.message : "Failed to update policy");
       return;
     }
-    await decide(
-      edited ? { decision: "approve", editedInput: draftInput } : { decision: "approve" },
-      integrationName,
-    );
+    await decide(approveDecision(), integrationName);
   };
 
   const approveLabel = approvalLabel(staging.riskTier, edited);
@@ -387,13 +358,7 @@ function InlineApprovalCard({
                   leading={edited ? ICON_PENCIL : ICON_CHECK}
                   loading={busy}
                   disabled={busy}
-                  onClick={() =>
-                    decide(
-                      edited
-                        ? { decision: "approve", editedInput: draftInput }
-                        : { decision: "approve" },
-                    )
-                  }
+                  onClick={() => decide(approveDecision())}
                 >
                   {approveLabel}
                 </AppButton>
