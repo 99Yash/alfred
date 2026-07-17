@@ -1,4 +1,4 @@
-import type { ChatAttachmentStatus, ChatErrorKind } from "@alfred/contracts";
+import type { ChatAttachmentStatus, ChatErrorKind, ChatMessageUsage } from "@alfred/contracts";
 import { sql } from "drizzle-orm";
 import {
   boolean,
@@ -124,6 +124,13 @@ export const chatMessages = pgTable(
      * Null when the turn produced none.
      */
     narration: jsonb("narration").$type<ChatMessageNarration[]>(),
+    /**
+     * Token usage + cost for this assistant turn, aggregated from the run's
+     * `api_call_log` rows at finalize. Null on user rows and on assistant rows
+     * written before this column. Powers a dev-gated usage readout under the
+     * reply. We control the write, so the `.$type<>()` shape is truthful.
+     */
+    usage: jsonb("usage").$type<ChatMessageUsage>(),
     /** The agent run servicing this turn (set on both the user turn and its reply). */
     runId: text("run_id").references(() => agentRuns.id, { onDelete: "set null" }),
     /** Replicache row-version. Bumped on any content/status change. */

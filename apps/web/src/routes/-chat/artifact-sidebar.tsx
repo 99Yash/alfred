@@ -29,6 +29,7 @@ import { createPortal } from "react-dom";
 import { ArtifactPageFrame } from "~/components/artifact-page-frame";
 import { MarkdownRenderer } from "~/components/markdown-renderer";
 import { printArtifactPages } from "~/lib/artifacts/export-artifact";
+import type { LiveArtifactStream } from "~/lib/chat/use-artifact-stream";
 import { useArtifact } from "~/lib/replicache/use-artifacts";
 import { cn } from "~/lib/utils";
 import type { ChatSidePanelMode } from "~/routes/-chat/rail/models";
@@ -53,7 +54,19 @@ export interface ArtifactEditSuggestion {
 }
 
 interface ArtifactSidebarProps {
+  /**
+   * The open artifact. A real synced row id, or `pending:<toolCallId>` while a
+   * `create_artifact` is still streaming and has no durable row yet — in which
+   * case the body comes entirely from `liveStream`.
+   */
   artifactId: string;
+  /**
+   * The boss's live authoring stream for this document, if it's being written
+   * right now. Fills the body token-by-token ahead of (create) or over
+   * (update/append) the synced row; the panel reconciles to the synced row once
+   * the tool completes. Null for pages and for idle synced artifacts.
+   */
+  liveStream?: LiveArtifactStream | null;
   mode: ChatSidePanelMode;
   /** Inline-mode width in px (ignored in overlay mode). */
   width: number;
@@ -63,8 +76,53 @@ interface ArtifactSidebarProps {
   onSuggestEdit?: (suggestion: ArtifactEditSuggestion) => void;
 }
 
+/**
+ * The document body + labels the sidebar renders, resolved from the synced row
+ * and the live authoring stream. While the boss writes, the live body wins so
+ * the panel fills as tokens arrive; once the tool completes we fall back to the
+ * synced row (server-sanitized, and the source for future edits).
+ */
+interface DocumentView {
+  /** Rendered markdown (live while streaming, synced once settled). */
+  markdown: string;
+  /** True while the body is still being authored — drives the "Writing…" state. */
+  generating: boolean;
+}
+
+function resolveDocumentView(
+  artifact: SyncedArtifact | null,
+  liveStream: LiveArtifactStream | null | undefined,
+): DocumentView {
+  const syncedMarkdown =
+    artifact?.kind === "document" && artifact.content?.kind === "document"
+      ? artifact.content.markdown
+      : "";
+  const streaming = liveStream != null && !liveStream.done;
+  // Show the live body while authoring, or when a create's row hasn't synced
+  // yet (done but no synced content). `append` renders after existing content.
+  // A just-finished append also stays live until the synced row actually carries
+  // its section (endsWith), so the section doesn't blink out between the tool's
+  // succeeded event and the Replicache poke landing.
+  const appendPendingSync =
+    liveStream != null &&
+    liveStream.mode === "append" &&
+    syncedMarkdown.length > 0 &&
+    !syncedMarkdown.endsWith(liveStream.text);
+  const showLive =
+    liveStream != null && (streaming || syncedMarkdown.length === 0 || appendPendingSync);
+  if (showLive) {
+    const body =
+      liveStream.mode === "append" && syncedMarkdown.length > 0
+        ? `${syncedMarkdown}\n\n${liveStream.text}`
+        : liveStream.text;
+    return { markdown: body, generating: streaming || artifact?.status === "generating" };
+  }
+  return { markdown: syncedMarkdown, generating: artifact?.status === "generating" };
+}
+
 export function ArtifactSidebar({
   artifactId,
+  liveStream,
   mode,
   width,
   onWidthChange,
@@ -110,6 +168,11 @@ export function ArtifactSidebar({
   }, []);
 
   const isPages = artifact?.kind === "pages";
+  // A pending create has no synced row yet — the live stream is always a
+  // document (pages never stream), so treat it as one for the whole panel.
+  const isDocument = !isPages && (artifact?.kind === "document" || liveStream != null);
+  const documentView = resolveDocumentView(artifact, liveStream);
+  const title = artifact?.title ?? liveStream?.title ?? "Artifact";
 
   // "Suggest an edit" hands the boss a scaffold in the composer. On overlay
   // (narrow) the panel covers the composer, so close it first — the user lands
@@ -124,6 +187,9 @@ export function ArtifactSidebar({
     <div className="flex h-full flex-col overflow-hidden">
       <ArtifactHeader
         artifact={artifact}
+        title={title}
+        isDocument={isDocument}
+        documentView={documentView}
         canFullscreen={isPages}
         onFullscreen={isPages ? () => setFullscreen(true) : undefined}
         onEdit={onSuggestEdit ? onEdit : undefined}
@@ -131,6 +197,8 @@ export function ArtifactSidebar({
       />
       <ArtifactBody
         artifact={artifact}
+        isDocument={isDocument}
+        documentView={documentView}
         onFullscreen={isPages ? () => setFullscreen(true) : null}
         pageIndex={pageIndex}
         onPageIndexChange={setPageIndex}
@@ -148,7 +216,7 @@ export function ArtifactSidebar({
           className="fixed inset-0 z-40 bg-app-background/40 backdrop-blur-[2px]"
         />
         <aside
-          aria-label={artifact?.title ?? "Artifact"}
+          aria-label={title}
           className={cn(
             "fixed top-0 right-0 bottom-0 z-50 w-[560px] max-w-[92vw]",
             "border-l border-app-bg-3/60 bg-app-bg-1",
@@ -201,12 +269,18 @@ export function ArtifactSidebar({
 
 function ArtifactHeader({
   artifact,
+  title,
+  isDocument,
+  documentView,
   canFullscreen,
   onFullscreen,
   onEdit,
   onClose,
 }: {
   artifact: SyncedArtifact | null;
+  title: string;
+  isDocument: boolean;
+  documentView: DocumentView;
   canFullscreen: boolean;
   onFullscreen?: () => void;
   onEdit?: () => void;
@@ -222,15 +296,18 @@ function ArtifactHeader({
         {isPages ? <Layers size={16} /> : <FileText size={16} />}
       </span>
       <div className="min-w-0 flex-1">
-        <h2 className="truncate text-sm font-medium text-app-fg-4">
-          {artifact?.title ?? "Artifact"}
-        </h2>
+        <h2 className="truncate text-sm font-medium text-app-fg-4">{title}</h2>
         <p className="mt-0.5 flex items-center gap-1.5 truncate text-[12px] text-app-fg-3">
-          <ArtifactSubline artifact={artifact} pageCount={pageCount} />
+          <ArtifactSubline
+            artifact={artifact}
+            isDocument={isDocument}
+            documentView={documentView}
+            pageCount={pageCount}
+          />
         </p>
       </div>
-      {artifact?.kind === "document" && artifact.content?.kind === "document" ? (
-        <CopyMarkdownButton markdown={artifact.content.markdown} />
+      {isDocument && !documentView.generating && documentView.markdown.length > 0 ? (
+        <CopyMarkdownButton markdown={documentView.markdown} />
       ) : null}
       {isPages && pagesContent && pagesContent.length > 0 && artifact?.status !== "generating" ? (
         <DownloadPagesButton
@@ -239,7 +316,7 @@ function ArtifactHeader({
           title={artifact?.title || "Artifact"}
         />
       ) : null}
-      {onEdit && artifact && artifact.status !== "generating" ? (
+      {onEdit && artifact && artifact.status !== "generating" && !documentView.generating ? (
         <IconButton label="Suggest an edit" onClick={onEdit}>
           <Pencil size={13} />
         </IconButton>
@@ -258,11 +335,25 @@ function ArtifactHeader({
 
 function ArtifactSubline({
   artifact,
+  isDocument,
+  documentView,
   pageCount,
 }: {
   artifact: SyncedArtifact | null;
+  isDocument: boolean;
+  documentView: DocumentView;
   pageCount: number | undefined;
 }) {
+  // A document being authored (live stream, maybe no synced row yet) shows the
+  // writing state directly — there's no `generating` synced row to key off.
+  if (isDocument && documentView.generating) {
+    return (
+      <>
+        <Loader2 size={12} className="animate-spin text-app-fg-3" />
+        <span>Writing…</span>
+      </>
+    );
+  }
   if (!artifact) return <span>Loading…</span>;
   const kindLabel =
     artifact.kind === "pages"
@@ -303,28 +394,25 @@ function ArtifactSubline({
 
 function ArtifactBody({
   artifact,
+  isDocument,
+  documentView,
   onFullscreen,
   pageIndex,
   onPageIndexChange,
 }: {
   artifact: SyncedArtifact | null;
+  isDocument: boolean;
+  documentView: DocumentView;
   onFullscreen: (() => void) | null;
   pageIndex: number;
   onPageIndexChange: Dispatch<SetStateAction<number>>;
 }) {
-  if (!artifact)
-    return (
-      <CenteredState
-        icon={<Loader2 size={20} className="animate-spin" />}
-        text="Loading artifact…"
-      />
-    );
-
-  const content = artifact.content;
-  if (artifact.kind === "document") {
-    const markdown = content?.kind === "document" ? content.markdown : "";
+  // Document path covers a live-authoring create (no synced row yet) as well as
+  // a synced document; the body comes from `documentView` either way.
+  if (isDocument) {
+    const markdown = documentView.markdown;
     if (markdown.trim().length === 0) {
-      return artifact.status === "generating" ? (
+      return documentView.generating ? (
         <CenteredState icon={<Loader2 size={20} className="animate-spin" />} text="Writing…" />
       ) : (
         <CenteredState icon={<FileText size={20} />} text="Empty document." />
@@ -337,7 +425,16 @@ function ArtifactBody({
     );
   }
 
+  if (!artifact)
+    return (
+      <CenteredState
+        icon={<Loader2 size={20} className="animate-spin" />}
+        text="Loading artifact…"
+      />
+    );
+
   // kind === "pages"
+  const content = artifact.content;
   const pages: ArtifactPage[] = content?.kind === "pages" ? content.pages : [];
   return (
     <PagesBody

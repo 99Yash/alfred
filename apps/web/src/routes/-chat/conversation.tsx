@@ -21,7 +21,11 @@ import { SCROLL_CHAT_TO_BOTTOM_EVENT } from "~/lib/chat/use-run-complete";
 import { IntegrationGlyph } from "~/lib/integrations/integration-icons";
 import { cn } from "~/lib/utils";
 import { ArtifactTriggerCard } from "./artifact-trigger-card";
-import { shouldShowStream, type FollowUpSuggestion } from "./conversation-helpers";
+import {
+  describeActivity,
+  shouldShowStream,
+  type FollowUpSuggestion,
+} from "./conversation-helpers";
 import { AssistantMarkdown, CopyMessageButton, MessageBubble } from "./message-bubble";
 import { ReasoningSection } from "./reasoning-section";
 import { SourcesStrip } from "./sources-strip";
@@ -90,6 +94,17 @@ export function Conversation({
   // go down as the response streams in"). Pinning this element straight to
   // `scrollHeight` each drip follows the footer exactly, with no threshold lag.
   const scrollerElRef = useRef<HTMLElement | null>(null);
+  // The streaming footer's outer element and a ResizeObserver over it. The pin
+  // effect below only fires on React `[messages, stream]` updates, but the footer
+  // also grows *asynchronously* between updates — the tool trail's auto-animate
+  // slides rows in, the accordion expands, markdown reflows as code/images
+  // render. A one-shot pin then lands against the pre-growth height, leaving the
+  // newest content below the fold (reads as "autoscroll stopped") and crammed
+  // against the composer (the footer's bottom padding scrolled out of view). The
+  // observer re-pins through that async growth; it fires only on real box changes
+  // (no polling, no forced reflow), routing through the same coalesced pin.
+  const footerElRef = useRef<HTMLElement | null>(null);
+  const footerResizeRef = useRef<ResizeObserver | null>(null);
   const stickRef = useRef(true);
   // Bottom-most mounted row index, so a jump can pick smooth (the live edge is
   // near, animating through it reads as "catching up") over instant (the edge
@@ -249,12 +264,76 @@ export function Conversation({
   // no-op while pinned, but for a freshly appended durable row whose height
   // Virtuoso hasn't measured yet it supplies the measurement-aware scroll a raw
   // `scrollTop` would land short of.
-  useEffect(() => {
+  //
+  // The `scrollHeight` read + `scrollTop` write are deferred into one rAF rather
+  // than run inline in the effect. Running inline reads layout immediately after
+  // React's commit mutated the footer, forcing a synchronous reflow every drip
+  // (a ~1.1s ForcedReflow window in the streaming trace). Coalescing into a
+  // single rAF means at most one read+write per frame no matter how many drips
+  // land, and the read happens at the frame's natural layout point — the pending
+  // rAF always reads the *live* `scrollHeight`, so a burst still lands at the
+  // true bottom.
+  const pinRafRef = useRef<number | null>(null);
+  const schedulePin = useCallback(() => {
     if (!stickRef.current) return;
-    const el = scrollerElRef.current;
-    if (el) el.scrollTop = el.scrollHeight;
-    virtuosoRef.current?.autoscrollToBottom();
-  }, [messages, stream]);
+    if (pinRafRef.current != null) return; // one pin per frame — coalesce the burst
+    pinRafRef.current = requestAnimationFrame(() => {
+      pinRafRef.current = null;
+      if (!stickRef.current) return; // user scrolled up before the frame ran
+      const el = scrollerElRef.current;
+      if (el) el.scrollTop = el.scrollHeight;
+      virtuosoRef.current?.autoscrollToBottom();
+    });
+  }, []);
+  useEffect(() => {
+    schedulePin();
+  }, [messages, stream, schedulePin]);
+
+  // Re-pin on *asynchronous* footer growth the effect above can't see. A React
+  // `[messages, stream]` update fires once per streamed snapshot, but the footer
+  // keeps growing between snapshots: the tool trail's auto-animate slides rows
+  // in, the accordion expands, markdown reflows as code/images finish rendering.
+  // Observing the footer's box catches every such change (and only real ones —
+  // no polling).
+  //
+  // The pin here is *synchronous*, not deferred through the rAF above: a
+  // ResizeObserver callback runs after the browser's layout pass, so `scrollHeight`
+  // is already computed (a cheap read, no forced reflow) and the `scrollTop` write
+  // lands before paint — the frame of lag a rAF would add is exactly what left the
+  // view trailing the growing trail by ~30px through every animation window.
+  // Writing `scrollTop` doesn't change the observed box's size, so it can't
+  // re-trigger the observer (no feedback loop). The observer target is swapped
+  // live by `setFooterEl` as the footer mounts/unmounts across turns.
+  useEffect(() => {
+    if (typeof ResizeObserver === "undefined") return;
+    const ro = new ResizeObserver(() => {
+      if (!stickRef.current) return;
+      const el = scrollerElRef.current;
+      if (el) el.scrollTop = el.scrollHeight;
+    });
+    footerResizeRef.current = ro;
+    if (footerElRef.current) ro.observe(footerElRef.current);
+    return () => {
+      ro.disconnect();
+      footerResizeRef.current = null;
+    };
+  }, []);
+  const setFooterEl = useCallback((el: HTMLElement | null) => {
+    const ro = footerResizeRef.current;
+    const prev = footerElRef.current;
+    if (ro && prev) ro.unobserve(prev);
+    footerElRef.current = el;
+    if (ro && el) ro.observe(el);
+  }, []);
+  // Cancel any pending pin on unmount (the coalescing guard means the effect
+  // above never returns a per-run cleanup — that would cancel the burst's pin
+  // before it fires).
+  useEffect(
+    () => () => {
+      if (pinRafRef.current != null) cancelAnimationFrame(pinRafRef.current);
+    },
+    [],
+  );
 
   // Jump back to the live edge and re-engage stick-to-bottom. `scrollToIndex` is
   // measurement-aware — it re-targets as it mounts unmeasured rows, so it lands
@@ -326,8 +405,9 @@ export function Conversation({
       followUps,
       onFollowUp,
       hasPendingApproval,
+      setFooterEl,
     }),
-    [showStream, stream, streamTimingRefs, followUps, onFollowUp, hasPendingApproval],
+    [showStream, stream, streamTimingRefs, followUps, onFollowUp, hasPendingApproval, setFooterEl],
   );
 
   const followOutput = useCallback(() => (stickRef.current ? ("auto" as const) : false), []);
@@ -361,7 +441,11 @@ export function Conversation({
           className="scroll-stable min-h-0 flex-1"
         />
       </FeedFooterContext>
-      <ScrollToBottomButton show={showJump} onClick={jumpToBottom} />
+      <ActivityPill
+        show={showJump}
+        activity={showStream && !stream.done ? describeActivity(stream) : null}
+        onClick={jumpToBottom}
+      />
     </div>
   );
 }
@@ -444,6 +528,8 @@ interface FeedFooterValue {
   followUps: ReadonlyArray<FollowUpSuggestion>;
   onFollowUp?: (text: string) => void;
   hasPendingApproval: boolean;
+  /** Registers the footer's outer element with the parent's re-pin observer. */
+  setFooterEl: (el: HTMLElement | null) => void;
 }
 
 const FeedFooterContext = createContext<FeedFooterValue | null>(null);
@@ -476,13 +562,16 @@ function FeedFooter() {
     followUps,
     onFollowUp,
     hasPendingApproval,
+    setFooterEl,
   } = ctx;
   return (
     // Match FeedList's column: Virtuoso renders the Footer as a *sibling* of the
     // List (not a child), so without this the streaming bubble spans the full
     // viewport width and then snaps into the padded column the instant the
-    // durable message syncs in as a list row.
-    <div className="mx-auto flex w-full max-w-3xl flex-col gap-5 px-4 pb-6">
+    // durable message syncs in as a list row. `setFooterEl` registers this
+    // element with the parent's re-pin observer so async footer growth (the tool
+    // trail auto-animating, markdown reflow) keeps riding the live edge.
+    <div ref={setFooterEl} className="mx-auto flex w-full max-w-3xl flex-col gap-5 px-4 pb-6">
       {onFollowUp && followUps.length > 0 ? (
         <FollowUpSuggestions suggestions={followUps} onPick={onFollowUp} />
       ) : null}
@@ -579,31 +668,63 @@ function prevUserTurn(
 }
 
 /**
- * Floating jump-to-latest control. Appears only when the user has scrolled up
- * off the live edge; clicking re-attaches stick-to-bottom. Borrowed from
- * dimension's chat, whose long threads surface the same affordance.
+ * Floating jump-to-latest control, doubling as a live-activity pill. Appears
+ * only when the user has scrolled up off the live edge; clicking re-attaches
+ * stick-to-bottom. While a turn is streaming it widens into a pill that names
+ * the current step ("Checking your calendar…", "Responding…") behind a breathing
+ * Alfred mark, so a user reading history still sees what Alfred is doing without
+ * scrolling back down. With no turn in flight it stays the quiet round arrow.
+ * Borrowed from dimension's chat, whose long threads surface the same affordance.
  */
-function ScrollToBottomButton({ show, onClick }: { show: boolean; onClick: () => void }) {
+function ActivityPill({
+  show,
+  activity,
+  onClick,
+}: {
+  show: boolean;
+  activity: string | null;
+  onClick: () => void;
+}) {
   return (
-    <button
-      type="button"
-      onClick={onClick}
-      aria-label="Scroll to latest"
-      disabled={!show}
-      tabIndex={show ? 0 : -1}
-      className={cn(
-        "absolute bottom-4 left-1/2 z-10 -translate-x-1/2",
-        "inline-flex size-9 items-center justify-center rounded-full",
-        "bg-app-bg-1 text-app-fg-3 shadow-[0_4px_12px_rgba(0,0,0,0.16),inset_0_0_0_1px_var(--app-fg-a1)]",
-        "transition-[opacity,scale] duration-150 ease-out",
-        "hover:scale-105 hover:text-app-fg-4 active:scale-95",
-        "outline-none focus-visible:ring-2 focus-visible:ring-app-purple-2",
-        "focus-visible:ring-offset-2 focus-visible:ring-offset-app-background",
-        show ? "opacity-100" : "pointer-events-none opacity-0 disabled:cursor-default",
-      )}
-    >
-      <ArrowDown size={16} />
-    </button>
+    // A centered non-interactive band so the pill can grow/shrink around its
+    // midpoint; only the button itself takes pointer events.
+    <div className="pointer-events-none absolute inset-x-0 bottom-4 z-10 flex justify-center">
+      <button
+        type="button"
+        onClick={onClick}
+        aria-label={activity ? `${activity} Scroll to latest.` : "Scroll to latest"}
+        disabled={!show}
+        tabIndex={show ? 0 : -1}
+        className={cn(
+          "inline-flex h-9 items-center rounded-full",
+          "bg-app-bg-1 text-app-fg-3 shadow-[0_4px_12px_rgba(0,0,0,0.16),inset_0_0_0_1px_var(--app-fg-a1)]",
+          "transition-[opacity,scale] duration-150 ease-out",
+          "hover:scale-105 hover:text-app-fg-4 active:scale-95",
+          "outline-none focus-visible:ring-2 focus-visible:ring-app-purple-2",
+          "focus-visible:ring-offset-2 focus-visible:ring-offset-app-background",
+          activity ? "max-w-[min(20rem,70vw)] gap-2 pr-3 pl-2" : "size-9 justify-center",
+          show ? "pointer-events-auto opacity-100" : "pointer-events-none opacity-0",
+        )}
+      >
+        {activity ? (
+          <>
+            <span aria-hidden className="chat-think-mark inline-flex shrink-0">
+              <img
+                src="/images/logo/alfred-logo.svg"
+                alt=""
+                className="size-[18px] rounded-[5px]"
+              />
+            </span>
+            <span className="animate-chat-shimmer-mask min-w-0 truncate text-[13px] font-medium text-app-fg-4">
+              {activity}
+            </span>
+            <ArrowDown size={13} aria-hidden className="shrink-0 text-app-fg-2" />
+          </>
+        ) : (
+          <ArrowDown size={16} />
+        )}
+      </button>
+    </div>
   );
 }
 

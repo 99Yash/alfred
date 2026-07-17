@@ -29,11 +29,13 @@ import {
   type AgentTranscriptMessage,
   type ArtifactFormat,
   type ChatErrorKind,
+  type ChatMessageUsage,
   type ToolName,
 } from "@alfred/contracts";
 import { CHAT_DELTA_MAX } from "@alfred/contracts/events";
 import { db } from "@alfred/db";
-import { chatAttachments, chatMessages, chatThreads } from "@alfred/db/schemas";
+import { apiCallLog, chatAttachments, chatMessages, chatThreads } from "@alfred/db/schemas";
+import { parsePartialJson } from "ai";
 import { and, asc, eq, inArray, like, ne, or, sql } from "drizzle-orm";
 import { z } from "zod";
 import { publishEvent } from "../../../events/publish";
@@ -164,6 +166,19 @@ const ARTIFACT_MUTATION_TOOL_NAMES = [
   "system.update_artifact",
 ] as const satisfies readonly ToolName[];
 const ARTIFACT_MUTATION_TOOLS: ReadonlySet<string> = new Set(ARTIFACT_MUTATION_TOOL_NAMES);
+
+/**
+ * The document-authoring tools whose `markdown` argument we stream live as
+ * `artifact.delta` (see the stream loop). `replace` means the streamed markdown
+ * is the whole body (create seeds it, update replaces it); `append` means it is
+ * a new section rendered after the existing synced content. `append_artifact_page`
+ * is absent — `pages`/HTML artifacts already appear at page granularity.
+ */
+const ARTIFACT_STREAM_MODES: Readonly<Record<string, "replace" | "append">> = {
+  "system.create_artifact": "replace",
+  "system.update_artifact": "replace",
+  "system.append_artifact_section": "append",
+};
 
 /**
  * Run independent autonomy calls concurrently while preserving model order for
@@ -2215,10 +2230,91 @@ const chatTurnStep: Step<ChatRunState> = {
         }
       };
 
+      // --- Live artifact-body streaming (document markdown) ---
+      // A `document` artifact's body is the `markdown` argument of
+      // create_artifact / append_artifact_section / update_artifact. The SDK
+      // streams that argument incrementally as `tool-input-delta` parts while
+      // the model generates, so we accumulate the raw partial-JSON per
+      // toolCallId, extract the growing `markdown` string, and publish its
+      // growth as `artifact.delta` — letting the sidebar fill live instead of
+      // popping in whole when the tool executes. Keyed by toolCallId because
+      // create_artifact has no artifact id until it runs. `pages`/HTML tools are
+      // deliberately excluded (they already appear at page granularity, and a
+      // create with no `markdown` field simply never emits).
+      interface ArtifactInputStream {
+        mode: "replace" | "append";
+        buf: string;
+        sentLen: number;
+        seq: number;
+        lastFlush: number;
+        titleSent: boolean;
+      }
+      const artifactInputs = new Map<string, ArtifactInputStream>();
+      const flushArtifactInput = async (toolCallId: string, final: boolean): Promise<void> => {
+        const s = artifactInputs.get(toolCallId);
+        if (!s) return;
+        if (final) artifactInputs.delete(toolCallId);
+        const parsed = await parsePartialJson(s.buf);
+        const value = parsed.value;
+        const markdown =
+          isRecord(value) && typeof value.markdown === "string" ? value.markdown : "";
+        // Only publish once the body has actually grown — this is what excludes
+        // a `pages` create (no `markdown` field) and a rename-only update.
+        if (markdown.length <= s.sentLen) return;
+        const title = isRecord(value) && typeof value.title === "string" ? value.title : undefined;
+        const artifactId =
+          isRecord(value) && typeof value.artifactId === "string" ? value.artifactId : undefined;
+        const text = markdown.slice(s.sentLen);
+        s.sentLen = markdown.length;
+        s.seq += 1;
+        s.lastFlush = Date.now();
+        const includeTitle = !s.titleSent && title !== undefined;
+        if (includeTitle) s.titleSent = true;
+        await publishEvent({
+          userId: ctx.userId,
+          kind: "artifact.delta",
+          payload: {
+            runId: ctx.runId,
+            threadId: state.threadId,
+            toolCallId,
+            seq: s.seq,
+            text,
+            mode: s.mode,
+            ...(includeTitle ? { title } : {}),
+            ...(artifactId ? { artifactId } : {}),
+          },
+        });
+      };
+
       try {
         for await (const part of stream.stream) {
           if (await checkStop()) break;
-          if (part.type === "text-delta") {
+          if (part.type === "tool-input-start") {
+            // At the fullStream level, `part.id` is the toolCallId (it matches
+            // the later `tool-call` part's `toolCallId`).
+            const mode = ARTIFACT_STREAM_MODES[part.toolName];
+            if (mode) {
+              artifactInputs.set(part.id, {
+                mode,
+                buf: "",
+                sentLen: 0,
+                seq: 0,
+                lastFlush: Date.now(),
+                titleSent: false,
+              });
+            }
+          } else if (part.type === "tool-input-delta") {
+            const s = artifactInputs.get(part.id);
+            if (s) {
+              s.buf += part.delta;
+              if (
+                s.buf.length - s.sentLen >= DELTA_FLUSH_CHARS ||
+                Date.now() - s.lastFlush >= DELTA_FLUSH_MS
+              ) {
+                await flushArtifactInput(part.id, false);
+              }
+            }
+          } else if (part.type === "text-delta") {
             await flushReasoning();
             state.assistantText += part.text;
             buffer += part.text;
@@ -2246,6 +2342,12 @@ const chatTurnStep: Step<ChatRunState> = {
             }
             await flushReasoning();
             await flush();
+            // The full tool call is assembled: publish the tail of any artifact
+            // body it was streaming so the sidebar has the whole authored body
+            // before the tool executes.
+            if (artifactInputs.has(part.toolCallId)) {
+              await flushArtifactInput(part.toolCallId, true);
+            }
             if (shouldPublishToolStarted(state.activeTools, part.toolName)) {
               await publishEvent({
                 userId: ctx.userId,
@@ -2710,6 +2812,16 @@ const dispatchToolsStep: Step<ChatRunState> = {
           // failed side effect (see isNonExecutionFailure).
           const nonExecution =
             status === "failed" && isNonExecutionFailure(result) ? true : undefined;
+          // Bind an executed artifact tool's toolCallId to its row id, so a live
+          // artifact stream (keyed by toolCallId — all create_artifact has before
+          // it runs) can adopt the durable synced row once it lands.
+          const artifactId = (() => {
+            if (!ARTIFACT_MUTATION_TOOLS.has(call.toolName) || result.kind !== "executed") {
+              return undefined;
+            }
+            const id = getPath(result.toolResult, "artifactId");
+            return typeof id === "string" && id.length > 0 ? id : undefined;
+          })();
           state.toolCallsLog.push({
             toolCallId: call.toolCallId,
             toolName: call.toolName,
@@ -2745,6 +2857,7 @@ const dispatchToolsStep: Step<ChatRunState> = {
               resultPreview,
               ...(sanitized ? { sanitized } : {}),
               ...(nonExecution ? { nonExecution } : {}),
+              ...(artifactId ? { artifactId } : {}),
               segmentIndex: call.segmentIndex,
             },
           });
@@ -2772,6 +2885,53 @@ const dispatchToolsStep: Step<ChatRunState> = {
 };
 
 /**
+ * Roll up the turn's token usage + cost from its `api_call_log` rows for the
+ * dev usage readout. Keyed on the boss `runId` — sub-agent child runs are
+ * separate runs billed under their own ids and are not folded in (see
+ * `.lessons/model-cost-recompute-from-tokens.md`). Best-effort: metering rows
+ * are written fire-and-forget, so a straggler write can undercount the final
+ * call; returns null when the run logged nothing.
+ */
+async function aggregateRunUsage(runId: string): Promise<ChatMessageUsage | null> {
+  // Grouped by model so the readout can name every model that served the turn
+  // (and catch a silent Anthropic→Gemini fallback); the turn totals are summed
+  // back across the groups in JS.
+  const rows = await db()
+    .select({
+      model: sql<string>`coalesce(${apiCallLog.model}, 'unknown')`,
+      inputTokens: sql<string>`coalesce(sum(${apiCallLog.inputTokens}), 0)`,
+      outputTokens: sql<string>`coalesce(sum(${apiCallLog.outputTokens}), 0)`,
+      cachedInputTokens: sql<string>`coalesce(sum(${apiCallLog.cachedInputTokens}), 0)`,
+      costUsd: sql<string>`coalesce(sum(${apiCallLog.costUsd}), 0)`,
+      calls: sql<string>`count(*)`,
+    })
+    .from(apiCallLog)
+    .where(eq(apiCallLog.runId, runId))
+    .groupBy(apiCallLog.model);
+  if (rows.length === 0) return null;
+  const usage: ChatMessageUsage = {
+    inputTokens: 0,
+    outputTokens: 0,
+    cachedInputTokens: 0,
+    costUsd: 0,
+    calls: 0,
+    models: [],
+  };
+  for (const row of rows) {
+    const calls = Number(row.calls) || 0;
+    usage.inputTokens += Number(row.inputTokens) || 0;
+    usage.outputTokens += Number(row.outputTokens) || 0;
+    usage.cachedInputTokens += Number(row.cachedInputTokens) || 0;
+    usage.costUsd += Number(row.costUsd) || 0;
+    usage.calls += calls;
+    usage.models.push({ model: row.model, calls });
+  }
+  if (usage.calls === 0) return null;
+  usage.models.sort((a, b) => b.calls - a.calls);
+  return usage;
+}
+
+/**
  * Persist the finished assistant turn and poke the client. The durable row is
  * what survives reload / reaches other devices; the streamed deltas were
  * ephemeral. Idempotent on messageId so a re-attempt after the executor
@@ -2784,6 +2944,7 @@ async function finalizeAssistantMessage(
 ): Promise<void> {
   const now = new Date();
   const fields = sanitizeChatMessageFields(state);
+  const usage = await aggregateRunUsage(runId);
   await db()
     .insert(chatMessages)
     .values({
@@ -2797,6 +2958,7 @@ async function finalizeAssistantMessage(
       status: "complete",
       toolCalls: fields.toolCalls,
       narration: fields.narration,
+      usage,
       runId,
     })
     .onConflictDoUpdate({
@@ -2808,6 +2970,7 @@ async function finalizeAssistantMessage(
         status: "complete",
         toolCalls: fields.toolCalls,
         narration: fields.narration,
+        usage,
         runId,
         rowVersion: sql`${chatMessages.rowVersion} + 1`,
         updatedAt: now,

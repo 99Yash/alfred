@@ -2,6 +2,7 @@ import type { SyncedChatMessage } from "@alfred/sync";
 import type { StreamingMessage } from "~/lib/chat/use-chat-stream";
 import type { IntegrationBrand } from "~/lib/integrations/integration-icons";
 import { parseJsonRecord } from "~/lib/json-record";
+import { presentTool } from "./tool-call-presentation";
 
 export interface FollowUpSuggestion {
   id: string;
@@ -16,6 +17,23 @@ export function shouldShowStream(
   stream: StreamingMessage | null,
 ): stream is StreamingMessage {
   return stream !== null && !messages.some((m) => m.id === stream.messageId);
+}
+
+/**
+ * A short present-tense label for what the turn is doing *right now* — the copy
+ * for the floating activity pill (shown when the user has scrolled up off the
+ * live edge mid-turn). Mirrors the in-flow indicators: the running tool's own
+ * verb when a tool is in flight, otherwise the reasoning / writing / condensing
+ * state. Precedence follows what's most immediate: a tool actively running wins
+ * over "writing", which wins over "thinking".
+ */
+export function describeActivity(stream: StreamingMessage): string {
+  if (stream.compacting) return "Condensing conversation…";
+  const lastTool = stream.tools[stream.tools.length - 1];
+  if (lastTool && lastTool.status === "started") return `${presentTool(lastTool).running}…`;
+  if (stream.text.length > 0) return "Responding…";
+  if (stream.reasoningActive) return "Thinking…";
+  return "Working…";
 }
 
 export function buildFollowUpSuggestions(

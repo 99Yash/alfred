@@ -1,6 +1,7 @@
 import * as Tooltip from "@radix-ui/react-tooltip";
 import { RefreshCw } from "lucide-react";
 import { useCallback, useEffect, useMemo, useState } from "react";
+import { useArtifactStream } from "~/lib/chat/use-artifact-stream";
 import { stopChatRun } from "~/lib/chat/turn-controls";
 import { useChatStream } from "~/lib/chat/use-chat-stream";
 import { useRunComplete } from "~/lib/chat/use-run-complete";
@@ -21,7 +22,7 @@ import { RightRail } from "./rail/right-rail";
 import { useRailData } from "./rail/use-rail-data";
 import { useRailMode } from "./rail/use-rail-mode";
 import { TopBar } from "./top-bar";
-import { useArtifactPanel } from "./use-artifact-panel";
+import { pendingToolCallId, useArtifactPanel } from "./use-artifact-panel";
 
 /**
  * Fixture-free chat scaffold shared by `/chat` and `/chat/$threadId`.
@@ -78,7 +79,20 @@ export function ChatShell({ threadId, title }: ChatShellProps) {
   // the content rides the synced `artifacts` row. The panel also auto-opens the
   // freshest artifact of the live run (`activeRunId`), so the shell doesn't have
   // to push synced ids into it from an effect.
-  const artifact = useArtifactPanel(threadId, activeRunId);
+  //
+  // The live artifact stream fills a `document` body token-by-token while the
+  // boss authors it — before the durable row syncs (create) or as it's rewritten
+  // (update/append). The panel binds a pending create by `toolCallId`; here we
+  // resolve the open target's live body to hand the sidebar.
+  const artifactStream = useArtifactStream(threadId);
+  const artifact = useArtifactPanel(threadId, activeRunId, artifactStream);
+  const liveArtifact = useMemo(() => {
+    if (!artifact.selectedId) return null;
+    const pendingTcid = pendingToolCallId(artifact.selectedId);
+    return pendingTcid
+      ? artifactStream.byToolCallId(pendingTcid)
+      : artifactStream.byArtifactId(artifact.selectedId);
+  }, [artifact.selectedId, artifactStream]);
 
   // "Suggest an edit" from the sidebar prefills the composer (ADR-0075 Phase 4):
   // a nonce makes the same scaffold re-apply if requested twice, and the main
@@ -120,6 +134,7 @@ export function ChatShell({ threadId, title }: ChatShellProps) {
       artifact.selectedId ? (
         <ArtifactSidebar
           artifactId={artifact.selectedId}
+          liveStream={liveArtifact}
           mode={railMode}
           width={artifact.width}
           onWidthChange={artifact.setWidth}
@@ -129,6 +144,7 @@ export function ChatShell({ threadId, title }: ChatShellProps) {
       ) : null,
     [
       artifact.selectedId,
+      liveArtifact,
       railMode,
       artifact.width,
       artifact.setWidth,

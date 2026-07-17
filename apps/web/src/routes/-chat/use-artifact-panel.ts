@@ -1,8 +1,24 @@
 import type { SyncedArtifact } from "@alfred/sync";
 import { useCallback, useEffect, useRef, useState } from "react";
 
+import type { ArtifactStreamState } from "~/lib/chat/use-artifact-stream";
 import { useThreadArtifacts } from "~/lib/replicache/use-artifacts";
 import { getLocalStorageItem, setLocalStorageItem } from "~/lib/storage/storage";
+
+/**
+ * A `create_artifact` in flight has no durable row id yet, so the sidebar opens
+ * to its live stream keyed by `toolCallId` under this prefix. Once the tool
+ * executes and the id is bound, the selection migrates to the real id.
+ */
+const PENDING_PREFIX = "pending:";
+export function pendingSelectionId(toolCallId: string): string {
+  return `${PENDING_PREFIX}${toolCallId}`;
+}
+export function pendingToolCallId(selectedId: string | null): string | null {
+  return selectedId?.startsWith(PENDING_PREFIX)
+    ? selectedId.slice(PENDING_PREFIX.length)
+    : null;
+}
 
 /**
  * Local UI state for the chat's artifact sidebar (ADR-0075 Phase 3). The
@@ -56,20 +72,56 @@ function readStoredWidth(): number {
 export function useArtifactPanel(
   threadId: string | undefined,
   activeRunId: string | undefined,
+  artifactStream: ArtifactStreamState,
 ): ArtifactPanelState {
   const [selection, setSelection] = useState<SelectionState>(() => ({
     threadId,
     selectedId: null,
   }));
   const [width, setWidthState] = useState<number>(readStoredWidth);
-  // Artifact ids we've already auto-opened per thread, so closing one doesn't
-  // make the next generation poke re-open it.
+  // Keys we've already auto-opened per thread, so closing one doesn't make the
+  // next poke re-open it. Holds both real artifact ids and `pending:<tcid>`
+  // keys for creates surfaced before their row exists.
   const autoOpenedByThreadRef = useRef<Map<string | undefined, Set<string>>>(new Map());
+  const markAutoOpened = useCallback((key: string) => {
+    const set = autoOpenedByThreadRef.current.get(threadId) ?? new Set<string>();
+    set.add(key);
+    autoOpenedByThreadRef.current.set(threadId, set);
+  }, [threadId]);
 
   if (selection.threadId !== threadId) {
     setSelection({ threadId, selectedId: null });
   }
   const selectedId = selection.threadId === threadId ? selection.selectedId : null;
+
+  // Auto-open a `create_artifact` the instant it begins streaming — before its
+  // durable row exists — so the sidebar fills token-by-token instead of the
+  // user staring at an empty conversation during the authoring "dead wait".
+  // Keyed by `toolCallId` (`pending:<tcid>`); the selection migrates to the
+  // real id once the tool executes (below). Fires once per tcid so a manual
+  // close sticks.
+  const pending = activeRunId ? artifactStream.latestPendingForRun(activeRunId) : null;
+  const pendingKey = pending ? pendingSelectionId(pending.toolCallId) : null;
+  useEffect(() => {
+    if (!pending || !pendingKey) return;
+    const autoOpened = autoOpenedByThreadRef.current.get(threadId);
+    if (autoOpened?.has(pendingKey)) return;
+    markAutoOpened(pendingKey);
+    setSelection({ threadId, selectedId: pendingKey });
+  }, [pending, pendingKey, threadId, markAutoOpened]);
+
+  // Migrate a pending selection onto its durable row once the authoring tool
+  // resolves the artifact id, so the panel reconciles to the synced content
+  // (future edits, server-sanitized body) instead of freezing on the stream.
+  const selectedPendingTcid = pendingToolCallId(selectedId);
+  const resolvedId = selectedPendingTcid
+    ? artifactStream.byToolCallId(selectedPendingTcid)?.artifactId
+    : null;
+  useEffect(() => {
+    if (!selectedPendingTcid || !resolvedId) return;
+    markAutoOpened(resolvedId);
+    setSelection({ threadId, selectedId: resolvedId });
+  }, [selectedPendingTcid, resolvedId, threadId, markAutoOpened]);
 
   // Auto-open the sidebar when the boss authors an artifact in the live run
   // (ADR-0075 Phase 4). We own this here — rather than letting the shell push
@@ -87,10 +139,14 @@ export function useArtifactPanel(
     if (!fresh) return;
     const autoOpened = autoOpenedByThreadRef.current.get(threadId) ?? new Set<string>();
     if (autoOpened.has(fresh.id)) return;
+    // A create already surfaced (and maybe manually closed) as a pending stream
+    // must not be re-opened here by its freshly-synced row.
+    const live = artifactStream.byArtifactId(fresh.id);
+    if (live && autoOpened.has(pendingSelectionId(live.toolCallId))) return;
     autoOpened.add(fresh.id);
     autoOpenedByThreadRef.current.set(threadId, autoOpened);
     setSelection({ threadId, selectedId: fresh.id });
-  }, [activeRunId, threadArtifacts, threadId]);
+  }, [activeRunId, threadArtifacts, threadId, artifactStream]);
 
   const open = useCallback(
     (artifactId: string) => setSelection({ threadId, selectedId: artifactId }),

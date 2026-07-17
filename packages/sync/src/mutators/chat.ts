@@ -213,6 +213,7 @@ export async function chatMessageCreateClient(
       errorKind: null,
       toolCalls: null,
       narration: null,
+      usage: null,
       runId: null,
       rowVersion: 0,
       createdAt: args.createdAt,
