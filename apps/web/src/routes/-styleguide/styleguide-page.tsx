@@ -2201,7 +2201,7 @@ function V2ApprovalTraySection() {
     <Section
       id="v2-approval-tray"
       title="Chat approval tray"
-      recipe="routes/-chat/approval-tray.tsx rendered with two mock stagings (step nav, risk pills, recent-rejection strip). preview mode — decisions are local no-ops, no toast/audio."
+      recipe="routes/-chat/approval-tray.tsx rendered with two mock stagings (stacked inline cards, always-editable fields, Revise/End run, risk pills, recent-rejection strip). preview mode — decisions are local no-ops, no toast/audio."
     >
       <ThemePanes
         stacked

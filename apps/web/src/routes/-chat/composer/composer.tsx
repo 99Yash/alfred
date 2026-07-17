@@ -11,7 +11,6 @@ import {
 import type { JSONContent } from "@tiptap/react";
 import { AnimatePresence, motion, useReducedMotion } from "framer-motion";
 import { ImagePlus } from "lucide-react";
-import { useAppTheme } from "~/components/ui/v2/theme";
 import { ACCEPT_ATTR } from "~/lib/chat/upload-attachments";
 import { toast } from "~/lib/toast";
 import { cn } from "~/lib/utils";
@@ -75,7 +74,6 @@ export function Composer({
   tier: ChatTier;
   onTierChange: (tier: ChatTier) => void;
 }) {
-  const { resolved: theme } = useAppTheme();
   const reduce = useReducedMotion();
   const editorRef = useRef<TiptapComposerHandle | null>(null);
   const fileInputRef = useRef<HTMLInputElement | null>(null);
@@ -235,13 +233,13 @@ export function Composer({
       ) : null}
       <div
         className={cn(
-          "app-elevated relative overflow-hidden rounded-3xl p-2",
-          // Transparent surface — particles + the app-elevated hairline carry
-          // the composer's visual identity now, no solid fill needed.
-          // Light mode gets a stronger inset ring on top of app-elevated's 0.05
-          // hairline so the edge reads against the white page; dark relies on
-          // app-elevated's existing inset white ring.
-          theme === "light" && "ring-1 ring-app-fg-a1/50 ring-inset",
+          "composer-frost relative overflow-hidden rounded-3xl p-2",
+          // Floating frosted-glass surface: a beveled gradient rim, backdrop
+          // blur + specular sheen, and a layered drop shadow (ported from
+          // dimension's input material, re-tokenized — see `.composer-frost`).
+          // The drop shadow is fed through Tailwind's --tw-shadow so it composes
+          // with the purple focus ring instead of being wiped by it.
+          "shadow-[var(--frost-shadow)]",
           "focus-within:ring-2 focus-within:ring-app-purple-2 focus-within:ring-offset-4",
           "transition-shadow focus-within:ring-offset-app-background",
           disabled && "opacity-70",
@@ -274,8 +272,8 @@ export function Composer({
           ) : null}
         </AnimatePresence>
         {/* Wrap editor + controls in a positioned container so they paint
-         * above the absolutely-positioned particles canvas (positioned
-         * siblings with z-auto paint in tree order). */}
+         * above the frost surface's beveled ::before rim (positioned siblings
+         * with z-auto paint in tree order). */}
         <div className="relative">
           <input
             ref={fileInputRef}

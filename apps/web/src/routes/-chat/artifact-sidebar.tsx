@@ -671,32 +671,45 @@ function ResizeHandle({
   onWidthChange: (width: number) => void;
 }) {
   const drag = useRef<{ startX: number; startWidth: number } | null>(null);
+  const [dragging, setDragging] = useState(false);
 
+  // Pointer *capture* (not window listeners) routes every move/up back to this
+  // element even after the cursor crosses onto the artifact's iframes. A plain
+  // window `pointermove` stops firing the instant the pointer enters an
+  // `<iframe>` (the events go to the frame's own document), so dragging the
+  // panel narrower — cursor moving in over the rendered pages — would freeze
+  // mid-drag. Capture also removes the need to add/tear-down global listeners:
+  // it auto-releases on pointerup / lostpointercapture.
   const onPointerDown = useCallback(
     (e: ReactPointerEvent<HTMLDivElement>) => {
       e.preventDefault();
+      e.currentTarget.setPointerCapture(e.pointerId);
       drag.current = { startX: e.clientX, startWidth: width };
-      const onMove = (ev: PointerEvent) => {
-        if (!drag.current) return;
-        // The panel sits on the right; its left edge is the handle, so dragging
-        // left (clientX decreasing) widens it.
-        const delta = drag.current.startX - ev.clientX;
-        onWidthChange(drag.current.startWidth + delta);
-      };
-      const onUp = () => {
-        drag.current = null;
-        window.removeEventListener("pointermove", onMove);
-        window.removeEventListener("pointerup", onUp);
-        document.body.style.userSelect = "";
-        document.body.style.cursor = "";
-      };
-      window.addEventListener("pointermove", onMove);
-      window.addEventListener("pointerup", onUp);
+      setDragging(true);
       document.body.style.userSelect = "none";
       document.body.style.cursor = "col-resize";
     },
-    [width, onWidthChange],
+    [width],
   );
+
+  const onPointerMove = useCallback(
+    (e: ReactPointerEvent<HTMLDivElement>) => {
+      if (!drag.current) return;
+      // The panel sits on the right; its left edge is the handle, so dragging
+      // left (clientX decreasing) widens it. `onWidthChange` clamps the bounds.
+      const delta = drag.current.startX - e.clientX;
+      onWidthChange(drag.current.startWidth + delta);
+    },
+    [onWidthChange],
+  );
+
+  const endDrag = useCallback(() => {
+    if (!drag.current) return;
+    drag.current = null;
+    setDragging(false);
+    document.body.style.userSelect = "";
+    document.body.style.cursor = "";
+  }, []);
 
   return (
     // react-doctor's prefer-tag-over-role maps role="separator" → <hr>, but an
@@ -709,9 +722,22 @@ function ResizeHandle({
       aria-orientation="vertical"
       aria-label="Resize artifact panel"
       onPointerDown={onPointerDown}
-      className="group absolute top-0 bottom-0 left-0 z-10 w-1.5 cursor-col-resize"
+      onPointerMove={onPointerMove}
+      onPointerUp={endDrag}
+      onLostPointerCapture={endDrag}
+      // ~10px hit target (Apple's gesture guidance) over the 1px visual rule;
+      // `touch-none` stops a touch-drag scrolling the page instead of resizing.
+      className="group absolute top-0 bottom-0 left-0 z-10 w-2.5 cursor-col-resize touch-none"
     >
-      <div className="absolute inset-y-0 left-0 w-px bg-app-bg-3/60 transition-colors group-hover:bg-app-fg-3" />
+      {/* Feedback lives on the press and stays lit for the whole drag (the
+       * cursor leaves the hover zone as the panel resizes, so group-hover alone
+       * would flicker the rule back to faint mid-gesture). */}
+      <div
+        className={cn(
+          "absolute inset-y-0 left-0 w-px transition-colors",
+          dragging ? "bg-app-purple-3" : "bg-app-bg-3/60 group-hover:bg-app-fg-3",
+        )}
+      />
     </div>
   );
 }

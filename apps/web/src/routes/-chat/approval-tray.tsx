@@ -6,21 +6,18 @@ import {
   AlertTriangle,
   Ban,
   Check,
-  ChevronLeft,
-  ChevronRight,
   ExternalLink,
   Loader2,
   Pencil,
+  RefreshCw,
   ShieldCheck,
   X,
-  XCircle,
 } from "lucide-react";
-import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import type { ApprovalDecision } from "~/components/approvals/approval-card";
 import { cardTitle, toolChipLabel } from "~/components/approvals/card-spec";
 import { formatJson, formatTimestamp } from "~/components/approvals/format";
 import { ApprovalInputEditor } from "~/components/approvals/input-editor";
-import { InputRenderer } from "~/components/approvals/input-renderer";
 import { RiskPill } from "~/components/approvals/risk-pill";
 import { ToolIcon } from "~/components/approvals/tool-icon";
 import { AppButton, AppTextarea } from "~/components/ui/v2";
@@ -33,12 +30,24 @@ import { cn } from "~/lib/utils";
 
 // Hoisted so the `leading` props below don't allocate a fresh element per render.
 const ICON_X = <X size={13} />;
-const ICON_PENCIL = <Pencil size={13} />;
+const ICON_REVISE = <RefreshCw size={13} />;
 const ICON_BAN = <Ban size={13} />;
-const ICON_XCIRCLE = <XCircle size={13} />;
 const ICON_CHECK = <Check size={13} />;
+const ICON_PENCIL = <Pencil size={13} />;
 const ICON_SHIELD = <ShieldCheck size={13} />;
 
+/**
+ * Renders the pending approvals for a run inline in the transcript, right below
+ * the tool trail whose action they gate. One card per staged action, stacked in
+ * the order they were passed (the conversation orders them by tool position, so
+ * each card sits under the call it belongs to). Replaces the old detached
+ * step-through tray: the decision now lives where the action appears, not in a
+ * separate bar above the composer.
+ *
+ * The approval "chime" (toast + sound) fires once here for the batch — a stack
+ * of cards must not overlap N sounds — while every other decision detail lives
+ * in {@link InlineApprovalCard}.
+ */
 export function ChatApprovalTray({
   runId,
   approvals,
@@ -51,31 +60,42 @@ export function ChatApprovalTray({
   /** Styleguide-only: render with all interactions local — no toast, no audio, no API. */
   preview?: boolean;
 }) {
-  const ordered = useMemo(
-    () => approvals.toSorted((a, b) => a.createdAt.localeCompare(b.createdAt)),
-    [approvals],
-  );
-  const [index, setIndex] = useState(0);
-  const [recentDecision, setRecentDecision] = useState<"approve" | "reject" | "cancel_run" | null>(
-    null,
-  );
+  const [recentDecision, setRecentDecision] = useState(false);
   const [previousRunId, setPreviousRunId] = useState(runId);
-
   if (runId !== previousRunId) {
     setPreviousRunId(runId);
-    setIndex(0);
-    setRecentDecision(null);
+    setRecentDecision(false);
   }
 
+  // Chime once per freshly-arrived batch of approvals. A per-card effect would
+  // fire N toasts and stack N overlapping sounds when several actions gate at
+  // once; centralizing it here keeps a single "review this" signal.
+  const notifiedRef = useRef<Set<string>>(new Set());
   useEffect(() => {
-    if (index >= ordered.length) setIndex(Math.max(0, ordered.length - 1));
-  }, [index, ordered.length]);
+    if (preview) return;
+    const fresh = approvals.filter((row) => !notifiedRef.current.has(row.id));
+    if (fresh.length === 0) return;
+    for (const row of fresh) notifiedRef.current.add(row.id);
+    const first = fresh[0];
+    callToast({
+      message: "Approval needed",
+      description:
+        fresh.length === 1 && first
+          ? cardTitle(first.toolName, first.proposedInput)
+          : `${fresh.length} actions need your review`,
+      icon: <ShieldCheck size={14} className="text-app-purple-3" />,
+    });
+    const audio = new Audio("/sounds/run-finished.mp3");
+    audio.volume = 0.42;
+    void audio.play().catch(() => {
+      // Browsers can block audio until the page has user activation. The inline
+      // card remains the source of truth when that happens.
+    });
+  }, [approvals, preview]);
 
   if (!runId) return null;
 
-  const active = ordered[index] ?? null;
-
-  if (!active) {
+  if (approvals.length === 0) {
     if (!awaitingApproval) return null;
     return (
       <div className="app-frost-overlay animate-chat-in rounded-2xl px-4 py-3">
@@ -88,37 +108,29 @@ export function ChatApprovalTray({
   }
 
   return (
-    <ApprovalStep
-      staging={active}
-      step={index + 1}
-      total={ordered.length}
-      onPrev={() => setIndex((v) => Math.max(0, v - 1))}
-      onNext={() => setIndex((v) => Math.min(ordered.length - 1, v + 1))}
-      onDecision={(decision) => setRecentDecision(decision)}
-      preview={preview}
-    />
+    <div className="flex flex-col gap-2">
+      {approvals.map((staging) => (
+        <InlineApprovalCard
+          key={staging.id}
+          staging={staging}
+          preview={preview}
+          onDecision={() => setRecentDecision(true)}
+        />
+      ))}
+    </div>
   );
 }
 
-function ApprovalStep({
+function InlineApprovalCard({
   staging,
-  step,
-  total,
-  onPrev,
-  onNext,
-  onDecision,
   preview = false,
+  onDecision,
 }: {
   staging: SyncedActionStaging;
-  step: number;
-  total: number;
-  onPrev: () => void;
-  onNext: () => void;
-  onDecision: (decision: ApprovalDecision["decision"]) => void;
   preview?: boolean;
+  onDecision: () => void;
 }) {
   const [draftInput, setDraftInput] = useState<unknown>(() => staging.proposedInput);
-  const [editing, setEditing] = useState(false);
   const [showReason, setShowReason] = useState(false);
   const [reason, setReason] = useState("");
   const [busy, setBusy] = useState(false);
@@ -129,16 +141,18 @@ function ApprovalStep({
     proposedInput: staging.proposedInput,
   });
   const reasonRef = useRef<HTMLTextAreaElement>(null);
-  const notifiedIdsRef = useRef<Set<string>>(new Set());
   const { setIntegrationMode } = useActionPolicy();
 
+  // Re-seed when the staged value changes underneath us (streamed edits, or the
+  // same card component being reused for a different row). A render-phase state
+  // adjustment, so React discards the queued setState with the render if it
+  // bails out — a ref write would leak and desync the tracker.
   if (
     staging.id !== previousStaging.id ||
     staging.proposedInput !== previousStaging.proposedInput
   ) {
     setPreviousStaging({ id: staging.id, proposedInput: staging.proposedInput });
     setDraftInput(staging.proposedInput);
-    setEditing(false);
     setShowReason(false);
     setReason("");
     setBusy(false);
@@ -154,29 +168,11 @@ function ApprovalStep({
     () => formatJson(draftInput).trim() !== formatJson(staging.proposedInput).trim(),
     [draftInput, staging.proposedInput],
   );
-  const displayInput = edited ? draftInput : staging.proposedInput;
   const title = useMemo(
     () => cardTitle(staging.toolName, edited ? draftInput : staging.proposedInput),
     [staging.toolName, edited, draftInput, staging.proposedInput],
   );
   const reasonMissing = reason.trim().length === 0;
-
-  useEffect(() => {
-    if (preview) return;
-    if (notifiedIdsRef.current.has(staging.id)) return;
-    notifiedIdsRef.current.add(staging.id);
-    callToast({
-      message: "Approval needed",
-      description: title,
-      icon: <ShieldCheck size={14} className="text-app-purple-3" />,
-    });
-    const audio = new Audio("/sounds/run-finished.mp3");
-    audio.volume = 0.42;
-    void audio.play().catch(() => {
-      // Browsers can block audio until the page has user activation. The
-      // inline tray remains the source of truth when that happens.
-    });
-  }, [preview, staging.id, title]);
 
   const decide = async (decision: ApprovalDecision, alwaysAllowName?: string) => {
     if (busy || decided) return;
@@ -193,17 +189,21 @@ function ApprovalStep({
         );
       }
       setDecided(true);
-      onDecision(decision.decision);
+      onDecision();
       const recorded = decision.decision === "approve" ? toast.success : toast.info;
       recorded({
         message: alwaysAllowName
           ? `Always allowing ${alwaysAllowName}`
           : decision.decision === "approve"
             ? "Approval recorded"
-            : "Rejection recorded",
+            : decision.decision === "reject"
+              ? "Sent back to Alfred"
+              : "Run ended",
         description: alwaysAllowName
           ? `Alfred won't ask before ${alwaysAllowName} actions like this. Change it in Settings.`
-          : "Alfred is resuming the run.",
+          : decision.decision === "cancel_run"
+            ? "Alfred stopped this run."
+            : "Alfred is resuming the run.",
         position: "top-center",
       });
     } catch (err) {
@@ -259,41 +259,18 @@ function ApprovalStep({
             {policy}
           </p>
         </div>
-        {total > 1 ? (
-          <div className="ml-auto flex shrink-0 items-center gap-1">
-            <StepButton
-              label="Previous approval"
-              disabled={step <= 1 || busy || decided}
-              onClick={onPrev}
-            >
-              <ChevronLeft size={14} />
-            </StepButton>
-            <span className="min-w-10 text-center text-[12px] text-app-fg-3 tabular-nums">
-              {step}/{total}
-            </span>
-            <StepButton
-              label="Next approval"
-              disabled={step >= total || busy || decided}
-              onClick={onNext}
-            >
-              <ChevronRight size={14} />
-            </StepButton>
-          </div>
-        ) : null}
       </div>
 
       <div className="px-3 pb-3 sm:px-4">
-        {editing ? (
-          <ApprovalInputEditor
-            toolName={staging.toolName}
-            value={draftInput}
-            onChange={setDraftInput}
-            disabled={busy || decided}
-            idPrefix={`chat-approval-input-${staging.id}`}
-          />
-        ) : (
-          <InputRenderer toolName={staging.toolName} input={displayInput} />
-        )}
+        {/* Fields are always live — no read-only/Adjust step. Edit in place, then
+         * the primary button reads "Approve changes". */}
+        <ApprovalInputEditor
+          toolName={staging.toolName}
+          value={draftInput}
+          onChange={setDraftInput}
+          disabled={busy || decided}
+          idPrefix={`chat-approval-input-${staging.id}`}
+        />
 
         {staging.recentRejection ? (
           <div className="mt-2 flex items-start gap-2 rounded-xl bg-app-amber-1 px-3 py-2 text-[12px] leading-5 text-app-amber-4 shadow-[0_0_0_1px_var(--app-amber-2)]">
@@ -311,7 +288,7 @@ function ApprovalStep({
               htmlFor={`chat-approval-reason-${staging.id}`}
               className="text-[12px] font-medium text-app-fg-3"
             >
-              Reason for rejection
+              What should Alfred change?
             </label>
             <AppTextarea
               id={`chat-approval-reason-${staging.id}`}
@@ -355,14 +332,19 @@ function ApprovalStep({
           </div>
         ) : (
           <div className="flex flex-wrap items-center gap-2">
+            {/* Revise sends the action back to Alfred with a note — the run stays
+             * alive and Alfred tries again. Distinct from End run, which stops. */}
             <AppButton
               variant="ghost"
               size="sm"
-              leading={editing ? ICON_X : ICON_PENCIL}
+              leading={showReason ? ICON_X : ICON_REVISE}
               disabled={busy}
-              onClick={() => setEditing((v) => !v)}
+              onClick={() => {
+                setShowReason((v) => !v);
+                setError(null);
+              }}
             >
-              {editing ? "Done" : "Adjust"}
+              {showReason ? "Cancel" : "Revise"}
             </AppButton>
             {showReason ? (
               <>
@@ -376,87 +358,51 @@ function ApprovalStep({
                   End run
                 </AppButton>
                 <AppButton
-                  variant="destructive"
+                  variant="primary"
                   size="sm"
-                  leading={ICON_XCIRCLE}
+                  leading={ICON_REVISE}
+                  loading={busy}
                   disabled={busy || reasonMissing}
                   onClick={() => decide({ decision: "reject", reason: reason.trim() })}
                 >
-                  Reject
+                  Send revision
                 </AppButton>
               </>
             ) : (
-              <AppButton
-                variant="ghost"
-                size="sm"
-                leading={ICON_XCIRCLE}
-                disabled={busy}
-                onClick={() => setShowReason(true)}
-              >
-                Reject
-              </AppButton>
+              <>
+                {canAlwaysAllow ? (
+                  <AppButton
+                    variant="ghost"
+                    size="sm"
+                    leading={ICON_SHIELD}
+                    disabled={busy}
+                    onClick={allowAlways}
+                  >
+                    Always allow {integrationName}
+                  </AppButton>
+                ) : null}
+                <AppButton
+                  variant="primary"
+                  size="sm"
+                  leading={edited ? ICON_PENCIL : ICON_CHECK}
+                  loading={busy}
+                  disabled={busy}
+                  onClick={() =>
+                    decide(
+                      edited
+                        ? { decision: "approve", editedInput: draftInput }
+                        : { decision: "approve" },
+                    )
+                  }
+                >
+                  {approveLabel}
+                </AppButton>
+              </>
             )}
-            {canAlwaysAllow && !showReason ? (
-              <AppButton
-                variant="ghost"
-                size="sm"
-                leading={ICON_SHIELD}
-                disabled={busy}
-                onClick={allowAlways}
-              >
-                Always allow {integrationName}
-              </AppButton>
-            ) : null}
-            <AppButton
-              variant="primary"
-              size="sm"
-              leading={edited ? ICON_PENCIL : ICON_CHECK}
-              loading={busy}
-              disabled={busy}
-              onClick={() =>
-                decide(
-                  edited
-                    ? { decision: "approve", editedInput: draftInput }
-                    : { decision: "approve" },
-                )
-              }
-            >
-              {approveLabel}
-            </AppButton>
           </div>
         )}
       </div>
     </section>
-  );
-}
-
-function StepButton({
-  label,
-  disabled,
-  onClick,
-  children,
-}: {
-  label: string;
-  disabled: boolean;
-  onClick: () => void;
-  children: ReactNode;
-}) {
-  return (
-    <button
-      type="button"
-      aria-label={label}
-      disabled={disabled}
-      onClick={onClick}
-      className={cn(
-        "inline-flex size-10 items-center justify-center rounded-xl",
-        "text-app-fg-3 transition-[background-color,color,transform]",
-        "hover:bg-app-bg-a2 hover:text-app-fg-4 active:scale-[0.96]",
-        "disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:bg-transparent",
-        "outline-none focus-visible:ring-2 focus-visible:ring-app-purple-2",
-      )}
-    >
-      {children}
-    </button>
   );
 }
 

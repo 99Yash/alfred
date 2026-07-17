@@ -11,7 +11,6 @@ import { useActionStagings } from "~/lib/replicache/use-action-stagings";
 import { useChatMessages } from "~/lib/replicache/use-chat";
 import { useRightRail } from "~/lib/shell/app-shell";
 import { toast } from "~/lib/toast";
-import { ChatApprovalTray } from "./approval-tray";
 import { ArtifactSidebar, type ArtifactEditSuggestion } from "./artifact-sidebar";
 import { Composer } from "./composer/composer";
 import { useModelTier } from "./composer/use-model-tier";
@@ -253,15 +252,10 @@ export function ChatShell({ threadId, title }: ChatShellProps) {
               followUps={chipFollowUps}
               onOpenArtifact={artifact.open}
               openArtifactId={artifact.selectedId}
-              hasPendingApproval={hasPendingApproval}
+              approvals={runApprovals}
             />
             <div className="shrink-0 px-4 pb-4">
               <div className="mx-auto flex w-full max-w-3xl flex-col gap-2">
-                <ChatApprovalTray
-                  runId={activeRunId}
-                  approvals={runApprovals}
-                  awaitingApproval={awaitingApproval}
-                />
                 <Composer
                   key={threadId ?? "new"}
                   threadId={threadId}
