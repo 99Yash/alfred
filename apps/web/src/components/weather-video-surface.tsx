@@ -1,4 +1,4 @@
-import { useEffect, useRef } from "react";
+import { useEffect, useRef, useState } from "react";
 import type { WeatherCondition } from "~/lib/weather";
 import { cn } from "~/lib/utils";
 
@@ -57,8 +57,12 @@ interface WeatherVideoSurfaceProps {
   className?: string;
 }
 
+interface Layer {
+  id: number;
+  src: string;
+}
+
 export function WeatherVideoSurface({ condition, isDay, className }: WeatherVideoSurfaceProps) {
-  const videoRef = useRef<HTMLVideoElement>(null);
   const hasData = condition !== undefined;
   // Without a weather signal, fall back to local-clock night/day so the
   // rail at least matches the user's wall-time. Skipping this fallback
@@ -72,46 +76,118 @@ export function WeatherVideoSurface({ condition, isDay, className }: WeatherVide
       ? NIGHT_VIDEO
       : VIDEO_FOR_CONDITION[condition];
 
-  // Slow the loop to 0.5× — atmospheric, less distracting. Matches
-  // dimension. Applied imperatively because `playbackRate` isn't a
-  // React prop on `<video>`; re-applied whenever the src swaps so the
-  // new clip also plays at half speed.
+  // Condition changes crossfade rather than hard-cut: a new layer is pushed
+  // on top and fades in over 1s while the previous layer stays put beneath
+  // it (so there is never a transparent dip that flashes the gradient), then
+  // the now-covered layers are pruned once the new one has fully arrived
+  // (apple-design §7 — materialize, don't jump-cut). The array's last entry
+  // is always the active layer.
+  const nextId = useRef(1);
+  const [layers, setLayers] = useState<Layer[]>(() => [{ id: 0, src: videoSrc }]);
+
   useEffect(() => {
-    const el = videoRef.current;
-    if (!el) return;
-    el.playbackRate = 0.5;
+    setLayers((prev) => {
+      if (prev[prev.length - 1]?.src === videoSrc) return prev;
+      const id = nextId.current;
+      nextId.current += 1;
+      return [...prev, { id, src: videoSrc }];
+    });
   }, [videoSrc]);
+
+  const pruneTo = (id: number) => {
+    setLayers((prev) => (prev.length === 1 ? prev : prev.filter((l) => l.id === id)));
+  };
 
   return (
     <span className={cn("absolute inset-0 overflow-hidden", className)} aria-hidden>
       <span className="dimension-weather-surface absolute inset-0" />
-      <video
-        ref={videoRef}
-        key={videoSrc}
-        autoPlay
-        loop
-        muted
-        playsInline
-        disablePictureInPicture
-        preload="metadata"
-        aria-label="Decorative weather background"
-        tabIndex={-1}
-        className={cn(
-          "absolute inset-0 size-full object-cover",
-          "pointer-events-none select-none",
-          "transition-opacity duration-1000 ease-in-out",
-          // Always render the chosen video: the fallback (local-clock
-          // night vs partly_cloudy) is meaningful on its own, so the
-          // rail doesn't sit empty waiting for the weather hook —
-          // especially on geojs/open-meteo failure paths.
-          "opacity-100",
-        )}
-      >
-        <source src={videoSrc} type="video/mp4" />
-      </video>
+      {layers.map((layer, i) => (
+        <WeatherVideoLayer
+          key={layer.id}
+          src={layer.src}
+          active={i === layers.length - 1}
+          onArrived={() => pruneTo(layer.id)}
+        />
+      ))}
       {condition === "cloudy" || condition === "fog" ? (
         <span className="pointer-events-none absolute inset-0 bg-black/25" />
       ) : null}
     </span>
+  );
+}
+
+/**
+ * One crossfading video layer. Mounts transparent and fades to full opacity
+ * on the next frame so the swap reads as a dissolve. Playback is slowed to
+ * 0.5× (atmospheric, matches dimension) and paused entirely under
+ * `prefers-reduced-motion` — a full-bleed looping video is exactly the
+ * vestibular motion that setting asks us to stop (apple-design §14), so we
+ * hold a still frame instead of hiding the sky.
+ */
+function WeatherVideoLayer({
+  src,
+  active,
+  onArrived,
+}: {
+  src: string;
+  active: boolean;
+  onArrived: () => void;
+}) {
+  const videoRef = useRef<HTMLVideoElement>(null);
+  const [shown, setShown] = useState(false);
+
+  // Flip to visible one frame after mount so the opacity transition runs
+  // from 0 → 100 instead of painting at full opacity immediately.
+  useEffect(() => {
+    const raf = requestAnimationFrame(() => setShown(true));
+    return () => cancelAnimationFrame(raf);
+  }, []);
+
+  // `playbackRate` isn't a React prop, so set it imperatively; honor
+  // reduced-motion by pausing (holding a frame) and re-evaluate if the user
+  // toggles the setting while the rail is open.
+  useEffect(() => {
+    const el = videoRef.current;
+    if (!el) return;
+    const query = window.matchMedia("(prefers-reduced-motion: reduce)");
+    const apply = () => {
+      el.playbackRate = 0.5;
+      if (query.matches) {
+        el.pause();
+      } else {
+        void el.play().catch(() => {});
+      }
+    };
+    apply();
+    query.addEventListener("change", apply);
+    return () => query.removeEventListener("change", apply);
+  }, [src]);
+
+  return (
+    <video
+      ref={videoRef}
+      autoPlay
+      loop
+      muted
+      playsInline
+      disablePictureInPicture
+      preload="metadata"
+      aria-label="Decorative weather background"
+      tabIndex={-1}
+      onTransitionEnd={() => {
+        // Once the active layer has fully faded in, drop the layers beneath
+        // it. Faded-out (inactive) layers ignore this — the active one prunes
+        // them.
+        if (active && shown) onArrived();
+      }}
+      className={cn(
+        "absolute inset-0 size-full object-cover",
+        "pointer-events-none select-none",
+        "transition-opacity duration-1000 ease-in-out",
+        shown ? "opacity-100" : "opacity-0",
+      )}
+    >
+      <source src={src} type="video/mp4" />
+    </video>
   );
 }

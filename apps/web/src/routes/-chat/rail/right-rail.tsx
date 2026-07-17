@@ -50,9 +50,14 @@ export function RightRail({ open, mode, onClose, data = EMPTY_RAIL_DATA }: Right
             "fixed top-0 right-0 bottom-0 z-50 w-[340px] max-w-[88vw]",
             "border-l border-app-bg-3/60 bg-transparent",
             "flex flex-col shadow-[0_20px_60px_rgba(0,0,0,0.18)]",
-            "transition-transform duration-200 ease-out",
+            // Enters and exits along the same path (in from / out to the
+            // right). Under reduced-motion the slide is swapped for a plain
+            // opacity cross-fade — no vestibular translation (apple-design §14).
+            "transition-transform duration-200 ease-out motion-reduce:transition-opacity",
             "overflow-hidden",
-            open ? "translate-x-0" : "translate-x-full",
+            open
+              ? "translate-x-0 motion-reduce:opacity-100"
+              : "translate-x-full motion-reduce:opacity-0",
           )}
         >
           <RailContent tab={tab} onTabChange={setTab} onClose={onClose} showClose data={data} />
@@ -68,7 +73,7 @@ export function RightRail({ open, mode, onClose, data = EMPTY_RAIL_DATA }: Right
         "h-full shrink-0",
         "rounded-2xl bg-transparent",
         "shadow-[0_1px_2px_rgba(0,0,0,0.04),0_0_0_1px_rgba(0,0,0,0.04)]",
-        "overflow-hidden transition-[width,margin] duration-200 ease-out",
+        "overflow-hidden transition-[width,margin] duration-200 ease-out motion-reduce:transition-none",
         open ? "w-[340px]" : "pointer-events-none -ml-1.5 w-0",
       )}
     >

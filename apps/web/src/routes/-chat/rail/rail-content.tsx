@@ -84,7 +84,7 @@ export function RailContent({
          * gesture rather than four rows snapping in at once. */}
         <div className="px-4 py-5">
           <div className="flex items-start justify-between gap-3">
-            <div className="animate-rail-head min-w-0 flex-1 truncate text-[13px] font-medium tracking-tight text-white/75 mix-blend-plus-lighter">
+            <div className="animate-rail-head min-w-0 flex-1 truncate text-[0.8125rem] font-medium text-white/75 mix-blend-plus-lighter">
               {greeting(now)}
               {firstName(session?.user) ? `, ${firstName(session?.user)}` : ""}
             </div>
@@ -104,7 +104,7 @@ export function RailContent({
             ) : null}
           </div>
           <WeatherHero />
-          <div className="animate-rail-head mt-2 text-xs tracking-tight text-white/45 mix-blend-plus-lighter [animation-delay:210ms]">
+          <div className="animate-rail-head mt-2 text-xs text-white/55 mix-blend-plus-lighter [animation-delay:210ms]">
             {formatRailDate(now)}
           </div>
         </div>

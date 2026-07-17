@@ -41,11 +41,11 @@ export function WeatherHero() {
       className="animate-rail-head mt-3 [animation-delay:60ms]"
       aria-label={`${data.temperature} degrees ${data.unit} in ${data.city}, ${conditionLabel ?? data.condition}`}
     >
-      <div className="text-[34px] leading-none font-light tracking-tight text-white tabular-nums mix-blend-plus-lighter">
+      <div className="text-[2.125rem] leading-none font-normal tracking-tight text-white tabular-nums mix-blend-plus-lighter">
         {data.temperature}°
       </div>
       <div
-        className="animate-rail-head mt-2.5 min-w-0 truncate text-[12.5px] leading-none tracking-tight text-white/60 mix-blend-plus-lighter [animation-delay:150ms]"
+        className="animate-rail-head mt-2.5 min-w-0 truncate text-[0.78rem] leading-none font-medium text-white/70 mix-blend-plus-lighter [animation-delay:150ms]"
         title={caption}
       >
         {caption}

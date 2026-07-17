@@ -1132,6 +1132,7 @@
 
   @media (prefers-reduced-motion: reduce) {
     .animate-rail-head,
+    .dimension-weather-surface::before,
     .animate-artifact-panel,
     .animate-check-pop,
     .animate-artifact-fullscreen,
@@ -1439,7 +1440,14 @@
     margin: 0;
   }
 
+  /* Fallback sky shown when the weather videos 404 or haven't loaded.
+   * The static structure (top light ramp, base sky) lives on the element;
+   * the drifting cloud/light radials live on an oversized ::before that is
+   * animated with `transform` — never `background-position` — so the drift
+   * stays on the compositor and doesn't repaint the full-bleed surface each
+   * frame (apple-design §11). */
   .dimension-weather-surface {
+    overflow: hidden;
     background:
       linear-gradient(
         180deg,
@@ -1447,6 +1455,15 @@
         rgba(255, 255, 255, 0.04) 22%,
         rgba(9, 22, 40, 0.58) 100%
       ),
+      linear-gradient(152deg, #86aade 0%, #5d8bcf 33%, #4878bd 63%, #20365f 100%);
+  }
+
+  .dimension-weather-surface::before {
+    content: "";
+    position: absolute;
+    inset: -20%;
+    pointer-events: none;
+    background:
       radial-gradient(
         ellipse 74% 26% at 0% 7%,
         rgba(255, 255, 255, 0.6) 0%,
@@ -1470,37 +1487,16 @@
         rgba(51, 88, 144, 0.28) 0%,
         rgba(22, 46, 86, 0.18) 44%,
         transparent 72%
-      ),
-      linear-gradient(152deg, #86aade 0%, #5d8bcf 33%, #4878bd 63%, #20365f 100%);
-    background-size:
-      100% 100%,
-      155% 155%,
-      150% 150%,
-      170% 150%,
-      160% 150%,
-      100% 100%;
+      );
+    filter: blur(10px);
     animation: dimension-cloud-drift 34s ease-in-out infinite alternate;
   }
 
-  .dimension-weather-surface::before,
   .dimension-weather-surface::after {
     content: "";
     position: absolute;
-    inset: -18%;
+    inset: 0;
     pointer-events: none;
-  }
-
-  .dimension-weather-surface::before {
-    background:
-      radial-gradient(ellipse 42% 13% at 20% 22%, rgba(255, 255, 255, 0.36), transparent 70%),
-      radial-gradient(ellipse 48% 16% at 72% 31%, rgba(233, 244, 255, 0.18), transparent 74%),
-      radial-gradient(ellipse 60% 18% at 34% 72%, rgba(215, 233, 255, 0.14), transparent 78%);
-    filter: blur(17px);
-    opacity: 0.8;
-    animation: dimension-cloud-layer 42s ease-in-out infinite alternate;
-  }
-
-  .dimension-weather-surface::after {
     background: linear-gradient(
       180deg,
       transparent 0%,
@@ -1510,33 +1506,13 @@
     opacity: 0.9;
   }
 
+  /* Compositor-only drift — transform, never background-position. */
   @keyframes dimension-cloud-drift {
     from {
-      background-position:
-        0 0,
-        4% 2%,
-        78% 0%,
-        8% 64%,
-        96% 84%,
-        0 0;
+      transform: translate3d(-2%, -1.5%, 0) scale(1.05);
     }
     to {
-      background-position:
-        0 0,
-        14% 0%,
-        58% 9%,
-        24% 58%,
-        86% 76%,
-        0 0;
-    }
-  }
-
-  @keyframes dimension-cloud-layer {
-    from {
-      transform: translate3d(-1.5%, -1%, 0) scale(1);
-    }
-    to {
-      transform: translate3d(2.5%, 1.5%, 0) scale(1.04);
+      transform: translate3d(2.5%, 2%, 0) scale(1.09);
     }
   }
 
