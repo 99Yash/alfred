@@ -761,7 +761,7 @@ function orderApprovalsByTool(
   if (approvals.length <= 1) return approvals;
   const toolOrder = new Map<string, number>();
   stream?.tools.forEach((tool, i) => toolOrder.set(tool.toolCallId, i));
-  return [...approvals].sort((a, b) => {
+  return approvals.toSorted((a, b) => {
     const ia = toolOrder.get(a.toolCallId) ?? Number.POSITIVE_INFINITY;
     const ib = toolOrder.get(b.toolCallId) ?? Number.POSITIVE_INFINITY;
     if (ia !== ib) return ia - ib;

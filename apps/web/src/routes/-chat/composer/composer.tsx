@@ -9,7 +9,13 @@ import {
   type RefObject,
 } from "react";
 import type { JSONContent } from "@tiptap/react";
-import { AnimatePresence, motion, useReducedMotion } from "framer-motion";
+import {
+  AnimatePresence,
+  domMax,
+  LazyMotion,
+  m,
+  useReducedMotion,
+} from "framer-motion";
 import { ImagePlus } from "lucide-react";
 import { ACCEPT_ATTR } from "~/lib/chat/upload-attachments";
 import { toast } from "~/lib/toast";
@@ -216,6 +222,7 @@ export function Composer({
   );
 
   return (
+    <LazyMotion features={domMax}>
     <form
       onSubmit={onFormSubmit}
       aria-label="Send a message"
@@ -255,7 +262,7 @@ export function Composer({
       >
         <AnimatePresence>
           {isDragging && !composerDisabled ? (
-            <motion.div
+            <m.div
               key="drop-overlay"
               initial={{ opacity: 0 }}
               animate={{ opacity: 1 }}
@@ -268,7 +275,7 @@ export function Composer({
                 <ImagePlus size={16} className="text-app-purple-3" />
                 Drop images to attach
               </span>
-            </motion.div>
+            </m.div>
           ) : null}
         </AnimatePresence>
         {/* Wrap editor + controls in a positioned container so they paint
@@ -346,6 +353,7 @@ export function Composer({
         </div>
       </div>
     </form>
+    </LazyMotion>
   );
 }
 
