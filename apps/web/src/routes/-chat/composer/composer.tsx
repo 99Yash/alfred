@@ -9,6 +9,8 @@ import {
   type RefObject,
 } from "react";
 import type { JSONContent } from "@tiptap/react";
+import { AnimatePresence, motion, useReducedMotion } from "framer-motion";
+import { ImagePlus } from "lucide-react";
 import { useAppTheme } from "~/components/ui/v2/theme";
 import { ACCEPT_ATTR } from "~/lib/chat/upload-attachments";
 import { toast } from "~/lib/toast";
@@ -74,6 +76,7 @@ export function Composer({
   onTierChange: (tier: ChatTier) => void;
 }) {
   const { resolved: theme } = useAppTheme();
+  const reduce = useReducedMotion();
   const editorRef = useRef<TiptapComposerHandle | null>(null);
   const fileInputRef = useRef<HTMLInputElement | null>(null);
   const { initialJSON, text, isEmpty, onEditorChange, resetDraft } = useComposerDraft(threadId);
@@ -84,6 +87,11 @@ export function Composer({
   const { suggestion, mentionCandidates, visibleMentionIdx, suggestionKeyDownRef } = mention;
   const hasAttachments = attachments.items.length > 0;
   const [sending, setSending] = useState(false);
+  // File drag-over affordance. `dragDepth` counts enter/leave across nested
+  // children so moving the cursor over the editor or chips doesn't flicker the
+  // overlay off (dragleave fires for every child boundary crossed).
+  const [isDragging, setIsDragging] = useState(false);
+  const dragDepth = useRef(0);
   const artifactTargetKey = `alfred:chat-artifact-target:${threadId ?? "new"}`;
   // Event-driven mutable state read only at submit time stays off the render
   // path. Seed once from the persisted draft's target (ignoring an orphaned
@@ -169,8 +177,25 @@ export function Composer({
     handleSubmit();
   };
 
+  const onDragEnter = useCallback(
+    (e: DragEvent<HTMLDivElement>) => {
+      if (!e.dataTransfer.types.includes("Files") || composerDisabled) return;
+      dragDepth.current += 1;
+      setIsDragging(true);
+    },
+    [composerDisabled],
+  );
+
+  const onDragLeave = useCallback((e: DragEvent<HTMLDivElement>) => {
+    if (!e.dataTransfer.types.includes("Files")) return;
+    dragDepth.current = Math.max(0, dragDepth.current - 1);
+    if (dragDepth.current === 0) setIsDragging(false);
+  }, []);
+
   const onDrop = useCallback(
     (e: DragEvent<HTMLDivElement>) => {
+      dragDepth.current = 0;
+      setIsDragging(false);
       if (!e.dataTransfer.files.length) return;
       e.preventDefault();
       if (disabled || sending) return;
@@ -225,9 +250,29 @@ export function Composer({
         onDragOver={(e) => {
           if (e.dataTransfer.types.includes("Files")) e.preventDefault();
         }}
+        onDragEnter={onDragEnter}
+        onDragLeave={onDragLeave}
         onDrop={onDrop}
         onPaste={onPaste}
       >
+        <AnimatePresence>
+          {isDragging && !composerDisabled ? (
+            <motion.div
+              key="drop-overlay"
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              transition={{ duration: reduce ? 0 : 0.12 }}
+              // pointer-events-none so the drop lands on the container beneath.
+              className="pointer-events-none absolute inset-0 z-20 flex items-center justify-center rounded-3xl bg-app-background/70 backdrop-blur-sm"
+            >
+              <span className="flex items-center gap-2 text-[13px] font-medium tracking-tight text-app-fg-4">
+                <ImagePlus size={16} className="text-app-purple-3" />
+                Drop images to attach
+              </span>
+            </motion.div>
+          ) : null}
+        </AnimatePresence>
         {/* Wrap editor + controls in a positioned container so they paint
          * above the absolutely-positioned particles canvas (positioned
          * siblings with z-auto paint in tree order). */}
