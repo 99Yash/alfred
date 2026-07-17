@@ -223,136 +223,136 @@ export function Composer({
 
   return (
     <LazyMotion features={domMax}>
-    <form
-      onSubmit={onFormSubmit}
-      aria-label="Send a message"
-      data-disabled={composerDisabled || undefined}
-      className="relative"
-    >
-      {!composerDisabled && suggestion && mentionCandidates.length > 0 ? (
-        <MentionPalette
-          options={mentionCandidates}
-          activeIdx={visibleMentionIdx}
-          onHover={mention.setMentionIdx}
-          onPick={mention.insertMention}
-          onClose={() => suggestion.dismiss()}
-        />
-      ) : null}
-      <div
-        className={cn(
-          "composer-frost relative overflow-hidden rounded-3xl p-2",
-          // Floating frosted-glass surface: a beveled gradient rim, backdrop
-          // blur + specular sheen, and a layered drop shadow (ported from
-          // dimension's input material, re-tokenized — see `.composer-frost`).
-          // The drop shadow is fed through Tailwind's --tw-shadow so it composes
-          // with the purple focus ring instead of being wiped by it.
-          "shadow-[var(--frost-shadow)]",
-          "focus-within:ring-2 focus-within:ring-app-purple-2 focus-within:ring-offset-4",
-          "transition-shadow focus-within:ring-offset-app-background",
-          disabled && "opacity-70",
-          sending && "opacity-80",
-        )}
-        onDragOver={(e) => {
-          if (e.dataTransfer.types.includes("Files")) e.preventDefault();
-        }}
-        onDragEnter={onDragEnter}
-        onDragLeave={onDragLeave}
-        onDrop={onDrop}
-        onPaste={onPaste}
+      <form
+        onSubmit={onFormSubmit}
+        aria-label="Send a message"
+        data-disabled={composerDisabled || undefined}
+        className="relative"
       >
-        <AnimatePresence>
-          {isDragging && !composerDisabled ? (
-            <m.div
-              key="drop-overlay"
-              initial={{ opacity: 0 }}
-              animate={{ opacity: 1 }}
-              exit={{ opacity: 0 }}
-              transition={{ duration: reduce ? 0 : 0.12 }}
-              // pointer-events-none so the drop lands on the container beneath.
-              className="pointer-events-none absolute inset-0 z-20 flex items-center justify-center rounded-3xl bg-app-background/70 backdrop-blur-sm"
-            >
-              <span className="flex items-center gap-2 text-[13px] font-medium tracking-tight text-app-fg-4">
-                <ImagePlus size={16} className="text-app-purple-3" />
-                Drop images to attach
-              </span>
-            </m.div>
-          ) : null}
-        </AnimatePresence>
-        {/* Wrap editor + controls in a positioned container so they paint
-         * above the frost surface's beveled ::before rim (positioned siblings
-         * with z-auto paint in tree order). */}
-        <div className="relative">
-          <input
-            ref={fileInputRef}
-            type="file"
-            accept={ACCEPT_ATTR}
-            multiple
-            disabled={composerDisabled}
-            aria-label="Attach files"
-            className="hidden"
-            onChange={(e) => {
-              if (e.target.files) attachments.addFiles(e.target.files);
-              // Reset so picking the same file again re-fires change.
-              e.target.value = "";
-            }}
+        {!composerDisabled && suggestion && mentionCandidates.length > 0 ? (
+          <MentionPalette
+            options={mentionCandidates}
+            activeIdx={visibleMentionIdx}
+            onHover={mention.setMentionIdx}
+            onPick={mention.insertMention}
+            onClose={() => suggestion.dismiss()}
           />
-          {hasAttachments ? (
-            <AttachmentChips
-              items={attachments.items}
+        ) : null}
+        <div
+          className={cn(
+            "composer-frost relative overflow-hidden rounded-3xl p-2",
+            // Floating frosted-glass surface: a beveled gradient rim, backdrop
+            // blur + specular sheen, and a layered drop shadow (ported from
+            // dimension's input material, re-tokenized — see `.composer-frost`).
+            // The drop shadow is fed through Tailwind's --tw-shadow so it composes
+            // with the purple focus ring instead of being wiped by it.
+            "shadow-[var(--frost-shadow)]",
+            "focus-within:ring-2 focus-within:ring-app-purple-2 focus-within:ring-offset-4",
+            "transition-shadow focus-within:ring-offset-app-background",
+            disabled && "opacity-70",
+            sending && "opacity-80",
+          )}
+          onDragOver={(e) => {
+            if (e.dataTransfer.types.includes("Files")) e.preventDefault();
+          }}
+          onDragEnter={onDragEnter}
+          onDragLeave={onDragLeave}
+          onDrop={onDrop}
+          onPaste={onPaste}
+        >
+          <AnimatePresence>
+            {isDragging && !composerDisabled ? (
+              <m.div
+                key="drop-overlay"
+                initial={{ opacity: 0 }}
+                animate={{ opacity: 1 }}
+                exit={{ opacity: 0 }}
+                transition={{ duration: reduce ? 0 : 0.12 }}
+                // pointer-events-none so the drop lands on the container beneath.
+                className="pointer-events-none absolute inset-0 z-20 flex items-center justify-center rounded-3xl bg-app-background/70 backdrop-blur-sm"
+              >
+                <span className="flex items-center gap-2 text-[13px] font-medium tracking-tight text-app-fg-4">
+                  <ImagePlus size={16} className="text-app-purple-3" />
+                  Drop images to attach
+                </span>
+              </m.div>
+            ) : null}
+          </AnimatePresence>
+          {/* Wrap editor + controls in a positioned container so they paint
+           * above the frost surface's beveled ::before rim (positioned siblings
+           * with z-auto paint in tree order). */}
+          <div className="relative">
+            <input
+              ref={fileInputRef}
+              type="file"
+              accept={ACCEPT_ATTR}
+              multiple
               disabled={composerDisabled}
-              onRemove={attachments.remove}
+              aria-label="Attach files"
+              className="hidden"
+              onChange={(e) => {
+                if (e.target.files) attachments.addFiles(e.target.files);
+                // Reset so picking the same file again re-fires change.
+                e.target.value = "";
+              }}
             />
-          ) : null}
-          {/* Keep the editor mounted (just hidden) while recording so its
-           * content survives the voice round-trip — the transcript appends to
-           * whatever was already typed instead of a remount reverting to the
-           * mount-time draft. */}
-          <div className={cn(mic.recording && "hidden")}>
-            <TiptapComposer
-              ref={editorRef}
-              initialJSON={initialJSON}
-              placeholder="Type and press enter to start chatting…"
+            {hasAttachments ? (
+              <AttachmentChips
+                items={attachments.items}
+                disabled={composerDisabled}
+                onRemove={attachments.remove}
+              />
+            ) : null}
+            {/* Keep the editor mounted (just hidden) while recording so its
+             * content survives the voice round-trip — the transcript appends to
+             * whatever was already typed instead of a remount reverting to the
+             * mount-time draft. */}
+            <div className={cn(mic.recording && "hidden")}>
+              <TiptapComposer
+                ref={editorRef}
+                initialJSON={initialJSON}
+                placeholder="Type and press enter to start chatting…"
+                disabled={composerDisabled}
+                onChange={handleEditorChange}
+                onSubmit={handleSubmit}
+                onSuggestionChange={mention.setSuggestion}
+                suggestionKeyDownRef={suggestionKeyDownRef}
+                ghostText={ghostText}
+                onGhostAccept={onGhostAccept}
+                onGhostDismiss={onGhostDismiss}
+              />
+            </div>
+            {mic.recording ? (
+              <RecordingPanel
+                levelsRef={mic.levelsRef}
+                elapsed={mic.elapsed}
+                active={mic.recording}
+              />
+            ) : null}
+
+            <ComposerToolbar
+              mic={mic}
+              canSend={canSend}
+              isStreaming={isStreaming}
               disabled={composerDisabled}
-              onChange={handleEditorChange}
-              onSubmit={handleSubmit}
-              onSuggestionChange={mention.setSuggestion}
-              suggestionKeyDownRef={suggestionKeyDownRef}
-              ghostText={ghostText}
-              onGhostAccept={onGhostAccept}
-              onGhostDismiss={onGhostDismiss}
+              sending={sending}
+              mentionActive={suggestion !== null}
+              onMentionClick={insertAtTrigger}
+              onAttachClick={onAttachClick}
+              transcribing={transcribing}
+              voiceError={voiceError}
+              onVoiceStart={onVoiceStart}
+              onVoiceConfirm={() => void onVoiceConfirm()}
+              onStopGeneration={onStopGeneration}
+              autoApprove={autoApprove}
+              autoApprovePending={autoApprovePending}
+              onToggleAutoApprove={onToggleAutoApprove}
+              tier={tier}
+              onTierChange={onTierChange}
             />
           </div>
-          {mic.recording ? (
-            <RecordingPanel
-              levelsRef={mic.levelsRef}
-              elapsed={mic.elapsed}
-              active={mic.recording}
-            />
-          ) : null}
-
-          <ComposerToolbar
-            mic={mic}
-            canSend={canSend}
-            isStreaming={isStreaming}
-            disabled={composerDisabled}
-            sending={sending}
-            mentionActive={suggestion !== null}
-            onMentionClick={insertAtTrigger}
-            onAttachClick={onAttachClick}
-            transcribing={transcribing}
-            voiceError={voiceError}
-            onVoiceStart={onVoiceStart}
-            onVoiceConfirm={() => void onVoiceConfirm()}
-            onStopGeneration={onStopGeneration}
-            autoApprove={autoApprove}
-            autoApprovePending={autoApprovePending}
-            onToggleAutoApprove={onToggleAutoApprove}
-            tier={tier}
-            onTierChange={onTierChange}
-          />
         </div>
-      </div>
-    </form>
+      </form>
     </LazyMotion>
   );
 }
