@@ -2036,6 +2036,99 @@
     box-shadow: var(--app-shadow-elevated-hover);
   }
 
+  /* `composer-frost` — the chat composer's floating frosted-glass surface,
+   * ported from dimension's input material (archive/dimension) and re-expressed
+   * in Alfred's tokens. Three ingredients carry the "physical glass panel" feel:
+   *
+   *   1. A beveled gradient border via the ::before mask-composite trick — the
+   *      edge gradient is bright at the top-left/bottom-right corners and dim
+   *      through the middle, so the hairline reads as a lit glass rim rather
+   *      than a flat 1px stroke. (@see stackoverflow.com/a/71935982)
+   *   2. backdrop-blur + a translucent fill so the chat scrolling underneath
+   *      shows through faintly, and a top-left specular sheen for gloss.
+   *   3. A layered soft drop shadow so the panel floats above the page.
+   *
+   * The float shadow is consumed in JSX via `shadow-[var(--frost-shadow)]`
+   * (feeding Tailwind's --tw-shadow) so it composes with — instead of being
+   * wiped by — the purple `focus-within:ring`. Light values are the default;
+   * the dark overrides below flip the edge to a white glass rim and deepen the
+   * drop, matching how the token blocks scope per theme. */
+  .composer-frost {
+    position: relative;
+    --frost-bw: 1px;
+    --frost-fill: rgba(255, 255, 255, 0.72);
+    --frost-sheen: 0.55;
+    --frost-edge: linear-gradient(
+      to bottom right,
+      rgba(255, 255, 255, 0.9) 0%,
+      rgba(17, 17, 17, 0.12) 44%,
+      rgba(17, 17, 17, 0.08) 60%,
+      rgba(255, 255, 255, 0.5) 100%
+    );
+    --frost-shadow:
+      0 0 0 0.5px rgba(17, 17, 17, 0.1), 0 2px 4px rgba(17, 17, 17, 0.04),
+      0 8px 16px -4px rgba(17, 17, 17, 0.06), 0 20px 40px -12px rgba(17, 17, 17, 0.12);
+    background-color: var(--frost-fill);
+    background-image: radial-gradient(
+      120% 100% at 12% -10%,
+      rgba(255, 255, 255, var(--frost-sheen)),
+      transparent 58%
+    );
+    backdrop-filter: blur(16px) saturate(1.4);
+    -webkit-backdrop-filter: blur(16px) saturate(1.4);
+    transition: box-shadow 200ms ease-out;
+  }
+  .composer-frost::before {
+    content: "";
+    position: absolute;
+    inset: 0;
+    border-radius: inherit;
+    padding: var(--frost-bw);
+    background: var(--frost-edge);
+    -webkit-mask:
+      linear-gradient(#fff 0 0) content-box,
+      linear-gradient(#fff 0 0);
+    mask:
+      linear-gradient(#fff 0 0) content-box,
+      linear-gradient(#fff 0 0);
+    -webkit-mask-composite: xor;
+    mask-composite: exclude;
+    pointer-events: none;
+  }
+  /* Forced dark — a lit white glass rim over a near-black translucent fill, with
+   * a deeper drop since the dark page swallows the softer light-mode shadow. */
+  .app[data-app-theme="dark"] .composer-frost {
+    --frost-fill: rgba(20, 20, 22, 0.72);
+    --frost-sheen: 0.08;
+    --frost-edge: linear-gradient(
+      to bottom right,
+      rgba(255, 255, 255, 0.5) 0%,
+      rgba(255, 255, 255, 0.06) 42%,
+      rgba(255, 255, 255, 0.05) 62%,
+      rgba(255, 255, 255, 0.22) 100%
+    );
+    --frost-shadow:
+      0 0 0 0.5px rgba(255, 255, 255, 0.06), 0 2px 4px rgba(0, 0, 0, 0.3),
+      0 10px 20px -6px rgba(0, 0, 0, 0.5), 0 28px 50px -16px rgba(0, 0, 0, 0.7);
+  }
+  /* System mode leaves the attribute off entirely — match the OS preference. */
+  @media (prefers-color-scheme: dark) {
+    .app:not([data-app-theme="light"]) .composer-frost {
+      --frost-fill: rgba(20, 20, 22, 0.72);
+      --frost-sheen: 0.08;
+      --frost-edge: linear-gradient(
+        to bottom right,
+        rgba(255, 255, 255, 0.5) 0%,
+        rgba(255, 255, 255, 0.06) 42%,
+        rgba(255, 255, 255, 0.05) 62%,
+        rgba(255, 255, 255, 0.22) 100%
+      );
+      --frost-shadow:
+        0 0 0 0.5px rgba(255, 255, 255, 0.06), 0 2px 4px rgba(0, 0, 0, 0.3),
+        0 10px 20px -6px rgba(0, 0, 0, 0.5), 0 28px 50px -16px rgba(0, 0, 0, 0.7);
+    }
+  }
+
   /* `app-toast` — the floating frosted notification used by callToast().
    * A translucent panel with backdrop blur, a theme-aware hairline (the
    * elevated-shadow ring) and a soft drop so it reads as lifted above the

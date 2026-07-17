@@ -1,5 +1,10 @@
-import type { SyncedArtifact, SyncedChatAttachment, SyncedChatMessage } from "@alfred/sync";
-import { ArrowDown, ShieldQuestion } from "lucide-react";
+import type {
+  SyncedActionStaging,
+  SyncedArtifact,
+  SyncedChatAttachment,
+  SyncedChatMessage,
+} from "@alfred/sync";
+import { ArrowDown } from "lucide-react";
 import {
   createContext,
   memo,
@@ -26,6 +31,7 @@ import {
   shouldShowStream,
   type FollowUpSuggestion,
 } from "./conversation-helpers";
+import { ChatApprovalTray } from "./approval-tray";
 import { AssistantMarkdown, CopyMessageButton, MessageBubble } from "./message-bubble";
 import { ReasoningSection } from "./reasoning-section";
 import { SourcesStrip } from "./sources-strip";
@@ -53,7 +59,7 @@ export function Conversation({
   followUps = EMPTY_FOLLOW_UPS,
   onOpenArtifact,
   openArtifactId,
-  hasPendingApproval = false,
+  approvals = EMPTY_APPROVALS,
 }: {
   messages: SyncedChatMessage[];
   stream: StreamingMessage | null;
@@ -75,15 +81,13 @@ export function Conversation({
   /** The artifact currently open in the sidebar, so its card shows "Viewing". */
   openArtifactId?: string | null;
   /**
-   * A staged action for the live run is still pending the user's decision. Gates
-   * the amber approval banner: `stream.awaitingApproval` stays true through the
-   * whole resumed turn (it only clears on completion), so on its own the banner
-   * would linger after a decision, overlapping the tray's "Resuming…" state
-   * (issue #494). The pending-row signal disappears the moment a decision syncs
-   * out, so the banner clears with it — and stays up while any row remains
-   * pending in a multi-step approval.
+   * Staged actions for the live run awaiting the user's decision. Rendered
+   * inline at the tail of the streaming turn, right under the tool trail whose
+   * action they gate (ChatApprovalTray). Empty once every row is decided — the
+   * rows disappear the moment a decision syncs out, so the cards clear with
+   * them, and stay up while any remain pending in a multi-step approval.
    */
-  hasPendingApproval?: boolean;
+  approvals?: readonly SyncedActionStaging[];
 }) {
   const virtuosoRef = useRef<VirtuosoHandle | null>(null);
   // The raw Virtuoso scroller element, captured via `scrollerRef`. The live
@@ -404,10 +408,10 @@ export function Conversation({
       streamBodyRef,
       followUps,
       onFollowUp,
-      hasPendingApproval,
+      approvals,
       setFooterEl,
     }),
-    [showStream, stream, streamTimingRefs, followUps, onFollowUp, hasPendingApproval, setFooterEl],
+    [showStream, stream, streamTimingRefs, followUps, onFollowUp, approvals, setFooterEl],
   );
 
   const followOutput = useCallback(() => (stickRef.current ? ("auto" as const) : false), []);
@@ -527,7 +531,7 @@ interface FeedFooterValue {
   streamBodyRef: React.RefObject<HTMLDivElement | null>;
   followUps: ReadonlyArray<FollowUpSuggestion>;
   onFollowUp?: (text: string) => void;
-  hasPendingApproval: boolean;
+  approvals: readonly SyncedActionStaging[];
   /** Registers the footer's outer element with the parent's re-pin observer. */
   setFooterEl: (el: HTMLElement | null) => void;
 }
@@ -561,9 +565,14 @@ function FeedFooter() {
     streamBodyRef,
     followUps,
     onFollowUp,
-    hasPendingApproval,
+    approvals,
     setFooterEl,
   } = ctx;
+  // Order the pending approvals to match the tool trail above, so each card sits
+  // under the call it gates. Approvals whose tool card isn't in the live stream
+  // (e.g. a cold reload that missed the transient `started` event) fall to the
+  // end in `createdAt` order.
+  const orderedApprovals = orderApprovalsByTool(approvals, stream);
   return (
     // Match FeedList's column: Virtuoso renders the Footer as a *sibling* of the
     // List (not a child), so without this the streaming bubble spans the full
@@ -596,6 +605,15 @@ function FeedFooter() {
             />
           ) : null}
 
+          {/* The action(s) a gated run is parked on, inline right under the tool
+           * trail that proposed them. The tray no-ops when there's nothing to
+           * decide. */}
+          <ChatApprovalTray
+            runId={stream.runId}
+            approvals={orderedApprovals}
+            awaitingApproval={stream.awaitingApproval}
+          />
+
           {stream.compacting ? <ThinkingIndicator label="Condensing conversation…" /> : null}
 
           {stream.text.length > 0 ? (
@@ -622,7 +640,6 @@ function FeedFooter() {
             <CopyMessageButton content={stream.text} htmlRef={streamBodyRef} />
           ) : null}
 
-          {stream.awaitingApproval && hasPendingApproval ? <ApprovalNotice /> : null}
           {stream.done ? <span ref={streamTimingRefs.done} hidden /> : null}
         </div>
       ) : null}
@@ -729,6 +746,28 @@ function ActivityPill({
 }
 
 const EMPTY_FOLLOW_UPS: ReadonlyArray<FollowUpSuggestion> = [];
+const EMPTY_APPROVALS: readonly SyncedActionStaging[] = [];
+
+/**
+ * Orders pending approvals to match the live tool trail so each decision card
+ * sits under the call it gates. Any approval whose tool card isn't in the stream
+ * (a cold reload that missed the transient `started` event) sorts after the
+ * matched ones, by `createdAt`.
+ */
+function orderApprovalsByTool(
+  approvals: readonly SyncedActionStaging[],
+  stream: StreamingMessage | null,
+): readonly SyncedActionStaging[] {
+  if (approvals.length <= 1) return approvals;
+  const toolOrder = new Map<string, number>();
+  stream?.tools.forEach((tool, i) => toolOrder.set(tool.toolCallId, i));
+  return [...approvals].sort((a, b) => {
+    const ia = toolOrder.get(a.toolCallId) ?? Number.POSITIVE_INFINITY;
+    const ib = toolOrder.get(b.toolCallId) ?? Number.POSITIVE_INFINITY;
+    if (ia !== ib) return ia - ib;
+    return a.createdAt.localeCompare(b.createdAt);
+  });
+}
 
 /**
  * Tracks the user's reduced-motion preference reactively (SSR-safe). Used to
@@ -888,16 +927,6 @@ function ThinkingIndicator({ label = "Thinking…" }: { label?: string }) {
         <img src="/images/logo/alfred-logo.svg" alt="" className="size-[18px] rounded-[5px]" />
       </span>
       <span className="animate-chat-shimmer">{label}</span>
-    </div>
-  );
-}
-
-/** A run is parked awaiting approval; the full decision surface sits below the transcript. */
-function ApprovalNotice() {
-  return (
-    <div className="animate-chat-in flex items-center gap-2 rounded-xl border border-app-amber-2/60 bg-app-amber-1/40 px-3 py-2 text-[13px] text-app-fg-4">
-      <ShieldQuestion size={14} className="shrink-0 text-app-amber-4" />
-      <span>Waiting for your approval to take this action, review it below.</span>
     </div>
   );
 }
