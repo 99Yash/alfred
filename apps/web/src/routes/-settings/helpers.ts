@@ -1,5 +1,6 @@
 import { FEATURE_FLAG_KEYS, type FeatureFlagKey } from "@alfred/contracts";
 import {
+  BarChart3,
   ListChecks,
   PencilLine,
   Sliders,
@@ -16,6 +17,7 @@ import { APP_TINTS, type AppTint } from "~/lib/tints";
 export const SECTIONS = [
   { id: "user", label: "User", icon: User },
   { id: "features", label: "Features", icon: Sparkles },
+  { id: "usage", label: "Usage", icon: BarChart3 },
   { id: "preferences", label: "Preferences", icon: Sliders },
 ] as const satisfies ReadonlyArray<{
   id: string;
