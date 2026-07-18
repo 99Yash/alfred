@@ -475,6 +475,93 @@ export function toolLabel(toolName: string): ToolLabel | null {
 }
 
 /**
+ * What a tool *did*, for a run summary: `"source"` gathered information,
+ * `"action"` changed something, `"system"` is plumbing (tool loading, timing,
+ * sub-agent orchestration, internal scratch/context) that never headlines the
+ * summary. Keyed by `ToolName` so the type checker forces a category the moment
+ * a tool joins `INTEGRATION_ACTIONS` — the classification can't silently fall
+ * back to a verb guess the way it did when this lived as a heuristic in the web
+ * app. Kept separate from {@link TOOL_LABELS} so copy and classification stay
+ * independently reviewable.
+ */
+export type ToolCategory = "source" | "action" | "system";
+
+export const TOOL_CATEGORIES: Record<ToolName, ToolCategory> = {
+  "system.search_tools": "system",
+  "system.load_tool": "system",
+  "system.current_time": "system",
+  "system.spawn_sub_agent": "system",
+  "system.await_sub_agent": "system",
+  "system.read_user_context": "system",
+  "system.read_chat_history": "source",
+  "system.read_scratch": "system",
+  "system.write_scratch": "system",
+  "system.promote": "action",
+  "system.remember": "action",
+  "system.list_instructions": "source",
+  "system.forget_instruction": "action",
+  "system.edit_instruction": "action",
+  "system.resolve_todo": "action",
+  "system.suggest_todo": "action",
+  "system.web_search": "source",
+  "system.fetch_url": "source",
+  "system.create_artifact": "action",
+  "system.append_artifact_page": "action",
+  "system.append_artifact_section": "action",
+  "system.update_artifact": "action",
+
+  "gmail.search": "source",
+  "gmail.read_message": "source",
+  "gmail.send_draft": "action",
+
+  "calendar.list_events": "source",
+  "calendar.create_event": "action",
+
+  "drive.search_files": "source",
+  "drive.get_file": "source",
+  "drive.export_file": "source",
+  "drive.download_file": "source",
+
+  "docs.get_document": "source",
+
+  "sheets.create_spreadsheet": "action",
+  "sheets.get_values": "source",
+  "sheets.update_values": "action",
+  "sheets.append_values": "action",
+  "sheets.batch_update": "action",
+  "sheets.add_sheet": "action",
+
+  "slides.create_presentation": "action",
+  "slides.get_presentation": "source",
+  "slides.batch_update": "action",
+  "slides.add_slide": "action",
+
+  "github.search": "source",
+  "github.get_pull_request": "source",
+  "github.get_issue": "source",
+
+  "notion.search": "source",
+  "notion.get_page": "source",
+  "notion.create_page": "action",
+  "notion.append_blocks": "action",
+
+  "railway.list_projects": "source",
+  "railway.list_deployments": "source",
+  "railway.recent_deployments": "source",
+  "railway.get_logs": "source",
+  "railway.redeploy": "action",
+
+  "vercel.list_projects": "source",
+  "vercel.list_deployments": "source",
+  "vercel.redeploy": "action",
+};
+
+/** The declared category for a tool, or `null` for an unregistered name. */
+export function toolCategoryOf(toolName: string): ToolCategory | null {
+  return isToolName(toolName) ? TOOL_CATEGORIES[toolName] : null;
+}
+
+/**
  * Human phrase for "what does this tool do", in the imperative so it reads
  * after "Alfred wants to …" (email subject) and as a card title. Registered
  * tools resolve from {@link TOOL_LABELS}; anything else falls back to a generic
