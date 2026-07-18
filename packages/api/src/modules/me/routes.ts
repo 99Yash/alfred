@@ -1,9 +1,15 @@
 import {
   TRIAGE_RAIL_SUPPRESSED_CATEGORIES,
+  USAGE_ACTIVITY_DEFAULT_PAGE_SIZE,
+  USAGE_ACTIVITY_MAX_PAGE_SIZE,
   getPath,
+  isUsageRunCategory,
   toRecord,
   toStringArray,
   type BriefingSlot,
+  type UsageRunCategory,
+  type UsageSortDir,
+  type UsageSortField,
   toMessage,
 } from "@alfred/contracts";
 import { db } from "@alfred/db";
@@ -50,6 +56,7 @@ import { enqueueBriefingRun } from "../briefing/queue";
 import { notSentGmailDocumentWhere } from "../triage/sent-mail";
 import { resolveUserTimezone } from "../timezone";
 import { sanitizeEmailHtml } from "./email-html";
+import { getUsageActivity, getUsageBreakdown, getUsageSummary } from "./usage-service";
 
 /**
  * Per-user read endpoints used by the chat right rail.
@@ -408,6 +415,34 @@ function dayBoundsInTimezone(now: Date, timezone: string): { start: Date; end: D
   const start = new Date(`${today}T00:00:00${offsetFor(now)}`);
   const end = new Date(`${tomorrow}T00:00:00${offsetFor(new Date(tomorrowMs))}`);
   return { start, end };
+}
+
+const USAGE_DEFAULT_WINDOW_DAYS = 30;
+
+/**
+ * Resolve the [start, end) window for a usage query. `end` defaults to now,
+ * `start` to 30 days before end. Both bounds accept any `Date`-parseable
+ * string; a malformed one is a 400 rather than a silent NaN window that would
+ * scan the whole table. `end` is exclusive (matches the service's `lt`).
+ */
+function resolveUsageRange(query: { start?: string; end?: string }): { start: Date; end: Date } {
+  const end = query.end ? new Date(query.end) : new Date();
+  if (Number.isNaN(end.getTime())) throw new BadRequestError("Invalid `end` timestamp");
+  const start = query.start
+    ? new Date(query.start)
+    : new Date(end.getTime() - USAGE_DEFAULT_WINDOW_DAYS * 24 * 60 * 60 * 1000);
+  if (Number.isNaN(start.getTime())) throw new BadRequestError("Invalid `start` timestamp");
+  if (start.getTime() > end.getTime()) throw new BadRequestError("`start` must be before `end`");
+  return { start, end };
+}
+
+/** Parse the comma-separated `categories` filter, dropping unknown values. */
+function parseUsageCategories(raw: string | undefined): UsageRunCategory[] {
+  if (!raw) return [];
+  return raw
+    .split(",")
+    .map((s) => s.trim())
+    .filter((s): s is UsageRunCategory => isUsageRunCategory(s));
 }
 
 export const meRoutes = new Elysia({ prefix: "/api/me", normalize: "typebox" })
@@ -964,5 +999,62 @@ export const meRoutes = new Elysia({ prefix: "/api/me", normalize: "typebox" })
           reason: "manual",
         });
         return { status: "queued", slot, runId };
-      }),
+      })
+      .get(
+        "/usage/summary",
+        async ({ user: u, query }) => {
+          const { start, end } = resolveUsageRange(query);
+          return getUsageSummary(u.id, start, end);
+        },
+        {
+          query: t.Object({
+            start: t.Optional(t.String()),
+            end: t.Optional(t.String()),
+          }),
+        },
+      )
+      .get(
+        "/usage/breakdown",
+        async ({ user: u, query }) => {
+          const { start, end } = resolveUsageRange(query);
+          return getUsageBreakdown(u.id, start, end);
+        },
+        {
+          query: t.Object({
+            start: t.Optional(t.String()),
+            end: t.Optional(t.String()),
+          }),
+        },
+      )
+      .get(
+        "/usage/activity",
+        async ({ user: u, query }) => {
+          const { start, end } = resolveUsageRange(query);
+          const sortField: UsageSortField = query.sortField === "costUsd" ? "costUsd" : "createdAt";
+          const sortDir: UsageSortDir = query.sortDir === "asc" ? "asc" : "desc";
+          return getUsageActivity(u.id, {
+            start,
+            end,
+            page: query.page ?? 1,
+            pageSize: query.pageSize ?? USAGE_ACTIVITY_DEFAULT_PAGE_SIZE,
+            categories: parseUsageCategories(query.categories),
+            sortField,
+            sortDir,
+          });
+        },
+        {
+          query: t.Object({
+            start: t.Optional(t.String()),
+            end: t.Optional(t.String()),
+            page: t.Optional(t.Numeric({ minimum: 1 })),
+            pageSize: t.Optional(
+              t.Numeric({ minimum: 1, maximum: USAGE_ACTIVITY_MAX_PAGE_SIZE }),
+            ),
+            /** Comma-separated `UsageRunCategory` values; unknowns are dropped. */
+            categories: t.Optional(t.String()),
+            sortField: t.Optional(t.String()),
+            sortDir: t.Optional(t.String()),
+          }),
+        },
+      ),
   );
