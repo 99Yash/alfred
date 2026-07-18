@@ -81,7 +81,7 @@ import { scheduleApprovalExpiryJob } from "../approvals/expiry-queue";
 import { scheduleApprovalNotificationJob } from "../approvals/notification-queue";
 import { parseScratchToolKey, type ScratchToolKey } from "../tools/scratch-key";
 import { getTool, type RegisteredTool, type ToolExecuteContext } from "../tools/registry";
-import { resolveUserTimezone } from "../user-timezone";
+import { resolveUserTimezone } from "../timezone";
 
 export interface DispatchArgs {
   runId: string;

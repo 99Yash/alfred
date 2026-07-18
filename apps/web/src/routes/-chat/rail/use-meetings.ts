@@ -2,16 +2,6 @@ import { useQuery } from "@tanstack/react-query";
 import { client, type EdenData } from "~/lib/eden";
 import type { RailMeetingItem } from "~/routes/-chat/rail/models";
 
-/**
- * Today's calendar events for the rail's Meetings tab. Mirrors `useInbox`:
- * a 401, an empty 200, or a credential without the Calendar scope all
- * surface as `items = []`, and `MeetingsFeed` renders the appropriate
- * empty state.
- *
- * The response also carries a `connected` flag so the empty state can
- * distinguish "no calendar connected" from "calendar connected, just
- * a clear day."
- */
 export interface UseMeetingsResult {
   items: ReadonlyArray<RailMeetingItem>;
   connected: boolean;
@@ -24,9 +14,6 @@ export function useMeetings() {
       const res = await client.api.me.meetings.get();
       if (res.error || !res.data) return { items: [], connected: false };
       const raw = res.data.items;
-      // Pick exactly one row to badge as "next" — the soonest future event.
-      // Without this, every future event would render with the Next pill
-      // and the rail's signal value evaporates.
       const now = Date.now();
       let nextStart: number | null = null;
       for (const r of raw) {
@@ -45,7 +32,6 @@ export function useMeetings() {
   });
 }
 
-/** One event from `GET /api/me/meetings`, derived from the live route contract. */
 type MeetingResponseItem = EdenData<typeof client.api.me.meetings.get>["items"][number];
 
 function toMeetingItem(row: MeetingResponseItem, nextStart: number | null): RailMeetingItem {
@@ -62,11 +48,9 @@ function toMeetingItem(row: MeetingResponseItem, nextStart: number | null): Rail
 }
 
 function formatStart(iso: string | null): string {
-  if (!iso) return "—";
+  if (!iso) return "\u2014";
   const d = new Date(iso);
-  if (Number.isNaN(d.getTime())) return "—";
-  // HH:mm in the user's local TZ. Calendar API returns RFC3339 with the
-  // event's original tz offset, which the Date constructor normalises.
+  if (Number.isNaN(d.getTime())) return "\u2014";
   const hours = d.getHours().toString().padStart(2, "0");
   const minutes = d.getMinutes().toString().padStart(2, "0");
   return `${hours}:${minutes}`;
@@ -95,14 +79,6 @@ function formatWith(
   return `${attendees.length} people`;
 }
 
-/**
- * Highlight the meeting most relevant to "right now":
- *  - now    → currently happening
- *  - next   → the soonest upcoming event of the day (exactly one row)
- *  - later  → everything else, including past
- *
- * The rail UI only colours `next` and `now` rows; `later` reads as plain.
- */
 function statusFor(
   startIso: string | null,
   endIso: string | null,

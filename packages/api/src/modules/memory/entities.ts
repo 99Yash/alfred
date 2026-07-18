@@ -1,4 +1,4 @@
-import { db } from "@alfred/db";
+import { db, type DbTransaction } from "@alfred/db";
 import { entities, entityRelations, type Entity } from "@alfred/db/schemas";
 import { and, eq, sql } from "drizzle-orm";
 import { z } from "zod";
@@ -61,7 +61,7 @@ function rowToEntity(r: Entity): EntityRow {
  * 2026-06-16), so a failed apply rolls back the marker too and the next run
  * retries cleanly. Omit it and each helper opens its own transaction as before.
  */
-export type DbExecutor = Parameters<Parameters<ReturnType<typeof db>["transaction"]>[0]>[0];
+export type DbExecutor = DbTransaction;
 
 /**
  * Upsert by `(user_id, kind, canonical_name)`. Aliases merge — never

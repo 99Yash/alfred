@@ -1,4 +1,5 @@
-import { type RiskTierCounts, useIntegrationTierCounts } from "~/hooks/use-tool-tiers";
+import type { RiskTierCounts } from "@alfred/contracts";
+import { useIntegrationTierCounts } from "./use-tool-tiers";
 import {
   type IntegrationProvider,
   integrationSlugForProvider,

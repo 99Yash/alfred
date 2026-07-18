@@ -1,16 +1,18 @@
+import type {
+  ThreadEntry as ShellThreadEntry,
+  ThreadGroup as ShellThreadGroup,
+} from "~/lib/shell/thread-view-model";
 import type { RailInboxItem, RailMeetingItem, RailTodoItem } from "~/routes/-chat/rail/models";
 
-export type ThreadGroup = "today" | "yesterday" | "earlier";
+/** Preview fixtures group by time only; "pinned" is a per-entry flag, not a bucket. */
+export type ThreadGroup = Exclude<ShellThreadGroup, "pinned">;
 
-export interface ThreadEntry {
-  id: string;
-  title: string;
+/** Canonical thread entry plus the preview blurb the fixtures render. */
+export interface PreviewThreadEntry extends ShellThreadEntry {
   preview: string;
-  pinned?: boolean;
-  unread?: boolean;
 }
 
-export const THREADS: Record<ThreadGroup, ThreadEntry[]> = {
+export const THREADS: Record<ThreadGroup, PreviewThreadEntry[]> = {
   today: [
     {
       id: "morning-brief",
@@ -158,10 +160,10 @@ export const MEETINGS: RailMeetingItem[] = [
   },
 ];
 
-const THREAD_INDEX = new Map<string, ThreadEntry>(
+const THREAD_INDEX = new Map<string, PreviewThreadEntry>(
   Object.values(THREADS).flatMap((group) => group.map((t) => [t.id, t] as const)),
 );
 
-export function findThread(id: string): ThreadEntry | undefined {
+export function findThread(id: string): PreviewThreadEntry | undefined {
   return THREAD_INDEX.get(id);
 }

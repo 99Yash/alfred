@@ -275,7 +275,7 @@ export function SearchPalette({ onClose, recentThreads }: SearchPaletteProps) {
         // Override UA defaults: dialog ships with its own border, padding,
         // max-width/height and centered positioning — we want a full-bleed
         // overlay so the backdrop button covers the viewport.
-        "fixed inset-0 z-[60] m-0 size-full max-h-none max-w-none",
+        "fixed inset-0 z-60 m-0 size-full max-h-none max-w-none",
         "border-0 bg-transparent p-0 text-inherit",
         "app-fade-in flex items-start justify-center pt-[12vh]",
       )}

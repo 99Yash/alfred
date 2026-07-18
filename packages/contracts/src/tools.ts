@@ -83,6 +83,13 @@ export type ToolName = {
 export const TOOL_RISK_TIERS = ["no_risk", "low", "medium", "high"] as const;
 export type ToolRiskTier = (typeof TOOL_RISK_TIERS)[number];
 
+/**
+ * Per-tier tool counts for one integration (a UX hint for the integration
+ * detail page). Lives here so the server registry and the web client agree on
+ * the shape without the web importing the server-only registry.
+ */
+export type RiskTierCounts = Record<ToolRiskTier, number>;
+
 export interface IntegrationRule {
   mode: PolicyMode;
   toolOverrides?: Partial<Record<ToolName, PolicyMode>>;

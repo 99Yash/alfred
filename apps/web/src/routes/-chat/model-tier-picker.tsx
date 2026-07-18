@@ -16,7 +16,7 @@
 import type { ChatModelTier } from "@alfred/contracts";
 import * as PopoverPrimitive from "@radix-ui/react-popover";
 import { Check, ChevronDown } from "lucide-react";
-import { use, useId } from "react";
+import { use, useId, useState } from "react";
 import { AppThemeContext, type AppResolvedTheme } from "~/components/ui/v2/theme";
 import { cn } from "~/lib/utils";
 import { Tip } from "./tip";
@@ -68,6 +68,7 @@ export function ModelTierPicker({
   disabled?: boolean;
 }) {
   const listboxId = useId();
+  const [open, setOpen] = useState(false);
   // The popover portals out of the `.app` subtree, so CSS token inheritance
   // breaks — stamp the resolved theme on the content directly (React context
   // still flows through portals). Same pattern as `AppSelect`.
@@ -78,7 +79,7 @@ export function ModelTierPicker({
   const selected = value === "deep" ? DEEP_OPTION : STANDARD_OPTION;
 
   return (
-    <PopoverPrimitive.Root>
+    <PopoverPrimitive.Root open={open} onOpenChange={setOpen}>
       <Tip label="Choose how hard Alfred thinks">
         <PopoverPrimitive.Trigger asChild>
           <button
@@ -89,7 +90,7 @@ export function ModelTierPicker({
             className={cn(
               "inline-flex h-7 items-center gap-1.5 rounded-[10px] px-2 text-[12px]",
               "app-press text-app-fg-3 outline-none",
-              "transition-[box-shadow,color,background-color]",
+              "transition-[box-shadow,color,background-color,transform]",
               // Raised frosted pill — visible chrome at rest, mirrors dimension's mode pill.
               "bg-linear-to-b from-app-bg-1 to-app-bg-2 shadow-(--app-shadow-elevated)",
               "hover:text-app-fg-4 hover:shadow-(--app-shadow-elevated-hover)",
@@ -104,7 +105,13 @@ export function ModelTierPicker({
               className="size-[18px] shrink-0"
             />
             {selected.label}
-            <ChevronDown size={12} className="shrink-0 text-app-fg-2" />
+            <ChevronDown
+              size={12}
+              className={cn(
+                "shrink-0 text-app-fg-2 transition-transform duration-200",
+                open && "rotate-180",
+              )}
+            />
           </button>
         </PopoverPrimitive.Trigger>
       </Tip>
@@ -120,7 +127,9 @@ export function ModelTierPicker({
           data-app-theme={dataTheme}
           className={cn(
             "app app-frost-overlay z-50 flex w-72 max-w-[calc(100vw-2rem)] flex-col gap-0.5 overflow-hidden rounded-2xl p-1.5",
-            "app-fade-in outline-none",
+            "origin-bottom outline-none",
+            "motion-safe:data-[state=open]:animate-[app-popover-in_180ms_cubic-bezier(0.22,1,0.36,1)]",
+            "motion-safe:data-[state=closed]:animate-[app-popover-out_120ms_cubic-bezier(0.22,1,0.36,1)]",
           )}
         >
           {TIER_OPTIONS.map((option) => {
@@ -133,8 +142,9 @@ export function ModelTierPicker({
                 aria-selected={checked}
                 onClick={() => onChange(option.value)}
                 className={cn(
-                  "flex w-full items-start gap-2.5 rounded-xl p-2 text-left transition-colors outline-none",
-                  "hover:bg-app-bg-a2 focus-visible:bg-app-bg-a2",
+                  "flex w-full items-start gap-2.5 rounded-xl p-2 text-left outline-none",
+                  "transition-[background-color,transform] hover:bg-app-bg-a2 focus-visible:bg-app-bg-a2",
+                  "active:scale-[0.98] active:bg-app-bg-a3",
                   // Selected row holds a quiet tint so the active tier reads even
                   // before the eye finds the check.
                   checked && "bg-app-bg-a2",

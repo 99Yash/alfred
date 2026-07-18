@@ -143,7 +143,7 @@ export function ToolCallCard({
           <span
             aria-hidden
             className={cn(
-              "inline-flex size-6 shrink-0 items-center justify-center rounded-full bg-app-bg-2 text-app-fg-3 shadow-[var(--app-shadow-elevated)]",
+              "inline-flex size-6 shrink-0 items-center justify-center rounded-full bg-app-bg-2 text-app-fg-3 shadow-(--app-shadow-elevated)",
               running && "chat-node-glow",
             )}
           >

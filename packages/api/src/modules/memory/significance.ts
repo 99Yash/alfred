@@ -20,7 +20,7 @@ import {
   type CorrespondenceStats,
   type PersonEntityMetadata,
   type Significance,
-  type SignificanceComponents,
+  type SignificanceScoreComponents,
   parsePersonEntityMetadata,
 } from "./entity-metadata";
 import { jsonRecordSchema } from "./types";
@@ -105,7 +105,7 @@ export function computeSignificance(
   // blast (high recency, zero reciprocity, low frequency) must stay low.
   const activity = frequency * recency;
 
-  const components: SignificanceComponents = {
+  const components: SignificanceScoreComponents = {
     frequency: round3(frequency),
     recency: round3(recency),
     reciprocity: round3(reciprocity),

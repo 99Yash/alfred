@@ -14,22 +14,6 @@ export interface InboxPage {
   total: number;
 }
 
-/**
- * Recent Gmail threads for the rail's Inbox tab, paginated server-side.
- *
- * `useInfiniteQuery` accumulates pages in `data.pages[0..N]` so going
- * back to an already-loaded page is instant. `InboxFeed` owns the
- * page-index UI; this hook just exposes `fetchNextPage()` for advancing.
- *
- * The endpoint is best-effort: a 401 (Gmail not connected) and an empty
- * 200 both surface as `items = []`, which `InboxFeed` renders as the
- * "Connect Gmail to see your latest unread threads here" empty state.
- *
- * Refresh: SSE `inbox.updated` frames invalidate this query in real time
- * (wired in `useEventBridge` against the `["me","inbox"]` prefix), so
- * the explicit poll is a slow backstop for dropped frames + a fresh
- * window-focus refetch — not the primary freshness mechanism.
- */
 export function useInbox() {
   return useInfiniteQuery({
     queryKey: ["me", "inbox"],
@@ -60,20 +44,6 @@ export function useInbox() {
   });
 }
 
-/**
- * Mark a set of inbox rows as read by removing the Gmail UNREAD label
- * server-side. The endpoint already filters to currently-unread rows so
- * callers can over-include without thinking (e.g. "all visible ids");
- * we still pass the documentIds explicitly rather than asking the
- * server to mark *everything* — the rail's button is "all visible on
- * the current page," not server-wide.
- *
- * Optimistically flips the affected rows to read across every loaded
- * page so the rail updates on click rather than after the server
- * round-trip + refetch. `onError` rolls back to the pre-mutation
- * snapshot; `onSettled` invalidates to reconcile with the server (e.g.
- * rows the server declined to touch because they were already read).
- */
 export function useMarkInboxRead() {
   const queryClient = useQueryClient();
   return useMutation({
@@ -88,7 +58,6 @@ export function useMarkInboxRead() {
     },
     onMutate: async (documentIds: ReadonlyArray<string>) => {
       const inboxKey = ["me", "inbox"];
-      // Stop in-flight refetches from clobbering our optimistic write.
       await queryClient.cancelQueries({ queryKey: inboxKey });
       const previous = queryClient.getQueryData<InfiniteData<InboxPage, string | null>>(inboxKey);
       const markRead = new Set(documentIds);
@@ -117,15 +86,6 @@ export function useMarkInboxRead() {
   });
 }
 
-/**
- * Thread-shaped payload for the rail reader. The request carries the
- * `documentId` the user clicked; the response inflates to the entire
- * Gmail thread that document belongs to. `selectedDocumentId` lets the
- * UI anchor / highlight the message that drove the navigation.
- *
- * Returns `null` when the document doesn't exist or the user isn't
- * authorized; the reader pane renders a "Not found" state in that case.
- */
 export interface InboxThread {
   threadId: string | null;
   subject: string | null;
@@ -144,7 +104,6 @@ export interface InboxMessage {
   subject: string | null;
   snippet: string | null;
   body: string;
-  /** Sanitized HTML body for the iframe "Original" view. Null when absent. */
   htmlBody: string | null;
   authoredAt: string | null;
   authoredAtRelative: string;
@@ -152,14 +111,8 @@ export interface InboxMessage {
   attachments: ReadonlyArray<InboxAttachment>;
 }
 
-/**
- * Thread payload from `GET /api/me/inbox/:documentId`, per the live contract.
- * The `:documentId` param makes this route a function in Eden's typing, so we
- * reach `.get` through `ReturnType<…>` — unlike the paramless list route above.
- */
 type InboxDetailData = EdenData<ReturnType<typeof client.api.me.inbox>["get"]>;
 
-/** One attachment on a thread message; the mapper below is a 1:1 passthrough. */
 export type InboxAttachment = InboxDetailData["messages"][number]["attachments"][number];
 
 export function useInboxDetail(documentId: string | null) {
@@ -233,7 +186,6 @@ function parseSenderEmail(raw: string): string | null {
   return null;
 }
 
-/** One row from `GET /api/me/inbox`, derived from the live route contract. */
 type InboxResponseItem = EdenData<typeof client.api.me.inbox.get>["items"][number];
 
 function toInboxItem(row: InboxResponseItem): RailInboxItem {
@@ -244,8 +196,6 @@ function toInboxItem(row: InboxResponseItem): RailInboxItem {
     id: row.documentId,
     threadId: row.threadId,
     sender: display || "Unknown sender",
-    // Bare address for the attention scorer's bulk-sender + recurrence grouping
-    // (the display name alone can't reveal a no-reply/notifications mailbox).
     senderAddress: parseEmailAddress(row.sender),
     subject: row.subject ?? "(no subject)",
     preview: cleanPreview(row.snippet) || " ",
@@ -256,20 +206,10 @@ function toInboxItem(row: InboxResponseItem): RailInboxItem {
     tone: toneFor(display),
     category: isTriageCategory(row.category) ? (row.category as TriageCategory) : null,
     senderBrand: brand,
-    // Drop personal-mail domains so the favicon fallback only kicks in
-    // for corporate / transactional senders. Gmail / Outlook addresses
-    // are people — they deserve the colored-initial avatar, not the
-    // Gmail logo standing in for the human behind it.
     senderDomain: brand === null && !isPersonalDomain(domain) && domain ? domain : null,
   };
 }
 
-/**
- * Personal-mail domains shouldn't trigger the favicon fallback — the
- * favicon is a stand-in for "this sender is a brand," which a free
- * Gmail account isn't. List is deliberately short; everything else
- * (corporate domains, transactional senders) goes through favicons.
- */
 const PERSONAL_MAIL_DOMAINS = new Set([
   "gmail.com",
   "googlemail.com",
@@ -288,26 +228,16 @@ function isPersonalDomain(domain: string): boolean {
   return PERSONAL_MAIL_DOMAINS.has(domain);
 }
 
-/**
- * Pull a display name out of a raw RFC 5322 `From` header. Common shapes:
- *   `"Maya Chen" <maya@example.com>` → `Maya Chen`
- *   `Maya Chen <maya@example.com>`   → `Maya Chen`
- *   `maya@example.com`               → `maya`
- *   `Linear <notifications@linear.app>` → `Linear`
- */
 function senderDisplay(raw: string | null): string {
   if (!raw) return "";
   const trimmed = raw.trim();
-  // Strip the angle-bracketed address; what remains is the display name.
   const beforeBracket = trimmed.split("<")[0]?.trim() ?? "";
   const unquoted = beforeBracket.replace(/^"|"$/g, "").trim();
   if (unquoted) return unquoted;
-  // No display name → fall back to the local part of the email.
   const addr = trimmed.match(/<([^>]+)>/)?.[1] ?? trimmed;
   return addr.split("@")[0] ?? trimmed;
 }
 
-/** Extract the domain (e.g. `github.com`) from a raw `From` header. */
 function senderDomain(raw: string | null): string {
   if (!raw) return "";
   const addr = raw.match(/<([^>]+)>/)?.[1] ?? raw;
@@ -319,12 +249,6 @@ function senderDomain(raw: string | null): string {
     .toLowerCase();
 }
 
-/**
- * Map common transactional/notification domains to the brand glyph we
- * already ship in `IntegrationGlyph`. The list is intentionally narrow —
- * personal correspondents fall through to the colored-initial avatar so
- * the rail doesn't go all-monochrome.
- */
 function brandFor(domain: string): IntegrationBrand | null {
   if (!domain) return null;
   if (matchesDomain(domain, "github.com")) return "github";
@@ -333,11 +257,6 @@ function brandFor(domain: string): IntegrationBrand | null {
   return null;
 }
 
-/**
- * Match `host` exactly or as a strict subdomain of `base`. Guards against
- * the obvious `endsWith` trap where `evilgithub.com` would otherwise be
- * classified as GitHub.
- */
 function matchesDomain(host: string, base: string): boolean {
   return host === base || host.endsWith(`.${base}`);
 }
@@ -357,10 +276,6 @@ const TONE_PALETTE: ReadonlyArray<RailToolTone> = [
   "orange",
 ];
 
-/**
- * Deterministic tone-per-sender so the same correspondent keeps the same
- * avatar color across renders. Cheap djb2 hash on the display name.
- */
 function toneFor(name: string): RailToolTone {
   if (!name) return "purple";
   let hash = 5381;
@@ -371,11 +286,6 @@ function toneFor(name: string): RailToolTone {
   return TONE_PALETTE[idx] ?? "purple";
 }
 
-/**
- * Gmail snippets ship with HTML entities and stray whitespace. Decode the
- * common ones inline — pulling in a full entity library for three glyphs
- * isn't worth the bundle cost.
- */
 function cleanPreview(snippet: string | null): string {
   if (!snippet) return "";
   return snippet
@@ -393,11 +303,6 @@ const MINUTE = 60 * 1000;
 const HOUR = 60 * MINUTE;
 const DAY = 24 * HOUR;
 
-/**
- * Short relative time ("now" / "5m" / "3h" / "Mar 4") for dense inbox rows.
- * Intentionally distinct from `lib/strings#formatRelative` — different output
- * contract (no "ago" suffix, absolute date past a week), so don't consolidate.
- */
 function formatRelativeShort(iso: string | null): string {
   if (!iso) return "";
   const t = Date.parse(iso);

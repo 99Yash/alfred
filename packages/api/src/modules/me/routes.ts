@@ -48,7 +48,7 @@ import {
 } from "../briefing/preferences";
 import { enqueueBriefingRun } from "../briefing/queue";
 import { notSentGmailDocumentWhere } from "../triage/sent-mail";
-import { resolveUserTimezone } from "../user-timezone";
+import { resolveUserTimezone } from "../timezone";
 import { sanitizeEmailHtml } from "./email-html";
 
 /**

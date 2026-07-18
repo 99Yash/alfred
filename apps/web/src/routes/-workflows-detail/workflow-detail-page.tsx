@@ -4,7 +4,7 @@ import { useState } from "react";
 import { AppButton, AppCard, AppSegmented, AppSwitch } from "~/components/ui/v2";
 import { useWorkflow } from "~/lib/replicache/use-workflows";
 import { cn } from "~/lib/utils";
-import { syncedWorkflowToView } from "~/lib/workflows";
+import { syncedWorkflowToView } from "~/routes/-workflows/workflows-utils";
 import { ApprovalsTab } from "./approvals-tab";
 import { BackLink } from "./back-link";
 import { DetailShell } from "./detail-shell";

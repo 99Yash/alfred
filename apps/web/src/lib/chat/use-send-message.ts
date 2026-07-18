@@ -10,17 +10,10 @@ import { uploadAttachment, type UploadedAttachment } from "./upload-attachments"
 const API_URL =
   (import.meta as { env?: { VITE_API_URL?: string } }).env?.VITE_API_URL ?? "http://localhost:3001";
 
-/**
- * The canonical `ChatModelTier` from `@alfred/contracts` (server-side it lives
- * in `@alfred/ai`, which can't enter the web bundle). Aliased to `ChatTier` for
- * the existing call sites.
- */
-export type ChatTier = ChatModelTier;
-
 export type SendMessage = (
   threadId: string | undefined,
   text: string,
-  tier?: ChatTier,
+  tier?: ChatModelTier,
   files?: File[],
   /**
    * Faithful retry (ADR-0065): source attachment ids from the prior user

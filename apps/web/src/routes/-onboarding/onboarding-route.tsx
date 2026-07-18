@@ -1,13 +1,13 @@
 import { useQueryClient } from "@tanstack/react-query";
 import { useNavigate, useSearch } from "@tanstack/react-router";
 import { useEffect, useState } from "react";
-import { OnboardingFlow } from "~/components/onboarding/onboarding-flow";
+import { OnboardingFlow, type OnboardingStep } from "~/components/onboarding/onboarding-flow";
 import { useConnectedAccountLabel } from "~/lib/integrations/use-integration-status";
 import { authClient } from "~/lib/auth/auth-client";
 import { client } from "~/lib/eden";
 import { toast } from "~/lib/toast";
 
-export type OnboardingStep = 1 | 2 | 3;
+export type { OnboardingStep };
 
 const API_URL =
   (import.meta as { env?: { VITE_API_URL?: string } }).env?.VITE_API_URL ?? "http://localhost:3001";

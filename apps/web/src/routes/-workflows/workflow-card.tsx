@@ -1,6 +1,6 @@
 import { Link } from "@tanstack/react-router";
 import { Clock3, type LucideIcon } from "lucide-react";
-import type { WorkflowDefinition } from "~/lib/workflows";
+import type { WorkflowDefinition } from "./workflows-utils";
 import { cn } from "~/lib/utils";
 import { BriefingHero } from "./briefing-hero";
 import { TriageHero } from "./triage-hero";

@@ -13,6 +13,7 @@ import { config as loadEnv } from "dotenv";
 import { evalite } from "evalite";
 import { formatDateGrounding } from "../src/modules/agent/grounding";
 import { buildChatSystemPrompt } from "../src/modules/agent/workflows/chat-turn";
+import type { GroundingTaskOutput } from "./lib/grounding";
 
 // GROUND / #312: behavioral guard that when the user names a sender by
 // DESCRIPTION ("the onboarding emails", "the recruiter") and asks to stop
@@ -48,11 +49,6 @@ const CONNECTED_SUMMARY = [
 
 const SYSTEM = buildChatSystemPrompt(formatDateGrounding(TIMEZONE, NOW), CONNECTED_SUMMARY);
 
-interface TaskOutput {
-  toolName: string | null;
-  args: Record<string, unknown> | null;
-  text: string;
-}
 
 interface Case {
   input: string;
@@ -279,7 +275,7 @@ async function runResolutionScenario(
   };
 }
 
-evalite<string, TaskOutput, null>("Agent sender-suppression grounding — search before ask", {
+evalite<string, GroundingTaskOutput, null>("Agent sender-suppression grounding — search before ask", {
   data: () => CASES.map((c) => ({ input: c.input, expected: null })),
   task: async (input) => {
     void serverEnv().ANTHROPIC_API_KEY;

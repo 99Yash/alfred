@@ -15,7 +15,6 @@ import { toast } from "~/lib/toast";
 import { cn } from "~/lib/utils";
 import { safeGet, safeRemove, safeSet } from "~/lib/storage/storage";
 import { MicWaveform } from "../mic-recording";
-import { formatElapsed } from "../mic-recording-format";
 import type { ChatTier } from "../model-tier-picker";
 import { TiptapComposer, type TiptapComposerHandle } from "../tiptap-composer";
 import { AttachmentChips } from "./attachment-chips";
@@ -344,6 +343,12 @@ export function Composer({
       </div>
     </form>
   );
+}
+
+function formatElapsed(seconds: number): string {
+  const m = Math.floor(seconds / 60);
+  const s = seconds % 60;
+  return `${m}:${s.toString().padStart(2, "0")}`;
 }
 
 function RecordingPanel({

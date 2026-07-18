@@ -1,4 +1,4 @@
-import { db } from "@alfred/db";
+import type { DbTransaction } from "@alfred/db";
 
 /**
  * A Drizzle transaction handle — the value `db().transaction(cb)` hands its
@@ -7,4 +7,4 @@ import { db } from "@alfred/db";
  * can commit atomically inside a reducer's transaction; omit it and each helper
  * opens its own. Mirrors `memory/entities.ts`'s `DbExecutor`.
  */
-export type DbExecutor = Parameters<Parameters<ReturnType<typeof db>["transaction"]>[0]>[0];
+export type DbExecutor = DbTransaction;

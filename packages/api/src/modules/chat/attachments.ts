@@ -1,4 +1,5 @@
 import {
+  type ChatAttachmentDescriptor,
   classifyUpload,
   isPassThrough,
   MAX_ATTACHMENT_BYTES_PER_MESSAGE,
@@ -18,13 +19,7 @@ import { buildAttachmentKey, headObject } from "./storage";
  */
 
 /** A client-supplied attachment descriptor (the bytes are already uploaded). */
-export interface AttachmentInput {
-  id: string;
-  name: string;
-  mime: string;
-  size: number;
-  position: number;
-}
+export type AttachmentInput = ChatAttachmentDescriptor;
 
 const MIN_MODEL_IMAGE_EDGE_PX = 64;
 // Anthropic rejects images whose longest edge exceeds 8000px; stay at that

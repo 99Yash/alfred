@@ -13,10 +13,10 @@
  */
 
 const SITE_NAME = "Alfred";
-const SITE_TAGLINE = "The AI coworker that never sleeps.";
+const SITE_TAGLINE = "The Co-worker that never sleeps.";
 
 const SITE_DESCRIPTION =
-  "Alfred is a personal AI assistant wired into your email, calendar, and the tools you already use. One place to get real work done.";
+  "Alfred is a personal assistant wired into your email, calendar, and the tools you already use. One place to get real work done.";
 
 /** Production origin, used to build absolute OG/canonical URLs. */
 const SITE_URL = "https://alfred.beauty";

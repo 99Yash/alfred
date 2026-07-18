@@ -8,7 +8,7 @@ import {
   toMessage,
   type TurnKickResponse,
 } from "@alfred/contracts";
-import { db } from "@alfred/db";
+import { db, type DbRoot, type DbTransaction } from "@alfred/db";
 import { createId } from "@alfred/db/helpers";
 import {
   agentRuns,
@@ -62,8 +62,7 @@ const ATTACHMENT_UPLOAD_QUOTA_TTL_SECONDS = 60 * 60;
 const MAX_PENDING_ATTACHMENT_UPLOAD_BYTES = MAX_ATTACHMENT_BYTES_PER_MESSAGE * 4;
 let attachmentUploadRateRedis: ReturnType<typeof createCacheRedisConnection> | undefined;
 
-type DbTransaction = Parameters<Parameters<ReturnType<typeof db>["transaction"]>[0]>[0];
-type DbExecutor = ReturnType<typeof db> | DbTransaction;
+type DbExecutor = DbRoot | DbTransaction;
 type AttachmentInsertRow = NewChatAttachment;
 type ExistingAttachmentSummary = Pick<ChatAttachment, "id" | "name" | "mime" | "size" | "position">;
 type RetryAttachmentSource = Pick<ChatAttachment, "id" | "storageKey" | "name" | "mime" | "size">;

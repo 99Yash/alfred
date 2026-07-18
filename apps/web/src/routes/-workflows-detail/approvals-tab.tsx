@@ -1,6 +1,6 @@
 import { ShieldCheck } from "lucide-react";
 import { AppCard } from "~/components/ui/v2";
-import type { WorkflowDefinition } from "~/lib/workflows";
+import type { WorkflowDefinition } from "~/routes/-workflows/workflows-utils";
 import { PolicyRow } from "./policy-row";
 import { WorkflowIcon } from "./workflow-icon";
 

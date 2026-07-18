@@ -18,13 +18,6 @@ export function addLocalDays(localDate: string, days: number): string {
   return next.toISOString().slice(0, 10);
 }
 
-/**
- * Render an instant as a human-readable wall-clock string in the user's
- * timezone — e.g. "Fri, Jun 26, 3:10 AM". Used to hand the briefing agent a
- * local receipt time it can phrase naturally ("a late-night request came in
- * around 3am") instead of raw UTC (#284). Returns null for a null instant so
- * callers can pass it straight through from a nullable `authoredAt`.
- */
 export function formatInstantInTimezone(instant: Date | null, timezone: string): string | null {
   if (!instant) return null;
   return new Intl.DateTimeFormat("en-US", {

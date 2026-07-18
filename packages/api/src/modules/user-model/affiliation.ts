@@ -40,7 +40,7 @@ import {
   type ObservationInsertInput,
   type UserOrgAffiliationPayload,
 } from "@alfred/contracts";
-import { db } from "@alfred/db";
+import { db, type DbRoot } from "@alfred/db";
 import { integrationCredentials, observationFamilyHeads } from "@alfred/db/schemas";
 import { createHash } from "node:crypto";
 import { and, eq } from "drizzle-orm";
@@ -226,7 +226,7 @@ interface LoadedCredentialForAffiliation extends CredentialForAffiliation {
   createdAt: Date;
 }
 
-type ReadExecutor = DbExecutor | ReturnType<typeof db>;
+type ReadExecutor = DbExecutor | DbRoot;
 
 async function insertOrgAffiliationObservation(
   input: ObservationInsertInput,

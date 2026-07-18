@@ -8,6 +8,7 @@ import { evalite } from "evalite";
 import { z } from "zod";
 import { formatRuntimeTimeGrounding } from "../src/modules/agent/grounding";
 import { buildChatSystemPrompt } from "../src/modules/agent/workflows/chat-turn";
+import type { GroundingTaskOutput } from "./lib/grounding";
 
 // GROUND: behavioral guard that the boss answers relative calendar questions
 // ("today" / "tomorrow" / "this week") through the STRUCTURED `window` /
@@ -50,12 +51,6 @@ const ADVERTISED = z.toJSONSchema(calendarListEventsInput, { io: "input" }) as {
   properties?: Record<string, unknown>;
 };
 const ACCEPTED_PARAMS = new Set(Object.keys(ADVERTISED.properties ?? {}));
-
-interface TaskOutput {
-  toolName: string | null;
-  args: Record<string, unknown> | null;
-  text: string;
-}
 
 interface ExpectedCalendarCall {
   window?: "today" | "tomorrow" | "next_7_days";
@@ -110,7 +105,7 @@ function runFirstCall(input: string) {
   });
 }
 
-evalite<string, TaskOutput, ExpectedCalendarCall>("Agent calendar grounding", {
+evalite<string, GroundingTaskOutput, ExpectedCalendarCall>("Agent calendar grounding", {
   data: () => CASES.map((c) => ({ input: c.input, expected: c.expected })),
   task: async (input) => {
     void serverEnv().ANTHROPIC_API_KEY;

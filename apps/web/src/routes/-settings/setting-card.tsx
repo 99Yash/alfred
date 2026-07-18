@@ -1,19 +1,18 @@
 import type { ComponentType, ReactNode } from "react";
 import { AppCard } from "~/components/ui/v2";
+import { APP_TINTS } from "~/lib/tints";
 import { cn } from "~/lib/utils";
 
-type CardTone = "purple" | "amber" | "sky" | "green" | "pink" | "orange" | "red" | "neutral";
-
-const CARD_TILE: Record<CardTone, string> = {
-  purple: "bg-app-purple-1 text-app-purple-4",
-  amber: "bg-app-amber-1 text-app-amber-4",
-  sky: "bg-app-sky-1 text-app-sky-4",
-  green: "bg-app-green-1 text-app-green-4",
-  pink: "bg-app-pink-1 text-app-pink-4",
-  orange: "bg-app-orange-1 text-app-orange-4",
+// Extends the shared tint palette with two card-only tones: `red` (destructive
+// affordances) and `neutral` (untinted). The six shared hues flow from
+// `APP_TINTS` so this card can never drift from the rail/settings tiles.
+const CARD_TILE = {
+  ...APP_TINTS,
   red: "bg-app-red-1 text-app-red-4",
   neutral: "bg-app-bg-2 text-app-fg-3",
-};
+} as const;
+
+type CardTone = keyof typeof CARD_TILE;
 
 interface SettingCardProps {
   title: string;

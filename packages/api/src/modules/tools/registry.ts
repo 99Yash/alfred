@@ -13,7 +13,13 @@
  * dispatcher). So `high` is load-bearing for the gate; the lower tiers are not.
  */
 
-import type { ActionSlug, IntegrationSlug, ToolName, ToolRiskTier } from "@alfred/contracts";
+import type {
+  ActionSlug,
+  IntegrationSlug,
+  RiskTierCounts,
+  ToolName,
+  ToolRiskTier,
+} from "@alfred/contracts";
 import { buildToolName, INTEGRATION_ACTIONS, integrationFromToolName } from "@alfred/contracts";
 import type { z } from "zod";
 import { deriveToolDiscovery, type ResolvedDiscovery } from "./metadata-defaults";
@@ -286,7 +292,7 @@ export function assertKernelToolsRegistered(declaredTools: readonly RegisteredTo
 }
 
 /** Per-tier counts for one integration. UX hint only (see file header). */
-export type RiskTierCounts = Record<ToolRiskTier, number>;
+export type { RiskTierCounts };
 
 function emptyTierCounts(): RiskTierCounts {
   return { no_risk: 0, low: 0, medium: 0, high: 0 };

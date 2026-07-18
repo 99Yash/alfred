@@ -1,5 +1,5 @@
 import type { AgentTranscriptMessage } from "@alfred/contracts";
-import type { db } from "@alfred/db";
+import type { DbRoot, DbTransaction } from "@alfred/db";
 import type { DecisionTraceFor, DecisionTraceKind, DecisionTraceOptions } from "./decision-traces";
 import {
   RUN_STATUSES,
@@ -136,10 +136,7 @@ export interface WorkflowInput {
   metadata?: Record<string, unknown>;
 }
 
-type AgentDbRoot = ReturnType<typeof db>;
-type AgentDbTransaction = Parameters<Parameters<AgentDbRoot["transaction"]>[0]>[0];
-
-export type AgentDbExecutor = AgentDbRoot | AgentDbTransaction;
+export type AgentDbExecutor = DbRoot | DbTransaction;
 
 export interface WorkflowInitContext {
   db: AgentDbExecutor;

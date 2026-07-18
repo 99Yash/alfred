@@ -1,5 +1,5 @@
 import type { SyncedWorkflow } from "@alfred/sync";
-import { lowerFirst } from "./strings";
+import { lowerFirst } from "~/lib/strings";
 import {
   CalendarClock,
   CheckCircle2,
@@ -9,7 +9,9 @@ import {
   Zap,
 } from "lucide-react";
 
-export type WorkflowTint = "violet" | "emerald" | "amber";
+/** Fallback tile tints, cycled by slug hash for workflows without bespoke art. */
+const FALLBACK_TINTS = ["violet", "emerald", "amber"] as const;
+export type WorkflowTint = (typeof FALLBACK_TINTS)[number];
 
 export type WorkflowDefinition = {
   id: string;
@@ -27,19 +29,12 @@ export type WorkflowDefinition = {
   integrations: ReadonlyArray<string>;
 };
 
-/**
- * Presentation (icon + tint) for the three flagship built-ins keeps their
- * bespoke hero art (keyed by slug in `WorkflowCard`); everything else gets
- * a deterministic fallback so user-authored workflows still look intentional.
- */
 const KNOWN_PRESENTATION: Readonly<Record<string, { icon: LucideIcon; tint: WorkflowTint }>> = {
   "morning-briefing": { icon: Mail, tint: "violet" },
   "daily-briefing": { icon: Mail, tint: "violet" },
   "email-triage": { icon: CheckCircle2, tint: "emerald" },
   "cold-start-research": { icon: CalendarClock, tint: "amber" },
 };
-
-const FALLBACK_TINTS: ReadonlyArray<WorkflowTint> = ["violet", "emerald", "amber"];
 
 function hashSlug(slug: string): number {
   let h = 0;
@@ -66,7 +61,6 @@ function titleCase(slug: string): string {
     .trim();
 }
 
-/** "0 7 * * *" → "Every day at 07:00"; falls back to the raw expression. */
 function describeCron(schedule: string, timezone?: string): string {
   const tzSuffix = timezone ? ` (${timezone})` : "";
   const parts = schedule.trim().split(/\s+/);
@@ -125,12 +119,6 @@ function describeTrigger(trigger: SyncedWorkflow["trigger"]): TriggerView {
   };
 }
 
-/**
- * Project a synced workflow row onto the cosmetic `WorkflowDefinition` view
- * model the list cards, heroes, history/share tabs already consume. The
- * editable PlanTab works off the raw `SyncedWorkflow` instead — this view is
- * display-only.
- */
 export function syncedWorkflowToView(w: SyncedWorkflow): WorkflowDefinition {
   const { icon, tint } = presentationFor(w);
   const t = describeTrigger(w.trigger);

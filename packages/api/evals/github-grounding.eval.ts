@@ -12,6 +12,7 @@ import { config as loadEnv } from "dotenv";
 import { evalite } from "evalite";
 import { formatDateGrounding } from "../src/modules/agent/grounding";
 import { buildChatSystemPrompt } from "../src/modules/agent/workflows/chat-turn";
+import type { GroundingTaskOutput } from "./lib/grounding";
 
 // GROUND / #213 / ADR-0071: behavioral guard that the boss answers GitHub
 // questions through the STRUCTURED fields (type + state + *WithinDays) instead
@@ -43,12 +44,6 @@ const CONNECTED_SUMMARY = [
 ].join("\n");
 
 const SYSTEM = buildChatSystemPrompt(formatDateGrounding(TIMEZONE, NOW), CONNECTED_SUMMARY);
-
-interface TaskOutput {
-  toolName: string | null;
-  args: Record<string, unknown> | null;
-  text: string;
-}
 
 interface ExpectedGithubCall {
   type: "pr" | "issue" | "both";
@@ -106,7 +101,7 @@ function runFirstCall(input: string) {
   });
 }
 
-evalite<string, TaskOutput, ExpectedGithubCall>("Agent GitHub grounding", {
+evalite<string, GroundingTaskOutput, ExpectedGithubCall>("Agent GitHub grounding", {
   data: () => CASES.map((c) => ({ input: c.input, expected: c.expected })),
   task: async (input) => {
     void serverEnv().ANTHROPIC_API_KEY;
@@ -189,7 +184,7 @@ evalite<string, TaskOutput, ExpectedGithubCall>("Agent GitHub grounding", {
 // find the PRs (the diff stats come from get_pull_request fan-out afterward).
 // With no execute the run stops after the first call, which is the point: we
 // only assert it didn't give up at the gate.
-evalite<string, TaskOutput, null>("Agent GitHub LOC — no give-up", {
+evalite<string, GroundingTaskOutput, null>("Agent GitHub LOC — no give-up", {
   data: () => [
     { input: "how many lines of code did i change across my merged PRs this week", expected: null },
   ],

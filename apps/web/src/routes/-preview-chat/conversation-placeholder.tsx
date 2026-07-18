@@ -1,12 +1,12 @@
 import { Brain, Sparkles, Users2 } from "lucide-react";
 import { cn } from "~/lib/utils";
-import type { ThreadEntry } from "./helpers";
+import type { PreviewThreadEntry } from "./helpers";
 import { RunGroup } from "./run-group";
 import { SourcesRow } from "./sources-row";
 import { ThoughtRow } from "./thought-row";
 import { SearchRow, ToolRow } from "./tool-row";
 
-export function ConversationPlaceholder({ entry }: { entry: ThreadEntry | undefined }) {
+export function ConversationPlaceholder({ entry }: { entry: PreviewThreadEntry | undefined }) {
   if (!entry) {
     return <EmptyConversation />;
   }
