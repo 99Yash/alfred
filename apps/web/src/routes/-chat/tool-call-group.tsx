@@ -301,7 +301,7 @@ function RunGlyphCluster({ glyphs }: { glyphs: RunGlyph[] }) {
     return (
       <span
         aria-hidden
-        className="inline-flex size-6 shrink-0 items-center justify-center rounded-full bg-app-bg-2 text-app-fg-3 shadow-[var(--app-shadow-elevated)]"
+        className="inline-flex size-6 shrink-0 items-center justify-center rounded-full bg-app-bg-2 text-app-fg-3 shadow-(--app-shadow-elevated)"
       >
         <Wrench size={13} />
       </span>
@@ -325,7 +325,7 @@ function RunGlyphCluster({ glyphs }: { glyphs: RunGlyph[] }) {
           <span
             key={glyph.key}
             className={cn(
-              "inline-flex size-6 shrink-0 items-center justify-center rounded-full bg-app-bg-2 text-app-fg-3 shadow-[var(--app-shadow-elevated)] ring-2 ring-app-background",
+              "inline-flex size-6 shrink-0 items-center justify-center rounded-full bg-app-bg-2 text-app-fg-3 shadow-(--app-shadow-elevated) ring-2 ring-app-background",
               i > 0 && "-ml-2",
             )}
           >

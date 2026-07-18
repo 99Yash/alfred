@@ -1,4 +1,4 @@
-import { toolLabel } from "@alfred/contracts";
+import { type ToolCategory, toolCategoryOf, toolLabel } from "@alfred/contracts";
 import { Sparkles, Wrench, type LucideIcon } from "lucide-react";
 import { type IntegrationBrand } from "~/lib/integrations/integration-icons";
 import { getIntegrationProvider } from "~/lib/integrations/integrations";
@@ -29,32 +29,25 @@ export interface ToolPresentation {
   detail?: string;
 }
 
+/** The tool's action segment: `"google_calendar.list_events"` → `"list_events"`. */
+function actionSegment(toolName: string): string {
+  return toolName.includes(".") ? toolName.slice(toolName.lastIndexOf(".") + 1) : toolName;
+}
+
 /**
  * Fallback for a tool not in the co-located registry (e.g. a future or
  * web-scoped tool): `"google_calendar.list_events"` → `"list events"`.
  */
 function humanizeTool(toolName: string): string {
-  const last = toolName.includes(".") ? toolName.slice(toolName.lastIndexOf(".") + 1) : toolName;
-  return last.replace(/_/g, " ");
+  return actionSegment(toolName).replace(/_/g, " ");
 }
 
-/** What a tool *did*, for the run summary. */
-export type ToolCategory = "source" | "action" | "system";
+export type { ToolCategory };
 
-// Read-ish verbs gather context; write-ish verbs change the world. Keyed off
-// the leading verb of the tool's action segment (`gmail.send_draft` → "send").
-const SOURCE_VERBS = new Set([
-  "search",
-  "read",
-  "list",
-  "get",
-  "check",
-  "open",
-  "fetch",
-  "view",
-  "export",
-  "download",
-]);
+// Verbs that change the world. Anything else — a read verb, or a verb we don't
+// recognize — is treated as a source, so a stray read never miscounts as a
+// write. (A matching source-verb list would be redundant: it and the default
+// both resolve to `"source"`.)
 const ACTION_VERBS = new Set([
   "send",
   "create",
@@ -74,22 +67,16 @@ const ACTION_VERBS = new Set([
 
 /**
  * Classify a tool for the group headline: `"source"` (gathered information),
- * `"action"` (changed something), or `"system"` (plumbing like connecting an
- * integration or spawning a sub-agent — excluded from the "searched / did" tally
- * so it never inflates the count). Pure name-based heuristic; the verb registry
- * carries no category field, so this is the one place that judgment lives.
+ * `"action"` (changed something), or `"system"` (plumbing like loading a tool
+ * or spawning a sub-agent — excluded from the "searched / did" tally so it never
+ * inflates the count). The registry ({@link toolCategoryOf}) is the source of
+ * truth; the leading-verb guess only covers an unregistered name.
  */
 export function toolCategory(toolName: string): ToolCategory {
-  if (toolName === "system.spawn_sub_agent") {
-    return "system";
-  }
-  if (toolName === "system.web_search") return "source";
-  const last = toolName.includes(".") ? toolName.slice(toolName.lastIndexOf(".") + 1) : toolName;
-  const verb = last.split("_")[0] ?? "";
-  if (ACTION_VERBS.has(verb)) return "action";
-  if (SOURCE_VERBS.has(verb)) return "source";
-  // Unknown verb: treat as a source so a stray read never reads as a write.
-  return "source";
+  return (
+    toolCategoryOf(toolName) ??
+    (ACTION_VERBS.has(actionSegment(toolName).split("_")[0] ?? "") ? "action" : "source")
+  );
 }
 
 /**
