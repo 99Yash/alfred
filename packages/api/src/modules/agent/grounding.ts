@@ -1,5 +1,5 @@
 import { localDateInTimezone } from "../briefing/preferences";
-import { resolveUserTimezone } from "../user-timezone";
+import { resolveUserTimezone } from "../timezone";
 
 /**
  * The user's operational timezone — the same resolver `calendar.list_events`

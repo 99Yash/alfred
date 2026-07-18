@@ -50,6 +50,16 @@ export function db() {
   return _db;
 }
 
+/** The pool-backed root database client returned by {@link db}. */
+export type DbRoot = ReturnType<typeof db>;
+
+/**
+ * A Drizzle transaction handle — the value `db().transaction(cb)` hands its
+ * callback. Write helpers accept one so several writes commit atomically in a
+ * caller's transaction; omit it and each helper opens its own.
+ */
+export type DbTransaction = Parameters<Parameters<DbRoot["transaction"]>[0]>[0];
+
 function hasRows(result: unknown): result is { rows: unknown[] } {
   return (
     typeof result === "object" && result !== null && "rows" in result && Array.isArray(result.rows)

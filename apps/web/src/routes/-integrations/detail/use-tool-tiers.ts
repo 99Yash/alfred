@@ -1,9 +1,6 @@
-import { isRecord, type ToolRiskTier } from "@alfred/contracts";
+import { isRecord, type RiskTierCounts } from "@alfred/contracts";
 import { useQuery } from "@tanstack/react-query";
 import { client } from "~/lib/eden";
-
-/** Mirrors the server's `Record<ToolRiskTier, number>` tool-tier tally. */
-export type RiskTierCounts = Record<ToolRiskTier, number>;
 
 type TierMap = Readonly<Record<string, RiskTierCounts>>;
 
@@ -27,13 +24,6 @@ function parseTierMap(value: unknown): TierMap {
   return out;
 }
 
-/**
- * Per-integration tool-tier counts from the server registry. The web
- * bundle can't import the tool registry (server-only), so the detail
- * page reads counts from `/api/integrations/tool-tiers`. Static after
- * boot, so a long stale time is fine. Returns `{}` on any error so
- * callers render the honest "no tools" branch instead of throwing.
- */
 function useToolTiers(): TierMap {
   const { data } = useQuery<TierMap>({
     queryKey: ["integrations", "tool-tiers"],
@@ -48,7 +38,6 @@ function useToolTiers(): TierMap {
   return data ?? {};
 }
 
-/** Tier counts for one integration slug, or null if it has no tools. */
 export function useIntegrationTierCounts(slug: string): RiskTierCounts | null {
   const tiers = useToolTiers();
   const counts = tiers[slug];

@@ -49,6 +49,7 @@ import {
   SUB_AGENT_WORKFLOW_SLUG,
 } from "../sub-agent-metadata";
 import type { Step, Workflow } from "../types";
+import { pendingToolCallSchema, type PendingToolCall } from "./pending-tool-call";
 
 // This workflow is the one sub-agents run on (see SUB_AGENT_WORKFLOW_SLUG);
 // keep the slug single-sourced so the two never drift.
@@ -63,13 +64,6 @@ const TURN_CAP_MAX = 30;
  * fails fast instead of burning the `TURN_CAP_MAX` budget on full-price retries.
  */
 const EMPTY_COMPLETION_MAX_RETRIES = 2;
-
-const pendingToolCallSchema = z.object({
-  toolCallId: z.string().min(1),
-  toolName: z.string().min(1),
-  input: z.unknown(),
-});
-type PendingToolCall = z.infer<typeof pendingToolCallSchema>;
 
 const briefRunStateSchema = z
   .object({

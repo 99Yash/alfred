@@ -1,6 +1,6 @@
 import { CheckCircle2 } from "lucide-react";
 import { AppCard } from "~/components/ui/v2";
-import type { WorkflowDefinition } from "~/lib/workflows";
+import type { WorkflowDefinition } from "~/routes/-workflows/workflows-utils";
 import { WorkflowIcon } from "./workflow-icon";
 
 export function HistoryTab({ workflow }: { workflow: WorkflowDefinition }) {

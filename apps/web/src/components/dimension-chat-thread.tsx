@@ -35,9 +35,61 @@ import {
   DimensionModelPicker,
   type DimensionComposerMenuItem,
 } from "~/components/dimension-composer-shell";
-import { SYCAMORE_BRIEF_PAGES } from "~/lib/artifacts/artifact-pages";
 import { faviconFor } from "~/lib/favicon";
 import { cn } from "~/lib/utils";
+
+import sycamorePage1 from "~/lib/artifacts/artifact-html/sycamore-pdf/page-1-cover.html?raw";
+import sycamorePage2 from "~/lib/artifacts/artifact-html/sycamore-pdf/page-2-person-solo.html?raw";
+import sycamorePage3 from "~/lib/artifacts/artifact-html/sycamore-pdf/page-3-person-solo-with-recognitions.html?raw";
+import sycamorePage4 from "~/lib/artifacts/artifact-html/sycamore-pdf/page-4-person-duo.html?raw";
+import sycamorePage5 from "~/lib/artifacts/artifact-html/sycamore-pdf/page-5-person-plus-role-grid.html?raw";
+import sycamorePage6 from "~/lib/artifacts/artifact-html/sycamore-pdf/page-6-strategy.html?raw";
+
+type ArtifactPage = {
+  title: string;
+  kicker: string;
+  body: string;
+  html?: string;
+};
+
+const SYCAMORE_BRIEF_PAGES: ReadonlyArray<ArtifactPage> = [
+  {
+    title: "Sycamore Labs",
+    kicker: "Research Briefing",
+    body: "Key people, connection strategy, and role preparation guide.",
+    html: sycamorePage1,
+  },
+  {
+    title: "Founder Profile",
+    kicker: "Key People",
+    body: "A principal decision-maker profile with background, priorities, and likely interview angles.",
+    html: sycamorePage2,
+  },
+  {
+    title: "Technical Leadership",
+    kicker: "Key People",
+    body: "A second profile page covering career signals, recognitions, and technical credibility.",
+    html: sycamorePage3,
+  },
+  {
+    title: "Connection Map",
+    kicker: "People Strategy",
+    body: "Two compact relationship blocks with context and connection angles.",
+    html: sycamorePage4,
+  },
+  {
+    title: "Role Grid",
+    kicker: "Hiring Signal",
+    body: "Open-role and relevance mapping for an applied AI engineering interview.",
+    html: sycamorePage5,
+  },
+  {
+    title: "Interview Strategy",
+    kicker: "Preparation",
+    body: "Talking points, sharp questions, and final positioning strategy.",
+    html: sycamorePage6,
+  },
+];
 
 type SearchResult = {
   title: string;
@@ -165,7 +217,7 @@ export function DimensionChatThread({
   };
 
   return (
-    <div className="flex h-[100dvh] min-h-0 flex-col bg-[rgb(12,12,12)] text-gray-950">
+    <div className="flex h-dvh min-h-0 flex-col bg-[rgb(12,12,12)] text-gray-950">
       <ChatTopBar
         title="Sycamore Labs Interview Preparation"
         showArtifactPanel={showArtifactPanel}
@@ -265,12 +317,12 @@ function LocalPreviewTurn({ turn }: { turn: LocalPreviewTurn }) {
 
 function ChatTopBar({ title, showArtifactPanel }: { title: string; showArtifactPanel: boolean }) {
   return (
-    <header className="flex h-11 shrink-0 items-center justify-between border-b border-white/[0.045] px-3 text-sm">
+    <header className="flex h-11 shrink-0 items-center justify-between border-b border-white/4.5 px-3 text-sm">
       <div className="flex min-w-0 items-center gap-1.5">
         <button
           type="button"
           aria-label="Thread actions"
-          className="grid size-7 place-items-center rounded-lg text-gray-700 transition-colors hover:bg-white/[0.055] hover:text-gray-950 focus-visible:ring-2 focus-visible:ring-purple-600/40 focus-visible:outline-none"
+          className="grid size-7 place-items-center rounded-lg text-gray-700 transition-colors hover:bg-white/5.5 hover:text-gray-950 focus-visible:ring-2 focus-visible:ring-purple-600/40 focus-visible:outline-none"
         >
           <Ellipsis size={16} />
         </button>
@@ -280,7 +332,7 @@ function ChatTopBar({ title, showArtifactPanel }: { title: string; showArtifactP
       <div className="flex shrink-0 items-center gap-1">
         <button
           type="button"
-          className="inline-flex h-8 items-center gap-1.5 rounded-lg px-2.5 text-[13px] text-gray-800 transition-colors hover:bg-white/[0.055] hover:text-gray-950 focus-visible:ring-2 focus-visible:ring-purple-600/40 focus-visible:outline-none"
+          className="inline-flex h-8 items-center gap-1.5 rounded-lg px-2.5 text-[13px] text-gray-800 transition-colors hover:bg-white/5.5 hover:text-gray-950 focus-visible:ring-2 focus-visible:ring-purple-600/40 focus-visible:outline-none"
         >
           <Share2 size={14} />
           Share
@@ -288,7 +340,7 @@ function ChatTopBar({ title, showArtifactPanel }: { title: string; showArtifactP
         <button
           type="button"
           aria-label={showArtifactPanel ? "Artifact panel open" : "Open artifact panel"}
-          className="grid size-8 place-items-center rounded-lg text-gray-800 transition-colors hover:bg-white/[0.055] hover:text-gray-950 focus-visible:ring-2 focus-visible:ring-purple-600/40 focus-visible:outline-none"
+          className="grid size-8 place-items-center rounded-lg text-gray-800 transition-colors hover:bg-white/5.5 hover:text-gray-950 focus-visible:ring-2 focus-visible:ring-purple-600/40 focus-visible:outline-none"
         >
           <PanelRightOpen size={15} />
         </button>
@@ -559,7 +611,7 @@ function SearchAccordion({
             <a
               key={`${result.domain}-${result.title}`}
               href={result.href}
-              className="flex min-h-7 items-center justify-between gap-4 rounded p-1.5 text-gray-950 transition-colors outline-none hover:bg-white/[0.04] focus-visible:bg-white/[0.06] focus-visible:ring-1 focus-visible:ring-purple-600/40"
+              className="flex min-h-7 items-center justify-between gap-4 rounded p-1.5 text-gray-950 transition-colors outline-none hover:bg-white/4 focus-visible:bg-white/6 focus-visible:ring-1 focus-visible:ring-purple-600/40"
             >
               <span className="flex min-w-0 items-center gap-1.5 text-[13px] leading-4 text-gray-900">
                 <img
@@ -995,7 +1047,7 @@ function ThreadComposer({ onSubmit }: { onSubmit: (prompt: string) => void }) {
         event.preventDefault();
         submit();
       }}
-      className="absolute inset-x-3 bottom-4 mx-auto max-w-5xl rounded-2xl border border-white/[0.08] bg-[#101010]/90 p-1 shadow-pop backdrop-blur-xl"
+      className="absolute inset-x-3 bottom-4 mx-auto max-w-5xl rounded-2xl border border-white/8 bg-[#101010]/90 p-1 shadow-pop backdrop-blur-xl"
       toolbar={
         <DimensionComposerToolbar
           startClassName="flex-1"
@@ -1013,7 +1065,7 @@ function ThreadComposer({ onSubmit }: { onSubmit: (prompt: string) => void }) {
                   "text-[13px] text-white/86 backdrop-blur-sm transition-[background-color,filter]",
                   autoMode
                     ? "bg-[linear-gradient(180deg,#0f0f0f_0%,#1e1e1e_100%)]"
-                    : "bg-white/[0.055] hover:bg-white/[0.075]",
+                    : "bg-white/5.5 hover:bg-white/7.5",
                 )}
               >
                 Auto
@@ -1064,10 +1116,10 @@ function ArtifactPanel({ state }: { state: ArtifactPreviewState }) {
   const isGenerating = state === "generating";
 
   return (
-    <aside className="hidden w-[420px] shrink-0 border-l border-white/[0.06] bg-[#101010] p-2 xl:block">
-      <div className="flex h-full flex-col overflow-hidden rounded-3xl border border-white/[0.08] bg-[#0c0c0c]">
-        <header className="flex h-[65px] shrink-0 items-center gap-2 border-b border-white/[0.06] px-3">
-          <span className="grid size-8 shrink-0 place-items-center rounded-xl bg-white/[0.045] text-gray-800">
+    <aside className="hidden w-[420px] shrink-0 border-l border-white/6 bg-[#101010] p-2 xl:block">
+      <div className="flex h-full flex-col overflow-hidden rounded-3xl border border-white/8 bg-[#0c0c0c]">
+        <header className="flex h-[65px] shrink-0 items-center gap-2 border-b border-white/6 px-3">
+          <span className="grid size-8 shrink-0 place-items-center rounded-xl bg-white/4.5 text-gray-800">
             <FileText size={16} />
           </span>
           <div className="min-w-0 flex-1">
@@ -1098,7 +1150,7 @@ function ArtifactPanel({ state }: { state: ArtifactPreviewState }) {
           </IconMini>
         </header>
 
-        <div className="flex h-10 shrink-0 items-center justify-between border-b border-white/[0.045] px-3">
+        <div className="flex h-10 shrink-0 items-center justify-between border-b border-white/4.5 px-3">
           <div className="flex min-w-0 items-center gap-2 text-[12px] text-gray-700">
             {isGenerating ? (
               <>
@@ -1114,7 +1166,7 @@ function ArtifactPanel({ state }: { state: ArtifactPreviewState }) {
             )}
           </div>
           {!isEmpty ? (
-            <span className="rounded-full bg-white/[0.045] px-2 py-0.5 text-[11px] text-gray-800">
+            <span className="rounded-full bg-white/4.5 px-2 py-0.5 text-[11px] text-gray-800">
               {selected?.title ?? "Page"}
             </span>
           ) : null}
@@ -1124,7 +1176,7 @@ function ArtifactPanel({ state }: { state: ArtifactPreviewState }) {
           <ArtifactEmptyState />
         ) : (
           <>
-            <div className="shrink-0 border-b border-white/[0.045] px-3 py-2">
+            <div className="shrink-0 border-b border-white/4.5 px-3 py-2">
               <div className="minimal-scrollbar flex gap-2 overflow-x-auto pb-1">
                 {SYCAMORE_BRIEF_PAGES.map((page, index) => {
                   const ready = index < generatedPages.length;
@@ -1139,7 +1191,7 @@ function ArtifactPanel({ state }: { state: ArtifactPreviewState }) {
                         "group/thumb w-[82px] shrink-0 rounded-xl border p-1 text-left transition-colors",
                         active
                           ? "border-purple-500/55 bg-purple-500/10"
-                          : "border-white/[0.075] bg-white/[0.025] hover:bg-white/[0.05]",
+                          : "border-white/7.5 bg-white/2.5 hover:bg-white/5",
                         !ready && "cursor-not-allowed opacity-45",
                       )}
                     >
@@ -1151,7 +1203,7 @@ function ArtifactPanel({ state }: { state: ArtifactPreviewState }) {
                             className="rounded-lg shadow-none"
                           />
                         ) : (
-                          <div className="grid aspect-[8.5/11] place-items-center bg-gray-100">
+                          <div className="grid aspect-8.5/11 place-items-center bg-gray-100">
                             <Loader2 size={14} className="animate-spin text-gray-500" />
                           </div>
                         )}
@@ -1184,7 +1236,7 @@ function ArtifactPanel({ state }: { state: ArtifactPreviewState }) {
                       <ArtifactPageFrame
                         html={page.html}
                         title={`Sycamore PDF page ${index + 1}`}
-                        className="rounded-xl ring-1 ring-white/[0.08]"
+                        className="rounded-xl ring-1 ring-white/8"
                       />
                     ) : null}
                   </section>
@@ -1198,7 +1250,7 @@ function ArtifactPanel({ state }: { state: ArtifactPreviewState }) {
                         {generatedPages.length + 1} / {SYCAMORE_BRIEF_PAGES.length}
                       </span>
                     </div>
-                    <div className="grid aspect-[8.5/11] place-items-center rounded-xl border border-white/[0.08] bg-[#111] text-center">
+                    <div className="grid aspect-8.5/11 place-items-center rounded-xl border border-white/8 bg-[#111] text-center">
                       <div>
                         <Loader2 size={18} className="mx-auto animate-spin text-purple-400" />
                         <p className="mt-3 text-sm font-medium text-gray-950">
@@ -1224,7 +1276,7 @@ function ArtifactEmptyState() {
   return (
     <div className="grid flex-1 place-items-center px-8 text-center">
       <div>
-        <span className="mx-auto grid size-12 place-items-center rounded-2xl bg-white/[0.045] text-gray-700">
+        <span className="mx-auto grid size-12 place-items-center rounded-2xl bg-white/4.5 text-gray-700">
           <FileText size={22} />
         </span>
         <h3 className="mt-4 text-base font-medium text-gray-950">No Pages Yet</h3>
@@ -1250,7 +1302,7 @@ function IconMini({
       type="button"
       aria-label={label}
       onClick={onClick}
-      className="grid size-7 place-items-center rounded-lg text-gray-700 transition-colors hover:bg-white/[0.055] hover:text-gray-950 focus-visible:ring-2 focus-visible:ring-purple-600/35 focus-visible:outline-none"
+      className="grid size-7 place-items-center rounded-lg text-gray-700 transition-colors hover:bg-white/5.5 hover:text-gray-950 focus-visible:ring-2 focus-visible:ring-purple-600/35 focus-visible:outline-none"
     >
       {children}
     </button>

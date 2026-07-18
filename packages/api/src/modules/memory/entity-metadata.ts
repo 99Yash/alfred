@@ -29,14 +29,19 @@ export const correspondenceStatsSchema = z.object({
 });
 export type CorrespondenceStats = z.infer<typeof correspondenceStatsSchema>;
 
-/** Components of the scalar significance signal — kept for tuning/explainability. */
-export const significanceComponentsSchema = z.object({
+/**
+ * Components of the scalar significance signal (ADR-0057) — kept for
+ * tuning/explainability. Distinct from `@alfred/contracts`'s ADR-0067
+ * `SignificanceComponents` (a different, multi-source decomposition); named
+ * apart so the two never collide through the `@alfred/api/backend` barrel.
+ */
+export const significanceScoreComponentsSchema = z.object({
   frequency: z.number(),
   recency: z.number(),
   reciprocity: z.number(),
   sameOrg: z.number(),
 });
-export type SignificanceComponents = z.infer<typeof significanceComponentsSchema>;
+export type SignificanceScoreComponents = z.infer<typeof significanceScoreComponentsSchema>;
 
 /**
  * The scalar significance signal (ADR-0057) — one number in `[0,1]`, the
@@ -44,7 +49,7 @@ export type SignificanceComponents = z.infer<typeof significanceComponentsSchema
  */
 export const significanceSchema = z.object({
   score: z.number().min(0).max(1),
-  components: significanceComponentsSchema,
+  components: significanceScoreComponentsSchema,
   /** ISO timestamp of the pass that produced this score. */
   computedAt: z.string(),
 });

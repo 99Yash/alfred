@@ -1,4 +1,4 @@
-import { db } from "@alfred/db";
+import { db, type DbTransaction } from "@alfred/db";
 import {
   agentDecisionTraces,
   agentRuns,
@@ -20,9 +20,6 @@ import { and, eq, sql } from "drizzle-orm";
 import type { PgUpdateSetSource } from "drizzle-orm/pg-core";
 import { normalizeDecisionTraceKey } from "../agent/decision-traces";
 import type { SenderExtractionEvent } from "./sender-extraction-event";
-
-type TriageDbRoot = ReturnType<typeof db>;
-type TriageDbTransaction = Parameters<Parameters<TriageDbRoot["transaction"]>[0]>[0];
 
 /**
  * Persistence helpers for the thread-keyed triage table. The workflow owns
@@ -63,7 +60,7 @@ export function triageThreadLockKey(userId: string, sourceThreadId: string): str
 export async function withTriageThreadLock<T>(
   userId: string,
   sourceThreadId: string,
-  fn: (tx: TriageDbTransaction) => Promise<T>,
+  fn: (tx: DbTransaction) => Promise<T>,
 ): Promise<T> {
   const key = triageThreadLockKey(userId, sourceThreadId);
   return db().transaction(async (tx) => {

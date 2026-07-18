@@ -48,7 +48,7 @@ export function SuggestionRow({
               if it wraps past two lines, so nothing is unreadably clipped. */}
           <span
             title={label}
-            className="line-clamp-2 block text-[12.5px] leading-5 font-medium [text-wrap:pretty] text-white"
+            className="line-clamp-2 block text-[12.5px] leading-5 font-medium text-pretty text-white"
           >
             {label}
           </span>

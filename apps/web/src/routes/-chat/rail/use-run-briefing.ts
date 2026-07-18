@@ -2,19 +2,6 @@ import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { responseErrorMessage } from "~/lib/api-error";
 import { client, type EdenData } from "~/lib/eden";
 
-/**
- * Trigger an on-demand briefing run (the rail "Generate briefing" button).
- * POSTs `/api/me/briefings/run`; the server picks the slot by time of day
- * and runs it with `reason: "manual"` (always sends — no suppression).
- *
- * The run is a multi-agent compose and takes minutes, so the caller owns a
- * "composing" state and polls `useLatestBriefing({ poll })` until today's
- * briefing row appears. On success this invalidates the latest-briefing
- * query so polling picks up immediately.
- *
- * Derived from the route so it keeps the discriminated union (only `queued`
- * carries `runId`) a hand-flattened type would lose (code-style §1).
- */
 export type RunBriefingResult = EdenData<typeof client.api.me.briefings.run.post>;
 
 export function useRunBriefing() {

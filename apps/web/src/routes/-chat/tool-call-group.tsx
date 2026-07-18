@@ -1,11 +1,11 @@
 import { useAutoAnimate } from "@formkit/auto-animate/react";
 import * as Accordion from "@radix-ui/react-accordion";
-import { ChevronRight, Wrench } from "lucide-react";
+import { ChevronRight, Wrench, type LucideIcon } from "lucide-react";
 import { useId, useState } from "react";
 import { IntegrationIcon, type IntegrationBrand } from "~/lib/integrations/integration-icons";
 import { lowerFirst } from "~/lib/strings";
 import { cn } from "~/lib/utils";
-import { animatedToolIcon, type AnimatedIcon } from "./animated-tool-icons";
+import { animatedToolIcon } from "./animated-tool-icons";
 import { ChatProse } from "./chat-prose";
 import { ToolCallCard } from "./tool-call-card";
 import { presentTool, toolCategory, type ToolCallView } from "./tool-call-presentation";
@@ -82,7 +82,7 @@ const MAX_GLYPHS = 3;
 /** One coin in the run summary: an integration brand tile, or a system mark. */
 type RunGlyph =
   | { kind: "brand"; key: string; brand: IntegrationBrand }
-  | { kind: "icon"; key: string; Icon: AnimatedIcon };
+  | { kind: "icon"; key: string; Icon: LucideIcon };
 
 /**
  * The distinct glyphs a finished run touched, in first-seen order: an

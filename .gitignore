@@ -86,3 +86,4 @@ teaching/
 
 # Teaching workspace (/teach skill) — local only
 .teach/
+.wayfinder/

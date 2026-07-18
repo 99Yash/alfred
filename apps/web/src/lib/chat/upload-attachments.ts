@@ -1,4 +1,9 @@
-import { classifyUpload, isPassThrough, SUPPORTED_FILE_TYPES } from "@alfred/contracts";
+import {
+  classifyUpload,
+  type ChatAttachmentDescriptor,
+  isPassThrough,
+  SUPPORTED_FILE_TYPES,
+} from "@alfred/contracts";
 
 const API_URL =
   (import.meta as { env?: { VITE_API_URL?: string } }).env?.VITE_API_URL ?? "http://localhost:3001";
@@ -21,13 +26,7 @@ export const ACCEPT_ATTR = ACCEPTED_MIME_TYPES.join(",");
 const ATTACHMENT_UPLOAD_TIMEOUT_MS = 60_000;
 
 /** A descriptor for a file that uploaded successfully — handed to the turn. */
-export interface UploadedAttachment {
-  id: string;
-  name: string;
-  mime: string;
-  size: number;
-  position: number;
-}
+export type UploadedAttachment = ChatAttachmentDescriptor;
 
 /**
  * Validate a picked file against the ingest policy. Returns an error message to

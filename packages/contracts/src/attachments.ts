@@ -21,6 +21,21 @@ export type ChatAttachmentStatus = (typeof chatAttachmentStatusValues)[number];
 export const chatAttachmentStatusSchema = z.enum(chatAttachmentStatusValues);
 
 /**
+ * A fully-formed chat attachment descriptor: the shape the client hands to the
+ * turn after a successful upload, and the shape the server's write helpers
+ * consume. `position` is the attachment's index within its message. Both sides
+ * must agree on this, so it lives here (the web app aliases it as
+ * `UploadedAttachment`, the API as `AttachmentInput`).
+ */
+export interface ChatAttachmentDescriptor {
+  id: string;
+  name: string;
+  mime: string;
+  size: number;
+  position: number;
+}
+
+/**
  * How an upload is normalized for the model. This *replaces* the rejected
  * `MODEL_CAPABILITIES` idea (ADR-0065): the question is never "which model reads
  * this" but "how is this turned into text + images."

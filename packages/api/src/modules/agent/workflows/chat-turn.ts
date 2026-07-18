@@ -94,6 +94,7 @@ import {
 } from "../tool-surface";
 import { appendModelResponseMessages } from "../transcript-dedup";
 import type { AgentDbExecutor, Step, StepContext, StepResult, Workflow } from "../types";
+import { pendingToolCallSchema as basePendingToolCallSchema } from "./pending-tool-call";
 import { createVoiceStreamSanitizer, sanitizeVoice } from "../voice-sanitize";
 
 /**
@@ -215,10 +216,9 @@ export async function dispatchAutonomyCallsInSafeOrder<
   return results;
 }
 
-const pendingToolCallSchema = z.object({
-  toolCallId: z.string().min(1),
-  toolName: z.string().min(1),
-  input: z.unknown(),
+// The interactive chat turn extends the shared core (see `./pending-tool-call`)
+// with a narration `segmentIndex`; the background brief has no narration.
+const pendingToolCallSchema = basePendingToolCallSchema.extend({
   /** Narration segment this call follows (see `chatRunStateSchema.segmentIndex`). */
   segmentIndex: z.number().int().nonnegative().default(0),
 });

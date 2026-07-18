@@ -26,7 +26,7 @@ export function TriageHero({ accent }: { accent: string }) {
             key={chip.label}
             className={cn(
               "inline-flex h-7 items-center rounded-lg px-2.5 text-[11px] font-medium",
-              "shadow-[var(--app-shadow-elevated)]",
+              "shadow-(--app-shadow-elevated)",
               chip.tone,
               chip.classNames,
             )}

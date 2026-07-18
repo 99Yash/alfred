@@ -1,5 +1,6 @@
-import { ArrowUpRight, Github, ShieldAlert } from "lucide-react";
+import { ArrowUpRight, ShieldAlert } from "lucide-react";
 import { FadeInOnScroll } from "~/components/landing/fade-in-on-scroll";
+import { IntegrationGlyph } from "~/lib/integrations/integration-icons";
 import { cn } from "~/lib/utils";
 
 const CONTACT_EMAIL = "yashgouravkar@gmail.com";
@@ -83,7 +84,7 @@ export function AccessNotice({ className }: { className?: string }) {
                     "transition-colors duration-200 hover:bg-white/6 hover:text-white",
                   )}
                 >
-                  <Github className="size-3.5" strokeWidth={2} aria-hidden />
+                  <IntegrationGlyph brand="github" size={14} colorOverride="currentColor" />
                   Own your Alfred
                   <ArrowUpRight
                     className="size-3.5 text-neutral-500 transition-transform duration-200 group-hover:translate-x-0.5 group-hover:-translate-y-0.5 group-hover:text-neutral-300"

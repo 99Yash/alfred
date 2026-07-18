@@ -1,27 +1,17 @@
-import {
-  Cctv,
-  Check,
-  Chrome,
-  Fan,
-  ScanText,
-  SquarePen,
-  type LucideIcon,
-} from "lucide-react";
+import { Cctv, Check, Fan, Globe, ScanText, SquarePen, type LucideIcon } from "lucide-react";
 import { cn } from "~/lib/utils";
-
-export type AnimatedIcon = LucideIcon;
 
 interface AnimatedToolIconDefinition {
   key: string;
-  Icon: AnimatedIcon;
+  Icon: LucideIcon;
 }
 
 // Keyed by full tool name. Tools absent here fall back to their static Lucide
 // glyph. spawn/load tools only reach this map when no target brand resolved -
 // otherwise the card shows the target integration's logo instead.
 const ANIMATED_TOOL_ICONS: Record<string, AnimatedToolIconDefinition> = {
-  "system.web_search": { key: "chrome", Icon: Chrome },
-  "system.fetch_url": { key: "chrome", Icon: Chrome },
+  "system.web_search": { key: "globe", Icon: Globe },
+  "system.fetch_url": { key: "globe", Icon: Globe },
   "system.spawn_sub_agent": { key: "fan", Icon: Fan },
   "system.await_sub_agent": { key: "cctv", Icon: Cctv },
   "system.remember": { key: "scan-text", Icon: ScanText },
@@ -44,7 +34,7 @@ export function RunningToolIcon({
   running,
   size = 13,
 }: {
-  icon: AnimatedIcon;
+  icon: LucideIcon;
   running: boolean;
   size?: number;
 }) {

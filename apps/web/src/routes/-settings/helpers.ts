@@ -11,27 +11,28 @@ import {
   Users2,
 } from "lucide-react";
 import type { ComponentType } from "react";
+import { APP_TINTS, type AppTint } from "~/lib/tints";
 
-export type SectionId = "user" | "features" | "preferences";
-
-export interface SectionDef {
-  id: SectionId;
-  label: string;
-  icon: ComponentType<{ size?: number; className?: string }>;
-}
-
-export const SECTIONS: ReadonlyArray<SectionDef> = [
+export const SECTIONS = [
   { id: "user", label: "User", icon: User },
   { id: "features", label: "Features", icon: Sparkles },
   { id: "preferences", label: "Preferences", icon: Sliders },
-];
+] as const satisfies ReadonlyArray<{
+  id: string;
+  label: string;
+  icon: ComponentType<{ size?: number; className?: string }>;
+}>;
+
+/** A settings sidebar section, inferred from the `SECTIONS` registry. */
+export type SectionDef = (typeof SECTIONS)[number];
+export type SectionId = SectionDef["id"];
 
 export interface BackgroundAgentDef {
   id: string;
   label: string;
   helper: string;
   icon: ComponentType<{ size?: number; className?: string }>;
-  tint: "purple" | "amber" | "sky" | "green" | "pink" | "orange";
+  tint: AppTint;
   /**
    * `user_preferences` key this switch writes. The switch reads its state via
    * `isOn(prefKey)`, which defaults to ON when no row exists (UNSET = ON).
@@ -94,11 +95,5 @@ export const BACKGROUND_AGENTS: ReadonlyArray<BackgroundAgentDef> = [
   },
 ];
 
-export const TINT_TILE: Record<BackgroundAgentDef["tint"], string> = {
-  purple: "bg-app-purple-1 text-app-purple-4",
-  amber: "bg-app-amber-1 text-app-amber-4",
-  sky: "bg-app-sky-1 text-app-sky-4",
-  green: "bg-app-green-1 text-app-green-4",
-  pink: "bg-app-pink-1 text-app-pink-4",
-  orange: "bg-app-orange-1 text-app-orange-4",
-};
+/** Background-agent tile tints, drawn from the shared app tint palette. */
+export const TINT_TILE = APP_TINTS;

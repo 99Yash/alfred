@@ -1,10 +1,10 @@
 import { scoreAttentionForItems, type AttentionBand, type TriageCategory } from "@alfred/contracts";
 import type { SyncedTodo, SyncedTriageTag } from "@alfred/sync";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { INBOX_PAGE_SIZE, useInbox, useMarkInboxRead, type InboxPage } from "~/hooks/use-inbox";
+import { INBOX_PAGE_SIZE, useInbox, useMarkInboxRead, type InboxPage } from "./use-inbox";
 import { useLatestBriefing } from "~/hooks/use-latest-briefing";
-import { useMeetings } from "~/hooks/use-meetings";
-import { useRunBriefing } from "~/hooks/use-run-briefing";
+import { useMeetings } from "./use-meetings";
+import { useRunBriefing } from "./use-run-briefing";
 import { useTodos } from "~/lib/replicache/use-todos";
 import { useTriageTags } from "~/lib/replicache/use-triage-tags";
 import { toast } from "~/lib/toast";

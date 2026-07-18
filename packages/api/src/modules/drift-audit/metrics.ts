@@ -6,7 +6,7 @@ import { selfSenderEmail } from "@alfred/integrations/google";
 import { and, eq, inArray, sql } from "drizzle-orm";
 import { localDateInTimezone } from "../briefing/preferences";
 import { notify, type NotifyArgs, type NotifyResult } from "../notifications/notify";
-import { resolveUserTimezone } from "../user-timezone";
+import { resolveUserTimezone } from "../timezone";
 
 /**
  * Drift / invariant health metrics (PR-B of #219).

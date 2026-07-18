@@ -2,7 +2,7 @@ import { Copy, Link2, Share2 } from "lucide-react";
 import { useEffect, useEffectEvent } from "react";
 import { AppButton } from "~/components/ui/v2";
 import { cn } from "~/lib/utils";
-import type { WorkflowDefinition } from "~/lib/workflows";
+import type { WorkflowDefinition } from "~/routes/-workflows/workflows-utils";
 import { WorkflowIcon } from "./workflow-icon";
 
 const COPY_LEADING = <Copy size={13} />;

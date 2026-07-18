@@ -375,7 +375,7 @@ function MentionChipNodeView({ node }: NodeViewProps) {
         // glyph rather than a saturated bg. Hairline inset ring defines the
         // edge without weight.
         "inline-flex items-center gap-[3px] align-baseline",
-        "mx-[1px] rounded-[6px] px-1.5 py-px",
+        "mx-px rounded-[6px] px-1.5 py-px",
         "bg-app-bg-a2 font-medium text-app-fg-4",
         "ring-1 ring-app-fg-a1/20 ring-inset",
         "text-[0.92em] leading-[1.35]",

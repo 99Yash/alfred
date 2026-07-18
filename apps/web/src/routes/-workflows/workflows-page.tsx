@@ -1,7 +1,7 @@
 import { Plus, Sparkles } from "lucide-react";
 import { AppButton, AppCard } from "~/components/ui/v2";
 import { useWorkflows } from "~/lib/replicache/use-workflows";
-import { syncedWorkflowToView } from "~/lib/workflows";
+import { syncedWorkflowToView } from "./workflows-utils";
 import { WorkflowCard } from "./workflow-card";
 
 const CREATE_LEADING = <Plus size={14} />;
