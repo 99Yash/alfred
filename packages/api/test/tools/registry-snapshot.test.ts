@@ -19,7 +19,10 @@ describe("listRegisteredTools snapshot", () => {
     const first = listRegisteredTools();
     const second = listRegisteredTools();
     assert.equal(first, second, "the same reference is reused across reads (memoized)");
-    assert.ok(Object.isFrozen(first), "the snapshot is frozen so a caller cannot corrupt the cache");
+    assert.ok(
+      Object.isFrozen(first),
+      "the snapshot is frozen so a caller cannot corrupt the cache",
+    );
     assert.ok(first.length > 0);
 
     const names = first.map((tool) => tool.name);

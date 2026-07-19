@@ -20,6 +20,7 @@ import { and, desc, eq, gt, lte, sql } from "drizzle-orm";
 import { type DbExecutor } from "./executor";
 import { projectGmailKindProfiles } from "./gmail-kind-fold";
 import { requireEntityIdNamespace } from "./namespace";
+import { liveObservationHeadJoin } from "./observations";
 import {
   activateProjectionVersion,
   completeProjectionRun,
@@ -276,16 +277,10 @@ async function gmailProjectionHighWatermark(
       eq(observations.kind, "email_message"),
       lte(observations.createdAt, capturedAt),
     );
-    const activeHeadJoin = and(
-      eq(observationFamilyHeads.userId, observations.userId),
-      eq(observationFamilyHeads.familyKey, observations.familyKey),
-      eq(observationFamilyHeads.headObservationId, observations.id),
-    );
-
     const [eventRow] = await tx
       .select({ id: observations.id, occurredAt: observations.occurredAt })
       .from(observations)
-      .innerJoin(observationFamilyHeads, activeHeadJoin)
+      .innerJoin(observationFamilyHeads, liveObservationHeadJoin())
       .where(baseWhere)
       .orderBy(desc(observations.occurredAt), desc(observations.id))
       .limit(1);
@@ -373,14 +368,7 @@ async function hasGmailObservationsAfterAppendSnapshot(
   const [row] = await db()
     .select({ id: observations.id })
     .from(observations)
-    .innerJoin(
-      observationFamilyHeads,
-      and(
-        eq(observationFamilyHeads.userId, observations.userId),
-        eq(observationFamilyHeads.familyKey, observations.familyKey),
-        eq(observationFamilyHeads.headObservationId, observations.id),
-      ),
-    )
+    .innerJoin(observationFamilyHeads, liveObservationHeadJoin())
     .where(
       and(
         eq(observations.userId, userId),

@@ -25,11 +25,7 @@
  * `RuntimeMetaValue` type keeps raw objects off the span by construction.
  */
 
-import {
-  startRuntimeSpan,
-  type RuntimeSpanCloser,
-  type RuntimeSpanInput,
-} from "@alfred/ai";
+import { startRuntimeSpan, type RuntimeSpanCloser, type RuntimeSpanInput } from "@alfred/ai";
 import type { ScratchZone } from "@alfred/contracts";
 import { createHash } from "node:crypto";
 

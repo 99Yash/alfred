@@ -1,5 +1,6 @@
-import { httpErrorFromResponse, toMessage } from "@alfred/contracts";
+import { toMessage } from "@alfred/contracts";
 import { z } from "zod";
+import { googleJson } from "./http";
 
 /**
  * Thin Gmail REST client. We deliberately avoid `googleapis` (~2MB,
@@ -10,7 +11,6 @@ import { z } from "zod";
  */
 
 const API_BASE = "https://gmail.googleapis.com/gmail/v1/users/me";
-const GMAIL_FETCH_TIMEOUT_MS = 30_000;
 
 const messageRefSchema = z.object({
   id: z.string(),
@@ -145,38 +145,11 @@ export async function getThreadMessageLabels(args: {
   }));
 }
 
-async function getJson(url: string, accessToken: string): Promise<unknown> {
-  const res = await fetch(url, {
-    headers: {
-      Authorization: `Bearer ${accessToken}`,
-      Accept: "application/json",
-    },
-    signal: AbortSignal.timeout(GMAIL_FETCH_TIMEOUT_MS),
-  });
-  if (!res.ok) {
-    throw await httpErrorFromResponse("gmail", res, { url });
-  }
-  return await res.json();
-}
+const getJson = (url: string, accessToken: string): Promise<unknown> =>
+  googleJson("gmail", "GET", url, accessToken);
 
-async function postJson(url: string, accessToken: string, payload: unknown): Promise<unknown> {
-  const res = await fetch(url, {
-    method: "POST",
-    headers: {
-      Authorization: `Bearer ${accessToken}`,
-      "Content-Type": "application/json",
-      Accept: "application/json",
-    },
-    body: JSON.stringify(payload ?? {}),
-    signal: AbortSignal.timeout(GMAIL_FETCH_TIMEOUT_MS),
-  });
-  if (!res.ok) {
-    throw await httpErrorFromResponse("gmail", res, { url, method: "POST" });
-  }
-  // 204 No Content from /stop has an empty body.
-  const text = await res.text();
-  return text ? JSON.parse(text) : {};
-}
+const postJson = (url: string, accessToken: string, payload: unknown): Promise<unknown> =>
+  googleJson("gmail", "POST", url, accessToken, payload);
 
 // ---------------------------------------------------------------------------
 // users.history.list — delta sync from a baseline historyId

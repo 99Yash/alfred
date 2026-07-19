@@ -1,8 +1,6 @@
 import type { FeatureFlagKey } from "@alfred/contracts";
-import { IDB_KEY, syncedPreferenceSchema } from "@alfred/sync";
-import { useCallback, useEffect, useState } from "react";
-import type { ReadTransaction } from "replicache";
-import { useReplicacheStatus } from "./context";
+import { useCallback } from "react";
+import { usePreferenceMap } from "./use-preferences";
 
 export interface FeatureFlagsState {
   /**
@@ -32,30 +30,7 @@ function valueIsOn(value: unknown): boolean {
  * switch, so it resolves to its server default (ON) via `isOn`.
  */
 export function useFeatureFlags(): FeatureFlagsState {
-  const { rep, loadError, retry } = useReplicacheStatus();
-  const [values, setValues] = useState<Record<string, unknown>>({});
-  const [loaded, setLoaded] = useState(false);
-
-  useEffect(() => {
-    if (!rep) {
-      setValues({});
-      setLoaded(false);
-      return;
-    }
-    const prefix = IDB_KEY.PREFERENCE({});
-    return rep.subscribe(
-      async (tx: ReadTransaction) => tx.scan({ prefix }).values().toArray(),
-      (rows) => {
-        const next: Record<string, unknown> = {};
-        for (const row of rows) {
-          const parsed = syncedPreferenceSchema.safeParse(row);
-          if (parsed.success) next[parsed.data.key] = parsed.data.value;
-        }
-        setValues(next);
-        setLoaded(true);
-      },
-    );
-  }, [rep]);
+  const { values, loaded, setPref, loadError, retry } = usePreferenceMap();
 
   const isOn = useCallback(
     (key: FeatureFlagKey): boolean => (key in values ? valueIsOn(values[key]) : true),
@@ -63,11 +38,8 @@ export function useFeatureFlags(): FeatureFlagsState {
   );
 
   const setFlag = useCallback(
-    async (key: FeatureFlagKey, enabled: boolean): Promise<void> => {
-      if (!rep) return;
-      await rep.mutate.prefSet({ key, value: enabled });
-    },
-    [rep],
+    (key: FeatureFlagKey, enabled: boolean): Promise<void> => setPref(key, enabled),
+    [setPref],
   );
 
   return {

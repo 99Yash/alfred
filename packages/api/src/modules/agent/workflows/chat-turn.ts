@@ -1527,40 +1527,11 @@ export async function guardSpawnedChildren(
 
   // Close the model's premature (uninformed) answer into a narration segment so
   // the eventual informed reply lands in a fresh segment instead of appending to
-  // the abandoned text — same move the tool-call path makes. (At the finalize
-  // boundary `assistantText` is always non-empty; the guard only runs after the
-  // empty-text check above it. The guard still gates on it to stay correct if
-  // re-ordered.)
-  const closedPrematureAnswer = state.assistantText.trim().length > 0;
-  if (closedPrematureAnswer) {
-    state.narration = [
-      ...state.narration,
-      { index: state.segmentIndex, text: state.assistantText },
-    ];
-    state.assistantText = "";
-    state.segmentIndex += 1;
-    // That premature text already streamed to the client as a `chat.delta`, and
-    // while parked there is no later delta to advance the client — so without
-    // this it would keep rendering the answer the guard just rejected as the
-    // live reply (use-chat-stream only advances `currentSegment` on a
-    // higher-segment delta). Publish a zero-length delta on the new segment to
-    // advance the client too: the premature text drops into the narration trail
-    // (matching the server state we just wrote) and the live answer area clears
-    // back to the working indicator until the informed reply streams in.
-    state.deltaSeq += 1;
-    await deps.publish({
-      userId: ctx.userId,
-      kind: "chat.delta",
-      payload: {
-        runId: ctx.runId,
-        threadId: state.threadId,
-        messageId: state.messageId,
-        seq: state.deltaSeq,
-        text: "",
-        segmentIndex: state.segmentIndex,
-      },
-    });
-  }
+  // the abandoned text — same move the tool-call path makes, and advance the live
+  // client off it. (At the finalize boundary `assistantText` is always non-empty;
+  // the guard only runs after the empty-text check above it. `closePrematureAnswerSegment`
+  // still gates on non-empty text to stay correct if re-ordered.)
+  const closedPrematureAnswer = await closePrematureAnswerSegment(ctx, state, deps.publish);
 
   // The premature assistant answer we just closed into narration is still the
   // tail of `transcript` (`appendModelResponseMessages` appended it before the
@@ -1761,6 +1732,56 @@ export function closeLeadInNarration(
   };
 }
 
+/**
+ * Close the model's premature (uninformed / possibly false-success) answer into a
+ * narration segment and advance the live client off it, shared by both finalize
+ * guards (`guardSpawnedChildren`, `guardUnreportedToolFailures`). The trigger
+ * differs — an uninformed child-await answer vs a false-success tool-failure answer
+ * — but the closure protocol is identical: park the current `assistantText` as a
+ * narration entry, clear it, bump `segmentIndex`, then publish a zero-length
+ * `chat.delta` on the new segment.
+ *
+ * The zero-length delta is load-bearing: that premature text already streamed to
+ * the client as a `chat.delta`, and `use-chat-stream` only advances `currentSegment`
+ * on a HIGHER-segment delta. Without it the client keeps rendering the answer the
+ * guard just rejected as the live reply — the premature text drops into the
+ * narration trail (matching the server state we just wrote) and the live answer
+ * area clears back to the working indicator until the informed reply streams in.
+ *
+ * Returns whether it closed (non-empty text) so `guardSpawnedChildren` can keep its
+ * transcript-tail strip decision; `guardUnreportedToolFailures` ignores the result.
+ * `publish` is injected (both guards resolve it to `publishEvent`) so the guards'
+ * tests keep working without a live event bus.
+ *
+ * Distinct from `closeLeadInNarration`, which has a different keep/drop policy
+ * (drops text on `reissuePending`) and no advance-delta — do not merge them.
+ */
+async function closePrematureAnswerSegment(
+  ctx: StepContext<ChatRunState>,
+  state: ChatRunState,
+  publish: typeof publishEvent,
+): Promise<boolean> {
+  const closed = state.assistantText.trim().length > 0;
+  if (!closed) return false;
+  state.narration = [...state.narration, { index: state.segmentIndex, text: state.assistantText }];
+  state.assistantText = "";
+  state.segmentIndex += 1;
+  state.deltaSeq += 1;
+  await publish({
+    userId: ctx.userId,
+    kind: "chat.delta",
+    payload: {
+      runId: ctx.runId,
+      threadId: state.threadId,
+      messageId: state.messageId,
+      seq: state.deltaSeq,
+      text: "",
+      segmentIndex: state.segmentIndex,
+    },
+  });
+  return true;
+}
+
 export interface GuardUnreportedToolFailuresDeps {
   isMutating: (toolName: string) => boolean;
   publish: typeof publishEvent;
@@ -1836,29 +1857,10 @@ export async function guardUnreportedToolFailures(
 
   // Close the premature (possibly false-success) answer into a narration segment
   // so the regenerated honest reply lands in a fresh segment instead of appending
-  // to the rejected text, and advance the client off it with a zero-length delta —
-  // identical to guardSpawnedChildren's segment transition (see its rationale).
-  if (state.assistantText.trim().length > 0) {
-    state.narration = [
-      ...state.narration,
-      { index: state.segmentIndex, text: state.assistantText },
-    ];
-    state.assistantText = "";
-    state.segmentIndex += 1;
-    state.deltaSeq += 1;
-    await guardDeps.publish({
-      userId: ctx.userId,
-      kind: "chat.delta",
-      payload: {
-        runId: ctx.runId,
-        threadId: state.threadId,
-        messageId: state.messageId,
-        seq: state.deltaSeq,
-        text: "",
-        segmentIndex: state.segmentIndex,
-      },
-    });
-  }
+  // to the rejected text, and advance the client off it with a zero-length delta.
+  // Same closure protocol as guardSpawnedChildren; this guard doesn't need the
+  // return value (no transcript-tail strip here).
+  await closePrematureAnswerSegment(ctx, state, guardDeps.publish);
 
   const names = [...new Set(unreported.map((t) => t.toolName))].join(", ");
   const note: AgentTranscriptMessage = {

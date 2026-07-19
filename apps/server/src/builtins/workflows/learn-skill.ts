@@ -78,25 +78,28 @@ const distillOutputSchema = z.object({
   ),
 });
 
+// Checkpoint mirror of the `collectSkillLearnContext` return shape. `satisfies
+// z.ZodType<SkillLearnContext>` ties it to the interface so an added/renamed
+// required field fails typecheck instead of being silently stripped on resume.
+const skillLearnContextSchema = z.object({
+  userId: z.string(),
+  user: z.object({ name: z.string(), email: z.string() }),
+  facts: z.array(
+    z.object({
+      key: z.string(),
+      value: z.unknown(),
+      confidence: z.number(),
+    }),
+  ),
+  connectedIntegrations: z.array(z.string()),
+  existingSkillSlugs: z.array(z.string()),
+}) satisfies z.ZodType<SkillLearnContext>;
+
 const stateSchema = z.object({
   skillId: z.string(),
   prompt: z.string(),
   reason: z.enum(["manual", "regen"]),
-  context: z
-    .object({
-      userId: z.string(),
-      user: z.object({ name: z.string(), email: z.string() }),
-      facts: z.array(
-        z.object({
-          key: z.string(),
-          value: z.unknown(),
-          confidence: z.number(),
-        }),
-      ),
-      connectedIntegrations: z.array(z.string()),
-      existingSkillSlugs: z.array(z.string()),
-    })
-    .optional(),
+  context: skillLearnContextSchema.optional(),
   distill: distillOutputSchema.optional(),
 });
 type State = z.infer<typeof stateSchema>;
@@ -154,7 +157,7 @@ export const learnSkillWorkflow: Workflow<State> = {
 
         return {
           kind: "next",
-          state: { ...ctx.state, context: context as SkillLearnContext },
+          state: { ...ctx.state, context },
           nextStep: "distill",
         };
       },

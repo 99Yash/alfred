@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { describe, test } from "node:test";
 
-import { firstValidTimezone } from "../src/modules/user-timezone";
+import { firstValidTimezone } from "../src/modules/timezone/user-timezone";
 
 describe("firstValidTimezone", () => {
   test("prefers the canonical timezone key over the briefing fallback", () => {

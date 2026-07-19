@@ -188,7 +188,9 @@ const CHECK_SIZE_CLASS = {
 } as const;
 
 /** Brands that ship a full-bleed app-icon tile (background + gloss baked in). */
-function hasTile(brand: IntegrationBrand): brand is IntegrationBrand & keyof typeof INTEGRATION_TILES {
+function hasTile(
+  brand: IntegrationBrand,
+): brand is IntegrationBrand & keyof typeof INTEGRATION_TILES {
   return Object.prototype.hasOwnProperty.call(INTEGRATION_TILES, brand);
 }
 

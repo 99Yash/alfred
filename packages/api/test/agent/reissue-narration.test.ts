@@ -13,10 +13,7 @@ const result = (kind: DispatchResult["kind"]): DispatchResult => ({ kind }) as D
 
 describe("dispatchRoundReissued", () => {
   test("true when the round auto-activated a tool via an inactive-tool bounce", () => {
-    assert.equal(
-      dispatchRoundReissued([result("executed"), result("inactive_tool")]),
-      true,
-    );
+    assert.equal(dispatchRoundReissued([result("executed"), result("inactive_tool")]), true);
   });
 
   test("false when every call executed", () => {

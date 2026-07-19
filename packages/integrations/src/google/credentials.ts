@@ -1,4 +1,5 @@
 import type { AccountPersona } from "@alfred/contracts";
+import { toStringArray } from "@alfred/contracts";
 import { db } from "@alfred/db";
 import { integrationCredentials } from "@alfred/db/schemas";
 import { and, eq, sql } from "drizzle-orm";
@@ -123,7 +124,7 @@ async function loadCredential(credentialId: string): Promise<CredentialRow | nul
     accessToken: row.accessToken,
     refreshToken: row.refreshToken,
     expiresAt: row.expiresAt,
-    scopes: (row.scopes as string[] | null) ?? [],
+    scopes: toStringArray(row.scopes),
     status: row.status,
   };
 }
@@ -191,7 +192,7 @@ export async function listCredentials(
       accessToken: r.accessToken,
       refreshToken: r.refreshToken!,
       expiresAt: r.expiresAt,
-      scopes: (r.scopes as string[] | null) ?? [],
+      scopes: toStringArray(r.scopes),
       status: r.status,
     }));
 }

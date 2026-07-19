@@ -14,6 +14,7 @@ import {
   isRecord,
   toMessage,
   toRecord,
+  toStringArray,
   weatherFallbackFor,
 } from "@alfred/contracts";
 import { db } from "@alfred/db";
@@ -41,6 +42,7 @@ import {
 } from "../memory/standing-instructions";
 import { addLocalDays, localStartOfDay } from "../timezone";
 import { scorePriorityEmailDemand } from "./read";
+import { shortenFrom } from "./sender";
 
 /**
  * Inbox-only briefing data shape (ADR-0025 #2).
@@ -654,7 +656,7 @@ export async function gatherCalendarContribution(
     );
 
   const calendarCreds = creds.filter((cred) => {
-    const granted = (cred.scopes as string[] | null) ?? [];
+    const granted = toStringArray(cred.scopes);
     return granted.includes(CALENDAR_READONLY_SCOPE) || granted.includes(CALENDAR_EVENTS_SCOPE);
   });
   if (calendarCreds.length === 0) return null;
@@ -881,18 +883,6 @@ function dayContribution(
 
 function localEndOfDay(briefingDate: string, timezone: IanaTimezone): Date {
   return localStartOfDay(addLocalDays(briefingDate, 1), timezone);
-}
-
-function shortenFrom(from: string | null): string | null {
-  if (!from) return null;
-  const trimmed = from.trim();
-  const angleMatch = trimmed.match(/^"?([^"<]+?)"?\s*<([^>]+)>$/);
-  if (angleMatch) {
-    const name = angleMatch[1]?.trim();
-    if (name) return name;
-    return angleMatch[2] ?? null;
-  }
-  return trimmed;
 }
 
 export { PRIORITY_CATEGORIES, SUPPRESSED_CATEGORIES };

@@ -77,21 +77,24 @@ const aspectFindingSchema = z.object({
   citations: z.array(z.string()),
 });
 
+// Checkpoint mirror of the `collectColdStartSignals` return shape. `satisfies
+// z.ZodType<ColdStartSignals>` ties it to the interface so an added/renamed
+// required field fails typecheck instead of being silently stripped on resume.
+const coldStartSignalsSchema = z.object({
+  userId: z.string(),
+  name: z.string(),
+  email: z.string(),
+  emailDomain: z.string().nullable(),
+  emailDomainIsConsumer: z.boolean(),
+  integrations: z.object({
+    google: z.object({ accountEmail: z.string() }).optional(),
+  }),
+}) satisfies z.ZodType<ColdStartSignals>;
+
 const stateSchema = z.object({
   reason: z.enum(["signup", "manual"]),
   /** Computed in step 1; threaded through the rest of the run. */
-  signals: z
-    .object({
-      userId: z.string(),
-      name: z.string(),
-      email: z.string(),
-      emailDomain: z.string().nullable(),
-      emailDomainIsConsumer: z.boolean(),
-      integrations: z.object({
-        google: z.object({ accountEmail: z.string() }).optional(),
-      }),
-    })
-    .optional(),
+  signals: coldStartSignalsSchema.optional(),
   /** Computed in step 2; threaded into aspect briefs + synthesis. */
   identity: z
     .object({
@@ -168,7 +171,7 @@ export const coldStartResearchWorkflow: Workflow<State> = {
         );
         return {
           kind: "next",
-          state: { ...ctx.state, signals: signals as ColdStartSignals },
+          state: { ...ctx.state, signals },
           nextStep: "seed",
         };
       },

@@ -2006,7 +2006,12 @@ describe("resolveTodoSuggestion", () => {
   // disqualifying reason in the note (the HyperNexus cold-outreach leak: it
   // wrote `cold_sender:` yet proposed anyway). Drop it — the note is the model
   // disagreeing with its own outcome.
-  for (const note of ["cold_sender:", "cold_sender: pelloni.robert@gmail.com", "manufactured:", "advisory: pre-merge PR review"]) {
+  for (const note of [
+    "cold_sender:",
+    "cold_sender: pelloni.robert@gmail.com",
+    "manufactured:",
+    "advisory: pre-merge PR review",
+  ]) {
     test(`backstop: proposed with a failing-outcome note ("${note}") mints no todo`, () => {
       assert.equal(
         resolveTodoSuggestion(
@@ -2165,7 +2170,8 @@ describe("todoSuppressionReason", () => {
           ...base,
           sender: "HyperNexus Sales Team <pelloni.robert@gmail.com>",
           subject: "Re: TormentNexus for 99Yash -- Thoughts?",
-          signalText: "just following up on my previous note. worth a conversation? i'd love to share a quick demo.",
+          signalText:
+            "just following up on my previous note. worth a conversation? i'd love to share a quick demo.",
           category,
           isColdContact: true,
         }),

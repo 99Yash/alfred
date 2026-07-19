@@ -44,7 +44,10 @@ function toolResolved(
 describe("applyArtifactDelta", () => {
   test("creates a stream, then appends text on the next seq", () => {
     const s = new Map<string, LiveArtifactStream>();
-    assert.equal(applyArtifactDelta(s, delta({ toolCallId: "t1", seq: 1, text: "Hello", title: "Doc" })), true);
+    assert.equal(
+      applyArtifactDelta(s, delta({ toolCallId: "t1", seq: 1, text: "Hello", title: "Doc" })),
+      true,
+    );
     assert.equal(applyArtifactDelta(s, delta({ toolCallId: "t1", seq: 2, text: " world" })), true);
     const stream = s.get("t1");
     assert.equal(stream?.text, "Hello world");
@@ -113,7 +116,10 @@ describe("selectByArtifactId — multi-section document", () => {
   test("with no active stream, returns the latest (most recent section)", () => {
     const s = multiSection();
     // Second append finishes; now every stream for art_1 is done.
-    applyArtifactToolResolution(s, toolResolved("t2", { toolName: "system.append_artifact_section", artifactId: "art_1" }));
+    applyArtifactToolResolution(
+      s,
+      toolResolved("t2", { toolName: "system.append_artifact_section", artifactId: "art_1" }),
+    );
     const picked = selectByArtifactId(s, "art_1");
     assert.equal(picked?.toolCallId, "t2");
     assert.equal(picked?.done, true);

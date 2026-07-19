@@ -1,5 +1,5 @@
 import type { AgentTranscriptMessage } from "@alfred/contracts";
-import { sanitizeErrorMessage, sanitizeToolResult } from "@alfred/contracts";
+import { sanitizeErrorMessage, sanitizeToolResult, toMessage } from "@alfred/contracts";
 import { db, rowsFromExecute } from "@alfred/db";
 import { agentDecisionTraces, agentRuns, agentSteps, pendingActions } from "@alfred/db/schemas";
 import { runStatusSchema } from "@alfred/contracts";
@@ -166,7 +166,7 @@ export async function runOnce(runId: string, opts: RunOnceOptions = {}): Promise
     ).workflow;
     step = requireStep(workflow, stepId);
   } catch (err) {
-    const error = errorMessage(err);
+    const error = toMessage(err);
     await markRunFailed(run.id, error);
     // A post-deploy step-resolution failure also never enters a step body, so
     // drive workflow-level closure (e.g. chat-turn's failed-message finalize)
@@ -229,7 +229,7 @@ export async function runOnce(runId: string, opts: RunOnceOptions = {}): Promise
   try {
     result = await step.run(ctx);
   } catch (err) {
-    const error = errorMessage(err);
+    const error = toMessage(err);
     const outcome = await commitStepFailure(run, stepId, attempt, error);
     if (outcome.kind === "failed") {
       await finalizeWorkflowFailure(run, outcome.error);
@@ -820,7 +820,7 @@ async function finalizeWorkflowFailure(run: RunRow, error: string): Promise<void
   } catch (err) {
     console.warn(
       `[agent] onTerminalFailure for run ${run.id} (${run.workflowSlug}) failed:`,
-      errorMessage(err),
+      toMessage(err),
     );
   }
 }
@@ -835,14 +835,4 @@ async function markRunFailed(runId: string, error: string): Promise<void> {
       endedAt: new Date(),
     })
     .where(eq(agentRuns.id, runId));
-}
-
-function errorMessage(err: unknown): string {
-  if (err instanceof Error) return err.message;
-  if (typeof err === "string") return err;
-  try {
-    return JSON.stringify(err);
-  } catch {
-    return "unknown error";
-  }
 }

@@ -192,9 +192,7 @@ export function summarizeRunBottlenecks(input: RunBottleneckInput): RunBottlenec
  * run row doesn't exist. Thin by design — all logic lives in the pure
  * aggregator above.
  */
-export async function getRunBottleneckSummary(
-  runId: string,
-): Promise<RunBottleneckSummary | null> {
+export async function getRunBottleneckSummary(runId: string): Promise<RunBottleneckSummary | null> {
   const [runRows, apiCalls, stepRows, stagings] = await Promise.all([
     db()
       .select({ startedAt: agentRuns.startedAt, endedAt: agentRuns.endedAt })
