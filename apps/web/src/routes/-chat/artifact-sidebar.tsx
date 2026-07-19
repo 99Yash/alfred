@@ -476,24 +476,60 @@ function ArtifactBody({
 }
 
 /**
+ * Google preview origins we trust to receive `allow-scripts allow-same-origin`.
+ * The Drive `/preview` viewer genuinely needs both — scripts to render, and its
+ * own origin to read the user's Google session for private files. That combo is
+ * only safe because the frame is CROSS-origin from Alfred (the browser's
+ * same-origin policy blocks any sandbox escape into our origin). Since
+ * `previewUrl` is provider metadata typed as an arbitrary `z.string().url()`,
+ * we enforce the "it's really Google" assumption here rather than trusting it:
+ * an Alfred-origin (or attacker-controlled) URL must never reach that scripted,
+ * same-origin frame.
+ */
+const TRUSTED_PREVIEW_HOSTS = new Set(["drive.google.com", "docs.google.com"]);
+
+function isTrustedPreviewUrl(url: string): boolean {
+  try {
+    const parsed = new URL(url);
+    return parsed.protocol === "https:" && TRUSTED_PREVIEW_HOSTS.has(parsed.hostname);
+  } catch {
+    return false;
+  }
+}
+
+/**
  * Render an existing external file inline (#287): a Drive file the agent
  * couldn't read/export, surfaced so the user can view + download it. The preview
  * is a REMOTE iframe (the provider's own `/preview` page) — a different, relaxed
  * sandbox from the locked `srcDoc` frame the authored `pages` kind uses, because
  * it loads a trusted third-party origin (Google) that needs its own scripts and
  * same-origin. `allow-same-origin` grants the framed Google page access to ITS
- * origin only, never Alfred's.
+ * origin only, never Alfred's — and we only mount the frame when `previewUrl`
+ * resolves to a trusted Google host (see {@link isTrustedPreviewUrl}); otherwise
+ * we fall back to the "Open in Drive" link alone. (React Doctor still flags the
+ * literal `allow-scripts`+`allow-same-origin` combo statically; that warning is
+ * knowingly accepted here, guarded by the host check rather than suppressed.)
  */
 function ExternalFileBody({ content, title }: { content: ExternalFileContent; title: string }) {
+  const previewTrusted = isTrustedPreviewUrl(content.previewUrl);
   return (
     <div className="flex flex-1 flex-col overflow-hidden">
-      <iframe
-        title={title}
-        src={content.previewUrl}
-        sandbox="allow-scripts allow-same-origin allow-popups allow-forms allow-downloads"
-        className="min-h-0 flex-1 border-0 bg-app-bg-a2"
-        allow="autoplay"
-      />
+      {previewTrusted ? (
+        <iframe
+          title={title}
+          src={content.previewUrl}
+          sandbox="allow-scripts allow-same-origin allow-popups allow-forms allow-downloads"
+          className="min-h-0 flex-1 border-0 bg-app-bg-a2"
+          allow="autoplay"
+        />
+      ) : (
+        <div className="flex min-h-0 flex-1 flex-col items-center justify-center gap-2 bg-app-bg-a2 px-6 text-center">
+          <FileText size={24} className="text-app-fg-3" />
+          <p className="text-[13px] text-app-fg-3">
+            Preview isn’t available here. Use the link below to open this file.
+          </p>
+        </div>
+      )}
       <div className="flex shrink-0 items-center gap-2 border-t border-app-bg-3/50 px-4 py-2.5 text-[12px] text-app-fg-3">
         <FileText size={13} className="shrink-0" />
         <span className="truncate">
