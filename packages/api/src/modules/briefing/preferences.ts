@@ -1,3 +1,4 @@
+import { isIanaTimezone } from "@alfred/contracts";
 import {
   DEFAULT_BRIEFING_DELIVERY_HOUR,
   DEFAULT_BRIEFING_EVENING_HOUR,
@@ -96,18 +97,13 @@ function parseDeliveryHour(value: unknown): number | null {
 }
 
 /**
- * IANA tz validation by trial — `Intl.DateTimeFormat` throws RangeError
- * on unknown zones. `Intl.supportedValuesOf('timeZone')` is V8-modern
- * but not universal; the throw-on-bad path works everywhere.
+ * Local alias of the canonical timezone validator. The implementation lives
+ * once in `@alfred/contracts` ({@link isIanaTimezone}) — memoized and
+ * alias-aware (accepts "UTC"/"Etc/UTC", which a bare `Intl.DateTimeFormat`
+ * trial passes but `supportedValuesOf` alone would reject). Kept under this
+ * name so the briefing/workflow call sites read in domain terms.
  */
-export function isValidTimezone(tz: string): boolean {
-  try {
-    new Intl.DateTimeFormat("en-US", { timeZone: tz });
-    return true;
-  } catch {
-    return false;
-  }
-}
+export const isValidTimezone = isIanaTimezone;
 
 /**
  * Local-date string (YYYY-MM-DD) for `now` rendered in `timezone`. Used

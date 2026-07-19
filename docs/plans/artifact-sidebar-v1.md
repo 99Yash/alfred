@@ -208,3 +208,53 @@ Migration: `db:generate` → `db:migrate`. **Never `db:push`.**
 3. **`pages` authoring ergonomics:** does the boss emit full per-page HTML (heavier
    tokens, full control) or structured blocks we template into HTML (cheaper, less
    control)? Lean: full HTML per page for v1 (matches dimension; simplest renderer).
+
+---
+
+## Extension — `external_file` kind: show a file the agent can't read (#287)
+
+The read-side sibling of the authored kinds. When the agent can't read/export a
+file on the user's behalf — a binary Drive upload (a PDF, not a Google-editable
+doc) that `drive.export_file` 403s on (the #267 friction case) — it stops
+punting ("paste it here") and **surfaces the file inline** so the user can view
+and download it themselves. Mode 1 (read-only show) of #287; the edit-then-show
+Mode 2 for editable Google Docs is already covered by `create_artifact`, and for
+a binary is physically blocked (the agent can't read it to edit).
+
+**Trigger — auto-surface on read failure (no new boss tool, no prompt-patching).**
+The `drive.export_file` / `drive.download_file` execute handlers catch the
+failure and call `maybeSurfaceUnreadableDriveFile`
+(`packages/api/src/modules/tools/drive.ts`). It surfaces **only** when the file
+is (a) reachable — `getFile` succeeds, so a genuine permission 403 stays a 403 —
+and (b) a non-Google-native binary — export was never possible, so the failure
+isn't transient. It then mints an `external_file` artifact and returns a
+`rendered_in_sidebar` result whose message tells the boss it opened the file (the
+ADR-0071 result-honesty channel does the steering, not the system prompt).
+
+**Data model — a union edit, not a migration.** `external_file` joins
+`artifactKindValues`; `artifactContentSchema` gains an `{kind, source, fileId,
+previewUrl, webViewLink?, mimeType?, fileName?}` variant (`@alfred/contracts`
+`artifacts.ts`). No new columns — the pointer lives in the existing `content`
+jsonb. Excluded from `authorableArtifactKindSchema` so `create_artifact` can't
+mint one. Minted `status:"generating"` with content already complete, so the
+existing `finalizeRunArtifacts` backfills `messageId` (for the trigger card) and
+flips it `complete` — the same lifecycle the authored kinds use.
+
+**Renderer — a REMOTE iframe (distinct from the locked `srcDoc` frame).**
+`ExternalFileBody` (`artifact-sidebar.tsx`) embeds the provider's own preview
+(`https://drive.google.com/file/d/{id}/preview`) in a `sandbox="allow-scripts
+allow-same-origin allow-popups allow-forms allow-downloads"` iframe + an "Open in
+Drive" affordance (`webViewLink`). This is a trusted third-party origin (Google)
+that needs its own scripts/same-origin — the opposite posture from the authored
+`pages` kind's fully-locked `srcDoc` frame; `allow-same-origin` grants the framed
+Google page access to *its* origin, never Alfred's. Reuses the whole sidebar
+(auto-open on the authoring run, trigger card, resize, mobile drawer, reload
+persistence); edit/copy/download/fullscreen are gated off.
+
+**Verified:** `pnpm check-types` (13/13), `check:web-boundaries`, oxlint/oxfmt
+green; a schema round-trip proves the union variant parses through
+`artifactContentSchema` + `syncedArtifactSchema` and that `external_file` is
+rejected from `create_artifact`. **Remaining live verify (`/run`):** a real
+`drive.export_file` on a binary PDF auto-surfaces + renders in the sidebar, and
+the Drive `/preview` embed loads under the deployed web app's CSP (no restrictive
+`frame-src` found; add `https://drive.google.com` if prod blocks it).

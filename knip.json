@@ -1,0 +1,29 @@
+{
+  "$schema": "https://unpkg.com/knip@6/schema.json",
+  "ignore": ["scratch-q.cjs"],
+  "workspaces": {
+    ".": {
+      "entry": ["scripts/*.mjs", ".claude/hooks/*.mjs", ".agents/hooks/*.mjs"]
+    },
+    "apps/server": {
+      "entry": ["src/scripts/**/*.ts", "evals/**/*.ts", "evalite.config.ts"]
+    },
+    "apps/web": {
+      "entry": ["test/**/*.test.{ts,tsx}"]
+    },
+    "packages/api": {
+      "entry": [
+        "src/scripts/**/*.ts",
+        "evals/**/*.ts",
+        "evalite.config.ts",
+        "test/**/*.test.ts"
+      ]
+    },
+    "packages/sync": {
+      "entry": ["test/**/*.{test,type-test}.ts"]
+    },
+    "packages/mailer": {
+      "ignoreDependencies": ["@react-email/preview-server"]
+    }
+  }
+}
