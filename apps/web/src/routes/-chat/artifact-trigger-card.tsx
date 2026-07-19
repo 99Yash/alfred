@@ -20,18 +20,26 @@ export function ArtifactTriggerCard({
   onOpen: (artifactId: string) => void;
 }) {
   const isPages = artifact.kind === "pages";
-  const generating = artifact.status === "generating";
+  const externalFile = artifact.content?.kind === "external_file" ? artifact.content : null;
+  // An external_file is surfaced ready (its content is complete at mint); it
+  // rides the `generating` lifecycle only so the run finalizer backfills its
+  // messageId, so never show it as generating.
+  const generating = artifact.status === "generating" && !externalFile;
   const pageCount = artifact.content?.kind === "pages" ? artifact.content.pages.length : undefined;
 
-  const subtitle = generating
-    ? pageCount !== undefined
-      ? `Generating · ${pageCount} ${pageCount === 1 ? "page" : "pages"}`
-      : "Generating…"
-    : isPages
-      ? artifact.format === "slides"
-        ? "Slides"
-        : "PDF document"
-      : "Document";
+  const subtitle = externalFile
+    ? externalFile.source === "drive"
+      ? "Google Drive file"
+      : "File"
+    : generating
+      ? pageCount !== undefined
+        ? `Generating · ${pageCount} ${pageCount === 1 ? "page" : "pages"}`
+        : "Generating…"
+      : isPages
+        ? artifact.format === "slides"
+          ? "Slides"
+          : "PDF document"
+        : "Document";
 
   return (
     <button

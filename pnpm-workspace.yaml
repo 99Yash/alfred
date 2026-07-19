@@ -24,7 +24,6 @@ catalog:
   "@ai-sdk/anthropic": ^4.0.11
   "@ai-sdk/google": ^4.0.11
   "@ai-sdk/openai": ^4.0.11
-  "@ai-sdk/perplexity": ^4.0.8
   # Elysia + its sibling packages are pinned to exact versions, and
   # exact-mirror is pinned via the workspace `overrides` block above.
   # The workspace ships a `normalize: 'typebox'` workaround in

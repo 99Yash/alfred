@@ -45,6 +45,12 @@ const RULES = [
     re: /\.toLowerCase\(\)\.replace\(\s*\/\[_-\]\/g\s*,\s*""\s*\)/,
     fix: "Use canonicalParamKey(key) from @alfred/contracts — the one canonical key-folding function.",
   },
+  {
+    // A hand-rolled `function isValidTimezone` — this exact `Intl.DateTimeFormat`
+    // trial was copied verbatim into web, sync, and api before consolidation.
+    re: /\bfunction\s+isValidTimezone\b/,
+    fix: "Use isIanaTimezone from @alfred/contracts — the one memoized, alias-aware timezone validator. Don't hand-roll an Intl.DateTimeFormat trial.",
+  },
 ];
 
 const files = execSync("git ls-files '*.ts' '*.tsx'", { encoding: "utf8" })

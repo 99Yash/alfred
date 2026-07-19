@@ -1,4 +1,4 @@
-import type { ArtifactFormat, ArtifactPage } from "@alfred/contracts";
+import type { ArtifactFormat, ArtifactPage, ExternalFileContent } from "@alfred/contracts";
 import type { SyncedArtifact } from "@alfred/sync";
 import {
   AlertTriangle,
@@ -7,6 +7,7 @@ import {
   ChevronRight,
   Copy,
   Download,
+  ExternalLink,
   FileText,
   Layers,
   Loader2,
@@ -168,9 +169,11 @@ export function ArtifactSidebar({
   }, []);
 
   const isPages = artifact?.kind === "pages";
+  const isExternalFile = artifact?.kind === "external_file";
   // A pending create has no synced row yet — the live stream is always a
   // document (pages never stream), so treat it as one for the whole panel.
-  const isDocument = !isPages && (artifact?.kind === "document" || liveStream != null);
+  const isDocument =
+    !isPages && !isExternalFile && (artifact?.kind === "document" || liveStream != null);
   const documentView = resolveDocumentView(artifact, liveStream);
   const title = artifact?.title ?? liveStream?.title ?? "Artifact";
 
@@ -192,7 +195,7 @@ export function ArtifactSidebar({
         documentView={documentView}
         canFullscreen={isPages}
         onFullscreen={isPages ? () => setFullscreen(true) : undefined}
-        onEdit={onSuggestEdit ? onEdit : undefined}
+        onEdit={onSuggestEdit && !isExternalFile ? onEdit : undefined}
         onClose={onClose}
       />
       <ArtifactBody
@@ -289,6 +292,7 @@ function ArtifactHeader({
   const isPages = artifact?.kind === "pages";
   const pagesContent = artifact?.content?.kind === "pages" ? artifact.content.pages : null;
   const pageCount = pagesContent?.length;
+  const externalFile = artifact?.content?.kind === "external_file" ? artifact.content : null;
 
   return (
     <header className="flex h-[60px] shrink-0 items-center gap-2 border-b border-app-bg-3/50 px-3">
@@ -315,6 +319,17 @@ function ArtifactHeader({
           format={artifact?.format ?? "pdf"}
           title={artifact?.title || "Artifact"}
         />
+      ) : null}
+      {externalFile?.webViewLink ? (
+        <a
+          href={externalFile.webViewLink}
+          target="_blank"
+          rel="noreferrer"
+          aria-label={`Open ${artifact?.title ?? "file"} in Drive`}
+          className="grid size-8 place-items-center rounded-lg text-app-fg-3 transition-colors hover:bg-app-bg-a2 hover:text-app-fg-4"
+        >
+          <ExternalLink size={14} />
+        </a>
       ) : null}
       {onEdit && artifact && artifact.status !== "generating" && !documentView.generating ? (
         <IconButton label="Suggest an edit" onClick={onEdit}>
@@ -355,6 +370,14 @@ function ArtifactSubline({
     );
   }
   if (!artifact) return <span>Loading…</span>;
+  // An external_file is minted `generating` (its content is complete at mint;
+  // the run finalizer flips it + backfills messageId), so skip the lifecycle
+  // states below — there is nothing to generate — and label it by source/type.
+  if (artifact.content?.kind === "external_file") {
+    const { source, mimeType } = artifact.content;
+    const sourceLabel = source === "drive" ? "Google Drive" : source;
+    return <span>{mimeType ? `${sourceLabel} · ${mimeType}` : sourceLabel}</span>;
+  }
   const kindLabel =
     artifact.kind === "pages"
       ? artifact.format === "slides"
@@ -433,6 +456,10 @@ function ArtifactBody({
       />
     );
 
+  if (artifact.content?.kind === "external_file") {
+    return <ExternalFileBody content={artifact.content} title={artifact.title} />;
+  }
+
   // kind === "pages"
   const content = artifact.content;
   const pages: ArtifactPage[] = content?.kind === "pages" ? content.pages : [];
@@ -445,6 +472,47 @@ function ArtifactBody({
       pageIndex={pageIndex}
       onPageIndexChange={onPageIndexChange}
     />
+  );
+}
+
+/**
+ * Render an existing external file inline (#287): a Drive file the agent
+ * couldn't read/export, surfaced so the user can view + download it. The preview
+ * is a REMOTE iframe (the provider's own `/preview` page) — a different, relaxed
+ * sandbox from the locked `srcDoc` frame the authored `pages` kind uses, because
+ * it loads a trusted third-party origin (Google) that needs its own scripts and
+ * same-origin. `allow-same-origin` grants the framed Google page access to ITS
+ * origin only, never Alfred's.
+ */
+function ExternalFileBody({ content, title }: { content: ExternalFileContent; title: string }) {
+  return (
+    <div className="flex flex-1 flex-col overflow-hidden">
+      <iframe
+        title={title}
+        src={content.previewUrl}
+        sandbox="allow-scripts allow-same-origin allow-popups allow-forms allow-downloads"
+        className="min-h-0 flex-1 border-0 bg-app-bg-a2"
+        allow="autoplay"
+      />
+      <div className="flex shrink-0 items-center gap-2 border-t border-app-bg-3/50 px-4 py-2.5 text-[12px] text-app-fg-3">
+        <FileText size={13} className="shrink-0" />
+        <span className="truncate">
+          {content.fileName ?? title}
+          {content.mimeType ? ` · ${content.mimeType}` : ""}
+        </span>
+        {content.webViewLink ? (
+          <a
+            href={content.webViewLink}
+            target="_blank"
+            rel="noreferrer"
+            className="ml-auto inline-flex shrink-0 items-center gap-1 rounded-md px-1.5 py-0.5 font-medium text-app-fg-4 transition-colors hover:bg-app-bg-a2"
+          >
+            Open in Drive
+            <ExternalLink size={12} />
+          </a>
+        ) : null}
+      </div>
+    </div>
   );
 }
 

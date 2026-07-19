@@ -1,4 +1,4 @@
-import { EVENT_TYPES_BY_SOURCE, LOADABLE_INTEGRATION_SLUGS } from "@alfred/contracts";
+import { EVENT_TYPES_BY_SOURCE, isIanaTimezone, LOADABLE_INTEGRATION_SLUGS } from "@alfred/contracts";
 import type { WriteTransaction } from "replicache";
 import { z } from "zod";
 import { IDB_KEY, normalizeToReadonlyJSON } from "../keys";
@@ -7,15 +7,6 @@ import type { SyncedWorkflow } from "../types";
 import { readSyncedValue } from "./read";
 
 export const AUTHORABLE_EVENT_SOURCES = ["gmail"] as const;
-
-function isValidTimezone(tz: string): boolean {
-  try {
-    new Intl.DateTimeFormat("en-US", { timeZone: tz });
-    return true;
-  } catch {
-    return false;
-  }
-}
 
 const CRON_MONTH_NAMES: Readonly<Record<string, number>> = {
   JAN: 1,
@@ -125,7 +116,7 @@ export const authorableWorkflowTriggerSchema = z
           path: ["schedule"],
         });
       }
-      if (trigger.timezone && !isValidTimezone(trigger.timezone)) {
+      if (trigger.timezone && !isIanaTimezone(trigger.timezone)) {
         ctx.addIssue({
           code: z.ZodIssueCode.custom,
           message: `'${trigger.timezone}' is not a valid IANA timezone`,

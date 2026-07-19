@@ -1,0 +1,51 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>MCP responsibility map</title>
+  <link rel="stylesheet" href="../assets/lesson.css">
+</head>
+<body>
+<main>
+  <p class="frame-no">Reference · MCP</p>
+  <h1>Who owns what?</h1>
+  <p class="lede">Use this when “MCP,” “the agent,” and “the integration” start collapsing into one black box.</p>
+
+  <table class="compact-table">
+    <thead><tr><th>Concern</th><th>Primary owner</th><th>MCP’s contribution</th></tr></thead>
+    <tbody>
+      <tr><td>Interpret the user’s goal</td><td>Host + model</td><td>None prescribed</td></tr>
+      <tr><td>Choose model-visible capabilities</td><td>Host</td><td>Server discovery supplies candidates</td></tr>
+      <tr><td>Describe callable inputs/outputs</td><td>Server</td><td>Tool metadata + JSON Schema</td></tr>
+      <tr><td>Propose a call</td><td>Model</td><td>None; happens in the host’s model API</td></tr>
+      <tr><td>Authorize this user to the server</td><td>Server + authorization server + client</td><td>HTTP OAuth framework and audience binding</td></tr>
+      <tr><td>Allow this action in this workflow</td><td>Host policy</td><td>None prescribed</td></tr>
+      <tr><td>Ask for human approval</td><td>Host UI/policy</td><td>Elicitation can carry server-initiated requests; it is not the host’s action gate</td></tr>
+      <tr><td>Validate arguments</td><td>Host and server</td><td>Shared schema and error envelopes</td></tr>
+      <tr><td>Perform the external side effect</td><td>Server / downstream API</td><td><code>tools/call</code> transports the request</td></tr>
+      <tr><td>Sanitize and bound returned content</td><td>Server and host</td><td>Typed content envelope; no trust guarantee</td></tr>
+      <tr><td>Retry safely after ambiguity</td><td>Host + server semantics</td><td>Errors/tasks help coordination; no exactly-once guarantee</td></tr>
+      <tr><td>Checkpoint, resume, and audit a run</td><td>Host runtime</td><td>Not MCP’s scope</td></tr>
+      <tr><td>Keep a huge tool catalog cheap for the model</td><td>Host + model provider</td><td>Dynamic listing helps; prompt/cache strategy is separate</td></tr>
+      <tr><td>Sandbox a local server process</td><td>Host/OS</td><td>Security guidance, not automatic enforcement</td></tr>
+    </tbody>
+  </table>
+
+  <p class="thesis"><strong>Diagnostic rule:</strong> if the question contains “should,” “may this user,” “retry,” “resume,” “trust,” or “undo,” the answer is almost never “MCP handles it.”</p>
+
+  <h2>One-line wire flow</h2>
+  <p class="equation">initialize → discover → model proposes → host authorizes → tools/call → server enforces → result → host sanitizes/checkpoints → model continues</p>
+
+  <h2>Links</h2>
+  <ul class="sources">
+    <li><a href="../lessons/0006-mcp-from-first-principles.html">Lesson: MCP from first principles</a></li>
+    <li><a href="../lessons/0007-schema-source-and-calendar-call.html">Lesson: schema source and current Calendar call</a></li>
+    <li><a href="../lessons/0008-freshness-and-mcp-credential-custody.html">Lesson: freshness and MCP credential custody</a></li>
+    <li><a href="https://modelcontextprotocol.io/docs/learn/architecture">Official architecture overview</a></li>
+    <li><a href="https://modelcontextprotocol.io/specification/2025-11-25/server/tools">Official tools specification</a></li>
+    <li><a href="https://modelcontextprotocol.io/docs/tutorials/security/security_best_practices">Official security best practices</a></li>
+  </ul>
+</main>
+</body>
+</html>

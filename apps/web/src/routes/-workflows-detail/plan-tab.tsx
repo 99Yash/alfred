@@ -1,5 +1,6 @@
 import {
   EVENT_TYPES_BY_SOURCE,
+  isIanaTimezone,
   LOADABLE_INTEGRATION_SLUGS,
   type LoadableIntegrationSlug,
 } from "@alfred/contracts";
@@ -37,15 +38,6 @@ const AUTHORABLE_EVENT_SOURCE_OPTIONS: ReadonlyArray<{
   value: AuthorableEventSource;
   label: string;
 }> = [{ value: "gmail", label: "Gmail" }];
-
-function isValidTimezone(tz: string): boolean {
-  try {
-    new Intl.DateTimeFormat("en-US", { timeZone: tz });
-    return true;
-  } catch {
-    return false;
-  }
-}
 
 function isAuthorableEventSource(value: string): value is AuthorableEventSource {
   return (AUTHORABLE_EVENT_SOURCE_VALUES as readonly string[]).includes(value);
@@ -141,7 +133,7 @@ export function PlanTab({
   const timezoneInvalid =
     draft.kind === "cron" &&
     draft.cronTimezone.trim() !== "" &&
-    !isValidTimezone(draft.cronTimezone.trim());
+    !isIanaTimezone(draft.cronTimezone.trim());
   const nameEmpty = draft.name.trim() === "";
   const invalid = nameEmpty || cronEmpty || cronInvalid || timezoneInvalid || eventCapViolation;
 
