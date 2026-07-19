@@ -4,35 +4,14 @@ import { AppInput } from "~/components/ui/v2";
 import { useResolvedIntegrations } from "~/lib/integrations/use-integration-status";
 import type { IntegrationBrand } from "~/lib/integrations/integration-icons";
 import { FeaturedHero } from "./featured-hero";
-import { buildConnectedSection, filterSections, matches, MCP_HAYSTACK } from "./helpers";
 import { MCPServerSection } from "./mcp-server-section";
 import { SectionBlock } from "./section-block";
+import { useIntegrationCatalog } from "./use-integration-catalog";
 
 export function IntegrationsBody() {
   const [query, setQuery] = useState("");
   const resolved = useResolvedIntegrations();
-
-  // The "Connected" section is synthesised on top of the resolved overlay
-  // — the catalog no longer carries `status: "connected"` defaults. Drop
-  // the connected providers from the category sweep so they don't render
-  // twice (once in the floating section, once in their natural category).
-  const { connectedSection, remainingProviders } = useMemo(() => {
-    const connected = buildConnectedSection(resolved, query);
-    const remaining = connected ? resolved.filter((p) => p.status !== "connected") : resolved;
-    return { connectedSection: connected, remainingProviders: remaining };
-  }, [resolved, query]);
-
-  const filtered = useMemo(
-    () => filterSections(remainingProviders, query),
-    [remainingProviders, query],
-  );
-  const sections = useMemo(
-    () => (connectedSection ? [connectedSection, ...filtered] : filtered),
-    [connectedSection, filtered],
-  );
-
-  const mcpVisible = matches(MCP_HAYSTACK, query);
-  const empty = sections.length === 0 && !mcpVisible;
+  const { sections, mcpVisible, empty } = useIntegrationCatalog(query);
 
   const connectedBrands = useMemo<ReadonlyArray<IntegrationBrand>>(() => {
     const brands: IntegrationBrand[] = [];

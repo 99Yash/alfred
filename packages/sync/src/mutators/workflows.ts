@@ -1,4 +1,8 @@
-import { EVENT_TYPES_BY_SOURCE, isIanaTimezone, LOADABLE_INTEGRATION_SLUGS } from "@alfred/contracts";
+import {
+  EVENT_TYPES_BY_SOURCE,
+  isIanaTimezone,
+  LOADABLE_INTEGRATION_SLUGS,
+} from "@alfred/contracts";
 import type { WriteTransaction } from "replicache";
 import { z } from "zod";
 import { IDB_KEY, normalizeToReadonlyJSON } from "../keys";
