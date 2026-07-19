@@ -28,6 +28,14 @@
   Primary documentation for Gemini implicit caching and cache-hit accounting.
 - [AI SDK: Tool calling](https://ai-sdk.dev/docs/ai-sdk-core/tools-and-tool-calling)
   Upstream explanation of single versus multi-step model calls. Use to contrast SDK-owned loops with Alfred's runtime-owned loop.
+- [MCP: Architecture overview](https://modelcontextprotocol.io/docs/learn/architecture)
+  Primary conceptual source for MCP's scope, host/client/server roles, protocol layers, primitives, lifecycle, discovery, and invocation flow.
+- [MCP specification: Tools (2025-11-25)](https://modelcontextprotocol.io/specification/2025-11-25/server/tools)
+  Primary normative source for tool discovery, input/output schemas, errors, user-interaction guidance, and the security duties left to clients and servers.
+- [MCP specification: Authorization (2025-11-25)](https://modelcontextprotocol.io/specification/2025-11-25/basic/authorization)
+  Primary normative source for remote-server OAuth, protected-resource discovery, audience-bound tokens, and scope minimization.
+- [MCP: Security best practices](https://modelcontextprotocol.io/docs/tutorials/security/security_best_practices)
+  Official attack-oriented guide covering confused deputies, token passthrough, SSRF, session hijacking, local-server compromise, and mitigations.
 
 ## Wisdom (Communities)
 
@@ -37,3 +45,4 @@
 ## Gaps
 
 - Add a real run trace from local observability after the source-level happy path is understood.
+- Alfred's MCP backend remains deferred; when implemented, add one captured initialize → tools/list → dispatch → tools/call trace and compare it with the planned ADR-0018 lifecycle.

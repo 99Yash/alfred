@@ -1,0 +1,117 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Foundation 2 — Schema source and calendar call</title>
+  <link rel="stylesheet" href="../assets/lesson.css">
+</head>
+<body>
+<main>
+  <p class="frame-no">Alfred harness · Foundation 2</p>
+  <h1>Import the schema.<br>Keep the gate.</h1>
+  <p class="lede">MCP can remove hand-authored integration plumbing. It cannot make model output, approval edits, server claims, or external API responses trustworthy.</p>
+
+  <p class="thesis"><strong>The one sentence to keep:</strong> MCP can change where Alfred obtains a tool schema; it does not remove Alfred’s obligation to enforce that schema.</p>
+
+  <h2>“Schema enforcement” is three different jobs</h2>
+  <table class="compact-table">
+    <thead><tr><th>Job</th><th>Why it exists</th><th>With MCP</th></tr></thead>
+    <tbody>
+      <tr><td><strong>Model guidance</strong></td><td>Tell the model the operation’s name, fields, types, and descriptions.</td><td>Import the server’s <code>inputSchema</code>; do not hand-author a duplicate.</td></tr>
+      <tr><td><strong>Host validation</strong></td><td>Stop malformed model output or an invalid approval edit before it is persisted or dispatched.</td><td>Compile/use the imported JSON Schema and keep validating.</td></tr>
+      <tr><td><strong>Server validation</strong></td><td>Protect the actual capability even if a buggy or malicious client bypasses its own checks.</td><td>The MCP server must validate independently and return a useful tool error.</td></tr>
+    </tbody>
+  </table>
+
+  <pre>WITHOUT MCP
+Alfred author writes Zod schema ──┬─ show derived JSON Schema to model
+                                  ├─ validate in dispatcher
+                                  └─ pass typed input to native adapter
+
+WITH MCP
+MCP server publishes JSON Schema ─┬─ show it to model
+                                  ├─ validate in Alfred
+                                  └─ send validated input via tools/call
+                                      └─ server validates again</pre>
+
+  <p>So the likely deletion is <em>duplicate schema authorship for imported tools</em>, not validation. Alfred’s built-in product tools may still use Zod because their contracts, approval UI, TypeScript types, normalization, and execution all live here.</p>
+
+  <h2>What MCP does not repair about a bad schema</h2>
+  <ul>
+    <li>A server may publish vague descriptions or an overly permissive schema.</li>
+    <li>JSON Schema can say “string”; it cannot necessarily say “this event belongs to the intended calendar.”</li>
+    <li>A syntactically valid call can still encode the wrong user intent.</li>
+    <li>Tool annotations and returned content are untrusted unless the server itself is trusted.</li>
+    <li>An output schema helps parsing, but Alfred still has to validate, bound, sanitize, and retain provenance.</li>
+  </ul>
+
+  <h2>Calendar today: one concrete chat call</h2>
+  <div class="timeline">
+    <article class="frame"><div class="frame-no">Boot</div><div><h3>Register native tools</h3><p><code>registerBuiltinTools()</code> inserts <code>calendar.list_events</code> and <code>calendar.create_event</code> into Alfred’s in-process registry.</p><p class="state">Source: <code>packages/api/src/modules/tools/index.ts</code>.</p></div></article>
+    <article class="frame"><div class="frame-no">Expose</div><div><h3>Build the model-visible surface</h3><p>The run’s exact <code>activeTools</code> are projected into AI SDK tools containing a description and Zod <code>inputSchema</code>, but no <code>execute</code> function.</p><p class="state">The model sees how to call; it cannot cause the SDK to execute directly.</p></div></article>
+    <article class="frame"><div class="frame-no">Propose</div><div><h3>The model emits a call</h3><p>For example: <code>calendar.create_event({ summary, start, end, ... })</code>. The chat step records it in <code>pendingToolCalls</code> and hands off to the durable <code>dispatch-tools</code> step.</p><p class="state">Still only a proposal.</p></div></article>
+    <article class="frame"><div class="frame-no">Enforce</div><div><h3>The dispatcher checks every boundary</h3><p>It verifies the declared name, registry entry, workflow allowlist, exact active surface, argument keys, and Zod schema. It then resolves the user’s action policy and stores an idempotent <code>action_stagings</code> row.</p><p class="state"><code>create_event</code> is medium risk. It gates when user policy is <code>gated</code>; unlike high-risk tools, it may run autonomously when policy allows.</p></div></article>
+    <article class="frame"><div class="frame-no">Approve</div><div><h3>A gated call parks</h3><p>Alfred interrupts the durable run. On approval it reloads the stored or user-edited input and validates the schema again before execution.</p><p class="state">This protects against an invalid edit and against swapping the approved payload during resume.</p></div></article>
+    <article class="frame"><div class="frame-no">Execute</div><div><h3>The native adapter calls Google</h3><p>It resolves a connected Google credential, checks Calendar scopes, refreshes the access token, then calls Google Calendar v3 directly.</p><p class="state">List: <code>GET /calendar/v3/calendars/{id}/events</code>. Create: <code>POST /calendar/v3/calendars/{id}/events</code>.</p></div></article>
+    <article class="frame"><div class="frame-no">Return</div><div><h3>Validate evidence, then continue</h3><p>The Google response is parsed with Zod, normalized into a compact event, recorded by the dispatcher, and appended as a tool result. The next <code>chat-turn</code> lets the model answer from observed evidence.</p><p class="state">External JSON is treated as <code>unknown</code> even though Alfred authored the outgoing request.</p></div></article>
+  </div>
+
+  <h2>If Calendar moved behind MCP</h2>
+  <table class="compact-table">
+    <thead><tr><th>Current native piece</th><th>MCP version</th></tr></thead>
+    <tbody>
+      <tr><td>Calendar tool names/descriptions/Zod schemas authored in Alfred</td><td>Imported from <code>tools/list</code>; Alfred retains a validated, namespaced catalog entry</td></tr>
+      <tr><td>Alfred’s <code>executeCreateEvent</code> adapter</td><td>MCP client sends <code>tools/call</code> to the owning server</td></tr>
+      <tr><td>Alfred owns Google token refresh and REST details</td><td>MCP server owns its downstream Google connection</td></tr>
+      <tr><td>Alfred’s active-tool check, workflow cap, approval, audit, idempotency</td><td><strong>Unchanged</strong></td></tr>
+      <tr><td>Alfred validates proposed and edited inputs</td><td><strong>Unchanged in purpose</strong>; validator is driven by imported JSON Schema</td></tr>
+      <tr><td>Alfred sanitizes and checkpoints results</td><td><strong>Unchanged</strong>; MCP output is another external boundary</td></tr>
+    </tbody>
+  </table>
+
+  <p class="thesis"><strong>Architectural catch in Alfred:</strong> the current registry assumes closed built-in <code>IntegrationSlug</code>, <code>ToolName</code>, and Zod-backed tools. MCP support must open that registry to namespaced external identities and accept validated JSON-Schema-backed definitions without weakening the stricter built-in path.</p>
+
+  <h2>“Calendar events” can mean two things</h2>
+  <ul>
+    <li><strong>Calendar event records:</strong> these are currently listed or created through the chat tool path above.</li>
+    <li><strong>Calendar change notifications/webhooks:</strong> those would notify Alfred that Google changed independently. The repo describes Calendar <code>events.watch</code> as an architectural direction, but the searched runtime currently has no implemented Calendar watch/webhook path.</li>
+  </ul>
+
+  <div class="quiz">
+    <h2 style="margin-top:0">Schema check</h2>
+    <p>An MCP server publishes a schema for <code>calendar.create_event</code>. Which Alfred code can disappear?</p>
+    <div class="answer-grid">
+      <button data-ok="true">The duplicate hand-authored imported-tool schema</button>
+      <button data-ok="false">All host-side validation and approval checks</button>
+      <button data-ok="false">All output sanitization and durable auditing</button>
+    </div>
+    <p class="feedback" id="feedback" aria-live="polite"></p>
+  </div>
+
+  <h2>Source trail</h2>
+  <ul class="sources">
+    <li><a href="../packages/api/src/modules/tools/calendar.ts">Native Calendar tool definitions and handlers</a></li>
+    <li><a href="../packages/contracts/src/tool-schemas.ts">Calendar input schemas</a></li>
+    <li><a href="../packages/api/src/modules/agent/tool-surface.ts">Projection into the model-visible AI SDK tool set</a></li>
+    <li><a href="../packages/api/src/modules/dispatch/index.ts">Validation, policy, staging, approval resume, and execution</a></li>
+    <li><a href="../packages/integrations/src/google/calendar.ts">Direct Google Calendar REST adapter and response validation</a></li>
+    <li><a href="https://modelcontextprotocol.io/specification/2025-11-25/server/tools">MCP tools specification</a></li>
+    <li><a href="0006-mcp-from-first-principles.html">Previous: MCP from first principles</a></li>
+    <li><a href="0008-freshness-and-mcp-credential-custody.html">Next: reschedules, freshness, and MCP credential custody</a></li>
+  </ul>
+</main>
+<script>
+  const feedback = document.querySelector('#feedback');
+  document.querySelectorAll('button[data-ok]').forEach((button) => {
+    button.addEventListener('click', () => {
+      const correct = button.dataset.ok === 'true';
+      feedback.textContent = correct
+        ? 'Correct. MCP supplies the source schema; Alfred still applies it at its trust boundary.'
+        : 'Try separating schema authorship from schema enforcement. Imported metadata can remove duplication, but not the boundary checks that consume it.';
+      feedback.style.color = correct ? 'var(--success)' : 'var(--error)';
+    });
+  });
+</script>
+</body>
+</html>

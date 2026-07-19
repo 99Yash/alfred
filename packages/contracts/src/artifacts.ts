@@ -21,8 +21,13 @@ import { z } from "zod";
  *   - `spreadsheet` — RESERVED (ADR-0075 defers it: needs a heavy grid lib). No
  *                  renderer or authoring tool ships in v1; the literal exists so
  *                  the union and DB CHECK don't churn when it lands.
+ *   - `external_file` — an existing external file (e.g. a Drive PDF) the agent
+ *                  could NOT read/export on the user's behalf, surfaced inline so
+ *                  the user can view/download it themselves (#287, ADR-0075). Not
+ *                  agent-authored: `content` carries a preview URL + provenance,
+ *                  never a body, and no authoring tool constructs it.
  */
-export const artifactKindValues = ["document", "pages", "spreadsheet"] as const;
+export const artifactKindValues = ["document", "pages", "spreadsheet", "external_file"] as const;
 export type ArtifactKind = (typeof artifactKindValues)[number];
 export const artifactKindSchema = z.enum(artifactKindValues);
 
@@ -89,16 +94,46 @@ export const artifactPageSchema = z.object({
 });
 export type ArtifactPage = z.infer<typeof artifactPageSchema>;
 
+/** Providers whose files the agent can surface inline when it can't read them. */
+export const externalFileSourceValues = ["drive"] as const;
+export type ExternalFileSource = (typeof externalFileSourceValues)[number];
+export const externalFileSourceSchema = z.enum(externalFileSourceValues);
+
+/**
+ * Body of an `external_file` artifact (#287): a pointer to an existing external
+ * file the agent surfaced for the user to view/download, NOT authored content.
+ * The renderer embeds `previewUrl` in a sandboxed iframe and offers `webViewLink`
+ * as an "open in <source>" affordance.
+ */
+export const externalFileContentSchema = z.object({
+  kind: z.literal("external_file"),
+  /** Which provider owns the file — selects icon/labels and the download affordance. */
+  source: externalFileSourceSchema,
+  /** Provider-native file id (e.g. Drive fileId), for building URLs and dedup. */
+  fileId: z.string(),
+  /** Embeddable, sandbox-safe preview URL (e.g. Drive `/preview`). */
+  previewUrl: z.string().url(),
+  /** Human-facing "open in the provider" link, when the provider offers one. */
+  webViewLink: z.string().url().optional(),
+  /** The file's MIME type, shown in the subline (e.g. `application/pdf`). */
+  mimeType: z.string().max(255).optional(),
+  /** The file's own name, if known (the artifact `title` may differ). */
+  fileName: z.string().max(500).optional(),
+});
+export type ExternalFileContent = z.infer<typeof externalFileContentSchema>;
+
 /**
  * The artifact body, discriminated by `kind`. `document` carries markdown;
- * `pages` carries the ordered page list. (A `spreadsheet` variant will be added
- * here when that kind ships — it is intentionally absent so v1 can't construct
- * one.) Stored as a single jsonb column rather than per-kind columns so adding a
- * kind is a union edit, not a migration.
+ * `pages` carries the ordered page list; `external_file` carries a pointer to an
+ * existing external file the agent surfaced (#287). (A `spreadsheet` variant
+ * will be added here when that kind ships — it is intentionally absent so v1
+ * can't construct one.) Stored as a single jsonb column rather than per-kind
+ * columns so adding a kind is a union edit, not a migration.
  */
 export const artifactContentSchema = z.discriminatedUnion("kind", [
   z.object({ kind: z.literal("document"), markdown: z.string().max(DOCUMENT_MARKDOWN_MAX) }),
   z.object({ kind: z.literal("pages"), pages: z.array(artifactPageSchema).max(100) }),
+  externalFileContentSchema,
 ]);
 export type ArtifactContent = z.infer<typeof artifactContentSchema>;
 

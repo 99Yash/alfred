@@ -12,6 +12,20 @@ Read the nearest nested `AGENTS.md` before editing within its subtree.
 - Use `serverEnv()` from `@alfred/env/server`; do not read `process.env` directly.
 - Apply database schema changes with `db:generate` then `db:migrate`. Never use `db:push` outside local exploration.
 - Put cross-boundary browser-safe contracts in `@alfred/contracts`, Replicache models in `@alfred/sync`, and implementation details in the package or feature that owns them.
+- Reach for an existing helper before writing a new `format*`/`parse*`/`is*`/`to*`/`get*` function or adding to a route `helpers.ts`. Full catalog and owners in [shared helpers](./docs/reference/shared-helpers.md); the quick smell map is below. Don't create new grab-bag `utils.ts`/`helpers.ts` for anything generic.
+
+  | About to write… | Reach for | From |
+  |---|---|---|
+  | check `unknown` is an object / coerce it | `isRecord` / `toRecord` / `toStringArray` (not `as string[]`) | `@alfred/contracts` |
+  | read a nested field off `unknown`/JSON | `getPath` / `getStringPath` | `@alfred/contracts` |
+  | caught error → string | `toMessage` (not `String(err)`) | `@alfred/contracts` |
+  | parse+validate JSON | `parseJsonWith` (not `JSON.parse` + cast) | `@alfred/contracts` |
+  | normalize an email | `parseEmailAddress` | `@alfred/contracts` |
+  | read an env var | `serverEnv()` (not `process.env`) | `@alfred/env/server` |
+  | validate a timezone | `isIanaTimezone` (not a hand-rolled `Intl` trial) | `@alfred/contracts` |
+  | timezone resolve/format | `resolveUserTimezone` / `formatInstantInTimezone` | `@alfred/api` timezone |
+  | a model handle | `getChatModel` / `getCheapModel` | `@alfred/ai` |
+  | enforce prose voice | `sanitizeVoice` | `@alfred/api` voice-sanitize |
 - Read [decisions.md](./decisions.md) before changing architecture.
 - When opening a PR, state the issues it closes in the body with GitHub closing keywords (`Closes #N`), one per issue the PR *fully* resolves. Reference a partially-addressed issue (e.g. `Refs #N`) without a closing keyword so it stays open.
 - Relevant or appropriate locations of handoff docs: at /private/tmp/claude-501/-Users-yash-Developer-self-alfred/... or ./.handoff here along with ./.lessons.
@@ -19,6 +33,7 @@ Read the nearest nested `AGENTS.md` before editing within its subtree.
 ## References
 
 - [Code style and review checklist](./docs/reference/code-style.md) and [structural review](./docs/reference/structural-review.md)
+- [Shared helpers — reach for these before writing new ones](./docs/reference/shared-helpers.md)
 - [Architecture and package boundaries](./docs/reference/architecture.md)
 - [TypeScript configuration](./docs/reference/typescript.md)
 - [Elysia request lifecycle](./docs/reference/elysia.md)

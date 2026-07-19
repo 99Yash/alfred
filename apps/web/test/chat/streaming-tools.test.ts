@@ -4,7 +4,7 @@ import { describe, test } from "node:test";
 import {
   applyStreamingToolEvent,
   type StreamingToolCall,
-} from "../../src/lib/chat/streaming-tools";
+} from "../../src/lib/chat/use-chat-stream";
 
 const baseEvent = {
   runId: "run_1",
