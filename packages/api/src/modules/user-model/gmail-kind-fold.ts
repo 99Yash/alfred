@@ -18,6 +18,7 @@ import {
 } from "@alfred/db/schemas";
 import { and, asc, eq, lte, or, sql, type SQL } from "drizzle-orm";
 import { type DbExecutor } from "./executor";
+import { liveObservationHeadJoin } from "./observations";
 import { classifyEntityKind, type GmailPayloadSignals } from "./entity-kind-classifier";
 import { ensureEntityNode, recordEntityIdentity } from "./entities";
 
@@ -78,14 +79,7 @@ export async function projectGmailKindProfiles(
     const rows = await ex
       .select({ observation: observations })
       .from(observations)
-      .innerJoin(
-        observationFamilyHeads,
-        and(
-          eq(observationFamilyHeads.userId, observations.userId),
-          eq(observationFamilyHeads.familyKey, observations.familyKey),
-          eq(observationFamilyHeads.headObservationId, observations.id),
-        ),
-      )
+      .innerJoin(observationFamilyHeads, liveObservationHeadJoin())
       .where(and(...conds))
       .orderBy(asc(observations.occurredAt), asc(observations.id));
 

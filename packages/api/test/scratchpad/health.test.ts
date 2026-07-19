@@ -31,10 +31,7 @@ describe("hashScratchKey", () => {
 
   test("different logical keys hash differently", () => {
     assert.notEqual(hashScratchKey("shared.goal"), hashScratchKey("shared.plan"));
-    assert.notEqual(
-      hashScratchKey("scratch.subA.x"),
-      hashScratchKey("scratch.subB.x"),
-    );
+    assert.notEqual(hashScratchKey("scratch.subA.x"), hashScratchKey("scratch.subB.x"));
   });
 });
 

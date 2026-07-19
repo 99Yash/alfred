@@ -1,5 +1,6 @@
 import { httpErrorFromResponse } from "@alfred/contracts";
 import { z } from "zod";
+import { GOOGLE_FETCH_TIMEOUT_MS, googleJson } from "./http";
 
 /**
  * Thin Google Drive v3 REST client. Same shape as `gmail.ts` /
@@ -138,18 +139,8 @@ export async function downloadFile(args: DownloadFileArgs): Promise<FileContentR
   return { fileId: args.fileId, mimeType: mimeType ?? "application/octet-stream", text, truncated };
 }
 
-const DRIVE_FETCH_TIMEOUT_MS = 30_000;
-
-async function getJson(url: string, accessToken: string): Promise<unknown> {
-  const res = await fetch(url, {
-    headers: { Authorization: `Bearer ${accessToken}`, Accept: "application/json" },
-    signal: AbortSignal.timeout(DRIVE_FETCH_TIMEOUT_MS),
-  });
-  if (!res.ok) {
-    throw await httpErrorFromResponse("drive", res, { url });
-  }
-  return res.json();
-}
+const getJson = (url: string, accessToken: string): Promise<unknown> =>
+  googleJson("drive", "GET", url, accessToken);
 
 async function getText(
   url: string,
@@ -157,7 +148,7 @@ async function getText(
 ): Promise<{ text: string; truncated: boolean; mimeType?: string }> {
   const res = await fetch(url, {
     headers: { Authorization: `Bearer ${accessToken}` },
-    signal: AbortSignal.timeout(DRIVE_FETCH_TIMEOUT_MS),
+    signal: AbortSignal.timeout(GOOGLE_FETCH_TIMEOUT_MS),
   });
   if (!res.ok) {
     throw await httpErrorFromResponse("drive", res, { url });

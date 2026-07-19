@@ -15,9 +15,7 @@ export function pendingSelectionId(toolCallId: string): string {
   return `${PENDING_PREFIX}${toolCallId}`;
 }
 export function pendingToolCallId(selectedId: string | null): string | null {
-  return selectedId?.startsWith(PENDING_PREFIX)
-    ? selectedId.slice(PENDING_PREFIX.length)
-    : null;
+  return selectedId?.startsWith(PENDING_PREFIX) ? selectedId.slice(PENDING_PREFIX.length) : null;
 }
 
 /**
@@ -83,11 +81,14 @@ export function useArtifactPanel(
   // next poke re-open it. Holds both real artifact ids and `pending:<tcid>`
   // keys for creates surfaced before their row exists.
   const autoOpenedByThreadRef = useRef<Map<string | undefined, Set<string>>>(new Map());
-  const markAutoOpened = useCallback((key: string) => {
-    const set = autoOpenedByThreadRef.current.get(threadId) ?? new Set<string>();
-    set.add(key);
-    autoOpenedByThreadRef.current.set(threadId, set);
-  }, [threadId]);
+  const markAutoOpened = useCallback(
+    (key: string) => {
+      const set = autoOpenedByThreadRef.current.get(threadId) ?? new Set<string>();
+      set.add(key);
+      autoOpenedByThreadRef.current.set(threadId, set);
+    },
+    [threadId],
+  );
 
   if (selection.threadId !== threadId) {
     setSelection({ threadId, selectedId: null });

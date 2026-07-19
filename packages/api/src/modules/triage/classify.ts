@@ -223,7 +223,7 @@ const SERVICE_ACTION_LOOP_MIN_TOTAL = 8;
 const SERVICE_ACTION_LOOP_MIN_SHARE = 0.5;
 const OVERRIDE_FLOOR_CONFIDENCE_FLOOR = 0.85;
 const SECOND_PASS_FAILURE_CONFIDENCE_FLOOR = 0.6;
-const MAX_RATIONALE_LEN = 500;
+export const MAX_RATIONALE_LEN = 500;
 
 /**
  * Override-floor predicate (ADR-0051 §5, Phase 3 seed = ONE signal). Keys on
@@ -1530,7 +1530,7 @@ export function normalizeClassifierOutput(object: TriageClassification): TriageC
   };
 }
 
-function truncateRationale(value: string): string {
+export function truncateRationale(value: string): string {
   return value.length > MAX_RATIONALE_LEN ? `${value.slice(0, MAX_RATIONALE_LEN - 3)}...` : value;
 }
 

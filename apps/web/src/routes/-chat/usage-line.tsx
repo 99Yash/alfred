@@ -126,9 +126,7 @@ export function UsageLine({ usage }: { usage: NonNullable<SyncedChatMessage["usa
                 title="Fallback from Anthropic primary"
               />
             ) : null}
-            {Icon ? (
-              <Icon className="size-3.5 shrink-0" style={{ color: provider?.tint }} />
-            ) : null}
+            {Icon ? <Icon className="size-3.5 shrink-0" style={{ color: provider?.tint }} /> : null}
             <span className="font-medium">{modelLabel(m.model)}</span>
             {m.calls > 1 ? <span className="text-app-fg-2">×{m.calls}</span> : null}
           </span>

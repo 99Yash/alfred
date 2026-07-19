@@ -36,10 +36,12 @@ export function getNotionOAuthConfig(): NotionOAuthConfig {
 }
 
 export function isNotionConfigured(): boolean {
-  const env = serverEnv();
-  return Boolean(
-    env.NOTION_OAUTH_CLIENT_ID && env.NOTION_OAUTH_CLIENT_SECRET && env.NOTION_OAUTH_REDIRECT_URI,
-  );
+  try {
+    getNotionOAuthConfig();
+    return true;
+  } catch {
+    return false;
+  }
 }
 
 export function buildNotionAuthorizeUrl(state: string): string {

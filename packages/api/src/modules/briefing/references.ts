@@ -8,6 +8,7 @@ import {
   parseBriefingReference,
 } from "@alfred/contracts";
 import type { BriefingGather } from "@alfred/contracts";
+import { EMAIL_LINK_STYLE, EMAIL_P_STYLE, EMAIL_WRAPPER_STYLE } from "./email-styles";
 
 // The pure resolver (resolveBriefingReferences, referencesFromSections,
 // listBriefingReferenceOptions, parseBriefingReference, BriefingSegment, …)
@@ -241,8 +242,3 @@ export function escapeHtml(s: string): string {
     .replace(/"/g, "&quot;")
     .replace(/'/g, "&#39;");
 }
-
-const EMAIL_WRAPPER_STYLE =
-  'font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; max-width: 600px; color: #1a1a1a; line-height: 1.5;';
-const EMAIL_P_STYLE = "margin: 0 0 16px 0; font-size: 15px;";
-const EMAIL_LINK_STYLE = "color: #2563eb; text-decoration: none;";

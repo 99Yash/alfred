@@ -107,14 +107,14 @@ describe("sanitizeVoice — batch", () => {
 
   test("preserves a GFM table delimiter row", () => {
     const table = "| Layer | How it works |\n| --- | --- |\n| a | b — c |";
-    assert.equal(
-      sanitizeVoice(table),
-      "| Layer | How it works |\n| --- | --- |\n| a | b; c |",
-    );
+    assert.equal(sanitizeVoice(table), "| Layer | How it works |\n| --- | --- |\n| a | b; c |");
   });
 
   test("preserves tight and alignment delimiter rows", () => {
-    assert.equal(sanitizeVoice("| a | b |\n|---|---|\n| 1 | 2 |"), "| a | b |\n|---|---|\n| 1 | 2 |");
+    assert.equal(
+      sanitizeVoice("| a | b |\n|---|---|\n| 1 | 2 |"),
+      "| a | b |\n|---|---|\n| 1 | 2 |",
+    );
     assert.equal(
       sanitizeVoice("| a | b |\n| :--- | ---: |\n| 1 | 2 |"),
       "| a | b |\n| :--- | ---: |\n| 1 | 2 |",

@@ -1,5 +1,5 @@
-import { httpErrorFromResponse } from "@alfred/contracts";
 import { z } from "zod";
+import { googleJson } from "./http";
 
 /**
  * Thin Google Calendar v3 REST client. Same shape as `gmail.ts` —
@@ -138,35 +138,8 @@ export async function createEvent(args: CreateEventArgs): Promise<CalendarEvent>
   return eventSchema.parse(json);
 }
 
-const CALENDAR_FETCH_TIMEOUT_MS = 30_000;
+const getJson = (url: string, accessToken: string): Promise<unknown> =>
+  googleJson("calendar", "GET", url, accessToken);
 
-async function getJson(url: string, accessToken: string): Promise<unknown> {
-  const res = await fetch(url, {
-    headers: {
-      Authorization: `Bearer ${accessToken}`,
-      Accept: "application/json",
-    },
-    signal: AbortSignal.timeout(CALENDAR_FETCH_TIMEOUT_MS),
-  });
-  if (!res.ok) {
-    throw await httpErrorFromResponse("calendar", res, { url });
-  }
-  return await res.json();
-}
-
-async function postJson(url: string, accessToken: string, payload: unknown): Promise<unknown> {
-  const res = await fetch(url, {
-    method: "POST",
-    headers: {
-      Authorization: `Bearer ${accessToken}`,
-      "Content-Type": "application/json",
-      Accept: "application/json",
-    },
-    body: JSON.stringify(payload ?? {}),
-    signal: AbortSignal.timeout(CALENDAR_FETCH_TIMEOUT_MS),
-  });
-  if (!res.ok) {
-    throw await httpErrorFromResponse("calendar", res, { url, method: "POST" });
-  }
-  return await res.json();
-}
+const postJson = (url: string, accessToken: string, payload: unknown): Promise<unknown> =>
+  googleJson("calendar", "POST", url, accessToken, payload);

@@ -261,7 +261,8 @@ export async function getUsageActivity(
   // caller's string with sql.raw — keeps this exported function injection-safe
   // even if a future caller passes an unsanitized `sortDir`.
   const dir = q.sortDir === "asc" ? sql`asc` : sql`desc`;
-  const orderExpr = q.sortField === "costUsd" ? sql`${costExpr} ${dir}` : sql`${createdExpr} ${dir}`;
+  const orderExpr =
+    q.sortField === "costUsd" ? sql`${costExpr} ${dir}` : sql`${createdExpr} ${dir}`;
 
   const runRows = await db()
     .select({

@@ -488,7 +488,10 @@ describe("Railway recent-deployment fan-out", () => {
     };
     const depsByProject: Record<string, RailwayDeployment[]> = {
       p1: [dep("d_a1", "2026-07-14T03:00:00Z", "svc1")],
-      p2: [dep("d_b1", "2026-07-14T05:00:00Z", "svc2"), dep("d_b2", "2026-07-14T01:00:00Z", "svc2")],
+      p2: [
+        dep("d_b1", "2026-07-14T05:00:00Z", "svc2"),
+        dep("d_b2", "2026-07-14T01:00:00Z", "svc2"),
+      ],
     };
     const { deployments, failures } = await listRecentDeploymentsForCredentials(
       [cred("a", "A"), cred("b", "B")],

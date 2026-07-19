@@ -1,3 +1,4 @@
+import { toStringArray } from "@alfred/contracts";
 import { db } from "@alfred/db";
 import { integrationCredentials } from "@alfred/db/schemas";
 import { eq } from "drizzle-orm";
@@ -57,7 +58,7 @@ export async function requireScopes(
       `[google.scopes] credential not active: ${credentialId} (status=${row.status})`,
     );
   }
-  const granted = new Set<string>((row.scopes as string[] | null) ?? []);
+  const granted = new Set<string>(toStringArray(row.scopes));
   const required = scopesForFeatures(features);
   const missing = required.filter((s) => !granted.has(s));
   if (missing.length > 0) {

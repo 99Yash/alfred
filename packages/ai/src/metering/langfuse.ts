@@ -2,7 +2,7 @@ import { serverEnv } from "@alfred/env/server";
 import { randomUUID } from "node:crypto";
 import { Langfuse } from "langfuse";
 import type { CallKind, CallUsage, MeteredMeta } from "./types";
-import { sanitizeErrorMessage, summarizeBody, toMessage } from "@alfred/contracts";
+import { sanitizeErrorMessage, summarizeBody, toMessage, toStringArray } from "@alfred/contracts";
 
 /**
  * Lazy-init Langfuse client. We construct it once per process when the
@@ -698,7 +698,7 @@ function stripParams(
     if (v === null || typeof v === "string" || typeof v === "number" || typeof v === "boolean") {
       out[k] = v;
     } else if (Array.isArray(v) && v.every((x) => typeof x === "string")) {
-      out[k] = v as string[];
+      out[k] = toStringArray(v);
     }
     // Anything else (objects, mixed arrays) is silently dropped — Langfuse
     // can't render them and including them broke the type contract.

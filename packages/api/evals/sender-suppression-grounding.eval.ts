@@ -49,7 +49,6 @@ const CONNECTED_SUMMARY = [
 
 const SYSTEM = buildChatSystemPrompt(formatDateGrounding(TIMEZONE, NOW), CONNECTED_SUMMARY);
 
-
 interface Case {
   input: string;
 }
@@ -275,55 +274,58 @@ async function runResolutionScenario(
   };
 }
 
-evalite<string, GroundingTaskOutput, null>("Agent sender-suppression grounding — search before ask", {
-  data: () => CASES.map((c) => ({ input: c.input, expected: null })),
-  task: async (input) => {
-    void serverEnv().ANTHROPIC_API_KEY;
-    // Per the eval-lane lesson (project_triage_eval_provider_coupling): an eval
-    // must never throw, or evalite's reporter hangs the whole job on a transient
-    // provider blip. Degrade to an empty result so the scorers just score 0.
-    try {
-      const result = await runFirstCall(input);
-      const call = result.toolCalls[0];
-      return {
-        toolName: call?.toolName ?? null,
-        args: (call?.input as Record<string, unknown> | undefined) ?? null,
-        text: result.text,
-      };
-    } catch (err) {
-      return { toolName: null, args: null, text: `ERROR: ${(err as Error).message}` };
-    }
+evalite<string, GroundingTaskOutput, null>(
+  "Agent sender-suppression grounding — search before ask",
+  {
+    data: () => CASES.map((c) => ({ input: c.input, expected: null })),
+    task: async (input) => {
+      void serverEnv().ANTHROPIC_API_KEY;
+      // Per the eval-lane lesson (project_triage_eval_provider_coupling): an eval
+      // must never throw, or evalite's reporter hangs the whole job on a transient
+      // provider blip. Degrade to an empty result so the scorers just score 0.
+      try {
+        const result = await runFirstCall(input);
+        const call = result.toolCalls[0];
+        return {
+          toolName: call?.toolName ?? null,
+          args: (call?.input as Record<string, unknown> | undefined) ?? null,
+          text: result.text,
+        };
+      } catch (err) {
+        return { toolName: null, args: null, text: `ERROR: ${(err as Error).message}` };
+      }
+    },
+    scorers: [
+      {
+        // The core regression: the FIRST move must be gmail.search to resolve the
+        // sender — not a text reply asking for the address, and not a blind
+        // system.remember without an address it could have looked up.
+        name: "First move is gmail.search (resolves the sender itself)",
+        scorer: ({ output }) => ({
+          score: output.toolName === SEARCH_TOOL ? 1 : 0,
+          metadata:
+            output.toolName === SEARCH_TOOL
+              ? `searched: ${JSON.stringify(output.args)}`
+              : output.toolName === null
+                ? `NO tool call — asked instead of searching: ${output.text.slice(0, 200)}`
+                : `reached for ${output.toolName} before searching: ${JSON.stringify(output.args)}`,
+        }),
+      },
+      {
+        // Separate, blunter signal: did it act at all, or punt back to the user?
+        // Catches the exact Haiku failure mode ("what's the sender's address?").
+        name: "Did not punt — made a tool call instead of asking",
+        scorer: ({ output }) => ({
+          score: output.toolName !== null ? 1 : 0,
+          metadata:
+            output.toolName !== null
+              ? `acted via ${output.toolName}`
+              : `punted with a question: ${output.text.slice(0, 200)}`,
+        }),
+      },
+    ],
   },
-  scorers: [
-    {
-      // The core regression: the FIRST move must be gmail.search to resolve the
-      // sender — not a text reply asking for the address, and not a blind
-      // system.remember without an address it could have looked up.
-      name: "First move is gmail.search (resolves the sender itself)",
-      scorer: ({ output }) => ({
-        score: output.toolName === SEARCH_TOOL ? 1 : 0,
-        metadata:
-          output.toolName === SEARCH_TOOL
-            ? `searched: ${JSON.stringify(output.args)}`
-            : output.toolName === null
-              ? `NO tool call — asked instead of searching: ${output.text.slice(0, 200)}`
-              : `reached for ${output.toolName} before searching: ${JSON.stringify(output.args)}`,
-      }),
-    },
-    {
-      // Separate, blunter signal: did it act at all, or punt back to the user?
-      // Catches the exact Haiku failure mode ("what's the sender's address?").
-      name: "Did not punt — made a tool call instead of asking",
-      scorer: ({ output }) => ({
-        score: output.toolName !== null ? 1 : 0,
-        metadata:
-          output.toolName !== null
-            ? `acted via ${output.toolName}`
-            : `punted with a question: ${output.text.slice(0, 200)}`,
-      }),
-    },
-  ],
-});
+);
 
 evalite<ResolutionInput, ResolutionTaskOutput, string | null>(
   "Agent sender-suppression grounding — persists only clear sender matches",
