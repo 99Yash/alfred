@@ -1,7 +1,12 @@
 import { EMBEDDING_DIMENSIONS, embed } from "@alfred/ai/embeddings";
 import { db } from "@alfred/db";
 import { buildEmbedFailureSet, EMBED_SUCCESS_RESET, formatVectorFloat32 } from "@alfred/db/helpers";
-import { memoryChunks, type MemoryChunk } from "@alfred/db/schemas";
+import {
+  memoryChunkInsertSchema,
+  memoryChunks,
+  type MemoryChunk,
+  type NewMemoryChunk,
+} from "@alfred/db/schemas";
 import { and, eq, isNotNull, isNull, sql } from "drizzle-orm";
 import { createHash } from "node:crypto";
 import { z } from "zod";
@@ -14,13 +19,17 @@ import {
   parseMemorySourceOrDefault,
 } from "./types";
 
-export const writeMemoryChunkArgsSchema = z.object({
-  userId: z.string().min(1),
-  kind: memoryChunkKindSchema,
-  content: z.string().min(1).max(50_000),
-  source: memorySourceSchema,
-  metadata: z.record(z.string(), z.unknown()).optional(),
-});
+export const writeMemoryChunkArgsSchema = memoryChunkInsertSchema
+  .pick({ userId: true, kind: true, content: true, source: true, metadata: true })
+  .extend({
+    userId: z.string().min(1),
+    kind: memoryChunkKindSchema,
+    content: z.string().min(1).max(50_000),
+    source: memorySourceSchema,
+    metadata: jsonRecordSchema.optional(),
+  }) satisfies z.ZodType<
+  Pick<NewMemoryChunk, "userId" | "kind" | "content" | "source" | "metadata">
+>;
 export type WriteMemoryChunkArgs = z.infer<typeof writeMemoryChunkArgsSchema>;
 
 /**

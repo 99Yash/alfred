@@ -104,7 +104,7 @@ export function ActivityTable({ start, end, categories }: ActivityTableProps) {
   const [sortDir, setSortDir] = useState<UsageSortDir>("desc");
 
   // Reset to page 1 when the filter or window changes, without an effect.
-  const resetKey = `${start}|${end}|${[...categories].sort().join(",")}`;
+  const resetKey = `${start}|${end}|${categories.toSorted().join(",")}`;
   const [prevResetKey, setPrevResetKey] = useState(resetKey);
   if (resetKey !== prevResetKey) {
     setPrevResetKey(resetKey);

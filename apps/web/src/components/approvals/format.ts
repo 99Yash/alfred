@@ -81,22 +81,3 @@ export function formatTimestamp(iso: string): string {
     minute: "2-digit",
   });
 }
-
-/**
- * Absolute, human date-time for proposed-input fields (e.g. calendar event
- * start/end). Renders in the viewer's local timezone; falls back to the raw
- * value when it isn't a parseable date, so non-date fields pass through
- * unharmed. Includes the year only when it differs from the current one.
- */
-export function formatDateTime(value: string): string {
-  const d = new Date(value);
-  if (Number.isNaN(d.getTime())) return value;
-  return d.toLocaleString(undefined, {
-    weekday: "short",
-    month: "short",
-    day: "numeric",
-    year: d.getFullYear() === new Date().getFullYear() ? undefined : "numeric",
-    hour: "numeric",
-    minute: "2-digit",
-  });
-}

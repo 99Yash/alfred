@@ -273,6 +273,9 @@ export const entities = pgTable(
   (t) => [uniqueIndex("entities_canonical_idx").on(t.userId, t.kind, t.canonicalName)],
 );
 
+/** Runtime shape of a raw `entities` insert. */
+export const entityInsertSchema = createInsertSchema(entities);
+
 export const entityRelations = pgTable(
   "entity_relations",
   {
@@ -307,6 +310,9 @@ export const entityRelations = pgTable(
     index("entity_relations_to_idx").on(t.userId, t.toEntityId),
   ],
 );
+
+/** Runtime shape of a raw `entity_relations` insert. */
+export const entityRelationInsertSchema = createInsertSchema(entityRelations);
 
 // ---------------------------------------------------------------------------
 // memory_chunks
@@ -382,6 +388,15 @@ export const memoryChunks = pgTable(
     check("memory_chunks_source_shape", memorySourceShapeCheck(t.source)),
   ],
 );
+
+/**
+ * Runtime shape of a raw `memory_chunks` insert. Drizzle owns column
+ * presence/defaults; the contracts schema owns the JSONB `source` payload that
+ * Postgres cannot describe beyond `jsonb`.
+ */
+export const memoryChunkInsertSchema = createInsertSchema(memoryChunks, {
+  source: memorySourceSchema.optional(),
+});
 
 // ---------------------------------------------------------------------------
 // memory_extraction_status
@@ -470,7 +485,10 @@ export type NewUserPreference = typeof userPreferences.$inferInsert;
 export type StyleProfile = typeof styleProfiles.$inferSelect;
 export type NewStyleProfile = typeof styleProfiles.$inferInsert;
 export type Entity = typeof entities.$inferSelect;
+export type NewEntity = typeof entities.$inferInsert;
 export type EntityRelation = typeof entityRelations.$inferSelect;
+export type NewEntityRelation = typeof entityRelations.$inferInsert;
 export type MemoryChunk = typeof memoryChunks.$inferSelect;
+export type NewMemoryChunk = typeof memoryChunks.$inferInsert;
 export type MemoryExtractionStatus = typeof memoryExtractionStatus.$inferSelect;
 export type RejectedInference = typeof rejectedInferences.$inferSelect;
