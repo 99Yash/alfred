@@ -256,15 +256,13 @@ const CALENDAR_WINDOW_VALUES = ["today", "tomorrow", "next_7_days"] as const;
 
 const calendarListEventsObject = z
   .object({
-    timeMin: z
-      .string()
+    timeMin: z.iso
       .datetime({ offset: true })
       .optional()
       .describe(
         "Explicit RFC3339 lower bound. Use when the user gave an exact date/time window. A trailing 'Z' or a numeric UTC offset (e.g. +05:30) are both accepted.",
       ),
-    timeMax: z
-      .string()
+    timeMax: z.iso
       .datetime({ offset: true })
       .optional()
       .describe(
@@ -1533,12 +1531,13 @@ export const suggestTodoInput = coerceJsonArrayFields(
 /* ── artifacts (ADR-0075) ─────────────────────────────────────────────── */
 
 /**
- * The kinds the boss can actually author. `spreadsheet` is reserved in the
- * artifact type union but has no authoring tool or renderer in v1, so it is
- * excluded here — derived from {@link artifactKindSchema} so it can't drift
- * from the source enum.
+ * The kinds the boss can actually author. `spreadsheet` is reserved (no v1
+ * tool/renderer) and `external_file` is minted server-side when the agent
+ * surfaces an unreadable file (#287), never authored — both excluded here,
+ * derived from {@link artifactKindSchema} so this can't drift from the source
+ * enum.
  */
-const authorableArtifactKindSchema = artifactKindSchema.exclude(["spreadsheet"]);
+const authorableArtifactKindSchema = artifactKindSchema.exclude(["spreadsheet", "external_file"]);
 
 export const createArtifactInput = z
   .object({

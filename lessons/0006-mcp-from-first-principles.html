@@ -1,0 +1,146 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Foundation — MCP from first principles</title>
+  <link rel="stylesheet" href="../assets/lesson.css">
+</head>
+<body>
+<main>
+  <p class="frame-no">Alfred harness · Foundation</p>
+  <h1>Let the agent act.<br>Now contain it.</h1>
+  <p class="lede">MCP makes more sense when we invent it reluctantly. Start with a text-only model, let it reach toward your calendar, and add machinery only when the previous design fails.</p>
+
+  <p class="thesis"><strong>The one sentence to keep:</strong> MCP is a standard conversation between an AI application and programs that offer it data and actions; the AI application still owns judgment, permission, execution policy, and durable orchestration.</p>
+
+  <h2>Scene 0 — the model cannot touch anything</h2>
+  <p>You ask: “Move tomorrow’s dentist appointment to Friday.” The model can produce excellent text, but text does not mutate a calendar. It has no calendar connection, credential, or operating-system hand.</p>
+  <pre>you → model → “Sure, I moved it.”
+                  ↑
+          possibly fluent fiction</pre>
+  <p><strong>First requirement:</strong> some ordinary software must stand between model output and the external world.</p>
+
+  <h2>Scene 1 — give the model a callable function</h2>
+  <p>The application—Alfred—offers a typed operation:</p>
+  <pre>calendar.move_event({ eventId, newStart })</pre>
+  <p>The model proposes the name and arguments. Alfred intercepts that proposal, validates it, calls calendar software, and returns the observed result to the model. The model never “reaches the calendar” directly.</p>
+  <p class="state">This is tool calling. It already works without MCP. A hard-coded TypeScript function is enough.</p>
+
+  <h2>Scene 2 — repeat that for every application</h2>
+  <p>Now Alfred needs Gmail, GitHub, Notion, Linear, local files, and databases. Claude Desktop and VS Code want them too. Without a shared boundary, every AI application invents its own answers to the same questions:</p>
+  <ul>
+    <li>How do I connect and learn what operations exist?</li>
+    <li>How are arguments and results shaped?</li>
+    <li>How do I read data that is not an action?</li>
+    <li>How do I detect changed capabilities, failures, progress, or disconnection?</li>
+    <li>How does a remote server authenticate me?</li>
+  </ul>
+  <p><strong>This integration seam is what MCP standardizes.</strong> It uses JSON-RPC messages and a connection lifecycle so a compliant host can speak to many compliant servers without inventing a bespoke wire protocol for each pair.</p>
+
+  <div class="legend" aria-label="MCP participants">
+    <div><strong>Host</strong> The AI application. Alfred owns the model loop, UI, policy, and context.</div>
+    <div><strong>Client</strong> One connection manager inside the host for one MCP server.</div>
+    <div><strong>Server</strong> A local or remote program that advertises capabilities and handles requests.</div>
+  </div>
+  <p class="state">“Server” describes a protocol role, not a place. It may be a local child process over stdio or a remote service over Streamable HTTP.</p>
+
+  <h2>Scene 3 — the smallest useful MCP film</h2>
+  <div class="timeline">
+    <article class="frame"><div class="frame-no">Frame 01</div><div><h3>Can we understand each other?</h3><p>The client sends <code>initialize</code>. Both sides agree on a protocol version and declare optional capabilities.</p><p class="state">Mitigates version guessing and unsupported-feature calls. It does not establish user intent.</p></div></article>
+    <article class="frame"><div class="frame-no">Frame 02</div><div><h3>What can you do?</h3><p>Alfred asks <code>tools/list</code>. The server returns names, descriptions, and JSON Schemas.</p><p class="state">Mitigates hard-coded catalogs and malformed arguments. Descriptions and annotations are still untrusted claims.</p></div></article>
+    <article class="frame"><div class="frame-no">Frame 03</div><div><h3>The model proposes</h3><p>Given selected schemas, the model emits a tool call such as <code>calendar.move_event(...)</code>.</p><p class="state">This is a proposal in model output—not execution and not authorization.</p></div></article>
+    <article class="frame"><div class="frame-no">Frame 04</div><div><h3>The host decides</h3><p>Alfred checks the exact active tool, workflow scope, connected identity, argument schema, risk policy, and any required human approval.</p><p class="state">This is Alfred’s control plane. MCP does not supply this decision.</p></div></article>
+    <article class="frame"><div class="frame-no">Frame 05</div><div><h3>The client calls</h3><p>If allowed, Alfred sends <code>tools/call</code>. The server validates again, enforces its own access controls, invokes the calendar API, and returns content or an error.</p><p class="state">Both boundaries validate because neither should blindly trust the other.</p></div></article>
+    <article class="frame"><div class="frame-no">Frame 06</div><div><h3>Evidence returns</h3><p>Alfred records the result and gives a bounded, sanitized representation to the model, which can now answer truthfully.</p><p class="state">The result is external input. It may be huge, malformed, stale, or contain prompt injection.</p></div></article>
+  </div>
+
+  <h2>Why MCP has three server primitives</h2>
+  <table class="compact-table">
+    <thead><tr><th>Need</th><th>Primitive</th><th>Example</th></tr></thead>
+    <tbody>
+      <tr><td>Cause work or compute something</td><td><strong>Tool</strong></td><td>Move an event; query a database</td></tr>
+      <tr><td>Read addressable context</td><td><strong>Resource</strong></td><td>A file, schema, record, or live document</td></tr>
+      <tr><td>Offer a reusable interaction recipe</td><td><strong>Prompt</strong></td><td>A code-review or incident-analysis template</td></tr>
+    </tbody>
+  </table>
+  <p>Later features go in the reverse direction too: a server can ask the host to request user input (<strong>elicitation</strong>) or obtain a model completion through the host (<strong>sampling</strong>). These are protocol abilities, not permission to silently do either.</p>
+
+  <h2>Now attack the design</h2>
+  <table class="compact-table">
+    <thead><tr><th>Failure</th><th>Protocol mitigation</th><th>Still required outside MCP</th></tr></thead>
+    <tbody>
+      <tr><td>Client and server evolve differently</td><td>Version and capability negotiation; change notifications</td><td>Compatibility testing, pinning, graceful fallback</td></tr>
+      <tr><td>Model invents a name or bad argument</td><td>Discoverable names; input/output JSON Schemas; actionable tool errors</td><td>Host and server validation; semantic checks</td></tr>
+      <tr><td>Wrong person accesses private data</td><td>OAuth-based HTTP authorization, audience-bound tokens, scope minimization</td><td>Application policy, tenant isolation, credential storage, per-action approval</td></tr>
+      <tr><td>Tool output contains hostile instructions</td><td>No automatic cure; results are typed envelopes</td><td>Treat content as untrusted data, sanitize, bound, preserve provenance</td></tr>
+      <tr><td>Model tries a destructive action</td><td>Spec recommends visible invocation and human denial controls</td><td>Risk tiers, allowlists, approval UI, audit, idempotency, rollback</td></tr>
+      <tr><td>Installed local server is malicious</td><td>Stdio limits who connects; security guidance recommends consent and sandboxing</td><td>Trust distribution, command review, OS sandbox, least privilege</td></tr>
+      <tr><td>Call times out after side effect succeeds</td><td>Errors, progress, cancellation; experimental tasks for deferred retrieval</td><td>Idempotency keys, reconciliation, durable checkpoints, retry policy</td></tr>
+      <tr><td>Hundreds of schemas swamp the prompt</td><td>Dynamic listing helps discovery</td><td>Tool selection/lazy loading and provider-specific cache strategy</td></tr>
+    </tbody>
+  </table>
+
+  <p class="thesis"><strong>The uncomfortable truth:</strong> interoperability increases the supply of executable capability. It does not automatically increase trust. A good MCP host is therefore a security and orchestration boundary, not merely a JSON-RPC adapter.</p>
+
+  <h2>What MCP is versus what it does</h2>
+  <table class="compact-table">
+    <tbody>
+      <tr><th>MCP is</th><td>A versioned protocol, schemas, lifecycle, transports, and SDK ecosystem for exchanging capabilities and context.</td></tr>
+      <tr><th>MCP does</th><td>Let a host discover and invoke tools, read resources, obtain prompts, and coordinate optional features using a shared message shape.</td></tr>
+      <tr><th>MCP is not</th><td>An agent, model, tool-selection algorithm, permission policy, sandbox, durable workflow engine, prompt cache, integration marketplace, or guarantee that a server is honest.</td></tr>
+    </tbody>
+  </table>
+
+  <h2>Place it inside Alfred</h2>
+  <pre>User
+  ↓
+Alfred host: model loop + durable workflow + policy + approvals + audit
+  ↓
+MCP client: protocol connection + discovery + request routing
+  ↓
+MCP server: capability adapter + server-side validation/access control
+  ↓
+Calendar / GitHub / files / database</pre>
+  <p>Alfred’s ADR-0018 plans the <strong>client</strong> side: connect per-user servers, import their tools into Alfred’s registry, namespace them, and route calls through the same metering and approval machinery as native tools. The backend import path is still deferred. Alfred becoming a server—letting other AI hosts call Alfred’s own capabilities—is a separate direction and is also deferred.</p>
+
+  <p>This also reveals where the earlier lessons fit: prompt caching and deferred schemas are optimizations for how Alfred presents a large discovered tool catalog to a model. They are downstream of MCP’s main job. You can understand and implement MCP correctly without prompt caching; you cannot safely operate an MCP tool without a trustworthy host boundary.</p>
+
+  <div class="quiz">
+    <h2 style="margin-top:0">Boundary check</h2>
+    <p>An MCP calendar server advertises <code>delete_all_events</code>. What, by itself, prevents the model from executing it?</p>
+    <div class="answer-grid">
+      <button data-ok="false">The MCP protocol forbids destructive tools</button>
+      <button data-ok="true">The host’s exposure and approval policy</button>
+      <button data-ok="false">The tool’s JSON input schema alone</button>
+    </div>
+    <p class="feedback" id="feedback" aria-live="polite"></p>
+  </div>
+
+  <h2>Pause here</h2>
+  <p>Without using the words “standard” or “USB-C,” explain where MCP sits in the calendar film. Then ask your agent about whichever arrow still seems capable of cheating. Continue to <a href="0007-schema-source-and-calendar-call.html">Foundation 2: import the schema, keep the gate</a>, then to <a href="0001-direct-chat-happy-path.html">Case 1: Alfred’s durable direct-chat path</a>.</p>
+
+  <h2>Primary sources</h2>
+  <ul class="sources">
+    <li><a href="https://modelcontextprotocol.io/docs/learn/architecture">Official MCP architecture overview</a> — scope, participants, layers, primitives, and the discovery/call flow.</li>
+    <li><a href="https://modelcontextprotocol.io/specification/2025-11-25/server/tools">MCP tools specification (2025-11-25)</a> — schemas, errors, human-in-the-loop guidance, and client/server security duties.</li>
+    <li><a href="https://modelcontextprotocol.io/specification/2025-11-25/basic/authorization">MCP authorization specification (2025-11-25)</a> — OAuth roles, protected-resource discovery, audience binding, and scope minimization.</li>
+    <li><a href="https://modelcontextprotocol.io/docs/tutorials/security/security_best_practices">MCP security best practices</a> — confused deputies, token passthrough, SSRF, session hijacking, and local-server compromise.</li>
+    <li><a href="../decisions.md#adr-0018--mcp-scope-client-side-only-at-v1">Alfred ADR-0018</a> and <a href="../docs/reference/milestones.md">milestone status</a>.</li>
+    <li><a href="../reference/mcp-responsibility-map.html">Reference: MCP responsibility map</a>.</li>
+  </ul>
+</main>
+<script>
+  const feedback = document.querySelector('#feedback');
+  document.querySelectorAll('button[data-ok]').forEach((button) => {
+    button.addEventListener('click', () => {
+      const correct = button.dataset.ok === 'true';
+      feedback.textContent = correct
+        ? 'Correct. Discovery says the capability exists. Alfred must decide whether this run may see and invoke it, and whether a human must approve.'
+        : 'Try again. MCP can describe and transport a call, but it does not decide that this user, workflow, and moment authorize the action.';
+      feedback.style.color = correct ? 'var(--success)' : 'var(--error)';
+    });
+  });
+</script>
+</body>
+</html>

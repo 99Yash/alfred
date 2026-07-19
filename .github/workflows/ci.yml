@@ -46,6 +46,15 @@ jobs:
       - name: Check web package boundaries
         run: corepack pnpm check:web-boundaries
 
+      - name: Check import aliases
+        run: corepack pnpm check:imports
+
+      - name: Check consolidation drift
+        run: corepack pnpm check:consolidation
+
+      - name: Check duplication
+        run: corepack pnpm check:duplicates
+
       - name: Lint
         run: corepack pnpm lint
 
