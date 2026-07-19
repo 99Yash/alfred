@@ -70,7 +70,7 @@ interface ActivityArgs extends UsageWindow {
 }
 
 export function useUsageActivity(args: ActivityArgs) {
-  const categoriesKey = [...args.categories].sort().join(",");
+  const categoriesKey = args.categories.toSorted().join(",");
   return useQuery<UsageActivityResult>({
     queryKey: [
       "usage",

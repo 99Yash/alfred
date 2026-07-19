@@ -845,9 +845,12 @@ function useRefCallback<T extends Element>(
   callback: (el: T | null) => void,
 ): (el: T | null) => void {
   const callbackRef = useRef(callback);
+  // No dep array: `callback` is a fresh closure every render, so the ref must
+  // resync every commit. Listing `[callback]` would only pretend the effect is
+  // conditional while still firing every render.
   useEffect(() => {
     callbackRef.current = callback;
-  }, [callback]);
+  });
   return useMemo(() => (el: T | null) => callbackRef.current(el), []);
 }
 

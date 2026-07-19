@@ -1,28 +1,44 @@
 import { db, type DbTransaction } from "@alfred/db";
-import { entities, entityRelations, type Entity } from "@alfred/db/schemas";
+import {
+  entities,
+  entityInsertSchema,
+  entityRelationInsertSchema,
+  entityRelations,
+  type Entity,
+  type NewEntity,
+  type NewEntityRelation,
+} from "@alfred/db/schemas";
 import { and, eq, sql } from "drizzle-orm";
 import { z } from "zod";
 import { entityKindSchema, type EntityKind, jsonRecordSchema } from "./types";
 
 const aliasesSchema = z.array(z.string());
 
-export const upsertEntityArgsSchema = z.object({
-  userId: z.string().min(1),
-  kind: entityKindSchema,
-  canonicalName: z.string().min(1).max(500),
-  aliases: z.array(z.string()).optional(),
-  metadata: z.record(z.string(), z.unknown()).optional(),
-});
+export const upsertEntityArgsSchema = entityInsertSchema
+  .pick({ userId: true, kind: true, canonicalName: true, aliases: true, metadata: true })
+  .extend({
+    userId: z.string().min(1),
+    kind: entityKindSchema,
+    canonicalName: z.string().min(1).max(500),
+    aliases: z.array(z.string()).optional(),
+    metadata: jsonRecordSchema.optional(),
+  }) satisfies z.ZodType<
+  Pick<NewEntity, "userId" | "kind" | "canonicalName" | "aliases" | "metadata">
+>;
 export type UpsertEntityArgs = z.infer<typeof upsertEntityArgsSchema>;
 
-export const linkEntitiesArgsSchema = z.object({
-  userId: z.string().min(1),
-  fromEntityId: z.string().min(1),
-  toEntityId: z.string().min(1),
-  /** `manager_of`, `reports_to`, `works_at`, `colleague_of`, `invested_in`, … */
-  relation: z.string().min(1).max(80),
-  metadata: z.record(z.string(), z.unknown()).optional(),
-});
+export const linkEntitiesArgsSchema = entityRelationInsertSchema
+  .pick({ userId: true, fromEntityId: true, toEntityId: true, relation: true, metadata: true })
+  .extend({
+    userId: z.string().min(1),
+    fromEntityId: z.string().min(1),
+    toEntityId: z.string().min(1),
+    /** `manager_of`, `reports_to`, `works_at`, `colleague_of`, `invested_in`, … */
+    relation: z.string().min(1).max(80),
+    metadata: jsonRecordSchema.optional(),
+  }) satisfies z.ZodType<
+  Pick<NewEntityRelation, "userId" | "fromEntityId" | "toEntityId" | "relation" | "metadata">
+>;
 export type LinkEntitiesArgs = z.infer<typeof linkEntitiesArgsSchema>;
 
 /**

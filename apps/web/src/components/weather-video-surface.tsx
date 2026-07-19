@@ -83,15 +83,19 @@ export function WeatherVideoSurface({ condition, isDay, className }: WeatherVide
   // (apple-design §7 — materialize, don't jump-cut). The array's last entry
   // is always the active layer.
   const nextId = useRef(1);
+  // Tracks the src of the current top layer so the append decision and the id
+  // bump live in the effect body, not inside the state updater. React can run
+  // an updater more than once (Strict Mode, bail-out replays); keeping the
+  // `nextId` write out of it means one append never burns two ids.
+  const lastSrcRef = useRef(videoSrc);
   const [layers, setLayers] = useState<Layer[]>(() => [{ id: 0, src: videoSrc }]);
 
   useEffect(() => {
-    setLayers((prev) => {
-      if (prev[prev.length - 1]?.src === videoSrc) return prev;
-      const id = nextId.current;
-      nextId.current += 1;
-      return [...prev, { id, src: videoSrc }];
-    });
+    if (lastSrcRef.current === videoSrc) return;
+    lastSrcRef.current = videoSrc;
+    const id = nextId.current;
+    nextId.current += 1;
+    setLayers((prev) => [...prev, { id, src: videoSrc }]);
   }, [videoSrc]);
 
   const pruneTo = (id: number) => {

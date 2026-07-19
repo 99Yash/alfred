@@ -587,7 +587,10 @@ function PagesBody({
             const active = index === safeIndex;
             return (
               <button
-                key={`${index}-${page.title}`}
+                // `ArtifactPage` carries no id, so key by content (title + body
+                // length): stable when an `update_artifact` replace reorders the
+                // list, unlike the position index.
+                key={`${page.title}:${page.html.length}`}
                 type="button"
                 onClick={() => onPageIndexChange(index)}
                 className={cn(
