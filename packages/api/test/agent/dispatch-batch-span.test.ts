@@ -134,7 +134,11 @@ describe("startDispatchBatchSpan closer", () => {
     const results = [result("executed"), result("executed")];
     const { ended } = withSpan((closer) => closer.end("committed", results));
     assert.deepEqual(ended, [
-      { status: "committed", level: undefined, metadata: dispatchBatchEndMetadata(summarizeDispatchBatch(results)) },
+      {
+        status: "committed",
+        level: undefined,
+        metadata: dispatchBatchEndMetadata(summarizeDispatchBatch(results)),
+      },
     ]);
   });
 

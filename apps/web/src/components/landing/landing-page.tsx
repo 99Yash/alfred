@@ -1,5 +1,4 @@
 import { ArrowRight, Sparkles } from "lucide-react";
-import { type ReactNode } from "react";
 import {
   AccessNotice,
   FadeInOnScroll,
@@ -10,6 +9,7 @@ import {
   LandingStatement,
 } from "~/components/landing";
 import { BenefitsRow } from "~/components/landing/benefits-row";
+import { EyebrowChip } from "~/components/landing/eyebrow-chip";
 import { FeatureGrid } from "~/components/landing/feature-grid";
 import { HeroShowcase } from "~/components/landing/hero-showcase";
 import { LandingBackground } from "~/components/landing/landing-background";
@@ -183,32 +183,5 @@ function Hero({
         <HeroShowcase />
       </FadeInOnScroll>
     </section>
-  );
-}
-
-function EyebrowChip({
-  children,
-  icon,
-  accent = "neutral",
-}: {
-  children: ReactNode;
-  icon?: ReactNode;
-  accent?: "neutral" | "emerald" | "indigo" | "amber";
-}) {
-  return (
-    <span
-      className={cn(
-        "inline-flex items-center gap-1.5 rounded-full px-2.5 py-1",
-        "text-[12px] font-medium tracking-tight",
-        "border",
-        accent === "emerald" && "border-emerald-500/25 bg-emerald-500/[0.07] text-emerald-300",
-        accent === "indigo" && "border-indigo-400/25 bg-indigo-400/[0.07] text-indigo-200",
-        accent === "amber" && "border-amber-400/25 bg-amber-400/[0.07] text-amber-200",
-        accent === "neutral" && "border-neutral-800 bg-neutral-900/60 text-neutral-300",
-      )}
-    >
-      {icon}
-      <span>{children}</span>
-    </span>
   );
 }

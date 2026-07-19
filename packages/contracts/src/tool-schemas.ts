@@ -95,7 +95,7 @@ function modelToolEmail() {
  * with `_`/`-` stripped. Mirrors dispatch's `normalizeToolInputKeys` canon so a
  * curated alias folds the same cased/underscored variants the generic pass does.
  */
-const canonicalKey = (key: string): string => key.toLowerCase().replace(/[_-]/g, "");
+export const canonicalParamKey = (key: string): string => key.toLowerCase().replace(/[_-]/g, "");
 
 /**
  * Search tools split on the query field name: `drive`/`gmail` use `q` (the
@@ -166,7 +166,7 @@ function withKeyAliases<S extends z.ZodObject>(
       const key =
         alias in next
           ? alias
-          : Object.keys(next).find((k) => canonicalKey(k) === canonicalKey(alias));
+          : Object.keys(next).find((k) => canonicalParamKey(k) === canonicalParamKey(alias));
       if (key === undefined) continue;
       if (next === value) next = { ...value };
       // An alias is never itself an accepted key, so always remove it: fold it
@@ -528,7 +528,7 @@ const GITHUB_ITEM_URL_RE = /github\.com\/([^/\s]+)\/([^/\s]+)\/(?:pull|issues)\/
  */
 const GITHUB_OWNER_REPO_SLUG_RE = /^([^/\s]+)\/([^/\s]+)$/;
 /**
- * Canonical forms (see {@link canonicalKey}) of the number synonyms the model
+ * Canonical forms (see {@link canonicalParamKey}) of the number synonyms the model
  * actually reaches for. Kept a closed set on purpose — see the wrapper's note.
  */
 const GITHUB_ITEM_NUMBER_SYNONYMS: ReadonlySet<string> = new Set([
@@ -575,7 +575,7 @@ function withGithubItemUrl<S extends z.ZodObject>(
     if (!(numberKey in next)) {
       for (const key of Object.keys(next)) {
         if (key === "owner" || key === "repo") continue;
-        if (!GITHUB_ITEM_NUMBER_SYNONYMS.has(canonicalKey(key))) continue;
+        if (!GITHUB_ITEM_NUMBER_SYNONYMS.has(canonicalParamKey(key))) continue;
         fork();
         next[numberKey] = next[key];
         delete next[key];

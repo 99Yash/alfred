@@ -81,9 +81,7 @@ export const chatMessageUsageSchema = z.object({
    * expected on `claude-sonnet-4-6` showing `gemini-3.5-flash` means the
    * Anthropic primary errored and `withFallback` degraded it (spend cap, 429).
    */
-  models: z
-    .array(z.object({ model: z.string(), calls: z.number().int().positive() }))
-    .default([]),
+  models: z.array(z.object({ model: z.string(), calls: z.number().int().positive() })).default([]),
 });
 export type ChatMessageUsage = z.infer<typeof chatMessageUsageSchema>;
 

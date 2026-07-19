@@ -21,12 +21,48 @@ describe("summarizeRunBottlenecks", () => {
         { latencyMs: 2000, inputTokens: 200, outputTokens: 40, costUsd: "2.5" },
       ],
       steps: [
-        { stepId: "boss-turn", status: "completed", startedAt: t(0), endedAt: t(1000), errorReason: null },
-        { stepId: "dispatch-tools", status: "interrupted", startedAt: t(1500), endedAt: t(2000), errorReason: null },
-        { stepId: "boss-turn", status: "completed", startedAt: t(5000), endedAt: t(5500), errorReason: null },
-        { stepId: "dispatch-tools", status: "interrupted", startedAt: t(5800), endedAt: t(6300), errorReason: null },
-        { stepId: "boss-turn", status: "completed", startedAt: t(9000), endedAt: t(9500), errorReason: null },
-        { stepId: "dispatch-tools", status: "failed", startedAt: t(9600), endedAt: t(9700), errorReason: "lease_reclaimed" },
+        {
+          stepId: "boss-turn",
+          status: "completed",
+          startedAt: t(0),
+          endedAt: t(1000),
+          errorReason: null,
+        },
+        {
+          stepId: "dispatch-tools",
+          status: "interrupted",
+          startedAt: t(1500),
+          endedAt: t(2000),
+          errorReason: null,
+        },
+        {
+          stepId: "boss-turn",
+          status: "completed",
+          startedAt: t(5000),
+          endedAt: t(5500),
+          errorReason: null,
+        },
+        {
+          stepId: "dispatch-tools",
+          status: "interrupted",
+          startedAt: t(5800),
+          endedAt: t(6300),
+          errorReason: null,
+        },
+        {
+          stepId: "boss-turn",
+          status: "completed",
+          startedAt: t(9000),
+          endedAt: t(9500),
+          errorReason: null,
+        },
+        {
+          stepId: "dispatch-tools",
+          status: "failed",
+          startedAt: t(9600),
+          endedAt: t(9700),
+          errorReason: "lease_reclaimed",
+        },
       ],
       stagings: [
         { status: "approved", createdAt: t(2000), decidedAt: t(4000) },
@@ -65,15 +101,45 @@ describe("summarizeRunBottlenecks", () => {
       run: { startedAt: t(0), endedAt: t(10_000) },
       apiCalls: [],
       steps: [
-        { stepId: "boss-turn", status: "completed", startedAt: t(0), endedAt: t(100), errorReason: null },
+        {
+          stepId: "boss-turn",
+          status: "completed",
+          startedAt: t(0),
+          endedAt: t(100),
+          errorReason: null,
+        },
         // gap 200 (queue, after completed)
-        { stepId: "dispatch-tools", status: "interrupted", startedAt: t(300), endedAt: t(400), errorReason: null },
+        {
+          stepId: "dispatch-tools",
+          status: "interrupted",
+          startedAt: t(300),
+          endedAt: t(400),
+          errorReason: null,
+        },
         // gap 1000 (wait, after interrupted) — matched by the approval below
-        { stepId: "boss-turn", status: "completed", startedAt: t(1400), endedAt: t(1500), errorReason: null },
+        {
+          stepId: "boss-turn",
+          status: "completed",
+          startedAt: t(1400),
+          endedAt: t(1500),
+          errorReason: null,
+        },
         // gap 50 (queue, after completed)
-        { stepId: "dispatch-tools", status: "interrupted", startedAt: t(1550), endedAt: t(1600), errorReason: null },
+        {
+          stepId: "dispatch-tools",
+          status: "interrupted",
+          startedAt: t(1550),
+          endedAt: t(1600),
+          errorReason: null,
+        },
         // gap 5000 (wait, after interrupted) — no staging → sub-agent
-        { stepId: "boss-turn", status: "completed", startedAt: t(6600), endedAt: t(6700), errorReason: null },
+        {
+          stepId: "boss-turn",
+          status: "completed",
+          startedAt: t(6600),
+          endedAt: t(6700),
+          errorReason: null,
+        },
       ],
       stagings: [{ status: "approved", createdAt: t(400), decidedAt: t(1400) }],
     };
@@ -91,8 +157,20 @@ describe("summarizeRunBottlenecks", () => {
       run: { startedAt: t(0), endedAt: t(2000) },
       apiCalls: [],
       steps: [
-        { stepId: "boss-turn", status: "completed", startedAt: t(1000), endedAt: t(1100), errorReason: null },
-        { stepId: "boss-turn", status: "completed", startedAt: t(0), endedAt: t(100), errorReason: null },
+        {
+          stepId: "boss-turn",
+          status: "completed",
+          startedAt: t(1000),
+          endedAt: t(1100),
+          errorReason: null,
+        },
+        {
+          stepId: "boss-turn",
+          status: "completed",
+          startedAt: t(0),
+          endedAt: t(100),
+          errorReason: null,
+        },
       ],
       stagings: [],
     };

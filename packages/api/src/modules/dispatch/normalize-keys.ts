@@ -1,4 +1,4 @@
-import { isRecord } from "@alfred/contracts";
+import { canonicalParamKey, isRecord } from "@alfred/contracts";
 import type { z } from "zod";
 import { acceptedParamNames } from "./invalid-input";
 
@@ -31,8 +31,6 @@ import { acceptedParamNames } from "./invalid-input";
  * Pure and dependency-light (zod types only) so it unit-tests in isolation.
  */
 
-const canon = (key: string): string => key.toLowerCase().replace(/[_-]/g, "");
-
 export interface KeyNormalizationResult {
   /** The input with recognizable casing/underscore variants renamed to the schema key. */
   input: unknown;
@@ -53,7 +51,7 @@ export function normalizeToolInputKeys(
   // accepted keys collapse to the same form (ambiguous — never rename into it).
   const canonToKey = new Map<string, string | null>();
   for (const key of accepted) {
-    const c = canon(key);
+    const c = canonicalParamKey(key);
     canonToKey.set(c, canonToKey.has(c) ? null : key);
   }
 
@@ -61,7 +59,7 @@ export function normalizeToolInputKeys(
   let next = input;
   for (const key of Object.keys(input)) {
     if (acceptedSet.has(key)) continue; // already a canonical key — leave it
-    const target = canonToKey.get(canon(key));
+    const target = canonToKey.get(canonicalParamKey(key));
     if (!target) continue; // no match, or an ambiguous canonical form
     if (target in next) continue; // canonical key already present — don't clobber
     if (next === input) next = { ...input };

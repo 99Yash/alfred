@@ -87,3 +87,5 @@ teaching/
 # Teaching workspace (/teach skill) — local only
 .teach/
 .wayfinder/
+# jscpd copy-paste detector output
+.jscpd/

@@ -1,3 +1,4 @@
+import { toStringArray } from "@alfred/contracts";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useMemo } from "react";
 import { client } from "~/lib/eden";
@@ -129,7 +130,7 @@ function useProviderCredentials(backend: IntegrationBackend) {
         accountId: String(r.accountId),
         accountLabel: typeof r.accountLabel === "string" ? r.accountLabel : null,
         status: String(r.status),
-        scopes: Array.isArray(r.scopes) ? (r.scopes as string[]) : [],
+        scopes: toStringArray(r.scopes),
         installationId: typeof r.installationId === "string" ? r.installationId : null,
         expiresAt: typeof r.expiresAt === "string" ? r.expiresAt : null,
         lastRefreshedAt: typeof r.lastRefreshedAt === "string" ? r.lastRefreshedAt : null,

@@ -16,11 +16,17 @@ import { composeAgentInstructions } from "../agent/instructions";
 import { sanitizeVoice } from "../agent/voice-sanitize";
 import type { BriefingDigest, BriefingItem, PriorityCategory } from "./gather";
 import {
+  EMAIL_LINK_STYLE as LINK_STYLE,
+  EMAIL_P_STYLE as P_STYLE,
+  EMAIL_WRAPPER_STYLE as WRAPPER_STYLE,
+} from "./email-styles";
+import {
   buildBriefingSourcePanels,
   escapeHtml,
   listBriefingReferenceOptions,
   referencesFromSections,
 } from "./references";
+import { shortenFrom } from "./sender";
 
 /**
  * Deterministic HTML+text renderer for the inbox-only morning briefing.
@@ -470,27 +476,10 @@ function renderItemHtml(item: BriefingItem): string {
   ].join("\n");
 }
 
-/**
- * Trim a typical RFC-5322 `From: "Display Name" <addr@example.com>` to
- * just the display name, falling back to the address.
- */
-function shortenFrom(from: string | null): string | null {
-  if (!from) return null;
-  const trimmed = from.trim();
-  const angleMatch = trimmed.match(/^"?([^"<]+?)"?\s*<([^>]+)>$/);
-  if (angleMatch) {
-    const name = angleMatch[1]?.trim();
-    if (name) return name;
-    return angleMatch[2] ?? null;
-  }
-  return trimmed;
-}
-
 // Inline styles only — Gmail strips <style> blocks, and inlining is the
 // only reliable way to get consistent rendering across email clients.
-const WRAPPER_STYLE =
-  'font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; max-width: 600px; color: #1a1a1a; line-height: 1.5;';
-const P_STYLE = "margin: 0 0 16px 0; font-size: 15px;";
+// The shared brand shell (WRAPPER/P/LINK) is owned by ./references; the
+// briefing-specific tokens below stay local.
 const MUTED_P_STYLE = "margin: 24px 0 0 0; font-size: 13px; color: #6b6b6b;";
 const H2_STYLE = "font-size: 14px; font-weight: 600; margin: 24px 0 8px 0; color: #1a1a1a;";
 const COUNT_STYLE = "color: #6b6b6b; font-weight: 400;";
@@ -498,4 +487,3 @@ const UL_STYLE = "margin: 0; padding-left: 20px;";
 const LI_STYLE = "margin-bottom: 12px; font-size: 14px;";
 const MUTED_INLINE_STYLE = "color: #6b6b6b; font-weight: 400;";
 const RATIONALE_STYLE = "color: #6b6b6b; font-size: 13px; margin-top: 2px;";
-const LINK_STYLE = "color: #2563eb; text-decoration: none;";

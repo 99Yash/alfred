@@ -5,7 +5,7 @@ import {
   type ThreadTurn,
   type Workflow,
 } from "@alfred/api/backend";
-import { chatPropositionSchema, toMessage } from "@alfred/contracts";
+import { chatPropositionSchema, isNonEmptyString, toMessage } from "@alfred/contracts";
 import { db } from "@alfred/db";
 import { chatMessages, chatThreads } from "@alfred/db/schemas";
 import { and, asc, eq, lt, lte, or } from "drizzle-orm";
@@ -76,13 +76,14 @@ export const chatMemoryCaptureWorkflow: Workflow<State> = {
 
   initialState(input) {
     const metadata = input.metadata ?? {};
-    const threadId = typeof metadata.threadId === "string" ? metadata.threadId : null;
-    if (!threadId) throw new Error("chat-memory-capture workflow requires metadata.threadId");
-    const captureAfterMessageId =
-      typeof metadata.captureAfterMessageId === "string" ? metadata.captureAfterMessageId : null;
-    if (!captureAfterMessageId) {
+    if (!isNonEmptyString(metadata.threadId)) {
+      throw new Error("chat-memory-capture workflow requires metadata.threadId");
+    }
+    const threadId = metadata.threadId;
+    if (!isNonEmptyString(metadata.captureAfterMessageId)) {
       throw new Error("chat-memory-capture workflow requires metadata.captureAfterMessageId");
     }
+    const captureAfterMessageId = metadata.captureAfterMessageId;
     const parsed = inputSchema.parse(input.input ?? {});
     return {
       mode: parsed.mode,
@@ -104,10 +105,7 @@ export const chatMemoryCaptureWorkflow: Workflow<State> = {
   dedupKey(input) {
     const threadId = input.metadata?.threadId;
     const captureAfterMessageId = input.metadata?.captureAfterMessageId;
-    return typeof threadId === "string" &&
-      threadId.length > 0 &&
-      typeof captureAfterMessageId === "string" &&
-      captureAfterMessageId.length > 0
+    return isNonEmptyString(threadId) && isNonEmptyString(captureAfterMessageId)
       ? `chat-memory:${threadId}:${captureAfterMessageId}`
       : null;
   },

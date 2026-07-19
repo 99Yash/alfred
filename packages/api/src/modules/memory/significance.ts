@@ -12,7 +12,7 @@
  * Weights and saturation constants are tunable from data (ADR-0057/0059 open
  * item); they live here as named constants, not magic numbers.
  */
-import { type SignificanceBand, bucketSignificance } from "@alfred/contracts";
+import { type SignificanceBand, bucketSignificance, clamp01 } from "@alfred/contracts";
 import { db } from "@alfred/db";
 import { entities, user } from "@alfred/db/schemas";
 import { and, eq, sql } from "drizzle-orm";
@@ -54,10 +54,6 @@ const RECENCY_HALFLIFE_DAYS = 90;
 const CO_RECIPIENT_WEIGHT = 0.25;
 
 const MS_PER_DAY = 86_400_000;
-
-function clamp01(n: number): number {
-  return Math.max(0, Math.min(1, n));
-}
 
 function round3(n: number): number {
   return Math.round(n * 1000) / 1000;

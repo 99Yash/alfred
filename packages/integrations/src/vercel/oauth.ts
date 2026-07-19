@@ -38,13 +38,12 @@ export function getVercelOAuthConfig(): VercelOAuthConfig {
 }
 
 export function isVercelConfigured(): boolean {
-  const env = serverEnv();
-  return Boolean(
-    env.VERCEL_CLIENT_ID &&
-    env.VERCEL_CLIENT_SECRET &&
-    env.VERCEL_REDIRECT_URI &&
-    env.VERCEL_APP_SLUG,
-  );
+  try {
+    getVercelOAuthConfig();
+    return true;
+  } catch {
+    return false;
+  }
 }
 
 /** The integration install URL. Vercel appends `code`/`configurationId`/`teamId` on the callback. */

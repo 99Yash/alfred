@@ -3,10 +3,8 @@ import {
   DEFAULT_BRIEFING_EVENING_HOUR,
   DEFAULT_BRIEFING_TIMEZONE,
 } from "@alfred/contracts/briefing-constants";
-import { IDB_KEY, syncedPreferenceSchema } from "@alfred/sync";
-import { useCallback, useEffect, useMemo, useState } from "react";
-import type { ReadTransaction } from "replicache";
-import { useReplicacheStatus } from "./context";
+import { useMemo } from "react";
+import { usePreferenceMap } from "./use-preferences";
 
 const BRIEFING_PREF_KEYS = {
   // #229: `timezone` is the ONE canonical zone — it grounds chat/boss date
@@ -56,44 +54,13 @@ function parseTimezone(value: unknown): string | null {
  * that the next pull rebases — identical idiom to {@link useFeatureFlags}.
  */
 export function useBriefingSchedule(): BriefingScheduleState {
-  const { rep, loadError, retry } = useReplicacheStatus();
-  const [values, setValues] = useState<Record<string, unknown>>({});
-  const [loaded, setLoaded] = useState(false);
-
-  useEffect(() => {
-    if (!rep) {
-      setValues({});
-      setLoaded(false);
-      return;
-    }
-    const prefix = IDB_KEY.PREFERENCE({});
-    return rep.subscribe(
-      async (tx: ReadTransaction) => tx.scan({ prefix }).values().toArray(),
-      (rows) => {
-        const next: Record<string, unknown> = {};
-        for (const row of rows) {
-          const parsed = syncedPreferenceSchema.safeParse(row);
-          if (parsed.success) next[parsed.data.key] = parsed.data.value;
-        }
-        setValues(next);
-        setLoaded(true);
-      },
-    );
-  }, [rep]);
+  const { values, loaded, setPref, loadError, retry } = usePreferenceMap();
 
   const tzStored =
     parseTimezone(values[BRIEFING_PREF_KEYS.timezone]) ??
     parseTimezone(values[LEGACY_TIMEZONE_KEY]);
   const morningStored = parseHour(values[BRIEFING_PREF_KEYS.morningHour]);
   const eveningStored = parseHour(values[BRIEFING_PREF_KEYS.eveningHour]);
-
-  const setPref = useCallback(
-    async (key: string, value: string | number): Promise<void> => {
-      if (!rep) return;
-      await rep.mutate.prefSet({ key, value });
-    },
-    [rep],
-  );
 
   const hasOverride = useMemo(
     () => ({

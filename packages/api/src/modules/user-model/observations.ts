@@ -1,9 +1,34 @@
 import { db } from "@alfred/db";
 import { observationFamilyHeads, observations, type Observation } from "@alfred/db/schemas";
 import { observationInsertSchema, type ObservationInsertInput } from "@alfred/contracts";
-import { and, eq, sql } from "drizzle-orm";
+import { and, eq, sql, type SQL } from "drizzle-orm";
 import { PG_UNIQUE_VIOLATION, pgErrorChain } from "../../lib/pg-errors";
 import { type DbExecutor } from "./executor";
+
+/**
+ * Join predicate keeping only the observation that is the live head of its
+ * family: `observation_family_heads.head_observation_id = observations.id` for
+ * the same `(userId, familyKey)`. Mirrors the composite FK the schema enforces
+ * (schema/user-model.ts). Use as `.innerJoin(observationFamilyHeads, liveObservationHeadJoin())`.
+ *
+ * Returns a plain `SQL` (never `undefined`): `and()` types as `SQL | undefined`
+ * because it folds away undefined conditions, but the three predicates here are
+ * always defined, so the join predicate always exists. Narrowing the return
+ * stops `.innerJoin(target, undefined)` — a silent cross join — from compiling
+ * at any call site.
+ */
+export function liveObservationHeadJoin(): SQL {
+  const predicate = and(
+    eq(observationFamilyHeads.userId, observations.userId),
+    eq(observationFamilyHeads.familyKey, observations.familyKey),
+    eq(observationFamilyHeads.headObservationId, observations.id),
+  );
+  if (!predicate) {
+    // Unreachable: three defined `eq()` predicates never fold to undefined.
+    throw new Error("[user-model] liveObservationHeadJoin produced an empty predicate");
+  }
+  return predicate;
+}
 
 const OBSERVATION_APPEND_MAX_ATTEMPTS = 3;
 const OBSERVATION_CHAIN_CONSTRAINTS = new Set([

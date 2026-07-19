@@ -7,7 +7,7 @@ import {
   type TriageCategory,
 } from "@alfred/contracts";
 import { z } from "zod";
-import type { TriageClassification } from "./classify";
+import { MAX_RATIONALE_LEN, type TriageClassification, truncateRationale } from "./classify";
 import type { TriageUserContext } from "./user-context";
 
 export const DEEPEN_REASONS = ["severity_suspect_bot", "low_confidence", "unknown_human"] as const;
@@ -52,7 +52,7 @@ const importantCategories = new Set<TriageCategory>(["urgent", "action_needed", 
 const deepenOutputSchema = z.object({
   refinedCategory: z.enum(TRIAGE_CATEGORIES),
   confidence: confidenceSchema,
-  rationale: z.string().min(1).max(500),
+  rationale: z.string().min(1).max(MAX_RATIONALE_LEN),
   severityFlag: z.enum(["severe", "normal", "low"]),
   dossierRequest: z.object({ personEmail: z.string().email() }).optional(),
 });
@@ -187,8 +187,4 @@ function compactJson(value: unknown, maxChars: number): string {
 
 function truncateText(value: string, maxChars: number): string {
   return value.length > maxChars ? `${value.slice(0, maxChars - 15)}\n[...truncated]` : value;
-}
-
-function truncateRationale(value: string): string {
-  return value.length > 500 ? `${value.slice(0, 497)}...` : value;
 }

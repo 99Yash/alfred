@@ -44,7 +44,10 @@ export const USAGE_RANGE_LABELS: Record<UsageRangePreset, string> = {
 };
 
 /** Resolve a preset to a concrete [start, end) window (end = now). */
-export function resolveRangePreset(preset: UsageRangePreset, now: Date): { start: Date; end: Date } {
+export function resolveRangePreset(
+  preset: UsageRangePreset,
+  now: Date,
+): { start: Date; end: Date } {
   const end = now;
   const day = 24 * 60 * 60 * 1000;
   switch (preset) {

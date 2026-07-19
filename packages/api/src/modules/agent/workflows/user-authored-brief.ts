@@ -12,6 +12,7 @@ import {
   parseIntegrationMentions,
   isIntegrationSlug,
   toJsonValue,
+  toMessage,
   toRecord,
   type AgentTranscriptMessage,
 } from "@alfred/contracts";
@@ -558,7 +559,7 @@ const compactTranscriptStep: Step<BriefRunState> = {
         break;
       } catch (err) {
         lastError = err;
-        if (errorMessage(err) === "compactor_input_too_large") {
+        if (toMessage(err) === "compactor_input_too_large") {
           throw err;
         }
         if (attempt < COMPACTOR_RETRY_ATTEMPTS) {
@@ -567,7 +568,7 @@ const compactTranscriptStep: Step<BriefRunState> = {
       }
     }
     if (!result) {
-      throw new Error(`compactor_failed: ${errorMessage(lastError)}`);
+      throw new Error(`compactor_failed: ${toMessage(lastError)}`);
     }
 
     // Guard 3: post-compaction the in-flight tail itself blows the
@@ -601,16 +602,6 @@ async function resolvePressureThresholdTokens(isSubAgent: boolean): Promise<numb
 
 function sleepMs(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
-}
-
-function errorMessage(err: unknown): string {
-  if (err instanceof Error) return err.message;
-  if (typeof err === "string") return err;
-  try {
-    return JSON.stringify(err);
-  } catch {
-    return "unknown error";
-  }
 }
 
 export const userAuthoredBriefWorkflow: Workflow<BriefRunState> = {
