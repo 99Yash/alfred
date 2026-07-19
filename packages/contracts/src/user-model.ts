@@ -21,6 +21,7 @@
  */
 
 import { z } from "zod";
+import { HOSTNAME } from "./hostname";
 import { classifyEmailDomain, domainClassSchema } from "./identity-affiliation";
 import { STANDING_INSTRUCTION_KEY } from "./standing-instructions";
 
@@ -289,24 +290,14 @@ export function canonicalizeIdentityValue(kind: IdentityKind, value: string): st
   return CASE_FOLDED_IDENTITY_KINDS.has(kind) ? trimmed.toLowerCase() : trimmed;
 }
 
-// A DNS label and the GitHub login/owner grammar, shared by the format regexes
-// below. `GITHUB_HANDLE`: 1–39 chars, alphanumeric with single INTERNAL hyphens
-// only (a hyphen is allowed only when immediately followed by an alphanumeric, so
-// no leading/trailing/consecutive hyphens). `DNS_LABEL`: 1–63 chars, no
-// leading/trailing hyphen. Both are written without lookbehind so they parse on
-// every JS engine.
-const DNS_LABEL = "[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?";
+// The GitHub login/owner grammar, shared by the format regexes below.
+// `GITHUB_HANDLE`: 1–39 chars, alphanumeric with single INTERNAL hyphens only (a
+// hyphen is allowed only when immediately followed by an alphanumeric, so no
+// leading/trailing/consecutive hyphens). Written without lookbehind so it parses on
+// every JS engine. The DNS hostname grammar (`HOSTNAME`, an unanchored fragment)
+// lives in `./hostname` — the single source of truth also used by the domain
+// classifier in `identity-affiliation.ts`.
 const GITHUB_HANDLE = "[a-z\\d](?:[a-z\\d]|-(?=[a-z\\d])){0,38}";
-// Final DNS label: same label grammar, but must contain at least one letter. This
-// rejects all-numeric pseudo-TLDs (`example.123`) while still accepting punycoded
-// IDN labels (`xn--...`).
-const DNS_TLD = `(?=[a-z0-9-]*[a-z])${DNS_LABEL}`;
-// A DNS hostname: ≥2 labels (must carry a TLD), each per `DNS_LABEL` (so no empty
-// label, no leading/trailing hyphen — rejects `bad..com`, `-bad`, `bad-`), ≤253
-// chars total, and a non-numeric TLD. The lookahead bounds only the host (`[^@]`,
-// since a hostname never contains `@`), so the same constant validates a
-// standalone `domain` AND the part after `@` in an `email`.
-const HOSTNAME = `(?=[^@]{1,253}$)${DNS_LABEL}(?:\\.${DNS_LABEL})*\\.${DNS_TLD}`;
 
 /**
  * Per-kind VALUE FORMAT validators (D2/D3). Non-empty + canonical (above) is the

@@ -169,10 +169,7 @@ describe("dispatchToolCall rejection tracing", () => {
       assert.equal(captured.length, 1);
       assert.equal(captured[0]?.toolName, "system.load_tool");
       assert.equal(captured[0]?.outcome, "invalid_input");
-      assert.equal(
-        captured[0]?.signature,
-        "system.load_tool:invalid_input:invalid_type@slug",
-      );
+      assert.equal(captured[0]?.signature, "system.load_tool:invalid_input:invalid_type@slug");
       assert.equal(captured[0]?.input, undefined);
     } finally {
       restore();

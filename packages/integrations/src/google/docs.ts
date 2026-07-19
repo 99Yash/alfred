@@ -1,5 +1,5 @@
-import { httpErrorFromResponse } from "@alfred/contracts";
 import { z } from "zod";
+import { googleJson } from "./http";
 
 /**
  * Thin Google Docs v1 REST client. Same shape as `gmail.ts` /
@@ -148,15 +148,5 @@ function collectElement(
   }
 }
 
-const DOCS_FETCH_TIMEOUT_MS = 30_000;
-
-async function getJson(url: string, accessToken: string): Promise<unknown> {
-  const res = await fetch(url, {
-    headers: { Authorization: `Bearer ${accessToken}`, Accept: "application/json" },
-    signal: AbortSignal.timeout(DOCS_FETCH_TIMEOUT_MS),
-  });
-  if (!res.ok) {
-    throw await httpErrorFromResponse("docs", res, { url });
-  }
-  return res.json();
-}
+const getJson = (url: string, accessToken: string): Promise<unknown> =>
+  googleJson("docs", "GET", url, accessToken);

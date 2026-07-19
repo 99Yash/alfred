@@ -20,6 +20,7 @@
  */
 
 import { z } from "zod";
+import { HOSTNAME } from "./hostname";
 import { type FactKey } from "./user-model";
 
 // ───────────────────────────────────────────────────────────────────────────
@@ -197,19 +198,19 @@ const EDU_SLD_PATTERN = /\.(ac|edu)\.[a-z]{2,}$/;
 
 /** Tokens in a domain that hint at school / alumni / agency / personal — `ambiguous_domain`. */
 const AMBIGUOUS_DOMAIN_TOKENS: readonly string[] = ["alumni", "alum", "students", "student"];
-// Mirrors the hostname floor in user-model.ts without importing it at runtime:
-// identity-affiliation feeds user-model's observation schema, so it must not
-// create a value-level cycle back into that module.
-const DNS_LABEL = "[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?";
-const DNS_TLD = `(?=[a-z0-9-]*[a-z])${DNS_LABEL}`;
-const HOSTNAME = new RegExp(`^(?=[^@]{1,253}$)${DNS_LABEL}(?:\\.${DNS_LABEL})*\\.${DNS_TLD}$`);
+// The DNS hostname grammar is shared with user-model.ts via the `./hostname` leaf
+// (a dependency-free module both import): user-model value-imports
+// `classifyEmailDomain` from here, so importing the grammar from user-model would
+// close a runtime value cycle — the leaf breaks it. `HOSTNAME` is an unanchored
+// fragment; anchor it here for a standalone domain.
+const HOSTNAME_RE = new RegExp(`^${HOSTNAME}$`);
 
 function normalizeDomain(domain: string): string {
   return domain.trim().toLowerCase().replace(/\.$/, "");
 }
 
 function isValidDomain(domain: string): boolean {
-  return HOSTNAME.test(domain);
+  return HOSTNAME_RE.test(domain);
 }
 
 function isValidEmailLocalPart(localPart: string): boolean {

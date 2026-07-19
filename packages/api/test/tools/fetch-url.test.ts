@@ -289,7 +289,10 @@ describe("runFetchUrl (stubbed transport)", () => {
   test("#509 flags a JS shell (markup but no text) as empty_content", async () => {
     const r = await runFetchUrl(
       { url: "https://x.com/thdxr" },
-      { transport: transportOf({ contentType: "text/html", body: jsShell }), render: async () => null },
+      {
+        transport: transportOf({ contentType: "text/html", body: jsShell }),
+        render: async () => null,
+      },
     );
     assert.equal(r.ok, false);
     if (!r.ok) assert.equal(r.reason, "empty_content");
@@ -342,7 +345,9 @@ describe("runFetchUrl (stubbed transport)", () => {
     const r = await runFetchUrl(
       { url: "https://www.yashk.xyz" },
       {
-        transport: transportOf({ body: "<html><body><p>a real page with plenty of readable copy here</p></body></html>" }),
+        transport: transportOf({
+          body: "<html><body><p>a real page with plenty of readable copy here</p></body></html>",
+        }),
         render: async () => {
           rendered = true;
           return { text: "should not be used" };

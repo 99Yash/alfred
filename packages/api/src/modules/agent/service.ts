@@ -19,10 +19,7 @@ import { snapshotScratchToPostgres } from "../scratchpad";
 import { enqueueRun } from "./queue";
 import { getWorkflow, listWorkflows } from "./registry";
 import { readSubAgentMetadata, subAgentDoneSignalName } from "./sub-agent-metadata";
-import {
-  startSubAgentWaitSpan,
-  type SubAgentWaitOutcome,
-} from "./runtime-spans";
+import { startSubAgentWaitSpan, type SubAgentWaitOutcome } from "./runtime-spans";
 import {
   isTerminalStatus,
   type ApprovalKind,

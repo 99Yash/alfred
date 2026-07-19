@@ -1,5 +1,5 @@
-import { httpErrorFromResponse } from "@alfred/contracts";
 import { z } from "zod";
+import { googleJson } from "./http";
 
 /**
  * Thin Google Slides v1 REST client. Same shape as `gmail.ts` /
@@ -122,31 +122,9 @@ export async function addSlide(args: {
   });
 }
 
-const SLIDES_FETCH_TIMEOUT_MS = 30_000;
-
-async function sendJson(
+const sendJson = (
   method: "GET" | "POST",
   url: string,
   accessToken: string,
   payload?: unknown,
-): Promise<unknown> {
-  const headers: Record<string, string> = {
-    Authorization: `Bearer ${accessToken}`,
-    Accept: "application/json",
-  };
-  const init: RequestInit = {
-    method,
-    headers,
-    signal: AbortSignal.timeout(SLIDES_FETCH_TIMEOUT_MS),
-  };
-  if (method !== "GET") {
-    headers["Content-Type"] = "application/json";
-    init.body = JSON.stringify(payload ?? {});
-  }
-  const res = await fetch(url, init);
-  if (!res.ok) {
-    throw await httpErrorFromResponse("slides", res, { url, method });
-  }
-  const text = await res.text();
-  return text ? JSON.parse(text) : {};
-}
+): Promise<unknown> => googleJson("slides", method, url, accessToken, payload);

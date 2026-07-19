@@ -764,7 +764,7 @@ export const meRoutes = new Elysia({ prefix: "/api/me", normalize: "typebox" })
               ),
             );
           const modifyCreds = creds.filter((c) => {
-            const granted = (c.scopes as string[] | null) ?? [];
+            const granted = toStringArray(c.scopes);
             return granted.includes(modifyScope);
           });
           if (modifyCreds.length === 0) {
@@ -858,7 +858,7 @@ export const meRoutes = new Elysia({ prefix: "/api/me", normalize: "typebox" })
               ),
             );
           const row = creds.find((c) => {
-            const granted = (c.scopes as string[] | null) ?? [];
+            const granted = toStringArray(c.scopes);
             return (
               granted.includes(CALENDAR_READONLY_SCOPE) || granted.includes(CALENDAR_EVENTS_SCOPE)
             );
@@ -1047,9 +1047,7 @@ export const meRoutes = new Elysia({ prefix: "/api/me", normalize: "typebox" })
             start: t.Optional(t.String()),
             end: t.Optional(t.String()),
             page: t.Optional(t.Numeric({ minimum: 1 })),
-            pageSize: t.Optional(
-              t.Numeric({ minimum: 1, maximum: USAGE_ACTIVITY_MAX_PAGE_SIZE }),
-            ),
+            pageSize: t.Optional(t.Numeric({ minimum: 1, maximum: USAGE_ACTIVITY_MAX_PAGE_SIZE })),
             /** Comma-separated `UsageRunCategory` values; unknowns are dropped. */
             categories: t.Optional(t.String()),
             sortField: t.Optional(t.String()),

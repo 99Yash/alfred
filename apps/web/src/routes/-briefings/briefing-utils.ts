@@ -1,3 +1,5 @@
+import { capitalize } from "~/lib/strings";
+
 export function formatDayHeading(date: string): string {
   const parsed = new Date(`${date}T00:00:00`);
   if (Number.isNaN(parsed.getTime())) return date;
@@ -9,5 +11,5 @@ export function formatDayHeading(date: string): string {
 }
 
 export function slotLabel(slot: string): string {
-  return slot.charAt(0).toUpperCase() + slot.slice(1);
+  return capitalize(slot);
 }

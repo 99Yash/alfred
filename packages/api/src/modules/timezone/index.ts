@@ -5,8 +5,4 @@ export {
   formatInstantInTimezone,
 } from "./local-time";
 
-export {
-  DEFAULT_USER_TIMEZONE,
-  firstValidTimezone,
-  resolveUserTimezone,
-} from "./user-timezone";
+export { DEFAULT_USER_TIMEZONE, firstValidTimezone, resolveUserTimezone } from "./user-timezone";

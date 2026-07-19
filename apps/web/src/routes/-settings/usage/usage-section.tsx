@@ -45,9 +45,7 @@ export function UsageSection() {
       <div className="flex items-center justify-between gap-3">
         <div className="space-y-1">
           <p className="text-sm font-medium text-app-fg-4">Usage</p>
-          <p className="text-xs text-app-fg-3">
-            What Alfred spent working on your behalf, by run.
-          </p>
+          <p className="text-xs text-app-fg-3">What Alfred spent working on your behalf, by run.</p>
         </div>
         <AppSegmented
           value={preset}

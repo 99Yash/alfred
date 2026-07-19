@@ -68,7 +68,6 @@ const MIN_READABLE_CHARS = 20;
  */
 const NONTRIVIAL_HTML_BYTES = 500;
 
-
 /** Control bytes to drop from extracted text (keeps tab `\t` and newline `\n`). */
 // eslint-disable-next-line no-control-regex -- matching control bytes is the point: we strip them.
 const CONTROL_BYTES = /[\u0000-\u0008\u000b\u000c\u000e-\u001f\u007f]/g;
@@ -1286,7 +1285,9 @@ async function runFetchUrlImpl(
       reason: "empty_content",
       message:
         "This page returned no readable text — it looks like a client-rendered app that needs a browser to run its JavaScript before any content appears. Its text can't be read directly.",
-      ...(raw.redirectChain && raw.redirectChain.length > 0 ? { redirects: raw.redirectChain } : {}),
+      ...(raw.redirectChain && raw.redirectChain.length > 0
+        ? { redirects: raw.redirectChain }
+        : {}),
     };
   }
 

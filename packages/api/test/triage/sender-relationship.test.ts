@@ -37,8 +37,20 @@ describe("isColdContactFromSignals", () => {
     { label: "two-way, strong", inbound: 4, outbound: 2, bucket: "strong", cold: false },
     // One-way outbound ("you reached out, no reply yet") → cold ONLY when the
     // score is `weak`; an unscored/moderate/strong outreach is not cold.
-    { label: "one-way outbound, unscored", inbound: 0, outbound: 2, bucket: "unscored", cold: false },
-    { label: "one-way outbound, moderate", inbound: 0, outbound: 2, bucket: "moderate", cold: false },
+    {
+      label: "one-way outbound, unscored",
+      inbound: 0,
+      outbound: 2,
+      bucket: "unscored",
+      cold: false,
+    },
+    {
+      label: "one-way outbound, moderate",
+      inbound: 0,
+      outbound: 2,
+      bucket: "moderate",
+      cold: false,
+    },
     { label: "one-way outbound, strong", inbound: 0, outbound: 2, bucket: "strong", cold: false },
     { label: "one-way outbound, weak", inbound: 0, outbound: 2, bucket: "weak", cold: true },
     // No correspondence at all (the no-prior-contact shape) → cold. (The live

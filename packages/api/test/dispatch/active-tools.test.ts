@@ -116,10 +116,7 @@ describe("legacy active integration migration", () => {
     registerTool(scratchReadTool(() => {}));
 
     assert.deepEqual(
-      migrateActiveTools(
-        ["system.read_scratch", "system.load_integration", "made.up"],
-        undefined,
-      ),
+      migrateActiveTools(["system.read_scratch", "system.load_integration", "made.up"], undefined),
       ["system.read_scratch"],
     );
   });
