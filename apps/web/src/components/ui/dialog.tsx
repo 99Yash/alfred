@@ -17,7 +17,8 @@
  */
 
 import * as RadixDialog from "@radix-ui/react-dialog";
-import type { ReactNode, Ref } from "react";
+import { use, type ReactNode, type Ref } from "react";
+import { AppThemeContext } from "~/components/ui/v2/theme";
 import { cn } from "~/lib/utils";
 
 export const Dialog = RadixDialog.Root;
@@ -27,6 +28,14 @@ interface DialogContentProps extends Omit<RadixDialog.DialogContentProps, "title
   description?: ReactNode;
   /** Hide title + description visually but keep them for screen readers. */
   srOnlyHeader?: boolean;
+  /**
+   * Paint the shell with theme-aware app-grammar tokens instead of the
+   * always-dark dimension `frost-popover`. The dialog portals outside the
+   * `.app` subtree, so this also stamps `.app` + the resolved `data-app-theme`
+   * on the content — otherwise `--app-*` tokens can't resolve and the panel
+   * renders dark regardless of system theme (mirrors `AppSelect`'s portal fix).
+   */
+  themed?: boolean;
   /** Override the content shell. Default ships the frost-popover panel. */
   className?: string;
   /** Override the overlay. Default ships the gray-0/70 scrim. */
@@ -38,12 +47,19 @@ export function DialogContent({
   title,
   description,
   srOnlyHeader = false,
+  themed = false,
   className,
   overlayClassName,
   children,
   ref,
   ...rest
 }: DialogContentProps) {
+  // Resolved theme flows through the portal via React context even though CSS
+  // inheritance doesn't. Stamping it lets the app tokens resolve; falling back
+  // to no attribute (when no provider is mounted) lets the `.app` + @media
+  // prefers-color-scheme rule in index.css resolve it instead.
+  const themeCtx = use(AppThemeContext);
+  const dataTheme = themed ? themeCtx?.resolved : undefined;
   return (
     <RadixDialog.Portal>
       <RadixDialog.Overlay
@@ -57,11 +73,13 @@ export function DialogContent({
       />
       <RadixDialog.Content
         ref={ref}
+        data-app-theme={dataTheme}
         className={cn(
           "fixed top-1/2 left-1/2 z-[101]",
           "-translate-x-1/2 -translate-y-1/2",
           "w-[calc(100vw-2rem)] max-w-lg",
-          "frost-popover rounded-3xl",
+          themed ? "app app-frost-overlay" : "frost-popover",
+          "rounded-3xl",
           "overflow-hidden",
           "data-[state=open]:animate-[dialog-content-in_180ms_cubic-bezier(0.2,0,0,1)]",
           "data-[state=closed]:animate-[dialog-content-out_140ms_cubic-bezier(0.2,0,0,1)]",
@@ -79,11 +97,18 @@ export function DialogContent({
           </>
         ) : (
           <div className="space-y-1 px-6 pt-5 pb-3">
-            <RadixDialog.Title className="text-base font-medium text-gray-1000">
+            <RadixDialog.Title
+              className={cn(
+                "text-base font-medium",
+                themed ? "text-app-fg-4" : "text-gray-1000",
+              )}
+            >
               {title}
             </RadixDialog.Title>
             {description ? (
-              <RadixDialog.Description className="text-[13px] text-gray-800">
+              <RadixDialog.Description
+                className={cn("text-[13px]", themed ? "text-app-fg-3" : "text-gray-800")}
+              >
                 {description}
               </RadixDialog.Description>
             ) : (

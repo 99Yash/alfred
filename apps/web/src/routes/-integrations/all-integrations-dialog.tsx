@@ -30,6 +30,7 @@ export function AllIntegrationsDialog({
       <DialogContent
         title="All Integrations"
         description="Connect the tools Alfred can read, write, and act on."
+        themed
         className="max-w-3xl"
       >
         <div className="scroll-stable max-h-[70vh] space-y-6 overflow-y-auto px-6 pt-2 pb-6">
