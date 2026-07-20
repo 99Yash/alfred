@@ -737,6 +737,12 @@ function dispatchResultToToolOutput(
       return { type: "json", value: toJsonValue(boundToolResult(result.result).value) };
     case "inactive_tool":
     case "not_allowed":
+    // A background brief has no narration channel to protect (unlike chat, where
+    // `feature_disabled` is hidden as internal plumbing), so these non-execution
+    // reasons are surfaced to the sub-agent as a plain tool result on purpose —
+    // it can then route around the disabled/unavailable tool. Intentional, not a
+    // missed case.
+    case "feature_disabled":
       return { type: "json", value: toJsonValue(boundToolResult(result.result).value) };
   }
 }

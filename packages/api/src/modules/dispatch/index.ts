@@ -80,7 +80,17 @@ import {
 import { scheduleApprovalExpiryJob } from "../approvals/expiry-queue";
 import { scheduleApprovalNotificationJob } from "../approvals/notification-queue";
 import { parseScratchToolKey, type ScratchToolKey } from "../tools/scratch-key";
+import {
+  countRunPassthroughCalls,
+  PASSTHROUGH_PER_RUN_CEILING,
+  passthroughBudgetExhausted,
+  passthroughTruncationTelemetry,
+} from "../tools/passthrough";
 import { getTool, type RegisteredTool, type ToolExecuteContext } from "../tools/registry";
+import {
+  evaluateToolAvailability,
+  readIntegrationAvailability,
+} from "../integrations/availability";
 import { resolveUserTimezone } from "../timezone";
 
 export interface DispatchArgs {
@@ -150,6 +160,13 @@ interface NotAllowedToolResult {
   message: string;
 }
 
+interface FeatureDisabledToolResult {
+  status: "feature_disabled";
+  toolName: ToolName;
+  integration: IntegrationSlug;
+  message: string;
+}
+
 export type DispatchResult =
   | {
       kind: "executed";
@@ -204,6 +221,17 @@ export type DispatchResult =
   | {
       kind: "not_allowed";
       result: NotAllowedToolResult;
+    }
+  | {
+      // ADR-0074: the general read-only passthrough tier is default-OFF per
+      // integration and killable without a deploy. A stale active surface (or a
+      // toggle flipped mid-run) that tries to call a disabled passthrough tool is
+      // rechecked here and bounced. UNLIKE a read-gate `rejected` (which is a
+      // visible, model-facing tool result), `feature_disabled` is hidden
+      // `nonExecution` plumbing — the model must not narrate a capability the
+      // user turned off. The two route oppositely on purpose (PRD dispatch note).
+      kind: "feature_disabled";
+      result: FeatureDisabledToolResult;
     };
 
 type StagingRow = Pick<
@@ -440,6 +468,37 @@ export async function dispatchToolCall(args: DispatchArgs): Promise<DispatchResu
         recovery: { kind: "activate_and_reissue", toolName },
       },
     };
+  }
+
+  // ADR-0074 kill-switch recheck. A general read-only passthrough tool is behind
+  // a default-OFF, per-integration Settings toggle. Its presence on `activeTools`
+  // reflects the surface built at turn start; recheck the LIVE preference here so
+  // a toggle flipped mid-run (or a stale active surface) can never bypass the
+  // kill switch just before execution. Only passthrough tools pay this extra read
+  // (the marker is set solely on them). The reason routes as hidden `nonExecution`
+  // plumbing — see the `feature_disabled` DispatchResult arm.
+  if (tool.availability?.passthrough) {
+    const availability = evaluateToolAvailability(
+      await readIntegrationAvailability(args.userId),
+      tool,
+      new Set(args.allowedIntegrations ?? []),
+      {
+        caller: args.caller === undefined || args.caller === "boss" ? "boss" : "sub_agent",
+        hasThread: Boolean(args.threadId),
+      },
+    );
+    if (!availability.available && availability.code === "feature_disabled") {
+      recordRejection({
+        dispatch: args,
+        outcome: "feature_disabled",
+        reason: availability.reason,
+        toolName,
+      });
+      return {
+        kind: "feature_disabled",
+        result: { status: "feature_disabled", toolName, integration, message: availability.reason },
+      };
+    }
   }
 
   // Normalize casing/underscore variants of real param names to the schema key
@@ -717,6 +776,10 @@ export async function dispatchToolCall(args: DispatchArgs): Promise<DispatchResu
           },
         };
       }
+      {
+        const exhausted = await guardPassthroughBudget(row, tool, ctx);
+        if (exhausted) return exhausted;
+      }
       return executeAndCommit(row, tool, input, ctx, /* editedByUser */ false);
 
     case "approved": {
@@ -764,6 +827,10 @@ export async function dispatchToolCall(args: DispatchArgs): Promise<DispatchResu
           stagingId: row.id,
           error,
         };
+      }
+      {
+        const exhausted = await guardPassthroughBudget(row, tool, ctx);
+        if (exhausted) return exhausted;
       }
       return executeAndCommit(row, tool, reparsed.data as unknown, ctx, editedByUser);
     }
@@ -1084,7 +1151,20 @@ async function executeToolWithSpan(
   });
   try {
     const result = await tool.execute(input, ctx);
-    span.success(result);
+    // ADR-0074 thermometer: a clipped passthrough result carries a
+    // `handleEligible` truncation marker. Fold the structured signal onto the
+    // tool span's metadata (recorded even with I/O capture off) and mirror it to
+    // a log line so the L0-trigger review can be answered without Langfuse I/O.
+    const thermometer = passthroughTruncationTelemetry(tool.name, ctx.runId, result);
+    if (thermometer) {
+      logger.info(
+        { event: "passthrough_truncation", ...thermometer },
+        "Passthrough result truncated",
+      );
+      span.success(result, { thermometer });
+    } else {
+      span.success(result);
+    }
     return result;
   } catch (err) {
     // Strip NUL-byte poison before the span records the message (the span
@@ -1139,6 +1219,38 @@ function awaitSubAgentSpanOutput(result: DispatchResult): unknown {
     default:
       return { status: result.kind };
   }
+}
+
+/**
+ * ADR-0074 per-run passthrough ceiling. Before a passthrough tool executes,
+ * count how many raw passthrough calls already ran in this run; at or over the
+ * ceiling, DON'T execute — commit the staged row with a VISIBLE
+ * `budget_exhausted` envelope and return it as a normal `executed` result so the
+ * boss reads it and stops paginating (never a silent drop). Returns `null` for a
+ * non-passthrough tool or when the run is under budget, so the caller proceeds
+ * to a real execution. Persisting the envelope on the row keeps replay idempotent
+ * (a re-dispatch hits the `executed` short-circuit and re-serves the same notice).
+ */
+async function guardPassthroughBudget(
+  row: StagingRow,
+  tool: ReturnType<typeof getTool> & object,
+  ctx: ToolExecuteContext,
+): Promise<DispatchResult | null> {
+  if (!tool.availability?.passthrough) return null;
+  const priorCalls = await countRunPassthroughCalls(ctx.runId);
+  if (priorCalls < PASSTHROUGH_PER_RUN_CEILING) return null;
+  const envelope = passthroughBudgetExhausted(priorCalls);
+  await db()
+    .update(actionStagings)
+    .set({
+      status: "executed",
+      executeResult: envelope as object,
+      executedAt: new Date(),
+      rowVersion: sql`${actionStagings.rowVersion} + 1`,
+    })
+    .where(eq(actionStagings.id, row.id));
+  if (row.requiresApproval) emitReplicachePokes([ctx.userId], row.id);
+  return { kind: "executed", stagingId: row.id, toolResult: envelope, editedByUser: false };
 }
 
 async function executeAndCommit(

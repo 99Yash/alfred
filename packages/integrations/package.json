@@ -8,7 +8,7 @@
     "./notion": "./src/notion/index.ts",
     "./railway": "./src/railway/index.ts",
     "./vercel": "./src/vercel/index.ts",
-    "./shared": "./src/shared/credentials.ts"
+    "./shared": "./src/shared/index.ts"
   },
   "scripts": {
     "build": "node ../../scripts/clean-package-dist.mjs && tsc -b --emitDeclarationOnly --force",

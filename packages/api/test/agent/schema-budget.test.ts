@@ -30,9 +30,13 @@ import { registerBuiltinTools } from "../../src/modules/tools";
  */
 
 // Measured 2026-07-16: kernel 5,904 B / 1,477 tok across 8 tools; full 51,127 B across 57 tools.
+// Measured 2026-07-20: full 71,764 B — the general invocation tier (ADR-0074) added one
+// read-only `.request` passthrough tool per supported integration (railway.graphql + the REST
+// family github/notion/vercel + the six Google products), each carrying a query-DSL-steering
+// description. These are lazy (never kernel), so the growth is only paid when everything loads.
 const KERNEL_SCHEMA_BYTES_CEILING = 6_600;
 const KERNEL_SCHEMA_TOKENS_CEILING = 1_700;
-const FULL_SCHEMA_BYTES_CEILING = 68_000;
+const FULL_SCHEMA_BYTES_CEILING = 80_000;
 
 /** The artifact/search giants must never bootstrap the kernel. */
 const NON_KERNEL_GIANTS: readonly ToolName[] = [

@@ -212,7 +212,11 @@ describe("tool discovery", () => {
         name: "system.fetch_url",
         allowedIntegrations: [],
         context: { caller: "boss", hasThread: true },
-        availability: { integrations: new Map(), providers: new Map() },
+        availability: {
+          integrations: new Map(),
+          providers: new Map(),
+          passthroughEnabled: new Map(),
+        },
       }),
       { ok: true, name: "system.fetch_url" },
     );
@@ -229,7 +233,11 @@ describe("tool discovery", () => {
         name: "notion.create_page",
         allowedIntegrations: [],
         context: { caller: "boss", hasThread: true },
-        availability: { integrations: new Map(), providers: new Map() },
+        availability: {
+          integrations: new Map(),
+          providers: new Map(),
+          passthroughEnabled: new Map(),
+        },
       }),
       { ok: false, status: "not_connected", reason: "Notion is not connected." },
     );
@@ -243,7 +251,11 @@ describe("tool discovery", () => {
         name: "notion.create_page",
         allowedIntegrations: ["gmail"],
         context: { caller: "boss", hasThread: true },
-        availability: { integrations: new Map(), providers: new Map() },
+        availability: {
+          integrations: new Map(),
+          providers: new Map(),
+          passthroughEnabled: new Map(),
+        },
       }),
       {
         ok: false,
@@ -260,7 +272,11 @@ describe("tool discovery", () => {
         name: "notion.nope",
         allowedIntegrations: [],
         context: { caller: "boss", hasThread: true },
-        availability: { integrations: new Map(), providers: new Map() },
+        availability: {
+          integrations: new Map(),
+          providers: new Map(),
+          passthroughEnabled: new Map(),
+        },
       }),
       { ok: false, status: "unknown_tool", reason: "Tool 'notion.nope' is not registered." },
     );
@@ -343,6 +359,7 @@ test("exact availability respects tool scopes and caller context", () => {
     providers: new Map([
       ["google", [{ status: "active", scopes: new Set([readonlyScope]), accountLabel: null }]],
     ]),
+    passthroughEnabled: new Map(),
   };
 
   assert.deepEqual(
@@ -391,10 +408,12 @@ describe("evaluateToolAvailability reason codes (#413)", () => {
     providers: new Map([
       ["google", [{ status: "active", scopes: new Set(scopes), accountLabel: null }]],
     ]),
+    passthroughEnabled: new Map(),
   });
   const empty: IntegrationAvailabilitySnapshot = {
     integrations: new Map(),
     providers: new Map(),
+    passthroughEnabled: new Map(),
   };
 
   test("available when every gate passes", () => {
@@ -415,6 +434,7 @@ describe("evaluateToolAvailability reason codes (#413)", () => {
       providers: new Map([
         ["google", [{ status: "expired", scopes: new Set([scoped]), accountLabel: null }]],
       ]),
+      passthroughEnabled: new Map(),
     };
     const result = evaluateToolAvailability(snapshot, search, new Set(), ctx);
     assert.equal(result.available === false && result.code, "needs_reauth");

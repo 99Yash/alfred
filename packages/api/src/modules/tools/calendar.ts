@@ -1,9 +1,14 @@
-import { calendarCreateEventInput, calendarListEventsInput } from "@alfred/contracts";
+import {
+  calendarCreateEventInput,
+  calendarListEventsInput,
+  restPassthroughInput,
+} from "@alfred/contracts";
 import {
   CALENDAR_EVENTS_SCOPE,
   CALENDAR_READONLY_SCOPE,
   createEvent,
   getFreshAccessToken,
+  googlePassthroughProfile,
   listEvents,
   requireScopes,
   type CalendarEvent,
@@ -13,7 +18,12 @@ import { AppError, toPublicAppError, type PublicAppError } from "../../lib/app-e
 import { logger } from "../../lib/logger";
 import { localDateInTimezone } from "../briefing/preferences";
 import { addLocalDays, localTimeInTimezone } from "../timezone";
-import { activeGoogleCredentials, resolveGoogleCredential } from "./google-credentials";
+import {
+  activeGoogleCredentials,
+  resolveGoogleAccessToken,
+  resolveGoogleCredential,
+} from "./google-credentials";
+import { runRestPassthrough } from "./passthrough";
 import { liveTool, type RegisteredTool } from "./registry";
 
 const MS_PER_DAY = 86_400_000;
@@ -318,6 +328,29 @@ export const calendarTools: readonly RegisteredTool[] = [
     inputSchema: calendarCreateEventInput,
     execute: async (input, ctx) => {
       return executeCreateEvent(input, ctx.userId, ctx.timezone);
+    },
+  }),
+  liveTool({
+    integration: "calendar",
+    action: "request",
+    riskTier: "no_risk",
+    availability: { passthrough: true },
+    description:
+      "Issue a raw, READ-ONLY Google Calendar REST call for anything the curated calendar tools don't cover — the user's calendar list (GET '/users/me/calendarList', '/users/me/calendarList/{id}'), a specific calendar's metadata (GET '/calendars/{id}'), raw event reads on any calendar (GET '/calendars/{id}/events', '/calendars/{id}/events/{eventId}'), or the color palette (GET '/colors'). Prefer the curated calendar.list_events for normal 'what's on my schedule' reads — it resolves the time window in the user's timezone; use this only for structure/metadata the curated tool doesn't return. Pass `method` (GET or HEAD only — writes are rejected at the boundary), a namespace-relative `path` beginning with '/' (include the API version's resource segment, e.g. '/users/me/calendarList'; never a full URL and never the '/calendar/v3' prefix), and `query` for parameters (timeMin, timeMax, singleEvents, maxResults). This is a raw, unvalidated read: a 404 or empty list may mean your path/params were wrong — NOT that the thing is absent. Correct the path once and retry, or state the uncertainty. Never report a raw empty as a confident zero.",
+    discovery: {
+      aliases: ["calendar api", "list calendars", "call calendar", "calendar request"],
+      tags: ["calendar", "schedule", "time"],
+      entities: ["calendar", "event", "calendar list", "color"],
+      verbs: ["read", "list", "get", "inspect", "query"],
+      relatedTools: ["calendar.list_events"],
+    },
+    inputSchema: restPassthroughInput,
+    execute: async (input, ctx) => {
+      const token = await resolveGoogleAccessToken(ctx.userId, {
+        scopes: CALENDAR_READ_SCOPES,
+        noConnection: "calendar_read_connection_required",
+      });
+      return runRestPassthrough("calendar", googlePassthroughProfile("calendar", token), input);
     },
   }),
 ];
