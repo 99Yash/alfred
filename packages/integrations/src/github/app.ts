@@ -3,6 +3,7 @@ import { serverEnv } from "@alfred/env/server";
 import { createHmac, createPrivateKey, timingSafeEqual, type KeyObject } from "node:crypto";
 import { SignJWT } from "jose";
 import { z } from "zod";
+import type { RestPassthroughProfile } from "../shared/rest-passthrough";
 
 /**
  * GitHub *App* authentication (ADR-0052), replacing the classic OAuth App.
@@ -35,6 +36,20 @@ function githubFetch(input: string | URL, init: RequestInit = {}): Promise<Respo
     ...init,
     signal: init.signal ?? AbortSignal.timeout(GITHUB_FETCH_TIMEOUT_MS),
   });
+}
+
+/**
+ * Transport profile for the general read-only passthrough tier (ADR-0074): the
+ * pinned GitHub REST authority + App-installation auth. The `token` is a
+ * short-lived installation token (from {@link getInstallationTokenForUser}), NOT
+ * the stored user-to-server identity token. Namespace + headers are fixed here
+ * so the model can never choose an origin or supply its own headers.
+ */
+export function githubPassthroughProfile(token: string): RestPassthroughProfile {
+  return {
+    baseUrl: API_BASE,
+    headers: { ...GH_HEADERS, Authorization: `Bearer ${token}` },
+  };
 }
 
 export interface GithubAppConfig {

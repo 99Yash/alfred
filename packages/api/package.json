@@ -16,7 +16,7 @@
   "scripts": {
     "build": "node ../../scripts/clean-package-dist.mjs && tsc -b --emitDeclarationOnly --force",
     "check-types": "tsc -b --emitDeclarationOnly",
-    "test": "tsx --test test/**/*.test.ts",
+    "test": "tsx --test \"test/**/*.test.ts\"",
     "eval": "evalite run",
     "eval:watch": "evalite watch"
   },
@@ -39,6 +39,7 @@
     "drizzle-orm": "^0.45.2",
     "elysia": "catalog:",
     "files-sdk": "^2.0.0",
+    "graphql": "^17.0.2",
     "ioredis": "catalog:",
     "isomorphic-dompurify": "^2.36.0",
     "jose": "^6.2.2",

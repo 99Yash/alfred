@@ -6,6 +6,7 @@ export {
   exchangeUserCode,
   canUserAccessInstallation,
   verifyWebhookSignature,
+  githubPassthroughProfile,
 } from "./app";
 export type { GithubAppConfig, InstallationToken, ExchangeUserCodeResult } from "./app";
 export {

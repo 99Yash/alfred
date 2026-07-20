@@ -12,6 +12,7 @@
  */
 
 import {
+  restPassthroughInput,
   slidesAddSlideInput,
   slidesBatchUpdateInput,
   slidesCreateInput,
@@ -22,9 +23,11 @@ import {
   batchUpdatePresentation,
   createPresentation,
   getPresentation,
+  googlePassthroughProfile,
   SLIDES_SCOPE,
 } from "@alfred/integrations/google";
 import { resolveGoogleAccessToken } from "./google-credentials";
+import { runRestPassthrough } from "./passthrough";
 import { liveTool, type RegisteredTool } from "./registry";
 
 /** Resolve an access token for a Slides call — requires the `presentations` scope. */
@@ -88,6 +91,26 @@ export const slidesTools: readonly RegisteredTool[] = [
         presentationId: input.presentationId,
         layout: input.layout,
       });
+    },
+  }),
+  liveTool({
+    integration: "slides",
+    action: "request",
+    riskTier: "no_risk",
+    availability: { passthrough: true },
+    description:
+      "Issue a raw, READ-ONLY Google Slides REST call for a presentation's STRUCTURE — its slides, layouts, masters, and the page elements (shapes, text, images) on a single page. GET '/presentations/{presentationId}' returns the whole deck (scope it with a `fields` mask like 'slides.objectId,title'; the full deck is large and will be truncated-and-flagged), or read one page with GET '/presentations/{presentationId}/pages/{pageObjectId}'. Prefer the targeted per-page read over dumping the whole presentation. The curated slides.get_presentation returns the title/revision/slide count for a quick summary. Pass `method` (GET or HEAD only — writes are rejected at the boundary), a namespace-relative `path` beginning with '/' (never a full URL and never the '/v1' prefix), and `query` for parameters (fields). This is a raw, unvalidated read: a 404 may mean your id/path was wrong — NOT that the thing is absent. Correct the path once and retry, or state the uncertainty. Never report a raw empty as a confident zero.",
+    discovery: {
+      aliases: ["slides api", "presentation structure", "call slides", "slides request"],
+      tags: ["slides", "presentation", "deck"],
+      entities: ["presentation", "slide", "page", "shape", "layout"],
+      verbs: ["read", "get", "inspect", "query"],
+      relatedTools: ["slides.get_presentation"],
+    },
+    inputSchema: restPassthroughInput,
+    execute: async (input, ctx) => {
+      const token = await accessTokenFor(ctx.userId);
+      return runRestPassthrough("slides", googlePassthroughProfile("slides", token), input);
     },
   }),
 ];

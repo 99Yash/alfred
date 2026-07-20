@@ -173,6 +173,7 @@ jobs:
           run_suite github-grounding
           run_suite sender-suppression-grounding
           run_suite voice-ai-tells
+          run_suite passthrough-honesty
 
       - name: Upload eval JSON artifacts
         if: always()

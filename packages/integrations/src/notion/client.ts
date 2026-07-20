@@ -6,9 +6,27 @@
  */
 
 import { HttpError, summarizeBody } from "@alfred/contracts";
+import type { RestPassthroughProfile } from "../shared/rest-passthrough";
 
 const NOTION_API = "https://api.notion.com/v1";
 const NOTION_VERSION = "2022-06-28";
+
+/**
+ * Transport profile for the general read-only passthrough tier (ADR-0074): the
+ * pinned Notion REST authority, bearer auth, and the mandatory `Notion-Version`
+ * header. The transport adds `Content-Type` only when a read-via-POST body is
+ * sent, so it is deliberately absent here.
+ */
+export function notionPassthroughProfile(token: string): RestPassthroughProfile {
+  return {
+    baseUrl: NOTION_API,
+    headers: {
+      Authorization: `Bearer ${token}`,
+      "Notion-Version": NOTION_VERSION,
+      Accept: "application/json",
+    },
+  };
+}
 
 async function notionFetch<T>(
   accessToken: string,

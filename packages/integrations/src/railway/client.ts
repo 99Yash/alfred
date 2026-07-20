@@ -55,11 +55,23 @@ export function isRailwayAuthorizationError(err: unknown): boolean {
   });
 }
 
-async function railwayGraphql<T>(
+interface RailwayGraphqlPayload {
+  query: string;
+  variables?: Record<string, unknown>;
+  operationName?: string;
+}
+
+/**
+ * The one authenticated transport primitive both the typed client below and the
+ * ADR-0074 raw passthrough ({@link railwayGraphqlRaw}) share, so credentials,
+ * headers, timeout, and redirect policy are pinned in exactly one place. Never
+ * follows redirects: a signed Railway redirect could carry credentials, and
+ * read-only passthrough must treat a 3xx as an HTTP outcome, not a hop.
+ */
+async function railwayFetch(
   token: string,
-  query: string,
-  variables?: Record<string, unknown>,
-): Promise<T> {
+  payload: RailwayGraphqlPayload,
+): Promise<{ status: number; ok: boolean; text: string }> {
   const res = await fetch(RAILWAY_API, {
     method: "POST",
     headers: {
@@ -67,19 +79,67 @@ async function railwayGraphql<T>(
       "Content-Type": "application/json",
       Accept: "application/json",
     },
-    body: JSON.stringify({ query, variables: variables ?? {} }),
+    body: JSON.stringify({
+      query: payload.query,
+      variables: payload.variables ?? {},
+      ...(payload.operationName ? { operationName: payload.operationName } : {}),
+    }),
+    redirect: "manual",
     signal: AbortSignal.timeout(30_000),
   });
-  const text = await res.text();
-  if (!res.ok) {
+  return { status: res.status, ok: res.ok, text: await res.text() };
+}
+
+/**
+ * Raw read-only GraphQL passthrough (ADR-0074 rung-a). Returns the real HTTP
+ * status plus the *whole* parsed `{ data?, errors? }` envelope — it never throws
+ * on `errors[]` or a non-2xx status the way {@link railwayGraphql} does, because
+ * the general tier's honest result envelope must surface a partial response
+ * (`data` *and* `errors[]`) and API error bodies verbatim. A transport failure
+ * (timeout/DNS/reset/TLS) still propagates as a thrown error for the caller's
+ * adapter to classify. The read gate that proves the document is query-only runs
+ * in `@alfred/api` *before* this is ever reached.
+ */
+export interface RailwayRawGraphqlResult {
+  status: number;
+  /** Parsed JSON body (`{ data?, errors? }`), `null` for an empty body, or a bounded marker for non-JSON. */
+  body: unknown;
+}
+
+export async function railwayGraphqlRaw(
+  token: string,
+  request: { document: string; variables?: Record<string, unknown>; operationName?: string },
+): Promise<RailwayRawGraphqlResult> {
+  const { status, text } = await railwayFetch(token, {
+    query: request.document,
+    variables: request.variables,
+    operationName: request.operationName,
+  });
+  if (text.length === 0) return { status, body: null };
+  try {
+    return { status, body: JSON.parse(text) as unknown };
+  } catch {
+    // Non-JSON upstream (e.g. an HTML 5xx page). Keep a bounded, redacted marker
+    // so the honest envelope carries something without dumping raw markup.
+    return { status, body: { nonJson: true, preview: summarizeBody(text) } };
+  }
+}
+
+async function railwayGraphql<T>(
+  token: string,
+  query: string,
+  variables?: Record<string, unknown>,
+): Promise<T> {
+  const { status, ok, text } = await railwayFetch(token, { query, variables });
+  if (!ok) {
     // Keep the (redacted, bounded) upstream body for server logs, but don't
     // splice it into the thrown message (it reaches the tool dispatcher /
     // telemetry). The connect route sanitizes separately; this covers the
     // agent-tool call path. The structured HttpError carries the status.
-    console.error(`[railway] ${res.status} graphql :: ${summarizeBody(text)}`);
+    console.error(`[railway] ${status} graphql :: ${summarizeBody(text)}`);
     throw new HttpError({
       provider: "railway",
-      status: res.status,
+      status,
       url: RAILWAY_API,
       method: "POST",
       body: "",
