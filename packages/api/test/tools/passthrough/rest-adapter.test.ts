@@ -50,6 +50,11 @@ const NOTION_PROFILE: RestPassthroughProfile = {
   baseUrl: "https://api.notion.com/v1",
   headers: { Authorization: "Bearer notion-token", "Notion-Version": "2022-06-28" },
 };
+const VERCEL_PROFILE: RestPassthroughProfile = {
+  baseUrl: "https://api.vercel.com",
+  headers: { Authorization: "Bearer vercel-token" },
+  fixedQuery: { teamId: "team_pinned" },
+};
 
 const req = (r: Partial<RestPassthroughRequest> & { method: string; path: string }) =>
   r as RestPassthroughRequest;
@@ -114,6 +119,34 @@ describe("runRestPassthrough — HTTP envelope", () => {
       assert.equal(result.succeeded, true);
       assert.deepEqual(result.body, [{ sha: "abc" }]);
     }
+  });
+
+  test("a pinned fixedQuery (Vercel teamId) cannot be overridden by the model's own query", async () => {
+    // Threat model: an injected `query.teamId` must not repoint the request at
+    // another team. The profile's authority parameter wins.
+    const result = await withMockedFetch(
+      (capture) => {
+        assert.equal(
+          capture.url?.searchParams.get("teamId"),
+          "team_pinned",
+          "the profile-pinned teamId must survive a model-supplied collision",
+        );
+        assert.equal(capture.url?.searchParams.get("limit"), "20");
+        return jsonResponse({ projects: [] });
+      },
+      () =>
+        runRestPassthrough(
+          "vercel",
+          VERCEL_PROFILE,
+          req({
+            method: "GET",
+            path: "/v9/projects",
+            query: { teamId: "team_attacker", limit: 20 },
+          }),
+        ),
+    );
+    assert.equal(result.outcome, "http");
+    if (result.outcome === "http") assert.equal(result.succeeded, true);
   });
 
   test("a 404 is honest: succeeded:false with the real status and the API error body preserved", async () => {

@@ -116,7 +116,7 @@ export const SUPPORTED_REST_PASSTHROUGH_SLUGS: readonly SupportedRestSlug[] =
  * The tool `action` each transport registers: REST providers expose
  * `<slug>.request`; Railway's GraphQL transport exposes `railway.graphql`. The
  * single source for that mapping — the registration test and the dispatcher's
- * per-turn ceiling both derive passthrough tool identity from here rather than
+ * per-run ceiling both derive passthrough tool identity from here rather than
  * re-hardcoding the action strings.
  */
 export const PASSTHROUGH_TOOL_ACTION = {
@@ -127,7 +127,7 @@ export const PASSTHROUGH_TOOL_ACTION = {
 /**
  * The exact registered tool names of the passthrough tier (`github.request`,
  * `railway.graphql`, …), derived from the supported slugs and their transports.
- * The dispatcher's per-turn passthrough ceiling counts prior calls against this
+ * The dispatcher's per-run passthrough ceiling counts prior calls against this
  * set, so a new supported slug is bounded automatically.
  */
 export const PASSTHROUGH_TOOL_NAMES: readonly ToolName[] = SUPPORTED_PASSTHROUGH_SLUGS.map(

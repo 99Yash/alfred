@@ -39,9 +39,15 @@
     <li>Explicit endpoints: last tool, system, last message, and sometimes the message before a trailing tool-result burst.</li>
     <li>Alfred's current client-side loaded tool changes the earliest prefix and causes one cold transition.</li>
     <li>Anthropic-native <code>defer_loading</code> is different: discovered schemas are inserted later as <code>tool_reference</code> blocks, preserving the early prefix.</li>
+    <li>The deferred-tool “catalog” has no public resource ID, TTL, or invalidation API. Resend all definitions every request and treat that request’s tools array as authoritative.</li>
+    <li>Keep prompt-cache lifetime separate from tool-search lifetime: prompt entries have cache TTLs; the searchable tool view is defined anew by request input.</li>
     <li>Changing runtime time stays in a later suffix, preserving stable endpoints.</li>
     <li>Verify with cache read/write token fields, never latency alone.</li>
   </ul>
+
+  <h2>Deferred-tool mechanics</h2>
+  <p class="equation">HTTP request: search tool + every full deferred definition<br>initial model context: search tool + non-deferred tools only<br>search result: tool_reference(name)<br>continued model context: old prefix + expanded selected schema</p>
+  <p>Preserve the provider's search blocks in history. Return a result only for the discovered client <code>tool_use</code>, never for the provider's <code>server_tool_use</code>.</p>
 
   <h2>Frequent traps</h2>
   <ul>
