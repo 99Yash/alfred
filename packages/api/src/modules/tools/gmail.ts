@@ -16,6 +16,7 @@ import {
   gmailSearchResultSchema,
   gmailSendDraftInput,
   isNonEmptyString,
+  restPassthroughInput,
 } from "@alfred/contracts";
 import { db } from "@alfred/db";
 import { documents } from "@alfred/db/schemas";
@@ -27,6 +28,7 @@ import {
   GMAIL_MODIFY_SCOPE,
   GMAIL_READONLY_SCOPE,
   GMAIL_SEND_SCOPE,
+  googlePassthroughProfile,
   listMessages,
   requireScopes,
   sendMessage,
@@ -37,6 +39,7 @@ import {
   resolveGoogleCredential,
   type GoogleScopePolicy,
 } from "./google-credentials";
+import { runRestPassthrough } from "./passthrough";
 import { liveTool, type RegisteredTool } from "./registry";
 
 /**
@@ -309,6 +312,26 @@ export const gmailTools: readonly RegisteredTool[] = [
         threadId: input.threadId,
       });
       return { ok: true, messageId: sent.id, threadId: sent.threadId };
+    },
+  }),
+  liveTool({
+    integration: "gmail",
+    action: "request",
+    riskTier: "no_risk",
+    availability: { passthrough: true },
+    description:
+      "Issue a raw, READ-ONLY Gmail REST call, scoped to the connected user's own mailbox, for anything the curated gmail tools don't cover — most usefully the user's LABELS: GET '/labels' lists them, GET '/labels/{id}' reads one. Gmail's user labels ARE Alfred's own triage tags (e.g. '4: awaiting reply', '5: meeting', '6: fyi'), so this is how you reconcile the live mailbox against Alfred's triage state. Also reachable: GET '/messages', '/messages/{id}', '/threads', '/threads/{id}', '/settings/*'. Pass `method` (GET or HEAD only — writes are rejected at the boundary), a mailbox-relative `path` beginning with '/' (never a full URL; the path is already rooted at the user's own mailbox, so do NOT include '/users/me'), and `query` for parameters (labelIds, q, maxResults, format). This is a raw, unvalidated read: a 404 or empty list may mean your path/params were wrong — NOT that the thing is absent. Correct the path once and retry, or state the uncertainty. Never report a raw empty as a confident zero.",
+    discovery: {
+      aliases: ["gmail api", "gmail labels", "list gmail labels", "call gmail"],
+      tags: ["email", "inbox", "communication", "labels"],
+      entities: ["label", "message", "thread", "setting", "triage tag"],
+      verbs: ["read", "list", "get", "inspect", "query"],
+      relatedTools: ["gmail.search", "gmail.read_message"],
+    },
+    inputSchema: restPassthroughInput,
+    execute: async (input, ctx) => {
+      const token = await resolveGoogleAccessToken(ctx.userId, GMAIL_READ_POLICY);
+      return runRestPassthrough("gmail", googlePassthroughProfile("gmail", token), input);
     },
   }),
 ];

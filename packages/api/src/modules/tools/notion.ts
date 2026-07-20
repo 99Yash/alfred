@@ -12,14 +12,17 @@ import {
   notionCreatePageInput,
   notionGetPageInput,
   notionSearchInput,
+  restPassthroughInput,
 } from "@alfred/contracts";
 import {
   notionAppendBlocks,
   notionCreatePage,
   notionGetPage,
+  notionPassthroughProfile,
   notionSearch,
 } from "@alfred/integrations/notion";
 import { getActiveBearerCredential } from "@alfred/integrations/shared";
+import { runRestPassthrough } from "./passthrough";
 import { liveTool, type RegisteredTool } from "./registry";
 
 async function tokenFor(userId: string): Promise<string> {
@@ -83,6 +86,26 @@ export const notionTools: readonly RegisteredTool[] = [
     execute: async (input, ctx) => {
       const accessToken = await tokenFor(ctx.userId);
       return notionAppendBlocks({ accessToken, blockId: input.blockId, content: input.content });
+    },
+  }),
+  liveTool({
+    integration: "notion",
+    action: "request",
+    riskTier: "no_risk",
+    availability: { passthrough: true },
+    description:
+      "Issue a raw, READ-ONLY Notion API call for STRUCTURE and metadata the curated notion tools don't cover — a database's properties/schema (GET '/databases/{id}'), a block's children (GET '/blocks/{id}/children'), page metadata (GET '/pages/{id}'), or the two read-via-POST endpoints: full-text search (POST '/search') and database query (POST '/databases/{id}/query', where a JSON `body` carries the filter/sort). GET/HEAD and those two POST paths are the only reads permitted; every other write is rejected at the boundary. This is for structure/metadata — to read a page's CONTENT as text, use the curated notion.get_page instead. This is a raw, unvalidated read: a 404 or empty result may mean your id/path was wrong — NOT that the thing is absent. Correct the path once and retry, or state the uncertainty. Never report a raw empty as a confident zero.",
+    discovery: {
+      aliases: ["notion api", "notion request", "call notion", "notion database schema"],
+      tags: ["notion", "docs", "knowledge"],
+      entities: ["database", "page", "block", "property", "schema"],
+      verbs: ["read", "inspect", "query", "search", "get"],
+      relatedTools: ["notion.search", "notion.get_page"],
+    },
+    inputSchema: restPassthroughInput,
+    execute: async (input, ctx) => {
+      const accessToken = await tokenFor(ctx.userId);
+      return runRestPassthrough("notion", notionPassthroughProfile(accessToken), input);
     },
   }),
 ];

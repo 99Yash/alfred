@@ -6,8 +6,26 @@
  */
 
 import { httpErrorFromResponse } from "@alfred/contracts";
+import type { RestPassthroughProfile } from "../shared/rest-passthrough";
 
 const VERCEL_API = "https://api.vercel.com";
+
+/**
+ * Transport profile for the general read-only passthrough tier (ADR-0074): the
+ * pinned Vercel REST authority + bearer auth. A team install must echo `teamId`
+ * on every call, so it is pinned as `fixedQuery` (the model's own `query` can
+ * never override it). Personal installs pass `teamId: null` → no fixed query.
+ */
+export function vercelPassthroughProfile(args: {
+  token: string;
+  teamId: string | null;
+}): RestPassthroughProfile {
+  return {
+    baseUrl: VERCEL_API,
+    headers: { Authorization: `Bearer ${args.token}`, Accept: "application/json" },
+    ...(args.teamId ? { fixedQuery: { teamId: args.teamId } } : {}),
+  };
+}
 
 async function vercelFetch<T>(args: {
   accessToken: string;

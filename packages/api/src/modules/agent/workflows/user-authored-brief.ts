@@ -737,6 +737,7 @@ function dispatchResultToToolOutput(
       return { type: "json", value: toJsonValue(boundToolResult(result.result).value) };
     case "inactive_tool":
     case "not_allowed":
+    case "feature_disabled":
       return { type: "json", value: toJsonValue(boundToolResult(result.result).value) };
   }
 }

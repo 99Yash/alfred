@@ -13,17 +13,20 @@ import {
   githubGetPullRequestInput,
   githubSearchInput,
   queryHasNarrowingScope,
+  restPassthroughInput,
   sanitizeGithubSearchQuery,
 } from "@alfred/contracts";
 import {
   getInstallationTokenForUser,
   getIssue,
   getPullRequest,
+  githubPassthroughProfile,
   searchGithub,
 } from "@alfred/integrations/github";
 import type { z } from "zod";
 import { localDateInTimezone } from "../briefing/preferences";
 import { addLocalDays, localTimeInTimezone } from "../timezone";
+import { runRestPassthrough } from "./passthrough";
 import { liveTool, type RegisteredTool } from "./registry";
 import { AppError } from "../../lib/app-errors";
 
@@ -223,6 +226,26 @@ export const githubTools: readonly RegisteredTool[] = [
         repo: input.repo,
         number: input.issue_number,
       });
+    },
+  }),
+  liveTool({
+    integration: "github",
+    action: "request",
+    riskTier: "no_risk",
+    availability: { passthrough: true },
+    description:
+      "Issue a raw, READ-ONLY GitHub REST call for anything the curated github tools don't cover — repo-scoped reads such as workflow runs, commits, releases, branches, tags, contents, issues/pulls detail (e.g. GET '/repos/{owner}/{repo}/actions/runs', '/repos/{owner}/{repo}/commits', '/repos/{owner}/{repo}/releases'). Pass `method` (GET or HEAD only — writes are rejected at the boundary), a namespace-relative `path` beginning with '/' (never a full URL), and `query` for parameters (per_page, page, sha, branch, since). GitHub's list endpoints paginate — set per_page/page rather than assuming the first page is everything. Note '/notifications' is user-scoped and NOT reachable under the App installation token; the curated github.search covers issues/PRs across repos. This is a raw, unvalidated read: a 404 or empty array may mean your path/params were wrong — NOT that the thing is absent. Correct the path once and retry, or state the uncertainty. Never report a raw empty as a confident zero.",
+    discovery: {
+      aliases: ["github api", "github rest", "call github", "github request"],
+      tags: ["github", "code", "development"],
+      entities: ["workflow run", "commit", "release", "branch", "repository", "tag"],
+      verbs: ["read", "list", "get", "inspect", "query"],
+      relatedTools: ["github.search", "github.get_pull_request"],
+    },
+    inputSchema: restPassthroughInput,
+    execute: async (input, ctx) => {
+      const credential = await credentialFor(ctx.userId);
+      return runRestPassthrough("github", githubPassthroughProfile(credential.accessToken), input);
     },
   }),
 ];

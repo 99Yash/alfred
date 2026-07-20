@@ -117,6 +117,7 @@ export {
   SLIDES_SCOPE,
   scopesForFeatures,
 } from "./oauth";
+export { GOOGLE_PASSTHROUGH_BASE_URLS, googlePassthroughProfile } from "./passthrough";
 export { featuresFromGrantedScopes, MissingScopesError, requireScopes } from "./scopes";
 export type {
   AppendValuesArgs,

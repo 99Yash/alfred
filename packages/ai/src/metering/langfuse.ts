@@ -176,8 +176,13 @@ export interface ToolSpanInput {
 }
 
 export interface ToolSpanCloser {
-  /** Tool returned; `output` is attached only when I/O capture is on. */
-  success(output?: unknown): void;
+  /**
+   * Tool returned; `output` is attached only when I/O capture is on. `metadata`
+   * (when given) is merged onto the span's metadata and is recorded ALWAYS —
+   * independent of the I/O gate — so it must carry only non-PII, structural
+   * signal (e.g. the ADR-0074 passthrough truncation "thermometer").
+   */
+  success(output?: unknown, metadata?: Record<string, unknown>): void;
   error(message: string): void;
 }
 
@@ -234,9 +239,15 @@ export function startToolSpan(args: ToolSpanInput): ToolSpanCloser {
   }
 
   return {
-    success(output) {
+    success(output, metadata) {
       try {
-        span?.end({ output: captureIo ? output : undefined });
+        // Structural metadata (e.g. the truncation thermometer) is recorded
+        // regardless of the I/O gate; Langfuse merges it onto the metadata set
+        // at span open, so the `kind: "tool"` block is preserved.
+        span?.end({
+          output: captureIo ? output : undefined,
+          metadata: metadata && Object.keys(metadata).length > 0 ? metadata : undefined,
+        });
       } catch (err) {
         console.warn("[langfuse] tool span end failed:", toMessage(err));
       }
@@ -271,6 +282,7 @@ export type DispatchRejectionOutcome =
   | "not_allowed"
   | "invalid_input"
   | "rejected"
+  | "feature_disabled"
   | "failed";
 
 /**
@@ -285,6 +297,9 @@ const DISPATCH_OUTCOME_LEVEL: Record<DispatchRejectionOutcome, "DEFAULT" | "WARN
   not_allowed: "WARNING",
   invalid_input: "WARNING",
   rejected: "DEFAULT",
+  // The user turned this tier off (ADR-0074, default-OFF). An expected setting,
+  // not an anomaly — a node worth counting but not a warning.
+  feature_disabled: "DEFAULT",
   failed: "ERROR",
 };
 

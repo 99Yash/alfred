@@ -37,6 +37,7 @@ import {
 } from "./artifacts";
 import { githubSearchQueryIssues, sanitizeGithubSearchQuery } from "./github-search";
 import { isRecord } from "./guards";
+import { graphqlPassthroughRequestSchema, restPassthroughRequestSchema } from "./passthrough";
 import { todoSourceSchema } from "./todos";
 import {
   GMAIL_SEARCH_DEFAULT_RESULTS,
@@ -1058,6 +1059,26 @@ export const notionAppendBlocksInput = z
 
 /* ── railway ──────────────────────────────────────────────────────────── */
 
+/**
+ * Railway's general read-only passthrough (ADR-0074). The request shape is the
+ * shared {@link graphqlPassthroughRequestSchema} contract; the read gate + honest
+ * envelope live in `@alfred/api`. Not `.strict()` on purpose — the schema is the
+ * pure GraphQL request the boss composes, and a mistaken write reaches the *gate*
+ * (a visible rejection it can self-correct), not a hidden Zod failure.
+ */
+export const railwayGraphqlInput = graphqlPassthroughRequestSchema;
+
+/**
+ * The shared REST general-passthrough (ADR-0074) request shape for every
+ * REST-transport integration (`github.request`, `notion.request`,
+ * `vercel.request`, …). One schema, not one per provider: the request surface
+ * is identical (method + namespace-relative path + query + optional read-via-POST
+ * body); the per-provider read gate and honest envelope live in `@alfred/api`.
+ * Not `.strict()` on purpose — a mistaken write method reaches the *gate* (a
+ * visible rejection the boss can self-correct), not a hidden Zod failure.
+ */
+export const restPassthroughInput = restPassthroughRequestSchema;
+
 export const railwayListProjectsInput = z.object({}).strict();
 
 const railwayCredentialId = z
@@ -1661,18 +1682,22 @@ export const TOOL_INPUT_SCHEMAS = {
   "github.search": githubSearchInput,
   "github.get_pull_request": githubGetPullRequestInput,
   "github.get_issue": githubGetIssueInput,
+  "github.request": restPassthroughInput,
   "notion.search": notionSearchInput,
   "notion.get_page": notionGetPageInput,
   "notion.create_page": notionCreatePageInput,
   "notion.append_blocks": notionAppendBlocksInput,
+  "notion.request": restPassthroughInput,
   "railway.list_projects": railwayListProjectsInput,
   "railway.list_deployments": railwayListDeploymentsInput,
   "railway.recent_deployments": railwayRecentDeploymentsInput,
   "railway.get_logs": railwayGetLogsInput,
   "railway.redeploy": railwayRedeployInput,
+  "railway.graphql": railwayGraphqlInput,
   "vercel.list_projects": vercelListProjectsInput,
   "vercel.list_deployments": vercelListDeploymentsInput,
   "vercel.redeploy": vercelRedeployInput,
+  "vercel.request": restPassthroughInput,
   "gmail.search": gmailSearchInput,
   "gmail.send_draft": gmailSendDraftInput,
   "gmail.read_message": gmailReadMessageInput,

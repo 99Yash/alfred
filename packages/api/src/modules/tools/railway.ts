@@ -9,6 +9,7 @@
 
 import {
   railwayGetLogsInput,
+  railwayGraphqlInput,
   railwayListDeploymentsInput,
   railwayListProjectsInput,
   railwayRecentDeploymentsInput,
@@ -20,6 +21,7 @@ import {
   railwayListProjects,
   railwayRedeploy,
 } from "@alfred/integrations/railway";
+import { runRailwayPassthrough } from "./passthrough";
 import {
   listActiveBearerCredentials,
   type ActiveBearerCredential,
@@ -126,6 +128,25 @@ export const railwayTools: readonly RegisteredTool[] = [
         limit: input.limit,
       });
       return { ...credentialRef(credential), ...result };
+    },
+  }),
+  liveTool({
+    integration: "railway",
+    action: "graphql",
+    riskTier: "no_risk",
+    availability: { passthrough: true },
+    description:
+      "Run a raw, READ-ONLY GraphQL query against Railway's public API (https://backboard.railway.app/graphql/v2) — the general-tier escape hatch for reads the curated Railway tools don't cover (service variables, plugin/volume details, usage, deployment metadata, workspace/team structure). Compose a standard GraphQL `query` document; pass `variables` and, only when the document defines more than one operation, `operationName`. Mutations and subscriptions are rejected at the boundary. To learn the schema, prefer a targeted `__type(name: \"Service\") { fields { name } }` introspection over a full `__schema` dump, which is truncated. This is a raw, unvalidated read: a non-2xx status, a GraphQL `errors[]`, or an empty result may mean your query was wrong — NOT that the thing is absent. Read both `data` and `errors` in the result. Correct the query once and retry if it looks wrong, otherwise state the uncertainty. Never report a raw empty as a confident zero. For 'what deployed recently', prefer the curated railway.recent_deployments.",
+    discovery: {
+      aliases: ["railway graphql", "railway api query", "query railway"],
+      tags: ["infrastructure", "developer"],
+      entities: ["service", "variable", "volume", "plugin", "usage", "workspace"],
+      verbs: ["query", "read", "inspect", "introspect"],
+    },
+    inputSchema: railwayGraphqlInput,
+    execute: async (input, ctx) => {
+      const credential = await credentialFor(ctx.userId);
+      return runRailwayPassthrough(credential.accessToken, input);
     },
   }),
   liveTool({

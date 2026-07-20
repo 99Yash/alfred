@@ -1,6 +1,14 @@
-import { humanizeSlug, toStringArray, type LoadableIntegrationSlug } from "@alfred/contracts";
+import {
+  humanizeSlug,
+  isPassthroughPreferenceOn,
+  isSupportedPassthroughSlug,
+  PASSTHROUGH_PREFERENCE_KEYS,
+  toStringArray,
+  type LoadableIntegrationSlug,
+  type SupportedIntegrationSlug,
+} from "@alfred/contracts";
 import { db } from "@alfred/db";
-import { integrationCredentials } from "@alfred/db/schemas";
+import { integrationCredentials, userPreferences } from "@alfred/db/schemas";
 import {
   CALENDAR_EVENTS_SCOPE,
   CALENDAR_READONLY_SCOPE,
@@ -10,7 +18,7 @@ import {
   SHEETS_SCOPE,
   SLIDES_SCOPE,
 } from "@alfred/integrations/google";
-import { eq } from "drizzle-orm";
+import { and, eq, inArray } from "drizzle-orm";
 import type { RegisteredTool } from "../tools/registry";
 
 interface IntegrationAccessSpec {
@@ -55,21 +63,48 @@ export interface ToolAvailabilityContext {
 export interface IntegrationAvailabilitySnapshot {
   integrations: ReadonlyMap<LoadableIntegrationSlug, IntegrationAvailability>;
   providers: ReadonlyMap<string, readonly ProviderRow[]>;
+  /**
+   * Per-integration general-passthrough (ADR-0074) enablement. **Default OFF**:
+   * an absent preference row means the tier is disabled, so every supported slug
+   * is present here with an explicit boolean (the read resolves the unset case to
+   * `false`). {@link evaluateToolAvailability} keys the `feature_disabled` code on
+   * this, and the dispatch recheck reads the same map so a kill-switch flip can't
+   * be bypassed by a stale active surface.
+   */
+  passthroughEnabled: ReadonlyMap<SupportedIntegrationSlug, boolean>;
 }
 
 /** One credential read projected into exact per-integration capability health. */
 export async function readIntegrationAvailability(
   userId: string,
 ): Promise<IntegrationAvailabilitySnapshot> {
-  const rows = await db()
-    .select({
-      provider: integrationCredentials.provider,
-      status: integrationCredentials.status,
-      scopes: integrationCredentials.scopes,
-      accountLabel: integrationCredentials.accountLabel,
-    })
-    .from(integrationCredentials)
-    .where(eq(integrationCredentials.userId, userId));
+  const passthroughKeys = Object.values(PASSTHROUGH_PREFERENCE_KEYS);
+  const [rows, prefRows] = await Promise.all([
+    db()
+      .select({
+        provider: integrationCredentials.provider,
+        status: integrationCredentials.status,
+        scopes: integrationCredentials.scopes,
+        accountLabel: integrationCredentials.accountLabel,
+      })
+      .from(integrationCredentials)
+      .where(eq(integrationCredentials.userId, userId)),
+    db()
+      .select({ key: userPreferences.key, value: userPreferences.value })
+      .from(userPreferences)
+      .where(
+        and(eq(userPreferences.userId, userId), inArray(userPreferences.key, passthroughKeys)),
+      ),
+  ]);
+
+  const prefByKey = new Map(prefRows.map((row) => [row.key, row.value]));
+  const passthroughEnabled = new Map<SupportedIntegrationSlug, boolean>();
+  for (const [slug, key] of Object.entries(PASSTHROUGH_PREFERENCE_KEYS) as [
+    SupportedIntegrationSlug,
+    string,
+  ][]) {
+    passthroughEnabled.set(slug, isPassthroughPreferenceOn(prefByKey.get(key)));
+  }
 
   const byProvider = new Map<string, ProviderRow[]>();
   for (const row of rows) {
@@ -99,7 +134,7 @@ export async function readIntegrationAvailability(
       accountLabel: active?.accountLabel?.trim() || null,
     });
   }
-  return { integrations: availability, providers: byProvider };
+  return { integrations: availability, providers: byProvider, passthroughEnabled };
 }
 
 /** Why an exact tool cannot run in a given run context. */
@@ -109,7 +144,14 @@ export type ToolUnavailabilityCode =
   | "requires_thread"
   | "not_connected"
   | "needs_reauth"
-  | "missing_scope";
+  | "missing_scope"
+  // The general read-only passthrough tier (ADR-0074) is default-OFF per
+  // integration; a supported passthrough tool whose per-user preference is unset
+  // or disabled is `feature_disabled`. Unlike the other codes (which the model
+  // sees so it can react), a `feature_disabled` rejection is invisible plumbing —
+  // the model must not narrate a capability the user turned off. The gate/dispatch
+  // wiring that emits it lands with the first passthrough tool.
+  | "feature_disabled";
 
 export type ToolAvailabilityResult =
   | { available: true }
@@ -151,6 +193,24 @@ export function evaluateToolAvailability(
       code: "requires_thread",
       reason: "Runs only inside an interactive chat thread.",
     };
+  }
+  // ADR-0074: a general read-only passthrough tool is default-OFF per integration
+  // and killable without a deploy. Gate it on the per-user preference BEFORE the
+  // credential/health block so a user who turned the tier off gets that reason —
+  // not an unrelated "not connected". A slug that lost `supported` status (or was
+  // never one) is treated as off. When on, the tool still flows through the
+  // health check below, so a disabled/disconnected integration is reported honestly.
+  if (tool.availability?.passthrough) {
+    const enabled =
+      isSupportedPassthroughSlug(tool.integration) &&
+      snapshot.passthroughEnabled.get(tool.integration) === true;
+    if (!enabled) {
+      return {
+        available: false,
+        code: "feature_disabled",
+        reason: `${name} raw API access is turned off. Enable it under Settings → Features to use this tool.`,
+      };
+    }
   }
 
   const credential = tool.availability?.credential;

@@ -3,6 +3,7 @@ import { AppButton, AppCard } from "~/components/ui/v2";
 import { useFeatureFlags } from "~/lib/replicache/use-feature-flags";
 import { AgentRow } from "./agent-row";
 import { BriefingScheduleSection } from "./briefing-schedule-section";
+import { PassthroughSection } from "./passthrough-section";
 import { BACKGROUND_AGENTS } from "./helpers";
 
 const RETRY_LEADING = <RefreshCw size={13} aria-hidden />;
@@ -62,6 +63,7 @@ export function FeaturesSection() {
           </div>
         )}
       </AppCard>
+      <PassthroughSection />
       <BriefingScheduleSection />
     </>
   );

@@ -53,6 +53,15 @@ export interface ToolAvailabilityMetadata {
   callers?: readonly ("boss" | "sub_agent")[];
   /** True when execution requires an interactive chat thread. */
   requiresThread?: boolean;
+  /**
+   * Marks a general read-only passthrough tool (ADR-0074). Its integration slug
+   * is the key for the default-OFF `feature.passthrough.<slug>` preference: with
+   * the preference unset or disabled, availability resolves to `feature_disabled`
+   * (hidden plumbing — the model must not narrate a capability the user turned
+   * off), and `dispatchToolCall` re-checks this immediately before execution so a
+   * stale active surface can't bypass the kill switch.
+   */
+  passthrough?: true;
 }
 
 export interface ToolExecuteContext {
