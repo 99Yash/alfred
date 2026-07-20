@@ -128,6 +128,7 @@ export interface DispatchBatchSummary {
   unknownTool: number;
   inactiveTool: number;
   notAllowed: number;
+  featureDisabled: number;
   failed: number;
 }
 
@@ -150,6 +151,7 @@ export function summarizeDispatchBatch(
     unknownTool: 0,
     inactiveTool: 0,
     notAllowed: 0,
+    featureDisabled: 0,
     failed: 0,
   };
   for (const result of results) {
@@ -177,6 +179,9 @@ export function summarizeDispatchBatch(
         break;
       case "not_allowed":
         summary.notAllowed += 1;
+        break;
+      case "feature_disabled":
+        summary.featureDisabled += 1;
         break;
       case "failed":
         summary.failed += 1;
@@ -234,6 +239,7 @@ export function dispatchBatchEndMetadata(summary: DispatchBatchSummary): Record<
     unknownTool: summary.unknownTool,
     inactiveTool: summary.inactiveTool,
     notAllowed: summary.notAllowed,
+    featureDisabled: summary.featureDisabled,
     failed: summary.failed,
   };
 }

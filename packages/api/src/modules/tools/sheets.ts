@@ -15,6 +15,7 @@
  */
 
 import {
+  restPassthroughInput,
   sheetsAddSheetInput,
   sheetsAppendValuesInput,
   sheetsBatchUpdateInput,
@@ -28,10 +29,12 @@ import {
   batchUpdateSpreadsheet,
   createSpreadsheet,
   getValues,
+  googlePassthroughProfile,
   SHEETS_SCOPE,
   updateValues,
 } from "@alfred/integrations/google";
 import { resolveGoogleAccessToken } from "./google-credentials";
+import { runRestPassthrough } from "./passthrough";
 import { liveTool, type RegisteredTool } from "./registry";
 
 /** Resolve an access token for a Sheets call — requires the `spreadsheets` scope. */
@@ -125,6 +128,26 @@ export const sheetsTools: readonly RegisteredTool[] = [
     execute: async (input, ctx) => {
       const accessToken = await accessTokenFor(ctx.userId);
       return addSheet({ accessToken, spreadsheetId: input.spreadsheetId, title: input.title });
+    },
+  }),
+  liveTool({
+    integration: "sheets",
+    action: "request",
+    riskTier: "no_risk",
+    availability: { passthrough: true },
+    description:
+      "Issue a raw, READ-ONLY Google Sheets REST call for a spreadsheet's STRUCTURE/metadata — sheet tabs and their ids, named ranges, dimensions, protected ranges, and conditional formats: GET '/spreadsheets/{spreadsheetId}' (scope it with a `fields` mask like 'sheets.properties,namedRanges' — the default returns the entire grid and will be truncated-and-flagged). To read cell VALUES, use the curated sheets.get_values with an A1 range — this raw read is for structure, not a bulk grid dump. Pass `method` (GET or HEAD only — writes are rejected at the boundary), a namespace-relative `path` beginning with '/' (never a full URL and never the '/v4' prefix), and `query` for parameters (fields, ranges, includeGridData). This is a raw, unvalidated read: a 404 may mean your id/path was wrong — NOT that the thing is absent. Correct the path once and retry, or state the uncertainty. Never report a raw empty as a confident zero.",
+    discovery: {
+      aliases: ["sheets api", "spreadsheet structure", "call sheets", "sheets request"],
+      tags: ["sheets", "spreadsheet", "data"],
+      entities: ["spreadsheet", "sheet", "named range", "tab"],
+      verbs: ["read", "get", "inspect", "query"],
+      relatedTools: ["sheets.get_values"],
+    },
+    inputSchema: restPassthroughInput,
+    execute: async (input, ctx) => {
+      const token = await accessTokenFor(ctx.userId);
+      return runRestPassthrough("sheets", googlePassthroughProfile("sheets", token), input);
     },
   }),
 ];

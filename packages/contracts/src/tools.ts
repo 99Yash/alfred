@@ -52,10 +52,10 @@ export const INTEGRATION_ACTIONS = {
     "append_artifact_section",
     "update_artifact",
   ],
-  gmail: ["search", "read_message", "send_draft"],
-  calendar: ["list_events", "create_event"],
-  drive: ["search_files", "get_file", "export_file", "download_file"],
-  docs: ["get_document"],
+  gmail: ["search", "read_message", "send_draft", "request"],
+  calendar: ["list_events", "create_event", "request"],
+  drive: ["search_files", "get_file", "export_file", "download_file", "request"],
+  docs: ["get_document", "request"],
   sheets: [
     "create_spreadsheet",
     "get_values",
@@ -63,14 +63,22 @@ export const INTEGRATION_ACTIONS = {
     "append_values",
     "batch_update",
     "add_sheet",
+    "request",
   ],
-  slides: ["create_presentation", "get_presentation", "batch_update", "add_slide"],
+  slides: ["create_presentation", "get_presentation", "batch_update", "add_slide", "request"],
   slack: [],
   linear: [],
-  github: ["search", "get_pull_request", "get_issue"],
-  notion: ["search", "get_page", "create_page", "append_blocks"],
-  railway: ["list_projects", "list_deployments", "recent_deployments", "get_logs", "redeploy"],
-  vercel: ["list_projects", "list_deployments", "redeploy"],
+  github: ["search", "get_pull_request", "get_issue", "request"],
+  notion: ["search", "get_page", "create_page", "append_blocks", "request"],
+  railway: [
+    "list_projects",
+    "list_deployments",
+    "recent_deployments",
+    "get_logs",
+    "redeploy",
+    "graphql",
+  ],
+  vercel: ["list_projects", "list_deployments", "redeploy", "request"],
   imessage: [],
 } as const satisfies Record<IntegrationSlug, readonly string[]>;
 
@@ -302,6 +310,11 @@ export const TOOL_LABELS: Record<ToolName, ToolLabel> = {
     done: "Sent a Gmail draft",
     title: "send a Gmail draft",
   },
+  "gmail.request": {
+    running: "Querying the Gmail API",
+    done: "Queried the Gmail API",
+    title: "run a read-only Gmail API request",
+  },
 
   "calendar.list_events": {
     running: "Checking your calendar",
@@ -312,6 +325,11 @@ export const TOOL_LABELS: Record<ToolName, ToolLabel> = {
     running: "Creating a calendar event",
     done: "Created a calendar event",
     title: "create a calendar event",
+  },
+  "calendar.request": {
+    running: "Querying the Calendar API",
+    done: "Queried the Calendar API",
+    title: "run a read-only Calendar API request",
   },
 
   "drive.search_files": {
@@ -334,11 +352,21 @@ export const TOOL_LABELS: Record<ToolName, ToolLabel> = {
     done: "Downloaded a Drive file",
     title: "download a Drive file",
   },
+  "drive.request": {
+    running: "Querying the Drive API",
+    done: "Queried the Drive API",
+    title: "run a read-only Drive API request",
+  },
 
   "docs.get_document": {
     running: "Reading a Google Doc",
     done: "Read a Google Doc",
     title: "read a Google Doc",
+  },
+  "docs.request": {
+    running: "Querying the Docs API",
+    done: "Queried the Docs API",
+    title: "run a read-only Docs API request",
   },
 
   "sheets.create_spreadsheet": {
@@ -367,6 +395,11 @@ export const TOOL_LABELS: Record<ToolName, ToolLabel> = {
     title: "update the spreadsheet",
   },
   "sheets.add_sheet": { running: "Adding a sheet", done: "Added a sheet", title: "add a sheet" },
+  "sheets.request": {
+    running: "Querying the Sheets API",
+    done: "Queried the Sheets API",
+    title: "run a read-only Sheets API request",
+  },
 
   "slides.create_presentation": {
     running: "Creating a presentation",
@@ -388,6 +421,11 @@ export const TOOL_LABELS: Record<ToolName, ToolLabel> = {
     done: "Added a slide",
     title: "add a slide",
   },
+  "slides.request": {
+    running: "Querying the Slides API",
+    done: "Queried the Slides API",
+    title: "run a read-only Slides API request",
+  },
 
   "github.search": {
     running: "Searching GitHub",
@@ -403,6 +441,11 @@ export const TOOL_LABELS: Record<ToolName, ToolLabel> = {
     running: "Reading an issue",
     done: "Read an issue",
     title: "read an issue",
+  },
+  "github.request": {
+    running: "Querying the GitHub API",
+    done: "Queried the GitHub API",
+    title: "run a read-only GitHub API request",
   },
 
   "notion.search": {
@@ -424,6 +467,11 @@ export const TOOL_LABELS: Record<ToolName, ToolLabel> = {
     running: "Adding to a Notion page",
     done: "Added to a Notion page",
     title: "add content to a Notion page",
+  },
+  "notion.request": {
+    running: "Querying the Notion API",
+    done: "Queried the Notion API",
+    title: "run a read-only Notion API request",
   },
 
   "railway.list_projects": {
@@ -451,6 +499,11 @@ export const TOOL_LABELS: Record<ToolName, ToolLabel> = {
     done: "Triggered a Railway redeploy",
     title: "redeploy a Railway service",
   },
+  "railway.graphql": {
+    running: "Querying the Railway API",
+    done: "Queried the Railway API",
+    title: "run a read-only Railway GraphQL query",
+  },
 
   "vercel.list_projects": {
     running: "Listing Vercel projects",
@@ -466,6 +519,11 @@ export const TOOL_LABELS: Record<ToolName, ToolLabel> = {
     running: "Redeploying on Vercel",
     done: "Triggered a Vercel redeploy",
     title: "redeploy a Vercel deployment",
+  },
+  "vercel.request": {
+    running: "Querying the Vercel API",
+    done: "Queried the Vercel API",
+    title: "run a read-only Vercel API request",
   },
 };
 
@@ -513,16 +571,20 @@ export const TOOL_CATEGORIES: Record<ToolName, ToolCategory> = {
   "gmail.search": "source",
   "gmail.read_message": "source",
   "gmail.send_draft": "action",
+  "gmail.request": "source",
 
   "calendar.list_events": "source",
   "calendar.create_event": "action",
+  "calendar.request": "source",
 
   "drive.search_files": "source",
   "drive.get_file": "source",
   "drive.export_file": "source",
   "drive.download_file": "source",
+  "drive.request": "source",
 
   "docs.get_document": "source",
+  "docs.request": "source",
 
   "sheets.create_spreadsheet": "action",
   "sheets.get_values": "source",
@@ -530,30 +592,36 @@ export const TOOL_CATEGORIES: Record<ToolName, ToolCategory> = {
   "sheets.append_values": "action",
   "sheets.batch_update": "action",
   "sheets.add_sheet": "action",
+  "sheets.request": "source",
 
   "slides.create_presentation": "action",
   "slides.get_presentation": "source",
   "slides.batch_update": "action",
   "slides.add_slide": "action",
+  "slides.request": "source",
 
   "github.search": "source",
   "github.get_pull_request": "source",
   "github.get_issue": "source",
+  "github.request": "source",
 
   "notion.search": "source",
   "notion.get_page": "source",
   "notion.create_page": "action",
   "notion.append_blocks": "action",
+  "notion.request": "source",
 
   "railway.list_projects": "source",
   "railway.list_deployments": "source",
   "railway.recent_deployments": "source",
   "railway.get_logs": "source",
   "railway.redeploy": "action",
+  "railway.graphql": "source",
 
   "vercel.list_projects": "source",
   "vercel.list_deployments": "source",
   "vercel.redeploy": "action",
+  "vercel.request": "source",
 };
 
 /** The declared category for a tool, or `null` for an unregistered name. */

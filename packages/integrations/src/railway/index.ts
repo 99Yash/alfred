@@ -4,6 +4,7 @@ export {
   railwayListDeployments,
   railwayGetLogs,
   railwayRedeploy,
+  railwayGraphqlRaw,
   isRailwayAuthorizationError,
   RailwayGraphqlError,
 } from "./client";
@@ -14,4 +15,5 @@ export type {
   RailwayEnvironment,
   RailwayDeployment,
   RailwayLogLine,
+  RailwayRawGraphqlResult,
 } from "./client";

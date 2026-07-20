@@ -39,6 +39,7 @@ describe("summarizeDispatchBatch", () => {
     assert.equal(summary.invalidInput, 0);
     assert.equal(summary.unknownTool, 0);
     assert.equal(summary.notAllowed, 0);
+    assert.equal(summary.featureDisabled, 0);
   });
 
   test("an empty batch is all zeros", () => {
@@ -84,6 +85,7 @@ describe("dispatchBatchEndMetadata", () => {
       unknownTool: 0,
       inactiveTool: 0,
       notAllowed: 0,
+      featureDisabled: 0,
       failed: 0,
     });
   });

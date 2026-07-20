@@ -1,0 +1,99 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Foundation 4 — MCP methods versus model tools</title>
+  <link rel="stylesheet" href="../assets/lesson.css">
+</head>
+<body>
+<main>
+  <p class="frame-no">Alfred harness · Foundation 4</p>
+  <h1>Two conversations.<br>One host between them.</h1>
+  <p class="lede"><code>tools/list</code> and <code>tools/call</code> belong to the MCP client-server wire. The model participates in a separate provider API conversation.</p>
+
+  <p class="thesis"><strong>The one sentence to keep:</strong> MCP standardizes how the host obtains and invokes capabilities; the host translates those capabilities into whatever tool format its model provider understands.</p>
+
+  <h2>Who defines each word?</h2>
+  <table class="compact-table">
+    <thead><tr><th>Example</th><th>Defined by</th><th>Who sees it?</th></tr></thead>
+    <tbody>
+      <tr><td><code>initialize</code></td><td>MCP specification</td><td>MCP client and server</td></tr>
+      <tr><td><code>notifications/initialized</code></td><td>MCP specification</td><td>MCP client and server</td></tr>
+      <tr><td><code>tools/list</code></td><td>MCP specification</td><td>MCP client and server</td></tr>
+      <tr><td><code>tools/call</code></td><td>MCP specification</td><td>MCP client and server</td></tr>
+      <tr><td><code>calendar_reschedule_preview</code></td><td>This particular MCP server</td><td>Client, host, and possibly model</td></tr>
+      <tr><td><code>eventTitle</code>, <code>newStart</code></td><td>This tool’s server-authored schema</td><td>Client, host, and model</td></tr>
+      <tr><td>Provider <code>tool-call</code> response</td><td>Model API/SDK</td><td>Model provider and host</td></tr>
+      <tr><td>Approval and active-tool policy</td><td>Alfred</td><td>Host and user</td></tr>
+    </tbody>
+  </table>
+
+  <h2>The translation bridge</h2>
+  <pre>MCP conversation                    Model conversation
+
+Alfred MCP client ──tools/list──▶ server
+                  ◀──schemas─────
+          │
+          │ Alfred filters, namespaces, and converts schemas
+          ▼
+Alfred host ──selected tool definitions──▶ model
+            ◀──tool proposal──────────────
+          │
+          │ Alfred validates + authorizes + approves
+          ▼
+Alfred MCP client ──tools/call───────────▶ server
+                  ◀──tool result──────────</pre>
+
+  <p>The model usually sees the server-defined tool name and schema. It does not need to know that the definition came from MCP, and it normally never emits the MCP method <code>tools/call</code>. That is why Alfred’s ADR says the agent should not distinguish native from MCP-imported tools at the registry layer.</p>
+
+  <h2>Build the wire without an SDK</h2>
+  <p>The lab uses the stdio transport. The client launches the server as a child process. Every line on stdin/stdout is one UTF-8 JSON-RPC message; server logs would have to use stderr.</p>
+  <p class="equation">node learning-labs/mcp-from-scratch/client.mjs</p>
+  <div class="timeline">
+    <article class="frame"><div class="frame-no">1</div><div><h3><code>initialize</code></h3><p>The client proposes protocol version <code>2025-11-25</code>. The server agrees and declares the <code>tools</code> capability.</p></div></article>
+    <article class="frame"><div class="frame-no">2</div><div><h3><code>notifications/initialized</code></h3><p>The client says initialization is complete. It has no <code>id</code>, so it expects no response.</p></div></article>
+    <article class="frame"><div class="frame-no">3</div><div><h3><code>tools/list</code></h3><p>The universal method returns a server-specific catalog containing <code>calendar_reschedule_preview</code> and its JSON Schemas.</p></div></article>
+    <article class="frame"><div class="frame-no">4</div><div><h3>Model proposal</h3><p>The lab prints a simulated host/model exchange. This is deliberately labeled “not MCP traffic.”</p></div></article>
+    <article class="frame"><div class="frame-no">5</div><div><h3><code>tools/call</code></h3><p>After the simulated host policy seam, the client sends the server-defined name and arguments using the universal MCP method.</p></div></article>
+  </div>
+
+  <h2>Why use an SDK afterward?</h2>
+  <p>The raw lab makes the contract visible, but production clients and servers should use an official SDK for message schemas, lifecycle rules, pagination, cancellation, progress, tasks, transport edge cases, and version compatibility. An SDK does not change the architecture; it stops you from hand-implementing the protocol machinery shown here.</p>
+
+  <div class="quiz">
+    <h2 style="margin-top:0">Wire check</h2>
+    <p>The model proposes <code>calendar_reschedule_preview</code>. Who creates the subsequent <code>tools/call</code> JSON-RPC request?</p>
+    <div class="answer-grid">
+      <button data-ok="false">The language model itself</button>
+      <button data-ok="true">The host’s MCP client</button>
+      <button data-ok="false">The Google Calendar API</button>
+    </div>
+    <p class="feedback" id="feedback" aria-live="polite"></p>
+  </div>
+
+  <h2>Source trail</h2>
+  <ul class="sources">
+    <li><a href="../learning-labs/mcp-from-scratch/README.md">Runnable lab instructions</a></li>
+    <li><a href="../learning-labs/mcp-from-scratch/server.mjs">Raw MCP stdio server</a></li>
+    <li><a href="../learning-labs/mcp-from-scratch/client.mjs">Raw MCP client and simulated model bridge</a></li>
+    <li><a href="https://modelcontextprotocol.io/specification/2025-11-25/basic/lifecycle">Official MCP lifecycle</a></li>
+    <li><a href="https://modelcontextprotocol.io/specification/2025-11-25/basic/transports">Official MCP transports</a></li>
+    <li><a href="https://modelcontextprotocol.io/specification/2025-11-25/server/tools">Official MCP tools</a></li>
+    <li><a href="0008-freshness-and-mcp-credential-custody.html">Previous: freshness and credential custody</a></li>
+  </ul>
+</main>
+<script>
+  const feedback = document.querySelector('#feedback');
+  document.querySelectorAll('button[data-ok]').forEach((button) => {
+    button.addEventListener('click', () => {
+      const correct = button.dataset.ok === 'true';
+      feedback.textContent = correct
+        ? 'Correct. The model proposes a provider-format call; the host authorizes it and its MCP client constructs the protocol request.'
+        : 'Look for the translator between the model API and the MCP server. The model does not write to the server transport directly.';
+      feedback.style.color = correct ? 'var(--success)' : 'var(--error)';
+    });
+  });
+</script>
+</body>
+</html>

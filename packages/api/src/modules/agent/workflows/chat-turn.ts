@@ -1686,7 +1686,12 @@ export function isNonExecutionFailure(
     result.kind === "invalid_input" ||
     result.kind === "unknown_tool" ||
     result.kind === "inactive_tool" ||
-    result.kind === "not_allowed"
+    result.kind === "not_allowed" ||
+    // ADR-0074: the user turned this passthrough tier off. Never reached the
+    // side-effect path and the model must not narrate a disabled capability, so
+    // it is hidden `nonExecution` plumbing (the opposite of a visible gate
+    // `rejected`, which rides `kind:"executed"`).
+    result.kind === "feature_disabled"
   );
 }
 
