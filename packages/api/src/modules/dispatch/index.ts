@@ -82,7 +82,7 @@ import { scheduleApprovalNotificationJob } from "../approvals/notification-queue
 import { parseScratchToolKey, type ScratchToolKey } from "../tools/scratch-key";
 import {
   countRunPassthroughCalls,
-  PASSTHROUGH_PER_TURN_CEILING,
+  PASSTHROUGH_PER_RUN_CEILING,
   passthroughBudgetExhausted,
   passthroughTruncationTelemetry,
 } from "../tools/passthrough";
@@ -1222,7 +1222,7 @@ function awaitSubAgentSpanOutput(result: DispatchResult): unknown {
 }
 
 /**
- * ADR-0074 per-turn passthrough ceiling. Before a passthrough tool executes,
+ * ADR-0074 per-run passthrough ceiling. Before a passthrough tool executes,
  * count how many raw passthrough calls already ran in this run; at or over the
  * ceiling, DON'T execute — commit the staged row with a VISIBLE
  * `budget_exhausted` envelope and return it as a normal `executed` result so the
@@ -1238,7 +1238,7 @@ async function guardPassthroughBudget(
 ): Promise<DispatchResult | null> {
   if (!tool.availability?.passthrough) return null;
   const priorCalls = await countRunPassthroughCalls(ctx.runId);
-  if (priorCalls < PASSTHROUGH_PER_TURN_CEILING) return null;
+  if (priorCalls < PASSTHROUGH_PER_RUN_CEILING) return null;
   const envelope = passthroughBudgetExhausted(priorCalls);
   await db()
     .update(actionStagings)

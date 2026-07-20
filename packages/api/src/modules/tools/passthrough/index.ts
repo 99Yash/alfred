@@ -35,7 +35,7 @@ export {
 export {
   countRunPassthroughCalls,
   passthroughBudgetExhausted,
-  PASSTHROUGH_PER_TURN_CEILING,
+  PASSTHROUGH_PER_RUN_CEILING,
   type PassthroughBudgetExhausted,
 } from "./budget";
 export { passthroughTruncationTelemetry, type PassthroughTruncationTelemetry } from "./telemetry";

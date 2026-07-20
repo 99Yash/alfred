@@ -15,7 +15,7 @@ import { inArray, like } from "drizzle-orm";
 
 import { clearPolicyCacheForTests } from "../../src/modules/action-policies/resolve";
 import { dispatchToolCall } from "../../src/modules/dispatch";
-import { PASSTHROUGH_PER_TURN_CEILING } from "../../src/modules/tools/passthrough";
+import { PASSTHROUGH_PER_RUN_CEILING } from "../../src/modules/tools/passthrough";
 import {
   clearToolRegistryForTests,
   liveTool,
@@ -23,7 +23,7 @@ import {
 } from "../../src/modules/tools/registry";
 
 /**
- * DB-backed regression for the ADR-0074 per-turn passthrough ceiling. A runaway
+ * DB-backed regression for the ADR-0074 per-run passthrough ceiling. A runaway
  * pagination loop reads as *forward progress* (each page is a materially-changed
  * request), so it slips past the ADR-0070 non-progress backstop. The dispatcher's
  * cumulative cap is the dedicated guard: at or over the ceiling it commits a
@@ -111,7 +111,7 @@ function dispatchGithubRequest(userId: string, runId: string, page: number) {
   });
 }
 
-describe("passthrough per-turn ceiling (DB-backed)", { skip: SKIP }, () => {
+describe("passthrough per-run ceiling (DB-backed)", { skip: SKIP }, () => {
   before(async () => {
     clearToolRegistryForTests();
     // A github.request double standing in for the real passthrough tool: same
@@ -152,16 +152,16 @@ describe("passthrough per-turn ceiling (DB-backed)", { skip: SKIP }, () => {
 
   test("at the ceiling: the call is NOT executed and returns the visible budget_exhausted envelope", async () => {
     const { userId, runId } = await seedUser();
-    await seedExecutedPassthroughCalls(userId, runId, PASSTHROUGH_PER_TURN_CEILING);
+    await seedExecutedPassthroughCalls(userId, runId, PASSTHROUGH_PER_RUN_CEILING);
 
-    const result = await dispatchGithubRequest(userId, runId, PASSTHROUGH_PER_TURN_CEILING + 1);
+    const result = await dispatchGithubRequest(userId, runId, PASSTHROUGH_PER_RUN_CEILING + 1);
 
     assert.equal(result.kind, "executed", "the guard commits a normal executed result");
     const toolResult = result.kind === "executed" ? result.toolResult : undefined;
     assert.ok(isRecord(toolResult), "the executed result carries the envelope");
     assert.equal(toolResult.outcome, "budget_exhausted");
-    assert.equal(toolResult.callsThisTurn, PASSTHROUGH_PER_TURN_CEILING);
-    assert.equal(toolResult.ceiling, PASSTHROUGH_PER_TURN_CEILING);
+    assert.equal(toolResult.callsThisRun, PASSTHROUGH_PER_RUN_CEILING);
+    assert.equal(toolResult.ceiling, PASSTHROUGH_PER_RUN_CEILING);
     assert.equal(
       executeCount,
       0,
@@ -171,9 +171,9 @@ describe("passthrough per-turn ceiling (DB-backed)", { skip: SKIP }, () => {
 
   test("under the ceiling: the call executes normally", async () => {
     const { userId, runId } = await seedUser();
-    await seedExecutedPassthroughCalls(userId, runId, PASSTHROUGH_PER_TURN_CEILING - 1);
+    await seedExecutedPassthroughCalls(userId, runId, PASSTHROUGH_PER_RUN_CEILING - 1);
 
-    const result = await dispatchGithubRequest(userId, runId, PASSTHROUGH_PER_TURN_CEILING);
+    const result = await dispatchGithubRequest(userId, runId, PASSTHROUGH_PER_RUN_CEILING);
 
     assert.equal(result.kind, "executed");
     const toolResult = result.kind === "executed" ? result.toolResult : undefined;

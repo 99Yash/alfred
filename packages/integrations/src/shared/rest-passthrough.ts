@@ -43,7 +43,8 @@ export interface RestPassthroughProfile {
   headers: Record<string, string>;
   /**
    * Provider-mandated query parameters always appended (e.g. Vercel's `teamId`).
-   * Applied before the request's own `query`, which cannot override them.
+   * Pinned *last* — after the request's own `query` — so a model-supplied key of
+   * the same name cannot override an authority parameter the boundary set.
    */
   fixedQuery?: Record<string, string>;
 }
@@ -86,15 +87,18 @@ function buildAndVerifyUrl(profile: RestPassthroughProfile, request: RestPassthr
     );
   }
 
-  for (const [key, value] of Object.entries(profile.fixedQuery ?? {})) {
-    url.searchParams.set(key, value);
-  }
   for (const [key, value] of Object.entries(request.query ?? {})) {
     if (Array.isArray(value)) {
       for (const item of value) url.searchParams.append(key, item);
     } else {
       url.searchParams.set(key, String(value));
     }
+  }
+  // Pin provider-mandated params last so the model's `query` can never override
+  // an authority parameter (e.g. Vercel's `teamId`). `set` clears any value the
+  // request supplied for the same key.
+  for (const [key, value] of Object.entries(profile.fixedQuery ?? {})) {
+    url.searchParams.set(key, value);
   }
   return url;
 }

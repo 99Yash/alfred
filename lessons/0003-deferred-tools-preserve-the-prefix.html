@@ -23,6 +23,98 @@
   <p class="equation">R1: [kernel → system → history] ◀ warm<br>discover calendar.create<br>R2: [kernel → system → history] + tool_reference(calendar.create)<br>    └──────── same cached prefix ────────┘</p>
   <p>The schema still reaches Claude, but it arrives after the stable prefix. Therefore discovery does not invalidate that prefix.</p>
 
+  <h2>One request, two different views</h2>
+  <table class="compact-table">
+    <thead><tr><th>What Alfred sends over HTTP</th><th>What Claude initially sees</th></tr></thead>
+    <tbody>
+      <tr>
+        <td><code>tool_search</code><br><code>system.current_time</code><br><code>calendar.create</code> + <code>defer_loading: true</code><br><code>gmail.search</code> + <code>defer_loading: true</code></td>
+        <td><code>tool_search</code><br><code>system.current_time</code><br><span class="state">No calendar or Gmail schema yet</span></td>
+      </tr>
+    </tbody>
+  </table>
+  <p><code>defer_loading</code> does not mean “omit this definition from the API request.” It means “keep this definition in Anthropic’s searchable catalog, but omit it from the model’s initial rendered prompt.” The search index can inspect tool names, descriptions, argument names, and argument descriptions.</p>
+
+  <h2>Is that catalog stored somewhere?</h2>
+  <p><strong>Internally, Anthropic must build or reuse a searchable representation.</strong> Publicly, however, there is no durable catalog resource, catalog ID, invalidation endpoint, or documented catalog TTL. The API requires Alfred to resend every complete tool definition on every request. Therefore the safe contract is: <strong>the current request’s <code>tools</code> array is authoritative.</strong> Any internal index cache is an implementation detail Alfred cannot depend on.</p>
+  <table class="compact-table">
+    <thead><tr><th>State</th><th>What defines it?</th><th>How it changes or expires</th></tr></thead>
+    <tbody>
+      <tr><td><strong>Searchable catalog view</strong></td><td>The deferred definitions sent in this request</td><td>Send a different tools array next request; no public TTL or invalidate call</td></tr>
+      <tr><td><strong>Prompt-cache entry</strong></td><td>The rendered, byte-identical prompt prefix</td><td>Prefix changes, or its 5-minute / 1-hour TTL expires</td></tr>
+      <tr><td><strong>Discovered-tool availability</strong></td><td>Preserved <code>tool_reference</code> blocks plus the matching top-level definition</td><td>Keep both on later requests; omitting the referenced definition causes a 400 error</td></tr>
+    </tbody>
+  </table>
+  <p class="equation">R1 tools = [search, calendar v1, gmail v1] → searchable set A<br>R2 tools = [search, calendar v1]           → Gmail is gone now<br>not “wait for catalog TTL”; the new request is the new truth</p>
+  <p>One sharp edge: if preserved history already contains <code>tool_reference(gmail.search)</code>, Alfred must continue supplying a matching <code>gmail.search</code> definition even if it no longer wants that tool discovered. Otherwise Anthropic cannot expand the historical reference. Alfred should separately deny execution when authorization or availability has changed.</p>
+
+  <h2>How does the system know what exists?</h2>
+  <div class="timeline">
+    <article class="frame">
+      <div class="frame-no">API</div>
+      <div><h3>Alfred supplies the inventory</h3><p>The top-level <code>tools</code> array gives Anthropic the exact candidate definitions for this request. <code>defer_loading: true</code> says “searchable, but initially hidden from Claude.”</p></div>
+    </article>
+    <article class="frame">
+      <div class="frame-no">MODEL</div>
+      <div><h3>Claude sees the search capability</h3><p>The non-deferred search tool and its provider instructions appear in Claude’s initial context. Claude does not initially see the hidden tool list; it turns the user’s task into a search query.</p></div>
+    </article>
+    <article class="frame">
+      <div class="frame-no">HINT</div>
+      <div><h3>The stable system prompt can advertise categories</h3><p>Anthropic recommends a compact summary such as “You can search Slack, GitHub, and calendar tools.” This improves discovery without injecting every schema into the stable prefix.</p></div>
+    </article>
+    <article class="frame">
+      <div class="frame-no">RESULT</div>
+      <div><h3>Selected definitions become visible</h3><p>Anthropic returns references and expands their matching full definitions inline. Only then does Claude learn their exact parameters and call them.</p></div>
+    </article>
+  </div>
+
+  <h2>The film: discover and call one tool</h2>
+  <div class="timeline">
+    <article class="frame">
+      <div class="frame-no">Frame 01</div>
+      <div><h3>Claude sees only the kernel</h3><p>The cached prefix contains non-deferred tools, system instructions, and existing messages. Deferred schemas are absent from this model context.</p></div>
+    </article>
+    <article class="frame">
+      <div class="frame-no">Frame 02</div>
+      <div><h3>Claude calls the search tool</h3><p>For BM25 search it emits a natural-language query such as <code>create a calendar event</code>. This is a provider-executed <code>server_tool_use</code>, not an Alfred integration call.</p></div>
+    </article>
+    <article class="frame">
+      <div class="frame-no">Frame 03</div>
+      <div><h3>Anthropic searches the hidden catalog</h3><p>The server returns a <code>tool_search_tool_result</code> containing <code>tool_reference(calendar.create)</code>. Up to five references are returned by default.</p></div>
+    </article>
+    <article class="frame">
+      <div class="frame-no">Frame 04</div>
+      <div><h3>The API expands the reference</h3><p>Before Claude continues, Anthropic replaces the reference conceptually with the full <code>calendar.create</code> definition at this point in the conversation. Alfred does not perform this expansion.</p></div>
+    </article>
+    <article class="frame">
+      <div class="frame-no">Frame 05</div>
+      <div><h3>Claude calls the real client tool</h3><p>Now that it knows the exact schema, Claude emits an ordinary <code>tool_use(calendar.create, input)</code>. The response stops so Alfred can authorize and execute that call.</p></div>
+    </article>
+    <article class="frame">
+      <div class="frame-no">Frame 06</div>
+      <div><h3>Alfred continues normally</h3><p>Alfred executes only the real client tool and returns its <code>tool_result</code>. It must preserve the server-search blocks unchanged and send the same full tools array again.</p></div>
+    </article>
+  </div>
+
+  <h2>Why the discovered tool stays available</h2>
+  <p>The next request includes the previous assistant response unchanged: its <code>server_tool_use</code>, search result, <code>tool_reference</code>, and real <code>tool_use</code>. Anthropic expands references throughout history, so Claude can reuse <code>calendar.create</code> later without searching again.</p>
+  <p class="equation">cached old prefix
++ search call
++ tool_reference → expanded schema
++ real tool call
++ Alfred tool result
+◀ new growing-history breakpoint</p>
+  <p>The early prefix stays reusable. The discovered schema and subsequent events are ordinary new suffix tokens and can themselves become part of a later growing-history cache entry.</p>
+
+  <h2>Three jobs, three owners</h2>
+  <table class="compact-table">
+    <tbody>
+      <tr><th>Alfred</th><td>Sends the complete catalog, executes client tools, preserves response blocks, and enforces authorization.</td></tr>
+      <tr><th>Anthropic API</th><td>Builds a searchable view from this request, runs search, expands references, and maintains the separate prompt cache.</td></tr>
+      <tr><th>Claude</th><td>Chooses a search query, sees the selected schema, and forms the real tool call.</td></tr>
+    </tbody>
+  </table>
+
   <h2>The three designs</h2>
   <table class="compact-table">
     <thead><tr><th>Design</th><th>Cache behavior</th><th>Cost</th></tr></thead>
@@ -42,9 +134,9 @@
     <h2>Retrieval check</h2>
     <p>Why does <code>defer_loading</code> preserve the cache when Alfred’s current <code>system.load_tool</code> does not?</p>
     <div class="answer-grid">
-      <button data-ok="false">It caches each tool schema independently</button>
-      <button data-ok="true">It inserts discovered schemas after the prefix</button>
-      <button data-ok="false">It makes schema tokens free permanently</button>
+      <button data-ok="false">Each schema gets a separate reusable cache entry</button>
+      <button data-ok="true">Discovered schemas are inserted after the stable prefix</button>
+      <button data-ok="false">All deferred schema tokens become permanently free afterward</button>
     </div>
     <p class="feedback" id="feedback" aria-live="polite"></p>
   </div>
@@ -63,8 +155,8 @@
   document.querySelectorAll('button[data-ok]').forEach((button) => {
     button.addEventListener('click', () => {
       feedback.textContent = button.dataset.ok === 'true'
-        ? 'Correct. The early tools → system → history bytes stay identical; the discovered definition is represented later as a tool_reference.'
-        : 'Look at placement, not storage: ask whether the discovered schema changes the beginning of the serialized prompt or is appended later.';
+        ? 'Correct. Alfred sends every definition, but Anthropic renders a selected schema only after the stable prefix through a tool_reference.'
+        : 'Look at the two views: what crosses the HTTP boundary is not identical to what Anthropic renders into Claude’s initial context.';
       feedback.style.color = button.dataset.ok === 'true' ? 'var(--success)' : 'var(--error)';
     });
   });
