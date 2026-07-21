@@ -6,10 +6,11 @@
  *   $ pnpm tsx --env-file=.env src/scripts/smokes/smoke-agent-resume.ts <runId>
  */
 import { enqueueRun, signalRun } from "@alfred/api/backend";
-import { closeAgentQueue, closeConnections, closeRedis, warmPool } from "@alfred/api/runtime";
+import { closeAgentQueue, warmPool } from "@alfred/api/runtime";
 import { db } from "@alfred/db";
 import { agentRuns } from "@alfred/db/schemas";
 import { eq } from "drizzle-orm";
+import { closeScriptResources } from "../script-runtime";
 
 async function main() {
   const runId = process.argv[2];
@@ -61,7 +62,5 @@ main()
     process.exitCode = 1;
   })
   .finally(async () => {
-    await closeAgentQueue().catch(() => {});
-    await closeRedis().catch(() => {});
-    await closeConnections().catch(() => {});
+    await closeScriptResources(closeAgentQueue);
   });

@@ -22,9 +22,14 @@ Read the nearest nested `AGENTS.md` before editing within its subtree.
   | parse+validate JSON | `parseJsonWith` (not `JSON.parse` + cast) | `@alfred/contracts` |
   | normalize an email | `parseEmailAddress` | `@alfred/contracts` |
   | read an env var | `serverEnv()` (not `process.env`) | `@alfred/env/server` |
+  | gate a Gmail mailbox mutation | `gmailMailboxWritesEnabled()` (not the raw env field) | `@alfred/env/server` |
+  | normalize an entity identity before mint/dedup | `canonicalizeIdentityValue(kind, value)` | `@alfred/contracts` |
+  | display a slug / complete tool name | `humanizeSlug` / `humanizeToolName` | `@alfred/contracts` |
+  | narrow a dynamic tool-name string | `isToolName` (not `as ToolName`) | `@alfred/contracts` |
   | validate a timezone | `isIanaTimezone` (not a hand-rolled `Intl` trial) | `@alfred/contracts` |
   | timezone resolve/format | `resolveUserTimezone` / `formatInstantInTimezone` | `@alfred/api` timezone |
   | a model handle | `getChatModel` / `getCheapModel` | `@alfred/ai` |
+  | a stored Google OAuth token | `getFreshAccessToken` (not the persisted `accessToken` or `refreshAccessToken`) | `@alfred/integrations/google` |
   | enforce prose voice | `sanitizeVoice` | `@alfred/api` voice-sanitize |
 - Read [decisions.md](./decisions.md) before changing architecture.
 - When opening a PR, state the issues it closes in the body with GitHub closing keywords (`Closes #N`), one per issue the PR *fully* resolves. Reference a partially-addressed issue (e.g. `Refs #N`) without a closing keyword so it stays open.

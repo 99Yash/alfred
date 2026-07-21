@@ -34,3 +34,9 @@ node dist/scripts/backfills/backfill-gmail-observations-committed.js --emails=us
 
 If a script must run in the production image, add it as an explicit entry in
 `apps/server/tsdown.config.ts`; most local smokes do not need bundle entries.
+
+Scripts that initialize Redis-backed queues should call `closeScriptResources`
+from `script-runtime.ts` in `finally`, passing queue or worker closers in
+dependency order. It preserves best-effort cleanup while ensuring Redis and the
+database close last—for example,
+`closeScriptResources(closeAgentQueue, closeBriefingQueue)`.

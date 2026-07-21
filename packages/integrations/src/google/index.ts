@@ -37,6 +37,7 @@ export type {
   StartWatchArgs,
   StartWatchResult,
 } from "./gmail";
+export type { GoogleService } from "./http";
 export {
   batchModifyMessages,
   createLabel,

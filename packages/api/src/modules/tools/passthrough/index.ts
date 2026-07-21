@@ -17,6 +17,7 @@ export {
   type PassthroughGateInput,
 } from "./gate";
 export { classifyTransportError } from "./transport";
+export { runGooglePassthrough } from "./google-adapter";
 export { runRailwayPassthrough } from "./railway-adapter";
 export { runRestPassthrough } from "./rest-adapter";
 export {

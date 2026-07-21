@@ -25,12 +25,13 @@
  *   COLD_START_EMAILS="a@x.com,b@y.com" node dist/scripts/ops/trigger-cold-start-committed.js --commit
  */
 import { COLD_START_WORKFLOW_SLUG, createRun, enqueueRun } from "@alfred/api/backend";
-import { closeAgentQueue, closeConnections, closeRedis, warmPool } from "@alfred/api/runtime";
+import { closeAgentQueue, warmPool } from "@alfred/api/runtime";
 import { db } from "@alfred/db";
 import { agentRuns, user as userTable } from "@alfred/db/schemas";
 import { and, eq, inArray, sql } from "drizzle-orm";
 import { registerBuiltinWorkflows } from "~/builtins";
 import { toMessage } from "@alfred/contracts";
+import { closeScriptResources } from "../script-runtime";
 
 /** Mailboxes to (re-)research. Override with `COLD_START_EMAILS` (comma-sep). */
 const TARGET_EMAILS = (process.env.COLD_START_EMAILS ?? "yashgouravkar@gmail.com")
@@ -121,7 +122,5 @@ main()
   })
   .finally(async () => {
     // Flush + close so enqueued BullMQ jobs are durably persisted before exit.
-    await closeAgentQueue().catch(() => {});
-    await closeRedis().catch(() => {});
-    await closeConnections().catch(() => {});
+    await closeScriptResources(closeAgentQueue);
   });

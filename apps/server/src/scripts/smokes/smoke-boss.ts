@@ -33,7 +33,7 @@
  */
 
 import { createRun, enqueueRun, signalRun } from "@alfred/api/backend";
-import { closeAgentQueue, closeConnections, closeRedis, warmPool } from "@alfred/api/runtime";
+import { closeAgentQueue, warmPool } from "@alfred/api/runtime";
 import { getStringPath } from "@alfred/contracts";
 import { db } from "@alfred/db";
 import {
@@ -50,6 +50,7 @@ import {
 import { GMAIL_SEND_SCOPE } from "@alfred/integrations/google";
 import { and, desc, eq, inArray, like, sql } from "drizzle-orm";
 import { registerBuiltinWorkflows } from "~/builtins";
+import { closeScriptResources } from "../script-runtime";
 
 const WORKFLOW_SLUG = "smoke-boss";
 
@@ -411,7 +412,5 @@ try {
   console.error("[smoke-boss] FAIL", err instanceof Error ? (err.stack ?? err.message) : err);
   process.exitCode = 1;
 } finally {
-  await closeAgentQueue().catch(() => {});
-  await closeRedis().catch(() => {});
-  await closeConnections().catch(() => {});
+  await closeScriptResources(closeAgentQueue);
 }
