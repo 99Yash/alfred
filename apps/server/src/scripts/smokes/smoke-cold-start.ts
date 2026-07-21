@@ -33,12 +33,13 @@
  *   - Quality of the research output (qualitative, requires human review).
  */
 import { COLD_START_WORKFLOW_SLUG, createRun, enqueueRun } from "@alfred/api/backend";
-import { closeAgentQueue, closeConnections, closeRedis, warmPool } from "@alfred/api/runtime";
+import { closeAgentQueue, warmPool } from "@alfred/api/runtime";
 import { db } from "@alfred/db";
 import { agentRuns, memoryChunks, user as userTable, userFacts } from "@alfred/db/schemas";
 import { serverEnv } from "@alfred/env/server";
 import { and, desc, eq, sql } from "drizzle-orm";
 import { registerBuiltinWorkflows } from "~/builtins";
+import { closeScriptResources } from "../script-runtime";
 
 // Seed + parallel aspect loops + synthesis can run a couple of minutes
 // of LLM + web_search calls; budget 5min before giving up.
@@ -201,7 +202,5 @@ main()
     process.exitCode = 1;
   })
   .finally(async () => {
-    await closeAgentQueue().catch(() => {});
-    await closeRedis().catch(() => {});
-    await closeConnections().catch(() => {});
+    await closeScriptResources(closeAgentQueue);
   });

@@ -32,7 +32,7 @@
  */
 
 import { createRun, enqueueRun, signalRun } from "@alfred/api/backend";
-import { closeAgentQueue, closeConnections, closeRedis, warmPool } from "@alfred/api/runtime";
+import { closeAgentQueue, warmPool } from "@alfred/api/runtime";
 import { getStringPath, toRecord } from "@alfred/contracts";
 import { db } from "@alfred/db";
 import {
@@ -47,6 +47,7 @@ import {
 } from "@alfred/db/schemas";
 import { and, eq, sql } from "drizzle-orm";
 import { registerBuiltinWorkflows } from "~/builtins";
+import { closeScriptResources } from "../script-runtime";
 
 const WORKFLOW_SLUG = "smoke-brief-execution";
 const SMOKE_BRIEF =
@@ -335,7 +336,5 @@ try {
   );
   process.exitCode = 1;
 } finally {
-  await closeAgentQueue().catch(() => {});
-  await closeRedis().catch(() => {});
-  await closeConnections().catch(() => {});
+  await closeScriptResources(closeAgentQueue);
 }

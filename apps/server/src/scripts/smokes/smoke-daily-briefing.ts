@@ -41,17 +41,12 @@ import {
   localDateInTimezone,
   resolveBriefingPreferences,
 } from "@alfred/api/backend";
-import {
-  closeAgentQueue,
-  closeBriefingQueue,
-  closeConnections,
-  closeRedis,
-  warmPool,
-} from "@alfred/api/runtime";
+import { closeAgentQueue, closeBriefingQueue, warmPool } from "@alfred/api/runtime";
 import { db } from "@alfred/db";
 import { agentRuns, briefings, user as userTable } from "@alfred/db/schemas";
 import { eq } from "drizzle-orm";
 import { registerBuiltinWorkflows } from "~/builtins";
+import { closeScriptResources } from "../script-runtime";
 
 const POLL_INTERVAL_MS = 500;
 const POLL_TIMEOUT_MS = 120_000;
@@ -213,8 +208,5 @@ main()
     process.exitCode = 1;
   })
   .finally(async () => {
-    await closeAgentQueue().catch(() => {});
-    await closeBriefingQueue().catch(() => {});
-    await closeRedis().catch(() => {});
-    await closeConnections().catch(() => {});
+    await closeScriptResources(closeAgentQueue, closeBriefingQueue);
   });

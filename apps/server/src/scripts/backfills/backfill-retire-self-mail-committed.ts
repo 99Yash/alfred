@@ -40,7 +40,8 @@
  *   # override target(s):
  *   node dist/scripts/backfills/backfill-retire-self-mail-committed.js --emails=a@x.com,b@y.com --commit
  */
-import { closeConnections, closeRedis, warmPool } from "@alfred/api/runtime";
+import { warmPool } from "@alfred/api/runtime";
+import { closeScriptResources } from "../script-runtime";
 import { parseEmailAddress, toMessage } from "@alfred/contracts";
 import { serverEnv } from "@alfred/env/server";
 import { db } from "@alfred/db";
@@ -203,6 +204,5 @@ main()
     process.exitCode = 1;
   })
   .finally(async () => {
-    await closeRedis().catch(() => {});
-    await closeConnections().catch(() => {});
+    await closeScriptResources();
   });

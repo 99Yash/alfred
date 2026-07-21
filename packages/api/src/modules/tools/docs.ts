@@ -9,9 +9,9 @@
  */
 
 import { docsGetDocumentInput, restPassthroughInput } from "@alfred/contracts";
-import { DOCS_SCOPE, getDocument, googlePassthroughProfile } from "@alfred/integrations/google";
+import { DOCS_SCOPE, getDocument } from "@alfred/integrations/google";
 import { resolveGoogleAccessToken } from "./google-credentials";
-import { runRestPassthrough } from "./passthrough";
+import { runGooglePassthrough } from "./passthrough";
 import { liveTool, type RegisteredTool } from "./registry";
 
 /** Resolve an access token for a Docs call — requires the `documents` scope. */
@@ -53,7 +53,7 @@ export const docsTools: readonly RegisteredTool[] = [
     inputSchema: restPassthroughInput,
     execute: async (input, ctx) => {
       const token = await accessTokenFor(ctx.userId);
-      return runRestPassthrough("docs", googlePassthroughProfile("docs", token), input);
+      return runGooglePassthrough("docs", token, input);
     },
   }),
 ];

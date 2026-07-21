@@ -25,7 +25,7 @@
  *      ends up with one alfred label across the whole thread.
  */
 import { createRun, enqueueRun, getTriage, TRIAGE_WORKFLOW_SLUG } from "@alfred/api/backend";
-import { closeAgentQueue, closeConnections, closeRedis, warmPool } from "@alfred/api/runtime";
+import { closeAgentQueue, warmPool } from "@alfred/api/runtime";
 import { db } from "@alfred/db";
 import { agentRuns, documents, emailTriage, integrationCredentials } from "@alfred/db/schemas";
 import {
@@ -39,6 +39,7 @@ import {
 import { gmailMailboxWritesEnabled } from "@alfred/env/server";
 import { and, desc, eq, isNotNull, sql } from "drizzle-orm";
 import { registerBuiltinWorkflows } from "~/builtins";
+import { closeScriptResources } from "../script-runtime";
 
 const POLL_INTERVAL_MS = 250;
 const POLL_TIMEOUT_MS = 90_000;
@@ -365,7 +366,5 @@ main()
     process.exitCode = 1;
   })
   .finally(async () => {
-    await closeAgentQueue().catch(() => {});
-    await closeRedis().catch(() => {});
-    await closeConnections().catch(() => {});
+    await closeScriptResources(closeAgentQueue);
   });

@@ -41,11 +41,12 @@ import {
   supersedeFact,
   writeMemoryChunk,
 } from "@alfred/api/backend";
-import { closeAgentQueue, closeConnections, closeRedis, warmPool } from "@alfred/api/runtime";
+import { closeAgentQueue, warmPool } from "@alfred/api/runtime";
 import { embed } from "@alfred/ai/embeddings";
 import { db } from "@alfred/db";
 import { user as userTable } from "@alfred/db/schemas";
 import { eq } from "drizzle-orm";
+import { closeScriptResources } from "../script-runtime";
 
 async function findOrCreateSmokeUser(): Promise<string> {
   const email = "smoke-memory@alfred.local";
@@ -296,7 +297,5 @@ main()
     process.exitCode = 1;
   })
   .finally(async () => {
-    await closeAgentQueue().catch(() => {});
-    await closeRedis().catch(() => {});
-    await closeConnections().catch(() => {});
+    await closeScriptResources(closeAgentQueue);
   });

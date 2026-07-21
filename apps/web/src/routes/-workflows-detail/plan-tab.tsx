@@ -1,5 +1,6 @@
 import {
   EVENT_TYPES_BY_SOURCE,
+  humanizeSlug,
   isIanaTimezone,
   LOADABLE_INTEGRATION_SLUGS,
   type LoadableIntegrationSlug,
@@ -48,7 +49,7 @@ function eventTypeLabel(type: string): string {
 }
 
 function integrationLabel(slug: string): string {
-  return slug.replace(/\b\w/g, (c) => c.toUpperCase());
+  return humanizeSlug(slug);
 }
 
 interface Draft {

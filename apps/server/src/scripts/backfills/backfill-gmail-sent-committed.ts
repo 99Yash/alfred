@@ -40,7 +40,8 @@
  *   # every connected Google account, full custom query:
  *   node dist/scripts/backfills/backfill-gmail-sent-committed.js --all-connected --query="in:sent" --commit
  */
-import { closeConnections, closeRedis, warmPool } from "@alfred/api/runtime";
+import { warmPool } from "@alfred/api/runtime";
+import { closeScriptResources } from "../script-runtime";
 import { toMessage } from "@alfred/contracts";
 import { db } from "@alfred/db";
 import { integrationCredentials, user as userTable } from "@alfred/db/schemas";
@@ -267,6 +268,5 @@ main()
     process.exitCode = 1;
   })
   .finally(async () => {
-    await closeRedis().catch(() => {});
-    await closeConnections().catch(() => {});
+    await closeScriptResources();
   });

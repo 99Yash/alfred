@@ -28,7 +28,7 @@
  *      emitted any proposals — single-string keys per the distill schema).
  */
 import { createRun, enqueueRun, LEARN_SKILL_WORKFLOW_SLUG } from "@alfred/api/backend";
-import { closeAgentQueue, closeConnections, closeRedis, warmPool } from "@alfred/api/runtime";
+import { closeAgentQueue, warmPool } from "@alfred/api/runtime";
 import { db } from "@alfred/db";
 import {
   agentRuns,
@@ -40,6 +40,7 @@ import {
 } from "@alfred/db/schemas";
 import { and, desc, eq, sql } from "drizzle-orm";
 import { registerBuiltinWorkflows } from "~/builtins";
+import { closeScriptResources } from "../script-runtime";
 
 const POLL_INTERVAL_MS = 1_000;
 const POLL_TIMEOUT_MS = 90_000; // cheap-tier distill is ~5–15s; 90s is comfortable headroom.
@@ -251,7 +252,5 @@ main()
     process.exitCode = 1;
   })
   .finally(async () => {
-    await closeAgentQueue().catch(() => {});
-    await closeRedis().catch(() => {});
-    await closeConnections().catch(() => {});
+    await closeScriptResources(closeAgentQueue);
   });

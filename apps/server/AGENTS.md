@@ -11,3 +11,4 @@
 - Built-in workflows and agents are thin adapters: declare built-in identity/configuration, validate workflow input, and compose reusable domain operations from owning backend modules.
 - Do not duplicate domain logic in built-ins to make it locally convenient. Move reusable behavior to the package/module that owns the domain, then adapt it here.
 - Smoke, probe, repair, and backfill scripts are executable operational entrypoints. Reuse production boundaries, validate unknown input/output, make destructive intent explicit, and do not weaken types with fixture casts.
+- In scripts that open Redis-backed queues, use `closeScriptResources(closeAgentQueue, ...)` in `finally`. Pass other queue or worker closers in dependency order; the helper keeps cleanup best-effort and closes Redis and database connections last.

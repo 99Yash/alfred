@@ -23,11 +23,10 @@ import {
   batchUpdatePresentation,
   createPresentation,
   getPresentation,
-  googlePassthroughProfile,
   SLIDES_SCOPE,
 } from "@alfred/integrations/google";
 import { resolveGoogleAccessToken } from "./google-credentials";
-import { runRestPassthrough } from "./passthrough";
+import { runGooglePassthrough } from "./passthrough";
 import { liveTool, type RegisteredTool } from "./registry";
 
 /** Resolve an access token for a Slides call — requires the `presentations` scope. */
@@ -110,7 +109,7 @@ export const slidesTools: readonly RegisteredTool[] = [
     inputSchema: restPassthroughInput,
     execute: async (input, ctx) => {
       const token = await accessTokenFor(ctx.userId);
-      return runRestPassthrough("slides", googlePassthroughProfile("slides", token), input);
+      return runGooglePassthrough("slides", token, input);
     },
   }),
 ];
