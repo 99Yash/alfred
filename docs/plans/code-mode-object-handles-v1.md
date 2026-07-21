@@ -38,6 +38,10 @@ The **only** live justification is **context virtualization** (the L0 sketch in 
 | Return bound | Over-bound return **re-parks recursively** as a new handle |
 | Gating | **On-by-default** for the single user (data stays in-house); graduation gated on code-run telemetry + thermometer |
 
+## Residual risk (accepted, not covered by the isolate)
+
+The no-network / no-credential isolate closes exfil **by the injected code itself** — it has nothing to send and nowhere to send it. It does **not** close the loop that code feeds: a `code.run` return re-enters the transcript, and the boss orchestrator retains egress through its **legitimate** tools (`gmail.send`, etc.). So `injection → broker.read private data → boss-steered send via a real tool` stays open. That is the **general agent-exfil problem**, unchanged by this rung — the isolate boundary is not what addresses it, and the forced-provenance return contract targets a *different* failure mode (laundering a structural confident-zero). Named here so "designed out rather than mitigated" is not misread as covering it.
+
 ## Superseded during the grill (do not carry forward)
 
 - RPC-to-broker over the network → **host-injected capabilities over IPC**.
