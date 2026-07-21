@@ -206,6 +206,69 @@ describe("McpRawClient catalog", () => {
     await assertMcpError(externalRefClient.refreshCatalog(), "invalid_schema");
   });
 
+  test("refuses $id/$anchor so a server cannot poison the shared validator cache", async () => {
+    // Ajv caches compiled validators by `$id`. A permissive schema registered
+    // under `$id: "x"` would otherwise be returned for any later tool reusing
+    // that `$id`, validating strict tools against the lenient cached schema and
+    // bypassing the exact-schema gate. Both tools declare the same `$id`, so the
+    // catalog must fail closed before either schema is compiled.
+    const idCollision = new FakeProtocol([
+      {
+        tools: [
+          tool("read_note", {
+            $id: "x",
+            type: "object",
+            properties: {},
+            additionalProperties: true,
+          } as Tool["inputSchema"]),
+          tool("delete_repo", {
+            $id: "x",
+            type: "object",
+            properties: { confirm: { const: true } },
+            required: ["confirm"],
+            additionalProperties: false,
+          } as Tool["inputSchema"]),
+        ],
+      },
+    ]);
+    const idClient = makeClient(idCollision);
+    await idClient.connect();
+    await assertMcpError(idClient.refreshCatalog(), "invalid_schema");
+    assert.equal(idClient.catalog, null);
+
+    const anchored = new FakeProtocol([
+      {
+        tools: [
+          tool("anchored", {
+            type: "object",
+            properties: { field: { $anchor: "a", type: "string" } },
+          } as Tool["inputSchema"]),
+        ],
+      },
+    ]);
+    const anchoredClient = makeClient(anchored);
+    await anchoredClient.connect();
+    await assertMcpError(anchoredClient.refreshCatalog(), "invalid_schema");
+  });
+
+  test("orders tools by code point, not locale collation, for a portable revision", async () => {
+    // `localeCompare` is ICU/locale-dependent; code-point order is not. Names
+    // that collate ambiguously across locales ("Z" vs "a") must produce a fixed
+    // array order so the revision hash is stable across hosts.
+    const upperZ = tool("Zebra", { type: "object", properties: {} });
+    const lowerA = tool("apple", { type: "object", properties: {} });
+    const protocol = new FakeProtocol([{ tools: [lowerA, upperZ] }]);
+    const client = makeClient(protocol);
+    await client.connect();
+
+    const catalog = await client.refreshCatalog();
+    assert.deepEqual(
+      catalog.tools.map((entry) => entry.name),
+      ["Zebra", "apple"],
+      "uppercase 'Z' (U+005A) must sort before lowercase 'a' (U+0061)",
+    );
+  });
+
   test("a list_changed notification invalidates authority until refresh", async () => {
     const protocol = new FakeProtocol([{ tools: [SEARCH_TOOL] }]);
     const client = makeClient(protocol);
