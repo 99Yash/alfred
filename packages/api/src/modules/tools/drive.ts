@@ -19,12 +19,11 @@ import {
   downloadFile,
   exportFile,
   getFile,
-  googlePassthroughProfile,
   listFiles,
 } from "@alfred/integrations/google";
 import { surfaceExternalFileArtifact } from "../artifacts/external-file";
 import { resolveGoogleAccessToken } from "./google-credentials";
-import { runRestPassthrough } from "./passthrough";
+import { runGooglePassthrough } from "./passthrough";
 import { liveTool, type RegisteredTool, type ToolExecuteContext } from "./registry";
 
 /** Resolve an access token for a Drive call — requires the `drive` scope. */
@@ -192,7 +191,7 @@ export const driveTools: readonly RegisteredTool[] = [
     inputSchema: restPassthroughInput,
     execute: async (input, ctx) => {
       const token = await accessTokenFor(ctx.userId);
-      return runRestPassthrough("drive", googlePassthroughProfile("drive", token), input);
+      return runGooglePassthrough("drive", token, input);
     },
   }),
 ];

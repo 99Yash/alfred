@@ -34,12 +34,13 @@ import {
   enqueueRun,
   TRIAGE_WORKFLOW_SLUG,
 } from "@alfred/api/backend";
-import { closeAgentQueue, closeConnections, closeRedis, warmPool } from "@alfred/api/runtime";
+import { closeAgentQueue, warmPool } from "@alfred/api/runtime";
 import { db, rowsFromExecute } from "@alfred/db";
 import { documents, todos, user as userTable } from "@alfred/db/schemas";
 import { and, desc, eq, inArray, isNotNull, sql } from "drizzle-orm";
 import { registerBuiltinWorkflows } from "~/builtins";
 import { toMessage } from "@alfred/contracts";
+import { closeScriptResources } from "../script-runtime";
 
 /**
  * Mailboxes to backfill. Override with `BACKFILL_TARGET_EMAILS` (comma-separated)
@@ -254,7 +255,5 @@ main()
   })
   .finally(async () => {
     // Flush + close so enqueued BullMQ jobs are durably persisted before exit.
-    await closeAgentQueue().catch(() => {});
-    await closeRedis().catch(() => {});
-    await closeConnections().catch(() => {});
+    await closeScriptResources(closeAgentQueue);
   });

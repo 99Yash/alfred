@@ -29,12 +29,11 @@ import {
   batchUpdateSpreadsheet,
   createSpreadsheet,
   getValues,
-  googlePassthroughProfile,
   SHEETS_SCOPE,
   updateValues,
 } from "@alfred/integrations/google";
 import { resolveGoogleAccessToken } from "./google-credentials";
-import { runRestPassthrough } from "./passthrough";
+import { runGooglePassthrough } from "./passthrough";
 import { liveTool, type RegisteredTool } from "./registry";
 
 /** Resolve an access token for a Sheets call — requires the `spreadsheets` scope. */
@@ -147,7 +146,7 @@ export const sheetsTools: readonly RegisteredTool[] = [
     inputSchema: restPassthroughInput,
     execute: async (input, ctx) => {
       const token = await accessTokenFor(ctx.userId);
-      return runRestPassthrough("sheets", googlePassthroughProfile("sheets", token), input);
+      return runGooglePassthrough("sheets", token, input);
     },
   }),
 ];

@@ -27,7 +27,8 @@ import {
   startProjectionRun,
   writeProjectionCursor,
 } from "@alfred/api/backend";
-import { closeConnections, closeRedis, warmPool } from "@alfred/api/runtime";
+import { warmPool } from "@alfred/api/runtime";
+import { closeScriptResources } from "../script-runtime";
 import {
   USER_MODEL_PROJECTION_NAME,
   canonicalizeIdentityValue,
@@ -430,6 +431,5 @@ main()
     process.exitCode = 1;
   })
   .finally(async () => {
-    await closeRedis().catch(() => {});
-    await closeConnections().catch(() => {});
+    await closeScriptResources();
   });
