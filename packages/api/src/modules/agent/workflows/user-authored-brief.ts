@@ -7,11 +7,9 @@ import {
   type ModelMessage,
 } from "@alfred/ai";
 import {
-  boundToolResult,
   compactionThresholdTokens,
   parseIntegrationMentions,
   isIntegrationSlug,
-  toJsonValue,
   toMessage,
   toRecord,
   type AgentTranscriptMessage,
@@ -27,7 +25,8 @@ import {
   shouldSkipCompaction,
 } from "../compaction/tokens";
 import { appendModelResponseMessages } from "../transcript-dedup";
-import { callerLabel, dispatchToolCall, type DispatchResult } from "../../dispatch";
+import { callerLabel, dispatchToolCall } from "../../dispatch";
+import { runToolRound } from "./tool-round";
 import { startDispatchBatchSpan, type DispatchBatchSpanCloser } from "../runtime-spans";
 import { writeScratch } from "../../scratchpad";
 import { readIntegrationAvailability } from "../../integrations/availability";
@@ -50,7 +49,7 @@ import {
   SUB_AGENT_WORKFLOW_SLUG,
 } from "../sub-agent-metadata";
 import type { Step, Workflow } from "../types";
-import { pendingToolCallSchema, type PendingToolCall } from "./pending-tool-call";
+import { pendingToolCallSchema } from "./pending-tool-call";
 
 // This workflow is the one sub-agents run on (see SUB_AGENT_WORKFLOW_SLUG);
 // keep the slug single-sourced so the two never drift.
@@ -376,82 +375,71 @@ const dispatchToolsStep: Step<BriefRunState> = {
     // spans tag the caller identically. Ended once at the first terminal (staged
     // / parked / committed / a thrown fault); the closer owns the fold + is
     // idempotent.
+    const caller = state.subAgent ? { subId: state.subAgent.subId } : "boss";
+    const spanCaller = callerLabel(caller);
     const batchCallCount = state.pendingToolCalls.length;
     const batchSpan: DispatchBatchSpanCloser | null =
       batchCallCount > 0
         ? startDispatchBatchSpan({
             runId: ctx.runId,
             workflow: USER_AUTHORED_BRIEF_WORKFLOW_SLUG,
-            caller: callerLabel(state.subAgent ? { subId: state.subAgent.subId } : "boss"),
+            caller: spanCaller,
             callCount: batchCallCount,
             startedAt: new Date(),
           })
         : null;
-    const batchResults: (DispatchResult | undefined)[] = [];
 
-    try {
-      while (state.pendingToolCalls.length > 0) {
-        const call = state.pendingToolCalls[0]!;
-        const dispatchArgs = {
+    const dispatch = async (call: (typeof state.pendingToolCalls)[number]) => {
+      const dispatchArgs = {
+        runId: ctx.runId,
+        stepId: "dispatch-tools",
+        toolCallId: call.toolCallId,
+        toolName: call.toolName,
+        input: call.input,
+        userId: ctx.userId,
+        caller,
+        scratchpadRunId: state.subAgent?.parentRunId ?? ctx.runId,
+        timezone: state.timezone,
+        activeTools: state.activeTools,
+        allowedIntegrations: state.allowedIntegrations,
+      } as const;
+      const result = await dispatchToolCall(dispatchArgs);
+      if (result.kind === "inactive_tool") {
+        // Bounce the schema-blind call to the next model turn after exposing the
+        // exact schema; never validate or execute arguments the model guessed.
+        // Traced as a tool_load span (source: inactive_bounce) so lazy
+        // activations are counted whichever path surfaced the tool (#414).
+        applyInactiveToolBounce({
+          state,
+          toolName: result.result.recovery.toolName,
           runId: ctx.runId,
-          stepId: "dispatch-tools",
-          toolCallId: call.toolCallId,
-          toolName: call.toolName,
-          input: call.input,
-          userId: ctx.userId,
-          caller: state.subAgent ? { subId: state.subAgent.subId } : "boss",
-          scratchpadRunId: state.subAgent?.parentRunId ?? ctx.runId,
-          timezone: state.timezone,
-          activeTools: state.activeTools,
-          allowedIntegrations: state.allowedIntegrations,
-        } as const;
-        const result = await dispatchToolCall(dispatchArgs);
-        batchResults.push(result);
-        if (result.kind === "inactive_tool") {
-          // Bounce the schema-blind call to the next model turn after exposing the
-          // exact schema; never validate or execute arguments the model guessed.
-          // Traced as a tool_load span (source: inactive_bounce) so lazy
-          // activations are counted whichever path surfaced the tool (#414).
-          applyInactiveToolBounce({
-            state,
-            toolName: result.result.recovery.toolName,
-            runId: ctx.runId,
-            spanCaller: callerLabel(state.subAgent ? { subId: state.subAgent.subId } : "boss"),
-          });
-        }
-
-        if (result.kind === "staged") {
-          batchSpan?.end("staged", batchResults);
-          return {
-            kind: "interrupt",
-            state,
-            transcript,
-            wake: result.wake,
-          };
-        }
-
-        // ADR-0073: await_sub_agent on a still-running child parks this run on
-        // the child's completion signal. The pending call is left in place, so
-        // on resume it re-dispatches and reads the child's terminal outcome.
-        if (result.kind === "parked") {
-          batchSpan?.end("parked", batchResults);
-          return {
-            kind: "interrupt",
-            state,
-            transcript,
-            wake: result.wake,
-          };
-        }
-
-        applySystemToolEffect(state, call.toolName, result);
-        transcript = [...transcript, toolResultMessage(call, result)];
-        state.pendingToolCalls = state.pendingToolCalls.slice(1);
+          spanCaller,
+        });
       }
-      batchSpan?.end("committed", batchResults);
-    } catch (err) {
-      batchSpan?.end("error");
-      throw err;
+      return result;
+    };
+
+    // Run the round over the shared loop (single-sourced with the chat turn):
+    // the brief dispatches serially in model order and, on a staged write or a
+    // still-running sub-agent await, leaves the whole batch untouched so it
+    // re-dispatches on resume (executed siblings short-circuit on `(runId,
+    // toolCallId)` idempotency). Its only per-result effect is folding a
+    // `system.load_tool` into the active surface.
+    const round = await runToolRound({
+      calls: state.pendingToolCalls,
+      transcript,
+      batchSpan,
+      ordering: { kind: "serial" },
+      dispatch,
+      onCommit: (call, result) => applySystemToolEffect(state, call.toolName, result),
+    });
+    if (round.kind === "interrupt") {
+      // ADR-0073: a staged gated write / a parked await leaves `pendingToolCalls`
+      // in place so the batch re-dispatches on resume and reads the real outcome.
+      return { kind: "interrupt", state, transcript, wake: round.wake };
     }
+    transcript = round.transcript;
+    state.pendingToolCalls = [];
 
     // ADR-0035: estimate next-turn input size and route through compaction
     // (boss) or fail back to the parent (sub-agent) when over threshold.
@@ -680,71 +668,6 @@ async function writeSubAgentSummary(args: {
     writtenBy: args.subId,
   });
   return { text: args.text, scratchKey };
-}
-
-function toolResultMessage(
-  call: PendingToolCall,
-  result: Exclude<DispatchResult, { kind: "staged" | "parked" }>,
-): AgentTranscriptMessage {
-  const output = dispatchResultToToolOutput(result);
-  return {
-    role: "tool",
-    content: [
-      {
-        type: "tool-result",
-        toolCallId: call.toolCallId,
-        toolName: call.toolName,
-        output,
-      },
-    ],
-  };
-}
-
-function dispatchResultToToolOutput(
-  result: Exclude<DispatchResult, { kind: "staged" | "parked" }>,
-): { type: "json"; value: unknown } | { type: "error-json"; value: unknown } {
-  switch (result.kind) {
-    case "executed":
-      return {
-        type: "json",
-        value: toJsonValue({
-          status: "executed",
-          // Guardrail: clip only pathologically-long free-text fields before
-          // they hit the replayed transcript (see boundToolResult); normal
-          // single-object reads and navigational fields pass through untouched.
-          result: boundToolResult(result.toolResult).value,
-          editedByUser: result.editedByUser,
-          // ADR-0070: tell the model the result was scrubbed of non-text bytes.
-          ...(result.sanitized
-            ? {
-                sanitized: true,
-                notice:
-                  "Non-text bytes were stripped from this result before storage; it may be incomplete.",
-              }
-            : {}),
-        }),
-      };
-    case "failed":
-      return {
-        type: "error-json",
-        value: toJsonValue(boundToolResult({ status: "failed", error: result.error }).value),
-      };
-    case "rejected":
-      return { type: "json", value: toJsonValue(boundToolResult(result.result).value) };
-    case "invalid_input":
-      return { type: "json", value: toJsonValue(boundToolResult(result.result).value) };
-    case "unknown_tool":
-      return { type: "json", value: toJsonValue(boundToolResult(result.result).value) };
-    case "inactive_tool":
-    case "not_allowed":
-    // A background brief has no narration channel to protect (unlike chat, where
-    // `feature_disabled` is hidden as internal plumbing), so these non-execution
-    // reasons are surfaced to the sub-agent as a plain tool result on purpose —
-    // it can then route around the disabled/unavailable tool. Intentional, not a
-    // missed case.
-    case "feature_disabled":
-      return { type: "json", value: toJsonValue(boundToolResult(result.result).value) };
-  }
 }
 
 function uniqueIntegrations(values: readonly string[]): string[] {

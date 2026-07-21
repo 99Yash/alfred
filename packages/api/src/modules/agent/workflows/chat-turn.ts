@@ -7,16 +7,12 @@ import {
   getChatProviderOptions,
   getCheapModel,
   meteredGenerateText,
-  resolveModelContextWindow,
   type ChatModelTier,
-  type LanguageModel,
   type ModelMessage,
-  type ToolSet,
 } from "@alfred/ai";
 import { ARTIFACT_DESIGN_PROMPT, ARTIFACT_DOCUMENT_DESIGN_PROMPT } from "@alfred/artifacts-design";
 import {
   artifactFormatSchema,
-  boundToolResult,
   chatModelTierSchema,
   getPath,
   HttpError,
@@ -24,7 +20,6 @@ import {
   isRecord,
   MAX_MODEL_ATTACHMENT_BYTES_PER_TURN,
   sanitizeToolResult,
-  toJsonValue,
   toMessage,
   type AgentTranscriptMessage,
   type ArtifactFormat,
@@ -32,10 +27,8 @@ import {
   type ChatMessageUsage,
   type ToolName,
 } from "@alfred/contracts";
-import { CHAT_DELTA_MAX } from "@alfred/contracts/events";
 import { db } from "@alfred/db";
 import { apiCallLog, chatAttachments, chatMessages, chatThreads } from "@alfred/db/schemas";
-import { parsePartialJson } from "ai";
 import { and, asc, eq, inArray, like, ne, or, sql } from "drizzle-orm";
 import { z } from "zod";
 import { publishEvent } from "../../../events/publish";
@@ -47,20 +40,24 @@ import { scheduleThreadIdleExtraction } from "../../chat-memory/queue";
 import { sniffPassThroughImageMime } from "../../chat/attachments";
 import { isChatStopRequested } from "../../chat/stop-signal";
 import { readObject } from "../../chat/storage";
-import { dispatchToolCall, toolCallWouldGate, type DispatchResult } from "../../dispatch";
+import {
+  dispatchRoundReissued,
+  dispatchToolCall,
+  isMutatingToolName,
+  isNonExecutionFailure,
+  toolCallLogStatus,
+  toolCallWouldGate,
+} from "../../dispatch";
+import { runToolRound } from "./tool-round";
 import { readIntegrationAvailability } from "../../integrations/availability";
 import {
   assembleChatContext,
-  assessChatRequestPressure,
   CHAT_MAX_OUTPUT_TOKENS,
-  compactConversationSynchronously,
-  compactTranscript,
-  conversationSummaryMessage,
   estimateChatRequestTokens,
+  guardTurnContext,
   loadChatThreadContext,
   scheduleConversationCompactionIfNeeded,
-  waitForActiveConversationCompaction,
-  type ChatSummaryWatermark,
+  withEphemeralReference,
 } from "../compaction";
 import { buildConnectedSummaryFromAvailability } from "../connected-summary";
 import {
@@ -95,7 +92,10 @@ import {
 import { appendModelResponseMessages } from "../transcript-dedup";
 import type { AgentDbExecutor, Step, StepContext, StepResult, Workflow } from "../types";
 import { pendingToolCallSchema as basePendingToolCallSchema } from "./pending-tool-call";
-import { createVoiceStreamSanitizer, sanitizeVoice } from "../voice-sanitize";
+import { streamModelTurn } from "./stream-model-turn";
+import { preview, PREVIEW_CHARS } from "./tool-preview";
+import { createTurnStopController } from "./turn-stop-controller";
+import { sanitizeVoice } from "../voice-sanitize";
 
 /**
  * Interactive streaming chat (streaming-chat plan). One run services one user
@@ -138,83 +138,15 @@ const EMPTY_COMPLETION_MAX_RETRIES = 2;
  * not more retries.
  */
 const STREAM_TIMEOUT_MAX_RETRIES = 1;
-/** Flush coalesced text deltas at least this often (ms) and at this size (chars). */
-const DELTA_FLUSH_MS = 180;
-const DELTA_FLUSH_CHARS = 100;
-/** Poll the user-stop flag at most this often while draining the stream (ms). */
-const STOP_CHECK_MS = 400;
-const FOREGROUND_COMPACTION_TIMEOUT_MS = 2 * 60_000;
-const WITHIN_RUN_COMPACTION_RETRY_ATTEMPTS = 3;
 const CHAT_INPUT_ESTIMATE_WARN_UNDERSHOOT_RATIO = 0.1;
-const PREVIEW_CHARS = 2_000;
-/**
- * Pruning tiers tried loosest-first when a structured preview overflows
- * `PREVIEW_CHARS`: `[maxArrayItems, maxStringLen, maxObjectKeys]`. The first
- * tier whose serialization fits is used, so previews shrink only as much as
- * the cap demands. The tightest tier exists so even a pathologically wide
- * result still lands under the cap as valid JSON.
- */
-const PREVIEW_TIERS: ReadonlyArray<readonly [number, number, number]> = [
-  [5, 300, 64],
-  [3, 160, 48],
-  [2, 80, 32],
-  [1, 40, 16],
-];
 const TITLE_TIMEOUT_MS = 15_000;
-const ARTIFACT_MUTATION_TOOL_NAMES = [
+export const ARTIFACT_MUTATION_TOOL_NAMES = [
   "system.create_artifact",
   "system.append_artifact_page",
   "system.append_artifact_section",
   "system.update_artifact",
 ] as const satisfies readonly ToolName[];
 const ARTIFACT_MUTATION_TOOLS: ReadonlySet<string> = new Set(ARTIFACT_MUTATION_TOOL_NAMES);
-
-/**
- * The document-authoring tools whose `markdown` argument we stream live as
- * `artifact.delta` (see the stream loop). `replace` means the streamed markdown
- * is the whole body (create seeds it, update replaces it); `append` means it is
- * a new section rendered after the existing synced content. `append_artifact_page`
- * is absent — `pages`/HTML artifacts already appear at page granularity.
- */
-const ARTIFACT_STREAM_MODES: Readonly<Record<string, "replace" | "append">> = {
-  "system.create_artifact": "replace",
-  "system.update_artifact": "replace",
-  "system.append_artifact_section": "append",
-};
-
-/**
- * Run independent autonomy calls concurrently while preserving model order for
- * artifact mutations. The two lanes overlap, so a slow lookup does not delay
- * page authoring; only mutations that share artifact state serialize.
- */
-export async function dispatchAutonomyCallsInSafeOrder<
-  TCall extends { readonly toolName: string },
-  TResult,
->(
-  calls: readonly TCall[],
-  gateFlags: readonly boolean[],
-  dispatch: (call: TCall) => Promise<TResult>,
-): Promise<Array<TResult | undefined>> {
-  const results: Array<TResult | undefined> = Array.from({ length: calls.length });
-  const independentCalls = calls.flatMap((call, index) =>
-    gateFlags[index] || ARTIFACT_MUTATION_TOOLS.has(call.toolName)
-      ? []
-      : [
-          dispatch(call).then((result) => {
-            results[index] = result;
-          }),
-        ],
-  );
-  const orderedArtifactCalls = (async () => {
-    for (let index = 0; index < calls.length; index += 1) {
-      const call = calls[index]!;
-      if (gateFlags[index] || !ARTIFACT_MUTATION_TOOLS.has(call.toolName)) continue;
-      results[index] = await dispatch(call);
-    }
-  })();
-  await Promise.all([...independentCalls, orderedArtifactCalls]);
-  return results;
-}
 
 // The interactive chat turn extends the shared core (see `./pending-tool-call`)
 // with a narration `segmentIndex`; the background brief has no narration.
@@ -569,59 +501,6 @@ export function buildChatSystemPrompt(
  * `.length > 0` and sibling count fields like `totalCount` still read true),
  * just smaller.
  */
-function pruneForPreview(
-  value: unknown,
-  maxArray: number,
-  maxString: number,
-  maxKeys: number,
-): unknown {
-  if (typeof value === "string") {
-    return value.length > maxString ? `${value.slice(0, maxString - 1)}…` : value;
-  }
-  if (Array.isArray(value)) {
-    return value.slice(0, maxArray).map((v) => pruneForPreview(v, maxArray, maxString, maxKeys));
-  }
-  if (isRecord(value)) {
-    const out: Record<string, unknown> = {};
-    for (const [k, v] of Object.entries(value).slice(0, maxKeys)) {
-      out[k] = pruneForPreview(v, maxArray, maxString, maxKeys);
-    }
-    return out;
-  }
-  return value;
-}
-
-function preview(value: unknown): string {
-  // Strings are plain text (error messages, model output) — slice directly.
-  if (typeof value === "string") {
-    return value.length > PREVIEW_CHARS ? `${value.slice(0, PREVIEW_CHARS - 1)}…` : value;
-  }
-  let full: string;
-  try {
-    full = JSON.stringify(value) ?? "";
-  } catch {
-    full = String(value);
-  }
-  if (full.length <= PREVIEW_CHARS) return full;
-
-  // Over budget: prune the structure, tightening tier by tier, so the preview
-  // stays *valid JSON* under the cap. The `chat.tool` event schema caps
-  // previews at PREVIEW_CHARS and `publishEvent` throws on overflow, so we must
-  // land under it.
-  try {
-    for (const [maxArray, maxString, maxKeys] of PREVIEW_TIERS) {
-      const pruned = JSON.stringify(pruneForPreview(value, maxArray, maxString, maxKeys)) ?? "";
-      if (pruned && pruned.length <= PREVIEW_CHARS) return pruned;
-    }
-  } catch {
-    // fall through to the slice below
-  }
-  // Even the tightest tier overflowed (or pruning threw) — last resort is a
-  // slice, accepting that this rare preview won't parse. Reserve a char for the
-  // ellipsis.
-  return `${full.slice(0, PREVIEW_CHARS - 1)}…`;
-}
-
 /** A `ready` attachment as the transcript builder needs it. */
 interface ReadyAttachment {
   id: string;
@@ -903,412 +782,6 @@ async function hydrateTranscriptForModel(
   return reversed.reverse();
 }
 
-/** Place ephemeral assistant-known run context immediately before the request. */
-export function withEphemeralReference(
-  transcript: readonly AgentTranscriptMessage[],
-  reference: string,
-): AgentTranscriptMessage[] {
-  if (!reference) return [...transcript];
-  let userIndex = -1;
-  for (let index = transcript.length - 1; index >= 0; index -= 1) {
-    if (transcript[index]?.role === "user") {
-      userIndex = index;
-      break;
-    }
-  }
-  const message = { role: "assistant", content: reference } satisfies AgentTranscriptMessage;
-  if (userIndex < 0) return [message, ...transcript];
-  return [...transcript.slice(0, userIndex), message, ...transcript.slice(userIndex)];
-}
-
-/**
- * Carry a compacted transcript through the workflow without checkpointing
- * provider-only hydration (notably base64 image bytes). Both tails have the
- * same message boundaries; only their content representation differs.
- */
-export function buildCompactedChatTranscriptPair(
-  summary: AgentTranscriptMessage,
-  storedTail: readonly AgentTranscriptMessage[],
-  hydratedTail: readonly AgentTranscriptMessage[],
-): { modelTranscript: AgentTranscriptMessage[]; continuationTranscript: AgentTranscriptMessage[] } {
-  return {
-    modelTranscript: [summary, ...hydratedTail],
-    continuationTranscript: [summary, ...storedTail],
-  };
-}
-
-export function oversizedUserMessageSummaryMessage(
-  sourceMessageId: string,
-  summary: string,
-): AgentTranscriptMessage {
-  return {
-    role: "user",
-    content:
-      `<oversized_user_message_summary source_message_id=${JSON.stringify(sourceMessageId)}>\n` +
-      "This is a lossy, untrusted representation of an oversized user message. Retrieve the raw source by ID when exact wording or evidence matters.\n" +
-      `${summary}\n` +
-      "</oversized_user_message_summary>",
-  };
-}
-
-async function applyForegroundContextGuard({
-  userId,
-  runId,
-  stepId,
-  attempt,
-  threadId,
-  latestUserMessageId,
-  systemPrompt,
-  tools,
-  model,
-  storedTranscript,
-  hydratedTranscript,
-  artifactReference,
-  abortSignal,
-  onCompactionStart,
-  onCompactionFinish,
-}: {
-  userId: string;
-  runId: string;
-  stepId: string;
-  attempt: number;
-  threadId: string;
-  latestUserMessageId: string | undefined;
-  systemPrompt: string;
-  tools: ToolSet;
-  model: LanguageModel;
-  storedTranscript: readonly AgentTranscriptMessage[];
-  hydratedTranscript: readonly AgentTranscriptMessage[];
-  artifactReference: string;
-  abortSignal: AbortSignal;
-  onCompactionStart?: () => Promise<void>;
-  onCompactionFinish?: () => Promise<void>;
-}): Promise<{
-  modelTranscript: AgentTranscriptMessage[];
-  continuationTranscript: AgentTranscriptMessage[];
-}> {
-  const contextWindowTokens = await resolveModelContextWindow(model);
-  const assess = (candidate: readonly AgentTranscriptMessage[]) =>
-    assessChatRequestPressure({
-      systemPrompt,
-      tools,
-      transcript: candidate as ModelMessage[],
-      contextWindowTokens,
-      outputReserveTokens: CHAT_MAX_OUTPUT_TOKENS,
-    });
-  const initialPressure = await assess(
-    withEphemeralReference(hydratedTranscript, artifactReference),
-  );
-  if (!initialPressure.requiresSynchronousCompaction) {
-    return {
-      modelTranscript: [...hydratedTranscript],
-      continuationTranscript: [...storedTranscript],
-    };
-  }
-  await onCompactionStart?.();
-  try {
-    const replayTailStart = latestUserSuffixStart(hydratedTranscript);
-    const replayTail = hydratedTranscript.slice(replayTailStart);
-    const storedReplayTail = storedTranscript.slice(replayTailStart);
-    const backgroundWinner = await waitForActiveConversationCompaction(userId, threadId);
-    if (backgroundWinner?.summary) {
-      const summaryMessage = conversationSummaryMessage(backgroundWinner.summary);
-      const reused = buildCompactedChatTranscriptPair(summaryMessage, storedReplayTail, replayTail);
-      const reusedPressure = await assess(
-        withEphemeralReference(reused.modelTranscript, artifactReference),
-      );
-      if (!reusedPressure.requiresSynchronousCompaction) {
-        return reused;
-      }
-    }
-
-    const boundary = await loadForegroundCompactionBoundary(userId, threadId, latestUserMessageId);
-    if (!boundary) throw new Error("prompt is too long: no compactable history before latest user");
-    const result = await compactConversationSynchronously({
-      userId,
-      threadId,
-      throughWatermark: boundary.compaction,
-      replayTail,
-      replayTailWatermark: boundary.replayTail,
-      attribution: { userId, runId, stepId, attempt, sessionId: threadId },
-      abortSignal,
-      timeoutMs: FOREGROUND_COMPACTION_TIMEOUT_MS,
-    });
-    const winningSummary =
-      result.kind === "persisted"
-        ? result.summary
-        : (await loadChatThreadContext(userId, threadId))?.summary;
-    if (!winningSummary) {
-      throw new Error("prompt is too long: synchronous compaction lost without a valid winner");
-    }
-    const rebuilt = buildCompactedChatTranscriptPair(
-      conversationSummaryMessage(winningSummary),
-      storedReplayTail,
-      replayTail,
-    );
-    const rebuiltPressure = await assess(
-      withEphemeralReference(rebuilt.modelTranscript, artifactReference),
-    );
-    if (!rebuiltPressure.requiresSynchronousCompaction) {
-      return rebuilt;
-    }
-
-    const latestUser = replayTail[0];
-    if (!latestUser || latestUser.role !== "user" || !latestUserMessageId) {
-      throw new Error("prompt is too long after synchronous compaction");
-    }
-    let oversized: Awaited<ReturnType<typeof compactTranscript>>;
-    try {
-      oversized = await compactTranscript({
-        prior: storedCompactionPrefix(storedReplayTail, 1),
-        inFlightTail: [],
-        attribution: {
-          userId,
-          runId,
-          stepId,
-          attempt,
-          idempotencyKey: `${stepId}:oversized-user-message`,
-          sessionId: threadId,
-          name: "chat.oversized-user-message-summary",
-        },
-        abortSignal,
-        timeoutMs: FOREGROUND_COMPACTION_TIMEOUT_MS,
-      });
-    } catch (error) {
-      if (toMessage(error) === "compactor_input_too_large") {
-        throw new Error("prompt is too long: latest user message exceeds compactor input");
-      }
-      throw error;
-    }
-    const oversizedMessage = oversizedUserMessageSummaryMessage(
-      latestUserMessageId,
-      oversized.raw.text,
-    );
-    const boundedModelTail = [oversizedMessage, ...replayTail.slice(1)];
-    const boundedStoredTail = [oversizedMessage, ...storedReplayTail.slice(1)];
-    const bounded = buildCompactedChatTranscriptPair(
-      conversationSummaryMessage(winningSummary),
-      boundedStoredTail,
-      boundedModelTail,
-    );
-    const boundedPressure = await assess(
-      withEphemeralReference(bounded.modelTranscript, artifactReference),
-    );
-    if (boundedPressure.requiresSynchronousCompaction) {
-      throw new Error("prompt is too long after oversized user message summarization");
-    }
-    return bounded;
-  } finally {
-    await onCompactionFinish?.();
-  }
-}
-
-async function applyWithinRunContextGuard({
-  userId,
-  runId,
-  stepId,
-  attempt,
-  systemPrompt,
-  tools,
-  model,
-  transcript,
-  hydratedTranscript,
-  inFlightTailStart,
-  artifactReference,
-  abortSignal,
-  onCompactionStart,
-  onCompactionFinish,
-}: {
-  userId: string;
-  runId: string;
-  stepId: string;
-  attempt: number;
-  systemPrompt: string;
-  tools: ToolSet;
-  model: LanguageModel;
-  transcript: readonly AgentTranscriptMessage[];
-  hydratedTranscript: readonly AgentTranscriptMessage[];
-  inFlightTailStart: number;
-  artifactReference: string;
-  abortSignal: AbortSignal;
-  onCompactionStart?: () => Promise<void>;
-  onCompactionFinish?: () => Promise<void>;
-}): Promise<{
-  modelTranscript: AgentTranscriptMessage[];
-  continuationTranscript: AgentTranscriptMessage[];
-  compacted: boolean;
-}> {
-  const contextWindowTokens = await resolveModelContextWindow(model);
-  const assess = (candidate: readonly AgentTranscriptMessage[]) =>
-    assessChatRequestPressure({
-      systemPrompt,
-      tools,
-      transcript: withEphemeralReference(candidate, artifactReference) as ModelMessage[],
-      contextWindowTokens,
-      outputReserveTokens: CHAT_MAX_OUTPUT_TOKENS,
-    });
-  const pressure = await assess(hydratedTranscript);
-  if (!pressure.requiresSynchronousCompaction) {
-    return {
-      modelTranscript: [...hydratedTranscript],
-      continuationTranscript: [...transcript],
-      compacted: false,
-    };
-  }
-  if (inFlightTailStart <= 0 || inFlightTailStart >= transcript.length) {
-    throw new Error("prompt is too long: no within-run history can be compacted safely");
-  }
-  await onCompactionStart?.();
-  try {
-    const prior = storedCompactionPrefix(transcript, inFlightTailStart);
-    const inFlightTail = hydratedTranscript.slice(inFlightTailStart);
-    const storedInFlightTail = transcript.slice(inFlightTailStart);
-    let compacted: Awaited<ReturnType<typeof compactTranscript>> | undefined;
-    let lastError: unknown;
-    for (let retry = 1; retry <= WITHIN_RUN_COMPACTION_RETRY_ATTEMPTS; retry += 1) {
-      try {
-        compacted = await compactTranscript({
-          prior,
-          inFlightTail,
-          attribution: {
-            userId,
-            runId,
-            stepId,
-            attempt,
-            idempotencyKey: `${stepId}:chat-within-run-${retry}`,
-            name: "chat.within-run-compaction",
-          },
-          abortSignal,
-          timeoutMs: FOREGROUND_COMPACTION_TIMEOUT_MS,
-        });
-        break;
-      } catch (error) {
-        lastError = error;
-        if (abortSignal.aborted || toMessage(error) === "compactor_input_too_large") throw error;
-      }
-    }
-    if (!compacted) {
-      throw new Error(`compactor_failed: ${toMessage(lastError)}`);
-    }
-    const postPressure = await assess(compacted.transcript);
-    if (postPressure.requiresSynchronousCompaction) {
-      throw new Error("prompt is too long after within-run compaction");
-    }
-    return {
-      ...buildCompactedChatTranscriptPair(
-        compacted.summary,
-        storedInFlightTail,
-        compacted.transcript.slice(1),
-      ),
-      compacted: true,
-    };
-  } finally {
-    await onCompactionFinish?.();
-  }
-}
-
-/**
- * Compactor history must use storage references, never provider-hydrated media
- * bytes. The generated summary replaces this prefix, so hydration adds cost
- * without preserving any model-facing content.
- */
-export function storedCompactionPrefix(
-  transcript: readonly AgentTranscriptMessage[],
-  endExclusive: number,
-): AgentTranscriptMessage[] {
-  return transcript.slice(0, endExclusive);
-}
-
-async function loadForegroundCompactionBoundary(
-  userId: string,
-  threadId: string,
-  latestUserMessageId: string | undefined,
-): Promise<{ compaction: ChatSummaryWatermark; replayTail: ChatSummaryWatermark } | null> {
-  const rows = await db()
-    .select({
-      id: chatMessages.id,
-      role: chatMessages.role,
-      createdAt: chatMessages.createdAt,
-    })
-    .from(chatMessages)
-    .where(and(eq(chatMessages.userId, userId), eq(chatMessages.threadId, threadId)))
-    .orderBy(asc(chatMessages.createdAt), asc(chatMessages.id));
-  let latestUserIndex = -1;
-  for (let index = rows.length - 1; index >= 0; index -= 1) {
-    const row = rows[index]!;
-    if (row.role !== "user") continue;
-    if (latestUserMessageId && row.id !== latestUserMessageId) continue;
-    latestUserIndex = index;
-    break;
-  }
-  if (latestUserIndex <= 0) return null;
-  const cutoff = rows[latestUserIndex - 1]!;
-  const replayTail = rows[rows.length - 1]!;
-  return {
-    compaction: { createdAt: cutoff.createdAt, messageId: cutoff.id },
-    replayTail: { createdAt: replayTail.createdAt, messageId: replayTail.id },
-  };
-}
-
-function latestUserSuffixStart(transcript: readonly AgentTranscriptMessage[]): number {
-  for (let index = transcript.length - 1; index >= 0; index -= 1) {
-    if (transcript[index]?.role === "user") return index;
-  }
-  return 0;
-}
-
-function toolResultMessage(
-  call: PendingToolCall,
-  result: Exclude<DispatchResult, { kind: "staged" | "parked" }>,
-): AgentTranscriptMessage {
-  return {
-    role: "tool",
-    content: [
-      {
-        type: "tool-result",
-        toolCallId: call.toolCallId,
-        toolName: call.toolName,
-        output: dispatchResultToToolOutput(result),
-      },
-    ],
-  };
-}
-
-function dispatchResultToToolOutput(
-  result: Exclude<DispatchResult, { kind: "staged" | "parked" }>,
-): { type: "json"; value: unknown } | { type: "error-json"; value: unknown } {
-  switch (result.kind) {
-    case "executed":
-      return {
-        type: "json",
-        value: toJsonValue({
-          status: "executed",
-          // Guardrail: clip only pathologically-long free-text fields before
-          // they hit the replayed transcript (see boundToolResult); normal
-          // single-object reads and navigational fields pass through untouched.
-          result: boundToolResult(result.toolResult).value,
-          // ADR-0070: surface to the model that this result had non-text bytes
-          // stripped before storage, so it doesn't treat a silently-mutated
-          // (binary-ish) payload as pristine.
-          ...(result.sanitized
-            ? {
-                sanitized: true,
-                notice:
-                  "Non-text bytes were stripped from this result before storage; it may be incomplete.",
-              }
-            : {}),
-        }),
-      };
-    case "failed":
-      return {
-        type: "error-json",
-        value: toJsonValue(boundToolResult({ status: "failed", error: result.error }).value),
-      };
-    default:
-      return { type: "json", value: toJsonValue(boundToolResult(result.result).value) };
-  }
-}
-
 /**
  * All of this turn's assistant prose in order: the closed narration segments
  * followed by the current segment. Used where the transcript needs the full
@@ -1319,14 +792,6 @@ function fullAssistantText(state: ChatRunState): string {
   return [...state.narration.map((n) => n.text), state.assistantText]
     .filter((t) => t.trim().length > 0)
     .join("\n\n");
-}
-
-function splitEventText(text: string): string[] {
-  const chunks: string[] = [];
-  for (let i = 0; i < text.length; i += CHAT_DELTA_MAX) {
-    chunks.push(text.slice(i, i + CHAT_DELTA_MAX));
-  }
-  return chunks;
 }
 
 async function publishChatCompactionPhase(args: {
@@ -1561,157 +1026,6 @@ export async function guardSpawnedChildren(
     });
   }
   return { kind: "next", state, transcript: nextTranscript, nextStep: "chat-turn" };
-}
-
-const SIDE_EFFECT_ACTION_TOKENS = new Set([
-  "add",
-  "append",
-  "approve",
-  "archive",
-  "assign",
-  "cancel",
-  "close",
-  "create",
-  "delete",
-  "deploy",
-  "dismiss",
-  "edit",
-  "forget",
-  "forward",
-  "insert",
-  "invite",
-  "label",
-  "merge",
-  "move",
-  "post",
-  "promote",
-  "publish",
-  "reject",
-  "remember",
-  "remove",
-  "reopen",
-  "reply",
-  "redeploy",
-  "resolve",
-  "reschedule",
-  "save",
-  "schedule",
-  "send",
-  "set",
-  "snooze",
-  "spawn",
-  "suggest",
-  "tag",
-  "unarchive",
-  "unassign",
-  "unlabel",
-  "untag",
-  "update",
-  "upload",
-  "write",
-]);
-
-function actionTokensForToolName(toolName: string): string[] {
-  const rawAction = toolName.includes(".")
-    ? toolName.slice(toolName.lastIndexOf(".") + 1)
-    : toolName;
-  const snakeish = rawAction.replace(/([a-z0-9])([A-Z])/g, "$1_$2");
-  return snakeish
-    .toLowerCase()
-    .split(/[^a-z0-9]+/)
-    .filter((token) => token.length > 0);
-}
-
-function looksSideEffectingToolName(toolName: string): boolean {
-  return actionTokensForToolName(toolName).some((token) => SIDE_EFFECT_ACTION_TOKENS.has(token));
-}
-
-function isMutatingToolName(toolName: string): boolean {
-  // Approval risk is not mutability: several sensitive reads are `low`, while
-  // user-visible in-app writes (`system.create_artifact`, `system.suggest_todo`)
-  // are `no_risk` because they never need HIL. Classify by the action verb
-  // instead so the honesty guard tracks whether a user-visible action completed.
-  return looksSideEffectingToolName(toolName);
-}
-
-const INCOMPLETE_ACTION_STATUSES = new Set([
-  "error",
-  "failed",
-  "failure",
-  "invalid",
-  "invalid_input",
-  "needs_clarification",
-  "no_thread",
-  "not_allowed",
-  "not_found",
-  "page_limit",
-  "rejected",
-  "rejected_by_user",
-  "unknown_tool",
-  "wrong_kind",
-]);
-
-function executedResultIsIncomplete(value: unknown): boolean {
-  if (!isRecord(value)) return false;
-  if (value.ok === false || value.success === false) return true;
-  return typeof value.status === "string" && INCOMPLETE_ACTION_STATUSES.has(value.status);
-}
-
-export function toolCallLogStatus(
-  toolName: string,
-  result: Exclude<DispatchResult, { kind: "staged" | "parked" }>,
-): "succeeded" | "failed" {
-  if (result.kind !== "executed") return "failed";
-  if (isMutatingToolName(toolName) && executedResultIsIncomplete(result.toolResult)) {
-    return "failed";
-  }
-  return "succeeded";
-}
-
-/**
- * A dispatch failure rejected before execution: malformed, invented, inactive,
- * or disallowed. The model self-corrects these on the next step, and the prompt
- * already says not to narrate internal retries, so they are NOT "an action
- * attempt that didn't complete" and the
- * #346 honesty guard must skip them. Counting them made a self-corrected first
- * attempt (e.g. `gmail.send_draft` with `to` as a string) force a misleading
- * regenerate that claimed the *later, approved, executed* send had failed.
- * `failed` (a real execution fault, possibly partial) and `rejected` (the user
- * declined) DID reach/affect the side-effect path, so they still trip the guard.
- */
-export function isNonExecutionFailure(
-  result: Exclude<DispatchResult, { kind: "staged" | "parked" }>,
-): boolean {
-  return (
-    result.kind === "invalid_input" ||
-    result.kind === "unknown_tool" ||
-    result.kind === "inactive_tool" ||
-    result.kind === "not_allowed" ||
-    // ADR-0074: the user turned this passthrough tier off. Never reached the
-    // side-effect path and the model must not narrate a disabled capability, so
-    // it is hidden `nonExecution` plumbing (the opposite of a visible gate
-    // `rejected`, which rides `kind:"executed"`).
-    result.kind === "feature_disabled"
-  );
-}
-
-export function shouldPublishToolStarted(
-  activeTools: readonly ToolName[],
-  toolName: string,
-): boolean {
-  return activeTools.some((activeTool) => activeTool === toolName);
-}
-
-/**
- * Whether a completed dispatch round auto-activated ≥1 tool via an inactive-tool
- * bounce (#407) — the signal that the NEXT chat-turn is an internal reissue. Only
- * `inactive_tool` counts: it's the round that made a fresh schema available and
- * asks the model to reissue, producing the "tools warming up, retrying" lead-in.
- * The other non-execution rejections (`invalid_input`, `unknown_tool`,
- * `not_allowed`) don't auto-activate anything, so they don't mark a reissue turn.
- */
-export function dispatchRoundReissued(results: readonly (DispatchResult | undefined)[]): boolean {
-  return results.some((result) => result?.kind === "inactive_tool");
 }
 
 /**
@@ -1982,133 +1296,60 @@ const chatTurnStep: Step<ChatRunState> = {
       });
       const chatModel = getChatModel(state.tier);
 
-      // Own cancellation before the foreground context guard: compaction can
-      // make billable model calls too, so Stop must cover it as well as the
-      // subsequent streamed answer.
-      const stopController = new AbortController();
-      let stopRequested = false;
-      let lastStopCheck = Date.now();
-      let stopCheckInFlight: Promise<boolean> | undefined;
-      const checkStop = (): Promise<boolean> => {
-        if (stopRequested) return Promise.resolve(true);
-        if (Date.now() - lastStopCheck < STOP_CHECK_MS) return Promise.resolve(false);
-        if (stopCheckInFlight) return stopCheckInFlight;
-        lastStopCheck = Date.now();
-        stopCheckInFlight = isChatStopRequested(ctx.runId)
-          .then((requested) => {
-            if (requested) {
-              stopRequested = true;
-              stopController.abort();
-            }
-            return stopRequested;
-          })
-          .finally(() => {
-            stopCheckInFlight = undefined;
-          });
-        return stopCheckInFlight;
-      };
+      // Own cancellation before the context guard: compaction can make billable
+      // model calls too, so Stop must cover it as well as the streamed answer.
+      const stop = createTurnStopController(ctx.runId);
 
-      // Canonical run transcript excludes the ephemeral artifact reference.
-      // The reference is composed only for the provider request so it cannot
-      // duplicate on each tool-loop turn.
-      let continuationTranscript = transcript;
-      let guardedModelTranscript = hydratedTranscript;
-      if (state.turnCount === 1 || state.inFlightTailStart > 0) {
-        const stopPoll = setInterval(() => {
-          void checkStop().catch((error: unknown) => {
-            console.warn(`[chat-turn] stop polling failed (run ${ctx.runId}):`, toMessage(error));
-          });
-        }, STOP_CHECK_MS);
-        try {
-          const guardAbortSignal = AbortSignal.any([
-            stopController.signal,
-            AbortSignal.timeout(FOREGROUND_COMPACTION_TIMEOUT_MS),
-          ]);
-          if (state.turnCount === 1) {
-            const foreground = await applyForegroundContextGuard({
+      // Canonical run transcript excludes the ephemeral artifact reference. The
+      // reference is composed only for the provider request so it cannot
+      // duplicate on each tool-loop turn. The guard owns its own gate (turn 1 or
+      // a within-run tool burst) and no-ops otherwise; poll the stop flag while
+      // it runs (it has no stream loop to poll from), and finalize if Stop landed
+      // there rather than propagating the abort as a fault.
+      let continuationTranscript: AgentTranscriptMessage[] = transcript;
+      let guardedModelTranscript: AgentTranscriptMessage[] = hydratedTranscript;
+      const disposeStopPoll = stop.startPolling();
+      try {
+        const guarded = await guardTurnContext({
+          turnCount: state.turnCount,
+          inFlightTailStart: state.inFlightTailStart,
+          userId: ctx.userId,
+          runId: ctx.runId,
+          stepId: ctx.idempotencyKey,
+          attempt: ctx.attempt,
+          threadId: state.threadId,
+          latestUserMessageId: state.userMessageId,
+          systemPrompt,
+          tools: sdkTools,
+          model: chatModel,
+          storedTranscript: transcript,
+          hydratedTranscript,
+          artifactReference: ephemeralReference,
+          abortSignal: stop.signal,
+          onPhase: (phase, compactionScope) =>
+            publishChatCompactionPhase({
               userId: ctx.userId,
               runId: ctx.runId,
-              stepId: ctx.idempotencyKey,
-              attempt: ctx.attempt,
               threadId: state.threadId,
-              latestUserMessageId: state.userMessageId,
-              systemPrompt,
-              tools: sdkTools,
-              model: chatModel,
-              storedTranscript: transcript,
-              hydratedTranscript,
-              artifactReference: ephemeralReference,
-              abortSignal: guardAbortSignal,
-              onCompactionStart: () =>
-                publishChatCompactionPhase({
-                  userId: ctx.userId,
-                  runId: ctx.runId,
-                  threadId: state.threadId,
-                  messageId: state.messageId,
-                  phase: "compaction_started",
-                  compactionScope: "foreground",
-                }),
-              onCompactionFinish: () =>
-                publishChatCompactionPhase({
-                  userId: ctx.userId,
-                  runId: ctx.runId,
-                  threadId: state.threadId,
-                  messageId: state.messageId,
-                  phase: "compaction_finished",
-                  compactionScope: "foreground",
-                }),
-            });
-            continuationTranscript = foreground.continuationTranscript;
-            guardedModelTranscript = foreground.modelTranscript;
-          } else {
-            const withinRun = await applyWithinRunContextGuard({
-              userId: ctx.userId,
-              runId: ctx.runId,
-              stepId: ctx.idempotencyKey,
-              attempt: ctx.attempt,
-              systemPrompt,
-              tools: sdkTools,
-              model: chatModel,
-              transcript: continuationTranscript,
-              hydratedTranscript,
-              inFlightTailStart: state.inFlightTailStart,
-              artifactReference: ephemeralReference,
-              abortSignal: guardAbortSignal,
-              onCompactionStart: () =>
-                publishChatCompactionPhase({
-                  userId: ctx.userId,
-                  runId: ctx.runId,
-                  threadId: state.threadId,
-                  messageId: state.messageId,
-                  phase: "compaction_started",
-                  compactionScope: "within_run",
-                }),
-              onCompactionFinish: () =>
-                publishChatCompactionPhase({
-                  userId: ctx.userId,
-                  runId: ctx.runId,
-                  threadId: state.threadId,
-                  messageId: state.messageId,
-                  phase: "compaction_finished",
-                  compactionScope: "within_run",
-                }),
-            });
-            continuationTranscript = withinRun.continuationTranscript;
-            guardedModelTranscript = withinRun.modelTranscript;
-            if (withinRun.compacted) state.inFlightTailStart = 0;
-          }
-        } catch (error) {
-          if (!stopRequested) throw error;
-          await finalizeAssistantMessage(ctx.userId, ctx.runId, state);
-          return {
-            kind: "done",
-            state,
-            transcript,
-            output: { messageId: state.messageId, stopped: true },
-          };
-        } finally {
-          clearInterval(stopPoll);
-        }
+              messageId: state.messageId,
+              phase,
+              compactionScope,
+            }),
+        });
+        continuationTranscript = guarded.continuationTranscript;
+        guardedModelTranscript = guarded.modelTranscript;
+        if (guarded.compacted) state.inFlightTailStart = 0;
+      } catch (error) {
+        if (!stop.stopped) throw error;
+        await finalizeAssistantMessage(ctx.userId, ctx.runId, state);
+        return {
+          kind: "done",
+          state,
+          transcript,
+          output: { messageId: state.messageId, stopped: true },
+        };
+      } finally {
+        disposeStopPoll();
       }
       const modelTranscript = withEphemeralReference(guardedModelTranscript, ephemeralReference);
       const requestEstimate = await estimateChatRequestTokens({
@@ -2152,261 +1393,23 @@ const chatTurnStep: Step<ChatRunState> = {
             estimatedTotalRequestTokens: requestEstimate.totalRequestTokens,
           },
         },
-        abortSignal: stopController.signal,
+        abortSignal: stop.signal,
       });
 
-      // Drain the live stream → coalesce text into `chat.delta`, reasoning into
-      // `chat.reasoning`, and surface each tool call as a `chat.tool` started
-      // card. Reasoning and reply text get independent buffers + seqs so the
-      // client orders each track on its own.
-      // Enforce the deterministic half of DEFAULT_VOICE_PROMPT ("No em-dashes")
-      // on the live stream, not just the persisted row. One sanitizer per
-      // streamTurn (one prose segment): coalesced deltas run through it before
-      // publishing. It is chunk-invariant and shares its lexical transform with
-      // the batch `sanitizeVoice` that finalize applies to `content`/`narration`,
-      // so the streamed text equals the reconciled bubble exactly — no mid-stream
-      // em-dash that "corrects itself" on completion. Code, quotations, links,
-      // and identifiers are preserved verbatim.
-      const voiceSanitizer = createVoiceStreamSanitizer();
-      let buffer = "";
-      let lastFlush = Date.now();
-      const publishTextDelta = async (text: string): Promise<void> => {
-        for (const chunk of splitEventText(text)) {
-          state.deltaSeq += 1;
-          await publishEvent({
-            userId: ctx.userId,
-            kind: "chat.delta",
-            payload: {
-              runId: ctx.runId,
-              threadId: state.threadId,
-              messageId: state.messageId,
-              seq: state.deltaSeq,
-              text: chunk,
-              segmentIndex: state.segmentIndex,
-            },
-          });
-        }
-      };
-      const flush = async (): Promise<void> => {
-        // While a reissue is pending (#407) this turn's text is an internal
-        // reissue lead-in — withhold its live deltas so "tools warming up,
-        // retrying" never streams. Keep `buffer` intact and the sanitizer
-        // untouched: if the model answers instead of reissuing, the final-answer
-        // path clears the flag and flushes it as the real reply.
-        if (state.reissuePending) return;
-        if (buffer.length === 0) return;
-        // `push` may hold back a trailing dash/space until the next chunk fixes
-        // its meaning; `flushVoiceTail` releases the remainder after the drain.
-        const text = voiceSanitizer.push(buffer);
-        buffer = "";
-        lastFlush = Date.now();
-        if (text.length === 0) return;
-        await publishTextDelta(text);
-      };
-      // Release whatever the streaming sanitizer held back, closing the segment's
-      // live text. Safe on an empty sanitizer (returns ""). Gated on
-      // `reissuePending` for the same reason as `flush`.
-      const flushVoiceTail = async (): Promise<void> => {
-        if (state.reissuePending) return;
-        const tail = voiceSanitizer.flush();
-        if (tail.length > 0) await publishTextDelta(tail);
-      };
+      // Drain the live stream: coalesce reply text → `chat.delta`, reasoning →
+      // `chat.reasoning`, tool calls → `chat.tool` started cards, and a document
+      // artifact's `markdown` argument → live `artifact.delta`. Mutates the
+      // stream-owned slice of `state` in place. While a reissue is pending (#407)
+      // the reply flush is withheld; `flushReply`/`flushReplyTail` release it in
+      // the final-answer branch below once the flag is cleared.
+      const { flushReply, flushReplyTail } = await streamModelTurn({
+        stream,
+        state,
+        ctx,
+        stopController: stop,
+      });
 
-      let reasoningBuffer = "";
-      let lastReasoningFlush = Date.now();
-      // First/last reasoning token timestamps → "Thought for Ns". Accumulates
-      // across turns in a tool-calling loop (reasoning can resume after a tool).
-      let reasoningStart = 0;
-      const flushReasoning = async (): Promise<void> => {
-        if (reasoningBuffer.length === 0) return;
-        const text = reasoningBuffer;
-        reasoningBuffer = "";
-        lastReasoningFlush = Date.now();
-        for (const chunk of splitEventText(text)) {
-          state.reasoningSeq += 1;
-          await publishEvent({
-            userId: ctx.userId,
-            kind: "chat.reasoning",
-            payload: {
-              runId: ctx.runId,
-              threadId: state.threadId,
-              messageId: state.messageId,
-              seq: state.reasoningSeq,
-              text: chunk,
-            },
-          });
-        }
-      };
-
-      // --- Live artifact-body streaming (document markdown) ---
-      // A `document` artifact's body is the `markdown` argument of
-      // create_artifact / append_artifact_section / update_artifact. The SDK
-      // streams that argument incrementally as `tool-input-delta` parts while
-      // the model generates, so we accumulate the raw partial-JSON per
-      // toolCallId, extract the growing `markdown` string, and publish its
-      // growth as `artifact.delta` — letting the sidebar fill live instead of
-      // popping in whole when the tool executes. Keyed by toolCallId because
-      // create_artifact has no artifact id until it runs. `pages`/HTML tools are
-      // deliberately excluded (they already appear at page granularity, and a
-      // create with no `markdown` field simply never emits).
-      interface ArtifactInputStream {
-        mode: "replace" | "append";
-        buf: string;
-        sentLen: number;
-        seq: number;
-        lastFlush: number;
-        titleSent: boolean;
-      }
-      const artifactInputs = new Map<string, ArtifactInputStream>();
-      const flushArtifactInput = async (toolCallId: string, final: boolean): Promise<void> => {
-        const s = artifactInputs.get(toolCallId);
-        if (!s) return;
-        if (final) artifactInputs.delete(toolCallId);
-        const parsed = await parsePartialJson(s.buf);
-        const value = parsed.value;
-        const markdown =
-          isRecord(value) && typeof value.markdown === "string" ? value.markdown : "";
-        // Only publish once the body has actually grown — this is what excludes
-        // a `pages` create (no `markdown` field) and a rename-only update.
-        if (markdown.length <= s.sentLen) return;
-        const title = isRecord(value) && typeof value.title === "string" ? value.title : undefined;
-        const artifactId =
-          isRecord(value) && typeof value.artifactId === "string" ? value.artifactId : undefined;
-        const tail = markdown.slice(s.sentLen);
-        s.sentLen = markdown.length;
-        s.lastFlush = Date.now();
-        // Chunk the tail like chat deltas (splitEventText): the reducer appends
-        // each `text`, so a big final burst — or a single >16k tool-input-delta —
-        // becomes several in-cap events instead of one over-cap payload that
-        // `publishEvent` would reject (its schema caps `text` at CHAT_DELTA_MAX),
-        // which would throw inside the stream loop and fault the turn.
-        for (const [i, chunk] of splitEventText(tail).entries()) {
-          s.seq += 1;
-          const includeTitle = i === 0 && !s.titleSent && title !== undefined;
-          if (includeTitle) s.titleSent = true;
-          await publishEvent({
-            userId: ctx.userId,
-            kind: "artifact.delta",
-            payload: {
-              runId: ctx.runId,
-              threadId: state.threadId,
-              toolCallId,
-              seq: s.seq,
-              text: chunk,
-              mode: s.mode,
-              ...(includeTitle ? { title } : {}),
-              ...(artifactId ? { artifactId } : {}),
-            },
-          });
-        }
-      };
-
-      try {
-        for await (const part of stream.stream) {
-          if (await checkStop()) break;
-          if (part.type === "tool-input-start") {
-            // At the fullStream level, `part.id` is the toolCallId (it matches
-            // the later `tool-call` part's `toolCallId`).
-            const mode = ARTIFACT_STREAM_MODES[part.toolName];
-            if (mode) {
-              artifactInputs.set(part.id, {
-                mode,
-                buf: "",
-                sentLen: 0,
-                seq: 0,
-                lastFlush: Date.now(),
-                titleSent: false,
-              });
-            }
-          } else if (part.type === "tool-input-delta") {
-            const s = artifactInputs.get(part.id);
-            if (s) {
-              s.buf += part.delta;
-              if (
-                s.buf.length - s.sentLen >= DELTA_FLUSH_CHARS ||
-                Date.now() - s.lastFlush >= DELTA_FLUSH_MS
-              ) {
-                await flushArtifactInput(part.id, false);
-              }
-            }
-          } else if (part.type === "text-delta") {
-            await flushReasoning();
-            state.assistantText += part.text;
-            buffer += part.text;
-            if (buffer.length >= DELTA_FLUSH_CHARS || Date.now() - lastFlush >= DELTA_FLUSH_MS) {
-              await flush();
-            }
-          } else if (part.type === "reasoning-delta") {
-            if (reasoningStart === 0) reasoningStart = Date.now();
-            state.reasoningText += part.text;
-            reasoningBuffer += part.text;
-            if (
-              reasoningBuffer.length >= DELTA_FLUSH_CHARS ||
-              Date.now() - lastReasoningFlush >= DELTA_FLUSH_MS
-            ) {
-              await flushReasoning();
-            }
-          } else if (part.type === "reasoning-end") {
-            if (reasoningStart > 0) state.reasoningMs += Date.now() - reasoningStart;
-            reasoningStart = 0;
-            await flushReasoning();
-          } else if (part.type === "tool-call") {
-            if (reasoningStart > 0) {
-              state.reasoningMs += Date.now() - reasoningStart;
-              reasoningStart = 0;
-            }
-            await flushReasoning();
-            await flush();
-            // The full tool call is assembled: publish the tail of any artifact
-            // body it was streaming so the sidebar has the whole authored body
-            // before the tool executes.
-            if (artifactInputs.has(part.toolCallId)) {
-              await flushArtifactInput(part.toolCallId, true);
-            }
-            if (shouldPublishToolStarted(state.activeTools, part.toolName)) {
-              await publishEvent({
-                userId: ctx.userId,
-                kind: "chat.tool",
-                payload: {
-                  runId: ctx.runId,
-                  threadId: state.threadId,
-                  messageId: state.messageId,
-                  toolCallId: part.toolCallId,
-                  toolName: part.toolName,
-                  status: "started",
-                  argsPreview: preview(part.input),
-                  segmentIndex: state.segmentIndex,
-                },
-              });
-            }
-          } else if (part.type === "error") {
-            // A mid-stream error (provider fault, timeout abort) surfaces here;
-            // throw so the catch below finalizes the turn as failed. Our own
-            // stop-abort can land here too on some providers — not a fault.
-            if (stopRequested) break;
-            throw part.error instanceof Error ? part.error : new Error(String(part.error));
-          }
-        }
-      } catch (err) {
-        // The stop-abort can also surface as a thrown AbortError from the
-        // stream iterator itself; swallow it only when we asked for it.
-        if (!stopRequested) throw err;
-      }
-      // Some providers end the stream without a `reasoning-end`; close the
-      // duration and flush any trailing thinking before the reply flush.
-      if (reasoningStart > 0) {
-        state.reasoningMs += Date.now() - reasoningStart;
-        reasoningStart = 0;
-      }
-      await flushReasoning();
-      await flush();
-      // Segment complete: release any dash/whitespace the sanitizer held back so
-      // the live text matches the persisted `sanitizeVoice(content)`. Runs before
-      // the stop/tool-call/final-answer branches so it lands on the current
-      // segment index (a tool-call turn bumps the index only afterward).
-      await flushVoiceTail();
-
-      if (stopRequested) {
+      if (stop.stopped) {
         // User hit stop: persist whatever streamed and complete the run.
         // Skip `stream.toolCalls/finishReason/response` — after an abort those
         // promises may never settle. An empty partial persists as an empty
@@ -2450,11 +1453,7 @@ const chatTurnStep: Step<ChatRunState> = {
         // of deltas the client has already rendered. A user stop is not a
         // timeout (unnamed AbortError, and `stopRequested`), so it never enters
         // here; the throw falls through to the terminal-failure path below.
-        if (
-          isStreamTimeoutAbort(err) &&
-          !stopRequested &&
-          state.assistantText.trim().length === 0
-        ) {
+        if (isStreamTimeoutAbort(err) && !stop.stopped && state.assistantText.trim().length === 0) {
           const retry = planStreamTimeoutRetry(state, continuationTranscript);
           if (retry) {
             console.warn(
@@ -2592,13 +1591,13 @@ const chatTurnStep: Step<ChatRunState> = {
       if (state.reissuePending) {
         // A reissue was pending but the model produced a final answer instead of
         // reissuing — so this text is the real reply, not an internal lead-in.
-        // Clear the flag and release the deltas the `flush` gate withheld before
-        // any guard can close this answer into a narration segment.
+        // Clear the flag and release the deltas the stream's `flush` gate withheld
+        // before any guard can close this answer into a narration segment.
         state.reissuePending = false;
-        await flush();
-        // The drain-end `flushVoiceTail` above no-op'd while the reissue flag was
-        // set (the sanitizer never saw `buffer`); release the now-flushed tail.
-        await flushVoiceTail();
+        await flushReply();
+        // The drain-end tail flush no-op'd while the reissue flag was set (the
+        // sanitizer never saw the buffer); release the now-flushed tail.
+        await flushReplyTail();
       }
 
       // This turn produced user-visible text. Reset before either finalization
@@ -2741,150 +1740,124 @@ const dispatchToolsStep: Step<ChatRunState> = {
           return result;
         };
 
-        const results = await dispatchAutonomyCallsInSafeOrder(calls, gateFlags, dispatch);
-        // Gated bucket — serial in transcript order, stop at the first that
-        // stages. Earlier gated calls that resolved on a prior approval execute
-        // here (idempotent); later ones stay undispatched and stage on the next
-        // resume, so only one approval surfaces at a time.
-        for (let i = 0; i < calls.length; i++) {
-          if (!gateFlags[i]) continue;
-          const result = await dispatch(calls[i]!);
-          results[i] = result;
-          if (result.kind === "staged") break;
-        }
+        // Run the round over the shared loop (`toolResultMessage` rendering,
+        // span-close rule, and staged-before-parked interrupt priority live
+        // there, single-sourced with the brief). Chat contributes its
+        // concurrent-autonomy ordering — reads/`system.*` overlap while artifact
+        // mutations stay in model order (shared body state) and gated writes
+        // stage serially — plus the per-committed-result bookkeeping below.
+        const round = await runToolRound<PendingToolCall>({
+          calls,
+          transcript,
+          batchSpan,
+          ordering: {
+            kind: "concurrent-autonomy",
+            gateFlags,
+            serializeInOrder: (call) => ARTIFACT_MUTATION_TOOLS.has(call.toolName),
+          },
+          dispatch,
+          onCommit: async (call, result) => {
+            applySystemToolEffect(state, call.toolName, result);
 
-        // A gated write parks the run. Return the interrupt for the
-        // first-staged call (in transcript order) WITHOUT committing any
-        // sibling result: leave `pendingToolCalls` and `transcript` untouched
-        // so that on resume the entire batch re-dispatches — the already-
-        // executed siblings short-circuit on `(runId, toolCallId)` idempotency
-        // and the now-approved write runs. The transcript is then assembled in
-        // a single ordered pass once nothing stages.
-        const stagedResult = results.find(
-          (r): r is Extract<DispatchResult, { kind: "staged" }> => r?.kind === "staged",
-        );
-        if (stagedResult) {
-          batchSpan?.end("staged", results);
-          return interruptChatRun(state, transcript, stagedResult.wake);
-        }
-
-        // ADR-0073: an `await_sub_agent` on a still-running child parks the run
-        // on its completion signal — same shape as a gated stage, but the wake
-        // is a `signal` the child fires on terminal commit. Leave the batch
-        // untouched so it re-dispatches on resume (the await then reads the
-        // child's real outcome). HIL staging takes precedence above.
-        const parkedResult = results.find(
-          (r): r is Extract<DispatchResult, { kind: "parked" }> => r?.kind === "parked",
-        );
-        if (parkedResult) {
-          batchSpan?.end("parked", results);
-          return interruptChatRun(state, transcript, parkedResult.wake);
-        }
-
-        // No gate in the batch — commit every result in original call order
-        // (transcript order is load-bearing). With nothing staged, every call
-        // was dispatched, so each slot is populated.
-        for (let i = 0; i < calls.length; i++) {
-          const call = calls[i]!;
-          const result = results[i]!;
-          // Already handled above; the guard also narrows `result` away from
-          // `staged`/`parked` for the helpers below (both cause an early
-          // interrupt return, so neither reaches the commit pass).
-          if (result.kind === "staged" || result.kind === "parked") continue;
-
-          applySystemToolEffect(state, call.toolName, result);
-
-          if (ARTIFACT_MUTATION_TOOLS.has(call.toolName) && result.kind === "executed") {
-            // The next model step must not see a stale pre-edit body/hash. Re-read
-            // the selected/default artifact after create/update commits.
-            state.artifactsContext = undefined;
-            state.artifactReference = undefined;
-            // Artifact metadata is the one intentionally mutable system block.
-            // Release the durable pin at the same explicit mutation seam.
-            state.systemPromptHash = undefined;
-            if (call.toolName === "system.create_artifact") {
-              const createdFormat = artifactFormatSchema.safeParse(
-                getPath(result.toolResult, "format"),
-              );
-              if (createdFormat.success) state.artifactDesignMedium = createdFormat.data;
+            if (ARTIFACT_MUTATION_TOOLS.has(call.toolName) && result.kind === "executed") {
+              // The next model step must not see a stale pre-edit body/hash. Re-read
+              // the selected/default artifact after create/update commits.
+              state.artifactsContext = undefined;
+              state.artifactReference = undefined;
+              // Artifact metadata is the one intentionally mutable system block.
+              // Release the durable pin at the same explicit mutation seam.
+              state.systemPromptHash = undefined;
+              if (call.toolName === "system.create_artifact") {
+                const createdFormat = artifactFormatSchema.safeParse(
+                  getPath(result.toolResult, "format"),
+                );
+                if (createdFormat.success) state.artifactDesignMedium = createdFormat.data;
+              }
             }
-          }
 
-          const status = toolCallLogStatus(call.toolName, result);
-          const resultPreview =
-            result.kind === "executed"
-              ? preview(result.toolResult)
-              : result.kind === "failed"
-                ? preview(result.error)
-                : preview(result.result);
-          // ADR-0070: the boundary sanitizer's verdict rides the dispatch
-          // envelope; carry it onto the durable tool-call log *and* the live
-          // event so a scrubbed result is flagged the same way live and on
-          // reload (otherwise the durable card looks pristine).
-          const sanitized = result.kind === "executed" && result.sanitized ? true : undefined;
-          // Flag a never-executed schema/tool-name rejection so the honesty
-          // guard can tell a self-corrected malformed call apart from a real
-          // failed side effect (see isNonExecutionFailure).
-          const nonExecution =
-            status === "failed" && isNonExecutionFailure(result) ? true : undefined;
-          // Bind an executed artifact tool's toolCallId to its row id, so a live
-          // artifact stream (keyed by toolCallId — all create_artifact has before
-          // it runs) can adopt the durable synced row once it lands.
-          const artifactId = (() => {
-            if (!ARTIFACT_MUTATION_TOOLS.has(call.toolName) || result.kind !== "executed") {
-              return undefined;
-            }
-            const id = getPath(result.toolResult, "artifactId");
-            return typeof id === "string" && id.length > 0 ? id : undefined;
-          })();
-          state.toolCallsLog.push({
-            toolCallId: call.toolCallId,
-            toolName: call.toolName,
-            status,
-            resultPreview,
-            ...(sanitized ? { sanitized } : {}),
-            ...(nonExecution ? { nonExecution } : {}),
-            segmentIndex: call.segmentIndex,
-          });
-
-          // ADR-0073: a successful `await_sub_agent` already handed the boss the
-          // child's real outcome in-transcript, so the finalization guard must
-          // treat that child as accounted for — otherwise it re-folds it and
-          // injects a false "finished without you awaiting it" note, demoting the
-          // boss's answer and burning another turn. (A still-running await parks
-          // and never reaches this commit pass, so only resolved awaits land here.)
-          if (call.toolName === AWAIT_SUB_AGENT_TOOL && result.kind === "executed") {
-            const childRunId = awaitedChildRunId(call.input);
-            if (childRunId && !state.foldedChildRunIds.includes(childRunId)) {
-              state.foldedChildRunIds = [...state.foldedChildRunIds, childRunId];
-            }
-          }
-          await publishEvent({
-            userId: ctx.userId,
-            kind: "chat.tool",
-            payload: {
-              runId: ctx.runId,
-              threadId: state.threadId,
-              messageId: state.messageId,
+            const status = toolCallLogStatus(call.toolName, result);
+            const resultPreview =
+              result.kind === "executed"
+                ? preview(result.toolResult)
+                : result.kind === "failed"
+                  ? preview(result.error)
+                  : preview(result.result);
+            // ADR-0070: the boundary sanitizer's verdict rides the dispatch
+            // envelope; carry it onto the durable tool-call log *and* the live
+            // event so a scrubbed result is flagged the same way live and on
+            // reload (otherwise the durable card looks pristine).
+            const sanitized = result.kind === "executed" && result.sanitized ? true : undefined;
+            // Flag a never-executed schema/tool-name rejection so the honesty
+            // guard can tell a self-corrected malformed call apart from a real
+            // failed side effect (see isNonExecutionFailure).
+            const nonExecution =
+              status === "failed" && isNonExecutionFailure(result) ? true : undefined;
+            // Bind an executed artifact tool's toolCallId to its row id, so a live
+            // artifact stream (keyed by toolCallId — all create_artifact has before
+            // it runs) can adopt the durable synced row once it lands.
+            const artifactId = (() => {
+              if (!ARTIFACT_MUTATION_TOOLS.has(call.toolName) || result.kind !== "executed") {
+                return undefined;
+              }
+              const id = getPath(result.toolResult, "artifactId");
+              return typeof id === "string" && id.length > 0 ? id : undefined;
+            })();
+            state.toolCallsLog.push({
               toolCallId: call.toolCallId,
               toolName: call.toolName,
               status,
               resultPreview,
               ...(sanitized ? { sanitized } : {}),
               ...(nonExecution ? { nonExecution } : {}),
-              ...(artifactId ? { artifactId } : {}),
               segmentIndex: call.segmentIndex,
-            },
-          });
+            });
 
-          transcript = [...transcript, toolResultMessage(call, result)];
+            // ADR-0073: a successful `await_sub_agent` already handed the boss the
+            // child's real outcome in-transcript, so the finalization guard must
+            // treat that child as accounted for — otherwise it re-folds it and
+            // injects a false "finished without you awaiting it" note, demoting the
+            // boss's answer and burning another turn. (A still-running await parks
+            // and never reaches this commit pass, so only resolved awaits land here.)
+            if (call.toolName === AWAIT_SUB_AGENT_TOOL && result.kind === "executed") {
+              const childRunId = awaitedChildRunId(call.input);
+              if (childRunId && !state.foldedChildRunIds.includes(childRunId)) {
+                state.foldedChildRunIds = [...state.foldedChildRunIds, childRunId];
+              }
+            }
+            await publishEvent({
+              userId: ctx.userId,
+              kind: "chat.tool",
+              payload: {
+                runId: ctx.runId,
+                threadId: state.threadId,
+                messageId: state.messageId,
+                toolCallId: call.toolCallId,
+                toolName: call.toolName,
+                status,
+                resultPreview,
+                ...(sanitized ? { sanitized } : {}),
+                ...(nonExecution ? { nonExecution } : {}),
+                ...(artifactId ? { artifactId } : {}),
+                segmentIndex: call.segmentIndex,
+              },
+            });
+          },
+        });
+
+        // A gated write staged (HIL) or a sub-agent await parked: the batch is
+        // left untouched (transcript unchanged, `pendingToolCalls` intact) so the
+        // whole batch re-dispatches on resume, where executed siblings
+        // short-circuit on `(runId, toolCallId)` idempotency.
+        if (round.kind === "interrupt") {
+          return interruptChatRun(state, transcript, round.wake);
         }
+
+        transcript = round.transcript;
         state.pendingToolCalls = [];
         // If this round auto-activated any tool via an inactive-tool bounce
         // (#407), the next chat-turn is an internal reissue — mark it so its
         // lead-in narration ("tools warming up, retrying") is withheld.
-        state.reissuePending = dispatchRoundReissued(results);
-        batchSpan?.end("committed", results);
+        state.reissuePending = dispatchRoundReissued(round.results);
       }
 
       return { kind: "next", state, transcript, nextStep: "chat-turn" };

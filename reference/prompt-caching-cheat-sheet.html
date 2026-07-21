@@ -41,6 +41,7 @@
     <li>Anthropic-native <code>defer_loading</code> is different: discovered schemas are inserted later as <code>tool_reference</code> blocks, preserving the early prefix.</li>
     <li>The deferred-tool “catalog” has no public resource ID, TTL, or invalidation API. Resend all definitions every request and treat that request’s tools array as authoritative.</li>
     <li>Keep prompt-cache lifetime separate from tool-search lifetime: prompt entries have cache TTLs; the searchable tool view is defined anew by request input.</li>
+    <li>Deferred loading saves model-context tokens, not HTTP bytes: direct client tools still send every full schema on every request.</li>
     <li>Changing runtime time stays in a later suffix, preserving stable endpoints.</li>
     <li>Verify with cache read/write token fields, never latency alone.</li>
   </ul>
