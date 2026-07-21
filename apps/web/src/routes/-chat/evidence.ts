@@ -1,4 +1,4 @@
-import type { ToolName } from "@alfred/contracts";
+import { isToolName, type ToolName } from "@alfred/contracts";
 import { domainOf } from "~/lib/favicon";
 import { formatRelative } from "~/lib/strings";
 import { asRecord, asString, parseJsonRecord, type JsonRecord } from "~/lib/json-record";
@@ -384,7 +384,8 @@ const LIST_SPECS: Partial<Record<ToolName, ListSpec>> = {
       return {
         key: asString(item.id) ?? name,
         title: name,
-        meta: services !== undefined ? `${services} service${services === 1 ? "" : "s"}` : undefined,
+        meta:
+          services !== undefined ? `${services} service${services === 1 ? "" : "s"}` : undefined,
       };
     },
   },
@@ -462,9 +463,9 @@ const ENTITY_BUILDERS: Partial<Record<ToolName, (result: JsonRecord) => EntityVi
  */
 export function presentEvidence(tool: ToolCallView): RecordListView | EntityView | null {
   const result = parseJsonRecord(tool.resultPreview);
-  if (!result) return null;
+  if (!result || !isToolName(tool.toolName)) return null;
 
-  const listSpec = LIST_SPECS[tool.toolName as ToolName];
+  const listSpec = LIST_SPECS[tool.toolName];
   if (listSpec) {
     const raw = result[listSpec.arrayKey];
     if (!Array.isArray(raw) || raw.length === 0) return null;
@@ -487,7 +488,7 @@ export function presentEvidence(tool: ToolCallView): RecordListView | EntityView
     };
   }
 
-  const entityBuilder = ENTITY_BUILDERS[tool.toolName as ToolName];
+  const entityBuilder = ENTITY_BUILDERS[tool.toolName];
   if (entityBuilder) return entityBuilder(result);
 
   return null;

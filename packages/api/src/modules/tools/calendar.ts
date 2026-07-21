@@ -8,7 +8,6 @@ import {
   CALENDAR_READONLY_SCOPE,
   createEvent,
   getFreshAccessToken,
-  googlePassthroughProfile,
   listEvents,
   requireScopes,
   type CalendarEvent,
@@ -23,7 +22,7 @@ import {
   resolveGoogleAccessToken,
   resolveGoogleCredential,
 } from "./google-credentials";
-import { runRestPassthrough } from "./passthrough";
+import { runGooglePassthrough } from "./passthrough";
 import { liveTool, type RegisteredTool } from "./registry";
 
 const MS_PER_DAY = 86_400_000;
@@ -350,7 +349,7 @@ export const calendarTools: readonly RegisteredTool[] = [
         scopes: CALENDAR_READ_SCOPES,
         noConnection: "calendar_read_connection_required",
       });
-      return runRestPassthrough("calendar", googlePassthroughProfile("calendar", token), input);
+      return runGooglePassthrough("calendar", token, input);
     },
   }),
 ];

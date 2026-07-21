@@ -14,7 +14,7 @@
  */
 
 import { createRun, enqueueRun } from "@alfred/api/backend";
-import { closeAgentQueue, closeConnections, closeRedis, warmPool } from "@alfred/api/runtime";
+import { closeAgentQueue, warmPool } from "@alfred/api/runtime";
 import { db } from "@alfred/db";
 import {
   actionStagings,
@@ -26,6 +26,7 @@ import {
 } from "@alfred/db/schemas";
 import { and, eq } from "drizzle-orm";
 import { registerBuiltinWorkflows } from "~/builtins";
+import { closeScriptResources } from "../script-runtime";
 
 const WORKFLOW_SLUG = `qa-gated-staging${process.argv[2] ? `-${process.argv[2]}` : ""}`;
 const BRIEF =
@@ -138,7 +139,5 @@ try {
   console.error("[qa-gated-staging] FAIL", err instanceof Error ? (err.stack ?? err.message) : err);
   process.exitCode = 1;
 } finally {
-  await closeAgentQueue().catch(() => {});
-  await closeRedis().catch(() => {});
-  await closeConnections().catch(() => {});
+  await closeScriptResources(closeAgentQueue);
 }

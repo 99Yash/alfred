@@ -32,7 +32,7 @@ import {
   SKILL_DOCUMENTATION_WORKFLOW_SLUG,
   skillDocumentationDedupKey,
 } from "@alfred/api/backend";
-import { closeAgentQueue, closeConnections, closeRedis, warmPool } from "@alfred/api/runtime";
+import { closeAgentQueue, warmPool } from "@alfred/api/runtime";
 import { toRecord } from "@alfred/contracts";
 import { db } from "@alfred/db";
 import {
@@ -45,6 +45,7 @@ import {
 } from "@alfred/db/schemas";
 import { and, desc, eq, sql } from "drizzle-orm";
 import { registerBuiltinWorkflows } from "~/builtins";
+import { closeScriptResources } from "../script-runtime";
 
 const POLL_INTERVAL_MS = 1_000;
 const LEARN_TIMEOUT_MS = 90_000;
@@ -267,7 +268,5 @@ main()
     process.exitCode = 1;
   })
   .finally(async () => {
-    await closeAgentQueue().catch(() => {});
-    await closeRedis().catch(() => {});
-    await closeConnections().catch(() => {});
+    await closeScriptResources(closeAgentQueue);
   });

@@ -39,7 +39,8 @@
  *   # every connected Google account, extra alias:
  *   node dist/scripts/backfills/backfill-label-self-mail-committed.js --all-connected --aliases=old@x.com --commit
  */
-import { closeConnections, closeRedis, warmPool } from "@alfred/api/runtime";
+import { warmPool } from "@alfred/api/runtime";
+import { closeScriptResources } from "../script-runtime";
 import { parseEmailAddress, toMessage } from "@alfred/contracts";
 import { db } from "@alfred/db";
 import { integrationCredentials, user as userTable } from "@alfred/db/schemas";
@@ -282,6 +283,5 @@ main()
     process.exitCode = 1;
   })
   .finally(async () => {
-    await closeRedis().catch(() => {});
-    await closeConnections().catch(() => {});
+    await closeScriptResources();
   });

@@ -28,7 +28,6 @@ import {
   GMAIL_MODIFY_SCOPE,
   GMAIL_READONLY_SCOPE,
   GMAIL_SEND_SCOPE,
-  googlePassthroughProfile,
   listMessages,
   requireScopes,
   sendMessage,
@@ -39,7 +38,7 @@ import {
   resolveGoogleCredential,
   type GoogleScopePolicy,
 } from "./google-credentials";
-import { runRestPassthrough } from "./passthrough";
+import { runGooglePassthrough } from "./passthrough";
 import { liveTool, type RegisteredTool } from "./registry";
 
 /**
@@ -331,7 +330,7 @@ export const gmailTools: readonly RegisteredTool[] = [
     inputSchema: restPassthroughInput,
     execute: async (input, ctx) => {
       const token = await resolveGoogleAccessToken(ctx.userId, GMAIL_READ_POLICY);
-      return runRestPassthrough("gmail", googlePassthroughProfile("gmail", token), input);
+      return runGooglePassthrough("gmail", token, input);
     },
   }),
 ];

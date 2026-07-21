@@ -101,18 +101,26 @@ export interface CredentialRow {
   userId: string;
   accountId: string;
   accountLabel: string | null;
-  accessToken: string;
-  refreshToken: string;
-  expiresAt: Date | null;
   scopes: string[];
   status: string;
 }
 
-async function loadCredential(credentialId: string): Promise<CredentialRow | null> {
-  const rows = await db()
+interface StoredCredentialRow extends CredentialRow {
+  accessToken: string;
+  refreshToken: string;
+  expiresAt: Date | null;
+}
+
+async function loadCredential(
+  credentialId: string,
+  ex: DbExecutor = db(),
+  lockForUpdate = false,
+): Promise<StoredCredentialRow | null> {
+  const query = ex
     .select()
     .from(integrationCredentials)
     .where(eq(integrationCredentials.id, credentialId));
+  const rows = lockForUpdate ? await query.for("update") : await query;
   const row = rows[0];
   if (!row) return null;
   if (!row.refreshToken) return null;
@@ -129,49 +137,79 @@ async function loadCredential(credentialId: string): Promise<CredentialRow | nul
   };
 }
 
+function requireActiveCredential(
+  cred: StoredCredentialRow | null,
+  credentialId: string,
+): StoredCredentialRow {
+  if (!cred) throw new Error(`[google.credentials] not found: ${credentialId}`);
+  if (cred.status !== "active") {
+    throw new Error(`[google.credentials] not active: ${credentialId} (status=${cred.status})`);
+  }
+  return cred;
+}
+
+function isExpiringSoon(cred: StoredCredentialRow): boolean {
+  return !cred.expiresAt || cred.expiresAt.getTime() - Date.now() < REFRESH_THRESHOLD_MS;
+}
+
+type RefreshResolution =
+  | { kind: "token"; accessToken: string }
+  | { kind: "reauth"; error: GoogleReauthRequiredError };
+
 /**
  * Resolve a usable access token for a credential. Refreshes when within
  * the threshold of expiry. Throws when the row is gone or revoked — the
  * caller treats that as "ask the user to re-connect."
  */
 export async function getFreshAccessToken(credentialId: string): Promise<string> {
-  const cred = await loadCredential(credentialId);
-  if (!cred) throw new Error(`[google.credentials] not found: ${credentialId}`);
-  if (cred.status !== "active") {
-    throw new Error(`[google.credentials] not active: ${credentialId} (status=${cred.status})`);
-  }
-  const expiringSoon =
-    !cred.expiresAt || cred.expiresAt.getTime() - Date.now() < REFRESH_THRESHOLD_MS;
-  if (!expiringSoon) return cred.accessToken;
+  const current = requireActiveCredential(await loadCredential(credentialId), credentialId);
+  if (!isExpiringSoon(current)) return current.accessToken;
 
-  let refreshed: Awaited<ReturnType<typeof refreshAccessToken>>;
-  try {
-    refreshed = await refreshAccessToken(cred.refreshToken);
-  } catch (err) {
-    if (err instanceof GoogleReauthRequiredError) {
-      // A dead refresh token fails on every poll. Flip the credential out of
-      // "active" so `findCredentialsNeedingPoll` stops re-enqueuing the same
-      // doomed job each sweep (the silent 5-min failure loop that took Gmail
-      // ingestion dark for 36h), and the UI can surface a reconnect prompt.
-      await db()
-        .update(integrationCredentials)
-        .set({ status: "needs_reauth" })
-        .where(eq(integrationCredentials.id, credentialId));
+  const resolution = await db().transaction(async (tx): Promise<RefreshResolution> => {
+    // Refreshes are rare, but several workers or replicas can discover the
+    // same expiring credential together. Lock and re-read so exactly one of
+    // them calls Google; followers use the token written by the leader.
+    const cred = requireActiveCredential(
+      await loadCredential(credentialId, tx, true),
+      credentialId,
+    );
+    if (!isExpiringSoon(cred)) return { kind: "token", accessToken: cred.accessToken };
+
+    let refreshed: Awaited<ReturnType<typeof refreshAccessToken>>;
+    try {
+      refreshed = await refreshAccessToken(cred.refreshToken);
+    } catch (err) {
+      if (err instanceof GoogleReauthRequiredError) {
+        // A dead refresh token fails on every poll. Flip the credential out of
+        // "active" so `findCredentialsNeedingPoll` stops re-enqueuing the same
+        // doomed job each sweep (the silent 5-min failure loop that took Gmail
+        // ingestion dark for 36h), and the UI can surface a reconnect prompt.
+        await tx
+          .update(integrationCredentials)
+          .set({ status: "needs_reauth" })
+          .where(eq(integrationCredentials.id, credentialId));
+        // Return the error so the transaction commits the status change before
+        // the public function rethrows it.
+        return { kind: "reauth", error: err };
+      }
+      throw err;
     }
-    throw err;
-  }
-  await db()
-    .update(integrationCredentials)
-    .set({
-      accessToken: refreshed.accessToken,
-      refreshToken: refreshed.refreshToken ?? cred.refreshToken,
-      expiresAt: refreshed.expiresAt,
-      // Don't overwrite scopes from refresh — Google sometimes omits them.
-      scopes: refreshed.scopes.length ? refreshed.scopes : cred.scopes,
-      lastRefreshedAt: new Date(),
-    })
-    .where(eq(integrationCredentials.id, credentialId));
-  return refreshed.accessToken;
+    await tx
+      .update(integrationCredentials)
+      .set({
+        accessToken: refreshed.accessToken,
+        refreshToken: refreshed.refreshToken ?? cred.refreshToken,
+        expiresAt: refreshed.expiresAt,
+        // Don't overwrite scopes from refresh — Google sometimes omits them.
+        scopes: refreshed.scopes.length ? refreshed.scopes : cred.scopes,
+        lastRefreshedAt: new Date(),
+      })
+      .where(eq(integrationCredentials.id, credentialId));
+    return { kind: "token", accessToken: refreshed.accessToken };
+  });
+
+  if (resolution.kind === "reauth") throw resolution.error;
+  return resolution.accessToken;
 }
 
 export async function listCredentials(
@@ -189,9 +227,6 @@ export async function listCredentials(
       userId: r.userId,
       accountId: r.accountId,
       accountLabel: r.accountLabel,
-      accessToken: r.accessToken,
-      refreshToken: r.refreshToken!,
-      expiresAt: r.expiresAt,
       scopes: toStringArray(r.scopes),
       status: r.status,
     }));
