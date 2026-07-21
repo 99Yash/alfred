@@ -90,8 +90,12 @@ export type ToolRoundOutcome =
  * the calls `serializeInOrder` flags. The two lanes overlap, so a slow lookup
  * does not delay the ordered calls; only the flagged ones (chat's artifact
  * mutations, which share body state) serialize among themselves.
+ *
+ * Internal to the round runner (the `concurrent-autonomy` ordering's engine);
+ * chat's serialization guarantee is pinned through `runToolRound` itself in
+ * `artifact-mutation-order.test.ts`.
  */
-export async function dispatchAutonomyCallsInSafeOrder<
+async function dispatchAutonomyCallsInSafeOrder<
   TCall extends { readonly toolName: string },
   TResult,
 >(

@@ -119,6 +119,82 @@ describe("runToolRound — serial ordering (the brief's strategy)", () => {
   });
 });
 
+describe("runToolRound — brief resume idempotency", () => {
+  test("re-dispatching the whole batch after a stage reaches the same terminal state", async () => {
+    // The brief's correctness moved from structural (it literally couldn't
+    // re-run a call it had already sliced off) to runtime: the whole batch
+    // re-dispatches on resume and already-executed siblings short-circuit on
+    // `dispatchToolCall`'s `(runId, toolCallId)` idempotency. This models that
+    // short-circuit — reads `a`/`c` return the SAME cached result no matter how
+    // often they are dispatched, and the gated write `b` stages first, then
+    // executes once approval lands — and asserts the resume commits every call
+    // in model order to the state the pre-refactor slice-as-you-go loop produced.
+    const calls = [call("a", "gmail.search"), call("b", "gmail.send"), call("c", "gmail.archive")];
+    const dispatchCount: Record<string, number> = { a: 0, b: 0, c: 0 };
+    const cachedReads: Record<string, DispatchResult> = {
+      a: executed({ ok: "a" }),
+      c: executed({ ok: "c" }),
+    };
+    let approvalLanded = false;
+    // Idempotent dispatch: reads always return their cached result; the gated
+    // write stages until approval lands, then executes exactly as the real
+    // (runId, toolCallId) short-circuit would on resume.
+    const dispatch = (c: Call): Promise<DispatchResult> => {
+      dispatchCount[c.toolCallId] = (dispatchCount[c.toolCallId] ?? 0) + 1;
+      if (c.toolCallId === "b") {
+        return Promise.resolve(approvalLanded ? executed({ ok: "b" }) : staged("stage-b"));
+      }
+      return Promise.resolve(cachedReads[c.toolCallId]!);
+    };
+
+    // Round 1 — the write stages, nothing commits, the batch is left untouched.
+    const first = await runToolRound<Call>({
+      calls,
+      transcript: [],
+      batchSpan: null,
+      ordering: { kind: "serial" },
+      dispatch,
+    });
+    assert.equal(first.kind, "interrupt");
+    if (first.kind !== "interrupt") return;
+    assert.equal(first.wake.kind, "hil");
+    assert.deepEqual(
+      { a: dispatchCount.a, b: dispatchCount.b, c: dispatchCount.c },
+      { a: 1, b: 1, c: 0 },
+      "serial stops at the first stage: c is never dispatched in round 1",
+    );
+
+    // Round 2 (resume) — approval landed, the whole batch re-dispatches.
+    approvalLanded = true;
+    const committed: string[] = [];
+    const outcome = await runToolRound<Call>({
+      calls,
+      transcript: [],
+      batchSpan: null,
+      ordering: { kind: "serial" },
+      dispatch,
+      onCommit: (c) => {
+        committed.push(c.toolCallId);
+      },
+    });
+
+    assert.equal(outcome.kind, "committed");
+    if (outcome.kind !== "committed") return;
+    // The already-run read `a` was re-dispatched on resume (idempotent), and now
+    // every call commits in model order to the same terminal transcript.
+    assert.equal(dispatchCount.a, 2, "read a re-dispatched on resume (short-circuits idempotently)");
+    assert.deepEqual(committed, ["a", "b", "c"]);
+    assert.equal(outcome.transcript.length, 3);
+    assert.deepEqual(
+      outcome.transcript.map((message) => {
+        const part = message.content[0];
+        return isRecord(part) ? part.toolCallId : null;
+      }),
+      ["a", "b", "c"],
+    );
+  });
+});
+
 describe("runToolRound — interrupt priority", () => {
   test("a staged write is surfaced before a sub-agent park", async () => {
     // Concurrent-autonomy: the park rides the autonomy lane, the stage the gated
