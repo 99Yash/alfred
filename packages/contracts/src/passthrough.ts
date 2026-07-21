@@ -8,11 +8,14 @@
  * uncurated, read-only request per integration, executed by Alfred's trusted
  * boundary.
  *
- * Only the shared contracts live here (contracts is zod-only, client-safe). The
- * security boundary itself — the pure read gate, the per-provider transport
- * config, the result shaper, and the payload bounds — lives beside the curated
- * tools in `@alfred/api` (`modules/tools/passthrough`). The Settings UI reads
- * the coverage/preference exports here so there is no third provider list.
+ * Only the shared contracts live here (contracts is zod-only, client-safe),
+ * plus the browser-safe payload bounding ({@link PassthroughTruncation};
+ * `boundPassthroughBody` in `./passthrough-bounds`), which is shared with the
+ * raw MCP client and so cannot sit inside either consuming tier. The rest of
+ * the security boundary — the pure read gate, the per-provider transport
+ * config, and the result shaper — lives beside the curated tools in
+ * `@alfred/api` (`modules/tools/passthrough`). The Settings UI reads the
+ * coverage/preference exports here so there is no third provider list.
  */
 
 import { z } from "zod";

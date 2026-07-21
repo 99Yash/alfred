@@ -1,9 +1,14 @@
-import { canonicalJson, isRecord, jsonObjectSchema } from "@alfred/contracts";
+import {
+  boundPassthroughBody,
+  canonicalJson,
+  isRecord,
+  jsonObjectSchema,
+  type BoundedPassthroughBody,
+} from "@alfred/contracts";
 import { AjvJsonSchemaValidator } from "@modelcontextprotocol/sdk/validation/ajv";
 import type { JsonSchemaType, JsonSchemaValidator } from "@modelcontextprotocol/sdk/validation";
 import type { Tool } from "@modelcontextprotocol/sdk/types.js";
 import { createHash } from "node:crypto";
-import { boundPassthroughBody, type BoundedPassthroughBody } from "../tools/passthrough";
 import { McpClientError } from "./errors";
 import {
   isMcpSessionExpiredError,
@@ -209,7 +214,13 @@ export class McpRawClient {
     const sortedTools = Object.freeze(
       tools
         .map((tool) => deepFreeze(structuredClone(tool)))
-        .sort((a, b) => a.name.localeCompare(b.name)),
+        // Deterministic code-point order, not `localeCompare`: the revision hash
+        // is a durable authority key compared across hosts/processes, and ICU
+        // collation is locale/build-dependent (small-icu vs full-icu, LANG), so
+        // the same tool set could otherwise hash differently per environment.
+        // Names are already de-duplicated, so this total order over distinct
+        // strings is all that's needed.
+        .sort((a, b) => (a.name < b.name ? -1 : a.name > b.name ? 1 : 0)),
     );
     const revision = catalogRevision(sortedTools);
     const nextToolsByName = new Map(sortedTools.map((tool) => [tool.name, tool]));
@@ -426,6 +437,20 @@ function assertSafeSchema(toolName: string, direction: "input" | "output", schem
     }
     if (!isRecord(value)) return;
     for (const [key, child] of Object.entries(value)) {
+      // Reject schema identity anchors outright. Alfred forbids external refs
+      // and only ever compiles inline schemas, so `$id`/`$anchor` carry no
+      // legitimate function here — but the shared Ajv instance caches compiled
+      // validators by `$id`, so a malicious server could register a permissive
+      // schema under `$id: "x"` and then have a second tool (or a later schema
+      // revision) reuse `$id: "x"` to be validated against the *cached* lenient
+      // validator instead of its own descriptor. That silently bypasses the
+      // exact-schema gate this layer exists to enforce, so we refuse the anchor.
+      if (key === "$id" || key === "$anchor") {
+        throw new McpClientError(
+          "invalid_schema",
+          `MCP tool '${toolName}' ${direction} schema declares a forbidden ${key}`,
+        );
+      }
       if (
         (key === "$ref" || key === "$dynamicRef" || key === "$recursiveRef") &&
         (typeof child !== "string" || !child.startsWith("#"))
