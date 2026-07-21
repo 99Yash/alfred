@@ -16,7 +16,6 @@ import {
 import { ARTIFACT_DESIGN_PROMPT, ARTIFACT_DOCUMENT_DESIGN_PROMPT } from "@alfred/artifacts-design";
 import {
   artifactFormatSchema,
-  boundToolResult,
   chatModelTierSchema,
   getPath,
   HttpError,
@@ -24,7 +23,6 @@ import {
   isRecord,
   MAX_MODEL_ATTACHMENT_BYTES_PER_TURN,
   sanitizeToolResult,
-  toJsonValue,
   toMessage,
   type AgentTranscriptMessage,
   type ArtifactFormat,
@@ -47,7 +45,15 @@ import { scheduleThreadIdleExtraction } from "../../chat-memory/queue";
 import { sniffPassThroughImageMime } from "../../chat/attachments";
 import { isChatStopRequested } from "../../chat/stop-signal";
 import { readObject } from "../../chat/storage";
-import { dispatchToolCall, toolCallWouldGate, type DispatchResult } from "../../dispatch";
+import {
+  dispatchRoundReissued,
+  dispatchToolCall,
+  isMutatingToolName,
+  isNonExecutionFailure,
+  toolCallLogStatus,
+  toolCallWouldGate,
+} from "../../dispatch";
+import { runToolRound } from "./tool-round";
 import { readIntegrationAvailability } from "../../integrations/availability";
 import {
   assembleChatContext,
@@ -161,7 +167,7 @@ const PREVIEW_TIERS: ReadonlyArray<readonly [number, number, number]> = [
   [1, 40, 16],
 ];
 const TITLE_TIMEOUT_MS = 15_000;
-const ARTIFACT_MUTATION_TOOL_NAMES = [
+export const ARTIFACT_MUTATION_TOOL_NAMES = [
   "system.create_artifact",
   "system.append_artifact_page",
   "system.append_artifact_section",
@@ -181,40 +187,6 @@ const ARTIFACT_STREAM_MODES: Readonly<Record<string, "replace" | "append">> = {
   "system.update_artifact": "replace",
   "system.append_artifact_section": "append",
 };
-
-/**
- * Run independent autonomy calls concurrently while preserving model order for
- * artifact mutations. The two lanes overlap, so a slow lookup does not delay
- * page authoring; only mutations that share artifact state serialize.
- */
-export async function dispatchAutonomyCallsInSafeOrder<
-  TCall extends { readonly toolName: string },
-  TResult,
->(
-  calls: readonly TCall[],
-  gateFlags: readonly boolean[],
-  dispatch: (call: TCall) => Promise<TResult>,
-): Promise<Array<TResult | undefined>> {
-  const results: Array<TResult | undefined> = Array.from({ length: calls.length });
-  const independentCalls = calls.flatMap((call, index) =>
-    gateFlags[index] || ARTIFACT_MUTATION_TOOLS.has(call.toolName)
-      ? []
-      : [
-          dispatch(call).then((result) => {
-            results[index] = result;
-          }),
-        ],
-  );
-  const orderedArtifactCalls = (async () => {
-    for (let index = 0; index < calls.length; index += 1) {
-      const call = calls[index]!;
-      if (gateFlags[index] || !ARTIFACT_MUTATION_TOOLS.has(call.toolName)) continue;
-      results[index] = await dispatch(call);
-    }
-  })();
-  await Promise.all([...independentCalls, orderedArtifactCalls]);
-  return results;
-}
 
 // The interactive chat turn extends the shared core (see `./pending-tool-call`)
 // with a narration `segmentIndex`; the background brief has no narration.
@@ -1257,58 +1229,6 @@ function latestUserSuffixStart(transcript: readonly AgentTranscriptMessage[]): n
   return 0;
 }
 
-function toolResultMessage(
-  call: PendingToolCall,
-  result: Exclude<DispatchResult, { kind: "staged" | "parked" }>,
-): AgentTranscriptMessage {
-  return {
-    role: "tool",
-    content: [
-      {
-        type: "tool-result",
-        toolCallId: call.toolCallId,
-        toolName: call.toolName,
-        output: dispatchResultToToolOutput(result),
-      },
-    ],
-  };
-}
-
-function dispatchResultToToolOutput(
-  result: Exclude<DispatchResult, { kind: "staged" | "parked" }>,
-): { type: "json"; value: unknown } | { type: "error-json"; value: unknown } {
-  switch (result.kind) {
-    case "executed":
-      return {
-        type: "json",
-        value: toJsonValue({
-          status: "executed",
-          // Guardrail: clip only pathologically-long free-text fields before
-          // they hit the replayed transcript (see boundToolResult); normal
-          // single-object reads and navigational fields pass through untouched.
-          result: boundToolResult(result.toolResult).value,
-          // ADR-0070: surface to the model that this result had non-text bytes
-          // stripped before storage, so it doesn't treat a silently-mutated
-          // (binary-ish) payload as pristine.
-          ...(result.sanitized
-            ? {
-                sanitized: true,
-                notice:
-                  "Non-text bytes were stripped from this result before storage; it may be incomplete.",
-              }
-            : {}),
-        }),
-      };
-    case "failed":
-      return {
-        type: "error-json",
-        value: toJsonValue(boundToolResult({ status: "failed", error: result.error }).value),
-      };
-    default:
-      return { type: "json", value: toJsonValue(boundToolResult(result.result).value) };
-  }
-}
-
 /**
  * All of this turn's assistant prose in order: the closed narration segments
  * followed by the current segment. Used where the transcript needs the full
@@ -1563,155 +1483,11 @@ export async function guardSpawnedChildren(
   return { kind: "next", state, transcript: nextTranscript, nextStep: "chat-turn" };
 }
 
-const SIDE_EFFECT_ACTION_TOKENS = new Set([
-  "add",
-  "append",
-  "approve",
-  "archive",
-  "assign",
-  "cancel",
-  "close",
-  "create",
-  "delete",
-  "deploy",
-  "dismiss",
-  "edit",
-  "forget",
-  "forward",
-  "insert",
-  "invite",
-  "label",
-  "merge",
-  "move",
-  "post",
-  "promote",
-  "publish",
-  "reject",
-  "remember",
-  "remove",
-  "reopen",
-  "reply",
-  "redeploy",
-  "resolve",
-  "reschedule",
-  "save",
-  "schedule",
-  "send",
-  "set",
-  "snooze",
-  "spawn",
-  "suggest",
-  "tag",
-  "unarchive",
-  "unassign",
-  "unlabel",
-  "untag",
-  "update",
-  "upload",
-  "write",
-]);
-
-function actionTokensForToolName(toolName: string): string[] {
-  const rawAction = toolName.includes(".")
-    ? toolName.slice(toolName.lastIndexOf(".") + 1)
-    : toolName;
-  const snakeish = rawAction.replace(/([a-z0-9])([A-Z])/g, "$1_$2");
-  return snakeish
-    .toLowerCase()
-    .split(/[^a-z0-9]+/)
-    .filter((token) => token.length > 0);
-}
-
-function looksSideEffectingToolName(toolName: string): boolean {
-  return actionTokensForToolName(toolName).some((token) => SIDE_EFFECT_ACTION_TOKENS.has(token));
-}
-
-function isMutatingToolName(toolName: string): boolean {
-  // Approval risk is not mutability: several sensitive reads are `low`, while
-  // user-visible in-app writes (`system.create_artifact`, `system.suggest_todo`)
-  // are `no_risk` because they never need HIL. Classify by the action verb
-  // instead so the honesty guard tracks whether a user-visible action completed.
-  return looksSideEffectingToolName(toolName);
-}
-
-const INCOMPLETE_ACTION_STATUSES = new Set([
-  "error",
-  "failed",
-  "failure",
-  "invalid",
-  "invalid_input",
-  "needs_clarification",
-  "no_thread",
-  "not_allowed",
-  "not_found",
-  "page_limit",
-  "rejected",
-  "rejected_by_user",
-  "unknown_tool",
-  "wrong_kind",
-]);
-
-function executedResultIsIncomplete(value: unknown): boolean {
-  if (!isRecord(value)) return false;
-  if (value.ok === false || value.success === false) return true;
-  return typeof value.status === "string" && INCOMPLETE_ACTION_STATUSES.has(value.status);
-}
-
-export function toolCallLogStatus(
-  toolName: string,
-  result: Exclude<DispatchResult, { kind: "staged" | "parked" }>,
-): "succeeded" | "failed" {
-  if (result.kind !== "executed") return "failed";
-  if (isMutatingToolName(toolName) && executedResultIsIncomplete(result.toolResult)) {
-    return "failed";
-  }
-  return "succeeded";
-}
-
-/**
- * A dispatch failure rejected before execution: malformed, invented, inactive,
- * or disallowed. The model self-corrects these on the next step, and the prompt
- * already says not to narrate internal retries, so they are NOT "an action
- * attempt that didn't complete" and the
- * #346 honesty guard must skip them. Counting them made a self-corrected first
- * attempt (e.g. `gmail.send_draft` with `to` as a string) force a misleading
- * regenerate that claimed the *later, approved, executed* send had failed.
- * `failed` (a real execution fault, possibly partial) and `rejected` (the user
- * declined) DID reach/affect the side-effect path, so they still trip the guard.
- */
-export function isNonExecutionFailure(
-  result: Exclude<DispatchResult, { kind: "staged" | "parked" }>,
-): boolean {
-  return (
-    result.kind === "invalid_input" ||
-    result.kind === "unknown_tool" ||
-    result.kind === "inactive_tool" ||
-    result.kind === "not_allowed" ||
-    // ADR-0074: the user turned this passthrough tier off. Never reached the
-    // side-effect path and the model must not narrate a disabled capability, so
-    // it is hidden `nonExecution` plumbing (the opposite of a visible gate
-    // `rejected`, which rides `kind:"executed"`).
-    result.kind === "feature_disabled"
-  );
-}
-
 export function shouldPublishToolStarted(
   activeTools: readonly ToolName[],
   toolName: string,
 ): boolean {
   return activeTools.some((activeTool) => activeTool === toolName);
-}
-
-/**
- * Whether a completed dispatch round auto-activated ≥1 tool via an inactive-tool
- * bounce (#407) — the signal that the NEXT chat-turn is an internal reissue. Only
- * `inactive_tool` counts: it's the round that made a fresh schema available and
- * asks the model to reissue, producing the "tools warming up, retrying" lead-in.
- * The other non-execution rejections (`invalid_input`, `unknown_tool`,
- * `not_allowed`) don't auto-activate anything, so they don't mark a reissue turn.
- */
-export function dispatchRoundReissued(results: readonly (DispatchResult | undefined)[]): boolean {
-  return results.some((result) => result?.kind === "inactive_tool");
 }
 
 /**
@@ -2741,150 +2517,124 @@ const dispatchToolsStep: Step<ChatRunState> = {
           return result;
         };
 
-        const results = await dispatchAutonomyCallsInSafeOrder(calls, gateFlags, dispatch);
-        // Gated bucket — serial in transcript order, stop at the first that
-        // stages. Earlier gated calls that resolved on a prior approval execute
-        // here (idempotent); later ones stay undispatched and stage on the next
-        // resume, so only one approval surfaces at a time.
-        for (let i = 0; i < calls.length; i++) {
-          if (!gateFlags[i]) continue;
-          const result = await dispatch(calls[i]!);
-          results[i] = result;
-          if (result.kind === "staged") break;
-        }
+        // Run the round over the shared loop (`toolResultMessage` rendering,
+        // span-close rule, and staged-before-parked interrupt priority live
+        // there, single-sourced with the brief). Chat contributes its
+        // concurrent-autonomy ordering — reads/`system.*` overlap while artifact
+        // mutations stay in model order (shared body state) and gated writes
+        // stage serially — plus the per-committed-result bookkeeping below.
+        const round = await runToolRound<PendingToolCall>({
+          calls,
+          transcript,
+          batchSpan,
+          ordering: {
+            kind: "concurrent-autonomy",
+            gateFlags,
+            serializeInOrder: (call) => ARTIFACT_MUTATION_TOOLS.has(call.toolName),
+          },
+          dispatch,
+          onCommit: async (call, result) => {
+            applySystemToolEffect(state, call.toolName, result);
 
-        // A gated write parks the run. Return the interrupt for the
-        // first-staged call (in transcript order) WITHOUT committing any
-        // sibling result: leave `pendingToolCalls` and `transcript` untouched
-        // so that on resume the entire batch re-dispatches — the already-
-        // executed siblings short-circuit on `(runId, toolCallId)` idempotency
-        // and the now-approved write runs. The transcript is then assembled in
-        // a single ordered pass once nothing stages.
-        const stagedResult = results.find(
-          (r): r is Extract<DispatchResult, { kind: "staged" }> => r?.kind === "staged",
-        );
-        if (stagedResult) {
-          batchSpan?.end("staged", results);
-          return interruptChatRun(state, transcript, stagedResult.wake);
-        }
-
-        // ADR-0073: an `await_sub_agent` on a still-running child parks the run
-        // on its completion signal — same shape as a gated stage, but the wake
-        // is a `signal` the child fires on terminal commit. Leave the batch
-        // untouched so it re-dispatches on resume (the await then reads the
-        // child's real outcome). HIL staging takes precedence above.
-        const parkedResult = results.find(
-          (r): r is Extract<DispatchResult, { kind: "parked" }> => r?.kind === "parked",
-        );
-        if (parkedResult) {
-          batchSpan?.end("parked", results);
-          return interruptChatRun(state, transcript, parkedResult.wake);
-        }
-
-        // No gate in the batch — commit every result in original call order
-        // (transcript order is load-bearing). With nothing staged, every call
-        // was dispatched, so each slot is populated.
-        for (let i = 0; i < calls.length; i++) {
-          const call = calls[i]!;
-          const result = results[i]!;
-          // Already handled above; the guard also narrows `result` away from
-          // `staged`/`parked` for the helpers below (both cause an early
-          // interrupt return, so neither reaches the commit pass).
-          if (result.kind === "staged" || result.kind === "parked") continue;
-
-          applySystemToolEffect(state, call.toolName, result);
-
-          if (ARTIFACT_MUTATION_TOOLS.has(call.toolName) && result.kind === "executed") {
-            // The next model step must not see a stale pre-edit body/hash. Re-read
-            // the selected/default artifact after create/update commits.
-            state.artifactsContext = undefined;
-            state.artifactReference = undefined;
-            // Artifact metadata is the one intentionally mutable system block.
-            // Release the durable pin at the same explicit mutation seam.
-            state.systemPromptHash = undefined;
-            if (call.toolName === "system.create_artifact") {
-              const createdFormat = artifactFormatSchema.safeParse(
-                getPath(result.toolResult, "format"),
-              );
-              if (createdFormat.success) state.artifactDesignMedium = createdFormat.data;
+            if (ARTIFACT_MUTATION_TOOLS.has(call.toolName) && result.kind === "executed") {
+              // The next model step must not see a stale pre-edit body/hash. Re-read
+              // the selected/default artifact after create/update commits.
+              state.artifactsContext = undefined;
+              state.artifactReference = undefined;
+              // Artifact metadata is the one intentionally mutable system block.
+              // Release the durable pin at the same explicit mutation seam.
+              state.systemPromptHash = undefined;
+              if (call.toolName === "system.create_artifact") {
+                const createdFormat = artifactFormatSchema.safeParse(
+                  getPath(result.toolResult, "format"),
+                );
+                if (createdFormat.success) state.artifactDesignMedium = createdFormat.data;
+              }
             }
-          }
 
-          const status = toolCallLogStatus(call.toolName, result);
-          const resultPreview =
-            result.kind === "executed"
-              ? preview(result.toolResult)
-              : result.kind === "failed"
-                ? preview(result.error)
-                : preview(result.result);
-          // ADR-0070: the boundary sanitizer's verdict rides the dispatch
-          // envelope; carry it onto the durable tool-call log *and* the live
-          // event so a scrubbed result is flagged the same way live and on
-          // reload (otherwise the durable card looks pristine).
-          const sanitized = result.kind === "executed" && result.sanitized ? true : undefined;
-          // Flag a never-executed schema/tool-name rejection so the honesty
-          // guard can tell a self-corrected malformed call apart from a real
-          // failed side effect (see isNonExecutionFailure).
-          const nonExecution =
-            status === "failed" && isNonExecutionFailure(result) ? true : undefined;
-          // Bind an executed artifact tool's toolCallId to its row id, so a live
-          // artifact stream (keyed by toolCallId — all create_artifact has before
-          // it runs) can adopt the durable synced row once it lands.
-          const artifactId = (() => {
-            if (!ARTIFACT_MUTATION_TOOLS.has(call.toolName) || result.kind !== "executed") {
-              return undefined;
-            }
-            const id = getPath(result.toolResult, "artifactId");
-            return typeof id === "string" && id.length > 0 ? id : undefined;
-          })();
-          state.toolCallsLog.push({
-            toolCallId: call.toolCallId,
-            toolName: call.toolName,
-            status,
-            resultPreview,
-            ...(sanitized ? { sanitized } : {}),
-            ...(nonExecution ? { nonExecution } : {}),
-            segmentIndex: call.segmentIndex,
-          });
-
-          // ADR-0073: a successful `await_sub_agent` already handed the boss the
-          // child's real outcome in-transcript, so the finalization guard must
-          // treat that child as accounted for — otherwise it re-folds it and
-          // injects a false "finished without you awaiting it" note, demoting the
-          // boss's answer and burning another turn. (A still-running await parks
-          // and never reaches this commit pass, so only resolved awaits land here.)
-          if (call.toolName === AWAIT_SUB_AGENT_TOOL && result.kind === "executed") {
-            const childRunId = awaitedChildRunId(call.input);
-            if (childRunId && !state.foldedChildRunIds.includes(childRunId)) {
-              state.foldedChildRunIds = [...state.foldedChildRunIds, childRunId];
-            }
-          }
-          await publishEvent({
-            userId: ctx.userId,
-            kind: "chat.tool",
-            payload: {
-              runId: ctx.runId,
-              threadId: state.threadId,
-              messageId: state.messageId,
+            const status = toolCallLogStatus(call.toolName, result);
+            const resultPreview =
+              result.kind === "executed"
+                ? preview(result.toolResult)
+                : result.kind === "failed"
+                  ? preview(result.error)
+                  : preview(result.result);
+            // ADR-0070: the boundary sanitizer's verdict rides the dispatch
+            // envelope; carry it onto the durable tool-call log *and* the live
+            // event so a scrubbed result is flagged the same way live and on
+            // reload (otherwise the durable card looks pristine).
+            const sanitized = result.kind === "executed" && result.sanitized ? true : undefined;
+            // Flag a never-executed schema/tool-name rejection so the honesty
+            // guard can tell a self-corrected malformed call apart from a real
+            // failed side effect (see isNonExecutionFailure).
+            const nonExecution =
+              status === "failed" && isNonExecutionFailure(result) ? true : undefined;
+            // Bind an executed artifact tool's toolCallId to its row id, so a live
+            // artifact stream (keyed by toolCallId — all create_artifact has before
+            // it runs) can adopt the durable synced row once it lands.
+            const artifactId = (() => {
+              if (!ARTIFACT_MUTATION_TOOLS.has(call.toolName) || result.kind !== "executed") {
+                return undefined;
+              }
+              const id = getPath(result.toolResult, "artifactId");
+              return typeof id === "string" && id.length > 0 ? id : undefined;
+            })();
+            state.toolCallsLog.push({
               toolCallId: call.toolCallId,
               toolName: call.toolName,
               status,
               resultPreview,
               ...(sanitized ? { sanitized } : {}),
               ...(nonExecution ? { nonExecution } : {}),
-              ...(artifactId ? { artifactId } : {}),
               segmentIndex: call.segmentIndex,
-            },
-          });
+            });
 
-          transcript = [...transcript, toolResultMessage(call, result)];
+            // ADR-0073: a successful `await_sub_agent` already handed the boss the
+            // child's real outcome in-transcript, so the finalization guard must
+            // treat that child as accounted for — otherwise it re-folds it and
+            // injects a false "finished without you awaiting it" note, demoting the
+            // boss's answer and burning another turn. (A still-running await parks
+            // and never reaches this commit pass, so only resolved awaits land here.)
+            if (call.toolName === AWAIT_SUB_AGENT_TOOL && result.kind === "executed") {
+              const childRunId = awaitedChildRunId(call.input);
+              if (childRunId && !state.foldedChildRunIds.includes(childRunId)) {
+                state.foldedChildRunIds = [...state.foldedChildRunIds, childRunId];
+              }
+            }
+            await publishEvent({
+              userId: ctx.userId,
+              kind: "chat.tool",
+              payload: {
+                runId: ctx.runId,
+                threadId: state.threadId,
+                messageId: state.messageId,
+                toolCallId: call.toolCallId,
+                toolName: call.toolName,
+                status,
+                resultPreview,
+                ...(sanitized ? { sanitized } : {}),
+                ...(nonExecution ? { nonExecution } : {}),
+                ...(artifactId ? { artifactId } : {}),
+                segmentIndex: call.segmentIndex,
+              },
+            });
+          },
+        });
+
+        // A gated write staged (HIL) or a sub-agent await parked: the batch is
+        // left untouched (transcript unchanged, `pendingToolCalls` intact) so the
+        // whole batch re-dispatches on resume, where executed siblings
+        // short-circuit on `(runId, toolCallId)` idempotency.
+        if (round.kind === "interrupt") {
+          return interruptChatRun(state, transcript, round.wake);
         }
+
+        transcript = round.transcript;
         state.pendingToolCalls = [];
         // If this round auto-activated any tool via an inactive-tool bounce
         // (#407), the next chat-turn is an internal reissue — mark it so its
         // lead-in narration ("tools warming up, retrying") is withheld.
-        state.reissuePending = dispatchRoundReissued(results);
-        batchSpan?.end("committed", results);
+        state.reissuePending = dispatchRoundReissued(round.results);
       }
 
       return { kind: "next", state, transcript, nextStep: "chat-turn" };

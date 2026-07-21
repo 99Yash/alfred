@@ -1,7 +1,14 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
-import { dispatchAutonomyCallsInSafeOrder } from "../../src/modules/agent/workflows/chat-turn";
+import { ARTIFACT_MUTATION_TOOL_NAMES } from "../../src/modules/agent/workflows/chat-turn";
+import { dispatchAutonomyCallsInSafeOrder } from "../../src/modules/agent/workflows/tool-round";
+
+// Chat's real "must run in model order" predicate — artifact mutations share
+// document body state, so they serialize among themselves while every other
+// autonomy call overlaps.
+const artifactMutations: ReadonlySet<string> = new Set(ARTIFACT_MUTATION_TOOL_NAMES);
+const serializeInOrder = (call: { toolName: string }) => artifactMutations.has(call.toolName);
 
 test("artifact mutations serialize in model order without blocking independent calls", async () => {
   const calls = [
@@ -15,13 +22,18 @@ test("artifact mutations serialize in model order without blocking independent c
     releaseLookup = resolve;
   });
 
-  const run = dispatchAutonomyCallsInSafeOrder(calls, [false, false, false], async (call) => {
-    events.push(`start:${call.id}`);
-    if (call.id === "lookup") await lookupReleased;
-    await Promise.resolve();
-    events.push(`end:${call.id}`);
-    return call.id;
-  });
+  const run = dispatchAutonomyCallsInSafeOrder(
+    calls,
+    [false, false, false],
+    serializeInOrder,
+    async (call) => {
+      events.push(`start:${call.id}`);
+      if (call.id === "lookup") await lookupReleased;
+      await Promise.resolve();
+      events.push(`end:${call.id}`);
+      return call.id;
+    },
+  );
 
   // Let both lanes advance. The blocked lookup must not hold page authoring,
   // while page 2 must not begin until page 1 has committed.
@@ -58,6 +70,7 @@ test("document section appends serialize in model order (ADR-0085)", async () =>
   const run = dispatchAutonomyCallsInSafeOrder(
     calls,
     [false, false, false, false],
+    serializeInOrder,
     async (call) => {
       events.push(`start:${call.id}`);
       if (call.id === "create") await createReleased;

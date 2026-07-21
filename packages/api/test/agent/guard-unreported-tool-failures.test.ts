@@ -1,12 +1,11 @@
 import assert from "node:assert/strict";
 import { describe, test } from "node:test";
 
+import { isNonExecutionFailure, toolCallLogStatus } from "../../src/modules/dispatch";
 import {
   guardUnreportedToolFailures,
-  isNonExecutionFailure,
   sanitizeChatMessageFields,
   shouldPublishToolStarted,
-  toolCallLogStatus,
   type ChatRunState,
   type GuardUnreportedToolFailuresDeps,
 } from "../../src/modules/agent/workflows/chat-turn";

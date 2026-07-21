@@ -1,0 +1,43 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>MCP host-profile matrix</title>
+  <link rel="stylesheet" href="../assets/lesson.css">
+</head>
+<body>
+<main>
+  <p class="frame-no">Reference · MCP</p>
+  <h1>Which host needs which capability?</h1>
+  <p class="lede">Capability fit follows the host’s real-world possessions and responsibilities.</p>
+
+  <table class="compact-table">
+    <thead><tr><th>Capability</th><th>Local IDE/desktop</th><th>Hosted Alfred</th></tr></thead>
+    <tbody>
+      <tr><td>Tools</td><td>Core</td><td>Core</td></tr>
+      <tr><td>Remote OAuth</td><td>When using remote servers</td><td>Core for remote servers</td></tr>
+      <tr><td>Tool-list changes</td><td>Useful</td><td>Useful</td></tr>
+      <tr><td>Roots</td><td>Core for workspace-aware servers</td><td>Omit: no user-local filesystem</td></tr>
+      <tr><td>Resources</td><td>Useful for files/docs</td><td>Selective for addressable remote data</td></tr>
+      <tr><td>Resource subscriptions</td><td>Useful for live files</td><td>Selective for upstream change signals</td></tr>
+      <tr><td>Prompts</td><td>Useful as commands/templates</td><td>Usually redundant with skills/workflows</td></tr>
+      <tr><td>Sampling</td><td>Useful when client controls model access</td><td>Off by default: cost and trust expansion</td></tr>
+      <tr><td>Elicitation</td><td>Natural with interactive UI</td><td>Possible through Alfred UI, selectively</td></tr>
+      <tr><td>Tasks</td><td>Useful for long server work</td><td>Selective; does not replace durable runs</td></tr>
+      <tr><td>stdio</td><td>Natural for local servers</td><td>Only server-side trusted processes</td></tr>
+      <tr><td>Streamable HTTP</td><td>For remote servers</td><td>Natural default</td></tr>
+    </tbody>
+  </table>
+
+  <p class="thesis"><strong>Filter:</strong> do not ask “does MCP support it?” Ask “which Alfred workflow needs it, which participant offers it, and what new authority does enabling it grant?”</p>
+
+  <h2>Links</h2>
+  <ul class="sources">
+    <li><a href="../lessons/0010-mcp-capability-profiles.html">Lesson: MCP capability profiles</a></li>
+    <li><a href="mcp-responsibility-map.html">MCP responsibility map</a></li>
+    <li><a href="https://modelcontextprotocol.io/specification/2025-11-25/basic/lifecycle">Official capability negotiation</a></li>
+  </ul>
+</main>
+</body>
+</html>
