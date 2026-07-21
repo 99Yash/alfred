@@ -1,0 +1,102 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Foundation 6 — Alfred as an MCP HTTP client</title>
+  <link rel="stylesheet" href="../assets/lesson.css">
+</head>
+<body>
+<main>
+  <p class="frame-no">Alfred harness · Foundation 6</p>
+  <h1>Connect outward.<br>No server required.</h1>
+  <p class="lede">A host can consume an MCP server exactly as a browser consumes an API: by containing a client and initiating requests. It only becomes an MCP server if it exposes its own capabilities to other clients.</p>
+
+  <p class="thesis"><strong>The one sentence to keep:</strong> Alfred needs an MCP client library and connection manager, not an Alfred MCP endpoint, to consume remote MCP servers.</p>
+
+  <h2>The four roles are independent</h2>
+  <table class="compact-table">
+    <thead><tr><th>Role</th><th>In this case</th></tr></thead>
+    <tbody>
+      <tr><td>AI host</td><td>Alfred: model loop, registry, policy, approvals, durable runs</td></tr>
+      <tr><td>MCP client</td><td>A component inside Alfred, one logical client connection per MCP server</td></tr>
+      <tr><td>MCP server</td><td>A remote Calendar/Notion/etc. service exposing <code>/mcp</code></td></tr>
+      <tr><td>Downstream API</td><td>Google Calendar, Notion, or another system behind that server</td></tr>
+    </tbody>
+  </table>
+  <p>Alfred-as-MCP-server would be a fifth, separate product direction: another host such as Claude Desktop could connect to Alfred and call Alfred-owned tools. Consuming does not imply exposing.</p>
+
+  <h2>Streamable HTTP is HTTP, not REST semantics</h2>
+  <pre>REST style
+GET  /tools
+POST /tools/calendar.create
+
+MCP Streamable HTTP
+POST /mcp  { "method": "initialize", ... }
+POST /mcp  { "method": "notifications/initialized", ... }
+POST /mcp  { "method": "tools/list", ... }
+POST /mcp  { "method": "tools/call", ... }</pre>
+  <p>HTTP supplies transport, TLS, headers, OAuth bearer tokens, and response streaming. JSON-RPC inside the body supplies operation names, request ids, results, and errors. One MCP endpoint handles the protocol methods.</p>
+
+  <h2>The hosted Alfred handshake</h2>
+  <div class="timeline">
+    <article class="frame"><div class="frame-no">Before</div><div><h3>Authorize the connection</h3><p>For a protected remote server, Alfred completes OAuth and obtains a token whose audience is that MCP server.</p><p class="state">OAuth callbacks are ordinary Alfred web routes. They do not make Alfred an MCP server.</p></div></article>
+    <article class="frame"><div class="frame-no">1</div><div><h3>Alfred initiates <code>initialize</code></h3><p><code>POST https://calendar.example/mcp</code> with a JSON-RPC <code>initialize</code> request, <code>Accept: application/json, text/event-stream</code>, and usually <code>Authorization: Bearer ...</code>.</p></div></article>
+    <article class="frame"><div class="frame-no">2</div><div><h3>The server negotiates</h3><p>It returns the agreed protocol version, its capabilities, and server identity. It may return an <code>MCP-Session-Id</code> HTTP header.</p><p class="state">If present, Alfred retains and sends that session id on subsequent requests.</p></div></article>
+    <article class="frame"><div class="frame-no">3</div><div><h3>Alfred marks the session ready</h3><p>It sends <code>notifications/initialized</code> in another <code>POST /mcp</code>. As a notification, it has no request id; an HTTP server accepts it with <code>202</code> and an empty body.</p></div></article>
+    <article class="frame"><div class="frame-no">4</div><div><h3>Normal operation</h3><p>Alfred sends <code>tools/list</code>, then later <code>tools/call</code>, always including the negotiated <code>MCP-Protocol-Version</code> and any session id.</p></div></article>
+    <article class="frame"><div class="frame-no">Optional</div><div><h3>Listen for server messages</h3><p>Alfred may issue <code>GET /mcp</code> accepting <code>text/event-stream</code>. The server can send notifications or requests over that SSE stream.</p><p class="state">Alfred still initiated the GET. No public Alfred MCP callback endpoint is required.</p></div></article>
+  </div>
+
+  <h2>What code Alfred would actually add</h2>
+  <pre>Alfred process
+  MCP connection manager
+    ├─ load configured remote server URL + credential reference
+    ├─ instantiate MCP client/session
+    ├─ initialize and negotiate
+    ├─ tools/list → import namespaced catalog
+    ├─ reconnect / refresh schemas on change
+    └─ approved dispatch → tools/call
+
+No Alfred /mcp route required.</pre>
+
+  <p>In production, use the official TypeScript SDK rather than writing the transport manually. The raw lab exists only to reveal what the SDK owns.</p>
+
+  <h2>Run the HTTP handshake</h2>
+  <p class="equation">node learning-labs/mcp-from-scratch/http-demo.mjs</p>
+  <p>The demo starts a real localhost HTTP server, performs <code>initialize → initialized → tools/list</code>, prints every header and body, then points out that Alfred initiated every request and exposed no endpoint.</p>
+
+  <div class="quiz">
+    <h2 style="margin-top:0">Role check</h2>
+    <p>A remote MCP server sends notifications on an SSE response to a GET that Alfred opened. Has Alfred become an MCP server?</p>
+    <div class="answer-grid">
+      <button data-ok="false">Yes, because it received a server message</button>
+      <button data-ok="true">No, Alfred remains the MCP client</button>
+      <button data-ok="false">Only while the SSE connection is open</button>
+    </div>
+    <p class="feedback" id="feedback" aria-live="polite"></p>
+  </div>
+
+  <h2>Source trail</h2>
+  <ul class="sources">
+    <li><a href="../learning-labs/mcp-from-scratch/http-demo.mjs">Runnable raw Streamable HTTP demo</a></li>
+    <li><a href="../learning-labs/mcp-from-scratch/README.md">All from-scratch labs</a></li>
+    <li><a href="https://modelcontextprotocol.io/specification/2025-11-25/basic/transports">Official MCP transports</a></li>
+    <li><a href="https://modelcontextprotocol.io/specification/2025-11-25/basic/lifecycle">Official MCP lifecycle</a></li>
+    <li><a href="0010-mcp-capability-profiles.html">Previous: MCP capability profiles</a></li>
+  </ul>
+</main>
+<script>
+  const feedback = document.querySelector('#feedback');
+  document.querySelectorAll('button[data-ok]').forEach((button) => {
+    button.addEventListener('click', () => {
+      const correct = button.dataset.ok === 'true';
+      feedback.textContent = correct
+        ? 'Correct. Message direction does not swap protocol roles; the host’s MCP client opened and owns the connection.'
+        : 'Client and server roles describe who connects to and exposes the MCP capability endpoint, not who spoke most recently.';
+      feedback.style.color = correct ? 'var(--success)' : 'var(--error)';
+    });
+  });
+</script>
+</body>
+</html>

@@ -5,3 +5,4 @@
 - For prompt caching, teach from serialized requests and token accounting; connect every rule to Alfred's lazy tool surface.
 - In every harness case, keep a four-lane ledger: durable run state, canonical transcript, provider-only prompt, and cache effect. Name when each prompt component is loaded and whether it survives the checkpoint.
 - For unfamiliar infrastructure concepts, begin with the user-visible job and progressively introduce each mechanism as a repair for a concrete failure. Establish “what it is” versus “what responsibility it does not own” before optimizations, formulas, or provider-specific details.
+- For MCP, always distinguish local-workspace hosts (IDEs/desktop apps with filesystem roots and an interactive UI) from hosted agent products such as Alfred (remote OAuth, durable jobs, product-owned policy). Treat MCP capabilities as a negotiated menu and map each feature to an Alfred use case before teaching its mechanics.

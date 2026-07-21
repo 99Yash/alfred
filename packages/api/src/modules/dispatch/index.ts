@@ -93,6 +93,18 @@ import {
 } from "../integrations/availability";
 import { resolveUserTimezone } from "../timezone";
 
+// Result routing lives beside the `DispatchResult` union it decodes, so the two
+// tool-running workflows (chat turn + sub-agent brief) and their tests consume
+// one owner instead of re-decoding the union at each call site.
+export {
+  dispatchRoundReissued,
+  isMutatingToolName,
+  isNonExecutionFailure,
+  toolCallLogStatus,
+  toolResultMessage,
+  type TerminalDispatchResult,
+} from "./result-routing";
+
 export interface DispatchArgs {
   runId: string;
   /** Logical executor step that owns this call — audit only. */

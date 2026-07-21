@@ -48,6 +48,33 @@
   <p class="equation">R1 tools = [search, calendar v1, gmail v1] → searchable set A<br>R2 tools = [search, calendar v1]           → Gmail is gone now<br>not “wait for catalog TTL”; the new request is the new truth</p>
   <p>One sharp edge: if preserved history already contains <code>tool_reference(gmail.search)</code>, Alfred must continue supplying a matching <code>gmail.search</code> definition even if it no longer wants that tool discovered. Otherwise Anthropic cannot expand the historical reference. Alfred should separately deny execution when authorization or availability has changed.</p>
 
+  <h2>Yes: the HTTP payload can still be huge</h2>
+  <p>“Scales to thousands” means <strong>Claude can reason over a small, relevant tool set</strong>. It does not mean Alfred sends a small request. Anthropic separates four stages that are easy to mistake for one:</p>
+  <table class="compact-table">
+    <thead><tr><th>Stage</th><th>What happens to 1,000 definitions?</th></tr></thead>
+    <tbody>
+      <tr><td><strong>Alfred memory</strong></td><td>The registry holds all 1,000.</td></tr>
+      <tr><td><strong>HTTP request body</strong></td><td>All 1,000 complete JSON schemas cross the wire.</td></tr>
+      <tr><td><strong>Anthropic search process</strong></td><td>All 1,000 are searched in memory for this call.</td></tr>
+      <tr><td><strong>Claude context window</strong></td><td>Only the search tool, hot tools, and perhaps 3–5 matches enter.</td></tr>
+    </tbody>
+  </table>
+  <p class="equation">1,000 tools × 2 KiB each ≈ 2 MiB request body<br>but perhaps 5 tools × 500 tokens ≈ 2,500 model-input tokens</p>
+  <p>The numbers are illustrative, but the asymmetry is real: network bytes and model tokens are different currencies. Deferred loading optimizes context consumption, prompt-cache stability, and selection accuracy. It does <em>not</em> optimize serialization, upload bandwidth, or Anthropic’s search-side work. The Messages API’s documented request limit is 32 MB, so “up to 10,000 deferred tools” is only possible when the complete request still fits that byte limit.</p>
+  <p>Anthropic says built-in tool search searches the request’s definitions in memory per call and stores nothing after the response. Unloaded definitions are not model input; definitions selected and expanded into Claude’s context count as ordinary input tokens. Tool search itself has no separate server-tool charge.</p>
+
+  <h2>If wire size matters, the design must change</h2>
+  <table class="compact-table">
+    <thead><tr><th>Design</th><th>Alfred sends</th><th>Trade-off</th></tr></thead>
+    <tbody>
+      <tr><td><strong>Direct deferred tools</strong></td><td>Every complete schema on every request</td><td>Native typed tools; large request body</td></tr>
+      <tr><td><strong>Anthropic MCP connector</strong></td><td>Remote MCP URL, credentials, and toolset policy</td><td>Anthropic fetches tools; public HTTPS MCP and provider credential custody</td></tr>
+      <tr><td><strong>Alfred generic gateway</strong></td><td>One stable <code>search</code>/<code>execute</code> schema</td><td>Small and portable; weaker native schema constraints unless Alfred adds a second step</td></tr>
+      <tr><td><strong>Two-request projection</strong></td><td>Search first, then only selected native schemas</td><td>Small payloads; another round trip and a changed tools prefix</td></tr>
+    </tbody>
+  </table>
+  <p>So the direct answer is: <strong>nothing mysterious removes those bytes.</strong> Anthropic accepts the transport cost because the larger bottleneck is usually model context and reliable selection. Alfred should measure serialized tool bytes and request latency; if those become material, deferred loading alone is insufficient.</p>
+
   <h2>How does the system know what exists?</h2>
   <div class="timeline">
     <article class="frame">
@@ -145,6 +172,9 @@
   <ul class="sources">
     <li><a href="https://platform.claude.com/docs/en/agents-and-tools/tool-use/tool-use-with-prompt-caching">Anthropic: Tool use with prompt caching</a>.</li>
     <li><a href="https://platform.claude.com/docs/en/agents-and-tools/tool-use/tool-search-tool">Anthropic: Tool search and deferred loading</a>.</li>
+    <li><a href="https://platform.claude.com/docs/en/manage-claude/api-and-data-retention">Anthropic: Tool search data is held in memory per call</a>.</li>
+    <li><a href="https://platform.claude.com/docs/en/api/errors">Anthropic: Messages API request-size limit</a>.</li>
+    <li><a href="https://platform.claude.com/docs/en/agents-and-tools/mcp-connector">Anthropic: Remote MCP connector</a>.</li>
     <li><a href="../packages/api/src/modules/agent/tool-surface.ts">Alfred’s current active tool-surface projection</a>.</li>
     <li><a href="../packages/ai/src/agent.ts">AlfredAgent’s cache decoration</a>.</li>
     <li><a href="0002-explicit-vs-automatic-prompt-caching.html">Previous lesson: prefix caching</a>.</li>
