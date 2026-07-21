@@ -209,7 +209,7 @@ export function ToolCallGroup({
             aria-controls={contentId}
             className={cn(
               "group/tools -mx-2 flex w-full items-center gap-2 rounded-lg px-2 py-1 text-left text-[13px]",
-              "transition-colors duration-150 outline-none hover:bg-app-bg-a2 focus-visible:ring-2 focus-visible:ring-app-fg-2",
+              "outline-none focus-visible:ring-2 focus-visible:ring-app-fg-2",
             )}
           >
             {active ? (
@@ -241,7 +241,7 @@ export function ToolCallGroup({
               <ChevronRight
                 size={14}
                 aria-hidden
-                className="text-app-fg-2 transition-transform duration-200 group-data-[state=open]/tools:rotate-90"
+                className="text-app-fg-2 transition-[transform,color] duration-200 group-hover/tools:text-app-fg-4 group-data-[state=open]/tools:rotate-90"
               />
             </span>
           </Accordion.Trigger>
