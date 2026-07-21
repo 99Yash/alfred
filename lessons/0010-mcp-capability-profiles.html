@@ -1,0 +1,107 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Foundation 5 — MCP capability profiles</title>
+  <link rel="stylesheet" href="../assets/lesson.css">
+</head>
+<body>
+<main>
+  <p class="frame-no">Alfred harness · Foundation 5</p>
+  <h1>A menu.<br>Not a mandate.</h1>
+  <p class="lede">MCP serves several host shapes. Capability negotiation lets each host declare only the pieces its product can safely and usefully support.</p>
+
+  <p class="thesis"><strong>The one sentence to keep:</strong> understand an MCP feature by asking which participant offers it and which host shape has the real-world object it represents.</p>
+
+  <h2>Name the distinction precisely</h2>
+  <table class="compact-table">
+    <thead><tr><th>Host shape</th><th>What it naturally owns</th><th>Examples</th></tr></thead>
+    <tbody>
+      <tr><td><strong>Local-workspace host</strong></td><td>User-selected directories, local processes, an always-present interactive UI, and often a developer model subscription</td><td>IDE, coding agent, desktop assistant</td></tr>
+      <tr><td><strong>Hosted agent product</strong></td><td>Remote users, OAuth connections, durable jobs, databases, queues, audit, approval UI, and server-side model billing</td><td>Alfred, workflow agent, SaaS assistant</td></tr>
+    </tbody>
+  </table>
+  <p>Both are production applications. “Local workspace versus hosted agent” predicts capability fit better than “desktop versus production.”</p>
+
+  <h2>Why <code>roots</code> belongs to the first profile</h2>
+  <p>MCP roots are client-exposed <code>file://</code> filesystem boundaries. A server asks <code>roots/list</code> so it knows which local project directories the client says are in scope.</p>
+  <pre>IDE owns /Users/yash/project
+  ↓ exposes
+root: file:///Users/yash/project
+  ↓ server uses as workspace context
+filesystem / code-analysis MCP server</pre>
+  <p>Hosted Alfred does not possess the user’s laptop filesystem, so advertising roots would be fiction. Alfred should omit <code>roots</code>. A future server-side code workspace could expose its own sandbox directory, but that would be a new concrete use case—not a box to tick for MCP compliance.</p>
+
+  <h2>Alfred’s likely capability profile</h2>
+  <table class="compact-table">
+    <thead><tr><th>Capability</th><th>Direction</th><th>Fit for Alfred</th><th>Reason</th></tr></thead>
+    <tbody>
+      <tr><td><strong>Lifecycle + version negotiation</strong></td><td>Both</td><td>Required foundation</td><td>Every MCP connection needs a compatible contract.</td></tr>
+      <tr><td><strong>Tools</strong></td><td>Server → client</td><td>Core v1</td><td>Imports external actions and reads into Alfred’s registry.</td></tr>
+      <tr><td><strong>Tool list changes</strong></td><td>Server → client</td><td>Useful v1</td><td>Refreshes a dynamic catalog without polling.</td></tr>
+      <tr><td><strong>Streamable HTTP + OAuth</strong></td><td>Transport</td><td>Core for remote servers</td><td>Natural hosted-to-hosted connection with per-user authorization.</td></tr>
+      <tr><td><strong>Progress + cancellation</strong></td><td>Both</td><td>Useful v1</td><td>Bounds remote calls and improves run visibility.</td></tr>
+      <tr><td><strong>Resources</strong></td><td>Server → client</td><td>Possible later</td><td>Useful for addressable documents or records, but Alfred already has domain reads and artifact/object patterns.</td></tr>
+      <tr><td><strong>Resource subscriptions</strong></td><td>Server → client</td><td>Possible later</td><td>Could carry change signals if the server actually watches its upstream source; does not create that watch itself.</td></tr>
+      <tr><td><strong>Tasks</strong></td><td>Either request direction</td><td>Selective later</td><td>Useful for a long remote operation; does not replace Alfred’s durable workflow runtime.</td></tr>
+      <tr><td><strong>Elicitation</strong></td><td>Server → client</td><td>Selective later</td><td>Could request an account choice or launch a secure OAuth URL through Alfred’s UI; it is not Alfred’s action-approval policy.</td></tr>
+      <tr><td><strong>Prompts</strong></td><td>Server → client</td><td>Probably not v1</td><td>Designed as user-selected templates; Alfred already owns workflows, skills, and prompt governance.</td></tr>
+      <tr><td><strong>Sampling</strong></td><td>Server → client</td><td>Off by default</td><td>Lets a server request Alfred-funded model calls. This expands cost and prompt-injection authority and needs a strong trusted use case.</td></tr>
+      <tr><td><strong>Roots</strong></td><td>Client → server</td><td>Not relevant now</td><td>Alfred has no user-local filesystem workspace to expose.</td></tr>
+      <tr><td><strong>stdio</strong></td><td>Transport</td><td>Trusted deployments only</td><td>A hosted Alfred process can spawn a server on its own machine, not on the user’s laptop; arbitrary child processes create a major execution boundary.</td></tr>
+    </tbody>
+  </table>
+
+  <h2>Read initialization as a product declaration</h2>
+  <p>An Alfred MCP client does not need to send the large example capability object from the documentation. A conservative first connection could declare no optional client features:</p>
+  <pre>{
+  "method": "initialize",
+  "params": {
+    "protocolVersion": "2025-11-25",
+    "capabilities": {},
+    "clientInfo": { "name": "alfred", "version": "..." }
+  }
+}</pre>
+  <p>The remote server may reply with <code>tools</code>. Alfred then uses those tools. It must reject a later <code>roots/list</code>, <code>sampling/createMessage</code>, or <code>elicitation/create</code> request because it never declared those capabilities.</p>
+
+  <p class="thesis"><strong>Design rule for Alfred:</strong> start with remote tools over Streamable HTTP, OAuth, timeouts/cancellation, catalog refresh, and Alfred’s existing dispatch gates. Add another MCP capability only when a concrete Alfred workflow requires it.</p>
+
+  <div class="quiz">
+    <h2 style="margin-top:0">Profile check</h2>
+    <p>A third-party server sends Alfred <code>sampling/createMessage</code>, but Alfred initialized with <code>capabilities: {}</code>. What should happen?</p>
+    <div class="answer-grid">
+      <button data-ok="false">Alfred must run its default model</button>
+      <button data-ok="true">Alfred rejects the unsupported request</button>
+      <button data-ok="false">The server selects an Alfred model</button>
+    </div>
+    <p class="feedback" id="feedback" aria-live="polite"></p>
+  </div>
+
+  <h2>Source trail</h2>
+  <ul class="sources">
+    <li><a href="https://modelcontextprotocol.io/specification/2025-11-25/basic/lifecycle">MCP lifecycle and capability negotiation</a></li>
+    <li><a href="https://modelcontextprotocol.io/specification/2025-11-25/client/roots">MCP roots</a></li>
+    <li><a href="https://modelcontextprotocol.io/specification/2025-11-25/client/sampling">MCP sampling</a></li>
+    <li><a href="https://modelcontextprotocol.io/specification/2025-11-25/client/elicitation">MCP elicitation</a></li>
+    <li><a href="https://modelcontextprotocol.io/specification/2025-11-25/server/resources">MCP resources and subscriptions</a></li>
+    <li><a href="https://modelcontextprotocol.io/specification/2025-11-25/server/prompts">MCP prompts</a></li>
+    <li><a href="../reference/mcp-host-profile-matrix.html">Reference: MCP host-profile matrix</a></li>
+    <li><a href="0009-mcp-methods-versus-model-tools.html">Previous: MCP methods versus model tools</a></li>
+    <li><a href="0011-alfred-as-mcp-http-client.html">Next: Alfred’s outbound Streamable HTTP handshake</a></li>
+  </ul>
+</main>
+<script>
+  const feedback = document.querySelector('#feedback');
+  document.querySelectorAll('button[data-ok]').forEach((button) => {
+    button.addEventListener('click', () => {
+      const correct = button.dataset.ok === 'true';
+      feedback.textContent = correct
+        ? 'Correct. Capability negotiation is the permission to use protocol features; undeclared client features are unavailable.'
+        : 'The server must respect what the client declared during initialization. It cannot manufacture model authority afterward.';
+      feedback.style.color = correct ? 'var(--success)' : 'var(--error)';
+    });
+  });
+</script>
+</body>
+</html>

@@ -5,11 +5,11 @@ import {
   PASSTHROUGH_PER_RUN_CEILING,
   passthroughBudgetExhausted,
 } from "../../../src/modules/tools/passthrough";
-import type { DispatchResult } from "../../../src/modules/dispatch";
 import {
   isNonExecutionFailure,
   toolCallLogStatus,
-} from "../../../src/modules/agent/workflows/chat-turn";
+  type DispatchResult,
+} from "../../../src/modules/dispatch";
 
 /**
  * ADR-0074 per-run passthrough ceiling (pure half). A runaway pagination loop

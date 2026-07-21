@@ -8,6 +8,12 @@ Run it from the repository root:
 node learning-labs/mcp-from-scratch/client.mjs
 ```
 
+To run the same lifecycle over a real localhost HTTP endpoint:
+
+```sh
+node learning-labs/mcp-from-scratch/http-demo.mjs
+```
+
 Watch for three distinct conversations:
 
 1. `MCP CLIENT → SERVER`: universal MCP JSON-RPC methods such as `initialize`, `tools/list`, and `tools/call`.
@@ -20,6 +26,7 @@ Files:
 
 - `server.mjs`: raw newline-delimited JSON-RPC server over stdin/stdout.
 - `client.mjs`: launches the server, performs the MCP lifecycle, and simulates the host/model handoff.
+- `http-demo.mjs`: runs a raw Streamable HTTP server and an Alfred-like client, including session and protocol-version headers.
 
 Primary references:
 

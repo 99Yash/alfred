@@ -1,33 +1,69 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
-import { dispatchAutonomyCallsInSafeOrder } from "../../src/modules/agent/workflows/chat-turn";
+import type { DispatchResult } from "../../src/modules/dispatch";
+import { ARTIFACT_MUTATION_TOOL_NAMES } from "../../src/modules/agent/workflows/chat-turn";
+import { runToolRound } from "../../src/modules/agent/workflows/tool-round";
+
+// Exercised through the production entry point (`runToolRound` in its
+// `concurrent-autonomy` mode) rather than the private lane-splitter it wraps, so
+// the concurrency guarantee is pinned where chat actually consumes it.
+
+type Call = { toolCallId: string; toolName: string; input: unknown };
+
+// Chat's real "must run in model order" predicate — artifact mutations share
+// document body state, so they serialize among themselves while every other
+// autonomy call overlaps.
+const artifactMutations: ReadonlySet<string> = new Set(ARTIFACT_MUTATION_TOOL_NAMES);
+const serializeInOrder = (call: Call) => artifactMutations.has(call.toolName);
+
+const executed = (id: string): DispatchResult => ({
+  kind: "executed",
+  stagingId: null,
+  toolResult: { id },
+  editedByUser: false,
+});
+
+/** Let both dispatch lanes drain up to the next blocked call. `runToolRound`
+ *  wraps the lane-splitter in a couple more async hops than a direct call, so
+ *  flush generously; the observable event order is unaffected. */
+async function flushMicrotasks(): Promise<void> {
+  for (let i = 0; i < 10; i += 1) await Promise.resolve();
+}
 
 test("artifact mutations serialize in model order without blocking independent calls", async () => {
-  const calls = [
-    { toolName: "system.web_search", id: "lookup" },
-    { toolName: "system.append_artifact_page", id: "page-1" },
-    { toolName: "system.append_artifact_page", id: "page-2" },
+  const calls: Call[] = [
+    { toolCallId: "lookup", toolName: "system.web_search", input: {} },
+    { toolCallId: "page-1", toolName: "system.append_artifact_page", input: {} },
+    { toolCallId: "page-2", toolName: "system.append_artifact_page", input: {} },
   ];
   const events: string[] = [];
+  const committed: string[] = [];
   let releaseLookup!: () => void;
   const lookupReleased = new Promise<void>((resolve) => {
     releaseLookup = resolve;
   });
 
-  const run = dispatchAutonomyCallsInSafeOrder(calls, [false, false, false], async (call) => {
-    events.push(`start:${call.id}`);
-    if (call.id === "lookup") await lookupReleased;
-    await Promise.resolve();
-    events.push(`end:${call.id}`);
-    return call.id;
+  const run = runToolRound<Call>({
+    calls,
+    transcript: [],
+    batchSpan: null,
+    ordering: { kind: "concurrent-autonomy", gateFlags: [false, false, false], serializeInOrder },
+    dispatch: async (call) => {
+      events.push(`start:${call.toolCallId}`);
+      if (call.toolCallId === "lookup") await lookupReleased;
+      await Promise.resolve();
+      events.push(`end:${call.toolCallId}`);
+      return executed(call.toolCallId);
+    },
+    onCommit: (call) => {
+      committed.push(call.toolCallId);
+    },
   });
 
   // Let both lanes advance. The blocked lookup must not hold page authoring,
   // while page 2 must not begin until page 1 has committed.
-  await Promise.resolve();
-  await Promise.resolve();
-  await Promise.resolve();
+  await flushMicrotasks();
   assert.deepEqual(events, [
     "start:lookup",
     "start:page-1",
@@ -37,17 +73,20 @@ test("artifact mutations serialize in model order without blocking independent c
   ]);
 
   releaseLookup();
-  assert.deepEqual(await run, ["lookup", "page-1", "page-2"]);
+  const outcome = await run;
+  assert.equal(outcome.kind, "committed");
+  // Commit pass runs in model order regardless of dispatch overlap.
+  assert.deepEqual(committed, ["lookup", "page-1", "page-2"]);
 });
 
 test("document section appends serialize in model order (ADR-0085)", async () => {
   // Sections concatenate onto one shared body, so out-of-order dispatch would
   // scramble the document even though the row lock prevents lost writes.
-  const calls = [
-    { toolName: "system.create_artifact", id: "create" },
-    { toolName: "system.append_artifact_section", id: "section-1" },
-    { toolName: "system.web_search", id: "lookup" },
-    { toolName: "system.append_artifact_section", id: "section-2" },
+  const calls: Call[] = [
+    { toolCallId: "create", toolName: "system.create_artifact", input: {} },
+    { toolCallId: "section-1", toolName: "system.append_artifact_section", input: {} },
+    { toolCallId: "lookup", toolName: "system.web_search", input: {} },
+    { toolCallId: "section-2", toolName: "system.append_artifact_section", input: {} },
   ];
   const events: string[] = [];
   let releaseCreate!: () => void;
@@ -55,28 +94,33 @@ test("document section appends serialize in model order (ADR-0085)", async () =>
     releaseCreate = resolve;
   });
 
-  const run = dispatchAutonomyCallsInSafeOrder(
+  const run = runToolRound<Call>({
     calls,
-    [false, false, false, false],
-    async (call) => {
-      events.push(`start:${call.id}`);
-      if (call.id === "create") await createReleased;
-      await Promise.resolve();
-      events.push(`end:${call.id}`);
-      return call.id;
+    transcript: [],
+    batchSpan: null,
+    ordering: {
+      kind: "concurrent-autonomy",
+      gateFlags: [false, false, false, false],
+      serializeInOrder,
     },
-  );
+    dispatch: async (call) => {
+      events.push(`start:${call.toolCallId}`);
+      if (call.toolCallId === "create") await createReleased;
+      await Promise.resolve();
+      events.push(`end:${call.toolCallId}`);
+      return executed(call.toolCallId);
+    },
+  });
 
   // The independent lookup is dispatched first and runs to completion; every
   // artifact mutation waits its turn behind the blocked create, so neither
   // section can begin until create commits.
-  await Promise.resolve();
-  await Promise.resolve();
-  await Promise.resolve();
+  await flushMicrotasks();
   assert.deepEqual(events, ["start:lookup", "start:create", "end:lookup"]);
 
   releaseCreate();
-  assert.deepEqual(await run, ["create", "section-1", "lookup", "section-2"]);
+  const outcome = await run;
+  assert.equal(outcome.kind, "committed");
   assert.deepEqual(events, [
     "start:lookup",
     "start:create",
