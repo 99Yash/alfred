@@ -30,6 +30,18 @@ model-owned composition
 
 The broker is not an extra agent layer. It is Alfred's trust boundary: connection ownership, credential custody, catalog revision checks, validation, policy, approval, durable call identity, result sanitation, and size bounds.
 
+### Why not `@ai-sdk/mcp` as the client boundary?
+
+AI SDK's [`createMCPClient`](https://ai-sdk.dev/docs/reference/ai-sdk-core/create-mcp-client) is a useful convenience adapter for turning an MCP server's tools into directly executable AI SDK tools. It is not Alfred's source of authority:
+
+- its `tools()` convenience path fetches one `tools/list` page rather than constructing a bounded, atomic all-page catalog;
+- it does not accept server notifications, so it cannot invalidate authority on `notifications/tools/list_changed`;
+- its generated tool `execute` function calls the remote server directly instead of crossing Alfred's policy, approval, durability, and result-handling boundary;
+- automatic schema conversion does not enforce the server-declared output schema, and it does not apply Alfred's descriptor/schema complexity limits;
+- it supports a broader MCP feature and protocol surface than Alfred's deliberately narrow tools-only 2025-11-25 profile.
+
+Alfred may reuse AI SDK schema/tool primitives in a runtime adapter after a tool has passed through the broker. It must not expose `createMCPClient().tools()` directly to a model or use that generated `execute` path for authoritative calls. The current behavior is visible in AI SDK's [MCP client implementation](https://github.com/vercel/ai/blob/main/packages/mcp/src/tool/mcp-client.ts).
+
 ## #1: What Is The Product Abstraction?
 
 Blocked by: none
