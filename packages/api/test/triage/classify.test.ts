@@ -2,9 +2,6 @@ import assert from "node:assert/strict";
 import { describe, test } from "node:test";
 
 import {
-  applyMeetingDemotionFloor,
-  applyOverrideFloor,
-  applySenderKindDemotionFloor,
   classifyEmail,
   detectConflict,
   noteMarksFailingOutcome,
@@ -19,6 +16,11 @@ import {
   type RunPass,
   type TriageClassification,
 } from "../../src/modules/triage/classify";
+import {
+  applyMeetingDemotionFloor,
+  applyOverrideFloor,
+  applySenderKindDemotionFloor,
+} from "../../src/modules/triage/floors";
 import type { Observations } from "../../src/modules/triage/observations";
 
 // ---------------------------------------------------------------------------

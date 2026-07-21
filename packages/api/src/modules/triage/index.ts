@@ -8,12 +8,12 @@
 export {
   classifyEmail,
   detectConflict,
-  applyOverrideFloor,
   resolveTodoSuggestion,
   todoSuppressionReason,
   triageClassificationSchema,
   DEFAULT_TRIAGE_CATEGORY,
 } from "./classify";
+export { applyFloors, applyOverrideFloor } from "./floors";
 export type {
   TriageClassification,
   ClassifyEmailArgs,
