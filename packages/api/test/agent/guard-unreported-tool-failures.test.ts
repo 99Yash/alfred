@@ -5,10 +5,10 @@ import { isNonExecutionFailure, toolCallLogStatus } from "../../src/modules/disp
 import {
   guardUnreportedToolFailures,
   sanitizeChatMessageFields,
-  shouldPublishToolStarted,
   type ChatRunState,
   type GuardUnreportedToolFailuresDeps,
 } from "../../src/modules/agent/workflows/chat-turn";
+import { shouldPublishToolStarted } from "../../src/modules/agent/workflows/stream-model-turn";
 import type { StepContext } from "../../src/modules/agent/types";
 
 /**
