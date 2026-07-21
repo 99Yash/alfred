@@ -89,3 +89,4 @@ teaching/
 .wayfinder/
 # jscpd copy-paste detector output
 .jscpd/
+.claude/

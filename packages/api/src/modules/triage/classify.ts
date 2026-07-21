@@ -4,8 +4,6 @@ import {
   clamp01,
   collabActivitySchema,
   confidenceSchema,
-  isOwnershipCollabActivity,
-  isPassiveCollabActivity,
   triageTodoDecisionSchema,
   triageTodoSuggestionSchema,
   type CollabActivityKind,
@@ -15,8 +13,21 @@ import {
 } from "@alfred/contracts";
 import { TRIAGE_CATEGORIES, type TriageCategory } from "@alfred/integrations/google";
 import { z } from "zod";
+import {
+  applyFloors,
+  isGithubNotificationSender,
+  matchesCollabIntrinsicStake,
+  matchesExposedSecret,
+  matchesPrThread,
+  type MeetingDemotionReason,
+  type SenderKindDemotionReason,
+} from "./floors";
 import type { Observations } from "./observations";
-import { canonicalizeEmailForMatch, recipientAddresses } from "./sender-context";
+import { MAX_RATIONALE_LEN, truncateRationale } from "./rationale";
+
+// Re-exported for the public triage surface (the barrel, `deepen.ts`) — the
+// definitions live in the leaf `rationale.ts` to avoid a `classify ↔ floors` cycle.
+export { MAX_RATIONALE_LEN, truncateRationale };
 
 /**
  * Email triage classifier — context-rich, cheap-model-always (ADR-0051).
@@ -221,30 +232,7 @@ const STRONG_BULK_MIN_SHARE = 0.8;
  */
 const SERVICE_ACTION_LOOP_MIN_TOTAL = 8;
 const SERVICE_ACTION_LOOP_MIN_SHARE = 0.5;
-const OVERRIDE_FLOOR_CONFIDENCE_FLOOR = 0.85;
 const SECOND_PASS_FAILURE_CONFIDENCE_FLOOR = 0.6;
-export const MAX_RATIONALE_LEN = 500;
-
-/**
- * Override-floor predicate (ADR-0051 §5, Phase 3 seed = ONE signal). Keys on
- * EXPOSURE VERBS, deliberately narrower than the broad `hasSecurityKeyword`
- * content flag — a self-initiated "sign in"/"your code is 123456" link contains
- * none of these verbs, so it never trips the floor (the bug that opened v3).
- * `[\s\S]` (dotall) so the noun and verb can wrap onto separate lines, as
- * security-bot bodies do.
- *
- * The noun set is narrower than `hasSecurityKeyword` ON PURPOSE: the generic
- * `credential` is excluded here (it stays in the broad hint regex) because
- * `credential` + `exposed` over an 80-char window matches ordinary engineering
- * prose ("the credential object is exposed to the network") and the floor is
- * unrecoverable — a false positive force-tags an architecture email `urgent`.
- */
-const OVERRIDE_FLOOR_SECRET_NOUN = String.raw`(?:secret|api[ -]?key|token|private key|password)`;
-const OVERRIDE_FLOOR_EXPOSURE_VERB = String.raw`(?:exposed|leaked|committed|compromised|found|detected)`;
-const OVERRIDE_FLOOR_SECRET_RE = new RegExp(
-  String.raw`\b(?:${OVERRIDE_FLOOR_SECRET_NOUN}\b[\s\S]{0,100}\b${OVERRIDE_FLOOR_EXPOSURE_VERB}|${OVERRIDE_FLOOR_EXPOSURE_VERB}\b[\s\S]{0,100}\b${OVERRIDE_FLOOR_SECRET_NOUN})\b`,
-  "i",
-);
 
 export const SYSTEM_PROMPT = `You triage emails for a personal assistant. Classify each email into EXACTLY ONE category:
 
@@ -612,440 +600,6 @@ export function detectConflict(
   return null;
 }
 
-/**
- * Override floor (ADR-0051 §5, Phase 3 seed = ONE signal). Forces `urgent` when
- * an exposed/leaked/committed secret is present, regardless of model output.
- * PURE. Returns the (possibly forced) classification and whether it changed.
- */
-export function applyOverrideFloor(
-  classification: TriageClassification,
-  signalText: string,
-): { classification: TriageClassification; matched: boolean; forced: boolean } {
-  if (!OVERRIDE_FLOOR_SECRET_RE.test(signalText)) {
-    return { classification, matched: false, forced: false };
-  }
-  if (classification.category === "urgent") {
-    // Floor agrees with the model — no change, nothing to force.
-    return { classification, matched: true, forced: false };
-  }
-  return {
-    classification: {
-      ...classification,
-      category: "urgent",
-      confidence: Math.max(classification.confidence, OVERRIDE_FLOOR_CONFIDENCE_FLOOR),
-      rationale: truncateRationale(
-        `${classification.rationale} Override floor: exposed secret material was detected — forced urgent.`,
-      ),
-    },
-    matched: true,
-    forced: true,
-  };
-}
-
-/**
- * Sender-kind demotion floor (#210, on the #218 activated projection). A
- * confident `group` sender or no-reply/bot-shaped `service` sender is not a
- * person the user owes a reply to — you do not write back to a distribution
- * list or a `noreply`/bot address — so `awaiting_reply` from one is
- * definitionally wrong. Demote it to `fyi`:
- * DEMOTE, NEVER BURY (#210 asymmetry) — the thread stays visible, it just leaves
- * the demanding lane.
- *
- * `awaiting_reply` is the zero-bury-risk case and is always demoted for a
- * confident sender kind. `action_needed`/`urgent` require a narrow structural
- * reason: passive collaboration state transitions, passive GitHub PR/CI
- * notifications, group-broadcast sign-in confirmations where the body also says
- * no action is needed if the sign-in was recognized, or monitoring-alarm
- * broadcasts (CloudWatch/SNS-style) fanned out to a distribution address the user
- * is not a direct recipient of (#354 — shape AND audience, never shape alone).
- *
- * `senderKind` is non-null ONLY for a confident group/service — `resolveSenderKind`
- * already gates kind ∈ {group,service} AND confidence >=
- * `TRIAGE_SENDER_KIND_CONFIDENCE_THRESHOLD`. Service senders get one extra
- * precision gate here: role mailboxes like support@/billing@ can legitimately
- * ask for a reply, while strong no-reply/notification or auto-submitted
- * evidence cannot. PURE.
- */
-type SenderKindDemotionFloorContext = {
-  signalText?: string;
-  /**
-   * Body/snippet text used for collabActivity intrinsic-stake vetoes. Task-tracker
-   * subjects are often imperative task titles, not ownership/evidence; scanning
-   * them for "critical"/"security"/"payment" would let passive activity on a
-   * scary-named task escape demotion. Absent → falls back to signalText for tests
-   * and legacy callers.
-   */
-  collabVetoText?: string;
-  sender?: string | null;
-  subject?: string | null;
-  to?: string | null;
-  cc?: string | null;
-  /**
-   * The connected account's own address (the user being triaged). The AUDIENCE
-   * half of the monitoring-alarm gate (#354): a broadcast the user is not a
-   * direct recipient of is not their personal action. Absent → the audience gate
-   * is a conservative no-op (we cannot prove a broadcast, so we do not demote).
-   */
-  accountEmail?: string | null;
-  /**
-   * The cheap model's collaboration-tool activity read (#218). Present only for
-   * task/issue-tracker and doc-comment notifications; passive kinds drive the
-   * `collab_passive_activity` reason, ownership kinds keep the category. Absent
-   * → the model saw no collaboration activity, so the body-regex path applies.
-   */
-  collabActivity?: CollabActivityKind | null;
-};
-
-export function applySenderKindDemotionFloor(
-  classification: TriageClassification,
-  senderKind: Observations["senderKind"],
-  context: SenderKindDemotionFloorContext = {},
-): {
-  classification: TriageClassification;
-  demoted: boolean;
-  reason: SenderKindDemotionReason | null;
-} {
-  // An ownership collabActivity is a model-emitted "this is directed at the user"
-  // read. Treat it as a veto over every passive sender-kind demotion path,
-  // including the broad awaiting_reply demotion and GitHub reason aliases.
-  if (context.collabActivity != null && isOwnershipCollabActivity(context.collabActivity)) {
-    return { classification, demoted: false, reason: null };
-  }
-
-  const reason = senderKind ? senderKindDemotionReason(context, senderKind) : null;
-  if (
-    !senderKind ||
-    !senderKindCanDemoteDemand(senderKind) ||
-    !senderKindFloorShouldDemoteCategory(classification.category, reason)
-  ) {
-    return { classification, demoted: false, reason: null };
-  }
-  const note =
-    classification.category === "awaiting_reply"
-      ? `${senderKind.kind} sender is not awaiting a reply`
-      : reason === "github_passive_pr_or_ci"
-        ? `${senderKind.kind} sender sent a passive GitHub PR/CI notification`
-        : reason === "broadcast_auth_signin_confirmation"
-          ? `${senderKind.kind} sender sent a broadcast sign-in confirmation`
-          : reason === "monitoring_alarm"
-            ? `${senderKind.kind} sender broadcast a monitoring alarm the user was not addressed on`
-            : reason === "collab_passive_activity"
-              ? `${senderKind.kind} sender sent passive collaboration activity not directed at the user`
-              : `${senderKind.kind} sender sent a passive collaboration state transition`;
-  return {
-    classification: {
-      ...classification,
-      category: "fyi",
-      todoSuggestion: null,
-      todoDecision: {
-        outcome: "no_obligation",
-        note: `sender_kind_floor: ${note}`,
-      },
-      rationale: truncateRationale(
-        `${classification.rationale} Sender-kind floor: ${senderKind.kind} sender ` +
-          `(active projection confidence=${senderKind.confidence.toFixed(2)}) is not awaiting the ` +
-          `user's action — demoted ${classification.category} → fyi (demote, never bury).`,
-      ),
-    },
-    demoted: true,
-    reason,
-  };
-}
-
-function senderKindCanDemoteDemand(senderKind: NonNullable<Observations["senderKind"]>) {
-  if (senderKind.kind === "group") return true;
-  return senderKind.evidenceCodes.some(
-    (code) => code === "email:local:service_strong" || code === "gmail:auto_submitted",
-  );
-}
-
-function senderKindFloorShouldDemoteCategory(
-  category: TriageClassification["category"],
-  reason: SenderKindDemotionReason | null,
-): boolean {
-  if (category === "awaiting_reply") return true;
-  if (category === "urgent") {
-    return reason === "broadcast_auth_signin_confirmation" || reason === "monitoring_alarm";
-  }
-  if (category !== "action_needed") return false;
-  return reason !== null;
-}
-
-const COLLAB_STATE_TRANSITION_RE =
-  /\b(?:changed status|set the status to|moved (?:task )?(?:to|from)|marked (?:as )?(?:done|complete|completed|resolved|closed)|status changed|re-?opened|closed task)\b/i;
-const COLLAB_DIRECT_OWNERSHIP_RE =
-  /\b(?:assigned (?:task )?to you|assigned you\b|you were assigned|mentioned you|can you|could you|please|pls\s+merge|review and merge|pick this up)\b/i;
-const COLLAB_INTRINSIC_STAKE_RE =
-  /\b(?:payment failed|card declined|invoice due|past due|access (?:will be )?(?:disabled|suspended|lost)|security|compromis|exposed|leaked|secret|token|api[ -]?key|private key|production outage|prod outage|blocked deploy|critical)\b/i;
-
-function isPassiveCollaborationStateTransition(signalText: string): boolean {
-  return (
-    COLLAB_STATE_TRANSITION_RE.test(signalText) &&
-    !COLLAB_DIRECT_OWNERSHIP_RE.test(signalText) &&
-    !COLLAB_INTRINSIC_STAKE_RE.test(signalText)
-  );
-}
-
-type SenderKindDemotionReason =
-  | "collab_state_transition"
-  | "collab_passive_activity"
-  | "github_passive_pr_or_ci"
-  | "broadcast_auth_signin_confirmation"
-  | "monitoring_alarm";
-
-function senderKindDemotionReason(
-  context: SenderKindDemotionFloorContext,
-  senderKind: NonNullable<Observations["senderKind"]>,
-): SenderKindDemotionReason | null {
-  // Model-authoritative collaboration signal (#218). When the cheap model tagged
-  // the notification's activity kind, it is a stronger, per-message read than the
-  // body-regex heuristic — so it takes precedence over `collab_state_transition`.
-  // Ownership kinds are handled as a hard veto in `applySenderKindDemotionFloor`.
-  // Passive kinds demote, subject to the SAME secret + intrinsic-stake vetoes the
-  // regex path honors (a "someone changed status" line that also names an exposed
-  // secret or a past-due invoice keeps its escalation).
-  const collab = context.collabActivity;
-  if (collab != null) {
-    if (isPassiveCollabActivity(collab)) {
-      const signalText = context.collabVetoText ?? context.signalText ?? "";
-      if (
-        !OVERRIDE_FLOOR_SECRET_RE.test(signalText) &&
-        !COLLAB_INTRINSIC_STAKE_RE.test(signalText)
-      ) {
-        return "collab_passive_activity";
-      }
-    }
-  } else if (isPassiveCollaborationStateTransition(context.signalText ?? "")) {
-    return "collab_state_transition";
-  }
-  if (isPassiveGithubPrOrCiNotification(context)) return "github_passive_pr_or_ci";
-  if (isBroadcastAuthSignInConfirmation(context, senderKind)) {
-    return "broadcast_auth_signin_confirmation";
-  }
-  if (isMonitoringAlarmBroadcast(context)) return "monitoring_alarm";
-  return null;
-}
-
-const GITHUB_REASON_ALIAS_RE = /<([^>]+@noreply\.github\.com)>/gi;
-const PASSIVE_GITHUB_REASON_ALIASES = new Set([
-  "author@noreply.github.com",
-  "ci_activity@noreply.github.com",
-  "state_change@noreply.github.com",
-]);
-
-function isPassiveGithubPrOrCiNotification(context: SenderKindDemotionFloorContext): boolean {
-  if (!GITHUB_NOTIFICATION_RE.test(context.sender ?? "")) return false;
-  const reasons = githubReasonAliases(context.cc);
-  if (!reasons.some((r) => PASSIVE_GITHUB_REASON_ALIASES.has(r))) return false;
-  if (reasons.includes("ci_activity@noreply.github.com")) return true;
-  return PR_THREAD_RE.test(context.subject ?? "");
-}
-
-function githubReasonAliases(cc: string | null | undefined): string[] {
-  return [...String(cc ?? "").matchAll(GITHUB_REASON_ALIAS_RE)].map((m) =>
-    (m[1] ?? "").toLowerCase(),
-  );
-}
-
-const AUTH_SIGNIN_NOTICE_RE = /\b(?:new sign-?in|new login|new sign in|new device sign-?in)\b/i;
-const AUTH_NO_ACTION_IF_YOU_RE = /\bif this was you,\s*no action is needed\b/i;
-const AUTH_UNRECOGNIZED_RE = /\b(?:if you (?:do not|don't) recognize|if this wasn't you)\b/i;
-
-function isBroadcastAuthSignInConfirmation(
-  context: SenderKindDemotionFloorContext,
-  senderKind: NonNullable<Observations["senderKind"]>,
-): boolean {
-  if (senderKind.kind !== "group") return false;
-  const text = [context.subject, context.signalText].filter(Boolean).join("\n");
-  return (
-    AUTH_SIGNIN_NOTICE_RE.test(text) &&
-    AUTH_NO_ACTION_IF_YOU_RE.test(text) &&
-    AUTH_UNRECOGNIZED_RE.test(text)
-  );
-}
-
-// A monitoring/alarm broadcast (#354). CloudWatch/SNS-style alarms fan out to a
-// team address the user is not a direct recipient of — a team FYI, not the user's
-// personal urgent/action_needed. The cheap model reliably reads the alarming body
-// as demanding; the floor demotes it to fyi (visible, never buried) ONLY when the
-// SHAPE is a monitoring alarm AND the AUDIENCE is broadcast (`isBroadcastAudience`:
-// the user is not in To/Cc — broader than a literal distribution address; an alarm
-// To a single other individual also qualifies). Shape alone is not enough: an alarm
-// the user is directly To/Cc'd on (they own it, or are on-call for it) keeps its
-// category (ADR-0066 audience gate).
-//
-// Only the AWS SNS `group`-classified case is observed in prod. CloudWatch itself is
-// delivered VIA SNS (`no-reply@sns.amazonaws.com` + an `ALARM:` subject), so the SNS
-// sender + subject tokens already cover it; PagerDuty/Grafana/Datadog/Opsgenie are a
-// HYPOTHESIS — they only fire if `resolveSenderKind` confidently tags them group/
-// service, and are unverified against real mail.
-const MONITORING_SENDER_RE = /sns\.amazonaws\.com|pagerduty|opsgenie|grafana|datadog/i;
-const MONITORING_ALARM_SUBJECT_RE = /^\s*(?:ALARM|ALERT)\b\s*:/i;
-function isMonitoringAlarmBroadcast(context: SenderKindDemotionFloorContext): boolean {
-  const shaped =
-    MONITORING_SENDER_RE.test(context.sender ?? "") ||
-    MONITORING_ALARM_SUBJECT_RE.test(context.subject ?? "");
-  if (!shaped) return false;
-  const signalText = context.signalText ?? "";
-  // A leaked-secret alarm must escape demotion entirely — keep the security
-  // escalation + any legitimate rotate-now todo (mirrors the collab carve-out).
-  if (OVERRIDE_FLOOR_SECRET_RE.test(signalText)) return false;
-  // Do not infer ownership from body prose here. Monitoring/list mail is wrapped
-  // in provider and distribution-list boilerplate, so generic second-person or
-  // request language is not reliable evidence that THIS user owns the alarm.
-  // This interim floor only claims the deterministic envelope fact below: a user
-  // directly present in To/Cc keeps the model's category; a provable broadcast is
-  // demoted. Role/object ownership belongs to the ADR-0066/0067 user-context
-  // consumer, not another alarm-specific phrase vocabulary.
-  // DELIBERATE ASYMMETRY with the collaboration path: we do NOT honor
-  // COLLAB_INTRINSIC_STAKE_RE here. Every alarm body reads as threshold-crossing /
-  // "critical" / "outage" by construction, so an intrinsic-stake veto would neuter
-  // the floor entirely. The audience gate is what makes this safe: a genuine SEV1
-  // the user is not To/Cc'd on is a team FYI, not their personal urgent — and it
-  // still renders (demote to fyi, never bury). A SEV1 that IS the user's own is
-  // caught by the ownership veto above or by them being a direct recipient below.
-  return isBroadcastAudience(context);
-}
-
-/**
- * The audience half of the monitoring-alarm gate: true only when we can PROVE the
- * user was not a direct recipient — the connected account's own address is known
- * AND absent from both To and Cc. Missing identity or missing recipient headers
- * are conservative no-ops (we cannot prove a broadcast, so we do not demote). A
- * user in Cc counts as directly addressed. PURE.
- *
- * Membership is by EXACT parsed address, not raw-header substring: a substring
- * test over-demotes a user addressed via a Gmail plus-tag (`u+alerts@x` does not
- * contain `u@x`) and under-demotes on an incidental substring (`u@x` inside
- * `notu@x`). `recipientAddresses` parses each To/Cc token and folds the plus-tag,
- * so a plus-addressed direct recipient still counts as addressed.
- */
-function isBroadcastAudience(context: SenderKindDemotionFloorContext): boolean {
-  const account = canonicalizeEmailForMatch(context.accountEmail);
-  if (!account) return false;
-  const to = context.to ?? "";
-  const cc = context.cc ?? "";
-  if (!to.trim() && !cc.trim()) return false;
-  const addressed = new Set([...recipientAddresses(to), ...recipientAddresses(cc)]);
-  return !addressed.has(account);
-}
-
-/**
- * Meeting-gate demotion floor. `meeting` is the highest-precedence category
- * (rule 10) and the ONLY demand lane the sender-kind floor never covers, so a
- * false meeting rides entirely on cheap-model judgment — and it leaks on a few
- * recurring shapes the model reads as "meeting" from the words alone:
- *
- *   - `meeting_recap`  — notes/minutes/recap/summary of a meeting that ALREADY
- *                        happened. Not something to attend or schedule → fyi.
- *   - `meeting_prep`   — a pre-meeting prep / agenda brief. A document about a
- *                        meeting, not a calendar action → fyi.
- *   - `automated_relay`— an automated product/task-tracker (ClickUp/Linear/…)
- *                        notification that merely MENTIONS meeting language
- *                        (the "@everyone offsite in Aug" ClickUp comment). A
- *                        real calendar meeting arrives from a person organizer
- *                        or as a calendar invite, never as a notification relay.
- *   - `investor_notice`— an AGM / shareholder / proxy / e-voting / registrar
- *                        notice (rule 9 already says a corporate "meeting" is
- *                        not the user's meeting) → fyi.
- *   - `public_event`   — a webinar / conference / keynote / summit / launch /
- *                        "save the date" blast (rule 8: public events are not
- *                        the user's calendar meeting) → fyi.
- *
- * Keys on CONTENT SHAPE (subject regex) for the recap/prep pair — the reliable
- * signal, since the automated meeting-assistant senders that emit these parse as
- * `person` (no `noreply`/`notifications` envelope) and carry no projection kind.
- * The `automated_relay` trigger keys on a passive `collabActivity` read from
- * the cheap model. Sender shape alone is deliberately too broad: real Calendar
- * mail also comes from service/no-reply addresses. `investor_notice`/`public_event`
- * key on the deterministic content flags Alfred already computes. All are
- * carved out by the calendar-action subject shape so a real Google-Calendar
- * "Invitation:"/"Proposed new time:"/"starts in 10 minutes" subject is preserved,
- * even one that mentions the event topic in its body.
- *
- * DEMOTE, NEVER BURY (#210 asymmetry) — demoted to `fyi` (still visible), with
- * the stray todo the model minted from the same misread cleared. PURE.
- */
-export type MeetingDemotionReason =
-  | "meeting_recap"
-  | "meeting_prep"
-  | "automated_relay"
-  | "investor_notice"
-  | "public_event";
-
-// Subject shapes. Anchored at the start so a mid-body mention ("see the meeting
-// notes") never trips them — only a subject that IS a recap/prep does.
-const MEETING_RECAP_SUBJECT_RE =
-  /^\s*(?:re:\s*|fwd:\s*)*(?:meeting\s+(?:notes|minutes|recap|summary)|notes\s+from\b|minutes\s+(?:from|of)\b|recap\s+of\b|recap:|post[- ]?meet(?:ing)?\s+summary)/i;
-const MEETING_PREP_SUBJECT_RE =
-  /^\s*(?:\[[^\]]*\]\s*)*(?:meeting\s+prep\b|prep\s+for\b|agenda\s+for\b|pre[- ]?read\s+for\b)/i;
-// Google-Calendar action subject shapes — the carve-out that keeps genuine
-// invite/schedule/attendance mail from a service/no-reply calendar address in
-// `meeting`.
-const CALENDAR_ACTION_SUBJECT_RE =
-  /^\s*(?:re:\s*)?(?:(?:updated\s+)?invitation(?:\s+with\s+note)?|proposed\s+new\s+time|new\s+time\s+proposed|(?:cancelled|canceled)(?:\s+event)?|accepted|declined|tentatively\s+accepted|this\s+event\s+has\s+been\s+(?:updated|cancelled|canceled)|reminder:?\s+.*\bstarts\s+in\b)\b|\binvitation:/i;
-
-export function applyMeetingDemotionFloor(
-  classification: TriageClassification,
-  context: {
-    effectiveAuthor?: SenderContext["effectiveAuthor"] | null;
-    senderKind?: Observations["senderKind"];
-    subject?: string | null;
-    collabActivity?: CollabActivityKind | null;
-    /** Deterministic content flags (rules 8/9 backstops); optional for callers/tests. */
-    contentFlags?: Pick<Observations["content"], "hasInvestorNotice" | "hasPublicEventLanguage">;
-  },
-): {
-  classification: TriageClassification;
-  demoted: boolean;
-  reason: MeetingDemotionReason | null;
-} {
-  if (classification.category !== "meeting") {
-    return { classification, demoted: false, reason: null };
-  }
-  const subject = context.subject ?? "";
-  // The calendar-action subject shape is the single carve-out shared by every
-  // trigger: a genuine "Invitation:"/"Proposed new time:" stays `meeting` even
-  // when it comes from a service or mentions the event topic in its body.
-  const isCalendarAction = CALENDAR_ACTION_SUBJECT_RE.test(subject);
-  const collabActivity = classification.collabActivity ?? context.collabActivity ?? null;
-  const reason: MeetingDemotionReason | null = MEETING_RECAP_SUBJECT_RE.test(subject)
-    ? "meeting_recap"
-    : MEETING_PREP_SUBJECT_RE.test(subject)
-      ? "meeting_prep"
-      : collabActivity != null && isPassiveCollabActivity(collabActivity) && !isCalendarAction
-        ? "automated_relay"
-        : context.contentFlags?.hasInvestorNotice && !isCalendarAction
-          ? "investor_notice"
-          : context.contentFlags?.hasPublicEventLanguage && !isCalendarAction
-            ? "public_event"
-            : null;
-  if (!reason) return { classification, demoted: false, reason: null };
-  const note =
-    reason === "meeting_recap"
-      ? "recap of a meeting that already happened"
-      : reason === "meeting_prep"
-        ? "pre-meeting prep/agenda brief, not a calendar action"
-        : reason === "automated_relay"
-          ? "automated relay merely mentioning a meeting, not the user's calendar event"
-          : reason === "investor_notice"
-            ? "AGM/shareholder/proxy notice, not the user's meeting (rule 9)"
-            : "public event (webinar/conference/launch), not the user's meeting (rule 8)";
-  return {
-    classification: {
-      ...classification,
-      category: "fyi",
-      todoSuggestion: null,
-      todoDecision: { outcome: "no_obligation", note: `meeting_floor: ${note}` },
-      rationale: truncateRationale(
-        `${classification.rationale} Meeting floor: ${note} — demoted meeting → fyi (demote, never bury).`,
-      ),
-    },
-    demoted: true,
-    reason,
-  };
-}
-
 /** A resolved rail todo to mint — the cheap model's proposal after the gate. */
 export type ResolvedTodoSuggestion = { name: string; assist?: string };
 
@@ -1219,17 +773,12 @@ export type TodoSuppressionReason =
   | "tracker_owned"
   | "cold_sender";
 
-const GITHUB_NOTIFICATION_RE = /notifications@github\.com/i;
 // A dedicated task/issue tracker or doc-comment tool's notification address
 // (#353). Subdomains and per-site Atlassian hosts (`<site>.atlassian.net`) match
 // via the optional leading label group. Used as the deterministic fallback for
 // the `tracker_owned` suppression when the model omits `collabActivity`.
 const TASK_TRACKER_SENDER_RE =
   /@(?:[\w.-]*\.)?(?:clickup\.com|linear\.app|atlassian\.net|asana\.com|monday\.com|trello\.com|notion\.so|height\.app|shortcut\.com)\b/i;
-// A GitHub PR-notification thread: the body carries a `/pull/N` link and the
-// subject a `(PR #N)` ref. `/issues/N` and issue refs deliberately don't match —
-// an issue can be a real ask; review of unmerged PR code is not (rule 16b).
-const PR_THREAD_RE = /\/pull\/\d+|\bpull request\b|\bpr #\d+\b/i;
 // Alfred's own human-in-the-loop approval mail: "[medium] Alfred wants to …".
 const ALFRED_APPROVAL_SUBJECT_RE =
   /^\s*\[(?:no_risk|low|medium|high|critical)\]\s+alfred wants to\b/i;
@@ -1248,8 +797,8 @@ const COLD_SENDER_GATED_CATEGORIES = new Set<TriageCategory>(["awaiting_reply", 
  */
 function hasIntrinsicStakeSignal(signalText: string): boolean {
   return (
-    OVERRIDE_FLOOR_SECRET_RE.test(signalText) ||
-    COLLAB_INTRINSIC_STAKE_RE.test(signalText) ||
+    matchesExposedSecret(signalText) ||
+    matchesCollabIntrinsicStake(signalText) ||
     ASSIST_AMOUNT_RE.test(signalText) ||
     ASSIST_DATE_RE.test(signalText)
   );
@@ -1295,9 +844,8 @@ export function todoSuppressionReason(email: {
   isColdContact?: boolean;
 }): TodoSuppressionReason | null {
   if (ALFRED_APPROVAL_SUBJECT_RE.test(email.subject ?? "")) return "alfred_approval";
-  if (GITHUB_NOTIFICATION_RE.test(email.sender ?? "") && PR_THREAD_RE.test(email.signalText)) {
-    const live =
-      TODO_LIVENESS_RE.test(email.signalText) || OVERRIDE_FLOOR_SECRET_RE.test(email.signalText);
+  if (isGithubNotificationSender(email.sender) && matchesPrThread(email.signalText)) {
+    const live = TODO_LIVENESS_RE.test(email.signalText) || matchesExposedSecret(email.signalText);
     if (!live) return "pre_merge_advisory";
   }
   // Tracker-owned (#353): an item living in a dedicated task/issue tracker or
@@ -1313,7 +861,7 @@ export function todoSuppressionReason(email: {
   // "already safely tracked" (mirrors the PR gate's secret escape).
   if (
     (email.collabActivity != null || TASK_TRACKER_SENDER_RE.test(email.sender ?? "")) &&
-    !OVERRIDE_FLOOR_SECRET_RE.test(email.signalText)
+    !matchesExposedSecret(email.signalText)
   ) {
     return "tracker_owned";
   }
@@ -1365,7 +913,7 @@ export async function classifyEmail(
 
   const signalText = floorSignalText(args.document);
   const collabVetoText = floorBodySignalText(args.document);
-  const floorMatches = OVERRIDE_FLOOR_SECRET_RE.test(signalText);
+  const floorMatches = matchesExposedSecret(signalText);
 
   const firstPass = await runPass({
     system: SYSTEM_PROMPT,
@@ -1400,50 +948,33 @@ export async function classifyEmail(
     }
   }
 
-  // Deterministic post-classification floors. The secret ESCALATION floor runs
-  // first so a leaked secret escapes the sender-kind demotion entirely and keeps
-  // any legitimate security todo. The sender-kind DEMOTION then handles
-  // confident group/no-reply senders when the demand is structurally passive.
-  const floorResult = applyOverrideFloor(working, signalText);
+  // Deterministic post-classification floors (override → sender-kind → meeting),
+  // owned by the `floors/` module. `classifyEmail` only assembles the context and
+  // folds the outcome into the audit + model-id suffixes.
   const meta = args.document.metadata;
   const from = typeof meta.from === "string" ? meta.from : null;
   const to = typeof meta.to === "string" ? meta.to : null;
   const cc = typeof meta.cc === "string" ? meta.cc : null;
-  const kindFloor = applySenderKindDemotionFloor(
-    floorResult.classification,
-    args.observations.senderKind,
-    {
-      signalText,
-      collabVetoText,
-      sender: from,
-      subject: args.document.title,
-      to,
-      cc,
-      accountEmail: args.identity?.email ?? null,
-      collabActivity: floorResult.classification.collabActivity ?? null,
-    },
-  );
-
-  // Meeting-gate floor runs last: it only fires on a surviving `meeting` tag, so
-  // a secret-escalated `urgent` or a sender-kind-demoted `fyi` is already past
-  // meeting and left untouched. Catches the recap/prep/relay leaks the model
-  // reads as "meeting" from the words alone (the ClickUp offsite, oliv.guide
-  // "Meeting notes"/"Meeting prep").
-  const meetingFloor = applyMeetingDemotionFloor(kindFloor.classification, {
-    effectiveAuthor: args.senderContext.effectiveAuthor,
+  const floors = applyFloors(working, {
+    signalText,
+    collabVetoText,
     senderKind: args.observations.senderKind,
+    effectiveAuthor: args.senderContext.effectiveAuthor,
+    sender: from,
     subject: args.document.title,
-    collabActivity: kindFloor.classification.collabActivity ?? null,
+    to,
+    cc,
+    accountEmail: args.identity?.email ?? null,
     contentFlags: args.observations.content,
   });
-  const classification = meetingFloor.classification;
+  const classification = floors.classification;
 
   let model_id = baseModelId;
   if (secondPass) model_id += "+2pass";
   if (secondPassFailure) model_id += "+2pass_failed";
-  if (kindFloor.demoted) model_id += "+kindfloor";
-  if (meetingFloor.demoted) model_id += "+meetingfloor";
-  if (floorResult.forced) model_id += "+floor";
+  if (floors.senderKind.demoted) model_id += "+kindfloor";
+  if (floors.meeting.demoted) model_id += "+meetingfloor";
+  if (floors.override.forced) model_id += "+floor";
 
   return {
     classification,
@@ -1453,12 +984,12 @@ export async function classifyEmail(
       conflict,
       secondPass,
       secondPassFailure,
-      senderKindDemoted: kindFloor.demoted,
-      senderKindDemotionReason: kindFloor.reason,
-      floorMatched: floorResult.matched,
-      floorForced: floorResult.forced,
-      meetingDemoted: meetingFloor.demoted,
-      meetingDemotionReason: meetingFloor.reason,
+      senderKindDemoted: floors.senderKind.demoted,
+      senderKindDemotionReason: floors.senderKind.reason,
+      floorMatched: floors.override.matched,
+      floorForced: floors.override.forced,
+      meetingDemoted: floors.meeting.demoted,
+      meetingDemotionReason: floors.meeting.reason,
     },
   };
 }
@@ -1528,10 +1059,6 @@ export function normalizeClassifierOutput(object: TriageClassification): TriageC
     // has no consumer.
     collabActivity: object.collabActivity ?? null,
   };
-}
-
-export function truncateRationale(value: string): string {
-  return value.length > MAX_RATIONALE_LEN ? `${value.slice(0, MAX_RATIONALE_LEN - 3)}...` : value;
 }
 
 function conservativeUnderClassificationFallback(
