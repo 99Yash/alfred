@@ -646,7 +646,12 @@ export function humanizeToolName(toolName: string): string {
     : humanizeSlug(integration);
 }
 
-function canonicalJson(value: unknown): string {
+/**
+ * Deterministic JSON serialization for hashes that cross durable boundaries.
+ * Object keys are sorted recursively; array order remains significant. Values
+ * that JSON itself omits or normalizes follow the same broad behavior here.
+ */
+export function canonicalJson(value: unknown): string {
   return stringifyCanonical(value, new WeakSet<object>());
 }
 
