@@ -112,3 +112,11 @@ export {
   type ChatHistoryRetrievalDependencies,
   type ReadChatHistoryInput,
 } from "./chat-history-retrieval";
+// Pre-call context guard: compaction owns its recipe, not just its ingredients.
+export {
+  buildCompactedChatTranscriptPair,
+  guardTurnContext,
+  oversizedUserMessageSummaryMessage,
+  storedCompactionPrefix,
+  withEphemeralReference,
+} from "./turn-context-guard";
