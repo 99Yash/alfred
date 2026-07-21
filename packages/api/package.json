@@ -34,6 +34,7 @@
     "@aws-sdk/client-s3": "^3.1073.0",
     "@aws-sdk/s3-presigned-post": "^3.1073.0",
     "@aws-sdk/s3-request-presigner": "^3.1073.0",
+    "@modelcontextprotocol/sdk": "1.29.0",
     "bullmq": "catalog:",
     "cron-parser": "^5.5.0",
     "drizzle-orm": "^0.45.2",
