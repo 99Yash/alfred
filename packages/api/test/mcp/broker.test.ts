@@ -664,4 +664,115 @@ describe("mcp execution broker (DB-backed, offline)", { skip: SKIP }, () => {
     assert.equal(protocol.calls, callsBefore, "a foreign connection never reaches the network");
     assert.equal((await invocationsForStaging(stagingId)).length, 0);
   });
+
+  // #541 part 2: the ledger's correlation breadcrumbs are a copy of the authorizing
+  // staging row's `run_id` / `step_id` / `tool_call_id`, sourced at mint (never
+  // threaded from a ctx that could drift). The two attempt-phase timestamps are
+  // stamped in lifecycle order — distinct from the row's `createdAt` (reservation)
+  // and `resolvedAt` (terminal). Observability only; the barrier keys on `argsHash`.
+  test("correlation ids are copied from the staging row and phase timestamps persisted", async () => {
+    const userId = await seedUser();
+    const connId = await seedConnection(userId);
+    const protocol = new FakeProtocol([tool("create_issue")]);
+    const revision = await liveRevision(protocol, connId);
+
+    const stagingId = await seedStaging(userId);
+    const [staging] = await db()
+      .select({
+        runId: actionStagings.runId,
+        stepId: actionStagings.stepId,
+        toolCallId: actionStagings.toolCallId,
+      })
+      .from(actionStagings)
+      .where(eq(actionStagings.id, stagingId));
+    assert.ok(staging, "seeded staging row");
+
+    const outcome = await brokerWith(protocol).callTool({
+      userId,
+      stagingId,
+      ref: { kind: "mcp", connectionId: connId, remoteName: "create_issue", catalogRevision: revision },
+      arguments: { title: "x" },
+    });
+    assert.equal(outcome.status, "completed");
+
+    const [row] = await invocationsForStaging(stagingId);
+    assert.equal(row?.traceId, staging.runId);
+    assert.equal(row?.stepId, staging.stepId);
+    assert.equal(row?.toolCallId, staging.toolCallId);
+    // Both phases were reached on a clean success, in order.
+    assert.ok(row?.deliveryPossibleAt, "delivery boundary stamped");
+    assert.ok(row?.responseReceivedAt, "response arrival stamped");
+    assert.ok(
+      row.deliveryPossibleAt.getTime() <= row.responseReceivedAt.getTime(),
+      "delivery precedes response",
+    );
+  });
+
+  // A transport failure with no response never crosses the response boundary, so
+  // `responseReceivedAt` stays null even though delivery was possible.
+  test("responseReceivedAt stays null when no response arrives", async () => {
+    const userId = await seedUser();
+    const connId = await seedConnection(userId);
+    const protocol = new FakeProtocol([tool("charge_card")]);
+    protocol.behavior = { kind: "throw", error: new Error("reset mid-send") };
+    const revision = await liveRevision(protocol, connId);
+
+    const stagingId = await seedStaging(userId);
+    const outcome = await brokerWith(protocol).callTool({
+      userId,
+      stagingId,
+      ref: { kind: "mcp", connectionId: connId, remoteName: "charge_card", catalogRevision: revision },
+      arguments: { amount: 1 },
+    });
+    assert.equal(outcome.status, "ambiguous");
+    const [row] = await invocationsForStaging(stagingId);
+    assert.ok(row?.deliveryPossibleAt, "the delivery boundary was still crossed");
+    assert.equal(row?.responseReceivedAt, null, "no response boundary was crossed");
+  });
+
+  // #541 part 2: the ledger must persist enough to reconstruct an ambiguous
+  // attempt WITHOUT ever storing a credential or a full payload. A possibly-
+  // delivered failure whose error text carries a bearer token, URL-embedded
+  // credentials, and a huge body lands on the row bounded + redacted; and the raw
+  // arguments never appear anywhere on the row (only their hash).
+  test("secrets and full payloads never enter the ledger row", async () => {
+    const userId = await seedUser();
+    const connId = await seedConnection(userId);
+    const protocol = new FakeProtocol([tool("charge_card")]);
+    const secretToken = "sk-supersecrettoken1234567890";
+    const urlPassword = "urlpw9876543210";
+    const rawErrorBody = "Z".repeat(3000);
+    protocol.behavior = {
+      kind: "throw",
+      error: new Error(
+        `upstream 500 Authorization: Bearer ${secretToken} ` +
+          `endpoint https://svc:${urlPassword}@mcp.example.test/mcp body=${rawErrorBody}`,
+      ),
+    };
+    const revision = await liveRevision(protocol, connId);
+
+    const secretArg = "topsecretargvalue-should-never-persist";
+    const stagingId = await seedStaging(userId);
+    const outcome = await brokerWith(protocol).callTool({
+      userId,
+      stagingId,
+      ref: { kind: "mcp", connectionId: connId, remoteName: "charge_card", catalogRevision: revision },
+      arguments: { title: secretArg, amount: 4200 },
+    });
+    assert.equal(outcome.status, "ambiguous");
+
+    const [row] = await invocationsForStaging(stagingId);
+    assert.ok(row?.lastError, "the ambiguous outcome records a bounded error");
+    // Secrets stripped.
+    assert.ok(!row.lastError.includes(secretToken), "bearer token must not persist");
+    assert.ok(!row.lastError.includes(urlPassword), "URL-embedded credential must not persist");
+    // Bounded (the 3000-char body cannot land whole).
+    assert.ok(!row.lastError.includes(rawErrorBody), "the raw body must be truncated");
+    assert.ok(row.lastError.length < 600, "the error is bounded well under the raw length");
+    // The raw arguments are hashed, never stored: no column on the row holds them.
+    assert.ok(
+      !JSON.stringify(row).includes(secretArg),
+      "no ledger column may hold the raw argument payload",
+    );
+  });
 });

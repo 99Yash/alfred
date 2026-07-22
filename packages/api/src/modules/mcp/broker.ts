@@ -197,6 +197,9 @@ export class McpExecutionBroker {
         : {}),
       ...(resolved.descriptorHashValue ? { descriptorHash: resolved.descriptorHashValue } : {}),
       ...(resolved.policy ? { policyRevision: resolved.policy.policyRevision } : {}),
+      // Correlation breadcrumbs (trace/step/tool-call) are NOT passed here: they
+      // are copied from the authorizing staging row inside `insertInvocation`, so
+      // they cannot drift from the row this reservation points at (#541).
     });
 
     if (!minted.ok) {
@@ -219,7 +222,10 @@ export class McpExecutionBroker {
     // proposal). A second outbound attempt is legal only via a host-minted
     // successor (`createSuccessorInvocation`). Before admitting any wrapper into
     // this path, confirm its retry is disabled or provably pre-delivery.
-    await updateInvocation(invocation.id, { attemptLifecycle: "delivery_possible" });
+    await updateInvocation(invocation.id, {
+      attemptLifecycle: "delivery_possible",
+      deliveryPossibleAt: new Date(),
+    });
 
     try {
       const envelope = await this.#manager.callTool(ref, input.arguments, {
@@ -255,7 +261,11 @@ export class McpExecutionBroker {
       const provenance = err instanceof McpClientError ? err.provenance : undefined;
       await updateInvocation(invocation.id, {
         ...(provenance
-          ? { attemptLifecycle: "response_received", resultProvenance: provenance }
+          ? {
+              attemptLifecycle: "response_received",
+              responseReceivedAt: new Date(),
+              resultProvenance: provenance,
+            }
           : {}),
         effectOutcome: "unknown",
         retryDisposition: "blocked",
@@ -278,6 +288,7 @@ export class McpExecutionBroker {
       // view reconstructs from (#541).
       await updateInvocation(invocation.id, {
         attemptLifecycle: "response_received",
+        responseReceivedAt: new Date(),
         effectOutcome: "rejected",
         retryDisposition: "safe",
         resolvedAt: new Date(),
@@ -288,6 +299,7 @@ export class McpExecutionBroker {
     }
     await updateInvocation(invocation.id, {
       attemptLifecycle: "response_received",
+      responseReceivedAt: new Date(),
       effectOutcome: "succeeded",
       resolvedAt: new Date(),
       resolutionReason: "succeeded",
