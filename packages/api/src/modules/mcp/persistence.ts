@@ -23,6 +23,7 @@
 import { isIndexable } from "@alfred/contracts";
 import { db, type DbTransaction } from "@alfred/db";
 import {
+  actionStagings,
   mcpCatalogRevisions,
   mcpConnections,
   mcpInvocation,
@@ -315,6 +316,33 @@ export type InsertInvocationResult =
   | { ok: false; reason: "barrier" | "duplicate_staging" };
 
 /**
+ * The correlation breadcrumbs a ledger row carries so an ambiguous attempt is
+ * reconstructable across Alfred's own traces (#541). They are a DENORMALIZED COPY
+ * of the authorizing `action_stagings` row (`run_id` / `step_id` / `tool_call_id`),
+ * which is the source of truth and already reachable via the 1:1 `staging_id` FK;
+ * they live on the ledger only so an operator can pivot from a trace id to the row
+ * without the join. Because nothing in the DB enforces the copy stays equal to its
+ * staging twin, EVERY minter sources it HERE — from the staging row it is about to
+ * point at — rather than from a separately-threaded dispatch ctx that could drift.
+ * Sourcing it at the single insert choke point IS that enforcement.
+ */
+async function stagingCorrelation(
+  stagingId: string,
+  runner: Db,
+): Promise<{ traceId: string; stepId: string; toolCallId: string }> {
+  const [staging] = await runner
+    .select({
+      traceId: actionStagings.runId,
+      stepId: actionStagings.stepId,
+      toolCallId: actionStagings.toolCallId,
+    })
+    .from(actionStagings)
+    .where(eq(actionStagings.id, stagingId))
+    .limit(1);
+  return requireRow(staging, "stagingCorrelation");
+}
+
+/**
  * Reserve an operation by inserting its ledger row. The row is minted BEFORE
  * network dispatch, so a crash mid-flight still leaves durable evidence. The row
  * insert IS the ambiguity barrier: the partial unique index on
@@ -327,8 +355,12 @@ export async function insertInvocation(
   values: NewMcpInvocation,
   runner: Db = db(),
 ): Promise<InsertInvocationResult> {
+  const correlation = await stagingCorrelation(values.stagingId, runner);
   try {
-    const [invocation] = await runner.insert(mcpInvocation).values(values).returning();
+    const [invocation] = await runner
+      .insert(mcpInvocation)
+      .values({ ...values, ...correlation })
+      .returning();
     return { ok: true, invocation: requireRow(invocation, "insertInvocation") };
   } catch (err) {
     const constraint = pgConstraintOnUniqueViolation(err);
@@ -466,9 +498,14 @@ export async function createSuccessorInvocation(
       return { ok: false, reason: "prior_already_resolved" };
     }
 
+    // Source correlation from the successor's OWN staging row (a fresh
+    // authorization, distinct from the prior's), so its ledger breadcrumbs point
+    // at the trace that minted it — never inherited from the prior and never able
+    // to drift from the row this successor FKs to.
+    const correlation = await stagingCorrelation(input.successor.stagingId, tx);
     const [successor] = await tx
       .insert(mcpInvocation)
-      .values({ ...input.successor, successorOf: input.priorId })
+      .values({ ...input.successor, ...correlation, successorOf: input.priorId })
       .returning();
     return { ok: true, successor: requireRow(successor, "createSuccessorInvocation") };
   };

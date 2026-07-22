@@ -665,35 +665,40 @@ describe("mcp execution broker (DB-backed, offline)", { skip: SKIP }, () => {
     assert.equal((await invocationsForStaging(stagingId)).length, 0);
   });
 
-  // #541 part 2: host-owned correlation breadcrumbs land on the ledger row, and
-  // the two attempt-phase timestamps are stamped in lifecycle order — distinct
-  // from the row's `createdAt` (reservation) and `resolvedAt` (terminal). This is
-  // observability only; the barrier still keys on `argsHash`, never these ids.
-  test("correlation ids and attempt-phase timestamps are persisted on the ledger row", async () => {
+  // #541 part 2: the ledger's correlation breadcrumbs are a copy of the authorizing
+  // staging row's `run_id` / `step_id` / `tool_call_id`, sourced at mint (never
+  // threaded from a ctx that could drift). The two attempt-phase timestamps are
+  // stamped in lifecycle order — distinct from the row's `createdAt` (reservation)
+  // and `resolvedAt` (terminal). Observability only; the barrier keys on `argsHash`.
+  test("correlation ids are copied from the staging row and phase timestamps persisted", async () => {
     const userId = await seedUser();
     const connId = await seedConnection(userId);
     const protocol = new FakeProtocol([tool("create_issue")]);
     const revision = await liveRevision(protocol, connId);
 
     const stagingId = await seedStaging(userId);
-    const correlation = {
-      traceId: `run_${randomUUID().slice(0, 12)}`,
-      stepId: "dispatch-tools",
-      toolCallId: `tc_${randomUUID().slice(0, 8)}`,
-    };
+    const [staging] = await db()
+      .select({
+        runId: actionStagings.runId,
+        stepId: actionStagings.stepId,
+        toolCallId: actionStagings.toolCallId,
+      })
+      .from(actionStagings)
+      .where(eq(actionStagings.id, stagingId));
+    assert.ok(staging, "seeded staging row");
+
     const outcome = await brokerWith(protocol).callTool({
       userId,
       stagingId,
       ref: { kind: "mcp", connectionId: connId, remoteName: "create_issue", catalogRevision: revision },
       arguments: { title: "x" },
-      correlation,
     });
     assert.equal(outcome.status, "completed");
 
     const [row] = await invocationsForStaging(stagingId);
-    assert.equal(row?.traceId, correlation.traceId);
-    assert.equal(row?.stepId, correlation.stepId);
-    assert.equal(row?.toolCallId, correlation.toolCallId);
+    assert.equal(row?.traceId, staging.runId);
+    assert.equal(row?.stepId, staging.stepId);
+    assert.equal(row?.toolCallId, staging.toolCallId);
     // Both phases were reached on a clean success, in order.
     assert.ok(row?.deliveryPossibleAt, "delivery boundary stamped");
     assert.ok(row?.responseReceivedAt, "response arrival stamped");

@@ -261,18 +261,33 @@ export const mcpInvocation = pgTable(
     resolutionReason: text("resolution_reason"),
     lastError: text("last_error"),
     /**
-     * Host-owned correlation evidence (#541). Enough redacted breadcrumbs to
-     * reconstruct an ambiguous attempt across Alfred's own traces WITHOUT storing
-     * credentials, args, or results. These are observability ONLY — never an
-     * authority or idempotency key (the barrier key stays `argsHash`), so they are
-     * nullable, unindexed, and carry no FK. All are absent for a read (reads bypass
-     * the ledger) and for a crash-reconstructed row that never carried them.
+     * Host-owned correlation evidence (#541). Enough breadcrumbs to reconstruct an
+     * ambiguous attempt across Alfred's own traces WITHOUT storing credentials,
+     * args, or results. Observability ONLY — never an authority or idempotency key
+     * (the barrier key stays `argsHash`), so they are unindexed and carry no FK.
+     *
+     * These are a DENORMALIZED COPY of the authorizing `action_stagings` row
+     * (`run_id` / `step_id` / `tool_call_id`) — the source of truth, always
+     * reachable via the 1:1 `staging_id` FK — kept here only so an operator can
+     * pivot from a trace id to the row without the join. Nothing in the DB enforces
+     * the copy stays equal to its staging twin; the enforcement is that every
+     * minter sources these from the staging row at insert (`stagingCorrelation` in
+     * `persistence.ts`), never from a separately-threaded ctx that could drift.
+     *
+     * Nullable only to tolerate rows minted before these columns existed; every row
+     * minted since carries them (its `staging_id` is `notNull`). A read persists no
+     * row at all, so it has no correlation to be absent.
      */
-    /** The agent-run trace id (`ctx.runId`) — the Langfuse trace this call groups under. */
+    /** Copy of the staging row's `run_id` — the agent-run / Langfuse trace this call groups under. */
     traceId: text("trace_id"),
-    /** The executor step that originated the intent (`ctx.stepId`). */
+    /**
+     * Copy of the staging row's `step_id`: the dispatch pipeline-STAGE label, not an
+     * intent identifier. Both live dispatch callers stage from the fixed
+     * `"dispatch-tools"` step, so this is currently a constant with no disambiguating
+     * power on its own — `tool_call_id` is what separates two calls in one run.
+     */
     stepId: text("step_id"),
-    /** The model's local tool-call id (`ctx.toolCallId`) — distinct from the staging row. */
+    /** Copy of the staging row's `tool_call_id` — the model's local tool-call id, distinct from the staging row's own id. */
     toolCallId: text("tool_call_id"),
     /**
      * Attempt-phase timestamps, distinct from the row's `createdAt` (reservation)
