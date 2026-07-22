@@ -12,6 +12,7 @@ import { docsTools } from "./docs";
 import { driveTools } from "./drive";
 import { githubTools } from "./github";
 import { gmailTools } from "./gmail";
+import { mcpTools } from "./mcp";
 import { notionTools } from "./notion";
 import { railwayTools } from "./railway";
 import { assertKernelToolsRegistered, registerTools } from "./registry";
@@ -46,5 +47,6 @@ export function registerBuiltinTools(): void {
   registerTools(notionTools);
   registerTools(railwayTools);
   registerTools(vercelTools);
+  registerTools(mcpTools);
   assertKernelToolsRegistered(systemTools);
 }

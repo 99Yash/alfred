@@ -37,6 +37,7 @@ import {
 } from "./artifacts";
 import { githubSearchQueryIssues, sanitizeGithubSearchQuery } from "./github-search";
 import { isRecord } from "./guards";
+import { mcpCallInput, mcpListToolsInput } from "./mcp";
 import { graphqlPassthroughRequestSchema, restPassthroughRequestSchema } from "./passthrough";
 import { todoSourceSchema } from "./todos";
 import {
@@ -1731,6 +1732,8 @@ export const TOOL_INPUT_SCHEMAS = {
   "system.append_artifact_page": appendArtifactPageInput,
   "system.append_artifact_section": appendArtifactSectionInput,
   "system.update_artifact": updateArtifactInput,
+  "mcp.call": mcpCallInput,
+  "mcp.list_tools": mcpListToolsInput,
 } satisfies Partial<Record<ToolName, z.ZodType>>;
 
 /**
