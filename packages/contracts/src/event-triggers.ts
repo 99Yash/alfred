@@ -1,3 +1,5 @@
+import { enumGuard } from "./guards";
+
 export const EVENT_SOURCES = ["gmail", "google.oauth.callback", "learn-skill"] as const;
 export type EventSource = (typeof EVENT_SOURCES)[number];
 
@@ -24,13 +26,9 @@ export const EVENT_TYPES = Object.freeze([
   ...new Set(Object.values(EVENT_TYPES_BY_SOURCE).flat()),
 ]) as readonly EventType[];
 
-export function isEventSource(value: string): value is EventSource {
-  return (EVENT_SOURCES as readonly string[]).includes(value);
-}
+export const isEventSource = enumGuard(EVENT_SOURCES);
 
-export function isEventType(value: string): value is EventType {
-  return (EVENT_TYPES as readonly string[]).includes(value);
-}
+export const isEventType = enumGuard(EVENT_TYPES);
 
 export function isEventTypeForSource<S extends EventSource>(
   source: S,
