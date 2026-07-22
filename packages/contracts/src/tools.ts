@@ -18,7 +18,16 @@ export const LOADABLE_INTEGRATION_SLUGS = [
 ] as const;
 export type LoadableIntegrationSlug = (typeof LOADABLE_INTEGRATION_SLUGS)[number];
 
-export const INTEGRATION_SLUGS = ["system", ...LOADABLE_INTEGRATION_SLUGS] as const;
+/**
+ * `mcp` is an integration slug but deliberately NOT loadable: it is not an
+ * OAuth-connectable provider with a REST/GraphQL passthrough surface, but a
+ * projection of N independent third-party MCP connections behind two fixed
+ * actions. Keeping it out of `LOADABLE_INTEGRATION_SLUGS` avoids forcing it
+ * into the passthrough coverage / connected-catalog maps, while keeping it a
+ * non-`system` slug preserves the per-user policy gate (only `system` is forced
+ * to autonomy in dispatch) and the ADR-0069 high-tier floor.
+ */
+export const INTEGRATION_SLUGS = ["system", "mcp", ...LOADABLE_INTEGRATION_SLUGS] as const;
 export type IntegrationSlug = (typeof INTEGRATION_SLUGS)[number];
 
 /**
@@ -52,6 +61,11 @@ export const INTEGRATION_ACTIONS = {
     "append_artifact_section",
     "update_artifact",
   ],
+  // Two fixed actions project N third-party MCP connections into the closed
+  // union: `mcp.call` (route a remote tools/call through dispatch) and
+  // `mcp.list_tools` (bounded local read of the persisted catalog). The remote
+  // tool name and connection ride in the args, never in the tool name.
+  mcp: ["call", "list_tools"],
   gmail: ["search", "read_message", "send_draft", "request"],
   calendar: ["list_events", "create_event", "request"],
   drive: ["search_files", "get_file", "export_file", "download_file", "request"],
@@ -297,6 +311,17 @@ export const TOOL_LABELS: Record<ToolName, ToolLabel> = {
     running: "Updating an artifact",
     done: "Updated an artifact",
     title: "update an artifact",
+  },
+
+  "mcp.call": {
+    running: "Calling a connected tool",
+    done: "Called a connected tool",
+    title: "call a connected tool",
+  },
+  "mcp.list_tools": {
+    running: "Listing connected tools",
+    done: "Listed connected tools",
+    title: "list connected tools",
   },
 
   "gmail.search": { running: "Searching Gmail", done: "Searched Gmail", title: "search Gmail" },
@@ -567,6 +592,9 @@ export const TOOL_CATEGORIES: Record<ToolName, ToolCategory> = {
   "system.append_artifact_page": "action",
   "system.append_artifact_section": "action",
   "system.update_artifact": "action",
+
+  "mcp.call": "action",
+  "mcp.list_tools": "system",
 
   "gmail.search": "source",
   "gmail.read_message": "source",

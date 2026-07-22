@@ -1,5 +1,6 @@
 import {
   humanizeSlug,
+  isLoadableIntegrationSlug,
   isPassthroughPreferenceOn,
   isSupportedPassthroughSlug,
   PASSTHROUGH_PREFERENCE_KEYS,
@@ -236,7 +237,11 @@ export function evaluateToolAvailability(
     return { available: true };
   }
 
-  if (tool.integration !== "system") {
+  // Loadable (OAuth-connected) integrations gate on their connection health.
+  // `system` and `mcp` are not in this snapshot: `mcp` connection health lives
+  // on `mcp_connections` and is resolved by the broker/connection manager, so
+  // an `mcp.*` tool is not blocked here.
+  if (isLoadableIntegrationSlug(tool.integration)) {
     const health = snapshot.integrations.get(tool.integration)?.health;
     if (health === "needs_reauth") {
       return { available: false, code: "needs_reauth", reason: `${name} needs to be reconnected.` };

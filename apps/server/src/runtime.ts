@@ -16,6 +16,7 @@ import {
   ensureDefaultActionPolicyForUser,
   initEventBridge,
   initReplicachePokeBridge,
+  reconcileInflightInvocations,
   registerBuiltinTools,
   registerOnUserCreated,
   scheduleRepeatableBriefingJobs,
@@ -68,6 +69,14 @@ export async function startRuntime(): Promise<void> {
   // `model_prices.context_window`. A missing value means the compactor
   // can't size its 60% threshold, so the boss would loop unbounded.
   await verifyMeteringModels();
+
+  // Crash-recovery barrier sweep (ADR-0018): resolve MCP invocations that a
+  // prior process left in-flight — abandoned `prepared` rows and idempotent
+  // reads clear; genuinely ambiguous writes stay blocked so an identical repeat
+  // keeps rejecting until a host-minted successor. Runs once the pool is warm
+  // and before any worker can pick up an MCP call.
+  await reconcileInflightInvocations();
+
   await initEventBridge();
   await initReplicachePokeBridge();
 

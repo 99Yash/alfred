@@ -76,6 +76,13 @@ export interface ToolExecuteContext {
   stepId: string;
   /** Stable id from the model's tool call — used as the staging row's tool_call_id. */
   toolCallId: string;
+  /**
+   * The `action_stagings` row id this execution is committing, when the call went
+   * through the staged/approved path. Present only for staged tools (the fast
+   * path has no staging row and leaves it undefined). The MCP execution broker
+   * needs it to mint its durable operation ledger row 1:1 with the staging row.
+   */
+  stagingId?: string;
   userId: string;
   /**
    * The user's operational IANA timezone (the `"timezone"` pref, falling back

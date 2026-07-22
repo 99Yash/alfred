@@ -123,5 +123,11 @@ export function isMcpSessionExpiredError(err: unknown): boolean {
 }
 
 function requestOptions(timeout: number, signal?: AbortSignal) {
+  // `maxTotalTimeout === timeout` deliberately collapses the SDK's progress-based
+  // timeout EXTENSION: a server streaming progress notifications can otherwise
+  // keep a `tools/call` alive past `timeout`, blurring the delivery boundary the
+  // broker's ambiguity ledger depends on. This is NOT a retry — the SDK never
+  // re-sends a `tools/call` — but capping total time keeps a single attempt from
+  // silently outliving its window. See the no-replay invariant in `broker.ts`.
   return { timeout, maxTotalTimeout: timeout, ...(signal ? { signal } : {}) };
 }
