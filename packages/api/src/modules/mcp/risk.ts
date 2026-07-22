@@ -19,13 +19,25 @@
  *     a downgrade binds to the descriptor it was granted for, so drift produces a
  *     fresh key, a miss, and a re-gate).
  *
- * The broker re-resolves the SAME `(connection, remoteName, descriptorHash)`
- * policy at execute time against the LIVE catalog to drive the effect/ambiguity
- * axis (`broker.ts`); this function drives only the approval axis. They read the
- * same reviewed row on purpose, so a downgrade is coherent across both.
+ * The broker resolves policy on the SAME `(connection, remoteName, descriptorHash)`
+ * key at execute time to drive the effect/ambiguity axis (`broker.ts`); this
+ * function drives only the approval axis. They land on the same descriptor hash —
+ * and thus the same reviewed row — ONLY when the catalog does not drift between
+ * gate and execute: the gate reads `revision.descriptorHashes[remoteName]` off the
+ * connection's current-at-gate revision, while the broker recomputes
+ * `descriptorHash(liveTool)` from the live catalog. Under drift they diverge, and
+ * both INDEPENDENTLY fall back to their conservative default (the `high` floor
+ * here; `unknown`/effectful there). So the two axes are not guaranteed coherent —
+ * they are guaranteed to each default conservatively on divergence.
+ *
+ * NOTE (hot path): this runs on EVERY `mcp.call` dispatch and does three serial
+ * DB reads (connection → revision → policy), and the connection is read a second
+ * time in the broker at execute. Acceptable for a heavyweight outbound MCP call,
+ * but it is redundant work on the gate path — collapse into one read if the gate
+ * ever needs to run cheaper.
  */
 
-import type { ToolRiskTier } from "@alfred/contracts";
+import { isToolRiskTier, type ToolRiskTier } from "@alfred/contracts";
 import { readConnection, readRevisionById, readToolPolicy } from "./persistence";
 
 /** The conservative floor an `mcp.call` falls back to when no reviewed downgrade applies. */
@@ -62,5 +74,9 @@ export async function resolveMcpCallRiskTier(input: McpCallRiskInput): Promise<T
   if (!descriptorHash) return MCP_CALL_RISK_FLOOR;
 
   const policy = await readToolPolicy(input.connectionId, input.remoteName, descriptorHash);
-  return policy?.riskTier ?? MCP_CALL_RISK_FLOOR;
+  // `policy.riskTier` is a `$type<ToolRiskTier>()` cast over persisted `text`, not
+  // a validated value. Treat it as `unknown` (repo invariant): a corrupt or
+  // out-of-enum tier must re-gate to the floor, never silently un-gate — only
+  // `"high"` gates, so an unrecognized string would otherwise waive approval.
+  return isToolRiskTier(policy?.riskTier) ? policy.riskTier : MCP_CALL_RISK_FLOOR;
 }

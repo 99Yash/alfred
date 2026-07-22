@@ -135,9 +135,21 @@ export interface LiveToolArgs<
    * dispatch gate, overriding the static `riskTier`. `mcp.call` uses it to apply
    * a reviewed per-descriptor downgrade (#541) — its static `riskTier` is the
    * pessimistic floor, and this narrows it only when a reviewed policy binds to
-   * the exact tool being called. MUST be conservative (any uncertainty returns
-   * the static floor) and side-effect free: it runs on EVERY dispatch of the
-   * tool, before staging.
+   * the exact tool being called.
+   *
+   * TRUST BOUNDARY — read before adding a second implementer. The dispatcher does
+   * NOT clamp what this returns (it cannot: the whole point is to go *below* the
+   * static floor), so `toolRequiresApproval` gates on the returned tier verbatim —
+   * any value other than `high` waives approval. This hook is therefore the SOLE
+   * gate on lowering a tool's approval floor: there is no central guard, type, or
+   * test that makes an over-permissive return impossible. So it MUST be
+   * fail-closed — every point of uncertainty returns the static floor — and
+   * side-effect free (it runs on EVERY dispatch, before staging). Today `mcp.call`
+   * is the only caller and the decision is centralized in `resolveMcpCallRiskTier`;
+   * a second caller that returns a lower tier on a bug silently un-gates a
+   * high-floor action. If this grows past one caller, promote the guard from this
+   * convention into a central clamp/audit rather than another careful function.
+   * See decisions.md (ADR-0088).
    */
   resolveRiskTier?: (input: z.infer<S>, ctx: ToolExecuteContext) => Promise<ToolRiskTier>;
   description: string;
