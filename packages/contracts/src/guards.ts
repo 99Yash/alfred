@@ -115,6 +115,29 @@ export function getStringPath(value: unknown, ...keys: string[]): string | undef
 }
 
 /**
+ * Build a membership guard for a fixed set of string literals — the
+ * `typeof value === "string" && (TUPLE as readonly string[]).includes(value)`
+ * boilerplate that was hand-copied onto every wire enum. Pass the `as const`
+ * tuple that already defines the enum and get back the guard that narrows to its
+ * member union, so the tuple stays the single source of truth: the type
+ * (`typeof TUPLE[number]`), a `z.enum(TUPLE)` where parsing is needed, and this
+ * guard are three projections of one declaration rather than parallel shapes.
+ *
+ * Accepts `unknown` (the `typeof` check makes the raw `.has` sound), so it
+ * covers both the persisted-value guards and the already-`string` slug guards.
+ * The lookup set is built once when the guard is created, not per call.
+ *
+ *   export const isToolRiskTier = enumGuard(TOOL_RISK_TIERS);
+ *   // (value: unknown) => value is ToolRiskTier
+ */
+export function enumGuard<const T extends readonly string[]>(
+  values: T,
+): (value: unknown) => value is T[number] {
+  const members: ReadonlySet<string> = new Set(values);
+  return (value): value is T[number] => typeof value === "string" && members.has(value);
+}
+
+/**
  * Pull the bare lowercase `local@domain` out of a `From:`-style header,
  * unwrapping a `"Display Name <addr>"` form when present and dropping anything
  * with no `@`. Returns `null` for empty/garbage input.

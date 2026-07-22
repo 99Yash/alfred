@@ -8,6 +8,7 @@
  */
 
 import { z } from "zod";
+import { enumGuard } from "./guards";
 
 export const TRIAGE_CATEGORIES = [
   "urgent",
@@ -43,9 +44,7 @@ export const TRIAGE_DISPLAY: Record<TriageCategory, string> = {
   marketing: "Marketing",
 };
 
-export function isTriageCategory(value: unknown): value is TriageCategory {
-  return typeof value === "string" && (TRIAGE_CATEGORIES as readonly string[]).includes(value);
-}
+export const isTriageCategory = enumGuard(TRIAGE_CATEGORIES);
 
 export const triageCategorySchema = z.enum(TRIAGE_CATEGORIES);
 

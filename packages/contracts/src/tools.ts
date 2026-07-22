@@ -1,3 +1,5 @@
+import { enumGuard } from "./guards";
+
 export const POLICY_MODES = ["autonomy", "gated"] as const;
 export type PolicyMode = (typeof POLICY_MODES)[number];
 
@@ -113,9 +115,7 @@ export type ToolRiskTier = (typeof TOOL_RISK_TIERS)[number];
  * value silently un-gates. Treat persisted tiers as `unknown` and re-gate to the
  * conservative floor when this returns false.
  */
-export function isToolRiskTier(value: unknown): value is ToolRiskTier {
-  return typeof value === "string" && (TOOL_RISK_TIERS as readonly string[]).includes(value);
-}
+export const isToolRiskTier = enumGuard(TOOL_RISK_TIERS);
 
 /**
  * Per-tier tool counts for one integration (a UX hint for the integration
@@ -162,9 +162,7 @@ export function buildToolName<I extends IntegrationSlug, A extends ActionSlug<I>
   throw new Error(`Unknown tool name '${name}'`);
 }
 
-export function isIntegrationSlug(value: string): value is IntegrationSlug {
-  return (INTEGRATION_SLUGS as readonly string[]).includes(value);
-}
+export const isIntegrationSlug = enumGuard(INTEGRATION_SLUGS);
 
 export function isToolName(value: string): value is ToolName {
   const separator = value.indexOf(".");
@@ -178,9 +176,7 @@ export function isToolName(value: string): value is ToolName {
   return actions.includes(action);
 }
 
-export function isLoadableIntegrationSlug(value: string): value is LoadableIntegrationSlug {
-  return (LOADABLE_INTEGRATION_SLUGS as readonly string[]).includes(value);
-}
+export const isLoadableIntegrationSlug = enumGuard(LOADABLE_INTEGRATION_SLUGS);
 
 export function hashToolInput(toolName: ToolName, input: unknown): string {
   return `fnv1a64:${fnv1a64(`${toolName}:${canonicalJson(input)}`)}`;
