@@ -1,3 +1,5 @@
+import type { McpResultProvenance } from "@alfred/contracts";
+
 export const MCP_CLIENT_ERROR_CODES = [
   "not_connected",
   "session_expired",
@@ -47,10 +49,23 @@ export function isPreDeliveryErrorCode(code: McpClientErrorCode): boolean {
 /** A deterministic client/broker rejection, safe for callers to branch on. */
 export class McpClientError extends Error {
   readonly code: McpClientErrorCode;
+  /**
+   * The content census computed at the instant a response crossed the wire,
+   * attached when the failure happened AFTER delivery (today: `invalid_output`).
+   * It lets the broker persist result provenance for an otherwise-ambiguous
+   * outcome (#541) instead of losing everything but an error string to prose.
+   * Absent for pre-delivery / transport failures, where no response was received.
+   */
+  readonly provenance?: McpResultProvenance;
 
-  constructor(code: McpClientErrorCode, message: string) {
+  constructor(
+    code: McpClientErrorCode,
+    message: string,
+    options?: { provenance?: McpResultProvenance },
+  ) {
     super(message);
     this.name = "McpClientError";
     this.code = code;
+    if (options?.provenance) this.provenance = options.provenance;
   }
 }
