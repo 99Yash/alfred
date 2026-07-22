@@ -52,6 +52,22 @@ const AMBIGUOUS_MESSAGE =
   "The remote MCP write may have completed, but Alfred did not receive a confirmation. " +
   "It will not be repeated automatically until its state is checked.";
 
+/**
+ * Host-owned correlation breadcrumbs for the ledger row (#541). Pure
+ * observability — the broker NEVER derives authority, an idempotency key, or a
+ * retry decision from any of these; they only make an ambiguous attempt
+ * reconstructable across Alfred's own traces. All optional: a caller with no
+ * trace context (a script, a reconcile-driven successor) simply omits them.
+ */
+export interface McpBrokerCorrelation {
+  /** The agent-run trace id (`ctx.runId`). */
+  traceId?: string;
+  /** The executor step that originated the intent (`ctx.stepId`). */
+  stepId?: string;
+  /** The model's local tool-call id (`ctx.toolCallId`). */
+  toolCallId?: string;
+}
+
 export interface McpBrokerCallInput {
   userId: string;
   /** The `action_stagings` row that authorized this call (1:1 with the ledger row). */
@@ -59,6 +75,8 @@ export interface McpBrokerCallInput {
   ref: ExternalToolRef;
   /** Opaque MCP arguments — validated against the exact tool schema by the raw client. */
   arguments: unknown;
+  /** Redacted, host-owned correlation evidence persisted on the ledger row. */
+  correlation?: McpBrokerCorrelation;
   signal?: AbortSignal;
 }
 
@@ -197,6 +215,11 @@ export class McpExecutionBroker {
         : {}),
       ...(resolved.descriptorHashValue ? { descriptorHash: resolved.descriptorHashValue } : {}),
       ...(resolved.policy ? { policyRevision: resolved.policy.policyRevision } : {}),
+      // Correlation is minted with the reservation so a row that crashes before
+      // any lifecycle advance is still traceable. Spread only the ids present.
+      ...(input.correlation?.traceId ? { traceId: input.correlation.traceId } : {}),
+      ...(input.correlation?.stepId ? { stepId: input.correlation.stepId } : {}),
+      ...(input.correlation?.toolCallId ? { toolCallId: input.correlation.toolCallId } : {}),
     });
 
     if (!minted.ok) {
@@ -219,7 +242,10 @@ export class McpExecutionBroker {
     // proposal). A second outbound attempt is legal only via a host-minted
     // successor (`createSuccessorInvocation`). Before admitting any wrapper into
     // this path, confirm its retry is disabled or provably pre-delivery.
-    await updateInvocation(invocation.id, { attemptLifecycle: "delivery_possible" });
+    await updateInvocation(invocation.id, {
+      attemptLifecycle: "delivery_possible",
+      deliveryPossibleAt: new Date(),
+    });
 
     try {
       const envelope = await this.#manager.callTool(ref, input.arguments, {
@@ -255,7 +281,11 @@ export class McpExecutionBroker {
       const provenance = err instanceof McpClientError ? err.provenance : undefined;
       await updateInvocation(invocation.id, {
         ...(provenance
-          ? { attemptLifecycle: "response_received", resultProvenance: provenance }
+          ? {
+              attemptLifecycle: "response_received",
+              responseReceivedAt: new Date(),
+              resultProvenance: provenance,
+            }
           : {}),
         effectOutcome: "unknown",
         retryDisposition: "blocked",
@@ -278,6 +308,7 @@ export class McpExecutionBroker {
       // view reconstructs from (#541).
       await updateInvocation(invocation.id, {
         attemptLifecycle: "response_received",
+        responseReceivedAt: new Date(),
         effectOutcome: "rejected",
         retryDisposition: "safe",
         resolvedAt: new Date(),
@@ -288,6 +319,7 @@ export class McpExecutionBroker {
     }
     await updateInvocation(invocation.id, {
       attemptLifecycle: "response_received",
+      responseReceivedAt: new Date(),
       effectOutcome: "succeeded",
       resolvedAt: new Date(),
       resolutionReason: "succeeded",

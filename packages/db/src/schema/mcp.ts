@@ -261,6 +261,29 @@ export const mcpInvocation = pgTable(
     resolutionReason: text("resolution_reason"),
     lastError: text("last_error"),
     /**
+     * Host-owned correlation evidence (#541). Enough redacted breadcrumbs to
+     * reconstruct an ambiguous attempt across Alfred's own traces WITHOUT storing
+     * credentials, args, or results. These are observability ONLY — never an
+     * authority or idempotency key (the barrier key stays `argsHash`), so they are
+     * nullable, unindexed, and carry no FK. All are absent for a read (reads bypass
+     * the ledger) and for a crash-reconstructed row that never carried them.
+     */
+    /** The agent-run trace id (`ctx.runId`) — the Langfuse trace this call groups under. */
+    traceId: text("trace_id"),
+    /** The executor step that originated the intent (`ctx.stepId`). */
+    stepId: text("step_id"),
+    /** The model's local tool-call id (`ctx.toolCallId`) — distinct from the staging row. */
+    toolCallId: text("tool_call_id"),
+    /**
+     * Attempt-phase timestamps, distinct from the row's `createdAt` (reservation)
+     * and `resolvedAt` (terminal). `deliveryPossibleAt` is stamped at the moment
+     * the lifecycle crosses the delivery boundary; `responseReceivedAt` at the
+     * moment a response (clean, tool-error, or malformed) crossed the wire. Null
+     * whenever the corresponding phase was never reached.
+     */
+    deliveryPossibleAt: timestamp("delivery_possible_at", { withTimezone: true }),
+    responseReceivedAt: timestamp("response_received_at", { withTimezone: true }),
+    /**
      * Bounded, payload-free record of what the server actually returned (#541),
      * persisted SEPARATELY from the sanitized model projection in
      * `action_stagings.execute_result` so an effectful attempt stays
