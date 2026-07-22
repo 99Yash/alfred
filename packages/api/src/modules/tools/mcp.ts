@@ -88,6 +88,9 @@ export const mcpTools: readonly RegisteredTool[] = [
         stagingId: ctx.stagingId,
         ref,
         arguments: input.arguments,
+        // Correlation (trace/step/tool-call) is NOT threaded from ctx: the broker's
+        // persistence layer copies it from the authorizing staging row at mint, so
+        // the ledger's breadcrumbs cannot drift from the row they describe (#541).
       });
       return brokerResult(outcome);
     },

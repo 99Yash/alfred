@@ -31,6 +31,12 @@ test("redactSecrets strips bearer/basic tokens and secret-keyed values", () => {
   assert.match(out, /keep me/);
 
   assert.ok(!redactSecrets("?refresh_token=abc123def&page=2").includes("abc123def"));
+
+  // Credentials positional in a URL's userinfo — not keyed, so only the
+  // userinfo pass catches them. Host/path survive so the error stays useful.
+  const urlCreds = redactSecrets("connect failed https://svc:s3cr3tToken@mcp.example.com/mcp");
+  assert.ok(!urlCreds.includes("s3cr3tToken"));
+  assert.match(urlCreds, /\[redacted\]@mcp\.example\.com\/mcp/);
 });
 
 test("summarizeBody redacts then bounds with a visible marker", () => {
