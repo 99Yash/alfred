@@ -243,7 +243,20 @@ export class McpExecutionBroker {
       // Possibly delivered (session_expired, invalid_output, transport/abort). The
       // write may have happened; leave the row UNRESOLVED so the barrier keeps
       // rejecting an identical repeat until a host-minted successor or a user check.
+      //
+      // If a response actually crossed the wire (today: invalid_output), the raw
+      // client carries its census on the error — persist it and advance the
+      // lifecycle to `response_received`, so the highest-value audit case (a
+      // possibly-completed effect with a malformed response) stays reconstructable
+      // from provenance, not just an error string (#541). The outcome stays
+      // unknown/blocked: a malformed response can't prove the effect. When no
+      // response arrived (transport/abort/session_expired), provenance is absent
+      // and the lifecycle never advances past the delivery boundary.
+      const provenance = err instanceof McpClientError ? err.provenance : undefined;
       await updateInvocation(invocation.id, {
+        ...(provenance
+          ? { attemptLifecycle: "response_received", resultProvenance: provenance }
+          : {}),
         effectOutcome: "unknown",
         retryDisposition: "blocked",
         resolutionReason: "ambiguous_delivery",

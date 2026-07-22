@@ -486,6 +486,19 @@ describe("mcp execution broker (DB-backed, offline)", { skip: SKIP }, () => {
     assert.equal(row?.effectOutcome, "unknown");
     assert.equal(row?.retryDisposition, "blocked");
     assert.equal(row?.resolvedAt, null);
+    // A response DID cross the wire, so provenance is persisted even though the
+    // outcome is ambiguous (#541): the lifecycle advances to `response_received`
+    // and the census records `outputSchemaValidated: false` — the very fact that
+    // explains the failure — rather than being lost to an error string.
+    assert.equal(row?.attemptLifecycle, "response_received");
+    assert.deepEqual(row?.resultProvenance, {
+      isError: false,
+      hasStructuredContent: true,
+      outputSchemaValidated: false,
+      contentBlockCount: 1,
+      contentKinds: { text: 1 },
+      truncated: false,
+    });
   });
 
   // Ambiguous-write protection keys on the reviewed EFFECT CLASS, not the approval
@@ -589,10 +602,12 @@ describe("mcp execution broker (DB-backed, offline)", { skip: SKIP }, () => {
     assert.deepEqual(errRow?.resultProvenance?.contentKinds, { text: 1 });
   });
 
-  // No response was received, so there is no result to record: the provenance
-  // column stays NULL for an ambiguous (possibly-delivered) outcome. The durable
-  // model projection is absent too — nothing to flatten to prose here.
-  test("an ambiguous outcome leaves the result-provenance envelope null", async () => {
+  // A transport failure with NO response received has no result to record: the
+  // provenance column stays NULL and the lifecycle never advances past the
+  // delivery boundary. (Contrast the invalid_output case above, where a response
+  // DID arrive and provenance is persisted despite the ambiguous outcome.) The
+  // durable model projection is absent too — nothing to flatten to prose here.
+  test("a transport failure with no response leaves the result-provenance envelope null", async () => {
     const userId = await seedUser();
     const connId = await seedConnection(userId);
     const protocol = new FakeProtocol([tool("charge_card")]);
@@ -614,6 +629,7 @@ describe("mcp execution broker (DB-backed, offline)", { skip: SKIP }, () => {
     assert.equal(outcome.status, "ambiguous");
     const [row] = await invocationsForStaging(stagingId);
     assert.equal(row?.effectOutcome, "unknown");
+    assert.equal(row?.attemptLifecycle, "delivery_possible");
     assert.equal(row?.resultProvenance, null);
   });
 

@@ -445,6 +445,56 @@ describe("McpRawClient calls", () => {
     );
   });
 
+  test("an invalid_output error carries the census computed at response time", async () => {
+    const outputTool = tool(
+      "typed",
+      { type: "object", properties: {} },
+      {
+        outputSchema: {
+          type: "object",
+          properties: { count: { type: "number" } },
+          required: ["count"],
+          additionalProperties: false,
+        },
+      },
+    );
+    const protocol = new FakeProtocol([{ tools: [outputTool] }]);
+    // Structured content that violates the declared schema → invalid_output,
+    // thrown AFTER the response crossed the wire.
+    protocol.callResult = {
+      content: [{ type: "text", text: "bad" }],
+      structuredContent: { count: "not-a-number" },
+    };
+    const client = makeClient(protocol);
+    await client.connect();
+    const catalog = await client.refreshCatalog();
+
+    const err = await client
+      .callTool(
+        { kind: "mcp", connectionId: "conn_1", remoteName: "typed", catalogRevision: catalog.revision },
+        {},
+      )
+      .then(
+        () => {
+          throw new Error("expected invalid_output");
+        },
+        (e: unknown) => e,
+      );
+
+    assert.ok(err instanceof McpClientError && err.code === "invalid_output");
+    // The census rides on the error so the broker can persist provenance for an
+    // otherwise-ambiguous outcome (#541); `outputSchemaValidated: false` is the
+    // fact that explains the failure.
+    assert.deepEqual(err.provenance, {
+      isError: false,
+      hasStructuredContent: true,
+      outputSchemaValidated: false,
+      contentBlockCount: 1,
+      contentKinds: { text: 1 },
+      truncated: false,
+    });
+  });
+
   test("captures a payload-free result-provenance census on the call envelope", async () => {
     const outputTool = tool(
       "typed",

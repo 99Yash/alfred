@@ -3,7 +3,9 @@ import {
   canonicalJson,
   isRecord,
   jsonObjectSchema,
+  mcpContentKindValues,
   type BoundedPassthroughBody,
+  type McpContentKind,
   type McpResultProvenance,
 } from "@alfred/contracts";
 import { AjvJsonSchemaValidator } from "@modelcontextprotocol/sdk/validation/ajv";
@@ -340,9 +342,20 @@ export class McpRawClient {
       const structuredContent = isRecord(result) ? result.structuredContent : undefined;
       const output = outputValidator(structuredContent);
       if (!output.valid) {
+        // A response DID cross the wire — the census is derivable now. Carry it
+        // on the error so the broker's ambiguous branch persists provenance
+        // (#541) rather than leaving only an error string; the effect stays
+        // unprovable, but `outputSchemaValidated: false` records exactly why.
         throw new McpClientError(
           "invalid_output",
           `Result from MCP tool '${tool.name}' failed its declared output schema: ${output.errorMessage}`,
+          {
+            provenance: resultProvenance(result, {
+              isToolError,
+              outputSchemaValidated: false,
+              truncated: false,
+            }),
+          },
         );
       }
       outputSchemaValidated = true;
@@ -397,6 +410,19 @@ function errorMessage(err: unknown): string {
   return err instanceof Error ? err.message : "unknown schema error";
 }
 
+const MCP_CONTENT_KINDS: ReadonlySet<string> = new Set(mcpContentKindValues);
+
+/**
+ * Map a content block to its closed census kind. The SDK validates blocks
+ * against the `ContentBlock` union before they reach here, so a valid result
+ * only ever yields a declared kind; `unknown` is the documented fallback for an
+ * untyped or degraded shape, never an open passthrough of the server's string.
+ */
+function contentKindOf(block: unknown): McpContentKind {
+  const type = isRecord(block) && typeof block.type === "string" ? block.type : "unknown";
+  return MCP_CONTENT_KINDS.has(type) ? (type as McpContentKind) : "unknown";
+}
+
 /**
  * Distill the raw protocol result into the durable, payload-free provenance
  * envelope (#541). Census the content blocks by `type` and record the validity
@@ -409,9 +435,9 @@ function resultProvenance(
 ): McpResultProvenance {
   const record = isRecord(result) ? result : undefined;
   const content = record && Array.isArray(record.content) ? record.content : [];
-  const contentKinds: Record<string, number> = {};
+  const contentKinds: Partial<Record<McpContentKind, number>> = {};
   for (const block of content) {
-    const kind = isRecord(block) && typeof block.type === "string" ? block.type : "unknown";
+    const kind = contentKindOf(block);
     contentKinds[kind] = (contentKinds[kind] ?? 0) + 1;
   }
   return {
