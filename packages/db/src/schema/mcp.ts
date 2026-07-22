@@ -3,6 +3,7 @@ import type {
   McpConnectionStatus,
   McpEffectClass,
   McpEffectOutcome,
+  McpResultProvenance,
   McpRetryContract,
   McpRetryDisposition,
   McpServerIdentity,
@@ -259,6 +260,15 @@ export const mcpInvocation = pgTable(
     resolvedAt: timestamp("resolved_at", { withTimezone: true }),
     resolutionReason: text("resolution_reason"),
     lastError: text("last_error"),
+    /**
+     * Bounded, payload-free record of what the server actually returned (#541),
+     * persisted SEPARATELY from the sanitized model projection in
+     * `action_stagings.execute_result` so an effectful attempt stays
+     * reconstructable for audit without prose being its only durable copy.
+     * Null while in-flight and for any outcome with no received response
+     * (blocked / ambiguous / pre-delivery failure). Shape: `McpResultProvenance`.
+     */
+    resultProvenance: jsonb("result_provenance").$type<McpResultProvenance>(),
     ...lifecycle_dates,
   },
   (t) => [

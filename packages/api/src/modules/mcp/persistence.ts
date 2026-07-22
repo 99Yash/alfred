@@ -355,6 +355,7 @@ export type McpInvocationUpdate = Partial<
     | "resolvedAt"
     | "resolutionReason"
     | "lastError"
+    | "resultProvenance"
   >
 >;
 
