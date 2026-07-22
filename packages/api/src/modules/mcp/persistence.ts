@@ -425,28 +425,49 @@ export interface CreateSuccessorInput {
 }
 
 /**
+ * Outcome of a successor mint. A successor may only supersede a GENUINELY
+ * unresolved prior; if the prior was already resolved (reconciled, raced to a
+ * definitive outcome, or a stale id), no successor is minted.
+ */
+export type CreateSuccessorResult =
+  | { ok: true; successor: McpInvocation }
+  | { ok: false; reason: "prior_already_resolved" };
+
+/**
  * Resolve the prior invocation AND insert its successor atomically. Only this
  * host-owned path may set `successorOf`; the model cannot mint a successor
  * (issue clarification #4 — authorization is minted at the approval boundary,
  * tied to the prior invocation). Resolving the prior in the same transaction
  * clears the partial barrier index exactly as the successor enters it, so the
  * successor insert does not collide with the row it replaces.
+ *
+ * The resolve is guarded on its affected-row count: the UPDATE matches only an
+ * unresolved prior (`resolvedAt IS NULL`), so a zero-row result means the prior
+ * was ALREADY resolved. Minting a successor against a settled prior would open a
+ * fresh unresolved barrier for a write that is no longer ambiguous, so this
+ * refuses instead — moving the "prior must be unresolved" precondition off an
+ * assumed caller and into the transaction.
  */
 export async function createSuccessorInvocation(
   input: CreateSuccessorInput,
   runner: Db = db(),
-): Promise<McpInvocation> {
-  const run = async (tx: Db): Promise<McpInvocation> => {
-    await tx
+): Promise<CreateSuccessorResult> {
+  const run = async (tx: Db): Promise<CreateSuccessorResult> => {
+    const resolvedPrior = await tx
       .update(mcpInvocation)
       .set({ resolvedAt: sql`now()`, resolutionReason: input.priorResolutionReason })
-      .where(and(eq(mcpInvocation.id, input.priorId), isNull(mcpInvocation.resolvedAt)));
+      .where(and(eq(mcpInvocation.id, input.priorId), isNull(mcpInvocation.resolvedAt)))
+      .returning({ id: mcpInvocation.id });
+
+    if (resolvedPrior.length === 0) {
+      return { ok: false, reason: "prior_already_resolved" };
+    }
 
     const [successor] = await tx
       .insert(mcpInvocation)
       .values({ ...input.successor, successorOf: input.priorId })
       .returning();
-    return requireRow(successor, "createSuccessorInvocation");
+    return { ok: true, successor: requireRow(successor, "createSuccessorInvocation") };
   };
   return runAtomic(runner, run);
 }
