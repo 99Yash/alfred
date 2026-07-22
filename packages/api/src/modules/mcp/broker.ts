@@ -23,7 +23,7 @@
 
 import { sanitizeErrorMessage, summarizeBody, toMessage } from "@alfred/contracts";
 import type { McpEffectClass } from "@alfred/contracts";
-import type { McpInvocation } from "@alfred/db/schemas";
+import type { McpConnection, McpInvocation } from "@alfred/db/schemas";
 import type { ExternalToolRef, McpCallEnvelope } from "./client";
 import { McpClientError, isPreDeliveryErrorCode } from "./errors";
 import { canonicalArgsHash, descriptorHash } from "./hash";
@@ -111,6 +111,22 @@ export class McpExecutionBroker {
   async callTool(input: McpBrokerCallInput): Promise<McpBrokerOutcome> {
     const { ref } = input;
 
+    // Ownership is Alfred's trust boundary: an outbound effect must land only on a
+    // connection the CALLING user owns. A model-proposed `connectionId` that is
+    // absent — or owned by another user — is indistinguishable from "not
+    // connected", the same scope `listMcpToolsLocal` enforces on the read half.
+    // This runs BEFORE any client connect or ledger row: an ownership miss provably
+    // predates any `tools/call`, so it throws a deterministic pre-delivery error
+    // (no barrier minted) and the dispatch seam records an ordinary failure. It is
+    // enforced here, at the read, rather than left as a convention for multi-user.
+    const connection = await readConnection(ref.connectionId);
+    if (!connection || connection.userId !== input.userId) {
+      throw new McpClientError(
+        "not_connected",
+        `No connected MCP server '${ref.connectionId}'.`,
+      );
+    }
+
     // Connecting/refreshing the catalog is a prerequisite, not the tool-call
     // delivery boundary: a failure here provably predates any `tools/call`, so it
     // throws (deterministic failure) with no ledger row minted.
@@ -140,7 +156,12 @@ export class McpExecutionBroker {
       };
     }
 
-    return this.#callEffectful(input, { effectClass, descriptorHashValue: hash, policy });
+    return this.#callEffectful(input, {
+      effectClass,
+      descriptorHashValue: hash,
+      policy,
+      connection,
+    });
   }
 
   async #callEffectful(
@@ -149,15 +170,17 @@ export class McpExecutionBroker {
       effectClass: McpEffectClass;
       descriptorHashValue: string | undefined;
       policy: Awaited<ReturnType<typeof readToolPolicy>>;
+      /** The owner-verified connection already read in `callTool`. */
+      connection: McpConnection;
     },
   ): Promise<McpBrokerOutcome> {
     const { ref } = input;
     const argsHash = canonicalArgsHash(input.arguments);
-    // Only the current-revision POINTER is needed for the ledger row, so read the
-    // connection's `currentCatalogRevisionId` directly rather than fetching the
-    // full revision (its descriptors/hashes jsonb runs to the catalog ceiling) on
-    // every effectful call just to discard everything but the id.
-    const connection = await readConnection(ref.connectionId);
+    // Only the current-revision POINTER is needed for the ledger row, and the
+    // owner-verified connection was already read in `callTool`, so reuse it rather
+    // than re-fetching (its full revision's descriptors/hashes jsonb runs to the
+    // catalog ceiling — the row itself carries only the id we need).
+    const connection = resolved.connection;
 
     // The reservation. Minting the row IS the barrier: the partial unique index
     // rejects a second unresolved proposal identical to an in-flight/blocked one.

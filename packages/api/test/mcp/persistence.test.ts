@@ -275,16 +275,17 @@ describe("mcp persistence (DB-backed)", { skip: SKIP }, () => {
     });
     assert.ok(prior.ok);
 
-    const successor = await createSuccessorInvocation({
+    const result = await createSuccessorInvocation({
       priorId: prior.invocation.id,
       priorResolutionReason: "superseded_by_successor",
       successor: { ...key, stagingId: await seedStaging(userId), effectClass: "write" },
     });
-    assert.equal(successor.successorOf, prior.invocation.id);
+    assert.ok(result.ok);
+    assert.equal(result.successor.successorOf, prior.invocation.id);
 
     // Exactly one unresolved row for the key now — the successor.
     const barrier = await findUnresolvedBarrier(key);
-    assert.equal(barrier?.id, successor.id);
+    assert.equal(barrier?.id, result.successor.id);
 
     // The prior is resolved.
     const [priorRow] = await db()
@@ -292,6 +293,41 @@ describe("mcp persistence (DB-backed)", { skip: SKIP }, () => {
       .from(mcpInvocation)
       .where(eq(mcpInvocation.id, prior.invocation.id));
     assert.ok(priorRow?.resolvedAt);
+  });
+
+  test("createSuccessorInvocation refuses when the prior is already resolved", async () => {
+    const userId = await seedUser();
+    const connId = await seedConnection(userId);
+    const key = {
+      userId,
+      connectionId: connId,
+      remoteName: "charge_card",
+      argsHash: "sha256:pay-resolved",
+    };
+
+    // A prior that is already resolved (a definitive success, say): there is no
+    // unresolved ambiguity left to supersede.
+    const prior = await insertInvocation({
+      ...key,
+      stagingId: await seedStaging(userId),
+      effectClass: "write",
+      attemptLifecycle: "response_received",
+      effectOutcome: "succeeded",
+      resolvedAt: new Date(),
+      resolutionReason: "succeeded",
+    });
+    assert.ok(prior.ok);
+
+    const result = await createSuccessorInvocation({
+      priorId: prior.invocation.id,
+      priorResolutionReason: "superseded_by_successor",
+      successor: { ...key, stagingId: await seedStaging(userId), effectClass: "write" },
+    });
+    assert.deepEqual(result, { ok: false, reason: "prior_already_resolved" });
+
+    // No successor was minted — no unresolved barrier for the key.
+    const barrier = await findUnresolvedBarrier(key);
+    assert.equal(barrier, undefined);
   });
 
   test("reconcile sweeps prepared, read, and effectful in-flight rows", async () => {

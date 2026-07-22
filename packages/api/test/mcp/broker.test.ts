@@ -17,6 +17,7 @@ import {
   type McpProtocolPage,
 } from "../../src/modules/mcp";
 import { McpExecutionBroker } from "../../src/modules/mcp/broker";
+import { McpClientError } from "../../src/modules/mcp/errors";
 import { canonicalArgsHash, descriptorHash } from "../../src/modules/mcp/hash";
 import { McpConnectionManager } from "../../src/modules/mcp/manager";
 import {
@@ -413,7 +414,7 @@ describe("mcp execution broker (DB-backed, offline)", { skip: SKIP }, () => {
     // Only the host-owned successor path may authorize a second attempt. It
     // resolves the prior and mints exactly one tied successor; a fresh model
     // proposal still cannot self-authorize (it now collides with the successor).
-    const successor = await createSuccessorInvocation({
+    const successorResult = await createSuccessorInvocation({
       priorId: firstOutcome.invocationId,
       priorResolutionReason: "superseded_by_successor",
       successor: {
@@ -424,7 +425,8 @@ describe("mcp execution broker (DB-backed, offline)", { skip: SKIP }, () => {
         argsHash: canonicalArgsHash(args),
       },
     });
-    assert.equal(successor.successorOf, firstOutcome.invocationId);
+    assert.ok(successorResult.ok);
+    assert.equal(successorResult.successor.successorOf, firstOutcome.invocationId);
     const [prior] = await db()
       .select()
       .from(mcpInvocation)
@@ -532,5 +534,37 @@ describe("mcp execution broker (DB-backed, offline)", { skip: SKIP }, () => {
     });
     assert.equal(repeat.status, "blocked");
     assert.equal(protocol.calls, callsBefore, "a low-risk write repeat is still barred");
+  });
+
+  // Ownership is enforced at the broker's boundary, mirroring the read half
+  // (`listMcpToolsLocal`): a caller may only drive a connection they own. A
+  // foreign `connectionId` reads as "not connected" and never reaches the
+  // network or mints a ledger row.
+  test("a call against a connection owned by another user is refused pre-dispatch", async () => {
+    const owner = await seedUser();
+    const connId = await seedConnection(owner);
+    const protocol = new FakeProtocol([tool("create_issue")]);
+    const revision = await liveRevision(protocol, connId);
+
+    const attacker = await seedUser();
+    const broker = brokerWith(protocol);
+    const stagingId = await seedStaging(attacker);
+    const ref: ExternalToolRef = {
+      kind: "mcp",
+      connectionId: connId,
+      remoteName: "create_issue",
+      catalogRevision: revision,
+    };
+    const callsBefore = protocol.calls;
+
+    await assert.rejects(
+      broker.callTool({ userId: attacker, stagingId, ref, arguments: { title: "x" } }),
+      (err: unknown) =>
+        err instanceof McpClientError && err.code === "not_connected",
+    );
+
+    // Nothing was dispatched and no ledger row was minted under either user.
+    assert.equal(protocol.calls, callsBefore, "a foreign connection never reaches the network");
+    assert.equal((await invocationsForStaging(stagingId)).length, 0);
   });
 });
