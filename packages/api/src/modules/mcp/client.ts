@@ -8,8 +8,8 @@ import {
 import { AjvJsonSchemaValidator } from "@modelcontextprotocol/sdk/validation/ajv";
 import type { JsonSchemaType, JsonSchemaValidator } from "@modelcontextprotocol/sdk/validation";
 import type { Tool } from "@modelcontextprotocol/sdk/types.js";
-import { createHash } from "node:crypto";
 import { McpClientError } from "./errors";
+import { sha256Canonical } from "./hash";
 import {
   isMcpSessionExpiredError,
   SdkMcpProtocolClient,
@@ -222,7 +222,7 @@ export class McpRawClient {
         // strings is all that's needed.
         .sort((a, b) => (a.name < b.name ? -1 : a.name > b.name ? 1 : 0)),
     );
-    const revision = catalogRevision(sortedTools);
+    const revision = sha256Canonical(sortedTools);
     const nextToolsByName = new Map(sortedTools.map((tool) => [tool.name, tool]));
     const nextInputValidators = new Map<string, JsonSchemaValidator<Record<string, unknown>>>();
     const nextOutputValidators = new Map<string, JsonSchemaValidator<Record<string, unknown>>>();
@@ -376,11 +376,6 @@ export class McpRawClient {
       "The MCP session expired; reconnect and refresh the catalog before retrying",
     );
   }
-}
-
-function catalogRevision(tools: readonly Tool[]): string {
-  const hash = createHash("sha256").update(canonicalJson(tools)).digest("hex");
-  return `sha256:${hash}`;
 }
 
 function errorMessage(err: unknown): string {

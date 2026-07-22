@@ -21,3 +21,4 @@ export * from "./schema/todos";
 export * from "./schema/sender-priors";
 export * from "./schema/chat";
 export * from "./schema/artifacts";
+export * from "./schema/mcp";

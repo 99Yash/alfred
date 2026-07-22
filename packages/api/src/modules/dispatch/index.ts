@@ -618,6 +618,16 @@ export async function dispatchToolCall(args: DispatchArgs): Promise<DispatchResu
     return executeFastPath(tool, input, ctx);
   }
 
+  // `mcp.list_tools` is a bounded LOCAL read of Alfred's already-validated MCP
+  // catalog (issue #540 clarification #5) — no outbound action, so it takes the
+  // fast path and bypasses the approval/risk gate, exactly like a scratch read.
+  // It stays a closed `mcp` tool, so the active-surface/workflow-cap checks above
+  // still authorize it. `mcp.call` gets no such bypass: it is a high-tier action
+  // that always stages, then routes through the durable broker on execute.
+  if (toolName === "mcp.list_tools") {
+    return executeFastPath(tool, input, ctx);
+  }
+
   const proposedInputHash = hashToolInput(toolName, input);
 
   // Retry suppression — Phase 3c. A prior `rejected` row for this run +
@@ -1275,7 +1285,10 @@ async function executeAndCommit(
   let result: unknown;
   let error: PublicAppError | undefined;
   try {
-    result = await executeToolWithSpan(tool, input, ctx);
+    // Thread the committing staging row id to execution. Only the staged path
+    // has one; the fast path (executeFastPath) intentionally leaves it undefined.
+    // The MCP broker mints its durable ledger row 1:1 with this staging row.
+    result = await executeToolWithSpan(tool, input, { ...ctx, stagingId: row.id });
   } catch (err) {
     // Throw-poison class (ADR-0070 §1.3): a tool that *throws* a NUL-byte
     // message. The result-boundary sanitizer below can't reach this — a throw
