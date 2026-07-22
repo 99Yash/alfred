@@ -260,13 +260,16 @@ export class McpExecutionBroker {
   ): Promise<McpBrokerOutcome> {
     if (envelope.outcome === "tool_error") {
       // The server received and definitively REJECTED the call — no effect, safe
-      // to attempt again as a fresh intent.
+      // to attempt again as a fresh intent. The provenance envelope is persisted
+      // even for a rejection: a tool-level error still carries content the audit
+      // view reconstructs from (#541).
       await updateInvocation(invocation.id, {
         attemptLifecycle: "response_received",
         effectOutcome: "rejected",
         retryDisposition: "safe",
         resolvedAt: new Date(),
         resolutionReason: "rejected",
+        resultProvenance: envelope.provenance,
       });
       return { status: "tool_error", invocationId: invocation.id, envelope };
     }
@@ -275,6 +278,7 @@ export class McpExecutionBroker {
       effectOutcome: "succeeded",
       resolvedAt: new Date(),
       resolutionReason: "succeeded",
+      resultProvenance: envelope.provenance,
     });
     return { status: "completed", invocationId: invocation.id, envelope };
   }

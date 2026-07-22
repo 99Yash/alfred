@@ -4,6 +4,7 @@ import {
   isRecord,
   jsonObjectSchema,
   type BoundedPassthroughBody,
+  type McpResultProvenance,
 } from "@alfred/contracts";
 import { AjvJsonSchemaValidator } from "@modelcontextprotocol/sdk/validation/ajv";
 import type { JsonSchemaType, JsonSchemaValidator } from "@modelcontextprotocol/sdk/validation";
@@ -40,6 +41,13 @@ export interface McpCallEnvelope {
   outcome: "completed" | "tool_error";
   result: unknown;
   truncation?: BoundedPassthroughBody["truncation"];
+  /**
+   * Durable, payload-free record of what the server actually returned, computed
+   * here where the raw result is still in hand. The broker persists it to the
+   * invocation ledger so an effectful attempt stays reconstructable without
+   * keeping the (sanitized, model-facing) `result` as the only durable copy.
+   */
+  provenance: McpResultProvenance;
 }
 
 export interface McpEndpointAuthorization {
@@ -327,6 +335,7 @@ export class McpRawClient {
       .catch((err: unknown) => this.#throwProtocolError(err, protocol));
     const isToolError = isRecord(result) && result.isError === true;
     const outputValidator = this.#outputValidators.get(tool.name);
+    let outputSchemaValidated = false;
     if (!isToolError && outputValidator) {
       const structuredContent = isRecord(result) ? result.structuredContent : undefined;
       const output = outputValidator(structuredContent);
@@ -336,6 +345,7 @@ export class McpRawClient {
           `Result from MCP tool '${tool.name}' failed its declared output schema: ${output.errorMessage}`,
         );
       }
+      outputSchemaValidated = true;
     }
     const bounded = boundPassthroughBody(result);
     return {
@@ -344,6 +354,11 @@ export class McpRawClient {
       catalogRevision: catalog.revision,
       outcome: isToolError ? "tool_error" : "completed",
       result: bounded.value,
+      provenance: resultProvenance(result, {
+        isToolError,
+        outputSchemaValidated,
+        truncated: Boolean(bounded.truncation),
+      }),
       ...(bounded.truncation ? { truncation: bounded.truncation } : {}),
     };
   }
@@ -380,6 +395,33 @@ export class McpRawClient {
 
 function errorMessage(err: unknown): string {
   return err instanceof Error ? err.message : "unknown schema error";
+}
+
+/**
+ * Distill the raw protocol result into the durable, payload-free provenance
+ * envelope (#541). Census the content blocks by `type` and record the validity
+ * facts already established above — never the block content, and a returned
+ * resource link is counted, never dereferenced.
+ */
+function resultProvenance(
+  result: McpProtocolCallResult,
+  facts: { isToolError: boolean; outputSchemaValidated: boolean; truncated: boolean },
+): McpResultProvenance {
+  const record = isRecord(result) ? result : undefined;
+  const content = record && Array.isArray(record.content) ? record.content : [];
+  const contentKinds: Record<string, number> = {};
+  for (const block of content) {
+    const kind = isRecord(block) && typeof block.type === "string" ? block.type : "unknown";
+    contentKinds[kind] = (contentKinds[kind] ?? 0) + 1;
+  }
+  return {
+    isError: facts.isToolError,
+    hasStructuredContent: record ? record.structuredContent !== undefined : false,
+    outputSchemaValidated: facts.outputSchemaValidated,
+    contentBlockCount: content.length,
+    contentKinds,
+    truncated: facts.truncated,
+  };
 }
 
 function encodedBytes(value: string): number {

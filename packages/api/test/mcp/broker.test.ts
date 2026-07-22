@@ -536,6 +536,87 @@ describe("mcp execution broker (DB-backed, offline)", { skip: SKIP }, () => {
     assert.equal(protocol.calls, callsBefore, "a low-risk write repeat is still barred");
   });
 
+  // #541: the broker persists a payload-free result-provenance envelope onto the
+  // ledger row, separately from the sanitized model projection, whenever a
+  // response is received — for a clean success AND a definitive tool_error.
+  test("a received response persists the result-provenance envelope on the ledger row", async () => {
+    const userId = await seedUser();
+    const connId = await seedConnection(userId);
+
+    const okProtocol = new FakeProtocol([tool("create_issue")]);
+    const okRevision = await liveRevision(okProtocol, connId);
+    const okStaging = await seedStaging(userId);
+    const okOutcome = await brokerWith(okProtocol).callTool({
+      userId,
+      stagingId: okStaging,
+      ref: {
+        kind: "mcp",
+        connectionId: connId,
+        remoteName: "create_issue",
+        catalogRevision: okRevision,
+      },
+      arguments: { title: "x" },
+    });
+    assert.equal(okOutcome.status, "completed");
+    const [okRow] = await invocationsForStaging(okStaging);
+    assert.deepEqual(okRow?.resultProvenance, {
+      isError: false,
+      hasStructuredContent: false,
+      outputSchemaValidated: false,
+      contentBlockCount: 1,
+      contentKinds: { text: 1 },
+      truncated: false,
+    });
+
+    const errProtocol = new FakeProtocol([tool("create_issue")]);
+    errProtocol.behavior = { kind: "tool_error" };
+    const errRevision = await liveRevision(errProtocol, connId);
+    const errStaging = await seedStaging(userId);
+    const errOutcome = await brokerWith(errProtocol).callTool({
+      userId,
+      stagingId: errStaging,
+      ref: {
+        kind: "mcp",
+        connectionId: connId,
+        remoteName: "create_issue",
+        catalogRevision: errRevision,
+      },
+      arguments: { title: "y" },
+    });
+    assert.equal(errOutcome.status, "tool_error");
+    const [errRow] = await invocationsForStaging(errStaging);
+    assert.equal(errRow?.resultProvenance?.isError, true);
+    assert.deepEqual(errRow?.resultProvenance?.contentKinds, { text: 1 });
+  });
+
+  // No response was received, so there is no result to record: the provenance
+  // column stays NULL for an ambiguous (possibly-delivered) outcome. The durable
+  // model projection is absent too — nothing to flatten to prose here.
+  test("an ambiguous outcome leaves the result-provenance envelope null", async () => {
+    const userId = await seedUser();
+    const connId = await seedConnection(userId);
+    const protocol = new FakeProtocol([tool("charge_card")]);
+    protocol.behavior = { kind: "throw", error: new Error("reset mid-send") };
+    const revision = await liveRevision(protocol, connId);
+
+    const stagingId = await seedStaging(userId);
+    const outcome = await brokerWith(protocol).callTool({
+      userId,
+      stagingId,
+      ref: {
+        kind: "mcp",
+        connectionId: connId,
+        remoteName: "charge_card",
+        catalogRevision: revision,
+      },
+      arguments: { amount: 1 },
+    });
+    assert.equal(outcome.status, "ambiguous");
+    const [row] = await invocationsForStaging(stagingId);
+    assert.equal(row?.effectOutcome, "unknown");
+    assert.equal(row?.resultProvenance, null);
+  });
+
   // Ownership is enforced at the broker's boundary, mirroring the read half
   // (`listMcpToolsLocal`): a caller may only drive a connection they own. A
   // foreign `connectionId` reads as "not connected" and never reaches the
