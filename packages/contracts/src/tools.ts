@@ -106,6 +106,18 @@ export const TOOL_RISK_TIERS = ["no_risk", "low", "medium", "high"] as const;
 export type ToolRiskTier = (typeof TOOL_RISK_TIERS)[number];
 
 /**
+ * Narrow a dynamic or persisted string to a known risk tier. Use it before
+ * trusting a tier read back from storage: a `$type<ToolRiskTier>()` column is a
+ * cast over `text`, so a corrupt or out-of-enum value would otherwise flow
+ * through unchecked — and since only `"high"` gates (ADR-0069), an unrecognized
+ * value silently un-gates. Treat persisted tiers as `unknown` and re-gate to the
+ * conservative floor when this returns false.
+ */
+export function isToolRiskTier(value: unknown): value is ToolRiskTier {
+  return typeof value === "string" && (TOOL_RISK_TIERS as readonly string[]).includes(value);
+}
+
+/**
  * Per-tier tool counts for one integration (a UX hint for the integration
  * detail page). Lives here so the server registry and the web client agree on
  * the shape without the web importing the server-only registry.

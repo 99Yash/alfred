@@ -111,6 +111,22 @@ describe("resolveMcpCallRiskTier (DB-backed)", { skip: SKIP }, () => {
     assert.equal(tier, MCP_CALL_RISK_FLOOR);
   });
 
+  test("a connection with no current revision pointer stays at the floor", async () => {
+    // A connection that has never published a catalog (or lost its pointer) has
+    // no revision to bind a descriptor against, so the downgrade cannot apply.
+    const userId = await seedUser();
+    const connectionId = await seedConnection(userId);
+    // NB: no seedRevision — the connection's currentCatalogRevisionId is null.
+
+    const tier = await resolveMcpCallRiskTier({
+      userId,
+      connectionId,
+      remoteName: REMOTE,
+      catalogRevision: REVISION,
+    });
+    assert.equal(tier, MCP_CALL_RISK_FLOOR);
+  });
+
   test("a stale catalog revision re-gates at the floor even with a downgrade", async () => {
     const userId = await seedUser();
     const connectionId = await seedConnection(userId);
