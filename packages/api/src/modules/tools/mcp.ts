@@ -88,6 +88,13 @@ export const mcpTools: readonly RegisteredTool[] = [
         stagingId: ctx.stagingId,
         ref,
         arguments: input.arguments,
+        // Host-owned correlation for the ledger row (#541) — observability only,
+        // never authority. The staging row (idempotency) rides separately above.
+        correlation: {
+          traceId: ctx.runId,
+          stepId: ctx.stepId,
+          toolCallId: ctx.toolCallId,
+        },
       });
       return brokerResult(outcome);
     },
