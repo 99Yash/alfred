@@ -1,0 +1,1 @@
+ALTER TABLE "mcp_invocation" ADD COLUMN "result_provenance" jsonb;

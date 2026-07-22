@@ -243,7 +243,20 @@ export class McpExecutionBroker {
       // Possibly delivered (session_expired, invalid_output, transport/abort). The
       // write may have happened; leave the row UNRESOLVED so the barrier keeps
       // rejecting an identical repeat until a host-minted successor or a user check.
+      //
+      // If a response actually crossed the wire (today: invalid_output), the raw
+      // client carries its census on the error — persist it and advance the
+      // lifecycle to `response_received`, so the highest-value audit case (a
+      // possibly-completed effect with a malformed response) stays reconstructable
+      // from provenance, not just an error string (#541). The outcome stays
+      // unknown/blocked: a malformed response can't prove the effect. When no
+      // response arrived (transport/abort/session_expired), provenance is absent
+      // and the lifecycle never advances past the delivery boundary.
+      const provenance = err instanceof McpClientError ? err.provenance : undefined;
       await updateInvocation(invocation.id, {
+        ...(provenance
+          ? { attemptLifecycle: "response_received", resultProvenance: provenance }
+          : {}),
         effectOutcome: "unknown",
         retryDisposition: "blocked",
         resolutionReason: "ambiguous_delivery",
@@ -260,13 +273,16 @@ export class McpExecutionBroker {
   ): Promise<McpBrokerOutcome> {
     if (envelope.outcome === "tool_error") {
       // The server received and definitively REJECTED the call — no effect, safe
-      // to attempt again as a fresh intent.
+      // to attempt again as a fresh intent. The provenance envelope is persisted
+      // even for a rejection: a tool-level error still carries content the audit
+      // view reconstructs from (#541).
       await updateInvocation(invocation.id, {
         attemptLifecycle: "response_received",
         effectOutcome: "rejected",
         retryDisposition: "safe",
         resolvedAt: new Date(),
         resolutionReason: "rejected",
+        resultProvenance: envelope.provenance,
       });
       return { status: "tool_error", invocationId: invocation.id, envelope };
     }
@@ -275,6 +291,7 @@ export class McpExecutionBroker {
       effectOutcome: "succeeded",
       resolvedAt: new Date(),
       resolutionReason: "succeeded",
+      resultProvenance: envelope.provenance,
     });
     return { status: "completed", invocationId: invocation.id, envelope };
   }

@@ -91,6 +91,69 @@ export type McpRetryDisposition = (typeof mcpRetryDispositionValues)[number];
 export const mcpRetryDispositionSchema = z.enum(mcpRetryDispositionValues);
 
 // ---------------------------------------------------------------------------
+// Content-block kinds (#541). The CLOSED set the MCP `ContentBlock` union
+// admits, plus an explicit `unknown` tail. The SDK validates every block
+// against this union before a result reaches Alfred, so an out-of-set `type`
+// cannot occur for a validated result; `unknown` is the documented fallback for
+// any future/degraded shape rather than an open string space. Keeping the key
+// space closed lets an audit-view reader switch on a finite set and matches the
+// repo rule that an enum-keyed map uses `z.partialRecord`, not `z.record`.
+// ---------------------------------------------------------------------------
+export const mcpContentKindValues = [
+  "text",
+  "image",
+  "audio",
+  "resource_link",
+  "resource",
+  "unknown",
+] as const;
+export type McpContentKind = (typeof mcpContentKindValues)[number];
+export const mcpContentKindSchema = z.enum(mcpContentKindValues);
+
+// ---------------------------------------------------------------------------
+// Result-provenance envelope (#541). The durable, bounded record of what a
+// remote MCP server ACTUALLY returned — persisted on the invocation ledger row
+// (`mcp_invocation.result_provenance`) independently of the sanitized prose the
+// model reads (`action_stagings.execute_result`). It keeps the facts an operator
+// needs to reconstruct an effectful attempt — the server's own error signal,
+// structured-output validity, a content-kind census, and whether the model
+// projection was clipped — WITHOUT the payload itself: no block content, no
+// fetched resource links (they are counted, never dereferenced), no unbounded
+// remote text. Connection/tool/catalog provenance is NOT duplicated here — it is
+// already on the invocation row this envelope hangs off, and the audit view is
+// the join of the two.
+// ---------------------------------------------------------------------------
+export const mcpResultProvenanceSchema = z.object({
+  /** The server's own `isError` signal — a tool-level rejection, not transport. */
+  isError: z.boolean(),
+  /** The raw result carried a `structuredContent` field at all. */
+  hasStructuredContent: z.boolean(),
+  /**
+   * A declared output schema was present AND the structured content validated
+   * against it. `false` covers three cases: no output schema was declared; the
+   * call was a tool-level error (validation is skipped); OR the structured
+   * output FAILED its declared schema. The failure case still records an
+   * envelope: the raw client throws `invalid_output` AFTER the response crossed
+   * the wire and carries this census on the error, so the broker persists it for
+   * the (ambiguous) outcome rather than leaving prose as the only durable copy.
+   */
+  outputSchemaValidated: z.boolean(),
+  /** Number of content blocks the raw result carried. */
+  contentBlockCount: z.number().int().nonnegative(),
+  /**
+   * Census of content blocks by their MCP `type`. Keyed by the closed
+   * `ContentBlock` set (`text`/`image`/`audio`/`resource`/`resource_link`), with
+   * `unknown` as the explicit tail for any degraded/future shape. Counts only —
+   * never block content, and a returned resource link is recorded here, never
+   * dereferenced. Partial: only kinds actually present appear.
+   */
+  contentKinds: z.partialRecord(mcpContentKindSchema, z.number().int().nonnegative()),
+  /** The model projection was bounded/clipped on the way out. */
+  truncated: z.boolean(),
+});
+export type McpResultProvenance = z.infer<typeof mcpResultProvenanceSchema>;
+
+// ---------------------------------------------------------------------------
 // Projected-tool argument envelopes. The open-ended external tool reference
 // (connection + remote name + catalog revision) rides in the ARGS, never in the
 // closed `ToolName`. The opaque MCP `arguments` object is carried as a JSON
