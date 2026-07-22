@@ -91,6 +91,45 @@ export type McpRetryDisposition = (typeof mcpRetryDispositionValues)[number];
 export const mcpRetryDispositionSchema = z.enum(mcpRetryDispositionValues);
 
 // ---------------------------------------------------------------------------
+// Result-provenance envelope (#541). The durable, bounded record of what a
+// remote MCP server ACTUALLY returned — persisted on the invocation ledger row
+// (`mcp_invocation.result_provenance`) independently of the sanitized prose the
+// model reads (`action_stagings.execute_result`). It keeps the facts an operator
+// needs to reconstruct an effectful attempt — the server's own error signal,
+// structured-output validity, a content-kind census, and whether the model
+// projection was clipped — WITHOUT the payload itself: no block content, no
+// fetched resource links (they are counted, never dereferenced), no unbounded
+// remote text. Connection/tool/catalog provenance is NOT duplicated here — it is
+// already on the invocation row this envelope hangs off, and the audit view is
+// the join of the two.
+// ---------------------------------------------------------------------------
+export const mcpResultProvenanceSchema = z.object({
+  /** The server's own `isError` signal — a tool-level rejection, not transport. */
+  isError: z.boolean(),
+  /** The raw result carried a `structuredContent` field at all. */
+  hasStructuredContent: z.boolean(),
+  /**
+   * A declared output schema was present AND the structured content validated
+   * against it. `false` also covers "no output schema was declared" — an invalid
+   * structured output throws `invalid_output` in the raw client BEFORE a result
+   * is ever recorded, so a validation failure never reaches this envelope.
+   */
+  outputSchemaValidated: z.boolean(),
+  /** Number of content blocks the raw result carried. */
+  contentBlockCount: z.number().int().nonnegative(),
+  /**
+   * Census of content blocks by their MCP `type` (`text`, `image`, `audio`,
+   * `resource`, `resource_link`, …; an untyped block counts as `unknown`).
+   * Counts only — never block content, and a returned resource link is recorded
+   * here, never dereferenced.
+   */
+  contentKinds: z.record(z.string(), z.number().int().nonnegative()),
+  /** The model projection was bounded/clipped on the way out. */
+  truncated: z.boolean(),
+});
+export type McpResultProvenance = z.infer<typeof mcpResultProvenanceSchema>;
+
+// ---------------------------------------------------------------------------
 // Projected-tool argument envelopes. The open-ended external tool reference
 // (connection + remote name + catalog revision) rides in the ARGS, never in the
 // closed `ToolName`. The opaque MCP `arguments` object is carried as a JSON

@@ -445,6 +445,86 @@ describe("McpRawClient calls", () => {
     );
   });
 
+  test("captures a payload-free result-provenance census on the call envelope", async () => {
+    const outputTool = tool(
+      "typed",
+      { type: "object", properties: {} },
+      {
+        outputSchema: {
+          type: "object",
+          properties: { count: { type: "number" } },
+          required: ["count"],
+          additionalProperties: false,
+        },
+      },
+    );
+    const protocol = new FakeProtocol([{ tools: [outputTool] }]);
+    // Mixed content kinds — a returned resource_link is counted, never fetched.
+    protocol.callResult = {
+      content: [
+        { type: "text", text: "hi" },
+        { type: "text", text: "there" },
+        { type: "image", data: "…", mimeType: "image/png" },
+        { type: "resource_link", uri: "https://example.test/secret.pdf", name: "r" },
+      ],
+      structuredContent: { count: 2 },
+    };
+    const client = makeClient(protocol);
+    await client.connect();
+    const catalog = await client.refreshCatalog();
+
+    const result = await client.callTool(
+      {
+        kind: "mcp",
+        connectionId: "conn_1",
+        remoteName: "typed",
+        catalogRevision: catalog.revision,
+      },
+      {},
+    );
+
+    assert.equal(result.outcome, "completed");
+    assert.deepEqual(result.provenance, {
+      isError: false,
+      hasStructuredContent: true,
+      outputSchemaValidated: true,
+      contentBlockCount: 4,
+      contentKinds: { text: 2, image: 1, resource_link: 1 },
+      truncated: false,
+    });
+    // Payload-free: the returned resource-link URI never appears in provenance.
+    assert.ok(!JSON.stringify(result.provenance).includes("secret.pdf"));
+  });
+
+  test("provenance reflects a server tool_error and an oversized-result truncation", async () => {
+    const protocol = new FakeProtocol([{ tools: [SEARCH_TOOL] }]);
+    protocol.callResult = {
+      content: [{ type: "text", text: "x".repeat(40_000) }],
+      isError: true,
+    };
+    const client = makeClient(protocol);
+    await client.connect();
+    const catalog = await client.refreshCatalog();
+
+    const result = await client.callTool(
+      {
+        kind: "mcp",
+        connectionId: "conn_1",
+        remoteName: "search",
+        catalogRevision: catalog.revision,
+      },
+      { query: "hello" },
+    );
+
+    assert.equal(result.outcome, "tool_error");
+    // isError is captured, the output validator is skipped for a tool error, and the
+    // bounded model projection is flagged truncated on the provenance envelope.
+    assert.equal(result.provenance.isError, true);
+    assert.equal(result.provenance.outputSchemaValidated, false);
+    assert.equal(result.provenance.truncated, true);
+    assert.deepEqual(result.provenance.contentKinds, { text: 1 });
+  });
+
   test("turns session-expiry 404 into reconnect-required state without retrying the call", async () => {
     const protocol = new FakeProtocol([{ tools: [SEARCH_TOOL] }]);
     protocol.callError = new StreamableHTTPError(404, "session expired");
