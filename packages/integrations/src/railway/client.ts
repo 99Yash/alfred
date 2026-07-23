@@ -13,6 +13,8 @@ import { createHash } from "node:crypto";
 
 import { HttpError, summarizeBody, toMessage } from "@alfred/contracts";
 
+import { authedFetch } from "../shared/authed-fetch";
+
 const RAILWAY_API = "https://backboard.railway.app/graphql/v2";
 
 interface GraphqlError {
@@ -72,21 +74,21 @@ async function railwayFetch(
   token: string,
   payload: RailwayGraphqlPayload,
 ): Promise<{ status: number; ok: boolean; text: string }> {
-  const res = await fetch(RAILWAY_API, {
-    method: "POST",
-    headers: {
-      Authorization: `Bearer ${token}`,
-      "Content-Type": "application/json",
-      Accept: "application/json",
+  const res = await authedFetch(
+    {
+      headers: { Authorization: `Bearer ${token}`, Accept: "application/json" },
+      redirect: "manual",
     },
-    body: JSON.stringify({
-      query: payload.query,
-      variables: payload.variables ?? {},
-      ...(payload.operationName ? { operationName: payload.operationName } : {}),
-    }),
-    redirect: "manual",
-    signal: AbortSignal.timeout(30_000),
-  });
+    {
+      url: RAILWAY_API,
+      method: "POST",
+      body: {
+        query: payload.query,
+        variables: payload.variables ?? {},
+        ...(payload.operationName ? { operationName: payload.operationName } : {}),
+      },
+    },
+  );
   return { status: res.status, ok: res.ok, text: await res.text() };
 }
 

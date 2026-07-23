@@ -6,6 +6,7 @@
  */
 
 import { httpErrorFromResponse } from "@alfred/contracts";
+import { authedFetch } from "../shared/authed-fetch";
 import type { RestPassthroughProfile } from "../shared/rest-passthrough";
 
 const VERCEL_API = "https://api.vercel.com";
@@ -40,16 +41,10 @@ async function vercelFetch<T>(args: {
   for (const [k, v] of Object.entries(args.query ?? {})) {
     if (v !== undefined) url.searchParams.set(k, String(v));
   }
-  const res = await fetch(url, {
-    method: args.method ?? "GET",
-    headers: {
-      Authorization: `Bearer ${args.accessToken}`,
-      "Content-Type": "application/json",
-      Accept: "application/json",
-    },
-    body: args.body === undefined ? undefined : JSON.stringify(args.body),
-    signal: AbortSignal.timeout(30_000),
-  });
+  const res = await authedFetch(
+    { headers: { Authorization: `Bearer ${args.accessToken}`, Accept: "application/json" } },
+    { url, method: args.method ?? "GET", body: args.body },
+  );
   if (!res.ok) {
     throw await httpErrorFromResponse("vercel", res, {
       url: args.path,

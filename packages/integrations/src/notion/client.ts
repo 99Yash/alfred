@@ -6,6 +6,7 @@
  */
 
 import { HttpError, summarizeBody } from "@alfred/contracts";
+import { authedFetch } from "../shared/authed-fetch";
 import type { RestPassthroughProfile } from "../shared/rest-passthrough";
 
 const NOTION_API = "https://api.notion.com/v1";
@@ -33,17 +34,16 @@ async function notionFetch<T>(
   path: string,
   init?: { method?: string; body?: unknown },
 ): Promise<T> {
-  const res = await fetch(`${NOTION_API}${path}`, {
-    method: init?.method ?? "GET",
-    headers: {
-      Authorization: `Bearer ${accessToken}`,
-      "Notion-Version": NOTION_VERSION,
-      "Content-Type": "application/json",
-      Accept: "application/json",
+  const res = await authedFetch(
+    {
+      headers: {
+        Authorization: `Bearer ${accessToken}`,
+        "Notion-Version": NOTION_VERSION,
+        Accept: "application/json",
+      },
     },
-    body: init?.body === undefined ? undefined : JSON.stringify(init.body),
-    signal: AbortSignal.timeout(30_000),
-  });
+    { url: `${NOTION_API}${path}`, method: init?.method, body: init?.body },
+  );
   if (!res.ok) {
     const text = await res.text().catch(() => "");
     // Keep the (redacted, bounded) upstream body for server logs, but don't
