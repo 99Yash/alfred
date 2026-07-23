@@ -1,24 +1,21 @@
-import { httpErrorFromResponse } from "@alfred/contracts";
+import { authedJson } from "../shared/authed-json";
 
 /**
  * Shared authenticated-JSON transport for the Google REST clients
  * (calendar, gmail, drive, docs, sheets, slides).
  *
  * Every Google module hits the same wire contract: bearer-token auth, a JSON
- * `Accept`, the shared {@link GOOGLE_FETCH_TIMEOUT_MS} timeout, and non-OK →
- * {@link httpErrorFromResponse}. This is the one place that mechanism lives so
- * a change (retry, timeout, refresh) is made once. Each module keeps its own
- * thin `getJson`/`postJson`/`sendJson` wrapper that binds its service tag, so
- * call sites and per-module vocabulary are unchanged. The raw-text download
- * path in `drive.ts` (`getText`) can't route through `googleJson` — it needs
- * byte-truncation and no JSON `Accept` — but it imports this same timeout so
- * the number stays single-sourced.
+ * `Accept`, and non-OK → `HttpError`. That is exactly {@link authedJson}, so
+ * this is now a thin service-tagging wrapper over the shared layer rather than a
+ * fourth hand-rolled transport core — a change to the mechanism (retry, timeout,
+ * refresh) is made once, in `authedFetch`/`authedJson`. Each module keeps its own
+ * `getJson`/`postJson`/`sendJson` wrapper that binds its service tag, so call
+ * sites and per-module vocabulary are unchanged. The raw-text download path in
+ * `drive.ts` (`getText`) can't route through here — it needs byte-truncation and
+ * no JSON `Accept` — but it shares the one `INTEGRATION_FETCH_TIMEOUT_MS`.
  */
 
-/** Shared request timeout for every Google API call (JSON transport + drive text downloads). */
-export const GOOGLE_FETCH_TIMEOUT_MS = 30_000;
-
-/** Provider tag threaded into {@link httpErrorFromResponse} for telemetry. */
+/** Provider tag threaded into the thrown `HttpError` for telemetry. */
 export type GoogleService = "calendar" | "gmail" | "drive" | "docs" | "sheets" | "slides";
 
 /**
@@ -35,23 +32,16 @@ export async function googleJson(
   accessToken: string,
   payload?: unknown,
 ): Promise<unknown> {
-  const headers: Record<string, string> = {
-    Authorization: `Bearer ${accessToken}`,
-    Accept: "application/json",
-  };
-  const init: RequestInit = {
-    method,
-    headers,
-    signal: AbortSignal.timeout(GOOGLE_FETCH_TIMEOUT_MS),
-  };
-  if (method !== "GET") {
-    headers["Content-Type"] = "application/json";
-    init.body = JSON.stringify(payload ?? {});
-  }
-  const res = await fetch(url, init);
-  if (!res.ok) {
-    throw await httpErrorFromResponse(service, res, { url, method });
-  }
-  const text = await res.text();
-  return text ? JSON.parse(text) : {};
+  return authedJson(
+    {
+      headers: {
+        Authorization: `Bearer ${accessToken}`,
+        Accept: "application/json",
+      },
+    },
+    // Non-GET always carries a JSON body (defaulting to `{}`); GET carries none,
+    // so the transport adds `Content-Type` only for the former.
+    { url, method, body: method === "GET" ? undefined : (payload ?? {}) },
+    { provider: service, urlLabel: url },
+  );
 }

@@ -5,8 +5,9 @@
  * the credential metadata at connect).
  */
 
-import { httpErrorFromResponse } from "@alfred/contracts";
-import { authedFetch } from "../shared/authed-fetch";
+import { z } from "zod";
+
+import { authedJson } from "../shared/authed-json";
 import type { RestPassthroughProfile } from "../shared/rest-passthrough";
 
 const VERCEL_API = "https://api.vercel.com";
@@ -28,30 +29,30 @@ export function vercelPassthroughProfile(args: {
   };
 }
 
-async function vercelFetch<T>(args: {
+/**
+ * Authenticated Vercel REST call returning the parsed JSON body as `unknown`;
+ * each caller validates it with a `zod` schema (no `as T` on `response.json()`).
+ * The `?teamId=` and other query params are pinned here; a non-2xx maps to an
+ * `HttpError` reporting the redacted path (never the token-bearing URL).
+ */
+async function vercelFetch(args: {
   accessToken: string;
   path: string;
   teamId?: string | null;
   method?: string;
   query?: Record<string, string | number | undefined>;
   body?: unknown;
-}): Promise<T> {
+}): Promise<unknown> {
   const url = new URL(`${VERCEL_API}${args.path}`);
   if (args.teamId) url.searchParams.set("teamId", args.teamId);
   for (const [k, v] of Object.entries(args.query ?? {})) {
     if (v !== undefined) url.searchParams.set(k, String(v));
   }
-  const res = await authedFetch(
+  return authedJson(
     { headers: { Authorization: `Bearer ${args.accessToken}`, Accept: "application/json" } },
     { url, method: args.method ?? "GET", body: args.body },
+    { provider: "vercel", urlLabel: args.path },
   );
-  if (!res.ok) {
-    throw await httpErrorFromResponse("vercel", res, {
-      url: args.path,
-      method: args.method ?? "GET",
-    });
-  }
-  return (await res.json()) as T;
 }
 
 export interface VercelProject {
@@ -61,24 +62,30 @@ export interface VercelProject {
   latestDeploymentState: string | null;
 }
 
+const listProjectsResponseSchema = z.object({
+  projects: z.array(
+    z.object({
+      id: z.string(),
+      name: z.string(),
+      framework: z.string().nullish(),
+      latestDeployments: z.array(z.object({ readyState: z.string().nullish() })).optional(),
+    }),
+  ),
+});
+
 export async function vercelListProjects(args: {
   accessToken: string;
   teamId?: string | null;
   limit: number;
 }): Promise<{ projects: VercelProject[] }> {
-  const json = await vercelFetch<{
-    projects: Array<{
-      id: string;
-      name: string;
-      framework?: string | null;
-      latestDeployments?: Array<{ readyState?: string | null }>;
-    }>;
-  }>({
-    accessToken: args.accessToken,
-    teamId: args.teamId,
-    path: "/v10/projects",
-    query: { limit: args.limit },
-  });
+  const json = listProjectsResponseSchema.parse(
+    await vercelFetch({
+      accessToken: args.accessToken,
+      teamId: args.teamId,
+      path: "/v10/projects",
+      query: { limit: args.limit },
+    }),
+  );
   return {
     projects: json.projects.map((p) => ({
       id: p.id,
@@ -98,29 +105,35 @@ export interface VercelDeployment {
   createdAt: number | null;
 }
 
+const listDeploymentsResponseSchema = z.object({
+  deployments: z.array(
+    z.object({
+      uid: z.string(),
+      name: z.string(),
+      url: z.string().nullish(),
+      state: z.string().nullish(),
+      readyState: z.string().nullish(),
+      target: z.string().nullish(),
+      created: z.number().nullish(),
+      createdAt: z.number().nullish(),
+    }),
+  ),
+});
+
 export async function vercelListDeployments(args: {
   accessToken: string;
   teamId?: string | null;
   projectId?: string;
   limit: number;
 }): Promise<{ deployments: VercelDeployment[] }> {
-  const json = await vercelFetch<{
-    deployments: Array<{
-      uid: string;
-      name: string;
-      url?: string | null;
-      state?: string | null;
-      readyState?: string | null;
-      target?: string | null;
-      created?: number | null;
-      createdAt?: number | null;
-    }>;
-  }>({
-    accessToken: args.accessToken,
-    teamId: args.teamId,
-    path: "/v6/deployments",
-    query: { limit: args.limit, projectId: args.projectId },
-  });
+  const json = listDeploymentsResponseSchema.parse(
+    await vercelFetch({
+      accessToken: args.accessToken,
+      teamId: args.teamId,
+      path: "/v6/deployments",
+      query: { limit: args.limit, projectId: args.projectId },
+    }),
+  );
   return {
     deployments: json.deployments.map((d) => ({
       uid: d.uid,
@@ -133,6 +146,13 @@ export async function vercelListDeployments(args: {
   };
 }
 
+const redeployResponseSchema = z.object({
+  id: z.string().optional(),
+  uid: z.string().optional(),
+  url: z.string().nullish(),
+  readyState: z.string().nullish(),
+});
+
 export async function vercelRedeploy(args: {
   accessToken: string;
   teamId?: string | null;
@@ -140,23 +160,20 @@ export async function vercelRedeploy(args: {
   name: string;
   target?: "production" | "preview";
 }): Promise<{ uid: string; url: string | null; state: string | null }> {
-  const json = await vercelFetch<{
-    id?: string;
-    uid?: string;
-    url?: string | null;
-    readyState?: string | null;
-  }>({
-    accessToken: args.accessToken,
-    teamId: args.teamId,
-    path: "/v13/deployments",
-    method: "POST",
-    query: { forceNew: 1 },
-    body: {
-      deploymentId: args.deploymentId,
-      name: args.name,
-      ...(args.target ? { target: args.target } : {}),
-    },
-  });
+  const json = redeployResponseSchema.parse(
+    await vercelFetch({
+      accessToken: args.accessToken,
+      teamId: args.teamId,
+      path: "/v13/deployments",
+      method: "POST",
+      query: { forceNew: 1 },
+      body: {
+        deploymentId: args.deploymentId,
+        name: args.name,
+        ...(args.target ? { target: args.target } : {}),
+      },
+    }),
+  );
   // A 2xx with neither id nor uid would otherwise mask as a "successful"
   // redeploy carrying an unusable handle — surface it as a failure instead.
   const uid = json.uid ?? json.id;

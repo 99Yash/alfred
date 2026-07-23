@@ -6,7 +6,9 @@
  */
 
 import { HttpError, summarizeBody } from "@alfred/contracts";
-import { authedFetch } from "../shared/authed-fetch";
+import { z } from "zod";
+
+import { authedJson } from "../shared/authed-json";
 import type { RestPassthroughProfile } from "../shared/rest-passthrough";
 
 const NOTION_API = "https://api.notion.com/v1";
@@ -29,12 +31,37 @@ export function notionPassthroughProfile(token: string): RestPassthroughProfile 
   };
 }
 
-async function notionFetch<T>(
+/**
+ * Notion's non-2xx branch, passed to {@link authedJson} as its `onError`
+ * override: keep the (redacted, bounded) upstream body for server logs, but
+ * don't splice it into the thrown message. These errors propagate to the tool
+ * dispatcher and on into logs/telemetry, and Notion's body can echo request
+ * fragments; the structured `HttpError` still carries the status so callers can
+ * branch without parsing the message.
+ */
+async function notionError(res: Response, method: string, path: string): Promise<never> {
+  const text = await res.text().catch(() => "");
+  console.error(`[notion] ${res.status} ${method} ${path} :: ${summarizeBody(text)}`);
+  throw new HttpError({
+    provider: "notion",
+    status: res.status,
+    url: `${NOTION_API}${path}`,
+    method,
+    body: "",
+  });
+}
+
+/**
+ * A single authenticated Notion call. Returns the parsed JSON body as `unknown`;
+ * each caller validates it with a `zod` schema (no `as T` on `response.json()`).
+ */
+async function notionFetch(
   accessToken: string,
   path: string,
   init?: { method?: string; body?: unknown },
-): Promise<T> {
-  const res = await authedFetch(
+): Promise<unknown> {
+  const method = init?.method ?? "GET";
+  return authedJson(
     {
       headers: {
         Authorization: `Bearer ${accessToken}`,
@@ -43,27 +70,17 @@ async function notionFetch<T>(
       },
     },
     { url: `${NOTION_API}${path}`, method: init?.method, body: init?.body },
+    { provider: "notion", onError: (res) => notionError(res, method, path) },
   );
-  if (!res.ok) {
-    const text = await res.text().catch(() => "");
-    // Keep the (redacted, bounded) upstream body for server logs, but don't
-    // splice it into the thrown message: these errors propagate to the tool
-    // dispatcher and on into logs/telemetry, and Notion's body can echo request
-    // fragments. The structured HttpError still carries the status so callers
-    // can branch without parsing the message.
-    console.error(
-      `[notion] ${res.status} ${init?.method ?? "GET"} ${path} :: ${summarizeBody(text)}`,
-    );
-    throw new HttpError({
-      provider: "notion",
-      status: res.status,
-      url: `${NOTION_API}${path}`,
-      method: init?.method ?? "GET",
-      body: "",
-    });
-  }
-  return (await res.json()) as T;
 }
+
+/** A Notion object (page/database/block) — arbitrary keys, extracted defensively. */
+const notionObjectSchema = z.record(z.string(), z.unknown());
+/** A `search`/`children` list response: a `results` array of Notion objects. */
+const notionListSchema = z.object({
+  results: z.array(notionObjectSchema),
+  has_more: z.boolean().optional(),
+});
 
 /** Notion rejects a single request with more than 100 child blocks. */
 const NOTION_MAX_CHILDREN_PER_REQUEST = 100;
@@ -118,10 +135,9 @@ export async function notionSearch(args: {
   const body: Record<string, unknown> = { page_size: args.pageSize };
   if (args.query) body.query = args.query;
   if (args.filter !== "all") body.filter = { value: args.filter, property: "object" };
-  const json = await notionFetch<{
-    results: Array<Record<string, unknown>>;
-    has_more: boolean;
-  }>(args.accessToken, "/search", { method: "POST", body });
+  const json = notionListSchema.parse(
+    await notionFetch(args.accessToken, "/search", { method: "POST", body }),
+  );
   return {
     hits: json.results.map((r) => ({
       id: String(r.id ?? ""),
@@ -150,13 +166,12 @@ export async function notionGetPage(args: {
 }): Promise<NotionPage> {
   // The two reads are independent — fetch them concurrently (~half the latency).
   const id = encodeURIComponent(args.pageId);
-  const [page, blocks] = await Promise.all([
-    notionFetch<Record<string, unknown>>(args.accessToken, `/pages/${id}`),
-    notionFetch<{ results: Array<Record<string, unknown>> }>(
-      args.accessToken,
-      `/blocks/${id}/children?page_size=100`,
-    ),
+  const [pageRaw, blocksRaw] = await Promise.all([
+    notionFetch(args.accessToken, `/pages/${id}`),
+    notionFetch(args.accessToken, `/blocks/${id}/children?page_size=100`),
   ]);
+  const page = notionObjectSchema.parse(pageRaw);
+  const blocks = notionListSchema.parse(blocksRaw);
   return {
     id: String(page.id ?? args.pageId),
     title: titleOf(page),
@@ -214,16 +229,18 @@ export async function notionCreatePage(args: {
   // Notion caps a single request at 100 child blocks: create the page with the
   // first batch inline, then PATCH the remainder in further ≤100 batches.
   const children = paragraphBlocks(args.content);
-  const json = await notionFetch<Record<string, unknown>>(args.accessToken, "/pages", {
-    method: "POST",
-    body: {
-      parent: { type: "page_id", page_id: args.parentPageId },
-      properties: {
-        title: { title: [{ type: "text", text: { content: args.title } }] },
+  const json = notionObjectSchema.parse(
+    await notionFetch(args.accessToken, "/pages", {
+      method: "POST",
+      body: {
+        parent: { type: "page_id", page_id: args.parentPageId },
+        properties: {
+          title: { title: [{ type: "text", text: { content: args.title } }] },
+        },
+        children: children.slice(0, NOTION_MAX_CHILDREN_PER_REQUEST),
       },
-      children: children.slice(0, NOTION_MAX_CHILDREN_PER_REQUEST),
-    },
-  });
+    }),
+  );
   const pageId = String(json.id ?? "");
   if (pageId && children.length > NOTION_MAX_CHILDREN_PER_REQUEST) {
     await appendChildrenInBatches(

@@ -12,6 +12,7 @@ export {
   type AuthedFetchProfile,
   type AuthedFetchRequest,
 } from "./authed-fetch";
+export { authedJson, type AuthedJsonOptions } from "./authed-json";
 export {
   restPassthroughFetch,
   PassthroughUrlError,
