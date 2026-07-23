@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import { randomUUID } from "node:crypto";
 import { after, before, describe, test } from "node:test";
 
+import type { ToolRiskTier } from "@alfred/contracts";
 import { closeConnections, db } from "@alfred/db";
 import { user } from "@alfred/db/schemas";
 import { inArray, like } from "drizzle-orm";
@@ -192,6 +193,34 @@ describe("resolveMcpCallRiskTier (DB-backed)", { skip: SKIP }, () => {
 
     const tier = await resolveMcpCallRiskTier({
       userId: otherId,
+      connectionId,
+      remoteName: REMOTE,
+      catalogRevision: REVISION,
+    });
+    assert.equal(tier, MCP_CALL_RISK_FLOOR);
+  });
+
+  test("a corrupt persisted tier (out of enum) re-gates to the floor", async () => {
+    // The persisted `riskTier` is a `$type<ToolRiskTier>()` cast over `text`, not
+    // a validated value. If a bad write ever lands an out-of-enum string, the
+    // resolver must treat it as unknown and re-gate — never silently un-gate a
+    // high-floor call because an unrecognized string isn't literally "high".
+    const userId = await seedUser();
+    const connectionId = await seedConnection(userId);
+    await seedRevision(connectionId);
+    await upsertToolPolicy({
+      userId,
+      connectionId,
+      remoteName: REMOTE,
+      descriptorHash: DESC_HASH,
+      // Deliberately bypass the type to simulate a corrupt persisted row.
+      riskTier: "totally_bogus" as ToolRiskTier,
+      effectClass: "read",
+      retryContract: "safe",
+    });
+
+    const tier = await resolveMcpCallRiskTier({
+      userId,
       connectionId,
       remoteName: REMOTE,
       catalogRevision: REVISION,
