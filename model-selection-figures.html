@@ -1,0 +1,479 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Choosing the Fleet — Model Selection in a Multi-Agent Harness</title>
+<style>
+  html, body { margin: 0; padding: 0; }
+  img { max-width: 100%; height: auto; }
+  :root {
+    --paper: #f6f7f5;
+    --surface: #ffffff;
+    --surface-sunk: #eef1ee;
+    --ink: #14181a;
+    --ink-soft: #3c454a;
+    --muted: #6a747a;
+    --hairline: #dde2de;
+    --hairline-strong: #c8cfc9;
+    --accent: #0f7a73;
+    --accent-soft: #e2efed;
+    --accent-ink: #0a5751;
+    --pass: #2c7a5b;
+    --pass-bg: #e4f0ea;
+    --caution: #9a6b0c;
+    --caution-bg: #f4ecd8;
+    --retired: #a8473a;
+    --retired-bg: #f2e1de;
+    --bar-track: #e7ebe8;
+    --shadow: 0 1px 2px rgba(20,24,26,.05), 0 8px 24px -12px rgba(20,24,26,.12);
+
+    --sans: -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif;
+    --mono: ui-monospace, "SF Mono", "SFMono-Regular", "Menlo", "Consolas", monospace;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --paper: #0e1214;
+      --surface: #161c1e;
+      --surface-sunk: #10161800;
+      --surface-sunk: #12181a;
+      --ink: #e8ece9;
+      --ink-soft: #c0c8c4;
+      --muted: #8a938e;
+      --hairline: #262f31;
+      --hairline-strong: #33403f;
+      --accent: #3fb3a8;
+      --accent-soft: #16302e;
+      --accent-ink: #6fd0c6;
+      --pass: #52b487;
+      --pass-bg: #14271f;
+      --caution: #d3a53f;
+      --caution-bg: #2a2313;
+      --retired: #d97c6d;
+      --retired-bg: #2c1b18;
+      --bar-track: #1f2729;
+      --shadow: 0 1px 2px rgba(0,0,0,.3), 0 12px 32px -16px rgba(0,0,0,.6);
+    }
+  }
+  :root[data-theme="light"] {
+    --paper: #f6f7f5; --surface: #ffffff; --surface-sunk: #eef1ee;
+    --ink: #14181a; --ink-soft: #3c454a; --muted: #6a747a;
+    --hairline: #dde2de; --hairline-strong: #c8cfc9;
+    --accent: #0f7a73; --accent-soft: #e2efed; --accent-ink: #0a5751;
+    --pass: #2c7a5b; --pass-bg: #e4f0ea; --caution: #9a6b0c; --caution-bg: #f4ecd8;
+    --retired: #a8473a; --retired-bg: #f2e1de; --bar-track: #e7ebe8;
+    --shadow: 0 1px 2px rgba(20,24,26,.05), 0 8px 24px -12px rgba(20,24,26,.12);
+  }
+  :root[data-theme="dark"] {
+    --paper: #0e1214; --surface: #161c1e; --surface-sunk: #12181a;
+    --ink: #e8ece9; --ink-soft: #c0c8c4; --muted: #8a938e;
+    --hairline: #262f31; --hairline-strong: #33403f;
+    --accent: #3fb3a8; --accent-soft: #16302e; --accent-ink: #6fd0c6;
+    --pass: #52b487; --pass-bg: #14271f; --caution: #d3a53f; --caution-bg: #2a2313;
+    --retired: #d97c6d; --retired-bg: #2c1b18; --bar-track: #1f2729;
+    --shadow: 0 1px 2px rgba(0,0,0,.3), 0 12px 32px -16px rgba(0,0,0,.6);
+  }
+
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    background: var(--paper);
+    color: var(--ink);
+    font-family: var(--sans);
+    line-height: 1.6;
+    -webkit-font-smoothing: antialiased;
+    text-rendering: optimizeLegibility;
+  }
+  .wrap {
+    max-width: 920px;
+    margin: 0 auto;
+    padding: clamp(28px, 5vw, 72px) clamp(18px, 4vw, 40px) 96px;
+  }
+
+  /* ---- type ---- */
+  .eyebrow {
+    font-family: var(--mono);
+    font-size: 12px;
+    letter-spacing: .14em;
+    text-transform: uppercase;
+    color: var(--accent-ink);
+    font-weight: 600;
+    margin: 0 0 14px;
+  }
+  h1 {
+    font-size: clamp(30px, 5.4vw, 50px);
+    line-height: 1.05;
+    letter-spacing: -0.02em;
+    font-weight: 680;
+    margin: 0 0 20px;
+    text-wrap: balance;
+  }
+  .lede {
+    font-size: clamp(16px, 2.1vw, 19px);
+    color: var(--ink-soft);
+    max-width: 60ch;
+    margin: 0;
+  }
+  h2 {
+    font-size: clamp(21px, 3vw, 27px);
+    letter-spacing: -0.015em;
+    font-weight: 660;
+    margin: 0 0 6px;
+    text-wrap: balance;
+  }
+  .section-note { color: var(--muted); margin: 0 0 24px; max-width: 62ch; font-size: 15.5px; }
+  p { max-width: 66ch; }
+  .mono { font-family: var(--mono); font-variant-numeric: tabular-nums; }
+
+  section { margin-top: clamp(48px, 7vw, 80px); }
+  .kicker {
+    display: flex; align-items: baseline; gap: 12px;
+    margin-bottom: 18px;
+  }
+  .kicker .num {
+    font-family: var(--mono); font-size: 12px; font-weight: 600;
+    color: var(--accent); letter-spacing: .1em; padding-top: 4px;
+    border-top: 2px solid var(--accent); min-width: 34px;
+  }
+
+  /* ---- fleet cards ---- */
+  .fleet { display: grid; gap: 14px; grid-template-columns: repeat(3, 1fr); }
+  @media (max-width: 720px) { .fleet { grid-template-columns: 1fr; } }
+  .tier {
+    background: var(--surface);
+    border: 1px solid var(--hairline);
+    border-radius: 14px;
+    padding: 22px 20px 20px;
+    box-shadow: var(--shadow);
+    display: flex; flex-direction: column;
+  }
+  .tier .role {
+    font-family: var(--mono); font-size: 11px; letter-spacing: .12em;
+    text-transform: uppercase; color: var(--muted); margin-bottom: 12px;
+  }
+  .tier .metaphor { font-size: 17px; font-weight: 640; margin-bottom: 2px; }
+  .tier .metaphor .sub { color: var(--muted); font-weight: 400; font-size: 14px; }
+  .tier .model {
+    font-family: var(--mono); font-size: 13.5px; color: var(--accent-ink);
+    margin: 14px 0 4px; font-weight: 600;
+  }
+  .tier .use { font-size: 14px; color: var(--ink-soft); margin: 0; }
+  .tier .hr { height: 1px; background: var(--hairline); margin: 16px 0; border: 0; }
+  .tier .foot { font-size: 12.5px; color: var(--muted); margin: auto 0 0; padding-top: 12px; }
+  .tier.mid { border-color: var(--accent); box-shadow: var(--shadow), inset 0 0 0 1px var(--accent); }
+
+  /* ---- verdict board ---- */
+  .board { display: flex; flex-direction: column; gap: 10px; }
+  .cand {
+    background: var(--surface);
+    border: 1px solid var(--hairline);
+    border-radius: 12px;
+    padding: 16px 18px;
+    display: grid;
+    grid-template-columns: 1fr auto;
+    gap: 6px 18px;
+    align-items: start;
+  }
+  .cand .name { font-family: var(--mono); font-weight: 600; font-size: 14.5px; }
+  .cand .tested { font-size: 12.5px; color: var(--muted); margin-top: 2px; }
+  .cand .why { grid-column: 1 / 2; font-size: 14.5px; color: var(--ink-soft); margin: 4px 0 0; max-width: 62ch; }
+  .chip {
+    font-family: var(--mono); font-size: 11px; font-weight: 600;
+    letter-spacing: .06em; text-transform: uppercase;
+    padding: 5px 10px; border-radius: 999px; white-space: nowrap;
+    display: inline-flex; align-items: center; gap: 6px;
+    justify-self: end;
+  }
+  .chip::before { content: ""; width: 7px; height: 7px; border-radius: 50%; background: currentColor; }
+  .chip.pass { color: var(--pass); background: var(--pass-bg); }
+  .chip.caution { color: var(--caution); background: var(--caution-bg); }
+  .chip.retired { color: var(--retired); background: var(--retired-bg); }
+
+  /* ---- data table w/ bars ---- */
+  figure { margin: 0; }
+  .fig-title { font-family: var(--mono); font-size: 12px; letter-spacing: .08em; text-transform: uppercase; color: var(--muted); margin: 0 0 4px; }
+  .fig-head { font-size: 17px; font-weight: 600; margin: 0 0 18px; max-width: 60ch; }
+  .fig-head em { color: var(--accent-ink); font-style: normal; }
+
+  .panel {
+    background: var(--surface);
+    border: 1px solid var(--hairline);
+    border-radius: 14px;
+    padding: 22px clamp(16px, 3vw, 26px);
+    box-shadow: var(--shadow);
+  }
+  .rows { display: flex; flex-direction: column; gap: 18px; }
+  .row .rlabel { display: flex; justify-content: space-between; align-items: baseline; gap: 12px; margin-bottom: 7px; }
+  .row .rname { font-size: 14.5px; font-weight: 550; }
+  .row .rname .tag { font-family: var(--mono); font-size: 11px; color: var(--muted); font-weight: 400; }
+  .row .rval { font-family: var(--mono); font-variant-numeric: tabular-nums; font-size: 14.5px; font-weight: 600; }
+  .track { height: 12px; background: var(--bar-track); border-radius: 6px; overflow: hidden; }
+  .bar { height: 100%; border-radius: 6px; background: var(--hairline-strong); }
+  .bar.win { background: var(--accent); }
+  .bar.warn { background: linear-gradient(90deg, var(--caution) 0%, var(--caution) 100%); opacity: .85; }
+  .meta { display: flex; gap: 18px; margin-top: 7px; font-family: var(--mono); font-size: 12px; color: var(--muted); }
+  .meta b { color: var(--ink-soft); font-weight: 600; }
+
+  .takeaway {
+    margin-top: 20px; padding: 14px 16px;
+    background: var(--accent-soft); border-radius: 10px;
+    font-size: 14.5px; color: var(--accent-ink); border: 1px solid transparent;
+  }
+  .takeaway b { font-weight: 680; }
+
+  /* ---- stat pair ---- */
+  .stats { display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; }
+  @media (max-width: 640px) { .stats { grid-template-columns: 1fr; } }
+  .stat { background: var(--surface); border: 1px solid var(--hairline); border-radius: 12px; padding: 18px; box-shadow: var(--shadow); }
+  .stat .big { font-family: var(--mono); font-variant-numeric: tabular-nums; font-size: 32px; font-weight: 680; letter-spacing: -0.02em; line-height: 1; }
+  .stat .big.up { color: var(--retired); }
+  .stat .cap { font-size: 13px; color: var(--muted); margin-top: 8px; }
+
+  .ab { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+  @media (max-width: 640px) { .ab { grid-template-columns: 1fr; } }
+  .abcard { background: var(--surface); border: 1px solid var(--hairline); border-radius: 12px; padding: 18px 20px; box-shadow: var(--shadow); }
+  .abcard.hot { border-color: var(--retired); }
+  .abcard .lab { font-family: var(--mono); font-size: 11px; letter-spacing: .1em; text-transform: uppercase; color: var(--muted); margin-bottom: 12px; }
+  .abcard dl { margin: 0; display: grid; grid-template-columns: 1fr auto; gap: 9px 12px; }
+  .abcard dt { font-size: 13.5px; color: var(--ink-soft); }
+  .abcard dd { margin: 0; font-family: var(--mono); font-variant-numeric: tabular-nums; font-weight: 600; font-size: 14px; text-align: right; }
+  .abcard dd.flag { color: var(--retired); }
+
+  /* ---- cost shape ---- */
+  .shape { display: grid; grid-template-columns: 1.2fr 1fr; gap: 20px; align-items: center; }
+  @media (max-width: 720px) { .shape { grid-template-columns: 1fr; } }
+  .stack { display: flex; flex-direction: column; gap: 3px; }
+  .seg { display: flex; align-items: center; gap: 12px; }
+  .seg .segbar { height: 30px; border-radius: 5px; }
+  .seg .segtxt { font-size: 13px; color: var(--ink-soft); }
+  .seg .segtxt b { font-family: var(--mono); color: var(--ink); }
+
+  blockquote {
+    margin: 0; padding: 0 0 0 20px; border-left: 3px solid var(--accent);
+    font-size: clamp(18px, 2.6vw, 22px); line-height: 1.4; font-weight: 500;
+    color: var(--ink); letter-spacing: -0.01em; max-width: 30ch;
+  }
+
+  footer {
+    margin-top: 80px; padding-top: 24px; border-top: 1px solid var(--hairline);
+    font-size: 13px; color: var(--muted);
+  }
+  footer p { max-width: 72ch; }
+  footer .mono { color: var(--ink-soft); }
+
+  a { color: var(--accent-ink); }
+</style>
+</head>
+<body>
+
+<div class="wrap">
+
+  <header>
+    <p class="eyebrow">Field notes · multi-agent harness</p>
+    <h1>Choosing the fleet</h1>
+    <p class="lede">Every task in an agent harness needs a different amount of horsepower. Picking the right model for each is a product decision, not a user's problem — and the only way to get it right is to measure. These are the receipts behind one assistant's defaults.</p>
+  </header>
+
+  <!-- 1. THE FLEET -->
+  <section>
+    <div class="kicker"><span class="num">01</span><h2>Not every trip needs an F1 car</h2></div>
+    <p class="section-note">Models exist because they optimize for different tradeoffs — speed, cost, and reasoning depth pull against each other. The harness routes each kind of work to the cheapest model that still clears the bar.</p>
+    <div class="fleet">
+      <div class="tier">
+        <div class="role">Scan &amp; sort</div>
+        <div class="metaphor">The bicycle <span class="sub">· cheap &amp; instant</span></div>
+        <div class="model">Gemini 2.5 Flash-Lite</div>
+        <p class="use">Classifying and triaging every inbound email, extracting facts, naming threads. High volume, low stakes.</p>
+        <hr class="hr" />
+        <p class="foot">~30× cheaper per token than the everyday model. Sub-second p50.</p>
+      </div>
+      <div class="tier mid">
+        <div class="role">Do the work</div>
+        <div class="metaphor">The car <span class="sub">· the daily driver</span></div>
+        <div class="model">Claude Sonnet 4.6</div>
+        <p class="use">The chat "boss," sub-agents, briefings, artifact editing. Follows instructions, uses tools, keeps the big picture.</p>
+        <hr class="hr" />
+        <p class="foot">The default for anything interactive. Reasoning-capable without overthinking.</p>
+      </div>
+      <div class="tier">
+        <div class="role">Heavy reasoning</div>
+        <div class="metaphor">The cargo ship <span class="sub">· reserved</span></div>
+        <div class="model">Claude Opus 4.8</div>
+        <p class="use">The manual "Deep" tier only. Called in for genuinely hard, open-ended reasoning — like a senior consultant you don't hand every task.</p>
+        <hr class="hr" />
+        <p class="foot">~2× the cost of the daily driver. Adaptive thinking self-sizes trivial turns to zero.</p>
+      </div>
+    </div>
+  </section>
+
+  <!-- 2. RETIRED CANDIDATES -->
+  <section>
+    <div class="kicker"><span class="num">02</span><h2>The candidates that didn't make it</h2></div>
+    <p class="section-note">The defaults above are survivors. Each was chosen only after a rival was tried against real, recorded tasks and set aside for a specific, measured reason. A few of the retirements:</p>
+    <div class="board">
+
+      <div class="cand">
+        <div><span class="name">Gemini 2.5 Flash</span><div class="tested">tested as: everyday chat model</div></div>
+        <span class="chip retired">Failed quality</span>
+        <p class="why">Mis-orchestrated on tool-heavy turns — spun up needless sub-agents, failed to aggregate results, abandoned single-tool turns. Never cleared the bar for the driver's seat.</p>
+      </div>
+
+      <div class="cand">
+        <div><span class="name">Gemini 3.5 Flash</span><div class="tested">tested as: everyday chat model</div></div>
+        <span class="chip caution">Quality yes, cost &amp; reliability no</span>
+        <p class="why">Matched or beat quality — but burned 2.6× the input and 5.3× the output tokens, landing more expensive as-run despite a lower per-token price. On multi-integration synthesis it also returned intermittent empty completions, hard-failing the turn after real spend. Kept as a cross-provider fallback only.</p>
+      </div>
+
+      <div class="cand">
+        <div><span class="name">Claude Haiku 4.5</span><div class="tested">tested as: cheaper everyday model</div></div>
+        <span class="chip caution">Won in the lab, lost in the wild</span>
+        <p class="why">In isolated bake-offs it hit quality parity at ~3× lower cost — briefly shipped as the default. But its one weakness (under-acting: asking instead of searching) was patched with a prompt, and the patch didn't generalize to real traffic. Reverted to the reasoning-capable model.</p>
+      </div>
+
+      <div class="cand">
+        <div><span class="name">GPT-5.6 (two variants)</span><div class="tested">tested as: chat boss + workers</div></div>
+        <span class="chip retired">Lost on as-run cost</span>
+        <p class="why">Competitive on per-token price, but every configuration used more turns, more tool-schema retries, and more fan-out — so the bill climbed. Registered, but not dispatched for any chat role.</p>
+      </div>
+
+      <div class="cand">
+        <div><span class="name">A newer flagship SKU</span><div class="tested">tested as: everyday chat model</div></div>
+        <span class="chip retired">Priced out</span>
+        <p class="why">Newer isn't automatically better-value: this one priced <em>above</em> the deep-reasoning tier already in use, with no default niche to justify it.</p>
+      </div>
+
+      <div class="cand">
+        <div><span class="name">Opus 4.8 for daily editing</span><div class="tested">tested as: default artifact editor</div></div>
+        <span class="chip retired">Doesn't earn its 2×</span>
+        <p class="why">On the dominant real workload — iterative document editing — it cost ~2× the daily driver, produced comparable design, and its whitespace-heavy layout overflowed a fixed page. Reserved for the manual Deep tier instead.</p>
+      </div>
+
+      <div class="cand">
+        <div><span class="name">Perplexity Sonar</span><div class="tested">tested as: web-search provider</div></div>
+        <span class="chip retired">Replaced</span>
+        <p class="why">The original web-search backend. Swapped for grounded Gemini after a billing lapse and a comparable latency profile — one fewer vendor to depend on.</p>
+      </div>
+
+    </div>
+  </section>
+
+  <!-- 3. COST LESSON -->
+  <section>
+    <div class="kicker"><span class="num">03</span><h2>Cheaper per token isn't cheaper</h2></div>
+    <p class="section-note">The most expensive mistake in model selection is reading the price sheet instead of the bill. What a task actually costs depends on how many turns it takes and how work is orchestrated — not the sticker rate per token.</p>
+
+    <figure class="panel">
+      <p class="fig-title">One identical task · full-trajectory cost</p>
+      <p class="fig-head">Change the <em>topology</em>, not just the model, and the same result costs <em>6× more</em>.</p>
+      <div class="rows">
+
+        <div class="row">
+          <div class="rlabel"><span class="rname">Mid model, solo <span class="tag">Sonnet, direct</span></span><span class="rval">$0.102</span></div>
+          <div class="track"><div class="bar win" style="width:16.5%"></div></div>
+          <div class="meta"><span><b>4</b> calls</span><span><b>28s</b></span></div>
+        </div>
+
+        <div class="row">
+          <div class="rlabel"><span class="rname">Small model, solo <span class="tag">GPT-5.6, direct</span></span><span class="rval">$0.105</span></div>
+          <div class="track"><div class="bar" style="width:17.0%"></div></div>
+          <div class="meta"><span><b>13</b> calls</span><span><b>63s</b></span></div>
+        </div>
+
+        <div class="row">
+          <div class="rlabel"><span class="rname">Small boss + mid worker <span class="tag">two-tier</span></span><span class="rval">$0.241</span></div>
+          <div class="track"><div class="bar" style="width:39.1%"></div></div>
+          <div class="meta"><span><b>10</b> calls</span><span><b>97s</b></span></div>
+        </div>
+
+        <div class="row">
+          <div class="rlabel"><span class="rname">Large boss + 3 small workers <span class="tag">fan-out</span></span><span class="rval">$0.617</span></div>
+          <div class="track"><div class="bar warn" style="width:100%"></div></div>
+          <div class="meta"><span><b>56</b> calls</span><span><b>143s</b></span></div>
+        </div>
+
+      </div>
+      <div class="takeaway"><b>Faster token emission can't buy back wasted turns.</b> More models in the loop means more re-sending of the growing conversation to each one — the cost is the coordination, not the generation.</div>
+    </figure>
+
+    <figure class="panel" style="margin-top:16px;">
+      <p class="fig-title">The dominant real workload · iterative document editing</p>
+      <p class="fig-head">On the turn type where the money actually goes, the daily driver <em>wins outright</em>.</p>
+      <div class="rows">
+        <div class="row">
+          <div class="rlabel"><span class="rname">Sonnet 4.6 <span class="tag">the default</span></span><span class="rval">$0.445</span></div>
+          <div class="track"><div class="bar win" style="width:50.3%"></div></div>
+          <div class="meta"><span>cheapest · fastest · fits the page</span></div>
+        </div>
+        <div class="row">
+          <div class="rlabel"><span class="rname">Opus 4.8 <span class="tag">heavier</span></span><span class="rval">$0.885</span></div>
+          <div class="track"><div class="bar" style="width:100%"></div></div>
+          <div class="meta"><span>~2× cost · overflowed the fixed page · verbose</span></div>
+        </div>
+        <div class="row">
+          <div class="rlabel"><span class="rname">Gemini 3.5 Flash <span class="tag">half the per-token rate</span></span><span class="rval">$0.455</span></div>
+          <div class="track"><div class="bar" style="width:51.4%"></div></div>
+          <div class="meta"><span>same cost as Sonnet · 2.1× output tokens · scope-creep</span></div>
+        </div>
+      </div>
+    </figure>
+  </section>
+
+  <!-- 4. OVERTHINKING -->
+  <section>
+    <div class="kicker"><span class="num">04</span><h2>A big model overthinks small work</h2></div>
+    <p class="section-note">The same reason you don't send a cargo ship to cross a street: reasoning effort has a price, and on a trivial task it buys nothing. The identical one-line edit, run at two effort levels on the same model:</p>
+    <div class="ab">
+      <div class="abcard">
+        <div class="lab">Effort · low</div>
+        <dl>
+          <dt>Thinking time</dt><dd>3.6s</dd>
+          <dt>Model calls</dt><dd>2</dd>
+          <dt>Cost</dt><dd>$0.05</dd>
+          <dt>Result quality</dt><dd>clean</dd>
+        </dl>
+      </div>
+      <div class="abcard hot">
+        <div class="lab">Effort · medium</div>
+        <dl>
+          <dt>Thinking time</dt><dd class="flag">55s</dd>
+          <dt>Model calls</dt><dd class="flag">5</dd>
+          <dt>Cost</dt><dd class="flag">$0.21</dd>
+          <dt>Result quality</dt><dd>identical</dd>
+        </dl>
+      </div>
+    </div>
+    <div class="takeaway"><b>~15× the thinking, ~4× the cost, zero quality gain.</b> Effort has to be sized to the task — which is exactly what the harness, not the user, is responsible for.</div>
+  </section>
+
+  <!-- 5. COST SHAPE / CONTEXT BRIDGE -->
+  <section>
+    <div class="kicker"><span class="num">05</span><h2>Where the dollars actually go</h2></div>
+    <p class="section-note">Model selection and context management turn out to be the same problem wearing two hats. Reading the spend makes it obvious:</p>
+
+    <div class="shape">
+      <figure class="panel">
+        <p class="fig-title">Share of total LLM spend</p>
+        <div class="stack">
+          <div class="seg"><div class="segbar win" style="width:87%; background:var(--accent);"></div><span class="segtxt"><b>87%</b> · everyday chat model</span></div>
+          <div class="seg"><div class="segbar" style="width:9%; background:var(--hairline-strong);"></div><span class="segtxt"><b>9%</b> · deep reasoning tier</span></div>
+          <div class="seg"><div class="segbar" style="width:4%; background:var(--hairline-strong);"></div><span class="segtxt"><b>4%</b> · everything else</span></div>
+        </div>
+        <div class="takeaway" style="margin-top:16px;">The cheap classifier reads <b>more</b> input tokens than the chat model, yet is ~3% of the bill — proof the price ramp is real, and that the interactive path is where cost concentrates.</div>
+      </figure>
+
+      <div>
+        <blockquote>Cost is re-reading the conversation, not writing the answer.</blockquote>
+        <p style="margin-top:18px; color:var(--ink-soft); font-size:15px;">Input outweighs output roughly <span class="mono" style="font-weight:600;">20 : 1</span>. Every turn re-sends the whole transcript to the model. So a conversation that grows unchecked doesn't just get less reliable — it gets more expensive on every single turn. Controlling context growth <em>is</em> controlling cost.</p>
+      </div>
+    </div>
+  </section>
+
+  <footer>
+    <p><strong>Method.</strong> Candidates were run against real, recorded tasks through the live application, with cost recomputed from actual token usage per full trajectory — boss and every sub-agent — never from list price or benchmark scores. Defaults are re-challenged as new models ship; each figure here reflects a measured run that changed, or confirmed, a decision.</p>
+    <p style="margin-top:12px;">All task descriptions are generalized and contain no personal or customer data. Cost figures are the author's own testing spend. <span class="mono">Model names are public releases.</span></p>
+  </footer>
+
+</div>
+
+</body>
+</html>

@@ -1,6 +1,7 @@
 import { httpErrorFromResponse } from "@alfred/contracts";
 import { z } from "zod";
-import { GOOGLE_FETCH_TIMEOUT_MS, googleJson } from "./http";
+import { INTEGRATION_FETCH_TIMEOUT_MS } from "../shared/authed-fetch";
+import { googleJson } from "./http";
 
 /**
  * Thin Google Drive v3 REST client. Same shape as `gmail.ts` /
@@ -148,7 +149,7 @@ async function getText(
 ): Promise<{ text: string; truncated: boolean; mimeType?: string }> {
   const res = await fetch(url, {
     headers: { Authorization: `Bearer ${accessToken}` },
-    signal: AbortSignal.timeout(GOOGLE_FETCH_TIMEOUT_MS),
+    signal: AbortSignal.timeout(INTEGRATION_FETCH_TIMEOUT_MS),
   });
   if (!res.ok) {
     throw await httpErrorFromResponse("drive", res, { url });

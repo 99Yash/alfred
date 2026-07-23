@@ -1,5 +1,7 @@
 import { serverEnv } from "@alfred/env/server";
 
+import { INTEGRATION_FETCH_TIMEOUT_MS } from "../shared/authed-fetch";
+
 /**
  * Vercel integration OAuth (https://vercel.com/docs/integrations/sign-in).
  * The "authorize" step is the integration install URL; Vercel redirects back
@@ -74,7 +76,7 @@ export async function exchangeVercelCode(code: string): Promise<VercelTokenResul
     method: "POST",
     headers: { "Content-Type": "application/x-www-form-urlencoded" },
     body: form.toString(),
-    signal: AbortSignal.timeout(30_000),
+    signal: AbortSignal.timeout(INTEGRATION_FETCH_TIMEOUT_MS),
   });
   if (!res.ok) {
     const body = await res.text().catch(() => "");

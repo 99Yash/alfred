@@ -1,5 +1,7 @@
 import { serverEnv } from "@alfred/env/server";
 
+import { INTEGRATION_FETCH_TIMEOUT_MS } from "../shared/authed-fetch";
+
 /**
  * Notion public-integration OAuth (https://developers.notion.com/docs/authorization).
  * Authorization-code flow with HTTP Basic client auth on the token exchange.
@@ -81,7 +83,7 @@ export async function exchangeNotionCode(code: string): Promise<NotionTokenResul
       code,
       redirect_uri: cfg.redirectUri,
     }),
-    signal: AbortSignal.timeout(30_000),
+    signal: AbortSignal.timeout(INTEGRATION_FETCH_TIMEOUT_MS),
   });
   if (!res.ok) {
     const body = await res.text().catch(() => "");
