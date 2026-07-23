@@ -66,6 +66,20 @@ async function bestEffort(label: string, fn: () => Promise<unknown>): Promise<vo
   }
 }
 
+/**
+ * Confirm a credential id belongs to the caller before acting on it —
+ * otherwise an authenticated user could drive watch/ingest operations against
+ * someone else's credential id. Throws NotFoundError (not Forbidden) so the
+ * response never confirms whether the id exists for another user.
+ */
+async function assertCredentialOwned(id: string, userId: string): Promise<void> {
+  const owner = await db()
+    .select({ id: integrationCredentials.id })
+    .from(integrationCredentials)
+    .where(and(eq(integrationCredentials.id, id), eq(integrationCredentials.userId, userId)));
+  if (!owner[0]) throw new NotFoundError("Credential not found");
+}
+
 const ORG_AFFILIATION_TRANSACTION_MAX_ATTEMPTS = 3;
 
 async function transactionWithOrgAffiliationRetry<T>(fn: () => Promise<T>): Promise<T> {
@@ -271,16 +285,7 @@ export const googleIntegrationRoutes = new Elysia({
       .post(
         "/:id/watch",
         async ({ params, user }) => {
-          const owner = await db()
-            .select({ id: integrationCredentials.id })
-            .from(integrationCredentials)
-            .where(
-              and(
-                eq(integrationCredentials.id, params.id),
-                eq(integrationCredentials.userId, user.id),
-              ),
-            );
-          if (!owner[0]) throw new NotFoundError("Credential not found");
+          await assertCredentialOwned(params.id, user.id);
           const topic = serverEnv().GOOGLE_PUBSUB_TOPIC;
           if (!topic) throw new ServiceUnavailableError("GOOGLE_PUBSUB_TOPIC not configured");
           try {
@@ -308,16 +313,7 @@ export const googleIntegrationRoutes = new Elysia({
       .delete(
         "/:id/watch",
         async ({ params, user }) => {
-          const owner = await db()
-            .select({ id: integrationCredentials.id })
-            .from(integrationCredentials)
-            .where(
-              and(
-                eq(integrationCredentials.id, params.id),
-                eq(integrationCredentials.userId, user.id),
-              ),
-            );
-          if (!owner[0]) throw new NotFoundError("Credential not found");
+          await assertCredentialOwned(params.id, user.id);
           await uninstallGmailWatch(params.id);
           return { credentialId: params.id, ok: true };
         },
@@ -328,16 +324,7 @@ export const googleIntegrationRoutes = new Elysia({
       .get(
         "/:id/watch",
         async ({ params, user }) => {
-          const owner = await db()
-            .select({ id: integrationCredentials.id })
-            .from(integrationCredentials)
-            .where(
-              and(
-                eq(integrationCredentials.id, params.id),
-                eq(integrationCredentials.userId, user.id),
-              ),
-            );
-          if (!owner[0]) throw new NotFoundError("Credential not found");
+          await assertCredentialOwned(params.id, user.id);
           const state = await getGmailWatchState(params.id);
           return { credentialId: params.id, watch: state };
         },
@@ -348,19 +335,8 @@ export const googleIntegrationRoutes = new Elysia({
       .post(
         "/:id/ingest",
         async ({ params, body, user }) => {
-          // Confirm the credential belongs to the caller before enqueueing —
-          // otherwise an authenticated user could trigger ingestion against
-          // someone else's credential id.
-          const owner = await db()
-            .select({ id: integrationCredentials.id })
-            .from(integrationCredentials)
-            .where(
-              and(
-                eq(integrationCredentials.id, params.id),
-                eq(integrationCredentials.userId, user.id),
-              ),
-            );
-          if (!owner[0]) throw new NotFoundError("Credential not found");
+          // Confirm the credential belongs to the caller before enqueueing.
+          await assertCredentialOwned(params.id, user.id);
 
           const queue = getIngestionQueue();
           const job = await queue.add("gmail.ingest_recent", {

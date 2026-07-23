@@ -183,43 +183,8 @@ export class AlfredAgent<CTX = unknown> {
   }
 
   async turn(args: TurnArgs<CTX>): Promise<TurnResult> {
-    const { ctx, transcript } = args;
-
-    const system = await resolve(this.s.system, ctx);
-    this.assertStableSystem(system);
-
-    const model = await resolve(this.s.model, ctx);
-    const rawTools = await this.s.tools(ctx);
-    const tools = decorateTools(rawTools, this.cacheTtl());
-
-    const attribution = this.buildAttribution(args.attribution, this.cacheTtl());
-
-    const result = await meteredGenerateText(
-      {
-        model,
-        instructions: buildSystem(system, this.cacheTtl()),
-        messages: decorateTranscript(transcript, this.cacheTtl()),
-        // Compaction prepends a server-authored `<run_summary>` system message
-        // to the persisted transcript. AI SDK 7 rejects system messages in
-        // `messages` by default; this opt-in is safe because transcript roles
-        // are assigned by Alfred, never accepted from user input.
-        allowSystemInMessages: true,
-        tools,
-        // Cap at 1 step: the SDK should send the model request and return
-        // — even if the model emits tool calls. Combined with `execute`-
-        // less tools, the SDK never dispatches.
-        stopWhen: isStepCount(1),
-        maxOutputTokens: this.s.maxOutputTokens,
-        temperature: this.s.temperature,
-        // The SDK types `providerOptions` as `JSONObject` per provider; our
-        // public surface uses the looser `unknown` per provider so callers
-        // don't have to import internal SDK types. Cast at the boundary.
-        providerOptions: this.s.providerOptions as Record<string, never> | undefined,
-        abortSignal: args.abortSignal,
-      },
-      attribution,
-    );
-
+    const { request, attribution } = await this.prepareTurn(args);
+    const result = await meteredGenerateText(request, attribution);
     return classifyTurnResult(result);
   }
 
@@ -236,6 +201,23 @@ export class AlfredAgent<CTX = unknown> {
    * returns. Metering lands automatically when the stream finishes.
    */
   async streamTurn(args: TurnArgs<CTX>): Promise<StreamTextResult<ToolSet, never, never>> {
+    const { request, attribution } = await this.prepareTurn(args);
+    return meteredStreamText(
+      { ...request, timeout: args.streamTimeout ?? DEFAULT_TURN_STREAM_TIMEOUT },
+      attribution,
+    );
+  }
+
+  // ── internals ──────────────────────────────────────────────────────────
+
+  /**
+   * Shared per-turn setup for `turn()` and `streamTurn()`: resolve the system
+   * prompt (asserting it stays stable across a run), model, and tools, then
+   * assemble the request payload both paths send. `streamTurn` layers its
+   * stream `timeout` on top; everything else is identical single-step
+   * (`execute`-less tools, `stopWhen: isStepCount(1)`) semantics.
+   */
+  private async prepareTurn(args: TurnArgs<CTX>) {
     const { ctx, transcript } = args;
 
     const system = await resolve(this.s.system, ctx);
@@ -247,25 +229,31 @@ export class AlfredAgent<CTX = unknown> {
 
     const attribution = this.buildAttribution(args.attribution, this.cacheTtl());
 
-    return meteredStreamText(
-      {
-        model,
-        instructions: buildSystem(system, this.cacheTtl()),
-        messages: decorateTranscript(transcript, this.cacheTtl()),
-        allowSystemInMessages: true,
-        tools,
-        stopWhen: isStepCount(1),
-        maxOutputTokens: this.s.maxOutputTokens,
-        temperature: this.s.temperature,
-        providerOptions: this.s.providerOptions as Record<string, never> | undefined,
-        abortSignal: args.abortSignal,
-        timeout: args.streamTimeout ?? DEFAULT_TURN_STREAM_TIMEOUT,
-      },
-      attribution,
-    );
-  }
+    const request = {
+      model,
+      instructions: buildSystem(system, this.cacheTtl()),
+      messages: decorateTranscript(transcript, this.cacheTtl()),
+      // Compaction prepends a server-authored `<run_summary>` system message
+      // to the persisted transcript. AI SDK 7 rejects system messages in
+      // `messages` by default; this opt-in is safe because transcript roles
+      // are assigned by Alfred, never accepted from user input.
+      allowSystemInMessages: true,
+      tools,
+      // Cap at 1 step: the SDK should send the model request and return
+      // — even if the model emits tool calls. Combined with `execute`-
+      // less tools, the SDK never dispatches.
+      stopWhen: isStepCount(1),
+      maxOutputTokens: this.s.maxOutputTokens,
+      temperature: this.s.temperature,
+      // The SDK types `providerOptions` as `JSONObject` per provider; our
+      // public surface uses the looser `unknown` per provider so callers
+      // don't have to import internal SDK types. Cast at the boundary.
+      providerOptions: this.s.providerOptions as Record<string, never> | undefined,
+      abortSignal: args.abortSignal,
+    };
 
-  // ── internals ──────────────────────────────────────────────────────────
+    return { request, attribution };
+  }
 
   private cacheTtl(): "5m" | "1h" | undefined {
     if (this.s.cacheControl === false) return undefined;
