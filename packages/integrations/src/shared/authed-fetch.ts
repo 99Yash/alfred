@@ -1,23 +1,27 @@
 /**
- * The one authenticated `fetch` transport the *curated* provider clients share
- * (Vercel, Notion, GitHub, Railway). It owns exactly the mechanism those four
- * had each copied inline — bearer/version headers pinned by the caller, the
- * shared {@link INTEGRATION_FETCH_TIMEOUT_MS} timeout, JSON body encoding, and
- * redirect policy — and nothing else. It returns the raw {@link Response} so
- * each vendor keeps its own genuinely-different post-fetch step (parse as JSON,
- * `zod`-validate, or hand back the raw text envelope) and its own error mapping.
+ * The one authenticated `fetch` transport every integration client shares. It
+ * owns exactly the mechanism they had each copied inline — bearer/version headers
+ * pinned by the caller, the shared {@link INTEGRATION_FETCH_TIMEOUT_MS} timeout,
+ * JSON body encoding, and redirect policy — and nothing else. It returns the raw
+ * {@link Response} so each caller keeps its own genuinely-different post-fetch
+ * step and error mapping.
  *
- * This is the curated-tier sibling of {@link restPassthroughFetch} (the general
- * read-only passthrough transport) and `googleJson` (the Google mini-core): the
- * same "data-only profile + request" shape, so the 30s timeout and header
- * mechanics live in one place per tier instead of five.
+ * Everything else builds on this one core rather than re-implementing the wire
+ * mechanics beside it:
+ *
+ *   authedFetch  → Response          (GitHub's zod path, Railway's GraphQL envelope)
+ *     ├ authedJson → unknown         (Notion / Vercel / Google: throw-and-parse JSON)
+ *     └ restPassthroughFetch         (ADR-0074 rung-a read-only passthrough envelope)
+ *
+ * so the 30s timeout and header mechanics live in exactly one place instead of
+ * being re-declared per client.
  *
  * A transport failure (timeout/DNS/reset/TLS) throws for the caller to classify;
  * a non-2xx does not — the returned `Response` carries `ok`/`status` and the
  * caller decides how to surface it.
  */
 
-/** Shared request timeout for every curated integration client call. */
+/** Shared request timeout for every integration client HTTP call. */
 export const INTEGRATION_FETCH_TIMEOUT_MS = 30_000;
 
 /**

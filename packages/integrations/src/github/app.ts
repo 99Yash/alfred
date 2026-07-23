@@ -3,6 +3,7 @@ import { serverEnv } from "@alfred/env/server";
 import { createHmac, createPrivateKey, timingSafeEqual, type KeyObject } from "node:crypto";
 import { SignJWT } from "jose";
 import { z } from "zod";
+import { INTEGRATION_FETCH_TIMEOUT_MS } from "../shared/authed-fetch";
 import type { RestPassthroughProfile } from "../shared/rest-passthrough";
 
 /**
@@ -24,7 +25,6 @@ import type { RestPassthroughProfile } from "../shared/rest-passthrough";
 const API_BASE = "https://api.github.com";
 const TOKEN_BASE = "https://github.com/login/oauth/access_token";
 const USER_BASE = `${API_BASE}/user`;
-const GITHUB_FETCH_TIMEOUT_MS = 30_000;
 const GH_HEADERS = {
   Accept: "application/vnd.github+json",
   "X-GitHub-Api-Version": "2022-11-28",
@@ -34,7 +34,7 @@ const GH_HEADERS = {
 function githubFetch(input: string | URL, init: RequestInit = {}): Promise<Response> {
   return fetch(input, {
     ...init,
-    signal: init.signal ?? AbortSignal.timeout(GITHUB_FETCH_TIMEOUT_MS),
+    signal: init.signal ?? AbortSignal.timeout(INTEGRATION_FETCH_TIMEOUT_MS),
   });
 }
 

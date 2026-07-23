@@ -3,6 +3,7 @@ import { serverEnv } from "@alfred/env/server";
 import { createRemoteJWKSet, jwtVerify, type JWTPayload } from "jose";
 import { z } from "zod";
 import { toMessage } from "@alfred/contracts";
+import { INTEGRATION_FETCH_TIMEOUT_MS } from "../shared/authed-fetch";
 
 export type { AccountPersona } from "@alfred/contracts";
 
@@ -18,7 +19,6 @@ export type { AccountPersona } from "@alfred/contracts";
 
 const AUTH_BASE = "https://accounts.google.com/o/oauth2/v2/auth";
 const TOKEN_BASE = "https://oauth2.googleapis.com/token";
-const GOOGLE_OAUTH_FETCH_TIMEOUT_MS = 30_000;
 
 /**
  * Identity scopes always requested — they key our credential rows
@@ -224,7 +224,7 @@ export async function exchangeCode(code: string): Promise<ExchangeCodeResult> {
     method: "POST",
     headers: { "Content-Type": "application/x-www-form-urlencoded" },
     body,
-    signal: AbortSignal.timeout(GOOGLE_OAUTH_FETCH_TIMEOUT_MS),
+    signal: AbortSignal.timeout(INTEGRATION_FETCH_TIMEOUT_MS),
   });
   const json = await res.json().catch(() => null);
   if (!res.ok) {
@@ -292,7 +292,7 @@ export async function refreshAccessToken(refreshToken: string): Promise<RefreshT
     method: "POST",
     headers: { "Content-Type": "application/x-www-form-urlencoded" },
     body,
-    signal: AbortSignal.timeout(GOOGLE_OAUTH_FETCH_TIMEOUT_MS),
+    signal: AbortSignal.timeout(INTEGRATION_FETCH_TIMEOUT_MS),
   });
   const json = await res.json().catch(() => null);
   if (!res.ok) {
