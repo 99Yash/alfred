@@ -669,7 +669,13 @@ export async function dispatchToolCall(args: DispatchArgs): Promise<DispatchResu
     };
   }
 
-  const riskTier: ToolRiskTier = tool.riskTier;
+  // Most tools carry a static `riskTier`. A tool may instead resolve its
+  // EFFECTIVE tier from the validated input at the gate — `mcp.call` uses this to
+  // narrow its `high` floor to a reviewed per-descriptor downgrade (#541). The
+  // resolved tier drives both the approval decision and the persisted staging row.
+  const riskTier: ToolRiskTier = tool.resolveRiskTier
+    ? await tool.resolveRiskTier(input, ctx)
+    : tool.riskTier;
   const policyMode =
     integration === "system" ? "autonomy" : await resolvePolicyMode(args.userId, toolName);
   const requiresApproval = toolRequiresApproval(policyMode, riskTier);

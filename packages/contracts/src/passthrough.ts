@@ -19,6 +19,7 @@
  */
 
 import { z } from "zod";
+import { enumGuard } from "./guards";
 import {
   isToolName,
   LOADABLE_INTEGRATION_SLUGS,
@@ -76,9 +77,7 @@ export const SUPPORTED_PASSTHROUGH_SLUGS: readonly SupportedIntegrationSlug[] =
     (slug): slug is SupportedIntegrationSlug => GENERAL_INVOCATION_COVERAGE[slug] === "supported",
   );
 
-export function isSupportedPassthroughSlug(value: string): value is SupportedIntegrationSlug {
-  return (SUPPORTED_PASSTHROUGH_SLUGS as readonly string[]).includes(value);
-}
+export const isSupportedPassthroughSlug = enumGuard(SUPPORTED_PASSTHROUGH_SLUGS);
 
 /**
  * Transport shape per supported integration. REST providers take a

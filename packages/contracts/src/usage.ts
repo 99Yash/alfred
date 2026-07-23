@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { enumGuard } from "./guards";
 
 /**
  * Browser-safe contracts for the settings → Usage dashboard. The web bundle
@@ -43,9 +44,7 @@ export const USAGE_RUN_CATEGORIES = [
 export const usageRunCategorySchema = z.enum(USAGE_RUN_CATEGORIES);
 export type UsageRunCategory = (typeof USAGE_RUN_CATEGORIES)[number];
 
-export function isUsageRunCategory(value: unknown): value is UsageRunCategory {
-  return typeof value === "string" && (USAGE_RUN_CATEGORIES as readonly string[]).includes(value);
-}
+export const isUsageRunCategory = enumGuard(USAGE_RUN_CATEGORIES);
 
 /** One served model within a run: its id and how many calls it answered. */
 export const usageModelBreakdownSchema = z.object({

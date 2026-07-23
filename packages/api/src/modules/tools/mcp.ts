@@ -4,11 +4,12 @@
  * the `ExternalToolRef` (connection + remote name + catalog revision) in its ARGS,
  * and every call is authorized independently at Alfred's dispatch boundary.
  *
- *  - `mcp.call` is a static `high`-tier action: it ALWAYS stages for approval
- *    (the risk floor in `toolRequiresApproval`), then routes through the durable
- *    execution broker, which owns the ambiguity ledger. A future reviewed
- *    per-descriptor policy may downgrade the effective tier; until then the
- *    conservative floor holds.
+ *  - `mcp.call` carries a static `high` FLOOR: an unreviewed MCP tool always
+ *    stages for approval (the risk floor in `toolRequiresApproval`), then routes
+ *    through the durable execution broker, which owns the ambiguity ledger. A
+ *    `resolveRiskTier` hook narrows that floor at the dispatch gate when the user
+ *    has reviewed the exact descriptor and recorded a lower tier in
+ *    `mcp_tool_policy` (#541 Part 3) — drift or an unreviewed tool re-gates high.
  *  - `mcp.list_tools` is a bounded LOCAL read of the persisted catalog. It runs on
  *    the dispatcher's fast path (no staging, no approval, no ledger) because it
  *    performs no outbound action — see the `mcp.list_tools` intercept in
@@ -19,6 +20,7 @@ import { mcpCallInput, mcpListToolsInput } from "@alfred/contracts";
 import {
   getMcpExecutionBroker,
   listMcpToolsLocal,
+  resolveMcpCallRiskTier,
   type ExternalToolRef,
   type McpBrokerOutcome,
   type McpCallEnvelope,
@@ -70,6 +72,18 @@ export const mcpTools: readonly RegisteredTool[] = [
       relatedTools: ["mcp.list_tools"],
     },
     inputSchema: mcpCallInput,
+    // Reviewed per-descriptor downgrade (#541): the `high` above is the floor, and
+    // this narrows it only when the user has reviewed the exact descriptor the
+    // model selected and recorded a lower tier. All resolution reads Alfred's
+    // PERSISTED catalog (no live client at the gate); any uncertainty — unowned
+    // connection, stale revision, descriptor drift, no policy — stays high.
+    resolveRiskTier: (input, ctx) =>
+      resolveMcpCallRiskTier({
+        userId: ctx.userId,
+        connectionId: input.connectionId,
+        remoteName: input.remoteName,
+        catalogRevision: input.catalogRevision,
+      }),
     execute: async (input, ctx) => {
       if (!ctx.stagingId) {
         // mcp.call is always staged (high floor), so it only reaches execution via

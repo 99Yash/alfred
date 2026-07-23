@@ -130,6 +130,28 @@ export interface LiveToolArgs<
   integration: I;
   action: A;
   riskTier: ToolRiskTier;
+  /**
+   * Optional: compute the EFFECTIVE risk tier from the validated input at the
+   * dispatch gate, overriding the static `riskTier`. `mcp.call` uses it to apply
+   * a reviewed per-descriptor downgrade (#541) — its static `riskTier` is the
+   * pessimistic floor, and this narrows it only when a reviewed policy binds to
+   * the exact tool being called.
+   *
+   * TRUST BOUNDARY — read before adding a second implementer. The dispatcher does
+   * NOT clamp what this returns (it cannot: the whole point is to go *below* the
+   * static floor), so `toolRequiresApproval` gates on the returned tier verbatim —
+   * any value other than `high` waives approval. This hook is therefore the SOLE
+   * gate on lowering a tool's approval floor: there is no central guard, type, or
+   * test that makes an over-permissive return impossible. So it MUST be
+   * fail-closed — every point of uncertainty returns the static floor — and
+   * side-effect free (it runs on EVERY dispatch, before staging). Today `mcp.call`
+   * is the only caller and the decision is centralized in `resolveMcpCallRiskTier`;
+   * a second caller that returns a lower tier on a bug silently un-gates a
+   * high-floor action. If this grows past one caller, promote the guard from this
+   * convention into a central clamp/audit rather than another careful function.
+   * See decisions.md (ADR-0088).
+   */
+  resolveRiskTier?: (input: z.infer<S>, ctx: ToolExecuteContext) => Promise<ToolRiskTier>;
   description: string;
   /** Compact discovery copy co-located with the executable definition (#411). */
   discovery?: ToolDiscoveryMetadata;
@@ -160,6 +182,8 @@ export interface RegisteredTool {
   integration: IntegrationSlug;
   action: string;
   riskTier: ToolRiskTier;
+  /** See {@link LiveToolArgs.resolveRiskTier}. Erased to `unknown` at the registry boundary. */
+  resolveRiskTier?: (input: unknown, ctx: ToolExecuteContext) => Promise<ToolRiskTier>;
   description: string;
   discovery: ResolvedDiscovery;
   availability?: ToolAvailabilityMetadata;
@@ -205,6 +229,12 @@ export function liveTool<
     },
     ...(args.redactInput
       ? { redactInput: (input: unknown) => args.redactInput!(input as z.infer<S>) }
+      : {}),
+    ...(args.resolveRiskTier
+      ? {
+          resolveRiskTier: (input: unknown, ctx: ToolExecuteContext) =>
+            args.resolveRiskTier!(args.inputSchema.parse(input), ctx),
+        }
       : {}),
   };
 }
