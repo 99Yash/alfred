@@ -590,63 +590,36 @@ export const meRoutes = new Elysia({ prefix: "/api/me", normalize: "typebox" })
 
           // Fan out to every sibling message in the same thread. Falls
           // back to the single row when the thread id is null (extremely
-          // rare for `source = 'gmail'`, but the column is nullable).
-          const threadRows = selected.threadId
-            ? await db()
-                .select({
-                  documentId: documents.id,
-                  threadId: documents.sourceThreadId,
-                  subject: documents.title,
-                  content: documents.content,
-                  authoredAt: documents.authoredAt,
-                  metadata: documents.metadata,
-                  raw: documents.raw,
-                  category: emailTriage.category,
-                })
-                .from(documents)
-                .leftJoin(
-                  emailTriage,
-                  and(
-                    eq(emailTriage.userId, documents.userId),
-                    eq(emailTriage.sourceThreadId, documents.sourceThreadId),
-                  ),
-                )
-                .where(
-                  and(
-                    eq(documents.userId, u.id),
-                    eq(documents.source, "gmail"),
-                    eq(documents.sourceThreadId, selected.threadId),
-                  ),
-                )
-                // Oldest first so the reader reads top-to-bottom like a
-                // chat transcript — matches how Gmail's web UI orders threads.
-                .orderBy(asc(documents.authoredAt), asc(documents.id))
-            : await db()
-                .select({
-                  documentId: documents.id,
-                  threadId: documents.sourceThreadId,
-                  subject: documents.title,
-                  content: documents.content,
-                  authoredAt: documents.authoredAt,
-                  metadata: documents.metadata,
-                  raw: documents.raw,
-                  category: emailTriage.category,
-                })
-                .from(documents)
-                .leftJoin(
-                  emailTriage,
-                  and(
-                    eq(emailTriage.userId, documents.userId),
-                    eq(emailTriage.sourceThreadId, documents.sourceThreadId),
-                  ),
-                )
-                .where(
-                  and(
-                    eq(documents.userId, u.id),
-                    eq(documents.source, "gmail"),
-                    eq(documents.id, params.documentId),
-                  ),
-                );
+          // rare for `source = 'gmail'`, but the column is nullable) — only
+          // the row selector differs between the two.
+          const rowSelector = selected.threadId
+            ? eq(documents.sourceThreadId, selected.threadId)
+            : eq(documents.id, params.documentId);
+
+          const threadRows = await db()
+            .select({
+              documentId: documents.id,
+              threadId: documents.sourceThreadId,
+              subject: documents.title,
+              content: documents.content,
+              authoredAt: documents.authoredAt,
+              metadata: documents.metadata,
+              raw: documents.raw,
+              category: emailTriage.category,
+            })
+            .from(documents)
+            .leftJoin(
+              emailTriage,
+              and(
+                eq(emailTriage.userId, documents.userId),
+                eq(emailTriage.sourceThreadId, documents.sourceThreadId),
+              ),
+            )
+            .where(and(eq(documents.userId, u.id), eq(documents.source, "gmail"), rowSelector))
+            // Oldest first so the reader reads top-to-bottom like a chat
+            // transcript — matches how Gmail's web UI orders threads. Harmless
+            // for the single-row fallback.
+            .orderBy(asc(documents.authoredAt), asc(documents.id));
 
           const messages: MeInboxMessage[] = threadRows.map((row) => {
             const meta = toRecord(row.metadata);

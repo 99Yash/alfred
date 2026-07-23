@@ -142,6 +142,55 @@ export function hasGmailPostInsertSideEffects(args: {
   );
 }
 
+/**
+ * Fan out the independent post-insert side effects shared by every Gmail
+ * insert job (`ingest_recent`, `poll_recent`, `poll_history`): triage event
+ * emission, bounded thread repairs, user-model observation capture, the
+ * rail-update publish — and, on the realtime path only, embedding inserts.
+ * Each targets a different table/queue and swallows its own errors, so they
+ * run concurrently (ADR-0037 tag-latency budget) rather than in series.
+ */
+async function runGmailPostInsertSideEffects(args: {
+  credentialId: string;
+  plan: GmailPostInsertSideEffectPlan;
+  result: { userId: string; insertedDocumentIds: string[] };
+  /** Realtime path (`poll_recent`) also embeds inserts for chat recall. */
+  embedInserts?: boolean;
+}): Promise<void> {
+  const { credentialId, plan, result, embedInserts = false } = args;
+  const insertedIds = result.insertedDocumentIds;
+
+  await runTaskGroup([
+    async () => {
+      if (plan.triageReason) {
+        await emitGmailMessageEvents(result.userId, plan.triageDocumentIds, plan.triageReason);
+      }
+    },
+    async () => {
+      await runGmailRepairSideEffects(credentialId, result.userId, plan);
+    },
+    async () => {
+      if (insertedIds.length) {
+        await recordGmailObservationsForDocuments(result.userId, insertedIds);
+      }
+    },
+    ...(embedInserts
+      ? [
+          async () => {
+            if (insertedIds.length) {
+              await embedRealtimeInserts(insertedIds);
+            }
+          },
+        ]
+      : []),
+    async () => {
+      if (insertedIds.length) {
+        await publishInboxUpdate(result.userId, "ingested", insertedIds.length);
+      }
+    },
+  ]);
+}
+
 export type IngestionJobData =
   | {
       kind: "media.enrich";
@@ -377,34 +426,7 @@ async function processIngestionJob(job: Job<IngestionJobData>): Promise<unknown>
           sentDocumentIds: result.sentDocumentIds,
           touchedThreadIds: result.touchedThreadIds,
         });
-        await runTaskGroup([
-          async () => {
-            if (plan.triageReason) {
-              await emitGmailMessageEvents(
-                result.userId,
-                plan.triageDocumentIds,
-                plan.triageReason,
-              );
-            }
-          },
-          async () => {
-            await runGmailRepairSideEffects(data.credentialId, result.userId, plan);
-          },
-          async () => {
-            if (result.insertedDocumentIds.length) {
-              await recordGmailObservationsForDocuments(result.userId, result.insertedDocumentIds);
-            }
-          },
-          async () => {
-            if (result.insertedDocumentIds.length) {
-              await publishInboxUpdate(
-                result.userId,
-                "ingested",
-                result.insertedDocumentIds.length,
-              );
-            }
-          },
-        ]);
+        await runGmailPostInsertSideEffects({ credentialId: data.credentialId, plan, result });
       }
       return result;
     }
@@ -427,47 +449,20 @@ async function processIngestionJob(job: Job<IngestionJobData>): Promise<unknown>
         // each function swallows its own errors. Fan them out so the
         // realtime tag-latency budget (ADR-0037) isn't compounded by
         // Voyage embed latency or outbox round-trips.
+        // Triage non-sent inserts only; embed ALL inserts (sent mail is
+        // embedded for chat recall but never triaged — ADR-0051 #7).
         const plan = planGmailPostInsertSideEffects({
           jobKind: data.kind,
           triageDocumentIds: result.triageDocumentIds,
           sentDocumentIds: result.sentDocumentIds,
           touchedThreadIds: result.touchedThreadIds,
         });
-        await runTaskGroup([
-          // Triage non-sent inserts only; embed ALL inserts (sent mail is
-          // embedded for chat recall but never triaged — ADR-0051 #7).
-          async () => {
-            if (plan.triageReason) {
-              await emitGmailMessageEvents(
-                result.userId,
-                plan.triageDocumentIds,
-                plan.triageReason,
-              );
-            }
-          },
-          async () => {
-            await runGmailRepairSideEffects(data.credentialId, result.userId, plan);
-          },
-          async () => {
-            if (result.insertedDocumentIds.length) {
-              await recordGmailObservationsForDocuments(result.userId, result.insertedDocumentIds);
-            }
-          },
-          async () => {
-            if (result.insertedDocumentIds.length) {
-              await embedRealtimeInserts(result.insertedDocumentIds);
-            }
-          },
-          async () => {
-            if (result.insertedDocumentIds.length) {
-              await publishInboxUpdate(
-                result.userId,
-                "ingested",
-                result.insertedDocumentIds.length,
-              );
-            }
-          },
-        ]);
+        await runGmailPostInsertSideEffects({
+          credentialId: data.credentialId,
+          plan,
+          result,
+          embedInserts: true,
+        });
       }
       return result;
     }
@@ -495,34 +490,7 @@ async function processIngestionJob(job: Job<IngestionJobData>): Promise<unknown>
           sentDocumentIds: result.sentDocumentIds,
           touchedThreadIds: result.touchedThreadIds,
         });
-        await runTaskGroup([
-          async () => {
-            if (plan.triageReason) {
-              await emitGmailMessageEvents(
-                result.userId,
-                plan.triageDocumentIds,
-                plan.triageReason,
-              );
-            }
-          },
-          async () => {
-            await runGmailRepairSideEffects(data.credentialId, result.userId, plan);
-          },
-          async () => {
-            if (result.insertedDocumentIds.length) {
-              await recordGmailObservationsForDocuments(result.userId, result.insertedDocumentIds);
-            }
-          },
-          async () => {
-            if (result.insertedDocumentIds.length) {
-              await publishInboxUpdate(
-                result.userId,
-                "ingested",
-                result.insertedDocumentIds.length,
-              );
-            }
-          },
-        ]);
+        await runGmailPostInsertSideEffects({ credentialId: data.credentialId, plan, result });
       }
       return result;
     }

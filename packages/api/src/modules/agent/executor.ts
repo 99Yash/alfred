@@ -1,9 +1,10 @@
 import type { AgentTranscriptMessage } from "@alfred/contracts";
 import { sanitizeErrorMessage, sanitizeToolResult, toMessage } from "@alfred/contracts";
-import { db, rowsFromExecute } from "@alfred/db";
+import { db, rowsFromExecute, type DbTransaction } from "@alfred/db";
 import { agentDecisionTraces, agentRuns, agentSteps, pendingActions } from "@alfred/db/schemas";
 import { runStatusSchema } from "@alfred/contracts";
 import { and, eq, sql } from "drizzle-orm";
+import type { PgUpdateSetSource } from "drizzle-orm/pg-core";
 import { publishEvent } from "../../events/publish";
 import { normalizeDecisionTraceKey, type DecisionTraceRecord } from "./decision-traces";
 import { resolveStaleAfterMs, resolveWorkflowForRun } from "./service";
@@ -54,6 +55,29 @@ class RunSupersededError extends Error {
     super(`run ${runId} step ${stepId} attempt ${attempt} superseded by reclaim before commit`);
     this.name = "RunSupersededError";
   }
+}
+
+/**
+ * Attempt-guarded commit of an `agent_runs` update: apply `set`, but only while
+ * the run is still at `attempt`. A stale-lease reclaim bumps `attempt`, so a
+ * 0-row match means this worker was superseded — throw {@link RunSupersededError}
+ * so the caller rolls back rather than double-advancing / double-parking /
+ * double-completing the run under a stale attempt the reclaimer now owns. Every
+ * terminal branch (advance, done, interrupt, failure) commits through here.
+ */
+async function commitGuardedRunUpdate(
+  tx: DbTransaction,
+  run: RunRow,
+  stepId: string,
+  attempt: number,
+  set: PgUpdateSetSource<typeof agentRuns>,
+): Promise<void> {
+  const committed = await tx
+    .update(agentRuns)
+    .set(set)
+    .where(and(eq(agentRuns.id, run.id), eq(agentRuns.attempt, attempt)))
+    .returning({ id: agentRuns.id });
+  if (committed.length === 0) throw new RunSupersededError(run.id, stepId, attempt);
 }
 
 export type RunOutcome =
@@ -614,35 +638,26 @@ async function commitStepSuccessTx(
     }
 
     if (result.kind === "next") {
-      const committed = await tx
-        .update(agentRuns)
-        .set({
-          state: cleanState as object,
-          currentStep: result.nextStep,
-          // Monotonic per-run execution counter, NOT reset to 0. The
-          // `agent_steps` row identity is `(run_id, step_id, attempt)`, and a
-          // workflow that loops back into a step it already ran (e.g. chat-turn
-          // -> dispatch-tools -> chat-turn) would re-enter at attempt 0 and
-          // collide with the earlier visit's row. That collision made
-          // `tryInsertStepRow` return false -> `runOnce` reported
-          // `step_already_committed` and the worker did NOT re-enqueue, so the
-          // run stalled ~60-90s until the stale-lease sweep reclaimed it with
-          // attempt+1. Carrying the counter forward keeps every step execution
-          // unique, so each loop iteration runs immediately. (attempt is only
-          // used for attribution/idempotency keys, never as a retry cap.)
-          attempt: attempt + 1,
-          status: "runnable",
-          lastCheckpointAt: now,
-          updatedAt: now,
-          ...(cleanTranscript === undefined ? {} : { transcript: cleanTranscript }),
-        })
-        // Attempt-guard: only commit if the run is still at the attempt this
-        // step ran under. A stale-lease reclaim bumps `attempt`, so a 0-row
-        // match means we were superseded — abort (rollback) instead of
-        // double-advancing the run with a duplicate transcript.
-        .where(and(eq(agentRuns.id, run.id), eq(agentRuns.attempt, attempt)))
-        .returning({ id: agentRuns.id });
-      if (committed.length === 0) throw new RunSupersededError(run.id, stepId, attempt);
+      await commitGuardedRunUpdate(tx, run, stepId, attempt, {
+        state: cleanState as object,
+        currentStep: result.nextStep,
+        // Monotonic per-run execution counter, NOT reset to 0. The
+        // `agent_steps` row identity is `(run_id, step_id, attempt)`, and a
+        // workflow that loops back into a step it already ran (e.g. chat-turn
+        // -> dispatch-tools -> chat-turn) would re-enter at attempt 0 and
+        // collide with the earlier visit's row. That collision made
+        // `tryInsertStepRow` return false -> `runOnce` reported
+        // `step_already_committed` and the worker did NOT re-enqueue, so the
+        // run stalled ~60-90s until the stale-lease sweep reclaimed it with
+        // attempt+1. Carrying the counter forward keeps every step execution
+        // unique, so each loop iteration runs immediately. (attempt is only
+        // used for attribution/idempotency keys, never as a retry cap.)
+        attempt: attempt + 1,
+        status: "runnable",
+        lastCheckpointAt: now,
+        updatedAt: now,
+        ...(cleanTranscript === undefined ? {} : { transcript: cleanTranscript }),
+      });
 
       await publishEvent({
         tx,
@@ -654,23 +669,18 @@ async function commitStepSuccessTx(
     }
 
     if (result.kind === "done") {
-      const committed = await tx
-        .update(agentRuns)
-        .set({
-          state: cleanState as object,
-          status: "completed",
-          output: cleanOutput,
-          endedAt: now,
-          lastCheckpointAt: now,
-          updatedAt: now,
-          ...(cleanTranscript === undefined ? {} : { transcript: cleanTranscript }),
-        })
-        // Attempt-guard (see the `next` branch): a 0-row match means a reclaim
-        // superseded us — abort so we don't mark a run completed under a stale
-        // attempt while the reclaimer is mid-step.
-        .where(and(eq(agentRuns.id, run.id), eq(agentRuns.attempt, attempt)))
-        .returning({ id: agentRuns.id });
-      if (committed.length === 0) throw new RunSupersededError(run.id, stepId, attempt);
+      // Attempt-guard (see the `next` branch): a 0-row match means a reclaim
+      // superseded us — abort so we don't mark a run completed under a stale
+      // attempt while the reclaimer is mid-step.
+      await commitGuardedRunUpdate(tx, run, stepId, attempt, {
+        state: cleanState as object,
+        status: "completed",
+        output: cleanOutput,
+        endedAt: now,
+        lastCheckpointAt: now,
+        updatedAt: now,
+        ...(cleanTranscript === undefined ? {} : { transcript: cleanTranscript }),
+      });
 
       await publishEvent({
         tx,
@@ -683,23 +693,18 @@ async function commitStepSuccessTx(
 
     // interrupt
     const wake = cleanWake!;
-    const committed = await tx
-      .update(agentRuns)
-      .set({
-        state: cleanState as object,
-        status: "waiting",
-        wakeCondition: wake,
-        attempt: attempt + 1, // next attempt of the same step on resume
-        lastCheckpointAt: now,
-        updatedAt: now,
-        ...(cleanTranscript === undefined ? {} : { transcript: cleanTranscript }),
-      })
-      // Attempt-guard (see the `next` branch): a 0-row match means a reclaim
-      // superseded us — abort so we don't park the run (and fire an approval /
-      // signal wake) under a stale attempt the reclaimer no longer owns.
-      .where(and(eq(agentRuns.id, run.id), eq(agentRuns.attempt, attempt)))
-      .returning({ id: agentRuns.id });
-    if (committed.length === 0) throw new RunSupersededError(run.id, stepId, attempt);
+    // Attempt-guard (see the `next` branch): a 0-row match means a reclaim
+    // superseded us — abort so we don't park the run (and fire an approval /
+    // signal wake) under a stale attempt the reclaimer no longer owns.
+    await commitGuardedRunUpdate(tx, run, stepId, attempt, {
+      state: cleanState as object,
+      status: "waiting",
+      wakeCondition: wake,
+      attempt: attempt + 1, // next attempt of the same step on resume
+      lastCheckpointAt: now,
+      updatedAt: now,
+      ...(cleanTranscript === undefined ? {} : { transcript: cleanTranscript }),
+    });
 
     if (wake.kind === "hil") {
       await publishEvent({
@@ -761,18 +766,13 @@ async function commitStepFailure(
           ),
         );
 
-      const committed = await tx
-        .update(agentRuns)
-        .set({
-          status: "failed",
-          error: { message: safeError, step: stepId, attempt },
-          endedAt: now,
-          lastCheckpointAt: now,
-          updatedAt: now,
-        })
-        .where(and(eq(agentRuns.id, run.id), eq(agentRuns.attempt, attempt)))
-        .returning({ id: agentRuns.id });
-      if (committed.length === 0) throw new RunSupersededError(run.id, stepId, attempt);
+      await commitGuardedRunUpdate(tx, run, stepId, attempt, {
+        status: "failed",
+        error: { message: safeError, step: stepId, attempt },
+        endedAt: now,
+        lastCheckpointAt: now,
+        updatedAt: now,
+      });
 
       await publishEvent({
         tx,
