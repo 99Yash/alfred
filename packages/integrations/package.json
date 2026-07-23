@@ -12,7 +12,8 @@
   },
   "scripts": {
     "build": "node ../../scripts/clean-package-dist.mjs && tsc -b --emitDeclarationOnly --force",
-    "check-types": "tsc -b --emitDeclarationOnly"
+    "check-types": "tsc -b --emitDeclarationOnly",
+    "test": "tsx --test \"test/**/*.test.ts\""
   },
   "dependencies": {
     "@alfred/contracts": "workspace:*",
@@ -24,7 +25,8 @@
     "zod": "catalog:"
   },
   "devDependencies": {
-    "@alfred/config": "workspace:*"
+    "@alfred/config": "workspace:*",
+    "tsx": "^4.21.0"
   },
   "peerDependencies": {
     "typescript": "catalog:"

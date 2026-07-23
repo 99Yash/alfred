@@ -7,6 +7,12 @@
 
 export * from "./credentials";
 export {
+  authedFetch,
+  INTEGRATION_FETCH_TIMEOUT_MS,
+  type AuthedFetchProfile,
+  type AuthedFetchRequest,
+} from "./authed-fetch";
+export {
   restPassthroughFetch,
   PassthroughUrlError,
   type RestPassthroughProfile,

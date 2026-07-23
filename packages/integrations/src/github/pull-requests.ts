@@ -1,6 +1,8 @@
 import { httpErrorFromResponse } from "@alfred/contracts";
 import { z } from "zod";
 
+import { authedFetch } from "../shared/authed-fetch";
+
 /**
  * GitHub issue/PR reads via the REST API. Read-only; uses the user's stored
  * installation token. Mirrors the thin-fetch style of the Google Drive helper
@@ -25,6 +27,23 @@ function githubHeaders(accessToken: string): Record<string, string> {
     "X-GitHub-Api-Version": GITHUB_API_VERSION,
     "User-Agent": USER_AGENT,
   };
+}
+
+/**
+ * Authenticated GET against the REST API, mapping a non-2xx to an `HttpError`
+ * (`urlLabel` is the redacted path the error reports, never the token-bearing
+ * headers). The single read primitive the search + fetch-by-number helpers share.
+ */
+async function githubGet(
+  accessToken: string,
+  url: string | URL,
+  urlLabel: string,
+): Promise<Response> {
+  const res = await authedFetch({ headers: githubHeaders(accessToken) }, { url });
+  if (!res.ok) {
+    throw await httpErrorFromResponse("github", res, { url: urlLabel });
+  }
+  return res;
 }
 
 export interface SearchGithubArgs {
@@ -101,13 +120,7 @@ export async function searchGithub(args: SearchGithubArgs): Promise<SearchGithub
   if (args.sort) url.searchParams.set("sort", args.sort);
   if (args.order) url.searchParams.set("order", args.order);
 
-  const res = await fetch(url, {
-    headers: githubHeaders(args.accessToken),
-    signal: AbortSignal.timeout(30_000),
-  });
-  if (!res.ok) {
-    throw await httpErrorFromResponse("github", res, { url: "search/issues" });
-  }
+  const res = await githubGet(args.accessToken, url, "search/issues");
   const json = searchIssuesResponseSchema.parse(await res.json());
   const items: GithubSearchHit[] = (json.items ?? []).map((it) => ({
     number: it.number,
@@ -180,15 +193,7 @@ const pullRequestSchema = z.object({
 export async function getPullRequest(args: GetByNumberArgs): Promise<PullRequestDetail> {
   const { owner, repo, number } = args;
   const url = `${GITHUB_API}/repos/${encodeURIComponent(owner)}/${encodeURIComponent(repo)}/pulls/${number}`;
-  const res = await fetch(url, {
-    headers: githubHeaders(args.accessToken),
-    signal: AbortSignal.timeout(30_000),
-  });
-  if (!res.ok) {
-    throw await httpErrorFromResponse("github", res, {
-      url: `repos/${owner}/${repo}/pulls/${number}`,
-    });
-  }
+  const res = await githubGet(args.accessToken, url, `repos/${owner}/${repo}/pulls/${number}`);
   const pr = pullRequestSchema.parse(await res.json());
   return {
     number: pr.number,
@@ -244,15 +249,7 @@ const MAX_ISSUE_BODY_CHARS = 20_000;
 export async function getIssue(args: GetByNumberArgs): Promise<IssueDetail> {
   const { owner, repo, number } = args;
   const url = `${GITHUB_API}/repos/${encodeURIComponent(owner)}/${encodeURIComponent(repo)}/issues/${number}`;
-  const res = await fetch(url, {
-    headers: githubHeaders(args.accessToken),
-    signal: AbortSignal.timeout(30_000),
-  });
-  if (!res.ok) {
-    throw await httpErrorFromResponse("github", res, {
-      url: `repos/${owner}/${repo}/issues/${number}`,
-    });
-  }
+  const res = await githubGet(args.accessToken, url, `repos/${owner}/${repo}/issues/${number}`);
   const issue = issueSchema.parse(await res.json());
   const labels = (issue.labels ?? [])
     .map((l) => (typeof l === "string" ? l : (l.name ?? "")))
