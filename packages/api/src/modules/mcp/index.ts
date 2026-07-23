@@ -21,6 +21,7 @@ export {
   type McpToolSummary,
 } from "./list-tools";
 export { reconcileInflightInvocations, type ReconcileSummary } from "./persistence";
+export { MCP_CALL_RISK_FLOOR, resolveMcpCallRiskTier, type McpCallRiskInput } from "./risk";
 export {
   getMcpConnectionManager,
   getMcpExecutionBroker,

@@ -1,3 +1,5 @@
+import { enumGuard } from "./guards";
+
 /**
  * Discriminator for `api_call_log.kind` rows (ADR-0015, ADR-0041). Lives in
  * `@alfred/contracts` so the web cost-rollup UI can read the union without
@@ -20,6 +22,4 @@ export const ATTRIBUTION_KINDS = [
 
 export type AttributionKind = (typeof ATTRIBUTION_KINDS)[number];
 
-export function isAttributionKind(value: unknown): value is AttributionKind {
-  return typeof value === "string" && (ATTRIBUTION_KINDS as readonly string[]).includes(value);
-}
+export const isAttributionKind = enumGuard(ATTRIBUTION_KINDS);

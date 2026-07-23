@@ -3,7 +3,7 @@ import { randomUUID } from "node:crypto";
 import { after, before, describe, test } from "node:test";
 
 import { closeConnections, db } from "@alfred/db";
-import { actionStagings, agentRuns, user } from "@alfred/db/schemas";
+import { actionStagings, agentRuns, user, userActionPolicies } from "@alfred/db/schemas";
 import type { Tool } from "@modelcontextprotocol/sdk/types.js";
 import { and, eq, inArray, like } from "drizzle-orm";
 
@@ -17,7 +17,11 @@ import {
   type McpExecutionBroker,
 } from "../../src/modules/mcp";
 import { computeDescriptorHashes } from "../../src/modules/mcp/hash";
-import { insertConnection, publishCatalogRevision } from "../../src/modules/mcp/persistence";
+import {
+  insertConnection,
+  publishCatalogRevision,
+  upsertToolPolicy,
+} from "../../src/modules/mcp/persistence";
 import { clearToolRegistryForTests, registerTools } from "../../src/modules/tools/registry";
 import { mcpTools } from "../../src/modules/tools/mcp";
 import { closeRedis } from "../../src/queue/connection";
@@ -101,9 +105,55 @@ async function seedConnectionWithCatalog(userId: string, tools: Tool[]): Promise
   return conn.id;
 }
 
+/**
+ * Seed a real owned connection + one-tool catalog revision, returning the
+ * revision + descriptor hashes a reviewed policy binds to. Unlike
+ * `seedConnectionWithCatalog`, this surfaces the hashes the resolver keys on so a
+ * downgrade can be pinned to the EXACT descriptor.
+ */
+async function seedOwnedCatalog(
+  userId: string,
+  tools: Tool[],
+): Promise<{ connectionId: string; revisionHash: string; descriptorHashes: Record<string, string> }> {
+  const conn = await insertConnection({
+    userId,
+    label: "Test MCP",
+    canonicalResource: `mcp://test/${randomUUID()}`,
+    endpointUrl: "https://mcp.example.test/mcp",
+    endpointOrigin: "https://mcp.example.test",
+  });
+  const revisionHash = `sha256:${randomUUID().replace(/-/g, "")}`;
+  const descriptorHashes = computeDescriptorHashes(tools);
+  await publishCatalogRevision({
+    connectionId: conn.id,
+    revisionHash,
+    descriptors: tools,
+    descriptorHashes,
+    toolCount: tools.length,
+  });
+  return { connectionId: conn.id, revisionHash, descriptorHashes };
+}
+
+/** Put the user in autonomy mode so the resolved risk tier alone drives the gate. */
+async function seedAutonomyPolicy(userId: string): Promise<void> {
+  await db()
+    .insert(userActionPolicies)
+    .values({ userId, defaultMode: "autonomy" })
+    .onConflictDoUpdate({
+      target: userActionPolicies.userId,
+      set: { defaultMode: "autonomy" },
+    });
+  clearPolicyCacheForTests();
+}
+
 async function stagingRowsFor(runId: string, toolCallId: string) {
   return db()
-    .select({ id: actionStagings.id, status: actionStagings.status })
+    .select({
+      id: actionStagings.id,
+      status: actionStagings.status,
+      riskTier: actionStagings.riskTier,
+      requiresApproval: actionStagings.requiresApproval,
+    })
     .from(actionStagings)
     .where(and(eq(actionStagings.runId, runId), eq(actionStagings.toolCallId, toolCallId)));
 }
@@ -152,6 +202,62 @@ describe("dispatch → mcp seam (DB-backed)", { skip: SKIP }, () => {
     const rows = await stagingRowsFor(runId, toolCallId);
     assert.equal(rows.length, 1);
     assert.equal(rows[0]?.status, "pending", "the high floor parks a fresh mcp.call for approval");
+    assert.equal(rows[0]?.riskTier, "high", "the persisted tier is the floor, not a downgrade");
+    assert.equal(rows[0]?.requiresApproval, true);
+  });
+
+  test("a reviewed per-descriptor downgrade lets a real mcp.call run without approval", async () => {
+    // The full wiring the resolver rides on (#541 Part 3): the real `mcp.call`
+    // tool's `resolveRiskTier` hook reads the reviewed `low` policy bound to the
+    // exact descriptor, the dispatcher gates on that resolved tier (autonomy +
+    // `low` → no approval), and the SAME tier is persisted on the staging row.
+    const broker = new CapturingBroker();
+    _setMcpRuntimeForTests({ broker: asBroker(broker) });
+
+    const { userId, runId } = await seedUserAndRun();
+    await seedAutonomyPolicy(userId);
+    const tool: Tool = {
+      name: "search_issues",
+      inputSchema: { type: "object", additionalProperties: true },
+    };
+    const { connectionId, revisionHash, descriptorHashes } = await seedOwnedCatalog(userId, [tool]);
+    await upsertToolPolicy({
+      userId,
+      connectionId,
+      remoteName: tool.name,
+      descriptorHash: descriptorHashes[tool.name]!,
+      riskTier: "low",
+      effectClass: "read",
+      retryContract: "safe",
+    });
+
+    const toolCallId = `tc_${randomUUID().slice(0, 8)}`;
+    const result = await dispatchToolCall({
+      runId,
+      stepId: "dispatch-tools",
+      toolCallId,
+      toolName: "mcp.call",
+      activeTools: ["mcp.call"],
+      input: {
+        connectionId,
+        remoteName: tool.name,
+        catalogRevision: revisionHash,
+        arguments: { q: "is:open" },
+      },
+      userId,
+      caller: "boss",
+    });
+
+    // Autonomous: the downgrade waived approval, so the call executed inline
+    // instead of parking — and the broker received it exactly once.
+    assert.equal(result.kind, "executed", "a downgraded mcp.call runs without staging for approval");
+    assert.equal(broker.calls, 1);
+
+    const rows = await stagingRowsFor(runId, toolCallId);
+    assert.equal(rows.length, 1);
+    assert.equal(rows[0]?.riskTier, "low", "the reviewed downgrade is the persisted effective tier");
+    assert.equal(rows[0]?.requiresApproval, false, "the resolved tier drove the approval decision");
+    assert.equal(rows[0]?.status, "executed");
   });
 
   test("an approved mcp.call routes through the broker with ctx.stagingId set to the row id", async () => {
