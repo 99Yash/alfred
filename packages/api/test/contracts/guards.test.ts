@@ -1,11 +1,13 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import {
+  enumGuard,
   getPath,
   getStringPath,
   isIndexable,
   isPlainRecord,
   isRecord,
+  isToolRiskTier,
   toRecord,
 } from "@alfred/contracts";
 
@@ -70,4 +72,39 @@ test("getStringPath narrows only string leaves", () => {
   assert.equal(getStringPath({ a: { b: "ok" } }, "a", "b"), "ok");
   assert.equal(getStringPath({ a: { b: 1 } }, "a", "b"), undefined);
   assert.equal(getStringPath({ a: ["not", "a", "record"] }, "a", "0"), undefined);
+});
+
+test("enumGuard narrows to tuple members and rejects everything else", () => {
+  const isColor = enumGuard(["red", "green", "blue"] as const);
+
+  // Members of the tuple pass.
+  assert.equal(isColor("red"), true);
+  assert.equal(isColor("blue"), true);
+
+  // A non-member string fails — the whole point over a bare `typeof === "string"`.
+  assert.equal(isColor("yellow"), false);
+  assert.equal(isColor(""), false);
+
+  // The `typeof` arm makes the `unknown` overload sound: no non-string value can
+  // slip through `Set.has`, so persisted/wire junk is rejected, not coerced.
+  assert.equal(isColor(null), false);
+  assert.equal(isColor(undefined), false);
+  assert.equal(isColor(42), false);
+  assert.equal(isColor(["red"]), false);
+  assert.equal(isColor({ toString: () => "red" }), false);
+
+  // Two guards keep independent lookup sets — no cross-talk through the closure.
+  const isSize = enumGuard(["sm", "lg"] as const);
+  assert.equal(isSize("red"), false);
+  assert.equal(isColor("sm"), false);
+});
+
+test("isToolRiskTier is the enumGuard projection that gates the MCP approval floor", () => {
+  // The security-relevant use: a persisted `riskTier` is `unknown` until proven,
+  // and only a recognized tier may lower the `mcp.call` approval floor.
+  assert.equal(isToolRiskTier("high"), true);
+  assert.equal(isToolRiskTier("no_risk"), true);
+  assert.equal(isToolRiskTier("critical"), false);
+  assert.equal(isToolRiskTier(null), false);
+  assert.equal(isToolRiskTier(0), false);
 });
