@@ -1,0 +1,13 @@
+{
+  "name": "code-mode-sandbox-spike",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Phase 0 sandbox proof for issue #535 / ADR-0087 (Code Mode). Deliberately OUTSIDE the pnpm workspace (scripts/spikes/**) so it never enters `pnpm check-types` on a fresh tree and does not pull @vercel/sandbox into the monorepo install while this is still an experiment. Install/run locally with npm here.",
+  "scripts": {
+    "spike": "node spike.mjs"
+  },
+  "dependencies": {
+    "@vercel/sandbox": "^2.8.0"
+  }
+}

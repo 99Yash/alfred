@@ -1,14 +1,19 @@
 import { summarizeBody, type RestPassthroughRequest } from "@alfred/contracts";
 
+import { authedFetch } from "./authed-fetch";
+
 /**
- * The one authenticated REST transport the general read-only passthrough tier
- * (ADR-0074 rung-a) shares across every REST provider (`github.request`,
- * `notion.request`, `vercel.request`, …). It executes an *already-gated* request
- * with authority + headers pinned by the provider — the model never supplies an
- * origin, host, or header — and returns the real HTTP status plus the parsed
- * body, never throwing on a non-2xx (the honest envelope surfaces API error
- * bodies verbatim). A transport failure (timeout/DNS/reset/TLS) still throws for
- * the caller's adapter to classify.
+ * The general read-only passthrough transport the tier (ADR-0074 rung-a) shares
+ * across every REST provider (`github.request`, `notion.request`,
+ * `vercel.request`, …). It builds on {@link authedFetch} — the shared transport
+ * core owns the auth headers, timeout, body encoding, and redirect policy — and
+ * layers on the passthrough's own concerns: URL-namespace verification, the
+ * honest `{ status, body }` envelope, and binary/redirect redaction. It executes
+ * an *already-gated* request with authority + headers pinned by the provider —
+ * the model never supplies an origin, host, or header — and returns the real HTTP
+ * status plus the parsed body, never throwing on a non-2xx (the honest envelope
+ * surfaces API error bodies verbatim). A transport failure (timeout/DNS/reset/TLS)
+ * still throws for the caller's adapter to classify.
  *
  * Redirects are never followed (`redirect: "manual"`): a signed provider redirect
  * can carry credentials in its URL, and a read-only passthrough must treat a 3xx
@@ -20,8 +25,6 @@ import { summarizeBody, type RestPassthroughRequest } from "@alfred/contracts";
  * *before* this is ever reached; the namespace re-check here is defense-in-depth
  * on the constructed URL, not the primary boundary.
  */
-
-const REST_TIMEOUT_MS = 30_000;
 
 /**
  * Per-provider transport policy — the data-only inputs pinning authority and
@@ -109,18 +112,16 @@ export async function restPassthroughFetch(
 ): Promise<RawRestResponse> {
   const url = buildAndVerifyUrl(profile, request);
   const method = request.method.toUpperCase();
-  const hasBody = request.body !== undefined && method === "POST";
 
-  const res = await fetch(url, {
-    method,
-    headers: {
-      ...profile.headers,
-      ...(hasBody ? { "Content-Type": "application/json" } : {}),
-    },
-    body: hasBody ? JSON.stringify(request.body) : undefined,
-    redirect: "manual",
-    signal: AbortSignal.timeout(REST_TIMEOUT_MS),
-  });
+  // Passthrough only ever carries a body on a read-via-POST; pinning the body to
+  // `undefined` for any other method leaves `authedFetch` to add `Content-Type`
+  // (and encode) exactly when — and only when — a POST body is present. Redirects
+  // are never followed: a signed provider redirect can carry credentials in its
+  // URL, so a 3xx must be an HTTP outcome, not a hop.
+  const res = await authedFetch(
+    { headers: profile.headers, redirect: "manual" },
+    { url, method, body: method === "POST" ? request.body : undefined },
+  );
 
   const redirectedTo =
     res.status >= 300 && res.status < 400
