@@ -5,7 +5,6 @@
  * `Notion-Version` header Notion requires.
  */
 
-import { HttpError, summarizeBody } from "@alfred/contracts";
 import { z } from "zod";
 
 import { authedJson } from "../shared/authed-json";
@@ -32,35 +31,18 @@ export function notionPassthroughProfile(token: string): RestPassthroughProfile 
 }
 
 /**
- * Notion's non-2xx branch, passed to {@link authedJson} as its `onError`
- * override: keep the (redacted, bounded) upstream body for server logs, but
- * don't splice it into the thrown message. These errors propagate to the tool
- * dispatcher and on into logs/telemetry, and Notion's body can echo request
- * fragments; the structured `HttpError` still carries the status so callers can
- * branch without parsing the message.
- */
-async function notionError(res: Response, method: string, path: string): Promise<never> {
-  const text = await res.text().catch(() => "");
-  console.error(`[notion] ${res.status} ${method} ${path} :: ${summarizeBody(text)}`);
-  throw new HttpError({
-    provider: "notion",
-    status: res.status,
-    url: `${NOTION_API}${path}`,
-    method,
-    body: "",
-  });
-}
-
-/**
  * A single authenticated Notion call. Returns the parsed JSON body as `unknown`;
  * each caller validates it with a `zod` schema (no `as T` on `response.json()`).
+ *
+ * Uses `bodyPolicy: "omit"`: Notion's error bodies can echo request fragments
+ * and these errors propagate into the tool dispatcher / telemetry, so the body
+ * is logged server-side (in {@link authedJson}) but never rides the thrown error.
  */
 async function notionFetch(
   accessToken: string,
   path: string,
   init?: { method?: string; body?: unknown },
 ): Promise<unknown> {
-  const method = init?.method ?? "GET";
   return authedJson(
     {
       headers: {
@@ -70,7 +52,7 @@ async function notionFetch(
       },
     },
     { url: `${NOTION_API}${path}`, method: init?.method, body: init?.body },
-    { provider: "notion", onError: (res) => notionError(res, method, path) },
+    { provider: "notion", bodyPolicy: "omit" },
   );
 }
 
