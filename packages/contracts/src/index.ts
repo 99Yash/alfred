@@ -35,6 +35,7 @@ export * from "./standing-instructions";
 export * from "./features";
 export * from "./api-errors";
 export * from "./errors";
+export * from "./redacted";
 export * from "./sanitize";
 export * from "./concurrency";
 export * from "./model-output";

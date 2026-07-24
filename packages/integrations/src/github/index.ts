@@ -22,6 +22,14 @@ export type {
   UserInstallationToken,
 } from "./credentials";
 export { searchGithub, getPullRequest, getIssue } from "./pull-requests";
+export { createGithubClient, githubClientForUser } from "./client";
+export type {
+  GithubClient,
+  GithubClientOptions,
+  GithubTokenResolver,
+  SearchResult as GithubSearchResult,
+  PullRequestDetail as GithubPullRequestDetail,
+} from "./client";
 export type {
   SearchGithubArgs,
   SearchGithubResult,

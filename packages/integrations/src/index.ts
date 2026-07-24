@@ -7,3 +7,7 @@ export * as notion from "./notion/index";
 export * as railway from "./railway/index";
 export * as vercel from "./vercel/index";
 export * as credentials from "./shared/credentials";
+
+// PROTOTYPE — the user-bound facade over the per-provider configured clients:
+// `integrations({ userId }).github.search({ q })`.
+export { integrations, type Integrations, type IntegrationsOptions } from "./facade";
