@@ -12,3 +12,5 @@ export {
   vercelPassthroughProfile,
 } from "./client";
 export type { VercelProject, VercelDeployment } from "./client";
+export { createVercelClient, vercelClientForUser } from "./client";
+export type { VercelClient, VercelClientOptions } from "./client";

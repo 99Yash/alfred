@@ -5,9 +5,14 @@
  * the credential metadata at connect).
  */
 
+import { isRecord, redacted, type Redacted } from "@alfred/contracts";
 import { z } from "zod";
 
 import { authedJson } from "../shared/authed-json";
+import { getActiveBearerCredential } from "../shared/credentials";
+import type { ProviderBindOptions } from "../shared/provider";
+import { defineProviderClient } from "../shared/provider-client";
+import type { RetryPolicy } from "../shared/retry";
 import type { RestPassthroughProfile } from "../shared/rest-passthrough";
 
 const VERCEL_API = "https://api.vercel.com";
@@ -183,4 +188,90 @@ export async function vercelRedeploy(args: {
     url: json.url ?? null,
     state: json.readyState ?? null,
   };
+}
+
+/**
+ * PROTOTYPE — the Vercel counterpart to `createGithubClient`, on the SAME shared
+ * `defineProviderClient` seam. It exists to prove a second provider slots in
+ * without re-hand-rolling the fetch skeleton: only what is genuinely
+ * Vercel-specific lives here — the bearer credential path, the `teamId` pinned
+ * on every call, and the per-method path + schema (reused from above). The base
+ * URL, retry, error classification and JSON parsing are the shared seam.
+ */
+export interface VercelClientOptions {
+  /** Resolve fresh auth per call: the bearer token (Redacted) + optional team scope. */
+  resolveAuth: () => Promise<{ token: Redacted<string>; teamId: string | null }>;
+  retry?: RetryPolicy;
+}
+
+export function createVercelClient(options: VercelClientOptions) {
+  const client = defineProviderClient({
+    provider: "vercel",
+    baseUrl: VERCEL_API,
+    // Bearer unwrapped only here, at the headers; teamId pinned on every request.
+    resolve: async () => {
+      const { token, teamId } = await options.resolveAuth();
+      return {
+        headers: { Authorization: `Bearer ${token.unwrap()}`, Accept: "application/json" },
+        ...(teamId ? { fixedQuery: { teamId } } : {}),
+      };
+    },
+    retry: options.retry,
+  });
+
+  return {
+    async projects(args?: { limit?: number }): Promise<VercelProject[]> {
+      const json = listProjectsResponseSchema.parse(
+        await client.json("/v10/projects", {
+          label: "/v10/projects",
+          query: { limit: args?.limit ?? 20 },
+        }),
+      );
+      return json.projects.map((p) => ({
+        id: p.id,
+        name: p.name,
+        framework: p.framework ?? null,
+        latestDeploymentState: p.latestDeployments?.[0]?.readyState ?? null,
+      }));
+    },
+
+    async deployments(args?: { projectId?: string; limit?: number }): Promise<VercelDeployment[]> {
+      const json = listDeploymentsResponseSchema.parse(
+        await client.json("/v6/deployments", {
+          label: "/v6/deployments",
+          query: { limit: args?.limit ?? 20, projectId: args?.projectId },
+        }),
+      );
+      return json.deployments.map((d) => ({
+        uid: d.uid,
+        name: d.name,
+        url: d.url ?? null,
+        state: d.state ?? d.readyState ?? null,
+        target: d.target ?? null,
+        createdAt: d.createdAt ?? d.created ?? null,
+      }));
+    },
+  };
+}
+
+export type VercelClient = ReturnType<typeof createVercelClient>;
+
+/**
+ * The call-site entry: a Vercel client for a user. Resolves the active bearer
+ * credential per call (wrapping the token as {@link Redacted}) and reads the
+ * connect-time `teamId` out of the credential metadata.
+ */
+export function vercelClientForUser(options: ProviderBindOptions): VercelClient {
+  const { userId, retry } = options;
+  return createVercelClient({
+    resolveAuth: async () => {
+      const cred = await getActiveBearerCredential(userId, "vercel");
+      const teamId =
+        isRecord(cred.metadata) && typeof cred.metadata.teamId === "string"
+          ? cred.metadata.teamId
+          : null;
+      return { token: redacted(cred.accessToken), teamId };
+    },
+    retry,
+  });
 }
