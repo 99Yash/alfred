@@ -134,8 +134,10 @@ async function railwayGraphql<T>(
 ): Promise<T> {
   const { status, ok, text } = await railwayFetch(token, { query, variables });
   if (!ok) {
-    // Keep the (redacted, bounded) upstream body for server logs, but don't
-    // splice it into the thrown message (it reaches the tool dispatcher /
+    // `body: ""` is the `ErrorBodyPolicy` "omit" posture (see `httpErrorFromResponse`),
+    // applied by hand because this is a GraphQL POST on `authedFetch`, not an
+    // `authedJson` call: keep the (redacted, bounded) body for server logs but
+    // don't splice it into the thrown error (it reaches the tool dispatcher /
     // telemetry). The connect route sanitizes separately; this covers the
     // agent-tool call path. The structured HttpError carries the status.
     console.error(`[railway] ${status} graphql :: ${summarizeBody(text)}`);
