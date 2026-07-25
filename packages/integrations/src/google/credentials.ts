@@ -160,6 +160,14 @@ type RefreshResolution =
  * Resolve a usable access token for a credential. Refreshes when within
  * the threshold of expiry. Throws when the row is gone or revoked — the
  * caller treats that as "ask the user to re-connect."
+ *
+ * SUPERSEDED PATH, CALLERS ARE BEING MIGRATED (#551). Returning a bare `string`
+ * puts the token back in the world where "never log it, never persist it on an
+ * error" is prose rather than a type; the `integrations({ userId })` facade keeps
+ * it inside a `Redacted` that only the header builder unwraps. Google is not on
+ * the facade yet, so this is still the only door for it — but don't add a new
+ * tool-side caller: the tools that have a `ToolExecuteContext` are the ones #551
+ * moves over first.
  */
 export async function getFreshAccessToken(credentialId: string): Promise<string> {
   const current = requireActiveCredential(await loadCredential(credentialId), credentialId);

@@ -22,9 +22,10 @@ import { once, type ProviderBindOptions, type ProviderFactory } from "./shared/p
  *      path when a method actually runs. The facade binds a *user*, never a token.
  *
  *   2. Each provider is a memoized lazy `get`ter: touching `.github` builds only
- *      the GitHub client, and touching it twice yields the SAME client, so the
- *      bind-scoped resolve inside it happens once rather than once per property
- *      access. The bind is the memo's lifetime — see {@link ProviderBindOptions}.
+ *      the GitHub client, and touching it twice yields the SAME client. The memo
+ *      covers CLIENT CONSTRUCTION only — no credential is memoized anywhere below
+ *      it, so a bind carries no expiry and no lifetime rule, and holding one past
+ *      the request that made it cannot yield a stale token.
  *
  *   3. It is GENERIC over a provider registry, and the binding shape is declared
  *      ONCE ({@link ProviderBindOptions}): the root's options, the factory
@@ -37,6 +38,15 @@ import { once, type ProviderBindOptions, type ProviderFactory } from "./shared/p
  * exposes the same small curated method set it always had (ADR-0071), not a
  * generated surface. Cross-integration "what happened everywhere" is #422, not a
  * method here.
+ *
+ * INCOMPLETE, AND THE CLOCK IS NAMED — **#551 closes it**. Only `github` and
+ * `vercel` are on the facade. Google, Notion, and Railway are still reached
+ * through their credential functions (`getFreshAccessToken`,
+ * `getActiveBearerCredential`), so until #551 lands there are two doors and a
+ * caller has to know which one its provider uses. THIS is the door: a call site
+ * that has a `ToolExecuteContext` uses `ctx.integrations`, and a provider missing
+ * from {@link providerRegistry} is missing, not excluded. Do not add a new
+ * credential-function call site for a provider that could join here instead.
  */
 
 /** The facade's bind options — the one shared shape, surfaced under a call-site name. */
@@ -53,6 +63,8 @@ export type IntegrationsOptions = ProviderBindOptions;
 const providerRegistry = {
   github: githubClientForUser,
   vercel: vercelClientForUser,
+  // google, notion, railway: #551. Each needs a `*ClientForUser` first — their
+  // surfaces are still bare-`accessToken` function sets, not configured clients.
 } satisfies Record<string, ProviderFactory>;
 
 type ProviderRegistry = typeof providerRegistry;

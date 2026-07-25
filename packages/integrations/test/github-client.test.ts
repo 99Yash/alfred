@@ -50,6 +50,9 @@ function client(onResolve?: () => void) {
       onResolve?.();
       return { token: redacted("ghs_secret_token"), accountLogin: "99Yash" };
     },
+    // Stated, not defaulted: `retry` is required at every client constructor so a
+    // test cannot silently exercise a different envelope than production.
+    retry: "none",
   });
 }
 
@@ -101,7 +104,7 @@ describe("github client auth", () => {
     assert.equal(profile.headers["User-Agent"], "alfred-app");
   });
 
-  test("createGithubClient resolves per request — memoization belongs to the bind", async () => {
+  test("resolves per request — no client memoizes a credential", async () => {
     stubFetch({ ...ISSUE });
     let resolves = 0;
     const gh = client(() => {
@@ -109,7 +112,10 @@ describe("github client auth", () => {
     });
     await gh.connectedLogin();
     await gh.getIssue({ owner: "o", repo: "r", number: 7 });
-    assert.equal(resolves, 2, "the resolver-injection constructor must not cache");
+    // Two methods, two resolves. `githubClientForUser` behaves identically — the
+    // point being that no entry point caches a token, so no entry point carries a
+    // "don't hold me longer than a request" rule that only a comment enforces.
+    assert.equal(resolves, 2, "a client must not cache its credential");
   });
 });
 

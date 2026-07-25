@@ -2,7 +2,8 @@ import assert from "node:assert/strict";
 import { describe, test } from "node:test";
 import { z } from "zod";
 
-import { liveTool, toolExecuteContext } from "../../src/modules/tools/registry";
+import { toolExecuteContext } from "../../src/modules/tools/context";
+import { liveTool } from "../../src/modules/tools/registry";
 
 /**
  * Deterministic (no-DB) coverage of the `resolveRiskTier` wiring seam (#541 Part

@@ -53,6 +53,9 @@ function client(teamId: string | null, onResolve?: () => void) {
       onResolve?.();
       return { token: redacted("vercel_secret_token"), teamId };
     },
+    // Stated, not defaulted: `retry` is required at every client constructor so a
+    // test cannot silently exercise a different envelope than production.
+    retry: "none",
   });
 }
 
@@ -169,7 +172,7 @@ describe("vercel client auth", () => {
     assert.equal(profile.headers.Authorization, "Bearer vercel_secret_token");
   });
 
-  test("createVercelClient resolves per request — memoization belongs to the bind", async () => {
+  test("resolves per request — no client memoizes a credential", async () => {
     stubFetch(PROJECTS);
     let resolves = 0;
     const vercel = client("team_abc", () => {
@@ -177,7 +180,10 @@ describe("vercel client auth", () => {
     });
     await vercel.projects();
     await vercel.passthroughProfile();
-    assert.equal(resolves, 2, "the resolver-injection constructor must not cache");
+    // Two methods, two reads. `vercelClientForUser` behaves identically, so a
+    // rotated credential is picked up on the next call rather than at the next
+    // bind — and there is no lifetime rule for a caller to get wrong.
+    assert.equal(resolves, 2, "a client must not cache its credential");
   });
 });
 

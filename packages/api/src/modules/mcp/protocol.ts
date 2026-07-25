@@ -59,8 +59,8 @@ export class SdkMcpProtocolClient implements McpProtocolClient {
       { capabilities: {}, enforceStrictCapabilities: true },
     );
     this.#transport = new StreamableHTTPClientTransport(options.endpoint, {
-      authProvider: options.authProvider,
-      fetch: options.fetch,
+      ...(options.authProvider ? { authProvider: options.authProvider } : {}),
+      ...(options.fetch ? { fetch: options.fetch } : {}),
     });
     this.#requestTimeoutMs = options.requestTimeoutMs;
   }
@@ -99,7 +99,10 @@ export class SdkMcpProtocolClient implements McpProtocolClient {
       cursor ? { cursor } : undefined,
       requestOptions(this.#requestTimeoutMs, signal),
     );
-    return { tools: result.tools, nextCursor: result.nextCursor };
+    return {
+      tools: result.tools,
+      ...(result.nextCursor ? { nextCursor: result.nextCursor } : {}),
+    };
   }
 
   async callTool(
@@ -126,5 +129,5 @@ function requestOptions(timeout: number, signal?: AbortSignal) {
   // broker's ambiguity ledger depends on. This is NOT a retry — the SDK never
   // re-sends a `tools/call` — but capping total time keeps a single attempt from
   // silently outliving its window. See the no-replay invariant in `broker.ts`.
-  return { timeout, maxTotalTimeout: timeout, signal };
+  return { timeout, maxTotalTimeout: timeout, ...(signal ? { signal } : {}) };
 }

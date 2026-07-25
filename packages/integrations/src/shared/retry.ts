@@ -106,7 +106,13 @@ function backoffMs(attempt: number, policy: Required<RetryPolicy>): number {
 }
 
 export interface FetchWithRetryOptions {
-  policy?: RetryPolicy;
+  /**
+   * The envelope, stated by the caller. Required: reaching this function at all is
+   * a decision to retry, so there is no "unspecified" case to default. Individual
+   * FIELDS still default ({@link DEFAULT_POLICY}) — those are tunables, not the
+   * on/off switch. To not retry, don't call this.
+   */
+  policy: RetryPolicy;
   /** Classify a returned (non-thrown) response as retryable. Default {@link isRetryableStatus}. */
   retryable?: (res: Response) => boolean;
   /** Caller abort — a signalled abort is surfaced immediately, never retried. */
@@ -121,7 +127,7 @@ export interface FetchWithRetryOptions {
  */
 export async function fetchWithRetry(
   send: () => Promise<Response>,
-  options: FetchWithRetryOptions = {},
+  options: FetchWithRetryOptions,
 ): Promise<Response> {
   const policy = { ...DEFAULT_POLICY, ...options.policy };
   const retryable = options.retryable ?? ((res) => isRetryableStatus(res.status));

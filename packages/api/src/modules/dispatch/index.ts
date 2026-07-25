@@ -86,12 +86,8 @@ import {
   passthroughBudgetExhausted,
   passthroughTruncationTelemetry,
 } from "../tools/passthrough";
-import {
-  getTool,
-  toolExecuteContext,
-  type RegisteredTool,
-  type ToolExecuteContext,
-} from "../tools/registry";
+import { toolExecuteContext } from "../tools/context";
+import { getTool, type RegisteredTool, type ToolExecuteContext } from "../tools/registry";
 import {
   evaluateToolAvailability,
   readIntegrationAvailability,
