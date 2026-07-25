@@ -38,8 +38,8 @@ export function RailContent({
 }: {
   tab: RailTab;
   onTabChange: (tab: RailTab) => void;
-  onClose?: () => void;
-  showClose?: boolean;
+  onClose?: (() => void) | undefined;
+  showClose?: boolean | undefined;
   data: RailData;
 }) {
   const { data: session } = authClient.useSession();

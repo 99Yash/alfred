@@ -35,7 +35,7 @@ PrismAsyncLight.registerLanguage("html", markup);
 PrismAsyncLight.registerLanguage("xml", markup);
 
 interface SyntaxHighlighterProps {
-  language?: string;
+  language?: string | undefined;
   code: string;
 }
 

@@ -19,8 +19,8 @@ export function Favicon({
   className,
 }: {
   domain: string;
-  size?: number;
-  className?: string;
+  size?: number | undefined;
+  className?: string | undefined;
 }) {
   // Re-attempt the load when the domain changes (a card can be reused for a
   // different URL as a streaming run reissues), clearing a prior failure. This

@@ -51,11 +51,11 @@ export interface CreateReplicacheOptions {
    * (a 401 closes it with no auto-reconnect). Lets the caller surface a
    * "session expired" state instead of an invisible infinite retry loop.
    */
-  onAuthError?: () => void;
+  onAuthError?: (() => void) | undefined;
   /** Fired after a pull response has been successfully parsed. */
-  onPullSuccess?: () => void;
+  onPullSuccess?: (() => void) | undefined;
   /** Fired for HTTP, network, timeout, and response parsing pull failures. */
-  onPullError?: (message: string) => void;
+  onPullError?: ((message: string) => void) | undefined;
 }
 
 // Replicache surfaces a non-200 `errorMessage` via its logging /

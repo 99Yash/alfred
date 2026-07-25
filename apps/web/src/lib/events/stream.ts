@@ -21,12 +21,12 @@ export interface EventStreamFrame extends Pick<EventFrame, "id" | "kind" | "crea
 
 export interface OpenEventStreamOptions {
   onFrame: (frame: EventStreamFrame) => void;
-  onError?: (err: Event) => void;
+  onError?: ((err: Event) => void) | undefined;
 }
 
 interface EventStreamSubscriber {
   onFrame: (frame: EventStreamFrame) => void;
-  onError?: (err: Event) => void;
+  onError?: ((err: Event) => void) | undefined;
 }
 
 interface SharedEventStream {

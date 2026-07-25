@@ -54,7 +54,7 @@ const listEventsResponseSchema = z.object({
 export interface ListEventsArgs {
   accessToken: string;
   /** Calendar id; `primary` is the user's main calendar. */
-  calendarId?: string;
+  calendarId?: string | undefined;
   /** RFC3339 lower bound (inclusive). */
   timeMin: string;
   /** RFC3339 upper bound (exclusive). */
@@ -64,15 +64,15 @@ export interface ListEventsArgs {
    * surfaces as one row per occurrence. The list endpoint refuses
    * `orderBy=startTime` unless this is set.
    */
-  singleEvents?: boolean;
-  orderBy?: "startTime" | "updated";
-  maxResults?: number;
+  singleEvents?: boolean | undefined;
+  orderBy?: "startTime" | "updated" | undefined;
+  maxResults?: number | undefined;
 }
 
 export interface ListEventsResult {
   events: CalendarEvent[];
   /** Effective timezone the calendar returned (helpful for downstream formatting). */
-  timeZone?: string;
+  timeZone?: string | undefined;
 }
 
 export async function listEvents(args: ListEventsArgs): Promise<ListEventsResult> {
@@ -100,17 +100,17 @@ export async function listEvents(args: ListEventsArgs): Promise<ListEventsResult
 export interface CreateEventArgs {
   accessToken: string;
   /** Calendar id; `primary` is the user's main calendar. */
-  calendarId?: string;
+  calendarId?: string | undefined;
   summary: string;
-  description?: string;
-  location?: string;
+  description?: string | undefined;
+  location?: string | undefined;
   /** RFC3339 start timestamp. */
   start: string;
   /** RFC3339 end timestamp. */
   end: string;
   /** IANA timezone. Optional when start/end carry explicit offsets. */
-  timeZone?: string;
-  attendees?: string[];
+  timeZone?: string | undefined;
+  attendees?: string[] | undefined;
 }
 
 export async function createEvent(args: CreateEventArgs): Promise<CalendarEvent> {

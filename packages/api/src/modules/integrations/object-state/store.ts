@@ -32,10 +32,10 @@ export interface ObjectStateDelta {
   externalId: string;
   /** Native-state token the registry's `normalize` maps to a `StateCategory`. */
   nativeState: string;
-  title?: string;
-  url?: string;
-  repo?: string;
-  attributes?: Record<string, unknown>;
+  title?: string | undefined;
+  url?: string | undefined;
+  repo?: string | undefined;
+  attributes?: Record<string, unknown> | undefined;
   keys: { keyKind: string; keyValue: string }[];
 }
 

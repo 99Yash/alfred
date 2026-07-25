@@ -90,7 +90,7 @@ export interface GmailPostInsertSideEffectPlan {
 
 export function planGmailPostInsertSideEffects(args: {
   jobKind: GmailInsertJobKind;
-  triageInsertedDocs?: boolean;
+  triageInsertedDocs?: boolean | undefined;
   fullResync?: boolean;
   triageDocumentIds: readonly string[];
   sentDocumentIds: readonly string[];
@@ -201,15 +201,15 @@ export type IngestionJobData =
   | {
       kind: "gmail.ingest_recent";
       credentialId: string;
-      query?: string;
-      maxMessages?: number;
+      query?: string | undefined;
+      maxMessages?: number | undefined;
       /**
        * Emit triage trigger events for freshly-inserted docs after this job finishes.
        * Default false — bulk re-ingests (30+ days of backlog) skip triage to
        * avoid burning LLM tokens on stale mail. The OAuth callback opts in
        * for the small first-connect seed (~8 messages).
        */
-      triageInsertedDocs?: boolean;
+      triageInsertedDocs?: boolean | undefined;
     }
   | {
       kind: "gmail.poll_recent";

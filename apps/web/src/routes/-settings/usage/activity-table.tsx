@@ -62,7 +62,7 @@ function SortHeader({
   active: boolean;
   dir: UsageSortDir;
   onSort: (field: UsageSortField) => void;
-  align?: "left" | "right";
+  align?: "left" | "right" | undefined;
 }) {
   return (
     <button

@@ -3,8 +3,8 @@ export type ThreadGroup = "pinned" | "today" | "yesterday" | "earlier";
 export interface ThreadEntry {
   id: string;
   title: string;
-  pinned?: boolean;
-  unread?: boolean;
+  pinned?: boolean | undefined;
+  unread?: boolean | undefined;
 }
 
 export interface RecentThread {
@@ -16,5 +16,5 @@ export interface RecentThread {
 export interface ShellThreadViewModel {
   groups: Record<ThreadGroup, ThreadEntry[]>;
   recent: ReadonlyArray<RecentThread>;
-  approvalsBadge?: string;
+  approvalsBadge?: string | undefined;
 }

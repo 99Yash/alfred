@@ -49,8 +49,8 @@ describe("notify (DB-backed)", { skip: SKIP }, () => {
   test("passes Alfred's idempotency key to Resend's provider-level option", async () => {
     const userId = await seedUser();
     const calls: Array<{
-      payload: { headers?: Record<string, string> };
-      options?: { idempotencyKey?: string };
+      payload: { headers?: Record<string, string> | undefined };
+      options?: { idempotencyKey?: string } | undefined;
     }> = [];
     const fakeClient = {
       emails: {

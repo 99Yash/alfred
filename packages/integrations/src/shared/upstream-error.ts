@@ -21,8 +21,8 @@ export async function throwUpstreamError(args: {
   res: Response;
   /** Redacted URL label the error reports — never the token-bearing request URL. */
   url: string;
-  method?: string;
-  bodyPolicy?: ErrorBodyPolicy;
+  method?: string | undefined;
+  bodyPolicy?: ErrorBodyPolicy | undefined;
 }): Promise<never> {
   const { provider, res, url, method, bodyPolicy } = args;
   // `"omit"` drops the body from the error (which flows on into telemetry), so

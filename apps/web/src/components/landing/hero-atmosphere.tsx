@@ -30,10 +30,10 @@ export function HeroAtmosphere({
   className,
   progress = 0,
 }: {
-  children?: ReactNode;
-  className?: string;
+  children?: ReactNode | undefined;
+  className?: string | undefined;
   /** Scroll progress 0..1 across the whole landing. Drives the sky cycle. */
-  progress?: number;
+  progress?: number | undefined;
 }) {
   // Build a `t`-curve for each sky layer. Each layer peaks (opacity 1) over
   // a slice of the scroll range and fades to 0 outside it. The slices are

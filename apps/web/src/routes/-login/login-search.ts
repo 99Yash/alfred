@@ -1,5 +1,5 @@
 export interface LoginSearch {
-  redirect?: string;
+  redirect?: string | undefined;
 }
 
 /**

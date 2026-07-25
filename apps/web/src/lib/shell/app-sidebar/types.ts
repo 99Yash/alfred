@@ -11,17 +11,17 @@ export interface AppSidebarProps {
   /** Open the cmd-K palette. */
   onOpenSearch: () => void;
   /** Active thread id (drives the highlight on chat rows). Empty string means no highlight. */
-  activeThread?: string;
+  activeThread?: string | undefined;
   /** Thread groups (Pinned / Today / Yesterday / Earlier). */
-  threads?: Record<ThreadGroup, ThreadEntry[]>;
+  threads?: Record<ThreadGroup, ThreadEntry[]> | undefined;
   /** Per-thread rename/pin/delete handlers. Omit to render inert rows. */
-  threadActions?: SidebarThreadActions;
+  threadActions?: SidebarThreadActions | undefined;
   /** Approvals badge text. Only fixture surfaces pass this. */
-  approvalsBadge?: string;
+  approvalsBadge?: string | undefined;
   /** Whether the sidebar is visible. Default true. */
-  open?: boolean;
+  open?: boolean | undefined;
   /** Viewport mode: inline (wide, resizable + minimizable) or overlay (narrow drawer). */
-  mode?: "inline" | "overlay";
+  mode?: "inline" | "overlay" | undefined;
   /** Hide the overlay drawer (narrow mode only). */
-  onCollapse?: () => void;
+  onCollapse?: (() => void) | undefined;
 }

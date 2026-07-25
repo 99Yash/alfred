@@ -15,8 +15,8 @@ export function LandingBackground({
   children,
   className,
 }: {
-  children?: ReactNode;
-  className?: string;
+  children?: ReactNode | undefined;
+  className?: string | undefined;
 }) {
   return (
     <div

@@ -2,14 +2,14 @@ import type { AttributionKind } from "@alfred/contracts";
 
 /** What `metered()` writes to `api_call_log`. Extracted post-hoc from the SDK result. */
 export interface CallUsage {
-  inputTokens?: number;
+  inputTokens?: number | undefined;
   /** Canonical non-cached prompt tokens reported by AI SDK 7. */
-  noCacheInputTokens?: number;
-  outputTokens?: number;
-  cachedInputTokens?: number;
-  cacheWriteInputTokens?: number;
+  noCacheInputTokens?: number | undefined;
+  outputTokens?: number | undefined;
+  cachedInputTokens?: number | undefined;
+  cacheWriteInputTokens?: number | undefined;
   /** Cache retention used for writes in this call, when the provider prices it differently. */
-  cacheWriteTtl?: "5m" | "1h";
+  cacheWriteTtl?: "5m" | "1h" | undefined;
 }
 
 /**
@@ -46,11 +46,11 @@ export type CallRole =
  * cold-start research run outside an agent and still want metering.
  */
 export interface CallAttribution {
-  userId?: string;
-  runId?: string;
-  stepId?: string;
-  attempt?: number;
-  messageId?: string;
+  userId?: string | undefined;
+  runId?: string | undefined;
+  stepId?: string | undefined;
+  attempt?: number | undefined;
+  messageId?: string | undefined;
   /**
    * Override `api_call_log.kind`. The `meteredGenerateText` /
    * `meteredGenerateObject` wrappers default to `'llm'`; pass
@@ -58,7 +58,7 @@ export interface CallAttribution {
    * search-shaped) model so cost rollups bucket it correctly per
    * ADR-0015. `meteredEmbed` always uses `'embedding'` regardless.
    */
-  kind?: CallKind;
+  kind?: CallKind | undefined;
   /**
    * Logical caller within the agent runtime. Forwarded to
    * `api_call_log.request_meta.role` so a single run's spend can be
@@ -66,7 +66,7 @@ export interface CallAttribution {
    * Optional — calls outside an agent (ad-hoc tests, cold-start) may
    * omit it.
    */
-  role?: CallRole;
+  role?: CallRole | undefined;
   /**
    * Langfuse session id (#226). Groups multiple traces that belong to one
    * real conversation/thread into a single Sessions-view entry. Chat passes
@@ -77,7 +77,7 @@ export interface CallAttribution {
    * and pollutes the Sessions view (#226 review). Trace-only — never persisted
    * to `api_call_log`.
    */
-  sessionId?: string;
+  sessionId?: string | undefined;
 }
 
 export interface MeteredMeta extends CallAttribution {
@@ -90,11 +90,11 @@ export interface MeteredMeta extends CallAttribution {
    * UUID when omitted, but callers inside an agent step should pass
    * `${runId}:${stepId}:${attempt}` to make replays grep-able.
    */
-  idempotencyKey?: string;
+  idempotencyKey?: string | undefined;
   /** Trimmed model params surfaced to the log row's `request_meta`. Avoid full prompts here. */
-  requestMeta?: Record<string, unknown>;
+  requestMeta?: Record<string, unknown> | undefined;
   /** Human-readable name surfaced in Langfuse — defaults to `${provider}/${model}`. */
-  name?: string;
+  name?: string | undefined;
   /**
    * Full request input (prompt / messages / system) for the Langfuse span.
    * Only sent when `LANGFUSE_CAPTURE_IO=true`; never persisted to
@@ -106,9 +106,9 @@ export interface MeteredMeta extends CallAttribution {
 
 /** What the runtime extracts from a successful SDK result for billing + log shape. */
 export interface MeteredResult {
-  usage?: CallUsage;
+  usage?: CallUsage | undefined;
   /** Surfaced to `response_meta` (finish_reason, model id echoed back, tool_calls count, etc.). */
-  responseMeta?: Record<string, unknown>;
+  responseMeta?: Record<string, unknown> | undefined;
   /**
    * Full completion text/object for the Langfuse span. Only sent when
    * `LANGFUSE_CAPTURE_IO=true`; never persisted to `api_call_log`.
@@ -123,7 +123,7 @@ export interface MeteredResult {
    * differs. Registry-gated: an unrecognized served id (e.g. a provider's
    * dated alias of the same model) leaves the pre-call meta untouched.
    */
-  served?: { model: string };
+  served?: { model: string } | undefined;
 }
 
 export type ResultExtractor<T> = (value: T) => MeteredResult;

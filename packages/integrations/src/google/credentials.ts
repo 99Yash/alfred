@@ -25,18 +25,18 @@ export interface UpsertCredentialsArgs {
   userId: string;
   provider: "google";
   accountId: string;
-  accountLabel?: string | null;
+  accountLabel?: string | null | undefined;
   accessToken: string;
   refreshToken: string;
   expiresAt: Date;
   scopes: string[];
-  metadata?: Record<string, unknown>;
+  metadata?: Record<string, unknown> | undefined;
   /**
    * Account persona (ADR-0051 #3): `'work' | 'personal'`, auto-detected from
    * the Google `hd` claim at connect. Omitted leaves the column untouched on
    * update so a user override survives a token re-connect.
    */
-  persona?: AccountPersona | null;
+  persona?: AccountPersona | null | undefined;
 }
 
 /**

@@ -10,7 +10,7 @@ export function AttachmentChips({
   onRemove,
 }: {
   items: PendingAttachment[];
-  disabled?: boolean;
+  disabled?: boolean | undefined;
   onRemove: (key: string) => void;
 }) {
   // auto-animate (already the app's motion primitive — tool trail, todo feed)

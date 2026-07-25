@@ -16,9 +16,9 @@ export function IconButton({
 }: {
   label: string;
   children: ReactNode;
-  onClick?: () => void;
-  active?: boolean;
-  ref?: Ref<HTMLButtonElement>;
+  onClick?: (() => void) | undefined;
+  active?: boolean | undefined;
+  ref?: Ref<HTMLButtonElement> | undefined;
 } & Omit<ButtonHTMLAttributes<HTMLButtonElement>, "onClick">) {
   return (
     <button

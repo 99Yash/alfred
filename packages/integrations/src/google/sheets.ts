@@ -62,8 +62,8 @@ export interface CreateSpreadsheetArgs {
 
 export interface CreateSpreadsheetResult {
   spreadsheetId: string;
-  spreadsheetUrl?: string;
-  title?: string;
+  spreadsheetUrl?: string | undefined;
+  title?: string | undefined;
 }
 
 /** Create a new spreadsheet (lands in the user's Drive root). */
@@ -89,7 +89,7 @@ export interface GetValuesArgs {
 }
 
 export interface GetValuesResult {
-  range?: string;
+  range?: string | undefined;
   values: CellValue[][];
 }
 
@@ -107,12 +107,12 @@ export interface UpdateValuesArgs {
   /** A1 notation anchor for the write. */
   range: string;
   values: CellValue[][];
-  valueInputOption?: ValueInputOption;
+  valueInputOption?: ValueInputOption | undefined;
 }
 
 export interface UpdateValuesResult {
-  updatedRange?: string;
-  updatedCells?: number;
+  updatedRange?: string | undefined;
+  updatedCells?: number | undefined;
 }
 
 /** Overwrite the values in a range. */
@@ -136,12 +136,12 @@ export interface AppendValuesArgs {
   /** A1 notation of the table to append after, e.g. `Sheet1!A1`. */
   range: string;
   values: CellValue[][];
-  valueInputOption?: ValueInputOption;
+  valueInputOption?: ValueInputOption | undefined;
 }
 
 export interface AppendValuesResult {
-  updatedRange?: string;
-  updatedCells?: number;
+  updatedRange?: string | undefined;
+  updatedCells?: number | undefined;
 }
 
 /** Append rows after the last row of a table. */

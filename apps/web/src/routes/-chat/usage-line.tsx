@@ -13,9 +13,9 @@ function Stat({
   title,
 }: {
   icon: SvgIcon;
-  iconClassName?: string;
+  iconClassName?: string | undefined;
   value: string;
-  suffix?: string;
+  suffix?: string | undefined;
   title: string;
 }) {
   return (

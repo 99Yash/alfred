@@ -13,8 +13,8 @@ export function TopAnnouncement({
 }: {
   children: ReactNode;
   href: string;
-  dotClassName?: string;
-  className?: string;
+  dotClassName?: string | undefined;
+  className?: string | undefined;
 }) {
   return (
     <div

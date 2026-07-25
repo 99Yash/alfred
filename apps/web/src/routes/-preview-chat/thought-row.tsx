@@ -9,7 +9,7 @@ export function ThoughtRow({
 }: {
   duration: string;
   children: ReactNode;
-  defaultOpen?: boolean;
+  defaultOpen?: boolean | undefined;
 }) {
   const [open, setOpen] = useState(defaultOpen);
   return (

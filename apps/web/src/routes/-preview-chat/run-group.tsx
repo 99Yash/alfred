@@ -9,8 +9,8 @@ export function RunGroup({
   children,
 }: {
   title: string;
-  itemCount?: number;
-  defaultOpen?: boolean;
+  itemCount?: number | undefined;
+  defaultOpen?: boolean | undefined;
   children: ReactNode;
 }) {
   const [open, setOpen] = useState(defaultOpen);

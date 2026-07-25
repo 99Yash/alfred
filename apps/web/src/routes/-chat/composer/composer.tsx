@@ -44,9 +44,11 @@ export function Composer({
 }: {
   threadId: string | undefined;
   isStreaming: boolean;
-  disabled?: boolean;
-  onSend?: (text: string, files?: File[], artifactTargetId?: string) => Promise<boolean>;
-  onStopGeneration?: () => void;
+  disabled?: boolean | undefined;
+  onSend?:
+    | ((text: string, files?: File[], artifactTargetId?: string) => Promise<boolean>)
+    | undefined;
+  onStopGeneration?: (() => void) | undefined;
   /**
    * Text to drop into the editor on demand (e.g. the artifact sidebar's
    * "Suggest an edit"). The `nonce` lets the same scaffold re-apply on a repeat
@@ -59,15 +61,15 @@ export function Composer({
     threadId: string | undefined;
   } | null;
   /** Suggested next prompt shown dimmed in the empty editor; Tab accepts. */
-  ghostText?: string;
-  onGhostAccept?: () => void;
-  onGhostDismiss?: () => void;
+  ghostText?: string | undefined;
+  onGhostAccept?: (() => void) | undefined;
+  onGhostDismiss?: (() => void) | undefined;
   /** Chat "Auto" mode state + toggle; absent hides the control. */
-  autoApprove?: boolean;
+  autoApprove?: boolean | undefined;
   /** Initial policy load hasn't resolved yet — disable the toggle until we
    *  know the current mode (the row may not exist; clicking creates it). */
-  autoApprovePending?: boolean;
-  onToggleAutoApprove?: () => void;
+  autoApprovePending?: boolean | undefined;
+  onToggleAutoApprove?: (() => void) | undefined;
   /** Model-tier picker (Auto vs Deep) state + setter. */
   tier: ChatTier;
   onTierChange: (tier: ChatTier) => void;

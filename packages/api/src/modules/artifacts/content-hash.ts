@@ -17,7 +17,7 @@ export function artifactReplacementMatchesBase(input: {
   currentContent: ArtifactContent | null;
   rowRunId: string | null;
   editingRunId: string;
-  baseContentHash?: string;
+  baseContentHash?: string | undefined;
 }): boolean {
   if (input.rowRunId === input.editingRunId) return true;
   return (

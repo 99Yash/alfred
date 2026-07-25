@@ -13,9 +13,9 @@ export function ArtifactPageFrame({
 }: {
   html: string;
   title: string;
-  className?: string;
+  className?: string | undefined;
   /** Drives page geometry/aspect. Defaults to `pdf` (portrait US-Letter). */
-  format?: ArtifactFormat;
+  format?: ArtifactFormat | undefined;
 }) {
   const { width: pageWidth, height: pageHeight } = pageGeometry[format];
 

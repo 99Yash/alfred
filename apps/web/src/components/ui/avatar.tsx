@@ -15,9 +15,9 @@ export type AvatarSize = "sm" | "md" | "lg";
 
 interface AvatarProps extends HTMLAttributes<HTMLSpanElement> {
   /** When provided, the first character is rendered inside the disc. */
-  initial?: string;
-  size?: AvatarSize;
-  ref?: Ref<HTMLSpanElement>;
+  initial?: string | undefined;
+  size?: AvatarSize | undefined;
+  ref?: Ref<HTMLSpanElement> | undefined;
 }
 
 const SIZE: Record<AvatarSize, string> = {

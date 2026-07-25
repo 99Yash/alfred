@@ -9,8 +9,8 @@
 
 import { z } from "zod";
 
-import { attentionBandSchema, type AttentionBand } from "./attention";
-import { triageCategorySchema, type TriageCategory } from "./triage";
+import { attentionBandSchema } from "./attention";
+import { triageCategorySchema } from "./triage";
 import { isIntegrationSlug, type IntegrationSlug } from "./tools";
 
 // ─── Sources + reference kinds ────────────────────────────────────────────
@@ -92,21 +92,6 @@ export const ianaTimezoneSchema = z
 
 // ─── Per-source contribution shapes ───────────────────────────────────────
 
-export interface EmailContribution {
-  categories: Partial<
-    Record<
-      TriageCategory,
-      Array<{
-        documentId: string;
-        threadId: string;
-        subject: string;
-        sender: string;
-        snippet: string;
-      }>
-    >
-  >;
-}
-
 const emailContributionItemSchema = z.object({
   documentId: z.string().min(1),
   threadId: z.string(),
@@ -117,18 +102,9 @@ const emailContributionItemSchema = z.object({
 
 export const emailContributionSchema = z.object({
   categories: z.partialRecord(triageCategorySchema, z.array(emailContributionItemSchema)),
-}) satisfies z.ZodType<EmailContribution>;
+});
 
-export interface CalendarContribution {
-  events: Array<{
-    eventId: string;
-    title: string;
-    start: string;
-    end: string;
-    attendees: string[];
-    location?: string;
-  }>;
-}
+export type EmailContribution = z.infer<typeof emailContributionSchema>;
 
 export const calendarContributionSchema = z.object({
   events: z.array(
@@ -141,7 +117,9 @@ export const calendarContributionSchema = z.object({
       location: z.string().optional(),
     }),
   ),
-}) satisfies z.ZodType<CalendarContribution>;
+});
+
+export type CalendarContribution = z.infer<typeof calendarContributionSchema>;
 
 export const INTEGRATION_ACTIVITY_SOURCES = ["direct_api", "email_triage"] as const;
 export type IntegrationActivitySource = (typeof INTEGRATION_ACTIVITY_SOURCES)[number];
@@ -180,20 +158,6 @@ export type IntegrationActivityItem = z.infer<typeof integrationActivityItemSche
 
 export type IntegrationActivityContribution = z.infer<typeof integrationActivityContributionSchema>;
 
-export interface WeatherContribution {
-  current: {
-    temperatureC: number;
-    apparentTemperatureC: number;
-    description: string;
-  };
-  forecast: {
-    highC: number;
-    lowC: number;
-    precipitationMm: number;
-    description: string;
-  };
-}
-
 export const weatherContributionSchema = z.object({
   current: z.object({
     temperatureC: z.number(),
@@ -206,19 +170,17 @@ export const weatherContributionSchema = z.object({
     precipitationMm: z.number(),
     description: z.string(),
   }),
-}) satisfies z.ZodType<WeatherContribution>;
+});
 
-export interface DayOfWeekContribution {
-  dayName: string;
-  isWeekend: boolean;
-  holiday?: { name: string; locale: string };
-}
+export type WeatherContribution = z.infer<typeof weatherContributionSchema>;
 
 export const dayOfWeekContributionSchema = z.object({
   dayName: z.string(),
   isWeekend: z.boolean(),
   holiday: z.object({ name: z.string(), locale: z.string() }).optional(),
-}) satisfies z.ZodType<DayOfWeekContribution>;
+});
+
+export type DayOfWeekContribution = z.infer<typeof dayOfWeekContributionSchema>;
 
 // ─── Day-shape (ADR-0064 / #230) ──────────────────────────────────────────
 // A deterministic read of how busy the day actually was, so the composer never
@@ -231,11 +193,13 @@ export const DAY_SHAPE_VOLUMES = ["busy", "normal", "quiet"] as const;
 export type DayShapeVolume = (typeof DAY_SHAPE_VOLUMES)[number];
 export const dayShapeVolumeSchema = z.enum(DAY_SHAPE_VOLUMES);
 
-export interface DayShape {
+export const dayShapeSchema = z.object({
   /** Activity intensity over the window — derived from deterministic counts. */
-  activityVolume: DayShapeVolume;
+  activityVolume: dayShapeVolumeSchema,
   /** Work objects that reached a shipped/resolved state — the evening recap. */
-  shipped: Array<{ title: string; url?: string }>;
+  shipped: z.array(
+    z.object({ title: z.string().min(1).max(300), url: z.string().url().optional() }),
+  ),
   /**
    * Count of gathered priority emails scored at the `demanding` attention band
    * (ADR-0064). The morning suppression gate (#259) reads this: a cron morning
@@ -249,23 +213,16 @@ export interface DayShape {
    * unavailable" and falls back to the raw email count (errs toward sending,
    * ADR-0048).
    */
-  demandingEmailCount?: number;
+  demandingEmailCount: z.number().int().nonnegative().optional(),
   /**
    * Highest attention band among the gathered priority emails (`muted` when
    * there are none). Presentation/logging aid — lets a suppressed morning's log
-   * line say *why* it was quiet. Same optionality as {@link DayShape.demandingEmailCount}.
+   * line say *why* it was quiet. Same optionality as `demandingEmailCount`.
    */
-  topEmailBand?: AttentionBand;
-}
-
-export const dayShapeSchema = z.object({
-  activityVolume: dayShapeVolumeSchema,
-  shipped: z.array(
-    z.object({ title: z.string().min(1).max(300), url: z.string().url().optional() }),
-  ),
-  demandingEmailCount: z.number().int().nonnegative().optional(),
   topEmailBand: attentionBandSchema.optional(),
-}) satisfies z.ZodType<DayShape>;
+});
+
+export type DayShape = z.infer<typeof dayShapeSchema>;
 
 /**
  * Output of the gather step. Sources split into guaranteed vs optional:
@@ -279,66 +236,19 @@ export const dayShapeSchema = z.object({
  *     upstream failed". The composer prompt handles the empty case verbatim —
  *     empty state is content, not an error path.
  */
-export interface BriefingGather {
-  email: EmailContribution;
-  calendar: CalendarContribution | null;
-  integration_activity: IntegrationActivityContribution;
-  weather: WeatherContribution | null;
-  day_of_week: DayOfWeekContribution;
-  /**
-   * Deterministic day-shape signal (ADR-0064 / #230). Optional + additive so
-   * gather payloads persisted before this field parse unchanged; the composer
-   * treats its absence as "no day-shape signal," never an error.
-   */
-  day_shape?: DayShape;
-}
+export type BriefingGather = z.infer<typeof briefingGatherSchema>;
 
 // ─── Full briefing (composer + persisted output structure) ────────────────
 
-export interface FullBriefingSection {
-  source: GatherSourceSlug;
-  label: string;
-  body: string;
-  /** User-facing inclusion rationale, not raw model reasoning. */
-  why?: string;
-  /** Reference ids used in this section, e.g. `activity:...`. */
-  references?: string[];
-}
+export type FullBriefingSection = z.infer<typeof fullBriefingSectionSchema>;
 
-export interface BriefingSourcePanelItem {
-  id: string;
-  title: string;
-  subtitle?: string;
-  status?: string;
-  severity?: IntegrationActivitySeverity;
-  href?: string;
-  reference?: string;
-  metadata?: Record<string, string>;
-}
+export type BriefingSourcePanelItem = z.infer<typeof briefingSourcePanelItemSchema>;
 
-export interface BriefingSourcePanel {
-  source: GatherSourceSlug;
-  label: string;
-  items: BriefingSourcePanelItem[];
-}
+export type BriefingSourcePanel = z.infer<typeof briefingSourcePanelSchema>;
 
-export interface ComposerFullBriefing {
-  headline: string;
-  sections: FullBriefingSection[];
-  auditSummary?: string;
-}
+export type ComposerFullBriefing = BriefingComposerOutput["fullBriefing"];
 
-export interface FullBriefing extends ComposerFullBriefing {
-  /** Deterministic display panels generated after compose; never model-authored. */
-  sourcePanels?: BriefingSourcePanel[];
-  /**
-   * Email document ids the delivered prose actually referenced. This is audit /
-   * continuity state, not display content: the next briefing uses it to decide
-   * what the user was truly told about, instead of treating every gathered item
-   * as surfaced.
-   */
-  surfacedDocumentIds?: string[];
-}
+export type FullBriefing = z.infer<typeof fullBriefingSchema>;
 
 /**
  * Composer structured-output schema (ADR-0041 §"Composer output schema").
@@ -384,16 +294,23 @@ export const briefingGatherSchema = z.object({
   integration_activity: integrationActivityContributionSchema,
   weather: weatherContributionSchema.nullable(),
   day_of_week: dayOfWeekContributionSchema,
+  /**
+   * Deterministic day-shape signal (ADR-0064 / #230). Optional + additive so
+   * gather payloads persisted before this field parse unchanged; the composer
+   * treats its absence as "no day-shape signal," never an error.
+   */
   day_shape: dayShapeSchema.optional(),
-}) satisfies z.ZodType<BriefingGather>;
+});
 
 export const fullBriefingSectionSchema = z.object({
   source: gatherSourceSlugSchema,
   label: z.string().min(1).max(80),
   body: z.string().min(1).max(2000),
+  /** User-facing inclusion rationale, not raw model reasoning. */
   why: z.string().min(1).max(500).optional(),
+  /** Reference ids used in this section, e.g. `activity:...`. */
   references: z.array(z.string().min(1)).max(12).optional(),
-}) satisfies z.ZodType<FullBriefingSection>;
+});
 
 export const briefingComposerSchema = z.object({
   breakingSummary: z.string().min(1).max(2000),
@@ -415,18 +332,25 @@ export const briefingSourcePanelItemSchema = z.object({
   href: z.string().url().optional(),
   reference: z.string().min(1).optional(),
   metadata: z.record(z.string(), z.string()).optional(),
-}) satisfies z.ZodType<BriefingSourcePanelItem>;
+});
 
 export const briefingSourcePanelSchema = z.object({
   source: gatherSourceSlugSchema,
   label: z.string().min(1).max(80),
   items: z.array(briefingSourcePanelItemSchema).max(50),
-}) satisfies z.ZodType<BriefingSourcePanel>;
+});
 
 export const fullBriefingSchema = briefingComposerSchema.shape.fullBriefing.extend({
+  /** Deterministic display panels generated after compose; never model-authored. */
   sourcePanels: z.array(briefingSourcePanelSchema).max(8).optional(),
+  /**
+   * Email document ids the delivered prose actually referenced. This is audit /
+   * continuity state, not display content: the next briefing uses it to decide
+   * what the user was truly told about, instead of treating every gathered item
+   * as surfaced.
+   */
   surfacedDocumentIds: z.array(z.string().min(1)).max(100).optional(),
-}) satisfies z.ZodType<FullBriefing>;
+});
 
 // ─── Contributor contract ─────────────────────────────────────────────────
 

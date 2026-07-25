@@ -156,7 +156,7 @@ function buildReferenceEntityMap(gather: BriefingGather): Map<BriefingReference,
         referenceKind: "email",
         label: item.subject,
         source: "email",
-        href: item.threadId ? gmailThreadUrl(item.threadId) : undefined,
+        ...(item.threadId ? { href: gmailThreadUrl(item.threadId) } : {}),
       });
     }
   }
@@ -168,7 +168,7 @@ function buildReferenceEntityMap(gather: BriefingGather): Map<BriefingReference,
       referenceKind: "activity",
       label: item.title,
       source: "integration_activity",
-      href: item.url,
+      ...(item.url ? { href: item.url } : {}),
     });
   }
 

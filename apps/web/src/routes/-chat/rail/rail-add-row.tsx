@@ -18,7 +18,7 @@ export function RailAddRow({
   onSubmit,
 }: {
   placeholder: string;
-  onSubmit?: (value: string) => void;
+  onSubmit?: ((value: string) => void) | undefined;
 }) {
   const [value, setValue] = useState("");
 

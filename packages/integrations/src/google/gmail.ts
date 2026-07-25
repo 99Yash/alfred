@@ -44,12 +44,14 @@ const messagePartSchema: z.ZodType<MessagePart> = z.lazy(() =>
 );
 
 interface MessagePart {
-  partId?: string;
-  mimeType?: string;
-  filename?: string;
-  headers?: { name: string; value: string }[];
-  body?: { size?: number; data?: string; attachmentId?: string };
-  parts?: MessagePart[];
+  partId?: string | undefined;
+  mimeType?: string | undefined;
+  filename?: string | undefined;
+  headers?: { name: string; value: string }[] | undefined;
+  body?:
+    | { size?: number | undefined; data?: string | undefined; attachmentId?: string | undefined }
+    | undefined;
+  parts?: MessagePart[] | undefined;
 }
 
 const messageSchema = z.object({
@@ -67,17 +69,17 @@ export type GmailMessage = z.infer<typeof messageSchema>;
 export interface ListMessagesArgs {
   accessToken: string;
   /** Gmail search query (`newer_than:30d`, `in:inbox`, etc.). */
-  q?: string;
+  q?: string | undefined;
   /** Server-side cap; Gmail max is 500. */
-  maxResults?: number;
-  pageToken?: string;
+  maxResults?: number | undefined;
+  pageToken?: string | undefined;
   /** When set, restricts to messages with all of these label IDs. */
-  labelIds?: string[];
+  labelIds?: string[] | undefined;
 }
 
 export interface ListMessagesResult {
   messages: GmailMessageRef[];
-  nextPageToken?: string;
+  nextPageToken?: string | undefined;
 }
 
 export async function listMessages(args: ListMessagesArgs): Promise<ListMessagesResult> {
@@ -102,7 +104,7 @@ export interface GetMessageArgs {
    * `full` returns headers + body + MIME parts (what we want for ingest).
    * `metadata` skips the body entirely (used by delta polling later).
    */
-  format?: "full" | "metadata" | "minimal" | "raw";
+  format?: "full" | "metadata" | "minimal" | "raw" | undefined;
 }
 
 export async function getMessage(args: GetMessageArgs): Promise<GmailMessage> {
@@ -189,20 +191,20 @@ export interface ListHistoryArgs {
   startHistoryId: string;
   /** Defaults to ["messageAdded"] — narrows the response and matches our ingest semantics. */
   historyTypes?: ("messageAdded" | "messageDeleted" | "labelAdded" | "labelRemoved")[];
-  pageToken?: string;
-  maxResults?: number;
+  pageToken?: string | undefined;
+  maxResults?: number | undefined;
 }
 
 export interface ListHistoryResult {
   /** Raw history entries returned by Gmail. May be empty when nothing changed. */
   entries: GmailHistoryEntry[];
-  nextPageToken?: string;
+  nextPageToken?: string | undefined;
   /**
    * Latest mailbox historyId Gmail saw at the time of this call. Use this
    * (not the per-entry id) as the next cursor when there are no entries —
    * otherwise we'd never advance during quiet periods.
    */
-  historyId?: string;
+  historyId?: string | undefined;
 }
 
 /**
@@ -255,9 +257,9 @@ export interface StartWatchArgs {
   /** Fully-qualified Pub/Sub topic, e.g. `projects/<id>/topics/gmail-push`. */
   topicName: string;
   /** Restrict to specific labels (e.g. `["INBOX"]`) — empty/undefined = all mail. */
-  labelIds?: string[];
+  labelIds?: string[] | undefined;
   /** `include` (default) or `exclude` for the labelIds filter. */
-  labelFilterAction?: "include" | "exclude";
+  labelFilterAction?: "include" | "exclude" | undefined;
 }
 
 export interface StartWatchResult {
@@ -310,9 +312,9 @@ export interface CreateLabelArgs {
   /** e.g. `Alfred/ActionNeeded` — `/` produces a nested label in the Gmail UI. */
   name: string;
   /** `show` (default) keeps the label rendered next to the message subject. */
-  messageListVisibility?: "show" | "hide";
+  messageListVisibility?: "show" | "hide" | undefined;
   /** `labelShow` (default) keeps the label visible in the sidebar. */
-  labelListVisibility?: "labelShow" | "labelShowIfUnread" | "labelHide";
+  labelListVisibility?: "labelShow" | "labelShowIfUnread" | "labelHide" | undefined;
 }
 
 export async function createLabel(args: CreateLabelArgs): Promise<GmailLabel> {
@@ -329,8 +331,8 @@ export interface ModifyMessageLabelsArgs {
   accessToken: string;
   /** Gmail message id (NOT thread id). */
   messageId: string;
-  addLabelIds?: string[];
-  removeLabelIds?: string[];
+  addLabelIds?: string[] | undefined;
+  removeLabelIds?: string[] | undefined;
 }
 
 /**
@@ -362,8 +364,8 @@ export interface BatchModifyMessagesArgs {
    * is small and a no-op call usually signals a callsite bug.
    */
   messageIds: ReadonlyArray<string>;
-  addLabelIds?: string[];
-  removeLabelIds?: string[];
+  addLabelIds?: string[] | undefined;
+  removeLabelIds?: string[] | undefined;
 }
 
 /**
@@ -393,8 +395,8 @@ export async function batchModifyMessages(args: BatchModifyMessagesArgs): Promis
 export interface SendMessageArgs {
   accessToken: string;
   to: string[];
-  cc?: string[];
-  bcc?: string[];
+  cc?: string[] | undefined;
+  bcc?: string[] | undefined;
   subject: string;
   /** Plain-text body. We only send `text/plain` for now. */
   bodyText: string;
@@ -403,7 +405,7 @@ export interface SendMessageArgs {
    * into that thread; proper `In-Reply-To`/`References` threading would also
    * need the original `Message-ID`, which callers don't carry yet.
    */
-  threadId?: string;
+  threadId?: string | undefined;
 }
 
 export interface SendMessageResult {

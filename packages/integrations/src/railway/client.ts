@@ -59,8 +59,8 @@ export function isRailwayAuthorizationError(err: unknown): boolean {
 
 interface RailwayGraphqlPayload {
   query: string;
-  variables?: Record<string, unknown>;
-  operationName?: string;
+  variables?: Record<string, unknown> | undefined;
+  operationName?: string | undefined;
 }
 
 /**
@@ -110,7 +110,11 @@ export interface RailwayRawGraphqlResult {
 
 export async function railwayGraphqlRaw(
   token: string,
-  request: { document: string; variables?: Record<string, unknown>; operationName?: string },
+  request: {
+    document: string;
+    variables?: Record<string, unknown> | undefined;
+    operationName?: string | undefined;
+  },
 ): Promise<RailwayRawGraphqlResult> {
   const { status, text } = await railwayFetch(token, {
     query: request.document,
@@ -418,8 +422,8 @@ export interface RailwayDeployment {
 export async function railwayListDeployments(args: {
   token: string;
   projectId: string;
-  serviceId?: string;
-  environmentId?: string;
+  serviceId?: string | undefined;
+  environmentId?: string | undefined;
   limit: number;
 }): Promise<{ deployments: RailwayDeployment[] }> {
   const data = await railwayGraphql<{

@@ -68,7 +68,7 @@ const notionListSchema = z.object({
 const NOTION_MAX_CHILDREN_PER_REQUEST = 100;
 
 interface RichText {
-  plain_text?: string;
+  plain_text?: string | undefined;
 }
 
 /** Best-effort plain-title extraction across page (title property) and database (title array) results. */
@@ -110,7 +110,7 @@ export interface NotionSearchResult {
 
 export async function notionSearch(args: {
   accessToken: string;
-  query?: string;
+  query?: string | undefined;
   filter: "page" | "database" | "all";
   pageSize: number;
 }): Promise<NotionSearchResult> {
@@ -206,7 +206,7 @@ export async function notionCreatePage(args: {
   accessToken: string;
   parentPageId: string;
   title: string;
-  content?: string;
+  content?: string | undefined;
 }): Promise<NotionCreatedPage> {
   // Notion caps a single request at 100 child blocks: create the page with the
   // first batch inline, then PATCH the remainder in further ≤100 batches.

@@ -78,7 +78,7 @@ const TRACKER_SENDER_PATTERNS: Array<{ key: string; re: RegExp }> = [
 
 interface LoopKeyContext {
   /** Sender header, email address, or persisted sender display label. */
-  sender?: string | null;
+  sender?: string | null | undefined;
   /**
    * Require the sender to look like the provider before returning structured
    * tracker keys. Briefing uses loop keys as a soft continuation hint, so it can

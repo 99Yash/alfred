@@ -44,9 +44,9 @@ export interface RunBriefingAgentArgs {
 export interface RunBriefingAgentResult {
   briefing: DumpedBriefing;
   usage: {
-    inputTokens?: number;
-    outputTokens?: number;
-    totalTokens?: number;
+    inputTokens?: number | undefined;
+    outputTokens?: number | undefined;
+    totalTokens?: number | undefined;
   };
   modelId: string;
   /** Number of model turns the loop took. */

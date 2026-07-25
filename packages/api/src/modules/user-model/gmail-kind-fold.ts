@@ -26,18 +26,18 @@ export interface ProjectGmailKindProfilesArgs {
   readonly userId: string;
   readonly projectionRunId: string;
   readonly projectionVersion: number;
-  readonly projectionName?: string;
-  readonly computedAt?: Date;
+  readonly projectionName?: string | undefined;
+  readonly computedAt?: Date | undefined;
   /**
    * Inclusive Gmail replay bound captured before the run starts. The completed
    * run records this value, so the fold must consume exactly this prefix.
    */
-  readonly gmailHighWatermark?: ProjectionCursorValue;
+  readonly gmailHighWatermark?: ProjectionCursorValue | undefined;
   /**
    * Account-holder email identities to exclude from the first consumer-facing
    * profile projection. PR G can fill this from connected account addresses.
    */
-  readonly excludeEmailValues?: readonly string[];
+  readonly excludeEmailValues?: readonly string[] | undefined;
 }
 
 export interface ProjectGmailKindProfilesResult {

@@ -12,9 +12,9 @@ import type { SidebarThreadActions } from "./types";
 interface ThreadGroupBlockProps {
   label: string;
   entries: ReadonlyArray<ThreadEntry>;
-  activeId?: string;
+  activeId?: string | undefined;
   chatActive: boolean;
-  threadActions?: SidebarThreadActions;
+  threadActions?: SidebarThreadActions | undefined;
   renamingId: string | null;
   onStartRename: (id: string) => void;
   onCommitRename: (id: string, title: string) => void;
@@ -84,7 +84,7 @@ export function ThreadGroupBlock({
 interface ThreadRowProps {
   entry: ThreadEntry;
   active: boolean;
-  threadActions?: SidebarThreadActions;
+  threadActions?: SidebarThreadActions | undefined;
   renaming: boolean;
   onStartRename: (id: string) => void;
   onCommitRename: (id: string, title: string) => void;

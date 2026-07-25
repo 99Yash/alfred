@@ -104,8 +104,11 @@ function decidedCalls(
     if (!Array.isArray(tc)) continue;
     for (const c of tc) {
       if (isRecord(c) && typeof c.toolName === "string") {
-        const toolCallId = typeof c.toolCallId === "string" ? c.toolCallId : undefined;
-        calls.push({ toolName: c.toolName, toolCallId, input: c.input });
+        calls.push({
+          toolName: c.toolName,
+          ...(typeof c.toolCallId === "string" ? { toolCallId: c.toolCallId } : {}),
+          input: c.input,
+        });
       }
     }
   }

@@ -49,7 +49,7 @@ type ArtifactPage = {
   title: string;
   kicker: string;
   body: string;
-  html?: string;
+  html?: string | undefined;
 };
 
 const SYCAMORE_BRIEF_PAGES: ReadonlyArray<ArtifactPage> = [
@@ -205,9 +205,9 @@ export function DimensionChatThread({
   previewState = "completed",
   artifactState = "completed",
 }: {
-  showArtifactPanel?: boolean;
-  previewState?: ChatPreviewState;
-  artifactState?: ArtifactPreviewState;
+  showArtifactPanel?: boolean | undefined;
+  previewState?: ChatPreviewState | undefined;
+  artifactState?: ArtifactPreviewState | undefined;
 }) {
   const [localTurns, setLocalTurns] = useState<LocalPreviewTurn[]>([]);
   const allExpanded = previewState === "all-expanded";
@@ -362,8 +362,8 @@ function AssistantTurn({
   richContent = false,
   onPrompt,
 }: {
-  allExpanded?: boolean;
-  richContent?: boolean;
+  allExpanded?: boolean | undefined;
+  richContent?: boolean | undefined;
   onPrompt: (prompt: string) => void;
 }) {
   return (
@@ -534,7 +534,7 @@ function RunAccordion({
   children,
 }: {
   title: string;
-  defaultOpen?: boolean;
+  defaultOpen?: boolean | undefined;
   children: ReactNode;
 }) {
   return (
@@ -551,9 +551,9 @@ function ThoughtAccordion({
   defaultOpen,
 }: {
   children: ReactNode;
-  duration?: string;
-  className?: string;
-  defaultOpen?: boolean;
+  duration?: string | undefined;
+  className?: string | undefined;
+  defaultOpen?: boolean | undefined;
 }) {
   return (
     <Disclosure
@@ -576,13 +576,13 @@ function SearchAccordion({
   query: string;
   resultsFound: number;
   results: SearchResult[];
-  defaultOpen?: boolean;
+  defaultOpen?: boolean | undefined;
 }) {
   return (
     <AccordionPrimitive.Root
       type="single"
       collapsible
-      defaultValue={defaultOpen ? "results" : undefined}
+      {...(defaultOpen ? { defaultValue: "results" } : {})}
     >
       <AccordionPrimitive.Item value="results">
         <AccordionPrimitive.Header asChild>
@@ -641,16 +641,16 @@ function Disclosure({
   contentClassName,
 }: {
   title: ReactNode;
-  defaultOpen?: boolean;
+  defaultOpen?: boolean | undefined;
   children: ReactNode;
-  triggerClassName?: string;
-  contentClassName?: string;
+  triggerClassName?: string | undefined;
+  contentClassName?: string | undefined;
 }) {
   return (
     <AccordionPrimitive.Root
       type="single"
       collapsible
-      defaultValue={defaultOpen ? "content" : undefined}
+      {...(defaultOpen ? { defaultValue: "content" } : {})}
     >
       <AccordionPrimitive.Item value="content">
         <AccordionPrimitive.Header asChild>
@@ -684,7 +684,7 @@ function ToolStatus({
   icon = "processed",
 }: {
   children: ReactNode;
-  icon?: "processed" | "user-search";
+  icon?: "processed" | "user-search" | undefined;
 }) {
   return (
     <div className="flex items-center gap-2 text-sm leading-5 text-gray-900">
@@ -1295,7 +1295,7 @@ function IconMini({
 }: {
   label: string;
   children: ReactNode;
-  onClick?: () => void;
+  onClick?: (() => void) | undefined;
 }) {
   return (
     <button

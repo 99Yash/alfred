@@ -208,7 +208,7 @@ function Section({
 }: {
   id: string;
   title: string;
-  recipe?: string;
+  recipe?: string | undefined;
   children: React.ReactNode;
 }) {
   return (
@@ -1079,8 +1079,8 @@ function AppCanvas({
   height,
 }: {
   children: ReactNode;
-  className?: string;
-  height?: string;
+  className?: string | undefined;
+  height?: string | undefined;
 }) {
   return (
     <LandingBackground className={cn("overflow-hidden rounded-2xl", height, className)}>
@@ -1763,7 +1763,7 @@ function ThemePanes({
   stacked = false,
 }: {
   render: (theme: "light" | "dark") => ReactNode;
-  stacked?: boolean;
+  stacked?: boolean | undefined;
 }) {
   return (
     <div className={cn("grid grid-cols-1 gap-4", !stacked && "lg:grid-cols-2")}>

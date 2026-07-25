@@ -48,7 +48,7 @@ export function ApprovalModePicker({
 }: {
   /** True when Autopilot (autonomy) is active. */
   on: boolean;
-  disabled?: boolean;
+  disabled?: boolean | undefined;
   /** Flip the mode. There are only two, so selecting the other one is a toggle. */
   onToggle: () => void;
 }) {

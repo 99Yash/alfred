@@ -14,8 +14,8 @@ export function MorningBriefingPanel({
   className,
   active,
 }: {
-  className?: string;
-  active?: boolean;
+  className?: string | undefined;
+  active?: boolean | undefined;
 }) {
   return (
     <ShowcaseVideo

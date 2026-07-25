@@ -55,19 +55,19 @@ export function Tip({
   /** Primary line. Plain text or rich content. */
   label: ReactNode;
   /** Optional secondary line — fuller explanation under the label. */
-  description?: ReactNode;
+  description?: ReactNode | undefined;
   /** Optional shortcut glyphs (e.g. `["↵"]`), rendered as trailing Kbd chips. */
-  keys?: readonly string[];
-  side?: Tooltip.TooltipContentProps["side"];
-  align?: Tooltip.TooltipContentProps["align"];
-  sideOffset?: number;
+  keys?: readonly string[] | undefined;
+  side?: Tooltip.TooltipContentProps["side"] | undefined;
+  align?: Tooltip.TooltipContentProps["align"] | undefined;
+  sideOffset?: number | undefined;
   /** Per-tip override of the provider's hover delay. */
-  delayDuration?: number;
+  delayDuration?: number | undefined;
   children: ReactNode;
 }) {
   const { resolved } = useAppTheme();
   return (
-    <Tooltip.Root delayDuration={delayDuration}>
+    <Tooltip.Root {...(delayDuration === undefined ? {} : { delayDuration })}>
       <Tooltip.Trigger asChild>{children}</Tooltip.Trigger>
       <Tooltip.Portal>
         <Tooltip.Content

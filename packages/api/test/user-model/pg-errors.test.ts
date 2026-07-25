@@ -12,13 +12,13 @@ function pgError(fields: {
   message?: string;
   cause?: unknown;
 }): Error & {
-  code?: string;
-  constraint?: string;
+  code?: string | undefined;
+  constraint?: string | undefined;
   cause?: unknown;
 } {
   const err = new Error(fields.message ?? "pg error") as Error & {
-    code?: string;
-    constraint?: string;
+    code?: string | undefined;
+    constraint?: string | undefined;
     cause?: unknown;
   };
   err.code = fields.code;

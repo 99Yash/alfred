@@ -36,7 +36,7 @@ export function RunningToolIcon({
 }: {
   icon: LucideIcon;
   running: boolean;
-  size?: number;
+  size?: number | undefined;
 }) {
   return (
     <Icon

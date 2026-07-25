@@ -1,7 +1,14 @@
 import assert from "node:assert/strict";
 import { describe, test } from "node:test";
 
-import { isStepCount, streamText, tool, type FinishReason, type LanguageModel } from "ai";
+import {
+  isStepCount,
+  streamText,
+  tool,
+  type FinishReason,
+  type LanguageModel,
+  type ToolSet,
+} from "ai";
 import { convertArrayToReadableStream, MockLanguageModelV4 } from "ai/test";
 import { z } from "zod";
 
@@ -87,10 +94,16 @@ const asModel = (m: MockLanguageModelV4) => m as unknown as LanguageModel;
 
 // An `execute`-less tool: same as production (dispatch happens in a later step),
 // so `stopWhen: isStepCount(1)` means the SDK surfaces the call without running it.
-const pingTool = tool({
-  description: "test tool",
-  inputSchema: z.object({ ok: z.boolean() }),
-});
+// SAFETY: same cast production makes (`tool-surface.ts` builds a
+// `Partial<Record<ToolName, Tool>>` and hands it over as a `ToolSet`) and for
+// the same reason: under `exactOptionalPropertyTypes` a bare `Tool` and the
+// `ToolSet[string]` union stop being mutually assignable.
+const pingTools = {
+  ping: tool({
+    description: "test tool",
+    inputSchema: z.object({ ok: z.boolean() }),
+  }),
+} as ToolSet;
 
 /**
  * Drive the real SDK streaming path exactly as `chat-turn.ts` does and return
@@ -106,7 +119,7 @@ async function driveStream(parts: StreamPart[]) {
   const stream = streamText({
     model: asModel(model),
     prompt: "hi",
-    tools: { ping: pingTool },
+    tools: pingTools,
     // Mirror the agent: one model request, no SDK-level dispatch or retry.
     stopWhen: isStepCount(1),
     maxRetries: 0,

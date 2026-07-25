@@ -67,8 +67,8 @@ type BrandIconMeta =
       // currentColor brand fallback for marks whose dimension source uses a
       // white-on-dark gradient (github, linear). Other multicolor SVGs ignore
       // currentColor entirely.
-      plainColor?: string;
-      frostColor?: string;
+      plainColor?: string | undefined;
+      frostColor?: string | undefined;
     }
   | {
       kind: "lucide";
@@ -232,12 +232,12 @@ export function IntegrationIcon({
   className,
 }: {
   brand: IntegrationBrand;
-  connected?: boolean;
-  size?: keyof typeof TILE_SIZE_CLASS;
+  connected?: boolean | undefined;
+  size?: keyof typeof TILE_SIZE_CLASS | undefined;
   /** Retained for source compatibility; tiles carry their own background. */
-  variant?: "plain" | "frost";
-  title?: string;
-  className?: string;
+  variant?: "plain" | "frost" | undefined;
+  title?: string | undefined;
+  className?: string | undefined;
 }) {
   const badge = connected ? (
     <span
@@ -299,13 +299,13 @@ export function IntegrationGlyph({
   className,
 }: {
   brand: IntegrationBrand;
-  size?: number;
-  variant?: "plain" | "frost";
+  size?: number | undefined;
+  variant?: "plain" | "frost" | undefined;
   /** Override the brand's plain/frost color — needed when the surrounding
    * tile isn't the background tone the brand metadata assumes (e.g. the
    * monochrome GitHub glyph on a white tile). */
-  colorOverride?: string;
-  className?: string;
+  colorOverride?: string | undefined;
+  className?: string | undefined;
 }) {
   const meta = BRAND_ICONS[brand];
   // useId is always called regardless of branch so hook order is stable.

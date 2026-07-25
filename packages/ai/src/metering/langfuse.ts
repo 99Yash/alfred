@@ -27,7 +27,7 @@ function getClient(): Langfuse | null {
   _client = new Langfuse({
     publicKey: env.LANGFUSE_PUBLIC_KEY,
     secretKey: env.LANGFUSE_SECRET_KEY,
-    baseUrl: env.LANGFUSE_HOST,
+    ...(env.LANGFUSE_HOST ? { baseUrl: env.LANGFUSE_HOST } : {}),
     // Stamp every trace with the deploy environment (#226) so traces never
     // blur once multiple targets report. `NODE_ENV` only separates
     // development|production|test, but staging/preview/prod all run with
@@ -55,12 +55,12 @@ export interface LangfuseSpanInput {
  */
 export interface LangfuseSpanCloser {
   success(args: {
-    usage?: CallUsage;
+    usage?: CallUsage | undefined;
     costUsd: number;
     /** Full completion — only attached to the span when I/O capture is on. */
     output?: unknown;
     /** Small response metadata (finish_reason, tool-call count) — always attached. */
-    responseMeta?: Record<string, unknown>;
+    responseMeta?: Record<string, unknown> | undefined;
     /**
      * Model the request actually resolved to (#216). When a `withFallback`
      * cascade switches providers mid-call, `metered()` reconciles the served
@@ -68,7 +68,7 @@ export interface LangfuseSpanCloser {
      * not the nominal id the span opened with. Defaults to the requested id
      * when undefined or unchanged.
      */
-    servedModel?: string;
+    servedModel?: string | undefined;
   }): void;
   error(message: string): void;
 }
@@ -313,7 +313,7 @@ export interface DispatchRejectionInput {
    */
   toolName: string;
   /** Optional sanitized + bounded model-supplied name hint for unknown tools. */
-  candidateToolName?: string;
+  candidateToolName?: string | undefined;
   /** Model-supplied id for the call; deduplicates a call across re-attempts. */
   toolCallId: string;
   /** Dispatch branch that short-circuited before execution. */
@@ -326,11 +326,11 @@ export interface DispatchRejectionInput {
    * re-proposing the same broken call — group and count in the Traces view.
    */
   signature: string;
-  userId?: string;
+  userId?: string | undefined;
   /** `boss` or a named sub-agent — surfaced in span metadata. */
-  caller?: string;
+  caller?: string | undefined;
   /** Executor step that owns the dispatch — audit only. */
-  stepId?: string;
+  stepId?: string | undefined;
   /** Structured detail (e.g. Zod issues). Only attached when I/O capture is on (PII). */
   detail?: unknown;
   /** The proposed input that was rejected. Only attached when I/O capture is on (PII). */
@@ -443,9 +443,9 @@ export interface RuntimeSpanEndArgs {
   /** Terminal status, recorded in `metadata.status` (e.g. "committed", "staged", "error"). */
   status: string;
   /** Observation level. Defaults to `DEFAULT`; pass `ERROR` for a faulted span. */
-  level?: RuntimeSpanLevel;
+  level?: RuntimeSpanLevel | undefined;
   /** Additional bounded metadata merged at end (final counts / durations). */
-  metadata?: Record<string, RuntimeMetaValue>;
+  metadata?: Record<string, RuntimeMetaValue> | undefined;
   /** Full output — only attached when `LANGFUSE_CAPTURE_IO` is on. */
   output?: unknown;
 }
@@ -613,20 +613,24 @@ export function isAdhocTrace(meta: MeteredMeta): boolean {
 /** Payload for the parent `client.trace()` upsert. Pure, for testability. */
 export function buildTracePayload(args: { meta: MeteredMeta; captureIo: boolean }) {
   const { meta, captureIo } = args;
+  const tags = traceTags(meta);
+  // Every optional field is *omitted* rather than sent as `undefined`/`null`:
+  // `trace()` is an idempotent upsert keyed on `id`, and a null would clobber a
+  // value an earlier call in the same run already set.
   return {
     id: resolveTraceId(meta),
     name: resolveTraceName(meta),
-    userId: meta.userId,
+    ...(meta.userId !== undefined ? { userId: meta.userId } : {}),
     // Only group under a Sessions-view entry when the caller supplied a real
     // session id (chat passes `threadId`). Falling back to `runId` would mint a
     // one-trace "session" per background/job run that duplicates the trace and
     // pollutes the Sessions view — Langfuse sessions are for grouping *multiple*
     // traces under a real product session (#226 review).
-    sessionId: meta.sessionId,
+    ...(meta.sessionId !== undefined ? { sessionId: meta.sessionId } : {}),
     // Promote role/kind to filterable trace tags (#226) — they otherwise only
     // live in generation metadata, which the Traces filter can't slice by.
-    tags: traceTags(meta),
-    input: captureIo && isAdhocTrace(meta) ? meta.input : undefined,
+    ...(tags !== undefined ? { tags } : {}),
+    ...(captureIo && isAdhocTrace(meta) ? { input: meta.input } : {}),
   };
 }
 
@@ -637,13 +641,14 @@ export function buildGenerationPayload(args: {
   captureIo: boolean;
 }) {
   const { meta, startedAt, captureIo } = args;
+  const modelParameters = stripParams(meta.requestMeta);
   return {
     traceId: resolveTraceId(meta),
     name: meta.name ?? `${meta.provider}/${meta.model}`,
     model: meta.model,
-    modelParameters: stripParams(meta.requestMeta),
+    ...(modelParameters !== undefined ? { modelParameters } : {}),
     startTime: startedAt,
-    input: captureIo ? meta.input : undefined,
+    ...(captureIo ? { input: meta.input } : {}),
     metadata: {
       kind: meta.kind,
       role: meta.role,
@@ -659,11 +664,11 @@ export function buildGenerationPayload(args: {
 /** Payload for `generation.end()` on success. Pure, for testability. */
 export function buildGenerationEndPayload(args: {
   meta: MeteredMeta;
-  usage?: CallUsage;
+  usage?: CallUsage | undefined;
   costUsd: number;
   output?: unknown;
-  responseMeta?: Record<string, unknown>;
-  servedModel?: string;
+  responseMeta?: Record<string, unknown> | undefined;
+  servedModel?: string | undefined;
   captureIo: boolean;
 }) {
   const { meta, usage, costUsd, output, responseMeta, servedModel, captureIo } = args;
@@ -672,29 +677,30 @@ export function buildGenerationEndPayload(args: {
   // per-model cost/latency attributes correctly, and keep the requested id in
   // metadata for fallback debugging (#216).
   const servedDiverged = servedModel != null && servedModel !== meta.model;
+  const metadata = servedDiverged ? { ...responseMeta, requestedModel: meta.model } : responseMeta;
   return {
-    model: servedDiverged ? servedModel : undefined,
-    usage: usage
+    ...(servedDiverged ? { model: servedModel } : {}),
+    ...(usage
       ? {
-          input: usage.inputTokens,
-          output: usage.outputTokens,
-          total: (usage.inputTokens ?? 0) + (usage.outputTokens ?? 0),
-          unit: "TOKENS" as const,
+          usage: {
+            ...(usage.inputTokens !== undefined ? { input: usage.inputTokens } : {}),
+            ...(usage.outputTokens !== undefined ? { output: usage.outputTokens } : {}),
+            total: (usage.inputTokens ?? 0) + (usage.outputTokens ?? 0),
+            unit: "TOKENS" as const,
+          },
+          usageDetails: {
+            input: usage.inputTokens ?? 0,
+            output: usage.outputTokens ?? 0,
+            cached: usage.cachedInputTokens ?? 0,
+          },
         }
-      : undefined,
-    usageDetails: usage
-      ? {
-          input: usage.inputTokens ?? 0,
-          output: usage.outputTokens ?? 0,
-          cached: usage.cachedInputTokens ?? 0,
-        }
-      : undefined,
+      : {}),
     // Cost in USD; Langfuse's `costDetails` accepts arbitrary keys.
     costDetails: { total: costUsd },
     // Full completion only when capture is on; the small response metadata
     // (finish_reason, tool-call count) is always useful.
-    output: captureIo ? output : undefined,
-    metadata: servedDiverged ? { ...responseMeta, requestedModel: meta.model } : responseMeta,
+    ...(captureIo ? { output } : {}),
+    ...(metadata !== undefined ? { metadata } : {}),
   };
 }
 

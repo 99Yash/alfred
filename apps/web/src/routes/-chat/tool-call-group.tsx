@@ -166,7 +166,7 @@ export function ToolCallGroup({
 }: {
   tools: ToolCallView[];
   active: boolean;
-  narration?: readonly TrailNarration[];
+  narration?: readonly TrailNarration[] | undefined;
 }) {
   const contentId = useId();
   // Auto-animate the trail's height/insertions: as tool cards and narration

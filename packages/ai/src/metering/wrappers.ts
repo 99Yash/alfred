@@ -189,16 +189,16 @@ export interface MeteredGenerateObjectArgs<O> extends Omit<GenerateTextArgs, "ou
 
 export interface AttributedCall extends CallAttribution {
   /** Trimmed params surfaced to `request_meta` (avoid full prompts). */
-  requestMeta?: Record<string, unknown>;
+  requestMeta?: Record<string, unknown> | undefined;
   /** Override provider/model identifiers — only useful for routed/dispatched models. */
-  provider?: string;
-  model?: string;
+  provider?: string | undefined;
+  model?: string | undefined;
   /** Free-form Langfuse span name. Defaults to `${provider}/${model}`. */
-  name?: string;
+  name?: string | undefined;
   /** Stable per-call idempotency key. Forwarded to log row + Langfuse trace metadata. */
-  idempotencyKey?: string;
+  idempotencyKey?: string | undefined;
   /** Provider cache-write retention used by this request, for TTL-aware billing. */
-  cacheWriteTtl?: "5m" | "1h";
+  cacheWriteTtl?: "5m" | "1h" | undefined;
 }
 
 export async function meteredGenerateText(
@@ -252,8 +252,8 @@ export async function meteredGenerateObject<O>(
     timeout: rest.timeout ?? DEFAULT_LLM_TIMEOUT_MS,
     output: Output.object({
       schema,
-      name: schemaName,
-      description: schemaDescription,
+      ...(schemaName !== undefined ? { name: schemaName } : {}),
+      ...(schemaDescription !== undefined ? { description: schemaDescription } : {}),
     }),
   } as unknown as Parameters<typeof generateText>[0];
   return (await metered(meta, () => generateText(callArgs), ((

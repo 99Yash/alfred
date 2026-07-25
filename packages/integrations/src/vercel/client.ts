@@ -159,7 +159,10 @@ export function createVercelClient(options: VercelClientOptions) {
       }));
     },
 
-    async deployments(args?: { projectId?: string; limit?: number }): Promise<VercelDeployment[]> {
+    async deployments(args?: {
+      projectId?: string | undefined;
+      limit?: number | undefined;
+    }): Promise<VercelDeployment[]> {
       const json = listDeploymentsResponseSchema.parse(
         await client.json("/v6/deployments", {
           label: "/v6/deployments",
@@ -186,7 +189,7 @@ export function createVercelClient(options: VercelClientOptions) {
     async redeploy(args: {
       deploymentId: string;
       name: string;
-      target?: "production" | "preview";
+      target?: "production" | "preview" | undefined;
     }): Promise<VercelRedeployResult> {
       const json = redeployResponseSchema.parse(
         await client.json("/v13/deployments", {

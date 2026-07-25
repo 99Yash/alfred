@@ -16,17 +16,17 @@ type CardTone = keyof typeof CARD_TILE;
 
 interface SettingCardProps {
   title: string;
-  description?: string;
+  description?: string | undefined;
   /** Optional hue-tinted icon tile next to the title. */
   icon?: ComponentType<{ size?: number; className?: string }>;
-  tone?: CardTone;
+  tone?: CardTone | undefined;
   /** Optional footer caption (left side, below the divider). */
-  footer?: ReactNode;
+  footer?: ReactNode | undefined;
   /** Optional footer action (right side, below the divider). */
-  action?: ReactNode;
+  action?: ReactNode | undefined;
   /** When true, the footer divider is omitted. */
-  noDivider?: boolean;
-  children?: ReactNode;
+  noDivider?: boolean | undefined;
+  children?: ReactNode | undefined;
 }
 
 export function SettingCard({

@@ -302,8 +302,8 @@ async function loadOwnedStandingInstruction(
 export async function forgetStandingInstruction(args: {
   userId: string;
   factId: string;
-  reason?: string | null;
-  source?: MemorySource;
+  reason?: string | null | undefined;
+  source?: MemorySource | undefined;
 }): Promise<ForgetStandingInstructionResult> {
   const forgotten = await db().transaction(async (tx) => {
     const [old] = await tx
@@ -505,7 +505,7 @@ async function appendStandingInstructionObservation(
     instruction: StandingInstructionValue;
     previousInstruction?: StandingInstructionValue | null;
     reason?: string | null;
-    source?: MemorySource;
+    source?: MemorySource | undefined;
   },
   tx: Parameters<typeof insertObservation>[1],
 ): Promise<void> {

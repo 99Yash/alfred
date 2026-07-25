@@ -154,16 +154,16 @@ export function getGoogleOAuthConfig(): GoogleOAuthConfig {
 
 export interface BuildAuthorizeUrlArgs {
   state: string;
-  scopes?: string[];
+  scopes?: string[] | undefined;
   /**
    * `prompt=consent` forces Google to re-issue a refresh token even if
    * the user has consented before. We need the refresh token on every
    * connect — without it, tokens silently expire after an hour and the
    * background workers grind to a halt.
    */
-  forceConsent?: boolean;
+  forceConsent?: boolean | undefined;
   /** `login_hint` shortcuts the account picker when we know the email. */
-  loginHint?: string;
+  loginHint?: string | undefined;
 }
 
 export function buildAuthorizeUrl(args: BuildAuthorizeUrlArgs): string {
@@ -204,7 +204,7 @@ export interface ExchangeCodeResult extends GoogleTokenResponse {
    * Google Workspace accounts. Drives account-persona detection (ADR-0051 #3):
    * present → `work`, absent → `personal`.
    */
-  hostedDomain?: string;
+  hostedDomain?: string | undefined;
   /** Computed expiry timestamp. */
   expiresAt: Date;
   /** Granted scopes parsed into an array. Empty when Google doesn't echo `scope` (rare). */
@@ -260,7 +260,7 @@ export interface RefreshTokenResult {
   accessToken: string;
   expiresAt: Date;
   /** Some refresh responses include a fresh refresh_token; most don't. */
-  refreshToken?: string;
+  refreshToken?: string | undefined;
   scopes: string[];
 }
 

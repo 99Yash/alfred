@@ -23,7 +23,7 @@ interface RightRailProps {
   open: boolean;
   mode: ChatSidePanelMode;
   onClose: () => void;
-  data?: RailData;
+  data?: RailData | undefined;
 }
 
 export function RightRail({ open, mode, onClose, data = EMPTY_RAIL_DATA }: RightRailProps) {

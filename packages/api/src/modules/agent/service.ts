@@ -218,9 +218,10 @@ export interface SignalArgs {
   runId: string;
   /** When provided, only fire if the wake condition matches (HIL approvalId or signal name). */
   match?:
-    | { kind: "hil"; approvalId: string; approvalKind?: ApprovalKind }
+    | { kind: "hil"; approvalId: string; approvalKind?: ApprovalKind | undefined }
     | { kind: "signal"; name: string }
-    | { kind: "any" };
+    | { kind: "any" }
+    | undefined;
 }
 
 export type SignalOutcome =
@@ -373,7 +374,7 @@ export interface CancelRunArgs {
    * User-facing reason copied onto pending approval rows cancelled with
    * the run. Defaults to `reason` for programmatic callers.
    */
-  pendingApprovalRejectReason?: string;
+  pendingApprovalRejectReason?: string | undefined;
 }
 
 export type CancelOutcome = "cancelled" | "already_terminal" | "not_found";

@@ -406,6 +406,18 @@ export const observationSubjectSchema = z.union([
 export type ObservationSubject = z.infer<typeof observationSubjectSchema>;
 
 export type JsonPrimitive = string | number | boolean | null;
+/**
+ * Exactly what `jsonValueSchema` below accepts — no `undefined` on the value
+ * side. The two must stay in lockstep: this type guards the same values the
+ * validator rejects at the persistence boundary (`observationPayloadSchema`),
+ * so admitting a present-`undefined` here would let the compiler bless a
+ * payload that `observationInsertSchema.parse` then throws on.
+ *
+ * A JSON-shaped object with declared optional properties therefore cannot be
+ * assigned into a `JsonValue` index signature under
+ * `exactOptionalPropertyTypes`. That is the point — omit the key, or use
+ * `z.looseObject` when the schema itself needs open-ended keys.
+ */
 export type JsonValue =
   | JsonPrimitive
   | { readonly [key: string]: JsonValue }
@@ -962,13 +974,17 @@ export const entityKindClassificationSchema = z
   .strict();
 export type EntityKindClassification = z.infer<typeof entityKindClassificationSchema>;
 
-export const projectionProvenanceSchema = z
-  .object({
-    observationIds: z.array(z.string()).optional(),
-    familyKeys: z.array(z.string()).optional(),
-    classification: entityKindClassificationSchema.optional(),
-  })
-  .catchall(jsonValueSchema);
+// `looseObject` rather than `.catchall(jsonValueSchema)`: a catchall checks the
+// *declared* optional keys against the index signature too, which would force
+// `JsonValue` to admit `undefined` and put the type out of step with the
+// validator guarding the same column. Unknown provenance keys pass through as
+// `unknown` instead of schema-checked JSON; provenance keys are ours to write,
+// and a JSON-shaped type that lies is the worse trade.
+export const projectionProvenanceSchema = z.looseObject({
+  observationIds: z.array(z.string()).optional(),
+  familyKeys: z.array(z.string()).optional(),
+  classification: entityKindClassificationSchema.optional(),
+});
 export type ProjectionProvenance = z.infer<typeof projectionProvenanceSchema>;
 
 /**

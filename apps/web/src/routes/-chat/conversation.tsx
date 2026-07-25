@@ -63,23 +63,21 @@ export function Conversation({
 }: {
   messages: SyncedChatMessage[];
   stream: StreamingMessage | null;
-  onFollowUp?: (text: string) => void;
+  onFollowUp?: ((text: string) => void) | undefined;
   /**
    * Re-send the user turn behind a failed reply (the "Retry" affordance). The
    * second arg carries that turn's attachment ids, and the third binds those ids
    * to their source user message so the server can scope the copy.
    */
-  onRetry?: (
-    text: string,
-    retryAttachmentIds?: string[],
-    retryAttachmentMessageId?: string,
-  ) => void;
+  onRetry?:
+    | ((text: string, retryAttachmentIds?: string[], retryAttachmentMessageId?: string) => void)
+    | undefined;
   /** Follow-up chips rendered under the last completed reply (built by the parent). */
-  followUps?: ReadonlyArray<FollowUpSuggestion>;
+  followUps?: ReadonlyArray<FollowUpSuggestion> | undefined;
   /** Opens an artifact in the sidebar (from a message's trigger card). */
-  onOpenArtifact?: (artifactId: string) => void;
+  onOpenArtifact?: ((artifactId: string) => void) | undefined;
   /** The artifact currently open in the sidebar, so its card shows "Viewing". */
-  openArtifactId?: string | null;
+  openArtifactId?: string | null | undefined;
   /**
    * Staged actions for the live run awaiting the user's decision. Rendered
    * inline at the tail of the streaming turn, right under the tool trail whose
@@ -87,7 +85,7 @@ export function Conversation({
    * rows disappear the moment a decision syncs out, so the cards clear with
    * them, and stay up while any remain pending in a multi-step approval.
    */
-  approvals?: readonly SyncedActionStaging[];
+  approvals?: readonly SyncedActionStaging[] | undefined;
 }) {
   const virtuosoRef = useRef<VirtuosoHandle | null>(null);
   // The raw Virtuoso scroller element, captured via `scrollerRef`. The live
@@ -460,13 +458,11 @@ interface FeedItemContext {
   messages: SyncedChatMessage[];
   attachmentsByMessage: Record<string, SyncedChatAttachment[]>;
   artifactsByMessage: Map<string, SyncedArtifact[]>;
-  onRetry?: (
-    text: string,
-    retryAttachmentIds?: string[],
-    retryAttachmentMessageId?: string,
-  ) => void;
-  onOpenArtifact?: (artifactId: string) => void;
-  openArtifactId?: string | null;
+  onRetry?:
+    | ((text: string, retryAttachmentIds?: string[], retryAttachmentMessageId?: string) => void)
+    | undefined;
+  onOpenArtifact?: ((artifactId: string) => void) | undefined;
+  openArtifactId?: string | null | undefined;
 }
 
 const computeItemKey = (_: number, message: SyncedChatMessage) => message.id;
@@ -530,7 +526,7 @@ interface FeedFooterValue {
   streamTimingRefs: StreamRenderTiming;
   streamBodyRef: React.RefObject<HTMLDivElement | null>;
   followUps: ReadonlyArray<FollowUpSuggestion>;
-  onFollowUp?: (text: string) => void;
+  onFollowUp?: ((text: string) => void) | undefined;
   approvals: readonly SyncedActionStaging[];
   /** Registers the footer's outer element with the parent's re-pin observer. */
   setFooterEl: (el: HTMLElement | null) => void;
@@ -678,7 +674,7 @@ function prevUserTurn(
     const text = m.content;
     return {
       same: () => onRetry(text, readyIds.length > 0 ? readyIds : undefined, m.id),
-      withoutAttachments: text.trim().length > 0 ? () => onRetry(text, undefined) : undefined,
+      ...(text.trim().length > 0 ? { withoutAttachments: () => onRetry(text, undefined) } : {}),
     };
   }
   return undefined;

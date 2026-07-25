@@ -362,6 +362,11 @@ function sha256(value: string): string {
 function stableStringify(value: JsonValue): string {
   if (value === null || typeof value !== "object") return JSON.stringify(value);
   if (Array.isArray(value)) return `[${value.map(stableStringify).join(",")}]`;
-  const entries = Object.entries(value).sort(([a], [b]) => a.localeCompare(b));
+  // Undefined-valued keys are skipped, matching `JSON.stringify`: an optional
+  // property that is present-and-undefined must hash the same as one that is
+  // absent, or two payloads with identical JSON would get different hashes.
+  const entries = Object.entries(value)
+    .filter((entry): entry is [string, JsonValue] => entry[1] !== undefined)
+    .sort(([a], [b]) => a.localeCompare(b));
   return `{${entries.map(([k, v]) => `${JSON.stringify(k)}:${stableStringify(v)}`).join(",")}}`;
 }
