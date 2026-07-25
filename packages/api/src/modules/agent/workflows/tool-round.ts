@@ -184,16 +184,14 @@ export async function runToolRound<Call extends PendingToolCall>(
     // untouched for re-dispatch, but a staged write is the real user-facing
     // discontinuity to surface first.
     const staged = results.find(
-      (result): result is Extract<DispatchResult, { kind: "staged" }> =>
-        result?.kind === "staged",
+      (result): result is Extract<DispatchResult, { kind: "staged" }> => result?.kind === "staged",
     );
     if (staged) {
       batchSpan?.end("staged", results);
       return { kind: "interrupt", wake: staged.wake };
     }
     const parked = results.find(
-      (result): result is Extract<DispatchResult, { kind: "parked" }> =>
-        result?.kind === "parked",
+      (result): result is Extract<DispatchResult, { kind: "parked" }> => result?.kind === "parked",
     );
     if (parked) {
       batchSpan?.end("parked", results);

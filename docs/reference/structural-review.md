@@ -42,6 +42,8 @@ The multi-edit test is the sharpest revealer, not the only one. Drift can bite *
 
 The storage registry improves all three — one edit to add a key, the type forbids a missing default, and one file shows the whole catalog. The multi-edit argument is just the most *legible* of its three benefits. Lead with whichever revealer is most objective for the case at hand.
 
+Revealer 3 is the one this document used to leave as taste. [Required knowledge](#required-knowledge--measuring-comprehension-obstruction) gives it a countable measure, for the cases where drift never forces a second edit at all.
+
 ---
 
 ## Breadth discovers; depth proves
@@ -161,6 +163,78 @@ But a tell is not a finding. Deciding whether duplication shares one truth, whet
 
 ---
 
+## Required knowledge — measuring comprehension obstruction
+
+The multi-edit revealer is blind to a whole class of drift. `AuthedJsonOptions.onError` — an open-ended "override the non-2xx branch" callback — had exactly **one** implementer, and changing Notion's error posture was a one-line edit in one file. No coordination, nothing to forget, no second home for any fact. By the sharpest revealer it was clean. It was still structural debt, because the *policy it encoded* ("this provider's error body must never ride the error") was discoverable only by having already read the Notion client. Replacing it with `bodyPolicy: "summarize" | "omit"` on the factory everyone already calls put the same decision in autocomplete.
+
+So the up-pass needs a second measure, for drift that bites at *read* time rather than at *change* time:
+
+> **Required knowledge** is the set of facts a correct call site depends on that nothing at that call site supplies.
+
+That is countable, which is what keeps revealer 3 from staying a matter of taste:
+
+1. Write the call the way someone who does not know this codebase would write it.
+2. List every way that call is now wrong.
+3. For each way, name where the correct knowledge lives today, using [the enforcement ladder](#the-enforcement-ladder).
+4. **Required knowledge is the tier 4–5 residue.** That count — not the edit count — is the finding's size.
+
+The tell is inverted from the rest of this document: **the naive call compiling and passing review is the failure, not the success.** If the persisted `accessToken` and the fresh one are both `string`, then "resolve Google tokens through `getFreshAccessToken`" is a tier-5 rule, and a reviewer is the only thing standing between it and a stale-token bug. A fifteen-row "reach for these" table in an agent instruction file is not a solution to that problem; it is an *inventory* of it.
+
+### Four shapes it takes
+
+**1. A name you must already know.** The right helper exists, and only prior knowledge or a lookup finds it.
+- Tell: the repo ships an index of them — every row of the [shared helpers](./shared-helpers.md) table is a capability whose discovery mechanism is documentation. A caller holding `unknown` cannot see `getPath`; a caller holding a `credentialId` cannot see `getFreshAccessToken`.
+- Pointer: *can the call site reach the right thing from what it already holds?*
+- Fix: hang the capability off the value the caller already has, so no name has to be recalled — `integrations({ userId }).github.search({ q })` replaces "know that `getInstallationTokenForUser` exists, know it returns a token you must not log, then know `searchGithub` takes it."
+- Anti-pattern: adding the reachable door *beside* the old one and calling it progress. See the ledger below.
+
+**2. An escape-hatch parameter.** An open-ended hook sits where a closed set of policies belongs.
+- Tell: one implementer; its body is the same three lines every time; the hook's own docstring has to explain *when* you would use it.
+- Pointer: *is this a behavior the caller supplies, or a policy the caller selects?*
+- Fix: policy as data. `onError: (res) => Promise<never>` → `bodyPolicy: "summarize" | "omit"`. Tier 5 → tier 1: the options are enumerable, an unhandled one is a type error, and the choice is visible on an object the caller is already constructing.
+
+**3. A leaky primitive.** A value travels as a bare `string` while the rules for handling it travel as prose.
+- Tell (greppable): count the signatures that name the type, then find the sentence that governs all of them. `grep -ro 'accessToken: string' packages/integrations/src | wc -l` returns **60** — down from 68 as GitHub and Vercel moved onto the facade, and it falls again with each provider that joins. Re-derive it rather than trusting the figure; the trend is the finding, not the constant. The rule that binds all of them — never log it, never persist it on an error, never read the stale one — lives in a CLAUDE.md bullet.
+- Pointer: *does this value's type carry its own handling rules, or does a human have to?*
+- Fix: give it a type whose behavior *is* the policy. `Redacted<T>` masks under `String()`, `JSON.stringify`, and `util.inspect`, keeps the plaintext in a `#private` field so a structured logger enumerating own properties finds nothing, and exposes exactly one greppable `unwrap()` — called at the wire, in the function that builds the headers.
+- The positive form is already in this tree, which is what makes the axis credible rather than aspirational: Google's public `CredentialRow` simply **has no `accessToken` field**, so "don't read the persisted token" is tier 1 for that path and needs no discipline from anyone. `getFreshAccessToken(): Promise<string>` then drops the result straight back into the tier-5 world. That contrast — the same invariant enforced statically on one side of a function and by prose on the other — is the up-finding.
+
+**4. A restated shape.** One context, retyped once per participant.
+- Tell: N functions whose parameter lists are permutations of a single context object; a result type that re-lists each participant's fields by hand.
+- Pointer: *is this shape declared once and derived, or agreed by convention N times?*
+- Fix: declare once, derive the rest — `ProviderBindOptions` as the sole bind shape with the facade's public type mapped from `ReturnType` per registry entry; `FLOOR_SEQUENCE` as the ordered floor list with `FloorOutcome`'s audit keys mapped from it.
+- The prize is usually not the deduplication. Folding the triage floors made the *threading* structural: each floor now receives the previous floor's classification because the fold passes it, where before three hand-written calls each had to remember to pass `previous.classification` and passing the original instead would have silently disabled a floor.
+
+### The vocabulary ledger
+
+This is the gate that stops "make it read like poetry" from becoming a license to add abstractions. The move is only real if it is **net-negative in names a call site must know**:
+
+> Ledger = names required at the call site *after* − names required *before*. It must end negative, and a PR that leaves it positive owes the PR that closes it.
+
+`bodyPolicy` removed `notionError` and `onError` and added one field to an options object already being passed: negative, and finished. A facade shipped *alongside* the functions it replaces is positive — two doors where there was one — and stays a regression until the old door is gone. So:
+
+- **An incremental cutover starts a debt clock.** That is a legitimate way to land a large change, but the PR that opens the clock names the closing PR, and the superseded path is marked (internal, deprecated, or explicitly "callers are being migrated") so the next reader knows which door is the door. Live example in this tree: the facade covers `github` + `vercel`, **#551** closes it, and the five surviving call sites (`getFreshAccessToken`, `getActiveBearerCredential`, Railway's local `credentialFor`) carry a `SUPERSEDED PATH, CALLERS ARE BEING MIGRATED (#551)` note. A cutover with no named closer is just two doors.
+- Two doors is worse than one bad door: the naive call site now has to *choose*, and a reviewer has to know which choice is current. Required knowledge went up.
+
+### The hazard rule
+
+A seam that reads as *just do the thing* is exactly where a hazard survives review, because the reviewer's eye now slides over the place the hazard used to be visible. So:
+
+> When a shared seam absorbs a hazard — retry, redaction, auth, ordering, truncation — the hazard must be represented in the seam's **types**, not in its docstring.
+
+Both halves of that were live in the transport seam and are worth keeping as the worked example. `fetchWithRetry`'s header said retry "must be used for idempotent reads (GET/HEAD)" while `defineProviderClient.json` accepted `method` and `body` and retried whatever it was given: a POST that reached the upstream and then timed out would have been re-sent. The docstring was the enforcement. It now gates on `isRetrySafeMethod` and makes anything else pass `idempotent: true` (tier 5 → tier 1). Separately, the same client had no way to express `bodyPolicy` at all, so the one provider that needs `"omit"` could not join the seam it was supposedly generalized from — **a shared seam that cannot express a member's policy has not generalized it, it has excluded it.**
+
+Two corollaries, both learned by getting them wrong first in the same transport seam:
+
+- **An absorbed hazard needs an OFF value, and the type has to hold it.** `retry?: RetryPolicy` read as "tune it if you like", but absence meant *retry with the built-in policy* — so every GitHub and Vercel read silently gained 3 attempts, "does this provider retry" became a property of which constructor a call site happened to use, and "no retry" was unrepresentable. `retry: RetryPolicy | "none"`, required at the bind, makes the choice visible where the client is built. The general form: when a seam's default answer to a hazard is *on*, an optional field is the wrong shape for it.
+- **Don't absorb a hazard the layer below already owns better.** A bind-scoped `once()` around a credential resolve looks like the same kind of win as memoizing client construction, but a memo with no expiry wrapped around a token that has one converts a cache into a *lifetime rule for the caller* — "a bind is request-scoped", stated in four docstrings and enforced by nothing, where holding one at module scope 401s forever. The provider's own expiry-aware cache already had the property; the seam's job was to not take it away.
+
+### Not a seventh axis
+
+This is a different *measure*, not a new category. Each shape above lands on axes already listed: 1 is misplacement (the capability is far from its caller), 2 is conflation plus loose representation, 3 is loose representation, 4 is repetition. What is new is the metric — knowledge required to use the code correctly, rather than edits required to change it — and it is the metric that catches drift in code that is locally minimal, correct, and about to be copied a fifth time.
+
+---
+
 ## Three dimensions for drilling down
 
 Down starts from a claim, not a file. Write the intended invariant before tracing it:
@@ -225,6 +299,7 @@ Subjective doesn't mean unrigorous. A structural proposal earns its place only i
 - **A. Name the change it de-risks.** "This should be a registry" is taste. "Adding the 13th key touches 4 files and can silently forget a default; a registry makes it one file and the type forbids forgetting" is an argument. No named change → rejected as aesthetics.
 - **B. Clear the axis's anti-pattern.** State that the things genuinely share a *truth or invariant*, not merely syntax — name the domain changes under which they co-vary, or show that the seam is the domain's real joint. This is the guardrail that stops "find the hidden registry" from becoming its own checklist that manufactures speculative architecture.
 - **C. Name the enforcement mechanism and its remaining gap.** A registry held together by "please import from here" (tier 5) is weaker than one whose entries are statically checked (tier 1), but runtime input may still need validation (tier 2). Use the strongest applicable combination rather than assuming one tier replaces the others.
+- **D. Show the vocabulary ledger.** For a proposal justified by [required knowledge](#required-knowledge--measuring-comprehension-obstruction) rather than by coordinated edits, state which names a call site stops needing, which it starts needing, and — if the old path survives the PR — when it is deleted. A ledger that is not negative is an addition, not a simplification.
 
 A down-finding has a parallel burden:
 
@@ -275,6 +350,7 @@ The codebase is Andre Weissflog's [`floooh/chips`](https://github.com/floooh/chi
 A review that returns only local nits has performed only the surface sweep. Before finishing:
 
 - Produce **at least one up-observation** by running the pointers for the axes the diff touches, or state explicitly that you looked and none applies, and why.
+- For any call site the diff adds or changes, run the [required-knowledge](#required-knowledge--measuring-comprehension-obstruction) test once: write the naive version of that call, and say what makes it wrong and at which enforcement tier. A tier 4–5 answer is a finding even when no fact has a second home.
 - For every claim that earned depth, give a **down-conclusion**: closed within scope, broken, or unproven, with the invariant and evidence. If no claim earned depth, state why the change is low-risk enough not to trace.
 
 Silence is not evidence of clean structure or closed behavior; it is usually evidence that the corresponding direction never ran.
@@ -285,9 +361,9 @@ Silence is not evidence of clean structure or closed behavior; it is usually evi
 
 1. **Orient:** state the change's intent and obligations; classify changed files as authored sources, derived artifacts, or external internals.
 2. **Map the domain:** recover the relevant identities, authorities, lifecycle, coordination, time, effects, representations, sources, and substrate assumptions; qualify each boundary at the dimension it constrains.
-3. **Probe and look up:** run grounded domain changes, compare each claim with its code mechanism, owner, or representation, then classify structural mismatches with the six axes; route execution counterexamples down.
+3. **Probe and look up:** run grounded domain changes, compare each claim with its code mechanism, owner, or representation, then classify structural mismatches with the six axes; measure changed call sites for [required knowledge](#required-knowledge--measuring-comprehension-obstruction); route execution counterexamples down.
 4. **Sweep the surface:** apply the bounded [code-style.md](./code-style.md) prompts to authored semantic sources; reconcile generated artifacts against their source and intended delta.
-5. **Gate up-candidates:** name the exposing change, shared truth, anti-pattern risk, enforcement mechanism, and remaining gap; hold the proposed shape to the [exemplar](#exemplars--structure-so-aligned-the-coordination-is-inevitable) standard — would one domain change land in one place because there is nowhere else it could go?
+5. **Gate up-candidates:** name the exposing change, shared truth, anti-pattern risk, enforcement mechanism, remaining gap, and vocabulary ledger; hold the proposed shape to the [exemplar](#exemplars--structure-so-aligned-the-coordination-is-inevitable) standard — would one domain change land in one place because there is nowhere else it could go?
 6. **Choose depth:** select risky invariants and restructures that move ownership or behavior.
 7. **Drill down:** follow each claim through the system, through time, and to the authoritative substrate; actively seek a breaking sequence.
 8. **Loop:** if several down-findings share a cause, look up for the missing mechanism; if an up-proposal emerges, prove it down again.

@@ -40,11 +40,15 @@ class FakeProtocol implements McpProtocolClient {
     toolsListChanged: true,
   };
 
+  /** Set to reject `connect()` — exercises the manager's failure branch. */
+  connectError: Error | null = null;
+
   constructor(tools: Tool[]) {
     this.tools = tools;
   }
 
   async connect(): Promise<McpNegotiatedServer> {
+    if (this.connectError) throw this.connectError;
     return this.negotiated;
   }
   async close(): Promise<void> {}
@@ -94,7 +98,9 @@ function managerWith(protocol: FakeProtocol): McpConnectionManager {
 
 describe("mcp connection manager (DB-backed)", { skip: SKIP }, () => {
   before(async () => {
-    await db().delete(user).where(like(user.id, `${ID_PREFIX}%`));
+    await db()
+      .delete(user)
+      .where(like(user.id, `${ID_PREFIX}%`));
   });
 
   after(async () => {
@@ -153,6 +159,29 @@ describe("mcp connection manager (DB-backed)", { skip: SKIP }, () => {
     );
     assert.equal(envelope.outcome, "completed");
     assert.equal(envelope.toolName, "tool_a");
+  });
+
+  test("a failed connect records a BOUNDED, REDACTED lastError", async () => {
+    const connId = await seedConnection();
+    // The shape the real SDK throws: `StreamableHTTPError` inlines the ENTIRE
+    // upstream response body into its message (streamableHttp.js — `Error POSTing
+    // to endpoint: ${text}`). An MCP server is the least trusted counterparty
+    // Alfred talks to, so this column must never take the body verbatim.
+    const secret = "sk-live-abcdef0123456789";
+    const protocol = new FakeProtocol([tool("tool_a")]);
+    protocol.connectError = new Error(
+      `Error POSTing to endpoint: {"authorization":"Bearer ${secret}","detail":"${"x".repeat(2_000)}"}`,
+    );
+    const manager = managerWith(protocol);
+
+    await assert.rejects(() => manager.getReadyClient(connId));
+
+    const row = await readConnection(connId);
+    assert.equal(row?.status, "failed");
+    const lastError = row?.lastError ?? "";
+    assert.ok(!lastError.includes(secret), "the upstream body's token must not be persisted");
+    assert.match(lastError, /\[\+\d+ chars\]$/, "an over-long body must read as clipped");
+    assert.ok(lastError.length < 600, `lastError should be bounded, got ${lastError.length}`);
   });
 
   test("disconnect closes the client and marks the row disconnected", async () => {

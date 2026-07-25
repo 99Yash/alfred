@@ -1,6 +1,7 @@
-import { httpErrorFromResponse } from "@alfred/contracts";
+import { type ErrorBodyPolicy } from "@alfred/contracts";
 
 import { authedFetch, type AuthedFetchProfile, type AuthedFetchRequest } from "./authed-fetch";
+import { throwUpstreamError } from "./upstream-error";
 
 /**
  * The authenticated-JSON layer built on {@link authedFetch}. It owns the one
@@ -33,20 +34,21 @@ export interface AuthedJsonOptions {
    */
   urlLabel?: string;
   /**
-   * Override the default non-2xx branch. The default throws an `HttpError`
-   * carrying a bounded, secret-redacted slice of the body. Notion overrides it:
-   * it logs the body server-side and throws a *body-less* `HttpError` so upstream
-   * page fragments never ride the error into the tool dispatcher / telemetry.
-   * Receives the non-ok `Response`; must throw (hence `Promise<never>`).
+   * How much of a non-2xx body rides on the thrown {@link HttpError}. Defaults
+   * to `"summarize"` (a bounded, secret-redacted slice). Pass `"omit"` for a
+   * provider whose body can echo request fragments (Notion) that must never
+   * reach the tool dispatcher / model transcript: the body is instead logged
+   * server-side here and the thrown error carries none. See {@link ErrorBodyPolicy}.
    */
-  onError?: (res: Response) => Promise<never>;
+  bodyPolicy?: ErrorBodyPolicy;
 }
 
 /**
  * Issue an authenticated request via {@link authedFetch}, then: throw on a
- * non-2xx (default {@link httpErrorFromResponse}, or {@link AuthedJsonOptions.onError}),
- * else parse the JSON body. A `204`/empty body resolves to `{}`. A transport
- * failure (timeout/DNS/reset/TLS) propagates from `authedFetch` unchanged.
+ * non-2xx via {@link throwUpstreamError} (which honors
+ * {@link AuthedJsonOptions.bodyPolicy}), else parse the JSON body. A `204`/empty
+ * body resolves to `{}`. A transport failure (timeout/DNS/reset/TLS) propagates
+ * from `authedFetch` unchanged.
  */
 export async function authedJson(
   profile: AuthedFetchProfile,
@@ -55,10 +57,12 @@ export async function authedJson(
 ): Promise<unknown> {
   const res = await authedFetch(profile, request);
   if (!res.ok) {
-    if (options.onError) return options.onError(res);
-    throw await httpErrorFromResponse(options.provider, res, {
+    return throwUpstreamError({
+      provider: options.provider,
+      res,
       url: options.urlLabel ?? String(request.url),
       method: request.method,
+      bodyPolicy: options.bodyPolicy,
     });
   }
   const text = await res.text();

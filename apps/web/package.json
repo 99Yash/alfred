@@ -6,7 +6,7 @@
     "dev": "vite",
     "build": "vite build",
     "check-types": "tsc --noEmit",
-    "test": "tsx --test test/**/*.test.ts",
+    "test": "tsx --test --test-force-exit \"test/**/*.test.ts\"",
     "preview": "vite preview",
     "doctor": "npx react-doctor@latest"
   },

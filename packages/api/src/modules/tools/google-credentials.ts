@@ -85,7 +85,16 @@ export async function resolveGoogleCredential(
   return scoped;
 }
 
-/** Resolve a scope-satisfying credential and mint a fresh access token in one step. */
+/**
+ * Resolve a scope-satisfying credential and mint a fresh access token in one step.
+ *
+ * SUPERSEDED PATH, CALLERS ARE BEING MIGRATED (#551). This is the chokepoint the
+ * Google tools should use meanwhile — scope policy and token minting in one call —
+ * but a bare token still crosses into tool code here. `googleClientForUser` in
+ * #551 folds both the policy check and the `Redacted` token inside the client, and
+ * the direct `getFreshAccessToken` calls in `gmail.ts` / `calendar.ts` collapse
+ * into it.
+ */
 export async function resolveGoogleAccessToken(
   userId: string,
   policy: GoogleScopePolicy,

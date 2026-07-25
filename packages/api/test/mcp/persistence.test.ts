@@ -43,12 +43,14 @@ async function seedUser(): Promise<string> {
   await db()
     .insert(user)
     .values({ id: userId, name: "Test User", email: `${userId}@example.test` });
-  await db().insert(agentRuns).values({
-    id: `run_${randomUUID().slice(0, 12)}`,
-    userId,
-    workflowSlug: "chat",
-    currentStep: "dispatch-tools",
-  });
+  await db()
+    .insert(agentRuns)
+    .values({
+      id: `run_${randomUUID().slice(0, 12)}`,
+      userId,
+      workflowSlug: "chat",
+      currentStep: "dispatch-tools",
+    });
   return userId;
 }
 
@@ -61,19 +63,21 @@ async function seedStaging(userId: string): Promise<string> {
     .limit(1);
   assert.ok(run, "seed run missing");
   const stagingId = `stg_${randomUUID().slice(0, 12)}`;
-  await db().insert(actionStagings).values({
-    id: stagingId,
-    userId,
-    runId: run.id,
-    stepId: "dispatch-tools",
-    toolCallId: `tc_${randomUUID().slice(0, 8)}`,
-    toolName: "mcp.call",
-    integration: "mcp",
-    riskTier: "high",
-    proposedInput: {},
-    proposedInputHash: randomUUID(),
-    requiresApproval: true,
-  });
+  await db()
+    .insert(actionStagings)
+    .values({
+      id: stagingId,
+      userId,
+      runId: run.id,
+      stepId: "dispatch-tools",
+      toolCallId: `tc_${randomUUID().slice(0, 8)}`,
+      toolName: "mcp.call",
+      integration: "mcp",
+      riskTier: "high",
+      proposedInput: {},
+      proposedInputHash: randomUUID(),
+      requiresApproval: true,
+    });
   return stagingId;
 }
 
@@ -90,7 +94,9 @@ async function seedConnection(userId: string): Promise<string> {
 
 describe("mcp persistence (DB-backed)", { skip: SKIP }, () => {
   before(async () => {
-    await db().delete(user).where(like(user.id, `${ID_PREFIX}%`));
+    await db()
+      .delete(user)
+      .where(like(user.id, `${ID_PREFIX}%`));
   });
 
   after(async () => {

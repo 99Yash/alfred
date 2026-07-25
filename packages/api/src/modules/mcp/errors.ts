@@ -1,4 +1,9 @@
-import type { McpResultProvenance } from "@alfred/contracts";
+import {
+  sanitizeErrorMessage,
+  summarizeBody,
+  toMessage,
+  type McpResultProvenance,
+} from "@alfred/contracts";
 
 export const MCP_CLIENT_ERROR_CODES = [
   "not_connected",
@@ -44,6 +49,31 @@ const MCP_PRE_DELIVERY_ERROR_CODES: ReadonlySet<McpClientErrorCode> = new Set([
 /** True for a deterministic pre-delivery code (provably not delivered). */
 export function isPreDeliveryErrorCode(code: McpClientErrorCode): boolean {
   return MCP_PRE_DELIVERY_ERROR_CODES.has(code);
+}
+
+/** Cap on error text persisted to an MCP row (connection `lastError`, ledger row). */
+const MAX_MCP_ERROR_CHARS = 500;
+
+/**
+ * The one funnel every MCP failure passes through before it reaches a durable
+ * column: strip poison (ADR-0070) → redact secrets → bound with a visible
+ * truncation marker.
+ *
+ * It is not a convenience. An MCP server is the least trusted counterparty
+ * Alfred talks to, and the SDK inlines the *entire* upstream response body into
+ * the message it throws — `StreamableHTTPError(status, "Error POSTing to
+ * endpoint: ${text}")` — so a bare `toMessage(err)` writes an unbounded,
+ * unredacted remote body into Postgres. That is the same hazard the provider
+ * transports express as `bodyPolicy: "omit"`; MCP cannot reuse that factory
+ * (there is no `Response` here, only a thrown SDK error), so the bound lives on
+ * this side of the seam instead.
+ *
+ * Kept beside {@link McpClientError} because both the connection manager and the
+ * execution broker record failures, and a second copy in whichever module got
+ * there first is exactly how one of them ends up unbounded.
+ */
+export function boundedMcpErrorText(err: unknown): string {
+  return summarizeBody(sanitizeErrorMessage(toMessage(err)), MAX_MCP_ERROR_CHARS);
 }
 
 /** A deterministic client/broker rejection, safe for callers to branch on. */

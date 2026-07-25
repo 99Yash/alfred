@@ -471,7 +471,12 @@ describe("McpRawClient calls", () => {
 
     const err = await client
       .callTool(
-        { kind: "mcp", connectionId: "conn_1", remoteName: "typed", catalogRevision: catalog.revision },
+        {
+          kind: "mcp",
+          connectionId: "conn_1",
+          remoteName: "typed",
+          catalogRevision: catalog.revision,
+        },
         {},
       )
       .then(

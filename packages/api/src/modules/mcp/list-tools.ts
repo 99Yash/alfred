@@ -3,7 +3,8 @@
  * catalog (issue #540 clarification #5). It never touches the network and never
  * dumps the raw client's 1 MB / 1,000-tool ceiling into one result: compact
  * summaries by default, paginated, with a bounded single full descriptor only
- * when the caller names one tool.
+ * when the caller names one tool — and a `detail:"names"` tier below the default
+ * for surveying a wide catalog without paying for its prose.
  *
  * The catalog is read from the persisted current revision (`persistence.ts`), not
  * a live fetch, and is scoped to the calling user — a model-supplied
@@ -17,6 +18,7 @@ import {
   MCP_LIST_TOOLS_DEFAULT_LIMIT,
   MCP_LIST_TOOLS_MAX_LIMIT,
   summarizeBody,
+  type McpListToolsDetail,
   type McpListToolsInput,
 } from "@alfred/contracts";
 import { readConnection, readRevisionById } from "./persistence";
@@ -74,6 +76,18 @@ function toSummary(descriptor: unknown): McpToolSummary | undefined {
       ? { description: summarizeBody(description, MAX_SUMMARY_DESCRIPTION_CHARS) }
       : {}),
   };
+}
+
+/**
+ * Narrow a summary to the requested detail tier. `names` keeps the one field a
+ * caller needs to select a tool and drops the prose, which is what actually
+ * costs tokens on a wide catalog (a 90-tool server spends most of a page on
+ * descriptions the model discards).
+ */
+function project(
+  detail: McpListToolsDetail | undefined,
+): (summary: McpToolSummary) => McpToolSummary {
+  return detail === "names" ? (summary) => ({ name: summary.name }) : (summary) => summary;
 }
 
 /** Parse the opaque cursor to a non-negative offset; anything invalid → 0. */
@@ -151,7 +165,10 @@ export async function listMcpToolsLocal(
 
   const limit = Math.min(input.limit ?? MCP_LIST_TOOLS_DEFAULT_LIMIT, MCP_LIST_TOOLS_MAX_LIMIT);
   const offset = parseCursor(input.cursor);
-  const page = summaries.slice(offset, offset + limit);
+  // Project AFTER filtering, never before: `query` matches against the full
+  // summary in every tier, so a names-only page returns the same tools a
+  // summary page would — just without the prose.
+  const page = summaries.slice(offset, offset + limit).map(project(input.detail));
   const nextOffset = offset + page.length;
 
   return {

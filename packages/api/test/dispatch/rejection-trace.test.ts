@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
-import { afterEach, describe, test } from "node:test";
+import { after, afterEach, describe, test } from "node:test";
 
+import { closeConnections } from "@alfred/db";
 import type { ToolName } from "@alfred/contracts";
 import type { DispatchRejectionInput } from "@alfred/ai";
 import { z } from "zod";
@@ -17,6 +18,7 @@ import {
   registerTool,
   type RegisteredTool,
 } from "../../src/modules/tools/registry";
+import { closeRedis } from "../../src/queue/connection";
 
 const startedAt = new Date("2026-06-29T00:00:00.000Z");
 
@@ -47,6 +49,17 @@ const redactingTool: RegisteredTool = {
 
 afterEach(() => {
   clearToolRegistryForTests();
+});
+
+// This file seeds nothing, but the `dispatchToolCall` cases below reach the
+// dispatcher's persistence path, which opens a pooled Postgres connection
+// transitively. The pool heartbeat keeps that socket alive past the pool's idle
+// timeout, so without an explicit close the test child process never exits
+// (#546). A test cannot tell which transitive import opened a handle, so close
+// both.
+after(async () => {
+  await closeRedis();
+  await closeConnections();
 });
 
 describe("buildDispatchRejectionTraceInput", () => {

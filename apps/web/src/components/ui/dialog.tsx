@@ -98,10 +98,7 @@ export function DialogContent({
         ) : (
           <div className="space-y-1 px-6 pt-5 pb-3">
             <RadixDialog.Title
-              className={cn(
-                "text-base font-medium",
-                themed ? "text-app-fg-4" : "text-gray-1000",
-              )}
+              className={cn("text-base font-medium", themed ? "text-app-fg-4" : "text-gray-1000")}
             >
               {title}
             </RadixDialog.Title>

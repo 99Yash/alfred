@@ -82,7 +82,11 @@ test("configured pino logger never writes raw error messages", () => {
       output += chunk;
     },
   };
-  const testLogger = createLogger(destination);
+  // Pin `verboseErrors` — this asserts the strict production contract, and
+  // `createLogger`'s default is derived from `NODE_ENV`, so leaving it implicit
+  // made the assertion depend on the ambient environment (it passed only when
+  // `serverEnv()` threw). CI sets a full env, so the default there is verbose.
+  const testLogger = createLogger(destination, { verboseErrors: false });
   testLogger.error({ err: new Error(RAW_SQL) }, "safe public message");
   assert.match(output, /safe public message/);
   assert.doesNotMatch(output, /usr_private|Failed query|insert into/i);
