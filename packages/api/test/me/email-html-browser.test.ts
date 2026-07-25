@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { spawn, type ChildProcess } from "node:child_process";
 import { accessSync } from "node:fs";
-import { mkdtemp, rm } from "node:fs/promises";
+import { mkdtemp, readFile, rm } from "node:fs/promises";
 import http from "node:http";
 import type { Socket } from "node:net";
 import os from "node:os";
@@ -18,7 +18,7 @@ const LOOSE_CSP_META =
   `connect-src 'none'; frame-src 'none'; object-src 'none'; script-src 'none'; ` +
   `style-src 'unsafe-inline'; base-uri 'none'; form-action 'none'">`;
 
-const CHROME_STARTUP_TIMEOUT_MS = process.env.CI ? 30_000 : 10_000;
+const CHROME_STARTUP_TIMEOUT_MS = process.env.CI ? 60_000 : 10_000;
 const CHROME_POLL_INTERVAL_MS = 100;
 const CHROME_STDERR_TAIL_LINES = 40;
 
@@ -206,7 +206,6 @@ async function startChrome(): Promise<{
   close: () => Promise<void>;
 }> {
   assert.ok(CHROME);
-  const debugPort = await reservePort();
   const userDataDir = await mkdtemp(path.join(os.tmpdir(), "alfred-email-csp-"));
   const stderrLines: string[] = [];
   const child = spawn(
@@ -222,7 +221,8 @@ async function startChrome(): Promise<{
       "--no-first-run",
       "--no-sandbox",
       "--remote-debugging-address=127.0.0.1",
-      `--remote-debugging-port=${debugPort}`,
+      // Port 0 lets Chrome pick, then announce, the port it actually bound.
+      "--remote-debugging-port=0",
       `--user-data-dir=${userDataDir}`,
       "about:blank",
     ],
@@ -236,8 +236,9 @@ async function startChrome(): Promise<{
     }
   });
 
+  let debugPort: number;
   try {
-    await waitForChrome(debugPort, child, () => stderrLines.join("\n"));
+    debugPort = await waitForChrome(userDataDir, child, () => stderrLines.join("\n"));
   } catch (err) {
     await stopChrome(child, userDataDir);
     throw err;
@@ -251,21 +252,12 @@ async function startChrome(): Promise<{
   };
 }
 
-async function reservePort(): Promise<number> {
-  const server = http.createServer();
-  await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
-  const port = addressPort(server);
-  await new Promise<void>((resolve, reject) =>
-    server.close((err) => (err ? reject(err) : resolve())),
-  );
-  return port;
-}
-
 async function waitForChrome(
-  debugPort: number,
+  userDataDir: string,
   child: ChildProcess,
   stderrTail: () => string,
-): Promise<void> {
+): Promise<number> {
+  const portFile = path.join(userDataDir, "DevToolsActivePort");
   const deadline = Date.now() + CHROME_STARTUP_TIMEOUT_MS;
   while (Date.now() < deadline) {
     if (child.exitCode !== null) {
@@ -273,15 +265,39 @@ async function waitForChrome(
         `Chrome exited early with ${child.exitCode}${formatChromeStderr(stderrTail())}`,
       );
     }
-    try {
-      const res = await fetch(`http://127.0.0.1:${debugPort}/json/version`);
-      if (res.ok) return;
-    } catch {
-      /* keep polling */
+    const port = await readDevToolsPort(portFile);
+    if (port !== null) {
+      try {
+        const res = await fetch(`http://127.0.0.1:${port}/json/version`);
+        if (res.ok) return port;
+      } catch {
+        /* announced but not accepting yet — keep polling */
+      }
     }
     await delay(CHROME_POLL_INTERVAL_MS);
   }
   throw new Error(`Timed out waiting for Chrome DevTools${formatChromeStderr(stderrTail())}`);
+}
+
+/**
+ * Chrome writes `DevToolsActivePort` only once the debugger is listening: line 1
+ * is the port it actually bound, line 2 the browser target path. Reading the port
+ * Chrome chose beats dictating one — reserving a port by opening and closing a
+ * server leaves a window where another process takes it, and `node --test` runs
+ * test files concurrently, so that window is contended.
+ */
+async function readDevToolsPort(portFile: string): Promise<number | null> {
+  let contents: string;
+  try {
+    contents = await readFile(portFile, "utf8");
+  } catch {
+    return null;
+  }
+  // Both lines present means the write flushed; a lone port line may be partial.
+  const [portLine, targetLine] = contents.split("\n");
+  if (!portLine || targetLine === undefined) return null;
+  const port = Number.parseInt(portLine, 10);
+  return Number.isInteger(port) && port > 0 ? port : null;
 }
 
 async function stopChrome(child: ChildProcess, userDataDir: string): Promise<void> {
