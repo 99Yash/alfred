@@ -60,15 +60,29 @@ export interface McpEndpointAuthorization {
   authorize(endpoint: URL): Promise<URL>;
 }
 
-export interface McpRawClientOptions {
+/**
+ * What a remote server is allowed to cost Alfred: how long one request may take
+ * and how large a catalog it may present. Named as a group because it is ONE
+ * concern — defending against a slow or hostile server — and because naming it
+ * lets the class hold the resolved bounds apart from its wiring instead of
+ * restating these three keys in a type expression at the field.
+ *
+ * Every field defaults (`DEFAULT_*` below). The non-tunable structural caps
+ * (`MAX_CATALOG_BYTES`, schema depth/nodes) are deliberately NOT here: they are
+ * invariants of the trust boundary, not per-connection settings.
+ */
+export interface McpClientLimits {
+  requestTimeoutMs?: number;
+  maxCatalogPages?: number;
+  maxCatalogTools?: number;
+}
+
+export interface McpRawClientOptions extends McpClientLimits {
   connectionId: string;
   endpoint: URL;
   endpointAuthorization: McpEndpointAuthorization;
   authProvider?: SdkMcpProtocolClientOptions["authProvider"];
   fetch?: SdkMcpProtocolClientOptions["fetch"];
-  requestTimeoutMs?: number;
-  maxCatalogPages?: number;
-  maxCatalogTools?: number;
   protocolFactory?: (endpoint: URL) => McpProtocolClient;
 }
 
@@ -89,10 +103,10 @@ const encoder = new TextEncoder();
  * tools, Alfred's closed builtin registry, approvals, or durable retries.
  */
 export class McpRawClient {
-  readonly #options: Required<
-    Pick<McpRawClientOptions, "requestTimeoutMs" | "maxCatalogPages" | "maxCatalogTools">
-  > &
-    Omit<McpRawClientOptions, "requestTimeoutMs" | "maxCatalogPages" | "maxCatalogTools">;
+  /** Identity + injected collaborators. The tunable bounds live on `#limits`. */
+  readonly #options: Omit<McpRawClientOptions, keyof McpClientLimits>;
+  /** The same bounds with every default already applied — no `??` at the use site. */
+  readonly #limits: Required<McpClientLimits>;
   readonly #schemaValidator = new AjvJsonSchemaValidator();
   #protocol: McpProtocolClient | null = null;
   #negotiatedServer: McpNegotiatedServer | null = null;
@@ -103,12 +117,14 @@ export class McpRawClient {
   #outputValidators = new Map<string, JsonSchemaValidator<Record<string, unknown>>>();
 
   constructor(options: McpRawClientOptions) {
-    this.#options = {
-      ...options,
-      endpoint: new URL(options.endpoint.href),
-      requestTimeoutMs: options.requestTimeoutMs ?? DEFAULT_REQUEST_TIMEOUT_MS,
-      maxCatalogPages: options.maxCatalogPages ?? DEFAULT_MAX_CATALOG_PAGES,
-      maxCatalogTools: options.maxCatalogTools ?? DEFAULT_MAX_CATALOG_TOOLS,
+    // The destructure IS the split: bounds get their defaults, everything else is
+    // wiring. `endpoint` is re-copied so a caller mutating theirs cannot move ours.
+    const { requestTimeoutMs, maxCatalogPages, maxCatalogTools, ...wiring } = options;
+    this.#options = { ...wiring, endpoint: new URL(options.endpoint.href) };
+    this.#limits = {
+      requestTimeoutMs: requestTimeoutMs ?? DEFAULT_REQUEST_TIMEOUT_MS,
+      maxCatalogPages: maxCatalogPages ?? DEFAULT_MAX_CATALOG_PAGES,
+      maxCatalogTools: maxCatalogTools ?? DEFAULT_MAX_CATALOG_TOOLS,
     };
   }
 
@@ -129,7 +145,7 @@ export class McpRawClient {
       ? this.#options.protocolFactory(endpoint)
       : new SdkMcpProtocolClient({
           endpoint,
-          requestTimeoutMs: this.#options.requestTimeoutMs,
+          requestTimeoutMs: this.#limits.requestTimeoutMs,
           ...(this.#options.authProvider ? { authProvider: this.#options.authProvider } : {}),
           ...(this.#options.fetch ? { fetch: this.#options.fetch } : {}),
         });
@@ -174,10 +190,10 @@ export class McpRawClient {
     let cursor: string | undefined;
 
     for (let pageNumber = 1; ; pageNumber++) {
-      if (pageNumber > this.#options.maxCatalogPages) {
+      if (pageNumber > this.#limits.maxCatalogPages) {
         throw new McpClientError(
           "catalog_limit",
-          `MCP catalog exceeded ${this.#options.maxCatalogPages} pages`,
+          `MCP catalog exceeded ${this.#limits.maxCatalogPages} pages`,
         );
       }
       const page: McpProtocolPage = await protocol
@@ -204,10 +220,10 @@ export class McpRawClient {
         }
         names.add(tool.name);
         tools.push(tool);
-        if (tools.length > this.#options.maxCatalogTools) {
+        if (tools.length > this.#limits.maxCatalogTools) {
           throw new McpClientError(
             "catalog_limit",
-            `MCP catalog exceeded ${this.#options.maxCatalogTools} tools`,
+            `MCP catalog exceeded ${this.#limits.maxCatalogTools} tools`,
           );
         }
       }

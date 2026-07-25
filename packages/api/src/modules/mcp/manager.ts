@@ -27,7 +27,6 @@
  * connection-creation slice actually wires it.
  */
 
-import { toMessage } from "@alfred/contracts";
 import type { McpConnection } from "@alfred/db/schemas";
 import {
   McpRawClient,
@@ -36,6 +35,7 @@ import {
   type McpCatalogSnapshot,
   type McpEndpointAuthorization,
 } from "./client";
+import { boundedMcpErrorText } from "./errors";
 import { computeDescriptorHashes } from "./hash";
 import {
   publishCatalogRevision,
@@ -75,20 +75,29 @@ class HttpsOriginPinnedAuthorization implements McpEndpointAuthorization {
   }
 }
 
+/**
+ * The production factory: a live client per connection row, authorized by
+ * `authorization`. Note what it does NOT pass — `authProvider`. Every connection
+ * built here is therefore UNAUTHENTICATED; wiring the Alfred→server credential is
+ * the OAuth slice's job (see `mcp_connections.credentialId`, still storeless).
+ */
+function liveClientFactory(authorization: McpEndpointAuthorization): McpClientFactory {
+  return (connection) =>
+    new McpRawClient({
+      connectionId: connection.id,
+      endpoint: new URL(connection.endpointUrl),
+      endpointAuthorization: authorization,
+    });
+}
+
 export class McpConnectionManager {
   readonly #clients = new Map<string, McpRawClient>();
   readonly #clientFactory: McpClientFactory;
 
   constructor(options: McpConnectionManagerOptions = {}) {
-    const authorization = options.endpointAuthorization ?? new HttpsOriginPinnedAuthorization();
     this.#clientFactory =
       options.clientFactory ??
-      ((connection) =>
-        new McpRawClient({
-          connectionId: connection.id,
-          endpoint: new URL(connection.endpointUrl),
-          endpointAuthorization: authorization,
-        }));
+      liveClientFactory(options.endpointAuthorization ?? new HttpsOriginPinnedAuthorization());
   }
 
   /**
@@ -115,7 +124,9 @@ export class McpConnectionManager {
       return client;
     } catch (err) {
       await client.close().catch(() => undefined);
-      await this.#patch(connectionId, { status: "failed", lastError: toMessage(err) });
+      // `boundedMcpErrorText`, not `toMessage`: the SDK inlines the whole upstream
+      // response body into its thrown message, and this lands in a durable column.
+      await this.#patch(connectionId, { status: "failed", lastError: boundedMcpErrorText(err) });
       throw err;
     }
   }
