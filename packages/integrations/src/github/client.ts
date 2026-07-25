@@ -1,7 +1,7 @@
 import { redacted, type Redacted } from "@alfred/contracts";
 import { z } from "zod";
 
-import { once, type ProviderBindOptions } from "../shared/provider";
+import type { ProviderBindOptions } from "../shared/provider";
 import { defineProviderClient } from "../shared/provider-client";
 import type { RestPassthroughProfile } from "../shared/rest-passthrough";
 import type { RetryPolicy } from "../shared/retry";
@@ -17,12 +17,15 @@ import { GITHUB_API, githubHeaders } from "./rest";
  *
  * The thesis lives in three properties:
  *
- *   1. The client holds a *credential resolver*, never a credential. The resolve
- *      runs through the real cache/mint path (`getInstallationTokenForUser`) and
- *      is memoized for the lifetime of the bind, not the process — see
- *      {@link ProviderBindOptions} on why a bind is request-scoped, and
- *      {@link createGithubClient} for the non-memoizing constructor to use when
- *      it isn't.
+ *   1. The client holds a *credential resolver*, never a credential, and the
+ *      resolve runs on EVERY request through the real path
+ *      (`getInstallationTokenForUser` → `getInstallationToken`, whose in-process
+ *      cache re-mints a few minutes before expiry). Nothing here memoizes on top
+ *      of that: an installation token expires in an hour, so a memo with no
+ *      expiry would save one indexed credential-row read per call and buy a
+ *      client that 401s forever once it is held too long — where "too long" is a
+ *      rule about the caller rather than a property of the code. Freshness lives
+ *      in the one cache that knows the expiry.
  *   2. The resolved token is a {@link Redacted} and is unwrapped in exactly one
  *      place — `githubHeaders` in `./rest`, at the wire. It cannot reach a log or
  *      a thrown error by any default path, and no caller of this module ever
@@ -38,8 +41,11 @@ export interface GithubTokenResolver {
 
 export interface GithubClientOptions {
   resolveToken: GithubTokenResolver;
-  /** Transient-retry envelope for the read requests (all GETs, so retry-safe). */
-  retry?: RetryPolicy;
+  /**
+   * Transient-retry envelope for the read requests (all GETs, so retry-safe), or
+   * `"none"`. Required — see `ProviderBindOptions.retry`.
+   */
+  retry: RetryPolicy | "none";
 }
 
 const searchIssuesResponseSchema = z.object({
@@ -159,10 +165,10 @@ function repositoryFromUrl(repositoryUrl: unknown): string {
  * {@link githubClientForUser} at call sites; this constructor takes the resolver
  * directly so tests can inject a fixed token without touching credentials.
  *
- * `resolveToken` is called once per request and NOT memoized here — a client
- * built this way may be long-lived, so freshness stays the resolver's
- * responsibility. `githubClientForUser` is the bind-scoped entry point that adds
- * the memoization.
+ * `resolveToken` is called once per request, here and through
+ * {@link githubClientForUser} alike — there is no second entry point with
+ * different freshness semantics, so a client is safe to hold for as long as its
+ * resolver is.
  */
 export function createGithubClient(options: GithubClientOptions) {
   const client = defineProviderClient({
@@ -297,19 +303,16 @@ export type GithubClient = ReturnType<typeof createGithubClient>;
  * `github.search({ q })` with no credential in sight.
  *
  * The resolver wraps the existing `getInstallationTokenForUser` mint/cache path
- * and hands back a {@link Redacted}. It is wrapped in {@link once}, so the
- * credential is resolved at most once per BIND: a tool call that needs both the
- * connected login and a search costs one credential lookup, not two, and
- * concurrent methods collapse onto one in-flight resolve. That is safe precisely
- * because a bind is request-scoped ({@link ProviderBindOptions}); the residual
- * gap is a bind kept alive longer than a request, which would pin its first
- * resolve — use {@link createGithubClient} there.
+ * and hands back a {@link Redacted}. It is the whole difference from
+ * {@link createGithubClient} — there is no bind-scoped memo layered on top, so
+ * this client carries no lifetime rule for a caller to violate and holding one
+ * past the request that made it cannot produce a stale token.
  */
 export function githubClientForUser(options: ProviderBindOptions): GithubClient {
   const { userId, retry } = options;
-  const resolveToken = once(async () => {
+  const resolveToken = async () => {
     const { token, accountLogin } = await getInstallationTokenForUser(userId);
     return { token: redacted(token), accountLogin };
-  });
+  };
   return createGithubClient({ resolveToken, retry });
 }

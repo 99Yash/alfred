@@ -2,7 +2,7 @@ import { redacted, type Redacted } from "@alfred/contracts";
 import { z } from "zod";
 
 import { getActiveBearerCredential } from "../shared/credentials";
-import { once, type ProviderBindOptions } from "../shared/provider";
+import type { ProviderBindOptions } from "../shared/provider";
 import { defineProviderClient, type ProviderRequestContext } from "../shared/provider-client";
 import type { RestPassthroughProfile } from "../shared/rest-passthrough";
 import type { RetryPolicy } from "../shared/retry";
@@ -92,7 +92,12 @@ export interface VercelAuthResolver {
 
 export interface VercelClientOptions {
   resolveAuth: VercelAuthResolver;
-  retry?: RetryPolicy;
+  /**
+   * Transient-retry envelope for this client's retry-safe requests, or `"none"`.
+   * Required — see `ProviderBindOptions.retry`. `redeploy` is a POST and is
+   * excluded by method regardless of what this says.
+   */
+  retry: RetryPolicy | "none";
 }
 
 /**
@@ -100,9 +105,10 @@ export interface VercelClientOptions {
  * {@link vercelClientForUser} at call sites; this constructor takes the resolver
  * directly so tests can inject a fixed token without touching credentials.
  *
- * `resolveAuth` is called once per request and NOT memoized here — a client built
- * this way may be long-lived, so freshness stays the resolver's responsibility.
- * {@link vercelClientForUser} is the bind-scoped entry point that memoizes.
+ * `resolveAuth` is called once per request, here and through
+ * {@link vercelClientForUser} alike — there is no second entry point with
+ * different freshness semantics, so a client is safe to hold for as long as its
+ * resolver is.
  */
 export function createVercelClient(options: VercelClientOptions) {
   /**
@@ -210,17 +216,17 @@ export type VercelClient = ReturnType<typeof createVercelClient>;
  * `vercel.projects({ limit })` with no credential in sight.
  *
  * The resolver reads the active bearer credential, wraps the token as
- * {@link Redacted}, and takes the team scope from the credential metadata. It is
- * wrapped in {@link once}, so a tool call that touches two methods costs one
- * credential read — safe precisely because a bind is request-scoped
- * ({@link ProviderBindOptions}). A bind held longer than a request would pin its
- * first resolve; use {@link createVercelClient} there.
+ * {@link Redacted}, and takes the team scope from the credential metadata. It runs
+ * per request rather than once per bind: the saving would be one indexed
+ * `integration_credentials` read, and the cost would be a client whose token is
+ * only as fresh as the moment it was first touched — a lifetime rule no type can
+ * state. Rotate the credential and the very next call picks it up.
  */
 export function vercelClientForUser(options: ProviderBindOptions): VercelClient {
   const { userId, retry } = options;
-  const resolveAuth = once(async () => {
+  const resolveAuth = async () => {
     const cred = await getActiveBearerCredential(userId, "vercel");
     return { token: redacted(cred.accessToken), teamId: readVercelTeamId(cred.metadata) };
-  });
+  };
   return createVercelClient({ resolveAuth, retry });
 }

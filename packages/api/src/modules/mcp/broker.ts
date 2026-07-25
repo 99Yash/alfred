@@ -133,9 +133,13 @@ export class McpExecutionBroker {
     if (effectClass === "read") {
       // Reads are idempotent: no barrier, no ledger row. Any failure (including a
       // possibly-delivered one) is safe to surface and re-run, so it just throws.
-      const envelope = await this.#manager.callTool(ref, input.arguments, {
-        signal: input.signal,
-      });
+      // The options object IS the conditional — a spread inside a fresh literal
+      // would just be a redundant copy (oxlint's `no-useless-spread`).
+      const envelope = await this.#manager.callTool(
+        ref,
+        input.arguments,
+        input.signal ? { signal: input.signal } : {},
+      );
       return {
         status: envelope.outcome === "completed" ? "completed" : "tool_error",
         invocationId: null,
@@ -179,11 +183,12 @@ export class McpExecutionBroker {
       argsHash,
       effectClass: resolved.effectClass,
       attemptLifecycle: "prepared",
-      // The next three stay conditional-spread rather than plain `key: value`:
-      // drizzle's insert walks `Object.keys`, so a present-but-undefined key binds a
-      // NULL param where an absent key emits `DEFAULT`. That is the same row today
-      // (all three columns are nullable with no default), but the divergence would be
-      // silent the moment one of them gains a column default.
+      // Conditional spread, like everywhere else in this repo — `exactOptionalPropertyTypes`
+      // is off (#552), so a plain `key: maybeUndefined` is unenforced style rather than a
+      // typed distinction. Here the distinction is also load-bearing: drizzle's insert walks
+      // `Object.keys`, so a present-but-undefined key binds a NULL param where an absent key
+      // emits `DEFAULT`. Same row today (all three columns are nullable with no default), but
+      // the divergence would be silent the moment one of them gains a column default.
       ...(connection?.currentCatalogRevisionId
         ? { catalogRevisionId: connection.currentCatalogRevisionId }
         : {}),
@@ -220,9 +225,11 @@ export class McpExecutionBroker {
     });
 
     try {
-      const envelope = await this.#manager.callTool(ref, input.arguments, {
-        signal: input.signal,
-      });
+      const envelope = await this.#manager.callTool(
+        ref,
+        input.arguments,
+        input.signal ? { signal: input.signal } : {},
+      );
       return this.#resolveResponse(invocation, envelope);
     } catch (err) {
       if (isProvenNotDelivered(err)) {

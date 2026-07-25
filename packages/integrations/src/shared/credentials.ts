@@ -196,6 +196,13 @@ export async function listActiveBearerCredentials(
  * Resolve the most-recently-updated active bearer credential for a provider.
  * Throws a connect-me error when none exists — tool code surfaces that to the
  * boss so it asks the user to connect rather than inventing an answer.
+ *
+ * Still the right call from INSIDE a provider client — `vercelClientForUser` uses
+ * it, wraps the token in a `Redacted`, and hands the client back. What is being
+ * migrated away (#551) is calling it from TOOL code: a tool that reaches a bare
+ * `accessToken` has to know which provider function to use and that the string it
+ * gets must never be logged or persisted, when `ctx.integrations.<provider>`
+ * already answers both. Notion and Railway tools are the remaining callers.
  */
 export async function getActiveBearerCredential(
   userId: string,

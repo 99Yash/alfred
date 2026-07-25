@@ -213,7 +213,7 @@ This is the gate that stops "make it read like poetry" from becoming a license t
 
 `bodyPolicy` removed `notionError` and `onError` and added one field to an options object already being passed: negative, and finished. A facade shipped *alongside* the functions it replaces is positive — two doors where there was one — and stays a regression until the old door is gone. So:
 
-- **An incremental cutover starts a debt clock.** That is a legitimate way to land a large change, but the PR that opens the clock names the closing PR, and the superseded path is marked (internal, deprecated, or explicitly "callers are being migrated") so the next reader knows which door is the door.
+- **An incremental cutover starts a debt clock.** That is a legitimate way to land a large change, but the PR that opens the clock names the closing PR, and the superseded path is marked (internal, deprecated, or explicitly "callers are being migrated") so the next reader knows which door is the door. Live example in this tree: the facade covers `github` + `vercel`, **#551** closes it, and the five surviving call sites (`getFreshAccessToken`, `getActiveBearerCredential`, Railway's local `credentialFor`) carry a `SUPERSEDED PATH, CALLERS ARE BEING MIGRATED (#551)` note. A cutover with no named closer is just two doors.
 - Two doors is worse than one bad door: the naive call site now has to *choose*, and a reviewer has to know which choice is current. Required knowledge went up.
 
 ### The hazard rule
@@ -223,6 +223,11 @@ A seam that reads as *just do the thing* is exactly where a hazard survives revi
 > When a shared seam absorbs a hazard — retry, redaction, auth, ordering, truncation — the hazard must be represented in the seam's **types**, not in its docstring.
 
 Both halves of that were live in the transport seam and are worth keeping as the worked example. `fetchWithRetry`'s header said retry "must be used for idempotent reads (GET/HEAD)" while `defineProviderClient.json` accepted `method` and `body` and retried whatever it was given: a POST that reached the upstream and then timed out would have been re-sent. The docstring was the enforcement. It now gates on `isRetrySafeMethod` and makes anything else pass `idempotent: true` (tier 5 → tier 1). Separately, the same client had no way to express `bodyPolicy` at all, so the one provider that needs `"omit"` could not join the seam it was supposedly generalized from — **a shared seam that cannot express a member's policy has not generalized it, it has excluded it.**
+
+Two corollaries, both learned by getting them wrong first in the same transport seam:
+
+- **An absorbed hazard needs an OFF value, and the type has to hold it.** `retry?: RetryPolicy` read as "tune it if you like", but absence meant *retry with the built-in policy* — so every GitHub and Vercel read silently gained 3 attempts, "does this provider retry" became a property of which constructor a call site happened to use, and "no retry" was unrepresentable. `retry: RetryPolicy | "none"`, required at the bind, makes the choice visible where the client is built. The general form: when a seam's default answer to a hazard is *on*, an optional field is the wrong shape for it.
+- **Don't absorb a hazard the layer below already owns better.** A bind-scoped `once()` around a credential resolve looks like the same kind of win as memoizing client construction, but a memo with no expiry wrapped around a token that has one converts a cache into a *lifetime rule for the caller* — "a bind is request-scoped", stated in four docstrings and enforced by nothing, where holding one at module scope 401s forever. The provider's own expiry-aware cache already had the property; the seam's job was to not take it away.
 
 ### Not a seventh axis
 

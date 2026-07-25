@@ -73,6 +73,15 @@ describe("defineProviderClient", () => {
     assert.equal(calls.methods.length, 3);
   });
 
+  test('retry: "none" sends exactly one attempt for a retry-safe GET', async () => {
+    // "Off" has to be a value the config can hold. When it was expressed by
+    // omitting an optional field, this was the unwritable case: absence meant the
+    // built-in 3-attempt policy, so a provider retried by accident.
+    const calls = stubFetch(() => new Response("nope", { status: 500 }));
+    await assert.rejects(client({ retry: "none" }).json("/thing"), HttpError);
+    assert.equal(calls.methods.length, 1);
+  });
+
   test("a POST is NEVER retried, even with a retry envelope configured", async () => {
     const calls = stubFetch(() => new Response("upstream broke", { status: 500 }));
     await assert.rejects(client().json("/thing", { method: "POST", body: { a: 1 } }), HttpError);

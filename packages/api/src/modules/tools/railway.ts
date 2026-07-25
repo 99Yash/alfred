@@ -45,6 +45,13 @@ async function credentialsFor(userId: string): Promise<ActiveBearerCredential[]>
   return credentials;
 }
 
+/**
+ * SUPERSEDED PATH, CALLERS ARE BEING MIGRATED (#551). Railway is not on the
+ * `ctx.integrations` facade yet, so these tools still resolve a credential
+ * themselves and pass a bare `accessToken` down. When `railwayClientForUser`
+ * lands, both helpers here go away — the multi-credential fan-out is the
+ * interesting part to carry over, not the token plumbing.
+ */
 async function credentialFor(
   userId: string,
   credentialId?: string,

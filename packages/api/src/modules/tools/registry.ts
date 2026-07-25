@@ -21,7 +21,10 @@ import type {
   ToolRiskTier,
 } from "@alfred/contracts";
 import { buildToolName, INTEGRATION_ACTIONS, integrationFromToolName } from "@alfred/contracts";
-import { integrations, type Integrations } from "@alfred/integrations";
+// Type-only, deliberately: importing the `integrations` VALUE here would pull
+// `@alfred/db` and `@alfred/ingestion` into the import graph of the module every
+// tool declaration imports. Building a context lives in `./context`.
+import type { Integrations } from "@alfred/integrations";
 import type { z } from "zod";
 import { deriveToolDiscovery, type ResolvedDiscovery } from "./metadata-defaults";
 
@@ -95,10 +98,12 @@ export interface ToolExecuteContext {
    * and that the right `userId` to bind is this call's. The dispatcher binds it
    * once from {@link ToolExecuteContext.userId}, so a tool cannot reach a
    * different user's credentials without going outside the context, and no tool
-   * ever holds a token (see `githubClientForUser`).
+   * ever holds a curated-read token (see `githubClientForUser`; the ADR-0074
+   * passthrough profile is the one place a header still crosses into tool code).
    *
-   * The bind is request-scoped and memoizes per bind: several methods in one
-   * `execute` cost one credential resolve.
+   * Binding is lazy and holds no credential: a provider client is built on first
+   * touch and resolves its credential per request, so nothing here goes stale and
+   * a context is safe to pass around for as long as the call lives.
    */
   integrations: Integrations;
   /**
@@ -142,24 +147,9 @@ export interface ToolExecuteContext {
 /**
  * Everything a caller supplies to build a {@link ToolExecuteContext} — which is
  * everything EXCEPT the provider bind, because that is derived rather than
- * passed. See {@link toolExecuteContext}.
+ * passed. See `toolExecuteContext` in `./context`.
  */
 export type ToolExecuteContextFields = Omit<ToolExecuteContext, "integrations">;
-
-/**
- * Build the execution context for one tool call.
- *
- * The whole reason this is a function and not an object literal: `integrations`
- * must be bound to `userId`, and a literal lets the two disagree. Nothing about
- * `{ userId: a, integrations: integrations({ userId: b }) }` fails to compile,
- * and a tool would then read one user's data while every audit row said the
- * other. Deriving the bind here makes the mismatch unconstructible, and means no
- * caller — dispatcher, smoke script, or test — has to know that a bind is
- * something a context needs at all.
- */
-export function toolExecuteContext(fields: ToolExecuteContextFields): ToolExecuteContext {
-  return { ...fields, integrations: integrations({ userId: fields.userId }) };
-}
 
 export interface LiveToolArgs<
   I extends IntegrationSlug,

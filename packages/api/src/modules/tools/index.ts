@@ -29,13 +29,13 @@ export {
   listToolsForIntegration,
   riskTierCountsForIntegration,
   clearToolRegistryForTests,
-  toolExecuteContext,
   type RiskTierCounts,
   type RegisteredTool,
   type LiveToolArgs,
   type ToolExecuteContext,
   type ToolExecuteContextFields,
 } from "./registry";
+export { toolExecuteContext } from "./context";
 
 export function registerBuiltinTools(): void {
   registerTools(systemTools);

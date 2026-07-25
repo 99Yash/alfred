@@ -32,9 +32,11 @@ import { throwUpstreamError } from "./upstream-error";
  * Both hazards the skeleton absorbs are represented in the TYPES rather than in
  * this comment, because a seam that reads as "just do the thing" is exactly where
  * a silent hazard survives review: `bodyPolicy` is a config field (so a
- * body-sensitive provider cannot join by forgetting it), and transient retry is
- * gated on {@link isRetrySafeMethod} so a non-idempotent call has to say
- * `idempotent: true` before it can be re-sent.
+ * body-sensitive provider cannot join by forgetting it), `retry` is a REQUIRED
+ * config field that can say `"none"` (so no provider retries by accident, and the
+ * worst-case wall time of a call is visible where the client is built), and
+ * transient retry is gated on {@link isRetrySafeMethod} so a non-idempotent call
+ * has to say `idempotent: true` before it can be re-sent.
  */
 
 /** A query value the URL builder will stringify; `undefined` is dropped. */
@@ -56,8 +58,12 @@ export interface ProviderClientConfig {
   baseUrl: string;
   /** Resolve fresh per-call auth. Called on every request — never cache a token here. */
   resolve: () => Promise<ProviderRequestContext>;
-  /** Transient-retry envelope for this provider's retry-safe requests. Omit for the default. */
-  retry?: RetryPolicy;
+  /**
+   * Transient-retry envelope for this provider's retry-safe requests, or `"none"`
+   * for exactly one attempt. Required — see `ProviderBindOptions.retry` in
+   * `./provider` for why absence must not mean "retry with a default policy".
+   */
+  retry: RetryPolicy | "none";
   /**
    * How much of a non-2xx body may ride on the thrown error. A per-PROVIDER
    * property, not a per-call one — a provider whose error bodies can echo request
@@ -118,8 +124,9 @@ export function defineProviderClient(config: ProviderClientConfig): ProviderClie
       // Retry is the client's policy but the METHOD decides eligibility: a POST
       // that reaches the upstream and then times out must not be re-sent just
       // because this provider configured a retry envelope.
-      const mayRetry = request.idempotent === true || isRetrySafeMethod(request.method);
-      const res = mayRetry ? await fetchWithRetry(send, { policy: config.retry }) : await send();
+      const policy = config.retry === "none" ? undefined : config.retry;
+      const eligible = request.idempotent === true || isRetrySafeMethod(request.method);
+      const res = policy && eligible ? await fetchWithRetry(send, { policy }) : await send();
       if (!res.ok) {
         return throwUpstreamError({
           provider: config.provider,
