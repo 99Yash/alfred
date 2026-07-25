@@ -38,9 +38,17 @@ function brokerResult(outcome: McpBrokerOutcome): unknown {
     case "tool_error":
       // The remote server received the call and returned a tool-level error. It is
       // a definitive rejection (no effect), distinct from an ambiguous write.
-      return withTruncation({ status: "tool_error", result: outcome.envelope.result }, outcome.envelope);
+      return withTruncation(
+        { status: "tool_error", result: outcome.envelope.result },
+        outcome.envelope,
+      );
     case "blocked":
-      return { status: "blocked", retry: "blocked", reason: outcome.reason, message: outcome.message };
+      return {
+        status: "blocked",
+        retry: "blocked",
+        reason: outcome.reason,
+        message: outcome.message,
+      };
     case "ambiguous":
       // The doc's normative unknown-outcome envelope: explicit, and NOT an ordinary
       // retryable error the model should self-correct on.

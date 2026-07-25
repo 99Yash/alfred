@@ -94,7 +94,9 @@ function managerWith(protocol: FakeProtocol): McpConnectionManager {
 
 describe("mcp connection manager (DB-backed)", { skip: SKIP }, () => {
   before(async () => {
-    await db().delete(user).where(like(user.id, `${ID_PREFIX}%`));
+    await db()
+      .delete(user)
+      .where(like(user.id, `${ID_PREFIX}%`));
   });
 
   after(async () => {

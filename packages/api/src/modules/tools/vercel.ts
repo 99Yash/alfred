@@ -1,8 +1,10 @@
 /**
  * Vercel tools (read + write). Reads list projects and deployments; `redeploy`
- * re-deploys an existing deployment (tier `high`). Team installs require every
- * call to echo `teamId`, which we read from the credential metadata captured at
- * connect.
+ * re-deploys an existing deployment (tier `high`).
+ *
+ * Every call goes through `ctx.integrations.vercel`, so this file names no
+ * credential function and holds no token. The team scope a team install must echo
+ * on every call is the client's business, not a field these tools thread through.
  */
 
 import {
@@ -11,23 +13,8 @@ import {
   vercelListProjectsInput,
   vercelRedeployInput,
 } from "@alfred/contracts";
-import {
-  vercelListDeployments,
-  vercelListProjects,
-  vercelPassthroughProfile,
-  vercelRedeploy,
-} from "@alfred/integrations/vercel";
-import { getActiveBearerCredential } from "@alfred/integrations/shared";
 import { runRestPassthrough } from "./passthrough";
 import { liveTool, type RegisteredTool } from "./registry";
-
-async function credentialFor(
-  userId: string,
-): Promise<{ accessToken: string; teamId: string | null }> {
-  const { accessToken, metadata } = await getActiveBearerCredential(userId, "vercel");
-  const teamId = typeof metadata.team_id === "string" ? metadata.team_id : null;
-  return { accessToken, teamId };
-}
 
 export const vercelTools: readonly RegisteredTool[] = [
   liveTool({
@@ -37,10 +24,9 @@ export const vercelTools: readonly RegisteredTool[] = [
     description:
       "List Vercel projects for the connected account/team, with framework and latest deployment state.",
     inputSchema: vercelListProjectsInput,
-    execute: async (input, ctx) => {
-      const { accessToken, teamId } = await credentialFor(ctx.userId);
-      return vercelListProjects({ accessToken, teamId, limit: input.limit });
-    },
+    execute: async (input, ctx) => ({
+      projects: await ctx.integrations.vercel.projects({ limit: input.limit }),
+    }),
   }),
   liveTool({
     integration: "vercel",
@@ -49,15 +35,12 @@ export const vercelTools: readonly RegisteredTool[] = [
     description:
       "List recent Vercel deployments, optionally scoped to a project, with state, target, and url. Use the returned uid as the deploymentId for redeploy.",
     inputSchema: vercelListDeploymentsInput,
-    execute: async (input, ctx) => {
-      const { accessToken, teamId } = await credentialFor(ctx.userId);
-      return vercelListDeployments({
-        accessToken,
-        teamId,
+    execute: async (input, ctx) => ({
+      deployments: await ctx.integrations.vercel.deployments({
         projectId: input.projectId,
         limit: input.limit,
-      });
-    },
+      }),
+    }),
   }),
   liveTool({
     integration: "vercel",
@@ -66,16 +49,12 @@ export const vercelTools: readonly RegisteredTool[] = [
     description:
       "Redeploy an existing Vercel deployment. Pass the deployment uid and the project name; target defaults to the original deployment's target.",
     inputSchema: vercelRedeployInput,
-    execute: async (input, ctx) => {
-      const { accessToken, teamId } = await credentialFor(ctx.userId);
-      return vercelRedeploy({
-        accessToken,
-        teamId,
+    execute: async (input, ctx) =>
+      ctx.integrations.vercel.redeploy({
         deploymentId: input.deploymentId,
         name: input.name,
         target: input.target,
-      });
-    },
+      }),
   }),
   liveTool({
     integration: "vercel",
@@ -92,13 +71,7 @@ export const vercelTools: readonly RegisteredTool[] = [
       relatedTools: ["vercel.list_projects", "vercel.list_deployments"],
     },
     inputSchema: restPassthroughInput,
-    execute: async (input, ctx) => {
-      const { accessToken, teamId } = await credentialFor(ctx.userId);
-      return runRestPassthrough(
-        "vercel",
-        vercelPassthroughProfile({ token: accessToken, teamId }),
-        input,
-      );
-    },
+    execute: async (input, ctx) =>
+      runRestPassthrough("vercel", await ctx.integrations.vercel.passthroughProfile(), input),
   }),
 ];

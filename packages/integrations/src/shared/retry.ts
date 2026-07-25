@@ -13,11 +13,16 @@
  * Two transient conditions are retried, both with capped exponential backoff +
  * jitter: a thrown transport failure (timeout/DNS/reset/TLS) and a retryable
  * status ({@link isRetryableStatus}: 429 or 5xx). A `429`/`503` `Retry-After`
- * header is honored when present. A caller-driven abort is never retried.
+ * header is honored when present, bounded by the policy's `maxDelayMs` so an
+ * upstream-supplied delay can shorten but never exceed the caller's budget. A
+ * caller-driven abort is never retried.
  *
  * SAFETY: only the caller decides *which requests* are eligible — this must be
  * used for idempotent reads (GET/HEAD) unless the write carries an idempotency
- * key, so a retried request can never double-apply a side effect.
+ * key, so a retried request can never double-apply a side effect. That rule is
+ * enforceable, not just documented: a transport that dispatches by method gates
+ * on {@link isRetrySafeMethod} and makes anything else opt in explicitly (see
+ * `defineProviderClient`).
  */
 
 /** Tunable backoff envelope; every field has a sane default. */
@@ -41,6 +46,23 @@ export function isRetryableStatus(status: number): boolean {
   return status === 429 || (status >= 500 && status <= 599);
 }
 
+/**
+ * The HTTP methods a transport may retry WITHOUT knowing anything else about the
+ * request: the [RFC 9110 safe methods](https://www.rfc-editor.org/rfc/rfc9110.html#name-safe-methods),
+ * which by definition apply no side effect to re-apply.
+ *
+ * Deliberately narrower than RFC 9110's *idempotent* set (which also admits PUT
+ * and DELETE): idempotent means a repeat leaves the same STATE, not that the
+ * repeat is free — a retried DELETE whose first attempt actually landed answers
+ * `404`, and a caller that reads the status will draw the wrong conclusion. So
+ * PUT/DELETE and anything carrying an idempotency key must opt in per request
+ * rather than inherit retry from their method.
+ */
+export function isRetrySafeMethod(method: string | undefined): boolean {
+  const normalized = (method ?? "GET").toUpperCase();
+  return normalized === "GET" || normalized === "HEAD" || normalized === "OPTIONS";
+}
+
 function sleep(ms: number, signal?: AbortSignal): Promise<void> {
   return new Promise((resolve, reject) => {
     if (signal?.aborted) return reject(signal.reason);
@@ -56,12 +78,23 @@ function sleep(ms: number, signal?: AbortSignal): Promise<void> {
   });
 }
 
-/** `Retry-After` in seconds (delta form) → ms; ignores the HTTP-date form. */
-function retryAfterMs(res: Response): number | null {
+/**
+ * `Retry-After` in seconds (delta form) → ms, BOUNDED by the policy's
+ * `maxDelayMs`; ignores the HTTP-date form.
+ *
+ * The bound is the point. `Retry-After` is upstream-controlled, so an honest
+ * `Retry-After: 3600` on a rate-limited GitHub read would otherwise park a tool
+ * call for an hour — the retry envelope's own ceiling would be silently
+ * overridden by a header. Capping it means the header can only ever *shorten*
+ * the wait relative to the ceiling the caller configured; a wait longer than the
+ * budget becomes an exhausted-retries error the caller can report, not a hang.
+ */
+function retryAfterMs(res: Response, policy: Required<RetryPolicy>): number | null {
   const header = res.headers.get("retry-after");
   if (!header) return null;
   const seconds = Number(header);
-  return Number.isFinite(seconds) && seconds >= 0 ? seconds * 1_000 : null;
+  if (!Number.isFinite(seconds) || seconds < 0) return null;
+  return Math.min(seconds * 1_000, policy.maxDelayMs);
 }
 
 function backoffMs(attempt: number, policy: Required<RetryPolicy>): number {
@@ -99,7 +132,7 @@ export async function fetchWithRetry(
     try {
       const res = await send();
       if (isLast || !retryable(res)) return res;
-      await sleep(retryAfterMs(res) ?? backoffMs(attempt, policy), options.signal);
+      await sleep(retryAfterMs(res, policy) ?? backoffMs(attempt, policy), options.signal);
     } catch (err) {
       // A caller-driven abort is intentional — do not retry it.
       if (options.signal?.aborted) throw err;

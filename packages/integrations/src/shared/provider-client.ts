@@ -1,7 +1,8 @@
-import { httpErrorFromResponse } from "@alfred/contracts";
+import { type ErrorBodyPolicy } from "@alfred/contracts";
 
 import { authedFetch } from "./authed-fetch";
-import { fetchWithRetry, type RetryPolicy } from "./retry";
+import { fetchWithRetry, isRetrySafeMethod, type RetryPolicy } from "./retry";
+import { throwUpstreamError } from "./upstream-error";
 
 /**
  * The one configured-client factory every provider builds on — the shape the
@@ -25,7 +26,15 @@ import { fetchWithRetry, type RetryPolicy } from "./retry";
  * Deliberately NOT covered here (providers that need them stay bespoke): a raw
  * `Response` (binary/streamed downloads) and non-JSON envelopes (Railway's
  * GraphQL `{data,errors}`). Body-redaction on a non-2xx is NOT bespoke — it is
- * the `bodyPolicy: "omit"` option on `httpErrorFromResponse` (Notion uses it).
+ * this client's `bodyPolicy` (Notion's `"omit"` posture), applied through the
+ * shared {@link throwUpstreamError} branch.
+ *
+ * Both hazards the skeleton absorbs are represented in the TYPES rather than in
+ * this comment, because a seam that reads as "just do the thing" is exactly where
+ * a silent hazard survives review: `bodyPolicy` is a config field (so a
+ * body-sensitive provider cannot join by forgetting it), and transient retry is
+ * gated on {@link isRetrySafeMethod} so a non-idempotent call has to say
+ * `idempotent: true` before it can be re-sent.
  */
 
 /** A query value the URL builder will stringify; `undefined` is dropped. */
@@ -47,7 +56,14 @@ export interface ProviderClientConfig {
   baseUrl: string;
   /** Resolve fresh per-call auth. Called on every request — never cache a token here. */
   resolve: () => Promise<ProviderRequestContext>;
+  /** Transient-retry envelope for this provider's retry-safe requests. Omit for the default. */
   retry?: RetryPolicy;
+  /**
+   * How much of a non-2xx body may ride on the thrown error. A per-PROVIDER
+   * property, not a per-call one — a provider whose error bodies can echo request
+   * fragments (Notion) sets `"omit"` once here and every method inherits it.
+   */
+  bodyPolicy?: ErrorBodyPolicy;
 }
 
 export interface ProviderRequest {
@@ -56,6 +72,13 @@ export interface ProviderRequest {
   body?: unknown;
   /** Redacted path label the thrown error reports (never the token-bearing URL). */
   label?: string;
+  /**
+   * Opt a non-retry-safe method into transient retry. Only set this when the
+   * request genuinely cannot double-apply — it carries a provider idempotency
+   * key, or it replaces state wholesale and the caller ignores the status. Safe
+   * methods retry without it; see {@link isRetrySafeMethod}.
+   */
+  idempotent?: true;
 }
 
 export interface ProviderClient {
@@ -90,14 +113,20 @@ export function defineProviderClient(config: ProviderClientConfig): ProviderClie
     async json(path, request = {}) {
       const { headers, fixedQuery } = await config.resolve();
       const url = buildUrl(config.baseUrl, path, request.query, fixedQuery);
-      const res = await fetchWithRetry(
-        () => authedFetch({ headers }, { url, method: request.method, body: request.body }),
-        { policy: config.retry },
-      );
+      const send = () =>
+        authedFetch({ headers }, { url, method: request.method, body: request.body });
+      // Retry is the client's policy but the METHOD decides eligibility: a POST
+      // that reaches the upstream and then times out must not be re-sent just
+      // because this provider configured a retry envelope.
+      const mayRetry = request.idempotent === true || isRetrySafeMethod(request.method);
+      const res = mayRetry ? await fetchWithRetry(send, { policy: config.retry }) : await send();
       if (!res.ok) {
-        throw await httpErrorFromResponse(config.provider, res, {
+        return throwUpstreamError({
+          provider: config.provider,
+          res,
           url: request.label ?? path,
           method: request.method,
+          bodyPolicy: config.bodyPolicy,
         });
       }
       const text = await res.text();

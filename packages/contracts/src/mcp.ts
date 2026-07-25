@@ -81,12 +81,7 @@ export const mcpEffectOutcomeValues = ["succeeded", "rejected", "failed", "unkno
 export type McpEffectOutcome = (typeof mcpEffectOutcomeValues)[number];
 export const mcpEffectOutcomeSchema = z.enum(mcpEffectOutcomeValues);
 
-export const mcpRetryDispositionValues = [
-  "safe",
-  "blocked",
-  "reconcile",
-  "same_key_only",
-] as const;
+export const mcpRetryDispositionValues = ["safe", "blocked", "reconcile", "same_key_only"] as const;
 export type McpRetryDisposition = (typeof mcpRetryDispositionValues)[number];
 export const mcpRetryDispositionSchema = z.enum(mcpRetryDispositionValues);
 

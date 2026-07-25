@@ -86,7 +86,12 @@ import {
   passthroughBudgetExhausted,
   passthroughTruncationTelemetry,
 } from "../tools/passthrough";
-import { getTool, type RegisteredTool, type ToolExecuteContext } from "../tools/registry";
+import {
+  getTool,
+  toolExecuteContext,
+  type RegisteredTool,
+  type ToolExecuteContext,
+} from "../tools/registry";
 import {
   evaluateToolAvailability,
   readIntegrationAvailability,
@@ -555,7 +560,11 @@ export async function dispatchToolCall(args: DispatchArgs): Promise<DispatchResu
   }
   const input = parsed.data as unknown;
   const caller = args.caller ?? "boss";
-  const ctx: ToolExecuteContext = {
+  // `toolExecuteContext` derives the provider bind from `userId`, so every
+  // provider client this call reaches is wired to THIS user's credentials and no
+  // tool resolves a credential itself. The bind is lazy — nothing is built and no
+  // credential read unless the tool actually calls one.
+  const ctx = toolExecuteContext({
     runId: args.runId,
     scratchpadRunId: args.scratchpadRunId ?? args.runId,
     stepId: args.stepId,
@@ -566,7 +575,7 @@ export async function dispatchToolCall(args: DispatchArgs): Promise<DispatchResu
     threadId: args.threadId,
     messageId: args.messageId,
     allowedIntegrations: args.allowedIntegrations,
-  };
+  });
   const scratchAccessError = validateScratchToolAccess({ toolName, input, caller });
   if (scratchAccessError) {
     recordRejection({

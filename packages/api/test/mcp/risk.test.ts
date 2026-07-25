@@ -65,7 +65,9 @@ async function seedRevision(connectionId: string): Promise<void> {
 
 describe("resolveMcpCallRiskTier (DB-backed)", { skip: SKIP }, () => {
   before(async () => {
-    await db().delete(user).where(like(user.id, `${ID_PREFIX}%`));
+    await db()
+      .delete(user)
+      .where(like(user.id, `${ID_PREFIX}%`));
   });
 
   after(async () => {
