@@ -1,64 +1,34 @@
-/**
- * Vercel REST client (https://vercel.com/docs/rest-api). Thin `fetch` wrapper.
- * Every call optionally carries `?teamId=` — required when the integration was
- * installed on a team rather than a personal account (we stash the team id in
- * the credential metadata at connect).
- */
-
-import { isRecord, redacted, type Redacted } from "@alfred/contracts";
+import { redacted, type Redacted } from "@alfred/contracts";
 import { z } from "zod";
 
-import { authedJson } from "../shared/authed-json";
 import { getActiveBearerCredential } from "../shared/credentials";
-import type { ProviderBindOptions } from "../shared/provider";
-import { defineProviderClient } from "../shared/provider-client";
-import type { RetryPolicy } from "../shared/retry";
+import { once, type ProviderBindOptions } from "../shared/provider";
+import { defineProviderClient, type ProviderRequestContext } from "../shared/provider-client";
 import type { RestPassthroughProfile } from "../shared/rest-passthrough";
+import type { RetryPolicy } from "../shared/retry";
+import { readVercelTeamId } from "./credential";
+
+/**
+ * The one door to Vercel's REST API (https://vercel.com/docs/rest-api) on a
+ * user's behalf — the curated read surface plus `redeploy`, plus the transport
+ * profile the general read-only passthrough tier (ADR-0074) sends through.
+ *
+ * Two things are Vercel-specific and both are settled in one place here:
+ *
+ *   1. Bearer auth from the active bearer credential, unwrapped only at the
+ *      headers ({@link Redacted} everywhere above that).
+ *   2. `?teamId=` — required on EVERY call when the integration was installed on
+ *      a team rather than a personal account. It rides as `fixedQuery`, so it is
+ *      merged after a caller's own `query` and cannot be overridden, and it is
+ *      read through {@link readVercelTeamId} so the persisted key has one
+ *      spelling. Both matter because a missing team scope is not an error: see
+ *      `./credential` for why it surfaces as a confident empty list.
+ *
+ * Base URL, transient retry, error classification and JSON parsing are the
+ * shared `defineProviderClient` seam, not restated here.
+ */
 
 const VERCEL_API = "https://api.vercel.com";
-
-/**
- * Transport profile for the general read-only passthrough tier (ADR-0074): the
- * pinned Vercel REST authority + bearer auth. A team install must echo `teamId`
- * on every call, so it is pinned as `fixedQuery` (the model's own `query` can
- * never override it). Personal installs pass `teamId: null` → no fixed query.
- */
-export function vercelPassthroughProfile(args: {
-  token: string;
-  teamId: string | null;
-}): RestPassthroughProfile {
-  return {
-    baseUrl: VERCEL_API,
-    headers: { Authorization: `Bearer ${args.token}`, Accept: "application/json" },
-    ...(args.teamId ? { fixedQuery: { teamId: args.teamId } } : {}),
-  };
-}
-
-/**
- * Authenticated Vercel REST call returning the parsed JSON body as `unknown`;
- * each caller validates it with a `zod` schema (no `as T` on `response.json()`).
- * The `?teamId=` and other query params are pinned here; a non-2xx maps to an
- * `HttpError` reporting the redacted path (never the token-bearing URL).
- */
-async function vercelFetch(args: {
-  accessToken: string;
-  path: string;
-  teamId?: string | null;
-  method?: string;
-  query?: Record<string, string | number | undefined>;
-  body?: unknown;
-}): Promise<unknown> {
-  const url = new URL(`${VERCEL_API}${args.path}`);
-  if (args.teamId) url.searchParams.set("teamId", args.teamId);
-  for (const [k, v] of Object.entries(args.query ?? {})) {
-    if (v !== undefined) url.searchParams.set(k, String(v));
-  }
-  return authedJson(
-    { headers: { Authorization: `Bearer ${args.accessToken}`, Accept: "application/json" } },
-    { url, method: args.method ?? "GET", body: args.body },
-    { provider: "vercel", urlLabel: args.path },
-  );
-}
 
 export interface VercelProject {
   id: string;
@@ -77,29 +47,6 @@ const listProjectsResponseSchema = z.object({
     }),
   ),
 });
-
-export async function vercelListProjects(args: {
-  accessToken: string;
-  teamId?: string | null;
-  limit: number;
-}): Promise<{ projects: VercelProject[] }> {
-  const json = listProjectsResponseSchema.parse(
-    await vercelFetch({
-      accessToken: args.accessToken,
-      teamId: args.teamId,
-      path: "/v10/projects",
-      query: { limit: args.limit },
-    }),
-  );
-  return {
-    projects: json.projects.map((p) => ({
-      id: p.id,
-      name: p.name,
-      framework: p.framework ?? null,
-      latestDeploymentState: p.latestDeployments?.[0]?.readyState ?? null,
-    })),
-  };
-}
 
 export interface VercelDeployment {
   uid: string;
@@ -125,32 +72,6 @@ const listDeploymentsResponseSchema = z.object({
   ),
 });
 
-export async function vercelListDeployments(args: {
-  accessToken: string;
-  teamId?: string | null;
-  projectId?: string;
-  limit: number;
-}): Promise<{ deployments: VercelDeployment[] }> {
-  const json = listDeploymentsResponseSchema.parse(
-    await vercelFetch({
-      accessToken: args.accessToken,
-      teamId: args.teamId,
-      path: "/v6/deployments",
-      query: { limit: args.limit, projectId: args.projectId },
-    }),
-  );
-  return {
-    deployments: json.deployments.map((d) => ({
-      uid: d.uid,
-      name: d.name,
-      url: d.url ?? null,
-      state: d.state ?? d.readyState ?? null,
-      target: d.target ?? null,
-      createdAt: d.createdAt ?? d.created ?? null,
-    })),
-  };
-}
-
 const redeployResponseSchema = z.object({
   id: z.string().optional(),
   uid: z.string().optional(),
@@ -158,68 +79,65 @@ const redeployResponseSchema = z.object({
   readyState: z.string().nullish(),
 });
 
-export async function vercelRedeploy(args: {
-  accessToken: string;
-  teamId?: string | null;
-  deploymentId: string;
-  name: string;
-  target?: "production" | "preview";
-}): Promise<{ uid: string; url: string | null; state: string | null }> {
-  const json = redeployResponseSchema.parse(
-    await vercelFetch({
-      accessToken: args.accessToken,
-      teamId: args.teamId,
-      path: "/v13/deployments",
-      method: "POST",
-      query: { forceNew: 1 },
-      body: {
-        deploymentId: args.deploymentId,
-        name: args.name,
-        ...(args.target ? { target: args.target } : {}),
-      },
-    }),
-  );
-  // A 2xx with neither id nor uid would otherwise mask as a "successful"
-  // redeploy carrying an unusable handle — surface it as a failure instead.
-  const uid = json.uid ?? json.id;
-  if (!uid) throw new Error("[vercel] redeploy returned no deployment id");
-  return {
-    uid,
-    url: json.url ?? null,
-    state: json.readyState ?? null,
-  };
+export interface VercelRedeployResult {
+  uid: string;
+  url: string | null;
+  state: string | null;
 }
 
-/**
- * PROTOTYPE — the Vercel counterpart to `createGithubClient`, on the SAME shared
- * `defineProviderClient` seam. It exists to prove a second provider slots in
- * without re-hand-rolling the fetch skeleton: only what is genuinely
- * Vercel-specific lives here — the bearer credential path, the `teamId` pinned
- * on every call, and the per-method path + schema (reused from above). The base
- * URL, retry, error classification and JSON parsing are the shared seam.
- */
+/** Resolves fresh bearer auth per call; the client stores this, not a credential. */
+export interface VercelAuthResolver {
+  (): Promise<{ token: Redacted<string>; teamId: string | null }>;
+}
+
 export interface VercelClientOptions {
-  /** Resolve fresh auth per call: the bearer token (Redacted) + optional team scope. */
-  resolveAuth: () => Promise<{ token: Redacted<string>; teamId: string | null }>;
+  resolveAuth: VercelAuthResolver;
   retry?: RetryPolicy;
 }
 
+/**
+ * A Vercel REST client bound to an auth *resolver*. Prefer
+ * {@link vercelClientForUser} at call sites; this constructor takes the resolver
+ * directly so tests can inject a fixed token without touching credentials.
+ *
+ * `resolveAuth` is called once per request and NOT memoized here — a client built
+ * this way may be long-lived, so freshness stays the resolver's responsibility.
+ * {@link vercelClientForUser} is the bind-scoped entry point that memoizes.
+ */
 export function createVercelClient(options: VercelClientOptions) {
+  /**
+   * The one place a Vercel credential becomes a header. Both the curated reads
+   * (via `resolve`) and the passthrough profile go through it, so the authority a
+   * raw passthrough call carries is the same authority — origin, bearer, pinned
+   * team scope — that `projects()` carries, and a change cannot reach one and
+   * miss the other.
+   */
+  const authContext = async (): Promise<ProviderRequestContext> => {
+    const { token, teamId } = await options.resolveAuth();
+    return {
+      headers: { Authorization: `Bearer ${token.unwrap()}`, Accept: "application/json" },
+      ...(teamId ? { fixedQuery: { teamId } } : {}),
+    };
+  };
+
   const client = defineProviderClient({
     provider: "vercel",
     baseUrl: VERCEL_API,
-    // Bearer unwrapped only here, at the headers; teamId pinned on every request.
-    resolve: async () => {
-      const { token, teamId } = await options.resolveAuth();
-      return {
-        headers: { Authorization: `Bearer ${token.unwrap()}`, Accept: "application/json" },
-        ...(teamId ? { fixedQuery: { teamId } } : {}),
-      };
-    },
+    resolve: authContext,
     retry: options.retry,
   });
 
   return {
+    /**
+     * Transport profile for the general read-only passthrough tier (ADR-0074):
+     * pinned authority as data, so the passthrough tool never holds a credential.
+     * The gate that proves a request is a *read* is deliberately not here — that
+     * is policy owned by `@alfred/api` (`assertReadableRestRequest`).
+     */
+    async passthroughProfile(): Promise<RestPassthroughProfile> {
+      return { baseUrl: VERCEL_API, ...(await authContext()) };
+    },
+
     async projects(args?: { limit?: number }): Promise<VercelProject[]> {
       const json = listProjectsResponseSchema.parse(
         await client.json("/v10/projects", {
@@ -251,27 +169,58 @@ export function createVercelClient(options: VercelClientOptions) {
         createdAt: d.createdAt ?? d.created ?? null,
       }));
     },
+
+    /**
+     * Re-deploy an existing deployment. Deliberately NOT marked `idempotent`: it
+     * is a POST with `forceNew=1`, so a retry after a timeout that actually
+     * reached Vercel would ship a second deploy. The shared client's
+     * method-eligibility gate keeps it un-retried by default; this comment exists
+     * so nobody "fixes" that by opting in.
+     */
+    async redeploy(args: {
+      deploymentId: string;
+      name: string;
+      target?: "production" | "preview";
+    }): Promise<VercelRedeployResult> {
+      const json = redeployResponseSchema.parse(
+        await client.json("/v13/deployments", {
+          label: "/v13/deployments",
+          method: "POST",
+          query: { forceNew: 1 },
+          body: {
+            deploymentId: args.deploymentId,
+            name: args.name,
+            ...(args.target ? { target: args.target } : {}),
+          },
+        }),
+      );
+      // A 2xx carrying neither id nor uid would otherwise mask as a "successful"
+      // redeploy with an unusable handle — surface it as a failure instead.
+      const uid = json.uid ?? json.id;
+      if (!uid) throw new Error("[vercel] redeploy returned no deployment id");
+      return { uid, url: json.url ?? null, state: json.readyState ?? null };
+    },
   };
 }
 
 export type VercelClient = ReturnType<typeof createVercelClient>;
 
 /**
- * The call-site entry: a Vercel client for a user. Resolves the active bearer
- * credential per call (wrapping the token as {@link Redacted}) and reads the
- * connect-time `teamId` out of the credential metadata.
+ * The ergonomic call-site entry: a Vercel client for a user, reading as
+ * `vercel.projects({ limit })` with no credential in sight.
+ *
+ * The resolver reads the active bearer credential, wraps the token as
+ * {@link Redacted}, and takes the team scope from the credential metadata. It is
+ * wrapped in {@link once}, so a tool call that touches two methods costs one
+ * credential read — safe precisely because a bind is request-scoped
+ * ({@link ProviderBindOptions}). A bind held longer than a request would pin its
+ * first resolve; use {@link createVercelClient} there.
  */
 export function vercelClientForUser(options: ProviderBindOptions): VercelClient {
   const { userId, retry } = options;
-  return createVercelClient({
-    resolveAuth: async () => {
-      const cred = await getActiveBearerCredential(userId, "vercel");
-      const teamId =
-        isRecord(cred.metadata) && typeof cred.metadata.teamId === "string"
-          ? cred.metadata.teamId
-          : null;
-      return { token: redacted(cred.accessToken), teamId };
-    },
-    retry,
+  const resolveAuth = once(async () => {
+    const cred = await getActiveBearerCredential(userId, "vercel");
+    return { token: redacted(cred.accessToken), teamId: readVercelTeamId(cred.metadata) };
   });
+  return createVercelClient({ resolveAuth, retry });
 }

@@ -121,10 +121,7 @@ export class McpExecutionBroker {
     // enforced here, at the read, rather than left as a convention for multi-user.
     const connection = await readConnection(ref.connectionId);
     if (!connection || connection.userId !== input.userId) {
-      throw new McpClientError(
-        "not_connected",
-        `No connected MCP server '${ref.connectionId}'.`,
-      );
+      throw new McpClientError("not_connected", `No connected MCP server '${ref.connectionId}'.`);
     }
 
     // Connecting/refreshing the catalog is a prerequisite, not the tool-call
@@ -138,9 +135,7 @@ export class McpExecutionBroker {
     // effectful, ambiguity-protected call.
     const liveTool = client.catalog?.tools.find((tool) => tool.name === ref.remoteName);
     const hash = liveTool ? descriptorHash(liveTool) : undefined;
-    const policy = hash
-      ? await readToolPolicy(ref.connectionId, ref.remoteName, hash)
-      : undefined;
+    const policy = hash ? await readToolPolicy(ref.connectionId, ref.remoteName, hash) : undefined;
     const effectClass: McpEffectClass = policy?.effectClass ?? "unknown";
 
     if (effectClass === "read") {

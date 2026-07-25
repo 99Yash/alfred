@@ -1,3 +1,4 @@
+import type { BearerProvider, IntegrationSlug } from "@alfred/contracts";
 import { db } from "@alfred/db";
 import { integrationCredentials, type IntegrationCredential } from "@alfred/db/schemas";
 import { and, desc, eq } from "drizzle-orm";
@@ -19,10 +20,24 @@ import { and, desc, eq } from "drizzle-orm";
  * is the obvious follow-up.
  */
 
+/**
+ * The providers this module is FOR are named by `CREDENTIAL_SHAPE` in
+ * `@alfred/contracts`, and {@link BearerProvider} is the `"bearer"` subset of
+ * that map. Which providers they are was previously prose in the docstring above
+ * while the signatures took a bare `string`, so
+ * `getActiveBearerCredential(userId, "gmail")` — a provider whose tokens this
+ * store cannot serve — compiled fine and failed at runtime as a "connect gmail"
+ * error for an already-connected account. It was then a hand-written tuple here,
+ * which fixed that but left the same taxonomy spelled again in the web
+ * connectedness probe. Deriving both from the one exhaustive map means a new
+ * integration cannot be added without declaring how its credential works.
+ */
+export type { BearerProvider };
+
 export interface UpsertBearerCredentialArgs {
   userId: string;
-  /** `integration_credentials.provider` — e.g. `'notion'`, `'railway'`, `'vercel'`. */
-  provider: string;
+  /** `integration_credentials.provider`, narrowed to the bearer-token providers. */
+  provider: BearerProvider;
   /** Provider-side stable id (workspace id, team/user id, account id). */
   accountId: string;
   accountLabel?: string | null;
@@ -86,11 +101,14 @@ export async function upsertBearerCredential(
  * deleted id, or `null` when nothing matched (wrong owner, already gone, or a
  * provider mismatch) so callers can turn that into a 404. Generic across every
  * provider — Google/GitHub rows live in the same table, so a disconnect is the
- * same scoped row delete regardless of how the token was originally minted.
+ * same scoped row delete regardless of how the token was originally minted. That
+ * is why this one takes {@link IntegrationSlug} and not {@link BearerProvider}:
+ * the breadth is deliberate, and now it says so in the type rather than only in
+ * this sentence.
  */
 export async function deleteIntegrationCredential(args: {
   userId: string;
-  provider: string;
+  provider: IntegrationSlug;
   id: string;
 }): Promise<{ id: string } | null> {
   const deleted = await db()
@@ -121,7 +139,7 @@ export type BearerCredentialSummary = Pick<
 /** List a user's credential rows for a bearer-token provider (UI status + management). */
 export async function listBearerCredentials(
   userId: string,
-  provider: string,
+  provider: BearerProvider,
 ): Promise<BearerCredentialSummary[]> {
   return db()
     .select({
@@ -150,7 +168,7 @@ export type ActiveBearerCredential = Pick<
 /** List active bearer credentials, newest-updated first (capped at `limit`). */
 export async function listActiveBearerCredentials(
   userId: string,
-  provider: string,
+  provider: BearerProvider,
   limit = 100,
 ): Promise<ActiveBearerCredential[]> {
   const rows = await db()
@@ -181,7 +199,7 @@ export async function listActiveBearerCredentials(
  */
 export async function getActiveBearerCredential(
   userId: string,
-  provider: string,
+  provider: BearerProvider,
 ): Promise<ActiveBearerCredential> {
   const rows = await listActiveBearerCredentials(userId, provider, 1);
   const row = rows[0];

@@ -3,6 +3,7 @@ import {
   buildVercelInstallUrl,
   exchangeVercelCode,
   isVercelConfigured,
+  vercelCredentialMetadata,
 } from "@alfred/integrations/vercel";
 import {
   deleteIntegrationCredential,
@@ -97,12 +98,12 @@ export const vercelIntegrationRoutes = new Elysia({
         accountId,
         accountLabel: label,
         accessToken: tokens.accessToken,
-        metadata: {
-          installation_id: tokens.installationId,
-          configuration_id: query.configurationId ?? null,
-          team_id: tokens.teamId,
-          user_id: tokens.userId,
-        },
+        // Built by the integrations package, which also owns the reader — the two
+        // had drifted on the `team_id` spelling once.
+        metadata: vercelCredentialMetadata({
+          tokens,
+          configurationId: query.configurationId ?? null,
+        }),
       });
 
       set.status = 302;

@@ -1,9 +1,10 @@
-import { toStringArray } from "@alfred/contracts";
+import { credentialShapeForSlug, toStringArray } from "@alfred/contracts";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useMemo } from "react";
 import { client } from "~/lib/eden";
 import {
   INTEGRATION_PROVIDERS,
+  integrationSlugForProvider,
   PROVIDER_BACKEND,
   PROVIDER_REQUIRED_SCOPES,
   type IntegrationBackend,
@@ -214,24 +215,7 @@ function resolveOne(
   if (!creds) {
     return { ...provider, connectedAccounts: [] };
   }
-  const backend = PROVIDER_BACKEND[provider.id];
-  const matching =
-    backend === "github"
-      ? // GitHub App installs carry no OAuth scopes — App *permissions*
-        // (metadata/PRs/issues/contents, ADR-0052) never flow into the
-        // credential's `scopes` array, so the scope-completeness probe Google
-        // uses can't apply. A GitHub credential is connected when it's active
-        // and the App is installed (installation_id present). Legacy
-        // classic-OAuth rows (active but no installation_id) can't mint
-        // installation tokens, so they read as not-connected here and the
-        // reconnect nag (`useGithubNeedsReconnect`) drives the upgrade.
-        creds.filter((c) => c.status === "active" && c.installationId)
-      : backend === "notion" || backend === "railway" || backend === "vercel"
-        ? // Bearer-token providers: connected once an active credential exists.
-          // No scopes (Railway/Notion non-expiring tokens) and no installation
-          // id to probe — the row's presence is the proof.
-          creds.filter((c) => c.status === "active")
-        : matchByScopes(provider, creds);
+  const matching = matchByCredentialShape(provider, creds);
   if (matching.length === 0) {
     return { ...provider, connectedAccounts: [] };
   }
@@ -326,6 +310,54 @@ export function useGithubNeedsReconnect(): GithubReconnect {
       accountLabel: stale?.accountLabel ?? null,
     };
   }, [githubCreds]);
+}
+
+/**
+ * Which of a provider's credential rows prove it is connected. How you prove it
+ * depends on how the credential is *shaped*, so the branch reads
+ * `CREDENTIAL_SHAPE` from `@alfred/contracts` rather than re-listing providers
+ * here — this used to be an inline `backend === "notion" || backend ===
+ * "railway" || backend === "vercel"` chain, and because `PROVIDER_BACKEND` is a
+ * `Record<string, …>` with no exhaustiveness, a fourth bearer provider would
+ * have fallen silently through to the scope probe (which no bearer credential
+ * can satisfy) and rendered a connected account as "not connected".
+ */
+function matchByCredentialShape(
+  provider: IntegrationProvider,
+  creds: ReadonlyArray<CredentialRow>,
+): ReadonlyArray<CredentialRow> {
+  const shape = credentialShapeForSlug(integrationSlugForProvider(provider.id));
+  switch (shape) {
+    case "github_app":
+      // GitHub App installs carry no OAuth scopes — App *permissions*
+      // (metadata/PRs/issues/contents, ADR-0052) never flow into the
+      // credential's `scopes` array, so the scope-completeness probe Google
+      // uses can't apply. A GitHub credential is connected when it's active and
+      // the App is installed (installation_id present). Legacy classic-OAuth
+      // rows (active but no installation_id) can't mint installation tokens, so
+      // they read as not-connected here and the reconnect nag
+      // (`useGithubNeedsReconnect`) drives the upgrade.
+      return creds.filter((c) => c.status === "active" && c.installationId);
+    case "bearer":
+      // One long-lived bearer token: no scopes (Notion/Vercel OAuth and the
+      // Railway pasted token are all non-expiring) and no installation id to
+      // probe — the active row's presence is the proof.
+      return creds.filter((c) => c.status === "active");
+    case "google_oauth":
+      return matchByScopes(provider, creds);
+    case "deferred":
+    case "not_applicable":
+    case undefined:
+      // No credential store yet, none by nature, or a catalog id that isn't a
+      // loadable integration: nothing to probe, so nothing is connected.
+      return [];
+    default: {
+      // Adding a CredentialShape without a probe here is a compile error, not a
+      // provider silently reading as disconnected.
+      const _exhaustive: never = shape;
+      throw new Error(`Unhandled credential shape: ${String(_exhaustive)}`);
+    }
+  }
 }
 
 /**

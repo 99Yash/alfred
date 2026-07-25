@@ -80,8 +80,7 @@ export class McpConnectionManager {
   readonly #clientFactory: McpClientFactory;
 
   constructor(options: McpConnectionManagerOptions = {}) {
-    const authorization =
-      options.endpointAuthorization ?? new HttpsOriginPinnedAuthorization();
+    const authorization = options.endpointAuthorization ?? new HttpsOriginPinnedAuthorization();
     this.#clientFactory =
       options.clientFactory ??
       ((connection) =>

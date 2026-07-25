@@ -16,13 +16,6 @@ import {
   restPassthroughInput,
   sanitizeGithubSearchQuery,
 } from "@alfred/contracts";
-import {
-  getInstallationTokenForUser,
-  getIssue,
-  getPullRequest,
-  githubPassthroughProfile,
-  searchGithub,
-} from "@alfred/integrations/github";
 import type { z } from "zod";
 import { localDateInTimezone } from "../briefing/preferences";
 import { addLocalDays, localTimeInTimezone } from "../timezone";
@@ -31,18 +24,6 @@ import { liveTool, type RegisteredTool } from "./registry";
 import { AppError } from "../../lib/app-errors";
 
 type GithubSearchInput = z.infer<typeof githubSearchInput>;
-
-interface GithubToolCredential {
-  accessToken: string;
-  accountLogin: string | null;
-}
-
-async function credentialFor(userId: string): Promise<GithubToolCredential> {
-  // The REST calls run on a short-lived installation token; `accountLogin`
-  // resolves `author:@me` to the connected handle.
-  const { token, accountLogin } = await getInstallationTokenForUser(userId);
-  return { accessToken: token, accountLogin };
-}
 
 /**
  * Lower bound for a "within the last N days" filter, anchored on local midnight
@@ -145,7 +126,9 @@ export const githubTools: readonly RegisteredTool[] = [
     },
     inputSchema: githubSearchInput,
     execute: async (input, ctx) => {
-      const credential = await credentialFor(ctx.userId);
+      const github = ctx.integrations.github;
+      // `author:@me` resolves against the connected handle.
+      const accountLogin = await github.connectedLogin();
       // Fold any free-typed author:/state:/is:/date qualifiers into the
       // structured fields (silent correctness, ADR-0071) before resolving @me.
       const { sanitized } = sanitizeGithubSearchQuery(input);
@@ -155,16 +138,12 @@ export const githubTools: readonly RegisteredTool[] = [
       // PRs"). A query that already names a repo/org/person is left
       // author-unfiltered — forcing `@me` there would silently narrow it.
       const author = sanitized.author
-        ? resolvePullRequestAuthor(sanitized.author, credential.accountLogin, ctx.userId)
+        ? resolvePullRequestAuthor(sanitized.author, accountLogin, ctx.userId)
         : queryHasNarrowingScope(sanitized.query)
           ? undefined
-          : resolvePullRequestAuthor("@me", credential.accountLogin, ctx.userId);
+          : resolvePullRequestAuthor("@me", accountLogin, ctx.userId);
       const q = buildGithubSearchQuery({ ...input, ...sanitized, author }, ctx.timezone);
-      const result = await searchGithub({
-        accessToken: credential.accessToken,
-        q,
-        perPage: input.perPage,
-      });
+      const result = await github.search({ q, perPage: input.perPage });
       // Result-honesty (ADR-0071 #6): never present a truncated count as exact.
       const note = result.incompleteResults
         ? "GitHub reported incomplete_results — its search index timed out, so this count may be partial. Narrow the query (repo:, a tighter window) and retry for an exact figure."
@@ -193,15 +172,12 @@ export const githubTools: readonly RegisteredTool[] = [
       relatedTools: ["github.search"],
     },
     inputSchema: githubGetPullRequestInput,
-    execute: async (input, ctx) => {
-      const credential = await credentialFor(ctx.userId);
-      return getPullRequest({
-        accessToken: credential.accessToken,
+    execute: async (input, ctx) =>
+      ctx.integrations.github.getPullRequest({
         owner: input.owner,
         repo: input.repo,
         number: input.pull_number,
-      });
-    },
+      }),
   }),
   liveTool({
     integration: "github",
@@ -218,15 +194,12 @@ export const githubTools: readonly RegisteredTool[] = [
       relatedTools: ["github.search"],
     },
     inputSchema: githubGetIssueInput,
-    execute: async (input, ctx) => {
-      const credential = await credentialFor(ctx.userId);
-      return getIssue({
-        accessToken: credential.accessToken,
+    execute: async (input, ctx) =>
+      ctx.integrations.github.getIssue({
         owner: input.owner,
         repo: input.repo,
         number: input.issue_number,
-      });
-    },
+      }),
   }),
   liveTool({
     integration: "github",
@@ -243,10 +216,8 @@ export const githubTools: readonly RegisteredTool[] = [
       relatedTools: ["github.search", "github.get_pull_request"],
     },
     inputSchema: restPassthroughInput,
-    execute: async (input, ctx) => {
-      const credential = await credentialFor(ctx.userId);
-      return runRestPassthrough("github", githubPassthroughProfile(credential.accessToken), input);
-    },
+    execute: async (input, ctx) =>
+      runRestPassthrough("github", await ctx.integrations.github.passthroughProfile(), input),
   }),
 ];
 

@@ -44,16 +44,18 @@ export function toMessage(err: unknown): string {
  * credential into a log.
  */
 export function redactSecrets(text: string): string {
-  return text
-    .replace(/\b(Bearer|Basic|Token)\s+[A-Za-z0-9._~+/=-]{8,}/gi, "$1 [redacted]")
-    .replace(
-      /\b(access_token|refresh_token|client_secret|api[-_]?key|apikey|authorization|password|secret|token)\b(\s*["']?\s*[:=]\s*["']?)([^\s"'&,}]+)/gi,
-      "$1$2[redacted]",
-    )
-    // Credentials embedded in a URL's userinfo (`https://user:token@host`). A
-    // key=value pass never catches these because the secret is positional, not
-    // keyed; an MCP transport/endpoint error is a realistic carrier of one.
-    .replace(/(\bhttps?:\/\/)[^/\s:@]+:[^/\s@]+@/gi, "$1[redacted]@");
+  return (
+    text
+      .replace(/\b(Bearer|Basic|Token)\s+[A-Za-z0-9._~+/=-]{8,}/gi, "$1 [redacted]")
+      .replace(
+        /\b(access_token|refresh_token|client_secret|api[-_]?key|apikey|authorization|password|secret|token)\b(\s*["']?\s*[:=]\s*["']?)([^\s"'&,}]+)/gi,
+        "$1$2[redacted]",
+      )
+      // Credentials embedded in a URL's userinfo (`https://user:token@host`). A
+      // key=value pass never catches these because the secret is positional, not
+      // keyed; an MCP transport/endpoint error is a realistic carrier of one.
+      .replace(/(\bhttps?:\/\/)[^/\s:@]+:[^/\s@]+@/gi, "$1[redacted]@")
+  );
 }
 
 /**

@@ -4,7 +4,7 @@ import { createHmac, createPrivateKey, timingSafeEqual, type KeyObject } from "n
 import { SignJWT } from "jose";
 import { z } from "zod";
 import { INTEGRATION_FETCH_TIMEOUT_MS } from "../shared/authed-fetch";
-import type { RestPassthroughProfile } from "../shared/rest-passthrough";
+import { GITHUB_API, GITHUB_REST_HEADERS } from "./rest";
 
 /**
  * GitHub *App* authentication (ADR-0052), replacing the classic OAuth App.
@@ -22,34 +22,14 @@ import type { RestPassthroughProfile } from "../shared/rest-passthrough";
  * server is one long-lived process) so we don't re-mint per call.
  */
 
-const API_BASE = "https://api.github.com";
 const TOKEN_BASE = "https://github.com/login/oauth/access_token";
-const USER_BASE = `${API_BASE}/user`;
-const GH_HEADERS = {
-  Accept: "application/vnd.github+json",
-  "X-GitHub-Api-Version": "2022-11-28",
-  "User-Agent": "alfred-app",
-} as const;
+const USER_BASE = `${GITHUB_API}/user`;
 
 function githubFetch(input: string | URL, init: RequestInit = {}): Promise<Response> {
   return fetch(input, {
     ...init,
     signal: init.signal ?? AbortSignal.timeout(INTEGRATION_FETCH_TIMEOUT_MS),
   });
-}
-
-/**
- * Transport profile for the general read-only passthrough tier (ADR-0074): the
- * pinned GitHub REST authority + App-installation auth. The `token` is a
- * short-lived installation token (from {@link getInstallationTokenForUser}), NOT
- * the stored user-to-server identity token. Namespace + headers are fixed here
- * so the model can never choose an origin or supply its own headers.
- */
-export function githubPassthroughProfile(token: string): RestPassthroughProfile {
-  return {
-    baseUrl: API_BASE,
-    headers: { ...GH_HEADERS, Authorization: `Bearer ${token}` },
-  };
 }
 
 export interface GithubAppConfig {
@@ -125,13 +105,13 @@ export async function getInstallationToken(installationId: string): Promise<Inst
     return cached;
   }
   const jwt = await mintAppJwt();
-  const res = await githubFetch(`${API_BASE}/app/installations/${installationId}/access_tokens`, {
+  const res = await githubFetch(`${GITHUB_API}/app/installations/${installationId}/access_tokens`, {
     method: "POST",
-    headers: { ...GH_HEADERS, Authorization: `Bearer ${jwt}` },
+    headers: { ...GITHUB_REST_HEADERS, Authorization: `Bearer ${jwt}` },
   });
   if (!res.ok) {
     throw await httpErrorFromResponse("github.app", res, {
-      url: `${API_BASE}/app/installations/${installationId}/access_tokens`,
+      url: `${GITHUB_API}/app/installations/${installationId}/access_tokens`,
       method: "POST",
     });
   }
@@ -209,7 +189,7 @@ export async function exchangeUserCode(code: string): Promise<ExchangeUserCodeRe
   }
 
   const userRes = await githubFetch(USER_BASE, {
-    headers: { ...GH_HEADERS, Authorization: `Bearer ${parsed.data.access_token}` },
+    headers: { ...GITHUB_REST_HEADERS, Authorization: `Bearer ${parsed.data.access_token}` },
   });
   if (!userRes.ok) {
     throw await httpErrorFromResponse("github.app", userRes, { url: USER_BASE });
@@ -242,10 +222,10 @@ export async function canUserAccessInstallation(args: {
 }): Promise<boolean> {
   if (!/^\d+$/.test(args.installationId)) return false;
 
-  const url = new URL(`${API_BASE}/user/installations/${args.installationId}/repositories`);
+  const url = new URL(`${GITHUB_API}/user/installations/${args.installationId}/repositories`);
   url.searchParams.set("per_page", "1");
   const res = await githubFetch(url, {
-    headers: { ...GH_HEADERS, Authorization: `Bearer ${args.accessToken}` },
+    headers: { ...GITHUB_REST_HEADERS, Authorization: `Bearer ${args.accessToken}` },
   });
 
   if (res.status === 403 || res.status === 404) return false;

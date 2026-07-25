@@ -1,25 +1,30 @@
 import { githubClientForUser } from "./github/client";
 import { vercelClientForUser } from "./vercel/client";
 
-import type { ProviderBindOptions, ProviderFactory } from "./shared/provider";
+import { once, type ProviderBindOptions, type ProviderFactory } from "./shared/provider";
 
 /**
- * PROTOTYPE — the unified integration facade. One callable binds a user once and
- * hands back every provider client already wired to *that user's* credentials,
- * so a call site reads as one continuous thought:
+ * The unified integration facade. One callable binds a user once and hands back
+ * every provider client already wired to *that user's* credentials, so a call
+ * site reads as one continuous thought:
  *
  *   integrations({ userId }).github.search({ q })
+ *
+ * In production the bind happens once per tool dispatch and arrives at tool code
+ * as `ctx.integrations` — so a tool never names a credential function, never
+ * holds a token, and cannot bind the wrong user.
  *
  * Design properties:
  *
  *   1. The user binds at the *root*, not per method. Binding is cheap and holds
- *      no secret — each provider is a lazily-built client over a token
- *      *resolver*, so tokens are minted fresh per call through the real
- *      cache/refresh path. The facade binds a *user*, never a token.
+ *      no secret — each provider is a lazily-built client over a credential
+ *      *resolver*, so a credential is resolved through the real cache/refresh
+ *      path when a method actually runs. The facade binds a *user*, never a token.
  *
- *   2. Each provider is a lazy `get`ter, so touching `.github` builds only the
- *      GitHub client — the facade never eagerly constructs providers you don't
- *      use.
+ *   2. Each provider is a memoized lazy `get`ter: touching `.github` builds only
+ *      the GitHub client, and touching it twice yields the SAME client, so the
+ *      bind-scoped resolve inside it happens once rather than once per property
+ *      access. The bind is the memo's lifetime — see {@link ProviderBindOptions}.
  *
  *   3. It is GENERIC over a provider registry, and the binding shape is declared
  *      ONCE ({@link ProviderBindOptions}): the root's options, the factory
@@ -59,20 +64,19 @@ export type Integrations = {
 
 /**
  * The call-site entry point: `integrations({ userId }).github.search({ q })`.
- * Cheap to call and holds no secret — every provider underneath resolves a fresh
- * token per request. Built generically from {@link providerRegistry}, so the
- * chain is fully typed for every registered provider without per-provider glue.
+ * Cheap to call and holds no secret — no provider is constructed and no
+ * credential read until a method actually runs. Built generically from
+ * {@link providerRegistry}, so the chain is fully typed for every registered
+ * provider without per-provider glue.
  */
 export function integrations(options: IntegrationsOptions): Integrations {
   const facade = {} as { [K in keyof ProviderRegistry]: ReturnType<ProviderRegistry[K]> };
   for (const key of Object.keys(providerRegistry) as (keyof ProviderRegistry)[]) {
-    Object.defineProperty(facade, key, {
-      enumerable: true,
-      // Localized cast: iterating string keys collapses the registry to a union
-      // of factory types; the uniform signature makes the call safe, and the
-      // public return type stays precise per key via the mapped type above.
-      get: () => (providerRegistry[key] as ProviderFactory)(options),
-    });
+    // Localized cast: iterating string keys collapses the registry to a union of
+    // factory types; the uniform signature makes the call safe, and the public
+    // return type stays precise per key via the mapped type above.
+    const build = once(() => (providerRegistry[key] as ProviderFactory)(options));
+    Object.defineProperty(facade, key, { enumerable: true, get: build });
   }
   return facade;
 }

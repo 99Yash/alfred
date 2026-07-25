@@ -1,4 +1,9 @@
-import { boundToolResult, isRecord, toJsonValue, type AgentTranscriptMessage } from "@alfred/contracts";
+import {
+  boundToolResult,
+  isRecord,
+  toJsonValue,
+  type AgentTranscriptMessage,
+} from "@alfred/contracts";
 import type { DispatchResult } from "./index";
 
 /**

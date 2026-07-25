@@ -377,6 +377,15 @@ export const PROVIDER_REQUIRED_SCOPES: Readonly<
  * table. Providers in this map are checked against real credential rows
  * by `useResolvedIntegrations`; everything else falls back to the catalog
  * status (currently always `"available"`).
+ *
+ * This is the *route family* — which `/integrations/<backend>/credentials`
+ * endpoint to hit — and deliberately NOT the credential shape. How a credential
+ * proves "connected" (scopes vs installation id vs row presence) lives in
+ * `CREDENTIAL_SHAPE` in `@alfred/contracts`, keyed by integration slug and
+ * exhaustive over it. The two lists look alike today only because three bearer
+ * providers happen to have three route namespaces; they diverge the moment two
+ * providers share one endpoint, or one provider's route family outlives its
+ * credential shape.
  */
 export type IntegrationBackend = "google" | "github" | "notion" | "railway" | "vercel";
 

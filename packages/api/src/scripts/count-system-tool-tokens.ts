@@ -31,7 +31,7 @@ function loadApiKey(): string | undefined {
     const text = readFileSync(resolve(__dirname, "../../../../apps/server/.env"), "utf8");
     for (const line of text.split("\n")) {
       const m = /^\s*ANTHROPIC_API_KEY=(.+)$/.exec(line);
-      if (m) return m[1].trim().replace(/^["']|["']$/g, "");
+      if (m?.[1]) return m[1].trim().replace(/^["']|["']$/g, "");
     }
   } catch {
     /* ignore */
@@ -51,11 +51,19 @@ async function realCount(apiKey: string, names: string[]): Promise<number | null
     }),
   );
   const body = (t: unknown[]) =>
-    JSON.stringify({ model: MODEL, messages: [{ role: "user", content: "hi" }], ...(t.length ? { tools: t } : {}) });
+    JSON.stringify({
+      model: MODEL,
+      messages: [{ role: "user", content: "hi" }],
+      ...(t.length ? { tools: t } : {}),
+    });
   const call = async (t: unknown[]) => {
     const res = await fetch("https://api.anthropic.com/v1/messages/count_tokens", {
       method: "POST",
-      headers: { "x-api-key": apiKey, "anthropic-version": "2023-06-01", "content-type": "application/json" },
+      headers: {
+        "x-api-key": apiKey,
+        "anthropic-version": "2023-06-01",
+        "content-type": "application/json",
+      },
       body: body(t),
     });
     if (!res.ok) return null;
@@ -100,8 +108,14 @@ async function main() {
 
   const key = loadApiKey();
   if (key) {
-    const realAll = await realCount(key, rows.map((r) => r.name));
-    const realKernel = await realCount(key, kRows.map((r) => r.name));
+    const realAll = await realCount(
+      key,
+      rows.map((r) => r.name),
+    );
+    const realKernel = await realCount(
+      key,
+      kRows.map((r) => r.name),
+    );
     if (realAll != null) {
       console.log("\n--- totals (REAL Anthropic count_tokens) ---");
       console.log(`ALL ${rows.length} system tools : ${realAll} tok`);

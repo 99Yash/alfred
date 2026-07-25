@@ -1,6 +1,7 @@
-import { httpErrorFromResponse, summarizeBody, type ErrorBodyPolicy } from "@alfred/contracts";
+import { type ErrorBodyPolicy } from "@alfred/contracts";
 
 import { authedFetch, type AuthedFetchProfile, type AuthedFetchRequest } from "./authed-fetch";
+import { throwUpstreamError } from "./upstream-error";
 
 /**
  * The authenticated-JSON layer built on {@link authedFetch}. It owns the one
@@ -43,8 +44,8 @@ export interface AuthedJsonOptions {
 }
 
 /**
- * Issue an authenticated request via {@link authedFetch}, then: throw
- * {@link httpErrorFromResponse} on a non-2xx (honoring
+ * Issue an authenticated request via {@link authedFetch}, then: throw on a
+ * non-2xx via {@link throwUpstreamError} (which honors
  * {@link AuthedJsonOptions.bodyPolicy}), else parse the JSON body. A `204`/empty
  * body resolves to `{}`. A transport failure (timeout/DNS/reset/TLS) propagates
  * from `authedFetch` unchanged.
@@ -56,17 +57,9 @@ export async function authedJson(
 ): Promise<unknown> {
   const res = await authedFetch(profile, request);
   if (!res.ok) {
-    // `"omit"` drops the body from the error (it flows on into telemetry); keep
-    // it for server-side debugging by logging the bounded, redacted body here —
-    // the one place that still has it. `httpErrorFromResponse` re-reads a
-    // spent stream as `""`, so read the body once and build the error by hand.
-    if (options.bodyPolicy === "omit") {
-      const raw = await res.text().catch(() => "");
-      console.error(
-        `[${options.provider}] ${res.status} ${request.method ?? "GET"} ${options.urlLabel ?? String(request.url)} :: ${summarizeBody(raw)}`,
-      );
-    }
-    throw await httpErrorFromResponse(options.provider, res, {
+    return throwUpstreamError({
+      provider: options.provider,
+      res,
       url: options.urlLabel ?? String(request.url),
       method: request.method,
       bodyPolicy: options.bodyPolicy,

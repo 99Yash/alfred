@@ -12,7 +12,7 @@
  * search the web, invented `search.search`, and the dispatcher rejected it.
  */
 
-import { getTool } from "@alfred/api/backend";
+import { getTool, toolExecuteContext } from "@alfred/api/backend";
 import { registerBuiltinTools } from "@alfred/api/runtime";
 
 async function main(): Promise<void> {
@@ -24,7 +24,7 @@ async function main(): Promise<void> {
 
   const result = (await tool.execute(
     { query: "What are Cloudflare Durable Object facets?" },
-    {
+    toolExecuteContext({
       runId: "smoke-run",
       scratchpadRunId: "smoke-run",
       stepId: "smoke-step",
@@ -32,7 +32,7 @@ async function main(): Promise<void> {
       userId: "smoke-user",
       caller: "boss",
       timezone: "UTC",
-    },
+    }),
   )) as { ok: boolean; answer: string; citations: string[] };
 
   console.log(`✓ ok=${result.ok}`);

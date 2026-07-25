@@ -21,6 +21,7 @@ import type {
   ToolRiskTier,
 } from "@alfred/contracts";
 import { buildToolName, INTEGRATION_ACTIONS, integrationFromToolName } from "@alfred/contracts";
+import { integrations, type Integrations } from "@alfred/integrations";
 import type { z } from "zod";
 import { deriveToolDiscovery, type ResolvedDiscovery } from "./metadata-defaults";
 
@@ -85,6 +86,22 @@ export interface ToolExecuteContext {
   stagingId?: string;
   userId: string;
   /**
+   * Every provider client, already bound to THIS call's user — so a tool's
+   * `execute` reads `ctx.integrations.github.search({ q })` and is done.
+   *
+   * It hangs off the context rather than being imported because that is what
+   * removes the knowledge a tool used to need: which credential function its
+   * provider uses, that the token it returns must never be logged or persisted,
+   * and that the right `userId` to bind is this call's. The dispatcher binds it
+   * once from {@link ToolExecuteContext.userId}, so a tool cannot reach a
+   * different user's credentials without going outside the context, and no tool
+   * ever holds a token (see `githubClientForUser`).
+   *
+   * The bind is request-scoped and memoizes per bind: several methods in one
+   * `execute` cost one credential resolve.
+   */
+  integrations: Integrations;
+  /**
    * The user's operational IANA timezone (the `"timezone"` pref, falling back
    * to UTC), resolved once by the dispatcher. Tools that turn a relative window
    * ("today", "the past week") into concrete bounds resolve it against this so
@@ -120,6 +137,28 @@ export interface ToolExecuteContext {
   // ~15s timeout fires. Platform-level — every tool shares this; wire a per-run
   // AbortSignal through the dispatcher and into the network tools when the turn
   // cancellation path lands.
+}
+
+/**
+ * Everything a caller supplies to build a {@link ToolExecuteContext} — which is
+ * everything EXCEPT the provider bind, because that is derived rather than
+ * passed. See {@link toolExecuteContext}.
+ */
+export type ToolExecuteContextFields = Omit<ToolExecuteContext, "integrations">;
+
+/**
+ * Build the execution context for one tool call.
+ *
+ * The whole reason this is a function and not an object literal: `integrations`
+ * must be bound to `userId`, and a literal lets the two disagree. Nothing about
+ * `{ userId: a, integrations: integrations({ userId: b }) }` fails to compile,
+ * and a tool would then read one user's data while every audit row said the
+ * other. Deriving the bind here makes the mismatch unconstructible, and means no
+ * caller — dispatcher, smoke script, or test — has to know that a bind is
+ * something a context needs at all.
+ */
+export function toolExecuteContext(fields: ToolExecuteContextFields): ToolExecuteContext {
+  return { ...fields, integrations: integrations({ userId: fields.userId }) };
 }
 
 export interface LiveToolArgs<

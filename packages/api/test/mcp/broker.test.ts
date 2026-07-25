@@ -37,10 +37,7 @@ const SKIP = process.env.DATABASE_URL ? false : "DATABASE_URL not set — skippi
 const ID_PREFIX = "test-mcpbrk-";
 const createdUserIds: string[] = [];
 
-type CallBehavior =
-  | { kind: "ok" }
-  | { kind: "tool_error" }
-  | { kind: "throw"; error: unknown };
+type CallBehavior = { kind: "ok" } | { kind: "tool_error" } | { kind: "throw"; error: unknown };
 
 class FakeProtocol implements McpProtocolClient {
   tools: Tool[];
@@ -91,12 +88,14 @@ async function seedUser(): Promise<string> {
   await db()
     .insert(user)
     .values({ id: userId, name: "Test User", email: `${userId}@example.test` });
-  await db().insert(agentRuns).values({
-    id: `run_${randomUUID().slice(0, 12)}`,
-    userId,
-    workflowSlug: "chat",
-    currentStep: "dispatch-tools",
-  });
+  await db()
+    .insert(agentRuns)
+    .values({
+      id: `run_${randomUUID().slice(0, 12)}`,
+      userId,
+      workflowSlug: "chat",
+      currentStep: "dispatch-tools",
+    });
   return userId;
 }
 
@@ -108,19 +107,21 @@ async function seedStaging(userId: string): Promise<string> {
     .limit(1);
   assert.ok(run, "seed run missing");
   const stagingId = `stg_${randomUUID().slice(0, 12)}`;
-  await db().insert(actionStagings).values({
-    id: stagingId,
-    userId,
-    runId: run.id,
-    stepId: "dispatch-tools",
-    toolCallId: `tc_${randomUUID().slice(0, 8)}`,
-    toolName: "mcp.call",
-    integration: "mcp",
-    riskTier: "high",
-    proposedInput: {},
-    proposedInputHash: randomUUID(),
-    requiresApproval: true,
-  });
+  await db()
+    .insert(actionStagings)
+    .values({
+      id: stagingId,
+      userId,
+      runId: run.id,
+      stepId: "dispatch-tools",
+      toolCallId: `tc_${randomUUID().slice(0, 8)}`,
+      toolName: "mcp.call",
+      integration: "mcp",
+      riskTier: "high",
+      proposedInput: {},
+      proposedInputHash: randomUUID(),
+      requiresApproval: true,
+    });
   return stagingId;
 }
 
@@ -171,7 +172,9 @@ async function invocationsForStaging(stagingId: string) {
 
 describe("mcp execution broker (DB-backed, offline)", { skip: SKIP }, () => {
   before(async () => {
-    await db().delete(user).where(like(user.id, `${ID_PREFIX}%`));
+    await db()
+      .delete(user)
+      .where(like(user.id, `${ID_PREFIX}%`));
   });
 
   after(async () => {
@@ -249,7 +252,12 @@ describe("mcp execution broker (DB-backed, offline)", { skip: SKIP }, () => {
     const outcome = await broker.callTool({
       userId,
       stagingId,
-      ref: { kind: "mcp", connectionId: connId, remoteName: "create_issue", catalogRevision: revision },
+      ref: {
+        kind: "mcp",
+        connectionId: connId,
+        remoteName: "create_issue",
+        catalogRevision: revision,
+      },
       arguments: {},
     });
 
@@ -477,7 +485,12 @@ describe("mcp execution broker (DB-backed, offline)", { skip: SKIP }, () => {
     const outcome = await broker2.callTool({
       userId,
       stagingId,
-      ref: { kind: "mcp", connectionId: connId, remoteName: "create_issue", catalogRevision: revision },
+      ref: {
+        kind: "mcp",
+        connectionId: connId,
+        remoteName: "create_issue",
+        catalogRevision: revision,
+      },
       arguments: {},
     });
 
@@ -656,8 +669,7 @@ describe("mcp execution broker (DB-backed, offline)", { skip: SKIP }, () => {
 
     await assert.rejects(
       broker.callTool({ userId: attacker, stagingId, ref, arguments: { title: "x" } }),
-      (err: unknown) =>
-        err instanceof McpClientError && err.code === "not_connected",
+      (err: unknown) => err instanceof McpClientError && err.code === "not_connected",
     );
 
     // Nothing was dispatched and no ledger row was minted under either user.
@@ -690,7 +702,12 @@ describe("mcp execution broker (DB-backed, offline)", { skip: SKIP }, () => {
     const outcome = await brokerWith(protocol).callTool({
       userId,
       stagingId,
-      ref: { kind: "mcp", connectionId: connId, remoteName: "create_issue", catalogRevision: revision },
+      ref: {
+        kind: "mcp",
+        connectionId: connId,
+        remoteName: "create_issue",
+        catalogRevision: revision,
+      },
       arguments: { title: "x" },
     });
     assert.equal(outcome.status, "completed");
@@ -721,7 +738,12 @@ describe("mcp execution broker (DB-backed, offline)", { skip: SKIP }, () => {
     const outcome = await brokerWith(protocol).callTool({
       userId,
       stagingId,
-      ref: { kind: "mcp", connectionId: connId, remoteName: "charge_card", catalogRevision: revision },
+      ref: {
+        kind: "mcp",
+        connectionId: connId,
+        remoteName: "charge_card",
+        catalogRevision: revision,
+      },
       arguments: { amount: 1 },
     });
     assert.equal(outcome.status, "ambiguous");
@@ -756,7 +778,12 @@ describe("mcp execution broker (DB-backed, offline)", { skip: SKIP }, () => {
     const outcome = await brokerWith(protocol).callTool({
       userId,
       stagingId,
-      ref: { kind: "mcp", connectionId: connId, remoteName: "charge_card", catalogRevision: revision },
+      ref: {
+        kind: "mcp",
+        connectionId: connId,
+        remoteName: "charge_card",
+        catalogRevision: revision,
+      },
       arguments: { title: secretArg, amount: 4200 },
     });
     assert.equal(outcome.status, "ambiguous");

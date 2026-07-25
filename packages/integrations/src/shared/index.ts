@@ -16,9 +16,11 @@ export { authedJson, type AuthedJsonOptions } from "./authed-json";
 export {
   fetchWithRetry,
   isRetryableStatus,
+  isRetrySafeMethod,
   type RetryPolicy,
   type FetchWithRetryOptions,
 } from "./retry";
+export { throwUpstreamError } from "./upstream-error";
 export {
   defineProviderClient,
   type ProviderClient,
@@ -27,7 +29,7 @@ export {
   type ProviderRequestContext,
   type QueryValue,
 } from "./provider-client";
-export type { ProviderBindOptions, ProviderFactory } from "./provider";
+export { once, type ProviderBindOptions, type ProviderFactory } from "./provider";
 export {
   restPassthroughFetch,
   PassthroughUrlError,

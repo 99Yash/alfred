@@ -5,6 +5,7 @@ export * from "./runtime";
 export * from "./tools";
 export * from "./passthrough";
 export * from "./passthrough-bounds";
+export * from "./credentials";
 export * from "./integration-objects";
 export * from "./user-model";
 export * from "./chat-memory";
