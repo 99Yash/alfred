@@ -21,6 +21,10 @@ import type {
   ToolRiskTier,
 } from "@alfred/contracts";
 import { buildToolName, INTEGRATION_ACTIONS, integrationFromToolName } from "@alfred/contracts";
+// Type-only, deliberately: importing the `integrations` VALUE here would pull
+// `@alfred/db` and `@alfred/ingestion` into the import graph of the module every
+// tool declaration imports. Building a context lives in `./context`.
+import type { Integrations } from "@alfred/integrations";
 import type { z } from "zod";
 import { deriveToolDiscovery, type ResolvedDiscovery } from "./metadata-defaults";
 
@@ -85,6 +89,24 @@ export interface ToolExecuteContext {
   stagingId?: string;
   userId: string;
   /**
+   * Every provider client, already bound to THIS call's user — so a tool's
+   * `execute` reads `ctx.integrations.github.search({ q })` and is done.
+   *
+   * It hangs off the context rather than being imported because that is what
+   * removes the knowledge a tool used to need: which credential function its
+   * provider uses, that the token it returns must never be logged or persisted,
+   * and that the right `userId` to bind is this call's. The dispatcher binds it
+   * once from {@link ToolExecuteContext.userId}, so a tool cannot reach a
+   * different user's credentials without going outside the context, and no tool
+   * ever holds a curated-read token (see `githubClientForUser`; the ADR-0074
+   * passthrough profile is the one place a header still crosses into tool code).
+   *
+   * Binding is lazy and holds no credential: a provider client is built on first
+   * touch and resolves its credential per request, so nothing here goes stale and
+   * a context is safe to pass around for as long as the call lives.
+   */
+  integrations: Integrations;
+  /**
    * The user's operational IANA timezone (the `"timezone"` pref, falling back
    * to UTC), resolved once by the dispatcher. Tools that turn a relative window
    * ("today", "the past week") into concrete bounds resolve it against this so
@@ -121,6 +143,13 @@ export interface ToolExecuteContext {
   // AbortSignal through the dispatcher and into the network tools when the turn
   // cancellation path lands.
 }
+
+/**
+ * Everything a caller supplies to build a {@link ToolExecuteContext} — which is
+ * everything EXCEPT the provider bind, because that is derived rather than
+ * passed. See `toolExecuteContext` in `./context`.
+ */
+export type ToolExecuteContextFields = Omit<ToolExecuteContext, "integrations">;
 
 export interface LiveToolArgs<
   I extends IntegrationSlug,

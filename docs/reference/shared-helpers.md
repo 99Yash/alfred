@@ -6,11 +6,25 @@ a **smell map** (intent → the helper to reach for) and a **catalog** (what eac
 owner exports). Read it before adding a `format*`, `parse*`, `is*`, `to*`, or
 `get*` function, or before dropping something into a route's `helpers.ts`.
 
-This is the *prevention* layer. The *cure* layer is `pnpm dup` (jscpd, copy-paste
-bodies) and `scripts/check-consolidation-drift.mjs` (bans specific re-drifted
-idioms, runs in `pnpm check`). When a helper here has exactly one owner, a
-re-implementation of it is a candidate rule in the drift check — see
-[Closing the loop](#closing-the-loop).
+Three layers find a helper for you, in increasing order of how much they trust
+you to remember:
+
+1. **`scripts/consolidation-rules.mjs`** — the machine-checked table.
+   `check-consolidation-drift.mjs` runs its `gate` rules inside `pnpm check`, and
+   `.claude/hooks/helper-hints.mjs` runs the whole table against code an agent is
+   about to write. One table, two consumers, so a fact enforced by the build and
+   a fact stated to an agent cannot disagree.
+2. **This doc** — the full catalog and the colocation rule for helpers whose
+   absence no regex can spot.
+3. **`codebases guide alfred "<intent>"`** — semantic search over this repo's
+   rules, and `codebases source alfred "<symbol>"` over its implementations. Use
+   it when you don't know the name to look up. It is a discovery aid, never a
+   gate: the local benchmark puts hybrid recall around half at top-5, so an
+   invariant must never depend on it surfacing.
+
+`pnpm dup` (jscpd) remains the *cure* layer for copy-pasted bodies after the
+fact. When a helper here has exactly one owner, a re-implementation of it is a
+candidate `gate` rule — see [Closing the loop](#closing-the-loop).
 
 ## Smell map — when you're about to…, reach for
 
@@ -122,9 +136,27 @@ tooling already ignores `scripts/`.
 
 ## Closing the loop
 
-The smell map (for humans and agents to read) and `check-consolidation-drift.mjs`
-(deterministic gate) express the same fact twice. When a helper here is fully
-consolidated to one owner, add a rule to the drift check so a re-implementation
-fails `pnpm check` the same way a type error does. Prevention biases toward the
-owner; the gate guarantees it. Keep the two in step: a new drift rule should have a
-matching smell-map row, and vice versa.
+A prose row and a deterministic gate express the same fact twice, so the goal is
+to keep as few facts as possible in prose only. `scripts/consolidation-rules.mjs`
+carries two severities to make that a ratchet rather than a one-time cleanup:
+
+- **`hint`** — the canonical helper exists and is preferred, but legacy call
+  sites remain (or the pattern is too broad to ban). Advisory: the agent hook
+  names the helper at edit time; nothing fails.
+- **`gate`** — fully consolidated to one owner, so a match is unambiguously
+  drift. Fails `pnpm check` the same way a type error does.
+
+The ratchet: when a `hint` rule's legacy call sites reach zero, promote it to
+`gate` **and delete its row from the root `CLAUDE.md` table**. A fact a check
+enforces should not also be prose that every session pays for and nothing keeps
+current. That trade is what makes the trim a real simplification rather than a
+move — the enforcement went up as the prose went down.
+
+Worked example: `err instanceof Error ? err.message : String(err)` sat out of the
+gate for a long time on the belief that it had ~95 un-migrated call sites. It had
+five. Migrating them cost one commit, `error-to-message` became a `gate` rule,
+and the `toMessage` row left the root table. Re-derive a count before trusting it
+as a reason not to enforce something.
+
+Keep the layers in step: a new `gate` rule should retire a prose row, and a new
+prose row should be a question of whether a rule could cover it instead.

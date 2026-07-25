@@ -6,7 +6,6 @@ export {
   exchangeUserCode,
   canUserAccessInstallation,
   verifyWebhookSignature,
-  githubPassthroughProfile,
 } from "./app";
 export type { GithubAppConfig, InstallationToken, ExchangeUserCodeResult } from "./app";
 export {
@@ -21,12 +20,17 @@ export type {
   GithubCredentialSummary,
   UserInstallationToken,
 } from "./credentials";
-export { searchGithub, getPullRequest, getIssue } from "./pull-requests";
+// The ONE door to GitHub's REST API on a user's behalf — the curated reads plus
+// the passthrough transport profile. Application code reaches it through
+// `ctx.integrations.github`, which binds the user for it; nothing outside
+// `client.ts` needs a token to talk to GitHub.
+export { createGithubClient, githubClientForUser } from "./client";
 export type {
-  SearchGithubArgs,
-  SearchGithubResult,
+  GithubClient,
+  GithubClientOptions,
+  GithubTokenResolver,
   GithubSearchHit,
-  GetByNumberArgs,
-  PullRequestDetail,
-  IssueDetail,
-} from "./pull-requests";
+  SearchResult as GithubSearchResult,
+  PullRequestDetail as GithubPullRequestDetail,
+  IssueDetail as GithubIssueDetail,
+} from "./client";

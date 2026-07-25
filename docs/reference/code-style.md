@@ -121,6 +121,7 @@ After a derive lands, drop now-orphaned imports — the literal often named a un
 - **Exhaustive switches** end with a `default` that assigns to `const _exhaustive: never = x` — adding a union member then fails the build instead of silently falling through.
 - **Minimize `!`.** A non-null assertion is a runtime promise the compiler can't keep. Narrow instead.
 - **`process.env` is banned** — go through `serverEnv()` from `@alfred/env/server`.
+- **One spelling for an optional field built from a maybe-value: the conditional spread.** `{ ...(x ? { k: x } : {}) }`, not `{ k: x }`. `exactOptionalPropertyTypes` is OFF (#552), so `k?: T` also accepts `undefined` and the compiler will not tell you which spelling you meant — that makes it a convention, and one convention beats two. It is load-bearing at any consumer that distinguishes *absent* from *present-and-undefined*: a Drizzle insert walks `Object.keys`, so a present `undefined` binds `NULL` where an absent key emits the column `DEFAULT` (`mcp/broker.ts` `insertInvocation`). When the object literal contains *nothing but* the conditional, drop the wrapper instead of spreading into an empty object — `f(x ? { k: x } : {})` — or oxlint's `no-useless-spread` will (correctly) object. Turning the flag on is a separate, measured migration; until then don't "clean up" a spread to a plain assignment.
 
 ### Constants and configuration ownership
 

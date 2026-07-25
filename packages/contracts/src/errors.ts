@@ -44,16 +44,18 @@ export function toMessage(err: unknown): string {
  * credential into a log.
  */
 export function redactSecrets(text: string): string {
-  return text
-    .replace(/\b(Bearer|Basic|Token)\s+[A-Za-z0-9._~+/=-]{8,}/gi, "$1 [redacted]")
-    .replace(
-      /\b(access_token|refresh_token|client_secret|api[-_]?key|apikey|authorization|password|secret|token)\b(\s*["']?\s*[:=]\s*["']?)([^\s"'&,}]+)/gi,
-      "$1$2[redacted]",
-    )
-    // Credentials embedded in a URL's userinfo (`https://user:token@host`). A
-    // key=value pass never catches these because the secret is positional, not
-    // keyed; an MCP transport/endpoint error is a realistic carrier of one.
-    .replace(/(\bhttps?:\/\/)[^/\s:@]+:[^/\s@]+@/gi, "$1[redacted]@");
+  return (
+    text
+      .replace(/\b(Bearer|Basic|Token)\s+[A-Za-z0-9._~+/=-]{8,}/gi, "$1 [redacted]")
+      .replace(
+        /\b(access_token|refresh_token|client_secret|api[-_]?key|apikey|authorization|password|secret|token)\b(\s*["']?\s*[:=]\s*["']?)([^\s"'&,}]+)/gi,
+        "$1$2[redacted]",
+      )
+      // Credentials embedded in a URL's userinfo (`https://user:token@host`). A
+      // key=value pass never catches these because the secret is positional, not
+      // keyed; an MCP transport/endpoint error is a realistic carrier of one.
+      .replace(/(\bhttps?:\/\/)[^/\s:@]+:[^/\s@]+@/gi, "$1[redacted]@")
+  );
 }
 
 /**
@@ -117,6 +119,21 @@ export function isHttpError(err: unknown): err is HttpError {
 }
 
 /**
+ * How much of the upstream body the built {@link HttpError} carries:
+ *
+ *   - `"summarize"` (default): a bounded, secret-redacted slice rides ON the
+ *     error (and thus into logs/telemetry). Safe for providers whose error
+ *     bodies are prod-safe after {@link summarizeBody} (GitHub, Google, …).
+ *   - `"omit"`: nothing rides on the error (`body: ""`). For providers whose
+ *     bodies can echo request fragments the secret-redaction can't catch (a
+ *     Notion page slice, a Railway GraphQL document) and must never reach the
+ *     tool dispatcher / model transcript. Log the body server-side at the call
+ *     site if you still need it for debugging — this factory won't (it's
+ *     browser-safe and does no I/O beyond reading the response).
+ */
+export type ErrorBodyPolicy = "summarize" | "omit";
+
+/**
  * Build an {@link HttpError} from a failed `Response`, reading a bounded +
  * secret-redacted slice of the body. The one-liner that replaces the
  * copy-pasted `if (!res.ok) { const body = await res.text().catch(() => "");
@@ -124,12 +141,14 @@ export function isHttpError(err: unknown): err is HttpError {
  *
  *   if (!res.ok) throw await httpErrorFromResponse("gmail", res, { url });
  *
- * Reads the body, so only call it on the error path (a non-ok response).
+ * Pass `bodyPolicy: "omit"` for a provider whose body must not travel on the
+ * error (see {@link ErrorBodyPolicy}). Reads the body, so only call it on the
+ * error path (a non-ok response).
  */
 export async function httpErrorFromResponse(
   provider: string,
   res: Response,
-  opts: { url?: string; method?: string } = {},
+  opts: { url?: string; method?: string; bodyPolicy?: ErrorBodyPolicy } = {},
 ): Promise<HttpError> {
   const raw = await res.text().catch(() => "");
   return new HttpError({
@@ -137,6 +156,6 @@ export async function httpErrorFromResponse(
     status: res.status,
     url: opts.url ?? res.url,
     method: opts.method,
-    body: summarizeBody(raw),
+    body: opts.bodyPolicy === "omit" ? "" : summarizeBody(raw),
   });
 }

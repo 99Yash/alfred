@@ -25,6 +25,12 @@ import { getActiveBearerCredential } from "@alfred/integrations/shared";
 import { runRestPassthrough } from "./passthrough";
 import { liveTool, type RegisteredTool } from "./registry";
 
+/**
+ * SUPERSEDED PATH, CALLERS ARE BEING MIGRATED (#551). Notion is not on the
+ * `ctx.integrations` facade yet, so these tools still resolve the credential here
+ * and pass a bare token into each `notion*` function. `notionClientForUser` in
+ * #551 removes this helper along with every `token` parameter below it.
+ */
 async function tokenFor(userId: string): Promise<string> {
   const { accessToken } = await getActiveBearerCredential(userId, "notion");
   return accessToken;

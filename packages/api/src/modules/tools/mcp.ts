@@ -38,9 +38,17 @@ function brokerResult(outcome: McpBrokerOutcome): unknown {
     case "tool_error":
       // The remote server received the call and returned a tool-level error. It is
       // a definitive rejection (no effect), distinct from an ambiguous write.
-      return withTruncation({ status: "tool_error", result: outcome.envelope.result }, outcome.envelope);
+      return withTruncation(
+        { status: "tool_error", result: outcome.envelope.result },
+        outcome.envelope,
+      );
     case "blocked":
-      return { status: "blocked", retry: "blocked", reason: outcome.reason, message: outcome.message };
+      return {
+        status: "blocked",
+        retry: "blocked",
+        reason: outcome.reason,
+        message: outcome.message,
+      };
     case "ambiguous":
       // The doc's normative unknown-outcome envelope: explicit, and NOT an ordinary
       // retryable error the model should self-correct on.
@@ -114,7 +122,7 @@ export const mcpTools: readonly RegisteredTool[] = [
     action: "list_tools",
     riskTier: "no_risk",
     description:
-      "List the tools available on a connected MCP server. Returns compact summaries (name, title, short description) for the connection's current catalog, filtered by an optional `query` and paginated with `limit`/`cursor`. Pass `remoteName` to get the one tool's full descriptor (including its argument schema) before calling it. This is a local read of Alfred's validated catalog — it never dumps the whole catalog and never hits the network.",
+      "List the tools available on a connected MCP server. Returns compact summaries (name, title, short description) for the connection's current catalog, filtered by an optional `query` and paginated with `limit`/`cursor`. Pass `detail:\"names\"` to survey a wide catalog by name alone, then narrow with `query`. Pass `remoteName` to get the one tool's full descriptor (including its argument schema) before calling it. This is a local read of Alfred's validated catalog — it never dumps the whole catalog and never hits the network.",
     discovery: {
       aliases: ["list mcp tools", "mcp catalog", "what mcp tools", "connected tools"],
       tags: ["mcp", "integration", "discovery"],

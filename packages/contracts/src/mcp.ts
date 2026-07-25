@@ -81,12 +81,7 @@ export const mcpEffectOutcomeValues = ["succeeded", "rejected", "failed", "unkno
 export type McpEffectOutcome = (typeof mcpEffectOutcomeValues)[number];
 export const mcpEffectOutcomeSchema = z.enum(mcpEffectOutcomeValues);
 
-export const mcpRetryDispositionValues = [
-  "safe",
-  "blocked",
-  "reconcile",
-  "same_key_only",
-] as const;
+export const mcpRetryDispositionValues = ["safe", "blocked", "reconcile", "same_key_only"] as const;
 export type McpRetryDisposition = (typeof mcpRetryDispositionValues)[number];
 export const mcpRetryDispositionSchema = z.enum(mcpRetryDispositionValues);
 
@@ -188,10 +183,28 @@ export type McpCallInput = z.infer<typeof mcpCallInput>;
  */
 export const MCP_LIST_TOOLS_MAX_LIMIT = 50;
 export const MCP_LIST_TOOLS_DEFAULT_LIMIT = 25;
+
+/**
+ * How much of each tool a page carries. Two tiers only, and deliberately no
+ * `"full"`: a full descriptor is bounded at 128 KB at ingest, so a page of them
+ * would reinstate exactly the catalog dump clarification #5 exists to prevent.
+ * The full descriptor is reachable one tool at a time, via `remoteName`.
+ *
+ *  - `summary` (default): name + title + clipped description — enough to choose.
+ *  - `names`: name only. A survey tier for a wide catalog, where the descriptions
+ *    dominate the page and the model only needs to know what exists before
+ *    narrowing with `query` or asking for one descriptor.
+ */
+export const mcpListToolsDetailValues = ["names", "summary"] as const;
+export type McpListToolsDetail = (typeof mcpListToolsDetailValues)[number];
+export const mcpListToolsDetailSchema = z.enum(mcpListToolsDetailValues);
+
 export const mcpListToolsInput = z.object({
   connectionId: z.string().min(1),
   /** Free-text filter over tool name/description. Untrusted data, not instructions. */
   query: z.string().max(200).optional(),
+  /** Page density; see {@link mcpListToolsDetailValues}. Defaults to `summary`. */
+  detail: mcpListToolsDetailSchema.optional(),
   /** Opaque pagination cursor returned by a prior page. */
   cursor: z.string().max(512).optional(),
   limit: z.coerce.number().int().positive().max(MCP_LIST_TOOLS_MAX_LIMIT).optional(),

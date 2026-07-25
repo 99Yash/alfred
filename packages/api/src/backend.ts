@@ -226,10 +226,12 @@ export {
   registerTool,
   registerTools,
   riskTierCountsForIntegration,
+  toolExecuteContext,
   type LiveToolArgs,
   type RegisteredTool,
   type RiskTierCounts,
   type ToolExecuteContext,
+  type ToolExecuteContextFields,
 } from "./modules/tools/index";
 export * from "./modules/dispatch/index";
 export {

@@ -182,7 +182,11 @@ describe("runToolRound — brief resume idempotency", () => {
     if (outcome.kind !== "committed") return;
     // The already-run read `a` was re-dispatched on resume (idempotent), and now
     // every call commits in model order to the same terminal transcript.
-    assert.equal(dispatchCount.a, 2, "read a re-dispatched on resume (short-circuits idempotently)");
+    assert.equal(
+      dispatchCount.a,
+      2,
+      "read a re-dispatched on resume (short-circuits idempotently)",
+    );
     assert.deepEqual(committed, ["a", "b", "c"]);
     assert.equal(outcome.transcript.length, 3);
     assert.deepEqual(

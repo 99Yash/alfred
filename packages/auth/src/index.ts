@@ -1,3 +1,4 @@
+import { toMessage } from "@alfred/contracts";
 import { db } from "@alfred/db";
 import * as schema from "@alfred/db/schema/auth";
 import { serverEnv } from "@alfred/env/server";
@@ -63,7 +64,7 @@ export function auth() {
               } catch (err) {
                 console.error("[auth] onUserCreated hook failed", {
                   userId: user.id,
-                  error: err instanceof Error ? err.message : String(err),
+                  error: toMessage(err),
                 });
               }
             }

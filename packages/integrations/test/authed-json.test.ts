@@ -8,8 +8,9 @@ import { authedJson } from "../src/shared/authed-json";
  * `authedJson` is the JSON layer built on `authedFetch` that Notion, Vercel, and
  * Google collapsed onto: *a non-2xx is an `HttpError`, a 2xx is parsed JSON.*
  * These pin that post-fetch contract — parse on success, empty body → `{}`, the
- * default `HttpError` mapping (provider/status/redacted label), and the `onError`
- * override Notion uses. It stubs the global `fetch`, so it runs offline.
+ * default `HttpError` mapping (provider/status/redacted label), and the
+ * `bodyPolicy: "omit"` posture Notion uses. It stubs the global `fetch`, so it
+ * runs offline.
  */
 
 const realFetch = globalThis.fetch;
@@ -83,46 +84,53 @@ describe("authedJson", () => {
     );
   });
 
-  test("onError overrides the default non-2xx branch entirely", async () => {
+  test('bodyPolicy "omit" keeps the status but strips the upstream body', async () => {
     stubFetch(new Response("secret page fragment", { status: 403 }));
-    class CustomError extends Error {}
-    await assert.rejects(
-      authedJson(
-        { headers: {} },
-        { url: "https://api.example.com/forbidden" },
-        {
-          provider: "example",
-          // Notion's shape: log the body server-side, throw something body-less.
-          onError: async (res) => {
-            assert.equal(res.status, 403);
-            throw new CustomError("mapped by onError");
-          },
+    const logged: string[] = [];
+    const realError = console.error;
+    console.error = (...args: unknown[]) => void logged.push(args.map(String).join(" "));
+    try {
+      await assert.rejects(
+        authedJson(
+          { headers: {} },
+          { url: "https://api.example.com/forbidden", method: "POST" },
+          { provider: "notion-like", urlLabel: "/v1/pages/x", bodyPolicy: "omit" },
+        ),
+        (err: unknown) => {
+          assert.ok(err instanceof HttpError);
+          // The structured error still carries everything a caller branches on…
+          assert.equal(err.provider, "notion-like");
+          assert.equal(err.status, 403);
+          assert.equal(err.url, "/v1/pages/x");
+          // …but the upstream body does not ride along into telemetry.
+          assert.equal(err.body, "");
+          return true;
         },
-      ),
-      (err: unknown) => {
-        assert.ok(err instanceof CustomError);
-        // The upstream body never rode into the thrown error.
-        assert.doesNotMatch(err.message, /secret page fragment/);
-        return true;
-      },
-    );
+      );
+    } finally {
+      console.error = realError;
+    }
+    // The body survives exactly one place: the server-side log.
+    assert.equal(logged.length, 1);
+    assert.match(logged[0] ?? "", /secret page fragment/);
+    assert.match(logged[0] ?? "", /\[notion-like\] 403 POST \/v1\/pages\/x/);
   });
 
-  test("a 2xx never invokes onError", async () => {
+  test('a 2xx never logs or strips anything under bodyPolicy "omit"', async () => {
     stubFetch(new Response(JSON.stringify({ fine: true }), { status: 200 }));
-    let called = false;
-    const body = await authedJson(
-      { headers: {} },
-      { url: "https://api.example.com/ok" },
-      {
-        provider: "example",
-        onError: async () => {
-          called = true;
-          throw new Error("should not run");
-        },
-      },
-    );
-    assert.deepEqual(body, { fine: true });
-    assert.equal(called, false);
+    const logged: string[] = [];
+    const realError = console.error;
+    console.error = (...args: unknown[]) => void logged.push(args.map(String).join(" "));
+    try {
+      const body = await authedJson(
+        { headers: {} },
+        { url: "https://api.example.com/ok" },
+        { provider: "example", bodyPolicy: "omit" },
+      );
+      assert.deepEqual(body, { fine: true });
+    } finally {
+      console.error = realError;
+    }
+    assert.deepEqual(logged, []);
   });
 });

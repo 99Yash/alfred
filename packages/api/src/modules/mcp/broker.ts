@@ -21,11 +21,10 @@
  * successor from a model proposal (clarification #4).
  */
 
-import { sanitizeErrorMessage, summarizeBody, toMessage } from "@alfred/contracts";
 import type { McpEffectClass } from "@alfred/contracts";
 import type { McpConnection, McpInvocation } from "@alfred/db/schemas";
 import type { ExternalToolRef, McpCallEnvelope } from "./client";
-import { McpClientError, isPreDeliveryErrorCode } from "./errors";
+import { McpClientError, boundedMcpErrorText, isPreDeliveryErrorCode } from "./errors";
 import { canonicalArgsHash, descriptorHash } from "./hash";
 import type { McpConnectionManager } from "./manager";
 import {
@@ -36,9 +35,6 @@ import {
   readToolPolicy,
   updateInvocation,
 } from "./persistence";
-
-/** Cap on the error text persisted to a ledger row / surfaced to the model. */
-const MAX_LEDGER_ERROR_CHARS = 500;
 
 const BLOCKED_BARRIER_MESSAGE =
   "A matching write to this MCP tool is already unresolved (it may have been delivered). " +
@@ -87,10 +83,6 @@ export type McpBrokerOutcome =
     }
   | { status: "ambiguous"; invocationId: string; message: string };
 
-function boundedError(err: unknown): string {
-  return summarizeBody(sanitizeErrorMessage(toMessage(err)), MAX_LEDGER_ERROR_CHARS);
-}
-
 /** True only for a deterministic pre-delivery `McpClientError` (provably not delivered). */
 function isProvenNotDelivered(err: unknown): boolean {
   return err instanceof McpClientError && isPreDeliveryErrorCode(err.code);
@@ -121,10 +113,7 @@ export class McpExecutionBroker {
     // enforced here, at the read, rather than left as a convention for multi-user.
     const connection = await readConnection(ref.connectionId);
     if (!connection || connection.userId !== input.userId) {
-      throw new McpClientError(
-        "not_connected",
-        `No connected MCP server '${ref.connectionId}'.`,
-      );
+      throw new McpClientError("not_connected", `No connected MCP server '${ref.connectionId}'.`);
     }
 
     // Connecting/refreshing the catalog is a prerequisite, not the tool-call
@@ -138,17 +127,19 @@ export class McpExecutionBroker {
     // effectful, ambiguity-protected call.
     const liveTool = client.catalog?.tools.find((tool) => tool.name === ref.remoteName);
     const hash = liveTool ? descriptorHash(liveTool) : undefined;
-    const policy = hash
-      ? await readToolPolicy(ref.connectionId, ref.remoteName, hash)
-      : undefined;
+    const policy = hash ? await readToolPolicy(ref.connectionId, ref.remoteName, hash) : undefined;
     const effectClass: McpEffectClass = policy?.effectClass ?? "unknown";
 
     if (effectClass === "read") {
       // Reads are idempotent: no barrier, no ledger row. Any failure (including a
       // possibly-delivered one) is safe to surface and re-run, so it just throws.
-      const envelope = await this.#manager.callTool(ref, input.arguments, {
-        ...(input.signal ? { signal: input.signal } : {}),
-      });
+      // The options object IS the conditional — a spread inside a fresh literal
+      // would just be a redundant copy (oxlint's `no-useless-spread`).
+      const envelope = await this.#manager.callTool(
+        ref,
+        input.arguments,
+        input.signal ? { signal: input.signal } : {},
+      );
       return {
         status: envelope.outcome === "completed" ? "completed" : "tool_error",
         invocationId: null,
@@ -192,6 +183,12 @@ export class McpExecutionBroker {
       argsHash,
       effectClass: resolved.effectClass,
       attemptLifecycle: "prepared",
+      // Conditional spread, like everywhere else in this repo — `exactOptionalPropertyTypes`
+      // is off (#552), so a plain `key: maybeUndefined` is unenforced style rather than a
+      // typed distinction. Here the distinction is also load-bearing: drizzle's insert walks
+      // `Object.keys`, so a present-but-undefined key binds a NULL param where an absent key
+      // emits `DEFAULT`. Same row today (all three columns are nullable with no default), but
+      // the divergence would be silent the moment one of them gains a column default.
       ...(connection?.currentCatalogRevisionId
         ? { catalogRevisionId: connection.currentCatalogRevisionId }
         : {}),
@@ -228,9 +225,11 @@ export class McpExecutionBroker {
     });
 
     try {
-      const envelope = await this.#manager.callTool(ref, input.arguments, {
-        ...(input.signal ? { signal: input.signal } : {}),
-      });
+      const envelope = await this.#manager.callTool(
+        ref,
+        input.arguments,
+        input.signal ? { signal: input.signal } : {},
+      );
       return this.#resolveResponse(invocation, envelope);
     } catch (err) {
       if (isProvenNotDelivered(err)) {
@@ -242,7 +241,7 @@ export class McpExecutionBroker {
           retryDisposition: "safe",
           resolvedAt: new Date(),
           resolutionReason: "not_delivered",
-          lastError: boundedError(err),
+          lastError: boundedMcpErrorText(err),
         });
         throw err;
       }
@@ -270,7 +269,7 @@ export class McpExecutionBroker {
         effectOutcome: "unknown",
         retryDisposition: "blocked",
         resolutionReason: "ambiguous_delivery",
-        lastError: boundedError(err),
+        lastError: boundedMcpErrorText(err),
       });
       return { status: "ambiguous", invocationId: invocation.id, message: AMBIGUOUS_MESSAGE };
     }

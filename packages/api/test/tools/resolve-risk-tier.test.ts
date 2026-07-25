@@ -2,7 +2,8 @@ import assert from "node:assert/strict";
 import { describe, test } from "node:test";
 import { z } from "zod";
 
-import { liveTool, type ToolExecuteContext } from "../../src/modules/tools/registry";
+import { toolExecuteContext } from "../../src/modules/tools/context";
+import { liveTool } from "../../src/modules/tools/registry";
 
 /**
  * Deterministic (no-DB) coverage of the `resolveRiskTier` wiring seam (#541 Part
@@ -20,7 +21,7 @@ import { liveTool, type ToolExecuteContext } from "../../src/modules/tools/regis
  * a stand-in chosen to make the re-parse observable via coercion.
  */
 describe("liveTool resolveRiskTier wiring", () => {
-  const ctx = {
+  const ctx = toolExecuteContext({
     runId: "run_1",
     scratchpadRunId: "run_1",
     stepId: "step_1",
@@ -28,7 +29,7 @@ describe("liveTool resolveRiskTier wiring", () => {
     userId: "user_1",
     timezone: "UTC",
     caller: "boss",
-  } satisfies ToolExecuteContext;
+  });
 
   test("preserves the static riskTier as the floor on the registry entry", () => {
     const tool = liveTool({

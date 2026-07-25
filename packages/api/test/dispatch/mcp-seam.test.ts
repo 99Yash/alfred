@@ -114,7 +114,11 @@ async function seedConnectionWithCatalog(userId: string, tools: Tool[]): Promise
 async function seedOwnedCatalog(
   userId: string,
   tools: Tool[],
-): Promise<{ connectionId: string; revisionHash: string; descriptorHashes: Record<string, string> }> {
+): Promise<{
+  connectionId: string;
+  revisionHash: string;
+  descriptorHashes: Record<string, string>;
+}> {
   const conn = await insertConnection({
     userId,
     label: "Test MCP",
@@ -162,7 +166,9 @@ describe("dispatch → mcp seam (DB-backed)", { skip: SKIP }, () => {
   before(async () => {
     clearToolRegistryForTests();
     registerTools(mcpTools);
-    await db().delete(user).where(like(user.id, `${ID_PREFIX}%`));
+    await db()
+      .delete(user)
+      .where(like(user.id, `${ID_PREFIX}%`));
   });
 
   after(async () => {
@@ -250,12 +256,20 @@ describe("dispatch → mcp seam (DB-backed)", { skip: SKIP }, () => {
 
     // Autonomous: the downgrade waived approval, so the call executed inline
     // instead of parking — and the broker received it exactly once.
-    assert.equal(result.kind, "executed", "a downgraded mcp.call runs without staging for approval");
+    assert.equal(
+      result.kind,
+      "executed",
+      "a downgraded mcp.call runs without staging for approval",
+    );
     assert.equal(broker.calls, 1);
 
     const rows = await stagingRowsFor(runId, toolCallId);
     assert.equal(rows.length, 1);
-    assert.equal(rows[0]?.riskTier, "low", "the reviewed downgrade is the persisted effective tier");
+    assert.equal(
+      rows[0]?.riskTier,
+      "low",
+      "the reviewed downgrade is the persisted effective tier",
+    );
     assert.equal(rows[0]?.requiresApproval, false, "the resolved tier drove the approval decision");
     assert.equal(rows[0]?.status, "executed");
   });
