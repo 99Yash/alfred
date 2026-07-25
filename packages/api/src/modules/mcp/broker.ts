@@ -21,11 +21,10 @@
  * successor from a model proposal (clarification #4).
  */
 
-import { sanitizeErrorMessage, summarizeBody, toMessage } from "@alfred/contracts";
 import type { McpEffectClass } from "@alfred/contracts";
 import type { McpConnection, McpInvocation } from "@alfred/db/schemas";
 import type { ExternalToolRef, McpCallEnvelope } from "./client";
-import { McpClientError, isPreDeliveryErrorCode } from "./errors";
+import { McpClientError, boundedMcpErrorText, isPreDeliveryErrorCode } from "./errors";
 import { canonicalArgsHash, descriptorHash } from "./hash";
 import type { McpConnectionManager } from "./manager";
 import {
@@ -36,9 +35,6 @@ import {
   readToolPolicy,
   updateInvocation,
 } from "./persistence";
-
-/** Cap on the error text persisted to a ledger row / surfaced to the model. */
-const MAX_LEDGER_ERROR_CHARS = 500;
 
 const BLOCKED_BARRIER_MESSAGE =
   "A matching write to this MCP tool is already unresolved (it may have been delivered). " +
@@ -86,10 +82,6 @@ export type McpBrokerOutcome =
       priorInvocationId: string | null;
     }
   | { status: "ambiguous"; invocationId: string; message: string };
-
-function boundedError(err: unknown): string {
-  return summarizeBody(sanitizeErrorMessage(toMessage(err)), MAX_LEDGER_ERROR_CHARS);
-}
 
 /** True only for a deterministic pre-delivery `McpClientError` (provably not delivered). */
 function isProvenNotDelivered(err: unknown): boolean {
@@ -237,7 +229,7 @@ export class McpExecutionBroker {
           retryDisposition: "safe",
           resolvedAt: new Date(),
           resolutionReason: "not_delivered",
-          lastError: boundedError(err),
+          lastError: boundedMcpErrorText(err),
         });
         throw err;
       }
@@ -265,7 +257,7 @@ export class McpExecutionBroker {
         effectOutcome: "unknown",
         retryDisposition: "blocked",
         resolutionReason: "ambiguous_delivery",
-        lastError: boundedError(err),
+        lastError: boundedMcpErrorText(err),
       });
       return { status: "ambiguous", invocationId: invocation.id, message: AMBIGUOUS_MESSAGE };
     }
