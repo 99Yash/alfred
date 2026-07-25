@@ -153,3 +153,52 @@ export function parseEmailAddress(value: string | null | undefined): string | nu
   const raw = (value.match(/<([^>]+)>/)?.[1] ?? value).trim().toLowerCase();
   return raw.includes("@") ? raw : null;
 }
+
+/**
+ * Merge caller overrides onto a full defaults object, ignoring any key whose
+ * override value is `undefined`. The one way to resolve a `Partial<T>` of
+ * tunables or injected dependencies against its defaults.
+ *
+ * This exists because the plain spread it replaces has a silent failure mode:
+ *
+ *   const policy = { ...DEFAULT_POLICY, ...options.policy }; // maxAttempts: undefined
+ *
+ * A *present* `undefined` wins a spread, so one explicitly-undefined key zeroes
+ * the default it was supposed to fall back to — here `maxAttempts` becomes
+ * `undefined`, the retry loop's `attempt <= policy.maxAttempts` is `false`, and
+ * the request is never sent. Nothing throws; the behaviour just quietly
+ * disappears.
+ *
+ * `exactOptionalPropertyTypes` catches that at any call site whose type is
+ * narrow (`{ k?: T }`, which `Partial<T>` is), which is why the tree was safe
+ * when this helper was written. But it made *narrowness itself* load-bearing:
+ * widening one declaration to `k?: T | undefined` — the correct move nearly
+ * everywhere else, since absence and present-undefined usually mean the same
+ * thing — would silently re-open the hole here, with nothing at the defaults
+ * site saying so. Routing the merge through this function makes the declaration
+ * spelling a comprehension choice again rather than a correctness guard.
+ *
+ * Iterates the override keys (not the defaults'), so it stays faithful to spread
+ * semantics when `defaults` doesn't enumerate every key of `T`.
+ *
+ * The override parameter is deliberately the WIDE partial (`T[K] | undefined`)
+ * rather than `Partial<T>`, which is narrow under `exactOptionalPropertyTypes`.
+ * Tolerating a present `undefined` is the entire contract, so the signature has
+ * to admit one — and the shapes most in need of this helper are the already
+ * widened ones (`AttributedCall`, whose every field is `| undefined`, so the
+ * flag catches nothing there), which a `Partial<T>` parameter would reject.
+ */
+export function withDefaults<T extends object>(
+  defaults: T,
+  overrides?: { [K in keyof T]?: T[K] | undefined },
+): T {
+  const merged = { ...defaults };
+  if (!overrides) return merged;
+  // `Object.keys` is typed `string[]`; the value is a `Partial<T>`, so its keys
+  // are `keyof T` by construction. The read below is what needs the key type.
+  for (const key of Object.keys(overrides) as (keyof T)[]) {
+    const value = overrides[key];
+    if (value !== undefined) merged[key] = value;
+  }
+  return merged;
+}

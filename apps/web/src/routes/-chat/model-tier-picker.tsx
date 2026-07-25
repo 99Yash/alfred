@@ -65,7 +65,7 @@ export function ModelTierPicker({
 }: {
   value: ChatTier;
   onChange: (value: ChatTier) => void;
-  disabled?: boolean;
+  disabled?: boolean | undefined;
 }) {
   const listboxId = useId();
   const [open, setOpen] = useState(false);

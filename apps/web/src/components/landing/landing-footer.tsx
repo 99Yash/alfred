@@ -17,7 +17,7 @@ export function LandingFooter({
   healthOk,
 }: {
   onGetStarted: () => void;
-  healthOk?: boolean;
+  healthOk?: boolean | undefined;
 }) {
   const operational = healthOk !== false;
   const year = useCurrentYear();
@@ -72,7 +72,7 @@ export function LandingFooter({
 interface FooterLink {
   label: string;
   href: string;
-  external?: boolean;
+  external?: boolean | undefined;
 }
 
 const PRODUCT_ITEMS: ReadonlyArray<FooterLink> = [

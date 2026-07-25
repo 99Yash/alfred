@@ -125,13 +125,15 @@ export interface UpsertTriageArgs {
    * transaction as the canonical triage row so a worker crash after row write
    * cannot leave a tag without its "why" record.
    */
-  decisionTrace?: {
-    stepId: string;
-    attempt: number;
-    kind: "triage.classification";
-    decisionKey?: string;
-    trace: SenderExtractionEvent;
-  };
+  decisionTrace?:
+    | {
+        stepId: string;
+        attempt: number;
+        kind: "triage.classification";
+        decisionKey?: string | undefined;
+        trace: SenderExtractionEvent;
+      }
+    | undefined;
   /**
    * Authored timestamp of the message this classification is for. Drives the
    * recency guard: a run for an OLDER message in the thread must not clobber a

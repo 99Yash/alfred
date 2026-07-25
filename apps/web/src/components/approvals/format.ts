@@ -15,8 +15,8 @@ export type JsonParseResult = { ok: true; value: unknown } | { ok: false; messag
  */
 export function triggerLabel(trigger: {
   kind: string;
-  source?: string | null;
-  type?: string | null;
+  source?: string | null | undefined;
+  type?: string | null | undefined;
 }): string {
   switch (trigger.kind) {
     case "manual":

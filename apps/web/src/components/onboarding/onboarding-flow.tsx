@@ -43,8 +43,8 @@ export function OnboardingFlow({
   finishing,
 }: {
   step: OnboardingStep;
-  connectedEmail?: string;
-  connectedGithub?: string;
+  connectedEmail?: string | undefined;
+  connectedGithub?: string | undefined;
   onConnect: () => void;
   onConnectGithub: () => void;
   onSkip: () => void;
@@ -444,9 +444,9 @@ interface PopularIntegration {
   description: string;
   brand: IntegrationBrand;
   /** `included` if Google Workspace is linked; otherwise resolves to `soon`. */
-  bundledWithGoogle?: boolean;
+  bundledWithGoogle?: boolean | undefined;
   /** Renders a live "Connect" pill that triggers `onConnectGithub`. */
-  connectable?: boolean;
+  connectable?: boolean | undefined;
   /** Hard-coded default when neither bundled with Google nor connectable. */
   status: IntegrationTileStatus;
 }
@@ -513,8 +513,8 @@ function ConnectShowcase({
   connectedGithub,
   onConnectGithub,
 }: {
-  connectedEmail?: string;
-  connectedGithub?: string;
+  connectedEmail?: string | undefined;
+  connectedGithub?: string | undefined;
   onConnectGithub: () => void;
 }) {
   return (

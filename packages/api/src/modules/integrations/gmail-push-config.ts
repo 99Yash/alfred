@@ -2,9 +2,9 @@ import { serverEnv } from "@alfred/env/server";
 
 export interface PubSubOidcConfig {
   nodeEnv: "development" | "production" | "test";
-  pushTopic?: string;
-  audience?: string;
-  expectedServiceAccount?: string;
+  pushTopic?: string | undefined;
+  audience?: string | undefined;
+  expectedServiceAccount?: string | undefined;
 }
 
 export class GmailPushOidcConfigError extends Error {

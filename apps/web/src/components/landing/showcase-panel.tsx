@@ -26,11 +26,11 @@ export function ShowcaseVideo({
   src: string;
   /** Accessible description of what the clip shows. */
   label: string;
-  className?: string;
-  objectPosition?: "top" | "center";
+  className?: string | undefined;
+  objectPosition?: "top" | "center" | undefined;
   /** When this tab becomes active, restart the clip from the top so the
    * animation always plays from frame 0 rather than wherever the loop was. */
-  active?: boolean;
+  active?: boolean | undefined;
 }) {
   const ref = useRef<HTMLVideoElement>(null);
 

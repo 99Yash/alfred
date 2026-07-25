@@ -224,25 +224,12 @@ export const SEVERITY_SUSPECT_BOTS: ReadonlySet<BotSlug> = new Set<BotSlug>([
 
 /**
  * The actor a message body reads as, when it differs from the envelope sender
- * (a bot relaying a human, etc.). Single source for the literal set — the
- * interface is source-of-truth (`senderContextSchema` is annotated
- * `z.ZodType<SenderContext>`, so `z.infer` here would be a TS2456 circular ref).
+ * (a bot relaying a human, etc.).
  */
 export const BODY_ACTOR_KINDS = ["bot", "person", "unknown"] as const;
 export type BodyActorKind = (typeof BODY_ACTOR_KINDS)[number];
 
-export interface SenderContext {
-  fromKind: SenderKind;
-  bodyActor?: {
-    kind: BodyActorKind;
-    name: string;
-    handle?: string;
-  };
-  effectiveAuthor: EffectiveAuthor;
-  botSlug?: BotSlug;
-}
-
-export const senderContextSchema: z.ZodType<SenderContext> = z.object({
+export const senderContextSchema = z.object({
   fromKind: z.enum(SENDER_KIND),
   bodyActor: z
     .object({
@@ -254,3 +241,5 @@ export const senderContextSchema: z.ZodType<SenderContext> = z.object({
   effectiveAuthor: z.enum(EFFECTIVE_AUTHOR),
   botSlug: z.enum(BOT_SLUGS).optional(),
 });
+
+export type SenderContext = z.infer<typeof senderContextSchema>;

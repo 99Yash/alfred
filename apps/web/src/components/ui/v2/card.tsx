@@ -15,10 +15,10 @@ import { cn } from "~/lib/utils";
 
 interface AppCardProps extends HTMLAttributes<HTMLDivElement> {
   /** Apply the default 20px padding. Default true. Set false when the card embeds its own scrolling list or chart. */
-  padded?: boolean;
+  padded?: boolean | undefined;
   /** Make the card hover/focus-respond. Use when the entire card is clickable. */
-  interactive?: boolean;
-  ref?: Ref<HTMLDivElement>;
+  interactive?: boolean | undefined;
+  ref?: Ref<HTMLDivElement> | undefined;
 }
 
 export function AppCard({ className, padded = true, interactive, ref, ...rest }: AppCardProps) {

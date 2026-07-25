@@ -19,13 +19,13 @@ import { AppSelect, type AppSelectOption } from "./select";
 import { AppThemeContext } from "./theme";
 
 interface AppDateTimePickerProps {
-  id?: string;
+  id?: string | undefined;
   /** ISO 8601 string, or undefined when unset. */
   value: string | undefined;
   onChange: (value: string | undefined) => void;
-  disabled?: boolean;
-  placeholder?: string;
-  className?: string;
+  disabled?: boolean | undefined;
+  placeholder?: string | undefined;
+  className?: string | undefined;
 }
 
 const WEEKDAYS = ["S", "M", "T", "W", "T", "F", "S"] as const;

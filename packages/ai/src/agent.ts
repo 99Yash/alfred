@@ -8,11 +8,10 @@ import {
   type ModelMessage,
   type StreamTextResult,
   type SystemModelMessage,
-  type Tool,
   type ToolSet,
   type TypedToolCall,
 } from "ai";
-import { toRecord } from "@alfred/contracts";
+import { toRecord, withDefaults } from "@alfred/contracts";
 import { meteredGenerateText, meteredStreamText, type AttributedCall } from "./metering/wrappers";
 
 /**
@@ -243,13 +242,15 @@ export class AlfredAgent<CTX = unknown> {
       // — even if the model emits tool calls. Combined with `execute`-
       // less tools, the SDK never dispatches.
       stopWhen: isStepCount(1),
-      maxOutputTokens: this.s.maxOutputTokens,
-      temperature: this.s.temperature,
+      ...(this.s.maxOutputTokens !== undefined ? { maxOutputTokens: this.s.maxOutputTokens } : {}),
+      ...(this.s.temperature !== undefined ? { temperature: this.s.temperature } : {}),
       // The SDK types `providerOptions` as `JSONObject` per provider; our
       // public surface uses the looser `unknown` per provider so callers
       // don't have to import internal SDK types. Cast at the boundary.
-      providerOptions: this.s.providerOptions as Record<string, never> | undefined,
-      abortSignal: args.abortSignal,
+      ...(this.s.providerOptions !== undefined
+        ? { providerOptions: this.s.providerOptions as Record<string, never> }
+        : {}),
+      ...(args.abortSignal !== undefined ? { abortSignal: args.abortSignal } : {}),
     };
 
     return { request, attribution };
@@ -283,10 +284,18 @@ export class AlfredAgent<CTX = unknown> {
     perTurn: Partial<AttributedCall> | undefined,
     cacheWriteTtl: "5m" | "1h" | undefined,
   ): AttributedCall {
-    const base = this.s.attribution ?? {};
-    const merged: AttributedCall = { cacheWriteTtl, ...base, ...perTurn };
-    if (!merged.name) {
-      merged.name = this.id ? `agent:${this.id}` : merged.name;
+    // Three layers of precedence: per-turn beats agent-level beats the resolved
+    // TTL. `withDefaults` rather than a spread at each layer because EVERY
+    // `AttributedCall` field is declared `| undefined`, so a present-undefined
+    // override wins a spread and clobbers the layer beneath it with nothing —
+    // an agent-level `cacheWriteTtl` silently lost to a per-turn `{ ttl: undefined }`
+    // is TTL-aware billing reading the wrong rate.
+    const merged: AttributedCall = withDefaults(
+      withDefaults<AttributedCall>({ cacheWriteTtl }, this.s.attribution),
+      perTurn,
+    );
+    if (!merged.name && this.id) {
+      merged.name = `agent:${this.id}`;
     }
     return merged;
   }
@@ -305,7 +314,7 @@ async function resolve<T, CTX>(v: T | ((ctx: CTX) => Promise<T> | T), ctx: CTX):
  */
 function decorateTools(tools: ToolSet, cacheTtl: "5m" | "1h" | undefined): ToolSet {
   const sortedNames = Object.keys(tools).sort((a, b) => a.localeCompare(b));
-  const out: Record<string, Tool> = {};
+  const out: ToolSet = {};
   for (const name of sortedNames) {
     const def = tools[name];
     if (!def) continue;
@@ -316,19 +325,27 @@ function decorateTools(tools: ToolSet, cacheTtl: "5m" | "1h" | undefined): ToolS
     const last = out[lastName]!;
     out[lastName] = withAnthropicCacheControl(last, cacheTtl);
   }
-  return out as ToolSet;
+  return out;
 }
 
-function stripExecute(t: Tool): Tool {
+/**
+ * These helpers speak `ToolSet[string]`, not the SDK's bare `Tool`: the two stop
+ * being mutually assignable under `exactOptionalPropertyTypes` (bare `Tool`
+ * pins its INPUT generic to `never`), and `ToolSet[string]` is the one a
+ * `ToolSet` actually holds — so threading it through needs no cast.
+ */
+type ToolSetEntry = ToolSet[string];
+
+function stripExecute(t: ToolSetEntry): ToolSetEntry {
   if (!("execute" in t) || t.execute === undefined) return t;
   // Drop `execute` while preserving the rest of the tool (schema,
-  // providerOptions, etc.). A tool without `execute` is still a valid `Tool`
+  // providerOptions, etc.). A tool without `execute` is still a valid tool
   // (it's optional), so the rest object needs no cast.
   const { execute: _execute, ...rest } = t;
   return rest;
 }
 
-function withAnthropicCacheControl(t: Tool, ttl: "5m" | "1h"): Tool {
+function withAnthropicCacheControl(t: ToolSetEntry, ttl: "5m" | "1h"): ToolSetEntry {
   const existing = t.providerOptions ?? {};
   const existingAnthropic = toRecord(existing.anthropic);
   return {
@@ -340,7 +357,7 @@ function withAnthropicCacheControl(t: Tool, ttl: "5m" | "1h"): Tool {
         cacheControl: { type: "ephemeral", ttl },
       },
     },
-  } as Tool;
+  };
 }
 
 function buildSystem(

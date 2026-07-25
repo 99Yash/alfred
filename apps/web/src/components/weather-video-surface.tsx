@@ -51,10 +51,10 @@ interface WeatherVideoSurfaceProps {
    * opacity. We prefer "wrong-but-plausible loop" over an empty rail
    * here because geojs/open-meteo failure is silent and indefinite.
    */
-  condition?: WeatherCondition;
+  condition?: WeatherCondition | undefined;
   /** Daytime flag from open-meteo. `false` swaps in the night loop. */
-  isDay?: boolean;
-  className?: string;
+  isDay?: boolean | undefined;
+  className?: string | undefined;
 }
 
 interface Layer {

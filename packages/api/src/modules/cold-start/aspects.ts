@@ -111,9 +111,9 @@ async function runAspect(args: {
   signals: ColdStartSignals;
   anchor: IdentityAnchor;
   aspect: ColdStartAspect;
-  runId?: string;
-  idempotencyKey?: string;
-  abortSignal?: AbortSignal;
+  runId?: string | undefined;
+  idempotencyKey?: string | undefined;
+  abortSignal?: AbortSignal | undefined;
 }): Promise<AspectFinding> {
   const stepId = `aspect:${args.aspect.id}`;
   const web = buildColdStartWebTool({
@@ -132,7 +132,7 @@ async function runAspect(args: {
       stopWhen: isStepCount(ASPECT_MAX_STEPS),
       maxOutputTokens: ASPECT_MAX_OUTPUT_TOKENS,
       temperature: 0,
-      abortSignal: args.abortSignal,
+      ...(args.abortSignal ? { abortSignal: args.abortSignal } : {}),
     },
     {
       kind: "llm",

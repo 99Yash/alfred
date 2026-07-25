@@ -26,7 +26,7 @@ export interface SurfaceExternalFileInput {
   source: ExternalFileSource;
   fileId: string;
   previewUrl: string;
-  webViewLink?: string;
+  webViewLink?: string | undefined;
   mimeType?: string;
   fileName?: string;
   /** Sidebar/card title (usually the file name). */

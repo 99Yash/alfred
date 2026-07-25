@@ -327,7 +327,7 @@ function ArtifactDialog({
 }: {
   label: string;
   onClose: () => void;
-  compact?: boolean;
+  compact?: boolean | undefined;
   children: ReactNode;
 }) {
   return (
@@ -365,8 +365,8 @@ function ViewerState({
 }: {
   icon: ReactNode;
   title: string;
-  description?: string;
-  action?: ReactNode;
+  description?: string | undefined;
+  action?: ReactNode | undefined;
 }) {
   return (
     <div className="grid min-h-[220px] place-items-center text-center">

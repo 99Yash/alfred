@@ -16,9 +16,12 @@ import { authedJson } from "../src/shared/authed-json";
 const realFetch = globalThis.fetch;
 
 function stubFetch(response: Response): {
-  calls: Array<{ input: string | URL | Request; init?: RequestInit }>;
+  // Recorded as `fetch` received it: a call made without an `init` records a
+  // present `undefined`, so the declaration says `| undefined` rather than
+  // claiming the key is absent.
+  calls: Array<{ input: string | URL | Request; init: RequestInit | undefined }>;
 } {
-  const calls: Array<{ input: string | URL | Request; init?: RequestInit }> = [];
+  const calls: Array<{ input: string | URL | Request; init: RequestInit | undefined }> = [];
   globalThis.fetch = ((input: string | URL | Request, init?: RequestInit) => {
     calls.push({ input, init });
     return Promise.resolve(response);

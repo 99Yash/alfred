@@ -14,8 +14,8 @@ import { cn } from "~/lib/utils";
 export type LegacyTextareaVariant = "card" | "inline";
 
 interface LegacyTextareaProps extends TextareaHTMLAttributes<HTMLTextAreaElement> {
-  variant?: LegacyTextareaVariant;
-  ref?: Ref<HTMLTextAreaElement>;
+  variant?: LegacyTextareaVariant | undefined;
+  ref?: Ref<HTMLTextAreaElement> | undefined;
 }
 
 const CARD = cn(

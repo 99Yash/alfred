@@ -17,7 +17,7 @@ const SATELLITES: ReadonlyArray<{
   size: number;
   rotate: number;
   opacity: number;
-  blur?: boolean;
+  blur?: boolean | undefined;
   style: CSSProperties;
 }> = [
   // Large faint tile bleeding off the top-right corner — the deepest layer.

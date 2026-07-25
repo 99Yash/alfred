@@ -19,8 +19,8 @@ export type StatusTone = "emerald" | "amber" | "red" | "muted";
 export type StatusSize = "sm" | "md";
 
 interface StatusDotProps extends HTMLAttributes<HTMLSpanElement> {
-  tone?: StatusTone;
-  size?: StatusSize;
+  tone?: StatusTone | undefined;
+  size?: StatusSize | undefined;
 }
 
 const TONE: Record<StatusTone, string> = {

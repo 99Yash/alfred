@@ -75,7 +75,8 @@ interface HttpErrorArgs {
   url: string;
   /** Pre-summarized body (already redacted + bounded). */
   body: string;
-  method?: string;
+  /** Absent or `undefined` both mean "unknown verb" — defaults to `GET`. */
+  method?: string | undefined;
 }
 
 /**
@@ -148,7 +149,11 @@ export type ErrorBodyPolicy = "summarize" | "omit";
 export async function httpErrorFromResponse(
   provider: string,
   res: Response,
-  opts: { url?: string; method?: string; bodyPolicy?: ErrorBodyPolicy } = {},
+  opts: {
+    url?: string | undefined;
+    method?: string | undefined;
+    bodyPolicy?: ErrorBodyPolicy | undefined;
+  } = {},
 ): Promise<HttpError> {
   const raw = await res.text().catch(() => "");
   return new HttpError({

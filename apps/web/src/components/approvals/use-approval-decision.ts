@@ -9,7 +9,7 @@ import { formatJson } from "./format";
  * note sent back to Alfred.
  */
 export type ApprovalDecision =
-  | { decision: "approve"; editedInput?: unknown; reason?: undefined }
+  | { decision: "approve"; editedInput?: unknown; reason?: never }
   | { decision: "reject"; reason: string }
   | { decision: "cancel_run"; reason: string };
 

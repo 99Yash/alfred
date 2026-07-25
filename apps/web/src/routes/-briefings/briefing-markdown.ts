@@ -10,9 +10,9 @@ type RemarkPlugin = NonNullable<ComponentProps<typeof ReactMarkdown>["remarkPlug
 /** Minimal mdast shape we touch — avoids pulling `mdast`/`unified` into web. */
 interface MdNode {
   type: string;
-  value?: string;
-  children?: MdNode[];
-  data?: Record<string, unknown>;
+  value?: string | undefined;
+  children?: MdNode[] | undefined;
+  data?: Record<string, unknown> | undefined;
 }
 
 /**

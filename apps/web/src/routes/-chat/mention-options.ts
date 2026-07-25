@@ -5,8 +5,8 @@ export interface MentionOption {
   value: string;
   label: string;
   subtitle: string;
-  brand?: IntegrationBrand;
-  icon?: LucideIcon;
+  brand?: IntegrationBrand | undefined;
+  icon?: LucideIcon | undefined;
 }
 
 export const MENTION_OPTIONS: ReadonlyArray<MentionOption> = [

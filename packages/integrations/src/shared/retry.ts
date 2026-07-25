@@ -25,6 +25,8 @@
  * `defineProviderClient`).
  */
 
+import { withDefaults } from "@alfred/contracts";
+
 /** Tunable backoff envelope; every field has a sane default. */
 export interface RetryPolicy {
   /** Total attempts including the first. Default 3. */
@@ -129,7 +131,7 @@ export async function fetchWithRetry(
   send: () => Promise<Response>,
   options: FetchWithRetryOptions,
 ): Promise<Response> {
-  const policy = { ...DEFAULT_POLICY, ...options.policy };
+  const policy = withDefaults(DEFAULT_POLICY, options.policy);
   const retryable = options.retryable ?? ((res) => isRetryableStatus(res.status));
 
   let lastError: unknown;

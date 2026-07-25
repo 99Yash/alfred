@@ -141,7 +141,7 @@ export interface BriefingClosedLoop {
 export interface GatherBriefingDigestArgs {
   userId: string;
   /** Defaults to 24h before `windowEnd`. */
-  windowStart?: Date;
+  windowStart?: Date | undefined;
   /** Defaults to "now". */
   windowEnd?: Date;
   /** Cap per bucket — protects the email body length on busy days. */
@@ -154,7 +154,7 @@ export interface GatherBriefingArgs {
   briefingDate: string;
   slot?: BriefingSlot;
   timezone: IanaTimezone;
-  windowStart?: Date;
+  windowStart?: Date | undefined;
   windowEnd?: Date;
 }
 
@@ -543,7 +543,11 @@ function describeGithubActivity(
   action: string | null,
   repo: string | null,
   payload: GithubWebhookPayload,
-): { title: string; status?: IntegrationActivityItem["status"]; url?: string } {
+): {
+  title: string;
+  status?: IntegrationActivityItem["status"] | undefined;
+  url?: string | undefined;
+} {
   const where = repo ? ` in ${repo}` : "";
   switch (eventType) {
     case "pull_request": {

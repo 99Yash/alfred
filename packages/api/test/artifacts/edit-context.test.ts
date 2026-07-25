@@ -15,6 +15,7 @@ import { withEphemeralReference } from "../../src/modules/agent/compaction";
 import {
   assertStableChatSystem,
   buildChatSystemPrompt,
+  type ChatRunState,
 } from "../../src/modules/agent/workflows/chat-turn";
 import {
   artifactContentHash,
@@ -182,7 +183,10 @@ test("chat's prod system prompt states no date — the runtime line is the singl
 });
 
 test("chat persists system stability across short-lived AlfredAgent instances", () => {
-  const state: { systemPromptHash?: string } = {};
+  // Derived from the workflow state rather than re-declared: the seam under
+  // test is `state.systemPromptHash = undefined`, which the schema-inferred
+  // type admits and a hand-written `{ systemPromptHash?: string }` does not.
+  const state: Pick<ChatRunState, "systemPromptHash"> = {};
   assertStableChatSystem(state, "stable prompt");
   const pinned = state.systemPromptHash;
   assert.ok(pinned);

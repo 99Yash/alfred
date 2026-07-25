@@ -40,7 +40,7 @@ interface BaseFieldSpec {
   /** Human label for the control. */
   label: string;
   /** The schema's `.describe()` text, shown as helper/title text. */
-  description?: string;
+  description?: string | undefined;
   /** Field is not in the schema's `required` set. */
   optional: boolean;
   /** Schema default, pre-filled when the proposed input omits the key. */
@@ -55,9 +55,9 @@ export type FieldSpec =
     })
   | (BaseFieldSpec & {
       kind: "number" | "integer";
-      min?: number;
-      max?: number;
-      step?: number;
+      min?: number | undefined;
+      max?: number | undefined;
+      step?: number | undefined;
       multiline?: false;
     })
   | (BaseFieldSpec & {

@@ -95,8 +95,8 @@ export interface ComposeArgs {
 export interface ComposedDocumentation {
   body: string;
   /** Tokens are pulled off the metered call; stash them on the revision metadata for cost forensics. */
-  inputTokens?: number;
-  outputTokens?: number;
+  inputTokens?: number | undefined;
+  outputTokens?: number | undefined;
 }
 
 export async function composeSkillDocumentation(args: ComposeArgs): Promise<ComposedDocumentation> {

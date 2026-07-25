@@ -36,9 +36,9 @@ export interface IdentityAnchor {
 
 export interface ResolveIdentityArgs {
   signals: ColdStartSignals;
-  runId?: string;
-  stepId?: string;
-  idempotencyKey?: string;
+  runId?: string | undefined;
+  stepId?: string | undefined;
+  idempotencyKey?: string | undefined;
 }
 
 const SYSTEM_PROMPT = `You are the identity-resolution step of a personal AI assistant's self-onboarding research. The user is setting up the assistant for themselves and wants it to start from their own public footprint. Your single job: figure out *which specific person* the name + email below refers to, using the live web.

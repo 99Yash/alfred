@@ -32,8 +32,8 @@ export interface SynchronousConversationCompactionArgs {
   replayTail: readonly AgentTranscriptMessage[];
   replayTailWatermark: ChatSummaryWatermark;
   attribution: Omit<AttributedCall, "kind" | "role">;
-  abortSignal?: AbortSignal;
-  timeoutMs?: number;
+  abortSignal?: AbortSignal | undefined;
+  timeoutMs?: number | undefined;
 }
 
 export type SynchronousConversationCompactionResult =

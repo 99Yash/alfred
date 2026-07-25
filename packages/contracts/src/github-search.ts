@@ -201,13 +201,13 @@ export function queryHasNarrowingScope(query: string | undefined): boolean {
 
 export interface GithubSearchQueryContext {
   /** Whether the search targets issues, PRs, or both. Owns the `is:pr`/`is:issue` clause. */
-  type?: GithubSearchType;
-  author?: string;
-  state?: GithubSearchState;
-  query?: string;
-  closedWithinDays?: number;
-  createdWithinDays?: number;
-  mergedWithinDays?: number;
+  type?: GithubSearchType | undefined;
+  author?: string | undefined;
+  state?: GithubSearchState | undefined;
+  query?: string | undefined;
+  closedWithinDays?: number | undefined;
+  createdWithinDays?: number | undefined;
+  mergedWithinDays?: number | undefined;
 }
 
 /**

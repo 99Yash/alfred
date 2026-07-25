@@ -10,7 +10,7 @@ import type { InputHTMLAttributes, Ref } from "react";
 import { cn } from "~/lib/utils";
 
 interface AppInputProps extends InputHTMLAttributes<HTMLInputElement> {
-  ref?: Ref<HTMLInputElement>;
+  ref?: Ref<HTMLInputElement> | undefined;
 }
 
 export function AppInput({ className, readOnly, ref, ...rest }: AppInputProps) {

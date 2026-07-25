@@ -9,24 +9,24 @@ interface ChatTimingMark {
   stage: string;
   at: number;
   iso: string;
-  detail?: Record<string, unknown>;
+  detail?: Record<string, unknown> | undefined;
 }
 
 interface ChatTurnTiming {
   clientTurnId: string;
   threadId: string;
-  userMessageId?: string;
-  assistantMessageId?: string;
-  runId?: string | null;
-  contentChars?: number;
+  userMessageId?: string | undefined;
+  assistantMessageId?: string | undefined;
+  runId?: string | null | undefined;
+  contentChars?: number | undefined;
   marks: Map<string, ChatTimingMark>;
 }
 
 interface MarkOptions {
-  log?: boolean;
-  repeat?: RepeatMode;
-  summarize?: boolean;
-  requireExisting?: boolean;
+  log?: boolean | undefined;
+  repeat?: RepeatMode | undefined;
+  summarize?: boolean | undefined;
+  requireExisting?: boolean | undefined;
 }
 
 const byUserMessageId = new Map<string, ChatTurnTiming>();
@@ -69,7 +69,7 @@ export function attachChatAssistantTiming(args: {
   userMessageId: string;
   assistantMessageId: string;
   runId: string | null;
-  detail?: Record<string, unknown>;
+  detail?: Record<string, unknown> | undefined;
 }): void {
   if (!DEV) return;
   const userTurn = byUserMessageId.get(args.userMessageId);
@@ -116,9 +116,9 @@ export function markChatTimingByAssistant(
 
 export function getChatTimingSnapshot(): Array<{
   threadId: string;
-  userMessageId?: string;
-  assistantMessageId?: string;
-  runId?: string | null;
+  userMessageId?: string | undefined;
+  assistantMessageId?: string | undefined;
+  runId?: string | null | undefined;
   timeline: Array<Record<string, unknown>>;
 }> {
   return order.map((turn) => ({

@@ -13,9 +13,9 @@ export type IconButtonSize = "sm" | "md";
 interface IconButtonProps extends Omit<ButtonHTMLAttributes<HTMLButtonElement>, "aria-label"> {
   /** Accessible label — also rendered as the native `title` for cursor tooltip. */
   label: string;
-  size?: IconButtonSize;
+  size?: IconButtonSize | undefined;
   children: ReactNode;
-  ref?: Ref<HTMLButtonElement>;
+  ref?: Ref<HTMLButtonElement> | undefined;
 }
 
 const SIZE: Record<IconButtonSize, string> = {

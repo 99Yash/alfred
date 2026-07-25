@@ -46,8 +46,8 @@ export interface CompactTranscriptArgs {
    */
   attribution: Omit<AttributedCall, "role" | "kind">;
   /** Chat foreground compaction must stop when the user presses Stop. */
-  abortSignal?: AbortSignal;
-  timeoutMs?: number;
+  abortSignal?: AbortSignal | undefined;
+  timeoutMs?: number | undefined;
 }
 
 export interface CompactTranscriptResult {
@@ -92,8 +92,8 @@ export async function compactTranscript(
     {
       model,
       maxOutputTokens: COMPACTOR_MAX_OUTPUT_TOKENS,
-      abortSignal: args.abortSignal,
-      timeout: args.timeoutMs,
+      ...(args.abortSignal ? { abortSignal: args.abortSignal } : {}),
+      ...(args.timeoutMs === undefined ? {} : { timeout: args.timeoutMs }),
       temperature: 0,
       instructions: COMPACTOR_SYSTEM_PROMPT,
       messages: [transcriptPayloadMessage(prior)] as ModelMessage[],

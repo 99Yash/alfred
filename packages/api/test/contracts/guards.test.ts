@@ -9,6 +9,7 @@ import {
   isRecord,
   isToolRiskTier,
   toRecord,
+  withDefaults,
 } from "@alfred/contracts";
 
 test("isRecord accepts only plain object records", () => {
@@ -107,4 +108,42 @@ test("isToolRiskTier is the enumGuard projection that gates the MCP approval flo
   assert.equal(isToolRiskTier("critical"), false);
   assert.equal(isToolRiskTier(null), false);
   assert.equal(isToolRiskTier(0), false);
+});
+
+test("withDefaults ignores present-undefined overrides that a spread would honor", () => {
+  const DEFAULT_POLICY = { maxAttempts: 3, baseDelayMs: 250, maxDelayMs: 4_000 };
+
+  // The regression this helper exists for. A spread honors a present `undefined`,
+  // so the retry loop's `attempt <= policy.maxAttempts` reads `undefined` and the
+  // request is never sent — silently, with nothing thrown.
+  const override = { maxAttempts: undefined };
+  const spread = { ...DEFAULT_POLICY, ...override };
+  assert.equal(spread.maxAttempts, undefined);
+
+  const merged = withDefaults(DEFAULT_POLICY, override);
+  assert.equal(merged.maxAttempts, 3);
+
+  // A real override still wins, and 0 / false are real values, not absence.
+  assert.deepEqual(withDefaults(DEFAULT_POLICY, { maxAttempts: 5 }), {
+    ...DEFAULT_POLICY,
+    maxAttempts: 5,
+  });
+  assert.equal(withDefaults({ retries: 3 }, { retries: 0 }).retries, 0);
+  assert.equal(withDefaults({ force: true }, { force: false }).force, false);
+
+  // No overrides at all, and an undefined overrides argument, both yield the
+  // defaults — and never the defaults object itself, so callers may mutate.
+  assert.deepEqual(withDefaults(DEFAULT_POLICY, {}), DEFAULT_POLICY);
+  assert.deepEqual(withDefaults(DEFAULT_POLICY), DEFAULT_POLICY);
+  assert.notEqual(withDefaults(DEFAULT_POLICY), DEFAULT_POLICY);
+
+  // Injected dependencies are the other call shape: a function-valued key must
+  // fall back to the real collaborator, not become undefined and blow up on call.
+  const deps = { fetchRow: () => "real" };
+  assert.equal(withDefaults(deps, { fetchRow: undefined }).fetchRow(), "real");
+  assert.equal(withDefaults(deps, { fetchRow: () => "stub" }).fetchRow(), "stub");
+
+  // Faithful to spread semantics for a key the defaults object doesn't enumerate.
+  const sparse: { a: number; b?: number } = { a: 1 };
+  assert.deepEqual(withDefaults(sparse, { b: 2 }), { a: 1, b: 2 });
 });

@@ -31,16 +31,16 @@ export interface ConversationSummaryEvidence {
 export interface GenerateConversationSummaryArgs {
   evidence: ConversationSummaryEvidence;
   attribution: Omit<AttributedCall, "kind" | "role">;
-  abortSignal?: AbortSignal;
-  timeoutMs?: number;
+  abortSignal?: AbortSignal | undefined;
+  timeoutMs?: number | undefined;
 }
 
 type SummaryRunner = (args: {
   prompt: string;
   attribution: Omit<AttributedCall, "kind" | "role">;
   route: ConversationSummaryModelRoute;
-  abortSignal?: AbortSignal;
-  timeoutMs?: number;
+  abortSignal?: AbortSignal | undefined;
+  timeoutMs?: number | undefined;
 }) => Promise<unknown>;
 
 export type ConversationSummaryModelRoute = "primary" | "fallback";
@@ -135,8 +135,8 @@ async function runConversationSummaryModel(args: {
   prompt: string;
   attribution: Omit<AttributedCall, "kind" | "role">;
   route: ConversationSummaryModelRoute;
-  abortSignal?: AbortSignal;
-  timeoutMs?: number;
+  abortSignal?: AbortSignal | undefined;
+  timeoutMs?: number | undefined;
 }): Promise<unknown> {
   const model = modelForRoute(args.route);
   const result = await meteredGenerateObject(
@@ -149,7 +149,7 @@ async function runConversationSummaryModel(args: {
       prompt: args.prompt,
       temperature: 0,
       maxOutputTokens: CONVERSATION_SUMMARY_MAX_OUTPUT_TOKENS,
-      abortSignal: args.abortSignal,
+      ...(args.abortSignal ? { abortSignal: args.abortSignal } : {}),
       ...(args.timeoutMs === undefined ? {} : { timeout: args.timeoutMs }),
       ...(args.route === "primary"
         ? { providerOptions: { anthropic: { thinking: { type: "disabled" } } } }

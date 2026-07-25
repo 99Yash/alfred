@@ -19,20 +19,20 @@ export interface AppSelectOption {
 }
 
 interface AppSelectProps {
-  id?: string;
+  id?: string | undefined;
   value: string | undefined;
   onChange: (value: string | undefined) => void;
   options: ReadonlyArray<AppSelectOption>;
   /** Adds a leading "clear" row that resolves to `undefined`. */
-  clearable?: boolean;
+  clearable?: boolean | undefined;
   /** Label for the clear row + empty trigger state. */
-  placeholder?: string;
-  disabled?: boolean;
-  className?: string;
+  placeholder?: string | undefined;
+  disabled?: boolean | undefined;
+  className?: string | undefined;
   /** Accessible label for the popover listbox. */
-  label?: string;
+  label?: string | undefined;
   /** Optional leading glyph shown in the trigger. */
-  leading?: ReactNode;
+  leading?: ReactNode | undefined;
 }
 
 export function AppSelect({
@@ -188,7 +188,7 @@ function Row({
 }: {
   buttonRef: (node: HTMLButtonElement | null) => void;
   checked: boolean;
-  muted?: boolean;
+  muted?: boolean | undefined;
   onSelect: () => void;
   children: ReactNode;
 }) {

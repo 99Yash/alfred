@@ -318,9 +318,9 @@ function FacetChip({
   label: string;
   count: number;
   active: boolean;
-  dotClass?: string;
+  dotClass?: string | undefined;
   /** Brand glyph rendered in place of the text label (integration facets). */
-  icon?: React.ReactNode;
+  icon?: React.ReactNode | undefined;
   onClick: () => void;
 }) {
   return (
@@ -359,7 +359,7 @@ function EmptyState({
 }: {
   title: string;
   body: string;
-  action?: React.ReactNode;
+  action?: React.ReactNode | undefined;
 }) {
   return (
     <AppCard className="flex flex-col items-center justify-center gap-2 px-6 py-12 text-center">

@@ -22,8 +22,8 @@ export function BriefingProse({
 }: {
   markdown: string;
   gather: BriefingGather | null;
-  size?: "compact" | "reading";
-  className?: string;
+  size?: "compact" | "reading" | undefined;
+  className?: string | undefined;
 }) {
   const remarkPlugins = useMemo(
     () => (gather ? [briefingRefsPlugin(gather)] : undefined),

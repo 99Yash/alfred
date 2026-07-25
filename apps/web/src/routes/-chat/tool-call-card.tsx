@@ -73,7 +73,7 @@ export function ToolCallCard({
    * `animate-chat-in` to avoid the two fighting over opacity/transform. A
    * standalone card (a lone tool with no trail) keeps its enter animation.
    */
-  inTrail?: boolean;
+  inTrail?: boolean | undefined;
 }) {
   const panelId = useId();
   // A run of identical calls collapsed into one row (see buildTrail); they

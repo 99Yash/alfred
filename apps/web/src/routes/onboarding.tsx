@@ -10,7 +10,11 @@ export const Route = createFileRoute("/onboarding")({
   head: () => pageMeta({ title: "Get started", path: "/onboarding" }),
   validateSearch: (
     search,
-  ): { step: OnboardingStep; google_connected?: string; github_connected?: string } => {
+  ): {
+    step: OnboardingStep;
+    google_connected?: string | undefined;
+    github_connected?: string | undefined;
+  } => {
     const params = toRecord(search);
     const raw = Number(params.step);
     const step: OnboardingStep = raw === 2 ? 2 : raw === 3 ? 3 : 1;

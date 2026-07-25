@@ -38,10 +38,10 @@ export function ComposerToolbar({
   voiceError: string | null;
   onVoiceStart: () => void;
   onVoiceConfirm: () => void;
-  onStopGeneration?: () => void;
-  autoApprove?: boolean;
-  autoApprovePending?: boolean;
-  onToggleAutoApprove?: () => void;
+  onStopGeneration?: (() => void) | undefined;
+  autoApprove?: boolean | undefined;
+  autoApprovePending?: boolean | undefined;
+  onToggleAutoApprove?: (() => void) | undefined;
   tier: ChatTier;
   onTierChange: (tier: ChatTier) => void;
 }) {
@@ -201,10 +201,10 @@ function ComposerIcon({
 }: {
   label: string;
   children: ReactNode;
-  disabled?: boolean;
-  onClick?: () => void;
-  active?: boolean;
-  ref?: Ref<HTMLButtonElement>;
+  disabled?: boolean | undefined;
+  onClick?: (() => void) | undefined;
+  active?: boolean | undefined;
+  ref?: Ref<HTMLButtonElement> | undefined;
 } & Omit<ButtonHTMLAttributes<HTMLButtonElement>, "onClick">) {
   return (
     <button

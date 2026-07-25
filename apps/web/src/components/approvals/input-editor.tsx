@@ -30,7 +30,7 @@ export function ApprovalInputEditor({
   toolName: ToolName;
   value: unknown;
   onChange: (value: unknown) => void;
-  disabled?: boolean;
+  disabled?: boolean | undefined;
   idPrefix: string;
 }) {
   const record = asRecord(value);

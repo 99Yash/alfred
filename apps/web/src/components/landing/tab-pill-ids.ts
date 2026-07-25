@@ -3,7 +3,7 @@ import type { ReactNode } from "react";
 export interface TabPillOption<T extends string> {
   value: T;
   label: string;
-  icon?: ReactNode;
+  icon?: ReactNode | undefined;
 }
 
 /** Stable id for a tab button — pair with `tabPanelId` for `aria-controls`. */

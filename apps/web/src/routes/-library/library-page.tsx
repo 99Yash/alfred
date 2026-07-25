@@ -107,8 +107,8 @@ function LibraryState({
 }: {
   icon: ReactNode;
   title: string;
-  description?: string;
-  action?: ReactNode;
+  description?: string | undefined;
+  action?: ReactNode | undefined;
 }) {
   return (
     <div className="grid min-h-[280px] place-items-center text-center">

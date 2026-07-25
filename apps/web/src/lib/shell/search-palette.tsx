@@ -40,7 +40,7 @@ import { cn } from "~/lib/utils";
 export interface SearchPaletteProps {
   onClose: () => void;
   /** Recent threads to surface in the "Recent chats" group. Empty/omitted → group hidden. */
-  recentThreads?: ReadonlyArray<RecentThread>;
+  recentThreads?: ReadonlyArray<RecentThread> | undefined;
 }
 
 type CommandKind = "command" | "thread";
@@ -49,18 +49,18 @@ interface CommandItem {
   id: string;
   kind: CommandKind;
   label: string;
-  hint?: string;
+  hint?: string | undefined;
   icon: LucideIcon;
   /** When set, navigate to this path on invoke. */
-  to?: string;
+  to?: string | undefined;
   /** Thread rows: the synced thread id — invoke navigates to `/chat/$threadId`. */
-  threadId?: string;
+  threadId?: string | undefined;
   /** When set, run this on invoke (e.g. open settings modal — not wired yet). */
-  onRun?: () => void;
+  onRun?: (() => void) | undefined;
   /** Free-form keywords to match in addition to the label. */
-  keywords?: string;
+  keywords?: string | undefined;
   /** Global shortcut for this command, shown as a trailing hint when not selected. */
-  kbd?: string;
+  kbd?: string | undefined;
 }
 
 const COMMANDS: ReadonlyArray<CommandItem> = [

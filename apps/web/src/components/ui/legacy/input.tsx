@@ -16,12 +16,12 @@ import { cn } from "~/lib/utils";
 export type LegacyInputVariant = "default" | "search";
 
 interface LegacyInputProps extends InputHTMLAttributes<HTMLInputElement> {
-  variant?: LegacyInputVariant;
+  variant?: LegacyInputVariant | undefined;
   /** Leading slot — typically a 14–16px Lucide icon. Slot is absolutely positioned. */
-  leading?: ReactNode;
+  leading?: ReactNode | undefined;
   /** Trailing slot — small icon or kbd hint. */
-  trailing?: ReactNode;
-  ref?: Ref<HTMLInputElement>;
+  trailing?: ReactNode | undefined;
+  ref?: Ref<HTMLInputElement> | undefined;
 }
 
 const BASE = cn(

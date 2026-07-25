@@ -12,8 +12,8 @@ import { cn } from "~/lib/utils";
 export type AppTextareaVariant = "card" | "inline";
 
 interface AppTextareaProps extends TextareaHTMLAttributes<HTMLTextAreaElement> {
-  variant?: AppTextareaVariant;
-  ref?: Ref<HTMLTextAreaElement>;
+  variant?: AppTextareaVariant | undefined;
+  ref?: Ref<HTMLTextAreaElement> | undefined;
 }
 
 export function AppTextarea({

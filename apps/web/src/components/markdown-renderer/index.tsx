@@ -22,7 +22,7 @@ type RemarkPlugins = ComponentProps<typeof ReactMarkdown>["remarkPlugins"];
 
 interface MarkdownRendererProps {
   children: string;
-  className?: string;
+  className?: string | undefined;
   /**
    * Color treatment. `surface` follows the app theme tokens — use it on
    * normal light/dark surfaces. `media` is FIXED white-alpha for content
@@ -31,7 +31,7 @@ interface MarkdownRendererProps {
    * light mode) would invert against it. Mirrors how the rest of the rail
    * styles itself (`text-white/65`, `bg-white/[0.06]`, …).
    */
-  tone?: "surface" | "media";
+  tone?: "surface" | "media" | undefined;
   /**
    * Typographic scale. `compact` (default) is the dense email/chat-rail body
    * — 12.5px, tight block rhythm. `reading` is the briefing-detail scale —
@@ -40,15 +40,15 @@ interface MarkdownRendererProps {
    * arbitrary `text-[…]` utilities tie on specificity, so a className font
    * size won't reliably beat the wrapper's.
    */
-  size?: "compact" | "reading";
+  size?: "compact" | "reading" | undefined;
   /**
    * Extra remark plugins appended after the built-ins (gfm/breaks/math).
    * Briefings inject a token-resolution plugin here to turn the composer's
    * `[[<kind>:<id>]]` references into inline entity chips.
    */
-  extraRemarkPlugins?: RemarkPlugins;
+  extraRemarkPlugins?: RemarkPlugins | undefined;
   /** Extra component overrides merged over the shared registry. */
-  extraComponents?: Components;
+  extraComponents?: Components | undefined;
   /**
    * How to handle markdown images. `render` (default) emits `<img>` as usual —
    * correct for chat, briefings, and artifacts. `alt-text` emits the alt text
@@ -56,7 +56,7 @@ interface MarkdownRendererProps {
    * text/plain email body makes zero remote requests (#294). The inbox Reader
    * passes `alt-text`; everywhere else keeps the default.
    */
-  images?: "render" | "alt-text";
+  images?: "render" | "alt-text" | undefined;
 }
 
 /** Theme-following colors for regular app surfaces. */

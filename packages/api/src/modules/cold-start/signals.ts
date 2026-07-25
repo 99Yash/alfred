@@ -27,7 +27,7 @@ export interface ColdStartSignals {
   emailDomainIsConsumer: boolean;
   /** Connected providers and what they contributed. */
   integrations: {
-    google?: { accountEmail: string };
+    google?: { accountEmail: string } | undefined;
     // Future: github, linear, slack, …
   };
 }
