@@ -22,7 +22,7 @@ interface RailContentProps {
   path: string;
   isChat: boolean;
   onOpenSearch: () => void;
-  approvalsBadge?: string;
+  approvalsBadge?: string | undefined;
   onExpand: () => void;
 }
 

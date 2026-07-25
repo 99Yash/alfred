@@ -90,7 +90,7 @@ export function useUsageActivity(args: ActivityArgs) {
           end: args.end,
           page: args.page,
           pageSize: args.pageSize,
-          categories: categoriesKey || undefined,
+          ...(categoriesKey ? { categories: categoriesKey } : {}),
           sortField: args.sortField,
           sortDir: args.sortDir,
         },

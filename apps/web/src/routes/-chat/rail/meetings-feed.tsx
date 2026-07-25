@@ -16,13 +16,13 @@ export function MeetingsFeed({
   calendarConnected = false,
 }: {
   items: ReadonlyArray<RailMeetingItem>;
-  lookahead?: ReadonlyArray<MeetingLookaheadItem>;
+  lookahead?: ReadonlyArray<MeetingLookaheadItem> | undefined;
   /**
    * Did the user actually grant the Calendar scope? An empty `items` list
    * means either "no calendar connected" or "calendar is connected, but
    * the day is genuinely clear" — copy diverges between the two.
    */
-  calendarConnected?: boolean;
+  calendarConnected?: boolean | undefined;
 }) {
   if (!items.length && !lookahead.length) {
     return (

@@ -55,8 +55,8 @@ const tableSchema = z.object({
 });
 
 interface StructuralElement {
-  paragraph?: z.infer<typeof paragraphSchema>;
-  table?: z.infer<typeof tableSchema>;
+  paragraph?: z.infer<typeof paragraphSchema> | undefined;
+  table?: z.infer<typeof tableSchema> | undefined;
 }
 
 const documentSchema = z.object({
@@ -91,8 +91,8 @@ export interface GetDocumentArgs {
 
 export interface GetDocumentResult {
   documentId: string;
-  title?: string;
-  revisionId?: string;
+  title?: string | undefined;
+  revisionId?: string | undefined;
   /** Full document text, paragraphs joined with newlines (tables flattened in reading order). */
   text: string;
   /** Heading outline in document order — handy for the model to navigate a long doc. */

@@ -18,8 +18,8 @@ export interface AppSegmentedItem<T extends string = string> {
   value: T;
   label: ReactNode;
   /** Optional leading icon. */
-  icon?: ReactNode;
-  disabled?: boolean;
+  icon?: ReactNode | undefined;
+  disabled?: boolean | undefined;
 }
 
 interface AppSegmentedProps<T extends string = string> {
@@ -27,9 +27,9 @@ interface AppSegmentedProps<T extends string = string> {
   onValueChange: (value: T) => void;
   items: ReadonlyArray<AppSegmentedItem<T>>;
   /** ARIA label for the tablist. */
-  label?: string;
-  disabled?: boolean;
-  className?: string;
+  label?: string | undefined;
+  disabled?: boolean | undefined;
+  className?: string | undefined;
   /**
    * `"default"` — opaque surface track (settings, anywhere on chrome).
    * `"glass"` — translucent, blurred track that lets a busy backdrop
@@ -37,7 +37,7 @@ interface AppSegmentedProps<T extends string = string> {
    * The active cell becomes a solid dark chip so its label reads against
    * whatever sky is behind.
    */
-  variant?: "default" | "glass";
+  variant?: "default" | "glass" | undefined;
 }
 
 export function AppSegmented<T extends string = string>({

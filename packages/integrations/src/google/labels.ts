@@ -1,4 +1,12 @@
-import { isHttpError, TRIAGE_CATEGORIES, type TriageCategory, toMessage } from "@alfred/contracts";
+import {
+  getPath,
+  getStringPath,
+  isHttpError,
+  toMessage,
+  toStringArray,
+  TRIAGE_CATEGORIES,
+  type TriageCategory,
+} from "@alfred/contracts";
 import { db } from "@alfred/db";
 import { integrationCredentials } from "@alfred/db/schemas";
 import { eq, sql } from "drizzle-orm";
@@ -115,39 +123,27 @@ async function findLabelByName(accessToken: string, name: string): Promise<strin
   return all.find((l) => l.name === name)?.id;
 }
 
-interface CredentialMetadataShape {
-  alfredLabels?: {
-    byCategory?: Partial<Record<TriageCategory, string>>;
-    allIds?: string[];
-    cachedAt?: string;
-  };
-  alfredSelfLabel?: {
-    id?: string;
-    name?: string;
-    cachedAt?: string;
-  };
-  [key: string]: unknown;
-}
-
 async function loadCachedLabels(credentialId: string): Promise<AlfredLabelMap | null> {
   const rows = await db()
     .select({ metadata: integrationCredentials.metadata })
     .from(integrationCredentials)
     .where(eq(integrationCredentials.id, credentialId));
-  const meta = (rows[0]?.metadata as CredentialMetadataShape | null) ?? {};
-  const cached = meta.alfredLabels;
-  if (!cached?.byCategory) return null;
-  // Validate the cache covers every category — if a new category was added
-  // since the cache was written, force a refresh.
+  // Persisted jsonb, so `unknown` and read through the traversal helpers — the
+  // cache is only as trustworthy as what a past write left behind, and the
+  // category loop below is already the validation pass.
+  const meta: unknown = rows[0]?.metadata;
+  // The cache must cover every category — a category added since the cache was
+  // written (or any non-string junk at that key) forces a refresh.
   const byCategory = {} as Record<TriageCategory, string>;
   for (const cat of TRIAGE_CATEGORIES) {
-    const id = cached.byCategory[cat];
+    const id = getStringPath(meta, "alfredLabels", "byCategory", cat);
     if (!id) return null;
     byCategory[cat] = id;
   }
+  const allIds = toStringArray(getPath(meta, "alfredLabels", "allIds"));
   return {
     byCategory,
-    allIds: cached.allIds ?? Object.values(byCategory),
+    allIds: allIds.length > 0 ? allIds : Object.values(byCategory),
   };
 }
 
@@ -208,13 +204,13 @@ export interface ApplyTriageLabelArgs {
    * `email_triage` row so re-classification swaps cleanly without a list
    * round-trip.
    */
-  previousLabelId?: string;
+  previousLabelId?: string | undefined;
   /**
    * When true, also strip every other Alfred/* label off the message — used
    * the first time we touch a message that may have been hand-labelled to a
    * different alfred category. Defaults to false (cheaper, common case).
    */
-  stripAllAlfredLabels?: boolean;
+  stripAllAlfredLabels?: boolean | undefined;
   /**
    * Other Gmail messages in the same thread that currently hold an alfred
    * label. We strip each one's label so the thread view collapses to a single
@@ -361,8 +357,8 @@ async function loadCachedSelfLabel(credentialId: string): Promise<string | null>
     .select({ metadata: integrationCredentials.metadata })
     .from(integrationCredentials)
     .where(eq(integrationCredentials.id, credentialId));
-  const meta = (rows[0]?.metadata as CredentialMetadataShape | null) ?? {};
-  return meta.alfredSelfLabel?.id ?? null;
+  const meta: unknown = rows[0]?.metadata;
+  return getStringPath(meta, "alfredSelfLabel", "id") ?? null;
 }
 
 async function persistCachedSelfLabel(credentialId: string, id: string): Promise<void> {
@@ -390,14 +386,17 @@ export interface LabelSelfMailDeps {
   ensureLabel: (args: {
     credentialId: string;
     accessToken: string;
-    force?: boolean;
+    force?: boolean | undefined;
   }) => Promise<string>;
   addLabel: (args: { accessToken: string; messageId: string; labelId: string }) => Promise<void>;
 }
 
 const defaultLabelSelfMailDeps: LabelSelfMailDeps = {
   ensureLabel: ({ credentialId, accessToken, force }) =>
-    ensureAlfredSelfLabel(credentialId, { accessToken, force }),
+    ensureAlfredSelfLabel(credentialId, {
+      accessToken,
+      ...(force !== undefined ? { force } : {}),
+    }),
   addLabel: async ({ accessToken, messageId, labelId }) => {
     await modifyMessageLabels({ accessToken, messageId, addLabelIds: [labelId] });
   },
@@ -414,7 +413,7 @@ export interface LabelSelfAuthoredMailArgs {
    * on every 5-min window (it never becomes a `documents` row, so the known-id
    * pre-filter can't drop it), and this guard keeps that churn off Gmail.
    */
-  currentLabelIds?: readonly string[];
+  currentLabelIds?: readonly string[] | undefined;
 }
 
 /**

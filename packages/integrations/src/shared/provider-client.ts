@@ -50,7 +50,7 @@ export interface ProviderRequestContext {
    * Query pinned on every request (e.g. Vercel's `teamId`). Merged last, so it
    * wins over a per-call `query` and cannot be overridden by a caller.
    */
-  fixedQuery?: Record<string, string>;
+  fixedQuery?: Record<string, string> | undefined;
 }
 
 export interface ProviderClientConfig {
@@ -69,22 +69,22 @@ export interface ProviderClientConfig {
    * property, not a per-call one — a provider whose error bodies can echo request
    * fragments (Notion) sets `"omit"` once here and every method inherits it.
    */
-  bodyPolicy?: ErrorBodyPolicy;
+  bodyPolicy?: ErrorBodyPolicy | undefined;
 }
 
 export interface ProviderRequest {
-  method?: string;
-  query?: Record<string, QueryValue>;
+  method?: string | undefined;
+  query?: Record<string, QueryValue> | undefined;
   body?: unknown;
   /** Redacted path label the thrown error reports (never the token-bearing URL). */
-  label?: string;
+  label?: string | undefined;
   /**
    * Opt a non-retry-safe method into transient retry. Only set this when the
    * request genuinely cannot double-apply — it carries a provider idempotency
    * key, or it replaces state wholesale and the caller ignores the status. Safe
    * methods retry without it; see {@link isRetrySafeMethod}.
    */
-  idempotent?: true;
+  idempotent?: true | undefined;
 }
 
 export interface ProviderClient {

@@ -13,11 +13,11 @@ type SourceItem =
       integration: IntegrationBrand;
       label: string;
       count: number;
-      icon?: LucideIcon;
-      tone?: RailToolTone;
+      icon?: LucideIcon | undefined;
+      tone?: RailToolTone | undefined;
     }
   | {
-      integration?: undefined;
+      integration?: undefined | undefined;
       icon: LucideIcon;
       tone: RailToolTone;
       label: string;

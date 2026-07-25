@@ -4,6 +4,7 @@ import {
   StreamableHTTPClientTransport,
   type StreamableHTTPClientTransportOptions,
 } from "@modelcontextprotocol/sdk/client/streamableHttp.js";
+import type { Transport } from "@modelcontextprotocol/sdk/shared/transport.js";
 import { ToolListChangedNotificationSchema, type Tool } from "@modelcontextprotocol/sdk/types.js";
 
 export type McpProtocolCallResult = Awaited<ReturnType<Client["callTool"]>>;
@@ -70,7 +71,13 @@ export class SdkMcpProtocolClient implements McpProtocolClient {
   }
 
   async connect(): Promise<McpNegotiatedServer> {
-    await this.#client.connect(this.#transport);
+    // Third-party variance gap, not a claim about our types: the MCP SDK's own
+    // transport classes declare `sessionId?: string | undefined` / `onclose?:
+    // (() => void) | undefined` while its `Transport` interface declares those
+    // keys narrow, so under `exactOptionalPropertyTypes` the SDK's class does
+    // not structurally satisfy the SDK's own interface. Nothing on our side can
+    // reconcile the two.
+    await this.#client.connect(this.#transport as Transport);
     const capabilities = this.#client.getServerCapabilities();
     const server = this.#client.getServerVersion();
     return {

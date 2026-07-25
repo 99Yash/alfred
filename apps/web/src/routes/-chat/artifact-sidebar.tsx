@@ -67,14 +67,14 @@ interface ArtifactSidebarProps {
    * (update/append) the synced row; the panel reconciles to the synced row once
    * the tool completes. Null for pages and for idle synced artifacts.
    */
-  liveStream?: LiveArtifactStream | null;
+  liveStream?: LiveArtifactStream | null | undefined;
   mode: ChatSidePanelMode;
   /** Inline-mode width in px (ignored in overlay mode). */
   width: number;
   onWidthChange: (width: number) => void;
   onClose: () => void;
   /** Prefill the composer with an edit scaffold for this artifact. */
-  onSuggestEdit?: (suggestion: ArtifactEditSuggestion) => void;
+  onSuggestEdit?: ((suggestion: ArtifactEditSuggestion) => void) | undefined;
 }
 
 /**
@@ -285,8 +285,8 @@ function ArtifactHeader({
   isDocument: boolean;
   documentView: DocumentView;
   canFullscreen: boolean;
-  onFullscreen?: () => void;
-  onEdit?: () => void;
+  onFullscreen?: (() => void) | undefined;
+  onEdit?: (() => void) | undefined;
   onClose: () => void;
 }) {
   const isPages = artifact?.kind === "pages";
@@ -918,8 +918,8 @@ function IconButton({
 }: {
   label: string;
   children: ReactNode;
-  onClick?: () => void;
-  tone?: "surface" | "dark";
+  onClick?: (() => void) | undefined;
+  tone?: "surface" | "dark" | undefined;
 }) {
   return (
     <button

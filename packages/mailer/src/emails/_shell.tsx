@@ -27,17 +27,17 @@ import * as React from "react";
 
 export interface EmailShellProps {
   /** Short line shown in the inbox preview / snippet. */
-  previewText?: string;
+  previewText?: string | undefined;
   /** Absolute URL to the logo image. Hidden when omitted. */
-  logoUrl?: string;
+  logoUrl?: string | undefined;
   /** ISO timestamp shown in the footer ("Generated on …"). Defaults to now. */
-  createdAt?: string;
+  createdAt?: string | undefined;
   /** IANA timezone (e.g. "America/New_York") for the footer timestamp. Falls back to UTC. */
-  timezone?: string;
+  timezone?: string | undefined;
   /** When set, renders a pill CTA button in the footer. */
-  ctaUrl?: string;
+  ctaUrl?: string | undefined;
   /** Label for the CTA button. Defaults to "Open Alfred". */
-  ctaLabel?: string;
+  ctaLabel?: string | undefined;
   /** Card body. */
   children?: React.ReactNode;
 }

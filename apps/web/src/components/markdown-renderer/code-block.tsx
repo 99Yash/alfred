@@ -4,7 +4,7 @@ import { cn } from "~/lib/utils";
 import { SyntaxHighlighter } from "./syntax-highlighter";
 
 interface CodeBlockProps {
-  language?: string;
+  language?: string | undefined;
   code: string;
 }
 

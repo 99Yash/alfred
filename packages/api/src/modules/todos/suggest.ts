@@ -22,11 +22,11 @@ export interface SuggestTodoInput {
   /** Agent run that proposed this todo (traceability). */
   agentRunId: string;
   name: string;
-  description?: string;
+  description?: string | undefined;
   /** Optional Alfred-authored tip; an honest "I can't act on this" when clueless. */
-  assist?: string;
+  assist?: string | undefined;
   /** Cross-source provenance refs. Drives the idempotency/merge guard. */
-  sources?: TodoSource[];
+  sources?: TodoSource[] | undefined;
 }
 
 export type SuggestTodoResult =

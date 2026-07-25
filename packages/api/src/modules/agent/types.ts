@@ -129,11 +129,11 @@ export interface WorkflowInput {
   /** First-class reason this run was created. */
   trigger: AgentRunTrigger;
   /** Optional human-readable brief for the run (free text). */
-  brief?: string;
+  brief?: string | undefined;
   /** Workflow-defined initial input passed to `initialState`. */
-  input?: unknown;
+  input?: unknown | undefined;
   /** Free-form metadata persisted on the run row. */
-  metadata?: Record<string, unknown>;
+  metadata?: Record<string, unknown> | undefined;
 }
 
 export type AgentDbExecutor = DbRoot | DbTransaction;
@@ -154,7 +154,7 @@ export interface Workflow<S = unknown> {
    * workflows remain registered so durable checkpoints survive deploys, but
    * are excluded from catalogs and built-in seeding and cannot start new runs.
    */
-  resumeOnly?: boolean;
+  resumeOnly?: boolean | undefined;
   /**
    * Display name shown in the settings / workflows list. Required for
    * built-ins because the seeder writes it into the `workflows.name`

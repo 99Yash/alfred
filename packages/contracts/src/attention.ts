@@ -111,7 +111,7 @@ export interface AttentionInput {
    * `null`/`undefined` when the sender is unscored / non-human / has no graph
    * row — which degrades to neutral (no demotion).
    */
-  significanceBand?: SignificanceBand | null;
+  significanceBand?: SignificanceBand | null | undefined;
   /**
    * 0-based count of *prior* occurrences of this `(sender, normalizedSubject)`
    * in the window. `0` = first sighting (no decay). Only meaningful for
@@ -130,7 +130,7 @@ export interface AttentionInput {
    * regardless of significance or recurrence (ADR-0051 pin). When set, the band
    * is forced to `demanding` and the score floored at {@link DEMANDING_AT}.
    */
-  pinnedDemanding?: boolean;
+  pinnedDemanding?: boolean | undefined;
 }
 
 export interface AttentionResult {
@@ -246,9 +246,9 @@ export interface AttentionItemInput {
   /** The honest, immutable triage category — the demand floor. */
   category: TriageCategory;
   /** Sender-significance band (Phase B); omit/null for intrinsic-only scoring. */
-  significanceBand?: SignificanceBand | null;
+  significanceBand?: SignificanceBand | null | undefined;
   /** Exposed-secret / security pin — forces `demanding` (ADR-0051). */
-  pinnedDemanding?: boolean;
+  pinnedDemanding?: boolean | undefined;
   /**
    * Chronological occurrence time (epoch ms, e.g. the email's `authoredAt`).
    * Recurrence — "how many copies has the human *already* seen?" — is inherently
@@ -256,7 +256,7 @@ export interface AttentionItemInput {
    * independent of the order `items` is passed in (both live consumers render
    * newest-first). Omit/null on every item to fall back to input order.
    */
-  occurredAtMs?: number | null;
+  occurredAtMs?: number | null | undefined;
 }
 
 /**

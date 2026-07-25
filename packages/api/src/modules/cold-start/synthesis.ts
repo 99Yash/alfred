@@ -29,8 +29,8 @@ export interface ResearchResult {
   /** finish_reason / token usage surfaced for ops visibility. */
   meta: {
     finishReason: string;
-    inputTokens?: number;
-    outputTokens?: number;
+    inputTokens?: number | undefined;
+    outputTokens?: number | undefined;
   };
 }
 

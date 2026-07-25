@@ -34,8 +34,8 @@ export function RailFooter({
   pending = false,
 }: {
   latestBriefing: RailBriefingSummary | null;
-  onGenerate?: () => void;
-  pending?: boolean;
+  onGenerate?: (() => void) | undefined;
+  pending?: boolean | undefined;
 }) {
   // Title tracks the latest briefing's slot ("Evening briefing"); the empty
   // state offers to generate, the in-flight state reports progress.

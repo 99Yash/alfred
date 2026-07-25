@@ -3,6 +3,7 @@ import { after, before, test } from "node:test";
 import { createMcpExpressApp } from "@modelcontextprotocol/sdk/server/express.js";
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/streamableHttp.js";
+import type { Transport } from "@modelcontextprotocol/sdk/shared/transport.js";
 import { z } from "zod";
 import { McpRawClient } from "../../src/modules/mcp";
 
@@ -30,8 +31,15 @@ before(async () => {
         };
       },
     );
-    const transport = new StreamableHTTPServerTransport({ sessionIdGenerator: undefined });
-    await server.connect(transport);
+    // Stateless mode. The SDK documents it two ways — `sessionIdGenerator:
+    // undefined` and omitting the key — but only omission typechecks under
+    // `exactOptionalPropertyTypes`, since the option is declared `?: () => string`.
+    // Same mode either way ("if not provided, session management is disabled").
+    const transport = new StreamableHTTPServerTransport({});
+    // See `SdkMcpProtocolClient.connect` — the SDK's transport classes widen
+    // `sessionId` / `onclose` past what its own `Transport` interface declares,
+    // so the class does not structurally satisfy the interface under this flag.
+    await server.connect(transport as Transport);
     await transport.handleRequest(req, res, req.body);
     res.on("close", () => {
       void transport.close();

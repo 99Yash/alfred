@@ -29,18 +29,18 @@ import { labelSelfAuthoredMail } from "./labels";
 export interface IngestRecentArgs {
   credentialId: string;
   /** Default: last 30 days. Overridable for smoke tests. */
-  query?: string;
+  query?: string | undefined;
   /** Soft cap on the number of messages to ingest in this run. */
-  maxMessages?: number;
+  maxMessages?: number | undefined;
   /** Page size for `messages.list` calls. Gmail caps at 500. */
-  pageSize?: number;
+  pageSize?: number | undefined;
   /**
    * Whether this run should advance the Gmail history cursor / full-sync marker.
    * Keep true for normal catch-up ingestion. Set false for filtered replay-style
    * backfills, where advancing the cursor from a partial query would incorrectly
    * claim the whole mailbox has been scanned.
    */
-  updateCursor?: boolean;
+  updateCursor?: boolean | undefined;
 }
 
 export interface IngestRecentResult {
@@ -454,7 +454,7 @@ export interface PollHistoryArgs {
    * 500 entries; the cap is a defense against runaway loops if a watch
    * channel went silent for days and the history is huge.
    */
-  maxPages?: number;
+  maxPages?: number | undefined;
 }
 
 export interface PollHistoryResult {
@@ -679,15 +679,15 @@ export async function pollGmailHistory(args: PollHistoryArgs): Promise<PollHisto
 export interface PollRecentArgs {
   credentialId: string;
   /** Search window passed to `newer_than:<window>`. Default `5m`. */
-  window?: string;
+  window?: string | undefined;
   /** Soft cap on messages considered in one call. Default 50. */
-  maxMessages?: number;
+  maxMessages?: number | undefined;
   /**
    * Bounded concurrency for the per-message `getMessage` + `persistMessage`
    * phase. Default 5. Gmail's per-user QPS comfortably absorbs this and a
    * 1-message webhook short-circuits to serial anyway.
    */
-  concurrency?: number;
+  concurrency?: number | undefined;
 }
 
 export interface PollRecentResult {

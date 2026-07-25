@@ -29,18 +29,18 @@ const SOCIAL_IMAGE = `${SITE_URL}/images/og-card.png`;
 
 export interface PageMetaInput {
   /** Page-specific title segment, e.g. `"Settings"` → `"Settings · Alfred"`. */
-  title?: string;
+  title?: string | undefined;
   /** Page-specific description; falls back to the site default. */
-  description?: string;
+  description?: string | undefined;
   /** Canonical route path, e.g. `"/settings"`. Omit only for route-agnostic defaults. */
-  path?: string;
+  path?: string | undefined;
 }
 
 interface MetaTag {
-  title?: string;
-  name?: string;
-  property?: string;
-  content?: string;
+  title?: string | undefined;
+  name?: string | undefined;
+  property?: string | undefined;
+  content?: string | undefined;
 }
 
 interface LinkTag {

@@ -44,7 +44,7 @@ export interface ChildRunOutcome {
   /** Present for a failed child — its terminal error. */
   error?: unknown;
   /** ms the child has been running, used by the await wait-ceiling. */
-  runningMs?: number;
+  runningMs?: number | undefined;
   /** Why the call could not return the child's result, if applicable. */
   reason?: string;
 }

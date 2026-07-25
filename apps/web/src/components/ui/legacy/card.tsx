@@ -12,8 +12,8 @@ import { cn } from "~/lib/utils";
 
 interface LegacyCardProps extends HTMLAttributes<HTMLDivElement> {
   /** Apply hover/focus background fill — set to true when the card itself is clickable. */
-  interactive?: boolean;
-  ref?: Ref<HTMLDivElement>;
+  interactive?: boolean | undefined;
+  ref?: Ref<HTMLDivElement> | undefined;
 }
 
 export function LegacyCard({ className, interactive, ref, ...rest }: LegacyCardProps) {

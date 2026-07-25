@@ -49,7 +49,7 @@ export interface RestPassthroughProfile {
    * Pinned *last* — after the request's own `query` — so a model-supplied key of
    * the same name cannot override an authority parameter the boundary set.
    */
-  fixedQuery?: Record<string, string>;
+  fixedQuery?: Record<string, string> | undefined;
 }
 
 /**

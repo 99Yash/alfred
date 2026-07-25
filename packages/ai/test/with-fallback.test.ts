@@ -55,7 +55,9 @@ function apiError(
     requestBodyValues: {},
     statusCode,
     isRetryable: false,
-    responseBody,
+    // The SDK declares `responseBody?: string` narrowly, so an omitted body has
+    // to be an absent key rather than a present `undefined`.
+    ...(responseBody === undefined ? {} : { responseBody }),
   });
 }
 

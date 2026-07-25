@@ -81,7 +81,7 @@ async function callVoyage(texts: string[], opts: EmbedOptions): Promise<VoyageEm
     async () => {
       const res = await fetch(VOYAGE_API_BASE, {
         method: "POST",
-        signal: opts.abortSignal,
+        ...(opts.abortSignal ? { signal: opts.abortSignal } : {}),
         headers: {
           Authorization: `Bearer ${env.VOYAGE_API_KEY}`,
           "Content-Type": "application/json",

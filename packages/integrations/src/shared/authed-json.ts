@@ -32,7 +32,7 @@ export interface AuthedJsonOptions {
    * request). Defaults to the request URL; pass a path when the full URL would
    * be noisy or carry query secrets.
    */
-  urlLabel?: string;
+  urlLabel?: string | undefined;
   /**
    * How much of a non-2xx body rides on the thrown {@link HttpError}. Defaults
    * to `"summarize"` (a bounded, secret-redacted slice). Pass `"omit"` for a
@@ -40,7 +40,7 @@ export interface AuthedJsonOptions {
    * reach the tool dispatcher / model transcript: the body is instead logged
    * server-side here and the thrown error carries none. See {@link ErrorBodyPolicy}.
    */
-  bodyPolicy?: ErrorBodyPolicy;
+  bodyPolicy?: ErrorBodyPolicy | undefined;
 }
 
 /**

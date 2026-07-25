@@ -85,7 +85,7 @@ function files(): Files {
     region: env.region,
     // R2's S3 endpoint (https://<accountid>.r2.cloudflarestorage.com). Any
     // S3-compatible endpoint works here; left unset only in tests / AWS-native setups.
-    endpoint: env.endpoint,
+    ...(env.endpoint ? { endpoint: env.endpoint } : {}),
     forcePathStyle: env.forcePathStyle,
     credentials: {
       accessKeyId: env.accessKeyId,
@@ -93,7 +93,7 @@ function files(): Files {
     },
     // When set, reads return `${base}/${key}` (CDN/public bucket). Otherwise
     // `attachmentUrl()` mints a presigned GET.
-    publicBaseUrl: env.publicBaseUrl,
+    ...(env.publicBaseUrl ? { publicBaseUrl: env.publicBaseUrl } : {}),
     defaultUrlExpiresIn: SIGNED_URL_TTL_SECONDS,
   });
   _files = new Files({ adapter, timeout: STORAGE_TIMEOUT_MS, retries: STORAGE_RETRIES });
@@ -205,7 +205,7 @@ export async function deletePrefix(prefix: string): Promise<number> {
   let removed = 0;
   let cursor: string | undefined;
   do {
-    const page = await client.list({ prefix, cursor });
+    const page = await client.list({ prefix, ...(cursor ? { cursor } : {}) });
     const keys = page.items.map((f) => f.key);
     if (keys.length > 0) {
       const result = await client.delete(keys);

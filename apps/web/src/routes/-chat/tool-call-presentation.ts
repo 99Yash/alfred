@@ -8,25 +8,25 @@ export interface ToolCallView {
   toolCallId: string;
   toolName: string;
   status: "started" | "succeeded" | "failed";
-  argsPreview?: string;
-  resultPreview?: string;
+  argsPreview?: string | undefined;
+  resultPreview?: string | undefined;
   /** ADR-0070: non-text bytes were stripped from this result before storage. */
-  sanitized?: boolean;
+  sanitized?: boolean | undefined;
   /** Narration segment this call follows — orders it against the narration trail. */
-  segmentIndex?: number;
+  segmentIndex?: number | undefined;
 }
 
 export interface ToolPresentation {
-  brand?: IntegrationBrand;
+  brand?: IntegrationBrand | undefined;
   fallbackIcon: LucideIcon;
   /** Label shown while the call is in flight. */
   running: string;
   /** Label shown once it lands. */
   done: string;
   /** Label shown when the call fails. Falls back to `${done} failed`. */
-  failed?: string;
+  failed?: string | undefined;
   /** Human-readable secondary line (brief, target, etc.) — not raw JSON. */
-  detail?: string;
+  detail?: string | undefined;
 }
 
 /** The tool's action segment: `"google_calendar.list_events"` → `"list_events"`. */

@@ -47,10 +47,10 @@ function makeDeps(
   } = {},
 ): {
   deps: LabelSelfMailDeps;
-  ensureCalls: Array<{ force?: boolean }>;
+  ensureCalls: Array<{ force?: boolean | undefined }>;
   addCalls: Array<{ messageId: string; labelId: string }>;
 } {
-  const ensureCalls: Array<{ force?: boolean }> = [];
+  const ensureCalls: Array<{ force?: boolean | undefined }> = [];
   const addCalls: Array<{ messageId: string; labelId: string }> = [];
   const ensureIds = overrides.ensureIds ?? [LABEL_ID, LABEL_ID];
   let addAttempts = 0;

@@ -727,7 +727,10 @@ describe("pinningLookup (connect-time IP pin)", () => {
   function run(
     hostname: string,
     resolve: DnsLookupAll,
-  ): Promise<{ err: NodeJS.ErrnoException | null; address?: string | { address: string }[] }> {
+  ): Promise<{
+    err: NodeJS.ErrnoException | null;
+    address?: string | { address: string }[] | undefined;
+  }> {
     return new Promise((res) => {
       pinningLookup(hostname, opts, (err, address) => res({ err, address }), resolve);
     });

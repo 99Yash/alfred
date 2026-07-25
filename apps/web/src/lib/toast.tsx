@@ -19,17 +19,17 @@ export type ToastPosition = "top-center" | "top-right" | "bottom-right" | "botto
 
 interface CallToastOptions {
   message: ReactNode;
-  description?: ReactNode;
+  description?: ReactNode | undefined;
   /** Semantic intent. Drives the default icon and tint. Defaults to `default`. */
-  variant?: ToastVariant;
+  variant?: ToastVariant | undefined;
   /** @deprecated use `variant`. `"danger"` maps to `"error"`. */
-  type?: LegacyVariant;
+  type?: LegacyVariant | undefined;
   /** Auto-dismiss in ms. */
-  duration?: number;
+  duration?: number | undefined;
   /** Override the per-variant default icon. Pass `null` to suppress it. */
-  icon?: ReactNode | null;
+  icon?: ReactNode | null | undefined;
   /** Dock location. Defaults to `top-right`. */
-  position?: ToastPosition;
+  position?: ToastPosition | undefined;
   /**
    * Optional inline action (e.g. "Undo"). Clicking it runs `onClick` and
    * dismisses the toast. Pair with a `duration` so the window matches the
@@ -40,7 +40,7 @@ interface CallToastOptions {
 
 interface VariantSpec {
   /** Card-level modifier (only `error` uses it — for the red hairline ring). */
-  cardClass?: string;
+  cardClass?: string | undefined;
   /** Icon disc tint + icon accent. */
   iconClass: string;
   /** Default leading icon for the variant. */
@@ -205,8 +205,8 @@ function emojiToast({
 }: {
   emoji: string;
   label: ReactNode;
-  duration?: number;
-  position?: ToastPosition;
+  duration?: number | undefined;
+  position?: ToastPosition | undefined;
 }): string | number {
   return sonnerToast.custom(
     (id) => (

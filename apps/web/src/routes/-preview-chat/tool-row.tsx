@@ -17,21 +17,21 @@ import { RAIL_TOOL_TONE, type RailToolTone } from "~/routes/-chat/rail/models";
 type ToolRowProps =
   | {
       integration: IntegrationBrand;
-      icon?: LucideIcon;
-      tone?: RailToolTone;
+      icon?: LucideIcon | undefined;
+      tone?: RailToolTone | undefined;
       label: string;
-      detail?: string;
-      count?: string;
-      done?: boolean;
+      detail?: string | undefined;
+      count?: string | undefined;
+      done?: boolean | undefined;
     }
   | {
-      integration?: undefined;
+      integration?: undefined | undefined;
       icon: LucideIcon;
       tone: RailToolTone;
       label: string;
-      detail?: string;
-      count?: string;
-      done?: boolean;
+      detail?: string | undefined;
+      count?: string | undefined;
+      done?: boolean | undefined;
     };
 
 export function ToolRow(props: ToolRowProps) {

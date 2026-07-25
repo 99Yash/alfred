@@ -31,10 +31,10 @@ export function FrostButton({
   children,
   ...rest
 }: ButtonHTMLAttributes<HTMLButtonElement> & {
-  size?: FrostButtonSize;
-  tone?: FrostButtonTone;
-  loading?: boolean;
-  ref?: Ref<HTMLButtonElement>;
+  size?: FrostButtonSize | undefined;
+  tone?: FrostButtonTone | undefined;
+  loading?: boolean | undefined;
+  ref?: Ref<HTMLButtonElement> | undefined;
 }) {
   const sizeClass =
     size === "lg"

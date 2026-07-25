@@ -4,8 +4,8 @@ export function SectionHeading({
   hint,
 }: {
   title: string;
-  count?: number;
-  hint?: string;
+  count?: number | undefined;
+  hint?: string | undefined;
 }) {
   return (
     <div className="space-y-1 px-1">

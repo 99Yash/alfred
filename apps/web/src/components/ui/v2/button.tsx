@@ -23,12 +23,12 @@ export type AppButtonVariant =
 export type AppButtonSize = "sm" | "md" | "lg";
 
 interface AppButtonProps extends ButtonHTMLAttributes<HTMLButtonElement> {
-  variant?: AppButtonVariant;
-  size?: AppButtonSize;
-  leading?: ReactNode;
-  trailing?: ReactNode;
-  loading?: boolean;
-  ref?: Ref<HTMLButtonElement>;
+  variant?: AppButtonVariant | undefined;
+  size?: AppButtonSize | undefined;
+  leading?: ReactNode | undefined;
+  trailing?: ReactNode | undefined;
+  loading?: boolean | undefined;
+  ref?: Ref<HTMLButtonElement> | undefined;
 }
 
 /* Radius scales with height: 12px on a 28px-tall `sm` button reads almost

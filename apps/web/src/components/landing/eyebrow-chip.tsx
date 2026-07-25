@@ -17,8 +17,8 @@ export function EyebrowChip({
   accent = "neutral",
 }: {
   children: ReactNode;
-  icon?: ReactNode;
-  accent?: "neutral" | "emerald" | "indigo" | "amber";
+  icon?: ReactNode | undefined;
+  accent?: "neutral" | "emerald" | "indigo" | "amber" | undefined;
 }) {
   return (
     <span

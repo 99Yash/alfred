@@ -16,20 +16,20 @@ const REDACT_PATHS = [
 
 type SafeErrorLog = {
   type: string;
-  stack?: string;
+  stack?: string | undefined;
   database?: {
-    code?: string;
-    constraint?: string;
-    schema?: string;
-    table?: string;
-    column?: string;
+    code?: string | undefined;
+    constraint?: string | undefined;
+    schema?: string | undefined;
+    table?: string | undefined;
+    column?: string | undefined;
   };
   // Verbose (non-production) diagnostics only — the production allowlist above
   // never sets these. See {@link devErrorDiagnostics}.
-  message?: string;
-  statusCode?: number;
-  responseBody?: string;
-  url?: string;
+  message?: string | undefined;
+  statusCode?: number | undefined;
+  responseBody?: string | undefined;
+  url?: string | undefined;
 };
 
 const RESPONSE_BODY_LOG_CAP = 4_000;

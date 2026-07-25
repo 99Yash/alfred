@@ -8,7 +8,7 @@ export function HeroTile({
 }: {
   brand: IntegrationBrand;
   variant: "center" | "side";
-  rotate?: number;
+  rotate?: number | undefined;
 }) {
   const isCenter = variant === "center";
   // The full-bleed tile is the artwork itself; the wrapper only carries the

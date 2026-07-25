@@ -31,18 +31,18 @@ export interface TabItem<T extends string = string> {
   value: T;
   label: ReactNode;
   /** Optional leading icon — typically a 14px Lucide glyph. */
-  icon?: ReactNode;
-  disabled?: boolean;
+  icon?: ReactNode | undefined;
+  disabled?: boolean | undefined;
 }
 
 interface TabsProps<T extends string = string> {
-  variant?: TabsVariant;
+  variant?: TabsVariant | undefined;
   value: T;
   onValueChange: (value: T) => void;
   items: ReadonlyArray<TabItem<T>>;
   /** ARIA label for the tablist. Defaults to "Tabs". */
-  label?: string;
-  className?: string;
+  label?: string | undefined;
+  className?: string | undefined;
 }
 
 export function Tabs<T extends string = string>({

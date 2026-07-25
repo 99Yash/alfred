@@ -142,7 +142,10 @@ export const githubTools: readonly RegisteredTool[] = [
         : queryHasNarrowingScope(sanitized.query)
           ? undefined
           : resolvePullRequestAuthor("@me", accountLogin, ctx.userId);
-      const q = buildGithubSearchQuery({ ...input, ...sanitized, author }, ctx.timezone);
+      const q = buildGithubSearchQuery(
+        { ...input, ...sanitized, state: sanitized.state ?? input.state, author },
+        ctx.timezone,
+      );
       const result = await github.search({ q, perPage: input.perPage });
       // Result-honesty (ADR-0071 #6): never present a truncated count as exact.
       const note = result.incompleteResults

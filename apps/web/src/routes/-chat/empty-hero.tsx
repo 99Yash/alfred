@@ -16,10 +16,12 @@ export function EmptyHero({
 }: {
   threadId: string | undefined;
   isStreaming: boolean;
-  onSend?: (text: string, files?: File[], artifactTargetId?: string) => Promise<boolean>;
-  autoApprove?: boolean;
-  autoApprovePending?: boolean;
-  onToggleAutoApprove?: () => void;
+  onSend?:
+    | ((text: string, files?: File[], artifactTargetId?: string) => Promise<boolean>)
+    | undefined;
+  autoApprove?: boolean | undefined;
+  autoApprovePending?: boolean | undefined;
+  onToggleAutoApprove?: (() => void) | undefined;
   tier: ChatTier;
   onTierChange: (tier: ChatTier) => void;
 }) {

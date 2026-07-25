@@ -8,10 +8,10 @@ export interface StreamingToolCall {
   toolCallId: string;
   toolName: string;
   status: "started" | "succeeded" | "failed";
-  argsPreview?: string;
-  resultPreview?: string;
+  argsPreview?: string | undefined;
+  resultPreview?: string | undefined;
   /** ADR-0070: non-text bytes were stripped from this result before storage. */
-  sanitized?: boolean;
+  sanitized?: boolean | undefined;
   /** Narration segment this call follows, ordering it against the narration trail. */
   segmentIndex: number;
 }

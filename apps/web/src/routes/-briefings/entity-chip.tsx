@@ -18,7 +18,7 @@ import { cn } from "~/lib/utils";
 export interface EntityChipProps {
   kind: BriefingReferenceKind;
   label: string;
-  href?: string;
+  href?: string | undefined;
 }
 
 const TONE: Record<BriefingReferenceKind, string> = {

@@ -7,7 +7,7 @@ import { GoogleMark } from "./google-mark";
 const GOOGLE_LEADING = <GoogleMark />;
 const ARROW_TRAILING = <ArrowRight size={14} />;
 
-export function AuthPanel({ redirect }: { redirect?: string }) {
+export function AuthPanel({ redirect }: { redirect?: string | undefined }) {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 

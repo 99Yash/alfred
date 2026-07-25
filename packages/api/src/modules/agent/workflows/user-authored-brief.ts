@@ -686,7 +686,12 @@ function readAllowedIntegrations(metadata: Record<string, unknown> | undefined):
 
 async function buildTriggerEventMessage(input: {
   userId: string;
-  trigger: { kind: string; source?: string; type?: string; payload?: Record<string, unknown> };
+  trigger: {
+    kind: string;
+    source?: string | undefined;
+    type?: string | undefined;
+    payload?: Record<string, unknown> | undefined;
+  };
 }): Promise<AgentTranscriptMessage | null> {
   const trigger = input.trigger;
   if (trigger.kind !== "event") return null;

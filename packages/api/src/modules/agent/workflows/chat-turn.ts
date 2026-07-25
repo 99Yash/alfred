@@ -21,6 +21,7 @@ import {
   MAX_MODEL_ATTACHMENT_BYTES_PER_TURN,
   sanitizeToolResult,
   toMessage,
+  withDefaults,
   type AgentTranscriptMessage,
   type ArtifactFormat,
   type ChatErrorKind,
@@ -460,7 +461,7 @@ export function buildChatSystemPrompt(
     /** Safe generated artifact metadata; authored content stays in the transcript. */
     artifactsContext?: string;
     /** Inject the heavier document guide only while a PDF is selected. */
-    artifactDesignMedium?: ArtifactFormat;
+    artifactDesignMedium?: ArtifactFormat | undefined;
   } = {},
 ): string {
   const artifactsContext = options.artifactsContext ?? "";
@@ -1155,7 +1156,7 @@ export async function guardUnreportedToolFailures(
   transcript: AgentTranscriptMessage[],
   deps: Partial<GuardUnreportedToolFailuresDeps> = {},
 ): Promise<StepResult<ChatRunState> | null> {
-  const guardDeps = { ...defaultGuardUnreportedToolFailuresDeps, ...deps };
+  const guardDeps = withDefaults(defaultGuardUnreportedToolFailuresDeps, deps);
   const unreported = state.toolCallsLog.filter(
     (t, index) =>
       t.status === "failed" &&
@@ -1915,6 +1916,23 @@ async function finalizeAssistantMessage(
   const now = new Date();
   const fields = sanitizeChatMessageFields(state);
   const usage = await aggregateRunUsage(runId);
+  // The predicate that confines the DO UPDATE below to a `failed` row of this
+  // user's thread — a retry re-finalizing after a crash, never a completed
+  // message. Drizzle types `and()` as `SQL | undefined` because it collapses
+  // when every condition is undefined; all three here are unconditional, so it
+  // never does. Checked rather than `!`-ed anyway: a collapsed `setWhere` is not
+  // a type error at the call site, it is silently *no* guard, and the upsert
+  // would overwrite whatever row already holds this id.
+  const onlyIfPreviousAttemptFailed = and(
+    eq(chatMessages.status, "failed"),
+    eq(chatMessages.userId, userId),
+    eq(chatMessages.threadId, state.threadId),
+  );
+  if (!onlyIfPreviousAttemptFailed) {
+    throw new Error(
+      "finalizeAssistantMessage: failed-row guard collapsed to undefined — refusing an unguarded upsert",
+    );
+  }
   await db()
     .insert(chatMessages)
     .values({
@@ -1945,11 +1963,7 @@ async function finalizeAssistantMessage(
         rowVersion: sql`${chatMessages.rowVersion} + 1`,
         updatedAt: now,
       },
-      setWhere: and(
-        eq(chatMessages.status, "failed"),
-        eq(chatMessages.userId, userId),
-        eq(chatMessages.threadId, state.threadId),
-      ),
+      setWhere: onlyIfPreviousAttemptFailed,
     });
   await db()
     .update(chatThreads)

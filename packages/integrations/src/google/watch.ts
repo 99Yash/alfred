@@ -3,7 +3,7 @@ import { ingestionState, integrationCredentials } from "@alfred/db/schemas";
 import { and, eq, sql } from "drizzle-orm";
 import { getFreshAccessToken } from "./credentials";
 import { startWatch, stopWatch } from "./gmail";
-import { toMessage } from "@alfred/contracts";
+import { toMessage, withDefaults } from "@alfred/contracts";
 import { gmailMailboxWritesEnabled } from "@alfred/env/server";
 
 /**
@@ -34,7 +34,7 @@ export interface GmailWatchState {
 }
 
 interface CredentialMetadataWithWatch {
-  watch?: GmailWatchState;
+  watch?: GmailWatchState | undefined;
   [key: string]: unknown;
 }
 
@@ -66,11 +66,11 @@ export async function installGmailWatch(
   args: {
     credentialId: string;
     topicName: string;
-    labelIds?: string[];
+    labelIds?: string[] | undefined;
   },
   deps: Partial<GmailWatchDeps> = {},
 ): Promise<GmailWatchState | null> {
-  const d = { ...DEFAULT_DEPS, ...deps };
+  const d = withDefaults(DEFAULT_DEPS, deps);
   // #278: a non-prod instance must not register a watch against the shared real
   // Gmail account — it would drive ingestion + relabel that fights prod. Returns
   // null (not a fake state) so callers can report "skipped" honestly.
@@ -125,7 +125,7 @@ export async function uninstallGmailWatch(
   credentialId: string,
   deps: Partial<GmailWatchDeps> = {},
 ): Promise<void> {
-  const d = { ...DEFAULT_DEPS, ...deps };
+  const d = withDefaults(DEFAULT_DEPS, deps);
   // #278: never stop a watch from non-prod — the only live watch belongs to
   // prod, and stopping it here would kill prod ingestion. Still clear local
   // metadata so a manual "uninstall watch" does not report a stale watch as
@@ -158,11 +158,11 @@ export async function uninstallGmailWatch(
 export async function stopGmailWatchWithAccessToken(
   args: {
     accessToken: string;
-    credentialId?: string;
+    credentialId?: string | undefined;
   },
   deps: Partial<Pick<GmailWatchDeps, "mailboxWritesEnabled" | "stopWatch">> = {},
 ): Promise<void> {
-  const d = { ...DEFAULT_DEPS, ...deps };
+  const d = withDefaults(DEFAULT_DEPS, deps);
   // #278: don't stop the shared watch from non-prod (would kill prod ingestion).
   if (!d.mailboxWritesEnabled()) {
     const suffix = args.credentialId ? ` for ${args.credentialId}` : "";

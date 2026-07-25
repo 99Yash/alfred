@@ -8,9 +8,9 @@ export function FadeInOnScroll({
   as: As = "div",
 }: {
   children: ReactNode;
-  delay?: number;
-  className?: string;
-  as?: "div" | "section" | "header" | "li";
+  delay?: number | undefined;
+  className?: string | undefined;
+  as?: "div" | "section" | "header" | "li" | undefined;
 }) {
   const ref = useRef<HTMLElement | null>(null);
 

@@ -5,9 +5,9 @@ export function FactCard({
   highlight,
   accent,
 }: {
-  className?: string;
-  highlight?: boolean;
-  accent?: string;
+  className?: string | undefined;
+  highlight?: boolean | undefined;
+  accent?: string | undefined;
 }) {
   return (
     <div

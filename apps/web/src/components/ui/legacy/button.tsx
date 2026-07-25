@@ -21,15 +21,15 @@ export type LegacyButtonVariant =
 export type LegacyButtonSize = "sm" | "md" | "mdPlus" | "lg";
 
 interface LegacyButtonProps extends ButtonHTMLAttributes<HTMLButtonElement> {
-  variant?: LegacyButtonVariant;
-  size?: LegacyButtonSize;
+  variant?: LegacyButtonVariant | undefined;
+  size?: LegacyButtonSize | undefined;
   /** Optional leading icon. */
-  leading?: ReactNode;
+  leading?: ReactNode | undefined;
   /** Optional trailing icon or chip (e.g., ⌘↵). */
-  trailing?: ReactNode;
+  trailing?: ReactNode | undefined;
   /** Override the loading data attribute used to fade text + show spinner. */
-  loading?: boolean;
-  ref?: Ref<HTMLButtonElement>;
+  loading?: boolean | undefined;
+  ref?: Ref<HTMLButtonElement> | undefined;
 }
 
 /* Sizes — heights and horizontal padding pulled from the recon doc. */

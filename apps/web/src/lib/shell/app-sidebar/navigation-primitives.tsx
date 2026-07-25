@@ -9,9 +9,9 @@ import { railIconClass } from "./navigation-primitives.styles";
 interface BaseNavProps {
   icon: LucideIcon;
   label: string;
-  kbd?: string;
-  badge?: string;
-  active?: boolean;
+  kbd?: string | undefined;
+  badge?: string | undefined;
+  active?: boolean | undefined;
 }
 
 export function SidebarHeading({ children }: { children: ReactNode }) {
@@ -94,7 +94,7 @@ export function RailTip({
   children,
 }: {
   label: string;
-  kbd?: string;
+  kbd?: string | undefined;
   children: ReactNode;
 }) {
   const { resolved } = useAppTheme();

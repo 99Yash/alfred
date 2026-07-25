@@ -24,17 +24,17 @@ export interface FetchUrlView {
   /** Bare hostname of the page being read (post-redirect once it lands). */
   domain: string;
   /** The page `<title>`, once the fetch succeeds. */
-  title?: string;
+  title?: string | undefined;
   /** Where the card links: the final URL after redirects, else the requested one. */
   href: string;
   /** A short peek at the sanitized text the fetch pulled back, for the panel. */
-  excerpt?: string;
+  excerpt?: string | undefined;
 }
 
 export interface WebSearchView {
   kind: "web_search";
   /** The search query, shown as the card's subline. */
-  query?: string;
+  query?: string | undefined;
   /** Deduped result sources (favicon + title + host), once the search lands. */
   sources: Source[];
 }
@@ -116,10 +116,10 @@ export interface EvidenceRow {
   /** Primary line — what the record is. */
   title: string;
   /** Opens in a new tab when present; a link-less row is still shown. */
-  href?: string;
+  href?: string | undefined;
   /** Muted secondary line — repo, timestamp, path. */
-  meta?: string;
-  badge?: EvidenceBadge;
+  meta?: string | undefined;
+  badge?: EvidenceBadge | undefined;
 }
 
 /** A list of records a read tool returned (github.search, calendar, …). */
@@ -128,12 +128,12 @@ export interface RecordListView {
   /** Integration domain used for each row's favicon. */
   faviconDomain: string;
   /** The query/context that produced the list, when the result echoes it. */
-  query?: string;
+  query?: string | undefined;
   rows: EvidenceRow[];
   /** Exact count of records beyond those shown (`totalCount − shown`). */
-  remaining?: number;
+  remaining?: number | undefined;
   /** More records exist but the count is unknown (pagination flag only). */
-  hasMore?: boolean;
+  hasMore?: boolean | undefined;
 }
 
 /** One labeled fact in an entity panel. */
@@ -147,11 +147,11 @@ export interface EntityView {
   kind: "entity";
   faviconDomain: string;
   title: string;
-  href?: string;
-  badge?: EvidenceBadge;
+  href?: string | undefined;
+  badge?: EvidenceBadge | undefined;
   facts: EntityFact[];
   /** A short peek at the body (email snippet, issue lede). */
-  excerpt?: string;
+  excerpt?: string | undefined;
 }
 
 export type EvidenceView = BrowsingView | RecordListView | EntityView;
@@ -271,12 +271,12 @@ interface ListSpec {
   arrayKey: string;
   faviconDomain: string;
   /** The query/context line, read from the result echo or the live args. */
-  query?: (result: JsonRecord, args: JsonRecord | null) => string | undefined;
+  query?: ((result: JsonRecord, args: JsonRecord | null) => string | undefined) | undefined;
   row: (item: JsonRecord) => EvidenceRow | null;
   /** Exact count beyond the shown rows (e.g. `totalCount − shown`). */
-  remaining?: (result: JsonRecord, shown: number) => number | undefined;
+  remaining?: ((result: JsonRecord, shown: number) => number | undefined) | undefined;
   /** More exist, count unknown (a bare pagination flag). */
-  hasMore?: (result: JsonRecord) => boolean;
+  hasMore?: ((result: JsonRecord) => boolean) | undefined;
 }
 
 /** Railway's two deployment reads (`list_*` / `recent_*`) share a row shape. */

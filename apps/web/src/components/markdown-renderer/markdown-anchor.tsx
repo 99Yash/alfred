@@ -10,7 +10,7 @@ function isCitation(title: string | undefined): boolean {
  * Links: citation pills for `"cite"`-titled links, otherwise a plain external
  * link that never leaks the referrer and always opens in a new tab.
  */
-export const MarkdownAnchor: Components["a"] = ({
+export const MarkdownAnchor: NonNullable<Components["a"]> = ({
   node: _node,
   href,
   title,

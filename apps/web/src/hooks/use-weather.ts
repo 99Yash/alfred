@@ -47,7 +47,10 @@ export function useWeather() {
     gcTime: 60 * 60 * 1000,
     refetchOnWindowFocus: false,
     retry: 1,
-    initialData: cached?.data,
-    initialDataUpdatedAt: cached?.fetchedAt,
+    // Seed only on a cache hit. React Query's `initialData` overload is what
+    // fixes `data` as non-undefined, so handing it an explicit `undefined`
+    // (rejected under exactOptionalPropertyTypes) would also collapse the
+    // inference every consumer of `data` depends on.
+    ...(cached ? { initialData: cached.data, initialDataUpdatedAt: cached.fetchedAt } : {}),
   });
 }

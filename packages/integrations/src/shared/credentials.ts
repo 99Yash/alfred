@@ -40,14 +40,14 @@ export interface UpsertBearerCredentialArgs {
   provider: BearerProvider;
   /** Provider-side stable id (workspace id, team/user id, account id). */
   accountId: string;
-  accountLabel?: string | null;
+  accountLabel?: string | null | undefined;
   accessToken: string;
   /** Most bearer providers issue none; kept for parity with the column. */
-  refreshToken?: string | null;
+  refreshToken?: string | null | undefined;
   /** Null for non-expiring tokens (the common case here). */
-  expiresAt?: Date | null;
-  scopes?: string[];
-  metadata?: Record<string, unknown>;
+  expiresAt?: Date | null | undefined;
+  scopes?: string[] | undefined;
+  metadata?: Record<string, unknown> | undefined;
 }
 
 /**
