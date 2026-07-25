@@ -125,6 +125,55 @@ describe("mcp.list_tools local reader (DB-backed, offline)", { skip: SKIP }, () 
     assert.equal(result.catalogChanged, false);
   });
 
+  test("detail:names drops the prose but not the tools", async () => {
+    const userId = await seedUser();
+    const connId = await seedConnection(userId);
+    await seedRevision(connId, [
+      tool("search", { title: "Search", description: "Find things" }),
+      tool("create_issue", { title: "Create issue", description: "Open a new issue" }),
+    ]);
+
+    const result = await listMcpToolsLocal({ connectionId: connId, detail: "names" }, userId);
+    assert.equal(result.status, "tools");
+    if (result.status !== "tools") throw new Error("unreachable");
+    assert.equal(result.toolCount, 2);
+    assert.deepEqual(
+      result.tools.map((summary) => summary.name).sort(),
+      ["create_issue", "search"],
+      "the same tools a summary page would return",
+    );
+    assert.ok(
+      result.tools.every((summary) => summary.title === undefined),
+      "no titles in the names tier",
+    );
+    assert.ok(
+      result.tools.every((summary) => summary.description === undefined),
+      "no descriptions in the names tier",
+    );
+  });
+
+  test("detail:names still filters on the description it does not return", async () => {
+    const userId = await seedUser();
+    const connId = await seedConnection(userId);
+    await seedRevision(connId, [
+      tool("search", { description: "Find things" }),
+      tool("create_issue", { description: "Open a ticket" }),
+    ]);
+
+    // "ticket" appears only in a description, which the names tier omits from the
+    // RESULT — the filter still runs against the full summary, so the tool matches.
+    const result = await listMcpToolsLocal(
+      { connectionId: connId, detail: "names", query: "ticket" },
+      userId,
+    );
+    assert.equal(result.status, "tools");
+    if (result.status !== "tools") throw new Error("unreachable");
+    assert.deepEqual(
+      result.tools.map((summary) => summary.name),
+      ["create_issue"],
+    );
+  });
+
   test("query filters summaries by name or description", async () => {
     const userId = await seedUser();
     const connId = await seedConnection(userId);

@@ -7,6 +7,7 @@ import { user, userFacts } from "@alfred/db/schemas";
 import { and, eq, inArray } from "drizzle-orm";
 
 import { confirmFact, proposeFact, recallActiveByKey } from "../../src/modules/memory/facts";
+import { closeRedis } from "../../src/queue/connection";
 
 /**
  * DB-backed integration test for `proposeFact`'s #330 capture invariants:
@@ -51,6 +52,9 @@ describe("proposeFact capture invariants (DB-backed, #330)", { skip: SKIP }, () 
     if (createdUserIds.length) {
       await db().delete(user).where(inArray(user.id, createdUserIds));
     }
+    // The fact-capture path opens a tracked Redis connection (#546); leaving it
+    // ESTABLISHED keeps the test child process alive forever.
+    await closeRedis();
     await closeConnections();
   });
 

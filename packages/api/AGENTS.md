@@ -16,3 +16,6 @@ Use `@alfred/api` only for the Elysia app, its `App` type, and HTTP security hea
 - JSON/protocol guards are for JSON-shaped values. Drizzle errors, timer handles, SDK instances, and other runtime objects require checks for the specific property or method being used.
 - Bound and sanitize tool output and error text before persistence, transport, or logging. Never log full error objects.
 - User-model writes must go through the existing observation/fact write boundaries and schemas; do not insert raw rows directly.
+- Resolve a user's zone with `resolveUserTimezone` and render instants with `formatInstantInTimezone` from this package's timezone module. Validate a zone string with `isIanaTimezone` from `@alfred/contracts`. Do not write `Intl` glue per call site.
+- Pass agent-authored prose through `sanitizeVoice` (or `createVoiceStreamSanitizer` when streaming) before it reaches a user. The prompt asks for the voice; the sanitizer is what enforces it.
+- Worker, bootstrap, and teardown entrypoints come from `@alfred/api/runtime` — `warmPool` on start, `closeConnections` / `closeRedis` on shutdown. A process that skips them leaks pooled connections.

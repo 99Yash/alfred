@@ -5,7 +5,8 @@
 ## Calls And Metering
 
 - Use the package's model-identification boundary; do not inspect SDK internals with local casts.
-- Production LLM calls that should be attributed must use the metered wrappers. Raw SDK calls are limited to explicitly isolated probes or package internals that implement those wrappers.
+- Take model handles from `getChatModel` / `getCheapModel` / `getBossModel`. Constructing a provider client at a call site skips the retry wrapper, metering, and the per-model capability map.
+- Production LLM calls that should be attributed must use the metered wrappers — `meteredGenerateText` and `meteredGenerateObject`. Raw SDK calls are limited to explicitly isolated probes or package internals that implement those wrappers.
 - Every external or LLM call needs a timeout or abort signal. Cancel sibling work after failure so billable calls do not continue unattended.
 
 ## Provider Data
