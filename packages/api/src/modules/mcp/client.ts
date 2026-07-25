@@ -146,8 +146,8 @@ export class McpRawClient {
       : new SdkMcpProtocolClient({
           endpoint,
           requestTimeoutMs: this.#limits.requestTimeoutMs,
-          ...(this.#options.authProvider ? { authProvider: this.#options.authProvider } : {}),
-          ...(this.#options.fetch ? { fetch: this.#options.fetch } : {}),
+          authProvider: this.#options.authProvider,
+          fetch: this.#options.fetch,
         });
     protocol.onToolsChanged(() => this.#invalidateCatalog());
     try {
@@ -388,7 +388,7 @@ export class McpRawClient {
         outputSchemaValidated,
         truncated: Boolean(bounded.truncation),
       }),
-      ...(bounded.truncation ? { truncation: bounded.truncation } : {}),
+      truncation: bounded.truncation,
     };
   }
 
