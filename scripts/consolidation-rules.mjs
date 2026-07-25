@@ -1,0 +1,168 @@
+// The single table of "we already have a helper for this" facts.
+//
+// One table, two consumers, so the fact cannot drift between them:
+//   - `check-consolidation-drift.mjs` runs the `gate` rules in `pnpm check`.
+//     A match fails the build the same way a type error does.
+//   - `.claude/hooks/helper-hints.mjs` runs *every* rule against the text an
+//     agent is about to write, and injects `fix` before the edit lands.
+//
+// Two severities, because the two consumers can afford different strictness:
+//   - "gate": fully consolidated to one owner, so a match is unambiguously
+//     drift rather than un-migrated legacy. Fails `pnpm check`.
+//   - "hint": the canonical helper exists and is preferred, but enough legacy
+//     call sites remain (or the pattern is broad enough) that banning it would
+//     gate on a migration. Advisory at edit time only; never fails a build.
+//
+// A row here replaces a row in the root CLAUDE.md "reach for…" table. That is
+// the point: a fact enforced by a check does not also need to be prose that
+// every session pays for and nothing keeps current. When a "hint" row's legacy
+// call sites reach zero, promote it to "gate" and delete its prose row too.
+//
+// Escape hatch: append `// drift-ok` to a line to allow a deliberate exception.
+
+/**
+ * @typedef {object} ConsolidationRule
+ * @property {string}   id        Stable slug, used in hook output.
+ * @property {RegExp}   re        Matched per line.
+ * @property {"gate"|"hint"} severity
+ * @property {string}   fix       What to reach for instead.
+ * @property {string[]} [owners]  Repo-relative files that legitimately contain
+ *                                the idiom (the helper's own definition, its
+ *                                doc-comment example, or the sanctioned reader).
+ *                                Scoped per rule: owning `toStringArray` does
+ *                                not license every other idiom in that file.
+ */
+
+/** @type {ConsolidationRule[]} */
+export const RULES = [
+  {
+    id: "as-string-array",
+    // `x as string[]` — the unchecked element-type assertion. `as string[] | ...`
+    // (a union) is a different, narrower shape and is left alone.
+    re: /\bas\s+string\[\](?!\s*[|&])/,
+    severity: "gate",
+    owners: ["packages/contracts/src/guards.ts"],
+    fix: "Use toStringArray(x) from @alfred/contracts — it checks the element type at runtime instead of asserting it.",
+  },
+  {
+    id: "canonical-param-key",
+    // The `.toLowerCase().replace(/[_-]/g, "")` key-canonicalization idiom.
+    re: /\.toLowerCase\(\)\.replace\(\s*\/\[_-\]\/g\s*,\s*""\s*\)/,
+    severity: "gate",
+    owners: ["packages/contracts/src/tool-schemas.ts"],
+    fix: "Use canonicalParamKey(key) from @alfred/contracts — the one canonical key-folding function.",
+  },
+  {
+    id: "hand-rolled-timezone-validator",
+    // A hand-rolled `function isValidTimezone` — this exact `Intl.DateTimeFormat`
+    // trial was copied verbatim into web, sync, and api before consolidation.
+    re: /\bfunction\s+isValidTimezone\b/,
+    severity: "gate",
+    fix: "Use isIanaTimezone from @alfred/contracts — the one memoized, alias-aware timezone validator. Don't hand-roll an Intl.DateTimeFormat trial.",
+  },
+  {
+    id: "as-tool-name",
+    // Zero production call sites: every `as ToolName` left in the tree is in a
+    // test fixture, which this check already skips.
+    re: /\bas\s+ToolName\b/,
+    severity: "gate",
+    fix: "Narrow the string with isToolName from @alfred/contracts before indexing a ToolName record or dispatching. Don't assert it.",
+  },
+  {
+    id: "raw-process-env",
+    // The repo invariant, promoted out of prose. Only the env package's own
+    // schema readers and Drizzle's standalone config may touch process.env;
+    // tests//scripts/ are skipped by the path filter, not listed here.
+    re: /\bprocess\.env\b/,
+    severity: "gate",
+    owners: [
+      "packages/env/src/server.ts",
+      "packages/env/src/database.ts",
+      "packages/db/drizzle.config.ts",
+    ],
+    fix: "Use serverEnv() from @alfred/env/server — the only sanctioned reader of process env. It validates the whole environment once against a schema.",
+  },
+  {
+    id: "error-to-message",
+    // `err instanceof Error ? err.message : String(err)`, exactly. Deliberately
+    // does NOT match the stack-preferring variant
+    // (`err instanceof Error ? (err.stack ?? err.message) : String(err)`) or a
+    // domain-specific fallback (`: "Invalid JSON"`), which are different calls.
+    re: /instanceof\s+Error\s*\?\s*\w+\.message\s*:\s*String\(/,
+    severity: "gate",
+    owners: ["packages/contracts/src/errors.ts"],
+    fix: "Use toMessage(err) from @alfred/contracts — the one caught-error-to-string helper.",
+  },
+
+  // ---- hints: canonical helper exists, legacy call sites remain -------------
+  {
+    id: "hand-rolled-record-guard",
+    re: /typeof\s+(\w+)\s*===\s*["']object["']\s*&&\s*\1\s*!==\s*null/,
+    severity: "hint",
+    fix: "isRecord(x) from @alfred/contracts is this check. Use toRecord(x) if you want a Record or {} back rather than a boolean.",
+  },
+  {
+    id: "raw-json-parse",
+    re: /\bJSON\.parse\(/,
+    severity: "hint",
+    fix: "parseJsonWith(raw, schema, fallback?) from @alfred/contracts parses AND validates in one step; safeJsonParse(raw) handles malformed input without a try/catch. Reach for those before JSON.parse + a cast.",
+  },
+  {
+    id: "raw-intl-timezone",
+    re: /new\s+Intl\.DateTimeFormat\(/,
+    severity: "hint",
+    fix: "For validation use isIanaTimezone; to render an instant in a user's zone use resolveUserTimezone / formatInstantInTimezone from @alfred/api's timezone module. A bare Intl trial once broke briefings on \"UTC\".",
+  },
+  {
+    id: "stale-google-access-token",
+    re: /\brefreshAccessToken\b|\bcredential(?:s)?\.accessToken\b/,
+    severity: "hint",
+    fix: "Resolve Google tokens with getFreshAccessToken from @alfred/integrations/google. The persisted accessToken and a manual refresh are both the stale path — and the token is a secret, so never log or persist it on an error.",
+  },
+  {
+    id: "raw-provider-client",
+    re: /new\s+Anthropic\(|createAnthropic\(|createGoogleGenerativeAI\(/,
+    severity: "hint",
+    fix: "Use getChatModel / getCheapModel / getBossModel from @alfred/ai instead of constructing a provider client — they carry the retry wrapper, metering, and per-model capability map.",
+  },
+  {
+    id: "raw-email-normalize",
+    re: /\.match\(\s*\/<\s*\(\?/,
+    severity: "hint",
+    fix: "Use parseEmailAddress(value) from @alfred/contracts to pull an address out of a `Name <addr>` header and normalize it. It is also the single source of self-mail matching.",
+  },
+];
+
+/**
+ * Path predicate → skip. Tests/evals/scripts/backfills legitimately use casts
+ * and raw env reads for fixture ergonomics; generated + built output isn't
+ * source. Shared so the gate and the edit-time hook agree on scope.
+ * @param {string} file Repo-relative path.
+ */
+export const isSkippedPath = (file) =>
+  /(^|\/)(dist|build|coverage|node_modules)\//.test(file) ||
+  /\.(d|gen)\.ts$/.test(file) ||
+  /\.test\.tsx?$/.test(file) ||
+  /(^|\/)(test|__mocks__|evals)\//.test(file) ||
+  file.endsWith(".eval.ts") ||
+  /(^|\/)scripts\//.test(file);
+
+/**
+ * Match one line against the rules in scope for a file.
+ * @param {string} line
+ * @param {string} file Repo-relative path, for per-rule owner exemptions.
+ * @param {"gate"|"all"} lanes Which severities to report.
+ * @returns {ConsolidationRule[]}
+ */
+export function matchLine(line, file, lanes) {
+  if (line.includes("// drift-ok")) return [];
+  // Skip whole-line comments — doc examples of a banned idiom are not drift.
+  const trimmed = line.trim();
+  if (trimmed.startsWith("//") || trimmed.startsWith("*")) return [];
+  return RULES.filter(
+    (rule) =>
+      (lanes === "all" || rule.severity === "gate") &&
+      !rule.owners?.includes(file) &&
+      rule.re.test(line),
+  );
+}

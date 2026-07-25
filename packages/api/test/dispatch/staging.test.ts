@@ -13,6 +13,7 @@ import {
   liveTool,
   registerTool,
 } from "../../src/modules/tools/registry";
+import { closeRedis } from "../../src/queue/connection";
 
 /**
  * DB-backed regression tests for the dispatcher's idempotency contract and the
@@ -155,6 +156,10 @@ describe("dispatch staging (DB-backed)", { skip: SKIP }, () => {
     if (createdUserIds.length > 0) {
       await db().delete(user).where(inArray(user.id, createdUserIds));
     }
+    // Staging a call publishes to the action-policy channel, which opens a
+    // tracked Redis connection (#546). Without this the socket stays
+    // ESTABLISHED and the test child process never exits.
+    await closeRedis();
     await closeConnections();
   });
 

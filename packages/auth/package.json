@@ -10,6 +10,7 @@
     "check-types": "tsc -b --emitDeclarationOnly"
   },
   "dependencies": {
+    "@alfred/contracts": "workspace:*",
     "@alfred/db": "workspace:*",
     "@alfred/env": "workspace:*",
     "better-auth": "catalog:",

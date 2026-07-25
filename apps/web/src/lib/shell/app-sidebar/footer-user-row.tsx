@@ -1,3 +1,4 @@
+import { toMessage } from "@alfred/contracts";
 import { Link, useNavigate } from "@tanstack/react-router";
 import { Settings } from "lucide-react";
 import { useState } from "react";
@@ -59,7 +60,7 @@ function useUserRow() {
     try {
       await authClient.signOut();
     } catch (err) {
-      console.error("Sign out failed", err instanceof Error ? err.message : String(err));
+      console.error("Sign out failed", toMessage(err));
     } finally {
       await navigate({ to: "/login" });
       setSigningOut(false);

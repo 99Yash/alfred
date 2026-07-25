@@ -33,7 +33,7 @@ import dns from "node:dns";
 import { isIP, type LookupFunction } from "node:net";
 import { Readable, type Transform } from "node:stream";
 import { createBrotliDecompress, createGunzip, createInflate } from "node:zlib";
-import { getPath, isNonEmptyString } from "@alfred/contracts";
+import { getPath, isNonEmptyString, toMessage } from "@alfred/contracts";
 import { serverEnv } from "@alfred/env/server";
 import { Agent, request as undiciRequest } from "undici";
 
@@ -927,7 +927,7 @@ export async function safeRequest(
         e.redirects = chain;
         throw e;
       }
-      const why = err instanceof Error ? err.message : String(err);
+      const why = toMessage(err);
       const e = new FetchError(
         "fetch_failed",
         `Could not reach the URL: ${why}`,
@@ -1161,7 +1161,7 @@ async function runFetchUrlImpl(
         ...(err.redirects && err.redirects.length > 0 ? { redirects: err.redirects } : {}),
       };
     }
-    const why = err instanceof Error ? err.message : String(err);
+    const why = toMessage(err);
     return {
       ok: false,
       url: args.url,
@@ -1219,7 +1219,7 @@ async function runFetchUrlImpl(
     // A mid-decode error (e.g. corrupt gzip) bypasses readBounded's own
     // destroy(), so free the socket here or it leaks (#286 review).
     await disposeBody(raw.body);
-    const why = err instanceof Error ? err.message : String(err);
+    const why = toMessage(err);
     return {
       ok: false,
       url: args.url,
