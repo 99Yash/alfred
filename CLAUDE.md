@@ -1,15 +1,13 @@
 # Alfred Agent Guidance
 
-Alfred is a personal AI assistant. Packages use the `@alfred/*` scope, and `pnpm check-types` must work on a fresh tree without a prior build.
-
-Read the nearest nested `AGENTS.md` before editing within its subtree.
+Alfred is a personal AI assistant.
 
 ## Repo-Wide Invariants
 
 - Derive source-of-truth shapes: use named Drizzle row types, `$inferInsert`, and `z.infer` instead of parallel interfaces.
 - Keep browser runtime code free of Node-only packages. Type-only imports are allowed only when TypeScript erases them; `pnpm check:web-boundaries` enforces the boundary.
 - Treat external, persisted, and protocol data as `unknown`; validate it at the owning boundary instead of asserting it with casts.
-- Apply database schema changes with `db:generate` then `db:migrate`. Never use `db:push` outside local exploration.
+- Apply database schema changes with `db:generate` then `db:migrate`. Never use `db:push`.
 - Put cross-boundary browser-safe contracts in `@alfred/contracts`, Replicache models in `@alfred/sync`, and implementation details in the package or feature that owns them.
 - Reach for an existing helper before writing a new `format*`/`parse*`/`is*`/`to*`/`get*` function or adding to a route `helpers.ts`. Don't create new grab-bag `utils.ts`/`helpers.ts` for anything generic. Three things find the helper for you, so this list stays short:
   - `scripts/consolidation-rules.mjs` is the machine-checked half. `pnpm check` fails on a re-hand-rolled idiom, and `.claude/hooks/helper-hints.mjs` names the canonical helper from the same table while you are writing the line. Anything enforced there is deliberately **not** repeated here.
@@ -25,7 +23,7 @@ Read the nearest nested `AGENTS.md` before editing within its subtree.
   | gate a Gmail mailbox mutation                  | `gmailMailboxWritesEnabled()` (not the raw env field) | `@alfred/env/server`          |
   | normalize an entity identity before mint/dedup | `canonicalizeIdentityValue(kind, value)`              | `@alfred/contracts`           |
   | display a slug / complete tool name            | `humanizeSlug` / `humanizeToolName`                   | `@alfred/contracts`           |
-  | timezone resolve/format                        | `resolveUserTimezone` / `formatInstantInTimezone`      | `@alfred/api` timezone        |
+  | timezone resolve/format                        | `resolveUserTimezone` / `formatInstantInTimezone`     | `@alfred/api` timezone        |
   | a model handle                                 | `getChatModel` / `getCheapModel` / `getBossModel`     | `@alfred/ai`                  |
   | a stored Google OAuth token                    | `getFreshAccessToken`                                 | `@alfred/integrations/google` |
   | enforce prose voice                            | `sanitizeVoice`                                       | `@alfred/api` voice-sanitize  |
