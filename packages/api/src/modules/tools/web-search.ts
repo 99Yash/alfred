@@ -21,11 +21,11 @@ export interface WebSearchArgs {
   query: string;
   userId: string;
   /** Optional — attribution columns are nullable; omit rather than pass "". */
-  runId?: string;
-  stepId?: string;
+  runId?: string | undefined;
+  stepId?: string | undefined;
   /** Stable per-call key — the tool passes the model's tool_call_id. */
   idempotencyKey?: string;
-  abortSignal?: AbortSignal;
+  abortSignal?: AbortSignal | undefined;
 }
 
 export interface WebSearchSource {
@@ -41,7 +41,7 @@ export interface WebSearchSource {
    * absent only when the metadata is malformed. Prefer this for display and
    * favicon lookup, since {@link url} is an opaque redirect.
    */
-  title?: string;
+  title?: string | undefined;
 }
 
 export interface WebSearchHit {
@@ -158,7 +158,7 @@ export async function runWebSearch(args: WebSearchArgs): Promise<WebSearchResult
       // holding a single interactive lookup cheap.
       maxOutputTokens: 2_500,
       temperature: 0,
-      abortSignal: args.abortSignal,
+      ...(args.abortSignal ? { abortSignal: args.abortSignal } : {}),
     },
     {
       kind: "web_search",

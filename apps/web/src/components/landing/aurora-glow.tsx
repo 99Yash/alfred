@@ -17,8 +17,8 @@ export function AuroraGlow({
   className,
   intensity = "default",
 }: {
-  className?: string;
-  intensity?: "default" | "subtle";
+  className?: string | undefined;
+  intensity?: "default" | "subtle" | undefined;
 }) {
   const opacity = intensity === "subtle" ? 0.5 : 0.85;
 

@@ -87,9 +87,9 @@ export function BriefingRef({
   label,
   href,
 }: {
-  kind?: string;
-  label?: string;
-  href?: string;
+  kind?: string | undefined;
+  label?: string | undefined;
+  href?: string | undefined;
 }) {
   if (!kind || !isBriefingReferenceKind(kind) || !label) return label ?? null;
   return <EntityChip kind={kind} label={label} href={href} />;

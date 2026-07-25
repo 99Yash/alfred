@@ -116,25 +116,25 @@ export interface DispatchArgs {
   input: unknown;
   userId: string;
   /** Who is calling — boss or named sub-agent. Threaded into the tool context. */
-  caller?: ToolExecuteContext["caller"];
+  caller?: ToolExecuteContext["caller"] | undefined;
   /**
    * Chat thread + assistant message that owns this call, when dispatched from a
    * chat turn. Threaded into the tool context so artifact tools (ADR-0075) can
    * attribute the artifact to its thread/message. Omitted for background runs.
    */
-  threadId?: string;
-  messageId?: string;
+  threadId?: string | undefined;
+  messageId?: string | undefined;
   /** Scratchpad namespace to use for system scratch tools. Defaults to `runId`. */
-  scratchpadRunId?: string;
+  scratchpadRunId?: string | undefined;
   /**
    * The user's IANA timezone, if the caller already has it (e.g. chat snapshots
    * it once per run). Omitted → the dispatcher reads the `"timezone"` pref.
    */
-  timezone?: string;
+  timezone?: string | undefined;
   /** Exact run-local capability surface. Registry membership alone is not executable. */
   activeTools: readonly ToolName[];
   /** Workflow integration cap, enforced by exact tool discovery, load, and dispatch. */
-  allowedIntegrations?: readonly string[];
+  allowedIntegrations?: readonly string[] | undefined;
 }
 
 interface RejectedToolResult {
@@ -150,7 +150,7 @@ interface InvalidInputToolResult {
   status: "invalid_input";
   toolName: ToolName;
   message: string;
-  issues?: unknown;
+  issues?: unknown | undefined;
 }
 
 interface UnknownToolResult {
@@ -369,15 +369,15 @@ export function buildDispatchRejectionTraceInput(args: {
   dispatch: DispatchArgs;
   outcome: DispatchRejectionOutcome;
   reason: string;
-  issues?: readonly RejectionIssue[];
+  issues?: readonly RejectionIssue[] | undefined;
   /** Safe grouping identity. Raw undeclared names must use `<unknown>`. */
-  toolName?: string;
+  toolName?: string | undefined;
   /** Optional sanitized + bounded model-supplied name hint for unknown tools. */
-  candidateToolName?: string;
+  candidateToolName?: string | undefined;
   /** Actual payload rejected by this branch. Callers must pass only payloads safe for trace I/O. */
   input?: unknown;
   /** Present only when `input` is already schema-valid for this tool. */
-  tool?: RegisteredTool;
+  tool?: RegisteredTool | undefined;
   startedAt?: Date;
 }): DispatchRejectionInput {
   const toolName = args.toolName ?? args.dispatch.toolName;
@@ -409,11 +409,11 @@ function recordRejection(args: {
   dispatch: DispatchArgs;
   outcome: DispatchRejectionOutcome;
   reason: string;
-  issues?: readonly RejectionIssue[];
-  toolName?: string;
-  candidateToolName?: string;
+  issues?: readonly RejectionIssue[] | undefined;
+  toolName?: string | undefined;
+  candidateToolName?: string | undefined;
   input?: unknown;
-  tool?: RegisteredTool;
+  tool?: RegisteredTool | undefined;
 }): void {
   dispatchRejectionRecorder(buildDispatchRejectionTraceInput(args));
 }

@@ -44,7 +44,7 @@ export interface CreatePresentationArgs {
 
 export interface CreatePresentationResult {
   presentationId: string;
-  title?: string;
+  title?: string | undefined;
 }
 
 /** Create a new presentation (lands in the user's Drive root). */
@@ -63,8 +63,8 @@ export interface GetPresentationArgs {
 
 export interface GetPresentationResult {
   presentationId: string;
-  title?: string;
-  revisionId?: string;
+  title?: string | undefined;
+  revisionId?: string | undefined;
   slideCount: number;
 }
 
@@ -111,7 +111,7 @@ export async function addSlide(args: {
   accessToken: string;
   presentationId: string;
   /** Predefined layout, e.g. `BLANK`, `TITLE_AND_BODY`. Defaults to BLANK. */
-  layout?: string;
+  layout?: string | undefined;
 }): Promise<BatchUpdatePresentationResult> {
   return batchUpdatePresentation({
     accessToken: args.accessToken,

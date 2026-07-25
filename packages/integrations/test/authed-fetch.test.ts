@@ -16,9 +16,12 @@ const realFetch = globalThis.fetch;
 
 /** Swap in a fetch stub that records the (input, init) it was called with. */
 function stubFetch(response: Response = new Response(null, { status: 200 })): {
-  calls: Array<{ input: string | URL | Request; init?: RequestInit }>;
+  // `init` is recorded exactly as `fetch` received it, so a call made without
+  // one records a present `undefined` — the declaration says so rather than
+  // claiming the key is absent.
+  calls: Array<{ input: string | URL | Request; init: RequestInit | undefined }>;
 } {
-  const calls: Array<{ input: string | URL | Request; init?: RequestInit }> = [];
+  const calls: Array<{ input: string | URL | Request; init: RequestInit | undefined }> = [];
   globalThis.fetch = ((input: string | URL | Request, init?: RequestInit) => {
     calls.push({ input, init });
     return Promise.resolve(response);

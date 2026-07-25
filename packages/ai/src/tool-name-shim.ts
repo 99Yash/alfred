@@ -69,15 +69,27 @@ function encodePromptMessage(message: PromptMessage): PromptMessage {
 
 /** Map every tool name in the outgoing request `.`→`__` for shimmed providers. */
 function encodeParams(params: CallOptions): CallOptions {
+  // `tools` / `toolChoice` are rewritten only when present. Spreading `...params`
+  // already carries them through verbatim otherwise, so re-assigning the
+  // possibly-undefined originals would only add a present-and-undefined key the
+  // SDK's call options don't accept.
   return {
     ...params,
-    tools: params.tools?.map((t) =>
-      t.type === "function" ? { ...t, name: encodeToolName(t.name) } : t,
-    ),
-    toolChoice:
-      params.toolChoice?.type === "tool"
-        ? { ...params.toolChoice, toolName: encodeToolName(params.toolChoice.toolName) }
-        : params.toolChoice,
+    ...(params.tools
+      ? {
+          tools: params.tools.map((t) =>
+            t.type === "function" ? { ...t, name: encodeToolName(t.name) } : t,
+          ),
+        }
+      : {}),
+    ...(params.toolChoice?.type === "tool"
+      ? {
+          toolChoice: {
+            ...params.toolChoice,
+            toolName: encodeToolName(params.toolChoice.toolName),
+          },
+        }
+      : {}),
     prompt: params.prompt.map(encodePromptMessage),
   };
 }

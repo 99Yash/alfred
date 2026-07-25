@@ -12,10 +12,10 @@ export function FloatingPillNav({
   cta,
   className,
 }: {
-  logo?: ReactNode;
-  children?: ReactNode;
-  cta?: ReactNode;
-  className?: string;
+  logo?: ReactNode | undefined;
+  children?: ReactNode | undefined;
+  cta?: ReactNode | undefined;
+  className?: string | undefined;
 }) {
   return (
     <nav

@@ -563,15 +563,15 @@ export type DocumentFactGateResult =
       ok: true;
       key: string;
       value: unknown;
-      meta?: Record<string, unknown>;
-      authorship?: Authorship;
+      meta?: Record<string, unknown> | undefined;
+      authorship?: Authorship | undefined;
     }
   | {
       ok: false;
       reason: DocumentFactGateReject;
       originalKey: string;
-      canonicalKey?: string;
-      authorship?: Authorship;
+      canonicalKey?: string | undefined;
+      authorship?: Authorship | undefined;
     };
 
 export interface DocumentFactGateInput {

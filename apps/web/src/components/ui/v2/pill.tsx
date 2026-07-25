@@ -14,18 +14,18 @@ import type { ButtonHTMLAttributes, ReactNode, Ref } from "react";
 import { cn } from "~/lib/utils";
 
 interface AppPillProps extends ButtonHTMLAttributes<HTMLButtonElement> {
-  leading?: ReactNode;
+  leading?: ReactNode | undefined;
   /** Show a chevron-down on the right edge. Set true when the pill opens a menu. */
-  chevron?: boolean;
+  chevron?: boolean | undefined;
   /**
    * Default visual: muted bg. `accent` is the colored variant — left as a
    * prop for explicit call sites, but it's also inferred automatically when
    * `tone` is set, so callers only need to set one of the two.
    */
-  variant?: "default" | "accent";
+  variant?: "default" | "accent" | undefined;
   /** Picks the hue family. Setting this implies the accent variant. */
-  tone?: "green" | "red" | "amber" | "purple" | "sky" | "blue" | "pink";
-  ref?: Ref<HTMLButtonElement>;
+  tone?: "green" | "red" | "amber" | "purple" | "sky" | "blue" | "pink" | undefined;
+  ref?: Ref<HTMLButtonElement> | undefined;
 }
 
 const TONE: Record<NonNullable<AppPillProps["tone"]>, string> = {

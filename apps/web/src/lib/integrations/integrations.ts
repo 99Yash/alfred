@@ -26,10 +26,10 @@ export type IntegrationProvider = {
     body: string;
     heading: string;
     detail: string;
-    extraHeading?: string;
-    extraDetail?: string;
+    extraHeading?: string | undefined;
+    extraDetail?: string | undefined;
   };
-  relatedProviderIds?: ReadonlyArray<string>;
+  relatedProviderIds?: ReadonlyArray<string> | undefined;
 };
 
 const GOOGLE_TRUST = {

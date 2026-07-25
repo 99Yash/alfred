@@ -61,11 +61,11 @@ export interface TiptapComposerHandle {
 }
 
 interface TiptapComposerProps {
-  ref?: Ref<TiptapComposerHandle>;
-  initialJSON?: JSONContent;
-  placeholder?: string;
-  className?: string;
-  disabled?: boolean;
+  ref?: Ref<TiptapComposerHandle> | undefined;
+  initialJSON?: JSONContent | undefined;
+  placeholder?: string | undefined;
+  className?: string | undefined;
+  disabled?: boolean | undefined;
   onChange: (text: string, json: JSONContent, isEmpty: boolean) => void;
   onSubmit: () => void;
   /** Suggestion lifecycle (start / update / exit). The parent renders its own palette UI. */
@@ -77,9 +77,9 @@ interface TiptapComposerProps {
    * editor. Tab accepts it (fills the doc and fires `onGhostAccept`); Escape
    * fires `onGhostDismiss`. Only shown while the document is empty.
    */
-  ghostText?: string;
-  onGhostAccept?: () => void;
-  onGhostDismiss?: () => void;
+  ghostText?: string | undefined;
+  onGhostAccept?: (() => void) | undefined;
+  onGhostDismiss?: (() => void) | undefined;
 }
 
 /**
@@ -194,7 +194,7 @@ export function TiptapComposer({
         },
       }),
     ],
-    content: initialJSON,
+    ...(initialJSON ? { content: initialJSON } : {}),
     autofocus: "end",
     editable: !disabled,
     editorProps: {

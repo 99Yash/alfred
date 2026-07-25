@@ -48,7 +48,14 @@ export async function enqueueRun(
   opts?: { delayMs?: number; jobId?: string },
 ): Promise<void> {
   const queue = getAgentQueue();
-  await queue.add("step", { runId }, { delay: opts?.delayMs, jobId: opts?.jobId });
+  await queue.add(
+    "step",
+    { runId },
+    {
+      ...(opts?.delayMs === undefined ? {} : { delay: opts.delayMs }),
+      ...(opts?.jobId === undefined ? {} : { jobId: opts.jobId }),
+    },
+  );
 }
 
 export async function closeAgentQueue(): Promise<void> {

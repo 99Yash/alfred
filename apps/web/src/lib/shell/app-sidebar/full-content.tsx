@@ -26,10 +26,10 @@ interface FullContentProps {
   chevronMode: "inline" | "overlay";
   onChevron: () => void;
   onOpenSearch: () => void;
-  approvalsBadge?: string;
-  threads?: Record<ThreadGroup, ThreadEntry[]>;
-  threadActions?: SidebarThreadActions;
-  activeThread?: string;
+  approvalsBadge?: string | undefined;
+  threads?: Record<ThreadGroup, ThreadEntry[]> | undefined;
+  threadActions?: SidebarThreadActions | undefined;
+  activeThread?: string | undefined;
   renamingId: string | null;
   onStartRename: (id: string) => void;
   onCommitRename: (id: string, title: string) => void;

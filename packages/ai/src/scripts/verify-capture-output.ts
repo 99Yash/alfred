@@ -13,7 +13,7 @@
  */
 import { serverEnv } from "@alfred/env/server";
 import { isRecord } from "@alfred/contracts";
-import { jsonSchema, tool } from "ai";
+import { jsonSchema, tool, type ToolSet } from "ai";
 import { randomUUID } from "node:crypto";
 import { flushLangfuse } from "../metering/langfuse";
 import { getCheapModel } from "../provider";
@@ -33,6 +33,12 @@ const weather = tool({
     additionalProperties: false,
   }),
 });
+
+// `tool()` returns `Tool<INPUT>`, which under `exactOptionalPropertyTypes` is no
+// longer assignable to the SDK's own `ToolSet`: bare `Tool` fixes `INPUT` to
+// `never`, and the flag removes the optional-property slack that used to let the
+// two unify. The cast is that SDK variance gap, not a claim about this tool.
+const tools = { weather } as unknown as ToolSet;
 
 interface Obs {
   type: string;
@@ -56,7 +62,7 @@ async function main() {
     {
       model: getCheapModel(),
       prompt: "What's the weather in Paris?",
-      tools: { weather },
+      tools,
       toolChoice: "required",
       timeout: GENERATE_TIMEOUT_MS,
     },

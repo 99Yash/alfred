@@ -14,7 +14,7 @@ import { ColumnLabel } from "./column-label";
 import { SectionHeading } from "./section-heading";
 
 interface ResolvedIntegrationLike extends IntegrationProvider {
-  connectedAccounts?: ReadonlyArray<ConnectedAccount>;
+  connectedAccounts?: ReadonlyArray<ConnectedAccount> | undefined;
 }
 
 export function ConnectedAccounts({

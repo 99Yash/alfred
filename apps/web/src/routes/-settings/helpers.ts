@@ -41,9 +41,9 @@ export interface BackgroundAgentDef {
    * Omitted for agents that don't exist yet — those render as disabled
    * "Coming soon" rows.
    */
-  prefKey?: FeatureFlagKey;
+  prefKey?: FeatureFlagKey | undefined;
   /** Not built yet — row is shown for parity but switched off and disabled. */
-  comingSoon?: boolean;
+  comingSoon?: boolean | undefined;
 }
 
 export const BACKGROUND_AGENTS: ReadonlyArray<BackgroundAgentDef> = [

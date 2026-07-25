@@ -288,11 +288,11 @@ export function MessageBubble({
 }: {
   message: SyncedChatMessage;
   /** Image attachments on this (user) message, from the synced store. */
-  attachments?: SyncedChatAttachment[];
+  attachments?: SyncedChatAttachment[] | undefined;
   /** Present on a failed assistant reply — re-sends the user turn behind it. */
-  onRetry?: () => void;
+  onRetry?: (() => void) | undefined;
   /** Present when the failed turn can be recovered by dropping attachments. */
-  onRetryWithoutAttachments?: () => void;
+  onRetryWithoutAttachments?: (() => void) | undefined;
 }) {
   // Rendered-markdown container; CopyMessageButton lifts its innerHTML for
   // the rich (text/html) clipboard flavor. Unconditional — hooks can't sit

@@ -36,14 +36,14 @@ interface CommandPaletteProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   /** Placeholder for the search input. */
-  placeholder?: string;
+  placeholder?: string | undefined;
   /** Optional aria-label fallback when no title is shown. */
-  ariaTitle?: string;
+  ariaTitle?: string | undefined;
   /** Empty-state copy when the query matches nothing. */
-  emptyLabel?: string;
+  emptyLabel?: string | undefined;
   /** Footer slot — usually `<CommandPaletteLegend />`. */
-  footer?: ReactNode;
-  children?: ReactNode;
+  footer?: ReactNode | undefined;
+  children?: ReactNode | undefined;
 }
 
 export function CommandPalette({
@@ -97,7 +97,7 @@ export function CommandPalette({
 /* -------------------------------------------------------------------------- */
 
 interface GroupProps {
-  heading?: ReactNode;
+  heading?: ReactNode | undefined;
   children: ReactNode;
 }
 
@@ -126,15 +126,15 @@ interface ItemProps {
   /** Internal id used by cmdk for filtering + onSelect dispatch. */
   value: string;
   /** Searchable keywords beyond the visible label. */
-  keywords?: ReadonlyArray<string>;
+  keywords?: ReadonlyArray<string> | undefined;
   /** Triggered on click or Enter while highlighted. */
   onSelect: () => void;
   /** Leading icon component (Lucide). */
-  icon?: IconComponent;
+  icon?: IconComponent | undefined;
   /** Inline keyboard hint shown on the right — usually `↵` for the focused row. */
-  shortcut?: string;
+  shortcut?: string | undefined;
   /** Disabled rows still render but cmdk skips them in keyboard nav. */
-  disabled?: boolean;
+  disabled?: boolean | undefined;
   children: ReactNode;
 }
 
@@ -150,9 +150,9 @@ export function Item({
   return (
     <CommandPrimitive.Item
       value={value}
-      keywords={keywords ? [...keywords] : undefined}
+      {...(keywords ? { keywords: [...keywords] } : {})}
       onSelect={onSelect}
-      disabled={disabled}
+      {...(disabled === undefined ? {} : { disabled })}
       className={cn(
         "group flex h-11 items-center gap-2.5 rounded-md px-2.5",
         "text-sm font-medium text-gray-900",

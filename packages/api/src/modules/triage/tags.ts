@@ -1,5 +1,5 @@
 import { applyTriageLabel, findThreadSiblingsWithAlfredLabels } from "@alfred/integrations/google";
-import { isHttpError } from "@alfred/contracts";
+import { isHttpError, withDefaults } from "@alfred/contracts";
 import type { TriageCategory } from "@alfred/contracts";
 import { gmailMailboxWritesEnabled } from "@alfred/env/server";
 import { findNewestLiveInboundGmailDocuments } from "./gmail-reconcile";
@@ -45,7 +45,7 @@ export type ReconcileResult =
   | {
       applied: false;
       reason: "tag-not-found" | "document-not-found" | "target-unresolvable" | "writes-disabled";
-      category?: TriageCategory;
+      category?: TriageCategory | undefined;
     };
 
 export interface ReconcileThreadLabelArgs {
@@ -97,7 +97,7 @@ export async function reconcileThreadLabel(
   args: ReconcileThreadLabelArgs,
   deps: Partial<ReconcileThreadLabelDeps> = {},
 ): Promise<ReconcileResult> {
-  const d: ReconcileThreadLabelDeps = { ...DEFAULT_DEPS, ...deps };
+  const d = withDefaults(DEFAULT_DEPS, deps);
   // #278: dev and prod share one real Gmail account. A non-prod instance must
   // not mutate the mailbox (writing/stripping labels), or it fights prod over
   // the shared thread state. The canonical `email_triage` row is already

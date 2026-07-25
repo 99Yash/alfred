@@ -40,16 +40,16 @@ export interface AuthedFetchProfile {
    * pass `"manual"`: a signed provider redirect can carry credentials in its URL,
    * so a 3xx should be treated as an HTTP outcome, not silently followed.
    */
-  redirect?: "follow" | "error" | "manual";
+  redirect?: "follow" | "error" | "manual" | undefined;
   /** Request timeout; defaults to {@link INTEGRATION_FETCH_TIMEOUT_MS}. */
-  timeoutMs?: number;
+  timeoutMs?: number | undefined;
 }
 
 /** A single authenticated request. `body`, when present, is JSON-encoded. */
 export interface AuthedFetchRequest {
   url: string | URL;
   /** HTTP method; defaults to `"GET"`. */
-  method?: string;
+  method?: string | undefined;
   /**
    * Request body. When defined it is `JSON.stringify`-ed and the transport adds
    * `Content-Type: application/json`; when omitted no body or content type is
@@ -73,7 +73,7 @@ export async function authedFetch(
       ...profile.headers,
       ...(hasBody ? { "Content-Type": "application/json" } : {}),
     },
-    body: hasBody ? JSON.stringify(request.body) : undefined,
+    ...(hasBody ? { body: JSON.stringify(request.body) } : {}),
     redirect: profile.redirect ?? "follow",
     signal: AbortSignal.timeout(profile.timeoutMs ?? INTEGRATION_FETCH_TIMEOUT_MS),
   });

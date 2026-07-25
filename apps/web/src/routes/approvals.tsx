@@ -24,9 +24,9 @@ function toStringArray(value: unknown): string[] | undefined {
 
 export interface ApprovalsSearch {
   /** Selected integration facet values; absent = no integration filter. */
-  integration?: string[];
+  integration?: string[] | undefined;
   /** Selected risk-tier facet values; absent = no risk filter. */
-  risk?: string[];
+  risk?: string[] | undefined;
 }
 
 export const Route = createFileRoute("/approvals")({

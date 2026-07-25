@@ -48,8 +48,8 @@ export interface ToolCatalogAccess {
 
 interface ToolSearchArgs {
   query: string;
-  limit?: number;
-  tools?: readonly RegisteredTool[];
+  limit?: number | undefined;
+  tools?: readonly RegisteredTool[] | undefined;
   access: ToolCatalogAccess;
   /**
    * Include strong matches the run can't execute yet, flagged with a reason, so
@@ -69,10 +69,10 @@ export function searchToolCatalog(args: ToolSearchArgs): ToolSearchCandidate[] {
 export async function searchAvailableTools(args: {
   userId: string;
   query: string;
-  limit?: number;
+  limit?: number | undefined;
   allowedIntegrations: readonly string[];
   context: ToolAvailabilityContext;
-  availability?: IntegrationAvailabilitySnapshot;
+  availability?: IntegrationAvailabilitySnapshot | undefined;
 }): Promise<ToolSearchCandidate[]> {
   const tools = listRegisteredTools();
   const snapshot = args.availability ?? (await readIntegrationAvailability(args.userId));
@@ -92,9 +92,9 @@ export async function preloadToolsForPrompt(args: {
   prompt: string;
   allowedIntegrations: readonly string[];
   activeTools: readonly ToolName[];
-  limit?: number;
+  limit?: number | undefined;
   context: ToolAvailabilityContext;
-  availability?: IntegrationAvailabilitySnapshot;
+  availability?: IntegrationAvailabilitySnapshot | undefined;
 }): Promise<ToolName[]> {
   const tools = listRegisteredTools();
   const snapshot = args.availability ?? (await readIntegrationAvailability(args.userId));
@@ -110,8 +110,8 @@ export async function preloadToolsForPrompt(args: {
 
 export function preloadToolCatalog(args: {
   prompt: string;
-  limit?: number;
-  tools?: readonly RegisteredTool[];
+  limit?: number | undefined;
+  tools?: readonly RegisteredTool[] | undefined;
   activeTools: readonly ToolName[];
   access: ToolCatalogAccess;
 }): ToolName[] {
@@ -147,7 +147,7 @@ export async function resolveExactToolLoad(args: {
   name: string;
   allowedIntegrations: readonly string[];
   context: ToolAvailabilityContext;
-  availability?: IntegrationAvailabilitySnapshot;
+  availability?: IntegrationAvailabilitySnapshot | undefined;
 }): Promise<
   | { ok: true; name: ToolName }
   | { ok: false; status: "unknown_tool" | ToolUnavailabilityCode; reason: string }

@@ -15,7 +15,7 @@ function languageOf(className: unknown): string | undefined {
  * wrapper's `[&_pre]` styling never wraps the dark card. Inline code has no
  * `<pre>` parent, so it falls through to the wrapper's `[&_code]` styling.
  */
-export const MarkdownPre: Components["pre"] = ({ node: _node, children }) => {
+export const MarkdownPre: NonNullable<Components["pre"]> = ({ node: _node, children }) => {
   const child = Children.toArray(children).find((c) => isValidElement(c)) as
     | { props: { className?: string; children?: ReactNode } }
     | undefined;

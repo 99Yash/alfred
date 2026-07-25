@@ -45,8 +45,8 @@ interface MeetingItem {
   title: string;
   time: string;
   attendees: number;
-  location?: string;
-  video?: boolean;
+  location?: string | undefined;
+  video?: boolean | undefined;
 }
 
 const FIXTURE_EMAILS: ReadonlyArray<EmailDraft> = [
@@ -522,7 +522,7 @@ function RailEmpty({
 }: {
   title: string;
   text: string;
-  tone?: "default" | "muted";
+  tone?: "default" | "muted" | undefined;
 }) {
   return (
     <div

@@ -108,7 +108,7 @@ export interface DeriveToolDiscoveryInput {
   /** Input schema, read for its top-level field names. */
   inputSchema: z.ZodTypeAny;
   /** Hand-authored copy; each field takes precedence over the derived baseline. */
-  overrides?: ToolDiscoveryMetadata;
+  overrides?: ToolDiscoveryMetadata | undefined;
 }
 
 /**

@@ -32,8 +32,8 @@ export function TabPill<T extends string>({
    * value used by `tabPanelId` on the rendered panels. Defaults to a
    * `useId`-generated string when omitted.
    */
-  idBase?: string;
-  className?: string;
+  idBase?: string | undefined;
+  className?: string | undefined;
 }) {
   const generatedId = useId();
   const idBase = idBaseProp ?? generatedId;

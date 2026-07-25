@@ -147,10 +147,10 @@ export const agent = new Elysia({ prefix: "/api/agent", normalize: "typebox" })
               match = {
                 kind: "hil",
                 approvalId: body.match.approvalId,
-                approvalKind:
-                  body.match.approvalKind === "step" || body.match.approvalKind === "action_staging"
-                    ? body.match.approvalKind
-                    : undefined,
+                ...(body.match.approvalKind === "step" ||
+                body.match.approvalKind === "action_staging"
+                  ? { approvalKind: body.match.approvalKind }
+                  : {}),
               };
             } else if (kind === "signal") {
               if (!body.match.name) {

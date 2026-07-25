@@ -61,7 +61,7 @@ export function ChatApprovalTray({
   approvals: readonly SyncedActionStaging[];
   awaitingApproval: boolean;
   /** Styleguide-only: render with all interactions local — no toast, no audio, no API. */
-  preview?: boolean;
+  preview?: boolean | undefined;
 }) {
   const [recentDecision, setRecentDecision] = useState(false);
   const [previousRunId, setPreviousRunId] = useState(runId);
@@ -130,7 +130,7 @@ function InlineApprovalCard({
   onDecision,
 }: {
   staging: SyncedActionStaging;
-  preview?: boolean;
+  preview?: boolean | undefined;
   onDecision: () => void;
 }) {
   const {

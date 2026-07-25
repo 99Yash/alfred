@@ -19,7 +19,7 @@ export interface BriefingEmailProps {
   /** ISO timestamp of when the briefing was generated. */
   createdAt?: string;
   /** IANA timezone (e.g. "America/New_York") for the footer timestamp. Falls back to UTC. */
-  timezone?: string;
+  timezone?: string | undefined;
   /** Absolute URL to the logo image. Hidden when omitted. */
   logoUrl?: string;
   /** Short line shown in the inbox preview / snippet. */

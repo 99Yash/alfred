@@ -6,18 +6,18 @@ import { cn } from "~/lib/utils";
 
 export type DimensionComposerMenuItem = {
   label: string;
-  description?: string;
-  icon?: ReactNode;
-  onSelect?: () => void;
-  href?: string;
-  disabled?: boolean;
+  description?: string | undefined;
+  icon?: ReactNode | undefined;
+  onSelect?: (() => void) | undefined;
+  href?: string | undefined;
+  disabled?: boolean | undefined;
 };
 
 export type DimensionModelOption = {
   id: string;
   label: string;
   description: string;
-  selected?: boolean;
+  selected?: boolean | undefined;
 };
 
 export function DimensionComposerShell({
@@ -30,9 +30,9 @@ export function DimensionComposerShell({
 }: {
   children: ReactNode;
   toolbar: ReactNode;
-  tray?: ReactNode;
+  tray?: ReactNode | undefined;
   onSubmit: FormEventHandler<HTMLFormElement>;
-  className?: string;
+  className?: string | undefined;
   "aria-label"?: string;
 }) {
   return (
@@ -64,9 +64,9 @@ export function DimensionComposerToolbar({
 }: {
   start: ReactNode;
   end: ReactNode;
-  className?: string;
-  startClassName?: string;
-  endClassName?: string;
+  className?: string | undefined;
+  startClassName?: string | undefined;
+  endClassName?: string | undefined;
 }) {
   return (
     <div className={cn("flex items-center justify-between gap-2 px-1 pb-1", className)}>
@@ -79,7 +79,7 @@ export function DimensionComposerToolbar({
 type DimensionComposerIconButtonProps = Omit<ButtonHTMLAttributes<HTMLButtonElement>, "type"> & {
   label: string;
   children: ReactNode;
-  ref?: Ref<HTMLButtonElement>;
+  ref?: Ref<HTMLButtonElement> | undefined;
 };
 
 export function DimensionComposerIconButton({
@@ -135,7 +135,7 @@ export function DimensionComposerContextMenu({
   items,
   children,
 }: {
-  label?: string;
+  label?: string | undefined;
   items: DimensionComposerMenuItem[];
   children: ReactNode;
 }) {
@@ -182,7 +182,7 @@ export function DimensionModelPicker({
 }: {
   value: string;
   options: DimensionModelOption[];
-  onSelect?: (id: string) => void;
+  onSelect?: ((id: string) => void) | undefined;
 }) {
   return (
     <PopoverPrimitive.Root>
@@ -318,8 +318,8 @@ function DimensionDropdownItem({ item }: { item: DimensionComposerMenuItem }) {
 
   return (
     <DropdownMenuPrimitive.Item
-      disabled={item.disabled}
-      onSelect={item.onSelect}
+      {...(item.disabled === undefined ? {} : { disabled: item.disabled })}
+      {...(item.onSelect ? { onSelect: item.onSelect } : {})}
       className={className}
     >
       {content}

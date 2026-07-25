@@ -129,14 +129,14 @@ export interface ToolExecuteContext {
    * artifact is owned by the thread/message that produced it — and refuse the
    * call honestly when they are absent.
    */
-  threadId?: string;
-  messageId?: string;
+  threadId?: string | undefined;
+  messageId?: string | undefined;
   /**
    * Workflow-level integration cap. Empty or undefined means unrestricted.
    * Exact tool discovery and loading use this to validate without reading or
    * mutating run state.
    */
-  allowedIntegrations?: readonly string[];
+  allowedIntegrations?: readonly string[] | undefined;
   // TODO(#286): no abortSignal is threaded here yet, so a long network tool
   // (system.fetch_url, system.web_search) outlives a stopped turn until its own
   // ~15s timeout fires. Platform-level — every tool shares this; wire a per-run
@@ -215,7 +215,7 @@ export interface RegisteredTool {
   resolveRiskTier?: (input: unknown, ctx: ToolExecuteContext) => Promise<ToolRiskTier>;
   description: string;
   discovery: ResolvedDiscovery;
-  availability?: ToolAvailabilityMetadata;
+  availability?: ToolAvailabilityMetadata | undefined;
   inputSchema: z.ZodTypeAny;
   execute: (input: unknown, ctx: ToolExecuteContext) => Promise<unknown>;
   /** See {@link LiveToolArgs.redactInput}. Erased to `unknown` at the registry boundary. */

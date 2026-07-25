@@ -12,8 +12,8 @@ export function AgentRow({
   agent: BackgroundAgentDef;
   checked: boolean;
   onChange: (next: boolean) => void;
-  disabled?: boolean;
-  comingSoon?: boolean;
+  disabled?: boolean | undefined;
+  comingSoon?: boolean | undefined;
 }) {
   const Icon = agent.icon;
   return (

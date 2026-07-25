@@ -131,6 +131,21 @@ export const RULES = [
     severity: "hint",
     fix: "Use parseEmailAddress(value) from @alfred/contracts to pull an address out of a `Name <addr>` header and normalize it. It is also the single source of self-mail matching.",
   },
+  {
+    id: "spread-over-defaults",
+    // `{ ...DEFAULT_X, ...overrides }` — a defaults object (SCREAMING_CASE or
+    // `defaultFoo`) with a second spread layered on top. A *present* `undefined`
+    // wins a spread, so one explicitly-undefined override key zeroes the default
+    // it was meant to fall back to. `exactOptionalPropertyTypes` only catches
+    // that while the override type stays narrow (`{ k?: T }`), which makes
+    // narrowness load-bearing at a site that never says so — and every
+    // `AttributedCall` field is already widened, so the flag catches nothing
+    // there. Anchored on the defaults-naming convention: `{ ...input,
+    // ...sanitized }` and friends are overlays, not defaults resolution.
+    re: /\{\s*\.\.\.(?:[A-Z][A-Z0-9_]{2,}|default[A-Z]\w*|defaults)\s*,\s*\.\.\./,
+    severity: "gate",
+    fix: "Use withDefaults(DEFAULTS, overrides) from @alfred/contracts — it ignores override keys whose value is undefined, so a default can't be zeroed by a present-undefined.",
+  },
 ];
 
 /**

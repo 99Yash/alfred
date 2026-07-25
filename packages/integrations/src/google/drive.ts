@@ -49,16 +49,16 @@ export interface ListFilesArgs {
    * `mimeType = 'application/vnd.google-apps.document'`. Omit to list
    * recent files. See https://developers.google.com/drive/api/guides/search-files.
    */
-  q?: string;
-  pageSize?: number;
-  pageToken?: string;
+  q?: string | undefined;
+  pageSize?: number | undefined;
+  pageToken?: string | undefined;
   /** e.g. `modifiedTime desc` (the default), `name`, `folder`. */
-  orderBy?: string;
+  orderBy?: string | undefined;
 }
 
 export interface ListFilesResult {
   files: DriveFile[];
-  nextPageToken?: string;
+  nextPageToken?: string | undefined;
 }
 
 /** Search/list files the user can see. */
@@ -99,7 +99,7 @@ export interface ExportFileArgs {
   accessToken: string;
   fileId: string;
   /** Export MIME type, e.g. `text/plain`, `text/csv`, `text/markdown`. Defaults to `text/plain`. */
-  mimeType?: string;
+  mimeType?: string | undefined;
 }
 
 export interface FileContentResult {
@@ -156,9 +156,10 @@ async function getText(
   }
   const full = await res.text();
   const truncated = full.length > MAX_CONTENT_BYTES;
+  const mimeType = res.headers.get("content-type");
   return {
     text: truncated ? full.slice(0, MAX_CONTENT_BYTES) : full,
     truncated,
-    mimeType: res.headers.get("content-type") ?? undefined,
+    ...(mimeType !== null ? { mimeType } : {}),
   };
 }

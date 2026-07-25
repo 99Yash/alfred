@@ -29,19 +29,19 @@ export interface ReadUserContextOptions {
    * pulled in even when it falls outside the significance-ranked top slice, so
    * "what do I know about <person>?" never silently misses them.
    */
-  subjectEmail?: string;
+  subjectEmail?: string | undefined;
   /**
    * Free-text focus. Its tokens are matched (case-insensitive) against entity
    * names/aliases; any hit is guaranteed into the result so a named person or
    * project survives the entity cap.
    */
-  query?: string;
+  query?: string | undefined;
   /**
    * Section hints. When given, only these sections are populated (profile is
    * always kept for provenance); omitted sections come back empty. Bounded
    * either way.
    */
-  include?: readonly UserContextSection[];
+  include?: readonly UserContextSection[] | undefined;
 }
 
 export interface UserContext {

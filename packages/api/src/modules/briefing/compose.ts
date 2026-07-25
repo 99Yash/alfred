@@ -117,8 +117,8 @@ export interface ComposedBriefing {
   fullBriefing: FullBriefing;
   modelId: string;
   composeFallback: boolean;
-  inputTokens?: number;
-  outputTokens?: number;
+  inputTokens?: number | undefined;
+  outputTokens?: number | undefined;
 }
 
 /**

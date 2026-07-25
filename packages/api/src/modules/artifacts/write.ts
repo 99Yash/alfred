@@ -107,7 +107,12 @@ function validatePageForFormat(
  */
 export async function createArtifact(
   ctx: ArtifactWriteContext,
-  input: { title: string; kind: ArtifactKind; format?: ArtifactFormat; markdown?: string },
+  input: {
+    title: string;
+    kind: ArtifactKind;
+    format?: ArtifactFormat | undefined;
+    markdown?: string | undefined;
+  },
 ): Promise<CreateArtifactResult> {
   const content =
     input.kind === "document"
@@ -312,10 +317,10 @@ export async function updateArtifact(
   ctx: ArtifactWriteContext,
   input: {
     artifactId: string;
-    title?: string;
-    markdown?: string;
-    pages?: ArtifactPage[];
-    baseContentHash?: string;
+    title?: string | undefined;
+    markdown?: string | undefined;
+    pages?: ArtifactPage[] | undefined;
+    baseContentHash?: string | undefined;
   },
 ): Promise<UpdateArtifactResult> {
   const result = await db().transaction(async (tx) => {

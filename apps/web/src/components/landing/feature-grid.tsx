@@ -460,7 +460,7 @@ function MiniChip({
 }: {
   children: ReactNode;
   kind: "drafted" | "archived" | "hint" | "warn";
-  className?: string;
+  className?: string | undefined;
 }) {
   return (
     <span

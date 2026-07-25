@@ -94,7 +94,7 @@ export interface FetchUrlOk {
    * `innocuous.com → 302 → attacker.com` hop is auditable in the persisted
    * `action_stagings` row, not just the final URL.
    */
-  redirects?: string[];
+  redirects?: string[] | undefined;
 }
 
 export interface FetchUrlError {
@@ -118,7 +118,7 @@ export interface FetchUrlError {
   /** A plain-language explanation the boss can relay to the user. */
   message: string;
   /** Redirect hops taken before the failure, when any (see {@link FetchUrlOk.redirects}). */
-  redirects?: string[];
+  redirects?: string[] | undefined;
 }
 
 export type FetchUrlResult = FetchUrlOk | FetchUrlError;
@@ -503,7 +503,7 @@ export type HttpRequester = (
 /** Carries a {@link FetchUrlError} reason out of the transport layer. */
 export class FetchError extends Error {
   /** Redirect hops taken before the failure, when any. Set by {@link safeRequest}. */
-  redirects?: string[];
+  redirects?: string[] | undefined;
   constructor(
     readonly reason: FetchUrlError["reason"],
     message: string,

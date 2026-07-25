@@ -142,7 +142,7 @@ async function hasNonTerminalEventRun(args: {
   source: EventSource;
   type: EventType;
   eventId: string;
-  reason?: string;
+  reason?: string | undefined;
 }): Promise<boolean> {
   const rows = await db()
     .select({ id: agentRuns.id })

@@ -40,26 +40,26 @@ interface InboxFeedProps {
   items: ReadonlyArray<RailInboxItem>;
   /** Optional server-driven pagination. When omitted, local filtering still
    * supports a single page (no controls shown) - used by preview routes. */
-  pagination?: InboxPagination;
+  pagination?: InboxPagination | undefined;
   /** Document id of the row currently expanded in the reader pane. When
    * non-null, the feed swaps the list out for `InboxDetailPane`. */
-  selectedId?: string | null;
+  selectedId?: string | null | undefined;
   /** Open the reader for a given row. Rendered as a link to Gmail when omitted. */
-  onOpen?: (documentId: string) => void;
+  onOpen?: ((documentId: string) => void) | undefined;
   /** Close the reader and return to the list. */
-  onClose?: () => void;
+  onClose?: (() => void) | undefined;
   /**
    * Optional bulk "mark read" - when present, the feed renders a
    * "Mark all read" affordance that fires with the *visible* unread
    * ids. Preview routes (and any caller that wants to suppress the
    * action) omit this. */
-  onMarkRead?: (documentIds: ReadonlyArray<string>) => void;
+  onMarkRead?: ((documentIds: ReadonlyArray<string>) => void) | undefined;
   /** True while a mark-read request is in flight - disables the button. */
-  markReadPending?: boolean;
+  markReadPending?: boolean | undefined;
   /** Synced tag rows keyed by Gmail thread id; overlays optimistic overrides. */
-  triageTagsByThreadId?: ReadonlyMap<string, SyncedTriageTag>;
+  triageTagsByThreadId?: ReadonlyMap<string, SyncedTriageTag> | undefined;
   /** Pin a thread to a user-chosen triage category. */
-  onOverrideTag?: (threadId: string, category: TriageCategory) => void;
+  onOverrideTag?: ((threadId: string, category: TriageCategory) => void) | undefined;
 }
 
 /**
@@ -265,7 +265,7 @@ function Pagination({
 }: {
   page: number;
   pageCount: number;
-  isLoading?: boolean;
+  isLoading?: boolean | undefined;
   onPrev: () => void;
   onNext: () => void;
 }) {
@@ -297,7 +297,7 @@ function PaginationButton({
 }: {
   label: string;
   onClick: () => void;
-  disabled?: boolean;
+  disabled?: boolean | undefined;
   children: React.ReactNode;
 }) {
   return (
@@ -364,7 +364,7 @@ function InboxRow({
   onOpen,
 }: {
   item: RailInboxItem;
-  onOpen?: (documentId: string) => void;
+  onOpen?: ((documentId: string) => void) | undefined;
 }) {
   const href = item.threadId
     ? `https://mail.google.com/mail/u/0/#inbox/${item.threadId}`
@@ -536,8 +536,8 @@ function CategoryChip({
   onChange,
 }: {
   category: TriageCategory;
-  source?: TriageTagSource | null;
-  onChange?: (category: TriageCategory) => void;
+  source?: TriageTagSource | null | undefined;
+  onChange?: ((category: TriageCategory) => void) | undefined;
 }) {
   const chipClass = cn(
     "inline-flex h-4 items-center rounded-md px-1.5",
@@ -667,8 +667,8 @@ function InboxDetailPane({
 }: {
   documentId: string;
   onClose: () => void;
-  triageTagsByThreadId?: ReadonlyMap<string, SyncedTriageTag>;
-  onOverrideTag?: (threadId: string, category: TriageCategory) => void;
+  triageTagsByThreadId?: ReadonlyMap<string, SyncedTriageTag> | undefined;
+  onOverrideTag?: ((threadId: string, category: TriageCategory) => void) | undefined;
 }) {
   const { data, isLoading, isError } = useInboxDetail(documentId);
   const threadId = data?.threadId ?? null;

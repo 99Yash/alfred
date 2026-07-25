@@ -32,59 +32,59 @@ export interface InboxPagination {
 
 export interface RailData {
   todos: ReadonlyArray<RailTodoItem>;
-  todoSuggestions?: ReadonlyArray<RailTodoSuggestion>;
+  todoSuggestions?: ReadonlyArray<RailTodoSuggestion> | undefined;
   /** Check/uncheck a todo (ADR-0050). `done` is the row's current state. */
-  onToggleTodo?: (id: string, done: boolean) => void;
+  onToggleTodo?: ((id: string, done: boolean) => void) | undefined;
   /** Clear a completed todo from the rail (`done` to `cleared`). */
-  onClearTodo?: (id: string) => void;
+  onClearTodo?: ((id: string) => void) | undefined;
   /** Add a user-authored todo from the rail's add row. */
-  onCreateTodo?: (title: string) => void;
+  onCreateTodo?: ((title: string) => void) | undefined;
   /** Mark a suggestion done directly (`suggested` to `done`). */
-  onCompleteSuggestion?: (id: string) => void;
+  onCompleteSuggestion?: ((id: string) => void) | undefined;
   /** Accept a suggestion (`suggested` to `open`). */
-  onPromoteSuggestion?: (id: string) => void;
+  onPromoteSuggestion?: ((id: string) => void) | undefined;
   /** Decline a suggestion (`suggested` to `dismissed`). */
-  onDismissSuggestion?: (id: string) => void;
+  onDismissSuggestion?: ((id: string) => void) | undefined;
   inbox: ReadonlyArray<RailInboxItem>;
   /** Optional pagination state for the inbox tab. */
-  inboxPagination?: InboxPagination;
+  inboxPagination?: InboxPagination | undefined;
   /** Document id of the email currently expanded in the rail reader, if any. */
-  selectedInboxId?: string | null;
+  selectedInboxId?: string | null | undefined;
   /** Open the rail's single-email reader for `documentId`. */
-  onOpenInbox?: (documentId: string) => void;
+  onOpenInbox?: ((documentId: string) => void) | undefined;
   /** Close the rail's single-email reader and return to the list view. */
-  onCloseInbox?: () => void;
+  onCloseInbox?: (() => void) | undefined;
   /**
    * Bulk "Mark all read" handler. The InboxFeed calls it with the
    * currently-visible *unread* ids; the parent chat shell wires this
    * to `useMarkInboxRead()`. Optional; the preview route omits it, in
    * which case the button is a no-op (and we hide it).
    */
-  onMarkInboxRead?: (documentIds: ReadonlyArray<string>) => void;
+  onMarkInboxRead?: ((documentIds: ReadonlyArray<string>) => void) | undefined;
   /** True while a mark-read mutation is in flight; disables the button. */
-  markInboxReadPending?: boolean;
+  markInboxReadPending?: boolean | undefined;
   /** Synced tag rows keyed by Gmail thread id; overlays optimistic overrides. */
-  triageTagsByThreadId?: ReadonlyMap<string, SyncedTriageTag>;
+  triageTagsByThreadId?: ReadonlyMap<string, SyncedTriageTag> | undefined;
   /** Pin a thread to a user-chosen triage category. */
-  onOverrideTriageTag?: (threadId: string, category: TriageCategory) => void;
+  onOverrideTriageTag?: ((threadId: string, category: TriageCategory) => void) | undefined;
   meetings: ReadonlyArray<RailMeetingItem>;
-  meetingLookahead?: ReadonlyArray<MeetingLookaheadItem>;
+  meetingLookahead?: ReadonlyArray<MeetingLookaheadItem> | undefined;
   /**
    * Whether the user has actually connected Google Calendar. Lets the
    * meetings empty state distinguish "connect Calendar" from "Calendar
    * connected, day is clear"; both render zero items.
    */
-  calendarConnected?: boolean;
+  calendarConnected?: boolean | undefined;
   /** Latest composed briefing for the user, or null if none has run yet. */
-  latestBriefing?: RailBriefingSummary | null;
+  latestBriefing?: RailBriefingSummary | null | undefined;
   /**
    * Trigger an on-demand briefing run (the footer's "Generate briefing"
    * button, shown only in the empty state). Optional — the preview route
    * omits it, in which case the empty footer links to the timeline instead.
    */
-  onGenerateBriefing?: () => void;
+  onGenerateBriefing?: (() => void) | undefined;
   /** True while a manual briefing run is queued or composing; shows "Composing…". */
-  briefingPending?: boolean;
+  briefingPending?: boolean | undefined;
 }
 
 export const EMPTY_RAIL_DATA: RailData = {

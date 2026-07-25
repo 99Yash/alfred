@@ -25,9 +25,9 @@ export const Dialog = RadixDialog.Root;
 
 interface DialogContentProps extends Omit<RadixDialog.DialogContentProps, "title"> {
   title: ReactNode;
-  description?: ReactNode;
+  description?: ReactNode | undefined;
   /** Hide title + description visually but keep them for screen readers. */
-  srOnlyHeader?: boolean;
+  srOnlyHeader?: boolean | undefined;
   /**
    * Paint the shell with theme-aware app-grammar tokens instead of the
    * always-dark dimension `frost-popover`. The dialog portals outside the
@@ -35,12 +35,12 @@ interface DialogContentProps extends Omit<RadixDialog.DialogContentProps, "title
    * on the content — otherwise `--app-*` tokens can't resolve and the panel
    * renders dark regardless of system theme (mirrors `AppSelect`'s portal fix).
    */
-  themed?: boolean;
+  themed?: boolean | undefined;
   /** Override the content shell. Default ships the frost-popover panel. */
-  className?: string;
+  className?: string | undefined;
   /** Override the overlay. Default ships the gray-0/70 scrim. */
-  overlayClassName?: string;
-  ref?: Ref<HTMLDivElement>;
+  overlayClassName?: string | undefined;
+  ref?: Ref<HTMLDivElement> | undefined;
 }
 
 export function DialogContent({

@@ -18,9 +18,9 @@ export function SuggestionRow({
 }: {
   label: string;
   detail: string;
-  onAccept?: () => void;
-  onComplete?: () => void;
-  onDismiss?: () => void;
+  onAccept?: (() => void) | undefined;
+  onComplete?: (() => void) | undefined;
+  onDismiss?: (() => void) | undefined;
 }) {
   return (
     <div
