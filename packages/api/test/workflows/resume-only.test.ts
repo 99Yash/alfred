@@ -10,7 +10,8 @@ import { IDB_KEY } from "@alfred/sync";
 import { inArray } from "drizzle-orm";
 
 import { _resetRegistryForTests, registerWorkflow } from "../../src/modules/agent/registry";
-import { createRun, resolveWorkflowForRun } from "../../src/modules/agent/service";
+import { createRun } from "../../src/modules/agent/service";
+import { resolveWorkflowForRun } from "../../src/modules/agent/resolve-workflow";
 import type { AgentDbExecutor, Workflow } from "../../src/modules/agent/types";
 import { handlePull } from "../../src/modules/replicache/pull";
 import { seedBuiltinWorkflowsForUser } from "../../src/modules/workflows/seeder";

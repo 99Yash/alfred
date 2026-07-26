@@ -65,6 +65,7 @@ const windowWorkflow: Workflow<unknown> = {
   trigger: { kind: "manual" },
   initialState: () => ({}),
   initialStep: "wide-step",
+  closure: { kind: "none" },
   steps: {
     "wide-step": noopStep("wide-step", WIDE_MS),
     "quick-step": noopStep("quick-step"),

@@ -113,15 +113,64 @@ export interface Step<S> {
   run(ctx: StepContext<S>): Promise<StepResult<S>>;
 }
 
-/** Context handed to {@link Workflow.onTerminalFailure}. */
-export interface TerminalFailureContext<S> {
+/**
+ * What terminal closure gets regardless of *how* the run ended: which run it
+ * was, and the state it ended holding. `completed` is absent on purpose — a run
+ * completes by a step returning `done`, inside the step body, so the workflow
+ * already owns that closure.
+ */
+interface TerminalRunFields<S> {
   runId: string;
   userId: string;
   /** The run's last-committed state (validated against `stateSchema` if present). */
   state: S;
-  /** Sanitized, user-safe failure message (the synthetic backstop string, etc.). */
-  error: string;
 }
+
+/**
+ * Why closure is being driven, and the one field each reason carries. Split out
+ * so `terminal-closure.ts` can pass the transition around without re-stating the
+ * run fields it looks up itself.
+ */
+export type TerminalOutcome =
+  | {
+      outcome: "failed";
+      /** Sanitized, user-safe failure message (the synthetic backstop string, etc.). */
+      error: string;
+    }
+  | {
+      outcome: "cancelled";
+      /** Why the run was cancelled — e.g. the approvals `cancel_run` decision's reason. */
+      reason: string;
+    };
+
+/**
+ * Context handed to a client-closing workflow — one obligation, two renderings.
+ *
+ * A discriminated union rather than two optional hooks (`onTerminalFailure?` /
+ * `onCancelled?`) held together by a docstring saying "implement BOTH". The
+ * renderings genuinely differ and must stay separable — a cancel must not surface
+ * a retryable error — but that is a `switch`, not a second entry point. With two
+ * hooks, implementing only the failure half compiles, and that omission *is* the
+ * streaming-bubble-hangs-forever regression (#530/#531 review, D2). Here the
+ * missing branch is an exhaustiveness error at the `never` assertion.
+ *
+ * The distributed form (rather than `TerminalRunFields<S> & TerminalOutcome`) is
+ * what makes `switch (ctx.outcome)` narrow `error` / `reason`.
+ */
+export type TerminalClosureContext<S> =
+  | (TerminalRunFields<S> & { outcome: "failed"; error: string })
+  | (TerminalRunFields<S> & { outcome: "cancelled"; reason: string });
+
+export type WorkflowClosure<S> =
+  | {
+      /** This workflow never leaves client-facing state that needs terminal repair. */
+      kind: "none";
+    }
+  | {
+      /** This workflow owns client-facing state that must close on every terminal outcome. */
+      kind: "client";
+      onTerminal(ctx: TerminalClosureContext<S>): Promise<void>;
+    };
 
 export interface WorkflowInput {
   /** User who owns this run; needed by DB-aware run initializers. */
@@ -186,19 +235,34 @@ export interface Workflow<S = unknown> {
   /** Step the executor enters first. */
   initialStep: string;
   steps: Record<string, Step<S>>;
-  /** Optional parser used to validate and migrate persisted state before terminal-failure hooks. */
+  /** Optional parser used to validate and migrate persisted state before terminal hooks. */
   stateSchema?: z.ZodType<S>;
   /**
-   * Optional hook invoked when a run is terminally failed *outside* the step
-   * body — the non-progressing-step backstop (ADR-0070 §1.4) or a post-deploy
-   * step-resolution failure. Step-body faults already finalize themselves
-   * before rethrowing, but those external paths never enter the step, so a
-   * workflow that owns client-facing closure (chat-turn writes a failed
-   * assistant row + emits `chat.message completed`) would otherwise strand the
-   * UI. Best-effort: the run is already terminal in the DB; a throw here is
-   * logged and swallowed.
+   * Required declaration of whether a run going terminal *outside* its step
+   * body owes client-facing closure. `{ kind: "none" }` is an explicit,
+   * greppable answer; workflows that do own client state provide the exhaustive
+   * hook instead.
+   * Chat-turn writes the durable assistant row and emits `chat.message
+   * completed`; without it the streaming bubble hangs forever.
+   *
+   * Three transitions reach it, under two `ctx.outcome`s:
+   *  - `"failed"` — the non-progressing-step backstop (ADR-0070 §1.4), or a
+   *    post-deploy step-resolution failure.
+   *  - `"cancelled"` — the approvals `cancel_run` decision, or `cancelRun`
+   *    directly. Since the #530 commit guard, a cancel landing mid-step rolls the
+   *    in-flight commit back, so nothing else will close the turn.
+   *
+   * **`switch` on `ctx.outcome` and handle both**, with a `never` assertion in the
+   * default. They are not interchangeable: a cancel is something the user chose,
+   * so rendering a failure UI with a "retry" affordance both lies and offers to
+   * re-run a turn they just ended. The union exists so that omission is a compile
+   * error rather than the regression it was (#530/#531 review, finding D2).
+   *
+   * Best-effort: the run is already terminal in the DB, so a throw here is logged
+   * and swallowed — it must never resurrect or re-fail the run. Make it
+   * idempotent; a step-body finalize may already have landed.
    */
-  onTerminalFailure?(ctx: TerminalFailureContext<S>): Promise<void>;
+  closure: WorkflowClosure<S>;
   /**
    * Optional singleton-key derivation for workflows that may run at most
    * once per (user, key) at a time. When defined and non-null, the

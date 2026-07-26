@@ -141,6 +141,7 @@ export const coldStartResearchWorkflow: Workflow<State> = {
   trigger: { kind: "event", source: "google.oauth.callback", type: "completed" },
   initialStep: "gather-signals",
   stateSchema,
+  closure: { kind: "none" },
 
   initialState(input) {
     const parsed = coldStartWorkflowInputSchema.parse(input.input ?? {});

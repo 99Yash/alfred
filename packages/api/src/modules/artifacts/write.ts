@@ -12,7 +12,7 @@ import {
 } from "@alfred/artifacts-design/validation";
 import { db } from "@alfred/db";
 import { artifacts, chatMessages, type Artifact } from "@alfred/db/schemas";
-import { and, eq, exists, sql } from "drizzle-orm";
+import { and, eq, exists, inArray, sql } from "drizzle-orm";
 import { emitReplicachePokes } from "../../events/replicache-events";
 import { AppError } from "../../lib/app-errors";
 import { artifactReplacementMatchesBase } from "./content-hash";
@@ -433,6 +433,7 @@ export async function finalizeRunArtifacts(
   runId: string,
   messageId: string,
   status: "complete" | "error",
+  fromStatuses: readonly ("generating" | "error")[] = ["generating"],
 ): Promise<void> {
   const updated = await db()
     .update(artifacts)
@@ -441,7 +442,7 @@ export async function finalizeRunArtifacts(
       and(
         eq(artifacts.userId, userId),
         eq(artifacts.runId, runId),
-        eq(artifacts.status, "generating"),
+        inArray(artifacts.status, fromStatuses),
         exists(
           db()
             .select({ id: chatMessages.id })

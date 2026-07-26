@@ -109,6 +109,7 @@ export const morningBriefingWorkflow: Workflow<State> = {
   trigger: { kind: "cron", schedule: "0 * * * *" },
   initialStep: "gather",
   stateSchema,
+  closure: { kind: "none" },
 
   initialState(input) {
     const parsed = legacyMorningBriefingWorkflowInputSchema.parse(input.input ?? {});

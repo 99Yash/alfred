@@ -1,12 +1,6 @@
 import { toMessage } from "@alfred/contracts";
 import { db, rowsFromExecute } from "@alfred/db";
-import {
-  actionStagings,
-  agentRuns,
-  agentSteps,
-  workflows,
-  type Workflow as WorkflowRow,
-} from "@alfred/db/schemas";
+import { actionStagings, agentRuns, agentSteps } from "@alfred/db/schemas";
 import {
   agentRunTriggerSchema,
   runStatusSchema,
@@ -15,18 +9,26 @@ import {
 } from "@alfred/contracts";
 import { and, desc, eq, sql } from "drizzle-orm";
 import { publishEvent } from "../../events/publish";
+import { emitReplicachePokes } from "../../events/replicache-events";
+// Cancel's post-commit obligations include tearing down the queued jobs of the
+// stagings it bulk-rejected. Both queue modules are leaves (nothing under
+// `../approvals` reaches back into `../agent`), so owning the teardown here
+// rather than describing it to callers adds no cycle.
+import { removeApprovalExpiryJob } from "../approvals/expiry-queue";
+import { removeApprovalNotificationJob } from "../approvals/notification-queue";
 import { snapshotScratchToPostgres } from "../scratchpad";
 import { enqueueRun } from "./queue";
 import { getWorkflow, listWorkflows } from "./registry";
+import { resolveWorkflowForRun } from "./resolve-workflow";
 import { readSubAgentMetadata, subAgentDoneSignalName } from "./sub-agent-metadata";
 import { startSubAgentWaitSpan, type SubAgentWaitOutcome } from "./runtime-spans";
+import { finalizeCancelledRun } from "./terminal-closure";
 import {
   isTerminalStatus,
-  type ApprovalKind,
   type AgentDbExecutor,
+  type ApprovalKind,
   type RunStatus,
   type WakeCondition,
-  type Workflow,
   type WorkflowInput,
 } from "./types";
 import { userAuthoredBriefWorkflow } from "./workflows/user-authored-brief";
@@ -91,49 +93,6 @@ export interface CreateRunArgs extends WorkflowInput {
 
 export interface CreateRunResult {
   runId: string;
-}
-
-type UserAuthoredWorkflowRow = Pick<WorkflowRow, "brief" | "allowedIntegrations" | "isBuiltin">;
-
-interface ResolvedWorkflowForRun {
-  workflow: Workflow<unknown>;
-  workflowSlug: string;
-  userAuthoredRow?: UserAuthoredWorkflowRow;
-}
-
-export async function resolveWorkflowForRun(args: {
-  userId: string;
-  workflowSlug: string;
-  tx?: AgentDbExecutor;
-}): Promise<ResolvedWorkflowForRun> {
-  const registered = getWorkflow(args.workflowSlug);
-  if (registered) return { workflow: registered, workflowSlug: registered.slug };
-
-  const ex = args.tx ?? db();
-  const rows = await ex
-    .select({
-      brief: workflows.brief,
-      allowedIntegrations: workflows.allowedIntegrations,
-      isBuiltin: workflows.isBuiltin,
-    })
-    .from(workflows)
-    .where(and(eq(workflows.userId, args.userId), eq(workflows.slug, args.workflowSlug)))
-    .limit(1);
-  const row = rows[0];
-  if (!row) {
-    throw new Error(`[agent] no workflow registered or authored for slug=${args.workflowSlug}`);
-  }
-  if (row.isBuiltin) {
-    throw new Error(
-      `[agent] builtin workflow slug=${args.workflowSlug} exists in DB but is not registered in code`,
-    );
-  }
-
-  return {
-    workflow: userAuthoredBriefWorkflow as Workflow<unknown>,
-    workflowSlug: args.workflowSlug,
-    userAuthoredRow: row,
-  };
 }
 
 /**
@@ -285,6 +244,8 @@ export async function signalRunInTx(tx: AgentTx, args: SignalArgs): Promise<Sign
   }
 
   await tx
+    // drift-ok: FOR UPDATE held since the SELECT above, which returned unless
+    // the status was exactly `waiting`.
     .update(agentRuns)
     .set({
       status: "runnable",
@@ -382,20 +343,148 @@ export type CancelOutcome = "cancelled" | "already_terminal" | "not_found";
 export interface CancelTxResult {
   outcome: CancelOutcome;
   /**
-   * Ids of the gated `action_stagings` rows this cancel bulk-rejected.
-   * The HTTP caller uses these to tear down each row's queued
-   * expiry/notification jobs (otherwise they fire later and no-op, leaving
-   * ghost jobs in Redis). Empty unless `outcome === "cancelled"`.
+   * Everything the committed cancel owes the world outside its transaction,
+   * as one closure. Call it exactly once, *after* the enclosing tx commits —
+   * every obligation inside publishes user-visible state or touches Redis, so
+   * none of it may survive a rollback.
+   *
+   * Handed back as a closure rather than as the raw ids it was built from
+   * because the obligation list only grows: it started at the scratch snapshot,
+   * gained a parent wake (ADR-0073), gained staging teardown, and gained client
+   * closure (#530/#531 D2). Every time it grew, a caller that had already
+   * spelled the previous list out by hand silently stopped being correct. A
+   * closure has no version to be behind.
+   *
+   * Never throws: each obligation is independently best-effort and logged, so a
+   * dead Redis can't fail a decision the user already made.
+   *
+   * A no-op unless `outcome === "cancelled"`.
+   */
+  afterCommit: () => Promise<void>;
+}
+
+/** {@link CancelTxResult.afterCommit} for a cancel that didn't happen. */
+async function noCancelObligations(): Promise<void> {}
+
+/**
+ * Discharge a committed cancel's post-commit obligations, in user-visible-first
+ * order. Built by {@link cancelRunInTx}; reached only through
+ * {@link CancelTxResult.afterCommit}.
+ */
+async function dischargeCancelObligations(args: {
+  runId: string;
+  reason: string;
+  /**
+   * Gated `action_stagings` rows the cancel bulk-rejected. Their queued
+   * expiry/notification jobs must go too, or they fire later against a decided
+   * row and no-op — ghost jobs in Redis.
    */
   rejectedStagingIds: string[];
   /**
-   * Parent run id woken because this cancelled run was a sub-agent child it
-   * was joining (ADR-0073). The caller enqueues it after the tx commits so the
-   * boss resumes and reads the cancelled (terminal) outcome instead of hanging
-   * until the dead-man timer fires. `null` when this run is not an awaited
-   * child or its parent had already moved on.
+   * Parent run woken in-tx because this cancelled run was a sub-agent child it
+   * was joining (ADR-0073). Enqueued here, after commit, so the executor sees
+   * the runnable row and the boss reads the cancelled (terminal) outcome
+   * instead of hanging until its dead-man timer fires. `null` when this run is
+   * not an awaited child or its parent had already moved on.
    */
   wokenParentRunId: string | null;
+}): Promise<void> {
+  // Client closure first: a cancel is a terminal transition outside any step
+  // body, so the workflow owes the user's in-flight artifact an ending, and
+  // that is the only obligation here they can see. Internally best-effort.
+  await finalizeCancelledRun(args.runId, args.reason);
+  // Sweep again after commit. A step body can stage an approval after the
+  // cancel transaction took its snapshot; the executor's terminal guard will
+  // roll back its step commit, but the staging row itself is an earlier
+  // autocommit. The sweep closes that visibility gap.
+  await rejectLateCancelledRunStagings(args.runId, args.reason);
+  for (const stagingId of args.rejectedStagingIds) {
+    // Guarded per queue, not per staging: the two jobs are independent, so a
+    // failure removing one must not leave the other behind as well.
+    for (const remove of [removeApprovalNotificationJob, removeApprovalExpiryJob]) {
+      try {
+        await remove(stagingId);
+      } catch (err) {
+        console.warn("[agent] staging job teardown failed for", stagingId, toMessage(err));
+      }
+    }
+  }
+  try {
+    await snapshotScratchToPostgres(args.runId);
+  } catch (err) {
+    console.warn(
+      "[agent] scratchpad snapshot failed for cancelled run",
+      args.runId,
+      toMessage(err),
+    );
+  }
+  if (args.wokenParentRunId) {
+    try {
+      await enqueueRun(args.wokenParentRunId);
+    } catch (err) {
+      console.warn(
+        "[agent] failed to enqueue woken parent run; dead-man timer will retry",
+        args.wokenParentRunId,
+        toMessage(err),
+      );
+    }
+  }
+}
+
+/**
+ * Reject approval rows that committed after a run's cancel transaction read
+ * them. Also called by the losing executor after its guarded commit observes
+ * the cancellation, which closes the later "staged after the post-commit
+ * sweep" edge.
+ */
+export async function rejectLateCancelledRunStagings(
+  runId: string,
+  reason: string,
+): Promise<string[]> {
+  try {
+    const runRows = await db()
+      .select({ status: agentRuns.status, userId: agentRuns.userId })
+      .from(agentRuns)
+      .where(eq(agentRuns.id, runId))
+      .limit(1);
+    const run = runRows[0];
+    const status = runStatusSchema.safeParse(run?.status);
+    if (!run || !status.success || status.data !== "cancelled") return [];
+
+    const now = new Date();
+    const rejected = await db()
+      .update(actionStagings)
+      .set({
+        status: "rejected",
+        rejectReason: reason,
+        decidedAt: now,
+        rowVersion: sql`${actionStagings.rowVersion} + 1`,
+        updatedAt: now,
+      })
+      .where(
+        and(
+          eq(actionStagings.runId, runId),
+          eq(actionStagings.status, "pending"),
+          eq(actionStagings.requiresApproval, true),
+        ),
+      )
+      .returning({ id: actionStagings.id });
+    if (rejected.length > 0) emitReplicachePokes([run.userId]);
+    const ids = rejected.map((row) => row.id);
+    for (const stagingId of ids) {
+      for (const remove of [removeApprovalNotificationJob, removeApprovalExpiryJob]) {
+        try {
+          await remove(stagingId);
+        } catch (err) {
+          console.warn("[agent] late staging job teardown failed for", stagingId, toMessage(err));
+        }
+      }
+    }
+    return ids;
+  } catch (err) {
+    console.warn("[agent] late cancelled-run staging sweep failed", runId, toMessage(err));
+    return [];
+  }
 }
 
 /**
@@ -411,25 +500,20 @@ export interface CancelTxResult {
  * rolled-back update can't leak a phantom `cancelled` event downstream.
  */
 export async function cancelRun(args: CancelRunArgs): Promise<CancelOutcome> {
-  const result = await db().transaction((tx) => cancelRunInTx(tx, args));
-  if (result.outcome === "cancelled") {
-    try {
-      await snapshotScratchToPostgres(args.runId);
-    } catch (err) {
-      console.warn(
-        "[agent] scratchpad snapshot failed for cancelled run",
-        args.runId,
-        toMessage(err),
-      );
-    }
-  }
-  // Resume a boss that was parked joining this (now-cancelled) child — the
-  // wake was committed in-tx; enqueue happens after commit so the executor
-  // sees the runnable row (ADR-0073).
-  if (result.wokenParentRunId) await enqueueRun(result.wokenParentRunId);
-  return result.outcome;
+  const { outcome, afterCommit } = await db().transaction((tx) => cancelRunInTx(tx, args));
+  await afterCommit();
+  return outcome;
 }
 
+/**
+ * The transactional half of {@link cancelRun}, for callers that compose the
+ * cancel into a wider transaction (the approvals `cancel_run` decision).
+ *
+ * The cancel's post-commit obligations come back as
+ * {@link CancelTxResult.afterCommit} rather than as a list for the caller to
+ * re-derive — see that field. Run it once the enclosing tx commits and the
+ * composed cancel is as complete as {@link cancelRun}'s.
+ */
 export async function cancelRunInTx(tx: AgentTx, args: CancelRunArgs): Promise<CancelTxResult> {
   const rows = await tx
     .select({
@@ -444,15 +528,18 @@ export async function cancelRunInTx(tx: AgentTx, args: CancelRunArgs): Promise<C
     .where(eq(agentRuns.id, args.runId))
     .for("update");
   const row = rows[0];
-  if (!row) return { outcome: "not_found", rejectedStagingIds: [], wokenParentRunId: null };
+  if (!row) return { outcome: "not_found", afterCommit: noCancelObligations };
   const status = runStatusSchema.parse(row.status);
 
   if (isTerminalStatus(status)) {
-    return { outcome: "already_terminal", rejectedStagingIds: [], wokenParentRunId: null };
+    return { outcome: "already_terminal", afterCommit: noCancelObligations };
   }
 
   const now = new Date();
   await tx
+    // drift-ok: FOR UPDATE held since the SELECT above, which returned
+    // `already_terminal` under that lock. This is the write the guard protects
+    // *against* — it cannot route through it.
     .update(agentRuns)
     .set({
       status: "cancelled",
@@ -524,10 +611,16 @@ export async function cancelRunInTx(tx: AgentTx, args: CancelRunArgs): Promise<C
       error: args.reason,
     },
   });
+  const rejectedStagingIds = rejectedStagings.map((r: { id: string }) => r.id);
   return {
     outcome: "cancelled",
-    rejectedStagingIds: rejectedStagings.map((r: { id: string }) => r.id),
-    wokenParentRunId,
+    afterCommit: () =>
+      dischargeCancelObligations({
+        runId: args.runId,
+        reason: args.reason,
+        rejectedStagingIds,
+        wokenParentRunId,
+      }),
   };
 }
 

@@ -5,13 +5,8 @@ import { Elysia, t } from "elysia";
 import { emitReplicachePokes } from "../../events/replicache-events";
 import { authMacro } from "../../middleware/auth";
 import { BadRequestError, ConflictError, NotFoundError } from "../../middleware/errors";
-import {
-  cancelRunInTx,
-  enqueueRun,
-  signalRunInTx,
-  type CancelOutcome,
-  type SignalOutcome,
-} from "../agent";
+import { enqueueRun, signalRunInTx, type CancelOutcome, type SignalOutcome } from "../agent";
+import { cancelRunInTx } from "../agent/service";
 import { removeApprovalExpiryJob } from "./expiry-queue";
 import { removeApprovalNotificationJob } from "./notification-queue";
 import { startApprovalWaitSpan, type ApprovalWaitOutcome } from "../agent/runtime-spans";
@@ -19,22 +14,21 @@ import { toMessage } from "@alfred/contracts";
 
 type Decision = "approve" | "reject" | "cancel_run";
 
+/** Programmatic reason stamped on `agent_runs.error.reason` by a `cancel_run`. */
+const CANCEL_RUN_REASON = "cancelled_by_user";
+
 interface DecisionOutcome {
   runId: string;
   decision: Decision;
   status: "approved" | "rejected";
   shouldEnqueue: boolean;
   /**
-   * Extra gated staging rows that a `cancel_run` bulk-rejected alongside
-   * `params.stagingId`. Their queued expiry/notify jobs are removed after
-   * commit so they don't linger as ghost jobs in Redis.
+   * Set only by a `cancel_run` that actually cancelled: every obligation the
+   * cancel accrued that must not survive a rollback — workflow closure, ghost
+   * staging-job teardown, scratch snapshot, a woken parent boss. `cancelRunInTx`
+   * builds it; this route only has to run it once the tx commits. Never throws.
    */
-  rejectedStagingIds?: string[];
-  /**
-   * Parent boss run woken because a `cancel_run` cancelled a sub-agent child it
-   * was joining (ADR-0073). Enqueued after commit so the boss resumes promptly.
-   */
-  wokenParentRunId?: string | null;
+  cancelAfterCommit?: () => Promise<void>;
   /**
    * Approval-wait observation to emit after commit (#409). Carries the staging's
    * bounded, PII-free timing/identity so `runtime.approval.wait` spans the
@@ -136,13 +130,9 @@ export const approvalsRoutes = new Elysia({ prefix: "/api/approvals", normalize:
 
           let shouldEnqueue = false;
           if (decision === "cancel_run") {
-            const {
-              outcome: cancelOutcome,
-              rejectedStagingIds,
-              wokenParentRunId,
-            } = await cancelRunInTx(tx, {
+            const { outcome: cancelOutcome, afterCommit } = await cancelRunInTx(tx, {
               runId: row.runId,
-              reason: "cancelled_by_user",
+              reason: CANCEL_RUN_REASON,
               pendingApprovalRejectReason: reason,
             });
             const conflict = cancelOutcomeConflict(cancelOutcome);
@@ -152,10 +142,7 @@ export const approvalsRoutes = new Elysia({ prefix: "/api/approvals", normalize:
               decision,
               status: "rejected",
               shouldEnqueue,
-              rejectedStagingIds,
-              // If the cancelled run was itself a sub-agent child, a parent
-              // boss joining it was woken in-tx — enqueue it after commit too.
-              wokenParentRunId,
+              cancelAfterCommit: afterCommit,
               approvalWait: approvalWaitEmit(row, "cancelled"),
             };
           } else {
@@ -194,17 +181,18 @@ export const approvalsRoutes = new Elysia({ prefix: "/api/approvals", normalize:
         if ("conflict" in outcome) throw new ConflictError(outcome.conflict);
 
         emitReplicachePokes([user.id], params.stagingId);
-        // A `cancel_run` bulk-rejects every gated pending row on the run,
-        // not just this one; tear down the queued jobs for all of them so
-        // none linger as ghost jobs that fire later and no-op.
-        const stagingIdsToClear = new Set<string>([
-          params.stagingId,
-          ...(outcome.rejectedStagingIds ?? []),
-        ]);
-        for (const id of stagingIdsToClear) {
-          await removeApprovalNotificationJob(id);
-          await removeApprovalExpiryJob(id);
-        }
+        // Everything a `cancel_run` owes once its tx lands: the workflow's
+        // client closure (chat-turn has to persist its assistant row and emit
+        // `chat.message completed` or the streaming bubble hangs forever —
+        // #530/#531 review, D2), teardown of every gated staging the cancel
+        // bulk-rejected, the scratch snapshot, and a woken parent boss. Built
+        // by `cancelRunInTx` so this route can't fall behind the list; it
+        // never throws, so it can't fail a decision the user already made.
+        await outcome.cancelAfterCommit?.();
+        // This route's own staging, on the plain-`reject` path where no cancel
+        // ran. Idempotent, so the cancel path re-clearing it above is harmless.
+        await removeApprovalNotificationJob(params.stagingId);
+        await removeApprovalExpiryJob(params.stagingId);
 
         let enqueued = false;
         if (outcome.shouldEnqueue) {
@@ -219,22 +207,6 @@ export const approvalsRoutes = new Elysia({ prefix: "/api/approvals", normalize:
             );
           }
         }
-        // A `cancel_run` on a sub-agent child wakes the parent boss joining it
-        // (ADR-0073); resume it so the boss reads the cancelled outcome rather
-        // than hanging until its dead-man timer fires.
-        const wokenParentRunId = outcome.wokenParentRunId;
-        if (wokenParentRunId) {
-          try {
-            await enqueueRun(wokenParentRunId);
-          } catch (err) {
-            console.warn(
-              "[approvals] failed to enqueue woken parent run; dead-man timer will retry",
-              wokenParentRunId,
-              toMessage(err),
-            );
-          }
-        }
-
         // Best-effort approval-wait span (#409): the gated action's
         // request→decision wall-clock, opened backdated to the staging's
         // createdAt and closed now. Swallowed inside the runtime-span helper.

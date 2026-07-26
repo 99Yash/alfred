@@ -1,7 +1,7 @@
 import { Worker, type Job } from "bullmq";
 import { createRedisConnection } from "../../queue/connection";
 import { snapshotScratchToPostgres } from "../scratchpad";
-import { runOnce } from "./executor";
+import { runOnce, skipReasonIsLoud } from "./executor";
 import { AGENT_QUEUE_NAME, enqueueRun, type AgentJobData } from "./queue";
 import {
   findResumableRunIds,
@@ -117,6 +117,13 @@ async function processAgentJob(job: Job<AgentJobData>): Promise<void> {
     // up without waiting for a sweep — keeps short workflows snappy.
     if (outcome.kind === "advanced") {
       await enqueueRun(runId);
+    }
+    // Which skips are worth a log is the executor's call, not this file's — it
+    // owns the closed `RunSkipReason` set and declares the volume of each member
+    // (`SKIP_REASON_VOLUME`). A `||` chain here would have to be revisited from
+    // the outside every time that set grows.
+    if (outcome.kind === "skipped" && skipReasonIsLoud(outcome.reason)) {
+      console.warn(`[agent:worker] run ${runId} commit skipped: ${outcome.reason}`);
     }
     // Terminal-step scratchpad snapshot (ADR-0036): when a run reaches a
     // terminal state, persist its Redis scratchpad into `agent_run_context` so
