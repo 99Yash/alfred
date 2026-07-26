@@ -487,6 +487,7 @@ export async function leaseRun(runId: string): Promise<LeaseResult> {
         // checked the status under that lock, so no concurrent cancel can be
         // interleaved. Adding the guard here would re-read a row we already own.
         await tx
+          // drift-ok: FOR UPDATE held since this tx's SELECT, status checked under it.
           .update(agentRuns)
           .set({
             status: "failed",
@@ -549,6 +550,8 @@ export async function leaseRun(runId: string): Promise<LeaseResult> {
     }
 
     await tx
+      // drift-ok: this IS the lease. FOR UPDATE SKIP LOCKED held since the
+      // SELECT above, which rejected every terminal status under that lock.
       .update(agentRuns)
       .set({
         status: "running",
