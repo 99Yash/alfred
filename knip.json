@@ -1,12 +1,31 @@
 {
   "$schema": "https://unpkg.com/knip@6/schema.json",
-  "ignore": ["scratch-q.cjs"],
+  // Parsed as JSONC — comments are safe here (`pnpm format` does not touch this file).
+  // Every `ignore*` entry below is a knip blind spot, not dead code. Verify before removing.
+  "ignore": [
+    "scratch-q.cjs",
+    // Scratch/spike surfaces, kept deliberately unwired to the app.
+    "learning-labs/**",
+    "scripts/spikes/**"
+  ],
   "workspaces": {
     ".": {
       "entry": ["scripts/*.mjs", ".claude/hooks/*.mjs", ".agents/hooks/*.mjs"]
     },
     "apps/server": {
-      "entry": ["src/scripts/**/*.ts", "evals/**/*.ts", "evalite.config.ts"]
+      "entry": ["src/scripts/**/*.ts", "evals/**/*.ts", "evalite.config.ts"],
+      "ignoreDependencies": [
+        // Bundle externals (see `external` in apps/server/tsdown.config.ts): @alfred/api
+        // imports these, tsdown leaves them out of the bundle, so they must resolve from
+        // the server's own node_modules at runtime. Knip does not read tsdown externals.
+        "isomorphic-dompurify",
+        "jsdom",
+        "sharp",
+        "@alfred/mailer",
+        // Needed for `"jsx": "react"` (apps/server/tsconfig.json) — the server
+        // type-checks @alfred/mailer's .tsx sources to render emails server-side.
+        "@types/react"
+      ]
     },
     "apps/web": {
       "entry": ["test/**/*.test.{ts,tsx}"]
@@ -17,7 +36,16 @@
         "evals/**/*.ts",
         "evalite.config.ts",
         "test/**/*.test.ts"
-      ]
+      ],
+      // Dormant by decision, not dead: ADR-0051 removed the boss `deepen` escalation
+      // from triage v3, but the file stays for the historical decision trail and
+      // `shouldDeepen` is still covered by test/triage/deepen.test.ts. See the NOTE in
+      // src/modules/triage/index.ts and docs/reference/triage.md.
+      "ignore": ["src/modules/triage/deepen.ts"],
+      // evalite imports "vitest", "vitest/config" and "vitest/node" at runtime but
+      // declares vitest as neither a dependency nor a peer. This devDependency is the
+      // only thing satisfying it — dropping it breaks `pnpm --filter @alfred/api eval`.
+      "ignoreDependencies": ["vitest"]
     },
     "packages/sync": {
       "entry": ["test/**/*.{test,type-test}.ts"]
