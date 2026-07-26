@@ -58,9 +58,28 @@ export const RUN_DEDUP_KEY_INDEX = "agent_runs_dedup_key_idx";
  * depending on which write loses, and counting that as a failure logs an error
  * for a benign outcome (#530/#531 review, D7).
  *
- * {@link CHAT_THREAD_ACTIVE_RUN_INDEX} is deliberately NOT in this set: its
- * collision means "this thread is busy with a *different* turn", which is a
- * distinct, user-visible answer (#488), not a duplicate to drop.
+ * Membership turns on whether the colliding key identifies the *request* or the
+ * *resource*, which is the only axis that separates the two dedup-shaped indexes
+ * on this table:
+ *
+ * - {@link RUN_DEDUP_KEY_INDEX} is request identity, and the workflow itself
+ *   declared it — the key is whatever its `dedupKey(input)` returns. A singleton
+ *   like cold-start-research returns a constant, so two dispatches carrying
+ *   *different* events really are one request by that workflow's own definition
+ *   ("run me once, whatever wakes me"). Dropping the loser silently is the
+ *   semantic being asked for, not a lost dispatch. Its partial predicate agrees:
+ *   it keeps `completed` rows blocking (unlike the two below), because the
+ *   answer it gives is "already done", not "busy right now".
+ * - {@link CHAT_THREAD_ACTIVE_RUN_INDEX} is resource occupancy, and no workflow
+ *   asked for it — the key is the thread, and the two turns contending for it
+ *   are genuinely different requests with different `userMessageId`s. Dropping
+ *   the loser as a duplicate would swallow a message the user typed, so it stays
+ *   out of this set and surfaces as a typed "thread busy" instead (#488).
+ *
+ * `agent_runs_sub_agent_dedup_idx` is request identity too and would qualify,
+ * but is deliberately unnamed here: its one caller (`spawnSubAgent`) matches any
+ * 23505 and then re-reads the winning row to return it, so it never needs to
+ * know which constraint fired.
  */
 export const DUPLICATE_RUN_INDEXES: readonly string[] = Object.freeze([
   EVENT_ACTIVE_RUN_INDEX,

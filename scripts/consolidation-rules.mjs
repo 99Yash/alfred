@@ -23,14 +23,22 @@
 /**
  * @typedef {object} ConsolidationRule
  * @property {string}   id        Stable slug, used in hook output.
- * @property {RegExp}   re        Matched per line.
+ * @property {RegExp}   re        Matched per line, or against whole file text
+ *                                when `scope` is "chain".
  * @property {"gate"|"hint"} severity
+ * @property {"line"|"chain"} [scope] Default "line". "chain" for an idiom that
+ *                                a formatter splits across lines — see
+ *                                {@link matchChains}.
  * @property {string}   fix       What to reach for instead.
  * @property {string[]} [owners]  Repo-relative files that legitimately contain
  *                                the idiom (the helper's own definition, its
  *                                doc-comment example, or the sanctioned reader).
  *                                Scoped per rule: owning `toStringArray` does
  *                                not license every other idiom in that file.
+ *                                Prefer a per-line `// drift-ok: <reason>` when
+ *                                the file holds both sanctioned and new call
+ *                                sites — a whole-file exemption blinds the rule
+ *                                exactly where the next mistake will be made.
  */
 
 /** @type {ConsolidationRule[]} */
@@ -148,24 +156,33 @@ export const RULES = [
   },
   {
     id: "unguarded-agent-run-status-write",
-    // `update(agentRuns).set({ status: ... })` on one line. A terminal write to
-    // this table has to go through the executor's guarded door: a bare
+    // A status write to `agent_runs` outside the executor's guarded door: a bare
     // `.where(eq(agentRuns.id, ...))` compiles, reads fine, and silently
     // resurrects a run a concurrent cancel just took terminal (#530, and review
     // finding D1 — which was exactly this shape, thirty lines below the door).
     //
-    // A "hint" and not a "gate": the legitimate writers are a short list
-    // (`commitGuardedRunUpdate`, `leaseRun` under its own FOR UPDATE,
-    // `cancelRunInTx`, `signalRunInTx`) plus ops scripts, and a per-line regex
-    // can't tell those from a new one. `owners` covers the current set, so the
-    // hint fires where a NEW writer is being introduced.
-    re: /\bupdate\(agentRuns\)[\s\S]*?\.set\(\s*\{[^}]*\bstatus\s*:/,
-    severity: "hint",
-    owners: [
-      "packages/api/src/modules/agent/executor.ts",
-      "packages/api/src/modules/agent/service.ts",
-    ],
-    fix: "Route `agent_runs.status` writes through commitGuardedRunUpdate in packages/api/src/modules/agent/executor.ts — it takes the row lock, refuses a superseded attempt, and refuses to write a live status over a terminal one. A bare .where(eq(agentRuns.id, …)) resurrects cancelled runs (#530). If you already hold FOR UPDATE on the row and have checked the status under that lock (leaseRun's backstop), say so in a comment.",
+    // "chain", because this is the idiom a per-line regex cannot see. Prettier
+    // puts `.update(agentRuns)`, `.set({`, `status:` and `.where(…)` on four
+    // separate lines, so the earlier one-line version of this rule matched
+    // exactly zero of the repo's six write sites — it could only ever have
+    // fired on a hand-collapsed one-liner. The span is bounded by `;` so it
+    // cannot run past the end of the statement into an unrelated
+    // `update(agentSteps).set({ status: … })`, and `status:` is matched anywhere
+    // inside the payload so a nested `error: { … }` before it does not hide it.
+    //
+    // Known limit: only a `.set({ … })` object *literal* is visible. The door's
+    // own `.set(set)` (a `PgUpdateSetSource` parameter) is opaque to any regex —
+    // that one is covered by the door being the thing every caller goes
+    // through, not by this rule.
+    //
+    // No `owners`: every legitimate writer carries an inline `// drift-ok:` with
+    // its reason instead. A whole-file exemption for executor.ts and service.ts
+    // is what made the previous version unable to catch D1, which lived in
+    // executor.ts. Four sanctioned sites, all annotated, so this gates.
+    re: /\bupdate\(\s*agentRuns\s*\)[^;]*?\.set\(\s*\{[^;]*?\bstatus\s*:/,
+    scope: "chain",
+    severity: "gate",
+    fix: "Route `agent_runs.status` writes through commitGuardedRunUpdate in packages/api/src/modules/agent/executor.ts — it takes the row lock, refuses a superseded attempt, and refuses to write a live status over a terminal one. A bare .where(eq(agentRuns.id, …)) resurrects cancelled runs (#530). If the transaction already holds FOR UPDATE on the row and has checked the status under that lock (leaseRun's backstop), append `// drift-ok: <that reason>` to the `.update(agentRuns)` line.",
   },
 ];
 
@@ -197,8 +214,82 @@ export function matchLine(line, file, lanes) {
   if (trimmed.startsWith("//") || trimmed.startsWith("*")) return [];
   return RULES.filter(
     (rule) =>
+      rule.scope !== "chain" &&
       (lanes === "all" || rule.severity === "gate") &&
       !rule.owners?.includes(file) &&
       rule.re.test(line),
   );
+}
+
+/** True for a line that is only a comment, so a doc example is not drift. */
+const isCommentLine = (line) => /^\s*(?:\/\/|\*|\/\*)/.test(line);
+
+/**
+ * Blank every comment-only line while preserving byte offsets of the rest, so a
+ * chain match can span a commented gap (a `.set({ … })` payload with a comment
+ * inside it is one statement) without a doc example counting as drift.
+ * @param {string} text
+ */
+const codeOnly = (text) =>
+  text
+    .split("\n")
+    .map((line) => (isCommentLine(line) ? " ".repeat(line.length) : line))
+    .join("\n");
+
+/**
+ * Match the `scope: "chain"` rules against a whole file (or a whole edit body).
+ *
+ * `matchLine` is per-line, which is structurally blind to a formatted query
+ * builder: `.update(agentRuns)`, `.set({`, and `.where(…)` land on separate
+ * lines, so a single-line regex over the chain matches nothing. A chain rule's
+ * `re` is run over the joined text instead, and is expected to bound its own
+ * span (e.g. `[^;]*?`) so a match cannot silently swallow the next statement.
+ *
+ * `// drift-ok` suppresses a match when it appears on any line the match touches
+ * OR in the run of comment lines directly above it — the reason for a
+ * multi-line chain rarely fits as a trailing comment, so it lives in the
+ * statement's own comment block.
+ *
+ * @param {string} text Full file contents, or the text an edit would add.
+ * @param {string} file Repo-relative path, for per-rule owner exemptions.
+ * @param {"gate"|"all"} lanes Which severities to report.
+ * @returns {{rule: ConsolidationRule, line: number, text: string}[]} `line` is
+ *   1-based and points at the first line of the match.
+ */
+export function matchChains(text, file, lanes) {
+  const code = codeOnly(text);
+  const lines = text.split("\n");
+  /** @type {{rule: ConsolidationRule, line: number, text: string}[]} */
+  const found = [];
+  for (const rule of RULES) {
+    if (rule.scope !== "chain") continue;
+    if (lanes !== "all" && rule.severity !== "gate") continue;
+    if (rule.owners?.includes(file)) continue;
+    const re = new RegExp(rule.re.source, `${rule.re.flags.replace(/g/g, "")}g`);
+    for (let m = re.exec(code); m !== null; m = re.exec(code)) {
+      // Widen the match to the whole lines it touches: that is the unit the
+      // reported snippet works in.
+      const start = code.lastIndexOf("\n", m.index) + 1;
+      const lineEnd = code.indexOf("\n", m.index + m[0].length);
+      const first = code.slice(0, start).split("\n").length - 1;
+      const last = lineEnd === -1 ? lines.length - 1 : code.slice(0, lineEnd).split("\n").length - 1;
+      // Then widen again, for the marker only, over the comment block above.
+      let markerFrom = first;
+      while (markerFrom > 0 && isCommentLine(lines[markerFrom - 1])) markerFrom--;
+      const exempt = lines
+        .slice(markerFrom, last + 1)
+        .some((line) => line.includes("// drift-ok"));
+      if (exempt) continue;
+      found.push({
+        rule,
+        line: first + 1,
+        text: lines
+          .slice(first, last + 1)
+          .map((l) => l.trim())
+          .filter(Boolean)
+          .join(" "),
+      });
+    }
+  }
+  return found;
 }

@@ -20,7 +20,7 @@
 
 import { readFileSync } from "node:fs";
 
-import { isSkippedPath, matchLine } from "../../scripts/consolidation-rules.mjs";
+import { isSkippedPath, matchChains, matchLine } from "../../scripts/consolidation-rules.mjs";
 
 const ROOT = process.env.CLAUDE_PROJECT_DIR || process.cwd();
 
@@ -65,6 +65,12 @@ for (const line of text.split("\n")) {
   for (const rule of matchLine(line, rel, "all")) {
     if (!hit.has(rule.id)) hit.set(rule.id, { rule, line: line.trim() });
   }
+}
+// Chain rules match across lines. This only sees the text the edit ADDS, so a
+// chain the edit only partly rewrites is invisible here — that half is covered
+// by the gate lane reading the file off disk in `pnpm check`.
+for (const { rule, text: snippet } of matchChains(text, rel, "all")) {
+  if (!hit.has(rule.id)) hit.set(rule.id, { rule, line: snippet });
 }
 if (hit.size === 0) process.exit(0);
 

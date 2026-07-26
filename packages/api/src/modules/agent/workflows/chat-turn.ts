@@ -1892,8 +1892,13 @@ async function aggregateRunUsage(runId: string): Promise<ChatMessageUsage | null
  * what survives reload / reaches other devices; the streamed deltas were
  * ephemeral. Idempotent on messageId so a re-attempt after the executor
  * commits doesn't double-insert.
+ *
+ * The *row*, and nothing beyond it: the background work a healthy turn arms on
+ * top of this — memory capture, compaction, titling — lives in
+ * {@link finalizeAssistantMessage}, so a caller that only wants the turn ended
+ * (see {@link finalizeCancelledMessage}) can't opt into it by accident.
  */
-async function finalizeAssistantMessage(
+async function persistCompletedAssistantTurn(
   userId: string,
   runId: string,
   state: ChatRunState,
@@ -1966,13 +1971,34 @@ async function finalizeAssistantMessage(
     payload: { runId, threadId: state.threadId, messageId: state.messageId, phase: "completed" },
   });
   emitReplicachePokes([userId]);
+}
+
+/**
+ * Persist a finished assistant turn and arm the background work that follows a
+ * turn the thread is expected to keep building on.
+ *
+ * The three schedulers below all assume a live conversation: memory capture
+ * reads the settled thread, compaction bounds a transcript that will be sent
+ * again, and titling spends a cheap-model call on the opening exchange. A turn
+ * the user *ended* is not that, so it goes through
+ * {@link finalizeCancelledMessage}; a failed turn goes through
+ * {@link finalizeFailedMessage}. Which tail a terminal turn gets is a decision,
+ * so each one has to name its finalizer rather than inherit this one.
+ */
+async function finalizeAssistantMessage(
+  userId: string,
+  runId: string,
+  state: ChatRunState,
+): Promise<void> {
+  await persistCompletedAssistantTurn(userId, runId, state);
 
   // (Re)arm the end-of-thread memory-capture debounce (chat-mem v1, #398, D9).
   // Each completed turn pushes the idle timer out, so extraction only fires
   // once the thread has been quiet — seeing the whole, settled conversation.
   // Fire-and-forget + internally best-effort: arming memory capture must never
-  // fail (or delay) an otherwise-good reply. Only the success path arms it; a
-  // failed turn (`finalizeFailedMessage`) intentionally does not.
+  // fail (or delay) an otherwise-good reply. Only this path arms it; a failed
+  // turn (`finalizeFailedMessage`) and a cancelled one
+  // (`finalizeCancelledMessage`) intentionally do not.
   void scheduleThreadIdleExtraction({
     userId,
     threadId: state.threadId,
@@ -2006,6 +2032,33 @@ async function finalizeAssistantMessage(
     assistantMessageId: state.messageId,
     assistantText: state.assistantText,
   });
+}
+
+/**
+ * End a turn the user cancelled: persist the row, close the artifacts, emit
+ * `chat.message completed`, and stop.
+ *
+ * Row status stays `complete`, not `failed` — a deliberate stop is not an error
+ * and must not render a retry affordance for an action the user took on
+ * purpose. In-flight artifacts likewise close `complete` rather than `error`, so
+ * whatever the turn had drafted stays readable instead of showing as broken.
+ *
+ * What it deliberately does NOT do is the tail
+ * {@link finalizeAssistantMessage} arms. Memory capture, compaction and
+ * titling all read as "the thread is still going"; the last of them spends a
+ * cheap-model call. Cancelling is the user saying it is not still going, and
+ * the only cancel caller today is the approvals `cancel_run`, which fires on a
+ * run parked at an approval — so the row it closes often carries no new text at
+ * all, and titling it would be spend on nothing. If the thread does continue,
+ * the next real turn arms all three anyway; each is a debounce or a
+ * first-write-wins, not a one-shot.
+ */
+async function finalizeCancelledMessage(
+  userId: string,
+  runId: string,
+  state: ChatRunState,
+): Promise<void> {
+  await persistCompletedAssistantTurn(userId, runId, state);
 }
 
 /**
@@ -2518,14 +2571,19 @@ export const chatTurnWorkflow: Workflow<ChatRunState> = {
     await finalizeFailedMessage(ctx.userId, ctx.runId, ctx.state, new Error(ctx.error));
   },
   // A cancel (the approvals `cancel_run` decision) is a deliberate stop, so it
-  // persists a normal complete row carrying whatever text streamed before the
-  // cancel — the same semantics as the Redis stop path, which ends its turn
-  // `completed`. Rendering "something went wrong, retry?" for an action the user
-  // took on purpose would be a lie, and the retry would re-run a turn they just
-  // ended. `ctx.reason` is deliberately unused: it is cancel bookkeeping
+  // persists a normal complete row rather than an error one: rendering
+  // "something went wrong, retry?" for an action the user took on purpose would
+  // be a lie, and the retry would re-run a turn they just ended.
+  //
+  // It is NOT the success finalizer. `ctx.state` here is the run's
+  // last-*committed* state, so a cancel that lands mid-step renders the previous
+  // step boundary, not the in-flight step's uncommitted text. And a cancelled
+  // turn arms none of the success tail — see `finalizeCancelledMessage`.
+  //
+  // `ctx.reason` is deliberately unused: it is cancel bookkeeping
   // (`user_stopped`), not something to show as an error.
   async onCancelled(ctx) {
-    await finalizeAssistantMessage(ctx.userId, ctx.runId, ctx.state);
+    await finalizeCancelledMessage(ctx.userId, ctx.runId, ctx.state);
   },
 };
 
