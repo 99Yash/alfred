@@ -412,11 +412,22 @@ export interface TriageDocumentContext {
   persona: AccountPersona | null;
   /**
    * Minimal identity of the user whose mailbox this is (ADR-0050/0051 amendment
-   * 2026-06-09) — display name + the account email. Feeds the todo
-   * ownership-attribution gate so an action the email assigns to a named third
-   * party isn't minted as the user's todo. Deliberately just identity.
+   * 2026-06-09). Feeds the todo ownership-attribution gate so an action the
+   * email assigns to a named third party isn't minted as the user's todo.
+   * Deliberately just identity.
+   *
+   * The two addresses are NOT interchangeable, which is why they are separate
+   * fields rather than one best-effort `email`:
+   *
+   *  - `email` is a *hint* — the account address when we have it, the user's
+   *    primary app email otherwise. Good enough to tell a classifier "this is
+   *    probably you"; not good enough to decide anything.
+   *  - `mailboxAddress` is the *authoritative* address of the mailbox this
+   *    document came from, or `null` when we don't know it. Anything whose
+   *    correctness depends on "is this address really this mailbox" must read
+   *    this one and treat `null` as unknown.
    */
-  identity: { name: string | null; email: string | null };
+  identity: { name: string | null; email: string | null; mailboxAddress: string | null };
 }
 
 /**
@@ -445,7 +456,10 @@ export async function loadTriageContext(
   // run them on one round-trip instead of two — this is the per-classification
   // hot path. The user row feeds the ownership-attribution gate: display name
   // from the user row, account email from the credential's label (the precise
-  // per-account address), falling back to the user's primary email. Best-effort.
+  // per-account address), falling back to the user's primary email. The
+  // fallback makes `identity.email` best-effort, so the credential label is
+  // also surfaced unfallen-back as `identity.mailboxAddress` for callers that
+  // need the real thing.
   const [credRows, userRows] = await Promise.all([
     db()
       .select({
@@ -486,6 +500,7 @@ export async function loadTriageContext(
     identity: {
       name: userRow?.name ?? null,
       email: cred.accountLabel ?? userRow?.email ?? null,
+      mailboxAddress: cred.accountLabel ?? null,
     },
   };
 }

@@ -2,6 +2,7 @@ import { anthropic, type AnthropicLanguageModelOptions } from "@ai-sdk/anthropic
 import { google, type GoogleLanguageModelOptions } from "@ai-sdk/google";
 import { openai, type OpenAILanguageModelResponsesOptions } from "@ai-sdk/openai";
 import type { ChatModelTier } from "@alfred/contracts";
+import { isCallerAbort } from "./abort";
 import {
   APICallError,
   defaultSettingsMiddleware,
@@ -284,12 +285,16 @@ export function getSubAgentModel(): LanguageModel {
  * production fallback classify calls behind #436 averaged ~10s against a ~1.9s
  * median on the primary.
  *
- * Every cheap-tier consumer (triage classify, memory extraction, the chat-memory
- * extractor, cold-start extract, skills distill, chat-turn titling) is a short
- * schema-constrained extraction where thinking is pure latency and pure spend,
- * so this belongs on the tier rather than on one caller. Behaviour on the
- * primary is unchanged (Flash-Lite is already budget-0); the only path that
- * moves is the degraded one.
+ * Every cheap-tier consumer in the *product* path (triage classify, memory
+ * extraction, the chat-memory extractor, cold-start extract, skills distill,
+ * chat-turn titling) is a short schema-constrained extraction where thinking is
+ * pure latency and pure spend, so this belongs on the tier rather than on one
+ * caller. The one non-extraction consumer is an eval judge
+ * (`voice-ai-tells.eval.ts`), which is unaffected in practice: it ran on the
+ * budget-0 primary already, and the default is overridable below.
+ *
+ * Behaviour on the primary is unchanged (Flash-Lite is already budget-0); the
+ * only path that moves is the degraded one.
  *
  * `defaultSettingsMiddleware` is `mergeObjects(settings, params)` — caller
  * params win — so this is a true default, not a ceiling: a cheap-path call that
@@ -297,7 +302,17 @@ export function getSubAgentModel(): LanguageModel {
  * and override this.
  */
 const CHEAP_TIER_DEFAULTS = defaultSettingsMiddleware({
-  settings: { providerOptions: { google: { thinkingConfig: { thinkingBudget: 0 } } } },
+  settings: {
+    providerOptions: {
+      // `satisfies` rather than a bare literal: `providerOptions` is an untyped
+      // JSON bag, so a misspelled `thinkingConfig` would silently no-op — and a
+      // test comparing the dispatch against the same misspelled literal would
+      // still pass.
+      google: {
+        thinkingConfig: { thinkingBudget: 0 },
+      } satisfies GoogleLanguageModelOptions,
+    },
+  },
 });
 
 /**
@@ -521,17 +536,6 @@ export function getChatProviderOptions(tier: ChatModelTier = "standard"): ChatPr
  * specific enough not to catch a request-shape 4xx (illegal tool name, bad
  * schema), which must keep surfacing loudly.
  */
-/**
- * True for a caller-initiated cancel — `AbortController.abort()`, which Node
- * surfaces as a `DOMException` named `AbortError`. Mirrors `ai-retry`'s own
- * `error.isAbort()` predicate, and deliberately does NOT match `TimeoutError`
- * (what `AbortSignal.timeout()` and the AI SDK's `timeout` option produce),
- * which stays a legitimate reason to degrade.
- */
-function isCallerAbort(e: unknown): boolean {
-  return e instanceof Error && e.name === "AbortError";
-}
-
 function isQuotaOrBillingError(e: APICallError): boolean {
   const haystack = `${e.message} ${e.responseBody ?? ""}`.toLowerCase();
   return (

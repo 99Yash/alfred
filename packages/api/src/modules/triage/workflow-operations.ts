@@ -698,6 +698,23 @@ type SentDocumentStatus =
   | { kind: "sent"; source: "stored" }
   | { kind: "sent"; source: "live"; labelIds: readonly string[] };
 
+/**
+ * Second thing this function used to do, now mostly gone (#439): the live
+ * `getMessage` call also detected a document whose Gmail message no longer
+ * exists, and `{ kind: "missing" }` skipped it before any paid work. Skipping
+ * the round trip for provably-received mail means that detection now only
+ * happens for the ambiguous minority.
+ *
+ * Consequence for a message expunged from Gmail between ingest and classify:
+ * instead of a clean `skipped: source-message-not-found` at zero spend, the
+ * classify call runs and the apply-label step 404s — where `relabelThread`
+ * re-points to the newest live inbound message in the thread, or logs
+ * `target-unresolvable` and leaves the thread untagged (#277). Correct
+ * outcomes, one wasted classify. Trashed mail doesn't 404 (it keeps its id), so
+ * this needs a *permanent* delete or a stale id inside the queue delay — rare
+ * enough to trade for removing a Gmail round trip from every classify, but not
+ * "nothing else changed".
+ */
 async function sentDocumentStatusAtClassifyTime(
   ctxData: TriageDocumentContext,
 ): Promise<SentDocumentStatus> {
@@ -706,7 +723,11 @@ async function sentDocumentStatusAtClassifyTime(
   // wrong (#439) — see `mayBeUnflaggedSentMail` for the disproof.
   const ambiguous = mayBeUnflaggedSentMail({
     fromHeader: metadataString(ctxData.document.metadata, "from"),
-    accountEmail: ctxData.identity.email,
+    // `identity.mailboxAddress`, never `identity.email`: the latter falls back
+    // to the user's primary app email, which would turn a secondary mailbox's
+    // own sent mail into "third party" and skip the guard for that whole
+    // account.
+    mailboxAddress: ctxData.identity.mailboxAddress,
   });
   if (!ambiguous) return { kind: "not-sent" };
 
