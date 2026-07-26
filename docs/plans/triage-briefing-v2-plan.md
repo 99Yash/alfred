@@ -1,6 +1,6 @@
 # Triage + briefing v2 — implementation plan
 
-Rebuilds m9 (email triage) and m10 (morning briefing) under [ADR-0042](../../decisions.md#adr-0042) and [ADR-0041](../../decisions.md#adr-0041) plus the inline amendments to ADR-0025, ADR-0031, ADR-0033. The two ADRs are independent but share foundations (contracts package, OAuth scopes, observability) and one cross-cutting consumer (the briefing's email gather contributor reads triage rollup).
+Rebuilds m9 (email triage) and m10 (morning briefing) under [ADR-0042](../decisions/ADR-0042-email-triage-v2-layered-pipeline-with.md) and [ADR-0041](../decisions/ADR-0041-daily-briefing-v2-cross-source-llm-compose.md) plus the inline amendments to ADR-0025, ADR-0031, ADR-0033. The two ADRs are independent but share foundations (contracts package, OAuth scopes, observability) and one cross-cutting consumer (the briefing's email gather contributor reads triage rollup).
 
 This is a phased plan. Each phase is "land before the next phase starts"; sub-steps inside a phase are parallel-safe. Triage and briefing tracks run in parallel where they don't share files.
 

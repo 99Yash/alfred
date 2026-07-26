@@ -2,24 +2,11 @@
 
 ## Monorepo layout
 
-```
-apps/
-├── server/          # Elysia HTTP server — port 3001
-└── web/             # Vite + TanStack Router SPA — port 3000
-packages/
-├── ai/              # AI SDK provider config, model dispatchers, embeddings, metering
-├── api/             # HTTP root + backend service and runtime entrypoints
-├── artifacts-design/ # Shared artifact themes and design contracts
-├── auth/            # Better Auth config — Google social provider + one-email allowlist
-├── config/          # Shared tsconfig.base.json
-├── contracts/       # Browser-safe shared types, consts, and Zod schemas
-├── db/              # Drizzle schema, pool, helpers
-├── env/             # Zod-validated env vars — serverEnv() / CLIENT_DEFAULTS
-├── sync/            # Replicache keys, schemas, and client mutators
-├── integrations/    # Per-provider integration code (Gmail, Calendar, GitHub, ...)
-├── mailer/          # React Email templates + render helpers for Resend sends
-└── ingestion/       # Shared chunker/embedder/dedup helpers
-```
+Two apps — `server` (Elysia HTTP, port 3001) and `web` (Vite + TanStack Router
+SPA, port 3000). For the package list, run `ls packages/`. The load-bearing
+packages (`ai`, `api`, `contracts`, `db`, `integrations`, `sync`) each carry an
+agent guide stating what they own — that ownership rule is the thing a directory
+listing cannot tell you.
 
 All packages are `@alfred/*`. Never import `@milkpod/*`.
 

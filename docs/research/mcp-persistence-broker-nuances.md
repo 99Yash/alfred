@@ -261,7 +261,7 @@ convention, `action-policies.ts:52-54`, `integrations.ts:40-42`); timestamps use
 `createdAt`/`updatedAt`; named `$inferSelect`/`$inferInsert` exports are required
 (`packages/db/CLAUDE.md`).
 
-The ADR-0018 sketch (`decisions.md:519-535`) has a single mutable
+The ADR-0018 sketch ([ADR-0018](../decisions/ADR-0018-mcp-scope-client-side-only-at-v1.md)) has a single mutable
 `capability_cache jsonb` that is both history and authority, plus a materialized
 `mcp_server_tools`. The requirements doc (`...requirements.md:37-51`) and
 decision-map #6 (`...decision-map.md:212`) explicitly reverse this: **persist
@@ -402,7 +402,7 @@ per call: `const riskTier = tool.riskTier` (`dispatch/index.ts:662`), then
 return policyMode === "gated" || riskTier === "high";
 ```
 
-The `high === always gates` floor is ADR-0069 (`decisions.md:3962-3976`;
+The `high === always gates` floor is ADR-0069 ([ADR-0069](../decisions/ADR-0069-high-risktier-tools-always-confirm-a-hard.md);
 registry header `registry.ts:8-14`) — a one-way floor the autonomy toggle cannot
 override.
 
@@ -620,7 +620,7 @@ outcome is unknown), and it does not stop a fresh-`tool_call_id` retry.
    `executeResult`.** This is consistent with ADR-0070's rule that `status` means
    "execution happened," not "the payload is a success"
    (`dispatch/index.ts:1319-1326`). The model then *sees* the unknown outcome
-   (result-honesty, ADR-0071 #6 / `decisions.md:3992`) rather than a hidden
+   (result-honesty, ADR-0071 #6 / [ADR-0071](../decisions/ADR-0071-tools-tell-the-truth-about-their-capability-and.md)) rather than a hidden
    `failed`, and the same-`tool_call_id` replay serves the same unknown envelope
    from the `executed` short-circuit (`dispatch/index.ts:890-903`). **No new
    value in the closed `actionStagingStatusSchema`** (`contracts/actions.ts:3-12`),
@@ -676,7 +676,7 @@ a permissive `McpEndpointAuthorization` (`client.ts:45-51`):
 - **Object-handle parking (ADR-0087) — deferrable.** The raw client already
   bounds results via `boundPassthroughBody` (`client.ts:340`); large-result
   handles are a later optimization gated by the truncation thermometer
-  (`decisions.md:4185`), not a correctness prerequisite.
+  ([ADR-0087](../decisions/ADR-0087-code-mode-rung-b-v1-is-context-virtualization.md)), not a correctness prerequisite.
 - **Connection-management UI — deferrable.** Connections/revisions can be seeded
   by a test/script; the broker reads rows, not a UI.
 

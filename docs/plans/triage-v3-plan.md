@@ -1,7 +1,7 @@
 # Triage v3 — implementation plan
 
-Implements **[ADR-0051](../../decisions.md#adr-0051)** (email triage v3: cheap-model-always,
-made smart by deterministic context), which supersedes [ADR-0042](../../decisions.md#adr-0042)'s
+Implements **[ADR-0051](../decisions/ADR-0051-email-triage-v3-cheap-model-always-made-smart.md)** (email triage v3: cheap-model-always,
+made smart by deterministic context), which supersedes [ADR-0042](../decisions/ADR-0042-email-triage-v2-layered-pipeline-with.md)'s
 classifier shape. Read ADR-0051 first — this plan is the build sequence, not the rationale.
 
 Cross-references: [`../../CONTEXT.md`](../../CONTEXT.md) (glossary: *Sender prior*, *Account
@@ -82,7 +82,7 @@ plus the surviving *SenderContext*, *Effective author*, *User context*),
 ## 1. Why (one paragraph)
 
 The "slow tagging" complaint was a **delivery bug** — a freshly-connected account had no
-Gmail watch, so mail waited on the 5-min sweep ([ADR-0037](../../decisions.md#adr-0037)'s
+Gmail watch, so mail waited on the 5-min sweep ([ADR-0037](../decisions/ADR-0037-gmail-realtime-ingestion-via-messages-list.md)'s
 study: 4.5s classify vs 195s ingest). Fixed. The **real** problem is quality: ADR-0042
 deliberately kept the cheap classifier *email-only*, so Alfred ignores everything it knows
 about you and your senders when tagging. Triage v3 fixes that **without** a bigger model:

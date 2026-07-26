@@ -1,7 +1,7 @@
 # Implementation plan — artifact expression system (motion / marks / diagrams under a governed dial, and the render-surface inflection)
 
 **Status:** proposed (2026-07-15). Records **ADR-0086**. Extends ADR-0075 (artifact epic,
-`decisions.md:4040`) and finally scopes the deferred **Phase 2b (verified floor)** + **Phase 4/5
+[ADR-0075](../decisions/ADR-0075-produce-artifact-capability-the-agent-generates.md)) and finally scopes the deferred **Phase 2b (verified floor)** + **Phase 4/5
 (breadth)** of `pristine-artifacts-v1.md`. No code written yet; this is the structural design the
 owner greenlit ("this direction looks good").
 

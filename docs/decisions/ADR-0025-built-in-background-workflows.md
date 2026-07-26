@@ -1,0 +1,50 @@
+# ADR-0025 — Built-in background workflows (v1 feature set)
+
+
+**Decision.** Ship 7 built-in background workflows + 1 always-on system process (memory extraction). Each is a workflow per ADR-0017 (`is_builtin=true`, code-as-workflow in `apps/server/builtins/workflows/<slug>.ts`, seeded into the `workflows` table at deploy time). User toggles via settings page → flips `status` between `active` and `paused`.
+
+| Feature                    | Description                                                                                                                                            | Default                | Trigger                      | Notes                                                                                        |
+| -------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------ | ---------------------- | ---------------------------- | -------------------------------------------------------------------------------------------- |
+| **Email triage**           | Auto-classify every inbound email into a 10-bucket taxonomy (`urgent`, `action_needed`, `follow_up`, `awaiting_reply`, `meeting`, `fyi`, `done`, `payment`, `newsletter`, `marketing`); write Gmail label back | **ON**                 | Gmail webhook (per ADR-0024) | Cheap-tier classifier (Haiku/Flash). Re-evaluates on reply. Taxonomy widened from 6 → 10 (see amendment below).                                  |
+| **Morning briefing**       | Daily 7am email: schedule + priority inbox (driven by triage tags) + relevant updates                                                                  | **ON**                 | Cron `0 7 * * *`             | Sent via Resend (ADR-0020).                                                                  |
+| **Memory extraction**      | Per ADR-0019: end-of-thread + daily cron + event-triggered fact extraction                                                                             | **ON, not toggleable** | Multiple                     | System process, not a user feature.                                                          |
+| **Evening recap**          | Daily evening email: what got done, what's still open, tomorrow preview                                                                                | **ON**                 | Cron `0 18 * * *`            | Closing-loop UX.                                                                             |
+| **Reply drafting**         | When email tagged `awaiting_reply`, draft a response using `style_profiles` (ADR-0013); HIL-gated before send                                          | **OFF**                | Triggered by triage tag      | High-stakes (send-on-behalf); opt-in once user trusts drafts.                                |
+| **Meeting prep**           | 30min before each meeting, send context email: attendees, recent threads with them, related docs                                                       | **OFF**                | Calendar event time          | Off until enough connected context to be useful.                                             |
+| **Action item extraction** | Pull action items from emails/Slack threads into managed todo list                                                                                     | **OFF**                | Cron + event                 | Off until taxonomy maturation; partly redundant with email-triage `action_needed` tag at v1. |
+
+**Implementation pattern (all features):**
+
+- Built-in workflows live in code: `apps/server/builtins/workflows/<slug>.ts` (TS module, version-controlled, type-checked).
+- Each references built-in skill markdown in `apps/server/builtins/skills/<slug>.md`.
+- Seeded into DB at deploy time via a startup migration; updates on next deploy if changed.
+- User-authored workflows sit alongside built-ins in the same `workflows` table; settings page renders both with the same toggle UX.
+
+**Why these defaults:**
+
+- **Triage + Morning + Evening + Memory ON** = the "alfred is working for you in the background" core value the day you connect Gmail. Without them, alfred is just a chat app.
+- **Reply drafting OFF** = high-stakes outbound; needs trust earned via observation period.
+- **Meeting prep / Action items OFF** = either redundant at v1 or needs more connected data to be useful; can be promoted as defaults once stable.
+
+**Why not match dimension's defaults exactly:** their screenshot showed Morning Briefing OFF, which seems wrong for our use case (it's our killer feature). They may default off because their onboarding configures it later, or to avoid email volume for users who haven't connected calendar yet. We default it ON because alfred has nothing else proactive to offer if you skip it.
+
+**Amendment (2026-05-21) — email triage taxonomy widened from 6 → 10 buckets.**
+
+The original 6-bucket taxonomy (`action_needed`, `awaiting_reply`, `meeting`, `fyi`, `payment`, `newsletter`) was chosen for cheap-tier classifier reliability. After PR #21 switched to reusing the user's existing Dimension-style numbered labels (`1: urgent` through `10: marketing`), 4 of those 10 labels stayed unused. The user kept the full label set and asked for triage to cover all of them. New seams:
+
+- `urgent` (`1: urgent`) vs `action_needed`: time-pressure. Hours-not-days consequence (security alert, account compromise, sign-in verification) → `urgent`; concrete-but-not-time-critical action → `action_needed`.
+- `follow_up` (`3: follow up`) vs `awaiting_reply`: sender tone. Soft nudge / "any update?" / "circling back" on an existing thread → `follow_up`; direct first-ask requiring a reply → `awaiting_reply`.
+- `done` (`7: done`) vs `fyi`: closure. "Order shipped" / "deploy succeeded" / "ticket resolved" → `done`; informational without explicit closure → `fyi`.
+- `marketing` (`10: marketing`) vs `newsletter`: opt-in shape. Promotional / sales blast → `marketing`; subscription content the user opted into → `newsletter`.
+
+**Tradeoff.** 10 buckets sits at the upper edge of what a cheap-tier model classifies reliably without examples. Mitigated by explicit per-seam disambiguation rules and worked examples in the system prompt. Lower confidence in tight pairs is expected and is what the `confidence < 0.5` "alfred wasn't sure" UX hook is for.
+
+**Briefing downstream.** The morning briefing's priority/suppressed split (`packages/api/src/modules/briefing/gather.ts`) is updated alongside this amendment: `urgent` lands first in the priority order (so a same-day-actionable item never gets buried), `follow_up` after `awaiting_reply`, and `done`/`marketing` join `fyi`/`newsletter` in the suppressed counts. Display order mirrors the user's Gmail label numbering. Reply-drafting (ADR-0025 #5, still default-OFF) continues to key on `awaiting_reply`; whether to also draft for `follow_up` (softer touch — "thanks for the nudge, here's where we are") is left for when that workflow flips ON.
+
+**Amendment (2026-05-26) — triage pipeline rebuilt as layered classifier with boss escalation (ADR-0042).**
+
+ADR-0042 keeps the 10-bucket taxonomy from the prior amendment but rebuilds the pipeline shape. The classify step gains a deterministic `extract-sender-context` prefix that emits typed `SenderContext` (bot vs human vs service, body-actor parsing for GitHub/Calendar/Linear, `botSlug` from a curated allowlist). Rule #9 splits into 9a/9b/9c: bot review comments -> `fyi`, severity-suspect bot alerts (Sentry, Stripe billing, Google security, Vercel deploy, Datadog) classify on body content, unknown service envelopes use today's behavior. A boss-tier `deepen` step is eligible when the cheap classifier's confidence is low, OR sender is in `SEVERITY_SUSPECT_BOTS`, OR sender is an unknown human in an important category; initial rollout executes severity-suspect bots live and shadows the other two branches. Bio-aware tagging is deliberately scoped to `deepen`: the cheap classifier remains email-only, while the boss can call `system.read_user_context` to pull the user's compact profile, preferences, relationships, current company/projects, and later saved dossiers. Dossier work for unknown human senders fires async via the ADR-0031 workflow with `person_profiles`-backed TTL caching once the unknown-human branch is promoted live. See ADR-0042 for the full pipeline shape, cost calculus, and failure model.
+
+**Amendment (2026-05-26) — morning briefing rebuilt as cross-source LLM compose with split surface (ADR-0041).**
+
+ADR-0041 supersedes the m10 deterministic-render path. The briefing workflow stays `gather → compose → send`, but `gather` now spans five sources (email triage rollup + Calendar + integration activity + Weather + day-of-week, with a `BriefingContributor` extensibility contract), and `compose` becomes a single `getBossModel()` call producing both a 4-6 line breaking summary (the email body) and a structured full briefing (the in-app surface). Entity references use `[[<kind>:<id>]]` placeholders resolved per-surface; operational references use a generic `activity` kind rather than provider-specific `pr` / `commit` / `repo` kinds. A new `briefings` table is the canonical record, Replicache-synced read-only with a 30-day pull window. ADR-0033's inbox-only bound is widened in tandem.
