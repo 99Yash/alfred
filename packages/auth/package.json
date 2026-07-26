@@ -14,9 +14,7 @@
     "@alfred/db": "workspace:*",
     "@alfred/env": "workspace:*",
     "better-auth": "catalog:",
-    "dotenv": "catalog:",
-    "drizzle-orm": "^0.45.2",
-    "zod": "catalog:"
+    "drizzle-orm": "^0.45.2"
   },
   "devDependencies": {
     "@alfred/config": "workspace:*"

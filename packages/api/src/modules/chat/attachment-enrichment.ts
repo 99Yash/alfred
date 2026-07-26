@@ -35,7 +35,6 @@ export const chatAttachmentRepresentationSchema = z
     evidence: z.array(evidenceSchema).max(100),
   })
   .strict();
-export type ChatAttachmentRepresentation = z.infer<typeof chatAttachmentRepresentationSchema>;
 
 const enrichmentOutputSchema = chatAttachmentRepresentationSchema.omit({
   schemaVersion: true,
@@ -43,26 +42,6 @@ const enrichmentOutputSchema = chatAttachmentRepresentationSchema.omit({
   messageId: true,
   mime: true,
 });
-
-export async function loadChatAttachmentRepresentation(
-  attachmentId: string,
-  representationVersion = CHAT_ATTACHMENT_REPRESENTATION_VERSION,
-): Promise<ChatAttachmentRepresentation | null> {
-  const [row] = await db()
-    .select({ representation: chatAttachmentRepresentations.representation })
-    .from(chatAttachmentRepresentations)
-    .where(
-      and(
-        eq(chatAttachmentRepresentations.attachmentId, attachmentId),
-        eq(chatAttachmentRepresentations.representationVersion, representationVersion),
-        eq(chatAttachmentRepresentations.status, "ready"),
-      ),
-    )
-    .limit(1);
-  if (!row) return null;
-  const parsed = chatAttachmentRepresentationSchema.safeParse(row.representation);
-  return parsed.success ? parsed.data : null;
-}
 
 /** Claim one attachment/version once. Concurrent consumers reuse the same row. */
 export async function claimChatAttachmentEnrichment(

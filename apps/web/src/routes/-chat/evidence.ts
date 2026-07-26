@@ -12,12 +12,8 @@ import type { ToolCallView } from "./tool-call-presentation";
  * pins each to the canonical contracts key, so a rename there fails to compile
  * here instead of leaving these literals silently wrong.
  */
-export const WEB_SEARCH_TOOL = "system.web_search" satisfies ToolName;
-export const FETCH_URL_TOOL = "system.fetch_url" satisfies ToolName;
-
-export function isBrowsingTool(toolName: string): boolean {
-  return toolName === WEB_SEARCH_TOOL || toolName === FETCH_URL_TOOL;
-}
+const WEB_SEARCH_TOOL = "system.web_search" satisfies ToolName;
+const FETCH_URL_TOOL = "system.fetch_url" satisfies ToolName;
 
 export interface FetchUrlView {
   kind: "fetch_url";
