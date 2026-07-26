@@ -1,4 +1,9 @@
-import { getCheapModel, identifyLanguageModel, meteredGenerateObject } from "@alfred/ai";
+import {
+  getCheapModel,
+  identifyLanguageModel,
+  meteredGenerateObject,
+  type MeteredGenerateObjectArgs,
+} from "@alfred/ai";
 import {
   TODO_DECISION_OUTCOMES,
   clamp01,
@@ -11,6 +16,7 @@ import {
   type TodoDecisionOutcome,
   toMessage,
 } from "@alfred/contracts";
+import { serverEnv } from "@alfred/env/server";
 import { TRIAGE_CATEGORIES, type TriageCategory } from "@alfred/integrations/google";
 import { z } from "zod";
 import {
@@ -22,6 +28,7 @@ import {
   type MeetingDemotionReason,
   type SenderKindDemotionReason,
 } from "./floors";
+import { createHedgeBudget, hedgeCeilingFor, runHedged, type HedgeBudget } from "./hedge";
 import type { Observations } from "./observations";
 import { MAX_RATIONALE_LEN, truncateRationale } from "./rationale";
 
@@ -165,6 +172,14 @@ export interface ClassifyEmailArgs {
    * wall-clock budget.
    */
   maxRetries?: number;
+  /**
+   * Override the hedge delay for the cheap-model call (#436), in milliseconds;
+   * `0` disables hedging. Production leaves this unset and reads
+   * `TRIAGE_CLASSIFY_HEDGE_MS`. The eval sets `0`: hedging buys tail latency on
+   * a live mailbox, but in a batch scored for tagging precision it only doubles
+   * the provider load the eval is already rate-limited by.
+   */
+  hedgeDelayMs?: number;
   /**
    * Test/seam override for the cheap model call. Production leaves this unset
    * and the real metered `getCheapModel()` call is used; tests inject canned
@@ -994,48 +1009,131 @@ export async function classifyEmail(
   };
 }
 
-/** Build the production cheap-model pass runner (metered, Zod-validated). */
+/**
+ * Process-wide ceiling on simultaneous hedge draws, shared by every classify
+ * call in this process (both passes of every concurrent run). Created lazily so
+ * importing this module doesn't force env validation — `serverEnv()` throws on
+ * an incomplete env, which a test or a script that never classifies shouldn't
+ * have to satisfy.
+ */
+let _hedgeBudget: HedgeBudget | undefined;
+function classifyHedgeBudget(): HedgeBudget {
+  _hedgeBudget ??= createHedgeBudget(hedgeCeilingFor(serverEnv().AGENT_WORKER_CONCURRENCY));
+  return _hedgeBudget;
+}
+
+/**
+ * The exact request one classify pass dispatches.
+ *
+ * Split out of {@link defaultRunPass} so the properties that make hedging safe
+ * are checkable without a provider. The load-bearing one is `abortSignal`:
+ * `runHedged` cancels the loser through the signal it hands each attempt, and a
+ * hedge whose signal never reaches the request is not a hedge, it is double
+ * spend that fails silently — no error, no wrong label, just a second bill. The
+ * hedge helper's own tests can't see it, because they exercise `runHedged` with
+ * fake work. Taking `signal` as a required argument makes forgetting it a type
+ * error rather than a docstring violation.
+ */
+export function classifyCallOptions(input: {
+  model: NonNullable<ReturnType<typeof getCheapModel>>;
+  instructions: string;
+  prompt: string;
+  /** The hedge attempt's signal. Forwarded verbatim — see above. */
+  signal: AbortSignal;
+  maxRetries: number | undefined;
+}): MeteredGenerateObjectArgs<TriageClassification> {
+  return {
+    model: input.model,
+    instructions: input.instructions,
+    prompt: input.prompt,
+    schema: triageClassificationSchema,
+    temperature: 0,
+    // Triage answers are tiny — cap hard so a misbehaving model can't burn
+    // tokens on a wall-of-text rationale.
+    maxOutputTokens: 400,
+    // Bound the call so a hung/slow Gemini connection can't hold an agent worker
+    // slot (and the DB connection behind it) indefinitely. The workflow catches a
+    // timeout and falls through to the default category (better a label than a
+    // stuck run).
+    //
+    // This is a *total* budget: the SDK folds it into the abort signal every
+    // retry attempt shares, so once it expires there is nothing left for
+    // `withFallback` to degrade into — see the timeout note on `withFallback`.
+    timeout: { totalMs: 30_000 },
+    // Cancels the losing hedge as soon as its twin answers. `withFallback`
+    // carves aborts out of `shouldSwitch`, so this cancel dies here instead of
+    // degrading to `gemini-2.5-flash`.
+    abortSignal: input.signal,
+    // Undefined in production (SDK default). The eval lowers it to fail fast to
+    // the configured cheap-model fallback under provider overload — see the
+    // `maxRetries` doc on `ClassifyEmailArgs`.
+    ...(input.maxRetries !== undefined ? { maxRetries: input.maxRetries } : {}),
+  };
+}
+
+/**
+ * Build the production cheap-model pass runner (metered, Zod-validated, hedged).
+ *
+ * Each pass is run through {@link runHedged}: if the model hasn't answered
+ * within `TRIAGE_CLASSIFY_HEDGE_MS`, an identical second call goes out and the
+ * first answer back wins (#436). The two draws are interchangeable —
+ * `temperature: 0` over a fixed structured-output schema — so first-wins costs
+ * no tagging precision.
+ *
+ * The duplicate is budgeted, not unconditional: the hedge fires **per pass**, so
+ * a conflict thread can draw up to four times, and the trigger fires broadest
+ * exactly when the provider is already under pressure. {@link hedgeCeilingFor}
+ * bounds how much of that this process can have in flight at once.
+ */
 function defaultRunPass(
   model: ReturnType<typeof getCheapModel> | null,
   args: ClassifyEmailArgs,
 ): RunPass {
+  const name = (pass: "first" | "second") =>
+    pass === "second" ? "triage.classify.second_pass" : "triage.classify";
+
   return async ({ system, prompt, pass }) => {
     if (!model) throw new Error("[triage] classifyEmail: no cheap model and no runPass injected");
-    const result = await meteredGenerateObject<TriageClassification>(
-      {
-        model,
-        instructions: system,
-        prompt,
-        schema: triageClassificationSchema,
-        temperature: 0,
-        // Triage answers are tiny — cap hard so a misbehaving model can't burn
-        // tokens on a wall-of-text rationale.
-        maxOutputTokens: 400,
-        // Bound the call so a hung/slow Gemini connection can't stall the
-        // single-concurrency triage worker indefinitely. The workflow catches a
-        // timeout and falls through to the default category (better a label than
-        // a blocked queue).
-        timeout: { totalMs: 30_000 },
-        // Undefined in production (SDK default). The eval lowers it to fail fast
-        // to the configured cheap-model fallback under provider overload — see
-        // `maxRetries` doc.
-        ...(args.maxRetries !== undefined ? { maxRetries: args.maxRetries } : {}),
-      },
-      {
-        role: "triage",
-        userId: args.userId,
-        runId: args.runId,
-        stepId: args.stepId,
-        // Distinct idempotency key per pass so the second pass isn't deduped
-        // against the first within the same attempt.
-        idempotencyKey: args.idempotencyKey ? `${args.idempotencyKey}:${pass}` : undefined,
-        requestMeta: {
-          purpose: pass === "second" ? "triage.classify.second_pass" : "triage.classify",
-          documentId: args.document.id,
-        },
-        name: pass === "second" ? "triage.classify.second_pass" : "triage.classify",
-      },
-    );
+    const delayMs = args.hedgeDelayMs ?? serverEnv().TRIAGE_CLASSIFY_HEDGE_MS;
+    const result = await runHedged({
+      delayMs,
+      // Only when hedging is on: with `hedgeDelayMs: 0` (the eval) there is no
+      // duplicate to budget, and building one would drag `serverEnv()` — the
+      // full server schema — into a process that deliberately avoids it.
+      ...(delayMs > 0 ? { budget: classifyHedgeBudget() } : {}),
+      run: ({ attempt, signal }) =>
+        meteredGenerateObject<TriageClassification>(
+          classifyCallOptions({
+            model,
+            instructions: system,
+            prompt,
+            signal,
+            maxRetries: args.maxRetries,
+          }),
+          {
+            role: "triage",
+            userId: args.userId,
+            runId: args.runId,
+            stepId: args.stepId,
+            // Distinct idempotency key per pass so the second pass isn't deduped
+            // against the first within the same attempt — and per hedge attempt,
+            // because we really are billed for both draws. `idempotencyKey` is a
+            // correlation tag, not a dedupe gate, so collapsing them would just
+            // make two paid calls look like one.
+            idempotencyKey: args.idempotencyKey
+              ? `${args.idempotencyKey}:${pass}${attempt === 1 ? ":hedge" : ""}`
+              : undefined,
+            requestMeta: {
+              purpose: name(pass),
+              documentId: args.document.id,
+              // Marked on both draws so the pair is queryable: the honest cost of
+              // the hedge is "how many classify calls carry hedge: true".
+              hedge: attempt === 1,
+            },
+            name: name(pass),
+          },
+        ),
+    });
     const object = result.output;
     // Clamp confidence into [0, 1] here rather than in the schema: the range
     // can't be expressed in the cheap-model structured-output JSON schema (see

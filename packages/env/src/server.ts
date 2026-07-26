@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { agentWorkerConcurrencySchema } from "./pool";
 
 /**
  * Optional secret that tolerates an empty string in `.env`. A blank
@@ -245,6 +246,28 @@ const serverEnvSchema = z.object({
    * {@link gmailMailboxWritesEnabled}; never branch on this field directly.
    */
   GMAIL_MAILBOX_WRITES_ENABLED: optionalBooleanString(),
+  /**
+   * Hedge delay for the triage classify call, in milliseconds (#436). If the
+   * cheap-model call has not answered within this window, a second identical
+   * call is fired and whichever lands first wins — the tail of
+   * `triage.classify` is Google-side scheduling jitter, not work (fast and slow
+   * calls carry identical token counts), so a duplicate draw is the cheapest
+   * way to recover p90/p95 without touching p50.
+   *
+   * Default 2500ms ≈ measured p75, so the common fast call never duplicates.
+   * Set `0` to disable hedging (single call, previous behaviour).
+   */
+  TRIAGE_CLASSIFY_HEDGE_MS: z.coerce.number().int().nonnegative().default(2500),
+  /**
+   * Max concurrent agent runs per server process (#437). Each run executes one
+   * step at a time, and a triage classify step is dominated by a ~2s model
+   * call, so the previous 4 left the queue serializing behind idle wall-clock.
+   *
+   * This is the *only* knob to turn: the shared `pg.Pool` ceiling is derived
+   * from it (`derivePoolMax` in `./pool`), so raising concurrency raises the
+   * pool with it and there is no second place to forget.
+   */
+  AGENT_WORKER_CONCURRENCY: agentWorkerConcurrencySchema,
 });
 
 export type ServerEnv = z.infer<typeof serverEnvSchema>;
