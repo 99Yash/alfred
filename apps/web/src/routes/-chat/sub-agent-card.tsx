@@ -7,7 +7,8 @@ import { asString, parseJsonRecord } from "~/lib/json-record";
 import { cn } from "~/lib/utils";
 import { animatedToolIcon, RunningToolIcon } from "./animated-tool-icons";
 import { Elapsed } from "./elapsed";
-import { RunGlyphCluster, runGlyphs, runSummary } from "./run-summary";
+import { RunGlyphCluster } from "./run-glyph-cluster";
+import { runGlyphs, runSummary } from "./run-summary";
 import { ToolCallCard } from "./tool-call-card";
 import { presentTool, type ToolCallView } from "./tool-call-presentation";
 
