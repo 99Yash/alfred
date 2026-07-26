@@ -1,7 +1,7 @@
 # Deterministic connected tools (eager declaration + dispatch floor)
 
 **Date:** 2026-06-07
-**ADR:** [ADR-0053](../../decisions.md#adr-0053--deterministic-connected-tool-declaration--dispatch-enforced-gates-supersedes-the-prompt-only-load-instruction-of-adr-00260040)
+**ADR:** [ADR-0053](../decisions/ADR-0053-deterministic-connected-tool-declaration.md)
 **Trigger:** Chat `454bad3d`. A clean GitHub turn was followed by a calendar follow-up that emitted bare `list_events` -> `undeclaredToolMessage` ("Tool 'list_events' is not declared") -> the boss gave up and asked the user to load Calendar.
 
 ---

@@ -1,6 +1,6 @@
 # Meeting prep v1 (MEET-001) — implementation plan
 
-Implements **[ADR-0054](../../decisions.md#adr-0054)** (meeting prep: persisted
+Implements **[ADR-0054](../decisions/ADR-0054-meeting-prep-persisted-per-occurrence-packet.md)** (meeting prep: persisted
 per-occurrence packet + calendar-watch trigger), the **meeting-prep gatherer** from
 [`june-demo-triage.md`](./june-demo-triage.md) (MEET-001), expanded during the 2026-06-10/11
 grilling to fold in the proactive calendar-watch trigger. Read ADR-0054 first for the
@@ -324,7 +324,7 @@ because it depends on a public verified callback.
 
 The hard-to-reverse choices (the `meeting_preps` schema + `event_key` wire shape, the
 parallel reference enum, the calendar-watch trigger model, the cheap-frequency /
-boss-quality split) are recorded in **[ADR-0054](../../decisions.md#adr-0054)**. Read it for
+boss-quality split) are recorded in **[ADR-0054](../decisions/ADR-0054-meeting-prep-persisted-per-occurrence-packet.md)**. Read it for
 the "why"; this file is the "how/when."
 
 ## 10. Open (settle at build time, not now)

@@ -106,4 +106,4 @@ Current status is tracked in [`docs/reference/milestones.md`](./docs/reference/m
 
 ## Architecture decisions
 
-Each non-obvious choice has a numbered ADR in [`decisions.md`](./decisions.md). Read it before proposing architectural changes — most alternatives have already been considered and rejected with reasoning.
+Each non-obvious choice has a numbered ADR, one file per decision under [`docs/decisions/`](./docs/decisions/), indexed from [`decisions.md`](./decisions.md). Read the ones touching your change before proposing architectural changes — most alternatives have already been considered and rejected with reasoning.

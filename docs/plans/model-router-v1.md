@@ -5,8 +5,8 @@
 > `packages/ai/src/provider.ts`) for the chat surface only. Recommend writing an ADR
 > (next free number in [`../../decisions.md`](../../decisions.md)) before building — this
 > changes how chat selects a model and amends the routing posture of
-> [ADR-0065](../../decisions.md#adr-0065). The eval lane it leans on is
-> [ADR-0055](../../decisions.md#adr-0055) (evalite).
+> [ADR-0065](../decisions/ADR-0065-chat-file-uploads-degrade-every-non-universal.md). The eval lane it leans on is
+> [ADR-0055](../decisions/ADR-0055-eval-lane-local-evalite-deterministic-llm-judge.md) (evalite).
 
 Cross-references: issues **#249** (Deep over-thinks trivial queries — the proximate
 trigger; the separate "started event after hydration" perceived-TTFT bug is already
@@ -66,7 +66,7 @@ loops, they fight prompt cache, and "knowing your model is a skill." Each is tru
 
 - **Not a separate classifier call.** No cheap-model or Opus pre-flight gate. (Rejected:
   adds latency-before-first-token to *every* turn — that *is* #249, one layer up.)
-- **Not cross-model routing mid-thread / mid-stream.** [ADR-0065](../../decisions.md#adr-0065)
+- **Not cross-model routing mid-thread / mid-stream.** [ADR-0065](../decisions/ADR-0065-chat-file-uploads-degrade-every-non-universal.md)
   already rejected per-turn model routing because transcript replay (#193) pins a thread
   to a provider. v1 honors that: model is sticky per-thread.
 - **Not system-wide.** Governs the **chat surface only** (`getChatModel`/

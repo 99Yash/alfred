@@ -1,5 +1,11 @@
 # Chat file uploads — v1 (ADR-0065)
 
+> **Status.** SHIPPED. Verified in code 2026-07-26: the composer has a real file
+> input (`apps/web/src/routes/-chat/composer/composer.tsx`), uploads run through
+> `apps/web/src/lib/chat/upload-attachments.ts`, and `chat_attachments` +
+> `chat_attachment_representations` exist in the schema. The "dead button"
+> framing below describes the pre-work state, not today's.
+
 Adds file upload to chat. Today the composer's paperclip is a **dead button** — no `<input type=file>`, no upload endpoint, no attachment column on `chat_messages`, no file parts in the transcript. The pipeline is text-in/text-out end to end. This plan builds the whole thing.
 
 ## The load-bearing invariant (do not violate)
