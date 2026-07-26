@@ -47,6 +47,7 @@ candidate `gate` rule — see [Closing the loop](#closing-the-loop).
 | resolve a user's timezone / format an instant in it | `resolveUserTimezone` / `formatInstantInTimezone` | `@alfred/api` timezone module | `Intl` glue per call site |
 | get a language-model handle | `getChatModel` / `getCheapModel` | `@alfred/ai` | constructing a provider client |
 | run a query and read typed rows | `rowsFromExecute` + named Drizzle row types | `@alfred/db` | `(res as Row[])` |
+| restrict a query or partial index to live `agent_runs` | `runIsNotTerminal(t.status)` | `@alfred/db` schemas | `status NOT IN ('completed', 'failed', 'cancelled')` written out per site |
 | merge Tailwind class names (web) | `cn(...)` | `apps/web/src/lib/utils.ts` | template-string concatenation |
 | capitalize / lower-first / relative-time a string (web) | `capitalize` / `lowerFirst` / `formatRelative` | `apps/web/src/lib/strings.ts` | inline `slice(0,1).toUpperCase()` |
 
@@ -86,6 +87,15 @@ Validate external / persisted / protocol data instead of asserting it.
 - `db`, the schema table objects (`user`, `documents`, `emailTriage`, `agentRuns`,
   `userFacts`, `integrationCredentials`, `apiCallLog`, …), `rowsFromExecute`
 - Lifecycle: `closeConnections`, `warmPool`, `closeRedis`; type `DbTransaction`
+- Run-status SQL: `runIsNotTerminal(status)` — the one "this run is still live"
+  predicate, shared by the `agent_runs` partial indexes and the queries they
+  back. Built from `TERMINAL_RUN_STATUSES`, so a new run status reaches every
+  site at once; a hand-written `NOT IN (…)` next to one of those indexes is how
+  an index quietly stops enforcing what its query looks for.
+- Event-run identity: `eventRunIdentityMatch(table, identity)` and
+  `DUPLICATE_RUN_INDEXES` / `EVENT_ACTIVE_RUN_INDEX` / `RUN_DEDUP_KEY_INDEX` /
+  `CHAT_THREAD_ACTIVE_RUN_INDEX` — a dispatcher catching a `23505` has to know
+  which invariant collided, because only some of them mean "duplicate, drop it".
 
 ### Models — `@alfred/ai`
 - `getChatModel`, `getCheapModel`

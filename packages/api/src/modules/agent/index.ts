@@ -19,6 +19,7 @@ import {
   type SignalArgs,
 } from "./service";
 import { isUniqueViolation } from "../../lib/pg-errors";
+import { finalizeCancelledRun } from "./terminal-closure";
 import { closeSubAgentJoinWakeQueue } from "./sub-agent-join-wake-queue";
 import {
   startSubAgentJoinWakeWorker,
@@ -38,6 +39,7 @@ export {
   signalRunInTx,
   cancelRun,
   cancelRunInTx,
+  finalizeCancelledRun,
   enqueueRun,
   getAgentQueue,
   runOnce,

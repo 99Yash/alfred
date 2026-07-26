@@ -1,5 +1,5 @@
 {
-  "id": "2cd38378-df17-4c11-b6bd-861424cbd176",
+  "id": "f7e7218a-6366-445e-8aae-0e420f85fcca",
   "prevId": "911631ad-194a-4a41-b412-547b342036bc",
   "version": "7",
   "dialect": "postgresql",
@@ -950,25 +950,25 @@
           "name": "agent_runs_event_active_idx",
           "columns": [
             {
-              "expression": "user_id",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            },
-            {
-              "expression": "workflow_slug",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            },
-            {
-              "expression": "(\"trigger\" ->> 'source')",
+              "expression": "\"user_id\"",
               "asc": true,
               "isExpression": true,
               "nulls": "last"
             },
             {
-              "expression": "(\"trigger\" ->> 'type')",
+              "expression": "\"workflow_slug\"",
+              "asc": true,
+              "isExpression": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "coalesce(\"trigger\" ->> 'source', '')",
+              "asc": true,
+              "isExpression": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "coalesce(\"trigger\" ->> 'type', '')",
               "asc": true,
               "isExpression": true,
               "nulls": "last"

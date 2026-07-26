@@ -131,8 +131,15 @@ export const learnSkillWorkflow: Workflow<State> = {
     return learnSkillDedupKey(parsed.skillId);
   },
 
+  // The skill-detail UI reads `skill_runs.status`, so a run that goes terminal
+  // outside the step body has to close that row or the card stays "in progress"
+  // forever. Both hooks are implemented, and each records its own status — a
+  // cancel is recorded as a cancel, not as a failure.
   async onTerminalFailure(ctx) {
     await finalizeSkillRun({ agentRunId: ctx.runId, status: "failed" });
+  },
+  async onCancelled(ctx) {
+    await finalizeSkillRun({ agentRunId: ctx.runId, status: "cancelled" });
   },
 
   steps: {

@@ -118,6 +118,19 @@ async function processAgentJob(job: Job<AgentJobData>): Promise<void> {
     if (outcome.kind === "advanced") {
       await enqueueRun(runId);
     }
+    // A superseded commit is benign for correctness (the guard rolled it back)
+    // but never free: both workers had already called the model, so a
+    // `superseded_by_reclaim` is a duplicate full-price turn and the signal that
+    // the step's stale window is too tight. Log the two superseded causes so
+    // that shows up in the logs instead of only as a surprise on the bill. The
+    // other two skip reasons — `no_lease` and `step_already_committed` — are
+    // routine and high-volume, so they stay quiet.
+    if (
+      outcome.kind === "skipped" &&
+      (outcome.reason === "superseded_by_reclaim" || outcome.reason === "run_already_terminal")
+    ) {
+      console.warn(`[agent:worker] run ${runId} commit skipped: ${outcome.reason}`);
+    }
     // Terminal-step scratchpad snapshot (ADR-0036): when a run reaches a
     // terminal state, persist its Redis scratchpad into `agent_run_context` so
     // the durable record survives the 30-day key TTL. Keyed by `runId` — for a

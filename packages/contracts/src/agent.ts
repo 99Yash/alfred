@@ -13,19 +13,37 @@ export const runStatusSchema = z.enum([
 export const RUN_STATUSES = Object.freeze([...runStatusSchema.options]);
 export type RunStatus = z.infer<typeof runStatusSchema>;
 
+/**
+ * Does a status end a run? Declared as data and checked exhaustively: a new
+ * member of `runStatusSchema` without an entry here is a build error. A
+ * hand-written `s === "completed" || …` chain answers `false` for the new
+ * member instead — silently, everywhere at once, including the executor's
+ * commit guard and every `NOT IN` predicate derived below.
+ */
+const RUN_STATUS_KIND = {
+  pending: "live",
+  runnable: "live",
+  running: "live",
+  waiting: "live",
+  completed: "terminal",
+  failed: "terminal",
+  cancelled: "terminal",
+} as const satisfies Record<RunStatus, "live" | "terminal">;
+
 export function isTerminalStatus(s: RunStatus): boolean {
-  return s === "completed" || s === "failed" || s === "cancelled";
+  return RUN_STATUS_KIND[s] === "terminal";
 }
 
 /**
- * The terminal statuses as data, for SQL predicates that need to name them
- * (`status NOT IN (...)` guards and partial indexes) rather than call
- * {@link isTerminalStatus} per row. Derived from the same predicate, so the two
- * can't drift when a status is added.
+ * The terminal statuses as data, for SQL that has to name them rather than call
+ * {@link isTerminalStatus} per row. Both come from {@link RUN_STATUS_KIND}, so
+ * they cannot disagree. SQL callers should reach for `runIsNotTerminal` from
+ * `@alfred/db` rather than interpolating this list themselves — the whole point
+ * is that the predicate exists once.
  */
-export const TERMINAL_RUN_STATUSES = Object.freeze(
+export const TERMINAL_RUN_STATUSES: readonly RunStatus[] = Object.freeze(
   RUN_STATUSES.filter(isTerminalStatus),
-) as readonly RunStatus[];
+);
 
 export const approvalKindSchema = z.enum(["step", "action_staging"]);
 export type ApprovalKind = z.infer<typeof approvalKindSchema>;

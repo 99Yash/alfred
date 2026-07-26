@@ -146,6 +146,27 @@ export const RULES = [
     severity: "gate",
     fix: "Use withDefaults(DEFAULTS, overrides) from @alfred/contracts — it ignores override keys whose value is undefined, so a default can't be zeroed by a present-undefined.",
   },
+  {
+    id: "unguarded-agent-run-status-write",
+    // `update(agentRuns).set({ status: ... })` on one line. A terminal write to
+    // this table has to go through the executor's guarded door: a bare
+    // `.where(eq(agentRuns.id, ...))` compiles, reads fine, and silently
+    // resurrects a run a concurrent cancel just took terminal (#530, and review
+    // finding D1 — which was exactly this shape, thirty lines below the door).
+    //
+    // A "hint" and not a "gate": the legitimate writers are a short list
+    // (`commitGuardedRunUpdate`, `leaseRun` under its own FOR UPDATE,
+    // `cancelRunInTx`, `signalRunInTx`) plus ops scripts, and a per-line regex
+    // can't tell those from a new one. `owners` covers the current set, so the
+    // hint fires where a NEW writer is being introduced.
+    re: /\bupdate\(agentRuns\)[\s\S]*?\.set\(\s*\{[^}]*\bstatus\s*:/,
+    severity: "hint",
+    owners: [
+      "packages/api/src/modules/agent/executor.ts",
+      "packages/api/src/modules/agent/service.ts",
+    ],
+    fix: "Route `agent_runs.status` writes through commitGuardedRunUpdate in packages/api/src/modules/agent/executor.ts — it takes the row lock, refuses a superseded attempt, and refuses to write a live status over a terminal one. A bare .where(eq(agentRuns.id, …)) resurrects cancelled runs (#530). If you already hold FOR UPDATE on the row and have checked the status under that lock (leaseRun's backstop), say so in a comment.",
+  },
 ];
 
 /**

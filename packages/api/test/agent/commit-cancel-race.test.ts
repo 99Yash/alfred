@@ -1,13 +1,13 @@
 import assert from "node:assert/strict";
 import { randomUUID } from "node:crypto";
-import { after, before, describe, test } from "node:test";
+import { after, before, beforeEach, describe, test } from "node:test";
 
 import { closeConnections, db } from "@alfred/db";
 import { actionStagings, agentRuns, agentSteps, eventsOutbox, user } from "@alfred/db/schemas";
 import { and, eq, inArray, like } from "drizzle-orm";
 
 import { closeRedis } from "../../src/queue/connection";
-import { commitStepSuccess, runOnce } from "../../src/modules/agent/executor";
+import { commitStepSuccess, markRunFailed, runOnce } from "../../src/modules/agent/executor";
 import {
   _resetRegistryForTests,
   getWorkflow,
@@ -32,6 +32,15 @@ import type { StepResult, Workflow } from "../../src/modules/agent/types";
  * branch (advance, done, interrupt, failure) refuses to resurrect a cancelled
  * run, and that the refusal is reported as a distinct benign skip.
  *
+ * Refusing the commit is only half the invariant, and the review of the first
+ * fix caught the other half. Rolling the commit back means NOTHING closes the
+ * client-facing turn — the chat bubble streams forever — so the cancel path now
+ * drives the workflow's `onCancelled` hook, and that is asserted here too
+ * (finding D2). Also covered: the fifth terminal write, `markRunFailed`, which
+ * shipped unguarded and overwrote `cancelled` with `failed` (D1); and the
+ * superseded classification, which labelled a reclaim+terminal compound
+ * `terminal` when `reclaim` is the actionable half (D3).
+ *
  * Opt-in: runs only when `DATABASE_URL` points at a reachable migrated Postgres.
  */
 const SKIP = process.env.DATABASE_URL ? false : "DATABASE_URL not set — skipping DB-backed test";
@@ -41,7 +50,20 @@ const createdUserIds: string[] = [];
 const STEP = "chat-turn";
 const CANCEL_ADVANCE_SLUG = "__test-cancel-race-advance";
 const CANCEL_THROW_SLUG = "__test-cancel-race-throw";
+const CANCEL_CLOSURE_SLUG = "__test-cancel-race-closure";
 const TERMINAL_SKIP_REASON = "run_already_terminal";
+const RECLAIM_SKIP_REASON = "superseded_by_reclaim";
+
+/** Which closure hook fired — a test-local label; the runtime has no such union. */
+type TerminalRunOutcome = "failed" | "cancelled";
+
+/**
+ * Every closure-hook invocation the closure workflow saw, in order. `outcome`
+ * records WHICH hook fired: a cancel reaching `onTerminalFailure` would render a
+ * retryable error on a turn the user deliberately ended, so the two are asserted
+ * apart, not merged.
+ */
+const terminalCalls: { runId: string; outcome: TerminalRunOutcome; reason: string }[] = [];
 
 /** A step that is cancelled while it runs, then returns a normal `next`. */
 const cancelThenAdvanceWorkflow: Workflow<Record<string, never>> = {
@@ -79,6 +101,36 @@ const cancelThenThrowWorkflow: Workflow<Record<string, never>> = {
   },
 };
 
+/**
+ * Stands in for chat-turn: a workflow that owes the client closure when its run
+ * goes terminal outside the step body. Recording both closure hooks rather than
+ * driving chat-turn keeps the assertion on the *runtime* obligation and off
+ * chat-turn's finalizers (which would want a thread, a message row, and a model
+ * call for the thread title).
+ */
+const cancelClosureWorkflow: Workflow<Record<string, never>> = {
+  slug: CANCEL_CLOSURE_SLUG,
+  name: "cancel race closure test",
+  trigger: { kind: "manual" },
+  initialState: () => ({}),
+  initialStep: STEP,
+  steps: {
+    [STEP]: {
+      id: STEP,
+      run: async (ctx): Promise<StepResult<Record<string, never>>> => {
+        await cancelRun({ runId: ctx.runId, reason: "user_stopped" });
+        return { kind: "next", state: {}, nextStep: "dispatch-tools" };
+      },
+    },
+  },
+  async onTerminalFailure(ctx) {
+    terminalCalls.push({ runId: ctx.runId, outcome: "failed", reason: ctx.error });
+  },
+  async onCancelled(ctx) {
+    terminalCalls.push({ runId: ctx.runId, outcome: "cancelled", reason: ctx.reason });
+  },
+};
+
 async function seedUser(): Promise<string> {
   const userId = `${ID_PREFIX}${randomUUID()}`;
   createdUserIds.push(userId);
@@ -90,7 +142,7 @@ async function seedUser(): Promise<string> {
 
 async function seedRun(args: {
   workflowSlug: string;
-  status: "runnable" | "running";
+  status: "runnable" | "running" | "waiting";
   attempt: number;
   withStepRow?: boolean;
 }): Promise<{ userId: string; runId: string }> {
@@ -157,6 +209,8 @@ async function readRun(runId: string) {
       currentStep: agentRuns.currentStep,
       attempt: agentRuns.attempt,
       wakeCondition: agentRuns.wakeCondition,
+      error: agentRuns.error,
+      endedAt: agentRuns.endedAt,
     })
     .from(agentRuns)
     .where(eq(agentRuns.id, runId));
@@ -186,6 +240,10 @@ describe("mid-flight cancel race (#530, DB-backed)", { skip: SKIP }, () => {
       .where(like(user.id, `${ID_PREFIX}%`));
     if (!getWorkflow(CANCEL_ADVANCE_SLUG)) registerWorkflow(cancelThenAdvanceWorkflow);
     if (!getWorkflow(CANCEL_THROW_SLUG)) registerWorkflow(cancelThenThrowWorkflow);
+    if (!getWorkflow(CANCEL_CLOSURE_SLUG)) registerWorkflow(cancelClosureWorkflow);
+  });
+  beforeEach(() => {
+    terminalCalls.length = 0;
   });
   after(async () => {
     if (createdUserIds.length > 0) {
@@ -234,7 +292,7 @@ describe("mid-flight cancel race (#530, DB-backed)", { skip: SKIP }, () => {
 
   test("a cancelled run is not completed by a late `done` commit", async () => {
     const { userId, runId } = await seedRun({
-      workflowSlug: "chat",
+      workflowSlug: CANCEL_CLOSURE_SLUG,
       status: "running",
       attempt: 3,
       withStepRow: true,
@@ -242,7 +300,7 @@ describe("mid-flight cancel race (#530, DB-backed)", { skip: SKIP }, () => {
     await cancelRun({ runId, reason: "user_stopped" });
 
     const outcome = await commitStepSuccess(
-      runRow(userId, runId, "chat", 3),
+      runRow(userId, runId, CANCEL_CLOSURE_SLUG, 3),
       STEP,
       3,
       { kind: "done", state: {}, output: { messageId: "msg_x" } },
@@ -253,11 +311,16 @@ describe("mid-flight cancel race (#530, DB-backed)", { skip: SKIP }, () => {
     assert.equal(outcome.kind, "skipped");
     assert.equal(outcome.kind === "skipped" ? outcome.reason : undefined, TERMINAL_SKIP_REASON);
     assert.equal((await readRun(runId))?.status, "cancelled");
+    assert.deepEqual(
+      terminalCalls,
+      [{ runId, outcome: "cancelled", reason: "user_stopped" }],
+      "the cancel closed the turn even though the late `done` commit was refused",
+    );
   });
 
   test("a cancelled run does not re-fire approval.requested from a late interrupt commit", async () => {
     const { userId, runId } = await seedRun({
-      workflowSlug: "chat",
+      workflowSlug: CANCEL_CLOSURE_SLUG,
       status: "running",
       attempt: 4,
       withStepRow: true,
@@ -271,7 +334,7 @@ describe("mid-flight cancel race (#530, DB-backed)", { skip: SKIP }, () => {
     );
 
     const outcome = await commitStepSuccess(
-      runRow(userId, runId, "chat", 4),
+      runRow(userId, runId, CANCEL_CLOSURE_SLUG, 4),
       STEP,
       4,
       {
@@ -294,5 +357,143 @@ describe("mid-flight cancel race (#530, DB-backed)", { skip: SKIP }, () => {
     assert.equal(run?.status, "cancelled", "the run is NOT parked back into waiting");
     assert.equal(run?.wakeCondition, null, "the cancel's nulled wake condition survives");
     assert.deepEqual(await readStagingStatuses(runId), ["rejected"]);
+  });
+
+  // ---- D2: refusing the commit must not mean nothing closes the turn --------
+
+  test("a mid-step cancel closes the client turn exactly once", async () => {
+    const { runId } = await seedRun({
+      workflowSlug: CANCEL_CLOSURE_SLUG,
+      status: "runnable",
+      attempt: 1,
+    });
+
+    const outcome = await runOnce(runId);
+
+    assert.equal(outcome.kind, "skipped", "the commit still rolls back");
+    assert.equal(outcome.kind === "skipped" ? outcome.reason : undefined, TERMINAL_SKIP_REASON);
+    assert.deepEqual(
+      terminalCalls,
+      [{ runId, outcome: "cancelled", reason: "user_stopped" }],
+      "the cancel drove workflow closure once, with a `cancelled` outcome (not `failed`)",
+    );
+  });
+
+  test("a waiting-state cancel closes the client turn too", async () => {
+    // The pre-existing half of the same gap: a run parked on an approval never
+    // enters a step body at all, so nothing but the cancel path can close it.
+    const { runId } = await seedRun({
+      workflowSlug: CANCEL_CLOSURE_SLUG,
+      status: "waiting",
+      attempt: 2,
+    });
+
+    assert.equal(await cancelRun({ runId, reason: "cancelled_by_user" }), "cancelled");
+
+    assert.deepEqual(terminalCalls, [{ runId, outcome: "cancelled", reason: "cancelled_by_user" }]);
+  });
+
+  test("cancelling an already-terminal run does not re-close the turn", async () => {
+    const { runId } = await seedRun({
+      workflowSlug: CANCEL_CLOSURE_SLUG,
+      status: "waiting",
+      attempt: 0,
+    });
+    await cancelRun({ runId, reason: "first" });
+    terminalCalls.length = 0;
+
+    assert.equal(await cancelRun({ runId, reason: "second" }), "already_terminal");
+
+    assert.deepEqual(terminalCalls, [], "no second closure for a no-op cancel");
+  });
+
+  // ---- D1: markRunFailed is a terminal write and must be guarded -----------
+
+  test("markRunFailed refuses to overwrite a cancelled run with failed", async () => {
+    const { userId, runId } = await seedRun({
+      workflowSlug: CANCEL_CLOSURE_SLUG,
+      status: "running",
+      attempt: 7,
+    });
+    await cancelRun({ runId, reason: "cancelled_by_user" });
+    const cancelled = await readRun(runId);
+    terminalCalls.length = 0;
+
+    // The window `runOnce` hits when a post-deploy step-resolution failure races
+    // a cancel: leased at attempt 7, cancel lands, then the resolve throws.
+    const cause = await markRunFailed(
+      runRow(userId, runId, CANCEL_CLOSURE_SLUG, 7),
+      STEP,
+      7,
+      "no step registered; deploy mismatch?",
+    );
+
+    assert.equal(
+      cause,
+      "terminal",
+      "reported as superseded so the caller skips instead of failing",
+    );
+    const run = await readRun(runId);
+    assert.equal(run?.status, "cancelled", "the run is NOT rewritten to failed");
+    assert.deepEqual(run?.error, cancelled?.error, "the cancel's reason payload is intact");
+    assert.deepEqual(run?.endedAt, cancelled?.endedAt, "and so is its endedAt");
+    assert.deepEqual(terminalCalls, [], "and no failure closure ran on a cancelled turn");
+  });
+
+  test("markRunFailed still lands on a run this worker owns", async () => {
+    const { userId, runId } = await seedRun({
+      workflowSlug: CANCEL_CLOSURE_SLUG,
+      status: "running",
+      attempt: 1,
+    });
+
+    const cause = await markRunFailed(
+      runRow(userId, runId, CANCEL_CLOSURE_SLUG, 1),
+      STEP,
+      1,
+      "no step registered; deploy mismatch?",
+    );
+
+    assert.equal(cause, null, "not superseded");
+    assert.equal((await readRun(runId))?.status, "failed");
+  });
+
+  // ---- D3: a compound supersede reports the actionable cause ---------------
+
+  test("a reclaim that also completed the run classifies as a reclaim", async () => {
+    // Worker A ran a long step at attempt 3; the sweep reclaimed to 4 and worker
+    // B finished the run. BOTH halves of A's guard now fail. `reclaim` is the
+    // half worth reporting — it means a duplicate full-price model call and a
+    // stale window to tune, where `run_already_terminal` reads as "the user
+    // cancelled" and closes the investigation.
+    const { userId, runId } = await seedRun({
+      workflowSlug: CANCEL_CLOSURE_SLUG,
+      status: "running",
+      attempt: 3,
+      withStepRow: true,
+    });
+    await db()
+      .update(agentRuns)
+      .set({ attempt: 4, status: "completed" })
+      .where(eq(agentRuns.id, runId));
+
+    const outcome = await commitStepSuccess(
+      runRow(userId, runId, CANCEL_CLOSURE_SLUG, 3),
+      STEP,
+      3,
+      { kind: "next", state: {}, nextStep: "dispatch-tools" },
+      [],
+      [],
+    );
+
+    assert.equal(outcome.kind, "skipped");
+    assert.equal(
+      outcome.kind === "skipped" ? outcome.reason : undefined,
+      RECLAIM_SKIP_REASON,
+      "the reclaim is reported, not the terminal status it left behind",
+    );
+    const run = await readRun(runId);
+    assert.equal(run?.status, "completed", "and the winner's terminal status is untouched");
+    assert.equal(run?.attempt, 4);
   });
 });

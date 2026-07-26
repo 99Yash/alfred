@@ -2503,15 +2503,29 @@ export const chatTurnWorkflow: Workflow<ChatRunState> = {
     "dispatch-tools": dispatchToolsStep,
   },
   stateSchema: chatRunStateSchema,
-  // ADR-0070 §1.4: a run terminal-failed outside the step body (the
-  // non-progressing-step backstop, a post-deploy step-resolution failure)
-  // never reaches the in-step catch that finalizes the chat message. Without
-  // this hook the client's streaming bubble waits forever — it only completes
-  // on `chat.message completed` (use-chat-stream.ts). Write the failed
-  // assistant row + emit the event here so the UI reconciles. Idempotent on
-  // messageId, so it's safe even if a step-body finalize already landed.
+  // A run that goes terminal outside the step body never reaches the in-step
+  // catch that finalizes the chat message. Without these hooks the client's
+  // streaming bubble waits forever — it only completes on `chat.message
+  // completed` (use-chat-stream.ts). Both finalizers are idempotent on
+  // messageId, so this is safe even if a step-body finalize already landed.
+  //
+  // BOTH are implemented, and they are NOT interchangeable.
+  //
+  // A failure (ADR-0070 §1.4 backstop, a post-deploy step-resolution failure)
+  // writes a `status:"failed"` row, which the client renders as an error with a
+  // retry affordance.
   async onTerminalFailure(ctx) {
     await finalizeFailedMessage(ctx.userId, ctx.runId, ctx.state, new Error(ctx.error));
+  },
+  // A cancel (the approvals `cancel_run` decision) is a deliberate stop, so it
+  // persists a normal complete row carrying whatever text streamed before the
+  // cancel — the same semantics as the Redis stop path, which ends its turn
+  // `completed`. Rendering "something went wrong, retry?" for an action the user
+  // took on purpose would be a lie, and the retry would re-run a turn they just
+  // ended. `ctx.reason` is deliberately unused: it is cancel bookkeeping
+  // (`user_stopped`), not something to show as an error.
+  async onCancelled(ctx) {
+    await finalizeAssistantMessage(ctx.userId, ctx.runId, ctx.state);
   },
 };
 

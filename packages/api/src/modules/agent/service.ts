@@ -1,12 +1,6 @@
 import { toMessage } from "@alfred/contracts";
 import { db, rowsFromExecute } from "@alfred/db";
-import {
-  actionStagings,
-  agentRuns,
-  agentSteps,
-  workflows,
-  type Workflow as WorkflowRow,
-} from "@alfred/db/schemas";
+import { actionStagings, agentRuns, agentSteps } from "@alfred/db/schemas";
 import {
   agentRunTriggerSchema,
   runStatusSchema,
@@ -18,15 +12,16 @@ import { publishEvent } from "../../events/publish";
 import { snapshotScratchToPostgres } from "../scratchpad";
 import { enqueueRun } from "./queue";
 import { getWorkflow, listWorkflows } from "./registry";
+import { resolveWorkflowForRun } from "./resolve-workflow";
 import { readSubAgentMetadata, subAgentDoneSignalName } from "./sub-agent-metadata";
 import { startSubAgentWaitSpan, type SubAgentWaitOutcome } from "./runtime-spans";
+import { finalizeCancelledRun } from "./terminal-closure";
 import {
   isTerminalStatus,
-  type ApprovalKind,
   type AgentDbExecutor,
+  type ApprovalKind,
   type RunStatus,
   type WakeCondition,
-  type Workflow,
   type WorkflowInput,
 } from "./types";
 import { userAuthoredBriefWorkflow } from "./workflows/user-authored-brief";
@@ -91,49 +86,6 @@ export interface CreateRunArgs extends WorkflowInput {
 
 export interface CreateRunResult {
   runId: string;
-}
-
-type UserAuthoredWorkflowRow = Pick<WorkflowRow, "brief" | "allowedIntegrations" | "isBuiltin">;
-
-interface ResolvedWorkflowForRun {
-  workflow: Workflow<unknown>;
-  workflowSlug: string;
-  userAuthoredRow?: UserAuthoredWorkflowRow;
-}
-
-export async function resolveWorkflowForRun(args: {
-  userId: string;
-  workflowSlug: string;
-  tx?: AgentDbExecutor;
-}): Promise<ResolvedWorkflowForRun> {
-  const registered = getWorkflow(args.workflowSlug);
-  if (registered) return { workflow: registered, workflowSlug: registered.slug };
-
-  const ex = args.tx ?? db();
-  const rows = await ex
-    .select({
-      brief: workflows.brief,
-      allowedIntegrations: workflows.allowedIntegrations,
-      isBuiltin: workflows.isBuiltin,
-    })
-    .from(workflows)
-    .where(and(eq(workflows.userId, args.userId), eq(workflows.slug, args.workflowSlug)))
-    .limit(1);
-  const row = rows[0];
-  if (!row) {
-    throw new Error(`[agent] no workflow registered or authored for slug=${args.workflowSlug}`);
-  }
-  if (row.isBuiltin) {
-    throw new Error(
-      `[agent] builtin workflow slug=${args.workflowSlug} exists in DB but is not registered in code`,
-    );
-  }
-
-  return {
-    workflow: userAuthoredBriefWorkflow as Workflow<unknown>,
-    workflowSlug: args.workflowSlug,
-    userAuthoredRow: row,
-  };
 }
 
 /**
@@ -413,6 +365,11 @@ export interface CancelTxResult {
 export async function cancelRun(args: CancelRunArgs): Promise<CancelOutcome> {
   const result = await db().transaction((tx) => cancelRunInTx(tx, args));
   if (result.outcome === "cancelled") {
+    // A cancel is a terminal transition outside any step body, so the workflow
+    // owes the client closure — see `finalizeCancelledRun`. Runs after the tx
+    // commits, before the scratch snapshot, so the user-visible turn closes
+    // first.
+    await finalizeCancelledRun(args.runId, args.reason);
     try {
       await snapshotScratchToPostgres(args.runId);
     } catch (err) {
@@ -430,6 +387,20 @@ export async function cancelRun(args: CancelRunArgs): Promise<CancelOutcome> {
   return result.outcome;
 }
 
+/**
+ * The transactional half of {@link cancelRun}, for callers that compose the
+ * cancel into a wider transaction (the approvals `cancel_run` decision).
+ *
+ * Post-commit obligations this function CANNOT discharge, because they publish
+ * user-visible state and must not survive a rollback — {@link cancelRun} does
+ * all four; a direct caller owes them itself:
+ *  1. `finalizeCancelledRun(runId, reason)` — workflow-level client closure. A
+ *     cancel is a terminal transition outside the step body, and skipping this
+ *     is what left chat turns streaming forever (#530/#531 review, D2).
+ *  2. `snapshotScratchToPostgres(runId)` — durable scratchpad (ADR-0036).
+ *  3. `enqueueRun(wokenParentRunId)` when non-null (ADR-0073).
+ *  4. Tearing down the queued jobs for every id in `rejectedStagingIds`.
+ */
 export async function cancelRunInTx(tx: AgentTx, args: CancelRunArgs): Promise<CancelTxResult> {
   const rows = await tx
     .select({
