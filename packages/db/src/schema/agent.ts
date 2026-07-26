@@ -27,6 +27,14 @@ export type { AgentRunTrigger };
 export const CHAT_THREAD_ACTIVE_RUN_INDEX = "agent_runs_chat_thread_active_idx";
 
 /**
+ * Name of the partial unique index that enforces one non-terminal run per
+ * inbound event identity. Exported so `emitEvent`'s catch can match the exact
+ * constraint name on a 23505 and count the losing insert as a dropped duplicate
+ * rather than a failure. See the index definition below and issue #531.
+ */
+export const EVENT_ACTIVE_RUN_INDEX = "agent_runs_event_active_idx";
+
+/**
  * Trigger that caused an `agent_runs` row to be inserted (ADR-0027).
  *
  * Mirrors `workflows.trigger`'s shape at the union level but carries the
@@ -138,6 +146,32 @@ export const agentRuns = pgTable(
     index("agent_runs_active_event_idx")
       .on(t.userId, t.workflowSlug)
       .where(sql`${t.status} NOT IN ('completed', 'failed', 'cancelled')`),
+    // Enforces "at most one non-terminal run per (user, workflow, event
+    // identity)" (#531). The index above only *bounds* `emitEvent`'s duplicate
+    // check; the check itself is a read followed by an insert, so two
+    // concurrent dispatches of the same event (a webhook and its retry, or a
+    // webhook and a poll) both read zero matches and both create a run —
+    // duplicate triage/brief, duplicate model spend, duplicate side effects.
+    // The general dedup index can't catch it: event-triggered runs return a
+    // null `dedup_key`, and that index only fires on non-null. This is the
+    // race-safe boundary, mirroring how the chat path uses
+    // CHAT_THREAD_ACTIVE_RUN_INDEX: the losing insert hits a 23505 and
+    // `emitEvent` drops it as a duplicate. The key columns must stay
+    // byte-identical to `hasNonTerminalEventRun`'s identity predicate —
+    // including `reason`, which deliberately makes an outbound-reply re-eval
+    // (#282) a *different* event from the original delivery.
+    uniqueIndex(EVENT_ACTIVE_RUN_INDEX)
+      .on(
+        t.userId,
+        t.workflowSlug,
+        sql`(${t.trigger} ->> 'source')`,
+        sql`(${t.trigger} ->> 'type')`,
+        sql`(${t.trigger} ->> 'eventId')`,
+        sql`coalesce(${t.trigger} -> 'payload' ->> 'reason', '')`,
+      )
+      .where(
+        sql`(${t.trigger} ->> 'kind') = 'event' AND (${t.trigger} ->> 'eventId') IS NOT NULL AND ${t.status} NOT IN ('completed', 'failed', 'cancelled')`,
+      ),
     // Enforces "at most one non-terminal chat turn per (user, thread)" (#488).
     // The chat-turn workflow keeps its thread id in `metadata.threadId`, so this
     // indexes that jsonb expression. The dedup index above is keyed on

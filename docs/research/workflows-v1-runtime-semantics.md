@@ -88,10 +88,12 @@ The tool-dispatch step performs work outside the step-success transaction. If th
 
 The fix is a runtime prerequisite: cancellation must advance a fencing token/attempt or success/failure commits must require the lease's expected running status and cancellation generation. Staged/eager effects also need a final cancellation check immediately before dispatch.
 
+**Resolved (issue #530).** `commitGuardedRunUpdate` now guards on non-terminal status as well as `attempt`, so every commit branch (advance, done, interrupt, failure) rolls back against a run that went terminal mid-step and reports a `run_already_terminal` skip. The commit-time fence is in place — the "cancellation check immediately before dispatch" for already-staged effects is not, and neither is aborting the in-flight step body, so a cancel still pays for the model call already running.
+
 #### E. Dispatch dedup has loss/duplicate windows
 
 - Cron dispatch advances `next_run_at` before `createRun` and enqueue. If run creation fails after the CAS, that scheduled occurrence has already moved forward and can be lost unless there is a separate occurrence ledger/reconciler.
-- Event dedup checks only nonterminal runs. A duplicate delivery arriving after the first run completes may create a second run for the same provider event.
+- Event dedup checks only nonterminal runs. A duplicate delivery arriving after the first run completes may create a second run for the same provider event. **Partially resolved (issue #531):** the nonterminal check is now backed by a partial unique index on the event identity (`agent_runs_event_active_idx`), so concurrent deliveries can no longer both create a run. The post-completion window is unchanged — that still needs the occurrence ledger described below.
 - A BullMQ job ID deduplicates queue jobs, not durable workflow occurrences across queue retention or manual replay.
 
 These are reasons to persist a `workflow_occurrence_key` on `agent_runs` (or in a small occurrence ledger) with a database uniqueness constraint, rather than relying on queue identity and status-sensitive reads.
