@@ -1,7 +1,7 @@
 import { Worker, type Job } from "bullmq";
 import { createRedisConnection } from "../../queue/connection";
 import { snapshotScratchToPostgres } from "../scratchpad";
-import { runOnce } from "./executor";
+import { runOnce, skipReasonIsLoud } from "./executor";
 import { AGENT_QUEUE_NAME, enqueueRun, type AgentJobData } from "./queue";
 import {
   findResumableRunIds,
@@ -118,17 +118,11 @@ async function processAgentJob(job: Job<AgentJobData>): Promise<void> {
     if (outcome.kind === "advanced") {
       await enqueueRun(runId);
     }
-    // A superseded commit is benign for correctness (the guard rolled it back)
-    // but never free: both workers had already called the model, so a
-    // `superseded_by_reclaim` is a duplicate full-price turn and the signal that
-    // the step's stale window is too tight. Log the two superseded causes so
-    // that shows up in the logs instead of only as a surprise on the bill. The
-    // other two skip reasons — `no_lease` and `step_already_committed` — are
-    // routine and high-volume, so they stay quiet.
-    if (
-      outcome.kind === "skipped" &&
-      (outcome.reason === "superseded_by_reclaim" || outcome.reason === "run_already_terminal")
-    ) {
+    // Which skips are worth a log is the executor's call, not this file's — it
+    // owns the closed `RunSkipReason` set and declares the volume of each member
+    // (`SKIP_REASON_VOLUME`). A `||` chain here would have to be revisited from
+    // the outside every time that set grows.
+    if (outcome.kind === "skipped" && skipReasonIsLoud(outcome.reason)) {
       console.warn(`[agent:worker] run ${runId} commit skipped: ${outcome.reason}`);
     }
     // Terminal-step scratchpad snapshot (ADR-0036): when a run reaches a

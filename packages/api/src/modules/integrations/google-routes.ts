@@ -1,6 +1,6 @@
 import { ACCOUNT_PERSONAS, toMessage } from "@alfred/contracts";
 import { db } from "@alfred/db";
-import { DUPLICATE_RUN_INDEXES, integrationCredentials, user } from "@alfred/db/schemas";
+import { integrationCredentials, isDuplicateRunIndex, user } from "@alfred/db/schemas";
 import { gmailMailboxWritesEnabled, serverEnv } from "@alfred/env/server";
 import {
   buildAuthorizeUrl,
@@ -508,7 +508,7 @@ export const googleIntegrationRoutes = new Elysia({
         await enqueueRun(runId);
       } catch (err) {
         const constraint = uniqueViolationConstraint(err);
-        if (constraint !== null && DUPLICATE_RUN_INDEXES.includes(constraint)) {
+        if (isDuplicateRunIndex(constraint)) {
           // Reconnect after a successful (or in-flight) prior run —
           // expected, log at info level only.
           console.log(

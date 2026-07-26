@@ -2,9 +2,9 @@ import type { EventSource, EventType } from "@alfred/contracts";
 import { isEventTypeForSource, toMessage } from "@alfred/contracts";
 import { db } from "@alfred/db";
 import {
-  DUPLICATE_RUN_INDEXES,
   agentRuns,
   eventRunIdentityMatch,
+  isDuplicateRunIndex,
   workflows,
 } from "@alfred/db/schemas";
 import { and, eq, or, sql } from "drizzle-orm";
@@ -130,8 +130,7 @@ export async function emitEvent(args: EmitEventArgs): Promise<EmitEventResult> {
           // cold-start-research). Both mean "already exists"; matching only the
           // first counted the second as a failure and logged an error for a
           // benign drop. Anything else really is a fault and rethrows.
-          const constraint = uniqueViolationConstraint(err);
-          if (constraint === null || !DUPLICATE_RUN_INDEXES.includes(constraint)) throw err;
+          if (!isDuplicateRunIndex(uniqueViolationConstraint(err))) throw err;
           result.skippedDuplicate++;
           return;
         }

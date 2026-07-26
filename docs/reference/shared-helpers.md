@@ -93,9 +93,15 @@ Validate external / persisted / protocol data instead of asserting it.
   site at once; a hand-written `NOT IN (…)` next to one of those indexes is how
   an index quietly stops enforcing what its query looks for.
 - Event-run identity: `eventRunIdentityMatch(table, identity)` and
-  `DUPLICATE_RUN_INDEXES` / `EVENT_ACTIVE_RUN_INDEX` / `RUN_DEDUP_KEY_INDEX` /
-  `CHAT_THREAD_ACTIVE_RUN_INDEX` — a dispatcher catching a `23505` has to know
-  which invariant collided, because only some of them mean "duplicate, drop it".
+  `EVENT_ACTIVE_RUN_INDEX` / `RUN_DEDUP_KEY_INDEX` / `CHAT_THREAD_ACTIVE_RUN_INDEX`
+  — a dispatcher catching a `23505` has to know which invariant collided, because
+  only some of them mean "duplicate, drop it".
+- `isDuplicateRunIndex(uniqueViolationConstraint(err))` — that question, asked
+  once. Each index's collision meaning is declared in
+  `AGENT_RUN_UNIQUE_INDEX_MEANING` (`satisfies Record<AgentRunUniqueIndex, …>`), so
+  a new discriminated index has to state whether its loser is a dropped duplicate
+  or a busy resource. Don't hand-roll a null check plus an `.includes` against a
+  local list of index names.
 
 ### Models — `@alfred/ai`
 - `getChatModel`, `getCheapModel`

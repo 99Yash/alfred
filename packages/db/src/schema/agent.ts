@@ -49,42 +49,82 @@ export const EVENT_ACTIVE_RUN_INDEX = "agent_runs_event_active_idx";
 export const RUN_DEDUP_KEY_INDEX = "agent_runs_dedup_key_idx";
 
 /**
- * The unique indexes on `agent_runs` whose violation means "a run for this
- * already exists", so the losing writer's answer is *duplicate, dropped* rather
- * than *the dispatch failed*.
+ * The `agent_runs` unique indexes whose constraint name a caller has to *branch
+ * on*, i.e. the ones with more than one 23505 in reach.
  *
- * A caller that only checks one of them mislabels the other: an event dispatch
- * onto a workflow that ALSO declares a `dedupKey` can collide on either index
- * depending on which write loses, and counting that as a failure logs an error
- * for a benign outcome (#530/#531 review, D7).
- *
- * Membership turns on whether the colliding key identifies the *request* or the
- * *resource*, which is the only axis that separates the two dedup-shaped indexes
- * on this table:
- *
- * - {@link RUN_DEDUP_KEY_INDEX} is request identity, and the workflow itself
- *   declared it — the key is whatever its `dedupKey(input)` returns. A singleton
- *   like cold-start-research returns a constant, so two dispatches carrying
- *   *different* events really are one request by that workflow's own definition
- *   ("run me once, whatever wakes me"). Dropping the loser silently is the
- *   semantic being asked for, not a lost dispatch. Its partial predicate agrees:
- *   it keeps `completed` rows blocking (unlike the two below), because the
- *   answer it gives is "already done", not "busy right now".
- * - {@link CHAT_THREAD_ACTIVE_RUN_INDEX} is resource occupancy, and no workflow
- *   asked for it — the key is the thread, and the two turns contending for it
- *   are genuinely different requests with different `userMessageId`s. Dropping
- *   the loser as a duplicate would swallow a message the user typed, so it stays
- *   out of this set and surfaces as a typed "thread busy" instead (#488).
- *
- * `agent_runs_sub_agent_dedup_idx` is request identity too and would qualify,
- * but is deliberately unnamed here: its one caller (`spawnSubAgent`) matches any
- * 23505 and then re-reads the winning row to return it, so it never needs to
- * know which constraint fired.
+ * `agent_runs_sub_agent_dedup_idx` is deliberately absent: its one caller
+ * (`spawnSubAgent`) matches any 23505 and then re-reads the winning row, so it
+ * never needs to know which constraint fired. Adding a fourth index that a
+ * caller *does* discriminate means adding it here — and then declaring its
+ * collision meaning below becomes a build requirement.
  */
-export const DUPLICATE_RUN_INDEXES: readonly string[] = Object.freeze([
+export const AGENT_RUN_UNIQUE_INDEXES = [
   EVENT_ACTIVE_RUN_INDEX,
   RUN_DEDUP_KEY_INDEX,
-]);
+  CHAT_THREAD_ACTIVE_RUN_INDEX,
+] as const;
+
+export type AgentRunUniqueIndex = (typeof AGENT_RUN_UNIQUE_INDEXES)[number];
+
+/**
+ * What a 23505 on each index *means* to the losing writer, and therefore what it
+ * owes the caller:
+ *
+ * - `duplicate` — "a run for this already exists"; the losing write is dropped
+ *   silently and counted, not reported as a failure.
+ * - `busy` — "the resource is occupied by a different request"; the loser is a
+ *   distinct request that must be surfaced, never swallowed.
+ *
+ * Declared as data and checked exhaustively, for the same reason `RUN_STATUS_KIND`
+ * is: a `readonly string[]` set plus a prose note about which index is
+ * deliberately excluded gives a fourth index zero prompting, and `.includes(typo)`
+ * compiles when the element type is `string`. Getting this wrong is not loud — an
+ * event dispatch onto a workflow that ALSO declares a `dedupKey` can collide on
+ * either index depending on which write loses, and a caller that checks only one
+ * of them logs an error for a benign outcome (#530/#531 review, D7).
+ *
+ * The axis is whether the colliding key identifies the *request* or the
+ * *resource*:
+ *
+ * - {@link EVENT_ACTIVE_RUN_INDEX} is the inbound event's identity — a webhook
+ *   and its retry are the same request by construction.
+ * - {@link RUN_DEDUP_KEY_INDEX} is request identity too, and the workflow itself
+ *   declared it: the key is whatever its `dedupKey(input)` returns. A singleton
+ *   like cold-start-research returns a constant, so two dispatches carrying
+ *   *different* events really are one request by that workflow's own definition
+ *   ("run me once, whatever wakes me") — the dropped event is intended, not lost.
+ *   That is the semantic, and `emitEvent` counting the drop as `skippedDuplicate`
+ *   is correct rather than a mislabel. Its partial predicate agrees: it keeps
+ *   `completed` rows blocking (unlike the other two), because the answer it gives
+ *   is "already done", not "busy right now".
+ * - {@link CHAT_THREAD_ACTIVE_RUN_INDEX} is resource occupancy, and no workflow
+ *   asked for it — the key is the thread, and the two turns contending for it are
+ *   genuinely different requests with different `userMessageId`s. Dropping the
+ *   loser as a duplicate would swallow a message the user typed, so it surfaces
+ *   as a typed "thread busy" instead (#488).
+ */
+const AGENT_RUN_UNIQUE_INDEX_MEANING = {
+  [EVENT_ACTIVE_RUN_INDEX]: "duplicate",
+  [RUN_DEDUP_KEY_INDEX]: "duplicate",
+  [CHAT_THREAD_ACTIVE_RUN_INDEX]: "busy",
+} as const satisfies Record<AgentRunUniqueIndex, "duplicate" | "busy">;
+
+/**
+ * Does this 23505's constraint mean "a run for this already exists, drop the
+ * loser"? Derived from {@link AGENT_RUN_UNIQUE_INDEX_MEANING}, so the set and the
+ * reasoning behind it cannot drift apart.
+ *
+ * Takes the constraint name as `string | null` because that is what
+ * `uniqueViolationConstraint` returns, and narrows — so a caller gets the
+ * null-check and the membership test in one call instead of hand-writing both.
+ */
+export function isDuplicateRunIndex(constraint: string | null): constraint is AgentRunUniqueIndex {
+  return (
+    constraint !== null &&
+    constraint in AGENT_RUN_UNIQUE_INDEX_MEANING &&
+    AGENT_RUN_UNIQUE_INDEX_MEANING[constraint as AgentRunUniqueIndex] === "duplicate"
+  );
+}
 
 /**
  * `status NOT IN (<terminal statuses>)` — the one non-terminal run predicate.
@@ -95,6 +135,14 @@ export const DUPLICATE_RUN_INDEXES: readonly string[] = Object.freeze([
  * boundary, and none of them can be checked by the type system. Built from
  * `TERMINAL_RUN_STATUSES`, which is derived from the same exhaustive map as
  * `isTerminalStatus`, so a new run status reaches every one of them at once.
+ *
+ * The cost of rendering it into DDL: this function's *output text* is what
+ * drizzle-kit diffs a partial index on, and the list order it interpolates is
+ * `runStatusSchema`'s declaration order. Adding a terminal status, or reordering
+ * that enum, rewrites the predicate of all three partial indexes below and
+ * regenerates them as DROP/CREATE. Append to the enum, never permute it — and
+ * when the predicate does have to change, read the generated migration before
+ * applying it rather than assuming the diff is empty.
  */
 export function runIsNotTerminal(status: SQLWrapper): SQL {
   // Inlined as SQL literals rather than bound parameters: this fragment also

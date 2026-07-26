@@ -3,7 +3,7 @@ import { db } from "@alfred/db";
 import { agentRuns } from "@alfred/db/schemas";
 import { eq } from "drizzle-orm";
 import { resolveWorkflowForRun } from "./resolve-workflow";
-import type { TerminalClosureContext, Workflow } from "./types";
+import type { TerminalOutcome } from "./types";
 
 /**
  * Workflow-level closure for a run that reached a terminal state outside its
@@ -17,10 +17,12 @@ import type { TerminalClosureContext, Workflow } from "./types";
  * commits roll back, nothing emits `chat.message completed`, and the assistant
  * bubble streams forever (finding D2).
  *
- * The cancel keeps its own hook (`onCancelled`) rather than sharing the failure
- * one, because the two render differently — a deliberate stop must not surface a
- * retryable error. This module is the single place that drives either, so the
- * next terminal transition has one door to knock on.
+ * The cancel renders differently from a failure — a deliberate stop must not
+ * surface a retryable error — so `Workflow.onTerminal` discriminates on
+ * `ctx.outcome` and each workflow switches. One hook, not two optional ones: the
+ * regression above was a workflow implementing the failure branch and not the
+ * cancel branch, which a union makes a compile error. This module is the single
+ * place that drives it, so the next terminal transition has one door to knock on.
  *
  * Its own module rather than part of `executor.ts` because `service.ts`
  * (`cancelRun`) has to drive it too, and `executor` already imports from
@@ -37,18 +39,14 @@ export interface TerminalClosureRun {
 
 /**
  * Resolve the run's workflow, validate its last-committed state, and hand both
- * to one closure hook.
+ * plus the transition to `onTerminal`.
  *
  * Best-effort by contract: the terminal DB write has already landed, so every
  * fault here (an unresolvable workflow after a deploy, state-schema drift, the
  * hook itself) is logged and swallowed. Callers must not depend on it having
  * succeeded, and it must never resurrect or re-fail the run.
  */
-async function driveClosure(
-  run: TerminalClosureRun,
-  hook: "onTerminalFailure" | "onCancelled",
-  invoke: (workflow: Workflow, ctx: TerminalClosureContext<unknown>) => Promise<void> | undefined,
-): Promise<void> {
+async function driveClosure(run: TerminalClosureRun, outcome: TerminalOutcome): Promise<void> {
   try {
     const { workflow } = await resolveWorkflowForRun({
       userId: run.userId,
@@ -56,23 +54,24 @@ async function driveClosure(
     });
     // Checked before parsing so a workflow that owes no closure can't be
     // reported as a closure failure by drifted persisted state.
-    if (!workflow[hook]) return;
+    if (!workflow.onTerminal) return;
     const state = workflow.stateSchema ? workflow.stateSchema.parse(run.state) : run.state;
-    await invoke(workflow, { runId: run.id, userId: run.userId, state });
+    await workflow.onTerminal({ runId: run.id, userId: run.userId, state, ...outcome });
   } catch (err) {
-    console.warn(`[agent] ${hook} for run ${run.id} (${run.workflowSlug}) failed:`, toMessage(err));
+    console.warn(
+      `[agent] onTerminal(${outcome.outcome}) for run ${run.id} (${run.workflowSlug}) failed:`,
+      toMessage(err),
+    );
   }
 }
 
-/** Drive {@link Workflow.onTerminalFailure} for a run already failed in the DB. */
+/** Drive closure for a run already `failed` in the DB. */
 export async function finalizeFailedRun(run: TerminalClosureRun, error: string): Promise<void> {
-  await driveClosure(run, "onTerminalFailure", (workflow, ctx) =>
-    workflow.onTerminalFailure?.({ ...ctx, error }),
-  );
+  await driveClosure(run, { outcome: "failed", error });
 }
 
 /**
- * Drive {@link Workflow.onCancelled} for a run that was just cancelled. Re-reads
+ * Drive closure for a run that was just cancelled. Re-reads
  * the row because the cancel paths hold only a run id (`cancelRun`) or a narrow
  * approval-scoped row (`cancelRunInTx`'s caller), and `state` has to be the
  * last-committed value — a mid-step cancel rolls the in-flight step back, so the
@@ -97,9 +96,7 @@ export async function finalizeCancelledRun(runId: string, reason: string): Promi
       .limit(1);
     const run = rows[0];
     if (!run) return;
-    await driveClosure(run, "onCancelled", (workflow, ctx) =>
-      workflow.onCancelled?.({ ...ctx, reason }),
-    );
+    await driveClosure(run, { outcome: "cancelled", reason });
   } catch (err) {
     console.warn(`[agent] cancel closure lookup for run ${runId} failed:`, toMessage(err));
   }
