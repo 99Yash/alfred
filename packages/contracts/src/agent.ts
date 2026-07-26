@@ -1,6 +1,16 @@
 import { z } from "zod";
 import { EVENT_SOURCES } from "./event-triggers";
 
+/**
+ * Lifecycle status of an `agent_runs` row.
+ *
+ * **Member order is load-bearing — append, never reorder.** `TERMINAL_RUN_STATUSES`
+ * below preserves this order, and `runIsNotTerminal` (`@alfred/db`) renders it
+ * into the `status NOT IN (…)` predicate of three partial unique indexes.
+ * drizzle-kit diffs a partial index by its predicate *text*, so permuting this
+ * enum regenerates all three as DROP/CREATE — brief windows in a migration
+ * where the race-safe boundaries of #488 and #531 do not exist.
+ */
 export const runStatusSchema = z.enum([
   "pending",
   "runnable",
@@ -40,6 +50,10 @@ export function isTerminalStatus(s: RunStatus): boolean {
  * they cannot disagree. SQL callers should reach for `runIsNotTerminal` from
  * `@alfred/db` rather than interpolating this list themselves — the whole point
  * is that the predicate exists once.
+ *
+ * Order follows {@link runStatusSchema}'s declaration order, which is why that
+ * order may not be permuted: this list's order is what the partial-index
+ * predicates are diffed on. See the note there.
  */
 export const TERMINAL_RUN_STATUSES: readonly RunStatus[] = Object.freeze(
   RUN_STATUSES.filter(isTerminalStatus),

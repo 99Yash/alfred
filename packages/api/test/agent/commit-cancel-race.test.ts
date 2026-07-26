@@ -35,8 +35,8 @@ import type { StepResult, Workflow } from "../../src/modules/agent/types";
  * Refusing the commit is only half the invariant, and the review of the first
  * fix caught the other half. Rolling the commit back means NOTHING closes the
  * client-facing turn — the chat bubble streams forever — so the cancel path now
- * drives the workflow's `onCancelled` hook, and that is asserted here too
- * (finding D2). Also covered: the fifth terminal write, `markRunFailed`, which
+ * drives the workflow's `onTerminal` hook with `outcome: "cancelled"`, and that
+ * is asserted here too (finding D2). Also covered: the fifth terminal write, `markRunFailed`, which
  * shipped unguarded and overwrote `cancelled` with `failed` (D1); and the
  * superseded classification, which labelled a reclaim+terminal compound
  * `terminal` when `reclaim` is the actionable half (D3).
@@ -54,12 +54,12 @@ const CANCEL_CLOSURE_SLUG = "__test-cancel-race-closure";
 const TERMINAL_SKIP_REASON = "run_already_terminal";
 const RECLAIM_SKIP_REASON = "superseded_by_reclaim";
 
-/** Which closure hook fired — a test-local label; the runtime has no such union. */
+/** Which `onTerminal` branch fired. Mirrors the runtime's `TerminalOutcome` discriminant. */
 type TerminalRunOutcome = "failed" | "cancelled";
 
 /**
  * Every closure-hook invocation the closure workflow saw, in order. `outcome`
- * records WHICH hook fired: a cancel reaching `onTerminalFailure` would render a
+ * records WHICH branch fired: a cancel rendered as a failure would put a
  * retryable error on a turn the user deliberately ended, so the two are asserted
  * apart, not merged.
  */
@@ -103,7 +103,7 @@ const cancelThenThrowWorkflow: Workflow<Record<string, never>> = {
 
 /**
  * Stands in for chat-turn: a workflow that owes the client closure when its run
- * goes terminal outside the step body. Recording both closure hooks rather than
+ * goes terminal outside the step body. Recording the hook's branch rather than
  * driving chat-turn keeps the assertion on the *runtime* obligation and off
  * chat-turn's finalizers (which would want a thread, a message row, and a model
  * call for the thread title).
@@ -123,11 +123,12 @@ const cancelClosureWorkflow: Workflow<Record<string, never>> = {
       },
     },
   },
-  async onTerminalFailure(ctx) {
-    terminalCalls.push({ runId: ctx.runId, outcome: "failed", reason: ctx.error });
-  },
-  async onCancelled(ctx) {
-    terminalCalls.push({ runId: ctx.runId, outcome: "cancelled", reason: ctx.reason });
+  async onTerminal(ctx) {
+    terminalCalls.push({
+      runId: ctx.runId,
+      outcome: ctx.outcome,
+      reason: ctx.outcome === "failed" ? ctx.error : ctx.reason,
+    });
   },
 };
 

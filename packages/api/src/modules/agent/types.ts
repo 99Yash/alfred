@@ -114,29 +114,52 @@ export interface Step<S> {
 }
 
 /**
- * What every terminal-closure hook gets: which run ended, and the state it
- * ended holding. `completed` has no hook here on purpose — a run completes by a
- * step returning `done`, inside the step body, so the workflow already owns
- * that closure.
+ * What terminal closure gets regardless of *how* the run ended: which run it
+ * was, and the state it ended holding. `completed` is absent on purpose — a run
+ * completes by a step returning `done`, inside the step body, so the workflow
+ * already owns that closure.
  */
-export interface TerminalClosureContext<S> {
+interface TerminalRunFields<S> {
   runId: string;
   userId: string;
   /** The run's last-committed state (validated against `stateSchema` if present). */
   state: S;
 }
 
-/** Context handed to {@link Workflow.onTerminalFailure}. */
-export interface TerminalFailureContext<S> extends TerminalClosureContext<S> {
-  /** Sanitized, user-safe failure message (the synthetic backstop string, etc.). */
-  error: string;
-}
+/**
+ * Why closure is being driven, and the one field each reason carries. Split out
+ * so `terminal-closure.ts` can pass the transition around without re-stating the
+ * run fields it looks up itself.
+ */
+export type TerminalOutcome =
+  | {
+      outcome: "failed";
+      /** Sanitized, user-safe failure message (the synthetic backstop string, etc.). */
+      error: string;
+    }
+  | {
+      outcome: "cancelled";
+      /** Why the run was cancelled — e.g. the approvals `cancel_run` decision's reason. */
+      reason: string;
+    };
 
-/** Context handed to {@link Workflow.onCancelled}. */
-export interface CancelledRunContext<S> extends TerminalClosureContext<S> {
-  /** Why the run was cancelled — e.g. the approvals `cancel_run` decision's reason. */
-  reason: string;
-}
+/**
+ * Context handed to {@link Workflow.onTerminal} — one obligation, two renderings.
+ *
+ * A discriminated union rather than two optional hooks (`onTerminalFailure?` /
+ * `onCancelled?`) held together by a docstring saying "implement BOTH". The
+ * renderings genuinely differ and must stay separable — a cancel must not surface
+ * a retryable error — but that is a `switch`, not a second entry point. With two
+ * hooks, implementing only the failure half compiles, and that omission *is* the
+ * streaming-bubble-hangs-forever regression (#530/#531 review, D2). Here the
+ * missing branch is an exhaustiveness error at the `never` assertion.
+ *
+ * The distributed form (rather than `TerminalRunFields<S> & TerminalOutcome`) is
+ * what makes `switch (ctx.outcome)` narrow `error` / `reason`.
+ */
+export type TerminalClosureContext<S> =
+  | (TerminalRunFields<S> & { outcome: "failed"; error: string })
+  | (TerminalRunFields<S> & { outcome: "cancelled"; reason: string });
 
 export interface WorkflowInput {
   /** User who owns this run; needed by DB-aware run initializers. */
@@ -204,36 +227,29 @@ export interface Workflow<S = unknown> {
   /** Optional parser used to validate and migrate persisted state before terminal hooks. */
   stateSchema?: z.ZodType<S>;
   /**
-   * Optional hook invoked when a run FAILS *outside* the step body, so the
-   * workflow can close whatever client-facing artifact it left mid-flight.
-   * Chat-turn writes the durable failed assistant row and emits
-   * `chat.message completed`; without it the streaming bubble hangs forever.
+   * Optional hook invoked when a run goes terminal *outside* its step body, so
+   * the workflow can close whatever client-facing artifact it left mid-flight.
+   * Chat-turn writes the durable assistant row and emits `chat.message
+   * completed`; without it the streaming bubble hangs forever.
    *
-   * Two paths reach it: the non-progressing-step backstop (ADR-0070 §1.4) and a
-   * post-deploy step-resolution failure. A cancel is NOT one of them — see
-   * {@link Workflow.onCancelled}.
+   * Three transitions reach it, under two `ctx.outcome`s:
+   *  - `"failed"` — the non-progressing-step backstop (ADR-0070 §1.4), or a
+   *    post-deploy step-resolution failure.
+   *  - `"cancelled"` — the approvals `cancel_run` decision, or `cancelRun`
+   *    directly. Since the #530 commit guard, a cancel landing mid-step rolls the
+   *    in-flight commit back, so nothing else will close the turn.
    *
-   * Best-effort: the run is already terminal in the DB, so a throw here is
-   * logged and swallowed — it must never resurrect or re-fail the run. Make it
+   * **`switch` on `ctx.outcome` and handle both**, with a `never` assertion in the
+   * default. They are not interchangeable: a cancel is something the user chose,
+   * so rendering a failure UI with a "retry" affordance both lies and offers to
+   * re-run a turn they just ended. The union exists so that omission is a compile
+   * error rather than the regression it was (#530/#531 review, finding D2).
+   *
+   * Best-effort: the run is already terminal in the DB, so a throw here is logged
+   * and swallowed — it must never resurrect or re-fail the run. Make it
    * idempotent; a step-body finalize may already have landed.
    */
-  onTerminalFailure?(ctx: TerminalFailureContext<S>): Promise<void>;
-  /**
-   * Optional hook invoked when a run is CANCELLED — the approvals `cancel_run`
-   * decision, or `cancelRun` directly. Same obligation as
-   * {@link Workflow.onTerminalFailure} (close the client-facing artifact, be
-   * idempotent, throwing is swallowed) and deliberately a separate hook,
-   * because the two are not interchangeable: a cancel is something the user
-   * chose, so rendering a failure UI with a "retry" affordance both lies and
-   * offers to re-run a turn they just ended.
-   *
-   * A workflow that owes client closure must implement BOTH. Since the #530
-   * commit guard, a cancel landing mid-step rolls the in-flight commit back, so
-   * nothing else will close the turn: implementing only the failure half is the
-   * whole of the streaming-bubble-hangs-forever regression (#530/#531 review,
-   * finding D2).
-   */
-  onCancelled?(ctx: CancelledRunContext<S>): Promise<void>;
+  onTerminal?(ctx: TerminalClosureContext<S>): Promise<void>;
   /**
    * Optional singleton-key derivation for workflows that may run at most
    * once per (user, key) at a time. When defined and non-null, the

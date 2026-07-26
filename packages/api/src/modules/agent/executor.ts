@@ -52,15 +52,40 @@ const SUPERSEDE_SKIP_REASON = {
 
 /**
  * Every reason `runOnce` reports a benign `skipped` — nothing ran, nothing to
- * re-enqueue. A closed union rather than `string` so the worker can branch on
- * it: `processAgentJob` logs the two superseded causes (a duplicate full-price
- * model call and a stale-threshold to tune) and stays quiet about the two
- * routine ones, which happen constantly.
+ * re-enqueue. A closed union rather than `string` so the reporting decision can
+ * be made per member and checked; see {@link SKIP_REASON_VOLUME}.
  */
 export type RunSkipReason =
   | "no_lease"
   | "step_already_committed"
   | (typeof SUPERSEDE_SKIP_REASON)[SupersedeCause];
+
+/**
+ * How loudly the worker reports each skip. Declared as data and checked
+ * exhaustively for the same reason {@link SUPERSEDE_SKIP_REASON} is: the
+ * hand-written `reason === "superseded_by_reclaim" || reason === "run_already_terminal"`
+ * this replaces answered "quiet" for a third {@link SupersedeCause} — silently,
+ * and a new supersede cause is exactly the kind that would want reporting.
+ * Adding one now widens `RunSkipReason` and fails this `satisfies`.
+ *
+ *  - `loud` — never free. Both supersede causes mean two workers reached commit
+ *    on one step, so the model was called twice at full price; a
+ *    `superseded_by_reclaim` additionally says the step's stale window is too
+ *    tight. Without a log the only trace is the bill.
+ *  - `quiet` — routine and high-volume. `no_lease` fires whenever a sweep and a
+ *    worker race for a run, `step_already_committed` on every re-delivered job.
+ */
+const SKIP_REASON_VOLUME = {
+  no_lease: "quiet",
+  step_already_committed: "quiet",
+  superseded_by_reclaim: "loud",
+  run_already_terminal: "loud",
+} as const satisfies Record<RunSkipReason, "loud" | "quiet">;
+
+/** Should the worker log this skip? See {@link SKIP_REASON_VOLUME}. */
+export function skipReasonIsLoud(reason: RunSkipReason): boolean {
+  return SKIP_REASON_VOLUME[reason] === "loud";
+}
 
 /**
  * Thrown inside a commit transaction when {@link guardRunOwnership} finds this
@@ -124,10 +149,33 @@ class RunSupersededError extends Error {
  *    `run_already_terminal` reads as "the user cancelled" and closes the
  *    investigation.
  *
- * Lock order: the commit transactions call this last, after their `agent_steps`
- * / `pending_actions` / trace writes, so they take only their own `agent_runs`
- * row and take it last. `cancelRunInTx` takes its own row then possibly the
- * parent's — no cycle.
+ * Lock order — stated rather than claimed clean, because it is not. The commit
+ * transactions call this after their `agent_steps` / `pending_actions` / trace
+ * writes, so they hold an `agent_steps` row lock before they ask for this
+ * `agent_runs` one. `leaseRun` takes the two in the opposite order: `agent_runs`
+ * `FOR UPDATE SKIP LOCKED` at the top of its tx, then — on the reclaim path — the
+ * orphan `agent_steps` UPDATE for the same `(run, step, attempt)` this commit is
+ * writing. That is an ABBA pair, and a reclaim racing a commit of the same step
+ * can resolve as a Postgres deadlock (40P01) rather than as a supersede.
+ *
+ * Pre-existing, not opened by this guard: the shape it replaced (a status-guarded
+ * UPDATE) took the same `agent_runs` row lock at the same point of the same
+ * transaction. What happens when it fires: 40P01 is not a
+ * {@link RunSupersededError}, so it is rethrown, `processAgentJob` fails, and
+ * BullMQ retries — by which time the run is reclaimed or terminal and the retry
+ * skips. Noisy (an error log for a benign race) but not a correctness hole: the
+ * aborted transaction rolled the whole commit back, which is what this guard
+ * would have done anyway. Closing it means giving both transactions one order —
+ * taking this guard FIRST in each commit tx so `agent_runs` always precedes
+ * `agent_steps` — which lengthens the lock hold on the hot commit path and is a
+ * change of its own, not a docstring's to assert away.
+ *
+ * `cancelRunInTx` is not part of that pair: it takes its own `agent_runs` row and
+ * then possibly the parent's, and touches no `agent_steps`.
+ *
+ * This is also not the last statement in its transaction — `publishEvent` writes
+ * the outbox after it in every commit branch. It is the last `agent_runs` write,
+ * which is what the pair above turns on.
  */
 async function guardRunOwnership(
   tx: DbTransaction,
@@ -250,7 +298,7 @@ export async function runOnce(runId: string, opts: RunOnceOptions = {}): Promise
   // The backstop already terminal-failed the run inside the lease tx (and
   // published `agent.run failed`). It runs *outside* any step body, so a
   // workflow that owns client-facing closure (chat-turn) hasn't finalized —
-  // drive its `onTerminalFailure` here, then report the terminal failure.
+  // drive its `onTerminal` failure branch here, then report the terminal failure.
   if (leased.kind === "backstopped") {
     await finalizeWorkflowFailure(leased.run, leased.error);
     return { kind: "failed", runId, error: leased.error };
@@ -912,13 +960,14 @@ async function commitStepFailure(
 }
 
 /**
- * Drive a workflow's `onTerminalFailure` hook after the run was terminal-failed
+ * Drive a workflow's `onTerminal` hook with `outcome: "failed"` after the run
+ * was terminal-failed
  * in the DB, whether by a step throw, the non-progressing backstop, or a
  * post-deploy step-resolution failure. For chat-turn this writes the failed
  * assistant row + emits `chat.message completed` so the streaming bubble
  * reconciles instead of hanging forever. The cancel counterpart is
  * `finalizeCancelledRun` in the same module, driven from `cancelRun` — a cancel
- * must never reach the failure hook (#530/#531 review, D2).
+ * must never reach the failure branch (#530/#531 review, D2).
  */
 async function finalizeWorkflowFailure(run: RunRow, error: string): Promise<void> {
   await finalizeFailedRun(run, error);

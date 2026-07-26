@@ -2557,33 +2557,43 @@ export const chatTurnWorkflow: Workflow<ChatRunState> = {
   },
   stateSchema: chatRunStateSchema,
   // A run that goes terminal outside the step body never reaches the in-step
-  // catch that finalizes the chat message. Without these hooks the client's
+  // catch that finalizes the chat message. Without this hook the client's
   // streaming bubble waits forever — it only completes on `chat.message
-  // completed` (use-chat-stream.ts). Both finalizers are idempotent on
+  // completed` (use-chat-stream.ts). Both finalizers below are idempotent on
   // messageId, so this is safe even if a step-body finalize already landed.
   //
-  // BOTH are implemented, and they are NOT interchangeable.
-  //
-  // A failure (ADR-0070 §1.4 backstop, a post-deploy step-resolution failure)
-  // writes a `status:"failed"` row, which the client renders as an error with a
-  // retry affordance.
-  async onTerminalFailure(ctx) {
-    await finalizeFailedMessage(ctx.userId, ctx.runId, ctx.state, new Error(ctx.error));
-  },
-  // A cancel (the approvals `cancel_run` decision) is a deliberate stop, so it
-  // persists a normal complete row rather than an error one: rendering
-  // "something went wrong, retry?" for an action the user took on purpose would
-  // be a lie, and the retry would re-run a turn they just ended.
-  //
-  // It is NOT the success finalizer. `ctx.state` here is the run's
-  // last-*committed* state, so a cancel that lands mid-step renders the previous
-  // step boundary, not the in-flight step's uncommitted text. And a cancelled
-  // turn arms none of the success tail — see `finalizeCancelledMessage`.
-  //
-  // `ctx.reason` is deliberately unused: it is cancel bookkeeping
-  // (`user_stopped`), not something to show as an error.
-  async onCancelled(ctx) {
-    await finalizeCancelledMessage(ctx.userId, ctx.runId, ctx.state);
+  // The two branches are NOT interchangeable, which is why the hook's context is
+  // a union: handling only one of them would compile as a complete
+  // implementation, and that omission is the bug this hook exists for.
+  async onTerminal(ctx) {
+    switch (ctx.outcome) {
+      // A failure (ADR-0070 §1.4 backstop, a post-deploy step-resolution
+      // failure) writes a `status:"failed"` row, which the client renders as an
+      // error with a retry affordance.
+      case "failed":
+        await finalizeFailedMessage(ctx.userId, ctx.runId, ctx.state, new Error(ctx.error));
+        return;
+      // A cancel (the approvals `cancel_run` decision) is a deliberate stop, so
+      // it persists a normal complete row rather than an error one: rendering
+      // "something went wrong, retry?" for an action the user took on purpose
+      // would be a lie, and the retry would re-run a turn they just ended.
+      //
+      // It is NOT the success finalizer. `ctx.state` here is the run's
+      // last-*committed* state, so a cancel that lands mid-step renders the
+      // previous step boundary, not the in-flight step's uncommitted text. And a
+      // cancelled turn arms none of the success tail — see
+      // `finalizeCancelledMessage`.
+      //
+      // `ctx.reason` is deliberately unused: it is cancel bookkeeping
+      // (`user_stopped`), not something to show as an error.
+      case "cancelled":
+        await finalizeCancelledMessage(ctx.userId, ctx.runId, ctx.state);
+        return;
+      default: {
+        const unhandled: never = ctx;
+        throw new Error(`[chat-turn] unhandled terminal outcome: ${JSON.stringify(unhandled)}`);
+      }
+    }
   },
 };
 

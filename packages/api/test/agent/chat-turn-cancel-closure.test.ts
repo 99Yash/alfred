@@ -30,10 +30,11 @@ import {
  * ending: chat-turn (#530/#531 review, finding D2).
  *
  * `commit-cancel-race.test.ts` proves the *runtime* obligation — a cancel drives
- * `onCancelled` exactly once — through a recording stand-in workflow. That left
+ * `onTerminal` with `outcome: "cancelled"` exactly once — through a recording
+ * stand-in workflow. That left
  * the production implementation of the hook untested, which is where the
  * regression actually lived: under the terminal commit guard both commits roll
- * back, so if chat-turn's `onCancelled` doesn't persist the assistant row and
+ * back, so if chat-turn's cancel branch doesn't persist the assistant row and
  * emit `chat.message completed`, the streaming bubble hangs forever. These drive
  * the real `chatTurnWorkflow` through the real `cancelRun`.
  *
@@ -161,7 +162,7 @@ describe("chat-turn cancel closure (#530/#531 D2, DB-backed)", { skip: SKIP }, (
       .where(like(user.id, `${ID_PREFIX}%`));
     // The production workflow, not a stand-in: closure resolves the hook off the
     // run's `workflow_slug` through the registry, and the whole point here is
-    // that chat-turn's own `onCancelled` does the work.
+    // that chat-turn's own `onTerminal` cancel branch does the work.
     if (!getWorkflow(CHAT_TURN_WORKFLOW_SLUG)) registerWorkflow(chatTurnWorkflow);
   });
   after(async () => {
