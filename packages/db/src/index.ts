@@ -1,10 +1,9 @@
 import { databaseEnv } from "@alfred/env/database";
+import { POOL_MIN } from "@alfred/env/pool";
 import { drizzle } from "drizzle-orm/node-postgres";
 import pg from "pg";
 import { toMessage } from "@alfred/contracts";
 
-const POOL_MIN = 4;
-const POOL_MAX = 10;
 const POOL_IDLE_TIMEOUT_MS = 5 * 60_000;
 const POOL_CONNECTION_TIMEOUT_MS = 10_000;
 const POOL_HEARTBEAT_INTERVAL_MS = 20_000;
@@ -18,6 +17,17 @@ function startPoolHeartbeat() {
 
   const heartbeat = setInterval(() => {
     if (!_pool) return;
+    // Saturation is otherwise invisible: an oversubscribed pool doesn't error,
+    // it queues, and the added wait is indistinguishable from a slow model
+    // (#437). `waitingCount` is the one number that tells the two apart, so say
+    // so on the same cadence we already pay for — and only when it's non-zero,
+    // which for a correctly sized pool is never.
+    if (_pool.waitingCount > 0) {
+      console.warn(
+        `[db] Pool saturated: ${_pool.waitingCount} waiting, ` +
+          `${_pool.totalCount}/${_pool.options.max} connections, ${_pool.idleCount} idle`,
+      );
+    }
     void _pool.query("SELECT 1").catch((err) => {
       console.warn("[db] Pool heartbeat failed:", toMessage(err));
     });
@@ -32,10 +42,16 @@ function startPoolHeartbeat() {
 
 export function db() {
   if (!_db) {
+    const env = databaseEnv();
     _pool = new pg.Pool({
-      connectionString: databaseEnv().DATABASE_URL,
+      connectionString: env.DATABASE_URL,
       min: POOL_MIN,
-      max: POOL_MAX,
+      // Derived from `AGENT_WORKER_CONCURRENCY` (#437) — the pool is shared by
+      // every worker and every HTTP handler in the process, so its ceiling is a
+      // function of how many agent steps can run at once, not a knob of its
+      // own. `@alfred/env/pool` owns the derivation and guarantees `>= POOL_MIN`
+      // so `warmPool` below can always fill.
+      max: env.DB_POOL_MAX,
       idleTimeoutMillis: POOL_IDLE_TIMEOUT_MS,
       connectionTimeoutMillis: POOL_CONNECTION_TIMEOUT_MS,
       keepAlive: true,

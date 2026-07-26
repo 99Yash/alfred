@@ -749,6 +749,12 @@ function buildArgs(c: Case): ClassifyEmailArgs {
     // sustained-throttle window blows the eval job's wall-clock budget. Prod
     // leaves this unset (SDK default).
     maxRetries: 1,
+    // No hedging in the eval (#436). Hedging buys tail latency on a live
+    // mailbox; here it would only double the request volume against the same
+    // flash-lite pool this suite is already throttled by — the exact pressure
+    // `maxRetries: 1` above exists to relieve. Precision is unaffected either
+    // way (both draws are `temperature: 0` over the same schema).
+    hedgeDelayMs: 0,
   };
 }
 

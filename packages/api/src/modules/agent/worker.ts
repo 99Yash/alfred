@@ -25,17 +25,27 @@ let _worker: Worker<AgentJobData> | undefined;
 let _resumeTimer: ReturnType<typeof setInterval> | undefined;
 
 export interface StartAgentWorkerOpts {
-  /** Max parallel runs handled by this process. Each run is a single step at a time. */
-  concurrency?: number;
+  /**
+   * Max parallel runs handled by this process. Each run is a single step at a
+   * time, and a step is mostly *waiting* — a triage classify step is a ~2s model
+   * call wrapped in a handful of short reads — so the useful ceiling is set by
+   * the DB pool, not by CPU.
+   *
+   * Required, deliberately: the composition root supplies it from
+   * `AGENT_WORKER_CONCURRENCY` (#437), and a local fallback here would be a
+   * second default for one fact — the value the pool was sized against would
+   * silently not be the value the worker ran at.
+   */
+  concurrency: number;
 }
 
 /**
  * Boot the worker: subscribes to the BullMQ queue, runs an immediate resume
  * sweep, then starts a periodic sweep. Returns immediately once ready.
  */
-export async function startAgentWorker(opts: StartAgentWorkerOpts = {}): Promise<void> {
+export async function startAgentWorker(opts: StartAgentWorkerOpts): Promise<void> {
   if (_worker) return;
-  const concurrency = opts.concurrency ?? 4;
+  const { concurrency } = opts;
 
   _worker = new Worker<AgentJobData>(AGENT_QUEUE_NAME, processAgentJob, {
     connection: createRedisConnection(),

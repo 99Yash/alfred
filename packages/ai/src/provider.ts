@@ -2,7 +2,15 @@ import { anthropic, type AnthropicLanguageModelOptions } from "@ai-sdk/anthropic
 import { google, type GoogleLanguageModelOptions } from "@ai-sdk/google";
 import { openai, type OpenAILanguageModelResponsesOptions } from "@ai-sdk/openai";
 import type { ChatModelTier } from "@alfred/contracts";
-import { APICallError, generateText, type LanguageModel, type ToolSet } from "ai";
+import { isCallerAbort } from "./abort";
+import {
+  APICallError,
+  defaultSettingsMiddleware,
+  generateText,
+  wrapLanguageModel,
+  type LanguageModel,
+  type ToolSet,
+} from "ai";
 // ai-retry's `LanguageModel` alias is `LanguageModelV4` — the concrete model
 // instances our provider factories return, deliberately narrower than `ai`'s
 // `LanguageModel` union (which also admits gateway string ids). Same narrowing
@@ -267,6 +275,67 @@ export function getSubAgentModel(): LanguageModel {
   return withFallback(anthropicModel("claude-sonnet-4-6"), googleModel("gemini-3.5-flash"));
 }
 
+/**
+ * Cheap-tier request default: **no thinking budget** (#436).
+ *
+ * `gemini-2.5-flash-lite` defaults thinking OFF, but its `withFallback` partner
+ * `gemini-2.5-flash` defaults to *dynamic* thinking (`thinkingBudget: -1`), and
+ * no cheap-path call site passes `providerOptions`. So every degraded cheap call
+ * silently bought a reasoning budget for a short structured extraction — the 64
+ * production fallback classify calls behind #436 averaged ~10s against a ~1.9s
+ * median on the primary.
+ *
+ * Every cheap-tier consumer in the *product* path (triage classify, memory
+ * extraction, the chat-memory extractor, cold-start extract, skills distill,
+ * chat-turn titling) is a short schema-constrained extraction where thinking is
+ * pure latency and pure spend, so this belongs on the tier rather than on one
+ * caller. The one non-extraction consumer is an eval judge
+ * (`voice-ai-tells.eval.ts`), which is unaffected in practice: it ran on the
+ * budget-0 primary already, and the default is overridable below.
+ *
+ * Behaviour on the primary is unchanged (Flash-Lite is already budget-0); the
+ * only path that moves is the degraded one.
+ *
+ * `defaultSettingsMiddleware` is `mergeObjects(settings, params)` — caller
+ * params win — so this is a true default, not a ceiling: a cheap-path call that
+ * ever *wants* thinking can still pass its own `thinkingConfig.thinkingBudget`
+ * and override this.
+ */
+const CHEAP_TIER_DEFAULTS = defaultSettingsMiddleware({
+  settings: {
+    providerOptions: {
+      // `satisfies` rather than a bare literal: `providerOptions` is an untyped
+      // JSON bag, so a misspelled `thinkingConfig` would silently no-op — and a
+      // test comparing the dispatch against the same misspelled literal would
+      // still pass.
+      google: {
+        thinkingConfig: { thinkingBudget: 0 },
+      } satisfies GoogleLanguageModelOptions,
+    },
+  },
+});
+
+/**
+ * Apply {@link CHEAP_TIER_DEFAULTS} around a composed cheap-tier handle, so one
+ * wrapper covers both the primary and the `withFallback` fallback (the fallback
+ * is the model that actually needed it). `wrapLanguageModel`'s `doWrap` proxies
+ * `provider`/`modelId` from the inner model, so `identifyLanguageModel` and the
+ * served-model attribution (#216) still see the real Gemini ids.
+ *
+ * Exported as the seam its unit test drives (`cheap-tier-defaults.test.ts`
+ * wraps a mock model and reads back the dispatched call options); production
+ * code should take the composed handle from {@link getCheapModel}.
+ */
+export function withCheapTierDefaults(model: LanguageModel): LanguageModel {
+  return wrapLanguageModel({
+    // `withFallback` always returns the concrete retryable model instance; its
+    // declared type is only wider because `ai`'s `LanguageModel` union also
+    // admits gateway model-id strings, which this package never constructs.
+    model: model as LanguageModelV4,
+    middleware: CHEAP_TIER_DEFAULTS,
+  });
+}
+
 export function getCheapModel(): LanguageModel {
   // Flash-Lite is Google's lowest-latency tier — typical p50 is well under
   // a second for the short JSON outputs triage/extraction produce. Switched
@@ -288,7 +357,9 @@ export function getCheapModel(): LanguageModel {
   // that already works; the bigger Flash pool absorbs flash-lite pressure.
   // (Boss/chat fall back cross-provider to Anthropic because they run
   // `generateText`, not structured object generation — different constraint.)
-  return withFallback(googleModel("gemini-2.5-flash-lite"), googleModel("gemini-2.5-flash"));
+  return withCheapTierDefaults(
+    withFallback(googleModel("gemini-2.5-flash-lite"), googleModel("gemini-2.5-flash")),
+  );
 }
 
 const MEDIA_ENRICHMENT_ROUTES = [
@@ -440,6 +511,8 @@ export function getChatProviderOptions(tier: ChatModelTier = "standard"): ChatPr
  *      that is exactly how the dotted-tool-name 400 silently ran the chat boss
  *      on Gemini for weeks. A 4xx (other than 408/429, which are transient and
  *      a legit reason to try the other provider) now surfaces loudly instead.
+ *      A caller-initiated abort is excluded for a different reason: the request
+ *      was cancelled on purpose, so there is nothing to degrade to.
  *
  * Streaming caveat: fallback only covers errors raised before the stream
  * starts; a provider dying mid-stream after tokens flowed is not replayable.
@@ -478,6 +551,12 @@ export function withFallback(primary: LanguageModelV4, fallback: LanguageModelV4
   // helper (not `.not()`) so it is inherently error-only — `.not()` of an error
   // condition also matches *successful* results, which the retry loop consults.
   const shouldSwitch = error((e) => {
+    // A caller-initiated cancel is never a capacity condition — the request was
+    // abandoned deliberately (a hedged-request loser, a stop button, shutdown),
+    // so re-issuing it on the fallback bills a second call for an answer nobody
+    // is waiting for. Without this, the triage hedge (#436) would have made
+    // every cancelled duplicate fan out to `gemini-2.5-flash`.
+    if (isCallerAbort(e)) return false;
     if (APICallError.isInstance(e) && e.statusCode !== undefined) {
       const code = e.statusCode;
       const isClientBug = code >= 400 && code < 500 && code !== 408 && code !== 429;

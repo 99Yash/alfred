@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import { describe, test } from "node:test";
 
 import {
+  classifyCallOptions,
   classifyEmail,
   detectConflict,
   noteMarksFailingOutcome,
@@ -2231,4 +2232,58 @@ describe("todoSuppressionReason", () => {
       );
     });
   }
+});
+
+// ---------------------------------------------------------------------------
+// Hedge wiring (#436)
+// ---------------------------------------------------------------------------
+
+/**
+ * `runHedged`'s own tests prove the loser is cancelled through the signal it
+ * hands each attempt. They cannot prove the signal reaches the provider — they
+ * drive fake work. That last hop is `classifyCallOptions`, and it fails
+ * silently when it breaks: no error, no wrong label, just an uncancelled
+ * duplicate that bills a full second call.
+ */
+describe("classifyCallOptions", () => {
+  const call = (signal: AbortSignal) =>
+    classifyCallOptions({
+      model: "gemini-2.5-flash-lite",
+      instructions: SYSTEM_PROMPT,
+      prompt: "an email",
+      signal,
+      maxRetries: undefined,
+    });
+
+  test("forwards the hedge attempt's signal to the provider call", () => {
+    const controller = new AbortController();
+    const options = call(controller.signal);
+
+    assert.equal(options.abortSignal, controller.signal, "the loser can only be cancelled by this");
+
+    controller.abort();
+    assert.equal(options.abortSignal?.aborted, true);
+  });
+
+  test("both draws are interchangeable — the property first-wins rests on", () => {
+    // temperature 0 over a fixed schema is why taking whichever draw lands
+    // first can't trade tagging precision for latency.
+    const options = call(new AbortController().signal);
+    assert.equal(options.temperature, 0);
+    assert.equal(options.schema, triageClassificationSchema);
+    assert.equal(options.maxOutputTokens, 400);
+    assert.deepEqual(options.timeout, { totalMs: 30_000 });
+  });
+
+  test("maxRetries stays absent in production and set for the eval", () => {
+    assert.equal("maxRetries" in call(new AbortController().signal), false);
+    const evalOptions = classifyCallOptions({
+      model: "gemini-2.5-flash-lite",
+      instructions: SYSTEM_PROMPT,
+      prompt: "an email",
+      signal: new AbortController().signal,
+      maxRetries: 1,
+    });
+    assert.equal(evalOptions.maxRetries, 1);
+  });
 });

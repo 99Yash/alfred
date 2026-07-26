@@ -52,6 +52,7 @@ import {
 } from "@alfred/api/runtime";
 import { flushLangfuse, flushMeteringWrites } from "@alfred/ai";
 import { toMessage } from "@alfred/contracts";
+import { serverEnv } from "@alfred/env/server";
 import { registerBuiltinWorkflows } from "./builtins";
 
 /**
@@ -93,7 +94,11 @@ export async function startRuntime(): Promise<void> {
   await seedBuiltinWorkflowsForAllUsers();
   await startPolicyBustSubscriber();
 
-  await startAgentWorker();
+  // Concurrency is env-tunable (#437). It is also the *only* knob: the shared
+  // `pg.Pool` ceiling every one of these workers draws from is derived from the
+  // same value (`@alfred/env/pool`), so raising throughput can't silently
+  // outrun the pool it runs against.
+  await startAgentWorker({ concurrency: serverEnv().AGENT_WORKER_CONCURRENCY });
   await startSubAgentJoinWakeWorker();
   await startIngestionWorker();
   await startMemoryWorker();
