@@ -19,12 +19,35 @@ export const subAgentIdSchema = z
   .max(64)
   .regex(/^[A-Za-z0-9_-]+$/, "subId may only contain letters, numbers, underscores, and dashes");
 
+/**
+ * The chat turn a sub-agent was spawned from, when there was one. Lets the
+ * child stream its own tool trail back into that turn's bubble (nested under
+ * the `spawn_sub_agent` card) instead of working invisibly.
+ *
+ * Optional because a sub-agent's parent is not always a chat turn — a cron
+ * brief or a background boss run has no thread, and those children simply
+ * publish nothing. `messageId` is the parent's assistant message, stable for
+ * the whole turn (it survives HIL parks and resumes), so it stays a valid
+ * stream key for as long as the child can be running.
+ */
+export const subAgentChatOriginSchema = z
+  .object({
+    threadId: z.string().min(1),
+    messageId: z.string().min(1),
+  })
+  .strict();
+
+export type SubAgentChatOrigin = z.infer<typeof subAgentChatOriginSchema>;
+
 export const subAgentMetadataSchema = z
   .object({
     kind: z.literal("sub_agent"),
     parentRunId: z.string().min(1),
     subId: subAgentIdSchema,
     parentToolCallId: z.string().min(1),
+    // Absent on rows written before live sub-agent trails, and on any
+    // non-chat parent — both degrade to "child runs silently", never an error.
+    chat: subAgentChatOriginSchema.optional(),
   })
   .strict();
 

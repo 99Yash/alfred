@@ -104,6 +104,17 @@ export type ToolName = {
   [K in IntegrationSlug]: ActionSlug<K> extends never ? never : `${K}.${ActionSlug<K>}`;
 }[IntegrationSlug];
 
+/**
+ * The two orchestration tools whose *names* five surfaces have to agree on —
+ * the chat workflow (tally + fold guards), the dispatcher, the tool-card
+ * presenter, the animated-icon map, and the activity trail that turns a spawn
+ * card into the child's nested container. `satisfies ToolName` ties each to the
+ * registry above, so renaming an action breaks here rather than silently making
+ * every one of those comparisons false.
+ */
+export const SPAWN_SUB_AGENT_TOOL = "system.spawn_sub_agent" satisfies ToolName;
+export const AWAIT_SUB_AGENT_TOOL = "system.await_sub_agent" satisfies ToolName;
+
 export const TOOL_RISK_TIERS = ["no_risk", "low", "medium", "high"] as const;
 export type ToolRiskTier = (typeof TOOL_RISK_TIERS)[number];
 

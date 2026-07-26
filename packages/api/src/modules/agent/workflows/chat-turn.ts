@@ -13,6 +13,7 @@ import {
 import { ARTIFACT_DESIGN_PROMPT, ARTIFACT_DOCUMENT_DESIGN_PROMPT } from "@alfred/artifacts-design";
 import {
   artifactFormatSchema,
+  AWAIT_SUB_AGENT_TOOL,
   chatModelTierSchema,
   getPath,
   HttpError,
@@ -20,6 +21,7 @@ import {
   isRecord,
   MAX_MODEL_ATTACHMENT_BYTES_PER_TURN,
   sanitizeToolResult,
+  SPAWN_SUB_AGENT_TOOL,
   toMessage,
   withDefaults,
   type AgentTranscriptMessage,
@@ -45,8 +47,6 @@ import {
   dispatchRoundReissued,
   dispatchToolCall,
   isMutatingToolName,
-  isNonExecutionFailure,
-  toolCallLogStatus,
   toolCallWouldGate,
 } from "../../dispatch";
 import { runToolRound } from "./tool-round";
@@ -94,7 +94,9 @@ import { appendModelResponseMessages } from "../transcript-dedup";
 import type { AgentDbExecutor, Step, StepContext, StepResult, Workflow } from "../types";
 import { pendingToolCallSchema as basePendingToolCallSchema } from "./pending-tool-call";
 import { streamModelTurn } from "./stream-model-turn";
-import { preview, PREVIEW_CHARS } from "./tool-preview";
+import { toolCardTerminal } from "./tool-card-events";
+import { toolEventOutcome } from "./tool-event-outcome";
+import { PREVIEW_CHARS } from "./tool-preview";
 import { createTurnStopController } from "./turn-stop-controller";
 import { sanitizeVoice } from "../voice-sanitize";
 
@@ -830,9 +832,6 @@ async function publishChatCompactionPhase(args: {
 }
 
 // ── steps ─────────────────────────────────────────────────────────────────
-
-const SPAWN_SUB_AGENT_TOOL = "system.spawn_sub_agent";
-const AWAIT_SUB_AGENT_TOOL = "system.await_sub_agent";
 
 /**
  * The `childRunId` argument of a `system.await_sub_agent` call, if present. A
@@ -1776,23 +1775,16 @@ const dispatchToolsStep: Step<ChatRunState> = {
               }
             }
 
-            const status = toolCallLogStatus(call.toolName, result);
-            const resultPreview =
-              result.kind === "executed"
-                ? preview(result.toolResult)
-                : result.kind === "failed"
-                  ? preview(result.error)
-                  : preview(result.result);
             // ADR-0070: the boundary sanitizer's verdict rides the dispatch
-            // envelope; carry it onto the durable tool-call log *and* the live
+            // envelope; it lands on the durable tool-call log *and* the live
             // event so a scrubbed result is flagged the same way live and on
-            // reload (otherwise the durable card looks pristine).
-            const sanitized = result.kind === "executed" && result.sanitized ? true : undefined;
-            // Flag a never-executed schema/tool-name rejection so the honesty
+            // reload (otherwise the durable card looks pristine). `nonExecution`
+            // flags a never-executed schema/tool-name rejection so the honesty
             // guard can tell a self-corrected malformed call apart from a real
-            // failed side effect (see isNonExecutionFailure).
-            const nonExecution =
-              status === "failed" && isNonExecutionFailure(result) ? true : undefined;
+            // failed side effect. Both are derived by the shared helper, which a
+            // spawned sub-agent's nested cards also publish through.
+            const outcome = toolEventOutcome(call.toolName, result);
+            const { status, resultPreview, sanitized, nonExecution } = outcome;
             // Bind an executed artifact tool's toolCallId to its row id, so a live
             // artifact stream (keyed by toolCallId — all create_artifact has before
             // it runs) can adopt the durable synced row once it lands.
@@ -1828,19 +1820,12 @@ const dispatchToolsStep: Step<ChatRunState> = {
             await publishEvent({
               userId: ctx.userId,
               kind: "chat.tool",
-              payload: {
-                runId: ctx.runId,
-                threadId: state.threadId,
-                messageId: state.messageId,
-                toolCallId: call.toolCallId,
-                toolName: call.toolName,
-                status,
-                resultPreview,
-                ...(sanitized ? { sanitized } : {}),
-                ...(nonExecution ? { nonExecution } : {}),
-                ...(artifactId ? { artifactId } : {}),
-                segmentIndex: call.segmentIndex,
-              },
+              payload: toolCardTerminal(
+                { runId: ctx.runId, threadId: state.threadId, messageId: state.messageId },
+                call,
+                outcome,
+                { segmentIndex: call.segmentIndex, artifactId },
+              ),
             });
           },
         });

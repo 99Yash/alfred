@@ -3,6 +3,17 @@ import { z } from "zod";
 export const CHAT_DELTA_MAX = 16_000;
 
 /**
+ * Caps for the tool identity a `chat.tool` event carries. Exported because the
+ * *publisher* has to clamp to them: both strings come from the provider stream,
+ * a model can invent a name of any length, and `publishEvent` throws on a
+ * payload the schema rejects — inside an awaited commit hook that would fail the
+ * whole run instead of letting the bad call bounce and self-correct (ADR-0070 /
+ * #267). See `toolCardStarted` / `toolCardTerminal` in `@alfred/api`.
+ */
+export const CHAT_TOOL_NAME_MAX = 120;
+export const CHAT_TOOL_CALL_ID_MAX = 200;
+
+/**
  * Discriminated union of every event kind that flows through the durable
  * outbox -> Redis Pub/Sub -> SSE pipeline.
  *
@@ -120,6 +131,27 @@ export const chatReasoningSchema = z.object({
 });
 
 /**
+ * Attribution for a tool call made by a spawned sub-agent rather than by the
+ * boss itself (ADR-0016/0073). Present only on `chat.tool` events published by
+ * a child run; absent on the boss's own calls.
+ *
+ * The enclosing event still carries the PARENT's `runId` / `threadId` /
+ * `messageId` — the child has no thread of its own, and the client keys its
+ * in-flight turn on (messageId, runId), so a child publishing its own runId
+ * would look like a brand-new turn and reset the bubble. The child's identity
+ * lives here instead, which is also what lets the client nest the call under
+ * the `system.spawn_sub_agent` card that started it.
+ */
+export const chatToolSubAgentSchema = z.object({
+  /** The parent's `system.spawn_sub_agent` call — the card this nests under. */
+  parentToolCallId: z.string().min(1).max(200),
+  /** The sub-agent's id within the parent turn (`sub_a`), for the trail label. */
+  subId: z.string().min(1).max(64),
+  /** The child `agent_runs` row, so lifecycle (`agent.run`) frames can be matched to this trail. */
+  childRunId: z.string().min(1).max(120),
+});
+
+/**
  * A tool call inside a chat turn, surfaced as a live card. `started` fires
  * when the agent emits the call (with a preview of its input), `succeeded` /
  * `failed` when the dispatcher returns. Write actions that need approval do
@@ -129,8 +161,8 @@ export const chatToolSchema = z.object({
   runId: z.string().min(1).max(120),
   threadId: z.string().min(1).max(120),
   messageId: z.string().min(1).max(120),
-  toolCallId: z.string().min(1).max(200),
-  toolName: z.string().min(1).max(120),
+  toolCallId: z.string().min(1).max(CHAT_TOOL_CALL_ID_MAX),
+  toolName: z.string().min(1).max(CHAT_TOOL_NAME_MAX),
   status: z.enum(["started", "succeeded", "failed"]),
   /** Trimmed JSON preview of the tool input — never the full args blob. */
   argsPreview: z.string().max(2_000).optional(),
@@ -163,6 +195,12 @@ export const chatToolSchema = z.object({
    * non-executed (nonExecution) results.
    */
   artifactId: z.string().min(1).max(200).optional(),
+  /**
+   * Set when a spawned sub-agent — not the boss — made this call, so the client
+   * nests it under the `system.spawn_sub_agent` card instead of appending it to
+   * the turn's top-level trail. See {@link chatToolSubAgentSchema}.
+   */
+  subAgent: chatToolSubAgentSchema.optional(),
 });
 
 /**

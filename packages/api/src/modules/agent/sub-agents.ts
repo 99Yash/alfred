@@ -11,6 +11,7 @@ import {
   readSubAgentMetadata,
   subAgentIdSchema,
   SUB_AGENT_WORKFLOW_SLUG,
+  type SubAgentChatOrigin,
 } from "./sub-agent-metadata";
 
 export const spawnSubAgentInputSchema = coerceJsonArrayFields(
@@ -149,6 +150,8 @@ export async function spawnSubAgent(
     parentRunId: string;
     userId: string;
     parentToolCallId: string;
+    /** The parent's chat turn, when it has one — the child streams its trail there. */
+    chat?: SubAgentChatOrigin | undefined;
   },
 ): Promise<{
   ok: true;
@@ -195,6 +198,7 @@ export async function spawnSubAgent(
       parentRunId: args.parentRunId,
       subId: args.subId,
       parentToolCallId: args.parentToolCallId,
+      ...(args.chat ? { chat: args.chat } : {}),
     },
   };
 

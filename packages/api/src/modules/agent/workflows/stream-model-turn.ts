@@ -4,7 +4,7 @@ import { CHAT_DELTA_MAX } from "@alfred/contracts/events";
 import { parsePartialJson } from "ai";
 import { publishEvent } from "../../../events/publish";
 import { createVoiceStreamSanitizer } from "../voice-sanitize";
-import { preview } from "./tool-preview";
+import { shouldPublishToolStarted, toolCardStarted } from "./tool-card-events";
 import type { TurnStopController } from "./turn-stop-controller";
 
 /** Flush coalesced text/reasoning/artifact deltas at least this often (ms) and at this size (chars). */
@@ -30,13 +30,6 @@ function splitEventText(text: string): string[] {
     chunks.push(text.slice(i, i + CHAT_DELTA_MAX));
   }
   return chunks;
-}
-
-export function shouldPublishToolStarted(
-  activeTools: readonly ToolName[],
-  toolName: string,
-): boolean {
-  return activeTools.some((activeTool) => activeTool === toolName);
 }
 
 /**
@@ -296,16 +289,11 @@ export async function streamModelTurn(args: {
           await publish({
             userId: ctx.userId,
             kind: "chat.tool",
-            payload: {
-              runId: ctx.runId,
-              threadId: state.threadId,
-              messageId: state.messageId,
-              toolCallId: part.toolCallId,
-              toolName: part.toolName,
-              status: "started",
-              argsPreview: preview(part.input),
-              segmentIndex: state.segmentIndex,
-            },
+            payload: toolCardStarted(
+              { runId: ctx.runId, threadId: state.threadId, messageId: state.messageId },
+              part,
+              state.segmentIndex,
+            ),
           });
         }
       } else if (part.type === "error") {
