@@ -1,8 +1,9 @@
 import type { EventSource, EventType } from "@alfred/contracts";
 import { isEventTypeForSource, toMessage } from "@alfred/contracts";
 import { db } from "@alfred/db";
-import { agentRuns, workflows } from "@alfred/db/schemas";
+import { EVENT_ACTIVE_RUN_INDEX, agentRuns, workflows } from "@alfred/db/schemas";
 import { and, eq, or, sql } from "drizzle-orm";
+import { uniqueViolationConstraint } from "../../lib/pg-errors";
 import { enqueueRun } from "../agent/queue";
 import { createRun } from "../agent/service";
 
@@ -81,6 +82,10 @@ export async function emitEvent(args: EmitEventArgs): Promise<EmitEventResult> {
           return;
         }
 
+        // Fast path only. This read and the insert below are not atomic, so
+        // two concurrent dispatches of the same event (webhook + retry,
+        // webhook + poll) can both miss here; EVENT_ACTIVE_RUN_INDEX is what
+        // actually stops the second run (#531).
         const duplicate = await hasNonTerminalEventRun({
           userId: args.userId,
           workflowSlug: row.slug,
@@ -94,19 +99,29 @@ export async function emitEvent(args: EmitEventArgs): Promise<EmitEventResult> {
           return;
         }
 
-        const { runId } = await createRun({
-          userId: args.userId,
-          workflowSlug: row.slug,
-          input: { documentId, reason, force, source: args.source, type: args.type },
-          metadata: { source: args.source, type: args.type, eventId: args.eventId, documentId },
-          trigger: {
-            kind: "event",
-            source: args.source,
-            type: args.type,
-            eventId: args.eventId,
-            payload: { documentId, reason },
-          },
-        });
+        let runId: string;
+        try {
+          ({ runId } = await createRun({
+            userId: args.userId,
+            workflowSlug: row.slug,
+            input: { documentId, reason, force, source: args.source, type: args.type },
+            metadata: { source: args.source, type: args.type, eventId: args.eventId, documentId },
+            trigger: {
+              kind: "event",
+              source: args.source,
+              type: args.type,
+              eventId: args.eventId,
+              payload: { documentId, reason },
+            },
+          }));
+        } catch (err) {
+          // The concurrent dispatch that beat us to the insert owns this event.
+          // Nothing was created, so drop it as a duplicate rather than a
+          // failure — the same outcome the fast path above reports.
+          if (uniqueViolationConstraint(err) !== EVENT_ACTIVE_RUN_INDEX) throw err;
+          result.skippedDuplicate++;
+          return;
+        }
         await enqueueRun(runId);
         result.created++;
       } catch (err) {

@@ -17,6 +17,16 @@ export function isTerminalStatus(s: RunStatus): boolean {
   return s === "completed" || s === "failed" || s === "cancelled";
 }
 
+/**
+ * The terminal statuses as data, for SQL predicates that need to name them
+ * (`status NOT IN (...)` guards and partial indexes) rather than call
+ * {@link isTerminalStatus} per row. Derived from the same predicate, so the two
+ * can't drift when a status is added.
+ */
+export const TERMINAL_RUN_STATUSES = Object.freeze(
+  RUN_STATUSES.filter(isTerminalStatus),
+) as readonly RunStatus[];
+
 export const approvalKindSchema = z.enum(["step", "action_staging"]);
 export type ApprovalKind = z.infer<typeof approvalKindSchema>;
 

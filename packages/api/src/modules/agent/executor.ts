@@ -2,8 +2,8 @@ import type { AgentTranscriptMessage } from "@alfred/contracts";
 import { sanitizeErrorMessage, sanitizeToolResult, toMessage } from "@alfred/contracts";
 import { db, rowsFromExecute, type DbTransaction } from "@alfred/db";
 import { agentDecisionTraces, agentRuns, agentSteps, pendingActions } from "@alfred/db/schemas";
-import { runStatusSchema } from "@alfred/contracts";
-import { and, eq, sql } from "drizzle-orm";
+import { TERMINAL_RUN_STATUSES, runStatusSchema } from "@alfred/contracts";
+import { and, eq, notInArray, sql } from "drizzle-orm";
 import type { PgUpdateSetSource } from "drizzle-orm/pg-core";
 import { publishEvent } from "../../events/publish";
 import { normalizeDecisionTraceKey, type DecisionTraceRecord } from "./decision-traces";
@@ -35,35 +35,71 @@ import {
 const BACKSTOP_RECLAIM_LIMIT = 3;
 
 /**
+ * Why a guarded commit matched 0 rows.
+ *  - `reclaim`  — the run's `attempt` moved on (a stale-lease reclaim owns it).
+ *  - `terminal` — the run reached a terminal status mid-step (#530: a cancel
+ *    landed while this worker was inside the step body).
+ */
+type SupersedeCause = "reclaim" | "terminal";
+
+/** Benign `skipped` reason reported for each {@link SupersedeCause}. */
+const SUPERSEDE_SKIP_REASON: Record<SupersedeCause, string> = {
+  reclaim: "superseded_by_reclaim",
+  terminal: "run_already_terminal",
+};
+
+/**
  * Thrown inside `commitStepSuccess`'s transaction when the guarded `agent_runs`
- * UPDATE matches 0 rows — meaning the run's `attempt` no longer equals the one
- * this step ran under, i.e. a stale-lease reclaim (executor lease, §`leaseRun`)
- * bumped `attempt` and another worker is (or already finished) re-running this
- * step. Throwing rolls back the whole commit (step row, staged actions, traces),
- * so the superseded worker's wasted LLM result lands nowhere and only the
- * reclaimer's commit advances the run. Caught at the `commitStepSuccess`
+ * UPDATE matches 0 rows. Two things can cause that:
+ *
+ *  - `reclaim` — the run's `attempt` no longer equals the one this step ran
+ *    under, i.e. a stale-lease reclaim (executor lease, §`leaseRun`) bumped
+ *    `attempt` and another worker is (or already finished) re-running this step.
+ *  - `terminal` — the run reached a terminal status while the step body was
+ *    executing (#530), which in practice means `cancelRun` flipped it to
+ *    `cancelled`. The worker holds no row lock during the step body, so the
+ *    cancel's `FOR UPDATE` gives no protection; only this guard does.
+ *
+ * Throwing rolls back the whole commit (step row, staged actions, traces), so
+ * the superseded worker's wasted LLM result lands nowhere — and, for the
+ * terminal case, the cancelled run is not resurrected into
+ * `runnable`/`completed`/`waiting` and no `approval.requested` is re-fired on a
+ * run whose action stagings were just rejected. Caught at the `commitStepSuccess`
  * boundary and reported as a benign `skipped` outcome (no re-enqueue).
  *
  * This closes the double-advance / transcript-divergence hazard a too-tight
  * stale threshold (STALE_RUN_LEASE_MS) opens against long model turns. It does
  * NOT un-bill the duplicate model call — both workers already called the model
  * before either reached commit; reducing false reclaims (the threshold) is the
- * lever for that.
+ * lever for that. Same for a mid-step cancel: the guard prevents the zombie
+ * run, not the model call already in flight when the user hit stop.
  */
 class RunSupersededError extends Error {
-  constructor(runId: string, stepId: string, attempt: number) {
-    super(`run ${runId} step ${stepId} attempt ${attempt} superseded by reclaim before commit`);
+  readonly supersedeCause: SupersedeCause;
+  constructor(runId: string, stepId: string, attempt: number, supersedeCause: SupersedeCause) {
+    super(
+      supersedeCause === "terminal"
+        ? `run ${runId} step ${stepId} attempt ${attempt} reached a terminal status before commit`
+        : `run ${runId} step ${stepId} attempt ${attempt} superseded by reclaim before commit`,
+    );
     this.name = "RunSupersededError";
+    this.supersedeCause = supersedeCause;
   }
 }
 
 /**
- * Attempt-guarded commit of an `agent_runs` update: apply `set`, but only while
- * the run is still at `attempt`. A stale-lease reclaim bumps `attempt`, so a
- * 0-row match means this worker was superseded — throw {@link RunSupersededError}
- * so the caller rolls back rather than double-advancing / double-parking /
- * double-completing the run under a stale attempt the reclaimer now owns. Every
- * terminal branch (advance, done, interrupt, failure) commits through here.
+ * Guarded commit of an `agent_runs` update: apply `set`, but only while the run
+ * is still at `attempt` AND still non-terminal. A stale-lease reclaim bumps
+ * `attempt`; a cancel flips `status` without touching `attempt` (#530). Either
+ * way a 0-row match means this worker no longer owns the run — throw
+ * {@link RunSupersededError} so the caller rolls back rather than
+ * double-advancing / double-parking / double-completing the run, or writing a
+ * live status over a terminal one. Every terminal branch (advance, done,
+ * interrupt, failure) commits through here.
+ *
+ * The status half of the guard is safe against the cancel's `FOR UPDATE`: an
+ * UPDATE that blocks on the cancel's row lock re-evaluates its WHERE against
+ * the post-commit row, so it sees `cancelled` and matches 0 rows.
  */
 async function commitGuardedRunUpdate(
   tx: DbTransaction,
@@ -75,9 +111,34 @@ async function commitGuardedRunUpdate(
   const committed = await tx
     .update(agentRuns)
     .set(set)
-    .where(and(eq(agentRuns.id, run.id), eq(agentRuns.attempt, attempt)))
+    .where(
+      and(
+        eq(agentRuns.id, run.id),
+        eq(agentRuns.attempt, attempt),
+        notInArray(agentRuns.status, [...TERMINAL_RUN_STATUSES]),
+      ),
+    )
     .returning({ id: agentRuns.id });
-  if (committed.length === 0) throw new RunSupersededError(run.id, stepId, attempt);
+  if (committed.length === 0) {
+    throw new RunSupersededError(run.id, stepId, attempt, await readSupersedeCause(tx, run.id));
+  }
+}
+
+/**
+ * Classify a 0-row guarded commit. Only runs on the (rare) miss path, so the
+ * extra read costs nothing in the common case and keeps the two hazards
+ * distinguishable in logs and in the reported `skipped` reason — a cancel race
+ * and a lease reclaim want very different follow-up.
+ */
+async function readSupersedeCause(tx: DbTransaction, runId: string): Promise<SupersedeCause> {
+  const rows = await tx
+    .select({ status: agentRuns.status })
+    .from(agentRuns)
+    .where(eq(agentRuns.id, runId));
+  const row = rows[0];
+  // A vanished row is a reclaim-shaped miss (nothing to resurrect).
+  if (!row) return "reclaim";
+  return isTerminalStatus(runStatusSchema.parse(row.status)) ? "terminal" : "reclaim";
 }
 
 export type RunOutcome =
@@ -561,7 +622,7 @@ export async function commitStepSuccess(
     // commit matched 0 rows and rolled back. Report benign skip — do NOT
     // re-enqueue (the reclaimer owns the run now). Never resurrects the run.
     if (err instanceof RunSupersededError) {
-      return { kind: "skipped", runId: run.id, reason: "superseded_by_reclaim" };
+      return { kind: "skipped", runId: run.id, reason: SUPERSEDE_SKIP_REASON[err.supersedeCause] };
     }
     throw err;
   }
@@ -785,7 +846,7 @@ async function commitStepFailure(
     // Same race as success commits: a reclaim bumped attempt while this worker
     // was running. Roll back the step failure and leave the reclaimer in charge.
     if (err instanceof RunSupersededError) {
-      return { kind: "skipped", runId: run.id, reason: "superseded_by_reclaim" };
+      return { kind: "skipped", runId: run.id, reason: SUPERSEDE_SKIP_REASON[err.supersedeCause] };
     }
     throw err;
   }
