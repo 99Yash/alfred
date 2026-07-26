@@ -163,6 +163,38 @@ describe("withFallback", () => {
     assert.equal(fallback.doGenerateCalls.length, 1);
   });
 
+  // A caller-initiated cancel must NOT degrade: the hedged classify (#436)
+  // aborts its losing duplicate, and `shouldSwitch` used to return true for any
+  // non-`APICallError` — so cancelling the loser would have re-issued it on
+  // `gemini-2.5-flash` and billed a second call for an answer already in hand.
+  // `TimeoutError` (the SDK's own `timeout` option) is deliberately excluded
+  // from the carve-out and must still degrade.
+  test("a caller abort surfaces and never touches the fallback", async () => {
+    const primary = throwingModel("primary", new DOMException("cancelled", "AbortError"));
+    const fallback = okModel("fallback", TEXT_FALLBACK);
+
+    await assert.rejects(run(primary, fallback), (err: unknown) => {
+      assert.ok(err instanceof Error);
+      assert.equal(err.name, "AbortError");
+      return true;
+    });
+
+    assert.equal(fallback.doGenerateCalls.length, 0, "fallback must not run on a caller abort");
+  });
+
+  test("a request timeout still degrades to the fallback", async () => {
+    const primary = throwingModel(
+      "primary",
+      new DOMException("timeout of 30000ms exceeded", "TimeoutError"),
+    );
+    const fallback = okModel("fallback", TEXT_FALLBACK);
+
+    const { text } = await run(primary, fallback);
+
+    assert.equal(text, TEXT_FALLBACK);
+    assert.equal(fallback.doGenerateCalls.length, 1);
+  });
+
   test("a healthy primary serves and never touches the fallback", async () => {
     const primary = okModel("primary", TEXT_PRIMARY);
     const fallback = okModel("fallback", TEXT_FALLBACK);

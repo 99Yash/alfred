@@ -22,7 +22,7 @@ import {
   senderKeyFor,
   senderPriorWriteKeyFor,
 } from "./sender-priors";
-import { isSentGmailMetadata } from "./sent-mail";
+import { isSentGmailMetadata, mayBeUnflaggedSentMail } from "./sent-mail";
 import {
   getDocumentAuthoredAt,
   getTriage,
@@ -702,6 +702,13 @@ async function sentDocumentStatusAtClassifyTime(
   ctxData: TriageDocumentContext,
 ): Promise<SentDocumentStatus> {
   if (isSentGmailMetadata(ctxData.document.metadata)) return { kind: "sent", source: "stored" };
+  // Only pay the Gmail round trip when the stored "not sent" could actually be
+  // wrong (#439) — see `mayBeUnflaggedSentMail` for the disproof.
+  const ambiguous = mayBeUnflaggedSentMail({
+    fromHeader: metadataString(ctxData.document.metadata, "from"),
+    accountEmail: ctxData.identity.email,
+  });
+  if (!ambiguous) return { kind: "not-sent" };
 
   try {
     const accessToken = await getFreshAccessToken(ctxData.credentialId);

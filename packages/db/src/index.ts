@@ -4,7 +4,6 @@ import pg from "pg";
 import { toMessage } from "@alfred/contracts";
 
 const POOL_MIN = 4;
-const POOL_MAX = 10;
 const POOL_IDLE_TIMEOUT_MS = 5 * 60_000;
 const POOL_CONNECTION_TIMEOUT_MS = 10_000;
 const POOL_HEARTBEAT_INTERVAL_MS = 20_000;
@@ -32,10 +31,14 @@ function startPoolHeartbeat() {
 
 export function db() {
   if (!_db) {
+    const env = databaseEnv();
     _pool = new pg.Pool({
-      connectionString: databaseEnv().DATABASE_URL,
+      connectionString: env.DATABASE_URL,
       min: POOL_MIN,
-      max: POOL_MAX,
+      // Env-tunable (#437): the pool is shared by every worker and every HTTP
+      // handler in the process, so its ceiling has to be sized against
+      // `AGENT_WORKER_CONCURRENCY` per deploy. Defaults to the historical 10.
+      max: env.DB_POOL_MAX,
       idleTimeoutMillis: POOL_IDLE_TIMEOUT_MS,
       connectionTimeoutMillis: POOL_CONNECTION_TIMEOUT_MS,
       keepAlive: true,

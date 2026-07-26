@@ -52,6 +52,7 @@ import {
 } from "@alfred/api/runtime";
 import { flushLangfuse, flushMeteringWrites } from "@alfred/ai";
 import { toMessage } from "@alfred/contracts";
+import { serverEnv } from "@alfred/env/server";
 import { registerBuiltinWorkflows } from "./builtins";
 
 /**
@@ -93,7 +94,10 @@ export async function startRuntime(): Promise<void> {
   await seedBuiltinWorkflowsForAllUsers();
   await startPolicyBustSubscriber();
 
-  await startAgentWorker();
+  // Concurrency is env-tunable (#437) because the right value depends on the
+  // deploy's DB pool, not on the code: every concurrent step draws from the same
+  // `pg.Pool`, so `AGENT_WORKER_CONCURRENCY` must move together with `DB_POOL_MAX`.
+  await startAgentWorker({ concurrency: serverEnv().AGENT_WORKER_CONCURRENCY });
   await startSubAgentJoinWakeWorker();
   await startIngestionWorker();
   await startMemoryWorker();

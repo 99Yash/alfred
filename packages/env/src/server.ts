@@ -245,6 +245,29 @@ const serverEnvSchema = z.object({
    * {@link gmailMailboxWritesEnabled}; never branch on this field directly.
    */
   GMAIL_MAILBOX_WRITES_ENABLED: optionalBooleanString(),
+  /**
+   * Hedge delay for the triage classify call, in milliseconds (#436). If the
+   * cheap-model call has not answered within this window, a second identical
+   * call is fired and whichever lands first wins — the tail of
+   * `triage.classify` is Google-side scheduling jitter, not work (fast and slow
+   * calls carry identical token counts), so a duplicate draw is the cheapest
+   * way to recover p90/p95 without touching p50.
+   *
+   * Default 2500ms ≈ measured p75, so the common fast call never duplicates.
+   * Set `0` to disable hedging (single call, previous behaviour).
+   */
+  TRIAGE_CLASSIFY_HEDGE_MS: z.coerce.number().int().nonnegative().default(2500),
+  /**
+   * Max concurrent agent runs per server process (#437). Each run executes one
+   * step at a time, and a triage classify step is dominated by a ~2s model
+   * call, so the default 4 left the queue serializing behind idle wall-clock.
+   *
+   * Raise this together with `DB_POOL_MAX` (see `./database`): every concurrent
+   * step draws from the same `pg.Pool`, and an oversubscribed
+   * pool just moves the queue from BullMQ into `pg.Pool` (silently, as waiting
+   * clients) while starving HTTP handlers behind it.
+   */
+  AGENT_WORKER_CONCURRENCY: z.coerce.number().int().positive().default(8),
 });
 
 export type ServerEnv = z.infer<typeof serverEnvSchema>;

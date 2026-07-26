@@ -25,7 +25,17 @@ let _worker: Worker<AgentJobData> | undefined;
 let _resumeTimer: ReturnType<typeof setInterval> | undefined;
 
 export interface StartAgentWorkerOpts {
-  /** Max parallel runs handled by this process. Each run is a single step at a time. */
+  /**
+   * Max parallel runs handled by this process. Each run is a single step at a
+   * time, and a step is mostly *waiting* — a triage classify step is a ~2s model
+   * call wrapped in a handful of short reads — so the useful ceiling is set by
+   * the DB pool, not by CPU.
+   *
+   * The composition root supplies this from `AGENT_WORKER_CONCURRENCY` (#437);
+   * the fallback here only covers a direct caller. Raising it without raising
+   * `DB_POOL_MAX` doesn't buy throughput: the queue just moves from BullMQ into
+   * `pg.Pool`, where it is invisible and also starves HTTP handlers.
+   */
   concurrency?: number;
 }
 
