@@ -3,7 +3,7 @@ import { ChevronRight } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import { cn } from "~/lib/utils";
 import { ChatProse } from "./chat-prose";
-import { formatDuration } from "./elapsed";
+import { formatDuration } from "./duration";
 
 const ITEM = "reasoning";
 

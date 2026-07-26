@@ -1,20 +1,6 @@
 import { useEffect, useState } from "react";
 import { cn } from "~/lib/utils";
-
-/**
- * Human duration for a chat-surface timing label: sub-10s keeps a decimal so a
- * fast step still reads as having taken time ("1.2s"), longer runs round to
- * whole seconds, and past a minute it splits ("2m 4s"). Shared by the
- * "Thought for Ns" reasoning label and the live sub-agent trail.
- */
-export function formatDuration(ms: number): string {
-  const totalSeconds = ms / 1000;
-  if (totalSeconds < 60)
-    return `${totalSeconds < 10 ? totalSeconds.toFixed(1) : Math.round(totalSeconds)}s`;
-  const m = Math.floor(totalSeconds / 60);
-  const s = Math.round(totalSeconds % 60);
-  return `${m}m ${s}s`;
-}
+import { formatDuration } from "./duration";
 
 /** Below this, a live counter is noise — the step ends before the eye lands. */
 const MIN_VISIBLE_MS = 400;
@@ -45,9 +31,18 @@ export function Elapsed({
   const running = endedTs === null;
   const [now, setNow] = useState(() => Date.now());
 
+  // The frozen clock goes stale while a step is landed. If one ever resumes,
+  // re-read the time during render rather than in the effect — an effect would
+  // paint one frame of the stale duration first, which for a clock is visibly
+  // a jump backwards.
+  const [prevRunning, setPrevRunning] = useState(running);
+  if (prevRunning !== running) {
+    setPrevRunning(running);
+    if (running) setNow(Date.now());
+  }
+
   useEffect(() => {
     if (!running) return;
-    setNow(Date.now());
     const id = setInterval(() => setNow(Date.now()), TICK_MS);
     return () => clearInterval(id);
   }, [running]);

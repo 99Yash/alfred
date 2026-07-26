@@ -1,20 +1,18 @@
-import { Wrench, type LucideIcon } from "lucide-react";
-import { IntegrationIcon, type IntegrationBrand } from "~/lib/integrations/integration-icons";
+import { type LucideIcon } from "lucide-react";
+import { type IntegrationBrand } from "~/lib/integrations/integration-icons";
 import { lowerFirst } from "~/lib/strings";
-import { cn } from "~/lib/utils";
 import { animatedToolIcon } from "./animated-tool-icons";
 import { presentTool, toolCategory, type ToolCallView } from "./tool-call-presentation";
 
 /**
  * How a finished run of tool calls is summarized — the narrative headline and
- * the stack of service glyphs it touched. Its own module because two surfaces
+ * the glyphs of the services it touched. Its own module because two surfaces
  * summarize a run the same way: the turn's top-level activity trail
  * (`ToolCallGroup`) and a spawned sub-agent's nested trail (`SubAgentCard`).
  * Keeping it here rather than in either one avoids a cycle between them.
+ *
+ * Derivation only — `RunGlyphCluster` renders the glyphs this picks.
  */
-
-/** Max coins stacked in the summary cluster before we stop adding more. */
-const MAX_GLYPHS = 3;
 
 /** One coin in the run summary: an integration brand tile, or a system mark. */
 export type RunGlyph =
@@ -92,50 +90,4 @@ export function runSummary(tools: ToolCallView[]): string {
   // Nothing countable landed. If steps failed, say so rather than claiming
   // work; otherwise the run was pure plumbing and "worked on it" is accurate.
   return tools.some((t) => t.status === "failed") ? "Couldn't finish that" : "Worked on it";
-}
-
-/**
- * Overlapping coins for the glyphs a run touched (max 3) — integration app-icon
- * tiles and/or system marks, in the order the run first hit them. A run with no
- * mappable glyph (only unmapped system plumbing) falls back to a lone wrench.
- */
-export function RunGlyphCluster({ glyphs }: { glyphs: RunGlyph[] }) {
-  if (glyphs.length === 0) {
-    return (
-      <span
-        aria-hidden
-        className="inline-flex size-6 shrink-0 items-center justify-center rounded-full bg-app-bg-2 text-app-fg-3 shadow-(--app-shadow-elevated)"
-      >
-        <Wrench size={13} />
-      </span>
-    );
-  }
-  // ring matches the page background so overlapping coins read as a clean stack
-  // rather than a smudge.
-  return (
-    <span aria-hidden className="flex shrink-0 items-center">
-      {glyphs.slice(0, MAX_GLYPHS).map((glyph, i) =>
-        glyph.kind === "brand" ? (
-          <IntegrationIcon
-            key={glyph.key}
-            brand={glyph.brand}
-            size="xs"
-            className={cn("ring-2 ring-app-background", i > 0 && "-ml-2")}
-          />
-        ) : (
-          // System tool with no brand — its animated mark on a neutral coin,
-          // sized to match the brand tiles. Static here; plays on row hover.
-          <span
-            key={glyph.key}
-            className={cn(
-              "inline-flex size-6 shrink-0 items-center justify-center rounded-full bg-app-bg-2 text-app-fg-3 shadow-(--app-shadow-elevated) ring-2 ring-app-background",
-              i > 0 && "-ml-2",
-            )}
-          >
-            <glyph.Icon size={13} className="tool-animated-icon tool-animated-icon--hoverable" />
-          </span>
-        ),
-      )}
-    </span>
-  );
 }
