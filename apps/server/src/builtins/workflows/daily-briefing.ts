@@ -39,6 +39,7 @@ export const dailyBriefingWorkflow: Workflow<State> = {
   trigger: { kind: "cron", schedule: "0 * * * *" },
   initialStep: "gather",
   stateSchema,
+  closure: { kind: "none" },
   initialState(input) {
     const parsed = dailyBriefingWorkflowInputSchema.parse(input.input ?? {});
     return {

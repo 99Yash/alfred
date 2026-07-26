@@ -131,21 +131,24 @@ export const skillDocumentationWorkflow: Workflow<State> = {
   // records its own status: the skill-detail UI reads `skill_runs.status`, and
   // `finalizeSkillRun` records the terminal status it is handed — so a cancel is
   // recorded as a cancel rather than as a failure.
-  async onTerminal(ctx) {
-    switch (ctx.outcome) {
-      case "failed":
-        await finalizeSkillRun({ agentRunId: ctx.runId, status: "failed" });
-        return;
-      case "cancelled":
-        await finalizeSkillRun({ agentRunId: ctx.runId, status: "cancelled" });
-        return;
-      default: {
-        const unhandled: never = ctx;
-        throw new Error(
-          `[skill-documentation] unhandled terminal outcome: ${JSON.stringify(unhandled)}`,
-        );
+  closure: {
+    kind: "client",
+    async onTerminal(ctx) {
+      switch (ctx.outcome) {
+        case "failed":
+          await finalizeSkillRun({ agentRunId: ctx.runId, status: "failed" });
+          return;
+        case "cancelled":
+          await finalizeSkillRun({ agentRunId: ctx.runId, status: "cancelled" });
+          return;
+        default: {
+          const unhandled: never = ctx;
+          throw new Error(
+            `[skill-documentation] unhandled terminal outcome: ${JSON.stringify(unhandled)}`,
+          );
+        }
       }
-    }
+    },
   },
 
   steps: {

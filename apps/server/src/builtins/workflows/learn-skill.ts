@@ -135,19 +135,22 @@ export const learnSkillWorkflow: Workflow<State> = {
   // outside the step body has to close that row or the card stays "in progress"
   // forever. `finalizeSkillRun` records the terminal status it is handed, so each
   // branch records its own — a cancel is recorded as a cancel, not as a failure.
-  async onTerminal(ctx) {
-    switch (ctx.outcome) {
-      case "failed":
-        await finalizeSkillRun({ agentRunId: ctx.runId, status: "failed" });
-        return;
-      case "cancelled":
-        await finalizeSkillRun({ agentRunId: ctx.runId, status: "cancelled" });
-        return;
-      default: {
-        const unhandled: never = ctx;
-        throw new Error(`[learn-skill] unhandled terminal outcome: ${JSON.stringify(unhandled)}`);
+  closure: {
+    kind: "client",
+    async onTerminal(ctx) {
+      switch (ctx.outcome) {
+        case "failed":
+          await finalizeSkillRun({ agentRunId: ctx.runId, status: "failed" });
+          return;
+        case "cancelled":
+          await finalizeSkillRun({ agentRunId: ctx.runId, status: "cancelled" });
+          return;
+        default: {
+          const unhandled: never = ctx;
+          throw new Error(`[learn-skill] unhandled terminal outcome: ${JSON.stringify(unhandled)}`);
+        }
       }
-    }
+    },
   },
 
   steps: {

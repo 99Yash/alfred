@@ -41,7 +41,9 @@ import {
   integrationFromToolName,
   isIntegrationSlug,
   isRecord,
+  isTerminalStatus,
   isToolName,
+  runStatusSchema,
   sanitizeErrorMessage,
   sanitizeToolResult,
   summarizeBody,
@@ -56,7 +58,7 @@ import {
   type ToolSpanInput,
 } from "@alfred/ai";
 import { db } from "@alfred/db";
-import { actionStagings, type ActionStaging } from "@alfred/db/schemas";
+import { actionStagings, agentRuns, type ActionStaging } from "@alfred/db/schemas";
 import { actionStagingStatusSchema } from "@alfred/contracts";
 import { and, desc, eq, sql } from "drizzle-orm";
 import {
@@ -663,6 +665,29 @@ export async function dispatchToolCall(args: DispatchArgs): Promise<DispatchResu
     // already rejected. This is exactly the "bounce on the same wall" pattern
     // #345 wants countable — the shared signature buckets every repeat.
     recordRejection({ dispatch: args, outcome: "rejected", reason, toolName, tool, input });
+    return {
+      kind: "rejected",
+      stagingId: null,
+      result: synthesizeRejection({
+        toolName,
+        proposedInput: input,
+        reason,
+      }),
+    };
+  }
+
+  // Cancellation is allowed while a step body is running. The staging insert
+  // below is its own autocommit, so the executor's later commit guard cannot
+  // roll it back. Check at the effect boundary; the cancel post-commit sweep
+  // and the losing executor repeat the cleanup to close the remaining race.
+  const runRows = await db()
+    .select({ status: agentRuns.status })
+    .from(agentRuns)
+    .where(eq(agentRuns.id, args.runId))
+    .limit(1);
+  const runStatus = runStatusSchema.safeParse(runRows[0]?.status);
+  if (!runStatus.success || isTerminalStatus(runStatus.data)) {
+    const reason = runStatus.success ? `run is already ${runStatus.data}` : "run is unavailable";
     return {
       kind: "rejected",
       stagingId: null,

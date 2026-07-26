@@ -55,9 +55,7 @@ export function isTerminalStatus(s: RunStatus): boolean {
  * order may not be permuted: this list's order is what the partial-index
  * predicates are diffed on. See the note there.
  */
-export const TERMINAL_RUN_STATUSES: readonly RunStatus[] = Object.freeze(
-  RUN_STATUSES.filter(isTerminalStatus),
-);
+export const TERMINAL_RUN_STATUSES = Object.freeze(RUN_STATUSES.filter(isTerminalStatus));
 
 export const approvalKindSchema = z.enum(["step", "action_staging"]);
 export type ApprovalKind = z.infer<typeof approvalKindSchema>;

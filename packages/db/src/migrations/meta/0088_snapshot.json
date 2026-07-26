@@ -924,28 +924,6 @@
           "method": "btree",
           "with": {}
         },
-        "agent_runs_active_event_idx": {
-          "name": "agent_runs_active_event_idx",
-          "columns": [
-            {
-              "expression": "user_id",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            },
-            {
-              "expression": "workflow_slug",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            }
-          ],
-          "isUnique": false,
-          "where": "\"agent_runs\".\"status\" NOT IN ('completed', 'failed', 'cancelled')",
-          "concurrently": false,
-          "method": "btree",
-          "with": {}
-        },
         "agent_runs_event_active_idx": {
           "name": "agent_runs_event_active_idx",
           "columns": [

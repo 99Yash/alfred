@@ -18,7 +18,8 @@
 // every session pays for and nothing keeps current. When a "hint" row's legacy
 // call sites reach zero, promote it to "gate" and delete its prose row too.
 //
-// Escape hatch: append `// drift-ok` to a line to allow a deliberate exception.
+// Escape hatch: append `// drift-ok: <reason>` to a line. An empty marker is
+// itself drift: exemptions must explain the lock/property that makes them safe.
 
 /**
  * @typedef {object} ConsolidationRule
@@ -178,11 +179,27 @@ export const RULES = [
     // No `owners`: every legitimate writer carries an inline `// drift-ok:` with
     // its reason instead. A whole-file exemption for executor.ts and service.ts
     // is what made the previous version unable to catch D1, which lived in
-    // executor.ts. Four sanctioned sites, all annotated, so this gates.
-    re: /\bupdate\(\s*agentRuns\s*\)[^;]*?\.set\(\s*\{[^;]*?\bstatus\s*:/,
+    // executor.ts. This is a build-time detector for the common direct-write
+    // shapes, not a type-level proof that every possible SQL construction goes
+    // through the guarded door.
+    re: /\bupdate\(\s*agentRuns\s*\)[^;]*?\.set\(\s*\{[^;]*?(?:\bstatus\s*(?::|(?=[,}]))|\[\s*["']status["']\s*\]\s*:)/,
     scope: "chain",
     severity: "gate",
     fix: "Route `agent_runs.status` writes through commitGuardedRunUpdate in packages/api/src/modules/agent/executor.ts — it takes the row lock, refuses a superseded attempt, and refuses to write a live status over a terminal one. A bare .where(eq(agentRuns.id, …)) resurrects cancelled runs (#530). If the transaction already holds FOR UPDATE on the row and has checked the status under that lock (leaseRun's backstop), append `// drift-ok: <that reason>` to the `.update(agentRuns)` line.",
+  },
+  {
+    id: "unguarded-agent-run-status-upsert",
+    re: /\binsert\(\s*agentRuns\s*\)[^;]*?\.onConflictDoUpdate\(\s*\{[^;]*?\bset\s*:\s*\{[^;]*?(?:\bstatus\s*(?::|(?=[,}]))|\[\s*["']status["']\s*\]\s*:)/,
+    scope: "chain",
+    severity: "gate",
+    fix: "Do not upsert agent_runs.status. Route lifecycle transitions through the owning agent service/executor door so terminal-state and attempt guards cannot be bypassed.",
+  },
+  {
+    id: "raw-agent-run-status-sql",
+    re: /\bUPDATE\s+(?:"?agent_runs"?)\s+SET\b[^;]*?\bstatus\s*=/i,
+    scope: "chain",
+    severity: "gate",
+    fix: "Do not write agent_runs.status with raw SQL. Route lifecycle transitions through the owning agent service/executor door.",
   },
 ];
 
@@ -272,13 +289,14 @@ export function matchChains(text, file, lanes) {
       const start = code.lastIndexOf("\n", m.index) + 1;
       const lineEnd = code.indexOf("\n", m.index + m[0].length);
       const first = code.slice(0, start).split("\n").length - 1;
-      const last = lineEnd === -1 ? lines.length - 1 : code.slice(0, lineEnd).split("\n").length - 1;
+      const last =
+        lineEnd === -1 ? lines.length - 1 : code.slice(0, lineEnd).split("\n").length - 1;
       // Then widen again, for the marker only, over the comment block above.
       let markerFrom = first;
       while (markerFrom > 0 && isCommentLine(lines[markerFrom - 1])) markerFrom--;
       const exempt = lines
         .slice(markerFrom, last + 1)
-        .some((line) => line.includes("// drift-ok"));
+        .some((line) => /\/\/\s*drift-ok:\s*\S/.test(line));
       if (exempt) continue;
       found.push({
         rule,

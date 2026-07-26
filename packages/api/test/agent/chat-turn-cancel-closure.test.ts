@@ -263,6 +263,56 @@ describe("chat-turn cancel closure (#530/#531 D2, DB-backed)", { skip: SKIP }, (
     assert.equal(rows[0]?.messageId, messageId, "and the artifact is tied to the closed turn");
   });
 
+  test("cancel repairs a concurrently failed row and artifact", async () => {
+    const { userId, threadId, runId, messageId } = await seedWaitingChatRun({
+      assistantText: "The committed draft.",
+    });
+    await db().insert(chatMessages).values({
+      id: messageId,
+      userId,
+      threadId,
+      role: "assistant",
+      content: "partial",
+      status: "failed",
+      errorKind: "generic",
+      runId,
+    });
+    const artifactRows = await db()
+      .insert(artifacts)
+      .values({
+        userId,
+        threadId,
+        runId,
+        messageId,
+        kind: "document",
+        title: "Recovered doc",
+        status: "error",
+        content: { kind: "document", markdown: "Still useful." },
+      })
+      .returning({ id: artifacts.id });
+    const artifactId = artifactRows[0]?.id;
+    assert.ok(artifactId);
+
+    assert.equal(await cancelRun({ runId, reason: CANCEL_REASON }), "cancelled");
+
+    const message = await readAssistantMessage(messageId);
+    assert.equal(message?.status, "complete");
+    assert.equal(
+      message?.errorKind,
+      null,
+      "failed → complete clears the stale retry classification",
+    );
+    const artifact = await db()
+      .select({ status: artifacts.status })
+      .from(artifacts)
+      .where(eq(artifacts.id, artifactId));
+    assert.equal(
+      artifact[0]?.status,
+      "complete",
+      "cancel wins over the step body's error finalizer",
+    );
+  });
+
   test("a second cancel does not re-close the turn", async () => {
     const { userId, runId, messageId } = await seedWaitingChatRun({
       assistantText: "First and only.",

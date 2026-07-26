@@ -72,6 +72,7 @@ const cancelThenAdvanceWorkflow: Workflow<Record<string, never>> = {
   trigger: { kind: "manual" },
   initialState: () => ({}),
   initialStep: STEP,
+  closure: { kind: "none" },
   steps: {
     [STEP]: {
       id: STEP,
@@ -90,6 +91,7 @@ const cancelThenThrowWorkflow: Workflow<Record<string, never>> = {
   trigger: { kind: "manual" },
   initialState: () => ({}),
   initialStep: STEP,
+  closure: { kind: "none" },
   steps: {
     [STEP]: {
       id: STEP,
@@ -123,12 +125,15 @@ const cancelClosureWorkflow: Workflow<Record<string, never>> = {
       },
     },
   },
-  async onTerminal(ctx) {
-    terminalCalls.push({
-      runId: ctx.runId,
-      outcome: ctx.outcome,
-      reason: ctx.outcome === "failed" ? ctx.error : ctx.reason,
-    });
+  closure: {
+    kind: "client",
+    async onTerminal(ctx) {
+      terminalCalls.push({
+        runId: ctx.runId,
+        outcome: ctx.outcome,
+        reason: ctx.outcome === "failed" ? ctx.error : ctx.reason,
+      });
+    },
   },
 };
 
@@ -358,6 +363,42 @@ describe("mid-flight cancel race (#530, DB-backed)", { skip: SKIP }, () => {
     assert.equal(run?.status, "cancelled", "the run is NOT parked back into waiting");
     assert.equal(run?.wakeCondition, null, "the cancel's nulled wake condition survives");
     assert.deepEqual(await readStagingStatuses(runId), ["rejected"]);
+  });
+
+  test("a staging that commits after cancellation is swept when the executor loses", async () => {
+    const { userId, runId } = await seedRun({
+      workflowSlug: CANCEL_CLOSURE_SLUG,
+      status: "running",
+      attempt: 6,
+      withStepRow: true,
+    });
+    await cancelRun({ runId, reason: "user_stopped" });
+
+    // This is the D1 ordering: the cancel transaction already committed and
+    // completed its first sweep, then the still-live step body's independent
+    // staging autocommit lands.
+    await seedPendingStaging(userId, runId);
+    assert.deepEqual(await readStagingStatuses(runId), ["pending"]);
+
+    const outcome = await commitStepSuccess(
+      runRow(userId, runId, CANCEL_CLOSURE_SLUG, 6),
+      STEP,
+      6,
+      {
+        kind: "interrupt",
+        state: {},
+        wake: { kind: "hil", approvalId: "late", prompt: "Approve?" },
+      },
+      [],
+      [],
+    );
+
+    assert.equal(outcome.kind, "skipped");
+    assert.deepEqual(
+      await readStagingStatuses(runId),
+      ["rejected"],
+      "the losing executor compensates the staging row its tx could not roll back",
+    );
   });
 
   // ---- D2: refusing the commit must not mean nothing closes the turn --------

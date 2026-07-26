@@ -3,6 +3,8 @@ import {
   TERMINAL_RUN_STATUSES,
   agentRunTriggerSchema,
   type AgentRunTrigger,
+  type EventSource,
+  type EventType,
 } from "@alfred/contracts";
 import { sql, type SQL, type SQLWrapper } from "drizzle-orm";
 import {
@@ -129,7 +131,7 @@ export function isDuplicateRunIndex(constraint: string | null): constraint is Ag
 /**
  * `status NOT IN (<terminal statuses>)` — the one non-terminal run predicate.
  *
- * Five sites need it: the three partial indexes below, `hasNonTerminalEventRun`,
+ * Four sites need it: the two partial indexes below, `hasNonTerminalEventRun`,
  * and the chat active-run read. Two of those (the event index and the query it
  * backs) have to agree exactly or the index quietly stops being the race-safe
  * boundary, and none of them can be checked by the type system. Built from
@@ -139,7 +141,7 @@ export function isDuplicateRunIndex(constraint: string | null): constraint is Ag
  * The cost of rendering it into DDL: this function's *output text* is what
  * drizzle-kit diffs a partial index on, and the list order it interpolates is
  * `runStatusSchema`'s declaration order. Adding a terminal status, or reordering
- * that enum, rewrites the predicate of all three partial indexes below and
+ * that enum, rewrites the predicate of both partial indexes below and
  * regenerates them as DROP/CREATE. Append to the enum, never permute it — and
  * when the predicate does have to change, read the generated migration before
  * applying it rather than assuming the diff is empty.
@@ -157,8 +159,8 @@ export function runIsNotTerminal(status: SQLWrapper): SQL {
 export interface EventRunIdentity {
   userId: string;
   workflowSlug: string;
-  source: string;
-  type: string;
+  source: EventSource;
+  type: EventType;
   eventId: string;
   /** Absent for an original delivery; set for a re-key (e.g. the #282 reply re-eval). */
   reason?: string | undefined;
@@ -178,8 +180,9 @@ interface EventRunIdentityColumns {
  * `hasNonTerminalEventRun`'s WHERE. The index only enforces what the query
  * looks for if the two are expression-for-expression identical; writing the
  * tuple out twice and asserting "keep these byte-identical" in a comment is
- * exactly the drift this list removes. Adding a key column means adding one
- * entry here.
+ * exactly the index-vs-query drift this list removes. Trigger construction is a
+ * separate boundary, validated by `agentRunTriggerSchema`; this list does not
+ * generate that object.
  *
  * Every jsonb part is `coalesce`d to `''`. `agentRunTriggerSchema` marks
  * `source`/`type` optional (tolerant reads of pre-ADR-0047 rows), and a unique
@@ -328,19 +331,9 @@ export const agentRuns = pgTable(
     uniqueIndex("agent_runs_sub_agent_dedup_idx")
       .on(t.userId, t.workflowSlug, t.dedupKey)
       .where(sql`${t.workflowSlug} = '__user-authored-brief__' AND ${t.dedupKey} LIKE 'sub:%'`),
-    // Bounds the `emitEvent` non-terminal duplicate check (ADR-0047), which
-    // runs per inbound event (e.g. every triaged email). The partial WHERE
-    // must stay byte-identical to `hasNonTerminalEventRun`'s status predicate
-    // so the planner uses it; non-terminal runs are a small, self-draining
-    // set, so this stays a tiny lookup regardless of total agent_runs history.
-    // The jsonb source/type/eventId/reason predicates filter the matched
-    // handful in memory — no jsonb index needed.
-    index("agent_runs_active_event_idx")
-      .on(t.userId, t.workflowSlug)
-      .where(runIsNotTerminal(t.status)),
     // Enforces "at most one non-terminal run per (user, workflow, event
-    // identity)" (#531). The index above only *bounds* `emitEvent`'s duplicate
-    // check; the check itself is a read followed by an insert, so two
+    // identity)" (#531). The duplicate check is a read followed by an insert,
+    // so two
     // concurrent dispatches of the same event (a webhook and its retry, or a
     // webhook and a poll) both read zero matches and both create a run —
     // duplicate triage/brief, duplicate model spend, duplicate side effects.
