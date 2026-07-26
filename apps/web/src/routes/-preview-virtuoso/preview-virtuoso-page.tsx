@@ -83,6 +83,7 @@ export function PreviewVirtuosoPage() {
       reasoningActive: true,
       reasoningMs: null,
       tools: [],
+      subAgents: [],
       awaitingApproval: false,
       compacting: false,
       done: false,

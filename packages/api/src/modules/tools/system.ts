@@ -288,6 +288,12 @@ export const systemTools: readonly RegisteredTool[] = [
         subId: input.subId,
         brief: input.brief,
         allowedIntegrations: requestedAllowed.length > 0 ? requestedAllowed : [...workflowAllowed],
+        // Both are present only when the parent is a chat turn; the child uses
+        // them to stream its tool trail into that turn's bubble. A background
+        // parent has neither, and its child just runs quietly.
+        ...(ctx.threadId && ctx.messageId
+          ? { chat: { threadId: ctx.threadId, messageId: ctx.messageId } }
+          : {}),
       });
     },
   }),

@@ -3,6 +3,7 @@ import { ChevronRight } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import { cn } from "~/lib/utils";
 import { ChatProse } from "./chat-prose";
+import { formatDuration } from "./elapsed";
 
 const ITEM = "reasoning";
 
@@ -12,16 +13,6 @@ const ITEM = "reasoning";
 // a token or two with no measurable pause), so we drop it entirely.
 const MIN_COMPLETE_MS = 400;
 const MIN_COMPLETE_CHARS = 160;
-
-/** "1.2s" under a minute, "1m 4s" beyond — matches the streamed/persisted label. */
-function formatDuration(ms: number): string {
-  const totalSeconds = ms / 1000;
-  if (totalSeconds < 60)
-    return `${totalSeconds < 10 ? totalSeconds.toFixed(1) : Math.round(totalSeconds)}s`;
-  const m = Math.floor(totalSeconds / 60);
-  const s = Math.round(totalSeconds % 60);
-  return `${m}m ${s}s`;
-}
 
 /**
  * The model's thinking, in a collapsible "Thinking…" accordion. While the
