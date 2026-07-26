@@ -1,6 +1,10 @@
 import type { AgentTranscriptMessage } from "@alfred/contracts";
-import { agentRunTriggerSchema, type AgentRunTrigger } from "@alfred/contracts";
-import { sql } from "drizzle-orm";
+import {
+  TERMINAL_RUN_STATUSES,
+  agentRunTriggerSchema,
+  type AgentRunTrigger,
+} from "@alfred/contracts";
+import { sql, type SQL, type SQLWrapper } from "drizzle-orm";
 import {
   bigserial,
   index,
@@ -33,6 +37,127 @@ export const CHAT_THREAD_ACTIVE_RUN_INDEX = "agent_runs_chat_thread_active_idx";
  * rather than a failure. See the index definition below and issue #531.
  */
 export const EVENT_ACTIVE_RUN_INDEX = "agent_runs_event_active_idx";
+
+/**
+ * Name of the partial unique index behind `Workflow.dedupKey` (singleton runs).
+ * Exported for the same reason as the two above: a caller that owns several
+ * unique invariants has to know WHICH one collided. An event dispatch can trip
+ * this one instead of {@link EVENT_ACTIVE_RUN_INDEX} whenever the target
+ * workflow also declares a dedup key, and both mean "a run for this already
+ * exists" — not "the dispatch failed".
+ */
+export const RUN_DEDUP_KEY_INDEX = "agent_runs_dedup_key_idx";
+
+/**
+ * The unique indexes on `agent_runs` whose violation means "a run for this
+ * already exists", so the losing writer's answer is *duplicate, dropped* rather
+ * than *the dispatch failed*.
+ *
+ * A caller that only checks one of them mislabels the other: an event dispatch
+ * onto a workflow that ALSO declares a `dedupKey` can collide on either index
+ * depending on which write loses, and counting that as a failure logs an error
+ * for a benign outcome (#530/#531 review, D7).
+ *
+ * {@link CHAT_THREAD_ACTIVE_RUN_INDEX} is deliberately NOT in this set: its
+ * collision means "this thread is busy with a *different* turn", which is a
+ * distinct, user-visible answer (#488), not a duplicate to drop.
+ */
+export const DUPLICATE_RUN_INDEXES: readonly string[] = Object.freeze([
+  EVENT_ACTIVE_RUN_INDEX,
+  RUN_DEDUP_KEY_INDEX,
+]);
+
+/**
+ * `status NOT IN (<terminal statuses>)` — the one non-terminal run predicate.
+ *
+ * Five sites need it: the three partial indexes below, `hasNonTerminalEventRun`,
+ * and the chat active-run read. Two of those (the event index and the query it
+ * backs) have to agree exactly or the index quietly stops being the race-safe
+ * boundary, and none of them can be checked by the type system. Built from
+ * `TERMINAL_RUN_STATUSES`, which is derived from the same exhaustive map as
+ * `isTerminalStatus`, so a new run status reaches every one of them at once.
+ */
+export function runIsNotTerminal(status: SQLWrapper): SQL {
+  // Inlined as SQL literals rather than bound parameters: this fragment also
+  // renders into partial-index DDL, and drizzle-kit emits `$1, $2, $3` there
+  // with nothing to bind them to. Safe to inline because every value is a
+  // static member of `runStatusSchema`, never caller input.
+  const statuses = TERMINAL_RUN_STATUSES.map((s) => `'${s}'`).join(", ");
+  return sql`${status} NOT IN (${sql.raw(statuses)})`;
+}
+
+/** The dedup identity of an inbound event's run (#531). */
+export interface EventRunIdentity {
+  userId: string;
+  workflowSlug: string;
+  source: string;
+  type: string;
+  eventId: string;
+  /** Absent for an original delivery; set for a re-key (e.g. the #282 reply re-eval). */
+  reason?: string | undefined;
+}
+
+/** The `agent_runs` columns an event identity is read from. */
+interface EventRunIdentityColumns {
+  userId: SQLWrapper;
+  workflowSlug: SQLWrapper;
+  status: SQLWrapper;
+  trigger: SQLWrapper;
+}
+
+/**
+ * The ordered parts of an event run's identity — the single definition that
+ * generates BOTH {@link EVENT_ACTIVE_RUN_INDEX}'s key and the identity half of
+ * `hasNonTerminalEventRun`'s WHERE. The index only enforces what the query
+ * looks for if the two are expression-for-expression identical; writing the
+ * tuple out twice and asserting "keep these byte-identical" in a comment is
+ * exactly the drift this list removes. Adding a key column means adding one
+ * entry here.
+ *
+ * Every jsonb part is `coalesce`d to `''`. `agentRunTriggerSchema` marks
+ * `source`/`type` optional (tolerant reads of pre-ADR-0047 rows), and a unique
+ * index treats NULLs as distinct — so a bare `->> 'source'` key column would
+ * hand any trigger written without them *zero* enforcement, silently. The one
+ * uncoalesced part is `eventId`, and the index predicate excludes NULL eventIds
+ * outright, so no shape reaches the index unenforced.
+ */
+const EVENT_RUN_IDENTITY_PARTS: readonly {
+  expr: (t: EventRunIdentityColumns) => SQL;
+  value: (identity: EventRunIdentity) => string;
+}[] = [
+  { expr: (t) => sql`${t.userId}`, value: (id) => id.userId },
+  { expr: (t) => sql`${t.workflowSlug}`, value: (id) => id.workflowSlug },
+  { expr: (t) => sql`coalesce(${t.trigger} ->> 'source', '')`, value: (id) => id.source },
+  { expr: (t) => sql`coalesce(${t.trigger} ->> 'type', '')`, value: (id) => id.type },
+  { expr: (t) => sql`(${t.trigger} ->> 'eventId')`, value: (id) => id.eventId },
+  {
+    expr: (t) => sql`coalesce(${t.trigger} -> 'payload' ->> 'reason', '')`,
+    value: (id) => id.reason ?? "",
+  },
+];
+
+/** Index-key expressions for {@link EVENT_ACTIVE_RUN_INDEX}, in key order. */
+function eventRunIdentityKey(t: EventRunIdentityColumns): [SQL, ...SQL[]] {
+  const [first, ...rest] = EVENT_RUN_IDENTITY_PARTS.map((part) => part.expr(t));
+  if (!first) throw new Error("[db] event run identity has no key columns");
+  return [first, ...rest];
+}
+
+/**
+ * WHERE for "this user already has a non-terminal run for this exact event" —
+ * the read `emitEvent` uses as its fast path, generated from the same parts as
+ * the index that enforces it.
+ */
+export function eventRunIdentityMatch(t: EventRunIdentityColumns, identity: EventRunIdentity): SQL {
+  return sql.join(
+    [
+      sql`(${t.trigger} ->> 'kind') = 'event'`,
+      runIsNotTerminal(t.status),
+      ...EVENT_RUN_IDENTITY_PARTS.map((part) => sql`${part.expr(t)} = ${part.value(identity)}`),
+    ],
+    sql` AND `,
+  );
+}
 
 /**
  * Trigger that caused an `agent_runs` row to be inserted (ADR-0027).
@@ -124,7 +249,7 @@ export const agentRuns = pgTable(
     // lock a workflow out — a later trigger can produce a fresh attempt.
     // Workflows opt in by declaring `dedupKey` on their definition; rows
     // with a null dedup key are unaffected (most workflows).
-    uniqueIndex("agent_runs_dedup_key_idx")
+    uniqueIndex(RUN_DEDUP_KEY_INDEX)
       .on(t.userId, t.workflowSlug, t.dedupKey)
       .where(sql`${t.dedupKey} IS NOT NULL AND ${t.status} NOT IN ('failed', 'cancelled')`),
     // Sub-agent spawns are idempotent per parent tool call, including after a
@@ -145,7 +270,7 @@ export const agentRuns = pgTable(
     // handful in memory — no jsonb index needed.
     index("agent_runs_active_event_idx")
       .on(t.userId, t.workflowSlug)
-      .where(sql`${t.status} NOT IN ('completed', 'failed', 'cancelled')`),
+      .where(runIsNotTerminal(t.status)),
     // Enforces "at most one non-terminal run per (user, workflow, event
     // identity)" (#531). The index above only *bounds* `emitEvent`'s duplicate
     // check; the check itself is a read followed by an insert, so two
@@ -156,21 +281,15 @@ export const agentRuns = pgTable(
     // null `dedup_key`, and that index only fires on non-null. This is the
     // race-safe boundary, mirroring how the chat path uses
     // CHAT_THREAD_ACTIVE_RUN_INDEX: the losing insert hits a 23505 and
-    // `emitEvent` drops it as a duplicate. The key columns must stay
-    // byte-identical to `hasNonTerminalEventRun`'s identity predicate —
-    // including `reason`, which deliberately makes an outbound-reply re-eval
-    // (#282) a *different* event from the original delivery.
+    // `emitEvent` drops it as a duplicate. Both the key and the query it
+    // enforces come from EVENT_RUN_IDENTITY_PARTS — including `reason`, which
+    // deliberately makes an outbound-reply re-eval (#282) a *different* event
+    // from the original delivery. The NULL eventId exclusion is what lets the
+    // key's one uncoalesced part be safe (see the parts list).
     uniqueIndex(EVENT_ACTIVE_RUN_INDEX)
-      .on(
-        t.userId,
-        t.workflowSlug,
-        sql`(${t.trigger} ->> 'source')`,
-        sql`(${t.trigger} ->> 'type')`,
-        sql`(${t.trigger} ->> 'eventId')`,
-        sql`coalesce(${t.trigger} -> 'payload' ->> 'reason', '')`,
-      )
+      .on(...eventRunIdentityKey(t))
       .where(
-        sql`(${t.trigger} ->> 'kind') = 'event' AND (${t.trigger} ->> 'eventId') IS NOT NULL AND ${t.status} NOT IN ('completed', 'failed', 'cancelled')`,
+        sql`(${t.trigger} ->> 'kind') = 'event' AND (${t.trigger} ->> 'eventId') IS NOT NULL AND ${runIsNotTerminal(t.status)}`,
       ),
     // Enforces "at most one non-terminal chat turn per (user, thread)" (#488).
     // The chat-turn workflow keeps its thread id in `metadata.threadId`, so this
@@ -186,7 +305,7 @@ export const agentRuns = pgTable(
     uniqueIndex(CHAT_THREAD_ACTIVE_RUN_INDEX)
       .on(t.userId, sql`(${t.metadata} ->> 'threadId')`)
       .where(
-        sql`${t.workflowSlug} = '__chat-turn__' AND (${t.metadata} ->> 'threadId') IS NOT NULL AND ${t.status} NOT IN ('completed', 'failed', 'cancelled')`,
+        sql`${t.workflowSlug} = '__chat-turn__' AND (${t.metadata} ->> 'threadId') IS NOT NULL AND ${runIsNotTerminal(t.status)}`,
       ),
   ],
 );

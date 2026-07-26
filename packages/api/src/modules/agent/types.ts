@@ -113,14 +113,29 @@ export interface Step<S> {
   run(ctx: StepContext<S>): Promise<StepResult<S>>;
 }
 
-/** Context handed to {@link Workflow.onTerminalFailure}. */
-export interface TerminalFailureContext<S> {
+/**
+ * What every terminal-closure hook gets: which run ended, and the state it
+ * ended holding. `completed` has no hook here on purpose — a run completes by a
+ * step returning `done`, inside the step body, so the workflow already owns
+ * that closure.
+ */
+export interface TerminalClosureContext<S> {
   runId: string;
   userId: string;
   /** The run's last-committed state (validated against `stateSchema` if present). */
   state: S;
+}
+
+/** Context handed to {@link Workflow.onTerminalFailure}. */
+export interface TerminalFailureContext<S> extends TerminalClosureContext<S> {
   /** Sanitized, user-safe failure message (the synthetic backstop string, etc.). */
   error: string;
+}
+
+/** Context handed to {@link Workflow.onCancelled}. */
+export interface CancelledRunContext<S> extends TerminalClosureContext<S> {
+  /** Why the run was cancelled — e.g. the approvals `cancel_run` decision's reason. */
+  reason: string;
 }
 
 export interface WorkflowInput {
@@ -186,19 +201,39 @@ export interface Workflow<S = unknown> {
   /** Step the executor enters first. */
   initialStep: string;
   steps: Record<string, Step<S>>;
-  /** Optional parser used to validate and migrate persisted state before terminal-failure hooks. */
+  /** Optional parser used to validate and migrate persisted state before terminal hooks. */
   stateSchema?: z.ZodType<S>;
   /**
-   * Optional hook invoked when a run is terminally failed *outside* the step
-   * body — the non-progressing-step backstop (ADR-0070 §1.4) or a post-deploy
-   * step-resolution failure. Step-body faults already finalize themselves
-   * before rethrowing, but those external paths never enter the step, so a
-   * workflow that owns client-facing closure (chat-turn writes a failed
-   * assistant row + emits `chat.message completed`) would otherwise strand the
-   * UI. Best-effort: the run is already terminal in the DB; a throw here is
-   * logged and swallowed.
+   * Optional hook invoked when a run FAILS *outside* the step body, so the
+   * workflow can close whatever client-facing artifact it left mid-flight.
+   * Chat-turn writes the durable failed assistant row and emits
+   * `chat.message completed`; without it the streaming bubble hangs forever.
+   *
+   * Two paths reach it: the non-progressing-step backstop (ADR-0070 §1.4) and a
+   * post-deploy step-resolution failure. A cancel is NOT one of them — see
+   * {@link Workflow.onCancelled}.
+   *
+   * Best-effort: the run is already terminal in the DB, so a throw here is
+   * logged and swallowed — it must never resurrect or re-fail the run. Make it
+   * idempotent; a step-body finalize may already have landed.
    */
   onTerminalFailure?(ctx: TerminalFailureContext<S>): Promise<void>;
+  /**
+   * Optional hook invoked when a run is CANCELLED — the approvals `cancel_run`
+   * decision, or `cancelRun` directly. Same obligation as
+   * {@link Workflow.onTerminalFailure} (close the client-facing artifact, be
+   * idempotent, throwing is swallowed) and deliberately a separate hook,
+   * because the two are not interchangeable: a cancel is something the user
+   * chose, so rendering a failure UI with a "retry" affordance both lies and
+   * offers to re-run a turn they just ended.
+   *
+   * A workflow that owes client closure must implement BOTH. Since the #530
+   * commit guard, a cancel landing mid-step rolls the in-flight commit back, so
+   * nothing else will close the turn: implementing only the failure half is the
+   * whole of the streaming-bubble-hangs-forever regression (#530/#531 review,
+   * finding D2).
+   */
+  onCancelled?(ctx: CancelledRunContext<S>): Promise<void>;
   /**
    * Optional singleton-key derivation for workflows that may run at most
    * once per (user, key) at a time. When defined and non-null, the

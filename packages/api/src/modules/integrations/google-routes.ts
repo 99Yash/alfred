@@ -1,6 +1,6 @@
 import { ACCOUNT_PERSONAS, toMessage } from "@alfred/contracts";
 import { db } from "@alfred/db";
-import { integrationCredentials, user } from "@alfred/db/schemas";
+import { DUPLICATE_RUN_INDEXES, integrationCredentials, user } from "@alfred/db/schemas";
 import { gmailMailboxWritesEnabled, serverEnv } from "@alfred/env/server";
 import {
   buildAuthorizeUrl,
@@ -22,7 +22,7 @@ import { and, eq } from "drizzle-orm";
 import { authMacro } from "../../middleware/auth";
 import { BadRequestError, NotFoundError, ServiceUnavailableError } from "../../middleware/errors";
 import { createRun, enqueueRun } from "../agent";
-import { isUniqueViolation } from "../../lib/pg-errors";
+import { uniqueViolationConstraint } from "../../lib/pg-errors";
 import { COLD_START_WORKFLOW_SLUG } from "../cold-start";
 import { getIngestionQueue } from "./queue";
 import {
@@ -479,9 +479,15 @@ export const googleIntegrationRoutes = new Elysia({
       // excluded from the index, so a transient Perplexity outage isn't
       // a permanent lockout — a later reconnect re-fires.
       //
-      // Try/catch eats both unique-violations (expected on reconnect)
-      // and any other failure — a research-trigger problem must not
-      // bounce the user back to an OAuth error page.
+      // Since #531 this run's `event` trigger ALSO puts it under the event
+      // active-run index, so either of the two duplicate-run indexes can be the
+      // one that fires. Both mean "already exists", which is why the catch
+      // matches the named set rather than any 23505: a violation on some other
+      // constraint is a real fault and deserves the warn, not the reassuring
+      // "already exists" line.
+      //
+      // Nothing rethrows — a research-trigger problem must not bounce the user
+      // back to an OAuth error page.
       try {
         const { runId } = await createRun({
           userId: decoded.userId,
@@ -501,11 +507,12 @@ export const googleIntegrationRoutes = new Elysia({
         });
         await enqueueRun(runId);
       } catch (err) {
-        if (isUniqueViolation(err)) {
+        const constraint = uniqueViolationConstraint(err);
+        if (constraint !== null && DUPLICATE_RUN_INDEXES.includes(constraint)) {
           // Reconnect after a successful (or in-flight) prior run —
           // expected, log at info level only.
           console.log(
-            `[google.callback] cold-start research already exists for ${decoded.userId}; skipping.`,
+            `[google.callback] cold-start research already exists for ${decoded.userId} (${constraint}); skipping.`,
           );
         } else {
           console.warn(

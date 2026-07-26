@@ -8,6 +8,7 @@ import { BadRequestError, ConflictError, NotFoundError } from "../../middleware/
 import {
   cancelRunInTx,
   enqueueRun,
+  finalizeCancelledRun,
   signalRunInTx,
   type CancelOutcome,
   type SignalOutcome,
@@ -18,6 +19,9 @@ import { startApprovalWaitSpan, type ApprovalWaitOutcome } from "../agent/runtim
 import { toMessage } from "@alfred/contracts";
 
 type Decision = "approve" | "reject" | "cancel_run";
+
+/** Programmatic reason stamped on `agent_runs.error.reason` by a `cancel_run`. */
+const CANCEL_RUN_REASON = "cancelled_by_user";
 
 interface DecisionOutcome {
   runId: string;
@@ -35,6 +39,13 @@ interface DecisionOutcome {
    * was joining (ADR-0073). Enqueued after commit so the boss resumes promptly.
    */
   wokenParentRunId?: string | null;
+  /**
+   * Set only by a `cancel_run` that actually cancelled: the reason to hand the
+   * workflow's `onCancelled` closure after commit. `cancelRunInTx` can't drive
+   * that itself (the hook publishes user-visible state, which must not survive a
+   * rollback), so the obligation lands here — see `cancelRunInTx`'s docstring.
+   */
+  cancelledReason?: string;
   /**
    * Approval-wait observation to emit after commit (#409). Carries the staging's
    * bounded, PII-free timing/identity so `runtime.approval.wait` spans the
@@ -142,7 +153,7 @@ export const approvalsRoutes = new Elysia({ prefix: "/api/approvals", normalize:
               wokenParentRunId,
             } = await cancelRunInTx(tx, {
               runId: row.runId,
-              reason: "cancelled_by_user",
+              reason: CANCEL_RUN_REASON,
               pendingApprovalRejectReason: reason,
             });
             const conflict = cancelOutcomeConflict(cancelOutcome);
@@ -153,6 +164,7 @@ export const approvalsRoutes = new Elysia({ prefix: "/api/approvals", normalize:
               status: "rejected",
               shouldEnqueue,
               rejectedStagingIds,
+              cancelledReason: CANCEL_RUN_REASON,
               // If the cancelled run was itself a sub-agent child, a parent
               // boss joining it was woken in-tx — enqueue it after commit too.
               wokenParentRunId,
@@ -194,6 +206,14 @@ export const approvalsRoutes = new Elysia({ prefix: "/api/approvals", normalize:
         if ("conflict" in outcome) throw new ConflictError(outcome.conflict);
 
         emitReplicachePokes([user.id], params.stagingId);
+        // A `cancel_run` is a terminal transition outside any step body, so the
+        // run's workflow owes the client closure — chat-turn has to persist its
+        // assistant row and emit `chat.message completed` or the streaming
+        // bubble hangs forever (#530/#531 review, D2). Internally best-effort;
+        // it must not fail the decision the user already made.
+        if (outcome.cancelledReason !== undefined) {
+          await finalizeCancelledRun(outcome.runId, outcome.cancelledReason);
+        }
         // A `cancel_run` bulk-rejects every gated pending row on the run,
         // not just this one; tear down the queued jobs for all of them so
         // none linger as ghost jobs that fire later and no-op.
