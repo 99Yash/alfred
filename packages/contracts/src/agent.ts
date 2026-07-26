@@ -1,6 +1,16 @@
 import { z } from "zod";
 import { EVENT_SOURCES } from "./event-triggers";
 
+/**
+ * Lifecycle status of an `agent_runs` row.
+ *
+ * **Member order is load-bearing — append, never reorder.** `TERMINAL_RUN_STATUSES`
+ * below preserves this order, and `runIsNotTerminal` (`@alfred/db`) renders it
+ * into the `status NOT IN (…)` predicate of three partial unique indexes.
+ * drizzle-kit diffs a partial index by its predicate *text*, so permuting this
+ * enum regenerates all three as DROP/CREATE — brief windows in a migration
+ * where the race-safe boundaries of #488 and #531 do not exist.
+ */
 export const runStatusSchema = z.enum([
   "pending",
   "runnable",
@@ -13,9 +23,39 @@ export const runStatusSchema = z.enum([
 export const RUN_STATUSES = Object.freeze([...runStatusSchema.options]);
 export type RunStatus = z.infer<typeof runStatusSchema>;
 
+/**
+ * Does a status end a run? Declared as data and checked exhaustively: a new
+ * member of `runStatusSchema` without an entry here is a build error. A
+ * hand-written `s === "completed" || …` chain answers `false` for the new
+ * member instead — silently, everywhere at once, including the executor's
+ * commit guard and every `NOT IN` predicate derived below.
+ */
+const RUN_STATUS_KIND = {
+  pending: "live",
+  runnable: "live",
+  running: "live",
+  waiting: "live",
+  completed: "terminal",
+  failed: "terminal",
+  cancelled: "terminal",
+} as const satisfies Record<RunStatus, "live" | "terminal">;
+
 export function isTerminalStatus(s: RunStatus): boolean {
-  return s === "completed" || s === "failed" || s === "cancelled";
+  return RUN_STATUS_KIND[s] === "terminal";
 }
+
+/**
+ * The terminal statuses as data, for SQL that has to name them rather than call
+ * {@link isTerminalStatus} per row. Both come from {@link RUN_STATUS_KIND}, so
+ * they cannot disagree. SQL callers should reach for `runIsNotTerminal` from
+ * `@alfred/db` rather than interpolating this list themselves — the whole point
+ * is that the predicate exists once.
+ *
+ * Order follows {@link runStatusSchema}'s declaration order, which is why that
+ * order may not be permuted: this list's order is what the partial-index
+ * predicates are diffed on. See the note there.
+ */
+export const TERMINAL_RUN_STATUSES = Object.freeze(RUN_STATUSES.filter(isTerminalStatus));
 
 export const approvalKindSchema = z.enum(["step", "action_staging"]);
 export type ApprovalKind = z.infer<typeof approvalKindSchema>;

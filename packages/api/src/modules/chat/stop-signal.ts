@@ -2,16 +2,23 @@ import type IORedis from "ioredis";
 import { createCacheRedisConnection } from "../../queue/connection";
 
 /**
- * User-initiated stop for an in-flight chat turn.
+ * User-initiated stop for an in-flight chat turn — what the composer's stop
+ * button calls. (The approvals panel's "cancel run" decision is a different
+ * thing entirely: it goes through `cancelRun` and ends the run `cancelled`.)
  *
- * The flag lives in Redis (shared by the API process that takes the stop
- * request and the worker that's draining the model stream) rather than in the
- * agent harness's status machine: `commitStepSuccess` writes run status
- * unconditionally at step boundaries, so flipping `agent_runs.status` to
- * `cancelled` mid-step would be silently overwritten when the step commits.
- * A side-channel flag lets the chat-turn step notice the stop on its own
- * schedule, finalize the partial assistant message through the normal path,
- * and end the run as `completed` — no harness semantics touched.
+ * The flag lives in Redis, shared by the API process that takes the stop request
+ * and the worker draining the model stream, rather than in the agent harness's
+ * status machine — but note WHY, because the original reason is gone. It used to
+ * be that a mid-step `cancelled` was unsafe: `commitStepSuccess` wrote run status
+ * unconditionally at step boundaries, so the flip was silently overwritten when
+ * the step committed. #530 closed that; a mid-step terminal status now survives.
+ *
+ * What still argues for the side-channel is the product semantics. A stop is not
+ * an abort: the chat-turn step notices the flag on its own schedule, finalizes
+ * the partial assistant message through the normal path, and ends the run
+ * `completed`, so the text the user already read stays and the turn reads as
+ * finished rather than cancelled. Going through `cancelRun` instead would discard
+ * the in-flight step's work and mark the run terminal from the outside.
  *
  * Fail-open on Redis trouble: a stop that can't be recorded means the turn
  * keeps streaming (annoying), whereas fail-closed would mean every turn stops

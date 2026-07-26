@@ -1,6 +1,12 @@
 import type { AgentTranscriptMessage } from "@alfred/contracts";
-import { agentRunTriggerSchema, type AgentRunTrigger } from "@alfred/contracts";
-import { sql } from "drizzle-orm";
+import {
+  TERMINAL_RUN_STATUSES,
+  agentRunTriggerSchema,
+  type AgentRunTrigger,
+  type EventSource,
+  type EventType,
+} from "@alfred/contracts";
+import { sql, type SQL, type SQLWrapper } from "drizzle-orm";
 import {
   bigserial,
   index,
@@ -25,6 +31,203 @@ export type { AgentRunTrigger };
  * the index definition below and issue #488.
  */
 export const CHAT_THREAD_ACTIVE_RUN_INDEX = "agent_runs_chat_thread_active_idx";
+
+/**
+ * Name of the partial unique index that enforces one non-terminal run per
+ * inbound event identity. Exported so `emitEvent`'s catch can match the exact
+ * constraint name on a 23505 and count the losing insert as a dropped duplicate
+ * rather than a failure. See the index definition below and issue #531.
+ */
+export const EVENT_ACTIVE_RUN_INDEX = "agent_runs_event_active_idx";
+
+/**
+ * Name of the partial unique index behind `Workflow.dedupKey` (singleton runs).
+ * Exported for the same reason as the two above: a caller that owns several
+ * unique invariants has to know WHICH one collided. An event dispatch can trip
+ * this one instead of {@link EVENT_ACTIVE_RUN_INDEX} whenever the target
+ * workflow also declares a dedup key, and both mean "a run for this already
+ * exists" — not "the dispatch failed".
+ */
+export const RUN_DEDUP_KEY_INDEX = "agent_runs_dedup_key_idx";
+
+/**
+ * The `agent_runs` unique indexes whose constraint name a caller has to *branch
+ * on*, i.e. the ones with more than one 23505 in reach.
+ *
+ * `agent_runs_sub_agent_dedup_idx` is deliberately absent: its one caller
+ * (`spawnSubAgent`) matches any 23505 and then re-reads the winning row, so it
+ * never needs to know which constraint fired. Adding a fourth index that a
+ * caller *does* discriminate means adding it here — and then declaring its
+ * collision meaning below becomes a build requirement.
+ */
+export const AGENT_RUN_UNIQUE_INDEXES = [
+  EVENT_ACTIVE_RUN_INDEX,
+  RUN_DEDUP_KEY_INDEX,
+  CHAT_THREAD_ACTIVE_RUN_INDEX,
+] as const;
+
+export type AgentRunUniqueIndex = (typeof AGENT_RUN_UNIQUE_INDEXES)[number];
+
+/**
+ * What a 23505 on each index *means* to the losing writer, and therefore what it
+ * owes the caller:
+ *
+ * - `duplicate` — "a run for this already exists"; the losing write is dropped
+ *   silently and counted, not reported as a failure.
+ * - `busy` — "the resource is occupied by a different request"; the loser is a
+ *   distinct request that must be surfaced, never swallowed.
+ *
+ * Declared as data and checked exhaustively, for the same reason `RUN_STATUS_KIND`
+ * is: a `readonly string[]` set plus a prose note about which index is
+ * deliberately excluded gives a fourth index zero prompting, and `.includes(typo)`
+ * compiles when the element type is `string`. Getting this wrong is not loud — an
+ * event dispatch onto a workflow that ALSO declares a `dedupKey` can collide on
+ * either index depending on which write loses, and a caller that checks only one
+ * of them logs an error for a benign outcome (#530/#531 review, D7).
+ *
+ * The axis is whether the colliding key identifies the *request* or the
+ * *resource*:
+ *
+ * - {@link EVENT_ACTIVE_RUN_INDEX} is the inbound event's identity — a webhook
+ *   and its retry are the same request by construction.
+ * - {@link RUN_DEDUP_KEY_INDEX} is request identity too, and the workflow itself
+ *   declared it: the key is whatever its `dedupKey(input)` returns. A singleton
+ *   like cold-start-research returns a constant, so two dispatches carrying
+ *   *different* events really are one request by that workflow's own definition
+ *   ("run me once, whatever wakes me") — the dropped event is intended, not lost.
+ *   That is the semantic, and `emitEvent` counting the drop as `skippedDuplicate`
+ *   is correct rather than a mislabel. Its partial predicate agrees: it keeps
+ *   `completed` rows blocking (unlike the other two), because the answer it gives
+ *   is "already done", not "busy right now".
+ * - {@link CHAT_THREAD_ACTIVE_RUN_INDEX} is resource occupancy, and no workflow
+ *   asked for it — the key is the thread, and the two turns contending for it are
+ *   genuinely different requests with different `userMessageId`s. Dropping the
+ *   loser as a duplicate would swallow a message the user typed, so it surfaces
+ *   as a typed "thread busy" instead (#488).
+ */
+const AGENT_RUN_UNIQUE_INDEX_MEANING = {
+  [EVENT_ACTIVE_RUN_INDEX]: "duplicate",
+  [RUN_DEDUP_KEY_INDEX]: "duplicate",
+  [CHAT_THREAD_ACTIVE_RUN_INDEX]: "busy",
+} as const satisfies Record<AgentRunUniqueIndex, "duplicate" | "busy">;
+
+/**
+ * Does this 23505's constraint mean "a run for this already exists, drop the
+ * loser"? Derived from {@link AGENT_RUN_UNIQUE_INDEX_MEANING}, so the set and the
+ * reasoning behind it cannot drift apart.
+ *
+ * Takes the constraint name as `string | null` because that is what
+ * `uniqueViolationConstraint` returns, and narrows — so a caller gets the
+ * null-check and the membership test in one call instead of hand-writing both.
+ */
+export function isDuplicateRunIndex(constraint: string | null): constraint is AgentRunUniqueIndex {
+  return (
+    constraint !== null &&
+    constraint in AGENT_RUN_UNIQUE_INDEX_MEANING &&
+    AGENT_RUN_UNIQUE_INDEX_MEANING[constraint as AgentRunUniqueIndex] === "duplicate"
+  );
+}
+
+/**
+ * `status NOT IN (<terminal statuses>)` — the one non-terminal run predicate.
+ *
+ * Four sites need it: the two partial indexes below, `hasNonTerminalEventRun`,
+ * and the chat active-run read. Two of those (the event index and the query it
+ * backs) have to agree exactly or the index quietly stops being the race-safe
+ * boundary, and none of them can be checked by the type system. Built from
+ * `TERMINAL_RUN_STATUSES`, which is derived from the same exhaustive map as
+ * `isTerminalStatus`, so a new run status reaches every one of them at once.
+ *
+ * The cost of rendering it into DDL: this function's *output text* is what
+ * drizzle-kit diffs a partial index on, and the list order it interpolates is
+ * `runStatusSchema`'s declaration order. Adding a terminal status, or reordering
+ * that enum, rewrites the predicate of both partial indexes below and
+ * regenerates them as DROP/CREATE. Append to the enum, never permute it — and
+ * when the predicate does have to change, read the generated migration before
+ * applying it rather than assuming the diff is empty.
+ */
+export function runIsNotTerminal(status: SQLWrapper): SQL {
+  // Inlined as SQL literals rather than bound parameters: this fragment also
+  // renders into partial-index DDL, and drizzle-kit emits `$1, $2, $3` there
+  // with nothing to bind them to. Safe to inline because every value is a
+  // static member of `runStatusSchema`, never caller input.
+  const statuses = TERMINAL_RUN_STATUSES.map((s) => `'${s}'`).join(", ");
+  return sql`${status} NOT IN (${sql.raw(statuses)})`;
+}
+
+/** The dedup identity of an inbound event's run (#531). */
+export interface EventRunIdentity {
+  userId: string;
+  workflowSlug: string;
+  source: EventSource;
+  type: EventType;
+  eventId: string;
+  /** Absent for an original delivery; set for a re-key (e.g. the #282 reply re-eval). */
+  reason?: string | undefined;
+}
+
+/** The `agent_runs` columns an event identity is read from. */
+interface EventRunIdentityColumns {
+  userId: SQLWrapper;
+  workflowSlug: SQLWrapper;
+  status: SQLWrapper;
+  trigger: SQLWrapper;
+}
+
+/**
+ * The ordered parts of an event run's identity — the single definition that
+ * generates BOTH {@link EVENT_ACTIVE_RUN_INDEX}'s key and the identity half of
+ * `hasNonTerminalEventRun`'s WHERE. The index only enforces what the query
+ * looks for if the two are expression-for-expression identical; writing the
+ * tuple out twice and asserting "keep these byte-identical" in a comment is
+ * exactly the index-vs-query drift this list removes. Trigger construction is a
+ * separate boundary, validated by `agentRunTriggerSchema`; this list does not
+ * generate that object.
+ *
+ * Every jsonb part is `coalesce`d to `''`. `agentRunTriggerSchema` marks
+ * `source`/`type` optional (tolerant reads of pre-ADR-0047 rows), and a unique
+ * index treats NULLs as distinct — so a bare `->> 'source'` key column would
+ * hand any trigger written without them *zero* enforcement, silently. The one
+ * uncoalesced part is `eventId`, and the index predicate excludes NULL eventIds
+ * outright, so no shape reaches the index unenforced.
+ */
+const EVENT_RUN_IDENTITY_PARTS: readonly {
+  expr: (t: EventRunIdentityColumns) => SQL;
+  value: (identity: EventRunIdentity) => string;
+}[] = [
+  { expr: (t) => sql`${t.userId}`, value: (id) => id.userId },
+  { expr: (t) => sql`${t.workflowSlug}`, value: (id) => id.workflowSlug },
+  { expr: (t) => sql`coalesce(${t.trigger} ->> 'source', '')`, value: (id) => id.source },
+  { expr: (t) => sql`coalesce(${t.trigger} ->> 'type', '')`, value: (id) => id.type },
+  { expr: (t) => sql`(${t.trigger} ->> 'eventId')`, value: (id) => id.eventId },
+  {
+    expr: (t) => sql`coalesce(${t.trigger} -> 'payload' ->> 'reason', '')`,
+    value: (id) => id.reason ?? "",
+  },
+];
+
+/** Index-key expressions for {@link EVENT_ACTIVE_RUN_INDEX}, in key order. */
+function eventRunIdentityKey(t: EventRunIdentityColumns): [SQL, ...SQL[]] {
+  const [first, ...rest] = EVENT_RUN_IDENTITY_PARTS.map((part) => part.expr(t));
+  if (!first) throw new Error("[db] event run identity has no key columns");
+  return [first, ...rest];
+}
+
+/**
+ * WHERE for "this user already has a non-terminal run for this exact event" —
+ * the read `emitEvent` uses as its fast path, generated from the same parts as
+ * the index that enforces it.
+ */
+export function eventRunIdentityMatch(t: EventRunIdentityColumns, identity: EventRunIdentity): SQL {
+  return sql.join(
+    [
+      sql`(${t.trigger} ->> 'kind') = 'event'`,
+      runIsNotTerminal(t.status),
+      ...EVENT_RUN_IDENTITY_PARTS.map((part) => sql`${part.expr(t)} = ${part.value(identity)}`),
+    ],
+    sql` AND `,
+  );
+}
 
 /**
  * Trigger that caused an `agent_runs` row to be inserted (ADR-0027).
@@ -116,7 +319,7 @@ export const agentRuns = pgTable(
     // lock a workflow out — a later trigger can produce a fresh attempt.
     // Workflows opt in by declaring `dedupKey` on their definition; rows
     // with a null dedup key are unaffected (most workflows).
-    uniqueIndex("agent_runs_dedup_key_idx")
+    uniqueIndex(RUN_DEDUP_KEY_INDEX)
       .on(t.userId, t.workflowSlug, t.dedupKey)
       .where(sql`${t.dedupKey} IS NOT NULL AND ${t.status} NOT IN ('failed', 'cancelled')`),
     // Sub-agent spawns are idempotent per parent tool call, including after a
@@ -128,16 +331,26 @@ export const agentRuns = pgTable(
     uniqueIndex("agent_runs_sub_agent_dedup_idx")
       .on(t.userId, t.workflowSlug, t.dedupKey)
       .where(sql`${t.workflowSlug} = '__user-authored-brief__' AND ${t.dedupKey} LIKE 'sub:%'`),
-    // Bounds the `emitEvent` non-terminal duplicate check (ADR-0047), which
-    // runs per inbound event (e.g. every triaged email). The partial WHERE
-    // must stay byte-identical to `hasNonTerminalEventRun`'s status predicate
-    // so the planner uses it; non-terminal runs are a small, self-draining
-    // set, so this stays a tiny lookup regardless of total agent_runs history.
-    // The jsonb source/type/eventId/reason predicates filter the matched
-    // handful in memory — no jsonb index needed.
-    index("agent_runs_active_event_idx")
-      .on(t.userId, t.workflowSlug)
-      .where(sql`${t.status} NOT IN ('completed', 'failed', 'cancelled')`),
+    // Enforces "at most one non-terminal run per (user, workflow, event
+    // identity)" (#531). The duplicate check is a read followed by an insert,
+    // so two
+    // concurrent dispatches of the same event (a webhook and its retry, or a
+    // webhook and a poll) both read zero matches and both create a run —
+    // duplicate triage/brief, duplicate model spend, duplicate side effects.
+    // The general dedup index can't catch it: event-triggered runs return a
+    // null `dedup_key`, and that index only fires on non-null. This is the
+    // race-safe boundary, mirroring how the chat path uses
+    // CHAT_THREAD_ACTIVE_RUN_INDEX: the losing insert hits a 23505 and
+    // `emitEvent` drops it as a duplicate. Both the key and the query it
+    // enforces come from EVENT_RUN_IDENTITY_PARTS — including `reason`, which
+    // deliberately makes an outbound-reply re-eval (#282) a *different* event
+    // from the original delivery. The NULL eventId exclusion is what lets the
+    // key's one uncoalesced part be safe (see the parts list).
+    uniqueIndex(EVENT_ACTIVE_RUN_INDEX)
+      .on(...eventRunIdentityKey(t))
+      .where(
+        sql`(${t.trigger} ->> 'kind') = 'event' AND (${t.trigger} ->> 'eventId') IS NOT NULL AND ${runIsNotTerminal(t.status)}`,
+      ),
     // Enforces "at most one non-terminal chat turn per (user, thread)" (#488).
     // The chat-turn workflow keeps its thread id in `metadata.threadId`, so this
     // indexes that jsonb expression. The dedup index above is keyed on
@@ -152,7 +365,7 @@ export const agentRuns = pgTable(
     uniqueIndex(CHAT_THREAD_ACTIVE_RUN_INDEX)
       .on(t.userId, sql`(${t.metadata} ->> 'threadId')`)
       .where(
-        sql`${t.workflowSlug} = '__chat-turn__' AND (${t.metadata} ->> 'threadId') IS NOT NULL AND ${t.status} NOT IN ('completed', 'failed', 'cancelled')`,
+        sql`${t.workflowSlug} = '__chat-turn__' AND (${t.metadata} ->> 'threadId') IS NOT NULL AND ${runIsNotTerminal(t.status)}`,
       ),
   ],
 );

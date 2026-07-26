@@ -16,6 +16,7 @@ import {
   chatAttachments,
   chatMessages,
   chatThreads,
+  runIsNotTerminal,
   CHAT_THREAD_ACTIVE_RUN_INDEX,
 } from "@alfred/db/schemas";
 import type { ChatAttachment, NewChatAttachment } from "@alfred/db/schemas";
@@ -182,6 +183,9 @@ async function findExistingChatTurnRun(
         eq(agentRuns.userId, userId),
         eq(agentRuns.workflowSlug, CHAT_TURN_WORKFLOW_SLUG),
         eq(agentRuns.dedupKey, `chat:${userMessageId}`),
+        // Deliberately NOT `runIsNotTerminal`: this fronts the dedup-key index,
+        // whose predicate excludes only failed/cancelled so a `completed` turn
+        // still answers "already done" while a failed one stays retryable.
         notInArray(agentRuns.status, ["failed", "cancelled"]),
       ),
     )
@@ -230,7 +234,10 @@ async function findBlockingChatTurnRun(
         eq(agentRuns.userId, userId),
         eq(agentRuns.workflowSlug, CHAT_TURN_WORKFLOW_SLUG),
         sql`${agentRuns.metadata} ->> 'threadId' = ${threadId}`,
-        notInArray(agentRuns.status, ["completed", "failed", "cancelled"]),
+        // Must match CHAT_THREAD_ACTIVE_RUN_INDEX's predicate exactly or this
+        // fast path and the index it fronts disagree about which runs are
+        // active. Both call `runIsNotTerminal`, so they can't.
+        runIsNotTerminal(agentRuns.status),
       ),
     )
     .limit(1);

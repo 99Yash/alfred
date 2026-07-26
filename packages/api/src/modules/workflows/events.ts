@@ -1,8 +1,14 @@
 import type { EventSource, EventType } from "@alfred/contracts";
 import { isEventTypeForSource, toMessage } from "@alfred/contracts";
 import { db } from "@alfred/db";
-import { agentRuns, workflows } from "@alfred/db/schemas";
+import {
+  agentRuns,
+  eventRunIdentityMatch,
+  isDuplicateRunIndex,
+  workflows,
+} from "@alfred/db/schemas";
 import { and, eq, or, sql } from "drizzle-orm";
+import { uniqueViolationConstraint } from "../../lib/pg-errors";
 import { enqueueRun } from "../agent/queue";
 import { createRun } from "../agent/service";
 
@@ -81,6 +87,10 @@ export async function emitEvent(args: EmitEventArgs): Promise<EmitEventResult> {
           return;
         }
 
+        // Fast path only. This read and the insert below are not atomic, so
+        // two concurrent dispatches of the same event (webhook + retry,
+        // webhook + poll) can both miss here; the partial unique index behind
+        // `eventRunIdentityMatch` is what actually stops the second run (#531).
         const duplicate = await hasNonTerminalEventRun({
           userId: args.userId,
           workflowSlug: row.slug,
@@ -94,19 +104,36 @@ export async function emitEvent(args: EmitEventArgs): Promise<EmitEventResult> {
           return;
         }
 
-        const { runId } = await createRun({
-          userId: args.userId,
-          workflowSlug: row.slug,
-          input: { documentId, reason, force, source: args.source, type: args.type },
-          metadata: { source: args.source, type: args.type, eventId: args.eventId, documentId },
-          trigger: {
-            kind: "event",
-            source: args.source,
-            type: args.type,
-            eventId: args.eventId,
-            payload: { documentId, reason },
-          },
-        });
+        let runId: string;
+        try {
+          ({ runId } = await createRun({
+            userId: args.userId,
+            workflowSlug: row.slug,
+            input: { documentId, reason, force, source: args.source, type: args.type },
+            metadata: { source: args.source, type: args.type, eventId: args.eventId, documentId },
+            trigger: {
+              kind: "event",
+              source: args.source,
+              type: args.type,
+              eventId: args.eventId,
+              payload: { documentId, reason },
+            },
+          }));
+        } catch (err) {
+          // The concurrent dispatch that beat us to the insert owns this event.
+          // Nothing was created, so drop it as a duplicate rather than a
+          // failure — the same outcome the fast path above reports.
+          //
+          // Either duplicate-run index can be the one that fires: the event
+          // identity index normally, or the general dedup-key index when the
+          // target workflow also declares a `dedupKey` (a singleton like
+          // cold-start-research). Both mean "already exists"; matching only the
+          // first counted the second as a failure and logged an error for a
+          // benign drop. Anything else really is a fault and rethrows.
+          if (!isDuplicateRunIndex(uniqueViolationConstraint(err))) throw err;
+          result.skippedDuplicate++;
+          return;
+        }
         await enqueueRun(runId);
         result.created++;
       } catch (err) {
@@ -136,6 +163,15 @@ function legacyEventTriggerCondition(args: EmitEventArgs) {
   return sql`false`;
 }
 
+/**
+ * Does this user already hold a non-terminal run for this exact event?
+ *
+ * The predicate comes from `eventRunIdentityMatch`, which is generated from the
+ * same ordered parts list as the unique index that enforces it — so the two
+ * cannot drift, and the identity gains a key column in one place rather than
+ * three (#530/#531 review, U4). Hand-writing the tuple here is what let the
+ * index coalesce `source`/`type` while this query compared them raw.
+ */
 async function hasNonTerminalEventRun(args: {
   userId: string;
   workflowSlug: string;
@@ -147,18 +183,7 @@ async function hasNonTerminalEventRun(args: {
   const rows = await db()
     .select({ id: agentRuns.id })
     .from(agentRuns)
-    .where(
-      and(
-        eq(agentRuns.userId, args.userId),
-        eq(agentRuns.workflowSlug, args.workflowSlug),
-        sql`${agentRuns.status} NOT IN ('completed', 'failed', 'cancelled')`,
-        sql`${agentRuns.trigger}->>'kind' = 'event'`,
-        sql`${agentRuns.trigger}->>'source' = ${args.source}`,
-        sql`${agentRuns.trigger}->>'type' = ${args.type}`,
-        sql`${agentRuns.trigger}->>'eventId' = ${args.eventId}`,
-        sql`coalesce(${agentRuns.trigger}->'payload'->>'reason', '') = ${args.reason ?? ""}`,
-      ),
-    )
+    .where(eventRunIdentityMatch(agentRuns, args))
     .limit(1);
   return Boolean(rows[0]);
 }

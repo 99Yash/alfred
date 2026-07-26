@@ -39,6 +39,7 @@ const supersededFailureWorkflow: Workflow<Record<string, never>> = {
   trigger: { kind: "manual" },
   initialState: () => ({}),
   initialStep: STEP,
+  closure: { kind: "none" },
   steps: {
     [STEP]: {
       id: STEP,

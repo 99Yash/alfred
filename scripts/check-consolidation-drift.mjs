@@ -17,7 +17,19 @@
 import { existsSync, readFileSync } from "node:fs";
 import { execSync } from "node:child_process";
 
-import { isSkippedPath, matchLine } from "./consolidation-rules.mjs";
+import { isSkippedPath, matchChains, matchLine } from "./consolidation-rules.mjs";
+import { selfTestFailures } from "./consolidation-rules.selftest.mjs";
+
+// A clean run of a rule that cannot see its own idiom is indistinguishable from
+// a clean run of a rule that works. Check the fixtures first, so "no drift"
+// means "looked and found nothing" rather than "looked at nothing".
+const selfTest = selfTestFailures();
+if (selfTest.length > 0) {
+  console.error("Consolidation rule self-test failed — the rule itself is broken:\n");
+  for (const failure of selfTest) console.error(`  ${failure}`);
+  console.error("\nFix the rule in scripts/consolidation-rules.mjs before trusting this check.");
+  process.exit(1);
+}
 
 const files = execSync("git ls-files '*.ts' '*.tsx'", { encoding: "utf8" })
   .split("\n")
@@ -29,12 +41,16 @@ const files = execSync("git ls-files '*.ts' '*.tsx'", { encoding: "utf8" })
 const violations = [];
 
 for (const file of files) {
-  const lines = readFileSync(file, "utf8").split("\n");
-  lines.forEach((line, i) => {
+  const source = readFileSync(file, "utf8");
+  source.split("\n").forEach((line, i) => {
     for (const rule of matchLine(line, file, "gate")) {
       violations.push({ file, line: i + 1, text: line.trim(), fix: rule.fix });
     }
   });
+  // Chain rules see the whole file: their idiom spans lines (see matchChains).
+  for (const hit of matchChains(source, file, "gate")) {
+    violations.push({ file, line: hit.line, text: hit.text, fix: hit.rule.fix });
+  }
 }
 
 if (violations.length > 0) {
