@@ -1,3 +1,4 @@
+import { AWAIT_SUB_AGENT_TOOL, SPAWN_SUB_AGENT_TOOL } from "@alfred/contracts";
 import { Cctv, Check, Fan, Globe, ScanText, SquarePen, type LucideIcon } from "lucide-react";
 import { cn } from "~/lib/utils";
 
@@ -12,8 +13,8 @@ interface AnimatedToolIconDefinition {
 const ANIMATED_TOOL_ICONS: Record<string, AnimatedToolIconDefinition> = {
   "system.web_search": { key: "globe", Icon: Globe },
   "system.fetch_url": { key: "globe", Icon: Globe },
-  "system.spawn_sub_agent": { key: "fan", Icon: Fan },
-  "system.await_sub_agent": { key: "cctv", Icon: Cctv },
+  [SPAWN_SUB_AGENT_TOOL]: { key: "fan", Icon: Fan },
+  [AWAIT_SUB_AGENT_TOOL]: { key: "cctv", Icon: Cctv },
   "system.remember": { key: "scan-text", Icon: ScanText },
   "system.read_user_context": { key: "scan-text", Icon: ScanText },
   "system.suggest_todo": { key: "square-pen", Icon: SquarePen },

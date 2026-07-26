@@ -26,7 +26,16 @@ import {
 } from "../compaction/tokens";
 import { appendModelResponseMessages } from "../transcript-dedup";
 import { callerLabel, dispatchToolCall } from "../../dispatch";
+import { publishEvent } from "../../../events/publish";
 import { runToolRound } from "./tool-round";
+import {
+  NESTED_SEGMENT_INDEX,
+  shouldPublishToolStarted,
+  subAgentToolCardTarget,
+  toolCardStarted,
+  toolCardTerminal,
+} from "./tool-card-events";
+import { toolEventOutcome } from "./tool-event-outcome";
 import { startDispatchBatchSpan, type DispatchBatchSpanCloser } from "../runtime-spans";
 import { writeScratch } from "../../scratchpad";
 import { readIntegrationAvailability } from "../../integrations/availability";
@@ -225,6 +234,13 @@ const bossTurnStep: Step<BriefRunState> = {
       state.timezone = await resolveUserTimezone(ctx.userId);
     }
     const grounding = formatDateGrounding(state.timezone);
+    // `hasThread: false` throughout this workflow gates the tools that need a
+    // conversation to operate on (`requiresThread` — reading chat history,
+    // replying into the thread), and this run has none: even a chat-spawned child
+    // only *reports back* through its parent. It is deliberately NOT contradicted
+    // by `state.subAgent.chat` — that address exists so the child's tool cards can
+    // render inside the parent's bubble, which is a display channel, not a
+    // conversation the child can read or write.
     if (state.connectedSummary === undefined) {
       state.connectedSummary = buildConnectedSummaryFromAvailability(
         await loadAvailability(),
@@ -389,6 +405,13 @@ const dispatchToolsStep: Step<BriefRunState> = {
           })
         : null;
 
+    // A sub-agent spawned from a chat turn streams its own tool calls back into
+    // that turn's bubble, nested under the `spawn_sub_agent` card — otherwise
+    // the parent's trail goes silent for the child's whole lifetime. Null for
+    // the boss (it publishes its own cards from the chat workflow) and for any
+    // child whose parent had no chat turn.
+    const chatTarget = subAgentToolCardTarget(state.subAgent, ctx.runId);
+
     const dispatch = async (call: (typeof state.pendingToolCalls)[number]) => {
       const dispatchArgs = {
         runId: ctx.runId,
@@ -403,6 +426,22 @@ const dispatchToolsStep: Step<BriefRunState> = {
         activeTools: state.activeTools,
         allowedIntegrations: state.allowedIntegrations,
       } as const;
+      // Same *guard* the chat stream uses — never draw an optimistic card for a
+      // tool off the run's active surface, since it bounces before execute — but
+      // NOT the same position. On the chat surface `started` is published from
+      // the model stream, which does not re-run on resume; here it sits inside
+      // `dispatch`, and `dispatchBatch` re-dispatches the whole batch on every
+      // resume and every stale-lease reclaim. `dispatchToolCall` below is
+      // idempotent, this publish is not, so a replayed `started` for an
+      // already-finished call is expected and the client must absorb it (see
+      // `applyStreamingToolEvent`: terminal wins).
+      if (chatTarget && shouldPublishToolStarted(state.activeTools, call.toolName)) {
+        await publishEvent({
+          userId: ctx.userId,
+          kind: "chat.tool",
+          payload: toolCardStarted(chatTarget, call, NESTED_SEGMENT_INDEX),
+        });
+      }
       const result = await dispatchToolCall(dispatchArgs);
       if (result.kind === "inactive_tool") {
         // Bounce the schema-blind call to the next model turn after exposing the
@@ -431,7 +470,21 @@ const dispatchToolsStep: Step<BriefRunState> = {
       batchSpan,
       ordering: { kind: "serial" },
       dispatch,
-      onCommit: (call, result) => applySystemToolEffect(state, call.toolName, result),
+      onCommit: async (call, result) => {
+        applySystemToolEffect(state, call.toolName, result);
+        if (!chatTarget) return;
+        // Terminal card for the nested trail. `nonExecution` rides along so the
+        // client retracts an optimistic card for a dispatcher bounce instead of
+        // showing internal plumbing as a failed step — derived by the shared
+        // `toolEventOutcome` so this surface cannot drift from the chat turn's.
+        await publishEvent({
+          userId: ctx.userId,
+          kind: "chat.tool",
+          payload: toolCardTerminal(chatTarget, call, toolEventOutcome(call.toolName, result), {
+            segmentIndex: NESTED_SEGMENT_INDEX,
+          }),
+        });
+      },
     });
     if (round.kind === "interrupt") {
       // ADR-0073: a staged gated write / a parked await leaves `pendingToolCalls`
