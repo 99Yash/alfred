@@ -1,5 +1,6 @@
 import { db } from "@alfred/db";
 import { apiCallLog } from "@alfred/db/schemas";
+import { isCallerAbort } from "../abort";
 import { findModelProvider } from "../models";
 import { startLangfuseSpan } from "./langfuse";
 import { computeCost, getPrice } from "./prices";
@@ -61,6 +62,12 @@ function reconcileServed(
  *    shape, so the helper stays generic.
  *  - On failure: writes an error row with `cost_usd=0`, then rethrows so
  *    callers see the original error (same stack, same type).
+ *  - On a caller-initiated **abort**: writes a row marked
+ *    `response_meta.aborted` with `error = null`, then rethrows. A cancel is
+ *    not a fault — the triage hedge (#436) cancels one of two live draws on
+ *    purpose — and logging it as an error would put a deliberate abort per
+ *    hedge event into the `role=triage` error rows and Langfuse's error count,
+ *    distinguishable only by string-matching the message.
  *  - DB write fires-and-forgets — we never let logging block the user-
  *    visible call path. Errors during the write are logged and dropped.
  *  - Langfuse span is opened in parallel and ended in the same close
@@ -100,6 +107,30 @@ export async function metered<T>(
     return result;
   } catch (err) {
     const latencyMs = Date.now() - startedAt.getTime();
+    if (isCallerAbort(err)) {
+      // A cancelled generate carries no usage — the SDK throws instead of
+      // returning a result, and the provider reports nothing for a request we
+      // hung up on. So the row is honest about *what happened* (aborted, not
+      // failed) while being unable to be honest about tokens: the provider
+      // still bills partial work, and `cost_usd` stays 0.
+      //
+      // Consequence worth knowing before reading a cost dashboard: summing
+      // `cost_usd` under-reports a hedged call site by roughly its loser's
+      // share. Count the duplicates via `request_meta.hedge` (marked on both
+      // draws) and `response_meta.aborted` rather than trusting the sum.
+      enqueueMeteringWrite(
+        writeLogRow({
+          meta,
+          latencyMs,
+          usage: undefined,
+          costUsd: 0,
+          responseMeta: { aborted: true },
+          error: null,
+        }),
+      );
+      span.success({ costUsd: 0, responseMeta: { aborted: true }, servedModel: meta.model });
+      throw err;
+    }
     const message = toMessage(err);
     enqueueMeteringWrite(
       writeLogRow({

@@ -167,8 +167,9 @@ describe("withFallback", () => {
   // aborts its losing duplicate, and `shouldSwitch` used to return true for any
   // non-`APICallError` — so cancelling the loser would have re-issued it on
   // `gemini-2.5-flash` and billed a second call for an answer already in hand.
-  // `TimeoutError` (the SDK's own `timeout` option) is deliberately excluded
-  // from the carve-out and must still degrade.
+  // `TimeoutError` is deliberately excluded from the carve-out, so it still
+  // reaches `shouldSwitch` — see the next test for what that does and does not
+  // prove.
   test("a caller abort surfaces and never touches the fallback", async () => {
     const primary = throwingModel("primary", new DOMException("cancelled", "AbortError"));
     const fallback = okModel("fallback", TEXT_FALLBACK);
@@ -182,7 +183,13 @@ describe("withFallback", () => {
     assert.equal(fallback.doGenerateCalls.length, 0, "fallback must not run on a caller abort");
   });
 
-  test("a request timeout still degrades to the fallback", async () => {
+  // Scoped claim: a `TimeoutError` is classified as switch-worthy, unlike an
+  // abort. It is NOT a claim that the fallback can always still answer — a
+  // caller passing `timeout: { totalMs }` (triage classify does) gets a budget
+  // the SDK folds into the abort signal *every* attempt shares, so when it
+  // expires the fallback's request is aborted before it is sent. This mock
+  // throws while the signal is still live, which is the per-attempt case.
+  test("a timeout is classified as switch-worthy, not as a cancel", async () => {
     const primary = throwingModel(
       "primary",
       new DOMException("timeout of 30000ms exceeded", "TimeoutError"),

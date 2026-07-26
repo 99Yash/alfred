@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { agentWorkerConcurrencySchema } from "./pool";
 
 /**
  * Optional secret that tolerates an empty string in `.env`. A blank
@@ -260,14 +261,13 @@ const serverEnvSchema = z.object({
   /**
    * Max concurrent agent runs per server process (#437). Each run executes one
    * step at a time, and a triage classify step is dominated by a ~2s model
-   * call, so the default 4 left the queue serializing behind idle wall-clock.
+   * call, so the previous 4 left the queue serializing behind idle wall-clock.
    *
-   * Raise this together with `DB_POOL_MAX` (see `./database`): every concurrent
-   * step draws from the same `pg.Pool`, and an oversubscribed
-   * pool just moves the queue from BullMQ into `pg.Pool` (silently, as waiting
-   * clients) while starving HTTP handlers behind it.
+   * This is the *only* knob to turn: the shared `pg.Pool` ceiling is derived
+   * from it (`derivePoolMax` in `./pool`), so raising concurrency raises the
+   * pool with it and there is no second place to forget.
    */
-  AGENT_WORKER_CONCURRENCY: z.coerce.number().int().positive().default(8),
+  AGENT_WORKER_CONCURRENCY: agentWorkerConcurrencySchema,
 });
 
 export type ServerEnv = z.infer<typeof serverEnvSchema>;

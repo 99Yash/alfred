@@ -31,21 +31,21 @@ export interface StartAgentWorkerOpts {
    * call wrapped in a handful of short reads — so the useful ceiling is set by
    * the DB pool, not by CPU.
    *
-   * The composition root supplies this from `AGENT_WORKER_CONCURRENCY` (#437);
-   * the fallback here only covers a direct caller. Raising it without raising
-   * `DB_POOL_MAX` doesn't buy throughput: the queue just moves from BullMQ into
-   * `pg.Pool`, where it is invisible and also starves HTTP handlers.
+   * Required, deliberately: the composition root supplies it from
+   * `AGENT_WORKER_CONCURRENCY` (#437), and a local fallback here would be a
+   * second default for one fact — the value the pool was sized against would
+   * silently not be the value the worker ran at.
    */
-  concurrency?: number;
+  concurrency: number;
 }
 
 /**
  * Boot the worker: subscribes to the BullMQ queue, runs an immediate resume
  * sweep, then starts a periodic sweep. Returns immediately once ready.
  */
-export async function startAgentWorker(opts: StartAgentWorkerOpts = {}): Promise<void> {
+export async function startAgentWorker(opts: StartAgentWorkerOpts): Promise<void> {
   if (_worker) return;
-  const concurrency = opts.concurrency ?? 4;
+  const { concurrency } = opts;
 
   _worker = new Worker<AgentJobData>(AGENT_QUEUE_NAME, processAgentJob, {
     connection: createRedisConnection(),

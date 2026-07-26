@@ -94,9 +94,10 @@ export async function startRuntime(): Promise<void> {
   await seedBuiltinWorkflowsForAllUsers();
   await startPolicyBustSubscriber();
 
-  // Concurrency is env-tunable (#437) because the right value depends on the
-  // deploy's DB pool, not on the code: every concurrent step draws from the same
-  // `pg.Pool`, so `AGENT_WORKER_CONCURRENCY` must move together with `DB_POOL_MAX`.
+  // Concurrency is env-tunable (#437). It is also the *only* knob: the shared
+  // `pg.Pool` ceiling every one of these workers draws from is derived from the
+  // same value (`@alfred/env/pool`), so raising throughput can't silently
+  // outrun the pool it runs against.
   await startAgentWorker({ concurrency: serverEnv().AGENT_WORKER_CONCURRENCY });
   await startSubAgentJoinWakeWorker();
   await startIngestionWorker();

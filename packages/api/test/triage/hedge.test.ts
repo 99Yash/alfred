@@ -1,7 +1,12 @@
 import assert from "node:assert/strict";
 import { describe, test } from "node:test";
 
-import { runHedged, type HedgeAttempt } from "../../src/modules/triage/hedge";
+import {
+  createHedgeBudget,
+  hedgeCeilingFor,
+  runHedged,
+  type HedgeAttempt,
+} from "../../src/modules/triage/hedge";
 
 /**
  * Hedged classify (#436). The tail of `triage.classify` is provider scheduling
@@ -164,5 +169,118 @@ describe("runHedged", () => {
 
     assert.equal(result, "only");
     assert.deepEqual(rec.attempts, [0]);
+  });
+});
+
+/**
+ * The budget is what stops the hedge from amplifying the condition it fires on.
+ * A slow call is a per-call observation; a *burst* of slow calls is capacity
+ * pressure, and duplicating every one of them doubles load into a provider that
+ * is already 429ing. So the ceiling has to hold under exactly the case where
+ * every call wants to hedge at once.
+ */
+describe("hedge budget", () => {
+  test("a slow call past the ceiling runs un-hedged instead of failing", async () => {
+    const budget = createHedgeBudget(0);
+    const rec = recorder();
+
+    const result = await runHedged({
+      delayMs: DELAY,
+      budget,
+      run: ({ attempt, signal }) => {
+        track(rec, attempt, signal);
+        return after(DELAY + 5, "original", signal);
+      },
+    });
+
+    assert.equal(result, "original", "exhausting the budget degrades to the un-hedged path");
+    assert.deepEqual(rec.attempts, [0], "no duplicate draw once the ceiling is reached");
+  });
+
+  test("concurrent slow calls duplicate only up to the ceiling", async () => {
+    const budget = createHedgeBudget(2);
+    const recs = Array.from({ length: 5 }, recorder);
+
+    const results = await Promise.all(
+      recs.map((rec) =>
+        runHedged({
+          delayMs: DELAY,
+          budget,
+          run: ({ attempt, signal }) => {
+            track(rec, attempt, signal);
+            // Every call is slow enough to want a hedge — the burst case. The
+            // original still answers eventually, which is what an over-budget
+            // call falls back to waiting for.
+            return attempt === 0 ? after(DELAY * 3, "slow", signal) : after(1, "hedge", signal);
+          },
+        }),
+      ),
+    );
+
+    const hedged = recs.filter((rec) => rec.attempts.includes(1)).length;
+    assert.equal(hedged, 2, "at most `ceiling` duplicates in flight across the whole process");
+    assert.equal(
+      results.filter((r) => r === "hedge").length,
+      2,
+      "the two budgeted calls got the fast draw",
+    );
+    assert.equal(
+      results.filter((r) => r === "slow").length,
+      3,
+      "the rest still answered — over-budget means un-hedged, not failed",
+    );
+  });
+
+  test("a slot is returned when its draw settles, not when the caller returns", async () => {
+    const budget = createHedgeBudget(1);
+
+    const first = await runHedged({
+      delayMs: DELAY,
+      budget,
+      run: ({ attempt, signal }) =>
+        attempt === 0 ? after(10_000, "slow", signal) : after(5, "hedge", signal),
+    });
+    assert.equal(first, "hedge");
+    assert.equal(budget.inFlight(), 0, "the winning hedge released its slot on settle");
+
+    // The next slow call is free to hedge again — a budget that leaked would
+    // silently turn hedging off for the rest of the process's life.
+    const rec = recorder();
+    const second = await runHedged({
+      delayMs: DELAY,
+      budget,
+      run: ({ attempt, signal }) => {
+        track(rec, attempt, signal);
+        return attempt === 0 ? after(10_000, "slow", signal) : after(5, "hedge", signal);
+      },
+    });
+    assert.equal(second, "hedge");
+    assert.deepEqual(rec.attempts, [0, 1]);
+  });
+
+  test("a cancelled loser also returns its slot", async () => {
+    const budget = createHedgeBudget(1);
+
+    // The original lands first, so the *hedge* is the one aborted — the slot
+    // has to come back from that path too.
+    const result = await runHedged({
+      delayMs: DELAY,
+      budget,
+      run: ({ attempt, signal }) =>
+        attempt === 0 ? after(DELAY + 5, "original", signal) : after(10_000, "hedge", signal),
+    });
+
+    assert.equal(result, "original");
+    await new Promise((resolve) => setImmediate(resolve));
+    assert.equal(budget.inFlight(), 0);
+  });
+
+  test("the ceiling is a quarter of agent-worker concurrency, and never zero", () => {
+    assert.equal(hedgeCeilingFor(8), 2, "the default: 8 primaries + 2 duplicates, not 16");
+    assert.equal(hedgeCeilingFor(16), 4);
+    // A single-concurrency process still gets to hedge its one call — the
+    // pathology the budget prevents needs a burst, which it can't produce.
+    assert.equal(hedgeCeilingFor(1), 1);
+    assert.equal(hedgeCeilingFor(2), 1);
   });
 });

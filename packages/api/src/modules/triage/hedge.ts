@@ -29,6 +29,8 @@
  *    `shouldSwitch`, which would have re-issued it on `gemini-2.5-flash`. The
  *    abort carve-out in `@alfred/ai`'s `withFallback` is what makes cancelling
  *    safe; this module depends on it.
+ *  - **A hedge has a budget.** The trigger correlates with exactly the state
+ *    that makes duplication harmful — see {@link createHedgeBudget}.
  */
 
 /** Which of the two draws this invocation is. `0` is the original call. */
@@ -51,7 +53,83 @@ export interface RunHedgedOptions<T> {
    * (or non-finite) disables hedging entirely and runs a single attempt.
    */
   delayMs: number;
+  /**
+   * Process-wide ceiling on *simultaneous* duplicate draws. Omit and every slow
+   * call hedges — fine for a single call in isolation, wrong under load. See
+   * {@link createHedgeBudget}.
+   */
+  budget?: HedgeBudget;
   run: (input: HedgeAttemptInput) => Promise<T>;
+}
+
+/**
+ * Ceiling on duplicate draws that may be in flight at once, process-wide.
+ *
+ * The hedge trigger is "this call is slower than p75", which is a per-call
+ * judgement made without any notion of aggregate load — and the two are
+ * correlated in the worst direction. #435's own data shows the tail clustering
+ * on capacity-pressure days (2026-06-26: 28% of classify calls fell back;
+ * 2026-07-03: 0%). Under capacity pressure *most* calls run past p75, so the
+ * trigger fires broadly rather than for the slow ~15–20% the design assumed,
+ * and the response — doubling the request rate into a pool that is already
+ * 429ing — feeds the failure it exists to fix: more 429s → more `withFallback`
+ * switches to `gemini-2.5-flash` → the slow expensive path #436 removed. The
+ * eval already knows this and disables hedging so it "would only double the
+ * pressure `maxRetries: 1` exists to relieve"; production during a morning
+ * burst is the same regime.
+ *
+ * The literature's mechanism is a hedge budget (Dean & Barroso cap hedges at
+ * ~5% of requests). This is the in-flight form of the same idea, which fits
+ * what actually threatens the pool: a bound on *concurrent* duplicates, so the
+ * worst case is `concurrency + ceiling` in-flight classify calls instead of
+ * `2 × concurrency`. Requests past the ceiling simply don't duplicate — they
+ * wait on their original draw, which is the pre-#436 behaviour, so exhausting
+ * the budget degrades to "no hedging" rather than to an error.
+ *
+ * Not a shared util for the same reason the rest of this module isn't: the
+ * ceiling is calibrated against one call site's histogram. It IS process-global
+ * state, though, so it is created once by the consumer and passed in, rather
+ * than being a module-level counter here that tests can't isolate.
+ */
+export interface HedgeBudget {
+  /** Reserve a slot. `false` means the ceiling is reached — do not duplicate. */
+  tryAcquire(): boolean;
+  /** Return a slot. Must be called exactly once per successful acquire. */
+  release(): void;
+  /** Duplicate draws currently in flight. For assertions and instrumentation. */
+  inFlight(): number;
+}
+
+export function createHedgeBudget(maxInFlight: number): HedgeBudget {
+  const ceiling = Math.max(0, Math.floor(maxInFlight));
+  let inFlight = 0;
+  return {
+    tryAcquire() {
+      if (inFlight >= ceiling) return false;
+      inFlight += 1;
+      return true;
+    },
+    release() {
+      if (inFlight > 0) inFlight -= 1;
+    },
+    inFlight() {
+      return inFlight;
+    },
+  };
+}
+
+/**
+ * How many duplicate draws a process running `agentWorkerConcurrency` agent
+ * steps may have in flight: a quarter of them, at least one.
+ *
+ * Tying it to the worker's concurrency rather than to a fresh env knob keeps
+ * the "how much load can this process make" question answered in one place
+ * (see `@alfred/env/pool`, which sizes the DB pool from the same number). At
+ * the default 8 this allows 2, so a saturated process issues at most 10
+ * concurrent classify calls rather than 16.
+ */
+export function hedgeCeilingFor(agentWorkerConcurrency: number): number {
+  return Math.max(1, Math.floor(agentWorkerConcurrency / 4));
 }
 
 type Settled<T> =
@@ -73,9 +151,12 @@ function settle<T>(attempt: HedgeAttempt, promise: Promise<T>): Promise<Settled<
  * Failure semantics: if both attempts fail, the *first* attempt's error is
  * thrown regardless of which failed first — it is the one the caller would have
  * seen without hedging, so hedging never changes the error a caller handles.
+ *
+ * With a `budget`, a slow call whose process is already at its duplicate
+ * ceiling just keeps waiting on the original — no error, no second call.
  */
 export async function runHedged<T>(opts: RunHedgedOptions<T>): Promise<T> {
-  const { delayMs, run } = opts;
+  const { delayMs, budget, run } = opts;
 
   const primaryController = new AbortController();
   const primary = settle(0, run({ attempt: 0, signal: primaryController.signal }));
@@ -101,8 +182,16 @@ export async function runHedged<T>(opts: RunHedgedOptions<T>): Promise<T> {
   // the answer, and no second call is made.
   if (raced !== HEDGE) return unwrap(raced);
 
+  // Out of duplicate budget: the process is already making as much extra load
+  // as it is allowed to. Wait on the original — exactly the un-hedged path.
+  if (budget && !budget.tryAcquire()) return unwrap(await primary);
+
   const hedgeController = new AbortController();
   const hedge = settle(1, run({ attempt: 1, signal: hedgeController.signal }));
+  // Release on settle, not on return: the slot tracks a live duplicate call,
+  // and the winner returns while the cancelled loser is still unwinding.
+  // `settle` never rejects, so this can't produce an unhandled rejection.
+  void hedge.then(() => budget?.release());
 
   const first = await Promise.race([primary, hedge]);
   if (first.ok) {

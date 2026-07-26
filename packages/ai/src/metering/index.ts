@@ -5,6 +5,7 @@ export {
   meteredStreamText,
   meteredEmbed,
   type AttributedCall,
+  type MeteredGenerateObjectArgs,
 } from "./wrappers";
 export {
   getPrice,
