@@ -14,11 +14,60 @@ export interface StreamingToolCall {
   sanitized?: boolean | undefined;
   /** Narration segment this call follows, ordering it against the narration trail. */
   segmentIndex: number;
+  /**
+   * Client clock at the first event seen for this call, and at its terminal
+   * event (null while in flight) — the duration chip on the card. Measured at
+   * event *receipt*, not on the server: it is honest about what the user
+   * watched elapse, which is the only thing the chip claims.
+   */
+  startedTs: number;
+  endedTs: number | null;
+}
+
+/** A spawned sub-agent's own tool calls, nested under the spawn card. */
+export interface SubAgentTrail {
+  /** The parent's `system.spawn_sub_agent` call this nests under. */
+  parentToolCallId: string;
+  subId: string;
+  childRunId: string;
+  tools: StreamingToolCall[];
+  startedTs: number;
+  endedTs: number | null;
+  /** Terminal outcome once the child run reports one; null while running. */
+  outcome: "completed" | "failed" | "cancelled" | null;
+  /**
+   * The child parked — it is waiting on the user (an approval) or on a signal,
+   * not working. Non-terminal: the run is still live and will reach a real
+   * `outcome`. The clock keeps running (the wait is honestly part of the wall
+   * time); what this corrects is the *state*, so the card stops claiming the
+   * child is busy while it is actually blocked on a human.
+   */
+  waiting: boolean;
+}
+
+/**
+ * Whether a sub-agent's `chat.tool` event belongs to the turn currently on
+ * screen. It must be able to *address* the in-flight turn but never *create*
+ * one: a child outlives its parent turn (cancelling a run does not cascade to
+ * its children, and a spawn need never be awaited), so a late child event can
+ * arrive while a completely different turn is streaming. Mounting a fresh
+ * stream ref for it would blank that turn's bubble and reset its delta seq.
+ */
+export function subAgentEventAddressesStream<
+  T extends { messageId: string; runId: string; stopped: boolean },
+>(current: T | null, event: { messageId: string; runId: string }): current is T {
+  if (!current || current.stopped) return false;
+  return current.messageId === event.messageId && current.runId === event.runId;
+}
+
+interface SubAgentTrailRef extends Omit<SubAgentTrail, "tools"> {
+  tools: Map<string, StreamingToolCall>;
 }
 
 export function applyStreamingToolEvent(
   tools: Map<string, StreamingToolCall>,
   event: EventPayload<"chat.tool">,
+  now: number = Date.now(),
 ): void {
   if (event.nonExecution) {
     tools.delete(event.toolCallId);
@@ -26,6 +75,11 @@ export function applyStreamingToolEvent(
   }
 
   const previous = tools.get(event.toolCallId);
+  // A terminal card is absorbing. `started` can arrive *after* it — the same
+  // batch is re-dispatched on resume/reclaim and republishes its `started`, and
+  // SSE frames are not ordered — and un-freezing the card would restart the
+  // clock and flip a finished step back to a spinner.
+  if (event.status === "started" && previous && previous.endedTs !== null) return;
   tools.set(event.toolCallId, {
     toolCallId: event.toolCallId,
     toolName: event.toolName,
@@ -34,6 +88,10 @@ export function applyStreamingToolEvent(
     resultPreview: event.resultPreview ?? previous?.resultPreview,
     sanitized: event.sanitized ?? previous?.sanitized,
     segmentIndex: event.segmentIndex ?? previous?.segmentIndex ?? 0,
+    startedTs: previous?.startedTs ?? now,
+    // A terminal event freezes the clock; a repeated terminal event (replay)
+    // keeps the first one so the chip doesn't drift upward on reconnect.
+    endedTs: event.status === "started" ? null : (previous?.endedTs ?? now),
   });
 }
 
@@ -55,6 +113,12 @@ export interface StreamingMessage {
   /** Frozen once thinking ends, in ms — drives the "Thought for Ns" label. */
   reasoningMs: number | null;
   tools: StreamingToolCall[];
+  /**
+   * Live trails for sub-agents spawned this turn, keyed for the client by the
+   * `spawn_sub_agent` call they nest under. Separate from `tools` so a child's
+   * steps never flatten into the boss's own trail.
+   */
+  subAgents: SubAgentTrail[];
   /** A write action is parked awaiting the user's approval. */
   awaitingApproval: boolean;
   /** Context is being condensed before the next provider call. */
@@ -85,6 +149,13 @@ interface StreamRef {
   /** Last appended server seq for reasoning text; guards against replay duplicates. */
   reasoningSeq: number;
   tools: Map<string, StreamingToolCall>;
+  /** Keyed by the parent's `spawn_sub_agent` toolCallId — one trail per child. */
+  subAgents: Map<string, SubAgentTrailRef>;
+  /**
+   * childRunId → parentToolCallId, so an `agent.run` lifecycle frame (which
+   * carries only the child's run id) can close the right trail.
+   */
+  subAgentRuns: Map<string, string>;
   awaitingApproval: boolean;
   compacting: boolean;
   done: boolean;
@@ -173,6 +244,10 @@ export function useChatStream(threadId: string | undefined): ChatStream {
           reasoningActive: r.reasoning.length > 0 && !r.replyStarted && !r.done,
           reasoningMs: r.reasoningMs,
           tools: [...r.tools.values()],
+          subAgents: [...r.subAgents.values()].map((trail) => ({
+            ...trail,
+            tools: [...trail.tools.values()],
+          })),
           awaitingApproval: r.awaitingApproval,
           compacting: r.compacting,
           done: r.done,
@@ -221,6 +296,8 @@ export function useChatStream(threadId: string | undefined): ChatStream {
         deltaSeq: 0,
         reasoningSeq: 0,
         tools: new Map(),
+        subAgents: new Map(),
+        subAgentRuns: new Map(),
         awaitingApproval: false,
         compacting: false,
         done: false,
@@ -347,6 +424,36 @@ export function useChatStream(threadId: string | undefined): ChatStream {
       } else if (frame.kind === "chat.tool") {
         const p = frame.payload as EventPayload<"chat.tool">;
         if (p.threadId !== threadId) return;
+        // A spawned sub-agent's call nests under the `spawn_sub_agent` card that
+        // started it rather than joining the boss's own trail. The event
+        // deliberately carries the parent's runId/messageId (see
+        // `chatToolSubAgentSchema`) — but it resolves against the turn already
+        // on screen and never mounts one, because a child can outlive its
+        // parent turn and must not hijack whatever is streaming now.
+        if (p.subAgent) {
+          const current = ref.current;
+          if (!subAgentEventAddressesStream(current, p)) return;
+          const { parentToolCallId, subId, childRunId } = p.subAgent;
+          const existing = current.subAgents.get(parentToolCallId);
+          // A bounce retracts a card; with no trail there is nothing to retract,
+          // and drawing an empty container for it would be worse than silence.
+          if (!existing && p.nonExecution) return;
+          const trail = existing ?? {
+            parentToolCallId,
+            subId,
+            childRunId,
+            tools: new Map<string, StreamingToolCall>(),
+            startedTs: Date.now(),
+            endedTs: null,
+            outcome: null,
+            waiting: false,
+          };
+          applyStreamingToolEvent(trail.tools, p);
+          current.subAgents.set(parentToolCallId, trail);
+          current.subAgentRuns.set(childRunId, parentToolCallId);
+          ensureRaf();
+          return;
+        }
         const r = ensureStreamRef(p.messageId, p.runId);
         if (r.stopped) return;
         applyStreamingToolEvent(r.tools, p);
@@ -366,6 +473,39 @@ export function useChatStream(threadId: string | undefined): ChatStream {
           { toolName: p.toolName, status: p.status },
           { threadId, runId: p.runId, repeat: "update", log: false },
         );
+        ensureRaf();
+      } else if (frame.kind === "agent.run") {
+        // A child run's own lifecycle. `chat.tool` says what a sub-agent did but
+        // never that it is finished or that it stalled, so both come from here —
+        // the executor already publishes these for every run, children included.
+        // Frames for the parent run and for unrelated background runs fall
+        // through: only a runId we mapped from a child's tool event reaches a
+        // trail.
+        const p = frame.payload as EventPayload<"agent.run">;
+        const r = ref.current;
+        if (!r || r.stopped) return;
+        const parentToolCallId = r.subAgentRuns.get(p.runId);
+        if (!parentToolCallId) return;
+        const trail = r.subAgents.get(parentToolCallId);
+        // Terminal is absorbing: a later frame for a landed child changes nothing.
+        if (!trail || trail.outcome !== null) return;
+        if (p.phase === "completed" || p.phase === "failed" || p.phase === "cancelled") {
+          trail.outcome = p.phase;
+          trail.endedTs = Date.now();
+          trail.waiting = false;
+        } else if (p.phase === "interrupted") {
+          // The child parked — most often on an approval, so the time from here
+          // is the user's, not the agent's. The card stops claiming it is busy.
+          trail.waiting = true;
+        } else if (trail.waiting) {
+          // Any other frame from a parked child means it is moving again. Note
+          // `resumed` is in the enum but nothing publishes it: a resuming run
+          // emits `step_started`, so this clears on activity rather than on a
+          // phase name.
+          trail.waiting = false;
+        } else {
+          return;
+        }
         ensureRaf();
       } else if (frame.kind === "approval.requested") {
         const p = frame.payload as EventPayload<"approval.requested">;
@@ -410,18 +550,43 @@ function streamSnapshotsEqual(a: StreamingMessage | null, b: StreamingMessage): 
     a.compacting !== b.compacting ||
     a.done !== b.done ||
     a.tools.length !== b.tools.length ||
+    a.subAgents.length !== b.subAgents.length ||
     a.narration.length !== b.narration.length
   ) {
     return false;
+  }
+  for (let i = 0; i < a.subAgents.length; i += 1) {
+    const left = a.subAgents[i]!;
+    const right = b.subAgents[i]!;
+    if (
+      left.parentToolCallId !== right.parentToolCallId ||
+      left.outcome !== right.outcome ||
+      left.waiting !== right.waiting ||
+      left.endedTs !== right.endedTs ||
+      !toolListsEqual(left.tools, right.tools)
+    ) {
+      return false;
+    }
   }
   for (let i = 0; i < a.narration.length; i += 1) {
     const left = a.narration[i]!;
     const right = b.narration[i]!;
     if (left.index !== right.index || left.text !== right.text) return false;
   }
-  for (let i = 0; i < a.tools.length; i += 1) {
-    const left = a.tools[i]!;
-    const right = b.tools[i]!;
+  return toolListsEqual(a.tools, b.tools);
+}
+
+/**
+ * Field-wise comparison of two tool lists. `startedTs` is deliberately excluded
+ * — it is assigned once on first sight and never changes, so comparing it would
+ * only cost cycles; `endedTs` moves exactly once (with `status`) and is covered
+ * by the status check.
+ */
+function toolListsEqual(a: StreamingToolCall[], b: StreamingToolCall[]): boolean {
+  if (a.length !== b.length) return false;
+  for (let i = 0; i < a.length; i += 1) {
+    const left = a[i]!;
+    const right = b[i]!;
     if (
       left.toolCallId !== right.toolCallId ||
       left.toolName !== right.toolName ||

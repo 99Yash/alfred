@@ -1,4 +1,9 @@
-import { type ToolCategory, toolCategoryOf, toolLabel } from "@alfred/contracts";
+import {
+  SPAWN_SUB_AGENT_TOOL,
+  type ToolCategory,
+  toolCategoryOf,
+  toolLabel,
+} from "@alfred/contracts";
 import { Sparkles, Wrench, type LucideIcon } from "lucide-react";
 import { type IntegrationBrand } from "~/lib/integrations/integration-icons";
 import { getIntegrationProvider } from "~/lib/integrations/integrations";
@@ -91,7 +96,7 @@ export function presentTool(tool: ToolCallView): ToolPresentation {
     ? tool.toolName.slice(0, tool.toolName.indexOf("."))
     : "";
 
-  if (tool.toolName === "system.spawn_sub_agent") {
+  if (tool.toolName === SPAWN_SUB_AGENT_TOOL) {
     const allowed = Array.isArray(args?.allowedIntegrations)
       ? (args.allowedIntegrations as unknown[]).filter((v): v is string => typeof v === "string")
       : [];

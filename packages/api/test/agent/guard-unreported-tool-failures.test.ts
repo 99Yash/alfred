@@ -8,7 +8,7 @@ import {
   type ChatRunState,
   type GuardUnreportedToolFailuresDeps,
 } from "../../src/modules/agent/workflows/chat-turn";
-import { shouldPublishToolStarted } from "../../src/modules/agent/workflows/stream-model-turn";
+import { shouldPublishToolStarted } from "../../src/modules/agent/workflows/tool-card-events";
 import type { StepContext } from "../../src/modules/agent/types";
 
 /**

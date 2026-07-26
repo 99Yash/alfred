@@ -597,6 +597,7 @@ function FeedFooter() {
             <ToolCallGroup
               tools={stream.tools}
               narration={stream.narration}
+              subAgents={stream.subAgents}
               active={!stream.done}
             />
           ) : null}
