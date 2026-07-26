@@ -24,6 +24,7 @@ import {
   SPAWN_SUB_AGENT_TOOL,
   toMessage,
   withDefaults,
+  runStatusSchema,
   type AgentTranscriptMessage,
   type ArtifactFormat,
   type ChatErrorKind,
@@ -31,7 +32,13 @@ import {
   type ToolName,
 } from "@alfred/contracts";
 import { db } from "@alfred/db";
-import { apiCallLog, chatAttachments, chatMessages, chatThreads } from "@alfred/db/schemas";
+import {
+  agentRuns,
+  apiCallLog,
+  chatAttachments,
+  chatMessages,
+  chatThreads,
+} from "@alfred/db/schemas";
 import { and, asc, eq, inArray, like, ne, or, sql } from "drizzle-orm";
 import { z } from "zod";
 import { publishEvent } from "../../../events/publish";
@@ -1902,6 +1909,7 @@ async function persistCompletedAssistantTurn(
   userId: string,
   runId: string,
   state: ChatRunState,
+  tail: "arm-followups" | "none",
 ): Promise<void> {
   const now = new Date();
   const fields = sanitizeChatMessageFields(state);
@@ -1920,10 +1928,10 @@ async function persistCompletedAssistantTurn(
   );
   if (!onlyIfPreviousAttemptFailed) {
     throw new Error(
-      "finalizeAssistantMessage: failed-row guard collapsed to undefined — refusing an unguarded upsert",
+      "persistCompletedAssistantTurn: failed-row guard collapsed to undefined — refusing an unguarded upsert",
     );
   }
-  await db()
+  const changed = await db()
     .insert(chatMessages)
     .values({
       id: state.messageId,
@@ -1946,6 +1954,7 @@ async function persistCompletedAssistantTurn(
         reasoning: fields.reasoning,
         reasoningMs: state.reasoningMs > 0 ? state.reasoningMs : null,
         status: "complete",
+        errorKind: null,
         toolCalls: fields.toolCalls,
         narration: fields.narration,
         usage,
@@ -1954,7 +1963,9 @@ async function persistCompletedAssistantTurn(
         updatedAt: now,
       },
       setWhere: onlyIfPreviousAttemptFailed,
-    });
+    })
+    .returning({ id: chatMessages.id });
+  if (changed.length === 0) return;
   await db()
     .update(chatThreads)
     .set({ lastMessageAt: now, rowVersion: sql`${chatThreads.rowVersion} + 1` })
@@ -1963,7 +1974,13 @@ async function persistCompletedAssistantTurn(
   // Close out any artifacts this turn authored: flip still-`generating` rows to
   // `complete` so the sidebar leaves the placeholder state (ADR-0075). Tied to
   // the run lifecycle so the boss never has to call a separate "finish" tool.
-  await finalizeRunArtifacts(userId, runId, state.messageId, "complete");
+  await finalizeRunArtifacts(
+    userId,
+    runId,
+    state.messageId,
+    "complete",
+    tail === "none" ? ["generating", "error"] : ["generating"],
+  );
 
   await publishEvent({
     userId,
@@ -1971,6 +1988,43 @@ async function persistCompletedAssistantTurn(
     payload: { runId, threadId: state.threadId, messageId: state.messageId, phase: "completed" },
   });
   emitReplicachePokes([userId]);
+
+  if (tail === "none" || (await runWasCancelled(runId))) return;
+
+  // (Re)arm the end-of-thread memory-capture debounce (chat-mem v1, #398, D9).
+  void scheduleThreadIdleExtraction({
+    userId,
+    threadId: state.threadId,
+    captureAfterMessageId: state.messageId,
+  });
+  void scheduleConversationCompactionIfNeeded({
+    userId,
+    threadId: state.threadId,
+    latestUserMessageId: state.userMessageId,
+    tier: state.tier,
+  }).catch((error) => {
+    logger.warn(
+      { err: error, event: "chat_compaction_schedule_failed", threadId: state.threadId },
+      "Chat background compaction scheduling failed",
+    );
+  });
+  void maybeGenerateThreadTitle({
+    userId,
+    runId,
+    threadId: state.threadId,
+    assistantMessageId: state.messageId,
+    assistantText: state.assistantText,
+  });
+}
+
+async function runWasCancelled(runId: string): Promise<boolean> {
+  const rows = await db()
+    .select({ status: agentRuns.status })
+    .from(agentRuns)
+    .where(eq(agentRuns.id, runId))
+    .limit(1);
+  const status = runStatusSchema.safeParse(rows[0]?.status);
+  return status.success && status.data === "cancelled";
 }
 
 /**
@@ -1990,48 +2044,8 @@ async function finalizeAssistantMessage(
   runId: string,
   state: ChatRunState,
 ): Promise<void> {
-  await persistCompletedAssistantTurn(userId, runId, state);
-
-  // (Re)arm the end-of-thread memory-capture debounce (chat-mem v1, #398, D9).
-  // Each completed turn pushes the idle timer out, so extraction only fires
-  // once the thread has been quiet — seeing the whole, settled conversation.
-  // Fire-and-forget + internally best-effort: arming memory capture must never
-  // fail (or delay) an otherwise-good reply. Only this path arms it; a failed
-  // turn (`finalizeFailedMessage`) and a cancelled one
-  // (`finalizeCancelledMessage`) intentionally do not.
-  void scheduleThreadIdleExtraction({
-    userId,
-    threadId: state.threadId,
-    captureAfterMessageId: state.messageId,
-  });
-  void scheduleConversationCompactionIfNeeded({
-    userId,
-    threadId: state.threadId,
-    latestUserMessageId: state.userMessageId,
-    tier: state.tier,
-  }).catch((error) => {
-    logger.warn(
-      { err: error, event: "chat_compaction_schedule_failed", threadId: state.threadId },
-      "Chat background compaction scheduling failed",
-    );
-  });
-
-  // Name the thread from its opening exchange. Fire-and-forget: this does two
-  // SELECTs plus a cheap-model call (up to TITLE_TIMEOUT_MS), and awaiting it
-  // would keep the run `running` — holding the worker/lease past the
-  // user-visible completion and serializing the next chat turn behind it. The
-  // title is purely cosmetic, already best-effort, and idempotent (only the
-  // first reply names the thread), so it lands a beat later as its own
-  // Replicache poke without blocking the turn. `maybeGenerateThreadTitle` never
-  // rejects (it swallows all errors), so the floating promise can't surface an
-  // unhandled rejection.
-  void maybeGenerateThreadTitle({
-    userId,
-    runId,
-    threadId: state.threadId,
-    assistantMessageId: state.messageId,
-    assistantText: state.assistantText,
-  });
+  if (await runWasCancelled(runId)) return;
+  await persistCompletedAssistantTurn(userId, runId, state, "arm-followups");
 }
 
 /**
@@ -2058,7 +2072,7 @@ async function finalizeCancelledMessage(
   runId: string,
   state: ChatRunState,
 ): Promise<void> {
-  await persistCompletedAssistantTurn(userId, runId, state);
+  await persistCompletedAssistantTurn(userId, runId, state, "none");
 }
 
 /**
@@ -2284,6 +2298,7 @@ async function finalizeFailedMessage(
   state: ChatRunState,
   err: unknown,
 ): Promise<void> {
+  if (await runWasCancelled(runId)) return;
   const now = new Date();
   // Never surface the raw provider error to the user: it leaks vendor URLs
   // (e.g. developers.generativeai.google) and "Failed after N attempts" noise.
@@ -2311,7 +2326,7 @@ async function finalizeFailedMessage(
   // this jsonb/text insert and wedge the failure path before `chat.message
   // completed` fires. Strip every field via the shared sanitizer.
   const fields = sanitizeChatMessageFields(state);
-  await db()
+  const inserted = await db()
     .insert(chatMessages)
     .values({
       id: state.messageId,
@@ -2327,7 +2342,9 @@ async function finalizeFailedMessage(
       narration: fields.narration,
       runId,
     })
-    .onConflictDoNothing();
+    .onConflictDoNothing()
+    .returning({ id: chatMessages.id });
+  if (inserted.length === 0) return;
   await db()
     .update(chatThreads)
     .set({ lastMessageAt: now, rowVersion: sql`${chatThreads.rowVersion} + 1` })
@@ -2565,35 +2582,38 @@ export const chatTurnWorkflow: Workflow<ChatRunState> = {
   // The two branches are NOT interchangeable, which is why the hook's context is
   // a union: handling only one of them would compile as a complete
   // implementation, and that omission is the bug this hook exists for.
-  async onTerminal(ctx) {
-    switch (ctx.outcome) {
-      // A failure (ADR-0070 §1.4 backstop, a post-deploy step-resolution
-      // failure) writes a `status:"failed"` row, which the client renders as an
-      // error with a retry affordance.
-      case "failed":
-        await finalizeFailedMessage(ctx.userId, ctx.runId, ctx.state, new Error(ctx.error));
-        return;
-      // A cancel (the approvals `cancel_run` decision) is a deliberate stop, so
-      // it persists a normal complete row rather than an error one: rendering
-      // "something went wrong, retry?" for an action the user took on purpose
-      // would be a lie, and the retry would re-run a turn they just ended.
-      //
-      // It is NOT the success finalizer. `ctx.state` here is the run's
-      // last-*committed* state, so a cancel that lands mid-step renders the
-      // previous step boundary, not the in-flight step's uncommitted text. And a
-      // cancelled turn arms none of the success tail — see
-      // `finalizeCancelledMessage`.
-      //
-      // `ctx.reason` is deliberately unused: it is cancel bookkeeping
-      // (`user_stopped`), not something to show as an error.
-      case "cancelled":
-        await finalizeCancelledMessage(ctx.userId, ctx.runId, ctx.state);
-        return;
-      default: {
-        const unhandled: never = ctx;
-        throw new Error(`[chat-turn] unhandled terminal outcome: ${JSON.stringify(unhandled)}`);
+  closure: {
+    kind: "client",
+    async onTerminal(ctx) {
+      switch (ctx.outcome) {
+        // A failure (ADR-0070 §1.4 backstop, a post-deploy step-resolution
+        // failure) writes a `status:"failed"` row, which the client renders as an
+        // error with a retry affordance.
+        case "failed":
+          await finalizeFailedMessage(ctx.userId, ctx.runId, ctx.state, new Error(ctx.error));
+          return;
+        // A cancel (the approvals `cancel_run` decision) is a deliberate stop, so
+        // it persists a normal complete row rather than an error one: rendering
+        // "something went wrong, retry?" for an action the user took on purpose
+        // would be a lie, and the retry would re-run a turn they just ended.
+        //
+        // It is NOT the success finalizer. `ctx.state` here is the run's
+        // last-*committed* state, so a cancel that lands mid-step renders the
+        // previous step boundary, not the in-flight step's uncommitted text. And a
+        // cancelled turn arms none of the success tail — see
+        // `finalizeCancelledMessage`.
+        //
+        // `ctx.reason` is deliberately unused: it is cancel bookkeeping
+        // (`user_stopped`), not something to show as an error.
+        case "cancelled":
+          await finalizeCancelledMessage(ctx.userId, ctx.runId, ctx.state);
+          return;
+        default: {
+          const unhandled: never = ctx;
+          throw new Error(`[chat-turn] unhandled terminal outcome: ${JSON.stringify(unhandled)}`);
+        }
       }
-    }
+    },
   },
 };
 

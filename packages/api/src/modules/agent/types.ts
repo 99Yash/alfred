@@ -144,7 +144,7 @@ export type TerminalOutcome =
     };
 
 /**
- * Context handed to {@link Workflow.onTerminal} — one obligation, two renderings.
+ * Context handed to a client-closing workflow — one obligation, two renderings.
  *
  * A discriminated union rather than two optional hooks (`onTerminalFailure?` /
  * `onCancelled?`) held together by a docstring saying "implement BOTH". The
@@ -160,6 +160,17 @@ export type TerminalOutcome =
 export type TerminalClosureContext<S> =
   | (TerminalRunFields<S> & { outcome: "failed"; error: string })
   | (TerminalRunFields<S> & { outcome: "cancelled"; reason: string });
+
+export type WorkflowClosure<S> =
+  | {
+      /** This workflow never leaves client-facing state that needs terminal repair. */
+      kind: "none";
+    }
+  | {
+      /** This workflow owns client-facing state that must close on every terminal outcome. */
+      kind: "client";
+      onTerminal(ctx: TerminalClosureContext<S>): Promise<void>;
+    };
 
 export interface WorkflowInput {
   /** User who owns this run; needed by DB-aware run initializers. */
@@ -227,8 +238,10 @@ export interface Workflow<S = unknown> {
   /** Optional parser used to validate and migrate persisted state before terminal hooks. */
   stateSchema?: z.ZodType<S>;
   /**
-   * Optional hook invoked when a run goes terminal *outside* its step body, so
-   * the workflow can close whatever client-facing artifact it left mid-flight.
+   * Required declaration of whether a run going terminal *outside* its step
+   * body owes client-facing closure. `{ kind: "none" }` is an explicit,
+   * greppable answer; workflows that do own client state provide the exhaustive
+   * hook instead.
    * Chat-turn writes the durable assistant row and emits `chat.message
    * completed`; without it the streaming bubble hangs forever.
    *
@@ -249,7 +262,7 @@ export interface Workflow<S = unknown> {
    * and swallowed — it must never resurrect or re-fail the run. Make it
    * idempotent; a step-body finalize may already have landed.
    */
-  onTerminal?(ctx: TerminalClosureContext<S>): Promise<void>;
+  closure: WorkflowClosure<S>;
   /**
    * Optional singleton-key derivation for workflows that may run at most
    * once per (user, key) at a time. When defined and non-null, the

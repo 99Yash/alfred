@@ -29,6 +29,7 @@ export const emailTriageWorkflow: Workflow<State> = {
   trigger: { kind: "event", source: "gmail", type: "message_received" },
   initialStep: "classify",
   stateSchema,
+  closure: { kind: "none" },
   initialState(input) {
     const parsed = triageWorkflowInputSchema.parse(input.input ?? {});
     return {

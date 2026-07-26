@@ -49,6 +49,26 @@ async function markRunFailed(runId: string, error: string): Promise<void> {
     code: `  await tx.update(agentRuns).set({ status: "cancelled" }).where(eq(agentRuns.id, id));`,
   },
   {
+    name: "spread payload with shorthand status",
+    caught: true,
+    code: `await tx.update(agentRuns).set({ ...base, status }).where(eq(agentRuns.id, id));`,
+  },
+  {
+    name: "computed status key",
+    caught: true,
+    code: `await tx.update(agentRuns).set({ ["status"]: next }).where(eq(agentRuns.id, id));`,
+  },
+  {
+    name: "status upsert",
+    caught: true,
+    code: `await tx.insert(agentRuns).values(row).onConflictDoUpdate({ target: agentRuns.id, set: { status } });`,
+  },
+  {
+    name: "raw status SQL",
+    caught: true,
+    code: "await tx.execute(sql`UPDATE agent_runs SET status = 'failed' WHERE id = ${id}`);",
+  },
+  {
     name: "separate statements — agentSteps owns the status, agentRuns write is benign",
     caught: false,
     code: `
@@ -87,6 +107,16 @@ async function markRunFailed(runId: string, error: string): Promise<void> {
     code: `
   await tx
     // drift-ok: FOR UPDATE held since the SELECT above, status checked under it.
+    .update(agentRuns)
+    .set({ status: "failed" })
+    .where(eq(agentRuns.id, id));`,
+  },
+  {
+    name: "empty drift-ok reason does not exempt",
+    caught: true,
+    code: `
+  await tx
+    // drift-ok:
     .update(agentRuns)
     .set({ status: "failed" })
     .where(eq(agentRuns.id, id));`,

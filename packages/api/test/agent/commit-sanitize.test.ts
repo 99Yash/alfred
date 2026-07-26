@@ -110,6 +110,7 @@ const poisonWorkflow: Workflow<TestState> = {
   trigger: { kind: "manual" },
   initialState: () => ({ marker: "init" }),
   initialStep: "poison-next",
+  closure: { kind: "none" },
   steps: {
     "poison-next": {
       id: "poison-next",

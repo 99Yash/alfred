@@ -8,7 +8,7 @@ import type { PgUpdateSetSource } from "drizzle-orm/pg-core";
 import { publishEvent } from "../../events/publish";
 import { normalizeDecisionTraceKey, type DecisionTraceRecord } from "./decision-traces";
 import { resolveWorkflowForRun } from "./resolve-workflow";
-import { resolveStaleAfterMs } from "./service";
+import { rejectLateCancelledRunStagings, resolveStaleAfterMs } from "./service";
 import { finalizeFailedRun } from "./terminal-closure";
 import { isUniqueViolation } from "../../lib/pg-errors";
 import { startQueueLeaseSpan, type QueueLeaseFromStatus } from "./runtime-spans";
@@ -102,7 +102,8 @@ export function skipReasonIsLoud(reason: RunSkipReason): boolean {
  *    reaches here. The worker holds no row lock during the step body, so the
  *    cancel's `FOR UPDATE` gives no protection; only this guard does.
  *
- * Throwing rolls back the whole commit (step row, staged actions, traces), so
+ * Throwing rolls back the executor-owned commit (step row, pending actions,
+ * traces and outbox rows), so
  * the superseded worker's wasted LLM result lands nowhere — and, for the
  * terminal case, the cancelled run is not resurrected into
  * `runnable`/`completed`/`waiting` and no `approval.requested` is re-fired on a
@@ -165,10 +166,13 @@ class RunSupersededError extends Error {
  * BullMQ retries — by which time the run is reclaimed or terminal and the retry
  * skips. Noisy (an error log for a benign race) but not a correctness hole: the
  * aborted transaction rolled the whole commit back, which is what this guard
- * would have done anyway. Closing it means giving both transactions one order —
- * taking this guard FIRST in each commit tx so `agent_runs` always precedes
- * `agent_steps` — which lengthens the lock hold on the hot commit path and is a
- * change of its own, not a docstring's to assert away.
+ * would have done anyway. Closing it is not as simple as taking this guard
+ * first: that would let a commit already holding `agent_runs` beat a cancel
+ * that arrived mid-commit, publish `approval.requested`, and only then allow the
+ * cancel through. The present late guard intentionally lets a cancellation
+ * that lands during the step-owned writes win before any outbox event is
+ * published. Removing the ABBA pair therefore needs a transaction design that
+ * preserves that cancellation precedence, not just a lock-order shuffle.
  *
  * `cancelRunInTx` is not part of that pair: it takes its own `agent_runs` row and
  * then possibly the parent's, and touches no `agent_steps`.
@@ -191,7 +195,11 @@ async function guardRunOwnership(
   // A vanished row is a reclaim-shaped miss (nothing to resurrect).
   if (!row) return "reclaim";
   if (row.attempt !== attempt) return "reclaim";
-  return isTerminalStatus(runStatusSchema.parse(row.status)) ? "terminal" : null;
+  const status = runStatusSchema.safeParse(row.status);
+  // Persisted protocol drift must fail closed. Treat an unknown status as
+  // terminal so this worker rolls back and skips instead of retrying forever
+  // against the same unparsable row.
+  return !status.success || isTerminalStatus(status.data) ? "terminal" : null;
 }
 
 /**
@@ -204,7 +212,7 @@ async function guardRunOwnership(
  * double-advancing / double-parking / double-completing the run, or writing a
  * live status over a terminal one.
  *
- * Callers, all four in this file: the `next` / `done` / `interrupt` branches of
+ * Callers, all five in this file: the `next` / `done` / `interrupt` branches of
  * `commitStepSuccessTx`, `commitStepFailure`, and `markRunFailed`. The last one
  * was the miss the docstring here used to paper over — it wrote `failed` with a
  * bare `where(eq(id))`, so a cancel landing during workflow resolution was
@@ -300,7 +308,7 @@ export async function runOnce(runId: string, opts: RunOnceOptions = {}): Promise
   // workflow that owns client-facing closure (chat-turn) hasn't finalized —
   // drive its `onTerminal` failure branch here, then report the terminal failure.
   if (leased.kind === "backstopped") {
-    await finalizeWorkflowFailure(leased.run, leased.error);
+    await finalizeFailedRun(leased.run, leased.error);
     return { kind: "failed", runId, error: leased.error };
   }
 
@@ -349,7 +357,7 @@ export async function runOnce(runId: string, opts: RunOnceOptions = {}): Promise
     // A post-deploy step-resolution failure also never enters a step body, so
     // drive workflow-level closure (e.g. chat-turn's failed-message finalize)
     // the same way the backstop does.
-    await finalizeWorkflowFailure(run, sanitizeErrorMessage(error));
+    await finalizeFailedRun(run, sanitizeErrorMessage(error));
     return { kind: "failed", runId: run.id, error };
   }
 
@@ -410,7 +418,7 @@ export async function runOnce(runId: string, opts: RunOnceOptions = {}): Promise
     const error = toMessage(err);
     const outcome = await commitStepFailure(run, stepId, attempt, error);
     if (outcome.kind === "failed") {
-      await finalizeWorkflowFailure(run, outcome.error);
+      await finalizeFailedRun(run, outcome.error);
     }
     return outcome;
   }
@@ -725,6 +733,9 @@ export async function commitStepSuccess(
     // the whole commit rolled back. Report a benign skip — do NOT re-enqueue
     // (the reclaimer owns it, or nobody does). Never resurrects the run.
     if (err instanceof RunSupersededError) {
+      if (err.supersedeCause === "terminal") {
+        await rejectLateCancelledRunStagings(run.id, "run cancelled before step commit");
+      }
       return { kind: "skipped", runId: run.id, reason: SUPERSEDE_SKIP_REASON[err.supersedeCause] };
     }
     throw err;
@@ -952,25 +963,14 @@ async function commitStepFailure(
     // failure — writing `failed` over `cancelled` is exactly #530, and it would
     // also drive a failure bubble on a turn the user deliberately ended.
     if (err instanceof RunSupersededError) {
+      if (err.supersedeCause === "terminal") {
+        await rejectLateCancelledRunStagings(run.id, "run cancelled before step commit");
+      }
       return { kind: "skipped", runId: run.id, reason: SUPERSEDE_SKIP_REASON[err.supersedeCause] };
     }
     throw err;
   }
   return { kind: "failed", runId: run.id, error: safeError };
-}
-
-/**
- * Drive a workflow's `onTerminal` hook with `outcome: "failed"` after the run
- * was terminal-failed
- * in the DB, whether by a step throw, the non-progressing backstop, or a
- * post-deploy step-resolution failure. For chat-turn this writes the failed
- * assistant row + emits `chat.message completed` so the streaming bubble
- * reconciles instead of hanging forever. The cancel counterpart is
- * `finalizeCancelledRun` in the same module, driven from `cancelRun` — a cancel
- * must never reach the failure branch (#530/#531 review, D2).
- */
-async function finalizeWorkflowFailure(run: RunRow, error: string): Promise<void> {
-  await finalizeFailedRun(run, error);
 }
 
 /**

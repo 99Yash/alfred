@@ -18,7 +18,7 @@ import type { TerminalOutcome } from "./types";
  * bubble streams forever (finding D2).
  *
  * The cancel renders differently from a failure — a deliberate stop must not
- * surface a retryable error — so `Workflow.onTerminal` discriminates on
+ * surface a retryable error — so `Workflow.closure.onTerminal` discriminates on
  * `ctx.outcome` and each workflow switches. One hook, not two optional ones: the
  * regression above was a workflow implementing the failure branch and not the
  * cancel branch, which a union makes a compile error. This module is the single
@@ -39,7 +39,7 @@ export interface TerminalClosureRun {
 
 /**
  * Resolve the run's workflow, validate its last-committed state, and hand both
- * plus the transition to `onTerminal`.
+ * plus the transition to its declared closure.
  *
  * Best-effort by contract: the terminal DB write has already landed, so every
  * fault here (an unresolvable workflow after a deploy, state-schema drift, the
@@ -54,12 +54,12 @@ async function driveClosure(run: TerminalClosureRun, outcome: TerminalOutcome): 
     });
     // Checked before parsing so a workflow that owes no closure can't be
     // reported as a closure failure by drifted persisted state.
-    if (!workflow.onTerminal) return;
+    if (workflow.closure.kind === "none") return;
     const state = workflow.stateSchema ? workflow.stateSchema.parse(run.state) : run.state;
-    await workflow.onTerminal({ runId: run.id, userId: run.userId, state, ...outcome });
+    await workflow.closure.onTerminal({ runId: run.id, userId: run.userId, state, ...outcome });
   } catch (err) {
     console.warn(
-      `[agent] onTerminal(${outcome.outcome}) for run ${run.id} (${run.workflowSlug}) failed:`,
+      `[agent] terminal closure (${outcome.outcome}) for run ${run.id} (${run.workflowSlug}) failed:`,
       toMessage(err),
     );
   }

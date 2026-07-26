@@ -34,6 +34,7 @@ export const memoryExtractionWorkflow: Workflow<State> = {
   trigger: { kind: "cron", schedule: "0 3 * * *" },
   initialStep: "pick-documents",
   stateSchema,
+  closure: { kind: "none" },
   initialState(input) {
     const parsed = inputSchema.parse(input.input ?? {});
     return {

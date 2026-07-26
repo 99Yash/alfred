@@ -9,6 +9,7 @@ import {
 } from "@alfred/contracts";
 import { and, desc, eq, sql } from "drizzle-orm";
 import { publishEvent } from "../../events/publish";
+import { emitReplicachePokes } from "../../events/replicache-events";
 // Cancel's post-commit obligations include tearing down the queued jobs of the
 // stagings it bulk-rejected. Both queue modules are leaves (nothing under
 // `../approvals` reaches back into `../agent`), so owning the teardown here
@@ -392,6 +393,11 @@ async function dischargeCancelObligations(args: {
   // body, so the workflow owes the user's in-flight artifact an ending, and
   // that is the only obligation here they can see. Internally best-effort.
   await finalizeCancelledRun(args.runId, args.reason);
+  // Sweep again after commit. A step body can stage an approval after the
+  // cancel transaction took its snapshot; the executor's terminal guard will
+  // roll back its step commit, but the staging row itself is an earlier
+  // autocommit. The sweep closes that visibility gap.
+  await rejectLateCancelledRunStagings(args.runId, args.reason);
   for (const stagingId of args.rejectedStagingIds) {
     // Guarded per queue, not per staging: the two jobs are independent, so a
     // failure removing one must not leave the other behind as well.
@@ -422,6 +428,62 @@ async function dischargeCancelObligations(args: {
         toMessage(err),
       );
     }
+  }
+}
+
+/**
+ * Reject approval rows that committed after a run's cancel transaction read
+ * them. Also called by the losing executor after its guarded commit observes
+ * the cancellation, which closes the later "staged after the post-commit
+ * sweep" edge.
+ */
+export async function rejectLateCancelledRunStagings(
+  runId: string,
+  reason: string,
+): Promise<string[]> {
+  try {
+    const runRows = await db()
+      .select({ status: agentRuns.status, userId: agentRuns.userId })
+      .from(agentRuns)
+      .where(eq(agentRuns.id, runId))
+      .limit(1);
+    const run = runRows[0];
+    const status = runStatusSchema.safeParse(run?.status);
+    if (!run || !status.success || status.data !== "cancelled") return [];
+
+    const now = new Date();
+    const rejected = await db()
+      .update(actionStagings)
+      .set({
+        status: "rejected",
+        rejectReason: reason,
+        decidedAt: now,
+        rowVersion: sql`${actionStagings.rowVersion} + 1`,
+        updatedAt: now,
+      })
+      .where(
+        and(
+          eq(actionStagings.runId, runId),
+          eq(actionStagings.status, "pending"),
+          eq(actionStagings.requiresApproval, true),
+        ),
+      )
+      .returning({ id: actionStagings.id });
+    if (rejected.length > 0) emitReplicachePokes([run.userId]);
+    const ids = rejected.map((row) => row.id);
+    for (const stagingId of ids) {
+      for (const remove of [removeApprovalNotificationJob, removeApprovalExpiryJob]) {
+        try {
+          await remove(stagingId);
+        } catch (err) {
+          console.warn("[agent] late staging job teardown failed for", stagingId, toMessage(err));
+        }
+      }
+    }
+    return ids;
+  } catch (err) {
+    console.warn("[agent] late cancelled-run staging sweep failed", runId, toMessage(err));
+    return [];
   }
 }
 

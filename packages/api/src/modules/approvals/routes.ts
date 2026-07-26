@@ -5,13 +5,8 @@ import { Elysia, t } from "elysia";
 import { emitReplicachePokes } from "../../events/replicache-events";
 import { authMacro } from "../../middleware/auth";
 import { BadRequestError, ConflictError, NotFoundError } from "../../middleware/errors";
-import {
-  cancelRunInTx,
-  enqueueRun,
-  signalRunInTx,
-  type CancelOutcome,
-  type SignalOutcome,
-} from "../agent";
+import { enqueueRun, signalRunInTx, type CancelOutcome, type SignalOutcome } from "../agent";
+import { cancelRunInTx } from "../agent/service";
 import { removeApprovalExpiryJob } from "./expiry-queue";
 import { removeApprovalNotificationJob } from "./notification-queue";
 import { startApprovalWaitSpan, type ApprovalWaitOutcome } from "../agent/runtime-spans";

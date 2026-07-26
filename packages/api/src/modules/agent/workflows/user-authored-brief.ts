@@ -650,6 +650,7 @@ export const userAuthoredBriefWorkflow: Workflow<BriefRunState> = {
   name: "User-authored brief",
   trigger: { kind: "manual" },
   initialStep: "boss-turn",
+  closure: { kind: "none" },
   initialState(input) {
     if (!input.brief) throw new Error("user-authored brief workflow requires a brief");
     const allowedIntegrations = readAllowedIntegrations(input.metadata);

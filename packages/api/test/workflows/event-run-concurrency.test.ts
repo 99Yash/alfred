@@ -71,6 +71,7 @@ const eventWorkflow: Workflow<Record<string, never>> = {
   trigger: { kind: "event", source: SOURCE, type: TYPE },
   initialState: () => ({}),
   initialStep: "finish",
+  closure: { kind: "none" },
   steps: {
     finish: {
       id: "finish",
@@ -93,6 +94,7 @@ const singletonEventWorkflow: Workflow<Record<string, never>> = {
   trigger: { kind: "event", source: SOURCE, type: TYPE },
   initialState: () => ({}),
   initialStep: "finish",
+  closure: { kind: "none" },
   dedupKey: () => "singleton",
   steps: {
     finish: {

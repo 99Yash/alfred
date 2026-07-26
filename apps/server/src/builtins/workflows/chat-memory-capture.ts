@@ -73,6 +73,7 @@ export const chatMemoryCaptureWorkflow: Workflow<State> = {
   trigger: { kind: "manual" },
   initialStep: "load-transcript",
   stateSchema,
+  closure: { kind: "none" },
 
   initialState(input) {
     const metadata = input.metadata ?? {};

@@ -27,6 +27,7 @@ export const echoWithApprovalWorkflow: Workflow<State> = {
   description: "Greet → wait for HIL approval → echo back. Smoke test for the durable runtime.",
   trigger: { kind: "manual" },
   initialStep: "say-hello",
+  closure: { kind: "none" },
   stateSchema,
   initialState(input) {
     const greeting = getStringPath(input.input, "greeting") ?? "hello";
