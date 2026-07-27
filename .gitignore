@@ -66,8 +66,12 @@ ui-polish-loop.sh
 # warden
 .warden/
 
-# Local design recon dumps (screenshots, DOM/network captures)
+# Local design recon dumps (screenshots, DOM/network captures).
+# This is the home for scraped assets and captures — put them in references/,
+# never at the repo root. `.railwayignore` and `.prettierignore` match.
 references/
+.scratch-*
+.vsnap*
 
 # Local design archive (snapshot only, never shipped)
 archive/
@@ -89,4 +93,16 @@ teaching/
 .wayfinder/
 # jscpd copy-paste detector output
 .jscpd/
-.claude/
+
+# Claude Code workspace: local by default, so personal skills/settings stay out.
+# The un-ignored paths are the shareable machinery and ARE tracked — a new shared
+# hook or skill needs its own `!` line here, or `git status` will never show it.
+.claude/*
+!.claude/hooks/
+!.claude/skills/
+.claude/skills/*
+!.claude/skills/handoff/
+!.claude/skills/learn/
+!.claude/skills/recall/
+apps/web/.claude/skills/*
+!apps/web/.claude/skills/react-doctor/

@@ -3,9 +3,7 @@
   // Parsed as JSONC — comments are safe here (`pnpm format` does not touch this file).
   // Every `ignore*` entry below is a knip blind spot, not dead code. Verify before removing.
   "ignore": [
-    "scratch-q.cjs",
     // Scratch/spike surfaces, kept deliberately unwired to the app.
-    "learning-labs/**",
     "scripts/spikes/**"
   ],
   "workspaces": {
