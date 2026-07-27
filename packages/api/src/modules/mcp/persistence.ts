@@ -277,6 +277,92 @@ export async function readToolPolicy(
   return row;
 }
 
+export interface ResolveMcpToolIdentityInput {
+  userId: string;
+  connectionId: string;
+  remoteName: string;
+  /** The catalog revision under which the caller selected this tool. */
+  catalogRevision: string;
+}
+
+export type McpToolIdentityResolution =
+  | {
+      status: "resolved";
+      connection: McpConnection;
+      revision: McpCatalogRevision;
+      descriptorHash: string;
+      policy: McpToolPolicyRow | undefined;
+    }
+  | {
+      status: "unresolved";
+      /**
+       * Present when the connection exists and belongs to the caller. Consumers
+       * may reuse the owner-verified row, but no descriptor policy is authorized.
+       */
+      connection: McpConnection | undefined;
+    };
+
+/**
+ * Resolve the durable identity of one selected MCP tool in ONE query.
+ *
+ * This is the owner of the `(current catalog revision, descriptor hash, reviewed
+ * policy)` derivation used by both the approval gate and the execution broker.
+ * A stale revision, absent descriptor, missing connection, or ownership miss
+ * returns `unresolved`; callers must then use their conservative default.
+ *
+ * The policy join includes its denormalized `userId` as defense in depth. The
+ * connection is the ownership authority, but a malformed cross-user policy row
+ * must never authorize a downgrade merely because its descriptor key matches.
+ */
+export async function resolveMcpToolIdentity(
+  input: ResolveMcpToolIdentityInput,
+  runner: Db = db(),
+): Promise<McpToolIdentityResolution> {
+  const descriptorHashExpr = sql<
+    string | null
+  >`${mcpCatalogRevisions.descriptorHashes} ->> ${input.remoteName}`;
+  const [row] = await runner
+    .select({
+      connection: mcpConnections,
+      revision: mcpCatalogRevisions,
+      descriptorHash: descriptorHashExpr,
+      policy: mcpToolPolicy,
+    })
+    .from(mcpConnections)
+    .leftJoin(
+      mcpCatalogRevisions,
+      eq(mcpCatalogRevisions.id, mcpConnections.currentCatalogRevisionId),
+    )
+    .leftJoin(
+      mcpToolPolicy,
+      and(
+        eq(mcpToolPolicy.userId, input.userId),
+        eq(mcpToolPolicy.connectionId, mcpConnections.id),
+        eq(mcpToolPolicy.remoteName, input.remoteName),
+        eq(mcpToolPolicy.descriptorHash, descriptorHashExpr),
+      ),
+    )
+    .where(and(eq(mcpConnections.id, input.connectionId), eq(mcpConnections.userId, input.userId)))
+    .limit(1);
+
+  if (
+    !row ||
+    !row.revision ||
+    row.revision.revisionHash !== input.catalogRevision ||
+    !row.descriptorHash
+  ) {
+    return { status: "unresolved", connection: row?.connection };
+  }
+
+  return {
+    status: "resolved",
+    connection: row.connection,
+    revision: row.revision,
+    descriptorHash: row.descriptorHash,
+    policy: row.policy ?? undefined,
+  };
+}
+
 /**
  * Upsert the reviewed policy for a `(connection, remoteName, descriptorHash)`.
  * The descriptor hash is part of the key on purpose: a policy is bound to the

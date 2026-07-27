@@ -17,6 +17,7 @@ import {
   readRevisionByHash,
   reconcileInflightInvocations,
   readToolPolicy,
+  resolveMcpToolIdentity,
   updateConnection,
   updateInvocation,
   upsertToolPolicy,
@@ -190,6 +191,58 @@ describe("mcp persistence (DB-backed)", { skip: SKIP }, () => {
 
     // A different descriptor hash is a MISS (drift → no downgrade reused).
     assert.equal(await readToolPolicy(connId, "create_issue", "sha256:DRIFT"), undefined);
+  });
+
+  test("tool identity resolves owner, current revision, descriptor, and policy together", async () => {
+    const userId = await seedUser();
+    const connId = await seedConnection(userId);
+    const revision = await publishCatalogRevision({
+      connectionId: connId,
+      revisionHash: "sha256:catalog",
+      descriptors: [{ name: "search" }],
+      descriptorHashes: { search: "sha256:search" },
+      toolCount: 1,
+    });
+    const policy = await upsertToolPolicy({
+      userId,
+      connectionId: connId,
+      remoteName: "search",
+      descriptorHash: "sha256:search",
+      riskTier: "low",
+      effectClass: "read",
+      retryContract: "never",
+    });
+
+    const identity = await resolveMcpToolIdentity({
+      userId,
+      connectionId: connId,
+      remoteName: "search",
+      catalogRevision: "sha256:catalog",
+    });
+    assert.equal(identity.status, "resolved");
+    if (identity.status !== "resolved") return;
+    assert.equal(identity.connection.id, connId);
+    assert.equal(identity.revision.id, revision.id);
+    assert.equal(identity.descriptorHash, "sha256:search");
+    assert.equal(identity.policy?.id, policy.id);
+
+    const stale = await resolveMcpToolIdentity({
+      userId,
+      connectionId: connId,
+      remoteName: "search",
+      catalogRevision: "sha256:stale",
+    });
+    assert.equal(stale.status, "unresolved");
+    assert.equal(stale.connection?.id, connId, "an owned connection row remains reusable");
+
+    const otherUserId = await seedUser();
+    const foreign = await resolveMcpToolIdentity({
+      userId: otherUserId,
+      connectionId: connId,
+      remoteName: "search",
+      catalogRevision: "sha256:catalog",
+    });
+    assert.deepEqual(foreign, { status: "unresolved", connection: undefined });
   });
 
   test("ledger barrier blocks an identical unresolved proposal", async () => {
