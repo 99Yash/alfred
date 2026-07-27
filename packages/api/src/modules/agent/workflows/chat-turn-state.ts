@@ -5,7 +5,7 @@ import {
   type AgentTranscriptMessage,
 } from "@alfred/contracts";
 import { z } from "zod";
-import { migrateActiveTools, migrateRecordedToolNames, systemToolKernel } from "../tool-surface";
+import { foldToolSurfaceState, toolSurfaceStateFields } from "../tool-surface";
 import type { StepResult } from "../types";
 import { pendingToolCallSchema as basePendingToolCallSchema } from "./pending-tool-call";
 
@@ -59,16 +59,10 @@ export const chatRunStateSchema = z
     // never inferred from user-authored prose or attachment content.
     artifactTargetId: z.string().optional(),
     tier: chatModelTierSchema,
-    // Persisted under an older deploy, so names may refer to tools that have
-    // since been retired. The transform below drops anything not in today's registry.
-    activeTools: z.array(z.string()).optional(),
-    // Exact first-turn deterministic selections, persisted so #414 can measure
-    // preload hits/misses against the durable transcript. Optional for legacy runs.
-    preloadedTools: z.array(z.string()).default([]),
-    // Read only while resuming checkpoints created before exact tool surfaces.
-    activeIntegrations: z.array(z.string().min(1)).optional(),
-    preloadApplied: z.boolean().default(false),
-    allowedIntegrations: z.array(z.string()),
+    // The durable tool surface, shared with every other checkpointed workflow
+    // (see `toolSurfaceStateFields`) and resolved by `foldToolSurfaceState` in
+    // the transform below.
+    ...toolSurfaceStateFields,
     // ADR-0053 connected summary, snapshotted once at run start (first turn) and
     // reused every turn so the system-prompt prefix stays cache-stable.
     connectedSummary: z.string().optional(),
@@ -122,12 +116,12 @@ export const chatRunStateSchema = z
     // call; subsequent tool-loop turns must continue from that prepared
     // transcript and compact only the older prefix when pressure grows.
     inFlightTailStart: z.number().int().min(0).default(0),
-    // Consecutive empty completions retried this run (see CHAT_EMPTY_COMPLETION_MAX_RETRIES).
+    // Consecutive empty completions retried this run (bounded by `turn-budgets`).
     // Reset to 0 whenever a turn is productive (tool calls or real text), so this
     // counts a provider stuck returning empties — not scattered empties across a
     // long turn loop. Default 0 for runs minted before the field existed.
     emptyCompletionRetries: z.number().int().min(0).default(0),
-    // Consecutive stream-timeout retries this run (see STREAM_TIMEOUT_MAX_RETRIES).
+    // Consecutive stream-timeout retries this run (bounded by `turn-budgets`).
     // Sibling of `emptyCompletionRetries`: reset to 0 on any productive turn, so
     // it counts retries of the *same* stuck turn — not one timeout per tool-loop
     // step. Default 0 for runs minted before the field existed.
@@ -156,19 +150,11 @@ export const chatRunStateSchema = z
     // surfaced to the model.
     notedFailureToolCallIds: z.array(z.string()).default([]),
   })
-  .transform(({ activeIntegrations, activeTools, preloadedTools, started, ...state }) => ({
-    ...state,
+  .transform(({ started, ...state }) => ({
+    ...foldToolSurfaceState(state),
     // The old boolean recorded only that the event fired. Runtime migration is
     // the best timestamp available for an already-started legacy checkpoint.
     startedAt: state.startedAt ?? (started ? new Date().toISOString() : undefined),
-    activeTools: migrateActiveTools(
-      activeTools,
-      activeIntegrations,
-      state.pendingToolCalls.map((call) => call.toolName),
-    ),
-    preloadedTools: migrateRecordedToolNames(preloadedTools).filter(
-      (name) => !systemToolKernel().includes(name),
-    ),
   }));
 export type ChatRunState = z.infer<typeof chatRunStateSchema>;
 
@@ -206,6 +192,66 @@ export function interruptChatRun(
 }
 
 /**
+ * The two decisions that differ between the chat turn's two narration-segment
+ * closes, as arguments rather than a warning in each about the other.
+ *
+ * Both closes park `assistantText` on the narration trail, clear it, and advance
+ * `segmentIndex`; that much is one operation ({@link closeNarrationSegment}).
+ * They diverge on exactly the two fields below — which used to live as a
+ * "distinct from the other one, do not merge them" note in each function
+ * pointing at the other, across a module boundary. Prose in both directions is
+ * what a missing mechanism looks like: as named fields a reader of either close
+ * sees both policies, and neither has to warn about the other.
+ */
+export interface NarrationClose {
+  /**
+   * Whether the closed text belongs on the trail at all.
+   *
+   * A lead-in withheld by the #407 reissue gate is internal machinery ("tools
+   * warming up, retrying") the user never saw and must never read back, so it is
+   * dropped. A premature answer a finalize guard rejected already streamed to
+   * the client, so it stays — the trail is where it lands once the live answer
+   * area clears.
+   */
+  readonly keepText: boolean;
+  /**
+   * Whether a close that kept nothing still advances `segmentIndex`.
+   *
+   * A tool-bearing step advances regardless: the tool cards that follow are
+   * numbered off the segment, so a dropped or blank lead-in that skipped the
+   * bump would leave them on the previous segment's line. A finalize guard with
+   * no text to close must NOT advance — nothing streamed on the segment it would
+   * move to, and the client only follows a HIGHER-segment delta.
+   */
+  readonly advanceWhenNothingKept: boolean;
+}
+
+/**
+ * Close the current narration segment under a {@link NarrationClose}, returning
+ * whether text was actually parked on the trail.
+ *
+ * Mutates in place rather than returning a patch: every caller is a step or
+ * guard that already owns `state`, and a patch has to be written back field by
+ * field — which is one more place to forget `segmentIndex`.
+ */
+export function closeNarrationSegment(
+  state: Pick<ChatRunState, "narration" | "assistantText" | "segmentIndex">,
+  close: NarrationClose,
+): boolean {
+  const kept = close.keepText && state.assistantText.trim().length > 0;
+  if (!kept && !close.advanceWhenNothingKept) return false;
+  if (kept) {
+    state.narration = [
+      ...state.narration,
+      { index: state.segmentIndex, text: state.assistantText },
+    ];
+  }
+  state.assistantText = "";
+  state.segmentIndex += 1;
+  return kept;
+}
+
+/**
  * Close the current narration segment as a tool-bearing step ends: the lead-in
  * text was a preface to those tools, not the answer, so it moves onto the
  * narration trail and the segment index advances so later tool cards stay
@@ -213,22 +259,15 @@ export function interruptChatRun(
  * reissue of just-auto-activated tools (#407) — machinery the prompt forbids
  * surfacing (see the "internal machinery" prompt rule) and PR 503 already hides
  * on the tool-card channel — so its text is dropped from the trail while the
- * index still advances. Pure so the drop/keep/advance behavior is unit-tested.
- *
- * Distinct from `closePrematureAnswerSegment` (see `./finalize-guards`), which
- * has a different keep/drop policy and emits an advance-delta — do not merge them.
+ * index still advances.
  */
 export function closeLeadInNarration(
   state: Pick<ChatRunState, "narration" | "assistantText" | "segmentIndex" | "reissuePending">,
-): Pick<ChatRunState, "narration" | "assistantText" | "segmentIndex"> {
-  const keep = !state.reissuePending && state.assistantText.trim().length > 0;
-  return {
-    narration: keep
-      ? [...state.narration, { index: state.segmentIndex, text: state.assistantText }]
-      : state.narration,
-    assistantText: "",
-    segmentIndex: state.segmentIndex + 1,
-  };
+): void {
+  closeNarrationSegment(state, {
+    keepText: !state.reissuePending,
+    advanceWhenNothingKept: true,
+  });
 }
 
 /**

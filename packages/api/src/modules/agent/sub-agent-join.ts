@@ -22,10 +22,10 @@ import {
  * lives: `findResumableRunIds` never sweeps `waiting`, so a park scheduled
  * without its dead-man timer is a permanently un-wakeable run.
  *
- * {@link JoinChildRunResult} is the enforcement. A `park` carries the signal
- * name and is only ever constructed inside {@link joinChildRun}, on the one
- * branch where `scheduleSubAgentJoinWakeJob` answered `"scheduled"` — so a third
- * join site cannot park without the timer, whatever its author remembers.
+ * {@link JoinChildRunResult} is the enforcement, and {@link ParkSignal} is what
+ * makes it enforcement rather than documentation: the park arm is only
+ * *constructible* inside this module, on the one branch where
+ * `scheduleSubAgentJoinWakeJob` answered `"scheduled"`.
  */
 export type JoinChildRunResult =
   /**
@@ -36,7 +36,35 @@ export type JoinChildRunResult =
    */
   | { kind: "resolved"; outcome: ChildRunOutcome }
   /** Park the parent on this signal. The dead-man timer is already scheduled. */
-  | { kind: "park"; signalName: string };
+  | { kind: "park"; signalName: ParkSignal };
+
+/**
+ * A `sub_agent_done` signal name that is *safe to park on* — meaning the dead-man
+ * wake for it has already been scheduled.
+ *
+ * The brand is minted in exactly one place ({@link mintParkSignal}, below the one
+ * `scheduled` check), so `{ kind: "park", signalName: subAgentDoneSignalName(id) }`
+ * hand-written at a third join site does not type-check. Without it the park arm
+ * was structurally constructible by anyone who imported the already-exported
+ * name helper, and the only thing standing between that and a permanently
+ * un-wakeable parent (`findResumableRunIds` never sweeps `waiting`) was this
+ * docstring.
+ *
+ * What it does *not* cover: a site that ignores this module and parks on a raw
+ * `{ kind: "signal", name }` wake condition of its own. The wake condition takes
+ * any string by construction — it serves every signal in the system, not just
+ * this one. The brand closes the shape that looks like joining a child; use
+ * {@link joinChildRun} and there is nothing to remember.
+ */
+export type ParkSignal = string & { readonly __parkSignal: unique symbol };
+
+/**
+ * The single mint. A cast is unavoidable — the brand exists only in the type
+ * system — so it is confined here, one line from the check that earns it.
+ */
+function mintParkSignal(childRunId: string): ParkSignal {
+  return subAgentDoneSignalName(childRunId) as ParkSignal;
+}
 
 /**
  * The I/O both join sites inject so the protocol can be unit-tested (timer
@@ -91,5 +119,5 @@ export async function joinChildRun(
     );
     return { kind: "resolved", outcome: { ...outcome, reason: "join_timer_unavailable" } };
   }
-  return { kind: "park", signalName: subAgentDoneSignalName(args.childRunId) };
+  return { kind: "park", signalName: mintParkSignal(args.childRunId) };
 }

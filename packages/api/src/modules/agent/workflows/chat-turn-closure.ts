@@ -1,31 +1,29 @@
-import {
-  HttpError,
-  runStatusSchema,
-  sanitizeToolResult,
-  toMessage,
-  type ChatErrorKind,
-  type ChatMessageUsage,
-} from "@alfred/contracts";
+import { runStatusSchema, sanitizeToolResult } from "@alfred/contracts";
 import { db } from "@alfred/db";
-import {
-  agentRuns,
-  apiCallLog,
-  chatAttachments,
-  chatMessages,
-  chatThreads,
-} from "@alfred/db/schemas";
-import { and, eq, like, or, sql } from "drizzle-orm";
+import { agentRuns, chatMessages, chatThreads } from "@alfred/db/schemas";
+import { and, eq, sql } from "drizzle-orm";
 import { publishEvent } from "../../../events/publish";
 import { emitReplicachePokes } from "../../../events/replicache-events";
 import { logger } from "../../../lib/logger";
 import { finalizeRunArtifacts } from "../../artifacts/write";
 import { scheduleThreadIdleExtraction } from "../../chat-memory/queue";
 import { scheduleConversationCompactionIfNeeded } from "../compaction";
-import { foldModelUsage } from "../usage-fold";
+import { aggregateRunUsage } from "../usage-fold";
 import { sanitizeVoice } from "../voice-sanitize";
+import { classifyChatTurnFailure } from "./chat-failure-kind";
 import type { ChatRunState } from "./chat-turn-state";
 import { maybeGenerateThreadTitle } from "./chat-thread-title";
-import { isStreamTimeoutAbort } from "./stream-timeout";
+
+/**
+ * The closure protocol: how a terminal chat turn is persisted and handed to the
+ * client. One sequence, one policy table, three named doors into it.
+ *
+ * Scoped to that and nothing else. What a fault is *called* is
+ * `./chat-failure-kind`, what a run's spend adds up to is `../usage-fold`, and
+ * what images a thread carries is `./chat-attachments` — none of those change
+ * when a turn ending is added or the write sequence moves, and adding a
+ * {@link ChatTurnOutcome} does not change any of them.
+ */
 
 /**
  * How a chat turn ended, and the only input the closure protocol branches on.
@@ -33,7 +31,7 @@ import { isStreamTimeoutAbort } from "./stream-timeout";
  * Every terminal chat turn runs the same seven-step sequence — upsert the
  * assistant row, bump the thread, close the run's artifacts, publish
  * `chat.message completed`, poke Replicache, then optionally arm the followup
- * work. The three ways a turn can end differ only in the policy this
+ * work. The ways a turn can end differ only in the {@link ClosurePolicy} this
  * discriminant selects; before {@link closeChatTurn} they were two hand-written
  * copies of that sequence, and keeping them in step was a review problem.
  */
@@ -44,6 +42,70 @@ type ChatTurnOutcome =
   | { kind: "cancelled" }
   /** A terminal fault: stream error, turn-cap, a down provider. */
   | { kind: "failed"; error: unknown };
+
+/**
+ * Everything the closure sequence decides per ending, in one table rather than
+ * one inline test per decision point.
+ *
+ * These decisions co-vary by definition — together they *are* what "this kind of
+ * ending" means — so a new {@link ChatTurnOutcome} has to answer all of them. As
+ * inline `outcome.kind === …` tests spread down {@link closeChatTurn} it answered
+ * none: a fourth ending compiled clean and silently inherited the completed
+ * policy (guarded upsert with usage attached, artifacts flipped to `complete`,
+ * `chat.message completed` published), which is the one shape a new ending must
+ * never get for free. As a `satisfies Record<kind, …>` a missing row stops the
+ * build.
+ *
+ * Which *row* the ending writes is not in here: it is the one decision that
+ * needs the ending's payload rather than just its kind (a `failed` close carries
+ * the fault to classify), so it stays an exhaustive `switch` in
+ * {@link closeChatTurn} — which a new kind also has to answer before it
+ * compiles. One gate each, no decision stated twice.
+ */
+interface ClosurePolicy {
+  /**
+   * Whether an already-`cancelled` run means "someone else owns this ending, do
+   * nothing". The cancel path itself *is* that closure, so it never yields; a
+   * success or failure path must, or it overwrites the cancel's row.
+   */
+  readonly yieldToCancel: boolean;
+  /**
+   * How this ending closes the artifacts the turn authored (ADR-0075) — the
+   * terminal status, and which in-flight statuses it may claim. `failed` marks
+   * them `error` rather than leaving them stuck `generating`, with partial
+   * content still visible; `cancelled` closes them `complete` *and* reclaims
+   * `error` rows, so a stop the user chose leaves the draft readable rather than
+   * showing as broken.
+   */
+  readonly artifacts: {
+    readonly to: "complete" | "error";
+    readonly from: readonly ("generating" | "error")[];
+  };
+  /**
+   * Whether to arm {@link armTurnFollowups}. All three schedulers assume a live
+   * conversation and one of them spends a cheap-model call, so only an ending
+   * the thread is expected to keep building on gets them.
+   */
+  readonly followups: boolean;
+}
+
+const CLOSURE_POLICY = {
+  completed: {
+    yieldToCancel: true,
+    artifacts: { to: "complete", from: ["generating"] },
+    followups: true,
+  },
+  cancelled: {
+    yieldToCancel: false,
+    artifacts: { to: "complete", from: ["generating", "error"] },
+    followups: false,
+  },
+  failed: {
+    yieldToCancel: true,
+    artifacts: { to: "error", from: ["generating"] },
+    followups: false,
+  },
+} as const satisfies Record<ChatTurnOutcome["kind"], ClosurePolicy>;
 
 /**
  * Persist a terminal chat turn and close the loop for the client.
@@ -62,10 +124,11 @@ async function closeChatTurn(
   state: ChatRunState,
   outcome: ChatTurnOutcome,
 ): Promise<void> {
+  const policy = CLOSURE_POLICY[outcome.kind];
   // A run already cancelled has its own closure coming (or already landed);
   // don't let a success/failure path overwrite it. The cancel path itself is
-  // that closure, so it never checks.
-  if (outcome.kind !== "cancelled" && (await runWasCancelled(runId))) return;
+  // that closure, so it never yields.
+  if (policy.yieldToCancel && (await runWasCancelled(runId))) return;
 
   const now = new Date();
   // ADR-0070 §1.3: a tool that streamed poison into any chat-message field
@@ -75,10 +138,21 @@ async function closeChatTurn(
   const fields = sanitizeChatMessageFields(state);
   const reasoningMs = state.reasoningMs > 0 ? state.reasoningMs : null;
 
-  const written =
-    outcome.kind === "failed"
-      ? await insertFailedRow(userId, runId, state, fields, reasoningMs, outcome.error)
-      : await upsertCompletedRow(userId, runId, state, fields, reasoningMs, now);
+  // The row is the one per-ending decision that reads the ending's payload, not
+  // just its kind, so it is a switch rather than a {@link CLOSURE_POLICY} field.
+  // Exhaustive on purpose: a new ending leaves `written` unassigned and the build
+  // fails here, which is the right place to decide whether it may replace a
+  // failed attempt and whether it carries usage.
+  let written: { id: string }[];
+  switch (outcome.kind) {
+    case "failed":
+      written = await insertFailedRow(userId, runId, state, fields, reasoningMs, outcome.error);
+      break;
+    case "completed":
+    case "cancelled":
+      written = await upsertCompletedRow(userId, runId, state, fields, reasoningMs, now);
+      break;
+  }
   // Nothing changed: either the row already exists (failed path, insert-only) or
   // it exists and is not a previous failed attempt (completed path's guarded
   // upsert). Someone else owns this message's ending.
@@ -91,18 +165,14 @@ async function closeChatTurn(
 
   // Close out any artifacts this turn authored so the sidebar leaves the
   // placeholder state (ADR-0075). Tied to the run lifecycle so the boss never has
-  // to call a separate "finish" tool.
-  //  - completed: flip still-`generating` rows to `complete`.
-  //  - cancelled: also reclaim `error` rows — whatever the turn had drafted stays
-  //    readable rather than showing as broken for a stop the user chose.
-  //  - failed: mark in-flight rows `error` rather than leaving them stuck
-  //    `generating`. Partial content stays visible.
+  // to call a separate "finish" tool; which status each ending closes them into
+  // is `ClosurePolicy.artifacts`.
   await finalizeRunArtifacts(
     userId,
     runId,
     state.messageId,
-    outcome.kind === "failed" ? "error" : "complete",
-    outcome.kind === "cancelled" ? ["generating", "error"] : ["generating"],
+    policy.artifacts.to,
+    policy.artifacts.from,
   );
 
   await publishEvent({
@@ -112,7 +182,7 @@ async function closeChatTurn(
   });
   emitReplicachePokes([userId]);
 
-  if (outcome.kind !== "completed") return;
+  if (!policy.followups) return;
   // Re-checked after the write: a cancel can land between the pre-check and
   // here, and the followups below all assume a live conversation.
   if (await runWasCancelled(runId)) return;
@@ -205,17 +275,7 @@ async function insertFailedRow(
   // tailored message + recovery action; log the raw detail server-side for
   // diagnosis. Content stays empty (or whatever streamed before the fault) —
   // the failed-state copy is owned client-side, keyed off `errorKind`.
-  // ADR-0072 presence gate. An image-reject classifies `attachment` only when
-  // the current turn carries an image (the "Send without it" retry can drop
-  // it); when only an *earlier* turn's replayed image can be the culprit it
-  // classifies `attachment_history` (retry can't reach it — new chat only);
-  // with no image anywhere in the thread it's structurally impossible and falls
-  // through to `generic`.
-  const images = await threadImageAttachments(userId, state.threadId, state.userMessageId);
-  const errorKind = classifyChatFailure(error, {
-    currentTurnHasImage: images.currentTurn,
-    historicalHasImage: images.historical,
-  });
+  const errorKind = await classifyChatTurnFailure(userId, state, error);
   logger.warn(
     { err: error, event: "chat_turn_failed", runId, threadId: state.threadId, errorKind },
     "Chat turn failed",
@@ -345,35 +405,6 @@ async function runWasCancelled(runId: string): Promise<boolean> {
   return status.success && status.data === "cancelled";
 }
 
-/**
- * Roll up the turn's token usage + cost from its `api_call_log` rows for the
- * dev usage readout. Keyed on the boss `runId` — sub-agent child runs are
- * separate runs billed under their own ids and are not folded in (see
- * `.lessons/model-cost-recompute-from-tokens.md`). Best-effort: metering rows
- * are written fire-and-forget, so a straggler write can undercount the final
- * call; returns null when the run logged nothing.
- */
-async function aggregateRunUsage(runId: string): Promise<ChatMessageUsage | null> {
-  // Grouped by model so the readout can name every model that served the turn
-  // (and catch a silent Anthropic→Gemini fallback); the turn totals are summed
-  // back across the groups in JS.
-  const rows = await db()
-    .select({
-      model: sql<string>`coalesce(${apiCallLog.model}, 'unknown')`,
-      inputTokens: sql<string>`coalesce(sum(${apiCallLog.inputTokens}), 0)`,
-      outputTokens: sql<string>`coalesce(sum(${apiCallLog.outputTokens}), 0)`,
-      cachedInputTokens: sql<string>`coalesce(sum(${apiCallLog.cachedInputTokens}), 0)`,
-      costUsd: sql<string>`coalesce(sum(${apiCallLog.costUsd}), 0)`,
-      calls: sql<string>`count(*)`,
-    })
-    .from(apiCallLog)
-    .where(eq(apiCallLog.runId, runId))
-    .groupBy(apiCallLog.model);
-  if (rows.length === 0) return null;
-  const usage = foldModelUsage(rows);
-  return usage.calls === 0 ? null : usage;
-}
-
 interface SanitizedChatMessageFields {
   content: string;
   reasoning: string | null;
@@ -412,146 +443,4 @@ export function sanitizeChatMessageFields(state: ChatRunState): SanitizedChatMes
         : null,
   };
   return sanitizeToolResult(raw).value as typeof raw;
-}
-
-/**
- * Where image attachments live in a thread's replayed transcript, split by the
- * recovery the UI can offer (ADR-0072). The whole thread is replayed every turn
- * (.lessons/chat-vision-transcript-replay-poison.md), so a provider image-reject
- * can be caused by the current turn's image (droppable via "Send without it")
- * OR by an earlier turn's image (the retry can't reach it — only a new chat
- * can). Returns both so {@link classifyChatFailure} picks the honest kind.
- *
- * An "image attachment" is a `ready` direct image upload or a degraded modality
- * that contributed keyframe images. Joins through `chat_messages` because
- * `chat_attachments` is keyed by message, not thread.
- */
-async function threadImageAttachments(
-  userId: string,
-  threadId: string,
-  currentUserMessageId: string | undefined,
-): Promise<{ currentTurn: boolean; historical: boolean }> {
-  const rows = await db()
-    .select({ messageId: chatAttachments.messageId })
-    .from(chatAttachments)
-    .innerJoin(chatMessages, eq(chatAttachments.messageId, chatMessages.id))
-    .where(
-      and(
-        eq(chatMessages.userId, userId),
-        eq(chatMessages.threadId, threadId),
-        eq(chatAttachments.status, "ready"),
-        or(
-          like(chatAttachments.mime, "image/%"),
-          sql`jsonb_array_length(${chatAttachments.degradedImageKeys}) > 0`,
-        ),
-      ),
-    );
-  let currentTurn = false;
-  let historical = false;
-  for (const r of rows) {
-    if (currentUserMessageId && r.messageId === currentUserMessageId) currentTurn = true;
-    else historical = true;
-  }
-  return { currentTurn, historical };
-}
-
-/**
- * Map a terminal chat-turn fault to a user-meaningful {@link ChatErrorKind}.
- * Branches on structured signals first ({@link HttpError.status}, our own
- * sentinel throws), then falls back to sniffing the message — providers don't
- * give us typed errors, so the string is the last resort. Order matters:
- * attachment rejections often *also* carry a 4xx, so check them before status.
- * Anything unrecognized is `generic` (the client shows a neutral retry). The
- * raw text never reaches the user — only this tag does.
- */
-export function classifyChatFailure(
-  err: unknown,
-  opts: { currentTurnHasImage: boolean; historicalHasImage: boolean },
-): ChatErrorKind {
-  const msg = toMessage(err).toLowerCase();
-
-  // ADR-0072: the only genuine attachment failure is the model provider
-  // rejecting a hydrated image at the generation call (recurs on transcript
-  // replay — see .lessons/chat-vision-transcript-replay-poison.md). The narrow
-  // signal set replaces the old over-broad substring net (attachment|file|
-  // image|media|mime) that mis-bucketed unrelated tool/export failures.
-  //
-  // "unsupported file" / "unsupported media" / "decode" / "corrupt" are NOT
-  // image-specific on their own — a `drive.export_file: unsupported file export
-  // type` (or any tool error) trips them in an image-bearing thread. Gate them
-  // behind an explicit image/picture/photo mention so only a message that
-  // actually names an image counts; everything else falls through to generic.
-  const mentionsImage = msg.includes("image") || msg.includes("picture") || msg.includes("photo");
-  const isImageReject =
-    msg.includes("unable to process input image") ||
-    msg.includes("invalid image") ||
-    msg.includes("unsupported image") ||
-    (mentionsImage &&
-      (msg.includes("unsupported file") ||
-        msg.includes("unsupported media") ||
-        msg.includes("decode") ||
-        msg.includes("corrupt")));
-  if (isImageReject) {
-    // Prefer the recoverable kind: if the current turn has an image, "Send
-    // without it" can drop it. Otherwise, if only an earlier turn's replayed
-    // image can be the culprit, say so honestly — the retry can't reach it.
-    if (opts.currentTurnHasImage) return "attachment";
-    if (opts.historicalHasImage) return "attachment_history";
-    // No image anywhere → not an attachment failure; fall through to generic.
-  }
-
-  // Our own turn-cap sentinel (see `CHAT_TURN_CAP_MAX`) — the turn can't continue.
-  if (msg.includes("chat_turn_limit_exceeded")) return "too_long";
-  // Context / token ceilings reported by the provider.
-  if (
-    msg.includes("context length") ||
-    msg.includes("maximum context") ||
-    msg.includes("too many tokens") ||
-    msg.includes("prompt is too long")
-  ) {
-    return "too_long";
-  }
-
-  // Upstream throttling. Prefer the typed status; the substring match is a
-  // fallback for stringified errors — `\b` so a request id / token count that
-  // merely contains "429" doesn't get mis-tagged.
-  if (err instanceof HttpError && err.status === 429) return "rate_limited";
-  if (msg.includes("rate limit") || msg.includes("too many requests") || /\b429\b/.test(msg)) {
-    return "rate_limited";
-  }
-
-  // Our own streaming circuit-breaker aborted the turn (it ran past the total
-  // or chunk stream ceiling): the model ran long, not a provider fault, so tag
-  // it `timeout` — the client can say "that took too long" and offer a plain
-  // retry, distinct from the `overloaded` glitch copy. Checked *before* the
-  // transient-fault net below, whose bare `timeout`/`timed out` substrings
-  // would otherwise swallow it. The structural check catches the raw
-  // `TimeoutError` DOMException; the message patterns are the stringified
-  // fallback and stay narrow so a provider "gateway timeout" still reads as a
-  // transient fault below.
-  if (
-    isStreamTimeoutAbort(err) ||
-    msg.includes("aborted due to timeout") ||
-    msg.includes("operation timed out") ||
-    msg.includes("timeout of ")
-  ) {
-    return "timeout";
-  }
-
-  // Transient provider faults — 5xx, "internal error", overloaded, network.
-  if (err instanceof HttpError && err.status >= 500) return "overloaded";
-  if (
-    msg.includes("internal error") ||
-    msg.includes("overloaded") ||
-    msg.includes("unavailable") ||
-    msg.includes("timeout") ||
-    msg.includes("timed out") ||
-    msg.includes("econnreset") ||
-    msg.includes("fetch failed") ||
-    /\b50[23]\b/.test(msg)
-  ) {
-    return "overloaded";
-  }
-
-  return "generic";
 }
