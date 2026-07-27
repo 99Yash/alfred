@@ -25,7 +25,7 @@ import { buildToolName, INTEGRATION_ACTIONS, integrationFromToolName } from "@al
 // `@alfred/db` and `@alfred/ingestion` into the import graph of the module every
 // tool declaration imports. Building a context lives in `./context`.
 import type { Integrations } from "@alfred/integrations";
-import type { z } from "zod";
+import { z } from "zod";
 import { deriveToolDiscovery, type ResolvedDiscovery } from "./metadata-defaults";
 
 export interface ToolDiscoveryMetadata {
@@ -67,6 +67,47 @@ export interface ToolAvailabilityMetadata {
    */
   passthrough?: true;
 }
+
+/**
+ * How a call reaches execution at the dispatch floor. Declared here rather than
+ * matched on by name in the dispatcher, so the routing for a tool is readable
+ * from its registration and a new tool cannot acquire a bypass by being added to
+ * a list in another module.
+ *
+ * - `"staged"` (the default when omitted) — the call writes an `action_stagings`
+ *   row and passes the ADR-0034 policy / ADR-0069 risk gate. Every tool with an
+ *   external side effect belongs here.
+ * - `"fast_path"` — a bounded LOCAL read with no external side effect and no
+ *   approval surface: it skips the staging row and, because they all live below
+ *   the routing switch, FOUR things with it — the ADR-0034 policy / ADR-0069 risk
+ *   gate, the retry-suppression check for an input the user already rejected, the
+ *   run-cancellation guard (a fast-path call still runs in a cancelled run), and
+ *   the durable audit row itself. Only a run-local read/write earns this. The
+ *   availability and active-surface checks still authorize the call, and
+ *   {@link registerTool} refuses the declaration for anything that could require
+ *   approval — see {@link LiveToolArgs.policyGateWaiver} for the non-`system`
+ *   case, which is the sharp edge.
+ * - `"join"` — ADR-0073. The dispatcher intercepts the call to *park* the parent
+ *   run on a child-completion signal instead of returning a result the boss would
+ *   have to poll; the tool's own `execute` is the non-blocking read-only fallback.
+ *   This arm is a JOIN PROTOCOL, not a free-form routing choice: the dispatcher
+ *   resolves the child named by {@link joinToolInput}, so a tool declaring it must
+ *   accept that input. `registerTool` proves both that and single occupancy at
+ *   boot, so the arm never has to trust the declaration.
+ */
+type ToolStagingPolicy = "staged" | "fast_path" | "join";
+
+/**
+ * The input every `staging: "join"` tool must accept, because the dispatcher's
+ * join arm reads `childRunId` off the call to resolve which child run to park on
+ * — it does not go through the tool's own `execute`. Declared here, next to the
+ * policy that selects the arm, so the arm can PARSE what it needs instead of
+ * casting a name-matched input, and so {@link registerTool} can reject a
+ * mis-declared join tool at boot rather than at first dispatch (where the cast
+ * would have yielded `undefined` typed as `string` and queried for a run that
+ * cannot exist). `awaitSubAgentInputSchema` derives from this.
+ */
+export const joinToolInput = z.object({ childRunId: z.string().min(1) });
 
 export interface ToolExecuteContext {
   runId: string;
@@ -181,6 +222,27 @@ export interface LiveToolArgs<
    * See decisions.md (ADR-0088).
    */
   resolveRiskTier?: (input: z.infer<S>, ctx: ToolExecuteContext) => Promise<ToolRiskTier>;
+  /** How the dispatch floor routes this call. Omitted means `"staged"`. */
+  staging?: ToolStagingPolicy;
+  /**
+   * REQUIRED to declare `staging: "fast_path"` on a non-`system` tool, and
+   * illegal otherwise. Holds the reason waiving the per-user ADR-0034 policy gate
+   * is safe for this exact tool.
+   *
+   * The trap this closes: `riskTier` is NOT what decides approval. The floor
+   * computes `toolRequiresApproval(policyMode, riskTier)`, and `policyMode` is
+   * forced to `autonomy` for `integration === "system"` only — every other
+   * integration reads the user's policy, whose default is `gated`. So under
+   * default policy a non-`system` tool requires approval at EVERY risk tier, and
+   * `staging: "fast_path"` on it silently skips the approval, the audit row, and
+   * the Replicache approval card no matter how low its tier looks. A required
+   * string makes that decision impossible to make by accident: the naive
+   * `riskTier: "medium", staging: "fast_path"` fails at boot instead of shipping.
+   *
+   * `mcp.list_tools` is the one holder — a bounded local read of Alfred's own
+   * already-validated catalog (#540 clarification #5).
+   */
+  policyGateWaiver?: string;
   description: string;
   /** Compact discovery copy co-located with the executable definition (#411). */
   discovery?: ToolDiscoveryMetadata;
@@ -213,6 +275,10 @@ export interface RegisteredTool {
   riskTier: ToolRiskTier;
   /** See {@link LiveToolArgs.resolveRiskTier}. Erased to `unknown` at the registry boundary. */
   resolveRiskTier?: (input: unknown, ctx: ToolExecuteContext) => Promise<ToolRiskTier>;
+  /** See {@link ToolStagingPolicy}. Resolved from the optional declaration. */
+  staging: ToolStagingPolicy;
+  /** See {@link LiveToolArgs.policyGateWaiver}. */
+  policyGateWaiver?: string | undefined;
   description: string;
   discovery: ResolvedDiscovery;
   availability?: ToolAvailabilityMetadata | undefined;
@@ -239,6 +305,8 @@ export function liveTool<
     integration: args.integration,
     action: args.action,
     riskTier: args.riskTier,
+    staging: args.staging ?? "staged",
+    policyGateWaiver: args.policyGateWaiver,
     description: args.description,
     // Every tool carries a derived discovery baseline (#413) so it is findable
     // by capability, not only by its exact canonical name; hand-authored copy in
@@ -298,6 +366,66 @@ export function registerTool(tool: RegisteredTool): void {
   }
   if (tool.availability?.surface === "kernel" && tool.integration !== "system") {
     throw new Error(`[tools] only system tools may declare availability.surface='kernel'`);
+  }
+  // `fast_path` skips the staging row and with it the ADR-0034 policy / ADR-0069
+  // risk gate, so it must be unreachable for anything that could ever require
+  // approval. These guards mirror BOTH disjuncts of `toolRequiresApproval`
+  // (`policyMode === "gated" || riskTier === "high"`) — a guard that closed only
+  // the risk half would be worse than none, because the next author would trust
+  // it. Refused at boot rather than at first dispatch.
+  if (tool.staging === "fast_path") {
+    // Disjunct 2 — the risk floor. A `high` static tier always confirms, and a
+    // dynamic `resolveRiskTier` can return `high`.
+    if (tool.riskTier === "high" || tool.resolveRiskTier) {
+      throw new Error(
+        `[tools] '${tool.name}' declares staging='fast_path' but can require approval ` +
+          `(riskTier='${tool.riskTier}'${tool.resolveRiskTier ? ", dynamic resolveRiskTier" : ""}) — ` +
+          "the fast path skips the approval gate",
+      );
+    }
+    // Disjunct 1 — the policy mode, which is the half that actually bites. The
+    // floor forces `autonomy` for `integration === "system"` ONLY; every other
+    // integration reads the user's policy, whose default is `gated`. So a
+    // non-`system` fast path skips a real approval at EVERY risk tier, and the
+    // declaration must name why that is safe for this exact tool.
+    if (tool.integration !== "system" && tool.policyGateWaiver === undefined) {
+      throw new Error(
+        `[tools] '${tool.name}' declares staging='fast_path' on integration='${tool.integration}', ` +
+          "but only 'system' is forced to autonomy at the dispatch floor — under the default " +
+          "'gated' policy this skips a real approval at every risk tier. Set " +
+          "`policyGateWaiver` with the reason waiving the gate is safe, or use staging='staged'",
+      );
+    }
+  } else if (tool.policyGateWaiver !== undefined) {
+    throw new Error(
+      `[tools] '${tool.name}' sets policyGateWaiver but does not declare staging='fast_path' — ` +
+        "nothing waives its approval gate, so the waiver is misleading",
+    );
+  }
+  // `join` is a protocol, not a preference: the dispatcher reads `childRunId` off
+  // the call itself (see `joinToolInput`) and never reaches this tool's `execute`
+  // for a still-running child. Prove the schema accepts that input, so the
+  // dispatcher's parse cannot be the place a copy-pasted declaration first fails.
+  if (tool.staging === "join") {
+    const probe = tool.inputSchema.safeParse({
+      childRunId: "00000000-0000-0000-0000-000000000000",
+    });
+    if (!probe.success || !joinToolInput.safeParse(probe.data).success) {
+      throw new Error(
+        `[tools] '${tool.name}' declares staging='join' but its inputSchema does not accept ` +
+          "`{ childRunId: string }` — the dispatcher's join arm resolves the child run from that field",
+      );
+    }
+    const existingJoin = [...REGISTRY.values()].find(
+      (other) => other.staging === "join" && other.name !== tool.name,
+    );
+    if (existingJoin) {
+      throw new Error(
+        `[tools] '${tool.name}' declares staging='join' but '${existingJoin.name}' already does — ` +
+          "the join arm has one implementation (ADR-0073 sub-agent join), so a second declarer " +
+          "would silently route into it",
+      );
+    }
   }
   // And the action must be a known action slug for that integration —
   // mirrors the compile-time check `liveTool` enforces, but covers the

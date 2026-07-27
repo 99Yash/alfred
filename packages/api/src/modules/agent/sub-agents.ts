@@ -7,6 +7,7 @@ import { createRun } from "./service";
 import { isUniqueViolation } from "../../lib/pg-errors";
 import { enqueueRun } from "./queue";
 import { AWAIT_SUB_AGENT_CEILING_MS } from "./sub-agent-join-wake-queue";
+import { joinToolInput } from "../tools/registry";
 import {
   readSubAgentMetadata,
   subAgentIdSchema,
@@ -27,11 +28,13 @@ export const spawnSubAgentInputSchema = coerceJsonArrayFields(
 
 export type SpawnSubAgentInput = z.infer<typeof spawnSubAgentInputSchema>;
 
-export const awaitSubAgentInputSchema = z
-  .object({
-    childRunId: z.string().min(1),
-  })
-  .strict();
+/**
+ * Derived from the registry's `joinToolInput` rather than restating it: the
+ * dispatcher's `staging: "join"` arm resolves the child run from that field
+ * WITHOUT going through this tool's `execute`, so the two must not be able to
+ * drift. `.strict()` is the local addition — the join contract is a floor.
+ */
+export const awaitSubAgentInputSchema = joinToolInput.strict();
 
 export type AwaitSubAgentInput = z.infer<typeof awaitSubAgentInputSchema>;
 
