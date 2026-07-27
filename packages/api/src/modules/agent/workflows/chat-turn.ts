@@ -1238,18 +1238,13 @@ const chatTurnStep: Step<ChatRunState> = {
       }
 
       const hydratedTranscript = await hydrateTranscriptForModel(transcript);
-      let availability: Awaited<ReturnType<typeof readIntegrationAvailability>> | undefined;
-      const loadAvailability = async () => {
-        availability ??= await readIntegrationAvailability(ctx.userId);
-        return availability;
-      };
 
       if (state.timezone === undefined) {
         state.timezone = await resolveUserTimezone(ctx.userId);
       }
       if (state.connectedSummary === undefined) {
         state.connectedSummary = buildConnectedSummaryFromAvailability(
-          await loadAvailability(),
+          await readIntegrationAvailability(ctx.userId),
           state.allowedIntegrations,
           { caller: "boss", hasThread: true },
         );
@@ -1262,7 +1257,7 @@ const chatTurnStep: Step<ChatRunState> = {
         spanCaller: "boss",
         transcript: hydratedTranscript,
         context: { caller: "boss", hasThread: true },
-        availability: await loadAvailability(),
+        availability: await readIntegrationAvailability(ctx.userId),
       });
       if (state.artifactsContext === undefined || state.artifactReference === undefined) {
         const artifactContext = await buildThreadArtifactsContext(

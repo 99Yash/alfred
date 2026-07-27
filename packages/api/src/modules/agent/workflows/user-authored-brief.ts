@@ -225,11 +225,6 @@ const bossTurnStep: Step<BriefRunState> = {
     };
     const transcript = [...ctx.transcript];
     const subAgent = state.subAgent;
-    let availability: Awaited<ReturnType<typeof readIntegrationAvailability>> | undefined;
-    const loadAvailability = async () => {
-      availability ??= await readIntegrationAvailability(ctx.userId);
-      return availability;
-    };
     if (state.timezone === undefined) {
       state.timezone = await resolveUserTimezone(ctx.userId);
     }
@@ -243,7 +238,7 @@ const bossTurnStep: Step<BriefRunState> = {
     // conversation the child can read or write.
     if (state.connectedSummary === undefined) {
       state.connectedSummary = buildConnectedSummaryFromAvailability(
-        await loadAvailability(),
+        await readIntegrationAvailability(ctx.userId),
         state.allowedIntegrations,
         { caller: subAgent ? "sub_agent" : "boss", hasThread: false },
       );
@@ -256,7 +251,7 @@ const bossTurnStep: Step<BriefRunState> = {
       spanCaller: subAgent ? `sub:${subAgent.subId}` : "boss",
       transcript,
       context: { caller: subAgent ? "sub_agent" : "boss", hasThread: false },
-      availability: await loadAvailability(),
+      availability: await readIntegrationAvailability(ctx.userId),
     });
     const agent = new AlfredAgent({
       id: subAgent ? subAgent.subId : "boss",

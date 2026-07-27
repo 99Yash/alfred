@@ -40,6 +40,7 @@ import { readUserContext } from "../memory/user-context";
 import { readChatHistory } from "../agent/compaction";
 import { startToolLoadSpan, startToolSearchSpan } from "../agent/runtime-spans";
 import { callerLabel } from "../dispatch";
+import { toolAvailabilityContext } from "../integrations/availability";
 import {
   editStandingInstruction,
   forgetStandingInstruction,
@@ -153,10 +154,7 @@ export const systemTools: readonly RegisteredTool[] = [
           query: input.query,
           limit: input.limit,
           allowedIntegrations: ctx.allowedIntegrations ?? [],
-          context: {
-            caller: ctx.caller === "boss" ? "boss" : "sub_agent",
-            hasThread: !!ctx.threadId,
-          },
+          context: toolAvailabilityContext({ caller: ctx.caller, threadId: ctx.threadId }),
         });
         span.end({
           candidateNames: candidates.map((candidate) => candidate.name),
@@ -200,10 +198,7 @@ export const systemTools: readonly RegisteredTool[] = [
           userId: ctx.userId,
           name: input.name,
           allowedIntegrations: ctx.allowedIntegrations ?? [],
-          context: {
-            caller: ctx.caller === "boss" ? "boss" : "sub_agent",
-            hasThread: !!ctx.threadId,
-          },
+          context: toolAvailabilityContext({ caller: ctx.caller, threadId: ctx.threadId }),
         });
         span.end({
           outcome: result.ok ? "ok" : result.status,
@@ -242,11 +237,16 @@ export const systemTools: readonly RegisteredTool[] = [
       "Search or fetch bounded raw evidence from the current chat thread when the conversation summary is insufficient. Fetch messages, tool outcomes, or attachment representations by their stable IDs. This never accesses another thread.",
     // Kernel: the chat prompt names this by name as a primary source, so it must
     // be visible on turn one — otherwise every first use pays a search/load dance
-    // plus a mid-run prompt-cache invalidation. `requiresThread` still gates it out
-    // of thread-less brief/sub-agent runs at the SDK-tool boundary.
+    // plus a mid-run prompt-cache invalidation. `requiresThread` gates it out of
+    // thread-less brief/sub-agent runs at BOTH the SDK-tool boundary and the
+    // dispatch floor, which refuses the call with `requires_thread` before input
+    // parsing.
     availability: { surface: "kernel", requiresThread: true },
     inputSchema: readChatHistoryInput,
     execute: async (input, ctx) => {
+      // Unreachable via dispatch (the floor's `requiresThread` gate answers
+      // first); kept for a direct `execute` — tests and any future non-dispatch
+      // caller — so the tool never reads another thread by falling through.
       if (!ctx.threadId) {
         return {
           ok: false,
@@ -308,11 +308,12 @@ export const systemTools: readonly RegisteredTool[] = [
     // invalidate the prompt cache mid-run. `callers` still hides both join tools
     // from sub-agent runs.
     availability: { surface: "kernel", callers: ["boss"] },
+    // ADR-0073: the dispatcher intercepts this call to park the parent on a
+    // child-completion signal when the child is still running. The `execute`
+    // below is the read-only fallback (terminal children, or a direct call that
+    // bypasses the dispatcher); it never blocks.
+    staging: "join",
     inputSchema: awaitSubAgentInputSchema,
-    // The dispatcher (dispatch/index.ts) intercepts this tool to park the parent
-    // on a child-completion signal when the child is still running (ADR-0073).
-    // This execute is the read-only fallback (terminal children, or a direct
-    // call that bypasses the dispatcher); it never blocks.
     execute: async (input, ctx) => {
       return await readChildRunOutcome({
         parentRunId: ctx.runId,
@@ -346,6 +347,8 @@ export const systemTools: readonly RegisteredTool[] = [
     riskTier: "no_risk",
     description:
       "Read a value from the run scratchpad using shared.<path> or scratch.<subId>.<path>.",
+    // Run-local read, no external side effect and nothing to approve.
+    staging: "fast_path",
     inputSchema: readScratchInput,
     execute: async (input, ctx) => {
       const target = parseScratchToolKey(input.key);
@@ -369,6 +372,9 @@ export const systemTools: readonly RegisteredTool[] = [
     riskTier: "no_risk",
     description:
       "Write a value to the run scratchpad using shared.<path> or scratch.<subId>.<path>.",
+    // Writes only the run's own scratchpad — internal to the run, never a
+    // user-visible or outbound effect, so there is nothing to stage or approve.
+    staging: "fast_path",
     inputSchema: writeScratchInput,
     execute: async (input, ctx) => {
       const target = parseScratchToolKey(input.key);
@@ -400,6 +406,9 @@ export const systemTools: readonly RegisteredTool[] = [
     riskTier: "no_risk",
     description: "Copy a sub-agent scratch value into the boss-owned shared scratchpad.",
     availability: { callers: ["boss"] },
+    // Moves a value between two zones of the run's own scratchpad; same fast
+    // path as the reads/writes it composes.
+    staging: "fast_path",
     inputSchema: promoteScratchInput,
     execute: async (input, ctx) => {
       const from = parseScratchToolKey(input.fromKey);

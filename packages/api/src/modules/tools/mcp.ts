@@ -130,6 +130,20 @@ export const mcpTools: readonly RegisteredTool[] = [
       verbs: ["list", "discover", "browse", "search"],
       relatedTools: ["mcp.call"],
     },
+    // A bounded LOCAL read of Alfred's already-validated MCP catalog (#540
+    // clarification #5) — no outbound action, so it needs no staging row and
+    // nothing to approve, exactly like a scratch read. `mcp.call` gets no such
+    // bypass: it is a high-tier action that always stages, then routes through
+    // the durable broker on execute.
+    staging: "fast_path",
+    // `mcp` is deliberately NOT `system` (see contracts/src/tools.ts) precisely
+    // so it keeps the per-user policy gate — and the fast path is what removes
+    // that gate, so the waiver has to be explicit rather than implied by the
+    // comment above. Safe here because there is no outbound call to approve: the
+    // read is of rows Alfred itself wrote and validated. It does NOT generalize
+    // to another `mcp` tool.
+    policyGateWaiver:
+      "#540 clarification #5: bounded local read of Alfred's own validated MCP catalog — no outbound action, nothing to approve",
     inputSchema: mcpListToolsInput,
     execute: async (input, ctx) => listMcpToolsLocal(input, ctx.userId),
   }),

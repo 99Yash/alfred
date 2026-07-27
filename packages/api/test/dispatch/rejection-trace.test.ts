@@ -218,6 +218,8 @@ describe("dispatchToolCall rejection tracing", () => {
         action: "await_sub_agent",
         riskTier: "no_risk",
         description: "test await tool",
+        // The dispatcher intercepts on the declared policy, not on the name.
+        staging: "join",
         inputSchema: z.object({ childRunId: z.string() }).strict(),
         execute: async () => {
           throw new Error("await_sub_agent execute should be intercepted");

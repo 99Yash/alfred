@@ -89,10 +89,17 @@ import {
   passthroughTruncationTelemetry,
 } from "../tools/passthrough";
 import { toolExecuteContext } from "../tools/context";
-import { getTool, type RegisteredTool, type ToolExecuteContext } from "../tools/registry";
 import {
-  evaluateToolAvailability,
+  getTool,
+  joinToolInput,
+  type RegisteredTool,
+  type ToolExecuteContext,
+} from "../tools/registry";
+import {
   readIntegrationAvailability,
+  resolveToolAvailability,
+  toolAvailabilityContext,
+  type ToolUnavailabilityCode,
 } from "../integrations/availability";
 import { resolveUserTimezone } from "../timezone";
 
@@ -420,6 +427,47 @@ function recordRejection(args: {
   dispatchRejectionRecorder(buildDispatchRejectionTraceInput(args));
 }
 
+/**
+ * The one place a {@link ToolUnavailabilityCode} becomes a dispatch result, so
+ * the availability evaluator stays the sole authority on *whether* a tool may
+ * run and this decides only how the refusal is carried.
+ *
+ * Two arms because they route differently downstream, not because the reasons
+ * differ in kind. `feature_disabled` is hidden plumbing — the user turned the
+ * ADR-0074 tier off and the model must not narrate a capability they disabled —
+ * while every other code is a real, explainable obstacle ("Gmail needs to be
+ * reconnected") the model should surface. Both are `nonExecution` (see
+ * `isNonExecutionFailure`): neither reached the side-effect path, so neither
+ * counts against the #346 honesty guard.
+ */
+function unavailableToolResult(args: {
+  toolName: ToolName;
+  integration: IntegrationSlug;
+  code: ToolUnavailabilityCode;
+  reason: string;
+}): DispatchResult {
+  if (args.code === "feature_disabled") {
+    return {
+      kind: "feature_disabled",
+      result: {
+        status: "feature_disabled",
+        toolName: args.toolName,
+        integration: args.integration,
+        message: args.reason,
+      },
+    };
+  }
+  return {
+    kind: "not_allowed",
+    result: {
+      status: "not_allowed",
+      toolName: args.toolName,
+      integration: args.integration,
+      message: args.reason,
+    },
+  };
+}
+
 export async function dispatchToolCall(args: DispatchArgs): Promise<DispatchResult> {
   if (!isToolName(args.toolName)) {
     const message = undeclaredToolMessage(args.toolName, args.allowedIntegrations);
@@ -456,17 +504,40 @@ export async function dispatchToolCall(args: DispatchArgs): Promise<DispatchResu
   }
 
   const integration = integrationFromToolName(toolName);
-  if (
-    integration !== "system" &&
-    args.allowedIntegrations?.length &&
-    !args.allowedIntegrations.includes(integration)
-  ) {
-    const message = `Tool '${toolName}' is not allowed by this workflow`;
-    recordRejection({ dispatch: args, outcome: "not_allowed", reason: message, toolName });
-    return {
-      kind: "not_allowed",
-      result: { status: "not_allowed", toolName, integration, message },
-    };
+
+  // The declared tool contract, enforced where it decides. `callers`,
+  // `requiresThread`, `passthrough`, `credential` and the workflow integration
+  // cap are declared once on the registration and evaluated by ONE evaluator, so
+  // discovery, load, the SDK projection and this floor agree by construction —
+  // no branch here re-derives a permission from a tool name.
+  //
+  // Unconditional on purpose. The surface the model was shown was built at turn
+  // start; a grant revoked, a workflow cap narrowed, or an ADR-0074 kill switch
+  // flipped since then must bounce the call, and a tool auto-activated by an
+  // inactive bounce (#407) never passed the surface's checks at all. Two things
+  // keep it cheap: the read is lazy inside `resolveToolAvailability` (a `system.*`
+  // or `mcp.*` call resolves from the registration alone and costs no query), and
+  // `readIntegrationAvailability` memoizes per user for a few seconds, so a round
+  // of parallel calls into one integration shares a single snapshot.
+  const availability = await resolveToolAvailability({
+    tool,
+    allowed: new Set(args.allowedIntegrations ?? []),
+    context: toolAvailabilityContext({ caller: args.caller, threadId: args.threadId }),
+    loadSnapshot: () => readIntegrationAvailability(args.userId),
+  });
+  if (!availability.available) {
+    recordRejection({
+      dispatch: args,
+      outcome: availability.code === "feature_disabled" ? "feature_disabled" : "not_allowed",
+      reason: availability.reason,
+      toolName,
+    });
+    return unavailableToolResult({
+      toolName,
+      integration,
+      code: availability.code,
+      reason: availability.reason,
+    });
   }
 
   if (!args.activeTools.includes(toolName)) {
@@ -483,37 +554,6 @@ export async function dispatchToolCall(args: DispatchArgs): Promise<DispatchResu
         recovery: { kind: "activate_and_reissue", toolName },
       },
     };
-  }
-
-  // ADR-0074 kill-switch recheck. A general read-only passthrough tool is behind
-  // a default-OFF, per-integration Settings toggle. Its presence on `activeTools`
-  // reflects the surface built at turn start; recheck the LIVE preference here so
-  // a toggle flipped mid-run (or a stale active surface) can never bypass the
-  // kill switch just before execution. Only passthrough tools pay this extra read
-  // (the marker is set solely on them). The reason routes as hidden `nonExecution`
-  // plumbing — see the `feature_disabled` DispatchResult arm.
-  if (tool.availability?.passthrough) {
-    const availability = evaluateToolAvailability(
-      await readIntegrationAvailability(args.userId),
-      tool,
-      new Set(args.allowedIntegrations ?? []),
-      {
-        caller: args.caller === undefined || args.caller === "boss" ? "boss" : "sub_agent",
-        hasThread: Boolean(args.threadId),
-      },
-    );
-    if (!availability.available && availability.code === "feature_disabled") {
-      recordRejection({
-        dispatch: args,
-        outcome: "feature_disabled",
-        reason: availability.reason,
-        toolName,
-      });
-      return {
-        kind: "feature_disabled",
-        result: { status: "feature_disabled", toolName, integration, message: availability.reason },
-      };
-    }
   }
 
   // Normalize casing/underscore variants of real param names to the schema key
@@ -593,46 +633,29 @@ export async function dispatchToolCall(args: DispatchArgs): Promise<DispatchResu
       },
     };
   }
-  const systemAccessError = validateSystemToolAccess({ toolName, caller });
-  if (systemAccessError) {
-    recordRejection({
-      dispatch: args,
-      outcome: "invalid_input",
-      reason: systemAccessError,
-      toolName,
-      tool,
-      input,
-    });
-    return {
-      kind: "invalid_input",
-      result: {
-        status: "invalid_input",
-        toolName,
-        message: systemAccessError,
-      },
-    };
-  }
-
-  // ADR-0073: the join. Intercept before the staging/execute path so we can
-  // *park* the parent on the child's completion signal instead of returning a
-  // result the boss would have to poll. A terminal (or timed-out) child returns
-  // its real outcome inline; a still-running child parks the step.
-  if (toolName === "system.await_sub_agent") {
-    return await resolveAwaitSubAgentWithSpan(tool, input, ctx);
-  }
-
-  if (isScratchFastPathTool(toolName)) {
-    return executeFastPath(tool, input, ctx);
-  }
-
-  // `mcp.list_tools` is a bounded LOCAL read of Alfred's already-validated MCP
-  // catalog (issue #540 clarification #5) — no outbound action, so it takes the
-  // fast path and bypasses the approval/risk gate, exactly like a scratch read.
-  // It stays a closed `mcp` tool, so the active-surface/workflow-cap checks above
-  // still authorize it. `mcp.call` gets no such bypass: it is a high-tier action
-  // that always stages, then routes through the durable broker on execute.
-  if (toolName === "mcp.list_tools") {
-    return executeFastPath(tool, input, ctx);
+  // Routing declared by the registration (`RegisteredTool.staging`), not
+  // re-derived from the tool name here. Both non-default arms intercept BEFORE
+  // the staging/execute path below; everything else falls through to it. The
+  // availability and active-surface checks above already authorized the call, so
+  // the bypass is of the approval gate only.
+  switch (tool.staging) {
+    case "join":
+      // ADR-0073. Park the parent on the child's completion signal instead of
+      // returning a result the boss would have to poll. A terminal (or
+      // timed-out) child returns its real outcome inline.
+      return await resolveAwaitSubAgentWithSpan(tool, input, ctx);
+    case "fast_path":
+      return executeFastPath(tool, input, ctx);
+    case "staged":
+      break;
+    default: {
+      // A fourth policy must not silently inherit the staged path — the whole
+      // point of declaring routing is that extending it is a decision.
+      const unhandled: never = tool.staging;
+      throw new Error(
+        `[dispatch] unhandled staging policy '${String(unhandled)}' on '${toolName}'`,
+      );
+    }
   }
 
   const proposedInputHash = hashToolInput(toolName, input);
@@ -1238,6 +1261,12 @@ async function resolveAwaitSubAgentWithSpan(
   input: unknown,
   ctx: ToolExecuteContext,
 ): Promise<DispatchResult> {
+  // PARSED, not cast. This arm is selected by a declared `staging: "join"`, so
+  // the guarantee that `childRunId` is here comes from the join contract
+  // (`joinToolInput`, proven for every declarer at boot) rather than from the
+  // `toolName === "system.await_sub_agent"` equality this replaced. Parse before
+  // the span opens so a contract violation can't leave a span dangling.
+  const { childRunId } = joinToolInput.parse(input);
   const span = toolSpanStarter({
     runId: ctx.runId,
     toolName: tool.name,
@@ -1252,7 +1281,7 @@ async function resolveAwaitSubAgentWithSpan(
     const result = await resolveAwaitSubAgent({
       parentRunId: ctx.runId,
       userId: ctx.userId,
-      childRunId: (input as { childRunId: string }).childRunId,
+      childRunId,
     });
     span.success(awaitSubAgentSpanOutput(result));
     return result;
@@ -1488,7 +1517,9 @@ function validateScratchToolAccess(args: {
   }
 
   if (args.toolName === "system.promote") {
-    if (args.caller !== "boss") return "system.promote can only be called by the boss";
+    // Who may call it is `availability.callers: ["boss"]` on the registration,
+    // already enforced at the floor. What remains here is the input-shaped part:
+    // which scratch keys a promote may name.
     const from = parseScratchAccessKey(readStringProp(args.input, "fromKey"));
     if (typeof from === "string") return from;
     const to = parseScratchAccessKey(readStringProp(args.input, "toKey"));
@@ -1498,27 +1529,6 @@ function validateScratchToolAccess(args: {
     return null;
   }
 
-  return null;
-}
-
-function isScratchFastPathTool(toolName: ToolName): boolean {
-  return (
-    toolName === "system.read_scratch" ||
-    toolName === "system.write_scratch" ||
-    toolName === "system.promote"
-  );
-}
-
-function validateSystemToolAccess(args: {
-  toolName: ToolName;
-  caller: ToolExecuteContext["caller"];
-}): string | null {
-  if (args.toolName === "system.spawn_sub_agent" && args.caller !== "boss") {
-    return "system.spawn_sub_agent can only be called by the boss";
-  }
-  if (args.toolName === "system.await_sub_agent" && args.caller !== "boss") {
-    return "system.await_sub_agent can only be called by the boss";
-  }
   return null;
 }
 
