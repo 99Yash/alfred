@@ -1,11 +1,11 @@
-import { isValidTimezone } from "../briefing/preferences";
+import { isIanaTimezone } from "@alfred/contracts";
 import { getPreference } from "../memory/preferences";
 
 export const DEFAULT_USER_TIMEZONE = "UTC";
 
 export function firstValidTimezone(values: readonly unknown[]): string {
   for (const value of values) {
-    if (typeof value === "string" && isValidTimezone(value)) return value;
+    if (typeof value === "string" && isIanaTimezone(value)) return value;
   }
   return DEFAULT_USER_TIMEZONE;
 }

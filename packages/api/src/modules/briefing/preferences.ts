@@ -104,37 +104,3 @@ function parseDeliveryHour(value: unknown): number | null {
  * name so the briefing/workflow call sites read in domain terms.
  */
 export const isValidTimezone = isIanaTimezone;
-
-/**
- * Local-date string (YYYY-MM-DD) for `now` rendered in `timezone`. Used
- * as the day-segment of the briefing idempotency key, so the same
- * machine-day in a user's tz never sends twice.
- *
- * `sv-SE` locale formats dates as `YYYY-MM-DD` natively, which is the
- * shortest path to a stable ISO-style date string in any timezone.
- */
-export function localDateInTimezone(timezone: string, now: Date = new Date()): string {
-  return new Intl.DateTimeFormat("sv-SE", {
-    timeZone: timezone,
-    year: "numeric",
-    month: "2-digit",
-    day: "2-digit",
-  }).format(now);
-}
-
-/** 0–23 hour-of-day in `timezone` for `now`. */
-export function localHourInTimezone(timezone: string, now: Date = new Date()): number {
-  const parts = new Intl.DateTimeFormat("en-US", {
-    timeZone: timezone,
-    hour: "numeric",
-    hour12: false,
-  }).formatToParts(now);
-  const hourStr = parts.find((p) => p.type === "hour")?.value;
-  if (!hourStr) {
-    throw new Error(`[briefing.preferences] could not extract hour from tz=${timezone}`);
-  }
-  // `hour: 'numeric'` with `hour12: false` returns "0".."23"; some
-  // engines emit "24" at midnight. Normalize.
-  const n = Number(hourStr);
-  return n === 24 ? 0 : n;
-}

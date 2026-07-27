@@ -1833,7 +1833,7 @@ describe("triageClassificationSchema.todoSuggestion", () => {
 });
 
 describe("sanitizeAssist", () => {
-  const anchor = new Date("2026-06-10T09:00:00Z");
+  const anchor = { sentAt: new Date("2026-06-10T09:00:00Z"), timezone: "UTC" };
 
   test("keeps an absolute date fragment", () => {
     assert.equal(sanitizeAssist("before Jun 30", anchor), "before Jun 30");
@@ -1848,6 +1848,19 @@ describe("sanitizeAssist", () => {
     assert.equal(sanitizeAssist("due tomorrow", anchor), "due Jun 11");
     assert.equal(sanitizeAssist("due tonight", anchor), "due Jun 10");
     assert.equal(sanitizeAssist("due today", anchor), "due Jun 10");
+  });
+
+  // The defect the timezone module's ownership fixed. 2026-06-10T19:30Z is
+  // already Jun 11 in Asia/Kolkata (+05:30), so the user's "tomorrow" is
+  // Jun 12 — a UTC reading of the same instant said Jun 11, a day early, on
+  // the exact field whose value has to survive for days.
+  test("resolves the relative date in the USER's zone, not UTC", () => {
+    const evening = { sentAt: new Date("2026-06-10T19:30:00Z"), timezone: "Asia/Kolkata" };
+    assert.equal(sanitizeAssist("due tomorrow", evening), "due Jun 12");
+    assert.equal(sanitizeAssist("due today", evening), "due Jun 11");
+    // Same instant, a zone west of UTC: still the local day, still not UTC's.
+    const la = { sentAt: new Date("2026-06-11T04:30:00Z"), timezone: "America/Los_Angeles" };
+    assert.equal(sanitizeAssist("due tomorrow", la), "due Jun 11");
   });
 
   test("resolves a relative date alongside a money fragment", () => {
@@ -2023,7 +2036,7 @@ describe("resolveTodoSuggestion", () => {
           todoSuggestion: { name: "Pay the electricity bill", assist: "₹880 · due tomorrow" },
           todoDecision: { outcome: "proposed" },
         }),
-        new Date("2026-06-10T09:00:00Z"),
+        { sentAt: new Date("2026-06-10T09:00:00Z"), timezone: "UTC" },
       ),
       { name: "Pay the electricity bill", assist: "₹880 · due Jun 11" },
     );

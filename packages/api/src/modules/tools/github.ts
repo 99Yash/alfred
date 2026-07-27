@@ -17,8 +17,7 @@ import {
   sanitizeGithubSearchQuery,
 } from "@alfred/contracts";
 import type { z } from "zod";
-import { localDateInTimezone } from "../briefing/preferences";
-import { addLocalDays, localTimeInTimezone } from "../timezone";
+import { addLocalDays, localDateInTimezone, localTimeInTimezone } from "../timezone";
 import { runRestPassthrough } from "./passthrough";
 import { liveTool, type RegisteredTool } from "./registry";
 import { AppError } from "../../lib/app-errors";

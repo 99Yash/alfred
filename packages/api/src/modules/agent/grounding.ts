@@ -1,5 +1,9 @@
-import { localDateInTimezone } from "../briefing/preferences";
-import { resolveUserTimezone } from "../timezone";
+import {
+  formatLocalDayLong,
+  localDateInTimezone,
+  localWallClockInTimezone,
+  resolveUserTimezone,
+} from "../timezone";
 
 /**
  * The user's operational timezone — the same resolver `calendar.list_events`
@@ -21,15 +25,8 @@ export { resolveUserTimezone };
  * re-anchorable {@link formatRuntimeTimeGrounding} line instead (#410).
  */
 export function formatDateGrounding(timezone: string, now: Date = new Date()): string {
-  const human = new Intl.DateTimeFormat("en-GB", {
-    timeZone: timezone,
-    weekday: "long",
-    day: "numeric",
-    month: "long",
-    year: "numeric",
-  }).format(now);
   const iso = localDateInTimezone(timezone, now);
-  return `${human} (${iso}), timezone ${timezone}`;
+  return `${formatLocalDayLong(iso)} (${iso}), timezone ${timezone}`;
 }
 
 /**
@@ -44,22 +41,9 @@ export function formatDateGrounding(timezone: string, now: Date = new Date()): s
  * day without disturbing a long, contiguous tool loop.
  */
 export function formatRuntimeTimeGrounding(timezone: string, now: Date): string {
-  const human = new Intl.DateTimeFormat("en-GB", {
-    timeZone: timezone,
-    weekday: "long",
-    day: "numeric",
-    month: "long",
-    year: "numeric",
-  }).format(now);
-  const localTime = new Intl.DateTimeFormat("en-GB", {
-    timeZone: timezone,
-    hour: "2-digit",
-    minute: "2-digit",
-    second: "2-digit",
-    hourCycle: "h23",
-  }).format(now);
-  const localIso = `${localDateInTimezone(timezone, now)}T${localTime}`;
-  return `<runtime_context>Current date and time: ${human}, ${localTime} (${localIso} in ${timezone}; ${now.toISOString()} UTC).</runtime_context>`;
+  const { localDate, localTime } = localWallClockInTimezone(now, timezone);
+  const localIso = `${localDate}T${localTime}`;
+  return `<runtime_context>Current date and time: ${formatLocalDayLong(localDate)}, ${localTime} (${localIso} in ${timezone}; ${now.toISOString()} UTC).</runtime_context>`;
 }
 
 /**
