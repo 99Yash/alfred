@@ -2,12 +2,12 @@ import assert from "node:assert/strict";
 import { describe, test } from "node:test";
 
 import { isNonExecutionFailure, toolCallLogStatus } from "../../src/modules/dispatch";
+import { sanitizeChatMessageFields } from "../../src/modules/agent/workflows/chat-turn-closure";
 import {
   guardUnreportedToolFailures,
-  sanitizeChatMessageFields,
-  type ChatRunState,
   type GuardUnreportedToolFailuresDeps,
-} from "../../src/modules/agent/workflows/chat-turn";
+} from "../../src/modules/agent/workflows/finalize-guards";
+import type { ChatRunState } from "../../src/modules/agent/workflows/chat-turn-state";
 import { shouldPublishToolStarted } from "../../src/modules/agent/workflows/tool-card-events";
 import type { StepContext } from "../../src/modules/agent/types";
 

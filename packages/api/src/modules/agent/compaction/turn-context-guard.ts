@@ -11,6 +11,7 @@ import { and, asc, eq } from "drizzle-orm";
 import { assessChatRequestPressure, CHAT_MAX_OUTPUT_TOKENS } from "./chat-request-pressure";
 import { conversationSummaryMessage } from "./chat-context-assembly";
 import { loadChatThreadContext, type ChatSummaryWatermark } from "./chat-context-store";
+import { compactWithRetry } from "./compact-with-retry";
 import { compactTranscript } from "./compactor";
 import { compactConversationSynchronously } from "./synchronous-conversation-compaction";
 import { waitForActiveConversationCompaction } from "./conversation-compaction-wait";
@@ -21,7 +22,6 @@ import { waitForActiveConversationCompaction } from "./conversation-compaction-w
  * compactor can't hold the turn open indefinitely.
  */
 const FOREGROUND_COMPACTION_TIMEOUT_MS = 2 * 60_000;
-const WITHIN_RUN_COMPACTION_RETRY_ATTEMPTS = 3;
 
 /** Place ephemeral assistant-known run context immediately before the request. */
 export function withEphemeralReference(
@@ -333,11 +333,12 @@ async function applyWithinRunContextGuard({
     const prior = storedCompactionPrefix(transcript, inFlightTailStart);
     const inFlightTail = hydratedTranscript.slice(inFlightTailStart);
     const storedInFlightTail = transcript.slice(inFlightTailStart);
-    let compacted: Awaited<ReturnType<typeof compactTranscript>> | undefined;
-    let lastError: unknown;
-    for (let retry = 1; retry <= WITHIN_RUN_COMPACTION_RETRY_ATTEMPTS; retry += 1) {
-      try {
-        compacted = await compactTranscript({
+    // No inter-attempt delay: this is holding up a live turn. A stop request is
+    // fatal on top of the shared `compactor_input_too_large` — burning two more
+    // compactor calls on a turn nobody is waiting for is pure spend.
+    const compacted = await compactWithRetry(
+      (retry) =>
+        compactTranscript({
           prior,
           inFlightTail,
           attribution: {
@@ -350,16 +351,11 @@ async function applyWithinRunContextGuard({
           },
           abortSignal,
           timeoutMs: FOREGROUND_COMPACTION_TIMEOUT_MS,
-        });
-        break;
-      } catch (error) {
-        lastError = error;
-        if (abortSignal.aborted || toMessage(error) === "compactor_input_too_large") throw error;
-      }
-    }
-    if (!compacted) {
-      throw new Error(`compactor_failed: ${toMessage(lastError)}`);
-    }
+        }),
+      {
+        isFatal: () => abortSignal.aborted,
+      },
+    );
     const postPressure = await assess(compacted.transcript);
     if (postPressure.requiresSynchronousCompaction) {
       throw new Error("prompt is too long after within-run compaction");

@@ -1,0 +1,95 @@
+import {
+  AWAIT_SUB_AGENT_CEILING_MS,
+  scheduleSubAgentJoinWakeJob,
+} from "./sub-agent-join-wake-queue";
+import { subAgentDoneSignalName } from "./sub-agent-metadata";
+import {
+  readChildRunOutcome,
+  shouldResolveWithoutParking,
+  type ChildRunOutcome,
+} from "./sub-agents";
+
+/**
+ * The join protocol: everything a parent must do to take a child sub-agent's
+ * outcome, in the one order that cannot strand it.
+ *
+ * Two sites join a child — the `system.await_sub_agent` tool
+ * (`resolveAwaitSubAgent` in `modules/dispatch`) and the chat-turn finalization
+ * guard (`guardSpawnedChildren` in `workflows/finalize-guards`) — and they used
+ * to be two hand-written copies of this sequence, kept in step by comments
+ * citing each other. `shouldResolveWithoutParking` centralized the *predicate*;
+ * this centralizes the *sequence around it*, which is where the dangerous half
+ * lives: `findResumableRunIds` never sweeps `waiting`, so a park scheduled
+ * without its dead-man timer is a permanently un-wakeable run.
+ *
+ * {@link JoinChildRunResult} is the enforcement. A `park` carries the signal
+ * name and is only ever constructed inside {@link joinChildRun}, on the one
+ * branch where `scheduleSubAgentJoinWakeJob` answered `"scheduled"` — so a third
+ * join site cannot park without the timer, whatever its author remembers.
+ */
+export type JoinChildRunResult =
+  /**
+   * Hand the caller something to surface now: a terminal child's real result, an
+   * ownership/lookup error, an honest still-running note for a child past the
+   * wait-ceiling, or the same note when the dead-man timer could not be
+   * scheduled (`reason: "join_timer_unavailable"`).
+   */
+  | { kind: "resolved"; outcome: ChildRunOutcome }
+  /** Park the parent on this signal. The dead-man timer is already scheduled. */
+  | { kind: "park"; signalName: string };
+
+/**
+ * The I/O both join sites inject so the protocol can be unit-tested (timer
+ * scheduling failure, ceiling expiry, terminal folding) with no DB and no Redis.
+ * Production always resolves these to the real implementations.
+ */
+export interface JoinChildRunDeps {
+  readOutcome: typeof readChildRunOutcome;
+  scheduleWake: typeof scheduleSubAgentJoinWakeJob;
+}
+
+const defaultJoinChildRunDeps: JoinChildRunDeps = {
+  readOutcome: readChildRunOutcome,
+  scheduleWake: scheduleSubAgentJoinWakeJob,
+};
+
+export async function joinChildRun(
+  args: { parentRunId: string; userId: string; childRunId: string },
+  deps: JoinChildRunDeps = defaultJoinChildRunDeps,
+): Promise<JoinChildRunResult> {
+  const outcome = await deps.readOutcome(args);
+
+  // Terminal child, an ownership/lookup error, or a child that has outrun the
+  // wait-ceiling: there is already something to surface, so never park. This is
+  // also what stops a stuck child re-parking forever — once it outruns the
+  // ceiling the caller reports it instead of scheduling yet another timer.
+  if (shouldResolveWithoutParking(outcome)) return { kind: "resolved", outcome };
+
+  // Still running within the ceiling. Schedule the dead-man wake BEFORE
+  // returning a park. The in-band `sub_agent_done` signal is the happy-path
+  // waker, but it can be lost (the child finishes in the gap before the executor
+  // commits `waiting`), never fire (a cancelled child), or be swallowed by a
+  // worker crash — and `findResumableRunIds` never sweeps `waiting`, so any of
+  // those strands the parent forever. This timer is the only backstop covering
+  // all of them: when it fires the join re-reads the (terminal-by-then) child
+  // and resolves inline. It no-ops if the in-band signal already woke the parent.
+  const scheduled = await deps.scheduleWake({
+    childRunId: args.childRunId,
+    parentRunId: args.parentRunId,
+    delayMs: AWAIT_SUB_AGENT_CEILING_MS,
+  });
+  if (scheduled !== "scheduled") {
+    // The timer is load-bearing, not best-effort. If it could not be scheduled
+    // ("failed" transient queue error, or "disabled" with no queue at all),
+    // parking would risk an un-wakeable run — so resolve with the still-running
+    // outcome instead and let the turn end honestly.
+    console.warn(
+      "[sub_agent_join] dead-man wake not scheduled (",
+      scheduled,
+      ") — refusing to park",
+      args.childRunId,
+    );
+    return { kind: "resolved", outcome: { ...outcome, reason: "join_timer_unavailable" } };
+  }
+  return { kind: "park", signalName: subAgentDoneSignalName(args.childRunId) };
+}

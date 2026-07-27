@@ -6,12 +6,15 @@ import type { ChildRunOutcome } from "../../src/modules/agent/sub-agents";
 import { AWAIT_SUB_AGENT_CEILING_MS } from "../../src/modules/agent/sub-agent-join-wake-queue";
 import {
   awaitedChildRunId,
+  FINALIZE_GUARD_SEQUENCE,
   guardSpawnedChildren,
+  type GuardSpawnedChildrenDeps,
+} from "../../src/modules/agent/workflows/finalize-guards";
+import type { ChatRunState } from "../../src/modules/agent/workflows/chat-turn-state";
+import {
   planEmptyChatCompletionRetry,
   planStreamTimeoutRetry,
-  type ChatRunState,
-  type GuardSpawnedChildrenDeps,
-} from "../../src/modules/agent/workflows/chat-turn";
+} from "../../src/modules/agent/workflows/turn-budgets";
 import type { StepContext } from "../../src/modules/agent/types";
 
 /**
@@ -479,5 +482,37 @@ describe("guardSpawnedChildren (ADR-0073 runtime invariant)", () => {
     assert.equal(state.segmentIndex, 1, "no answer to close → segment index is untouched");
     assert.equal(state.deltaSeq, 4, "no delta seq is consumed");
     assert.equal(rec.published.filter((p) => p.kind === "chat.delta").length, 0);
+  });
+});
+
+describe("FINALIZE_GUARD_SEQUENCE", () => {
+  /**
+   * The two finalize guards have identical signatures, so nothing in a type
+   * stops a caller from swapping them. The order is load-bearing:
+   * `guardSpawnedChildren` may PARK the turn, and a parked turn must not first
+   * have spent a regeneration on the honesty note — that note would be
+   * re-injected on the resumed turn against a transcript the child's fold has
+   * since changed. The child guard also strips the premature assistant tail from
+   * the transcript it forwards, which the honesty guard's append builds on.
+   *
+   * This is the only thing keeping that order honest, so assert it directly
+   * rather than trusting the comment above the list.
+   */
+  test("runs the spawned-children guard before the honesty guard", () => {
+    assert.deepEqual(
+      FINALIZE_GUARD_SEQUENCE.map((guard) => guard.id),
+      ["spawned_children", "unreported_tool_failures"],
+    );
+  });
+
+  test("a guard added to the chain has to declare where it sits", () => {
+    assert.equal(
+      new Set(FINALIZE_GUARD_SEQUENCE.map((guard) => guard.id)).size,
+      FINALIZE_GUARD_SEQUENCE.length,
+      "two guards sharing an id would make the order unreadable",
+    );
+    for (const guard of FINALIZE_GUARD_SEQUENCE) {
+      assert.equal(typeof guard.run, "function", `${guard.id} must be runnable`);
+    }
   });
 });

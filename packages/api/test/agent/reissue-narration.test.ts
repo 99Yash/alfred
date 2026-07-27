@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { describe, test } from "node:test";
 
 import { dispatchRoundReissued, type DispatchResult } from "../../src/modules/dispatch";
-import { closeLeadInNarration } from "../../src/modules/agent/workflows/chat-turn";
+import { closeLeadInNarration } from "../../src/modules/agent/workflows/chat-turn-state";
 
 // The helpers only read `.kind`, so a minimal typed literal is enough to
 // exercise the reissue-detection branch without a live registry/dispatch.

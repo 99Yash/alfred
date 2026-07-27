@@ -10,7 +10,6 @@ import {
   compactionThresholdTokens,
   parseIntegrationMentions,
   isIntegrationSlug,
-  toMessage,
   toRecord,
   type AgentTranscriptMessage,
 } from "@alfred/contracts";
@@ -18,7 +17,7 @@ import { db } from "@alfred/db";
 import { documents } from "@alfred/db/schemas";
 import { and, eq } from "drizzle-orm";
 import { z } from "zod";
-import { compactTranscript } from "../compaction";
+import { compactTranscript, compactWithRetry } from "../compaction";
 import {
   estimateNextTurnInputTokens,
   estimateTranscriptTokens,
@@ -59,20 +58,15 @@ import {
 } from "../sub-agent-metadata";
 import type { Step, Workflow } from "../types";
 import { pendingToolCallSchema } from "./pending-tool-call";
+import {
+  BRIEF_TURN_CAP_MAX,
+  EMPTY_COMPLETION_MAX_RETRIES,
+  planEmptyBriefCompletionRetry,
+} from "./turn-budgets";
 
 // This workflow is the one sub-agents run on (see SUB_AGENT_WORKFLOW_SLUG);
 // keep the slug single-sourced so the two never drift.
 export const USER_AUTHORED_BRIEF_WORKFLOW_SLUG = SUB_AGENT_WORKFLOW_SLUG;
-
-const TURN_CAP_MAX = 30;
-/**
- * Consecutive empty completions (see `isRetryableEmptyCompletion`) to regenerate
- * before failing the boss/sub-agent run. An empty `stop`/`error` with no text and
- * no tool calls is the transient Anthropic→Gemini quota-fallback anomaly; a
- * re-attempt usually clears it. Kept tight so a provider stuck returning empties
- * fails fast instead of burning the `TURN_CAP_MAX` budget on full-price retries.
- */
-const EMPTY_COMPLETION_MAX_RETRIES = 2;
 
 const briefRunStateSchema = z
   .object({
@@ -130,7 +124,6 @@ const COMPACT_TRANSCRIPT_STEP_ID = "compact-transcript";
  * skip decision today.
  */
 const COMPACTION_MIN_PRIOR_CHARS = 20_000;
-const COMPACTOR_RETRY_ATTEMPTS = 3;
 const TRIGGER_EVENT_EXCERPT_CHARS = 4_000;
 
 // Structured after the Anthropic prompt template: role first, operating rules
@@ -215,7 +208,7 @@ const bossTurnStep: Step<BriefRunState> = {
   // for a rare, expensive step.
   staleAfterMs: 6 * 60_000,
   async run(ctx) {
-    if (ctx.state.turnCount >= TURN_CAP_MAX) {
+    if (ctx.state.turnCount >= BRIEF_TURN_CAP_MAX) {
       throw new Error("turn_limit_exceeded");
     }
 
@@ -309,17 +302,13 @@ const bossTurnStep: Step<BriefRunState> = {
       // the *pre-turn* transcript (never `nextTranscript` — appending the empty
       // assistant message would poison the retry and Anthropic 400s on it) up to a
       // bounded budget, then fail the run loudly.
-      if (state.emptyRetries < EMPTY_COMPLETION_MAX_RETRIES) {
+      const retry = planEmptyBriefCompletionRetry(state, transcript);
+      if (retry) {
         console.warn(
           `[boss-turn] empty completion (finishReason:${result.finishReason}); retry ` +
-            `${state.emptyRetries + 1}/${EMPTY_COMPLETION_MAX_RETRIES} (run ${ctx.runId})`,
+            `${retry.state.emptyRetries}/${EMPTY_COMPLETION_MAX_RETRIES} (run ${ctx.runId})`,
         );
-        return {
-          kind: "next",
-          state: { ...state, emptyRetries: state.emptyRetries + 1 },
-          transcript,
-          nextStep: "boss-turn",
-        };
+        return retry;
       }
       throw new Error("boss_turn_empty_completion");
     }
@@ -577,11 +566,12 @@ const compactTranscriptStep: Step<BriefRunState> = {
       return { kind: "next", state, nextStep: "boss-turn" };
     }
 
-    let result: Awaited<ReturnType<typeof compactTranscript>> | undefined;
-    let lastError: unknown;
-    for (let attempt = 1; attempt <= COMPACTOR_RETRY_ATTEMPTS; attempt++) {
-      try {
-        result = await compactTranscript({
+    // Background work, so back off between attempts: riding out a transient
+    // provider blip is worth the added delay here in a way it is not on the
+    // live chat path (see `compactWithRetry`).
+    const result = await compactWithRetry(
+      (attempt) =>
+        compactTranscript({
           prior,
           inFlightTail,
           attribution: {
@@ -591,21 +581,9 @@ const compactTranscriptStep: Step<BriefRunState> = {
             attempt: ctx.attempt,
             idempotencyKey: `${ctx.idempotencyKey}:compact-${attempt}`,
           },
-        });
-        break;
-      } catch (err) {
-        lastError = err;
-        if (toMessage(err) === "compactor_input_too_large") {
-          throw err;
-        }
-        if (attempt < COMPACTOR_RETRY_ATTEMPTS) {
-          await sleepMs(attempt * 100);
-        }
-      }
-    }
-    if (!result) {
-      throw new Error(`compactor_failed: ${toMessage(lastError)}`);
-    }
+        }),
+      { delayBeforeRetryMs: (attempt) => attempt * 100 },
+    );
 
     // Guard 3: post-compaction the in-flight tail itself blows the
     // threshold. There is no further reduction we can make — fail loud
@@ -634,10 +612,6 @@ async function resolvePressureThresholdTokens(isSubAgent: boolean): Promise<numb
     models: isSubAgent ? [agentModel] : [agentModel, COMPACTOR_MODEL],
   });
   return compactionThresholdTokens(effectiveWindow);
-}
-
-function sleepMs(ms: number): Promise<void> {
-  return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
 export const userAuthoredBriefWorkflow: Workflow<BriefRunState> = {
