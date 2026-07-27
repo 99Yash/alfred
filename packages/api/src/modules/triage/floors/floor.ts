@@ -12,6 +12,15 @@ export interface FloorResult {
 }
 
 /**
+ * The demoting floors, as the key each stamps ahead of its note. Closed rather
+ * than `${string}_floor` because this value PERSISTS in `todoDecision.note` and
+ * the over-tag audits (#210/#354) group on its prefix: a typo'd or improvised
+ * key would compile, ship, and split one floor's rows across two prefixes with
+ * nothing to notice it. A fourth demoting floor adds an arm here.
+ */
+export type FloorDemotionKey = "sender_kind_floor" | "meeting_floor";
+
+/**
  * The one demotion convention every demoting floor applies: DEMOTE, NEVER BURY
  * (#210 asymmetry). The thread drops to `fyi` — still visible — the stray todo
  * the model minted from the same misread is cleared with a rubric-legible
@@ -26,7 +35,7 @@ export function demoteToFyi(
   classification: TriageClassification,
   demotion: {
     /** Floor identity, stamped ahead of `note` on the cleared todo's decision. */
-    key: `${string}_floor`;
+    key: FloorDemotionKey;
     /** Why this floor fired, in prose. */
     note: string;
     /**
