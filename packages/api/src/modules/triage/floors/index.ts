@@ -128,10 +128,15 @@ function floor<N extends string, R extends FloorResult>(
  * folds the list — the threading is structural, not something each new floor has
  * to remember to do (passing the original `classification` instead of the prior
  * floor's output would silently disable a floor, and nothing but care used to
- * prevent it). Adding a fourth floor is one entry here and nothing anywhere
- * else: {@link FloorOutcome} derives its audit key from `name` and its audit
+ * prevent it). Adding a fourth floor is one entry here plus ONE the compiler
+ * demands: {@link FloorOutcome} derives its audit key from `name` and its audit
  * shape from the floor's return type, its model-id tag is registered on the same
- * line, and `ClassifyAudit` carries the whole outcome verbatim.
+ * line, and `ClassifyAudit` carries the whole outcome verbatim — but the
+ * persisted decision trace is flat by necessity, so `FLOOR_TRACE_PROJECTIONS`
+ * (`../sender-extraction-event.ts`) is keyed on {@link FloorAudits} and fails to
+ * compile until the new floor says which flat fields it contributes. That is the
+ * one thing a floor cannot derive: what its facts should be CALLED in a record
+ * the over-tag audits query by name.
  */
 const FLOOR_SEQUENCE = [
   floor(
@@ -168,8 +173,14 @@ const FLOOR_SEQUENCE = [
   ),
 ] as const;
 
-/** Per-floor audit facts, keyed by floor name — derived from the sequence, never restated. */
-type FloorAudits = {
+/**
+ * Per-floor audit facts, keyed by floor name — derived from the sequence, never
+ * restated. Exported because it is what the persisted decision trace keys its
+ * per-floor projections on: registering that map against THIS type is what turns
+ * a fourth floor into a missing key there, rather than a demotion production can
+ * see fire but not attribute.
+ */
+export type FloorAudits = {
   [S in (typeof FLOOR_SEQUENCE)[number] as S["name"]]: ReturnType<S["run"]>["audit"];
 };
 

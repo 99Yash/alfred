@@ -3,6 +3,7 @@ import { describe, test } from "node:test";
 
 import type { TriageClassification } from "../../src/modules/triage/classify";
 import { applyFloors, type FloorContext } from "../../src/modules/triage/floors";
+import { FLOOR_TRACE_PROJECTIONS } from "../../src/modules/triage/sender-extraction-event";
 
 // ---------------------------------------------------------------------------
 // Fixtures
@@ -265,4 +266,23 @@ describe("applyFloors — demote, never bury", () => {
       assert.match(out.rationale, /— demoted \w+ → fyi \(demote, never bury\)\.$/);
     });
   }
+});
+
+// ---------------------------------------------------------------------------
+// The persisted trace. `FLOOR_TRACE_PROJECTIONS` is keyed on the audits this
+// sequence derives, so a fourth floor cannot compile until it says what its
+// facts are CALLED in `agent_decision_traces` — the one floor consumer the
+// over-tag audits (#210/#354) can query. This is the runtime twin of that
+// compile error: it fails if the annotation is widened rather than answered.
+// ---------------------------------------------------------------------------
+
+describe("floors — trace projections", () => {
+  test("every floor in the sequence projects onto the persisted trace", () => {
+    const {
+      classification: _final,
+      modelIdSuffix: _suffix,
+      ...audits
+    } = applyFloors(classification(), context());
+    assert.deepEqual(Object.keys(FLOOR_TRACE_PROJECTIONS).sort(), Object.keys(audits).sort());
+  });
 });

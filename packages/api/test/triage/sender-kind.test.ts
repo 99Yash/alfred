@@ -4,6 +4,7 @@ import { describe, test } from "node:test";
 import type { ActiveEntityProfile } from "../../src/modules/user-model";
 import { senderExtractionEvent, senderKindSignalFromProfile } from "../../src/modules/triage";
 import type { TriageClassification } from "../../src/modules/triage/classify";
+import { applyFloors, type FloorContext, type FloorOutcome } from "../../src/modules/triage/floors";
 import type { Observations } from "../../src/modules/triage/observations";
 import type { SenderContextResult } from "../../src/modules/triage/sender-context";
 
@@ -150,6 +151,107 @@ test("senderExtractionEvent records the sender-kind demotion breadcrumb", () => 
   assert.equal(event.knownContact, false);
   assert.equal(event.senderRelationship, null);
 });
+
+test("senderExtractionEvent carries each floor's real outcome", () => {
+  // Fed the FOLD's own output rather than a hand-built audit: the projections
+  // are the seam between `applyFloors` and the persisted row, so the test that
+  // guards them should cross it. Two runs on the same recap subject, one with a
+  // leaked secret in the body — the same input reaches the record through two
+  // floors whose fields share no naming convention.
+  const recap = { subject: "Meeting notes: Eng standup", effectiveAuthor: "person" as const };
+
+  const escalated = eventFor(
+    applyFloors(classification({ category: "meeting" }), {
+      ...floorContext(),
+      ...recap,
+      signalText: "an api key was leaked in the public repo",
+    }),
+  );
+  assert.equal(escalated.floorMatched, true);
+  assert.equal(escalated.floorForced, true);
+  assert.equal(escalated.finalCategory, "urgent");
+  // The override floor moved the category off `meeting` before the gate saw it,
+  // so the meeting floor reports its own "did not fire" — a REPORT, not a gap.
+  assert.equal(escalated.meetingDemotedCategory, false);
+  assert.equal(escalated.meetingDemotionReason, null);
+  assert.equal(escalated.senderKindDemotedCategory, false);
+
+  const gated = eventFor(
+    applyFloors(classification({ category: "meeting" }), { ...floorContext(), ...recap }),
+  );
+  assert.equal(gated.meetingDemotedCategory, true);
+  assert.equal(gated.meetingDemotionReason, "meeting_recap");
+  assert.equal(gated.floorMatched, false);
+  assert.equal(gated.finalCategory, "fyi");
+});
+
+test("senderExtractionEvent still reports every floor on the audit-less path", () => {
+  // The fallback/default classification runs no floors at all. The record keeps
+  // the same keys — an absent field and a floor that did not fire must not look
+  // alike to the over-tag audits.
+  const event = senderExtractionEvent({
+    senderContextResult: senderContextResult(),
+    observations: observations(),
+    audit: null,
+    classification: classification(),
+    todoSuggested: false,
+    standingSuppression: null,
+    standingSuppressionReadFailed: false,
+  });
+
+  assert.deepEqual(
+    {
+      floorMatched: event.floorMatched,
+      floorForced: event.floorForced,
+      senderKindDemotedCategory: event.senderKindDemotedCategory,
+      senderKindDemotionReason: event.senderKindDemotionReason,
+      meetingDemotedCategory: event.meetingDemotedCategory,
+      meetingDemotionReason: event.meetingDemotionReason,
+    },
+    {
+      floorMatched: false,
+      floorForced: false,
+      senderKindDemotedCategory: false,
+      senderKindDemotionReason: null,
+      meetingDemotedCategory: false,
+      meetingDemotionReason: null,
+    },
+  );
+});
+
+function floorContext(): FloorContext {
+  return {
+    signalText: "",
+    collabVetoText: "",
+    senderKind: null,
+    effectiveAuthor: null,
+    sender: null,
+    subject: null,
+    to: null,
+    cc: null,
+    accountEmail: null,
+    contentFlags: { hasInvestorNotice: false, hasPublicEventLanguage: false },
+  };
+}
+
+/** The trace the workflow would persist for a floor outcome. */
+function eventFor(floors: FloorOutcome) {
+  return senderExtractionEvent({
+    senderContextResult: senderContextResult(),
+    observations: observations(),
+    audit: {
+      firstPass: classification({ category: "meeting" }),
+      conflict: null,
+      secondPass: null,
+      secondPassFailure: null,
+      floors,
+    },
+    classification: floors.classification,
+    todoSuggested: false,
+    standingSuppression: null,
+    standingSuppressionReadFailed: false,
+  });
+}
 
 function senderContextResult(): SenderContextResult {
   return {
