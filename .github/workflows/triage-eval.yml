@@ -24,11 +24,17 @@
 name: triage-eval
 
 on:
-  pull_request:
-    paths:
-      - "packages/api/src/modules/triage/**"
-      - "packages/api/evals/**"
-      - ".github/workflows/triage-eval.yml"
+  # The PR trigger is parked: this gate spends real Gemini + Sonnet tokens on
+  # every classifier/fixture touch, and its score is coupled to live provider
+  # health (an empty provider response scores 0 rather than skipping, so a blip
+  # reddens a PR with no code defect). Manual dispatch only for now; restore the
+  # block below to make it a gate again.
+  #
+  # pull_request:
+  #   paths:
+  #     - "packages/api/src/modules/triage/**"
+  #     - "packages/api/evals/**"
+  #     - ".github/workflows/triage-eval.yml"
   workflow_dispatch:
 
 # A newer push to the same PR cancels the in-flight (token-spending) run.
