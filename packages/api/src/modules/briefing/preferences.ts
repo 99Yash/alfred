@@ -1,10 +1,11 @@
-import { isIanaTimezone } from "@alfred/contracts";
+import { isIanaTimezone, type IanaTimezone } from "@alfred/contracts";
 import {
   DEFAULT_BRIEFING_DELIVERY_HOUR,
   DEFAULT_BRIEFING_EVENING_HOUR,
   DEFAULT_BRIEFING_TIMEZONE,
 } from "@alfred/contracts/briefing-constants";
 import { getPreference } from "../memory/preferences";
+import { firstValidTimezone } from "../timezone";
 
 /**
  * Briefing time-of-day preferences live under `user_preferences` keys
@@ -14,12 +15,13 @@ import { getPreference } from "../memory/preferences";
  * Timezone resolution (#229): the canonical zone key is `timezone` — it grounds
  * chat/boss date reasoning AND briefing delivery, so the two can never diverge.
  * The legacy `briefing.timezone` key is read as a fallback for rows written
- * before the unification. Precedence matches `resolveUserTimezone`:
+ * before the unification. The precedence is `resolveUserTimezone`'s, because
+ * this calls it (via {@link firstValidTimezone}) rather than restating it:
  *
  *   1. `timezone` (canonical — what the settings picker + onboarding now write).
  *   2. `briefing.timezone` (legacy fallback).
- *   3. The shared v1 default (UTC) — explicit so a user with no pref row still
- *      gets daily emails at a predictable time.
+ *   3. `DEFAULT_USER_TIMEZONE` (UTC) — so a user with no pref row still gets
+ *      daily emails at a predictable time.
  *
  * The browser's `Intl.DateTimeFormat().resolvedOptions().timeZone` is captured
  * at onboarding and persisted to `timezone`, so a user who never opens settings
@@ -29,7 +31,7 @@ import { getPreference } from "../memory/preferences";
 export { DEFAULT_BRIEFING_DELIVERY_HOUR, DEFAULT_BRIEFING_EVENING_HOUR, DEFAULT_BRIEFING_TIMEZONE };
 
 export interface BriefingPreferences {
-  timezone: string;
+  timezone: IanaTimezone;
   /** Morning delivery hour (0-23, in `timezone`). Backwards-compatible name. */
   deliveryHour: number;
   /** Evening delivery hour (0-23, in `timezone`). */
@@ -68,24 +70,16 @@ export async function resolveBriefingPreferences(userId: string): Promise<Briefi
 export function resolveBriefingPreferenceValues(
   values: BriefingPreferenceValues,
 ): BriefingPreferences {
-  const canonicalTz = parseTimezone(values.timezone);
-  const legacyTz = parseTimezone(values.legacyTimezone);
-  const timezone = canonicalTz ?? legacyTz ?? DEFAULT_BRIEFING_TIMEZONE;
+  const timezone = firstValidTimezone([values.timezone, values.legacyTimezone]);
   const deliveryHour = parseDeliveryHour(values.deliveryHour) ?? DEFAULT_BRIEFING_DELIVERY_HOUR;
   const eveningHour = parseDeliveryHour(values.eveningHour) ?? DEFAULT_BRIEFING_EVENING_HOUR;
   const hasUserOverride =
-    canonicalTz !== null ||
-    legacyTz !== null ||
+    isValidTimezone(values.timezone) ||
+    isValidTimezone(values.legacyTimezone) ||
     parseDeliveryHour(values.deliveryHour) !== null ||
     parseDeliveryHour(values.eveningHour) !== null;
 
   return { timezone, deliveryHour, eveningHour, hasUserOverride };
-}
-
-function parseTimezone(value: unknown): string | null {
-  if (typeof value !== "string" || !value) return null;
-  if (!isValidTimezone(value)) return null;
-  return value;
 }
 
 function parseDeliveryHour(value: unknown): number | null {
@@ -104,37 +98,3 @@ function parseDeliveryHour(value: unknown): number | null {
  * name so the briefing/workflow call sites read in domain terms.
  */
 export const isValidTimezone = isIanaTimezone;
-
-/**
- * Local-date string (YYYY-MM-DD) for `now` rendered in `timezone`. Used
- * as the day-segment of the briefing idempotency key, so the same
- * machine-day in a user's tz never sends twice.
- *
- * `sv-SE` locale formats dates as `YYYY-MM-DD` natively, which is the
- * shortest path to a stable ISO-style date string in any timezone.
- */
-export function localDateInTimezone(timezone: string, now: Date = new Date()): string {
-  return new Intl.DateTimeFormat("sv-SE", {
-    timeZone: timezone,
-    year: "numeric",
-    month: "2-digit",
-    day: "2-digit",
-  }).format(now);
-}
-
-/** 0–23 hour-of-day in `timezone` for `now`. */
-export function localHourInTimezone(timezone: string, now: Date = new Date()): number {
-  const parts = new Intl.DateTimeFormat("en-US", {
-    timeZone: timezone,
-    hour: "numeric",
-    hour12: false,
-  }).formatToParts(now);
-  const hourStr = parts.find((p) => p.type === "hour")?.value;
-  if (!hourStr) {
-    throw new Error(`[briefing.preferences] could not extract hour from tz=${timezone}`);
-  }
-  // `hour: 'numeric'` with `hour12: false` returns "0".."23"; some
-  // engines emit "24" at midnight. Normalize.
-  const n = Number(hourStr);
-  return n === 24 ? 0 : n;
-}

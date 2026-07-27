@@ -15,6 +15,7 @@
 
 import type {
   ActionSlug,
+  IanaTimezone,
   IntegrationSlug,
   RiskTierCounts,
   ToolName,
@@ -155,7 +156,7 @@ export interface ToolExecuteContext {
    * present; the dispatcher fills it from `DispatchArgs.timezone` or by reading
    * the preference.
    */
-  timezone: string;
+  timezone: IanaTimezone;
   /**
    * Who is calling — `'boss'` for the parent run, a sub-agent id like
    * `'sub_a'` when the dispatcher is serving a child run. Tools rarely

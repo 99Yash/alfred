@@ -5,11 +5,8 @@ import { Queue, Worker, type Job } from "bullmq";
 import { createRedisConnection } from "../../queue/connection";
 import { createRun, enqueueRun } from "../agent/index";
 import { resolveFeatureFlags } from "../features/flags";
-import {
-  localDateInTimezone,
-  localHourInTimezone,
-  resolveBriefingPreferences,
-} from "./preferences";
+import { inZone } from "../timezone";
+import { resolveBriefingPreferences } from "./preferences";
 import { DAILY_BRIEFING_WORKFLOW_SLUG } from "./workflow-input";
 import { toMessage } from "@alfred/contracts";
 
@@ -122,8 +119,9 @@ async function handleTick(): Promise<TickResult> {
         resolveBriefingPreferences(u.id),
         resolveFeatureFlags(u.id),
       ]);
-      const localHour = localHourInTimezone(prefs.timezone, now);
-      const briefingDate = localDateInTimezone(prefs.timezone, now);
+      const zone = inZone(prefs.timezone);
+      const localHour = zone.hour(now);
+      const briefingDate = zone.day(now);
       // Each slot is its own background-agent toggle (Settings → Features).
       // A disabled slot is dropped here, not at compose-time, so a switched-off
       // briefing never creates a run. UNSET defaults to ON (see resolveFeatureFlags).
@@ -176,7 +174,7 @@ async function handleManualRun(
   reason: "manual" | "forced",
 ): Promise<{ runId: string }> {
   const prefs = await resolveBriefingPreferences(userId);
-  const briefingDate = localDateInTimezone(prefs.timezone);
+  const briefingDate = inZone(prefs.timezone).day();
   return enqueueBriefingRun({ userId, slot, briefingDate, reason });
 }
 

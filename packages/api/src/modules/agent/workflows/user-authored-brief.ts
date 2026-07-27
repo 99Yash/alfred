@@ -8,6 +8,7 @@ import {
 } from "@alfred/ai";
 import {
   compactionThresholdTokens,
+  parseIanaTimezone,
   parseIntegrationMentions,
   isIntegrationSlug,
   toRecord,
@@ -73,7 +74,8 @@ const briefRunStateSchema = z
     // and reused every turn so the system-prompt prefix stays cache-stable.
     connectedSummary: z.string().optional(),
     // User's IANA timezone, snapshotted once per run so tool-dispatch windows
-    // match the date grounding shown to the boss.
+    // match the date grounding shown to the boss. Stored as a plain string and
+    // re-parsed into a zone at each read (`parseIanaTimezone`).
     timezone: z.string().optional(),
     pendingToolCalls: z.array(pendingToolCallSchema),
     subAgent: subAgentMetadataSchema.nullable(),
@@ -201,7 +203,8 @@ const bossTurnStep: Step<BriefRunState> = {
     if (state.timezone === undefined) {
       state.timezone = await resolveUserTimezone(ctx.userId);
     }
-    const grounding = formatDateGrounding(state.timezone);
+    // Persisted state carries the zone as a plain string; re-establish the type.
+    const grounding = formatDateGrounding(parseIanaTimezone(state.timezone));
     // `hasThread: false` throughout this workflow gates the tools that need a
     // conversation to operate on (`requiresThread` — reading chat history,
     // replying into the thread), and this run has none: even a chat-spawned child
@@ -388,7 +391,7 @@ const dispatchToolsStep: Step<BriefRunState> = {
         userId: ctx.userId,
         caller,
         scratchpadRunId: state.subAgent?.parentRunId ?? ctx.runId,
-        timezone: state.timezone,
+        timezone: state.timezone ? parseIanaTimezone(state.timezone) : undefined,
         activeTools: state.activeTools,
         allowedIntegrations: state.allowedIntegrations,
       } as const;

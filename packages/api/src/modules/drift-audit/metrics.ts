@@ -1,12 +1,11 @@
 import { parseEmailAddress, toMessage } from "@alfred/contracts";
-import type { TriageCategory } from "@alfred/contracts";
+import type { IanaTimezone, TriageCategory } from "@alfred/contracts";
 import { db } from "@alfred/db";
 import { documents, driftMetrics, emailTriage, todos } from "@alfred/db/schemas";
 import { selfSenderEmail } from "@alfred/integrations/google";
 import { and, eq, inArray, sql } from "drizzle-orm";
-import { localDateInTimezone } from "../briefing/preferences";
 import { notify, type NotifyArgs, type NotifyResult } from "../notifications/notify";
-import { resolveUserTimezone } from "../timezone";
+import { DEFAULT_USER_TIMEZONE, inZone, resolveUserTimezone } from "../timezone";
 
 /**
  * Drift / invariant health metrics (PR-B of #219).
@@ -189,7 +188,7 @@ export interface RunDriftHealthCheckOptions {
   /** Test seam; production evaluates the registered drift metrics. */
   metricEvaluators?: readonly MetricEvaluator[];
   /** Test seam; production resolves the user's configured timezone. */
-  timezone?: string;
+  timezone?: IanaTimezone;
 }
 
 /**
@@ -205,7 +204,7 @@ export async function runDriftHealthCheck(
   options: RunDriftHealthCheckOptions = {},
 ): Promise<DriftHealthCheckResult> {
   const now = options.now ?? new Date();
-  const captureKey = localDateInTimezone("UTC", now);
+  const captureKey = inZone(DEFAULT_USER_TIMEZONE).day(now);
   const results: MetricResult[] = [];
   const metricFailures: string[] = [];
   const evaluators = options.metricEvaluators ?? [
@@ -250,8 +249,10 @@ export async function runDriftHealthCheck(
 
   const breached = results.filter((r) => r.breached);
   const timezone =
-    breached.length > 0 ? (options.timezone ?? (await resolveUserTimezone(userId))) : "UTC";
-  const today = localDateInTimezone(timezone, now);
+    breached.length > 0
+      ? (options.timezone ?? (await resolveUserTimezone(userId)))
+      : DEFAULT_USER_TIMEZONE;
+  const today = inZone(timezone).day(now);
   const notifyFn = options.notifyFn ?? notify;
   let alertsSent = 0;
   const alertFailures: string[] = [];

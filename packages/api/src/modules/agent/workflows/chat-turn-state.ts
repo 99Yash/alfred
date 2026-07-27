@@ -87,7 +87,8 @@ export const chatRunStateSchema = z
     artifactDesignMedium: artifactFormatSchema.optional(),
     // User's IANA timezone, snapshotted once on the first turn — it can't change
     // mid-run, so re-reading it from the DB every turn (like `connectedSummary`)
-    // is wasted latency.
+    // is wasted latency. Stored as a plain string, like every other persisted
+    // state field, and re-parsed into a zone at each read (`parseIanaTimezone`).
     timezone: z.string().optional(),
     pendingToolCalls: z.array(pendingToolCallSchema),
     // Text of the current (latest) narration segment. Accumulates within a step;

@@ -21,6 +21,7 @@ import {
   webSearchInput,
   writeScratchInput,
 } from "@alfred/contracts";
+import type { IanaTimezone } from "@alfred/contracts";
 import { AppError } from "../../lib/app-errors";
 import {
   appendArtifactPage,
@@ -41,6 +42,7 @@ import { readChatHistory } from "../agent/compaction";
 import { startToolLoadSpan, startToolSearchSpan } from "../agent/runtime-spans";
 import { callerLabel } from "../dispatch";
 import { toolAvailabilityContext } from "../integrations/availability";
+import { inZone } from "../timezone";
 import {
   editStandingInstruction,
   forgetStandingInstruction,
@@ -89,35 +91,16 @@ function resolveArtifactContext(
   };
 }
 
-export function currentTimeSnapshot(timezone: string, now: Date = new Date()) {
-  const parts = new Intl.DateTimeFormat("en-CA", {
-    timeZone: timezone,
-    year: "numeric",
-    month: "2-digit",
-    day: "2-digit",
-    hour: "2-digit",
-    minute: "2-digit",
-    second: "2-digit",
-    hourCycle: "h23",
-    timeZoneName: "longOffset",
-  }).formatToParts(now);
-  const part = (type: Intl.DateTimeFormatPartTypes) =>
-    parts.find((candidate) => candidate.type === type)?.value ?? "";
-  const offset = part("timeZoneName");
-  const offsetMatch = /^GMT(?:(?<sign>[+-])(?<hours>\d{1,2})(?::(?<minutes>\d{2}))?)?$/.exec(
-    offset,
-  );
-  const utcOffset = offsetMatch?.groups?.sign
-    ? `${offsetMatch.groups.sign}${(offsetMatch.groups.hours ?? "0").padStart(2, "0")}:${offsetMatch.groups.minutes ?? "00"}`
-    : "+00:00";
-
+/**
+ * What `system.current_time` reports. The absolute instant plus the wall clock
+ * the user is reading — every locale/offset detail comes from the timezone
+ * module, which owns it.
+ */
+export function currentTimeSnapshot(timezone: IanaTimezone, now: Date = new Date()) {
   return {
     isoTime: now.toISOString(),
-    localDate: `${part("year")}-${part("month")}-${part("day")}`,
-    localTime: `${part("hour")}:${part("minute")}:${part("second")}`,
-    weekday: new Intl.DateTimeFormat("en-US", { timeZone: timezone, weekday: "long" }).format(now),
+    ...inZone(timezone).clock(now),
     timezone,
-    utcOffset,
   };
 }
 
