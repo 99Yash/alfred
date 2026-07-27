@@ -31,7 +31,6 @@ export {
   type SenderKindDemotionReason,
 } from "./sender-kind";
 export { applyMeetingDemotionFloor, type MeetingDemotionReason } from "./meeting";
-export { demoteToFyi, type FloorResult } from "./floor";
 
 /** Everything the floor sequence reads about one email. Assembled by `classifyEmail`. */
 export interface FloorContext {
@@ -68,14 +67,39 @@ type FloorApply<R extends FloorResult> = (
 type FloorModelIdSuffix<R extends FloorResult> = (audit: Omit<R, "classification">) => string;
 
 /**
+ * The fold's OWN fields on {@link FloorOutcome} — everything that is not a
+ * floor's audit. Named separately so {@link ReservedFloorName} derives from it
+ * rather than restating it.
+ */
+type FloorFold = {
+  classification: TriageClassification;
+  /** Concatenated in sequence order, `""` when no floor fired. */
+  modelIdSuffix: string;
+};
+
+/**
+ * Names the fold already owns. {@link applyFloors} spreads the audits over these
+ * fields, so a floor called one of them typechecks and then silently wins at
+ * runtime: a floor named `modelIdSuffix` makes `model_id += floors.modelIdSuffix`
+ * append `[object Object]`, and `email_triage.model` is notNull, so the garbage
+ * persists. Banned at the registration site instead — see {@link floor}.
+ */
+type ReservedFloorName = keyof FloorFold;
+
+/**
  * Registers one floor. Both callbacks are typed against the floor's OWN result,
  * but the entry only exposes `run` — a uniform `(classification, ctx)` the fold
  * can call while holding a union of entries. Splitting the audit out here rather
  * than in the loop is what lets the suffix stay per-floor without the fold ever
  * naming a floor's audit type.
+ *
+ * `name`'s intersection is the {@link ReservedFloorName} guard: `N` stays
+ * inferrable from the left side, while the right side collapses the parameter to
+ * `never` for a reserved name, so the collision is a type error on the entry
+ * rather than a corrupted `model` string in production.
  */
 function floor<N extends string, R extends FloorResult>(
-  name: N,
+  name: N & (N extends ReservedFloorName ? never : unknown),
   apply: FloorApply<R>,
   modelIdSuffix: FloorModelIdSuffix<R>,
 ) {
@@ -157,11 +181,7 @@ type FloorAudits = {
  * there is what a fourth floor used to cost: two audit keys and a model-id line
  * in `classify.ts`, none of which the compiler asked for.
  */
-export type FloorOutcome = {
-  classification: TriageClassification;
-  /** Concatenated in sequence order, `""` when no floor fired. */
-  modelIdSuffix: string;
-} & FloorAudits;
+export type FloorOutcome = FloorFold & FloorAudits;
 
 /**
  * Fold {@link FLOOR_SEQUENCE} over a classification: each floor sees the previous
