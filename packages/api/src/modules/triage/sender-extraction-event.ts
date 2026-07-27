@@ -5,10 +5,104 @@ import {
 } from "@alfred/contracts";
 import { type TriageCategory } from "@alfred/integrations/google";
 import type { ClassifyAudit, TriageClassification } from "./classify";
+import type { FloorAudits } from "./floors";
 import type { Observations } from "./observations";
 import type { SenderContextResult } from "./sender-context";
 import type { TriageSenderKindSignal } from "./sender-kind";
 import type { SenderSuppressionMatch } from "../memory/standing-instructions";
+
+/**
+ * How one floor's audit lands on the flat trace record, registered under that
+ * floor's name and typed against that floor's OWN audit — the same registration
+ * shape `FLOOR_SEQUENCE` uses for a floor's model-id tag. `null` is the
+ * audit-less path (the fallback classification, where no floor ran), so each
+ * projection states its own "did not fire" value instead of the assembly
+ * guessing one per field.
+ */
+type FloorTraceProjection<K extends keyof FloorAudits> = (
+  audit: FloorAudits[K] | null,
+) => Record<string, unknown>;
+
+/**
+ * Every floor's contribution to the trace, keyed by floor name and EXHAUSTIVE
+ * over {@link FloorAudits}. This is the seam a fourth floor would otherwise slip
+ * through: registering it in `FLOOR_SEQUENCE` reaches the in-memory audit and the
+ * `model` tag on its own, but the persisted `agent_decision_traces` row — the
+ * only one of the three the over-tag audits (#210/#354) can query — used to be
+ * hand-flattened, so a new floor could demote in production with nothing in the
+ * record naming it. A missing key here is now a type error.
+ *
+ * Flat rather than a nested `floors` object because ad-hoc SQL groups on these
+ * keys in the trace's jsonb and the names predate the floor registry (the
+ * override floor's fields are still `floorMatched`/`floorForced`). The
+ * projection is where that historical name meets the derived shape.
+ *
+ * Exported for the runtime twin of that type error in `floors.test.ts` — the
+ * case where a fourth floor's author widens this annotation instead of adding
+ * the entry.
+ */
+export const FLOOR_TRACE_PROJECTIONS = {
+  override: (audit) => ({
+    /** True when the override floor's exposed-secret signal matched at all. */
+    floorMatched: audit?.matched ?? false,
+    /** True when it also had to force the category to `urgent`. */
+    floorForced: audit?.verdict.kind === "escalate",
+  }),
+  senderKind: (audit) => ({
+    /** True when the sender-kind floor demoted the final category → `fyi` (#210). */
+    senderKindDemotedCategory: audit?.verdict.kind === "demote",
+    /** Structured reason for a sender-kind category demotion, if one fired. */
+    senderKindDemotionReason: audit?.reason ?? null,
+  }),
+  meeting: (audit) => ({
+    /** True when the meeting-gate floor demoted `meeting` → `fyi`. */
+    meetingDemotedCategory: audit?.verdict.kind === "demote",
+    /** Structured reason for a meeting-gate demotion, if one fired. */
+    meetingDemotionReason: audit?.reason ?? null,
+  }),
+} satisfies { [K in keyof FloorAudits]: FloorTraceProjection<K> };
+
+/**
+ * Collapse a union of object types into one. Local to this file: it exists only
+ * to merge the projections' field groups into {@link FloorTraceFields}.
+ */
+type UnionToIntersection<U> = (U extends unknown ? (of: U) => void : never) extends (
+  of: infer I,
+) => void
+  ? I
+  : never;
+
+/**
+ * A registered floor, by name. Read off the registry rather than off
+ * {@link FloorAudits} so an unregistered fourth floor produces exactly ONE error
+ * — the missing key above, which is the edit — instead of cascading through
+ * everything downstream that indexes by floor name.
+ */
+type ProjectedFloorName = keyof typeof FLOOR_TRACE_PROJECTIONS;
+
+/** The floor half of {@link SenderExtractionEvent}, derived from {@link FLOOR_TRACE_PROJECTIONS}. */
+type FloorTraceFields = UnionToIntersection<
+  ReturnType<(typeof FLOOR_TRACE_PROJECTIONS)[ProjectedFloorName]>
+>;
+
+/**
+ * Project the floor outcome onto its flat trace fields — or `null` on the
+ * audit-less fallback path, where every projection reports its own "did not
+ * fire" values. Folding the registry rather than spreading its three entries by
+ * hand is what makes registration the only edit a fourth floor needs.
+ */
+function floorTraceFields(floors: FloorAudits | null): FloorTraceFields {
+  const fields: Record<string, unknown> = {};
+  for (const name of Object.keys(FLOOR_TRACE_PROJECTIONS) as ProjectedFloorName[]) {
+    // Localized casts: `name` and the projection it indexes are correlated by
+    // construction, which the compiler cannot follow through the key union. The
+    // registry's `satisfies` already checked each entry against its own floor's
+    // audit type, and neither widening reaches a caller.
+    const project = FLOOR_TRACE_PROJECTIONS[name] as FloorTraceProjection<ProjectedFloorName>;
+    Object.assign(fields, project(floors?.[name] ?? null));
+  }
+  return fields as FloorTraceFields;
+}
 
 /**
  * Flattened observation summary + classify audit for a single classification
@@ -23,8 +117,12 @@ import type { SenderSuppressionMatch } from "../memory/standing-instructions";
  * triage-internal type defined alongside it here; moving it up would drag that
  * whole leaf tree with it. The decision-trace registry (`modules/agent`) imports
  * this type to give `triage.classification` traces their precise shape.
+ *
+ * Its floor half is NOT declared here: those fields come from
+ * {@link FLOOR_TRACE_PROJECTIONS}, so the floor sequence and the persisted record
+ * cannot drift apart.
  */
-export interface SenderExtractionEvent {
+export interface SenderExtractionEvent extends FloorTraceFields {
   fromKind: SenderContext["fromKind"];
   bodyActor: SenderContext["bodyActor"] | null;
   effectiveAuthor: SenderContext["effectiveAuthor"];
@@ -43,14 +141,6 @@ export interface SenderExtractionEvent {
   senderKindConfidence: number | null;
   senderKindEvidenceCodes: string[];
   senderKindDemotedPersonTreatment: boolean;
-  /** True when the sender-kind floor demoted the final category `awaiting_reply` → `fyi` (#210). */
-  senderKindDemotedCategory: boolean;
-  /** Structured reason for a sender-kind category demotion, if one fired. */
-  senderKindDemotionReason: ClassifyAudit["senderKindDemotionReason"];
-  /** True when the meeting-gate floor demoted `meeting` → `fyi`. */
-  meetingDemotedCategory: boolean;
-  /** Structured reason for a meeting-gate demotion, if one fired. */
-  meetingDemotionReason: ClassifyAudit["meetingDemotionReason"];
   threadMessages: number;
   threadNewest: Observations["thread"]["newestDirection"];
   gmailImportant: boolean;
@@ -63,8 +153,6 @@ export interface SenderExtractionEvent {
   secondPassCategory: TriageCategory | null;
   secondPassCollabActivity: CollabActivityKind | null;
   secondPassFailure: string | null;
-  floorMatched: boolean;
-  floorForced: boolean;
   finalCategory: TriageCategory;
   finalConfidence: number;
   finalCollabActivity: CollabActivityKind | null;
@@ -114,10 +202,8 @@ export function senderExtractionEvent(args: {
     senderKindConfidence: obs.senderKind?.confidence ?? null,
     senderKindEvidenceCodes: obs.senderKind?.evidenceCodes ?? [],
     senderKindDemotedPersonTreatment: Boolean(obs.senderKind),
-    senderKindDemotedCategory: audit?.senderKindDemoted ?? false,
-    senderKindDemotionReason: audit?.senderKindDemotionReason ?? null,
-    meetingDemotedCategory: audit?.meetingDemoted ?? false,
-    meetingDemotionReason: audit?.meetingDemotionReason ?? null,
+    // floors — one field group per registered floor, `null` when no floor ran
+    ...floorTraceFields(audit?.floors ?? null),
     threadMessages: obs.thread.messageCount,
     threadNewest: obs.thread.newestDirection,
     gmailImportant: obs.gmail.important,
@@ -131,8 +217,6 @@ export function senderExtractionEvent(args: {
     secondPassCategory: audit?.secondPass?.category ?? null,
     secondPassCollabActivity: audit?.secondPass?.collabActivity ?? null,
     secondPassFailure: audit?.secondPassFailure?.message ?? null,
-    floorMatched: audit?.floorMatched ?? false,
-    floorForced: audit?.floorForced ?? false,
     // final outcome
     finalCategory: args.classification.category,
     finalConfidence: args.classification.confidence,

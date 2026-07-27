@@ -1,6 +1,7 @@
 import { type SenderContext } from "@alfred/contracts";
 import type { TriageClassification } from "../classify";
 import type { Observations } from "../observations";
+import { applyFloorVerdict, type FloorResult } from "./floor";
 import { applyMeetingDemotionFloor } from "./meeting";
 import { applyOverrideFloor } from "./override";
 import { applySenderKindDemotionFloor } from "./sender-kind";
@@ -47,11 +48,6 @@ export interface FloorContext {
   contentFlags: Pick<Observations["content"], "hasInvestorNotice" | "hasPublicEventLanguage">;
 }
 
-/** What every floor returns: the (possibly changed) classification plus its own audit facts. */
-interface FloorResult {
-  classification: TriageClassification;
-}
-
 /**
  * A floor bound to the shared {@link FloorContext}. Each entry maps the one
  * context onto its floor's own arguments; nothing else about a floor is restated
@@ -62,8 +58,38 @@ type FloorApply<R extends FloorResult> = (
   ctx: FloorContext,
 ) => R;
 
-function floor<N extends string, R extends FloorResult>(name: N, apply: FloorApply<R>) {
-  return { name, apply } as const;
+/**
+ * The `model` tag a floor contributes when it fires, read off the floor's OWN
+ * result — `""` for a floor that did not. Registering it next to the floor is
+ * what keeps the classifier's model id honest: it used to be three
+ * `if (floors.x.y) model_id += "…"` lines in `classifyEmail`, which a fourth
+ * floor had to remember to extend from another file.
+ */
+type FloorModelIdTag<R extends FloorResult> = (audit: R) => string;
+
+/**
+ * Registers one floor. Both callbacks are typed against the floor's OWN result,
+ * but the entry only exposes `run` — a uniform `(classification, ctx)` the fold
+ * can call while holding a union of entries. The floor's result IS its audit:
+ * `run` applies the verdict and hands the whole result back untouched, so a
+ * floor has no way to report an audit that disagrees with what it did.
+ */
+function floor<N extends string, R extends FloorResult>(
+  name: N,
+  apply: FloorApply<R>,
+  modelIdTag: FloorModelIdTag<R>,
+) {
+  return {
+    name,
+    run: (input: TriageClassification, ctx: FloorContext) => {
+      const audit = apply(input, ctx);
+      return {
+        classification: applyFloorVerdict(input, audit.verdict),
+        audit,
+        modelIdTag: modelIdTag(audit),
+      };
+    },
+  } as const;
 }
 
 /**
@@ -82,44 +108,77 @@ function floor<N extends string, R extends FloorResult>(name: N, apply: FloorApp
  * folds the list — the threading is structural, not something each new floor has
  * to remember to do (passing the original `classification` instead of the prior
  * floor's output would silently disable a floor, and nothing but care used to
- * prevent it). Adding a fourth floor is one entry: {@link FloorOutcome} derives
- * its audit key from `name` and its audit shape from the floor's return type.
+ * prevent it). Adding a fourth floor is one entry here plus ONE the compiler
+ * demands: {@link FloorAudits} derives its key from `name` and its shape from the
+ * floor's return type, its model-id tag is registered on the same line, and
+ * `ClassifyAudit` carries the audits verbatim — but the persisted decision trace
+ * is flat by necessity, so `FLOOR_TRACE_PROJECTIONS`
+ * (`../sender-extraction-event.ts`) is keyed on {@link FloorAudits} and fails to
+ * compile until the new floor says which flat fields it contributes. That is the
+ * one thing a floor cannot derive: what its facts should be CALLED in a record
+ * the over-tag audits query by name.
  */
 const FLOOR_SEQUENCE = [
-  floor("override", (classification, ctx) => applyOverrideFloor(classification, ctx.signalText)),
-  floor("senderKind", (classification, ctx) =>
-    applySenderKindDemotionFloor(classification, ctx.senderKind, {
-      signalText: ctx.signalText,
-      collabVetoText: ctx.collabVetoText,
-      sender: ctx.sender,
-      subject: ctx.subject,
-      to: ctx.to,
-      cc: ctx.cc,
-      accountEmail: ctx.accountEmail,
-      collabActivity: classification.collabActivity ?? null,
-    }),
+  floor(
+    "override",
+    (classification, ctx) => applyOverrideFloor(classification, ctx.signalText),
+    (audit) => (audit.verdict.kind === "escalate" ? "+floor" : ""),
   ),
-  floor("meeting", (classification, ctx) =>
-    applyMeetingDemotionFloor(classification, {
-      effectiveAuthor: ctx.effectiveAuthor,
-      senderKind: ctx.senderKind,
-      subject: ctx.subject,
-      collabActivity: classification.collabActivity ?? null,
-      contentFlags: ctx.contentFlags,
-    }),
+  floor(
+    "senderKind",
+    (classification, ctx) =>
+      applySenderKindDemotionFloor(classification, ctx.senderKind, {
+        signalText: ctx.signalText,
+        collabVetoText: ctx.collabVetoText,
+        sender: ctx.sender,
+        subject: ctx.subject,
+        to: ctx.to,
+        cc: ctx.cc,
+        accountEmail: ctx.accountEmail,
+        collabActivity: classification.collabActivity ?? null,
+      }),
+    (audit) => (audit.verdict.kind === "demote" ? "+kindfloor" : ""),
+  ),
+  floor(
+    "meeting",
+    (classification, ctx) =>
+      applyMeetingDemotionFloor(classification, {
+        effectiveAuthor: ctx.effectiveAuthor,
+        senderKind: ctx.senderKind,
+        subject: ctx.subject,
+        collabActivity: classification.collabActivity ?? null,
+        contentFlags: ctx.contentFlags,
+      }),
+    (audit) => (audit.verdict.kind === "demote" ? "+meetingfloor" : ""),
   ),
 ] as const;
 
-/** Per-floor audit facts, keyed by floor name — derived from the sequence, never restated. */
-type FloorAudits = {
-  [S in (typeof FLOOR_SEQUENCE)[number] as S["name"]]: Omit<
-    ReturnType<S["apply"]>,
-    "classification"
-  >;
+/**
+ * Per-floor audit facts, keyed by floor name — derived from the sequence, never
+ * restated. Exported because it is what the persisted decision trace keys its
+ * per-floor projections on: registering that map against THIS type is what turns
+ * a fourth floor into a missing key there, rather than a demotion production can
+ * see fire but not attribute.
+ */
+export type FloorAudits = {
+  [S in (typeof FLOOR_SEQUENCE)[number] as S["name"]]: ReturnType<S["run"]>["audit"];
 };
 
-/** The floor sequence's verdict — the final classification plus per-floor audit facts. */
-export type FloorOutcome = { classification: TriageClassification } & FloorAudits;
+/** The floor sequence's verdict. `audits` crosses onto `ClassifyAudit` verbatim. */
+export interface FloorOutcome {
+  /** What the floors folded to — the classification `classifyEmail` returns. */
+  classification: TriageClassification;
+  /**
+   * Per-floor audit facts, keyed by floor name. NESTED rather than spread beside
+   * the fold's own fields: a floor named `classification` or `modelIdTags` would
+   * otherwise typecheck and then silently overwrite one of them at runtime, and
+   * `email_triage.model` is notNull, so the garbage would persist. There is no
+   * name to collide with here.
+   */
+  audits: FloorAudits;
+  /** `model` tags from the floors that fired, in sequence order; empty when none did. */
+  modelIdTags: string[];
+}
 
 /**
  * Fold {@link FLOOR_SEQUENCE} over a classification: each floor sees the previous
@@ -128,14 +187,16 @@ export type FloorOutcome = { classification: TriageClassification } & FloorAudit
  */
 export function applyFloors(classification: TriageClassification, ctx: FloorContext): FloorOutcome {
   let current = classification;
+  const modelIdTags: string[] = [];
   const audits: Record<string, unknown> = {};
   for (const step of FLOOR_SEQUENCE) {
-    const { classification: next, ...audit } = step.apply(current, ctx);
-    current = next;
-    audits[step.name] = audit;
+    const result = step.run(current, ctx);
+    current = result.classification;
+    audits[step.name] = result.audit;
+    if (result.modelIdTag) modelIdTags.push(result.modelIdTag);
   }
   // Localized cast: the loop fills exactly one key per sequence entry, which is
   // the same set `FloorAudits` derives from it. The public type stays precise per
   // floor via that mapped type, so callers never see this widening.
-  return { classification: current, ...audits } as FloorOutcome;
+  return { classification: current, audits: audits as FloorAudits, modelIdTags };
 }

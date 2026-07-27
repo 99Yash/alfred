@@ -25,8 +25,7 @@ import {
   matchesCollabIntrinsicStake,
   matchesExposedSecret,
   matchesPrThread,
-  type MeetingDemotionReason,
-  type SenderKindDemotionReason,
+  type FloorAudits,
 } from "./floors";
 import { createHedgeBudget, hedgeCeilingFor, runHedged, type HedgeBudget } from "./hedge";
 import type { Observations } from "./observations";
@@ -202,18 +201,15 @@ export interface ClassifyAudit {
   conflict: TriageConflict | null;
   secondPass: TriageClassification | null;
   secondPassFailure: { message: string } | null;
-  /** True when the sender-kind floor demoted `awaiting_reply` → `fyi` (#210 / #218). */
-  senderKindDemoted: boolean;
-  /** Structured reason consumed by the sender-kind category demotion floor, if it fired. */
-  senderKindDemotionReason: SenderKindDemotionReason | null;
-  /** True when the override-floor signal matched, even if the model already said urgent. */
-  floorMatched: boolean;
-  /** True when the override floor forced a category change (not merely matched). */
-  floorForced: boolean;
-  /** True when the meeting-gate floor demoted `meeting` → `fyi`. */
-  meetingDemoted: boolean;
-  /** Structured reason the meeting-gate floor fired, if it did. */
-  meetingDemotionReason: MeetingDemotionReason | null;
+  /**
+   * Per-floor audit facts from the deterministic floor sequence, carried verbatim
+   * from {@link applyFloors} and keyed by floor name. The fold's other two outputs
+   * are not repeated here — its classification IS the classification this audit
+   * accompanies, and its model tags are already on `model`. The shape is derived
+   * from `FLOOR_SEQUENCE`, so a fourth floor reaches this audit (and the `model`
+   * tag) without an edit in this file.
+   */
+  floors: FloorAudits;
 }
 
 const PASSIVE_CATEGORIES = new Set<TriageCategory>(["fyi", "done", "newsletter", "marketing"]);
@@ -964,8 +960,8 @@ export async function classifyEmail(
   }
 
   // Deterministic post-classification floors (override → sender-kind → meeting),
-  // owned by the `floors/` module. `classifyEmail` only assembles the context and
-  // folds the outcome into the audit + model-id suffixes.
+  // owned by the `floors/` module. `classifyEmail` only assembles the context;
+  // the outcome then travels onto the audit and the model id unflattened.
   const meta = args.document.metadata;
   const from = typeof meta.from === "string" ? meta.from : null;
   const to = typeof meta.to === "string" ? meta.to : null;
@@ -984,28 +980,22 @@ export async function classifyEmail(
   });
   const classification = floors.classification;
 
-  let model_id = baseModelId;
-  if (secondPass) model_id += "+2pass";
-  if (secondPassFailure) model_id += "+2pass_failed";
-  if (floors.senderKind.demoted) model_id += "+kindfloor";
-  if (floors.meeting.demoted) model_id += "+meetingfloor";
-  if (floors.override.forced) model_id += "+floor";
+  // The `model` string, as ONE ordered list of tags: this function's own pass
+  // tags first, then the floor tags the fold contributes in sequence order (each
+  // registered next to its floor, so a fourth floor never edits this file). The
+  // order is the whole contract — the value is an audit/debug string, so query it
+  // with `LIKE '%+kindfloor%'`, never by equality on the assembled id.
+  const model_id = [
+    baseModelId,
+    ...(secondPass ? ["+2pass"] : []),
+    ...(secondPassFailure ? ["+2pass_failed"] : []),
+    ...floors.modelIdTags,
+  ].join("");
 
   return {
     classification,
     model: model_id,
-    audit: {
-      firstPass,
-      conflict,
-      secondPass,
-      secondPassFailure,
-      senderKindDemoted: floors.senderKind.demoted,
-      senderKindDemotionReason: floors.senderKind.reason,
-      floorMatched: floors.override.matched,
-      floorForced: floors.override.forced,
-      meetingDemoted: floors.meeting.demoted,
-      meetingDemotionReason: floors.meeting.reason,
-    },
+    audit: { firstPass, conflict, secondPass, secondPassFailure, floors: floors.audits },
   };
 }
 
