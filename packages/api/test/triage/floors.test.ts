@@ -153,7 +153,8 @@ describe("applyFloors — threading", () => {
     // judgment that a leaked-secret mail belongs in `fyi`: the
     // `collab_passive_activity` and `monitoring_alarm` reasons both refuse to
     // demote when `matchesExposedSecret` hits; `broadcast_auth_signin_confirmation`
-    // does not. Closing that gap should flip THIS assertion, not delete the test.
+    // does not (#580). Closing that gap should flip THIS assertion, not delete
+    // the test.
     const body =
       "we detected a new sign-in to your account from a new device. " +
       "if this was you, no action is needed. " +
