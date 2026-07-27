@@ -202,10 +202,10 @@ export {
   type ResolveBriefingReferencesResult,
   type SuppressedCategory,
 } from "./modules/briefing/index";
-export * from "./modules/timezone/index";
 
 export * from "./modules/cold-start/index";
 export * from "./modules/notifications/index";
+export * from "./modules/timezone/index";
 export {
   bustPolicyCache,
   clearPolicyCacheForTests,

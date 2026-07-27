@@ -6,6 +6,7 @@ import {
   type ModelMessage,
 } from "@alfred/ai";
 import type { IanaTimezone } from "@alfred/contracts";
+import type { LocalDateKey } from "../../timezone";
 import { buildSystemPrompt } from "./prompt";
 import { buildBriefingTools, type DumpedBriefing } from "./tools";
 
@@ -33,7 +34,7 @@ export interface RunBriefingAgentArgs {
   /** Upper bound on `documents.ingested_at` — frozen at run start. */
   untilIngestedAt: Date;
   /** YYYY-MM-DD calendar date in the user's timezone — anchors the calendar tool's window. */
-  briefingDate: string;
+  briefingDate: LocalDateKey;
   /** User's IANA timezone — defines local day boundaries for the calendar tool. */
   timezone: IanaTimezone;
   /** Forwarded to the metering wrapper for per-call attribution. */

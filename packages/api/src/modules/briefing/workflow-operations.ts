@@ -1,5 +1,5 @@
 import { gatherBriefingWithSuppressionAudit, type BriefingInstructionSuppression } from "./gather";
-import { localDateInTimezone } from "../timezone";
+import { inZone, parseLocalDateKey } from "../timezone";
 import { resolveBriefingPreferences } from "./preferences";
 import { fetchLatestWatermark, isQuietMorning } from "./read";
 import {
@@ -13,7 +13,7 @@ import {
 } from "./store";
 import { notify } from "../notifications/index";
 import type { StepContext, StepResult } from "../agent/index";
-import { assertIanaTimezone, type BriefingGather, type IanaTimezone } from "@alfred/contracts";
+import { parseIanaTimezone, type BriefingGather } from "@alfred/contracts";
 import { db } from "@alfred/db";
 import { user } from "@alfred/db/schemas";
 import { serverEnv } from "@alfred/env/server";
@@ -84,8 +84,12 @@ export async function runDailyBriefingGather<State extends DailyBriefingOperatio
   ctx: StepContext<State>,
 ): Promise<StepResult<State>> {
   const prefs = await resolveBriefingPreferences(ctx.userId);
-  const briefingDate = ctx.state.briefingDate ?? localDateInTimezone(prefs.timezone);
-  const timezone = ianaTimezone(prefs.timezone);
+  const timezone = prefs.timezone;
+  // `state.briefingDate` is persisted JSON, so it re-enters as a plain string
+  // and is parsed back into a key here; a fresh run mints one instead.
+  const briefingDate = ctx.state.briefingDate
+    ? parseLocalDateKey(ctx.state.briefingDate)
+    : inZone(timezone).day();
 
   const begun = await beginBriefing({
     userId: ctx.userId,
@@ -235,10 +239,14 @@ export async function runDailyBriefingGather<State extends DailyBriefingOperatio
 export async function runDailyBriefingCompose<State extends DailyBriefingOperationState>(
   ctx: StepContext<State>,
 ): Promise<StepResult<State>> {
-  const { briefingId, untilIngestedAt, briefingDate, timezone } = ctx.state;
-  if (!briefingId || !untilIngestedAt || !briefingDate || !timezone) {
+  const { briefingId, untilIngestedAt } = ctx.state;
+  if (!briefingId || !untilIngestedAt || !ctx.state.briefingDate || !ctx.state.timezone) {
     throw new Error("[daily-briefing] compose entered without gather output");
   }
+  // Persisted state carries both as plain strings — this is the boundary that
+  // re-establishes the day key and the zone as their own types.
+  const briefingDate = parseLocalDateKey(ctx.state.briefingDate);
+  const timezone = parseIanaTimezone(ctx.state.timezone);
 
   // Discretionary morning: a quiet cron morning suppresses *before*
   // the agent runs, so a nothing-to-report day costs no LLM call.
@@ -281,7 +289,7 @@ export async function runDailyBriefingCompose<State extends DailyBriefingOperati
       sinceIngestedAt: since,
       untilIngestedAt: until,
       briefingDate,
-      timezone: ianaTimezone(timezone),
+      timezone,
       runId: ctx.runId,
       stepId: "compose",
     });
@@ -466,11 +474,6 @@ function instructionSuppressionLogPart(items: readonly BriefingInstructionSuppre
   if (items.length === 0) return " instruction_suppressions=0";
   const factIds = [...new Set(items.map((item) => item.factId))].join(",");
   return ` instruction_suppressions=${items.length} fact_ids=${factIds}`;
-}
-
-function ianaTimezone(value: string): IanaTimezone {
-  assertIanaTimezone(value);
-  return value;
 }
 
 function pickFirstName(name: string | null): string | null {

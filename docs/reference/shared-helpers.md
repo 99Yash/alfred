@@ -44,7 +44,7 @@ candidate `gate` rule — see [Closing the loop](#closing-the-loop).
 | enforce Alfred's prose voice (no em-dashes, plain words) | `sanitizeVoice` / `createVoiceStreamSanitizer` | `@alfred/api` agent voice-sanitize | manual string replaces |
 | read an environment variable | `serverEnv()` | `@alfred/env/server` | `process.env.*` — **repo invariant** |
 | validate a timezone string | `isIanaTimezone(value)` | `@alfred/contracts` | `function isValidTimezone` / a raw `Intl.DateTimeFormat` trial — **drift check bans it** |
-| any calendar-day, wall-clock, or UTC-offset reading | the `@alfred/api` timezone module — `resolveUserTimezone`, `localDateInTimezone`, `addLocalDays`, `dayBoundsInTimezone`, `offsetMsAt`, `formatInstantInTimezone` ([full list](#timezone--alfredapi-srcmodulestimezone)) | `@alfred/api` timezone module | `Intl` glue per call site; day math in milliseconds; reading `getUTCDate()` off a user's instant |
+| any calendar-day, wall-clock, or UTC-offset reading | the `@alfred/api` timezone module — `resolveUserTimezone` for the zone, then `inZone(tz).day()` / `.hour()` / `.dayBounds()` / `.startOf(key)` / `.clock()` / `.format(at)`, and `addDays` / `weekdayIndex` / `formatDay` on the key ([full list](#timezone--alfredapi-srcmodulestimezone)) | `@alfred/api` timezone module | `Intl` glue per call site; day math in milliseconds; reading `getUTCDate()` off a user's instant; passing a bare `string` where `IanaTimezone` / `LocalDateKey` is expected |
 | get a language-model handle | `getChatModel` / `getCheapModel` | `@alfred/ai` | constructing a provider client |
 | run a query and read typed rows | `rowsFromExecute` + named Drizzle row types | `@alfred/db` | `(res as Row[])` |
 | restrict a query or partial index to live `agent_runs` | `runIsNotTerminal(t.status)` | `@alfred/db` schemas | `status NOT IN ('completed', 'failed', 'cancelled')` written out per site |
@@ -82,23 +82,40 @@ Validate external / persisted / protocol data instead of asserting it.
 Owns two concepts, and every `Intl` formatter, DST edge, and memo cache that
 serves them. Nothing else in the API constructs an `Intl.DateTimeFormat` for a
 date or a zone.
-- **Which zone**: `resolveUserTimezone`, `firstValidTimezone`,
-  `DEFAULT_USER_TIMEZONE`. Validate a zone string with `isIanaTimezone`
-  (`@alfred/contracts`).
-- **Which calendar day**, as a `YYYY-MM-DD` *local date key*:
-  `localDateInTimezone(tz, instant)`, `addLocalDays(key, n)`,
-  `localHourInTimezone`. Day math happens on the key, never in milliseconds — a
-  `+ 86_400_000` can't survive a DST transition.
-- **Key → instant**: `localStartOfDay`, `localTimeInTimezone`,
-  `dayBoundsInTimezone(instant, tz)` (each bound converges on its own offset, so
-  a transition day is correctly 23h or 25h).
-- **The offset at an instant**: `offsetMsAt`, `formatUtcOffset`. The `longOffset`
-  string is parsed in exactly one place — **drift check bans a second copy**.
-- **Rendering**: `formatInstantInTimezone(instant, tz)` for an instant;
-  `formatLocalDayShort` / `formatLocalDayLong` / `formatLocalWeekday` for a key
-  (they render it in UTC on purpose — a key is already a calendar day, and
-  re-projecting it through a zone is how a UTC+14 user got the wrong weekday);
-  `localWallClockInTimezone` for the whole machine-readable reading at once.
+Two branded representations, so the compiler decides which slot a value fills
+rather than the parameter name: a zone is an `IanaTimezone` and a calendar day is
+a `LocalDateKey`. Before the brands, `localStartOfDay(timezone, key)` compiled.
+
+**One question tells you which name to reach for: does the reading need a zone?**
+
+- **Needs a zone → `inZone(tz)`**, which binds it once and hands back a
+  `ZoneClock`. Every zone-dependent reading is a method on it, so nothing has to
+  be recalled by name and the zone stops being an argument you can misorder:
+  `.day(at?)` mints the `LocalDateKey`, `.hour(at?)` reads 0–23, `.offsetMs(at?)`
+  is the only `longOffset` parse in the repo (**drift check bans a second
+  copy**), `.clock(at?)` is the whole wall-clock reading in one pass,
+  `.startOf(key, hour?)` turns a key back into an instant, `.dayBounds(at?)`
+  brackets a local day (each bound converges on its own offset, so a transition
+  day is correctly 23h or 25h), and `.format(at)` renders an instant. `at`
+  defaults to now. Clocks are memoized per zone, so `inZone(tz).day()` inline is
+  as cheap as holding one.
+- **Doesn't need a zone → a free function on the key**: `addDays(key, n)` shifts
+  it (day math happens on the key, never in milliseconds — a `+ 86_400_000`
+  can't survive a DST transition), `weekdayIndex(key)` → `0`–`6` is the reading
+  every weekend/weekday **decision** uses, and
+  `formatDay(key, "short" | "long" | "weekday")` renders it in a closed style
+  set. None of the three takes a zone, and that is the point: a key is already a
+  calendar day, so re-projecting it through a zone is how a UTC+14 user got the
+  wrong weekday. Never compare a *rendered* weekday name to `"Saturday"`; that
+  made a formatter's locale choice load-bearing for a briefing decision in
+  another file.
+- **Which zone** (`IanaTimezone`): `resolveUserTimezone`, `firstValidTimezone`,
+  `DEFAULT_USER_TIMEZONE`. At a boundary, `parseIanaTimezone` /
+  `ianaTimezoneSchema` / `isIanaTimezone` (`@alfred/contracts`).
+- **A day key from outside** enters through `parseLocalDateKey` (throws) or
+  `isLocalDateKey` (for a Zod `refine` or a filter). Both reject a truncated key
+  *and* a day that doesn't exist — a bare `/^\d{4}-\d{2}-\d{2}$/` accepts
+  `"2026-02-30"`, which `Date.UTC` then rolls over in silence.
 
 ### DB — `@alfred/db`
 - `db`, the schema table objects (`user`, `documents`, `emailTriage`, `agentRuns`,

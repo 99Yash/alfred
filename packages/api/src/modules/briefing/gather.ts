@@ -40,7 +40,7 @@ import {
   findSenderSuppression,
   listActiveSuppressionInstructions,
 } from "../memory/standing-instructions";
-import { addLocalDays, formatLocalWeekday, localStartOfDay } from "../timezone";
+import { addDays, formatDay, inZone, weekdayIndex, type LocalDateKey } from "../timezone";
 import { scorePriorityEmailDemand } from "./read";
 import { shortenFrom } from "./sender";
 
@@ -151,7 +151,7 @@ export interface GatherBriefingDigestArgs {
 export interface GatherBriefingArgs {
   userId: string;
   /** YYYY-MM-DD calendar date in the user's timezone. */
-  briefingDate: string;
+  briefingDate: LocalDateKey;
   slot?: BriefingSlot;
   timezone: IanaTimezone;
   windowStart?: Date | undefined;
@@ -637,7 +637,7 @@ async function gatherIntegrationActivity(args: {
 export interface GatherCalendarArgs {
   userId: string;
   /** YYYY-MM-DD calendar date in the user's timezone. */
-  briefingDate: string;
+  briefingDate: LocalDateKey;
   timezone: IanaTimezone;
   slot: BriefingSlot;
 }
@@ -695,12 +695,13 @@ export async function gatherCalendarContribution(
 }
 
 function calendarWindow(
-  briefingDate: string,
+  briefingDate: LocalDateKey,
   timezone: IanaTimezone,
   slot: BriefingSlot,
 ): { timeMin: Date; timeMax: Date } {
-  const dayStart = localStartOfDay(briefingDate, timezone);
-  const windowEnd = localStartOfDay(addLocalDays(briefingDate, 2), timezone);
+  const zone = inZone(timezone);
+  const dayStart = zone.startOf(briefingDate);
+  const windowEnd = zone.startOf(addDays(briefingDate, 2));
   const now = new Date();
   const timeMin = slot === "evening" && now > dayStart && now < windowEnd ? now : dayStart;
   return { timeMin, timeMax: windowEnd };
@@ -727,7 +728,7 @@ function calendarEventToContributionEvent(
 
 async function gatherWeatherContribution(args: {
   userId: string;
-  briefingDate: string;
+  briefingDate: LocalDateKey;
   timezone: IanaTimezone;
 }): Promise<WeatherContribution | null> {
   const location = await resolveWeatherLocation(args.userId, args.timezone);
@@ -870,19 +871,27 @@ function threadIdFromGmailUrl(url: string | null): string {
   return decodeURIComponent(tail);
 }
 
+const SUNDAY = 0;
+const SATURDAY = 6;
+
 // `briefingDate` is already a local date key in the user's zone, so the weekday
 // is read off the key itself — re-projecting it through the zone is what made a
 // UTC+13/+14 user's briefing name the wrong day.
-function dayContribution(briefingDate: string): BriefingGather["day_of_week"] {
-  const dayName = formatLocalWeekday(briefingDate);
+//
+// Which days are the weekend is this module's policy, so it is decided here on
+// `weekdayIndex` — not by string-matching a *rendered* weekday name against
+// "Saturday"/"Sunday", which made a locale choice inside a formatter silently
+// load-bearing for a briefing decision.
+function dayContribution(briefingDate: LocalDateKey): BriefingGather["day_of_week"] {
+  const index = weekdayIndex(briefingDate);
   return {
-    dayName,
-    isWeekend: dayName === "Saturday" || dayName === "Sunday",
+    dayName: formatDay(briefingDate, "weekday"),
+    isWeekend: index === SATURDAY || index === SUNDAY,
   };
 }
 
-function localEndOfDay(briefingDate: string, timezone: IanaTimezone): Date {
-  return localStartOfDay(addLocalDays(briefingDate, 1), timezone);
+function localEndOfDay(briefingDate: LocalDateKey, timezone: IanaTimezone): Date {
+  return inZone(timezone).startOf(addDays(briefingDate, 1));
 }
 
 export { PRIORITY_CATEGORIES, SUPPRESSED_CATEGORIES };

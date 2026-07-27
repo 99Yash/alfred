@@ -80,6 +80,18 @@ export function assertIanaTimezone(value: string): asserts value is IanaTimezone
   }
 }
 
+/**
+ * Parse a string into a branded {@link IanaTimezone}, or throw.
+ *
+ * The expression form of {@link assertIanaTimezone}, for the boundaries that
+ * read a zone back out of persisted state or a workflow payload and need it as
+ * a value. Two identical private copies of this existed before it did.
+ */
+export function parseIanaTimezone(value: string): IanaTimezone {
+  assertIanaTimezone(value);
+  return value;
+}
+
 export function isIanaTimezone(value: unknown): value is IanaTimezone {
   if (typeof value !== "string") return false;
   return isSupportedTimezone(value);

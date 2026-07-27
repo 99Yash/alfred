@@ -10,6 +10,7 @@ import {
 import { sanitizeVoice } from "../../agent/voice-sanitize";
 import { tool, type ToolSet } from "@alfred/ai";
 import type { CalendarContribution, DayShape, IanaTimezone } from "@alfred/contracts";
+import type { LocalDateKey } from "../../timezone";
 import { z } from "zod";
 
 /**
@@ -63,7 +64,7 @@ interface BuildArgs {
   /** Frozen "now" — `until` for the email window. */
   untilIngestedAt: Date;
   /** YYYY-MM-DD calendar date in the user's timezone — anchors the calendar window. */
-  briefingDate: string;
+  briefingDate: LocalDateKey;
   /** User's IANA timezone — defines local day boundaries for the calendar window. */
   timezone: IanaTimezone;
 }

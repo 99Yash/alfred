@@ -32,7 +32,13 @@
  * Callers don't need a separate "resume" entry point.
  */
 
-import type { IntegrationSlug, PolicyMode, ToolName, ToolRiskTier } from "@alfred/contracts";
+import type {
+  IanaTimezone,
+  IntegrationSlug,
+  PolicyMode,
+  ToolName,
+  ToolRiskTier,
+} from "@alfred/contracts";
 import {
   APPROVAL_EXPIRY_MS,
   getPath,
@@ -134,7 +140,7 @@ export interface DispatchArgs {
    * The user's IANA timezone, if the caller already has it (e.g. chat snapshots
    * it once per run). Omitted → the dispatcher reads the `"timezone"` pref.
    */
-  timezone?: string | undefined;
+  timezone?: IanaTimezone | undefined;
   /** Exact run-local capability surface. Registry membership alone is not executable. */
   activeTools: readonly ToolName[];
   /** Workflow integration cap, enforced by exact tool discovery, load, and dispatch. */

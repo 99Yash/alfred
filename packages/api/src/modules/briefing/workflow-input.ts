@@ -1,5 +1,6 @@
 import { briefingSlotSchema } from "@alfred/contracts";
 import { z } from "zod";
+import { isLocalDateKey } from "../timezone";
 
 /** Canonical live briefing workflow: both morning and evening slots. */
 export const DAILY_BRIEFING_WORKFLOW_SLUG = "daily-briefing";
@@ -22,7 +23,10 @@ const briefingWorkflowInputBaseSchema = z.object({
    */
   briefingDate: z
     .string()
-    .regex(/^\d{4}-\d{2}-\d{2}$/, "expected YYYY-MM-DD")
+    // `isLocalDateKey`, not a `YYYY-MM-DD` regex: the regex accepts
+    // "2026-02-30", which `Date.UTC` then rolls over in silence — the exact
+    // failure the `LocalDateKey` brand exists to make impossible.
+    .refine(isLocalDateKey, "expected an existing calendar day, YYYY-MM-DD")
     .optional(),
   /**
    * `cron` — fired by the hourly tick.

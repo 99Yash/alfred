@@ -21,6 +21,7 @@ import {
   webSearchInput,
   writeScratchInput,
 } from "@alfred/contracts";
+import type { IanaTimezone } from "@alfred/contracts";
 import { AppError } from "../../lib/app-errors";
 import {
   appendArtifactPage,
@@ -41,7 +42,7 @@ import { readChatHistory } from "../agent/compaction";
 import { startToolLoadSpan, startToolSearchSpan } from "../agent/runtime-spans";
 import { callerLabel } from "../dispatch";
 import { toolAvailabilityContext } from "../integrations/availability";
-import { localWallClockInTimezone } from "../timezone";
+import { inZone } from "../timezone";
 import {
   editStandingInstruction,
   forgetStandingInstruction,
@@ -95,10 +96,10 @@ function resolveArtifactContext(
  * the user is reading — every locale/offset detail comes from the timezone
  * module, which owns it.
  */
-export function currentTimeSnapshot(timezone: string, now: Date = new Date()) {
+export function currentTimeSnapshot(timezone: IanaTimezone, now: Date = new Date()) {
   return {
     isoTime: now.toISOString(),
-    ...localWallClockInTimezone(now, timezone),
+    ...inZone(timezone).clock(now),
     timezone,
   };
 }

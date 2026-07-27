@@ -1,9 +1,5 @@
-import {
-  formatLocalDayLong,
-  localDateInTimezone,
-  localWallClockInTimezone,
-  resolveUserTimezone,
-} from "../timezone";
+import type { IanaTimezone } from "@alfred/contracts";
+import { formatDay, inZone, resolveUserTimezone } from "../timezone";
 
 /**
  * The user's operational timezone — the same resolver `calendar.list_events`
@@ -24,9 +20,9 @@ export { resolveUserTimezone };
  * prefix would go stale. Chat grounds date AND time from the single
  * re-anchorable {@link formatRuntimeTimeGrounding} line instead (#410).
  */
-export function formatDateGrounding(timezone: string, now: Date = new Date()): string {
-  const iso = localDateInTimezone(timezone, now);
-  return `${formatLocalDayLong(iso)} (${iso}), timezone ${timezone}`;
+export function formatDateGrounding(timezone: IanaTimezone, now: Date = new Date()): string {
+  const today = inZone(timezone).day(now);
+  return `${formatDay(today, "long")} (${today}), timezone ${timezone}`;
 }
 
 /**
@@ -40,10 +36,10 @@ export function formatDateGrounding(timezone: string, now: Date = new Date()): s
  * persisted anchor whenever it parks, so a wake across midnight gets the right
  * day without disturbing a long, contiguous tool loop.
  */
-export function formatRuntimeTimeGrounding(timezone: string, now: Date): string {
-  const { localDate, localTime } = localWallClockInTimezone(now, timezone);
+export function formatRuntimeTimeGrounding(timezone: IanaTimezone, now: Date): string {
+  const { localDate, localTime } = inZone(timezone).clock(now);
   const localIso = `${localDate}T${localTime}`;
-  return `<runtime_context>Current date and time: ${formatLocalDayLong(localDate)}, ${localTime} (${localIso} in ${timezone}; ${now.toISOString()} UTC).</runtime_context>`;
+  return `<runtime_context>Current date and time: ${formatDay(localDate, "long")}, ${localTime} (${localIso} in ${timezone}; ${now.toISOString()} UTC).</runtime_context>`;
 }
 
 /**

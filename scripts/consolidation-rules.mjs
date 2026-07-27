@@ -120,7 +120,8 @@ export const RULES = [
     id: "raw-intl-timezone",
     re: /new\s+Intl\.DateTimeFormat\(/,
     severity: "hint",
-    fix: "@alfred/api's timezone module owns every date/zone reading: localDateInTimezone (the YYYY-MM-DD day key), addLocalDays (day math on the key, never in ms), localHourInTimezone, dayBoundsInTimezone, offsetMsAt / formatUtcOffset, localWallClockInTimezone, and formatInstantInTimezone / formatLocalDayShort / formatLocalDayLong / formatLocalWeekday for rendering. Resolve the zone with resolveUserTimezone and validate one with isIanaTimezone. A bare Intl trial once broke briefings on \"UTC\", and a per-call-site UTC reading dated triage todos a day early.",
+    owners: ["packages/api/src/modules/timezone/local-time.ts"],
+    fix: "@alfred/api's timezone module owns every date/zone reading, split by one question: does the reading need a zone? NEEDS ONE — inZone(tz) binds it once and every reading is a method: .day() mints the LocalDateKey, .hour(), .offsetMs(), .clock(), .startOf(key, hour?), .dayBounds(), .format(instant). DOESN'T — a free function on the key: addDays (day math on the key, never in ms), weekdayIndex (day-of-week DECISIONS — never string-match a rendered weekday name), formatDay(key, \"short\"|\"long\"|\"weekday\"). Zones are IanaTimezone (resolveUserTimezone, parseIanaTimezone); day keys are LocalDateKey (parseLocalDateKey / isLocalDateKey at a persistence or wire boundary) — both branded, so a plain string won't type-check. A bare Intl trial once broke briefings on \"UTC\", and a per-call-site UTC reading dated triage todos a day early.",
   },
   {
     id: "hand-rolled-utc-offset-parse",
@@ -129,7 +130,7 @@ export const RULES = [
     re: /timeZoneName:\s*["']longOffset["']|GMT\(\?:/,
     severity: "gate",
     owners: ["packages/api/src/modules/timezone/local-time.ts"],
-    fix: "Use offsetMsAt(instant, timezone) or formatUtcOffset(instant, timezone) from @alfred/api's timezone module — the one place the longOffset string is parsed.",
+    fix: "Use inZone(timezone).offsetMs(instant) from @alfred/api's timezone module — the one place the longOffset string is parsed. inZone(tz).clock(instant).utcOffset gives the signed ISO fragment.",
   },
   {
     id: "stale-google-access-token",
