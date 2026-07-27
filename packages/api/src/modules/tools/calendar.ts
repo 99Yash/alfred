@@ -2,6 +2,7 @@ import {
   calendarCreateEventInput,
   calendarListEventsInput,
   restPassthroughInput,
+  type IanaTimezone,
 } from "@alfred/contracts";
 import {
   CALENDAR_EVENTS_SCOPE,
@@ -15,7 +16,7 @@ import {
 import type { z } from "zod";
 import { AppError, toPublicAppError, type PublicAppError } from "../../lib/app-errors";
 import { logger } from "../../lib/logger";
-import { addLocalDays, localDateInTimezone, localTimeInTimezone } from "../timezone";
+import { addDays, inZone } from "../timezone";
 import {
   activeGoogleCredentials,
   resolveGoogleAccessToken,
@@ -32,7 +33,7 @@ type CalendarCreateEventInput = z.infer<typeof calendarCreateEventInput>;
 interface CalendarListWindow {
   timeMin: Date;
   timeMax: Date;
-  timezone: string;
+  timezone: IanaTimezone;
 }
 
 interface CalendarCredential {
@@ -66,7 +67,7 @@ async function calendarWriteCredential(userId: string): Promise<CalendarCredenti
 
 export function resolveCalendarListWindow(
   input: CalendarListEventsInput,
-  timezone: string,
+  timezone: IanaTimezone,
   now: Date = new Date(),
 ): CalendarListWindow {
   const bounds = parseExplicitBounds(input, timezone, now);
@@ -112,7 +113,7 @@ export function resolveCalendarListWindow(
  */
 function parseExplicitBounds(
   input: CalendarListEventsInput,
-  timezone: string,
+  timezone: IanaTimezone,
   now: Date,
 ): CalendarListWindow | null {
   if (!input.timeMin && !input.timeMax) return null;
@@ -126,27 +127,25 @@ function parseExplicitBounds(
 
 function resolveRelativeWindow(
   input: CalendarListEventsInput,
-  timezone: string,
+  timezone: IanaTimezone,
   now: Date,
 ): CalendarListWindow {
-  const today = localDateInTimezone(timezone, now);
+  const zone = inZone(timezone);
+  const today = zone.day(now);
   const relativeWindow = input.window ?? "next_7_days";
   if (relativeWindow === "next_7_days") {
     return {
-      timeMin: localTimeInTimezone(today, 0, timezone),
-      timeMax: localTimeInTimezone(addLocalDays(today, 7), 0, timezone),
+      timeMin: zone.startOf(today),
+      timeMax: zone.startOf(addDays(today, 7)),
       timezone,
     };
   }
 
-  const date = relativeWindow === "tomorrow" ? addLocalDays(today, 1) : today;
+  const date = relativeWindow === "tomorrow" ? addDays(today, 1) : today;
   const [startHour, endHour] = partOfDayHours(input.partOfDay ?? "full_day");
   return {
-    timeMin: localTimeInTimezone(date, startHour, timezone),
-    timeMax:
-      endHour === 24
-        ? localTimeInTimezone(addLocalDays(date, 1), 0, timezone)
-        : localTimeInTimezone(date, endHour, timezone),
+    timeMin: zone.startOf(date, startHour),
+    timeMax: endHour === 24 ? zone.startOf(addDays(date, 1)) : zone.startOf(date, endHour),
     timezone,
   };
 }
@@ -210,7 +209,11 @@ function allReadsFailed(
   return events.length === 0 && failures.length === credentials.length;
 }
 
-async function executeListEvents(input: CalendarListEventsInput, userId: string, timezone: string) {
+async function executeListEvents(
+  input: CalendarListEventsInput,
+  userId: string,
+  timezone: IanaTimezone,
+) {
   const window = resolveCalendarListWindow(input, timezone);
   const credentials = await calendarReadCredentials(userId);
   if (credentials.length === 0) {

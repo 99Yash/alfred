@@ -50,12 +50,7 @@ import { createCacheRedisConnection } from "../../queue/connection";
 import { resolveBriefingPreferences } from "../briefing/preferences";
 import { enqueueBriefingRun } from "../briefing/queue";
 import { notSentGmailDocumentWhere } from "../triage/sent-mail";
-import {
-  dayBoundsInTimezone,
-  localDateInTimezone,
-  localHourInTimezone,
-  resolveUserTimezone,
-} from "../timezone";
+import { inZone, resolveUserTimezone } from "../timezone";
 import { sanitizeEmailHtml } from "./email-html";
 import { getUsageActivity, getUsageBreakdown, getUsageSummary } from "./usage-service";
 
@@ -789,8 +784,7 @@ export const meRoutes = new Elysia({ prefix: "/api/me", normalize: "typebox" })
           // `user_preferences.timezone`, falling back to UTC) — the rail
           // is a personal "today's meetings" surface, so server-local
           // would be wrong for any user not co-located with the host.
-          const timezone = await resolveUserTimezone(u.id);
-          const { start, end } = dayBoundsInTimezone(new Date(), timezone);
+          const { start, end } = inZone(await resolveUserTimezone(u.id)).dayBounds();
 
           const accessToken = await getFreshAccessToken(row.id);
           const { events } = await listEvents({
@@ -833,8 +827,7 @@ export const meRoutes = new Elysia({ prefix: "/api/me", normalize: "typebox" })
           // "Today" panel, so an older briefing must read as empty rather than
           // pin the chip to a stale day. Among today's slots (morning fires
           // first, evening supersedes it), the most recent composed run wins.
-          const timezone = await resolveUserTimezone(u.id);
-          const today = localDateInTimezone(timezone);
+          const today = inZone(await resolveUserTimezone(u.id)).day();
           const rows = await db()
             .select({
               id: briefings.id,
@@ -872,9 +865,9 @@ export const meRoutes = new Elysia({ prefix: "/api/me", normalize: "typebox" })
         // requested slot always sends. Slot follows the time of day: after
         // the user's evening hour we compose the evening recap, else morning.
         const prefs = await resolveBriefingPreferences(u.id);
-        const briefingDate = localDateInTimezone(prefs.timezone);
-        const slot: BriefingSlot =
-          localHourInTimezone(prefs.timezone) >= prefs.eveningHour ? "evening" : "morning";
+        const zone = inZone(prefs.timezone);
+        const briefingDate = zone.day();
+        const slot: BriefingSlot = zone.hour() >= prefs.eveningHour ? "evening" : "morning";
 
         // Don't spin up a second agent run if today's slot is already
         // terminal (done) or genuinely in flight. `composed` (compose

@@ -16,8 +16,9 @@ import {
   restPassthroughInput,
   sanitizeGithubSearchQuery,
 } from "@alfred/contracts";
+import type { IanaTimezone } from "@alfred/contracts";
 import type { z } from "zod";
-import { addLocalDays, localDateInTimezone, localTimeInTimezone } from "../timezone";
+import { addDays, inZone } from "../timezone";
 import { runRestPassthrough } from "./passthrough";
 import { liveTool, type RegisteredTool } from "./registry";
 import { AppError } from "../../lib/app-errors";
@@ -35,10 +36,10 @@ function githubSearchDateTime(date: Date): string {
   return date.toISOString().replace(/\.\d{3}Z$/, "+00:00");
 }
 
-function windowLowerBound(days: number, timezone: string, nowMs: number): string {
-  const today = localDateInTimezone(timezone, new Date(nowMs));
-  const lowerDate = addLocalDays(today, -(days - 1));
-  return githubSearchDateTime(localTimeInTimezone(lowerDate, 0, timezone));
+function windowLowerBound(days: number, timezone: IanaTimezone, nowMs: number): string {
+  const zone = inZone(timezone);
+  const lowerDate = addDays(zone.day(new Date(nowMs)), -(days - 1));
+  return githubSearchDateTime(zone.startOf(lowerDate));
 }
 
 /**
@@ -49,7 +50,7 @@ function windowLowerBound(days: number, timezone: string, nowMs: number): string
  */
 export function buildGithubSearchQuery(
   input: GithubSearchInput,
-  timezone: string,
+  timezone: IanaTimezone,
   nowMs = Date.now(),
 ): string {
   const parts: string[] = [];

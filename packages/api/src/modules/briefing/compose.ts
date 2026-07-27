@@ -14,6 +14,7 @@ import type { ComposedEmail } from "@alfred/mailer";
 
 import { composeAgentInstructions } from "../agent/instructions";
 import { sanitizeVoice } from "../agent/voice-sanitize";
+import type { LocalDateKey } from "../timezone";
 import type { BriefingDigest, BriefingItem, PriorityCategory } from "./gather";
 import {
   EMAIL_LINK_STYLE as LINK_STYLE,
@@ -103,7 +104,7 @@ export interface ComposeInboxBriefingArgs {
 
 export interface ComposeBriefingArgs {
   userId: string;
-  briefingDate: string;
+  briefingDate: LocalDateKey;
   slot: BriefingSlot;
   timezone: IanaTimezone;
   gather: BriefingGather;

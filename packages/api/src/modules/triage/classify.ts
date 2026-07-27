@@ -12,6 +12,7 @@ import {
   triageTodoDecisionSchema,
   triageTodoSuggestionSchema,
   type CollabActivityKind,
+  type IanaTimezone,
   type SenderContext,
   type TodoDecisionOutcome,
   toMessage,
@@ -19,7 +20,7 @@ import {
 import { serverEnv } from "@alfred/env/server";
 import { TRIAGE_CATEGORIES, type TriageCategory } from "@alfred/integrations/google";
 import { z } from "zod";
-import { addLocalDays, formatLocalDayShort, localDateInTimezone } from "../timezone";
+import { addDays, formatDay, inZone } from "../timezone";
 import {
   applyFloors,
   isGithubNotificationSender,
@@ -656,7 +657,7 @@ const RESIDUAL_RELATIVE_RE =
  */
 export interface AssistDateAnchor {
   sentAt: Date;
-  timezone: string;
+  timezone: IanaTimezone;
 }
 
 /**
@@ -667,10 +668,10 @@ export interface AssistDateAnchor {
  * stripped — a stale relative date is worse than none. PURE.
  */
 function resolveRelativeDates(text: string, anchor: AssistDateAnchor | null): string {
-  const sentDay = anchor ? localDateInTimezone(anchor.timezone, anchor.sentAt) : null;
+  const sentDay = anchor ? inZone(anchor.timezone).day(anchor.sentAt) : null;
   let out = text;
   for (const [re, offset] of RELATIVE_DAY_OFFSETS) {
-    const replacement = sentDay ? formatLocalDayShort(addLocalDays(sentDay, offset)) : "";
+    const replacement = sentDay ? formatDay(addDays(sentDay, offset), "short") : "";
     out = out.replace(re, replacement);
   }
   // Tidy separators/words left dangling by stripped dates ("₹88.5 · due " → "₹88.5").
@@ -690,9 +691,18 @@ function resolveRelativeDates(text: string, anchor: AssistDateAnchor | null): st
  * anything still relative afterward is dropped. Returns `undefined` otherwise so
  * the row renders title-only. PURE.
  */
+/*
+ * `anchor` is REQUIRED, and `null` has to be written out.
+ *
+ * Its absence is not a neutral default — it silently strips every relative date
+ * from the output. When a seam's default answer to a hazard is "on", an
+ * optional parameter is the wrong shape for it: `sanitizeAssist(assist)`
+ * compiled, read as "just sanitize it", and quietly degraded the result. One
+ * dry-run script did exactly that while claiming to mirror production.
+ */
 export function sanitizeAssist(
   assist: string | null | undefined,
-  anchor: AssistDateAnchor | null = null,
+  anchor: AssistDateAnchor | null,
 ): string | undefined {
   const trimmed = assist?.trim();
   if (!trimmed) return undefined;
@@ -771,7 +781,7 @@ export function noteMarksFailingOutcome(note: string | null | undefined): boolea
  */
 export function resolveTodoSuggestion(
   classification: TriageClassification,
-  anchor: AssistDateAnchor | null = null,
+  anchor: AssistDateAnchor | null,
 ): ResolvedTodoSuggestion | null {
   const suggestion = classification.todoSuggestion ?? null;
   if (!suggestion) return null;

@@ -12,7 +12,7 @@
  * search the web, invented `search.search`, and the dispatcher rejected it.
  */
 
-import { getTool, toolExecuteContext } from "@alfred/api/backend";
+import { DEFAULT_USER_TIMEZONE, getTool, toolExecuteContext } from "@alfred/api/backend";
 import { registerBuiltinTools } from "@alfred/api/runtime";
 
 async function main(): Promise<void> {
@@ -31,7 +31,7 @@ async function main(): Promise<void> {
       toolCallId: "smoke-call",
       userId: "smoke-user",
       caller: "boss",
-      timezone: "UTC",
+      timezone: DEFAULT_USER_TIMEZONE,
     }),
   )) as { ok: boolean; answer: string; citations: string[] };
 
