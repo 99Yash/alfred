@@ -3,11 +3,13 @@ import { resolveFeatureFlags } from "../features/flags";
 import { getSenderSignificance } from "../memory/significance";
 import { findActiveSenderSuppression } from "../memory/standing-instructions";
 import { suggestTodo } from "../todos/suggest";
+import { resolveUserTimezone } from "../timezone";
 import {
   classifyEmail,
   DEFAULT_TRIAGE_CATEGORY,
   resolveTodoSuggestion,
   todoSuppressionReason,
+  type AssistDateAnchor,
   type ClassifyAudit,
   type TriageClassification,
 } from "./classify";
@@ -247,6 +249,17 @@ export async function runEmailTriageClassify<State extends EmailTriageOperationS
     }
   }
 
+  // A rail todo's absolute date needs BOTH halves: the send instant and the
+  // zone it should be read in. Reading the instant in UTC — which is what this
+  // did before the timezone module owned the concept — renders an evening email
+  // in Asia/Kolkata a day early, on the one field whose whole point is that it
+  // stays true for days. Skip the preference read when there's no instant to
+  // anchor on.
+  const authoredAt = ctxData.document.authoredAt;
+  const assistDateAnchor: AssistDateAnchor | null = authoredAt
+    ? { sentAt: authoredAt, timezone: await resolveUserTimezone(ctx.userId) }
+    : null;
+
   let classification: TriageClassification;
   let model: string;
   let audit: ClassifyAudit | null = null;
@@ -261,7 +274,7 @@ export async function runEmailTriageClassify<State extends EmailTriageOperationS
   let standingSuppressionReadFailed = false;
   let standingSuppressionReadError: string | null = null;
   const resolveTodoAndStandingSuppression = async () => {
-    const nextTodoSuggestion = resolveTodoSuggestion(classification, ctxData.document.authoredAt);
+    const nextTodoSuggestion = resolveTodoSuggestion(classification, assistDateAnchor);
     let nextStandingSuppression: Awaited<ReturnType<typeof findActiveSenderSuppression>> = null;
     let nextStandingSuppressionReadFailed = false;
     let nextStandingSuppressionReadError: string | null = null;

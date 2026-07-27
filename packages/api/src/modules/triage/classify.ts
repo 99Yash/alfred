@@ -19,6 +19,7 @@ import {
 import { serverEnv } from "@alfred/env/server";
 import { TRIAGE_CATEGORIES, type TriageCategory } from "@alfred/integrations/google";
 import { z } from "zod";
+import { addLocalDays, formatLocalDayShort, localDateInTimezone } from "../timezone";
 import {
   applyFloors,
   isGithubNotificationSender,
@@ -635,7 +636,6 @@ const ASSIST_MAX_LEN = 40;
 // against the email's send date, but it won't reliably comply, so we enforce it
 // here against the same anchor. `tonight`/`today` map to the send day; offsets
 // are in days. Anything we can't resolve to a date is dropped (see below).
-const MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
 const RELATIVE_DAY_OFFSETS: ReadonlyArray<readonly [RegExp, number]> = [
   [/\btomorrow\b/gi, 1],
   [/\byesterday\b/gi, -1],
@@ -647,22 +647,30 @@ const RELATIVE_DAY_OFFSETS: ReadonlyArray<readonly [RegExp, number]> = [
 const RESIDUAL_RELATIVE_RE =
   /\b(?:next|this|last)\s+(?:week|month|year|mon|tue|wed|thu|fri|sat|sun)[a-z]*\b|\bin\s+\d+\s+(?:day|week|month)s?\b|\b(?:today|tonight|tomorrow|yesterday)\b/i;
 
-/** Format a UTC date as a terse "Jun 11" fragment. PURE. */
-function formatAssistDate(d: Date): string {
-  return `${MONTHS[d.getUTCMonth()]} ${d.getUTCDate()}`;
+/**
+ * Where "today" is, for a rail todo's date resolution: the moment the email was
+ * sent, read as a calendar day in the *user's* zone. Both halves are required —
+ * an instant alone can't name a day, and the zone is exactly what a UTC reading
+ * silently assumed, which rendered an evening email's "tomorrow" a day early
+ * for anyone east of UTC.
+ */
+export interface AssistDateAnchor {
+  sentAt: Date;
+  timezone: string;
 }
 
 /**
  * Rewrite relative date words in an assist fragment to an absolute calendar date
- * anchored on the email's send time. Without an anchor the word can't be
- * resolved, so it's stripped — a stale relative date is worse than none. PURE.
+ * anchored on the email's send day. Day offsets are applied to the local date
+ * key, never in milliseconds, so a DST boundary between send and due date can't
+ * shift the answer. Without an anchor the word can't be resolved, so it's
+ * stripped — a stale relative date is worse than none. PURE.
  */
-function resolveRelativeDates(text: string, anchor: Date | null): string {
+function resolveRelativeDates(text: string, anchor: AssistDateAnchor | null): string {
+  const sentDay = anchor ? localDateInTimezone(anchor.timezone, anchor.sentAt) : null;
   let out = text;
   for (const [re, offset] of RELATIVE_DAY_OFFSETS) {
-    const replacement = anchor
-      ? formatAssistDate(new Date(anchor.getTime() + offset * 86_400_000))
-      : "";
+    const replacement = sentDay ? formatLocalDayShort(addLocalDays(sentDay, offset)) : "";
     out = out.replace(re, replacement);
   }
   // Tidy separators/words left dangling by stripped dates ("₹88.5 · due " → "₹88.5").
@@ -684,7 +692,7 @@ function resolveRelativeDates(text: string, anchor: Date | null): string {
  */
 export function sanitizeAssist(
   assist: string | null | undefined,
-  anchor: Date | null = null,
+  anchor: AssistDateAnchor | null = null,
 ): string | undefined {
   const trimmed = assist?.trim();
   if (!trimmed) return undefined;
@@ -763,7 +771,7 @@ export function noteMarksFailingOutcome(note: string | null | undefined): boolea
  */
 export function resolveTodoSuggestion(
   classification: TriageClassification,
-  emailAuthoredAt: Date | null = null,
+  anchor: AssistDateAnchor | null = null,
 ): ResolvedTodoSuggestion | null {
   const suggestion = classification.todoSuggestion ?? null;
   if (!suggestion) return null;
@@ -773,7 +781,7 @@ export function resolveTodoSuggestion(
   if (noteMarksFailingOutcome(classification.todoDecision?.note)) return null;
   if (TODO_INELIGIBLE_CATEGORIES.has(classification.category)) return null;
   const name = sanitizeTodoName(suggestion.name);
-  const assist = sanitizeAssist(suggestion.assist, emailAuthoredAt);
+  const assist = sanitizeAssist(suggestion.assist, anchor);
   return assist ? { name, assist } : { name };
 }
 

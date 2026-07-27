@@ -44,7 +44,7 @@ candidate `gate` rule — see [Closing the loop](#closing-the-loop).
 | enforce Alfred's prose voice (no em-dashes, plain words) | `sanitizeVoice` / `createVoiceStreamSanitizer` | `@alfred/api` agent voice-sanitize | manual string replaces |
 | read an environment variable | `serverEnv()` | `@alfred/env/server` | `process.env.*` — **repo invariant** |
 | validate a timezone string | `isIanaTimezone(value)` | `@alfred/contracts` | `function isValidTimezone` / a raw `Intl.DateTimeFormat` trial — **drift check bans it** |
-| resolve a user's timezone / format an instant in it | `resolveUserTimezone` / `formatInstantInTimezone` | `@alfred/api` timezone module | `Intl` glue per call site |
+| any calendar-day, wall-clock, or UTC-offset reading | the `@alfred/api` timezone module — `resolveUserTimezone`, `localDateInTimezone`, `addLocalDays`, `dayBoundsInTimezone`, `offsetMsAt`, `formatInstantInTimezone` ([full list](#timezone--alfredapi-srcmodulestimezone)) | `@alfred/api` timezone module | `Intl` glue per call site; day math in milliseconds; reading `getUTCDate()` off a user's instant |
 | get a language-model handle | `getChatModel` / `getCheapModel` | `@alfred/ai` | constructing a provider client |
 | run a query and read typed rows | `rowsFromExecute` + named Drizzle row types | `@alfred/db` | `(res as Row[])` |
 | restrict a query or partial index to live `agent_runs` | `runIsNotTerminal(t.status)` | `@alfred/db` schemas | `status NOT IN ('completed', 'failed', 'cancelled')` written out per site |
@@ -79,9 +79,26 @@ Validate external / persisted / protocol data instead of asserting it.
 - `serverEnv()` — the only sanctioned reader of process env.
 
 ### Timezone — `@alfred/api` (`src/modules/timezone/`)
-- `resolveUserTimezone`, `firstValidTimezone`, `localStartOfDay`,
-  `localTimeInTimezone`, `addLocalDays`, `formatInstantInTimezone`,
-  `DEFAULT_USER_TIMEZONE`
+Owns two concepts, and every `Intl` formatter, DST edge, and memo cache that
+serves them. Nothing else in the API constructs an `Intl.DateTimeFormat` for a
+date or a zone.
+- **Which zone**: `resolveUserTimezone`, `firstValidTimezone`,
+  `DEFAULT_USER_TIMEZONE`. Validate a zone string with `isIanaTimezone`
+  (`@alfred/contracts`).
+- **Which calendar day**, as a `YYYY-MM-DD` *local date key*:
+  `localDateInTimezone(tz, instant)`, `addLocalDays(key, n)`,
+  `localHourInTimezone`. Day math happens on the key, never in milliseconds — a
+  `+ 86_400_000` can't survive a DST transition.
+- **Key → instant**: `localStartOfDay`, `localTimeInTimezone`,
+  `dayBoundsInTimezone(instant, tz)` (each bound converges on its own offset, so
+  a transition day is correctly 23h or 25h).
+- **The offset at an instant**: `offsetMsAt`, `formatUtcOffset`. The `longOffset`
+  string is parsed in exactly one place — **drift check bans a second copy**.
+- **Rendering**: `formatInstantInTimezone(instant, tz)` for an instant;
+  `formatLocalDayShort` / `formatLocalDayLong` / `formatLocalWeekday` for a key
+  (they render it in UTC on purpose — a key is already a calendar day, and
+  re-projecting it through a zone is how a UTC+14 user got the wrong weekday);
+  `localWallClockInTimezone` for the whole machine-readable reading at once.
 
 ### DB — `@alfred/db`
 - `db`, the schema table objects (`user`, `documents`, `emailTriage`, `agentRuns`,

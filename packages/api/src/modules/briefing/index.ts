@@ -14,8 +14,6 @@
 
 export {
   resolveBriefingPreferences,
-  localDateInTimezone,
-  localHourInTimezone,
   isValidTimezone,
   DEFAULT_BRIEFING_TIMEZONE,
   DEFAULT_BRIEFING_DELIVERY_HOUR,

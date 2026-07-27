@@ -1,5 +1,6 @@
 import { gatherBriefingWithSuppressionAudit, type BriefingInstructionSuppression } from "./gather";
-import { localDateInTimezone, resolveBriefingPreferences } from "./preferences";
+import { localDateInTimezone } from "../timezone";
+import { resolveBriefingPreferences } from "./preferences";
 import { fetchLatestWatermark, isQuietMorning } from "./read";
 import {
   beginBriefing,

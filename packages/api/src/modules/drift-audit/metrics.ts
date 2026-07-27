@@ -4,7 +4,7 @@ import { db } from "@alfred/db";
 import { documents, driftMetrics, emailTriage, todos } from "@alfred/db/schemas";
 import { selfSenderEmail } from "@alfred/integrations/google";
 import { and, eq, inArray, sql } from "drizzle-orm";
-import { localDateInTimezone } from "../briefing/preferences";
+import { localDateInTimezone } from "../timezone";
 import { notify, type NotifyArgs, type NotifyResult } from "../notifications/notify";
 import { resolveUserTimezone } from "../timezone";
 

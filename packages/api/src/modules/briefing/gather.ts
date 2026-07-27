@@ -40,7 +40,7 @@ import {
   findSenderSuppression,
   listActiveSuppressionInstructions,
 } from "../memory/standing-instructions";
-import { addLocalDays, localStartOfDay } from "../timezone";
+import { addLocalDays, formatLocalWeekday, localStartOfDay } from "../timezone";
 import { scorePriorityEmailDemand } from "./read";
 import { shortenFrom } from "./sender";
 
@@ -457,7 +457,7 @@ export async function gatherBriefingWithSuppressionAudit(
       calendar,
       integration_activity: { items: integrationActivity },
       weather,
-      day_of_week: dayContribution(args.briefingDate, args.timezone),
+      day_of_week: dayContribution(args.briefingDate),
       day_shape: {
         ...dayShape,
         demandingEmailCount: emailDemand.demandingCount,
@@ -870,15 +870,11 @@ function threadIdFromGmailUrl(url: string | null): string {
   return decodeURIComponent(tail);
 }
 
-function dayContribution(
-  briefingDate: string,
-  timezone: IanaTimezone,
-): BriefingGather["day_of_week"] {
-  const date = new Date(`${briefingDate}T12:00:00Z`);
-  const dayName = new Intl.DateTimeFormat("en-US", {
-    timeZone: timezone,
-    weekday: "long",
-  }).format(date);
+// `briefingDate` is already a local date key in the user's zone, so the weekday
+// is read off the key itself — re-projecting it through the zone is what made a
+// UTC+13/+14 user's briefing name the wrong day.
+function dayContribution(briefingDate: string): BriefingGather["day_of_week"] {
+  const dayName = formatLocalWeekday(briefingDate);
   return {
     dayName,
     isWeekend: dayName === "Saturday" || dayName === "Sunday",

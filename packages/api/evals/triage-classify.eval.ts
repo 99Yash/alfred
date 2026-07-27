@@ -16,6 +16,7 @@ import {
   type ClassifyEmailArgs,
   type TodoDecisionOutcome,
 } from "../src/modules/triage/classify";
+import { DEFAULT_USER_TIMEZONE } from "../src/modules/timezone";
 import { assembleObservations, type Observations } from "../src/modules/triage/observations";
 import type { ThreadMessageContext } from "../src/modules/triage/thread-state";
 import { llmJudgeScorer } from "./lib/llm-judge";
@@ -839,7 +840,12 @@ evalite<Case, TaskOutput, Expected>("Triage classifier", {
     }
 
     const authoredAt = input.authoredAt ?? NOW;
-    const resolved = resolveTodoSuggestion(classification, authoredAt);
+    // Fixtures carry no user, so the anchor zone is fixed at UTC — the assist
+    // dates the cases assert are relative to that.
+    const resolved = resolveTodoSuggestion(classification, {
+      sentAt: authoredAt,
+      timezone: DEFAULT_USER_TIMEZONE,
+    });
     const suppression = todoSuppressionReason({
       sender: input.from,
       subject: input.subject,
