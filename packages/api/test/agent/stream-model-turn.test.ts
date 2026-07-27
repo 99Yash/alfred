@@ -259,10 +259,10 @@ describe("streamModelTurn", () => {
     assert.equal(streamed, sanitizeVoice(input), "streamed text matches the reconciled bubble");
   });
 
-  test("withholds the reply while a reissue is pending, then releases on flushReply", async () => {
+  test("withholds the reply while a reissue is pending, then releases it in one call", async () => {
     const { events, publish } = capture();
     const state = makeState({ reissuePending: true });
-    const { flushReply, flushReplyTail } = await streamModelTurn({
+    const { releaseWithheldReply } = await streamModelTurn({
       stream: makeStream([{ type: "text-delta", text: "reissue lead-in" }]),
       state,
       ctx,
@@ -274,10 +274,10 @@ describe("streamModelTurn", () => {
     assert.equal(events.filter((e) => e.kind === "chat.delta").length, 0);
     assert.equal(state.assistantText, "reissue lead-in");
 
-    // The caller clears the flag and releases what the gate withheld.
+    // `crossFinalizeBoundary` clears the flag, then releases what the gate
+    // withheld — buffer and sanitizer tail, in that order, in one call.
     state.reissuePending = false;
-    await flushReply();
-    await flushReplyTail();
+    await releaseWithheldReply();
     const deltas = events.filter((e) => e.kind === "chat.delta");
     assert.equal(deltas.length, 1);
     assert.equal(deltas[0]!.payload.text, "reissue lead-in");

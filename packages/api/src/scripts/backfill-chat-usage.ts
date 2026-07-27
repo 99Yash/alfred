@@ -3,7 +3,7 @@
  * turns that finished BEFORE the `chat_messages.usage` column existed
  * (introduced today in e239c705 / migration 0084).
  *
- * The live path (`aggregateRunUsage` in workflows/chat-turn.ts) rolls the
+ * The live path (`aggregateRunUsage` in modules/agent/usage-fold.ts) rolls the
  * numbers up from the turn's `api_call_log` rows at finalize, keyed on the boss
  * `runId`. Those metering rows are the ADR-0015 source of truth and are NOT
  * pruned, so every older assistant message is still backfillable from our own

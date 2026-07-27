@@ -60,6 +60,75 @@ export function migrateRecordedToolNames(toolNames: readonly string[]): ToolName
   return uniqueToolNames(registeredToolNames(toolNames));
 }
 
+/**
+ * The tool surface a run carries in durable state.
+ *
+ * Every workflow that checkpoints a run holds this same slice, and it is one
+ * truth rather than a coincidence: the fields exist to describe *this* module's
+ * surface, they are read back through {@link migrateActiveTools} /
+ * {@link migrateRecordedToolNames} defined right above, and the #414 preload
+ * accounting reads `preloadedTools` + `preloadApplied` together across both
+ * workflows. Spread into a run-state schema (`z.object({ ...fields, … })`) so a
+ * new field, a changed default, or a new migration lands once here instead of in
+ * every workflow that happens to remember.
+ *
+ * Values are the *persisted* shape (plain `string[]`, tolerant of names retired
+ * since the checkpoint was written); {@link foldToolSurfaceState} is what turns
+ * them into today's `ToolName[]`, so a schema that spreads these fields must
+ * also fold them.
+ */
+export const toolSurfaceStateFields = {
+  // Persisted under an older deploy, so names may refer to tools that have
+  // since been retired. The fold drops anything not in today's registry.
+  activeTools: z.array(z.string()).optional(),
+  // Exact first-turn deterministic selections, persisted so #414 can measure
+  // preload hits/misses against the durable transcript. Optional for legacy runs.
+  preloadedTools: z.array(z.string()).default([]),
+  // Read only while resuming checkpoints created before exact tool surfaces.
+  activeIntegrations: z.array(z.string().min(1)).optional(),
+  preloadApplied: z.boolean().default(false),
+  allowedIntegrations: z.array(z.string()),
+};
+
+/** What {@link foldToolSurfaceState} needs from a parsed run state. */
+interface ParsedToolSurfaceState {
+  activeTools?: string[] | undefined;
+  activeIntegrations?: string[] | undefined;
+  preloadedTools: string[];
+  /** Legacy integration-level checkpoints seed their active surface from these. */
+  pendingToolCalls: readonly { toolName: string }[];
+}
+
+/**
+ * Resolve a parsed {@link toolSurfaceStateFields} slice against today's
+ * registry: expand a legacy integration-level checkpoint into exact names, drop
+ * retired ones, and discard the now-consumed `activeIntegrations`. Everything
+ * else on the state passes through untouched, so a run-state schema's
+ * `.transform` is `foldToolSurfaceState(parsed)` plus whatever else that
+ * workflow migrates.
+ */
+export function foldToolSurfaceState<T extends ParsedToolSurfaceState>(
+  parsed: T,
+): Omit<T, "activeTools" | "activeIntegrations" | "preloadedTools"> & {
+  activeTools: ToolName[];
+  preloadedTools: ToolName[];
+} {
+  const { activeTools, activeIntegrations, preloadedTools, ...rest } = parsed;
+  return {
+    ...rest,
+    activeTools: migrateActiveTools(
+      activeTools,
+      activeIntegrations,
+      parsed.pendingToolCalls.map((call) => call.toolName),
+    ),
+    // The kernel is seeded on every surface build, so recording it as a preload
+    // would count it as a hit the deterministic selector never made.
+    preloadedTools: migrateRecordedToolNames(preloadedTools).filter(
+      (name) => !systemToolKernel().includes(name),
+    ),
+  };
+}
+
 function registeredToolNames(toolNames: readonly string[]): ToolName[] {
   return toolNames.filter(
     (name): name is ToolName => isToolName(name) && getTool(name) !== undefined,

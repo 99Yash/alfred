@@ -10,7 +10,6 @@ import {
   compactionThresholdTokens,
   parseIntegrationMentions,
   isIntegrationSlug,
-  toMessage,
   toRecord,
   type AgentTranscriptMessage,
 } from "@alfred/contracts";
@@ -18,7 +17,7 @@ import { db } from "@alfred/db";
 import { documents } from "@alfred/db/schemas";
 import { and, eq } from "drizzle-orm";
 import { z } from "zod";
-import { compactTranscript } from "../compaction";
+import { compactTranscript, compactWithRetry } from "../compaction";
 import {
   estimateNextTurnInputTokens,
   estimateTranscriptTokens,
@@ -47,10 +46,10 @@ import {
   applyPromptToolPreload,
   applySystemToolEffect,
   buildTurnToolSurface,
-  migrateActiveTools,
-  migrateRecordedToolNames,
+  foldToolSurfaceState,
   registeredToolNamesForIntegrations,
   systemToolKernel,
+  toolSurfaceStateFields,
 } from "../tool-surface";
 import {
   readSubAgentMetadata,
@@ -59,32 +58,17 @@ import {
 } from "../sub-agent-metadata";
 import type { Step, Workflow } from "../types";
 import { pendingToolCallSchema } from "./pending-tool-call";
+import { BRIEF_TURN_CAP_MAX, openBriefTurnRetries } from "./turn-budgets";
 
 // This workflow is the one sub-agents run on (see SUB_AGENT_WORKFLOW_SLUG);
 // keep the slug single-sourced so the two never drift.
 export const USER_AUTHORED_BRIEF_WORKFLOW_SLUG = SUB_AGENT_WORKFLOW_SLUG;
 
-const TURN_CAP_MAX = 30;
-/**
- * Consecutive empty completions (see `isRetryableEmptyCompletion`) to regenerate
- * before failing the boss/sub-agent run. An empty `stop`/`error` with no text and
- * no tool calls is the transient Anthropic→Gemini quota-fallback anomaly; a
- * re-attempt usually clears it. Kept tight so a provider stuck returning empties
- * fails fast instead of burning the `TURN_CAP_MAX` budget on full-price retries.
- */
-const EMPTY_COMPLETION_MAX_RETRIES = 2;
-
 const briefRunStateSchema = z
   .object({
-    // Persisted under an older deploy, so names may refer to tools that have
-    // since been retired. The transform below drops anything not in today's registry.
-    activeTools: z.array(z.string()).optional(),
-    // Exact first-turn deterministic selections for #414 preload hit/miss accounting.
-    preloadedTools: z.array(z.string()).default([]),
-    // Read only while resuming checkpoints created before exact tool surfaces.
-    activeIntegrations: z.array(z.string().min(1)).optional(),
-    preloadApplied: z.boolean().default(false),
-    allowedIntegrations: z.array(z.string()),
+    // The durable tool surface, shared with the chat turn (see
+    // `toolSurfaceStateFields`) and resolved by `foldToolSurfaceState` below.
+    ...toolSurfaceStateFields,
     // ADR-0053 connected summary, snapshotted once at run start (first boss turn)
     // and reused every turn so the system-prompt prefix stays cache-stable.
     connectedSummary: z.string().optional(),
@@ -108,17 +92,7 @@ const briefRunStateSchema = z
     // Default 0 for runs minted before the field existed.
     emptyRetries: z.number().int().min(0).default(0),
   })
-  .transform(({ activeIntegrations, activeTools, preloadedTools, ...state }) => ({
-    ...state,
-    activeTools: migrateActiveTools(
-      activeTools,
-      activeIntegrations,
-      state.pendingToolCalls.map((call) => call.toolName),
-    ),
-    preloadedTools: migrateRecordedToolNames(preloadedTools).filter(
-      (name) => !systemToolKernel().includes(name),
-    ),
-  }));
+  .transform((state) => foldToolSurfaceState(state));
 type BriefRunState = z.infer<typeof briefRunStateSchema>;
 
 const COMPACT_TRANSCRIPT_STEP_ID = "compact-transcript";
@@ -130,7 +104,6 @@ const COMPACT_TRANSCRIPT_STEP_ID = "compact-transcript";
  * skip decision today.
  */
 const COMPACTION_MIN_PRIOR_CHARS = 20_000;
-const COMPACTOR_RETRY_ATTEMPTS = 3;
 const TRIGGER_EVENT_EXCERPT_CHARS = 4_000;
 
 // Structured after the Anthropic prompt template: role first, operating rules
@@ -215,7 +188,7 @@ const bossTurnStep: Step<BriefRunState> = {
   // for a rare, expensive step.
   staleAfterMs: 6 * 60_000,
   async run(ctx) {
-    if (ctx.state.turnCount >= TURN_CAP_MAX) {
+    if (ctx.state.turnCount >= BRIEF_TURN_CAP_MAX) {
       throw new Error("turn_limit_exceeded");
     }
 
@@ -274,6 +247,10 @@ const bossTurnStep: Step<BriefRunState> = {
       },
     });
 
+    // Bind the retry to the transcript as it stands before the model call, so
+    // the failure site below cannot reach for `nextTranscript` (whose empty
+    // assistant message Anthropic 400s on) — it has no transcript to pass.
+    const retries = openBriefTurnRetries(transcript);
     const result = await agent.turn({
       ctx,
       transcript: transcript as ModelMessage[],
@@ -305,21 +282,15 @@ const bossTurnStep: Step<BriefRunState> = {
       // Retryable empty completion (see isRetryableEmptyCompletion): this turn came
       // back with no text and no tool calls on a clean/errored finish — the
       // Anthropic→Gemini quota-fallback anomaly. `withFallback` can't catch it (the
-      // SDK call succeeded with an empty stream), so degrade here: regenerate from
-      // the *pre-turn* transcript (never `nextTranscript` — appending the empty
-      // assistant message would poison the retry and Anthropic 400s on it) up to a
-      // bounded budget, then fail the run loudly.
-      if (state.emptyRetries < EMPTY_COMPLETION_MAX_RETRIES) {
+      // SDK call succeeded with an empty stream), so degrade here: regenerate up to
+      // a bounded budget, then fail the run loudly.
+      const retry = retries.afterEmptyCompletion(state);
+      if (retry) {
         console.warn(
           `[boss-turn] empty completion (finishReason:${result.finishReason}); retry ` +
-            `${state.emptyRetries + 1}/${EMPTY_COMPLETION_MAX_RETRIES} (run ${ctx.runId})`,
+            `${retry.attempt}/${retry.max} (run ${ctx.runId})`,
         );
-        return {
-          kind: "next",
-          state: { ...state, emptyRetries: state.emptyRetries + 1 },
-          transcript,
-          nextStep: "boss-turn",
-        };
+        return retry.step;
       }
       throw new Error("boss_turn_empty_completion");
     }
@@ -577,11 +548,12 @@ const compactTranscriptStep: Step<BriefRunState> = {
       return { kind: "next", state, nextStep: "boss-turn" };
     }
 
-    let result: Awaited<ReturnType<typeof compactTranscript>> | undefined;
-    let lastError: unknown;
-    for (let attempt = 1; attempt <= COMPACTOR_RETRY_ATTEMPTS; attempt++) {
-      try {
-        result = await compactTranscript({
+    // Background work, so back off between attempts: riding out a transient
+    // provider blip is worth the added delay here in a way it is not on the
+    // live chat path (see `compactWithRetry`).
+    const result = await compactWithRetry(
+      (attempt) =>
+        compactTranscript({
           prior,
           inFlightTail,
           attribution: {
@@ -591,21 +563,11 @@ const compactTranscriptStep: Step<BriefRunState> = {
             attempt: ctx.attempt,
             idempotencyKey: `${ctx.idempotencyKey}:compact-${attempt}`,
           },
-        });
-        break;
-      } catch (err) {
-        lastError = err;
-        if (toMessage(err) === "compactor_input_too_large") {
-          throw err;
-        }
-        if (attempt < COMPACTOR_RETRY_ATTEMPTS) {
-          await sleepMs(attempt * 100);
-        }
-      }
-    }
-    if (!result) {
-      throw new Error(`compactor_failed: ${toMessage(lastError)}`);
-    }
+        }),
+      // No abort signal on this path: the step runs in the background with no
+      // user waiting on it and nothing to stop it mid-flight.
+      { abortSignal: "none", delayBeforeRetryMs: (attempt) => attempt * 100 },
+    );
 
     // Guard 3: post-compaction the in-flight tail itself blows the
     // threshold. There is no further reduction we can make — fail loud
@@ -634,10 +596,6 @@ async function resolvePressureThresholdTokens(isSubAgent: boolean): Promise<numb
     models: isSubAgent ? [agentModel] : [agentModel, COMPACTOR_MODEL],
   });
   return compactionThresholdTokens(effectiveWindow);
-}
-
-function sleepMs(ms: number): Promise<void> {
-  return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
 export const userAuthoredBriefWorkflow: Workflow<BriefRunState> = {

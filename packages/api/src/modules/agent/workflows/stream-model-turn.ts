@@ -51,6 +51,24 @@ export interface StreamTurnState {
   reasoningSeq: number;
 }
 
+/** What a drained stream hands back to the turn that owns it. */
+export interface StreamedTurn {
+  /**
+   * Publish the reply deltas the #407 reissue gate withheld during the drain,
+   * and the sanitizer tail behind them.
+   *
+   * One function rather than the flush/flush-tail pair it replaces: the tail is
+   * the remainder the sanitizer held back from the flush, so releasing it first
+   * (or at all, without the flush) reorders the segment's live text. The caller
+   * has no reason to want either half alone, so it never gets the chance.
+   *
+   * Reads `state.reissuePending` through the same gate the drain used, so it
+   * no-ops unless the caller has already cleared the flag —
+   * `crossFinalizeBoundary` is the one place that does both, in that order.
+   */
+  releaseWithheldReply(): Promise<void>;
+}
+
 /**
  * Drain one live `streamTurn` stream: coalesce reply text into `chat.delta`,
  * reasoning into `chat.reasoning`, surface each tool call as a `chat.tool`
@@ -62,10 +80,10 @@ export interface StreamTurnState {
  *
  * Mutates `state` in place (assistantText, reasoningText, reasoningMs, deltaSeq,
  * reasoningSeq) and reads its `reissuePending` / `activeTools` / `segmentIndex`.
- * Returns `flushReply`/`flushReplyTail` bound to this module's internal text
- * buffer + voice sanitizer: while a reissue is pending (#407) the reply flush is
- * withheld, so the step body's reissue→answer branch calls these to release the
- * deltas the gate held back once it has cleared `state.reissuePending`.
+ * Returns {@link StreamedTurn.releaseWithheldReply} bound to this module's
+ * internal text buffer + voice sanitizer: while a reissue is pending (#407) the
+ * reply flush is withheld, so the finalize boundary calls it to release the
+ * deltas the gate held back once `state.reissuePending` is cleared.
  */
 export async function streamModelTurn(args: {
   stream: Awaited<ReturnType<AlfredAgent["streamTurn"]>>;
@@ -79,7 +97,7 @@ export async function streamModelTurn(args: {
    * / `chat.tool` / `artifact.delta` sequence without a live DB.
    */
   publish?: typeof publishEvent;
-}): Promise<{ flushReply(): Promise<void>; flushReplyTail(): Promise<void> }> {
+}): Promise<StreamedTurn> {
   const { stream, state, ctx, stopController, publish = publishEvent } = args;
 
   // Enforce the deterministic half of DEFAULT_VOICE_PROMPT ("No em-dashes") on
@@ -323,5 +341,10 @@ export async function streamModelTurn(args: {
   // segment index (a tool-call turn bumps the index only afterward).
   await flushVoiceTail();
 
-  return { flushReply: flush, flushReplyTail: flushVoiceTail };
+  return {
+    releaseWithheldReply: async () => {
+      await flush();
+      await flushVoiceTail();
+    },
+  };
 }
