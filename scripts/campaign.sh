@@ -84,6 +84,35 @@ TERMINAL='["landed","needs-human","skipped"]'
 SKIPPED="$(mktemp -t campaign-skip.XXXXXX)"
 trap 'rm -f "$SKIPPED"' EXIT
 
+# Ctrl-C must stop the LOOP, not just the current claude. Without this, SIGINT kills
+# the child, `|| true` swallows it, and the loop cheerfully starts the next item —
+# so holding Ctrl-C walks the whole queue killing one phase after another.
+INTERRUPTED=0
+CHILD_PID=""
+JQ_PID=""
+on_interrupt() {
+  INTERRUPTED=1
+  echo
+  echo "interrupted — stopping. State left as-is."
+  # The phase runs as a background job, and a background job in a non-interactive
+  # shell has SIGINT *ignored* — so forwarding INT is a no-op and Ctrl-C alone would
+  # leave the phase running. TERM, then KILL if it won't go.
+  if [[ -n "$CHILD_PID" ]]; then
+    kill -TERM "$CHILD_PID" 2>/dev/null
+    for _ in $(seq 1 20); do
+      kill -0 "$CHILD_PID" 2>/dev/null || break
+      sleep 0.5
+    done
+    kill -KILL "$CHILD_PID" 2>/dev/null
+  fi
+  # Killing claude does not guarantee its descendants died with it, and any one of
+  # them still holding the FIFO keeps the renderer from ever seeing EOF — which
+  # would hang the loop on `wait` after we already said we were stopping.
+  [[ -n "$JQ_PID" ]] && kill -TERM "$JQ_PID" 2>/dev/null
+  return 0
+}
+trap on_interrupt INT TERM
+
 # Next item: first non-terminal whose prereqs have all landed. Honors $ITEM.
 pick_item() {
   local skip_list
@@ -184,30 +213,69 @@ for ((i = 1; i <= MAX_ITER; i++)); do
   fi
 
   before="$(signature "$id")"
+  started_at="$(date +%s)"
 
+  # A phase is mostly tool calls, so printing only assistant *text* looks identical
+  # to a hang for minutes at a time. Stream text deltas live, and print one line per
+  # tool call so the run is visibly alive.
+  # claude runs backgrounded through a FIFO rather than as a foreground pipeline, so
+  # the loop holds its real PID: the interrupt trap can forward the signal, and the
+  # exit status is claude's own rather than jq's.
+  fifo="$(mktemp -u -t campaign-fifo.XXXXXX)"
+  mkfifo "$fifo"
+
+  jq -j --unbuffered '
+        if .type == "stream_event" then
+          ( .event
+            | select(.type == "content_block_delta")
+            | .delta | select(.type == "text_delta") | .text )
+        elif .type == "assistant" then
+          ( .message.content[]?
+            | select(.type == "tool_use")
+            | "\n  · \(.name) \((.input.file_path // .input.command // .input.pattern
+                                // .input.description // .input.subagent_type // "")
+                               | tostring | .[0:100])\n" )
+        elif .type == "result" then
+          "\n[\(.subtype) · \(.num_turns // 0) turns · $\((.total_cost_usd // 0) * 100 | round / 100)]\n"
+        else empty end
+      ' < "$fifo" &
+  JQ_PID=$!
+
+  set +e
   printf '%s' "$prompt" | claude -p \
       --permission-mode bypassPermissions \
       --max-budget-usd "$MAX_BUDGET_USD" \
       --no-session-persistence \
       --output-format stream-json \
       --include-partial-messages \
-      --verbose \
-    | jq -r --unbuffered '
-        select(.type == "assistant")
-        | .message.content[]?
-        | select(.type == "text")
-        | .text
-      ' || true
+      --verbose > "$fifo" &
+  CHILD_PID=$!
+  wait "$CHILD_PID"
+  claude_status=$?
+  CHILD_PID=""   # the trap has already reaped it on the interrupt path
+  wait "$JQ_PID" 2>/dev/null
+  JQ_PID=""
+  set -e
+  rm -f "$fifo"
 
+  elapsed=$(( $(date +%s) - started_at ))
   after="$(signature "$id")"
 
+  # 130 = SIGINT, 143 = SIGTERM. An operator kill is not a stuck item.
+  if [[ "$INTERRUPTED" == "1" || "$claude_status" == "130" || "$claude_status" == "143" ]]; then
+    echo
+    echo "item $id interrupted after ${elapsed}s in phase ${before%%:*} — left untouched."
+    echo "resume with: scripts/campaign.sh   (or ITEM=$id scripts/campaign.sh)"
+    exit 130
+  fi
+
   if [[ "$before" == "$after" ]]; then
-    echo "no state movement on item $id ($before) — parking it."
-    park_item "$id" "no progress in phase ${before%%:*}"
+    echo "no state movement on item $id ($before) after ${elapsed}s (exit $claude_status) — parking it."
+    park_item "$id" "no progress in phase ${before%%:*} (exit $claude_status)"
     continue
   fi
 
-  echo "item $id: $before → $after"
+  echo "item $id: $before → $after   (${elapsed}s)"
   [[ "${after%%:*}" == "landed" ]] && completed=$((completed + 1))
 done
 

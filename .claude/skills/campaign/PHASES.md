@@ -108,8 +108,9 @@ because "add a direct order table first; the refactor is cheap after that and un
 before it" is a real instruction, and an agent that reads it as flavor text will
 refactor untested behavior.
 
-1. `cd $WT` — or create the worktree first (see `implement` step 1), branch
-   `test/campaign-<slug>-NN-coverage`.
+1. Create or reuse the worktree exactly as `implement` step 1 describes — the same
+   idempotent block, with branch `test/campaign-<slug>-NN-coverage`. Record
+   `worktree` and `branch` in state **before** writing tests, then `cd $WT`.
 2. Write **characterization tests only**. Pin the behavior that exists today,
    including behavior you suspect is wrong — a coverage PR that changes behavior has
    defeated its own purpose. If you find a bug, record it in the item file under
@@ -157,12 +158,27 @@ The cheapest phase, and the one whose output you should expect a human to skim.
 
 ## `implement`
 
-1. Worktree, from the repo root, against a fresh base:
+1. Worktree, from the repo root, against a fresh base. **This must be idempotent** —
+   a phase killed mid-way leaves the tree and branch behind, and a retry that
+   assumes a clean slate fails on `already exists` and gets itself parked:
 
    ```bash
    git fetch origin
-   git worktree add -b refactor/campaign-<slug>-NN .claude/worktrees/<slug>-NN origin/<baseBranch>
+   WT=.claude/worktrees/<slug>-NN
+   BR=refactor/campaign-<slug>-NN
+   if [ -d "$WT" ]; then
+     git -C "$WT" rev-parse --abbrev-ref HEAD    # reuse it; confirm it's on $BR
+   elif git show-ref --verify --quiet "refs/heads/$BR"; then
+     git worktree add "$WT" "$BR"                # branch survived, tree didn't
+   else
+     git worktree add -b "$BR" "$WT" origin/<baseBranch>
+   fi
    ```
+
+   A reused tree may hold a half-finished attempt. Inspect `git status` and
+   `git log origin/<baseBranch>..HEAD` before writing anything, and say in the item
+   file what you found — resuming on top of an abandoned edit you never looked at is
+   how a phase produces a diff nobody can explain.
 
    Record both `branch` and `worktree` in state **now**, before writing code — if
    this phase dies mid-way, the next invocation needs to find the tree.
