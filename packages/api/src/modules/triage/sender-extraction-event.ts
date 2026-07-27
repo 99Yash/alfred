@@ -46,17 +46,17 @@ export const FLOOR_TRACE_PROJECTIONS = {
     /** True when the override floor's exposed-secret signal matched at all. */
     floorMatched: audit?.matched ?? false,
     /** True when it also had to force the category to `urgent`. */
-    floorForced: audit?.forced ?? false,
+    floorForced: audit?.verdict.kind === "escalate",
   }),
   senderKind: (audit) => ({
     /** True when the sender-kind floor demoted the final category → `fyi` (#210). */
-    senderKindDemotedCategory: audit?.demoted ?? false,
+    senderKindDemotedCategory: audit?.verdict.kind === "demote",
     /** Structured reason for a sender-kind category demotion, if one fired. */
     senderKindDemotionReason: audit?.reason ?? null,
   }),
   meeting: (audit) => ({
     /** True when the meeting-gate floor demoted `meeting` → `fyi`. */
-    meetingDemotedCategory: audit?.demoted ?? false,
+    meetingDemotedCategory: audit?.verdict.kind === "demote",
     /** Structured reason for a meeting-gate demotion, if one fired. */
     meetingDemotionReason: audit?.reason ?? null,
   }),

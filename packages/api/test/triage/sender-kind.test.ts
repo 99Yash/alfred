@@ -127,11 +127,17 @@ test("senderExtractionEvent records the sender-kind demotion breadcrumb", () => 
       secondPass: null,
       secondPassFailure: null,
       floors: {
-        classification: classification({ collabActivity: "other_activity" }),
-        modelIdSuffix: "+kindfloor",
-        override: { matched: false, forced: false },
-        senderKind: { demoted: true, reason: "collab_passive_activity" },
-        meeting: { demoted: false, reason: null },
+        override: { verdict: { kind: "keep" }, matched: false },
+        senderKind: {
+          verdict: {
+            kind: "demote",
+            key: "sender_kind_floor",
+            note: "group sender sent passive collaboration activity",
+            reason: "Sender-kind floor",
+          },
+          reason: "collab_passive_activity",
+        },
+        meeting: { verdict: { kind: "keep" }, reason: null },
       },
     },
     classification: classification({ collabActivity: "other_activity" }),
@@ -235,7 +241,7 @@ function floorContext(): FloorContext {
 }
 
 /** The trace the workflow would persist for a floor outcome. */
-function eventFor(floors: FloorOutcome) {
+function eventFor(outcome: FloorOutcome) {
   return senderExtractionEvent({
     senderContextResult: senderContextResult(),
     observations: observations(),
@@ -244,9 +250,9 @@ function eventFor(floors: FloorOutcome) {
       conflict: null,
       secondPass: null,
       secondPassFailure: null,
-      floors,
+      floors: outcome.audits,
     },
-    classification: floors.classification,
+    classification: outcome.classification,
     todoSuggested: false,
     standingSuppression: null,
     standingSuppressionReadFailed: false,

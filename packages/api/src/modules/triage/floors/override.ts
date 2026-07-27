@@ -1,5 +1,4 @@
 import type { TriageClassification } from "../classify";
-import { truncateRationale } from "../rationale";
 import type { FloorResult } from "./floor";
 
 /**
@@ -39,29 +38,28 @@ export function matchesExposedSecret(text: string): boolean {
 /**
  * Override floor (ADR-0051 §5, Phase 3 seed = ONE signal). Forces `urgent` when
  * an exposed/leaked/committed secret is present, regardless of model output.
- * PURE. Returns the (possibly forced) classification and whether it changed.
+ * PURE. The only floor that ESCALATES; whether it fired is `verdict.kind`, and
+ * `matched` is the fact the verdict cannot carry — the signal was present but
+ * the model had already said `urgent`, so there was nothing to force.
  */
 export function applyOverrideFloor(
   classification: TriageClassification,
   signalText: string,
-): FloorResult & { matched: boolean; forced: boolean } {
+): FloorResult & { matched: boolean } {
   if (!OVERRIDE_FLOOR_SECRET_RE.test(signalText)) {
-    return { classification, matched: false, forced: false };
+    return { verdict: { kind: "keep" }, matched: false };
   }
   if (classification.category === "urgent") {
     // Floor agrees with the model — no change, nothing to force.
-    return { classification, matched: true, forced: false };
+    return { verdict: { kind: "keep" }, matched: true };
   }
   return {
-    classification: {
-      ...classification,
-      category: "urgent",
-      confidence: Math.max(classification.confidence, OVERRIDE_FLOOR_CONFIDENCE_FLOOR),
-      rationale: truncateRationale(
-        `${classification.rationale} Override floor: exposed secret material was detected — forced urgent.`,
-      ),
+    verdict: {
+      kind: "escalate",
+      to: "urgent",
+      confidenceFloor: OVERRIDE_FLOOR_CONFIDENCE_FLOOR,
+      reason: "Override floor: exposed secret material was detected — forced urgent.",
     },
     matched: true,
-    forced: true,
   };
 }
