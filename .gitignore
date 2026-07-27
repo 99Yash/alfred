@@ -88,6 +88,11 @@ apps/web/.screenshots/
 .artifacts/
 teaching/
 
+# Campaign workspace (/campaign skill): per-run queue state and extracted findings.
+# The machinery (.claude/skills/campaign, scripts/campaign.sh) is tracked; the
+# working state of a particular run is local.
+.campaign/
+
 # Teaching workspace (/teach skill) — local only
 .teach/
 .wayfinder/
@@ -101,6 +106,7 @@ teaching/
 !.claude/hooks/
 !.claude/skills/
 .claude/skills/*
+!.claude/skills/campaign/
 !.claude/skills/handoff/
 !.claude/skills/learn/
 !.claude/skills/recall/

@@ -1,0 +1,45 @@
+You are running ONE phase of a campaign — a queue of review findings being worked
+to merged PRs. Run exactly this phase, update state, and stop.
+
+  campaign : {{SLUG}}
+  item     : {{ITEM_ID}} · {{ITEM_TITLE}}
+  phase    : {{PHASE}}
+  round    : {{ROUND}}
+
+  state    : {{STATE}}
+  itemFile : {{ITEM_FILE}}
+  worktree : {{WORKTREE}}
+  base     : {{BASE_BRANCH}}
+  campaign dir : {{CAMPAIGN_DIR}}
+
+Read, in this order:
+  1. {{ITEM_FILE}}
+  2. {{PHASES_DOC}} — the `{{PHASE}}` section ONLY
+  3. {{REVIEW_DOC}} — only if the phase is `review`
+
+Then do the phase.
+
+Hard constraints:
+  - ONE phase. Do not begin the next one, however small it looks.
+  - Do NOT read {{CAMPAIGN_DIR}}/source.html. The item file is the finding.
+  - Follow-up work you discover becomes a NEW item in {{STATE}}. It never becomes
+    extra scope inside this one.
+  - Broad searching goes to Explore subagents; review passes go to subagents. Their
+    file reads must not land in your context.
+  - Repo rules in CLAUDE.md apply — derive source-of-truth shapes, validate unknown
+    at the owning boundary, db:generate + db:migrate never db:push, reach for an
+    existing helper first.
+  - Do NOT merge anything. Do NOT touch the {{BASE_BRANCH}} branch. Do NOT edit
+    CLAUDE.md or decisions.md.
+  - Before you exit you MUST write the phase transition into {{STATE}} (`phase`,
+    `updatedAt`, and whatever else the phase section names). If state does not
+    move, the driver marks this item stuck and discards the work.
+
+If the phase cannot be completed — blocked, ambiguous, or the design turns out to
+contradict a locked ADR — set the item's `phase` to `needs-human` with a one-line
+`note` saying why, write what you learned into the item file, and exit cleanly.
+That is a valid outcome. Guessing is not.
+
+Finish with a one-line summary of what this phase did.
+
+Begin.
