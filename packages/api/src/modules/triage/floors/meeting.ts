@@ -5,7 +5,7 @@ import {
 } from "@alfred/contracts";
 import type { TriageClassification } from "../classify";
 import type { Observations } from "../observations";
-import { demoteToFyi, type FloorResult } from "./floor";
+import type { FloorResult } from "./floor";
 
 /**
  * Meeting-gate demotion floor. `meeting` is the highest-precedence category
@@ -72,9 +72,9 @@ export function applyMeetingDemotionFloor(
     /** Deterministic content flags (rules 8/9 backstops); optional for callers/tests. */
     contentFlags?: Pick<Observations["content"], "hasInvestorNotice" | "hasPublicEventLanguage">;
   },
-): FloorResult & { demoted: boolean; reason: MeetingDemotionReason | null } {
+): FloorResult & { reason: MeetingDemotionReason | null } {
   if (classification.category !== "meeting") {
-    return { classification, demoted: false, reason: null };
+    return { verdict: { kind: "keep" }, reason: null };
   }
   const subject = context.subject ?? "";
   // The calendar-action subject shape is the single carve-out shared by every
@@ -93,7 +93,7 @@ export function applyMeetingDemotionFloor(
           : context.contentFlags?.hasPublicEventLanguage && !isCalendarAction
             ? "public_event"
             : null;
-  if (!reason) return { classification, demoted: false, reason: null };
+  if (!reason) return { verdict: { kind: "keep" }, reason: null };
   const note =
     reason === "meeting_recap"
       ? "recap of a meeting that already happened"
@@ -105,12 +105,7 @@ export function applyMeetingDemotionFloor(
             ? "AGM/shareholder/proxy notice, not the user's meeting (rule 9)"
             : "public event (webinar/conference/launch), not the user's meeting (rule 8)";
   return {
-    classification: demoteToFyi(classification, {
-      key: "meeting_floor",
-      note,
-      reason: `Meeting floor: ${note}`,
-    }),
-    demoted: true,
+    verdict: { kind: "demote", key: "meeting_floor", note, reason: `Meeting floor: ${note}` },
     reason,
   };
 }

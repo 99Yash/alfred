@@ -25,7 +25,7 @@ import {
   matchesCollabIntrinsicStake,
   matchesExposedSecret,
   matchesPrThread,
-  type FloorOutcome,
+  type FloorAudits,
 } from "./floors";
 import { createHedgeBudget, hedgeCeilingFor, runHedged, type HedgeBudget } from "./hedge";
 import type { Observations } from "./observations";
@@ -202,13 +202,14 @@ export interface ClassifyAudit {
   secondPass: TriageClassification | null;
   secondPassFailure: { message: string } | null;
   /**
-   * The deterministic floor sequence's verdict, carried verbatim from
-   * {@link applyFloors} — per-floor audit facts keyed by floor name, plus the
-   * final classification the floors folded to. Not flattened here: the shape is
-   * derived from `FLOOR_SEQUENCE`, so a fourth floor reaches this audit (and the
-   * `model` tag) without an edit in this file.
+   * Per-floor audit facts from the deterministic floor sequence, carried verbatim
+   * from {@link applyFloors} and keyed by floor name. The fold's other two outputs
+   * are not repeated here — its classification IS the classification this audit
+   * accompanies, and its model tags are already on `model`. The shape is derived
+   * from `FLOOR_SEQUENCE`, so a fourth floor reaches this audit (and the `model`
+   * tag) without an edit in this file.
    */
-  floors: FloorOutcome;
+  floors: FloorAudits;
 }
 
 const PASSIVE_CATEGORIES = new Set<TriageCategory>(["fyi", "done", "newsletter", "marketing"]);
@@ -979,17 +980,22 @@ export async function classifyEmail(
   });
   const classification = floors.classification;
 
-  let model_id = baseModelId;
-  if (secondPass) model_id += "+2pass";
-  if (secondPassFailure) model_id += "+2pass_failed";
-  // Floor tags come from the fold, in sequence order — each floor registers its
-  // own next to its `apply`, so this line never grows.
-  model_id += floors.modelIdSuffix;
+  // The `model` string, as ONE ordered list of tags: this function's own pass
+  // tags first, then the floor tags the fold contributes in sequence order (each
+  // registered next to its floor, so a fourth floor never edits this file). The
+  // order is the whole contract — the value is an audit/debug string, so query it
+  // with `LIKE '%+kindfloor%'`, never by equality on the assembled id.
+  const model_id = [
+    baseModelId,
+    ...(secondPass ? ["+2pass"] : []),
+    ...(secondPassFailure ? ["+2pass_failed"] : []),
+    ...floors.modelIdTags,
+  ].join("");
 
   return {
     classification,
     model: model_id,
-    audit: { firstPass, conflict, secondPass, secondPassFailure, floors },
+    audit: { firstPass, conflict, secondPass, secondPassFailure, floors: floors.audits },
   };
 }
 

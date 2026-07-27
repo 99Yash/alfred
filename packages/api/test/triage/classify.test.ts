@@ -18,11 +18,48 @@ import {
   type TriageClassification,
 } from "../../src/modules/triage/classify";
 import {
-  applyMeetingDemotionFloor,
-  applyOverrideFloor,
-  applySenderKindDemotionFloor,
+  applyMeetingDemotionFloor as meetingFloorVerdict,
+  applyOverrideFloor as overrideFloorVerdict,
+  applySenderKindDemotionFloor as senderKindFloorVerdict,
 } from "../../src/modules/triage/floors";
+import { applyFloorVerdict } from "../../src/modules/triage/floors/floor";
 import type { Observations } from "../../src/modules/triage/observations";
+
+// ---------------------------------------------------------------------------
+// Per-floor harness. A floor DECIDES (a verdict); the shared `applyFloorVerdict`
+// APPLIES it — these three wrappers run both halves exactly as `applyFloors`
+// does, so the cases below can stay about the predicate ("does this input trip
+// this floor?") while still asserting on a real demoted classification. The fold
+// itself — order, threading, audits, model tags — is covered end-to-end in
+// `floors.test.ts`.
+// ---------------------------------------------------------------------------
+
+function applyOverrideFloor(...args: Parameters<typeof overrideFloorVerdict>) {
+  const audit = overrideFloorVerdict(...args);
+  return {
+    ...audit,
+    classification: applyFloorVerdict(args[0], audit.verdict),
+    forced: audit.verdict.kind === "escalate",
+  };
+}
+
+function applySenderKindDemotionFloor(...args: Parameters<typeof senderKindFloorVerdict>) {
+  const audit = senderKindFloorVerdict(...args);
+  return {
+    ...audit,
+    classification: applyFloorVerdict(args[0], audit.verdict),
+    demoted: audit.verdict.kind === "demote",
+  };
+}
+
+function applyMeetingDemotionFloor(...args: Parameters<typeof meetingFloorVerdict>) {
+  const audit = meetingFloorVerdict(...args);
+  return {
+    ...audit,
+    classification: applyFloorVerdict(args[0], audit.verdict),
+    demoted: audit.verdict.kind === "demote",
+  };
+}
 
 // ---------------------------------------------------------------------------
 // Fixtures
@@ -1129,7 +1166,7 @@ describe("classifyEmail", () => {
       }),
     );
     assert.equal(result.classification.category, "urgent");
-    assert.equal(result.audit.floors.override.forced, true);
+    assert.equal(result.audit.floors.override.verdict.kind, "escalate");
     assert.match(result.model, /\+floor$/);
   });
 
@@ -1151,7 +1188,7 @@ describe("classifyEmail", () => {
       }),
     );
     assert.equal(result.classification.category, "fyi");
-    assert.equal(result.audit.floors.override.forced, false);
+    assert.equal(result.audit.floors.override.verdict.kind, "keep");
     assert.equal(result.audit.conflict, null);
     assert.equal(model.calls(), 1); // no second pass
   });
@@ -1194,7 +1231,7 @@ describe("classifyEmail", () => {
     assert.equal(result.audit.secondPass, null);
     assert.equal(result.audit.secondPassFailure, null);
     assert.equal(result.audit.floors.override.matched, false);
-    assert.equal(result.audit.floors.override.forced, false);
+    assert.equal(result.audit.floors.override.verdict.kind, "keep");
     assert.equal(result.classification.category, "newsletter");
     assert.equal(result.model, "injected");
   });
@@ -1223,7 +1260,7 @@ describe("classifyEmail", () => {
       }),
     );
     assert.equal(result.classification.category, "fyi");
-    assert.equal(result.audit.floors.senderKind.demoted, true);
+    assert.equal(result.audit.floors.senderKind.verdict.kind, "demote");
     assert.equal(result.audit.firstPass.category, "awaiting_reply");
     assert.equal(result.model, "injected+kindfloor");
     assert.equal(resolveTodoSuggestion(result.classification), null);
@@ -1268,7 +1305,7 @@ describe("classifyEmail", () => {
       }),
     );
     assert.equal(result.classification.category, "fyi");
-    assert.equal(result.audit.floors.senderKind.demoted, true);
+    assert.equal(result.audit.floors.senderKind.verdict.kind, "demote");
     assert.equal(result.model, "injected+kindfloor");
     assert.equal(resolveTodoSuggestion(result.classification), null);
   });
@@ -1315,7 +1352,7 @@ describe("classifyEmail", () => {
     assert.equal(result.classification.category, "fyi");
     assert.equal(result.classification.collabActivity, "other_activity");
     assert.equal(result.audit.firstPass.collabActivity, "other_activity");
-    assert.equal(result.audit.floors.senderKind.demoted, true);
+    assert.equal(result.audit.floors.senderKind.verdict.kind, "demote");
     assert.equal(result.audit.floors.senderKind.reason, "collab_passive_activity");
     assert.equal(result.model, "injected+kindfloor");
     assert.equal(resolveTodoSuggestion(result.classification), null);
@@ -1359,8 +1396,8 @@ describe("classifyEmail", () => {
       }),
     );
     assert.equal(result.classification.category, "fyi");
-    assert.equal(result.audit.floors.senderKind.demoted, false);
-    assert.equal(result.audit.floors.meeting.demoted, true);
+    assert.equal(result.audit.floors.senderKind.verdict.kind, "keep");
+    assert.equal(result.audit.floors.meeting.verdict.kind, "demote");
     assert.equal(result.audit.floors.meeting.reason, "automated_relay");
     assert.equal(result.model, "injected+meetingfloor");
     assert.equal(resolveTodoSuggestion(result.classification), null);
@@ -1406,7 +1443,7 @@ describe("classifyEmail", () => {
     );
     assert.equal(result.classification.category, "awaiting_reply");
     assert.equal(result.classification.collabActivity, "mentioned_user");
-    assert.equal(result.audit.floors.senderKind.demoted, false);
+    assert.equal(result.audit.floors.senderKind.verdict.kind, "keep");
     assert.equal(result.audit.floors.senderKind.reason, null);
     assert.equal(result.model, "injected");
     assert.deepEqual(resolveTodoSuggestion(result.classification), {
@@ -1448,7 +1485,7 @@ describe("classifyEmail", () => {
       }),
     );
     assert.equal(result.classification.category, "fyi");
-    assert.equal(result.audit.floors.senderKind.demoted, true);
+    assert.equal(result.audit.floors.senderKind.verdict.kind, "demote");
     assert.equal(result.model, "injected+kindfloor");
     assert.equal(resolveTodoSuggestion(result.classification), null);
   });
@@ -1494,7 +1531,7 @@ describe("classifyEmail", () => {
       }),
     );
     assert.equal(result.classification.category, "fyi");
-    assert.equal(result.audit.floors.senderKind.demoted, true);
+    assert.equal(result.audit.floors.senderKind.verdict.kind, "demote");
     assert.equal(result.audit.firstPass.category, "urgent");
     assert.equal(result.model, "injected+kindfloor");
     assert.equal(resolveTodoSuggestion(result.classification), null);
@@ -1542,7 +1579,7 @@ describe("classifyEmail", () => {
       }),
     );
     assert.equal(result.classification.category, "fyi");
-    assert.equal(result.audit.floors.senderKind.demoted, true);
+    assert.equal(result.audit.floors.senderKind.verdict.kind, "demote");
     assert.equal(result.audit.firstPass.category, "urgent");
     assert.equal(result.model, "injected+kindfloor");
     assert.equal(resolveTodoSuggestion(result.classification), null);
@@ -1579,8 +1616,8 @@ describe("classifyEmail", () => {
       }),
     );
     assert.equal(result.classification.category, "urgent");
-    assert.equal(result.audit.floors.override.forced, true);
-    assert.equal(result.audit.floors.senderKind.demoted, false);
+    assert.equal(result.audit.floors.override.verdict.kind, "escalate");
+    assert.equal(result.audit.floors.senderKind.verdict.kind, "keep");
     assert.equal(result.model, "injected+floor");
     assert.deepEqual(resolveTodoSuggestion(result.classification), {
       name: "Rotate the leaked key",
@@ -1623,7 +1660,7 @@ describe("classifyEmail", () => {
         runPass: model.runPass,
       }),
     );
-    assert.equal(result.audit.floors.override.forced, true);
+    assert.equal(result.audit.floors.override.verdict.kind, "escalate");
     assert.equal(result.classification.category, "urgent");
     assert.deepEqual(result.classification.todoSuggestion, { name: "Rotate the leaked Redis key" });
     assert.deepEqual(resolveTodoSuggestion(result.classification), {

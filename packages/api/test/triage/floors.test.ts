@@ -58,22 +58,18 @@ const SECRET_TEXT = "an api key was leaked in the public repo";
 
 describe("applyFloors — sequence order", () => {
   test("audits arrive in sequence order: override → senderKind → meeting", () => {
-    const {
-      classification: _final,
-      modelIdSuffix: _suffix,
-      ...audits
-    } = applyFloors(classification(), context());
     // `applyFloors` inserts one audit key per `FLOOR_SEQUENCE` entry as it folds,
     // so key order IS sequence order.
+    const { audits } = applyFloors(classification(), context());
     assert.deepEqual(Object.keys(audits), ["override", "senderKind", "meeting"]);
   });
 
   test("every floor reports an audit even when none of them fire", () => {
     const outcome = applyFloors(classification({ category: "fyi" }), context());
     assert.equal(outcome.classification.category, "fyi");
-    assert.deepEqual(outcome.override, { matched: false, forced: false });
-    assert.deepEqual(outcome.senderKind, { demoted: false, reason: null });
-    assert.deepEqual(outcome.meeting, { demoted: false, reason: null });
+    assert.deepEqual(outcome.audits.override, { verdict: { kind: "keep" }, matched: false });
+    assert.deepEqual(outcome.audits.senderKind, { verdict: { kind: "keep" }, reason: null });
+    assert.deepEqual(outcome.audits.meeting, { verdict: { kind: "keep" }, reason: null });
   });
 
   test("override runs FIRST: a secret escalation escapes the sender-kind demotion", () => {
@@ -91,8 +87,8 @@ describe("applyFloors — sequence order", () => {
       context({ signalText: SECRET_TEXT, senderKind: groupKind }),
     );
     assert.equal(outcome.classification.category, "urgent");
-    assert.equal(outcome.override.forced, true);
-    assert.equal(outcome.senderKind.demoted, false);
+    assert.equal(outcome.audits.override.verdict.kind, "escalate");
+    assert.equal(outcome.audits.senderKind.verdict.kind, "keep");
     assert.deepEqual(outcome.classification.todoSuggestion, { name: "Rotate the leaked key" });
   });
 
@@ -105,9 +101,9 @@ describe("applyFloors — sequence order", () => {
       context({ signalText: SECRET_TEXT, subject: "Meeting notes: Eng standup" }),
     );
     assert.equal(outcome.classification.category, "urgent");
-    assert.equal(outcome.override.forced, true);
-    assert.equal(outcome.meeting.demoted, false);
-    assert.equal(outcome.meeting.reason, null);
+    assert.equal(outcome.audits.override.verdict.kind, "escalate");
+    assert.equal(outcome.audits.meeting.verdict.kind, "keep");
+    assert.equal(outcome.audits.meeting.reason, null);
   });
 
   test("meeting runs LAST: a sender-kind-demoted fyi is already past the gate", () => {
@@ -123,9 +119,9 @@ describe("applyFloors — sequence order", () => {
       }),
     );
     assert.equal(outcome.classification.category, "fyi");
-    assert.equal(outcome.senderKind.demoted, true);
-    assert.equal(outcome.senderKind.reason, "collab_passive_activity");
-    assert.equal(outcome.meeting.demoted, false);
+    assert.equal(outcome.audits.senderKind.verdict.kind, "demote");
+    assert.equal(outcome.audits.senderKind.reason, "collab_passive_activity");
+    assert.equal(outcome.audits.meeting.verdict.kind, "keep");
     assert.match(outcome.classification.todoDecision?.note ?? "", /^sender_kind_floor:/);
   });
 
@@ -135,8 +131,8 @@ describe("applyFloors — sequence order", () => {
       context({ subject: "Meeting notes: Eng standup", effectiveAuthor: "person" }),
     );
     assert.equal(outcome.classification.category, "fyi");
-    assert.equal(outcome.meeting.demoted, true);
-    assert.equal(outcome.meeting.reason, "meeting_recap");
+    assert.equal(outcome.audits.meeting.verdict.kind, "demote");
+    assert.equal(outcome.audits.meeting.reason, "meeting_recap");
   });
 });
 
@@ -149,6 +145,15 @@ describe("applyFloors — threading", () => {
   test("sender-kind demotes the category the override floor forced, not the model's", () => {
     // The model said `fyi`, which the sender-kind floor never demotes. It
     // demotes here only because it is handed the override floor's `urgent`.
+    //
+    // The fixture is a sign-in broadcast that ALSO names a leaked key, because
+    // the override floor is the only floor that escalates and it fires on
+    // nothing else — so this is the only shape that can prove the threading.
+    // The final `fyi` it asserts is a PREEXISTING veto asymmetry, not a
+    // judgment that a leaked-secret mail belongs in `fyi`: the
+    // `collab_passive_activity` and `monitoring_alarm` reasons both refuse to
+    // demote when `matchesExposedSecret` hits; `broadcast_auth_signin_confirmation`
+    // does not. Closing that gap should flip THIS assertion, not delete the test.
     const body =
       "we detected a new sign-in to your account from a new device. " +
       "if this was you, no action is needed. " +
@@ -161,9 +166,9 @@ describe("applyFloors — threading", () => {
         senderKind: groupKind,
       }),
     );
-    assert.equal(outcome.override.forced, true);
-    assert.equal(outcome.senderKind.demoted, true);
-    assert.equal(outcome.senderKind.reason, "broadcast_auth_signin_confirmation");
+    assert.equal(outcome.audits.override.verdict.kind, "escalate");
+    assert.equal(outcome.audits.senderKind.verdict.kind, "demote");
+    assert.equal(outcome.audits.senderKind.reason, "broadcast_auth_signin_confirmation");
     assert.equal(outcome.classification.category, "fyi");
     // Both floors left their mark on the one threaded classification.
     assert.match(outcome.classification.rationale, /Override floor:/);
@@ -183,38 +188,41 @@ describe("applyFloors — threading", () => {
 });
 
 // ---------------------------------------------------------------------------
-// The `model` tag. Each floor registers its own suffix next to its `apply`, so
-// the fold — not `classifyEmail` — is what puts them on the model id.
+// The `model` tags. Each floor registers its own next to its `apply`, so the
+// fold — not `classifyEmail` — is what contributes them to the model id.
 // ---------------------------------------------------------------------------
 
-describe("applyFloors — model id suffix", () => {
+describe("applyFloors — model id tags", () => {
   test("is empty when no floor fires", () => {
-    assert.equal(applyFloors(classification(), context()).modelIdSuffix, "");
+    assert.deepEqual(applyFloors(classification(), context()).modelIdTags, []);
   });
 
   test("tags only the floor that fired", () => {
-    assert.equal(
+    assert.deepEqual(
       applyFloors(classification({ category: "fyi" }), context({ signalText: SECRET_TEXT }))
-        .modelIdSuffix,
-      "+floor",
+        .modelIdTags,
+      ["+floor"],
     );
-    assert.equal(
+    assert.deepEqual(
       applyFloors(
         classification({ category: "awaiting_reply" }),
         context({ senderKind: groupKind }),
-      ).modelIdSuffix,
-      "+kindfloor",
+      ).modelIdTags,
+      ["+kindfloor"],
     );
-    assert.equal(
+    assert.deepEqual(
       applyFloors(
         classification({ category: "meeting" }),
         context({ subject: "Meeting notes: Eng standup", effectiveAuthor: "person" }),
-      ).modelIdSuffix,
-      "+meetingfloor",
+      ).modelIdTags,
+      ["+meetingfloor"],
     );
   });
 
-  test("concatenates in sequence order when two floors fire on one email", () => {
+  test("arrive in sequence order when two floors fire on one email", () => {
+    // Same sign-in-plus-leaked-key body as the threading case above, and for the
+    // same reason: only the override floor escalates, so two floors can only fire
+    // on one email through it. See that test for the veto asymmetry it rides on.
     const outcome = applyFloors(
       classification({ category: "fyi" }),
       context({
@@ -226,7 +234,7 @@ describe("applyFloors — model id suffix", () => {
         senderKind: groupKind,
       }),
     );
-    assert.equal(outcome.modelIdSuffix, "+floor+kindfloor");
+    assert.deepEqual(outcome.modelIdTags, ["+floor", "+kindfloor"]);
   });
 });
 
@@ -278,11 +286,7 @@ describe("applyFloors — demote, never bury", () => {
 
 describe("floors — trace projections", () => {
   test("every floor in the sequence projects onto the persisted trace", () => {
-    const {
-      classification: _final,
-      modelIdSuffix: _suffix,
-      ...audits
-    } = applyFloors(classification(), context());
+    const { audits } = applyFloors(classification(), context());
     assert.deepEqual(Object.keys(FLOOR_TRACE_PROJECTIONS).sort(), Object.keys(audits).sort());
   });
 });
