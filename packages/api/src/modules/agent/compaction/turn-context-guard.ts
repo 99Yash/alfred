@@ -352,9 +352,7 @@ async function applyWithinRunContextGuard({
           abortSignal,
           timeoutMs: FOREGROUND_COMPACTION_TIMEOUT_MS,
         }),
-      {
-        isFatal: () => abortSignal.aborted,
-      },
+      { abortSignal },
     );
     const postPressure = await assess(compacted.transcript);
     if (postPressure.requiresSynchronousCompaction) {

@@ -60,12 +60,11 @@ import {
   type ChatRunState,
   type PendingToolCall,
 } from "./chat-turn-state";
-import { awaitedChildRunId, runFinalizeGuards } from "./finalize-guards";
+import { awaitedChildRunId, crossFinalizeBoundary } from "./finalize-guards";
 import {
   buildStoredContentParts,
   hydrateTranscriptForModel,
   loadReadyAttachments,
-  warnOnSkippedAttachments,
 } from "./chat-attachments";
 import {
   finalizeAssistantMessage,
@@ -74,13 +73,7 @@ import {
 } from "./chat-turn-closure";
 import { streamModelTurn } from "./stream-model-turn";
 import { isStreamTimeoutAbort } from "./stream-timeout";
-import {
-  CHAT_TURN_CAP_MAX,
-  EMPTY_COMPLETION_MAX_RETRIES,
-  planEmptyChatCompletionRetry,
-  planStreamTimeoutRetry,
-  STREAM_TIMEOUT_MAX_RETRIES,
-} from "./turn-budgets";
+import { CHAT_TURN_CAP_MAX, openChatTurnRetries, resetChatTurnRetryBudgets } from "./turn-budgets";
 import { toolCardTerminal } from "./tool-card-events";
 import { toolEventOutcome } from "./tool-event-outcome";
 import { createTurnStopController } from "./turn-stop-controller";
@@ -106,9 +99,11 @@ import { createTurnStopController } from "./turn-stop-controller";
  *
  *  - `./chat-turn-state`     — the durable state schema and the pure ops on it.
  *  - `./chat-attachments`    — stored-key → model-ready parts, under a byte budget.
- *  - `./turn-budgets`        — the turn cap and the bounded retry planners.
- *  - `./finalize-guards`     — the guards a turn clears before it may finalize,
- *                              in one declared order.
+ *  - `./turn-budgets`        — the turn cap, the bounded retry planners, and the
+ *                              budget refresh a productive turn owes the next.
+ *  - `./finalize-guards`     — the finalize boundary: what a turn must do before
+ *                              it may complete, and the guards it must clear, in
+ *                              one declared order.
  *  - `./chat-turn-closure`   — the one persistence sequence every ending runs.
  *  - `../sub-agent-join`     — joining a spawned child, shared with the
  *                              `await_sub_agent` tool.
@@ -293,9 +288,7 @@ const chatTurnStep: Step<ChatRunState> = {
         });
       }
 
-      const hydrated = await hydrateTranscriptForModel(transcript);
-      const hydratedTranscript = hydrated.transcript;
-      warnOnSkippedAttachments(hydrated.budget);
+      const { transcript: hydratedTranscript } = await hydrateTranscriptForModel(transcript);
 
       if (state.timezone === undefined) {
         state.timezone = await resolveUserTimezone(ctx.userId);
@@ -411,6 +404,11 @@ const chatTurnStep: Step<ChatRunState> = {
       } finally {
         disposeStopPoll();
       }
+      // Bind the turn's retries to the transcript as it stands right now —
+      // before the model call, so `nextTranscript` (which appends the response,
+      // and whose empty assistant message Anthropic 400s on) does not exist yet
+      // and cannot be handed to a retry. The planners below take state only.
+      const retries = openChatTurnRetries(continuationTranscript);
       const modelTranscript = withEphemeralReference(guardedModelTranscript, ephemeralReference);
       const requestEstimate = await estimateChatRequestTokens({
         systemPrompt,
@@ -460,9 +458,9 @@ const chatTurnStep: Step<ChatRunState> = {
       // `chat.reasoning`, tool calls → `chat.tool` started cards, and a document
       // artifact's `markdown` argument → live `artifact.delta`. Mutates the
       // stream-owned slice of `state` in place. While a reissue is pending (#407)
-      // the reply flush is withheld; `flushReply`/`flushReplyTail` release it in
-      // the final-answer branch below once the flag is cleared.
-      const { flushReply, flushReplyTail } = await streamModelTurn({
+      // the reply flush is withheld; `releaseWithheldReply` is handed to the
+      // finalize boundary below, which is what clears the flag and calls it.
+      const { releaseWithheldReply } = await streamModelTurn({
         stream,
         state,
         ctx,
@@ -514,13 +512,13 @@ const chatTurnStep: Step<ChatRunState> = {
         // timeout (unnamed AbortError, and `stopRequested`), so it never enters
         // here; the throw falls through to the terminal-failure path below.
         if (isStreamTimeoutAbort(err) && !stop.stopped && state.assistantText.trim().length === 0) {
-          const retry = planStreamTimeoutRetry(state, continuationTranscript);
+          const retry = retries.afterStreamTimeout(state);
           if (retry) {
             console.warn(
               `[chat-turn] stream timeout abort; retry ` +
-                `${retry.state.streamTimeoutRetries}/${STREAM_TIMEOUT_MAX_RETRIES} (run ${ctx.runId})`,
+                `${retry.attempt}/${retry.max} (run ${ctx.runId})`,
             );
-            return retry;
+            return retry.step;
           }
         }
         throw err;
@@ -592,28 +590,24 @@ const chatTurnStep: Step<ChatRunState> = {
         // Retryable empty completion: a clean stream finish (or provider error)
         // with no text and no tool calls — the anomaly the Anthropic→Gemini quota
         // fallback throws. `withFallback` can't catch it (the SDK call succeeded
-        // with an empty stream), so degrade here: regenerate the turn from the
-        // *pre-turn* transcript (never `nextTranscript` — appending the empty
-        // assistant message would poison the retry and Anthropic 400s on empty
-        // assistant content) up to a bounded budget, then fail loudly. The client
-        // keeps showing "Thinking…" across the retry (no `started` re-poke, no
-        // committed delta).
-        const retry = planEmptyChatCompletionRetry(state, continuationTranscript);
+        // with an empty stream), so degrade here: regenerate the turn up to a
+        // bounded budget, then fail loudly. The client keeps showing "Thinking…"
+        // across the retry (no `started` re-poke, no committed delta).
+        const retry = retries.afterEmptyCompletion(state);
         if (retry) {
           console.warn(
             `[chat-turn] empty completion (finishReason:${finishReason}); retry ` +
-              `${retry.state.emptyCompletionRetries}/${EMPTY_COMPLETION_MAX_RETRIES} (run ${ctx.runId})`,
+              `${retry.attempt}/${retry.max} (run ${ctx.runId})`,
           );
-          return retry;
+          return retry.step;
         }
         throw new Error("Assistant finished without producing a response.");
       }
 
       if (outcome.kind === "tool-calls") {
-        // Productive turn — reset the consecutive-failure counters so they
-        // count retries of a single stuck turn, not one per tool-loop step.
-        state.emptyCompletionRetries = 0;
-        state.streamTimeoutRetries = 0;
+        // Productive turn — refresh the retry budgets so they count retries of a
+        // single stuck turn, not one per tool-loop step.
+        resetChatTurnRetryBudgets(state);
         if (state.inFlightTailStart === 0) {
           state.inFlightTailStart = continuationTranscript.length;
         }
@@ -631,10 +625,7 @@ const chatTurnStep: Step<ChatRunState> = {
         // internal reissue of just-auto-activated tools (#407) the lead-in text
         // is machinery ("tools warming up, retrying") and is dropped instead —
         // its live deltas were already withheld by the `flush` gate below.
-        const closed = closeLeadInNarration(state);
-        state.narration = closed.narration;
-        state.assistantText = closed.assistantText;
-        state.segmentIndex = closed.segmentIndex;
+        closeLeadInNarration(state);
         return { kind: "next", state, transcript: nextTranscript, nextStep: "dispatch-tools" };
       }
 
@@ -648,30 +639,16 @@ const chatTurnStep: Step<ChatRunState> = {
         throw new Error("Assistant finished without producing a response.");
       }
 
-      if (state.reissuePending) {
-        // A reissue was pending but the model produced a final answer instead of
-        // reissuing — so this text is the real reply, not an internal lead-in.
-        // Clear the flag and release the deltas the stream's `flush` gate withheld
-        // before any guard can close this answer into a narration segment.
-        state.reissuePending = false;
-        await flushReply();
-        // The drain-end tail flush no-op'd while the reissue flag was set (the
-        // sanitizer never saw the buffer); release the now-flushed tail.
-        await flushReplyTail();
-      }
-
-      // This turn produced user-visible text. Reset before either finalization
-      // guard: both guards can regenerate another chat turn, and that next turn
-      // must receive a fresh consecutive-failure retry budget.
-      state.emptyCompletionRetries = 0;
-      state.streamTimeoutRetries = 0;
-
-      // Every guard the turn must clear before it may finalize, in the one
-      // declared order (`FINALIZE_GUARD_SEQUENCE`): the ADR-0073 spawned-children
-      // invariant, then the #346 honesty guard. The first one to take over owns
-      // the result — a park, or a regenerated informed/honest answer.
-      const guard = await runFinalizeGuards(ctx, state, nextTranscript);
-      if (guard) return guard;
+      // This turn produced user-visible text, so it may finalize — once it has
+      // crossed the finalize boundary, which owns the whole pre-completion
+      // protocol: release a reply the #407 reissue gate withheld, refresh the
+      // retry budgets a regenerated turn would need, then run every guard in
+      // its declared order. A guard that takes over owns the result — a park,
+      // or a regenerated informed/honest answer.
+      const takeover = await crossFinalizeBoundary(ctx, state, nextTranscript, {
+        releaseWithheldReply,
+      });
+      if (takeover) return takeover;
 
       // final → persist the assistant message and complete.
       await finalizeAssistantMessage(ctx.userId, ctx.runId, state);

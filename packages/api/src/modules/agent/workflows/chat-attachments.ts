@@ -6,8 +6,8 @@ import {
   type AgentTranscriptMessage,
 } from "@alfred/contracts";
 import { db } from "@alfred/db";
-import { chatAttachments } from "@alfred/db/schemas";
-import { and, asc, eq, inArray } from "drizzle-orm";
+import { chatAttachments, chatMessages } from "@alfred/db/schemas";
+import { and, asc, eq, inArray, like, or, sql } from "drizzle-orm";
 import { sniffPassThroughImageMime } from "../../chat/attachments";
 import { readObject } from "../../chat/storage";
 import type { AgentDbExecutor } from "../types";
@@ -150,6 +150,50 @@ export async function loadReadyAttachments(
 }
 
 /**
+ * Where image attachments live in a thread, split by the recovery the UI can
+ * offer (ADR-0072). The whole thread is replayed every turn
+ * (.lessons/chat-vision-transcript-replay-poison.md), so a provider image-reject
+ * can be caused by the current turn's image (droppable via "Send without it") OR
+ * by an earlier turn's image (the retry can't reach it — only a new chat can).
+ * Returns both so `classifyChatFailure` picks the honest kind.
+ *
+ * Lives here rather than with the classifier because "which rows count as an
+ * image" is this module's answer, and it has to stay the one
+ * {@link buildStoredContentParts} gives: a pass-through image mime, or a
+ * degraded modality that contributed keyframe images. A new way to contribute
+ * image bytes has to change both. Joins through `chat_messages` because
+ * `chat_attachments` is keyed by message, not thread.
+ */
+export async function threadImageAttachments(
+  userId: string,
+  threadId: string,
+  currentUserMessageId: string | undefined,
+): Promise<{ currentTurn: boolean; historical: boolean }> {
+  const rows = await db()
+    .select({ messageId: chatAttachments.messageId })
+    .from(chatAttachments)
+    .innerJoin(chatMessages, eq(chatAttachments.messageId, chatMessages.id))
+    .where(
+      and(
+        eq(chatMessages.userId, userId),
+        eq(chatMessages.threadId, threadId),
+        eq(chatAttachments.status, "ready"),
+        or(
+          like(chatAttachments.mime, "image/%"),
+          sql`jsonb_array_length(${chatAttachments.degradedImageKeys}) > 0`,
+        ),
+      ),
+    );
+  let currentTurn = false;
+  let historical = false;
+  for (const r of rows) {
+    if (currentUserMessageId && r.messageId === currentUserMessageId) currentTurn = true;
+    else historical = true;
+  }
+  return { currentTurn, historical };
+}
+
+/**
  * Build an AI-SDK content-parts array for a user message that has attachments:
  * the typed text first, then each attachment's contribution. The durable
  * transcript stores object keys, not bytes; {@link hydrateTranscriptForModel}
@@ -289,8 +333,11 @@ async function hydrateContentForModel(
  * about — the ones on the latest turns — are the ones that survive. Messages are
  * returned in their original order.
  *
- * Returns the hydrated transcript alongside the budget it spent, so a caller can
- * report what was dropped without re-deriving it.
+ * Whatever the budget dropped is warned about here, once per skip reason: a
+ * caller that forgets to report the drops is the only way a silently shortened
+ * turn goes unnoticed, so reporting is not the caller's to forget. The budget is
+ * returned alongside the transcript so tests can assert the accounting without
+ * re-deriving it.
  */
 export async function hydrateTranscriptForModel(
   transcript: readonly AgentTranscriptMessage[],
@@ -312,11 +359,12 @@ export async function hydrateTranscriptForModel(
       content: await hydrateContentForModel(message.content, budget, cache, readStoredObject),
     });
   }
+  warnOnSkippedAttachments(budget);
   return { transcript: reversed.reverse(), budget };
 }
 
 /** Warn once per skip reason for whatever the budget dropped this turn. */
-export function warnOnSkippedAttachments(budget: AttachmentHydrationBudget): void {
+function warnOnSkippedAttachments(budget: AttachmentHydrationBudget): void {
   if (budget.skippedImages > 0) {
     console.warn(
       "[chat] skipped attachment images over model budget:",

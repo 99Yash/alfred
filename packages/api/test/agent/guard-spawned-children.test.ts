@@ -6,15 +6,13 @@ import type { ChildRunOutcome } from "../../src/modules/agent/sub-agents";
 import { AWAIT_SUB_AGENT_CEILING_MS } from "../../src/modules/agent/sub-agent-join-wake-queue";
 import {
   awaitedChildRunId,
+  crossFinalizeBoundary,
   FINALIZE_GUARD_SEQUENCE,
   guardSpawnedChildren,
   type GuardSpawnedChildrenDeps,
 } from "../../src/modules/agent/workflows/finalize-guards";
 import type { ChatRunState } from "../../src/modules/agent/workflows/chat-turn-state";
-import {
-  planEmptyChatCompletionRetry,
-  planStreamTimeoutRetry,
-} from "../../src/modules/agent/workflows/turn-budgets";
+import { openChatTurnRetries } from "../../src/modules/agent/workflows/turn-budgets";
 import type { StepContext } from "../../src/modules/agent/types";
 
 /**
@@ -60,6 +58,7 @@ function baseState(overrides: Partial<ChatRunState> = {}): ChatRunState {
     ],
     deltaSeq: 7,
     reasoningSeq: 0,
+    reissuePending: false,
     turnCount: 1,
     emptyCompletionRetries: 0,
     streamTimeoutRetries: 0,
@@ -215,41 +214,51 @@ describe("guardSpawnedChildren (ADR-0073 runtime invariant)", () => {
   test("an empty completion retries from the exact pre-turn transcript", () => {
     const state = baseState({ emptyCompletionRetries: 1 });
     const transcript = [{ role: "user" as const, content: "Keep this request" }];
-    const result = planEmptyChatCompletionRetry(state, transcript);
+    const result = openChatTurnRetries(transcript).afterEmptyCompletion(state);
 
-    assert.equal(result?.kind, "next");
-    assert.equal(result?.state.emptyCompletionRetries, 2);
+    assert.equal(result?.step.kind, "next");
+    assert.equal(result?.step.state.emptyCompletionRetries, 2);
     assert.equal(state.emptyCompletionRetries, 1, "planning does not mutate checkpoint state");
     assert.strictEqual(
-      result?.kind === "next" ? result.transcript : undefined,
+      result?.step.transcript,
       transcript,
       "the empty assistant response is never appended to the retry transcript",
     );
+    assert.deepEqual({ attempt: result?.attempt, max: result?.max }, { attempt: 2, max: 2 });
   });
 
   test("the empty-completion retry budget is bounded", () => {
     const state = baseState({ emptyCompletionRetries: 2 });
-    assert.equal(planEmptyChatCompletionRetry(state, []), null);
+    assert.equal(openChatTurnRetries([]).afterEmptyCompletion(state), null);
   });
 
   test("a stream-timeout retries from the exact pre-turn transcript", () => {
     const state = baseState({ streamTimeoutRetries: 0 });
     const transcript = [{ role: "user" as const, content: "Build the resume" }];
-    const result = planStreamTimeoutRetry(state, transcript);
+    const result = openChatTurnRetries(transcript).afterStreamTimeout(state);
 
-    assert.equal(result?.kind, "next");
-    assert.equal(result?.state.streamTimeoutRetries, 1);
+    assert.equal(result?.step.kind, "next");
+    assert.equal(result?.step.state.streamTimeoutRetries, 1);
     assert.equal(state.streamTimeoutRetries, 0, "planning does not mutate checkpoint state");
     assert.strictEqual(
-      result?.kind === "next" ? result.transcript : undefined,
+      result?.step.transcript,
       transcript,
       "the retry re-issues the model call from the unchanged pre-turn transcript",
     );
+    assert.deepEqual({ attempt: result?.attempt, max: result?.max }, { attempt: 1, max: 1 });
   });
 
   test("the stream-timeout retry budget is bounded to one", () => {
     const state = baseState({ streamTimeoutRetries: 1 });
-    assert.equal(planStreamTimeoutRetry(state, []), null);
+    assert.equal(openChatTurnRetries([]).afterStreamTimeout(state), null);
+  });
+
+  test("one handle binds both chat retries to the same pre-turn transcript", () => {
+    const preTurn: AgentTranscriptMessage[] = [{ role: "user", content: "Original request" }];
+    const retries = openChatTurnRetries(preTurn);
+
+    assert.strictEqual(retries.afterEmptyCompletion(baseState())?.step.transcript, preTurn);
+    assert.strictEqual(retries.afterStreamTimeout(baseState())?.step.transcript, preTurn);
   });
 
   test("one terminal + one running child: folds the terminal, parks on the running one", async () => {
@@ -514,5 +523,83 @@ describe("FINALIZE_GUARD_SEQUENCE", () => {
     for (const guard of FINALIZE_GUARD_SEQUENCE) {
       assert.equal(typeof guard.run, "function", `${guard.id} must be runnable`);
     }
+  });
+});
+
+describe("crossFinalizeBoundary", () => {
+  /**
+   * These cover the boundary's work *around* the guards — the two things the
+   * workflow used to do in bare statements above the guard chain, where a
+   * future edit could drop or reorder them without a type objecting.
+   *
+   * Every case runs with an empty `toolCallsLog`, so both guards stand aside on
+   * their first line and no guard I/O (children lookup, event publish) is
+   * reached: what's under test is the boundary, not the guards.
+   */
+  function releaseRecorder(): {
+    releaseWithheldReply: () => Promise<void>;
+    calls: Array<{ flagAtCallTime: boolean }>;
+    state: ChatRunState;
+  } {
+    const state = baseState({ toolCallsLog: [] });
+    const calls: Array<{ flagAtCallTime: boolean }> = [];
+    return {
+      state,
+      calls,
+      releaseWithheldReply: async () => {
+        calls.push({ flagAtCallTime: state.reissuePending });
+      },
+    };
+  }
+
+  test("clears the reissue flag BEFORE releasing the withheld reply", async () => {
+    const rec = releaseRecorder();
+    rec.state.reissuePending = true;
+
+    const result = await crossFinalizeBoundary(baseCtx(rec.state), rec.state, [], {
+      releaseWithheldReply: rec.releaseWithheldReply,
+    });
+
+    assert.equal(result, null, "no guard takes over, so the turn may complete");
+    assert.equal(rec.calls.length, 1, "the withheld reply is released exactly once");
+    assert.equal(
+      rec.calls[0]?.flagAtCallTime,
+      false,
+      // The stream's flush gate reads this flag: releasing first publishes
+      // nothing and the answer is lost from the live stream entirely.
+      "the flag is already cleared when the release runs",
+    );
+    assert.equal(rec.state.reissuePending, false);
+  });
+
+  test("a turn with nothing withheld releases nothing", async () => {
+    const rec = releaseRecorder();
+    rec.state.reissuePending = false;
+
+    await crossFinalizeBoundary(baseCtx(rec.state), rec.state, [], {
+      releaseWithheldReply: rec.releaseWithheldReply,
+    });
+
+    assert.equal(rec.calls.length, 0, "no reissue was pending, so there is nothing to release");
+  });
+
+  test("hands a regenerated turn a fresh retry budget", async () => {
+    // Spent budgets: this turn already burned both, and a guard may now send
+    // the run back through `chat-turn`.
+    const state = baseState({
+      toolCallsLog: [],
+      emptyCompletionRetries: 2,
+      streamTimeoutRetries: 1,
+    });
+    const retries = openChatTurnRetries([]);
+    assert.equal(retries.afterEmptyCompletion(state), null, "budget is spent before the boundary");
+    assert.equal(retries.afterStreamTimeout(state), null, "budget is spent before the boundary");
+
+    await crossFinalizeBoundary(baseCtx(state), state, [], {
+      releaseWithheldReply: async () => {},
+    });
+
+    assert.ok(retries.afterEmptyCompletion(state), "the next turn can retry an empty completion");
+    assert.ok(retries.afterStreamTimeout(state), "the next turn can retry a stream timeout");
   });
 });

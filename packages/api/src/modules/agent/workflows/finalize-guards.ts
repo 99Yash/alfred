@@ -6,9 +6,8 @@ import {
 } from "@alfred/contracts";
 import { publishEvent } from "../../../events/publish";
 import { isMutatingToolName } from "../../dispatch";
-import { joinChildRun, type JoinChildRunDeps } from "../sub-agent-join";
+import { joinChildRun, type JoinChildRunDeps, type ParkSignal } from "../sub-agent-join";
 import { scheduleSubAgentJoinWakeJob } from "../sub-agent-join-wake-queue";
-import { subAgentDoneSignalName } from "../sub-agent-metadata";
 import {
   isTerminalChildStatus,
   listSpawnedChildRuns,
@@ -16,12 +15,14 @@ import {
   type ChildRunOutcome,
 } from "../sub-agents";
 import type { StepContext, StepResult } from "../types";
-import { interruptChatRun, type ChatRunState } from "./chat-turn-state";
+import { closeNarrationSegment, interruptChatRun, type ChatRunState } from "./chat-turn-state";
 import { PREVIEW_CHARS } from "./tool-preview";
+import { resetChatTurnRetryBudgets } from "./turn-budgets";
 
 /**
- * The guards a chat turn must clear before it is allowed to finalize, and the
- * order they run in.
+ * The chat turn's finalize boundary: everything that has to happen between "the
+ * model produced an answer" and "the turn may persist it and complete", in the
+ * order it happens.
  *
  * Each guard returns a `StepResult` to take over finalization (park, or
  * regenerate an informed/honest answer) or `null` to stand aside. They have
@@ -29,6 +30,11 @@ import { PREVIEW_CHARS } from "./tool-preview";
  * before {@link FINALIZE_GUARD_SEQUENCE} the ordering lived only in the
  * comments between two consecutive `await`s, and a caller could reorder them
  * without anything complaining.
+ *
+ * The guards' own preconditions were the same hazard one step earlier — two
+ * bare statements the workflow ran under a comment saying they had to come
+ * first. {@link crossFinalizeBoundary} is the whole boundary, so the only way
+ * to reach a guard is through the work that has to precede it.
  */
 
 /**
@@ -90,9 +96,8 @@ function syntheticChildResultMessage(
  * Close the model's premature (uninformed / possibly false-success) answer into a
  * narration segment and advance the live client off it, shared by both finalize
  * guards. The trigger differs — an uninformed child-await answer vs a
- * false-success tool-failure answer — but the closure protocol is identical:
- * park the current `assistantText` as a narration entry, clear it, bump
- * `segmentIndex`, then publish a zero-length `chat.delta` on the new segment.
+ * false-success tool-failure answer — but the closure is identical: the segment
+ * close below, then a zero-length `chat.delta` on the new segment.
  *
  * The zero-length delta is load-bearing: that premature text already streamed to
  * the client as a `chat.delta`, and `use-chat-stream` only advances `currentSegment`
@@ -105,21 +110,21 @@ function syntheticChildResultMessage(
  * transcript-tail strip decision; `guardUnreportedToolFailures` ignores the result.
  * `publish` is injected (both guards resolve it to `publishEvent`) so the guards'
  * tests keep working without a live event bus.
- *
- * Distinct from `closeLeadInNarration` (see `./chat-turn-state`), which has a
- * different keep/drop policy (drops text on `reissuePending`) and no
- * advance-delta — do not merge them.
  */
 async function closePrematureAnswerSegment(
   ctx: StepContext<ChatRunState>,
   state: ChatRunState,
   publish: typeof publishEvent,
 ): Promise<boolean> {
-  const closed = state.assistantText.trim().length > 0;
+  // The turn's other close is `closeLeadInNarration`; these two fields are the
+  // whole difference between them (see `NarrationClose` in `./chat-turn-state`).
+  // Rejected prose already streamed, so it is kept; and with nothing closed
+  // there is no new segment for the delta below to advance the client onto.
+  const closed = closeNarrationSegment(state, {
+    keepText: true,
+    advanceWhenNothingKept: false,
+  });
   if (!closed) return false;
-  state.narration = [...state.narration, { index: state.segmentIndex, text: state.assistantText }];
-  state.assistantText = "";
-  state.segmentIndex += 1;
   state.deltaSeq += 1;
   await publish({
     userId: ctx.userId,
@@ -194,7 +199,10 @@ export async function guardSpawnedChildren(
   if (unfolded.length === 0) return null;
 
   const foldMessages: AgentTranscriptMessage[] = [];
-  const parkOn: string[] = [];
+  // The signals the join minted, not the child ids — the park below can only be
+  // built from something {@link joinChildRun} handed back, so this guard never
+  // re-derives a signal name it might not have earned a timer for.
+  const parkSignals: ParkSignal[] = [];
 
   for (const child of unfolded) {
     const join = await joinChildRun(
@@ -202,7 +210,7 @@ export async function guardSpawnedChildren(
       deps,
     );
     if (join.kind === "park") {
-      parkOn.push(child.id);
+      parkSignals.push(join.signalName);
       continue;
     }
     // Resolved: a real result, or an honest still-running note (ceiling expiry /
@@ -241,11 +249,8 @@ export async function guardSpawnedChildren(
   const nextTranscript =
     foldMessages.length > 0 ? [...baseTranscript, ...foldMessages] : baseTranscript;
 
-  if (parkOn.length > 0) {
-    return interruptChatRun(state, nextTranscript, {
-      kind: "signal",
-      name: subAgentDoneSignalName(parkOn[0]!),
-    });
+  if (parkSignals.length > 0) {
+    return interruptChatRun(state, nextTranscript, { kind: "signal", name: parkSignals[0]! });
   }
   return { kind: "next", state, transcript: nextTranscript, nextStep: "chat-turn" };
 }
@@ -383,20 +388,53 @@ export const FINALIZE_GUARD_SEQUENCE: readonly FinalizeGuard[] = [
   },
 ];
 
+/** The one effect the finalize boundary cannot perform for itself. */
+export interface FinalizeBoundaryDeps {
+  /**
+   * Release the reply deltas the #407 reissue gate withheld during the drain.
+   * This is `releaseWithheldReply` from `./stream-model-turn`, which only the
+   * step holding the live stream can hand over; the boundary calls it (after
+   * clearing the flag) before any guard runs, so the caller never does.
+   */
+  readonly releaseWithheldReply: () => Promise<void>;
+}
+
 /**
- * Run the finalize guards in {@link FINALIZE_GUARD_SEQUENCE} and return the
- * first result that takes over finalization, or `null` when every guard stands
- * aside and the caller may complete the turn.
+ * Cross the chat turn's finalize boundary: everything a turn that produced
+ * user-visible text must do before it is allowed to persist and complete.
+ * Returns the first result that takes over finalization, or `null` when the
+ * boundary is clear and the caller may complete the turn.
+ *
+ * Three things happen here, in this order, and the order is why they are one
+ * function instead of three statements above the loop:
+ *
+ *  1. **Release a withheld reply.** If a reissue was pending (#407) the model
+ *     answered instead of reissuing, so this text is the real reply, not an
+ *     internal lead-in. Clear the flag — the stream's flush gate reads it, so
+ *     releasing first silently publishes nothing — then release. This must
+ *     precede the guards: a guard closes `assistantText` into a narration
+ *     segment and bumps `segmentIndex`, and deltas released afterwards would
+ *     land on the wrong segment, on text the guard already rejected.
+ *  2. **Refresh the retry budgets.** Both guards can regenerate another chat
+ *     turn, and that turn must start with a fresh consecutive-failure budget.
+ *  3. **Run {@link FINALIZE_GUARD_SEQUENCE}.**
  *
  * Guards mutate `state` in place and each sees the transcript as the caller
  * built it; a guard that takes over owns the transcript it returns, so no later
  * guard runs against a transcript a taking-over guard has already rewritten.
  */
-export async function runFinalizeGuards(
+export async function crossFinalizeBoundary(
   ctx: StepContext<ChatRunState>,
   state: ChatRunState,
   transcript: AgentTranscriptMessage[],
+  deps: FinalizeBoundaryDeps,
 ): Promise<StepResult<ChatRunState> | null> {
+  if (state.reissuePending) {
+    state.reissuePending = false;
+    await deps.releaseWithheldReply();
+  }
+  resetChatTurnRetryBudgets(state);
+
   for (const guard of FINALIZE_GUARD_SEQUENCE) {
     const result = await guard.run(ctx, state, transcript);
     if (result) return result;

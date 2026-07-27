@@ -15,8 +15,8 @@
  * `instanceof`.
  *
  * Its own module because both halves of the turn read it: the chat turn's
- * retry branch (recover from it) and the closure's `classifyChatFailure` (tag
- * it `timeout` rather than letting the transient-fault net call it `overloaded`).
+ * retry branch (recover from it) and `classifyChatFailure` (tag it `timeout`
+ * rather than letting the transient-fault net call it `overloaded`).
  */
 export function isStreamTimeoutAbort(err: unknown): boolean {
   return (
