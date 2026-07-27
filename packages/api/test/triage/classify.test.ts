@@ -1129,7 +1129,7 @@ describe("classifyEmail", () => {
       }),
     );
     assert.equal(result.classification.category, "urgent");
-    assert.equal(result.audit.floorForced, true);
+    assert.equal(result.audit.floors.override.forced, true);
     assert.match(result.model, /\+floor$/);
   });
 
@@ -1151,7 +1151,7 @@ describe("classifyEmail", () => {
       }),
     );
     assert.equal(result.classification.category, "fyi");
-    assert.equal(result.audit.floorForced, false);
+    assert.equal(result.audit.floors.override.forced, false);
     assert.equal(result.audit.conflict, null);
     assert.equal(model.calls(), 1); // no second pass
   });
@@ -1193,8 +1193,8 @@ describe("classifyEmail", () => {
     assert.equal(result.audit.conflict, null);
     assert.equal(result.audit.secondPass, null);
     assert.equal(result.audit.secondPassFailure, null);
-    assert.equal(result.audit.floorMatched, false);
-    assert.equal(result.audit.floorForced, false);
+    assert.equal(result.audit.floors.override.matched, false);
+    assert.equal(result.audit.floors.override.forced, false);
     assert.equal(result.classification.category, "newsletter");
     assert.equal(result.model, "injected");
   });
@@ -1223,7 +1223,7 @@ describe("classifyEmail", () => {
       }),
     );
     assert.equal(result.classification.category, "fyi");
-    assert.equal(result.audit.senderKindDemoted, true);
+    assert.equal(result.audit.floors.senderKind.demoted, true);
     assert.equal(result.audit.firstPass.category, "awaiting_reply");
     assert.equal(result.model, "injected+kindfloor");
     assert.equal(resolveTodoSuggestion(result.classification), null);
@@ -1268,7 +1268,7 @@ describe("classifyEmail", () => {
       }),
     );
     assert.equal(result.classification.category, "fyi");
-    assert.equal(result.audit.senderKindDemoted, true);
+    assert.equal(result.audit.floors.senderKind.demoted, true);
     assert.equal(result.model, "injected+kindfloor");
     assert.equal(resolveTodoSuggestion(result.classification), null);
   });
@@ -1315,8 +1315,8 @@ describe("classifyEmail", () => {
     assert.equal(result.classification.category, "fyi");
     assert.equal(result.classification.collabActivity, "other_activity");
     assert.equal(result.audit.firstPass.collabActivity, "other_activity");
-    assert.equal(result.audit.senderKindDemoted, true);
-    assert.equal(result.audit.senderKindDemotionReason, "collab_passive_activity");
+    assert.equal(result.audit.floors.senderKind.demoted, true);
+    assert.equal(result.audit.floors.senderKind.reason, "collab_passive_activity");
     assert.equal(result.model, "injected+kindfloor");
     assert.equal(resolveTodoSuggestion(result.classification), null);
   });
@@ -1359,9 +1359,9 @@ describe("classifyEmail", () => {
       }),
     );
     assert.equal(result.classification.category, "fyi");
-    assert.equal(result.audit.senderKindDemoted, false);
-    assert.equal(result.audit.meetingDemoted, true);
-    assert.equal(result.audit.meetingDemotionReason, "automated_relay");
+    assert.equal(result.audit.floors.senderKind.demoted, false);
+    assert.equal(result.audit.floors.meeting.demoted, true);
+    assert.equal(result.audit.floors.meeting.reason, "automated_relay");
     assert.equal(result.model, "injected+meetingfloor");
     assert.equal(resolveTodoSuggestion(result.classification), null);
   });
@@ -1406,8 +1406,8 @@ describe("classifyEmail", () => {
     );
     assert.equal(result.classification.category, "awaiting_reply");
     assert.equal(result.classification.collabActivity, "mentioned_user");
-    assert.equal(result.audit.senderKindDemoted, false);
-    assert.equal(result.audit.senderKindDemotionReason, null);
+    assert.equal(result.audit.floors.senderKind.demoted, false);
+    assert.equal(result.audit.floors.senderKind.reason, null);
     assert.equal(result.model, "injected");
     assert.deepEqual(resolveTodoSuggestion(result.classification), {
       name: "Reply to the merge question",
@@ -1448,7 +1448,7 @@ describe("classifyEmail", () => {
       }),
     );
     assert.equal(result.classification.category, "fyi");
-    assert.equal(result.audit.senderKindDemoted, true);
+    assert.equal(result.audit.floors.senderKind.demoted, true);
     assert.equal(result.model, "injected+kindfloor");
     assert.equal(resolveTodoSuggestion(result.classification), null);
   });
@@ -1494,7 +1494,7 @@ describe("classifyEmail", () => {
       }),
     );
     assert.equal(result.classification.category, "fyi");
-    assert.equal(result.audit.senderKindDemoted, true);
+    assert.equal(result.audit.floors.senderKind.demoted, true);
     assert.equal(result.audit.firstPass.category, "urgent");
     assert.equal(result.model, "injected+kindfloor");
     assert.equal(resolveTodoSuggestion(result.classification), null);
@@ -1542,7 +1542,7 @@ describe("classifyEmail", () => {
       }),
     );
     assert.equal(result.classification.category, "fyi");
-    assert.equal(result.audit.senderKindDemoted, true);
+    assert.equal(result.audit.floors.senderKind.demoted, true);
     assert.equal(result.audit.firstPass.category, "urgent");
     assert.equal(result.model, "injected+kindfloor");
     assert.equal(resolveTodoSuggestion(result.classification), null);
@@ -1579,8 +1579,8 @@ describe("classifyEmail", () => {
       }),
     );
     assert.equal(result.classification.category, "urgent");
-    assert.equal(result.audit.floorForced, true);
-    assert.equal(result.audit.senderKindDemoted, false);
+    assert.equal(result.audit.floors.override.forced, true);
+    assert.equal(result.audit.floors.senderKind.demoted, false);
     assert.equal(result.model, "injected+floor");
     assert.deepEqual(resolveTodoSuggestion(result.classification), {
       name: "Rotate the leaked key",
@@ -1623,7 +1623,7 @@ describe("classifyEmail", () => {
         runPass: model.runPass,
       }),
     );
-    assert.equal(result.audit.floorForced, true);
+    assert.equal(result.audit.floors.override.forced, true);
     assert.equal(result.classification.category, "urgent");
     assert.deepEqual(result.classification.todoSuggestion, { name: "Rotate the leaked Redis key" });
     assert.deepEqual(resolveTodoSuggestion(result.classification), {
