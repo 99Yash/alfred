@@ -222,7 +222,7 @@ describe("mcp persistence (DB-backed)", { skip: SKIP }, () => {
     assert.equal(identity.status, "resolved");
     if (identity.status !== "resolved") return;
     assert.equal(identity.connection.id, connId);
-    assert.equal(identity.revision.id, revision.id);
+    assert.equal(identity.connection.currentCatalogRevisionId, revision.id);
     assert.equal(identity.descriptorHash, "sha256:search");
     assert.equal(identity.policy?.id, policy.id);
 

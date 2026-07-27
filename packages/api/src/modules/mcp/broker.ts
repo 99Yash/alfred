@@ -22,7 +22,7 @@
  */
 
 import type { McpEffectClass } from "@alfred/contracts";
-import type { McpConnection, McpInvocation, McpToolPolicyRow } from "@alfred/db/schemas";
+import type { McpInvocation, McpToolPolicyRow } from "@alfred/db/schemas";
 import type { ExternalToolRef, McpCallEnvelope } from "./client";
 import { McpClientError, boundedMcpErrorText, isPreDeliveryErrorCode } from "./errors";
 import { canonicalArgsHash, descriptorHash } from "./hash";
@@ -32,6 +32,7 @@ import {
   insertInvocation,
   readInvocationByStagingId,
   resolveMcpToolIdentity,
+  type OwnedMcpConnectionRef,
   updateInvocation,
 } from "./persistence";
 
@@ -122,10 +123,11 @@ export class McpExecutionBroker {
 
     // Connecting/refreshing the catalog is a prerequisite, not the tool-call
     // delivery boundary: a failure here provably predates any `tools/call`, so it
-    // throws (deterministic failure) with no ledger row minted. Reuse the
-    // owner-verified row from identity resolution so the manager does not read
-    // the same connection a second time while hydrating a first-use client.
-    const client = await this.#manager.getReadyClient(ref.connectionId, identity.connection);
+    // throws (deterministic failure) with no ledger row minted. The manager reads
+    // the mutable connection row again before first-use hydration: the identity
+    // resolver proves ownership and policy, but its endpoint/credential snapshot
+    // must not outlive a concurrent connection update.
+    const client = await this.#manager.getReadyClient(ref.connectionId);
 
     // The durable identity and reviewed policy were resolved together above.
     // Honor that policy only if the exact live descriptor has the same hash. A
@@ -170,16 +172,16 @@ export class McpExecutionBroker {
       effectClass: McpEffectClass;
       descriptorHashValue: string | undefined;
       policy: McpToolPolicyRow | undefined;
-      /** The owner-verified connection already read in `callTool`. */
-      connection: McpConnection;
+      /** The owner-verified durable pointer already read in `callTool`. */
+      connection: OwnedMcpConnectionRef;
     },
   ): Promise<McpBrokerOutcome> {
     const { ref } = input;
     const argsHash = canonicalArgsHash(input.arguments);
     // Only the current-revision POINTER is needed for the ledger row, and the
-    // owner-verified connection was already read in `callTool`, so reuse it rather
-    // than re-fetching (its full revision's descriptors/hashes jsonb runs to the
-    // catalog ceiling — the row itself carries only the id we need).
+    // owner-verified connection pointer was already read in `callTool`, so reuse
+    // it rather than fetching the catalog-sized revision row just to recover its
+    // id.
     const connection = resolved.connection;
 
     // The reservation. Minting the row IS the barrier: the partial unique index

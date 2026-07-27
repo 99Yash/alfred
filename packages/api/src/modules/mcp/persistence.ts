@@ -285,11 +285,12 @@ export interface ResolveMcpToolIdentityInput {
   catalogRevision: string;
 }
 
+export type OwnedMcpConnectionRef = Pick<McpConnection, "id" | "currentCatalogRevisionId">;
+
 export type McpToolIdentityResolution =
   | {
       status: "resolved";
-      connection: McpConnection;
-      revision: McpCatalogRevision;
+      connection: OwnedMcpConnectionRef;
       descriptorHash: string;
       policy: McpToolPolicyRow | undefined;
     }
@@ -297,9 +298,9 @@ export type McpToolIdentityResolution =
       status: "unresolved";
       /**
        * Present when the connection exists and belongs to the caller. Consumers
-       * may reuse the owner-verified row, but no descriptor policy is authorized.
+       * may use its durable pointer, but no descriptor policy is authorized.
        */
-      connection: McpConnection | undefined;
+      connection: OwnedMcpConnectionRef | undefined;
     };
 
 /**
@@ -323,8 +324,11 @@ export async function resolveMcpToolIdentity(
   >`${mcpCatalogRevisions.descriptorHashes} ->> ${input.remoteName}`;
   const [row] = await runner
     .select({
-      connection: mcpConnections,
-      revision: mcpCatalogRevisions,
+      connection: {
+        id: mcpConnections.id,
+        currentCatalogRevisionId: mcpConnections.currentCatalogRevisionId,
+      },
+      revisionHash: mcpCatalogRevisions.revisionHash,
       descriptorHash: descriptorHashExpr,
       policy: mcpToolPolicy,
     })
@@ -345,19 +349,13 @@ export async function resolveMcpToolIdentity(
     .where(and(eq(mcpConnections.id, input.connectionId), eq(mcpConnections.userId, input.userId)))
     .limit(1);
 
-  if (
-    !row ||
-    !row.revision ||
-    row.revision.revisionHash !== input.catalogRevision ||
-    !row.descriptorHash
-  ) {
+  if (!row || row.revisionHash !== input.catalogRevision || !row.descriptorHash) {
     return { status: "unresolved", connection: row?.connection };
   }
 
   return {
     status: "resolved",
     connection: row.connection,
-    revision: row.revision,
     descriptorHash: row.descriptorHash,
     policy: row.policy ?? undefined,
   };

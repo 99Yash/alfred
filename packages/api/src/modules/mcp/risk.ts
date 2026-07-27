@@ -29,18 +29,12 @@
  */
 
 import { isToolRiskTier, type ToolRiskTier } from "@alfred/contracts";
-import { resolveMcpToolIdentity } from "./persistence";
+import { resolveMcpToolIdentity, type ResolveMcpToolIdentityInput } from "./persistence";
 
 /** The conservative floor an `mcp.call` falls back to when no reviewed downgrade applies. */
 export const MCP_CALL_RISK_FLOOR: ToolRiskTier = "high";
 
-export interface McpCallRiskInput {
-  userId: string;
-  connectionId: string;
-  remoteName: string;
-  /** The catalog revision hash the model selected the tool under (echoed on the call). */
-  catalogRevision: string;
-}
+export type McpCallRiskInput = ResolveMcpToolIdentityInput;
 
 /**
  * Resolve the effective risk tier for one `mcp.call`, applying a reviewed
