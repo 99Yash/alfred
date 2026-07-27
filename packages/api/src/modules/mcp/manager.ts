@@ -107,17 +107,11 @@ export class McpConnectionManager {
    * along the way. On any failure the client is dropped and the connection is
    * marked `failed` with a bounded error string.
    */
-  async getReadyClient(
-    connectionId: string,
-    ownerVerifiedConnection?: McpConnection,
-  ): Promise<McpRawClient> {
-    if (ownerVerifiedConnection && ownerVerifiedConnection.id !== connectionId) {
-      throw new Error("MCP connection row does not match the requested connection id");
-    }
+  async getReadyClient(connectionId: string): Promise<McpRawClient> {
     const cached = this.#clients.get(connectionId);
     if (cached) return cached;
 
-    const connection = ownerVerifiedConnection ?? (await readConnection(connectionId));
+    const connection = await readConnection(connectionId);
     if (!connection) throw new McpConnectionNotFoundError(connectionId);
 
     const client = this.#clientFactory(connection);
