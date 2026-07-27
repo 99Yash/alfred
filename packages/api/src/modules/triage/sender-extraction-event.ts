@@ -46,11 +46,11 @@ export interface SenderExtractionEvent {
   /** True when the sender-kind floor demoted the final category `awaiting_reply` → `fyi` (#210). */
   senderKindDemotedCategory: boolean;
   /** Structured reason for a sender-kind category demotion, if one fired. */
-  senderKindDemotionReason: ClassifyAudit["senderKindDemotionReason"];
+  senderKindDemotionReason: ClassifyAudit["floors"]["senderKind"]["reason"];
   /** True when the meeting-gate floor demoted `meeting` → `fyi`. */
   meetingDemotedCategory: boolean;
   /** Structured reason for a meeting-gate demotion, if one fired. */
-  meetingDemotionReason: ClassifyAudit["meetingDemotionReason"];
+  meetingDemotionReason: ClassifyAudit["floors"]["meeting"]["reason"];
   threadMessages: number;
   threadNewest: Observations["thread"]["newestDirection"];
   gmailImportant: boolean;
@@ -114,10 +114,10 @@ export function senderExtractionEvent(args: {
     senderKindConfidence: obs.senderKind?.confidence ?? null,
     senderKindEvidenceCodes: obs.senderKind?.evidenceCodes ?? [],
     senderKindDemotedPersonTreatment: Boolean(obs.senderKind),
-    senderKindDemotedCategory: audit?.senderKindDemoted ?? false,
-    senderKindDemotionReason: audit?.senderKindDemotionReason ?? null,
-    meetingDemotedCategory: audit?.meetingDemoted ?? false,
-    meetingDemotionReason: audit?.meetingDemotionReason ?? null,
+    senderKindDemotedCategory: audit?.floors.senderKind.demoted ?? false,
+    senderKindDemotionReason: audit?.floors.senderKind.reason ?? null,
+    meetingDemotedCategory: audit?.floors.meeting.demoted ?? false,
+    meetingDemotionReason: audit?.floors.meeting.reason ?? null,
     threadMessages: obs.thread.messageCount,
     threadNewest: obs.thread.newestDirection,
     gmailImportant: obs.gmail.important,
@@ -131,8 +131,8 @@ export function senderExtractionEvent(args: {
     secondPassCategory: audit?.secondPass?.category ?? null,
     secondPassCollabActivity: audit?.secondPass?.collabActivity ?? null,
     secondPassFailure: audit?.secondPassFailure?.message ?? null,
-    floorMatched: audit?.floorMatched ?? false,
-    floorForced: audit?.floorForced ?? false,
+    floorMatched: audit?.floors.override.matched ?? false,
+    floorForced: audit?.floors.override.forced ?? false,
     // final outcome
     finalCategory: args.classification.category,
     finalConfidence: args.classification.confidence,

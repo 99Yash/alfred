@@ -5,8 +5,8 @@ import {
 } from "@alfred/contracts";
 import type { TriageClassification } from "../classify";
 import type { Observations } from "../observations";
-import { truncateRationale } from "../rationale";
 import { canonicalizeEmailForMatch, recipientAddresses } from "../sender-context";
+import { demoteToFyi, type FloorResult } from "./floor";
 import { matchesExposedSecret } from "./override";
 
 export type SenderKindDemotionReason =
@@ -74,11 +74,7 @@ export function applySenderKindDemotionFloor(
   classification: TriageClassification,
   senderKind: Observations["senderKind"],
   context: SenderKindDemotionFloorContext = {},
-): {
-  classification: TriageClassification;
-  demoted: boolean;
-  reason: SenderKindDemotionReason | null;
-} {
+): FloorResult & { demoted: boolean; reason: SenderKindDemotionReason | null } {
   // An ownership collabActivity is a model-emitted "this is directed at the user"
   // read. Treat it as a veto over every passive sender-kind demotion path,
   // including the broad awaiting_reply demotion and GitHub reason aliases.
@@ -107,20 +103,14 @@ export function applySenderKindDemotionFloor(
               ? `${senderKind.kind} sender sent passive collaboration activity not directed at the user`
               : `${senderKind.kind} sender sent a passive collaboration state transition`;
   return {
-    classification: {
-      ...classification,
-      category: "fyi",
-      todoSuggestion: null,
-      todoDecision: {
-        outcome: "no_obligation",
-        note: `sender_kind_floor: ${note}`,
-      },
-      rationale: truncateRationale(
-        `${classification.rationale} Sender-kind floor: ${senderKind.kind} sender ` +
-          `(active projection confidence=${senderKind.confidence.toFixed(2)}) is not awaiting the ` +
-          `user's action — demoted ${classification.category} → fyi (demote, never bury).`,
-      ),
-    },
+    classification: demoteToFyi(classification, {
+      key: "sender_kind_floor",
+      note,
+      reason:
+        `Sender-kind floor: ${senderKind.kind} sender ` +
+        `(active projection confidence=${senderKind.confidence.toFixed(2)}) is not awaiting the ` +
+        `user's action`,
+    }),
     demoted: true,
     reason,
   };

@@ -1,5 +1,6 @@
 import type { TriageClassification } from "../classify";
 import { truncateRationale } from "../rationale";
+import type { FloorResult } from "./floor";
 
 /**
  * Override-floor predicate (ADR-0051 §5, Phase 3 seed = ONE signal). Keys on
@@ -43,7 +44,7 @@ export function matchesExposedSecret(text: string): boolean {
 export function applyOverrideFloor(
   classification: TriageClassification,
   signalText: string,
-): { classification: TriageClassification; matched: boolean; forced: boolean } {
+): FloorResult & { matched: boolean; forced: boolean } {
   if (!OVERRIDE_FLOOR_SECRET_RE.test(signalText)) {
     return { classification, matched: false, forced: false };
   }
