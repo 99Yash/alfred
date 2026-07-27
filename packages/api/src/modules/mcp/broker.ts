@@ -22,7 +22,7 @@
  */
 
 import type { McpEffectClass } from "@alfred/contracts";
-import type { McpConnection, McpInvocation } from "@alfred/db/schemas";
+import type { McpInvocation, McpToolPolicyRow } from "@alfred/db/schemas";
 import type { ExternalToolRef, McpCallEnvelope } from "./client";
 import { McpClientError, boundedMcpErrorText, isPreDeliveryErrorCode } from "./errors";
 import { canonicalArgsHash, descriptorHash } from "./hash";
@@ -30,9 +30,9 @@ import type { McpConnectionManager } from "./manager";
 import {
   findUnresolvedBarrier,
   insertInvocation,
-  readConnection,
   readInvocationByStagingId,
-  readToolPolicy,
+  resolveMcpToolIdentity,
+  type OwnedMcpConnectionRef,
   updateInvocation,
 } from "./persistence";
 
@@ -111,23 +111,34 @@ export class McpExecutionBroker {
     // predates any `tools/call`, so it throws a deterministic pre-delivery error
     // (no barrier minted) and the dispatch seam records an ordinary failure. It is
     // enforced here, at the read, rather than left as a convention for multi-user.
-    const connection = await readConnection(ref.connectionId);
-    if (!connection || connection.userId !== input.userId) {
+    const identity = await resolveMcpToolIdentity({
+      userId: input.userId,
+      connectionId: ref.connectionId,
+      remoteName: ref.remoteName,
+      catalogRevision: ref.catalogRevision,
+    });
+    if (!identity.connection) {
       throw new McpClientError("not_connected", `No connected MCP server '${ref.connectionId}'.`);
     }
 
     // Connecting/refreshing the catalog is a prerequisite, not the tool-call
     // delivery boundary: a failure here provably predates any `tools/call`, so it
-    // throws (deterministic failure) with no ledger row minted.
+    // throws (deterministic failure) with no ledger row minted. The manager reads
+    // the mutable connection row again before first-use hydration: the identity
+    // resolver proves ownership and policy, but its endpoint/credential snapshot
+    // must not outlive a concurrent connection update.
     const client = await this.#manager.getReadyClient(ref.connectionId);
 
-    // Resolve reviewed effect/retry policy, bound to the EXACT descriptor. A
-    // descriptor miss (drift, or a tool not in the live catalog) yields no policy,
-    // so the effect class defaults to `unknown` — handled conservatively as an
-    // effectful, ambiguity-protected call.
+    // The durable identity and reviewed policy were resolved together above.
+    // Honor that policy only if the exact live descriptor has the same hash. A
+    // stale selection, missing live tool, or persisted/live drift therefore has
+    // no policy and defaults to conservative `unknown`.
     const liveTool = client.catalog?.tools.find((tool) => tool.name === ref.remoteName);
     const hash = liveTool ? descriptorHash(liveTool) : undefined;
-    const policy = hash ? await readToolPolicy(ref.connectionId, ref.remoteName, hash) : undefined;
+    const policy =
+      identity.status === "resolved" && hash === identity.descriptorHash
+        ? identity.policy
+        : undefined;
     const effectClass: McpEffectClass = policy?.effectClass ?? "unknown";
 
     if (effectClass === "read") {
@@ -151,7 +162,7 @@ export class McpExecutionBroker {
       effectClass,
       descriptorHashValue: hash,
       policy,
-      connection,
+      connection: identity.connection,
     });
   }
 
@@ -160,17 +171,17 @@ export class McpExecutionBroker {
     resolved: {
       effectClass: McpEffectClass;
       descriptorHashValue: string | undefined;
-      policy: Awaited<ReturnType<typeof readToolPolicy>>;
-      /** The owner-verified connection already read in `callTool`. */
-      connection: McpConnection;
+      policy: McpToolPolicyRow | undefined;
+      /** The owner-verified durable pointer already read in `callTool`. */
+      connection: OwnedMcpConnectionRef;
     },
   ): Promise<McpBrokerOutcome> {
     const { ref } = input;
     const argsHash = canonicalArgsHash(input.arguments);
     // Only the current-revision POINTER is needed for the ledger row, and the
-    // owner-verified connection was already read in `callTool`, so reuse it rather
-    // than re-fetching (its full revision's descriptors/hashes jsonb runs to the
-    // catalog ceiling — the row itself carries only the id we need).
+    // owner-verified connection pointer was already read in `callTool`, so reuse
+    // it rather than fetching the catalog-sized revision row just to recover its
+    // id.
     const connection = resolved.connection;
 
     // The reservation. Minting the row IS the barrier: the partial unique index
