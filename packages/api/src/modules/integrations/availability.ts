@@ -61,6 +61,24 @@ export interface ToolAvailabilityContext {
   hasThread: boolean;
 }
 
+/**
+ * Project a dispatch/execute context onto the two facts availability actually
+ * gates on. Exists so the surface and the floor cannot disagree about how a
+ * caller maps: the mapping used to be a hand-written ternary at each call site,
+ * where a divergence would be invisible (the expressions look alike) and would
+ * show up as a tool that passes discovery and is refused at dispatch, or the
+ * reverse. Sibling of `callerLabel`, which does the same for span labels.
+ */
+export function toolAvailabilityContext(args: {
+  caller: "boss" | { subId: string } | undefined;
+  threadId: string | null | undefined;
+}): ToolAvailabilityContext {
+  return {
+    caller: args.caller === undefined || args.caller === "boss" ? "boss" : "sub_agent",
+    hasThread: Boolean(args.threadId),
+  };
+}
+
 export interface IntegrationAvailabilitySnapshot {
   integrations: ReadonlyMap<LoadableIntegrationSlug, IntegrationAvailability>;
   providers: ReadonlyMap<string, readonly ProviderRow[]>;
@@ -75,8 +93,67 @@ export interface IntegrationAvailabilitySnapshot {
   passthroughEnabled: ReadonlyMap<SupportedIntegrationSlug, boolean>;
 }
 
-/** One credential read projected into exact per-integration capability health. */
-export async function readIntegrationAvailability(
+/**
+ * How long a snapshot is reused. Deliberately short: the whole point of the
+ * dispatch floor reading availability LIVE is that a grant revoked or a kill
+ * switch flipped since the surface was built must bounce the call, so the window
+ * in which a stale snapshot could let one through has to be far smaller than the
+ * gap it closes (turn start → dispatch, seconds to minutes). Inside the window
+ * the worst case is the pre-floor behavior: the call executes and fails with the
+ * provider's own auth error.
+ */
+const AVAILABILITY_MEMO_TTL_MS = 3_000;
+
+interface AvailabilityMemoEntry {
+  readAt: number;
+  snapshot: Promise<IntegrationAvailabilitySnapshot>;
+}
+
+const availabilityMemo = new Map<string, AvailabilityMemoEntry>();
+
+/**
+ * One credential read projected into exact per-integration capability health,
+ * memoized per user for {@link AVAILABILITY_MEMO_TTL_MS}.
+ *
+ * The memo lives HERE, on the read, rather than at each caller: the dispatch
+ * floor now resolves availability on every call, so a round of five parallel
+ * Gmail calls would otherwise issue ten of these. Callers that used to hand-roll
+ * `availability ??= await readIntegrationAvailability(...)` just call it.
+ *
+ * Caching the promise (not the result) also collapses concurrent callers in the
+ * same round onto one query. A rejected read is evicted so the next caller
+ * retries instead of inheriting a poisoned entry — same shape as
+ * `getResolvedPolicy`, minus its bust protocol: expiry by time means no write
+ * site has to know this cache exists, which is the trade for a bounded staleness
+ * window rather than an exact one.
+ */
+export function readIntegrationAvailability(
+  userId: string,
+): Promise<IntegrationAvailabilitySnapshot> {
+  const now = Date.now();
+  const cached = availabilityMemo.get(userId);
+  if (cached && now - cached.readAt < AVAILABILITY_MEMO_TTL_MS) return cached.snapshot;
+
+  // Drop everything already expired while we are here — the map is keyed by user
+  // and entries are never otherwise removed, so this is what bounds it.
+  for (const [key, entry] of availabilityMemo) {
+    if (now - entry.readAt >= AVAILABILITY_MEMO_TTL_MS) availabilityMemo.delete(key);
+  }
+
+  const pending = loadIntegrationAvailability(userId).catch((err: unknown) => {
+    availabilityMemo.delete(userId);
+    throw err;
+  });
+  availabilityMemo.set(userId, { readAt: now, snapshot: pending });
+  return pending;
+}
+
+/** Drop every memoized snapshot. Test-only — production entries expire by time. */
+export function clearIntegrationAvailabilityMemoForTests(): void {
+  availabilityMemo.clear();
+}
+
+async function loadIntegrationAvailability(
   userId: string,
 ): Promise<IntegrationAvailabilitySnapshot> {
   const passthroughKeys = Object.values(PASSTHROUGH_PREFERENCE_KEYS);
@@ -159,21 +236,16 @@ export type ToolAvailabilityResult =
   | { available: false; code: ToolUnavailabilityCode; reason: string };
 
 /**
- * Single source of truth for whether one exact tool can run, and if not, why.
- * Gate order matches the surfaces that consume it: the workflow integration
- * allowlist, then caller/thread context, then credential health. {@link
- * availableToolNames} keeps the `available === true` names; tool discovery
- * (#413) uses the `reason` to explain a strong-but-unavailable match instead of
- * silently dropping it.
+ * Phase 1 of {@link evaluateToolAvailability}: the gates decidable from the
+ * registration plus the run context alone. Pure and I/O-free, which is what lets
+ * {@link resolveToolAvailability} answer for a `system.*` tool without touching
+ * the database.
  */
-export function evaluateToolAvailability(
-  snapshot: IntegrationAvailabilitySnapshot,
+function evaluateRunContextGates(
   tool: RegisteredTool,
   allowed: ReadonlySet<string>,
   context: ToolAvailabilityContext,
 ): ToolAvailabilityResult {
-  const name = humanizeSlug(tool.integration);
-
   if (tool.integration !== "system" && allowed.size > 0 && !allowed.has(tool.integration)) {
     return {
       available: false,
@@ -195,6 +267,44 @@ export function evaluateToolAvailability(
       reason: "Runs only inside an interactive chat thread.",
     };
   }
+  return { available: true };
+}
+
+/**
+ * Whether {@link evaluateSnapshotGates} can reject this tool at all. Exists so
+ * {@link resolveToolAvailability} can skip the credential/preference read for the
+ * tools it could never answer differently — `system.*` and `mcp.*` carry no
+ * credential of their own and are not in the snapshot.
+ *
+ * This predicate necessarily restates the conditions phase 2 branches on, which
+ * means a permission fact with two homes: a `false` here is a PROMISE that phase
+ * 2 would have returned `available: true`, and a fourth gate added to phase 2
+ * without updating this one would resolve `available` at the floor for a tool
+ * discovery still refuses — surface and floor disagreeing, the exact failure the
+ * unconditional floor check exists to prevent. So the promise is not held by this
+ * comment: `test/tools/availability-snapshot-contract.test.ts` asserts it over the
+ * REAL registered catalog against an empty snapshot, which fails on any new gate
+ * that can reject a tool this returns `false` for.
+ */
+export function readsAvailabilitySnapshot(tool: RegisteredTool): boolean {
+  return (
+    tool.availability?.passthrough === true ||
+    tool.availability?.credential !== undefined ||
+    isLoadableIntegrationSlug(tool.integration)
+  );
+}
+
+/**
+ * Phase 2 of {@link evaluateToolAvailability}: the gates that need the
+ * credential + preference snapshot. Reads nothing from the run context — a tool
+ * that clears these is runnable for any caller in any thread.
+ */
+function evaluateSnapshotGates(
+  snapshot: IntegrationAvailabilitySnapshot,
+  tool: RegisteredTool,
+): ToolAvailabilityResult {
+  const name = humanizeSlug(tool.integration);
+
   // ADR-0074: a general read-only passthrough tool is default-OFF per integration
   // and killable without a deploy. Gate it on the per-user preference BEFORE the
   // credential/health block so a user who turned the tier off gets that reason —
@@ -251,6 +361,56 @@ export function evaluateToolAvailability(
     }
   }
   return { available: true };
+}
+
+/**
+ * Single source of truth for whether one exact tool can run, and if not, why.
+ * Gate order is the workflow integration allowlist, then caller/thread context,
+ * then the passthrough kill switch, then credential health. {@link
+ * availableToolNames} keeps the `available === true` names; tool discovery
+ * (#413) uses the `reason` to explain a strong-but-unavailable match instead of
+ * silently dropping it; the dispatch floor calls {@link resolveToolAvailability},
+ * which runs the same two phases in the same order.
+ *
+ * Two entry points, not an overload — {@link resolveToolAvailability} is the async
+ * companion, and the sync/async split is forced: {@link availableToolNames} filters
+ * a whole catalog synchronously and cannot await. The choice rule, stated once
+ * here: hold a snapshot already, or need answers for more than one tool, and you
+ * want THIS one (a single credential read covers the whole catalog). Hold exactly
+ * one tool and no snapshot — the dispatch floor — and you want the companion.
+ */
+export function evaluateToolAvailability(
+  snapshot: IntegrationAvailabilitySnapshot,
+  tool: RegisteredTool,
+  allowed: ReadonlySet<string>,
+  context: ToolAvailabilityContext,
+): ToolAvailabilityResult {
+  const contextResult = evaluateRunContextGates(tool, allowed, context);
+  if (!contextResult.available) return contextResult;
+  return evaluateSnapshotGates(snapshot, tool);
+}
+
+/**
+ * {@link evaluateToolAvailability} for a caller holding one tool and no
+ * snapshot — the dispatch floor, which evaluates a single call and must read the
+ * LIVE credential/preference state so a revoked grant or a kill switch flipped
+ * mid-run can't be bypassed by a surface built at turn start.
+ *
+ * `loadSnapshot` is invoked at most once and only when the snapshot phase could
+ * actually reject, so a `system.*` or `mcp.*` call costs no database read. Both
+ * entry points run the identical gates in the identical order: adding a gate to
+ * one phase reaches every surface.
+ */
+export async function resolveToolAvailability(args: {
+  tool: RegisteredTool;
+  allowed: ReadonlySet<string>;
+  context: ToolAvailabilityContext;
+  loadSnapshot: () => Promise<IntegrationAvailabilitySnapshot>;
+}): Promise<ToolAvailabilityResult> {
+  const contextResult = evaluateRunContextGates(args.tool, args.allowed, args.context);
+  if (!contextResult.available) return contextResult;
+  if (!readsAvailabilitySnapshot(args.tool)) return { available: true };
+  return evaluateSnapshotGates(await args.loadSnapshot(), args.tool);
 }
 
 export function availableToolNames(
