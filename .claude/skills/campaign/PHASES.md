@@ -44,6 +44,48 @@ Timestamps come from `date -u +%Y-%m-%dT%H:%M:%SZ`. Never invent one.
 
 ---
 
+## Every phase: what to read first, and when to write
+
+**Read `$C/NOTES.md` before you start** (create it empty if absent). It is the
+campaign's shared scratchpad — facts one item learned that another item needs.
+Item 07 and item 08 both live in `use-chat-stream.ts`; without this, the second one
+rediscovers what the first already knew. Append to it when you learn something an
+item *other than yours* would want:
+
+```markdown
+- [07 design] `apps/web/test/` has no jsdom; DOM-free leaves are testable under
+  node:test, matching `test/events/replay-state.test.ts`.
+- [07 implement] web test files were unchecked by any tsc until this item added
+  `apps/web/tsconfig.test.json`.
+```
+
+Keep it under ~60 lines. It is a scratchpad, not an archive — if a fact is durable
+and repo-wide rather than campaign-local, it belongs in `.lessons/` via `/learn`
+(see `land`), where the recall hook will surface it in future sessions
+automatically.
+
+**Checkpoint as you go; do not save everything for the end.** A phase that writes
+only on success loses everything when it is killed, runs out of budget, or crashes —
+which has already happened once here: a `cover` phase built its worktree, learned
+what it needed, died, and left no trace. So:
+
+- Write `branch` and `worktree` into state the moment they exist, before any code.
+- Append findings to the item file **as they land**, not in one final flush.
+- Before any step likely to be long or to fail — a big refactor, a full test run, a
+  review lane — write down what you already know.
+
+**Record dead ends, not just conclusions.** A `Considered and rejected` list in the
+item file is the cheapest thing the next phase can read, and its absence is why
+`implement` re-explores ground `design` already covered:
+
+```markdown
+### Considered and rejected
+- Re-exporting the moved symbols from the old module — keeps the 18-export interface
+  the change exists to shrink (see .lessons/extract-state-schema-before-protocol-modules.md).
+```
+
+---
+
 ## `intake`
 
 Runs once per campaign. The only phase permitted to read the whole artifact.
@@ -60,9 +102,35 @@ Runs once per campaign. The only phase permitted to read the whole artifact.
    ("unsafe before that"), sequencing ("land X first"), ADR conflicts. These become
    `prereqs` / `needsCoverage` / a **Report gates** section — not prose a later
    phase has to notice.
-5. Reconcile against reality before queueing: `git log --oneline -40` and a quick
-   look at the cited lines. A finding already fixed gets `phase: "skipped"` and a
-   note saying which commit did it. Reports go stale between writing and working.
+5. **Reconcile against reality before queueing. Do not skim this step** — it is the
+   one that has actually failed in practice. An architecture report is a snapshot of
+   a tree someone is *actively working*, and three of this campaign's first ten
+   candidates were hand-landed in the seven hours between the report's timestamp and
+   intake. Queueing merged work is the most expensive mistake this phase can make,
+   because nothing downstream re-checks it.
+
+   All four of these, not just the first:
+
+   ```bash
+   git log --oneline --since="<artifact timestamp> -7 days" | head -60
+   gh pr list --state merged --limit 30 \
+     --json number,title,mergedAt --template '{{range .}}#{{.number}} {{.mergedAt}} {{.title}}{{"\n"}}{{end}}'
+   gh pr list --state open --limit 30 --json number,title,headRefName
+   git for-each-ref --sort=-committerdate --format='%(refname:short) %(contents:subject)' refs/remotes/origin | head -20
+   ```
+
+   Match on the *finding*, not the branch name — a PR titled differently can still
+   have done the work, and a report candidate can be partially landed. Then read the
+   cited lines: if they no longer say what the report quoted, the finding moved or
+   died.
+
+   Record the verdict per item:
+   - fully landed → `phase: "skipped"`, note naming the PR and merge time, and a
+     banner at the top of the item file so a human reading it later is not misled
+   - partially landed → keep it queued, and write what *remains* into the item file
+   - merged work invalidated another item's premise → say so in that item's **Report
+     gates**. Sequencing advice expires: "land #9 first so #1 and #2 are tested"
+     means nothing once #1 and #2 have landed without it.
 6. Write `state.json` with the queue in the report's recommended order.
 
 Item file template:
@@ -115,7 +183,9 @@ refactor untested behavior.
    including behavior you suspect is wrong — a coverage PR that changes behavior has
    defeated its own purpose. If you find a bug, record it in the item file under
    Report gates and leave it failing-as-documented or xfail'd, with a comment.
-3. `pnpm check` and the relevant test files must pass.
+3. `pnpm check && pnpm check-types` and the relevant test files must pass. Note that
+   `pnpm check` runs lint, format, and boundary checks but **no `tsc`** — typechecking
+   is the separate `pnpm check-types`. Naming only the first lets type errors land.
 4. Commit, push, open a **non-draft** PR titled `test(<area>): pin <behavior> before
    campaign NN`. This one is meant to merge immediately and independently.
 5. Append to the item file: what is now pinned, and what is still unpinned.
@@ -191,7 +261,10 @@ The cheapest phase, and the one whose output you should expect a human to skim.
 4. Deviations from the design are allowed and expected — record them in the item
    file under Design as `Deviation: <what> — <why>`. An undocumented deviation is
    what makes the review round misfire.
-5. `pnpm check` and the full test suite must pass. If you cannot get there, do not
+5. `pnpm check && pnpm check-types` and the full test suite must pass — `pnpm check`
+   alone does not typecheck. Confirm the DB-backed suites actually **ran** rather than
+   skipping on a missing `DATABASE_URL`; a skip is not a pass. If you cannot get
+   there, do not
    push a red branch: write what blocked you into the item file, set
    `phase: "needs-human"` with a one-line `note`, and stop.
 6. Commit, push, and open a **draft** PR. Body states the invariant from the design,
@@ -222,7 +295,7 @@ yourself, and a verdict.
    file. Not the raw subagent output; not the earlier rounds.
 2. Fix them. Nothing else. A follow-up that tempts you is a new queue item — append
    it to `state.json` with `phase: "design"` and write its item file, then leave it.
-3. `pnpm check`, tests, commit, push.
+3. `pnpm check && pnpm check-types`, tests, commit, push.
 4. Append to the review round section: how each must-fix was closed, or why it is
    being disputed. A disputed finding is legitimate — argue it in one paragraph
    against the doc's own gates, and the next review round adjudicates it.
@@ -238,7 +311,14 @@ yourself, and a verdict.
    unproven with named residual risk), and the review rounds it took.
 3. Append any follow-ups the review deferred as **new items** in `state.json`, each
    with its own item file. This is where scope discovered mid-item goes to live.
-4. Leave the worktree in place — the human is merging, not you. Cleanup is
+4. **If this item produced a durable, repeatable lesson, run `/learn`.** Not a
+   summary of the change — the repo's git history already holds that. The bar is a
+   non-obvious, costly, *recurring* trap: the ordering that has to happen first, the
+   check that lies, the shape that cycles if you build it the other way. `.lessons/`
+   is the one continuity mechanism that outlives the campaign, and the recall hook
+   surfaces it unprompted in later sessions. Prune anything campaign-local to
+   `NOTES.md` instead.
+5. Leave the worktree in place — the human is merging, not you. Cleanup is
    `git worktree remove` after the merge.
 
 **Close the phase:** `phase: "landed"`.
