@@ -1,6 +1,7 @@
 import type { EventPayload } from "@alfred/contracts/events";
 import { useEffect, useMemo, useRef, useState } from "react";
-import { openEventStream, type EventStreamFrame } from "~/lib/events/stream";
+import type { EventStreamFrame } from "~/lib/events/frame";
+import { openEventStream } from "~/lib/events/stream";
 
 /**
  * The live body of a `document` artifact as the boss authors it, assembled from
@@ -173,11 +174,11 @@ export function useArtifactStream(threadId: string | undefined): ArtifactStreamS
 
     const onFrame = (frame: EventStreamFrame) => {
       if (frame.kind === "artifact.delta") {
-        const p = frame.payload as EventPayload<"artifact.delta">;
+        const p = frame.payload;
         if (p.threadId !== threadId) return;
         if (applyArtifactDelta(streamsRef.current, p)) setVersion((v) => v + 1);
       } else if (frame.kind === "chat.tool") {
-        const p = frame.payload as EventPayload<"chat.tool">;
+        const p = frame.payload;
         if (p.threadId !== threadId) return;
         if (applyArtifactToolResolution(streamsRef.current, p)) setVersion((v) => v + 1);
       }
