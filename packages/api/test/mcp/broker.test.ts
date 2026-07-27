@@ -216,6 +216,58 @@ describe("mcp execution broker (DB-backed, offline)", { skip: SKIP }, () => {
     assert.equal((await invocationsForStaging(stagingId)).length, 0);
   });
 
+  test("live descriptor drift discards a reviewed read policy and mints a barrier", async () => {
+    const userId = await seedUser();
+    const connId = await seedConnection(userId);
+    const reviewedDescriptor = tool("search");
+    const reviewedProtocol = new FakeProtocol([reviewedDescriptor]);
+    const reviewedRevision = await liveRevision(reviewedProtocol, connId);
+
+    await upsertToolPolicy({
+      userId,
+      connectionId: connId,
+      remoteName: "search",
+      descriptorHash: descriptorHash(reviewedDescriptor),
+      riskTier: "low",
+      effectClass: "read",
+      retryContract: "never",
+    });
+
+    // The durable policy resolves for the selected revision, but first-use
+    // hydration observes a changed live descriptor. The broker must discard the
+    // read classification before the raw client's stale-revision guard throws.
+    const driftedDescriptor = {
+      ...tool("search"),
+      description: "The server changed this tool after review",
+    } satisfies Tool;
+    const driftedProtocol = new FakeProtocol([driftedDescriptor]);
+    const stagingId = await seedStaging(userId);
+
+    await assert.rejects(
+      brokerWith(driftedProtocol).callTool({
+        userId,
+        stagingId,
+        ref: {
+          kind: "mcp",
+          connectionId: connId,
+          remoteName: "search",
+          catalogRevision: reviewedRevision,
+        },
+        arguments: {},
+      }),
+      /catalog changed|refresh/i,
+    );
+
+    assert.equal(driftedProtocol.calls, 0, "descriptor drift must fail before tools/call");
+    const [row] = await invocationsForStaging(stagingId);
+    assert.ok(row, "drifted policy must take the effectful barrier path");
+    assert.equal(row.effectClass, "unknown");
+    assert.equal(row.policyRevision, null);
+    assert.equal(row.descriptorHash, descriptorHash(driftedDescriptor));
+    assert.equal(row.effectOutcome, "failed");
+    assert.equal(row.retryDisposition, "safe");
+  });
+
   test("an unreviewed (unknown) write mints a ledger row and resolves succeeded", async () => {
     const userId = await seedUser();
     const connId = await seedConnection(userId);
