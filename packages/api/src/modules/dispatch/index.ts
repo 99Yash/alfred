@@ -73,12 +73,7 @@ import { normalizeToolInputKeys } from "./normalize-keys";
 import { emitReplicachePokes } from "../../events/replicache-events";
 import { resolveApprovalNotifyDelayMs, resolvePolicyMode } from "../action-policies/resolve";
 import type { WakeCondition } from "../agent/types";
-import { readChildRunOutcome, shouldResolveWithoutParking } from "../agent/sub-agents";
-import { subAgentDoneSignalName } from "../agent/sub-agent-metadata";
-import {
-  AWAIT_SUB_AGENT_CEILING_MS,
-  scheduleSubAgentJoinWakeJob,
-} from "../agent/sub-agent-join-wake-queue";
+import { joinChildRun } from "../agent/sub-agent-join";
 import { scheduleApprovalExpiryJob } from "../approvals/expiry-queue";
 import { scheduleApprovalNotificationJob } from "../approvals/notification-queue";
 import { parseScratchToolKey, type ScratchToolKey } from "../tools/scratch-key";
@@ -1537,62 +1532,24 @@ async function resolveAwaitSubAgent(args: {
   userId: string;
   childRunId: string;
 }): Promise<DispatchResult> {
-  const outcome = await readChildRunOutcome(args);
-
-  // Terminal child, an ownership/lookup error, or a child that has outrun the
-  // wait-ceiling: hand the boss a real result to act on — never park. Shared
-  // with the chat-turn finalization guard so the two join sites stay in lockstep.
-  if (shouldResolveWithoutParking(outcome)) {
+  // The join protocol (read outcome → no-park predicate → dead-man timer →
+  // park) lives in `agent/sub-agent-join`, single-sourced with the chat-turn
+  // finalization guard. This is the tool-shaped adapter over it: a `resolved`
+  // join becomes the boss's tool result, a `park` becomes the dispatcher's park.
+  // The park arm is unreachable unless the timer scheduled — that is the point
+  // of the shared return type, not something this call site has to remember.
+  const join = await joinChildRun(args);
+  if (join.kind === "resolved") {
     return {
       kind: "executed",
       stagingId: null,
-      toolResult: outcome,
+      toolResult: join.outcome,
       editedByUser: false,
     };
   }
-
-  // Still running within the ceiling — park the parent on the child's
-  // completion signal. On resume the await re-runs and reads the terminal
-  // outcome (or re-parks if a spurious wake fired early).
-  //
-  // Schedule a dead-man wake at the ceiling BEFORE returning the park. The
-  // in-band `sub_agent_done` signal is the happy-path waker, but it can be
-  // lost (the child finishes in the gap before the executor commits
-  // `waiting`), never fire (a cancelled child), or be swallowed by a worker
-  // crash — and `findResumableRunIds` never sweeps `waiting`, so any of those
-  // strands the boss forever. This timer is the only backstop that covers all
-  // of them: when it fires the await re-reads the (terminal-by-then) child and
-  // returns inline. It no-ops if the in-band signal already woke the parent.
-  const scheduled = await scheduleSubAgentJoinWakeJob({
-    childRunId: args.childRunId,
-    parentRunId: args.parentRunId,
-    delayMs: AWAIT_SUB_AGENT_CEILING_MS,
-  });
-  if (scheduled !== "scheduled") {
-    // The dead-man timer is load-bearing, not best-effort: it is the ONLY thing
-    // that revives a parent parked in `waiting` if the in-band `sub_agent_done`
-    // signal is lost (`findResumableRunIds` never sweeps `waiting`). If we
-    // couldn't schedule it ("failed" transient queue error, or "disabled" with
-    // no queue at all), parking would risk an un-wakeable run — so don't park.
-    // Hand the boss the still-running outcome instead: the turn ends honestly
-    // ("the sub-agent is still running") rather than hanging forever.
-    console.warn(
-      "[await_sub_agent] dead-man wake not scheduled (",
-      scheduled,
-      ") — refusing to park",
-      args.childRunId,
-    );
-    return {
-      kind: "executed",
-      stagingId: null,
-      toolResult: { ...outcome, reason: "join_timer_unavailable" },
-      editedByUser: false,
-    };
-  }
-  return {
-    kind: "parked",
-    wake: { kind: "signal", name: subAgentDoneSignalName(args.childRunId) },
-  };
+  // On resume the await re-runs and reads the terminal outcome (or re-parks if a
+  // spurious wake fired early).
+  return { kind: "parked", wake: { kind: "signal", name: join.signalName } };
 }
 
 function parseScratchAccessKey(key: string | null): ScratchToolKey | string {

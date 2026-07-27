@@ -15,6 +15,7 @@ export {
   type CompactTranscriptArgs,
   type CompactTranscriptResult,
 } from "./compactor";
+export { compactWithRetry } from "./compact-with-retry";
 export {
   assertHandoffSections,
   extractHandoffSection,
