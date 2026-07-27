@@ -12,6 +12,7 @@ import type {
   BriefingGather,
   BriefingSlot,
   FullBriefing,
+  IanaTimezone,
   SignificanceBand,
   TriageCategory,
 } from "@alfred/contracts";
@@ -23,7 +24,7 @@ import {
   findSenderSuppression,
   listActiveSuppressionInstructions,
 } from "../memory/standing-instructions";
-import { formatInstantInTimezone } from "../timezone";
+import { inZone } from "../timezone";
 
 /**
  * Read-side helpers for the LLM-composed daily briefing.
@@ -134,7 +135,7 @@ interface ListEmailsSinceArgs {
    * User's IANA timezone — used to render each item's `receivedAtLocal`. Omit
    * (e.g. in DB-only tests) and `receivedAtLocal` stays null.
    */
-  timezone?: string;
+  timezone?: IanaTimezone;
   limit?: number;
 }
 
@@ -284,9 +285,8 @@ export async function listEmailsSinceWatermark(
       triageRationale: r.triageRationale,
       authoredAt: r.authoredAt,
       ingestedAt: r.ingestedAt,
-      receivedAtLocal: args.timezone
-        ? formatInstantInTimezone(receiptInstant, args.timezone)
-        : null,
+      receivedAtLocal:
+        args.timezone && receiptInstant ? inZone(args.timezone).format(receiptInstant) : null,
       unread: unreadFromLabels(meta.labelIds),
       threadId: r.sourceThreadId,
       previouslySurfaced: surfacedByThread || surfacedByLoop,

@@ -3,11 +3,13 @@ import { resolveFeatureFlags } from "../features/flags";
 import { getSenderSignificance } from "../memory/significance";
 import { findActiveSenderSuppression } from "../memory/standing-instructions";
 import { suggestTodo } from "../todos/suggest";
+import { resolveUserTimezone } from "../timezone";
 import {
   classifyEmail,
   DEFAULT_TRIAGE_CATEGORY,
   resolveTodoSuggestion,
   todoSuppressionReason,
+  type AssistDateAnchor,
   type ClassifyAudit,
   type TriageClassification,
 } from "./classify";
@@ -247,6 +249,8 @@ export async function runEmailTriageClassify<State extends EmailTriageOperationS
     }
   }
 
+  const authoredAt = ctxData.document.authoredAt;
+
   let classification: TriageClassification;
   let model: string;
   let audit: ClassifyAudit | null = null;
@@ -261,7 +265,22 @@ export async function runEmailTriageClassify<State extends EmailTriageOperationS
   let standingSuppressionReadFailed = false;
   let standingSuppressionReadError: string | null = null;
   const resolveTodoAndStandingSuppression = async () => {
-    const nextTodoSuggestion = resolveTodoSuggestion(classification, ctxData.document.authoredAt);
+    // A rail todo's absolute date needs BOTH halves: the send instant and the
+    // zone it should be read in. Reading the instant in UTC — which is what this
+    // did before the timezone module owned the concept — renders an evening
+    // email in Asia/Kolkata a day early, on the one field whose whole point is
+    // that it stays true for days.
+    //
+    // Resolved HERE, not per email: `resolveUserTimezone` is two uncached
+    // preference `SELECT`s and this step runs once per email, while the anchor
+    // matters only when the classifier actually proposed a todo — which is also
+    // `resolveTodoSuggestion`'s own first gate. Most emails propose none, so
+    // eagerly resolving it cost 2N round-trips a batch for a value nothing read.
+    const assistDateAnchor: AssistDateAnchor | null =
+      authoredAt && classification.todoSuggestion
+        ? { sentAt: authoredAt, timezone: await resolveUserTimezone(ctx.userId) }
+        : null;
+    const nextTodoSuggestion = resolveTodoSuggestion(classification, assistDateAnchor);
     let nextStandingSuppression: Awaited<ReturnType<typeof findActiveSenderSuppression>> = null;
     let nextStandingSuppressionReadFailed = false;
     let nextStandingSuppressionReadError: string | null = null;

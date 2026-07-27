@@ -152,8 +152,6 @@ export {
   isValidTimezone,
   listEmailsSinceWatermark,
   listPriorBriefings,
-  localDateInTimezone,
-  localHourInTimezone,
   markBriefingComposed,
   markBriefingComposing,
   markBriefingFailed,
@@ -207,6 +205,7 @@ export {
 
 export * from "./modules/cold-start/index";
 export * from "./modules/notifications/index";
+export * from "./modules/timezone/index";
 export {
   bustPolicyCache,
   clearPolicyCacheForTests,

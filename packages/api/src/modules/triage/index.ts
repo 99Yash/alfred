@@ -15,6 +15,7 @@ export {
 } from "./classify";
 export { applyFloors, applyOverrideFloor } from "./floors";
 export type {
+  AssistDateAnchor,
   TriageClassification,
   ClassifyEmailArgs,
   TriageConflict,

@@ -12,6 +12,7 @@ import {
   artifactFormatSchema,
   AWAIT_SUB_AGENT_TOOL,
   getPath,
+  parseIanaTimezone,
   type AgentTranscriptMessage,
   type ArtifactFormat,
   type ToolName,
@@ -293,6 +294,9 @@ const chatTurnStep: Step<ChatRunState> = {
       if (state.timezone === undefined) {
         state.timezone = await resolveUserTimezone(ctx.userId);
       }
+      // Persisted state carries the zone as a plain string, so re-establish it as
+      // a zone once per step rather than at each reading below.
+      const timezone = parseIanaTimezone(state.timezone);
       if (state.connectedSummary === undefined) {
         state.connectedSummary = buildConnectedSummaryFromAvailability(
           await readIntegrationAvailability(ctx.userId),
@@ -335,7 +339,7 @@ const chatTurnStep: Step<ChatRunState> = {
       );
       state.runtimeGroundingAnchor = runtimeGroundingAnchor.toISOString();
       const ephemeralReference = [
-        formatRuntimeTimeGrounding(state.timezone, runtimeGroundingAnchor),
+        formatRuntimeTimeGrounding(timezone, runtimeGroundingAnchor),
         state.artifactReference,
       ]
         .filter((value) => value.length > 0)
@@ -749,7 +753,7 @@ const dispatchToolsStep: Step<ChatRunState> = {
             threadId: state.threadId,
             messageId: state.messageId,
             scratchpadRunId: ctx.runId,
-            timezone: state.timezone,
+            timezone: state.timezone ? parseIanaTimezone(state.timezone) : undefined,
             activeTools: state.activeTools,
             allowedIntegrations: state.allowedIntegrations,
           } as const;

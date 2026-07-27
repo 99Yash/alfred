@@ -47,14 +47,10 @@ import {
   TooManyRequestsError,
 } from "../../middleware/errors";
 import { createCacheRedisConnection } from "../../queue/connection";
-import {
-  localDateInTimezone,
-  localHourInTimezone,
-  resolveBriefingPreferences,
-} from "../briefing/preferences";
+import { resolveBriefingPreferences } from "../briefing/preferences";
 import { enqueueBriefingRun } from "../briefing/queue";
 import { notSentGmailDocumentWhere } from "../triage/sent-mail";
-import { resolveUserTimezone } from "../timezone";
+import { inZone, resolveUserTimezone } from "../timezone";
 import { sanitizeEmailHtml } from "./email-html";
 import { getUsageActivity, getUsageBreakdown, getUsageSummary } from "./usage-service";
 
@@ -361,60 +357,6 @@ function looksLikeDiffLine(line: string | undefined): boolean {
     /^[-+]$/.test(stripped) ||
     /^@@ -?\d/.test(stripped)
   );
-}
-
-// Cache Intl.DateTimeFormat by timezone — constructing one allocates dozens of
-// objects per locale lookup, and `dayBoundsInTimezone` runs on every request.
-const dateFmtByTz = new Map<string, Intl.DateTimeFormat>();
-const offsetFmtByTz = new Map<string, Intl.DateTimeFormat>();
-
-function getDateFmt(timezone: string): Intl.DateTimeFormat {
-  let fmt = dateFmtByTz.get(timezone);
-  if (!fmt) {
-    fmt = new Intl.DateTimeFormat("sv-SE", {
-      timeZone: timezone,
-      year: "numeric",
-      month: "2-digit",
-      day: "2-digit",
-    });
-    dateFmtByTz.set(timezone, fmt);
-  }
-  return fmt;
-}
-
-function getOffsetFmt(timezone: string): Intl.DateTimeFormat {
-  let fmt = offsetFmtByTz.get(timezone);
-  if (!fmt) {
-    fmt = new Intl.DateTimeFormat("en-US", {
-      timeZone: timezone,
-      timeZoneName: "longOffset",
-    });
-    offsetFmtByTz.set(timezone, fmt);
-  }
-  return fmt;
-}
-
-/**
- * Compute [startOfDay, endOfDay) in `timezone` as UTC `Date` instants.
- * Each bound uses *its own* tz offset (today's for start, tomorrow's for
- * end), so DST transition days correctly produce 23h or 25h windows.
- */
-function dayBoundsInTimezone(now: Date, timezone: string): { start: Date; end: Date } {
-  const dateFmt = getDateFmt(timezone);
-  const offsetFmt = getOffsetFmt(timezone);
-  const offsetFor = (d: Date): string => {
-    // `longOffset` returns "GMT-05:00" / "GMT" — strip the prefix and
-    // default a bare "GMT" to "+00:00" so the ISO string parses uniformly.
-    const part = offsetFmt.formatToParts(d).find((p) => p.type === "timeZoneName")?.value ?? "";
-    const off = part.replace(/^GMT/, "");
-    return off || "+00:00";
-  };
-  const tomorrowMs = now.getTime() + 24 * 60 * 60 * 1000;
-  const today = dateFmt.format(now);
-  const tomorrow = dateFmt.format(new Date(tomorrowMs));
-  const start = new Date(`${today}T00:00:00${offsetFor(now)}`);
-  const end = new Date(`${tomorrow}T00:00:00${offsetFor(new Date(tomorrowMs))}`);
-  return { start, end };
 }
 
 const USAGE_DEFAULT_WINDOW_DAYS = 30;
@@ -842,8 +784,7 @@ export const meRoutes = new Elysia({ prefix: "/api/me", normalize: "typebox" })
           // `user_preferences.timezone`, falling back to UTC) — the rail
           // is a personal "today's meetings" surface, so server-local
           // would be wrong for any user not co-located with the host.
-          const timezone = await resolveUserTimezone(u.id);
-          const { start, end } = dayBoundsInTimezone(new Date(), timezone);
+          const { start, end } = inZone(await resolveUserTimezone(u.id)).dayBounds();
 
           const accessToken = await getFreshAccessToken(row.id);
           const { events } = await listEvents({
@@ -886,8 +827,7 @@ export const meRoutes = new Elysia({ prefix: "/api/me", normalize: "typebox" })
           // "Today" panel, so an older briefing must read as empty rather than
           // pin the chip to a stale day. Among today's slots (morning fires
           // first, evening supersedes it), the most recent composed run wins.
-          const timezone = await resolveUserTimezone(u.id);
-          const today = getDateFmt(timezone).format(new Date());
+          const today = inZone(await resolveUserTimezone(u.id)).day();
           const rows = await db()
             .select({
               id: briefings.id,
@@ -925,9 +865,9 @@ export const meRoutes = new Elysia({ prefix: "/api/me", normalize: "typebox" })
         // requested slot always sends. Slot follows the time of day: after
         // the user's evening hour we compose the evening recap, else morning.
         const prefs = await resolveBriefingPreferences(u.id);
-        const briefingDate = localDateInTimezone(prefs.timezone);
-        const slot: BriefingSlot =
-          localHourInTimezone(prefs.timezone) >= prefs.eveningHour ? "evening" : "morning";
+        const zone = inZone(prefs.timezone);
+        const briefingDate = zone.day();
+        const slot: BriefingSlot = zone.hour() >= prefs.eveningHour ? "evening" : "morning";
 
         // Don't spin up a second agent run if today's slot is already
         // terminal (done) or genuinely in flight. `composed` (compose

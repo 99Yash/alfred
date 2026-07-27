@@ -4,7 +4,7 @@ import {
   legacyMorningBriefingWorkflowInputSchema,
   composeBriefing,
   gatherBriefingWithSuppressionAudit,
-  localDateInTimezone,
+  inZone,
   markBriefingComposed,
   markBriefingComposing,
   markBriefingFailed,
@@ -15,13 +15,14 @@ import {
   renderBriefingEmailHtml,
   resolveBriefingPreferences,
   resolveBriefingReferences,
+  parseLocalDateKey,
   type BriefingInstructionSuppression,
   type BriefingRow,
   type Workflow,
 } from "@alfred/api/backend";
 import {
-  assertIanaTimezone,
   briefingGatherSchema,
+  parseIanaTimezone,
   type BriefingGather,
   type IanaTimezone,
 } from "@alfred/contracts";
@@ -128,8 +129,11 @@ export const morningBriefingWorkflow: Workflow<State> = {
       id: "gather",
       async run(ctx) {
         const prefs = await resolveBriefingPreferences(ctx.userId);
-        const briefingDate = ctx.state.briefingDate ?? localDateInTimezone(prefs.timezone);
-        const timezone = ianaTimezone(prefs.timezone);
+        const timezone = prefs.timezone;
+        // Persisted state carries the day as a plain string; a fresh run mints one.
+        const briefingDate = ctx.state.briefingDate
+          ? parseLocalDateKey(ctx.state.briefingDate)
+          : inZone(timezone).day();
 
         const begun = await beginBriefing({
           userId: ctx.userId,
@@ -218,14 +222,15 @@ export const morningBriefingWorkflow: Workflow<State> = {
       id: "compose",
       async run(ctx) {
         const state = requireGatheredState(ctx.state);
-        const timezone = ianaTimezone(state.timezone);
+        const timezone = parseIanaTimezone(state.timezone);
+        const briefingDate = parseLocalDateKey(state.briefingDate);
         await markBriefingComposing(state.briefingId);
 
         let composed: Awaited<ReturnType<typeof composeBriefing>>;
         try {
           composed = await composeBriefing({
             userId: ctx.userId,
-            briefingDate: state.briefingDate,
+            briefingDate,
             slot: state.slot,
             timezone,
             gather: state.gather,
@@ -370,11 +375,6 @@ function parseStepState<T>(schema: z.ZodType<T>, state: State, step: string, exp
     throw new Error(`[morning-briefing] ${step} entered without ${expected}`);
   }
   return parsed.data;
-}
-
-function ianaTimezone(value: string): IanaTimezone {
-  assertIanaTimezone(value);
-  return value;
 }
 
 function resumeExistingBriefing(

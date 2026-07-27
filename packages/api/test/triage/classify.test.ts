@@ -1,6 +1,8 @@
 import assert from "node:assert/strict";
 import { describe, test } from "node:test";
 
+import { parseIanaTimezone } from "@alfred/contracts";
+
 import {
   classifyCallOptions,
   classifyEmail,
@@ -227,7 +229,7 @@ describe("applySenderKindDemotionFloor", () => {
     assert.equal(r.classification.category, "fyi");
     assert.equal(r.classification.todoSuggestion, null);
     assert.equal(r.classification.todoDecision?.outcome, "no_obligation");
-    assert.equal(resolveTodoSuggestion(r.classification), null);
+    assert.equal(resolveTodoSuggestion(r.classification, null), null);
     assert.match(r.classification.rationale, /sender-kind floor/i);
   });
 
@@ -263,7 +265,7 @@ describe("applySenderKindDemotionFloor", () => {
     assert.equal(r.classification.category, "fyi");
     assert.equal(r.classification.todoSuggestion, null);
     assert.equal(r.classification.todoDecision?.outcome, "no_obligation");
-    assert.equal(resolveTodoSuggestion(r.classification), null);
+    assert.equal(resolveTodoSuggestion(r.classification, null), null);
   });
 
   test("leaves assigned action_needed untouched — a group/service CAN assign a real action (ADR-0066)", () => {
@@ -328,7 +330,7 @@ describe("applySenderKindDemotionFloor", () => {
       assert.equal(r.classification.category, "fyi");
       assert.equal(r.classification.todoSuggestion, null);
       assert.equal(r.classification.todoDecision?.outcome, "no_obligation");
-      assert.equal(resolveTodoSuggestion(r.classification), null);
+      assert.equal(resolveTodoSuggestion(r.classification, null), null);
     });
   }
 
@@ -536,7 +538,7 @@ describe("applySenderKindDemotionFloor", () => {
     assert.equal(r.classification.category, "fyi");
     assert.equal(r.classification.todoSuggestion, null);
     assert.equal(r.classification.todoDecision?.outcome, "no_obligation");
-    assert.equal(resolveTodoSuggestion(r.classification), null);
+    assert.equal(resolveTodoSuggestion(r.classification, null), null);
   });
 
   test("leaves direct service auth sign-in alerts urgent", () => {
@@ -584,7 +586,7 @@ describe("applySenderKindDemotionFloor", () => {
     assert.equal(r.classification.category, "fyi");
     assert.equal(r.classification.todoSuggestion, null);
     assert.equal(r.classification.todoDecision?.outcome, "no_obligation");
-    assert.equal(resolveTodoSuggestion(r.classification), null);
+    assert.equal(resolveTodoSuggestion(r.classification, null), null);
     assert.match(r.classification.rationale, /sender-kind floor/i);
   });
 
@@ -694,7 +696,7 @@ describe("applySenderKindDemotionFloor", () => {
     );
     assert.equal(r.demoted, true);
     assert.equal(r.classification.category, "fyi");
-    assert.equal(resolveTodoSuggestion(r.classification), null);
+    assert.equal(resolveTodoSuggestion(r.classification, null), null);
     assert.equal(r.classification.todoDecision?.outcome, "no_obligation");
   });
 
@@ -822,7 +824,7 @@ describe("applyMeetingDemotionFloor", () => {
     assert.equal(r.classification.category, "fyi");
     assert.equal(r.classification.todoSuggestion, null);
     assert.equal(r.classification.todoDecision?.outcome, "no_obligation");
-    assert.equal(resolveTodoSuggestion(r.classification), null);
+    assert.equal(resolveTodoSuggestion(r.classification, null), null);
   });
 
   test("keeps automated non-collab meeting mail unless a narrower meeting-floor reason fires", () => {
@@ -1263,7 +1265,7 @@ describe("classifyEmail", () => {
     assert.equal(result.audit.floors.senderKind.verdict.kind, "demote");
     assert.equal(result.audit.firstPass.category, "awaiting_reply");
     assert.equal(result.model, "injected+kindfloor");
-    assert.equal(resolveTodoSuggestion(result.classification), null);
+    assert.equal(resolveTodoSuggestion(result.classification, null), null);
   });
 
   test("sender-kind floor demotes a ClickUp-shaped status change end-to-end", async () => {
@@ -1307,7 +1309,7 @@ describe("classifyEmail", () => {
     assert.equal(result.classification.category, "fyi");
     assert.equal(result.audit.floors.senderKind.verdict.kind, "demote");
     assert.equal(result.model, "injected+kindfloor");
-    assert.equal(resolveTodoSuggestion(result.classification), null);
+    assert.equal(resolveTodoSuggestion(result.classification, null), null);
   });
 
   test("sender-kind floor demotes model-emitted passive collabActivity end-to-end", async () => {
@@ -1355,7 +1357,7 @@ describe("classifyEmail", () => {
     assert.equal(result.audit.floors.senderKind.verdict.kind, "demote");
     assert.equal(result.audit.floors.senderKind.reason, "collab_passive_activity");
     assert.equal(result.model, "injected+kindfloor");
-    assert.equal(resolveTodoSuggestion(result.classification), null);
+    assert.equal(resolveTodoSuggestion(result.classification, null), null);
   });
 
   test("meeting floor demotes a passive collab meeting relay end-to-end and records audit", async () => {
@@ -1400,7 +1402,7 @@ describe("classifyEmail", () => {
     assert.equal(result.audit.floors.meeting.verdict.kind, "demote");
     assert.equal(result.audit.floors.meeting.reason, "automated_relay");
     assert.equal(result.model, "injected+meetingfloor");
-    assert.equal(resolveTodoSuggestion(result.classification), null);
+    assert.equal(resolveTodoSuggestion(result.classification, null), null);
   });
 
   test("sender-kind floor preserves model-emitted ownership collabActivity awaiting_reply end-to-end", async () => {
@@ -1446,7 +1448,7 @@ describe("classifyEmail", () => {
     assert.equal(result.audit.floors.senderKind.verdict.kind, "keep");
     assert.equal(result.audit.floors.senderKind.reason, null);
     assert.equal(result.model, "injected");
-    assert.deepEqual(resolveTodoSuggestion(result.classification), {
+    assert.deepEqual(resolveTodoSuggestion(result.classification, null), {
       name: "Reply to the merge question",
     });
   });
@@ -1487,7 +1489,7 @@ describe("classifyEmail", () => {
     assert.equal(result.classification.category, "fyi");
     assert.equal(result.audit.floors.senderKind.verdict.kind, "demote");
     assert.equal(result.model, "injected+kindfloor");
-    assert.equal(resolveTodoSuggestion(result.classification), null);
+    assert.equal(resolveTodoSuggestion(result.classification, null), null);
   });
 
   test("sender-kind floor demotes group-broadcast sign-in confirmations end-to-end", async () => {
@@ -1534,7 +1536,7 @@ describe("classifyEmail", () => {
     assert.equal(result.audit.floors.senderKind.verdict.kind, "demote");
     assert.equal(result.audit.firstPass.category, "urgent");
     assert.equal(result.model, "injected+kindfloor");
-    assert.equal(resolveTodoSuggestion(result.classification), null);
+    assert.equal(resolveTodoSuggestion(result.classification, null), null);
   });
 
   test("sender-kind floor demotes a monitoring-alarm broadcast end-to-end (threads to + identity)", async () => {
@@ -1582,7 +1584,7 @@ describe("classifyEmail", () => {
     assert.equal(result.audit.floors.senderKind.verdict.kind, "demote");
     assert.equal(result.audit.firstPass.category, "urgent");
     assert.equal(result.model, "injected+kindfloor");
-    assert.equal(resolveTodoSuggestion(result.classification), null);
+    assert.equal(resolveTodoSuggestion(result.classification, null), null);
   });
 
   test("secret override wins before sender-kind demotion and preserves a security todo", async () => {
@@ -1619,7 +1621,7 @@ describe("classifyEmail", () => {
     assert.equal(result.audit.floors.override.verdict.kind, "escalate");
     assert.equal(result.audit.floors.senderKind.verdict.kind, "keep");
     assert.equal(result.model, "injected+floor");
-    assert.deepEqual(resolveTodoSuggestion(result.classification), {
+    assert.deepEqual(resolveTodoSuggestion(result.classification, null), {
       name: "Rotate the leaked key",
     });
   });
@@ -1663,7 +1665,7 @@ describe("classifyEmail", () => {
     assert.equal(result.audit.floors.override.verdict.kind, "escalate");
     assert.equal(result.classification.category, "urgent");
     assert.deepEqual(result.classification.todoSuggestion, { name: "Rotate the leaked Redis key" });
-    assert.deepEqual(resolveTodoSuggestion(result.classification), {
+    assert.deepEqual(resolveTodoSuggestion(result.classification, null), {
       name: "Rotate the leaked Redis key",
     });
   });
@@ -1833,7 +1835,10 @@ describe("triageClassificationSchema.todoSuggestion", () => {
 });
 
 describe("sanitizeAssist", () => {
-  const anchor = new Date("2026-06-10T09:00:00Z");
+  const anchor = {
+    sentAt: new Date("2026-06-10T09:00:00Z"),
+    timezone: parseIanaTimezone("UTC"),
+  };
 
   test("keeps an absolute date fragment", () => {
     assert.equal(sanitizeAssist("before Jun 30", anchor), "before Jun 30");
@@ -1848,6 +1853,25 @@ describe("sanitizeAssist", () => {
     assert.equal(sanitizeAssist("due tomorrow", anchor), "due Jun 11");
     assert.equal(sanitizeAssist("due tonight", anchor), "due Jun 10");
     assert.equal(sanitizeAssist("due today", anchor), "due Jun 10");
+  });
+
+  // The defect the timezone module's ownership fixed. 2026-06-10T19:30Z is
+  // already Jun 11 in Asia/Kolkata (+05:30), so the user's "tomorrow" is
+  // Jun 12 — a UTC reading of the same instant said Jun 11, a day early, on
+  // the exact field whose value has to survive for days.
+  test("resolves the relative date in the USER's zone, not UTC", () => {
+    const evening = {
+      sentAt: new Date("2026-06-10T19:30:00Z"),
+      timezone: parseIanaTimezone("Asia/Kolkata"),
+    };
+    assert.equal(sanitizeAssist("due tomorrow", evening), "due Jun 12");
+    assert.equal(sanitizeAssist("due today", evening), "due Jun 11");
+    // Same instant, a zone west of UTC: still the local day, still not UTC's.
+    const la = {
+      sentAt: new Date("2026-06-11T04:30:00Z"),
+      timezone: parseIanaTimezone("America/Los_Angeles"),
+    };
+    assert.equal(sanitizeAssist("due tomorrow", la), "due Jun 11");
   });
 
   test("resolves a relative date alongside a money fragment", () => {
@@ -1873,7 +1897,7 @@ describe("sanitizeAssist", () => {
     assert.equal(sanitizeAssist("https://example.com/pay", anchor), undefined);
     assert.equal(sanitizeAssist("click the link", anchor), undefined);
     assert.equal(sanitizeAssist("", anchor), undefined);
-    assert.equal(sanitizeAssist(null), undefined);
+    assert.equal(sanitizeAssist(null, null), undefined);
   });
 });
 
@@ -1950,6 +1974,7 @@ describe("resolveTodoSuggestion", () => {
           todoSuggestion: { name: "Investigate baserow response time alarm" },
           todoDecision: { outcome: "proposed" },
         }),
+        null,
       ),
       { name: "Baserow response time alarm" },
     );
@@ -1962,6 +1987,7 @@ describe("resolveTodoSuggestion", () => {
         todoSuggestion: suggestion,
         todoDecision: { outcome: "proposed" },
       }),
+      null,
     );
     assert.deepEqual(resolved, suggestion);
   });
@@ -1974,6 +2000,7 @@ describe("resolveTodoSuggestion", () => {
           todoSuggestion: { name: "Rotate the Redis key" },
           todoDecision: { outcome: "proposed" },
         }),
+        null,
       ),
       { name: "Rotate the Redis key" },
     );
@@ -1991,6 +2018,7 @@ describe("resolveTodoSuggestion", () => {
             todoSuggestion: suggestion,
             todoDecision: { outcome: "proposed" },
           }),
+          null,
         ),
         null,
       );
@@ -2009,6 +2037,7 @@ describe("resolveTodoSuggestion", () => {
             todoSuggestion: suggestion,
             todoDecision: { outcome: "proposed" },
           }),
+          null,
         ),
         suggestion,
       );
@@ -2023,7 +2052,7 @@ describe("resolveTodoSuggestion", () => {
           todoSuggestion: { name: "Pay the electricity bill", assist: "₹880 · due tomorrow" },
           todoDecision: { outcome: "proposed" },
         }),
-        new Date("2026-06-10T09:00:00Z"),
+        { sentAt: new Date("2026-06-10T09:00:00Z"), timezone: "UTC" },
       ),
       { name: "Pay the electricity bill", assist: "₹880 · due Jun 11" },
     );
@@ -2037,6 +2066,7 @@ describe("resolveTodoSuggestion", () => {
           todoSuggestion: suggestion,
           todoDecision: { outcome: "too_vague" },
         }),
+        null,
       ),
       null,
     );
@@ -2060,6 +2090,7 @@ describe("resolveTodoSuggestion", () => {
             todoSuggestion: suggestion,
             todoDecision: { outcome: "proposed", note },
           }),
+          null,
         ),
         null,
       );
@@ -2074,6 +2105,7 @@ describe("resolveTodoSuggestion", () => {
           todoSuggestion: suggestion,
           todoDecision: { outcome: "proposed", note: "real two-way contact, direct ask" },
         }),
+        null,
       ),
       suggestion,
     );
@@ -2095,14 +2127,17 @@ describe("resolveTodoSuggestion", () => {
 
   test("null when the model proposed no todo (eligible category)", () => {
     assert.equal(
-      resolveTodoSuggestion(classification({ category: "action_needed", todoSuggestion: null })),
+      resolveTodoSuggestion(
+        classification({ category: "action_needed", todoSuggestion: null }),
+        null,
+      ),
       null,
     );
   });
 
   test("null when todoSuggestion is absent (non-cheap producer)", () => {
     const c: TriageClassification = { category: "action_needed", confidence: 0.7, rationale: "x" };
-    assert.equal(resolveTodoSuggestion(c), null);
+    assert.equal(resolveTodoSuggestion(c, null), null);
   });
 });
 

@@ -38,7 +38,7 @@ import {
   createRun,
   DAILY_BRIEFING_WORKFLOW_SLUG,
   enqueueRun,
-  localDateInTimezone,
+  inZone,
   resolveBriefingPreferences,
 } from "@alfred/api/backend";
 import { closeAgentQueue, closeBriefingQueue, warmPool } from "@alfred/api/runtime";
@@ -132,7 +132,7 @@ async function main() {
   );
 
   const prefs = await resolveBriefingPreferences(u.id);
-  const briefingDate = localDateInTimezone(prefs.timezone);
+  const briefingDate = inZone(prefs.timezone).day();
   console.log(
     `[smoke-daily-briefing] tz=${prefs.timezone} morningHour=${prefs.deliveryHour} ` +
       `eveningHour=${prefs.eveningHour} date=${briefingDate}`,

@@ -91,7 +91,13 @@ async function main() {
     // Assert against what production would actually mint, not the raw model
     // suggestion: `resolveTodoSuggestion` is the live gate (proposed outcome +
     // todo-eligible category).
-    const resolved = resolveTodoSuggestion(classification);
+    //
+    // A `null` date anchor is production's answer for these fixtures, not a
+    // shortcut: every one of them carries `authoredAt: null`, and the live
+    // triage step builds no anchor without a send instant. Spelled out because
+    // the parameter is required — an omitted anchor silently strips relative
+    // dates, so it is not something a call site gets to leave unsaid.
+    const resolved = resolveTodoSuggestion(classification, null);
     const todo = resolved?.name ?? null;
     const gotTodo = resolved !== null;
     const ok = gotTodo === f.expectTodo;

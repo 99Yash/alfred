@@ -120,7 +120,17 @@ export const RULES = [
     id: "raw-intl-timezone",
     re: /new\s+Intl\.DateTimeFormat\(/,
     severity: "hint",
-    fix: "For validation use isIanaTimezone; to render an instant in a user's zone use resolveUserTimezone / formatInstantInTimezone from @alfred/api's timezone module. A bare Intl trial once broke briefings on \"UTC\".",
+    owners: ["packages/api/src/modules/timezone/local-time.ts"],
+    fix: "@alfred/api's timezone module owns every date/zone reading, split by one question: does the reading need a zone? NEEDS ONE — inZone(tz) binds it once and every reading is a method: .day() mints the LocalDateKey, .hour(), .offsetMs(), .clock(), .startOf(key, hour?), .dayBounds(), .format(instant). DOESN'T — a free function on the key: addDays (day math on the key, never in ms), weekdayIndex (day-of-week DECISIONS — never string-match a rendered weekday name), formatDay(key, \"short\"|\"long\"|\"weekday\"). Zones are IanaTimezone (resolveUserTimezone, parseIanaTimezone); day keys are LocalDateKey (parseLocalDateKey / isLocalDateKey at a persistence or wire boundary) — both branded, so a plain string won't type-check. A bare Intl trial once broke briefings on \"UTC\", and a per-call-site UTC reading dated triage todos a day early.",
+  },
+  {
+    id: "hand-rolled-utc-offset-parse",
+    // The `longOffset` → "GMT-05:00" parse. One reader owns it; a second copy
+    // is how the same zone got three different offset answers.
+    re: /timeZoneName:\s*["']longOffset["']|GMT\(\?:/,
+    severity: "gate",
+    owners: ["packages/api/src/modules/timezone/local-time.ts"],
+    fix: "Use inZone(timezone).offsetMs(instant) from @alfred/api's timezone module — the one place the longOffset string is parsed. inZone(tz).clock(instant).utcOffset gives the signed ISO fragment.",
   },
   {
     id: "stale-google-access-token",
