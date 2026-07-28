@@ -13,7 +13,9 @@ import {
   liveTool,
   registerTool,
 } from "../../src/modules/tools/registry";
+import { postgresStagingStore } from "../../src/modules/dispatch/staging-store";
 import { closeRedis } from "../../src/queue/connection";
+import { runStagingStoreContract, type StagingStoreHarness } from "./staging-store-contract";
 
 /**
  * DB-backed regression tests for the dispatcher's idempotency contract and the
@@ -37,6 +39,14 @@ import { closeRedis } from "../../src/queue/connection";
  * Postgres; skipped otherwise so the pure-function suite still runs without a
  * database. Seeds throwaway `test-dispatch-*` users and cascades them away on
  * teardown (action_stagings + agent_runs both `onDelete: cascade` from user).
+ *
+ * The gate's *status machine* no longer lives behind this gate — see the DB-free
+ * sibling `staging-machine.test.ts`, which drives the same `dispatchToolCall`
+ * over the in-memory `StagingStore`. What stays here is what a fake structurally
+ * cannot prove: the `xmax = 0` insert-vs-conflict flag, the no-op
+ * `SET row_version = row_version`, and (at the bottom) the Postgres half of the
+ * shared store contract. Both halves of that contract must run, or the fake
+ * stops being evidence about the real adapter.
  */
 const SKIP = process.env.DATABASE_URL ? false : "DATABASE_URL not set — skipping DB-backed test";
 
@@ -471,5 +481,65 @@ describe("dispatch staging (DB-backed)", { skip: SKIP }, () => {
       "no-op SET must not clobber decided_input",
     );
     assert.equal(rows[0]?.rowVersion, 7, "no-op SET rewrites row_version to itself, not the seed");
+  });
+
+  // The Postgres half of the shared store contract. Its memory twin runs in
+  // `staging-machine.test.ts`. Nested inside this describe so the parent's
+  // `before`/`after` (registry setup, user cleanup, connection teardown) cover
+  // it, and so the seeded users land in `createdUserIds`.
+  runStagingStoreContract("postgres", (): StagingStoreHarness => {
+    return {
+      store: postgresStagingStore,
+      async seedRun(status) {
+        const userId = `${ID_PREFIX}${randomUUID()}`;
+        createdUserIds.push(userId);
+        await db()
+          .insert(user)
+          .values({ id: userId, name: "Contract User", email: `${userId}@example.test` });
+        const runId = `run_${randomUUID().slice(0, 12)}`;
+        await db().insert(agentRuns).values({
+          id: runId,
+          userId,
+          workflowSlug: "chat",
+          currentStep: "dispatch-tools",
+          status,
+        });
+        return { userId, runId };
+      },
+      async decide(stagingId, decision) {
+        // Out-of-band, exactly as the approval API writes it — not through the
+        // store, because deciding a row is not the store's job.
+        await db()
+          .update(actionStagings)
+          .set({
+            status: decision.status,
+            ...(decision.decidedInput === undefined
+              ? {}
+              : { decidedInput: decision.decidedInput as object }),
+            ...(decision.rejectReason === undefined ? {} : { rejectReason: decision.rejectReason }),
+            decidedAt: decision.decidedAt ?? new Date(),
+            rowVersion: sql`${actionStagings.rowVersion} + 1`,
+          })
+          .where(eq(actionStagings.id, stagingId));
+      },
+      async readBack(stagingId) {
+        const [row] = await db()
+          .select({
+            status: actionStagings.status,
+            rowVersion: actionStagings.rowVersion,
+            decidedInput: actionStagings.decidedInput,
+            executeResult: actionStagings.executeResult,
+            executeSanitized: actionStagings.executeSanitized,
+            executeError: actionStagings.executeError,
+            executedAt: actionStagings.executedAt,
+          })
+          .from(actionStagings)
+          .where(eq(actionStagings.id, stagingId));
+        return row ?? null;
+      },
+      unknownRunId() {
+        return `run_absent_${randomUUID().slice(0, 12)}`;
+      },
+    };
   });
 });
