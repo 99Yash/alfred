@@ -19,8 +19,6 @@ const ITEM = "tools";
 
 const NO_SUB_AGENTS: readonly SubAgentTrail[] = [];
 
-const EMPTY_NARRATION: readonly SyncedChatNarration[] = [];
-
 /**
  * A turn's tool calls and the model's narration, woven into one collapsible
  * activity trail so a long agentic sequence doesn't bury the reply under a
@@ -33,19 +31,27 @@ const EMPTY_NARRATION: readonly SyncedChatNarration[] = [];
  * narration skips the wrapper — there's nothing to summarize.
  *
  * Total over `(tools, narration)`: `buildTrail` alone decides whether there is
- * anything to draw, and callers must not gate on either channel. A step whose
- * cards all bounced leaves closed prose with zero cards, so a `tools.length`
- * gate anywhere upstream silently eats prose the user already read.
+ * anything to draw. A step whose cards all bounced leaves closed prose with
+ * zero cards, so a `tools.length` gate anywhere upstream silently eats prose
+ * the user already read. `narration` is required for that reason — omitting it
+ * would be the same defect by omission — but "no caller gates on either
+ * channel" is a convention held by the two call sites, not by this signature.
  */
 export function ToolCallGroup({
   tools,
   active,
-  narration = EMPTY_NARRATION,
+  narration,
   subAgents = NO_SUB_AGENTS,
 }: {
   tools: ToolCallView[];
   active: boolean;
-  narration?: readonly SyncedChatNarration[] | undefined;
+  /**
+   * Every narration segment the turn has closed. Required, not optional: the
+   * bug this component exists to avoid is a caller dropping this channel, and
+   * an optional prop lets that happen silently. Pass `[]` when there is none —
+   * a persisted turn's `narration` is nullable.
+   */
+  narration: readonly SyncedChatNarration[];
   /**
    * Live trails for sub-agents spawned this turn. Each is hosted by the
    * `spawn_sub_agent` card whose `toolCallId` it names, turning that card from
