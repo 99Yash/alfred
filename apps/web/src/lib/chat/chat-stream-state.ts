@@ -312,11 +312,15 @@ export function applyChatFrame(
     const r = cell.current;
     // The freeze applies to the ref this frame *names*, exactly as in the five
     // arms below — but it cannot be hoisted above the kind dispatch the way the
-    // thread check is, because `started` is the only arm permitted to *replace*
-    // a stopped ref. A blanket `cell.current?.stopped` here means the turn after
-    // any stop never renders, so the identity comparison is spelled out. Unlike
-    // those arms, `compaction_*`/`completed` may not mount, so there is no
-    // `ensureStreamRef` to test the flag on.
+    // thread check is. Four arms can *mount*: `started` just below, plus
+    // `chat.reasoning`, `chat.delta` and `chat.tool`'s boss arm, each of which
+    // calls `ensureStreamRef` before testing `stopped` so that a frame naming a
+    // new `(messageId, runId)` replaces a stopped ref. A
+    // blanket `cell.current?.stopped` above the dispatch would drop whichever of
+    // those four opens the next turn, and that turn would never render. Those
+    // three inherit the identity comparison from `ensureStreamRef`; this arm has
+    // to spell it out, because `compaction_*`/`completed` may not mount and so
+    // have no `ensureStreamRef` return value to test the flag on.
     if (r !== null && r.stopped && r.messageId === p.messageId && r.runId === p.runId) return false;
     if (p.phase === "started") {
       ensureStreamRef(cell, p.messageId, p.runId);

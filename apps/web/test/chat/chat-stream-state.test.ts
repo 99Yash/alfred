@@ -421,12 +421,14 @@ describe("applyChatFrame — absorption (a terminal is absorbing)", () => {
   });
 
   test("a stop does not block the next turn's own chat.message/started", () => {
-    // The `chat.message` branch is the only arm allowed to *replace* a stopped
-    // ref, so its stop guard has to name the frame's own `(messageId, runId)`.
-    // A blanket `if (cell.current?.stopped) return false` — or the same check
-    // hoisted above the kind dispatch, next to the thread check, which is
-    // exactly where it looks like it belongs — drops this frame and the turn
-    // after any stop never renders. This is the assertion that catches that.
+    // `chat.message`'s stop guard has to name the frame's own
+    // `(messageId, runId)`, because `started` mounts the next turn over a
+    // stopped ref. A blanket `if (cell.current?.stopped) return false` — or the
+    // same check hoisted above the kind dispatch, next to the thread check,
+    // which is exactly where it looks like it belongs — drops this frame and the
+    // turn after any stop never renders. (The hoist would also strand a turn
+    // opened by `chat.reasoning`, `chat.delta` or `chat.tool`, which mount the
+    // same way.) This is the assertion that catches that.
     const cell = cellOf();
     applyChatFrame(cell, started(), 1_000);
     applyChatFrame(cell, delta(1, "half an answer"), 1_000);
@@ -438,6 +440,36 @@ describe("applyChatFrame — absorption (a terminal is absorbing)", () => {
     // And the replacing turn is fully live, not a husk: its own frames apply.
     assert.equal(applyChatFrame(cell, delta(1, "a fresh turn", { turn: TURN_2 }), 1_000), true);
     assert.equal(drain(cell).snapshot.text, "a fresh turn");
+  });
+
+  test("the stop guard is keyed on messageId AND runId, not on either one alone", () => {
+    // Every other replacement-turn case here uses `TURN_2`, which differs from
+    // `TURN` in *both* fields — so a guard that compares only one of them still
+    // lets those cases pass. These two shapes differ in exactly one field each,
+    // and each kills one half of the conjunction.
+    //
+    // Same messageId, new runId is the retry shape this file already pins for a
+    // live turn ("a different runId for the same messageId mounts a fresh
+    // turn"); dropping `runId` from the guard means a stopped turn can never be
+    // retried.
+    const retried = cellOf();
+    applyChatFrame(retried, started(), 1_000);
+    applyOptimisticStop(retried);
+    const retry = { threadId: THREAD, messageId: "msg_1", runId: "run_2" };
+    assert.equal(applyChatFrame(retried, started(retry), 1_000), true);
+    assert.equal(refOf(retried).runId, "run_2");
+    assert.equal(refOf(retried).stopped, false);
+
+    // New messageId, same runId. Nothing in production is known to emit this,
+    // but the guard's `messageId` half is only load-bearing against it, so this
+    // is what makes that half of the `&&` enforced rather than decorative.
+    const remounted = cellOf();
+    applyChatFrame(remounted, started(), 1_000);
+    applyOptimisticStop(remounted);
+    const sameRun = { threadId: THREAD, messageId: "msg_9", runId: "run_1" };
+    assert.equal(applyChatFrame(remounted, started(sameRun), 1_000), true);
+    assert.equal(refOf(remounted).messageId, "msg_9");
+    assert.equal(refOf(remounted).stopped, false);
   });
 
   test("a second stop, and a stop with nothing in flight, are no-ops", () => {
