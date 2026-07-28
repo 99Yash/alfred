@@ -12,8 +12,9 @@ import { isRetrySafeMethod } from "../src/shared/retry";
  *
  *   1. transient retry follows the METHOD, not the provider's retry envelope, so
  *      a POST is never silently re-sent;
- *   2. `bodyPolicy` is reachable from the seam, so a body-sensitive provider can
- *      join it instead of hand-rolling the omit posture.
+ *   2. `bodyPolicy` is a REQUIRED config field, so a body-sensitive provider joins
+ *      by stating its posture rather than hand-rolling the omit one — and cannot
+ *      inherit a leak by omitting the field.
  *
  * Plus the mechanics the seam owns: fresh auth per request, pinned query that a
  * caller cannot override, and JSON parsed as `unknown`. It stubs the global
@@ -46,6 +47,7 @@ function client(overrides: Partial<Parameters<typeof defineProviderClient>[0]> =
     resolve: async () => ({ headers: { Authorization: "Bearer tok" } }),
     // A zero backoff keeps the retry assertions fast without changing the count.
     retry: { maxAttempts: 3, baseDelayMs: 0, maxDelayMs: 0 },
+    bodyPolicy: "summarize",
     ...overrides,
   });
 }
@@ -118,7 +120,9 @@ describe("defineProviderClient", () => {
     }
   });
 
-  test("the default bodyPolicy keeps a bounded body slice on the error", async () => {
+  // `"summarize"` is not a default — the config has no default, every bind states
+  // its posture. This pins what the stated bounded posture does.
+  test('bodyPolicy "summarize" keeps a bounded body slice on the error', async () => {
     stubFetch(() => new Response("upstream said no", { status: 404 }));
     await assert.rejects(client().json("/thing"), (err: unknown) => {
       assert.ok(err instanceof HttpError);
