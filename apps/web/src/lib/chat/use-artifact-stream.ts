@@ -1,6 +1,6 @@
 import type { EventPayload } from "@alfred/contracts/events";
 import { useEffect, useMemo, useRef, useState } from "react";
-import type { EventStreamFrame } from "~/lib/events/frame";
+import { frameThreadId, type EventStreamFrame } from "~/lib/events/frame";
 import { openEventStream } from "~/lib/events/stream";
 
 /**
@@ -54,7 +54,7 @@ export interface ArtifactStreamState {
  * changed, so the caller can skip a re-render on an ignored (stale/replayed)
  * frame. Pure so the reducer is unit-testable without rendering the hook.
  */
-export function applyArtifactDelta(
+function applyArtifactDelta(
   streams: Map<string, LiveArtifactStream>,
   p: EventPayload<"artifact.delta">,
 ): boolean {
@@ -91,7 +91,7 @@ export function applyArtifactDelta(
  * resolves, bind its durable row id (create) and freeze the stream so the
  * sidebar reconciles to the synced row. Returns whether the map changed.
  */
-export function applyArtifactToolResolution(
+function applyArtifactToolResolution(
   streams: Map<string, LiveArtifactStream>,
   p: EventPayload<"chat.tool">,
 ): boolean {
@@ -104,6 +104,34 @@ export function applyArtifactToolResolution(
     done: true,
   });
   return true;
+}
+
+/**
+ * Apply one validated SSE frame to the streams map. Returns whether the map
+ * changed, so the caller can skip a re-render on an ignored (stale, replayed, or
+ * foreign-thread) frame.
+ *
+ * The thread check is hoisted above the kind dispatch and runs unconditionally —
+ * `openEventStream` keeps one `EventSource` and broadcasts every frame to every
+ * subscriber, so a second mounted hook would otherwise fold another thread's
+ * deltas into this map. Because `frameThreadId` classifies by the payload's own
+ * `threadId` field, an arm added later for a thread-carrying kind inherits the
+ * check instead of having to spell it. A kind that names no thread reaches the
+ * dispatch and falls through to `false`.
+ *
+ * Pure, so the routing is unit-testable without rendering the hook.
+ */
+export function applyArtifactFrame(
+  streams: Map<string, LiveArtifactStream>,
+  frame: EventStreamFrame,
+  threadId: string,
+): boolean {
+  const named = frameThreadId(frame);
+  if (named !== null && named !== threadId) return false;
+
+  if (frame.kind === "artifact.delta") return applyArtifactDelta(streams, frame.payload);
+  if (frame.kind === "chat.tool") return applyArtifactToolResolution(streams, frame.payload);
+  return false;
 }
 
 /** The live stream for a specific authoring tool call, or null. */
@@ -162,6 +190,10 @@ export function selectLatestPendingForRun(
  * Ephemeral: each stream is superseded by the durable synced `artifacts` row
  * once authoring completes (the sidebar reconciles to it). Streams are dropped
  * when the thread changes.
+ *
+ * Thread scoping lives in `applyArtifactFrame`, above its kind dispatch — this
+ * hook hands every frame the shared bus delivers to the reducer and only bumps
+ * the version when the map actually changed.
  */
 export function useArtifactStream(threadId: string | undefined): ArtifactStreamState {
   const streamsRef = useRef<Map<string, LiveArtifactStream>>(new Map());
@@ -173,15 +205,7 @@ export function useArtifactStream(threadId: string | undefined): ArtifactStreamS
     if (!threadId) return;
 
     const onFrame = (frame: EventStreamFrame) => {
-      if (frame.kind === "artifact.delta") {
-        const p = frame.payload;
-        if (p.threadId !== threadId) return;
-        if (applyArtifactDelta(streamsRef.current, p)) setVersion((v) => v + 1);
-      } else if (frame.kind === "chat.tool") {
-        const p = frame.payload;
-        if (p.threadId !== threadId) return;
-        if (applyArtifactToolResolution(streamsRef.current, p)) setVersion((v) => v + 1);
-      }
+      if (applyArtifactFrame(streamsRef.current, frame, threadId)) setVersion((v) => v + 1);
     };
 
     const close = openEventStream({ onFrame });

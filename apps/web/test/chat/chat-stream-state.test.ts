@@ -119,9 +119,12 @@ const unrelated = (): EventStreamFrame => ({
   createdAt: CREATED_AT,
 });
 /**
- * The one non-`chat.*` kind that *does* carry a `threadId`. Deliberately
- * unclassified by the reducer's thread reader: it falls out of the bottom either
- * way, so classifying it would change nothing.
+ * The one non-`chat.*` kind that *does* carry a `threadId`, and so is subject to
+ * the hoisted thread check like any other — `frameThreadId` classifies by the
+ * payload's field, not by the `chat.` name prefix. This reducer reads no arm for
+ * it, so a matching-thread frame passes the check and is then dropped by the
+ * bottom `return false`; the pair of cases below pins that as behaviour rather
+ * than as prose.
  */
 const artifactDelta = (threadId: string): EventStreamFrame => ({
   id: nextId(),
@@ -481,10 +484,11 @@ describe("applyChatFrame — thread filter (the cell's own identity)", () => {
     assert.equal(cell.current, null);
   });
 
-  test("an unclassified kind is dropped whether or not its thread matches", () => {
-    // `artifact.delta` carries a `threadId` and is deliberately not classified:
-    // the bottom `return false` catches it either way, so the `default: null`
-    // arm of the thread reader has not started admitting anything.
+  test("a kind this reducer reads no arm for is dropped whether or not its thread matches", () => {
+    // `artifact.delta` is thread-scoped and gated above the dispatch; with no arm
+    // to reach, it then falls out of the bottom `return false`. `agent.progress`
+    // names no thread, passes the check, and falls out the same way — so the
+    // `default: null` arm of the thread reader has not started admitting anything.
     const cell = cellOf();
     applyChatFrame(cell, started(), 1_000);
     const before = drain(cell).snapshot;

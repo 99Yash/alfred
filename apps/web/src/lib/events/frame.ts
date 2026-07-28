@@ -59,3 +59,58 @@ export function parseEventFrame<K extends EventKind>(
     createdAt: getStringPath(parsed, "createdAt") ?? "",
   } as Extract<EventStreamFrame, { kind: K }>;
 }
+
+/**
+ * Every `EventKind` whose payload carries a `threadId` — derived from the
+ * contract's own schemas, not listed. Five today: the four `chat.*` kinds and
+ * `artifact.delta`.
+ *
+ * `"threadId" extends keyof …` rather than `EventPayload<K> extends { threadId:
+ * string }` on purpose: `keyof` includes *optional* keys, so a future
+ * `threadId?: string` payload is still classified, and it then types
+ * `payload.threadId` as `string | undefined`, which fails `frameThreadId`'s
+ * return type until the author writes `?? null`. The structural-extends form
+ * would silently drop that payload back out of the set — the same "the gate
+ * covers everything" claim, still false. (A `.passthrough()` payload schema puts
+ * `string` in `keyof` and so is *over*-selected; that fails loudly at
+ * `noThreadNamed`, which is the acceptable direction.)
+ */
+type ThreadScopedEventKind = {
+  [K in EventKind]: "threadId" extends keyof EventPayload<K> ? K : never;
+}[EventKind];
+
+/**
+ * The `default` arm of `frameThreadId`, and the reason it is a function rather
+ * than a bare `return null`: its parameter type says *no thread-carrying kind
+ * reaches here*, so adding a payload with a `threadId` without classifying it
+ * below stops compiling at this call. Per
+ * `.lessons/partial-union-exhaustiveness-guard-needs-a-parameter-not-a-dangling-alias.md`
+ * the guard has to ride a parameter — `apps/web` sets `noUnusedLocals`, which
+ * deletes a dangling `type _Assert` with TS6196.
+ */
+function noThreadNamed(_kind: Exclude<EventKind, ThreadScopedEventKind>): null {
+  return null;
+}
+
+/**
+ * The thread a frame names, or `null` for a kind that names none.
+ *
+ * The one reader of `payload.threadId` in `apps/web`: a payload that drops or
+ * renames the field fails to compile here instead of at each subscriber that
+ * spelled the comparison for itself. Both stream hooks scope their frames by
+ * calling this *above* their kind dispatch, so an arm added later inherits the
+ * check; `openEventStream` keeps one `EventSource` and broadcasts every frame to
+ * every subscriber, so that scoping is load-bearing, not a formality.
+ */
+export function frameThreadId(frame: EventStreamFrame): string | null {
+  switch (frame.kind) {
+    case "chat.message":
+    case "chat.reasoning":
+    case "chat.delta":
+    case "chat.tool":
+    case "artifact.delta":
+      return frame.payload.threadId;
+    default:
+      return noThreadNamed(frame.kind);
+  }
+}
