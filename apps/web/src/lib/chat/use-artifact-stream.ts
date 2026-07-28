@@ -108,8 +108,11 @@ function applyArtifactToolResolution(
 
 /**
  * Apply one validated SSE frame to the streams map. Returns whether the map
- * changed, so the caller can skip a re-render on an ignored (stale, replayed, or
- * foreign-thread) frame.
+ * changed, so the caller can skip a re-render on a stale or foreign-thread frame.
+ * Replay is only half-covered, and deliberately stated rather than implied: a
+ * replayed `artifact.delta` is dropped by the seq guard, but a replayed terminal
+ * `chat.tool` re-resolves to a deep-equal entry and still reports `true`. That
+ * costs one spurious version bump, not a wrong map — pre-existing, and queued.
  *
  * The thread check is hoisted above the kind dispatch and runs unconditionally —
  * `openEventStream` keeps one `EventSource` and broadcasts every frame to every
