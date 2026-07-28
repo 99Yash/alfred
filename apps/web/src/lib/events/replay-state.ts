@@ -1,14 +1,6 @@
-import { isRecord } from "@alfred/contracts";
-import type { EventKind } from "@alfred/contracts/events";
 import { z } from "zod";
 
-const recoverableChatKinds = new Set<EventKind>([
-  "chat.message",
-  "chat.reasoning",
-  "chat.delta",
-  "chat.tool",
-  "approval.requested",
-]);
+import type { EventStreamFrame } from "./frame";
 
 export const replayStateSchema = z
   .preprocess(
@@ -21,12 +13,6 @@ export const replayStateSchema = z
   .default({ cursor: 0, activeRuns: {} });
 
 export type ReplayState = z.infer<typeof replayStateSchema>;
-
-export interface ReplayFrame {
-  id: number;
-  kind: EventKind;
-  payload: unknown;
-}
 
 export interface ReplayStateStore {
   read: () => ReplayState;
@@ -44,17 +30,13 @@ export function replaySince(state: ReplayState): number {
 }
 
 /** Pure state transition used by both the browser controller and unit tests. */
-export function advanceReplayState(state: ReplayState, frame: ReplayFrame): ReplayState {
+export function advanceReplayState(state: ReplayState, frame: EventStreamFrame): ReplayState {
   const cursor = Math.max(state.cursor, frame.id);
   const runId = recoverableRunId(frame);
   if (!runId) return cursor === state.cursor ? state : { ...state, cursor };
 
   const activeRuns = { ...state.activeRuns };
-  if (
-    frame.kind === "chat.message" &&
-    isRecord(frame.payload) &&
-    frame.payload.phase === "completed"
-  ) {
+  if (frame.kind === "chat.message" && frame.payload.phase === "completed") {
     delete activeRuns[runId];
   } else {
     const barrier = Math.max(0, frame.id - 1);
@@ -73,7 +55,7 @@ export function createReplayStateController(store: ReplayStateStore) {
   let maxSeenId = 0;
   return {
     since: () => replaySince(store.read()),
-    noteFrame: (frame: ReplayFrame) => {
+    noteFrame: (frame: EventStreamFrame) => {
       const current = store.read();
       maxSeenId = Math.max(maxSeenId, current.cursor, frame.id);
       const base = maxSeenId === current.cursor ? current : { ...current, cursor: maxSeenId };
@@ -95,7 +77,43 @@ function sameBarriers(left: ReplayState["activeRuns"], right: ReplayState["activ
   return leftEntries.every(([runId, barrier]) => right[runId] === barrier);
 }
 
-function recoverableRunId(frame: ReplayFrame): string | null {
-  if (!recoverableChatKinds.has(frame.kind) || !isRecord(frame.payload)) return null;
-  return typeof frame.payload.runId === "string" ? frame.payload.runId : null;
+/**
+ * The run a frame arms or releases a recovery barrier for, or `null` for a kind
+ * this module does not recover.
+ *
+ * A `switch` and not the `Set<EventKind>` this used to be: a runtime membership
+ * test narrows neither the key nor the object, so with the Set the `runId` read
+ * came off `unknown` and needed two guards the compiler could not check. As
+ * `case` labels the five kinds are checked against `@alfred/contracts/events`
+ * instead — renaming `runId`, or adding a `case` for a kind that carries none,
+ * is a compile error here rather than a `null` that silently stops establishing
+ * a barrier.
+ *
+ * Unlike `frameThreadId` there is deliberately **no** derived kind set and no
+ * exhaustiveness guard on the `default` arm. `threadId` is a *coverage* claim —
+ * every thread-scoped frame must be gated, so a payload that grows one and is
+ * not classified is a bug. Recoverability is a *policy* choice: `runId` is on 8
+ * of 11 payloads and `agent.run` / `agent.progress` / `tool.call` carry it and
+ * are excluded on purpose, so a derived set would over-select and force a policy
+ * edit at every new run-scoped kind. The reverse direction — "a new
+ * runId-carrying kind should be considered for recovery" — is prose, not a type.
+ *
+ * Reading `payload.runId` and `payload.phase` unguarded is safe because every
+ * frame reaching here came out of `parseEventFrame`'s zod parse: `noteReplayFrame`
+ * is the sole production caller and it is fed by `createEventSource`. That is a
+ * property of the caller, not of this module — a second caller handing over an
+ * unvalidated frame would put a malformed payload straight into a barrier that
+ * is persisted to localStorage.
+ */
+function recoverableRunId(frame: EventStreamFrame): string | null {
+  switch (frame.kind) {
+    case "chat.message":
+    case "chat.reasoning":
+    case "chat.delta":
+    case "chat.tool":
+    case "approval.requested":
+      return frame.payload.runId;
+    default:
+      return null;
+  }
 }
