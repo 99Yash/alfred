@@ -14,8 +14,9 @@ to merged PRs. Run exactly this phase, update state, and stop.
 
 Read, in this order:
   1. {{ITEM_FILE}}
-  2. {{PHASES_DOC}} — the `{{PHASE}}` section ONLY
-  3. {{REVIEW_DOC}} — only if the phase is `review`
+  2. {{CAMPAIGN_DIR}}/NOTES.md — cross-item facts; create it empty if absent
+  3. {{PHASES_DOC}} — "Every phase" plus the `{{PHASE}}` section ONLY
+  4. {{REVIEW_DOC}} — only if the phase is `review`
 
 Then do the phase.
 

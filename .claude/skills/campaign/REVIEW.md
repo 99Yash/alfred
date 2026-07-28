@@ -101,7 +101,8 @@ and a reviewer who has to guess the claim will review the diff's shape instead.
 > is the resolution expected, is any operation destructive or reordered — and are
 > never style-reviewed.
 >
-> Also run `pnpm check` and report anything it flags that the PR did not fix.
+> Also run `pnpm check && pnpm check-types` (the former does not typecheck) and
+> report anything they flag that the PR did not fix.
 >
 > Tag findings `must-fix` / `follow-up` / `nit`. Write to
 > `<campaign>/reviews/NN-rN-sweep.md`. Do not edit source.

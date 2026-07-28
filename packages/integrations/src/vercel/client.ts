@@ -131,6 +131,10 @@ export function createVercelClient(options: VercelClientOptions) {
     baseUrl: VERCEL_API,
     resolve: authContext,
     retry: options.retry,
+    // Vercel returns a structured `{error: {code, message}}` that is prod-safe
+    // after bounding + secret redaction, and it is the only thing that explains a
+    // 403 on a team-scoped read. Stated, not inherited.
+    bodyPolicy: "summarize",
   });
 
   return {
