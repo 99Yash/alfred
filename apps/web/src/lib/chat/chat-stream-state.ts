@@ -268,15 +268,23 @@ export function applyChatFrame(
       r.compacting = p.phase === "compaction_started";
       return true;
     }
-    markChatTimingByAssistant(p.messageId, "completion_event", undefined, {
-      threadId,
-      runId: p.runId,
-      summarize: true,
-    });
-    r.done = true;
-    r.awaitingApproval = false;
-    r.compacting = false;
-    return true;
+    if (p.phase === "completed") {
+      markChatTimingByAssistant(p.messageId, "completion_event", undefined, {
+        threadId,
+        runId: p.runId,
+        summarize: true,
+      });
+      r.done = true;
+      r.awaitingApproval = false;
+      r.compacting = false;
+      return true;
+    }
+    // `phase` is a closed four-member enum, so this is unreachable — the payload
+    // was parsed by this build's own schema. It is here so that adding a member
+    // (`failed`, `cancelled`, …) fails to compile rather than falling into the
+    // completion branch and silently tearing down a live bubble.
+    const _exhaustive: never = p.phase;
+    return _exhaustive;
   }
 
   if (frame.kind === "chat.reasoning") {
@@ -459,8 +467,10 @@ export function applyChatFrame(
  * doesn't keep typing while the server finalizes in the background.
  *
  * Returns whether anything changed — `false` when nothing is in flight or the
- * turn was already stopped. The `slice(0, shown)` truncation has to happen
- * *before* `done` flips, or the next projection would ease past the freeze.
+ * turn was already stopped. The `slice(0, shown)` truncation and the `done`
+ * flip live here together so the freeze and the state it freezes cannot drift;
+ * nothing reads either between them, so this is concentration, not an ordering
+ * constraint.
  */
 export function applyOptimisticStop(cell: ChatStreamCell): boolean {
   const r = cell.current;
