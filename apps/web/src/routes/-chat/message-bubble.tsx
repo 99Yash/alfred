@@ -333,9 +333,10 @@ export function MessageBubble({
           durationMs={message.reasoningMs}
         />
       ) : null}
-      {tools.length > 0 ? (
-        <ToolCallGroup tools={tools} narration={message.narration ?? undefined} active={false} />
-      ) : null}
+      {/* No `tools.length` gate: a reloaded turn whose cards all bounced
+       * persists narration with a null `toolCalls`, and its prose still
+       * belongs on screen. `ToolCallGroup` owns that emptiness rule. */}
+      <ToolCallGroup tools={tools} narration={message.narration ?? undefined} active={false} />
       {message.content.length > 0 ? (
         <div ref={bodyRef}>
           <AssistantMarkdown text={message.content} />

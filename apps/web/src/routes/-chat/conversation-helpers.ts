@@ -20,6 +20,32 @@ export function shouldShowStream(
 }
 
 /**
+ * Whether the live bubble should draw the bare "thinking" spinner: the turn is
+ * still running and has produced nothing visible yet. Every other in-flow
+ * indicator (reasoning accordion, tool trail, "Condensing conversation…") is a
+ * better answer to "what is happening", so any of them present wins.
+ *
+ * `done` is the clause that is easy to lose. `shouldShowStream` keeps the live
+ * bubble mounted until the durable row syncs in, so a turn stopped before its
+ * first delta sits at `done` with no text and no tools for that whole window —
+ * without this clause it spins on a finished turn.
+ *
+ * Deliberately blind to `narration`: closed prose is not live activity, so a
+ * running turn whose cards all retracted keeps its honest spinner *under* the
+ * narration rows.
+ */
+export function shouldShowThinkingIndicator(stream: StreamingMessage): boolean {
+  return (
+    !stream.done &&
+    stream.text.length === 0 &&
+    stream.tools.length === 0 &&
+    stream.reasoning.length === 0 &&
+    !stream.reasoningActive &&
+    !stream.compacting
+  );
+}
+
+/**
  * A short present-tense label for what the turn is doing *right now* — the copy
  * for the floating activity pill (shown when the user has scrolled up off the
  * live edge mid-turn). Mirrors the in-flow indicators: the running tool's own
