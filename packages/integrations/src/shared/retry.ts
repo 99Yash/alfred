@@ -14,8 +14,12 @@
  * jitter: a thrown transport failure (timeout/DNS/reset/TLS) and a retryable
  * status ({@link isRetryableStatus}: 429 or 5xx). A `429`/`503` `Retry-After`
  * header is honored when present, bounded by the policy's `maxDelayMs` so an
- * upstream-supplied delay can shorten but never exceed the caller's budget. A
- * caller-driven abort is never retried.
+ * upstream-supplied delay can shorten but never exceed the caller's budget.
+ *
+ * This module is NOT on the `@alfred/integrations/shared` barrel (only
+ * {@link RetryPolicy} is). Retry is an internal composition detail of
+ * `defineProviderClient`, which is the only file that imports it; the configured
+ * client is the public door.
  *
  * SAFETY: only the caller decides *which requests* are eligible — this must be
  * used for idempotent reads (GET/HEAD) unless the write carries an idempotency
@@ -65,19 +69,8 @@ export function isRetrySafeMethod(method: string | undefined): boolean {
   return normalized === "GET" || normalized === "HEAD" || normalized === "OPTIONS";
 }
 
-function sleep(ms: number, signal?: AbortSignal): Promise<void> {
-  return new Promise((resolve, reject) => {
-    if (signal?.aborted) return reject(signal.reason);
-    const timer = setTimeout(resolve, ms);
-    signal?.addEventListener(
-      "abort",
-      () => {
-        clearTimeout(timer);
-        reject(signal.reason);
-      },
-      { once: true },
-    );
-  });
+function sleep(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
 /**
@@ -115,10 +108,6 @@ export interface FetchWithRetryOptions {
    * on/off switch. To not retry, don't call this.
    */
   policy: RetryPolicy;
-  /** Classify a returned (non-thrown) response as retryable. Default {@link isRetryableStatus}. */
-  retryable?: (res: Response) => boolean;
-  /** Caller abort — a signalled abort is surfaced immediately, never retried. */
-  signal?: AbortSignal;
 }
 
 /**
@@ -132,21 +121,18 @@ export async function fetchWithRetry(
   options: FetchWithRetryOptions,
 ): Promise<Response> {
   const policy = withDefaults(DEFAULT_POLICY, options.policy);
-  const retryable = options.retryable ?? ((res) => isRetryableStatus(res.status));
 
   let lastError: unknown;
   for (let attempt = 1; attempt <= policy.maxAttempts; attempt++) {
     const isLast = attempt === policy.maxAttempts;
     try {
       const res = await send();
-      if (isLast || !retryable(res)) return res;
-      await sleep(retryAfterMs(res, policy) ?? backoffMs(attempt, policy), options.signal);
+      if (isLast || !isRetryableStatus(res.status)) return res;
+      await sleep(retryAfterMs(res, policy) ?? backoffMs(attempt, policy));
     } catch (err) {
-      // A caller-driven abort is intentional — do not retry it.
-      if (options.signal?.aborted) throw err;
       if (isLast) throw err;
       lastError = err;
-      await sleep(backoffMs(attempt, policy), options.signal);
+      await sleep(backoffMs(attempt, policy));
     }
   }
   // Unreachable: the loop returns or throws on the last attempt. Satisfy the

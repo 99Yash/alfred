@@ -3,6 +3,11 @@
  * single provider module owns: the bearer-credential store and the one
  * authenticated REST transport the general read-only passthrough tier
  * (ADR-0074 rung-a) shares across every REST provider.
+ *
+ * Transient retry is deliberately absent from this surface: it is an internal
+ * composition detail of `defineProviderClient`, whose configured client is the
+ * public door. Only `RetryPolicy` crosses, because a bind site states the
+ * envelope. A sibling inside this package still imports `./retry` directly.
  */
 
 export * from "./credentials";
@@ -13,13 +18,7 @@ export {
   type AuthedFetchRequest,
 } from "./authed-fetch";
 export { authedJson, type AuthedJsonOptions } from "./authed-json";
-export {
-  fetchWithRetry,
-  isRetryableStatus,
-  isRetrySafeMethod,
-  type RetryPolicy,
-  type FetchWithRetryOptions,
-} from "./retry";
+export { type RetryPolicy } from "./retry";
 export { throwUpstreamError } from "./upstream-error";
 export {
   defineProviderClient,
