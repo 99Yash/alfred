@@ -5,7 +5,7 @@ import {
   applyStreamingToolEvent,
   subAgentEventAddressesStream,
   type StreamingToolCall,
-} from "../../src/lib/chat/use-chat-stream";
+} from "../../src/lib/chat/chat-stream-state";
 
 const baseEvent = {
   runId: "run_1",

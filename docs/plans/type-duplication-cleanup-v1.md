@@ -68,7 +68,7 @@ Recommendation: add `New*` insert exports **on demand** (i.e. export `NewChatAtt
 | 10 | `apps/web/src/hooks/use-inbox.ts:155` | `interface InboxAttachment` = Eden inbox-detail attachment (`MeInboxAttachment`, `me/routes.ts:161`); mapper is 1:1 | Derive mapper output from inferred element | M |
 | 11 | `apps/web/src/hooks/use-tool-tiers.ts:5` | `interface RiskTierCounts {no_risk;low;medium;high}` — server's is literally `Record<ToolRiskTier, number>` | `type RiskTierCounts = Record<ToolRiskTier, number>` (`ToolRiskTier` from `@alfred/contracts`); keep the runtime guard | M/L |
 | 12 | `apps/web/src/lib/replicache/{use-briefings.ts:7,use-workflows.ts:12,use-chat.ts:15}` | `interface ReplicacheSnapshot<T>` declared **3× identically** | Hoist to `lib/replicache/client.ts`, import in all three | M/L |
-| 13 | `apps/web/src/lib/chat/use-chat-stream.ts:19` | `interface StreamingNarration {index;text}` = `SyncedChatNarration` (`@alfred/sync`) exactly | `import type { SyncedChatNarration }`; keep sibling `StreamingToolCall`/`StreamingMessage` (they deliberately diverge) | L |
+| 13 | `apps/web/src/lib/chat/chat-stream-state.ts` | `interface StreamingNarration {index;text}` = `SyncedChatNarration` (`@alfred/sync`) exactly | `import type { SyncedChatNarration }`; keep sibling `StreamingToolCall`/`StreamingMessage` (they deliberately diverge) | L |
 
 ### Batch 3 — Small enums: single-source them (api-internal)
 

@@ -7,7 +7,7 @@ import {
   setLocalStorageItem,
 } from "~/lib/storage/storage";
 import { toast } from "~/lib/toast";
-import type { StreamingMessage } from "./use-chat-stream";
+import type { StreamingMessage } from "./chat-stream-state";
 
 /** When the completion chime plays. Defaults to unfocused-only so it acts as a notification, not a per-reply ping. */
 export type ChatSoundPreference = LocalStorageValue<"alfred.chat.soundPreference">;

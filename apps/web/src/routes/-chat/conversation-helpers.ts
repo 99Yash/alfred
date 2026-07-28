@@ -1,5 +1,5 @@
 import type { SyncedChatMessage } from "@alfred/sync";
-import type { StreamingMessage } from "~/lib/chat/use-chat-stream";
+import type { StreamingMessage } from "~/lib/chat/chat-stream-state";
 import type { IntegrationBrand } from "~/lib/integrations/integration-icons";
 import { parseJsonRecord } from "~/lib/json-record";
 import { presentTool } from "./tool-call-presentation";
