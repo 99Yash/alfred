@@ -3,9 +3,9 @@ import { openEventStream } from "~/lib/events/stream";
 import {
   applyChatFrame,
   applyOptimisticStop,
+  createChatStreamCell,
   streamSnapshotsEqual,
   tickDrip,
-  type ChatStreamCell,
   type StreamingMessage,
 } from "./chat-stream-state";
 
@@ -43,8 +43,6 @@ interface StreamSnapshot {
  */
 export function useChatStream(threadId: string | undefined): ChatStream {
   const [snapshot, setSnapshot] = useState<StreamSnapshot | null>(null);
-  // A stable cell for the whole mount: the reducer mutates it in place.
-  const cell = useRef<ChatStreamCell>({ current: null }).current;
   const lastSnapshotRef = useRef<StreamingMessage | null>(null);
   const rafRef = useRef<number | null>(null);
   // The effect installs the real stopper once the SSE stream is open; the
@@ -53,19 +51,23 @@ export function useChatStream(threadId: string | undefined): ChatStream {
   const stopStream = useCallback(() => stopFnRef.current?.(), []);
 
   useEffect(() => {
-    cell.current = null;
     lastSnapshotRef.current = null;
     if (!threadId) return;
+
+    // One cell per subscription, so the turn state cannot outlive the thread it
+    // belongs to: carrying a previous thread's turn across a `threadId` change
+    // is unrepresentable rather than undone by a reset statement.
+    const cell = createChatStreamCell(threadId);
 
     const ensureRaf = () => {
       if (rafRef.current !== null) return;
       const tick = () => {
-        const ref = cell.current;
-        if (!ref) {
+        const projected = tickDrip(cell);
+        if (!projected) {
           rafRef.current = null;
           return;
         }
-        const { snapshot: next, caughtUp } = tickDrip(ref);
+        const { snapshot: next, caughtUp } = projected;
         if (!streamSnapshotsEqual(lastSnapshotRef.current, next)) {
           lastSnapshotRef.current = next;
           setSnapshot({ threadId, message: next });
@@ -84,7 +86,7 @@ export function useChatStream(threadId: string | undefined): ChatStream {
 
     const close = openEventStream({
       onFrame: (frame) => {
-        if (applyChatFrame(cell, frame, { threadId, now: Date.now() })) ensureRaf();
+        if (applyChatFrame(cell, frame, Date.now())) ensureRaf();
       },
     });
     return () => {
@@ -95,7 +97,7 @@ export function useChatStream(threadId: string | undefined): ChatStream {
         rafRef.current = null;
       }
     };
-  }, [cell, threadId]);
+  }, [threadId]);
 
   const stream = snapshot && snapshot.threadId === threadId ? snapshot.message : null;
   return { stream, stopStream };
