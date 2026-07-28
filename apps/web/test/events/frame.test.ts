@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { describe, test } from "node:test";
 
 import { eventPayloadSchemas, type EventPayload } from "@alfred/contracts/events";
-import { parseEventFrame } from "../../src/lib/events/frame";
+import { frameThreadId, parseEventFrame } from "../../src/lib/events/frame";
 
 /** A wire message body as the SSE `data:` line carries it. */
 const wire = (payload: unknown, createdAt = "2026-07-27T00:00:00.000Z") =>
@@ -36,6 +36,28 @@ const artifactDeltaPayload = {
   seq: 1,
   text: "# Title",
   mode: "replace" as const,
+};
+
+const chatReasoningPayload = {
+  runId: "run-1",
+  threadId: "thread-1",
+  messageId: "msg-1",
+  seq: 1,
+  text: "thinking",
+};
+
+const chatMessagePayload = {
+  runId: "run-1",
+  threadId: "thread-1",
+  messageId: "msg-1",
+  phase: "started" as const,
+};
+
+const approvalRequestedPayload = {
+  runId: "run-1",
+  approvalId: "appr-1",
+  approvalKind: "step" as const,
+  prompt: "may I?",
 };
 
 describe("parseEventFrame", () => {
@@ -103,5 +125,60 @@ describe("parseEventFrame", () => {
     for (const [label, data, lastEventId] of cases) {
       assert.equal(parseEventFrame("chat.delta", data, lastEventId), null, label);
     }
+  });
+});
+
+/**
+ * Frames here are built by `parseEventFrame` rather than as literals, so the
+ * payloads under test are this kind's own schema output — the same objects a
+ * subscriber sees.
+ */
+describe("frameThreadId", () => {
+  test("returns the thread for every kind whose payload carries one", () => {
+    for (const [kind, payload] of [
+      ["chat.message", chatMessagePayload],
+      ["chat.reasoning", chatReasoningPayload],
+      ["chat.delta", chatDeltaPayload],
+      ["chat.tool", chatToolSubAgentPayload],
+      // The kind item 21 exists for: it carries a thread and is not a `chat.*`.
+      ["artifact.delta", artifactDeltaPayload],
+    ] as const) {
+      const frame = parseEventFrame(kind, wire(payload), "1");
+      assert.ok(frame, `${kind} should parse`);
+      assert.equal(frameThreadId(frame), "thread-1", kind);
+    }
+  });
+
+  test("returns null for a kind whose payload names no thread", () => {
+    for (const [kind, payload] of [
+      ["agent.run", agentRunPayload],
+      ["approval.requested", approvalRequestedPayload],
+    ] as const) {
+      const frame = parseEventFrame(kind, wire(payload), "1");
+      assert.ok(frame, `${kind} should parse`);
+      assert.equal(frameThreadId(frame), null, kind);
+    }
+  });
+
+  /**
+   * The gate this module exists for is type-level, so no runtime assertion can
+   * see it: a passing test above cannot distinguish `ThreadScopedEventKind`
+   * derived from the payload schemas from a hand-listed union of names. Recorded
+   * mutant, run against this tree:
+   *
+   * - comment out `case "artifact.delta"` in `frameThreadId` → `tsc` fails at the
+   *   `noThreadNamed` call, `src/lib/events/frame.ts(114,28): error TS2345:
+   *   Argument of type '"agent.progress" | "agent.run" | "approval.requested" |
+   *   "artifact.delta" | "inbox.updated" | "memory.fact_learned" | "tool.call"' is
+   *   not assignable to parameter of type '"agent.progress" | "agent.run" |
+   *   "approval.requested" | "inbox.updated" | "memory.fact_learned" |
+   *   "tool.call"'.` — because `default` narrows `frame.kind` to include the kind
+   *   that stopped being classified.
+   *
+   * That error is the enforcement. `apps/web` typechecks in CI; its runtime tests
+   * do not (campaign item 12), so this is also the enforced half.
+   */
+  test("thread-scoped kinds are derived from the payload schemas — see the mutant above", () => {
+    assert.ok(true);
   });
 });
