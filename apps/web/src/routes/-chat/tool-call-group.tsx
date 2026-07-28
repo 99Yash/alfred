@@ -1,6 +1,7 @@
 import { useAutoAnimate } from "@formkit/auto-animate/react";
 import * as Accordion from "@radix-ui/react-accordion";
 import { AWAIT_SUB_AGENT_TOOL, SPAWN_SUB_AGENT_TOOL } from "@alfred/contracts";
+import type { SyncedChatNarration } from "@alfred/sync";
 import { ChevronRight } from "lucide-react";
 import { useId, useState } from "react";
 import type { SubAgentTrail } from "~/lib/chat/chat-stream-state";
@@ -12,77 +13,13 @@ import { runGlyphs, runSummary } from "./run-summary";
 import { SubAgentCard } from "./sub-agent-card";
 import { ToolCallCard } from "./tool-call-card";
 import { presentTool, type ToolCallView } from "./tool-call-presentation";
+import { buildTrail } from "./trail";
 
 const ITEM = "tools";
 
 const NO_SUB_AGENTS: readonly SubAgentTrail[] = [];
 
-/** A closed narration segment — the brief line the model wrote before a tool step. */
-export interface TrailNarration {
-  index: number;
-  text: string;
-}
-
-const EMPTY_NARRATION: readonly TrailNarration[] = [];
-
-type TrailItem =
-  | { kind: "narration"; key: string; text: string }
-  // One row per *run* of identical calls: a `gmail.search` and a follow-up
-  // `gmail.search` collapse into one card with a `2×` badge, so a turn that
-  // pages the same source a few times doesn't read as N near-identical rows.
-  // Grouped on (toolName, status) so a failure never hides under a success's
-  // count — a fail then a retry-success stay two distinct rows.
-  | { kind: "tool"; key: string; tools: ToolCallView[] };
-
-/**
- * Weave the model's narration lines and its tool calls into one ordered trail.
- * Both carry a `segmentIndex`: segment N's narration precedes the tools the
- * model called in step N. Within a segment, the narration line comes first,
- * then its tools in arrival order — mirroring how the turn actually streamed.
- * Consecutive calls to the same tool with the same status fold into one row
- * (carrying every call) so repeated reads collapse to a single badged card;
- * narration or a different tool/status between them breaks the run.
- */
-function buildTrail(tools: ToolCallView[], narration: readonly TrailNarration[]): TrailItem[] {
-  const toolsBySegment = new Map<number, ToolCallView[]>();
-  for (const tool of tools) {
-    const seg = tool.segmentIndex ?? 0;
-    const list = toolsBySegment.get(seg) ?? [];
-    list.push(tool);
-    toolsBySegment.set(seg, list);
-  }
-  const narrationBySegment = new Map<number, string>();
-  for (const segment of narration) narrationBySegment.set(segment.index, segment.text);
-
-  const segments = Array.from(
-    new Set([...toolsBySegment.keys(), ...narrationBySegment.keys()]),
-  ).toSorted((a, b) => a - b);
-  const items: TrailItem[] = [];
-  for (const seg of segments) {
-    const text = narrationBySegment.get(seg);
-    if (text && text.trim().length > 0) {
-      items.push({ kind: "narration", key: `narration-${seg}`, text });
-    }
-    for (const tool of toolsBySegment.get(seg) ?? []) {
-      const prev = items[items.length - 1];
-      const head = prev?.kind === "tool" ? prev.tools[0] : undefined;
-      if (
-        prev?.kind === "tool" &&
-        head &&
-        head.toolName === tool.toolName &&
-        head.status === tool.status &&
-        // Never fold spawns together: each one owns a distinct sub-agent trail,
-        // and a folded "2×" row could only ever host one of them.
-        tool.toolName !== SPAWN_SUB_AGENT_TOOL
-      ) {
-        prev.tools.push(tool);
-      } else {
-        items.push({ kind: "tool", key: tool.toolCallId, tools: [tool] });
-      }
-    }
-  }
-  return items;
-}
+const EMPTY_NARRATION: readonly SyncedChatNarration[] = [];
 
 /**
  * A turn's tool calls and the model's narration, woven into one collapsible
@@ -94,6 +31,11 @@ function buildTrail(tools: ToolCallView[], narration: readonly TrailNarration[])
  * sent a Gmail draft") with the integration glyphs touched alongside;
  * re-expanding replays the full interleaved timeline. A lone tool with no
  * narration skips the wrapper — there's nothing to summarize.
+ *
+ * Total over `(tools, narration)`: `buildTrail` alone decides whether there is
+ * anything to draw, and callers must not gate on either channel. A step whose
+ * cards all bounced leaves closed prose with zero cards, so a `tools.length`
+ * gate anywhere upstream silently eats prose the user already read.
  */
 export function ToolCallGroup({
   tools,
@@ -103,7 +45,7 @@ export function ToolCallGroup({
 }: {
   tools: ToolCallView[];
   active: boolean;
-  narration?: readonly TrailNarration[] | undefined;
+  narration?: readonly SyncedChatNarration[] | undefined;
   /**
    * Live trails for sub-agents spawned this turn. Each is hosted by the
    * `spawn_sub_agent` card whose `toolCallId` it names, turning that card from
@@ -149,18 +91,51 @@ export function ToolCallGroup({
     return childRunId !== undefined && subAgents.some((s) => s.childRunId === childRunId);
   };
 
-  if (tools.length === 0) return null;
-  if (tools.length === 1 && narration.length === 0) {
-    const lone = [tools[0]!];
-    const loneTrail = trailFor(lone);
+  const trail = buildTrail(tools, narration);
+  if (trail.length === 0) return null;
+
+  const only = trail.length === 1 ? trail[0]! : undefined;
+  if (only?.kind === "tool" && only.tools.length === 1) {
+    const loneTrail = trailFor(only.tools);
     return loneTrail ? (
-      <SubAgentCard tool={lone[0]!} trail={loneTrail} />
+      <SubAgentCard tool={only.tools[0]!} trail={loneTrail} />
     ) : (
-      <ToolCallCard tools={lone} />
+      <ToolCallCard tools={only.tools} />
     );
   }
 
-  const trail = buildTrail(tools, narration);
+  // The trail flows inline in the conversation feed — no capped height or
+  // nested scrollbar. The feed's own stick-to-bottom keeps the model's current
+  // step in view as the trail grows, so a long agentic run reads as one
+  // continuous timeline rather than a cramped box. Shared by both drawing
+  // branches below; `useAutoAnimate`'s ref attaches to whichever renders.
+  const rail = (
+    <div
+      ref={trailRef}
+      className="mt-1.5 ml-3 flex flex-col gap-1.5 border-l-2 border-app-fg-a1 pl-3"
+    >
+      {trail.map((item) => {
+        if (item.kind !== "tool") return <NarrationRow key={item.key} text={item.text} />;
+        if (isRedundantAwait(item.tools)) return null;
+        const subAgent = trailFor(item.tools);
+        return subAgent ? (
+          <SubAgentCard key={item.key} tool={item.tools[0]!} trail={subAgent} />
+        ) : (
+          <ToolCallCard key={item.key} tools={item.tools} inTrail />
+        );
+      })}
+    </div>
+  );
+
+  // Prose with no cards — a step whose calls all bounced, or narration that
+  // arrived before its tools did. There is nothing to summarize behind a
+  // chevron and no last tool to headline with, so the rows stand on their own.
+  // This returns *before* any `tools[…]!` read below, which empty `tools`
+  // cannot survive.
+  if (!trail.some((item) => item.kind === "tool")) {
+    return <div className="animate-chat-in w-full">{rail}</div>;
+  }
+
   const last = tools[tools.length - 1]!;
   const runningLabel = last.status === "started" ? presentTool(last).running : "Working on it";
   const anyFailed = tools.some((t) => t.status === "failed");
@@ -221,25 +196,7 @@ export function ToolCallGroup({
           id={contentId}
           className="data-[state=closed]:animate-chat-accordion-up data-[state=open]:animate-chat-accordion-down overflow-hidden"
         >
-          {/* The trail flows inline in the conversation feed — no capped height
-           * or nested scrollbar. The feed's own stick-to-bottom keeps the
-           * model's current step in view as the trail grows, so a long agentic
-           * run reads as one continuous timeline rather than a cramped box. */}
-          <div
-            ref={trailRef}
-            className="mt-1.5 ml-3 flex flex-col gap-1.5 border-l-2 border-app-fg-a1 pl-3"
-          >
-            {trail.map((item) => {
-              if (item.kind !== "tool") return <NarrationRow key={item.key} text={item.text} />;
-              if (isRedundantAwait(item.tools)) return null;
-              const subAgent = trailFor(item.tools);
-              return subAgent ? (
-                <SubAgentCard key={item.key} tool={item.tools[0]!} trail={subAgent} />
-              ) : (
-                <ToolCallCard key={item.key} tools={item.tools} inTrail />
-              );
-            })}
-          </div>
+          {rail}
         </Accordion.Content>
       </Accordion.Item>
     </Accordion.Root>
