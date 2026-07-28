@@ -1,23 +1,9 @@
-import {
-  EVENT_KINDS,
-  eventPayloadSchemas,
-  type EventFrame,
-  type EventKind,
-} from "@alfred/contracts/events";
-import { getStringPath, isRecord, safeJsonParse } from "@alfred/contracts";
+import { EVENT_KINDS } from "@alfred/contracts/events";
+import { parseEventFrame, type EventStreamFrame } from "./frame";
 import { getReplaySince, noteReplayFrame } from "./replay-anchor";
 
 const API_URL =
   (import.meta as { env?: { VITE_API_URL?: string } }).env?.VITE_API_URL ?? "http://localhost:3001";
-
-export interface EventStreamFrame extends Pick<EventFrame, "id" | "kind" | "createdAt"> {
-  /**
-   * Browser-validated payload as `unknown` — consumers should narrow with a
-   * zod schema or a type guard before use. The server validates on publish,
-   * but the SSE wire format is JSON and we treat it as untrusted.
-   */
-  payload: unknown;
-}
 
 export interface OpenEventStreamOptions {
   onFrame: (frame: EventStreamFrame) => void;
@@ -44,21 +30,6 @@ function eventStreamUrl(): URL {
   return url;
 }
 
-function parseFrame(kind: EventKind, msg: MessageEvent): EventStreamFrame | null {
-  const parsed = safeJsonParse(msg.data);
-  if (!isRecord(parsed)) return null;
-  const payloadResult = eventPayloadSchemas[kind].safeParse(parsed.payload);
-  if (!payloadResult.success) return null;
-  const id = Number(msg.lastEventId);
-  if (!Number.isFinite(id) || id <= 0) return null;
-  return {
-    id,
-    kind,
-    payload: payloadResult.data,
-    createdAt: getStringPath(parsed, "createdAt") ?? "",
-  };
-}
-
 function createEventSource(
   onFrame: (frame: EventStreamFrame) => void,
   onError: (err: Event) => void,
@@ -67,7 +38,7 @@ function createEventSource(
 
   for (const kind of EVENT_KINDS) {
     source.addEventListener(kind, (msg) => {
-      const frame = parseFrame(kind, msg);
+      const frame = parseEventFrame(kind, msg.data, msg.lastEventId);
       if (frame) onFrame(frame);
     });
   }
