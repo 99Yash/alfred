@@ -20,13 +20,18 @@
 #   SLUG            campaign slug; inferred when .campaign/ holds exactly one
 #   ITEM            restrict to a single item id
 #   MAX_ITER        default 20
-#   MAX_BUDGET_USD  default 8 (per iteration; implement phases are the expensive ones)
+#   MAX_BUDGET_USD  default 7, PER ITERATION — there is no overall cap, so the
+#                   ceiling on a run is MAX_ITER × MAX_BUDGET_USD. A `review`
+#                   phase runs three subagent lanes inside one iteration and does
+#                   not fit in the default; override it for that phase
+#                   (MAX_BUDGET_USD=20) or the round dies mid-synthesis and the
+#                   item is parked with only some lanes on disk.
 #   DRY_RUN         default 0
 
 set -euo pipefail
 
 MAX_ITER="${MAX_ITER:-20}"
-MAX_BUDGET_USD="${MAX_BUDGET_USD:-8}"
+MAX_BUDGET_USD="${MAX_BUDGET_USD:-7}"
 DRY_RUN="${DRY_RUN:-0}"
 ITEM="${ITEM:-}"
 
