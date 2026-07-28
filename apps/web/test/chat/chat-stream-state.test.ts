@@ -5,6 +5,7 @@ import type { EventPayload } from "@alfred/contracts/events";
 import {
   applyChatFrame,
   applyOptimisticStop,
+  createChatStreamCell,
   streamSnapshotsEqual,
   tickDrip,
   type ChatStreamCell,
@@ -118,18 +119,25 @@ const unrelated = (): EventStreamFrame => ({
   createdAt: CREATED_AT,
 });
 
-const ctx = (now = 1_000) => ({ threadId: THREAD, now });
-const cellOf = (): ChatStreamCell => ({ current: null });
+const cellOf = () => createChatStreamCell(THREAD);
 
 /**
- * `tickDrip` takes the ref, not the cell — deliberately, so the only way to a
- * `StreamingMessage` is through the easing step. Tests reach it the same way the
- * hook does: null-check the cell.
+ * The cell's internals, for the assertions a projection cannot see (`deltaSeq`,
+ * `stopped`, the trail maps). Production code never reaches through
+ * `cell.current` — `tickDrip` hands back the projection and nothing else — so
+ * this is the test's own door, not one the hook uses.
  */
 function refOf(cell: ChatStreamCell) {
   const ref = cell.current;
   assert.ok(ref, "expected a mounted turn");
   return ref;
+}
+
+/** One animation frame, asserted to have found a mounted turn. */
+function tick(cell: ChatStreamCell): { snapshot: StreamingMessage; caughtUp: boolean } {
+  const projected = tickDrip(cell);
+  assert.ok(projected, "expected a mounted turn");
+  return projected;
 }
 
 /**
@@ -138,9 +146,8 @@ function refOf(cell: ChatStreamCell) {
  * full text after a single call would read as a reducer bug.
  */
 function drain(cell: ChatStreamCell, bound = 500): { snapshot: StreamingMessage; ticks: number } {
-  const ref = refOf(cell);
   for (let i = 0; i < bound; i += 1) {
-    const { snapshot, caughtUp } = tickDrip(ref);
+    const { snapshot, caughtUp } = tick(cell);
     if (caughtUp) return { snapshot, ticks: i + 1 };
   }
   throw new Error(`tickDrip did not reach caughtUp within ${bound} ticks`);
@@ -149,14 +156,14 @@ function drain(cell: ChatStreamCell, bound = 500): { snapshot: StreamingMessage;
 describe("applyChatFrame — mounting (ADR-0073: address, never create)", () => {
   test("a sub-agent frame against an empty cell mounts nothing", () => {
     const cell = cellOf();
-    assert.equal(applyChatFrame(cell, tool({ subAgent: SUB }), ctx()), false);
+    assert.equal(applyChatFrame(cell, tool({ subAgent: SUB }), 1_000), false);
     assert.equal(cell.current, null);
   });
 
   test("an agent.run and an approval against an empty cell mount nothing", () => {
     const cell = cellOf();
-    assert.equal(applyChatFrame(cell, run("child_1", "completed"), ctx()), false);
-    assert.equal(applyChatFrame(cell, approval("run_1"), ctx()), false);
+    assert.equal(applyChatFrame(cell, run("child_1", "completed"), 1_000), false);
+    assert.equal(applyChatFrame(cell, approval("run_1"), 1_000), false);
     assert.equal(cell.current, null);
   });
 
@@ -166,32 +173,32 @@ describe("applyChatFrame — mounting (ADR-0073: address, never create)", () => 
     // frame can land while a completely different turn is streaming. Mounting
     // for it would blank turn 2's bubble and reset its delta seq.
     const cell = cellOf();
-    applyChatFrame(cell, started(TURN), ctx());
-    applyChatFrame(cell, tool({ subAgent: SUB, toolCallId: "child_tool_1" }), ctx());
+    applyChatFrame(cell, started(TURN), 1_000);
+    applyChatFrame(cell, tool({ subAgent: SUB, toolCallId: "child_tool_1" }), 1_000);
     assert.equal(refOf(cell).subAgents.size, 1);
 
-    applyChatFrame(cell, started(TURN_2), ctx());
-    assert.equal(applyChatFrame(cell, delta(1, "Hello", { turn: TURN_2 }), ctx()), true);
+    applyChatFrame(cell, started(TURN_2), 1_000);
+    assert.equal(applyChatFrame(cell, delta(1, "Hello", { turn: TURN_2 }), 1_000), true);
 
     const stale = tool({ subAgent: SUB, toolCallId: "child_tool_2", turn: TURN });
-    assert.equal(applyChatFrame(cell, stale, ctx()), false);
+    assert.equal(applyChatFrame(cell, stale, 1_000), false);
 
     assert.equal(refOf(cell).messageId, "msg_2");
     assert.equal(refOf(cell).subAgents.size, 0);
     // The proof that `deltaSeq` was not reset: seq 2 still appends. If the stale
     // frame had mounted a fresh ref, deltaSeq would be 0 and this would pass for
     // the wrong reason — so assert the accumulated text, not just the return.
-    assert.equal(applyChatFrame(cell, delta(2, " world", { turn: TURN_2 }), ctx()), true);
+    assert.equal(applyChatFrame(cell, delta(2, " world", { turn: TURN_2 }), 1_000), true);
     assert.equal(drain(cell).snapshot.text, "Hello world");
   });
 
   test("a replayed `started` for the same turn does not clear what has arrived", () => {
     const cell = cellOf();
-    applyChatFrame(cell, started(), ctx());
-    applyChatFrame(cell, delta(3, "partial answer"), ctx());
-    applyChatFrame(cell, tool({ status: "succeeded" }), ctx());
+    applyChatFrame(cell, started(), 1_000);
+    applyChatFrame(cell, delta(3, "partial answer"), 1_000);
+    applyChatFrame(cell, tool({ status: "succeeded" }), 1_000);
 
-    assert.equal(applyChatFrame(cell, started(), ctx()), true);
+    assert.equal(applyChatFrame(cell, started(), 1_000), true);
     assert.equal(refOf(cell).deltaSeq, 3);
     assert.equal(refOf(cell).segments.get(0), "partial answer");
     assert.equal(refOf(cell).tools.size, 1);
@@ -199,11 +206,11 @@ describe("applyChatFrame — mounting (ADR-0073: address, never create)", () => 
 
   test("a different runId for the same messageId mounts a fresh turn (a retry)", () => {
     const cell = cellOf();
-    applyChatFrame(cell, started(), ctx());
-    applyChatFrame(cell, delta(3, "first attempt"), ctx());
+    applyChatFrame(cell, started(), 1_000);
+    applyChatFrame(cell, delta(3, "first attempt"), 1_000);
 
     const retry = { threadId: THREAD, messageId: "msg_1", runId: "run_2" };
-    assert.equal(applyChatFrame(cell, started(retry), ctx()), true);
+    assert.equal(applyChatFrame(cell, started(retry), 1_000), true);
     assert.equal(refOf(cell).deltaSeq, 0);
     assert.equal(refOf(cell).segments.size, 0);
   });
@@ -214,7 +221,7 @@ describe("applyChatFrame — mounting (ADR-0073: address, never create)", () => 
     // own (messageId, runId) may mount; the two kinds that carry no threadId
     // may not.
     const cell = cellOf();
-    assert.equal(applyChatFrame(cell, delta(1, "hi"), ctx()), true);
+    assert.equal(applyChatFrame(cell, delta(1, "hi"), 1_000), true);
     assert.equal(refOf(cell).messageId, "msg_1");
   });
 });
@@ -222,8 +229,8 @@ describe("applyChatFrame — mounting (ADR-0073: address, never create)", () => 
 describe("applyChatFrame — absorption (a terminal is absorbing)", () => {
   const withTrail = () => {
     const cell = cellOf();
-    applyChatFrame(cell, started(), ctx());
-    applyChatFrame(cell, tool({ subAgent: SUB, toolCallId: "child_tool_1" }), ctx(1_000));
+    applyChatFrame(cell, started(), 1_000);
+    applyChatFrame(cell, tool({ subAgent: SUB, toolCallId: "child_tool_1" }), 1_000);
     return cell;
   };
   const trailOf = (cell: ChatStreamCell) => {
@@ -234,8 +241,8 @@ describe("applyChatFrame — absorption (a terminal is absorbing)", () => {
 
   test("a terminal trail outcome is never reopened", () => {
     const cell = withTrail();
-    assert.equal(applyChatFrame(cell, run(SUB.childRunId, "completed"), ctx(2_000)), true);
-    assert.equal(applyChatFrame(cell, run(SUB.childRunId, "failed"), ctx(9_000)), false);
+    assert.equal(applyChatFrame(cell, run(SUB.childRunId, "completed"), 2_000), true);
+    assert.equal(applyChatFrame(cell, run(SUB.childRunId, "failed"), 9_000), false);
     assert.deepEqual(
       { outcome: trailOf(cell).outcome, endedTs: trailOf(cell).endedTs },
       { outcome: "completed", endedTs: 2_000 },
@@ -244,17 +251,17 @@ describe("applyChatFrame — absorption (a terminal is absorbing)", () => {
 
   test("`interrupted` parks the trail and activity un-parks it", () => {
     const cell = withTrail();
-    assert.equal(applyChatFrame(cell, run(SUB.childRunId, "interrupted"), ctx(2_000)), true);
+    assert.equal(applyChatFrame(cell, run(SUB.childRunId, "interrupted"), 2_000), true);
     assert.deepEqual(
       { waiting: trailOf(cell).waiting, outcome: trailOf(cell).outcome },
       { waiting: true, outcome: null },
     );
 
     // Nothing publishes `resumed`; a resuming run emits `step_started`.
-    assert.equal(applyChatFrame(cell, run(SUB.childRunId, "step_started"), ctx(3_000)), true);
+    assert.equal(applyChatFrame(cell, run(SUB.childRunId, "step_started"), 3_000), true);
     assert.equal(trailOf(cell).waiting, false);
 
-    assert.equal(applyChatFrame(cell, run(SUB.childRunId, "cancelled"), ctx(4_000)), true);
+    assert.equal(applyChatFrame(cell, run(SUB.childRunId, "cancelled"), 4_000), true);
     assert.deepEqual(
       { waiting: trailOf(cell).waiting, outcome: trailOf(cell).outcome },
       { waiting: false, outcome: "cancelled" },
@@ -263,36 +270,35 @@ describe("applyChatFrame — absorption (a terminal is absorbing)", () => {
 
   test("an agent.run for an unmapped runId touches nothing", () => {
     const cell = withTrail();
-    assert.equal(applyChatFrame(cell, run("run_unrelated", "completed"), ctx()), false);
+    assert.equal(applyChatFrame(cell, run("run_unrelated", "completed"), 1_000), false);
     assert.equal(trailOf(cell).outcome, null);
   });
 
   test("a local stop freezes the reply and every later frame is dropped", () => {
     const cell = cellOf();
-    applyChatFrame(cell, started(), ctx());
-    applyChatFrame(cell, reasoning(1, "thinking hard about it"), ctx(1_000));
-    applyChatFrame(cell, delta(1, "0123456789012345678901234567890123456789"), ctx(1_100));
+    applyChatFrame(cell, started(), 1_000);
+    applyChatFrame(cell, reasoning(1, "thinking hard about it"), 1_000);
+    applyChatFrame(cell, delta(1, "0123456789012345678901234567890123456789"), 1_100);
 
     // One tick, so `shown` is a strict prefix — the freeze has to be visible.
-    const ref = refOf(cell);
-    const { snapshot: mid } = tickDrip(ref);
+    const { snapshot: mid } = tick(cell);
     assert.ok(mid.text.length > 0 && mid.text.length < 40, `unexpected prefix: ${mid.text}`);
 
     assert.equal(applyOptimisticStop(cell), true);
     // The tick `stopStream` schedules right after the stop must already be
     // parked: a freeze that leaves easing work behind keeps typing post-click,
     // and `drain` alone would not notice.
-    assert.equal(tickDrip(ref).caughtUp, true);
+    assert.equal(tick(cell).caughtUp, true);
     const frozen = drain(cell).snapshot;
     assert.equal(frozen.text, mid.text);
     assert.equal(frozen.reasoning, mid.reasoning);
     assert.equal(frozen.done, true);
 
-    assert.equal(applyChatFrame(cell, delta(2, " and more"), ctx()), false);
-    assert.equal(applyChatFrame(cell, reasoning(2, " and more"), ctx()), false);
-    assert.equal(applyChatFrame(cell, tool({ toolCallId: "tool_late" }), ctx()), false);
-    assert.equal(applyChatFrame(cell, run(SUB.childRunId, "completed"), ctx()), false);
-    assert.equal(applyChatFrame(cell, approval("run_1"), ctx()), false);
+    assert.equal(applyChatFrame(cell, delta(2, " and more"), 1_000), false);
+    assert.equal(applyChatFrame(cell, reasoning(2, " and more"), 1_000), false);
+    assert.equal(applyChatFrame(cell, tool({ toolCallId: "tool_late" }), 1_000), false);
+    assert.equal(applyChatFrame(cell, run(SUB.childRunId, "completed"), 1_000), false);
+    assert.equal(applyChatFrame(cell, approval("run_1"), 1_000), false);
 
     const after = drain(cell).snapshot;
     assert.equal(after.text, mid.text);
@@ -302,12 +308,11 @@ describe("applyChatFrame — absorption (a terminal is absorbing)", () => {
 
   test("a stop in the window after a segment-advancing delta freezes the live segment, not a prefix of it", () => {
     const cell = cellOf();
-    applyChatFrame(cell, started(), ctx());
-    applyChatFrame(cell, delta(1, "0123456789012345678901234567890123456789"), ctx(1_000));
+    applyChatFrame(cell, started(), 1_000);
+    applyChatFrame(cell, delta(1, "0123456789012345678901234567890123456789"), 1_000);
 
     // One tick, so `shown` is a strict prefix and `shownSegment` is 0.
-    const ref = refOf(cell);
-    const { snapshot: mid } = tickDrip(ref);
+    const { snapshot: mid } = tick(cell);
     assert.ok(mid.text.length > 0 && mid.text.length < 40, `unexpected prefix: ${mid.text}`);
 
     // The ~16ms window: a delta advances `currentSegment` and the user hits
@@ -315,11 +320,11 @@ describe("applyChatFrame — absorption (a terminal is absorbing)", () => {
     applyChatFrame(
       cell,
       delta(2, "The full second segment of prose.", { segmentIndex: 1 }),
-      ctx(1_100),
+      1_100,
     );
     assert.equal(applyOptimisticStop(cell), true);
 
-    const first = tickDrip(ref);
+    const first = tick(cell);
     // Slicing segment 1 with segment 0's counter truncated it to `"The f"`,
     // which this tick then re-anchored and began easing out again as `"Th"`.
     assert.equal(first.snapshot.text, "");
@@ -341,17 +346,16 @@ describe("applyChatFrame — absorption (a terminal is absorbing)", () => {
 
   test("a stop after the new segment has eased freezes it at its own prefix", () => {
     const cell = cellOf();
-    applyChatFrame(cell, started(), ctx());
-    applyChatFrame(cell, delta(1, "0123456789012345678901234567890123456789"), ctx(1_000));
-    const ref = refOf(cell);
-    tickDrip(ref);
+    applyChatFrame(cell, started(), 1_000);
+    applyChatFrame(cell, delta(1, "0123456789012345678901234567890123456789"), 1_000);
+    tick(cell);
 
     applyChatFrame(
       cell,
       delta(2, "The full second segment of prose.", { segmentIndex: 1 }),
-      ctx(1_100),
+      1_100,
     );
-    const { snapshot: mid } = tickDrip(ref);
+    const { snapshot: mid } = tick(cell);
     assert.ok(
       mid.text.length > 0 && mid.text.length < 33,
       `expected a strict prefix of segment 1: ${mid.text}`,
@@ -359,7 +363,7 @@ describe("applyChatFrame — absorption (a terminal is absorbing)", () => {
     assert.ok("The full second segment of prose.".startsWith(mid.text));
 
     assert.equal(applyOptimisticStop(cell), true);
-    const first = tickDrip(ref);
+    const first = tick(cell);
     assert.equal(first.snapshot.text, mid.text);
     assert.equal(first.caughtUp, true);
     assert.deepEqual(first.snapshot.narration, [
@@ -373,11 +377,11 @@ describe("applyChatFrame — absorption (a terminal is absorbing)", () => {
     // happens first. Check it against whatever is currently in the cell instead
     // and the turn after a stop never renders at all.
     const cell = cellOf();
-    applyChatFrame(cell, started(), ctx());
-    applyChatFrame(cell, delta(1, "half an answer"), ctx());
+    applyChatFrame(cell, started(), 1_000);
+    applyChatFrame(cell, delta(1, "half an answer"), 1_000);
     applyOptimisticStop(cell);
 
-    assert.equal(applyChatFrame(cell, delta(1, "a fresh turn", { turn: TURN_2 }), ctx()), true);
+    assert.equal(applyChatFrame(cell, delta(1, "a fresh turn", { turn: TURN_2 }), 1_000), true);
     assert.equal(refOf(cell).messageId, "msg_2");
     assert.equal(refOf(cell).stopped, false);
     assert.equal(drain(cell).snapshot.text, "a fresh turn");
@@ -386,7 +390,7 @@ describe("applyChatFrame — absorption (a terminal is absorbing)", () => {
   test("a second stop, and a stop with nothing in flight, are no-ops", () => {
     assert.equal(applyOptimisticStop(cellOf()), false);
     const cell = cellOf();
-    applyChatFrame(cell, started(), ctx());
+    applyChatFrame(cell, started(), 1_000);
     assert.equal(applyOptimisticStop(cell), true);
     assert.equal(applyOptimisticStop(cell), false);
   });
@@ -395,18 +399,18 @@ describe("applyChatFrame — absorption (a terminal is absorbing)", () => {
 describe("applyChatFrame — monotonicity (clause 3)", () => {
   test("a stale delta seq is dropped without touching the text", () => {
     const cell = cellOf();
-    applyChatFrame(cell, started(), ctx());
-    assert.equal(applyChatFrame(cell, delta(3, "third"), ctx()), true);
-    assert.equal(applyChatFrame(cell, delta(2, "second"), ctx()), false);
+    applyChatFrame(cell, started(), 1_000);
+    assert.equal(applyChatFrame(cell, delta(3, "third"), 1_000), true);
+    assert.equal(applyChatFrame(cell, delta(2, "second"), 1_000), false);
     assert.equal(refOf(cell).deltaSeq, 3);
     assert.equal(drain(cell).snapshot.text, "third");
   });
 
   test("a stale reasoning seq is dropped without touching the thinking", () => {
     const cell = cellOf();
-    applyChatFrame(cell, started(), ctx());
-    assert.equal(applyChatFrame(cell, reasoning(3, "third"), ctx()), true);
-    assert.equal(applyChatFrame(cell, reasoning(2, "second"), ctx()), false);
+    applyChatFrame(cell, started(), 1_000);
+    assert.equal(applyChatFrame(cell, reasoning(3, "third"), 1_000), true);
+    assert.equal(applyChatFrame(cell, reasoning(2, "second"), 1_000), false);
     assert.equal(refOf(cell).reasoningSeq, 3);
     assert.equal(drain(cell).snapshot.reasoning, "third");
   });
@@ -424,7 +428,7 @@ describe("applyChatFrame — thread filter", () => {
     ]) {
       const cell = cellOf();
       assert.equal(
-        applyChatFrame(cell, frame, ctx()),
+        applyChatFrame(cell, frame, 1_000),
         false,
         `${frame.kind} leaked across threads`,
       );
@@ -436,20 +440,20 @@ describe("applyChatFrame — thread filter", () => {
 describe("applyChatFrame — reasoningMs", () => {
   test("freezes at the first delta and does not move again", () => {
     const cell = cellOf();
-    applyChatFrame(cell, started(), ctx());
-    applyChatFrame(cell, reasoning(1, "thinking"), ctx(1_000));
-    applyChatFrame(cell, delta(1, "answer"), ctx(1_250));
+    applyChatFrame(cell, started(), 1_000);
+    applyChatFrame(cell, reasoning(1, "thinking"), 1_000);
+    applyChatFrame(cell, delta(1, "answer"), 1_250);
     assert.equal(refOf(cell).reasoningMs, 250);
 
-    applyChatFrame(cell, reasoning(2, " more"), ctx(5_000));
-    applyChatFrame(cell, delta(2, " more"), ctx(6_000));
+    applyChatFrame(cell, reasoning(2, " more"), 5_000);
+    applyChatFrame(cell, delta(2, " more"), 6_000);
     assert.equal(refOf(cell).reasoningMs, 250);
   });
 
   test("stays null when no reasoning ever arrived", () => {
     const cell = cellOf();
-    applyChatFrame(cell, started(), ctx());
-    applyChatFrame(cell, delta(1, "answer"), ctx(1_250));
+    applyChatFrame(cell, started(), 1_000);
+    applyChatFrame(cell, delta(1, "answer"), 1_250);
     assert.equal(drain(cell).snapshot.reasoningMs, null);
   });
 });
@@ -462,21 +466,21 @@ describe("applyChatFrame — return value per branch", () => {
   // any code moved (see the item file's branch table).
   const mounted = () => {
     const cell = cellOf();
-    applyChatFrame(cell, started(), ctx());
+    applyChatFrame(cell, started(), 1_000);
     return cell;
   };
 
   test("chat.message", () => {
     const cell = mounted();
-    assert.equal(applyChatFrame(cell, compaction("compaction_started"), ctx()), true);
+    assert.equal(applyChatFrame(cell, compaction("compaction_started"), 1_000), true);
     assert.equal(refOf(cell).compacting, true);
-    assert.equal(applyChatFrame(cell, compaction("compaction_finished"), ctx()), true);
+    assert.equal(applyChatFrame(cell, compaction("compaction_finished"), 1_000), true);
     assert.equal(refOf(cell).compacting, false);
     // A compaction or completion phase naming a turn we do not hold changes
     // nothing, so it must not schedule a frame.
-    assert.equal(applyChatFrame(cell, compaction("compaction_started", TURN_2), ctx()), false);
-    assert.equal(applyChatFrame(cell, completed(TURN_2), ctx()), false);
-    assert.equal(applyChatFrame(cell, completed(), ctx()), true);
+    assert.equal(applyChatFrame(cell, compaction("compaction_started", TURN_2), 1_000), false);
+    assert.equal(applyChatFrame(cell, completed(TURN_2), 1_000), false);
+    assert.equal(applyChatFrame(cell, completed(), 1_000), true);
     assert.equal(refOf(cell).done, true);
   });
 
@@ -484,19 +488,19 @@ describe("applyChatFrame — return value per branch", () => {
     const cell = mounted();
     // A bounce with no trail to retract draws nothing, so it must not tick.
     assert.equal(
-      applyChatFrame(cell, tool({ subAgent: SUB, nonExecution: true }), ctx()),
+      applyChatFrame(cell, tool({ subAgent: SUB, nonExecution: true }), 1_000),
       false,
       "an empty sub-agent container is worse than silence",
     );
     assert.equal(refOf(cell).subAgents.size, 0);
 
-    assert.equal(applyChatFrame(cell, tool({ subAgent: SUB, toolCallId: "ct_1" }), ctx()), true);
+    assert.equal(applyChatFrame(cell, tool({ subAgent: SUB, toolCallId: "ct_1" }), 1_000), true);
     // With a trail present, a bounce does retract and must re-project.
     assert.equal(
       applyChatFrame(
         cell,
         tool({ subAgent: SUB, toolCallId: "ct_1", status: "failed", nonExecution: true }),
-        ctx(),
+        1_000,
       ),
       true,
     );
@@ -504,9 +508,9 @@ describe("applyChatFrame — return value per branch", () => {
 
   test("chat.tool — the boss's own calls", () => {
     const cell = mounted();
-    assert.equal(applyChatFrame(cell, tool({ toolCallId: "t_1" }), ctx()), true);
+    assert.equal(applyChatFrame(cell, tool({ toolCallId: "t_1" }), 1_000), true);
     assert.equal(
-      applyChatFrame(cell, tool({ toolCallId: "t_1", status: "succeeded" }), ctx()),
+      applyChatFrame(cell, tool({ toolCallId: "t_1", status: "succeeded" }), 1_000),
       true,
     );
     // A retraction mutates the trail even though it records no timing mark.
@@ -514,7 +518,7 @@ describe("applyChatFrame — return value per branch", () => {
       applyChatFrame(
         cell,
         tool({ toolCallId: "t_1", status: "failed", nonExecution: true }),
-        ctx(),
+        1_000,
       ),
       true,
     );
@@ -523,25 +527,25 @@ describe("applyChatFrame — return value per branch", () => {
 
   test("agent.run — a non-terminal phase for a trail that was never parked", () => {
     const cell = mounted();
-    applyChatFrame(cell, tool({ subAgent: SUB, toolCallId: "ct_1" }), ctx());
-    assert.equal(applyChatFrame(cell, run(SUB.childRunId, "step_started"), ctx()), false);
-    assert.equal(applyChatFrame(cell, run(SUB.childRunId, "step_completed"), ctx()), false);
+    applyChatFrame(cell, tool({ subAgent: SUB, toolCallId: "ct_1" }), 1_000);
+    assert.equal(applyChatFrame(cell, run(SUB.childRunId, "step_started"), 1_000), false);
+    assert.equal(applyChatFrame(cell, run(SUB.childRunId, "step_completed"), 1_000), false);
   });
 
   test("approval.requested", () => {
     const cell = mounted();
-    assert.equal(applyChatFrame(cell, approval("run_other"), ctx()), false);
+    assert.equal(applyChatFrame(cell, approval("run_other"), 1_000), false);
     assert.equal(refOf(cell).awaitingApproval, false);
-    assert.equal(applyChatFrame(cell, approval("run_1"), ctx()), true);
+    assert.equal(applyChatFrame(cell, approval("run_1"), 1_000), true);
     assert.equal(refOf(cell).awaitingApproval, true);
     // `completed` clears the wait, so it still has to re-project.
-    assert.equal(applyChatFrame(cell, completed(), ctx()), true);
+    assert.equal(applyChatFrame(cell, completed(), 1_000), true);
     assert.equal(refOf(cell).awaitingApproval, false);
   });
 
   test("a kind the chat turn does not read", () => {
     const cell = mounted();
-    assert.equal(applyChatFrame(cell, unrelated(), ctx()), false);
+    assert.equal(applyChatFrame(cell, unrelated(), 1_000), false);
   });
 });
 
@@ -550,17 +554,16 @@ describe("tickDrip", () => {
     const cell = cellOf();
     const answer = "The quick brown fox jumps over the lazy dog, twice, for luck.";
     const thinking = "Checking the calendar first.";
-    applyChatFrame(cell, started(), ctx());
-    applyChatFrame(cell, reasoning(1, thinking), ctx());
-    applyChatFrame(cell, delta(1, answer), ctx());
+    applyChatFrame(cell, started(), 1_000);
+    applyChatFrame(cell, reasoning(1, thinking), 1_000);
+    applyChatFrame(cell, delta(1, answer), 1_000);
 
-    const ref = refOf(cell);
     let previous = 0;
     let ticks = 0;
     for (;;) {
       ticks += 1;
       assert.ok(ticks <= 500, "tickDrip did not converge");
-      const { snapshot, caughtUp } = tickDrip(ref);
+      const { snapshot, caughtUp } = tick(cell);
       assert.ok(snapshot.text.length >= previous, "shown text went backwards");
       assert.ok(answer.startsWith(snapshot.text), "shown text is not a prefix of what arrived");
       assert.ok(thinking.startsWith(snapshot.reasoning), "shown reasoning is not a prefix");
@@ -578,10 +581,10 @@ describe("tickDrip", () => {
 
   test("a closed segment moves to narration and the new one eases in from its own start", () => {
     const cell = cellOf();
-    applyChatFrame(cell, started(), ctx());
-    applyChatFrame(cell, delta(1, "Looking that up.", { segmentIndex: 0 }), ctx());
-    applyChatFrame(cell, delta(2, "   ", { segmentIndex: 1 }), ctx());
-    applyChatFrame(cell, delta(3, "Here it is.", { segmentIndex: 2 }), ctx());
+    applyChatFrame(cell, started(), 1_000);
+    applyChatFrame(cell, delta(1, "Looking that up.", { segmentIndex: 0 }), 1_000);
+    applyChatFrame(cell, delta(2, "   ", { segmentIndex: 1 }), 1_000);
+    applyChatFrame(cell, delta(3, "Here it is.", { segmentIndex: 2 }), 1_000);
 
     const { snapshot } = drain(cell);
     // Segment 1 is blank, so it is not a narration line; segment 2 is the reply.
@@ -597,18 +600,18 @@ describe("tickDrip", () => {
     // only "is a prefix" cannot tell those apart — the pop-in is also a prefix.
     const second = "Second segment.";
     const cell = cellOf();
-    applyChatFrame(cell, started(), ctx());
+    applyChatFrame(cell, started(), 1_000);
     applyChatFrame(
       cell,
       delta(1, "A long first narration segment here, comfortably longer.", {
         segmentIndex: 0,
       }),
-      ctx(),
+      1_000,
     );
     drain(cell);
-    applyChatFrame(cell, delta(2, second, { segmentIndex: 1 }), ctx());
+    applyChatFrame(cell, delta(2, second, { segmentIndex: 1 }), 1_000);
 
-    const { snapshot } = tickDrip(refOf(cell));
+    const { snapshot } = tick(cell);
     assert.ok(second.startsWith(snapshot.text), `eased in from the wrong offset: ${snapshot.text}`);
     assert.ok(snapshot.text.length > 0, "the new segment should start rendering immediately");
     assert.ok(
@@ -621,23 +624,23 @@ describe("tickDrip", () => {
 describe("streamSnapshotsEqual", () => {
   const streamingTurn = () => {
     const cell = cellOf();
-    applyChatFrame(cell, started(), ctx());
-    applyChatFrame(cell, delta(1, "done"), ctx());
-    applyChatFrame(cell, tool({ subAgent: SUB, toolCallId: "ct_1" }), ctx());
+    applyChatFrame(cell, started(), 1_000);
+    applyChatFrame(cell, delta(1, "done"), 1_000);
+    applyChatFrame(cell, tool({ subAgent: SUB, toolCallId: "ct_1" }), 1_000);
     return cell;
   };
 
   test("a settled projection compares equal to itself", () => {
     const cell = streamingTurn();
     const first = drain(cell).snapshot;
-    const { snapshot: second } = tickDrip(refOf(cell));
+    const { snapshot: second } = tick(cell);
     assert.equal(streamSnapshotsEqual(first, second), true);
   });
 
   test("a trail's `waiting` flip alone is not equal", () => {
     const cell = streamingTurn();
     const before = drain(cell).snapshot;
-    applyChatFrame(cell, run(SUB.childRunId, "interrupted"), ctx(2_000));
+    applyChatFrame(cell, run(SUB.childRunId, "interrupted"), 2_000);
     const after = drain(cell).snapshot;
     assert.equal(
       streamSnapshotsEqual(before, after),
