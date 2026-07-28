@@ -1,4 +1,4 @@
-import type { EventPayload } from "@alfred/contracts/events";
+import type { EventKind, EventPayload } from "@alfred/contracts/events";
 import type { SyncedChatNarration } from "@alfred/sync";
 import type { EventStreamFrame } from "~/lib/events/frame";
 import { markChatTimingByAssistant } from "./timing";
@@ -35,11 +35,29 @@ export interface StreamingToolCall {
   endedTs: number | null;
 }
 
-/** A spawned sub-agent's own tool calls, nested under the spawn card. */
+/**
+ * A spawned sub-agent's own tool calls, nested under the spawn card.
+ *
+ * Keyed on `parentToolCallId` alone, which is only sound because the server
+ * spawns **exactly one child per `(parentRunId, parentToolCallId)`**: see
+ * `packages/api/src/modules/agent/sub-agents.ts` — `findExistingSubAgentRun`,
+ * the sub-agent `dedupKey` unique index, and the 23505 fold-into-already-spawned
+ * path. ADR-0073 is the addressing half of this (a child publishes into the
+ * parent's address); the uniqueness half lives in that index, not in the ADR.
+ *
+ * If that guarantee ever stopped holding, a second child for the same
+ * `parentToolCallId` would merge into the first child's trail: `subId` and
+ * `childRunId` are write-once at trail creation (below), so the trail would keep
+ * the first child's identity while accumulating the second's tool calls, and no
+ * client comparison would notice — `streamSnapshotsEqual` deliberately does not
+ * compare them (see its own note).
+ */
 export interface SubAgentTrail {
   /** The parent's `system.spawn_sub_agent` call this nests under. */
   parentToolCallId: string;
+  /** Write-once at trail creation; a later frame for the same parent call keeps it. */
   subId: string;
+  /** Write-once at trail creation; see `subId`. */
   childRunId: string;
   tools: StreamingToolCall[];
   startedTs: number;
@@ -135,7 +153,15 @@ interface StreamRef {
 
 /**
  * The mutable cell holding at most one in-flight turn — a plain object so tests
- * need no React and the hook can hand its `useRef` box straight in.
+ * need no React.
+ *
+ * The cell names the thread it is for, fixed at construction: `applyChatFrame`
+ * checks every frame against `cell.threadId` rather than against an argument, so
+ * no call site can supply the wrong thread per frame, and a cell whose lifetime
+ * is one subscription cannot carry a previous thread's turn across a thread
+ * change. Being an interface, `{ threadId, current: null }` still satisfies it —
+ * this makes the mistake require constructing a cell that lies about itself,
+ * once, rather than threading a string through every call.
  *
  * `StreamRef` is deliberately not exported: naming it here is enough for the
  * hook to declare the cell, while keeping any second consumer from declaring
@@ -143,7 +169,54 @@ interface StreamRef {
  * `cell.current`, so this buys concentration, not enforcement.
  */
 export interface ChatStreamCell {
+  /** The thread every frame applied to this cell must name. Set at construction. */
+  readonly threadId: string;
   current: StreamRef | null;
+}
+
+/** The cell for one thread's subscription — empty until a frame mounts a turn. */
+export function createChatStreamCell(threadId: string): ChatStreamCell {
+  return { threadId, current: null };
+}
+
+/** Derived from the contract, not listed — see `noThreadNamed`. */
+type ChatEventKind = Extract<EventKind, `chat.${string}`>;
+
+/**
+ * The `default` arm of `frameThreadId`, and the reason it is a function rather
+ * than a bare `return null`: its parameter type says *no `chat.*` kind reaches
+ * here*, so adding a fifth one without classifying it below stops compiling at
+ * this call.
+ *
+ * Deliberately narrower than a full `EventKind` exhaustiveness check. The union
+ * is wider than the kinds a chat turn reads, and forcing this reducer to have an
+ * opinion on `inbox.updated` / `memory.fact_learned` / `tool.call` would be the
+ * exhaustiveness gap the module docstring says it is not. Note `artifact.delta`
+ * carries a `threadId` too and is still not classified: it falls out of
+ * `applyChatFrame`'s bottom `return false` either way, so classifying it would
+ * change nothing.
+ */
+function noThreadNamed(_kind: Exclude<EventKind, ChatEventKind>): null {
+  return null;
+}
+
+/**
+ * The thread a frame names, or `null` for a kind that names none.
+ *
+ * The single reader of `payload.threadId` in this module: a payload that drops
+ * or renames the field fails to compile here instead of at each arm that used to
+ * spell the comparison for itself.
+ */
+function frameThreadId(frame: EventStreamFrame): string | null {
+  switch (frame.kind) {
+    case "chat.message":
+    case "chat.reasoning":
+    case "chat.delta":
+    case "chat.tool":
+      return frame.payload.threadId;
+    default:
+      return noThreadNamed(frame.kind);
+  }
 }
 
 /**
@@ -243,21 +316,31 @@ function ensureStreamRef(cell: ChatStreamCell, messageId: string, runId: string)
  * The union is wider than the six kinds a chat turn reads, so the unhandled
  * kinds (`inbox.updated`, `artifact.delta`, …) fall through to `false` by
  * design; this is not an exhaustiveness gap.
+ *
+ * The thread check is hoisted above the kind dispatch and runs unconditionally,
+ * so an arm added later inherits it instead of having to remember it. The two
+ * kinds that name no thread (`agent.run`, `approval.requested`) pass it and then
+ * resolve only against a ref that already exists — they cannot mount one.
+ *
+ * `now` is required and deliberately has no default: the durations this records
+ * (`startedTs`, `endedTs`, `reasoningMs`) are measured at frame *receipt*, so the
+ * turn stays a function of the frames it has seen. Defaulting to `Date.now()`
+ * would let a caller that omits it silently swap in wall-clock time.
  */
 export function applyChatFrame(
   cell: ChatStreamCell,
   frame: EventStreamFrame,
-  ctx: { threadId: string; now: number },
+  now: number,
 ): boolean {
-  const { threadId, now } = ctx;
+  const named = frameThreadId(frame);
+  if (named !== null && named !== cell.threadId) return false;
 
   if (frame.kind === "chat.message") {
     const p = frame.payload;
-    if (p.threadId !== threadId) return false;
     if (p.phase === "started") {
       ensureStreamRef(cell, p.messageId, p.runId);
       markChatTimingByAssistant(p.messageId, "stream_started_event", undefined, {
-        threadId,
+        threadId: cell.threadId,
         runId: p.runId,
       });
       return true;
@@ -270,7 +353,7 @@ export function applyChatFrame(
     }
     if (p.phase === "completed") {
       markChatTimingByAssistant(p.messageId, "completion_event", undefined, {
-        threadId,
+        threadId: cell.threadId,
         runId: p.runId,
         summarize: true,
       });
@@ -289,7 +372,6 @@ export function applyChatFrame(
 
   if (frame.kind === "chat.reasoning") {
     const p = frame.payload;
-    if (p.threadId !== threadId) return false;
     // Mount before the stop check so it applies to the ref this frame names:
     // a late frame for a stopped run is dropped, a frame for a new
     // (messageId, runId) is a new turn and mounts fresh.
@@ -303,20 +385,19 @@ export function applyChatFrame(
       p.messageId,
       "first_reasoning_frame",
       { seq: p.seq, chars: p.text.length, totalReasoningChars: r.reasoning.length },
-      { threadId, runId: p.runId },
+      { threadId: cell.threadId, runId: p.runId },
     );
     markChatTimingByAssistant(
       p.messageId,
       "last_reasoning_frame",
       { seq: p.seq, chars: p.text.length, totalReasoningChars: r.reasoning.length },
-      { threadId, runId: p.runId, repeat: "update", log: false },
+      { threadId: cell.threadId, runId: p.runId, repeat: "update", log: false },
     );
     return true;
   }
 
   if (frame.kind === "chat.delta") {
     const p = frame.payload;
-    if (p.threadId !== threadId) return false;
     const r = ensureStreamRef(cell, p.messageId, p.runId);
     if (r.stopped) return false;
     if (p.seq <= r.deltaSeq) return false;
@@ -340,11 +421,11 @@ export function applyChatFrame(
       totalTextChars: r.segments.get(segment)?.length ?? 0,
     };
     markChatTimingByAssistant(p.messageId, "first_delta_frame", detail, {
-      threadId,
+      threadId: cell.threadId,
       runId: p.runId,
     });
     markChatTimingByAssistant(p.messageId, "last_delta_frame", detail, {
-      threadId,
+      threadId: cell.threadId,
       runId: p.runId,
       repeat: "update",
       log: false,
@@ -354,7 +435,6 @@ export function applyChatFrame(
 
   if (frame.kind === "chat.tool") {
     const p = frame.payload;
-    if (p.threadId !== threadId) return false;
     // A spawned sub-agent's call nests under the `spawn_sub_agent` card that
     // started it rather than joining the boss's own trail. The event
     // deliberately carries the parent's runId/messageId (see
@@ -394,13 +474,13 @@ export function applyChatFrame(
       p.messageId,
       "first_tool_event",
       { toolName: p.toolName, status: p.status },
-      { threadId, runId: p.runId },
+      { threadId: cell.threadId, runId: p.runId },
     );
     markChatTimingByAssistant(
       p.messageId,
       "last_tool_event",
       { toolName: p.toolName, status: p.status },
-      { threadId, runId: p.runId, repeat: "update", log: false },
+      { threadId: cell.threadId, runId: p.runId, repeat: "update", log: false },
     );
     return true;
   }
@@ -452,7 +532,7 @@ export function applyChatFrame(
       r.messageId,
       "approval_requested",
       { approvalId: p.approvalId },
-      { threadId, runId: r.runId },
+      { threadId: cell.threadId, runId: r.runId },
     );
     return true;
   }
@@ -539,8 +619,16 @@ function anchorEasedSegment(ref: StreamRef): { segment: number; text: string; sh
  * first — that ordering used to be a comment. `caughtUp` is true once both
  * eased counters have reached their received text, which is the caller's signal
  * to stop scheduling frames: later SSE frames restart the loop.
+ *
+ * Returns `null` when nothing is mounted, so the caller never has to read
+ * `cell.current` to find out — the cell's identity stays the only thing about it
+ * a consumer needs to know.
  */
-export function tickDrip(ref: StreamRef): { snapshot: StreamingMessage; caughtUp: boolean } {
+export function tickDrip(
+  cell: ChatStreamCell,
+): { snapshot: StreamingMessage; caughtUp: boolean } | null {
+  const ref = cell.current;
+  if (!ref) return null;
   const eased = anchorEasedSegment(ref);
   const shown = ease(eased.shown, eased.text.length);
   ref.reasoningShown = ease(ref.reasoningShown, ref.reasoning.length);
@@ -572,6 +660,16 @@ export function tickDrip(ref: StreamRef): { snapshot: StreamingMessage; caughtUp
   };
 }
 
+/**
+ * Whether two projections would render identically — the push gate for the
+ * animation loop, so it runs on every frame and only compares what can move.
+ *
+ * A trail's `subId`, `childRunId` and `startedTs` are deliberately excluded:
+ * they are write-once at trail creation and never change, so comparing them is
+ * dead work 60 times a second. That is sound only because the server spawns
+ * exactly one child per `(parentRunId, parentToolCallId)` — see `SubAgentTrail`
+ * for the guarantee and for what a second child would silently do here.
+ */
 export function streamSnapshotsEqual(a: StreamingMessage | null, b: StreamingMessage): boolean {
   if (!a) return false;
   if (
