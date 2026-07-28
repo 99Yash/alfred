@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { authClient } from "~/lib/auth/auth-client";
-import { openEventStream, type EventStreamFrame } from "./stream";
+import type { EventStreamFrame } from "./frame";
+import { openEventStream } from "./stream";
 
 /**
  * Subscribe to /api/events for the signed-in user. Returns the running list of

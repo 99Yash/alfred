@@ -1,7 +1,8 @@
 import type { EventPayload } from "@alfred/contracts/events";
 import type { SyncedChatNarration } from "@alfred/sync";
 import { useCallback, useEffect, useRef, useState } from "react";
-import { openEventStream, type EventStreamFrame } from "~/lib/events/stream";
+import type { EventStreamFrame } from "~/lib/events/frame";
+import { openEventStream } from "~/lib/events/stream";
 import { markChatTimingByAssistant } from "./timing";
 
 export interface StreamingToolCall {
@@ -327,7 +328,7 @@ export function useChatStream(threadId: string | undefined): ChatStream {
 
     const onFrame = (frame: EventStreamFrame) => {
       if (frame.kind === "chat.message") {
-        const p = frame.payload as EventPayload<"chat.message">;
+        const p = frame.payload;
         if (p.threadId !== threadId) return;
         if (p.phase === "started") {
           ensureStreamRef(p.messageId, p.runId);
@@ -359,7 +360,7 @@ export function useChatStream(threadId: string | undefined): ChatStream {
           ensureRaf();
         }
       } else if (frame.kind === "chat.reasoning") {
-        const p = frame.payload as EventPayload<"chat.reasoning">;
+        const p = frame.payload;
         if (p.threadId !== threadId) return;
         const r = ensureStreamRef(p.messageId, p.runId);
         if (r.stopped) return;
@@ -381,7 +382,7 @@ export function useChatStream(threadId: string | undefined): ChatStream {
         );
         ensureRaf();
       } else if (frame.kind === "chat.delta") {
-        const p = frame.payload as EventPayload<"chat.delta">;
+        const p = frame.payload;
         if (p.threadId !== threadId) return;
         const r = ensureStreamRef(p.messageId, p.runId);
         if (r.stopped) return;
@@ -422,7 +423,7 @@ export function useChatStream(threadId: string | undefined): ChatStream {
         );
         ensureRaf();
       } else if (frame.kind === "chat.tool") {
-        const p = frame.payload as EventPayload<"chat.tool">;
+        const p = frame.payload;
         if (p.threadId !== threadId) return;
         // A spawned sub-agent's call nests under the `spawn_sub_agent` card that
         // started it rather than joining the boss's own trail. The event
@@ -481,7 +482,7 @@ export function useChatStream(threadId: string | undefined): ChatStream {
         // Frames for the parent run and for unrelated background runs fall
         // through: only a runId we mapped from a child's tool event reaches a
         // trail.
-        const p = frame.payload as EventPayload<"agent.run">;
+        const p = frame.payload;
         const r = ref.current;
         if (!r || r.stopped) return;
         const parentToolCallId = r.subAgentRuns.get(p.runId);
@@ -508,7 +509,7 @@ export function useChatStream(threadId: string | undefined): ChatStream {
         }
         ensureRaf();
       } else if (frame.kind === "approval.requested") {
-        const p = frame.payload as EventPayload<"approval.requested">;
+        const p = frame.payload;
         const r = ref.current;
         if (!r || r.stopped || p.runId !== r.runId) return;
         r.awaitingApproval = true;
