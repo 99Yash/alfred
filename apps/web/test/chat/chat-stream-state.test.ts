@@ -326,8 +326,11 @@ describe("applyChatFrame — absorption (a terminal is absorbing)", () => {
     // …and re-anchoring without truncating would have eased the whole segment
     // out after the click, with `caughtUp` false the whole way.
     assert.equal(first.caughtUp, true);
-    // Segment 0 was closed by the delta, not by the stop, so the trail keeps it
-    // in full — the prose moved, it did not vanish.
+    // Segment 0 was closed by the delta, not by the stop, so the projection
+    // keeps it in full — the prose moved into `narration`, it was not dropped.
+    // Reaching the screen is a separate question: `conversation.tsx:596`
+    // renders the trail only when `stream.tools.length > 0`, so a stop on a
+    // tool-less turn still leaves the user with a blank bubble.
     assert.deepEqual(first.snapshot.narration, [
       { index: 0, text: "0123456789012345678901234567890123456789" },
     ]);

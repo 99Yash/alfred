@@ -471,13 +471,19 @@ export function applyChatFrame(
  * together so the freeze and the state it freezes cannot drift. The freeze has
  * to re-anchor before it slices, or a delta that advanced the segment since the
  * last animation frame leaves it cutting the live segment to the *previous*
- * segment's length; `anchorEasedSegment` returns the matched triple, which is
- * what makes that ordering unconstructible rather than commented.
+ * segment's length; `anchorEasedSegment` hands back the segment, its text and
+ * its counter as one matched triple, so the slice below can only be written
+ * with all three in step. Reaching past it to `ref.shown` still compiles — see
+ * that function's own note.
  *
- * A segment the deltas already closed keeps rendering in full in the narration
- * trail: closing it was the delta's doing, not the stop's. So a stop landing in
- * that window freezes the live bubble at zero characters and the prose the user
- * saw is in the trail, not gone.
+ * A segment the deltas already closed stays in the projected `narration` in
+ * full: closing it was the delta's doing, not the stop's. So a stop landing in
+ * that window freezes the live bubble at zero characters with the prose the
+ * user saw carried in `narration` instead. Whether that reaches the screen is
+ * the consumer's call, and today it is conditional: `conversation.tsx:596`
+ * renders the trail only inside `{stream.tools.length > 0 …}`, so a turn with
+ * no tool cards shows none of it. That render gate is pre-existing coupling
+ * this freeze cannot reach.
  */
 export function applyOptimisticStop(cell: ChatStreamCell): boolean {
   const r = cell.current;
@@ -505,11 +511,14 @@ function ease(shown: number, full: number): number {
  * `shown` counts against `shownSegment` only, and `applyChatFrame` advances
  * `currentSegment` without touching either — so between a segment-advancing
  * delta and the next animation frame, `shown` describes a strictly earlier
- * segment. Every read of `shown` goes through here and takes the counter off
- * the return value, so the mismatched pair is not expressible without reaching
- * back into `ref.shown` on purpose. When the segment advances the counter
- * restarts at 0: the new segment eases in from the start, the prior one having
- * moved into the narration trail.
+ * segment. Both readers (`tickDrip`, `applyOptimisticStop`) take the counter
+ * off the return value; the write-back in `tickDrip` is the only other mention
+ * of `ref.shown` in the file, so no read of it is currently unanchored. That is
+ * a property of the two call sites, not something a type enforces — a third
+ * reader that helps itself to `ref.shown` compiles fine and is wrong in the
+ * same invisible window. When the segment advances the counter restarts at 0:
+ * the new segment eases in from the start, the prior one having moved into the
+ * narration trail.
  */
 function anchorEasedSegment(ref: StreamRef): { segment: number; text: string; shown: number } {
   if (ref.shownSegment !== ref.currentSegment) {
@@ -533,8 +542,9 @@ function anchorEasedSegment(ref: StreamRef): { segment: number; text: string; sh
  */
 export function tickDrip(ref: StreamRef): { snapshot: StreamingMessage; caughtUp: boolean } {
   const eased = anchorEasedSegment(ref);
+  const shown = ease(eased.shown, eased.text.length);
   ref.reasoningShown = ease(ref.reasoningShown, ref.reasoning.length);
-  ref.shown = ease(eased.shown, eased.text.length);
+  ref.shown = shown;
   const narration: SyncedChatNarration[] = [];
   for (const [index, text] of ref.segments) {
     if (index < ref.currentSegment && text.trim().length > 0) narration.push({ index, text });
@@ -544,7 +554,7 @@ export function tickDrip(ref: StreamRef): { snapshot: StreamingMessage; caughtUp
     snapshot: {
       messageId: ref.messageId,
       runId: ref.runId,
-      text: eased.text.slice(0, ref.shown),
+      text: eased.text.slice(0, shown),
       narration,
       reasoning: ref.reasoning.slice(0, ref.reasoningShown),
       reasoningActive: ref.reasoning.length > 0 && !ref.replyStarted && !ref.done,
@@ -558,7 +568,7 @@ export function tickDrip(ref: StreamRef): { snapshot: StreamingMessage; caughtUp
       compacting: ref.compacting,
       done: ref.done,
     },
-    caughtUp: ref.shown >= eased.text.length && ref.reasoningShown >= ref.reasoning.length,
+    caughtUp: shown >= eased.text.length && ref.reasoningShown >= ref.reasoning.length,
   };
 }
 
