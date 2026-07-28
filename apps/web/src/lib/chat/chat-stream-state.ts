@@ -234,10 +234,17 @@ export function subAgentEventAddressesStream<
   return current.messageId === event.messageId && current.runId === event.runId;
 }
 
+/**
+ * Fold one `chat.tool` event into a turn's tool-card map.
+ *
+ * `now` is required for the reason `applyChatFrame` gives below: the `startedTs`
+ * and `endedTs` this writes are measured at frame *receipt*, so a default would
+ * let a caller silently substitute a wall-clock read for the frame's own clock.
+ */
 export function applyStreamingToolEvent(
   tools: Map<string, StreamingToolCall>,
   event: EventPayload<"chat.tool">,
-  now: number = Date.now(),
+  now: number,
 ): void {
   if (event.nonExecution) {
     tools.delete(event.toolCallId);
