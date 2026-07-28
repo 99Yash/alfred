@@ -21,7 +21,7 @@ import { Virtuoso, type Components, type ListRange, type VirtuosoHandle } from "
 import { markChatTimingByAssistant } from "~/lib/chat/timing";
 import { useChatAttachmentsByMessage } from "~/lib/replicache/use-chat";
 import { useThreadArtifacts } from "~/lib/replicache/use-artifacts";
-import type { StreamingMessage } from "~/lib/chat/use-chat-stream";
+import type { StreamingMessage } from "~/lib/chat/chat-stream-state";
 import { SCROLL_CHAT_TO_BOTTOM_EVENT } from "~/lib/chat/use-run-complete";
 import { IntegrationGlyph } from "~/lib/integrations/integration-icons";
 import { cn } from "~/lib/utils";
