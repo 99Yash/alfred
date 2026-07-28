@@ -142,6 +142,17 @@ export function clearPolicyCacheForTests(): void {
   cache.clear();
 }
 
+/**
+ * Seed a resolved policy so `getResolvedPolicy` answers without a DB read.
+ * Test-only. The dispatch gate's approval floor calls
+ * `resolveApprovalNotifyDelayMs` the moment a call gates, so a DB-free test of
+ * the floor needs the cache warm — it is the one policy read the gate cannot
+ * short-circuit.
+ */
+export function _primePolicyCacheForTests(policy: ResolvedPolicy): void {
+  cache.set(policy.userId, Promise.resolve(policy));
+}
+
 let publisher: IORedis | undefined;
 
 function getPublisher(): IORedis {
