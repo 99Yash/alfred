@@ -41,8 +41,6 @@ export interface AuthedFetchProfile {
    * so a 3xx should be treated as an HTTP outcome, not silently followed.
    */
   redirect?: "follow" | "error" | "manual" | undefined;
-  /** Request timeout; defaults to {@link INTEGRATION_FETCH_TIMEOUT_MS}. */
-  timeoutMs?: number | undefined;
 }
 
 /** A single authenticated request. `body`, when present, is JSON-encoded. */
@@ -75,6 +73,6 @@ export async function authedFetch(
     },
     ...(hasBody ? { body: JSON.stringify(request.body) } : {}),
     redirect: profile.redirect ?? "follow",
-    signal: AbortSignal.timeout(profile.timeoutMs ?? INTEGRATION_FETCH_TIMEOUT_MS),
+    signal: AbortSignal.timeout(INTEGRATION_FETCH_TIMEOUT_MS),
   });
 }
