@@ -49,7 +49,6 @@ import {
   isRecord,
   isTerminalStatus,
   isToolName,
-  runStatusSchema,
   sanitizeErrorMessage,
   sanitizeToolResult,
   summarizeBody,
@@ -63,10 +62,7 @@ import {
   type ToolSpanCloser,
   type ToolSpanInput,
 } from "@alfred/ai";
-import { db } from "@alfred/db";
-import { actionStagings, agentRuns, type ActionStaging } from "@alfred/db/schemas";
-import { actionStagingStatusSchema } from "@alfred/contracts";
-import { and, desc, eq, sql } from "drizzle-orm";
+import { stagingStore, type StagingCommit, type StagingRow } from "./staging-store";
 import {
   APP_ERROR_REGISTRY,
   isAppErrorCode,
@@ -256,45 +252,6 @@ export type DispatchResult =
       kind: "feature_disabled";
       result: FeatureDisabledToolResult;
     };
-
-type StagingRow = Pick<
-  ActionStaging,
-  | "id"
-  | "runId"
-  | "status"
-  | "requiresApproval"
-  | "toolName"
-  | "proposedInput"
-  | "decidedInput"
-  | "rejectReason"
-  | "executeResult"
-  | "executeSanitized"
-  | "executeError"
-  | "notifyAfterAt"
-  | "notifiedAt"
-  | "expiresAt"
->;
-
-const STAGING_COLUMNS = {
-  id: actionStagings.id,
-  runId: actionStagings.runId,
-  status: actionStagings.status,
-  requiresApproval: actionStagings.requiresApproval,
-  toolName: actionStagings.toolName,
-  proposedInput: actionStagings.proposedInput,
-  decidedInput: actionStagings.decidedInput,
-  rejectReason: actionStagings.rejectReason,
-  executeResult: actionStagings.executeResult,
-  executeSanitized: actionStagings.executeSanitized,
-  executeError: actionStagings.executeError,
-  notifyAfterAt: actionStagings.notifyAfterAt,
-  notifiedAt: actionStagings.notifiedAt,
-  expiresAt: actionStagings.expiresAt,
-} as const;
-
-function parseStagingRow(row: StagingRow): StagingRow {
-  return { ...row, status: actionStagingStatusSchema.parse(row.status) };
-}
 
 const UNKNOWN_TOOL_TRACE_NAME = "<unknown>";
 const TOOLISH_NAME = /^[A-Za-z][A-Za-z0-9_.]*$/;
@@ -666,25 +623,14 @@ export async function dispatchToolCall(args: DispatchArgs): Promise<DispatchResu
   // proposal; synthesize the same rejection without writing a new row
   // or firing a new notification. Limited to the same run because
   // ADR-0034 scopes the partial index that way.
-  const priorReject = await db()
-    .select({
-      reason: actionStagings.rejectReason,
-      decidedAt: actionStagings.decidedAt,
-    })
-    .from(actionStagings)
-    .where(
-      and(
-        eq(actionStagings.runId, args.runId),
-        eq(actionStagings.toolName, toolName),
-        eq(actionStagings.proposedInputHash, proposedInputHash),
-        eq(actionStagings.status, "rejected"),
-      ),
-    )
-    .orderBy(desc(actionStagings.decidedAt))
-    .limit(1);
+  const priorReject = await stagingStore().findPriorRejection({
+    runId: args.runId,
+    toolName,
+    proposedInputHash,
+  });
 
-  if (priorReject[0]) {
-    const reason = priorReject[0].reason ?? "rejected by user";
+  if (priorReject) {
+    const reason = priorReject.reason ?? "rejected by user";
     // Retry-suppression: the boss re-proposed byte-identical input the user
     // already rejected. This is exactly the "bounce on the same wall" pattern
     // #345 wants countable — the shared signature buckets every repeat.
@@ -704,14 +650,11 @@ export async function dispatchToolCall(args: DispatchArgs): Promise<DispatchResu
   // below is its own autocommit, so the executor's later commit guard cannot
   // roll it back. Check at the effect boundary; the cancel post-commit sweep
   // and the losing executor repeat the cleanup to close the remaining race.
-  const runRows = await db()
-    .select({ status: agentRuns.status })
-    .from(agentRuns)
-    .where(eq(agentRuns.id, args.runId))
-    .limit(1);
-  const runStatus = runStatusSchema.safeParse(runRows[0]?.status);
-  if (!runStatus.success || isTerminalStatus(runStatus.data)) {
-    const reason = runStatus.success ? `run is already ${runStatus.data}` : "run is unavailable";
+  // `null` covers both an absent run and an unparseable status — the store owns
+  // that distinction and the gate treats either as "the run is unavailable".
+  const runStatus = await stagingStore().readRunStatus(args.runId);
+  if (runStatus === null || isTerminalStatus(runStatus)) {
+    const reason = runStatus === null ? "run is unavailable" : `run is already ${runStatus}`;
     return {
       kind: "rejected",
       stagingId: null,
@@ -743,15 +686,10 @@ export async function dispatchToolCall(args: DispatchArgs): Promise<DispatchResu
   // time and auto-rejects if still pending.
   const expiresAt = requiresApproval ? new Date(Date.now() + APPROVAL_EXPIRY_MS) : null;
 
-  // Single upsert. On a `(run_id, tool_call_id)` conflict we do a *no-op*
-  // UPDATE purely so the existing row is RETURNED — `onConflictDoNothing`
-  // returns nothing on conflict, which previously forced a second SELECT-back
-  // round-trip. The no-op set MUST NOT touch any decision/result column: a
-  // re-dispatch of an already-staged/approved/executed call has to read the
-  // stored row verbatim (the resume path below depends on it). `xmax = 0`
-  // distinguishes a freshly-inserted row from an updated (conflict) one — the
-  // standard Postgres upsert idiom — so the Replicache poke stays gated to
-  // genuinely-new rows.
+  // Single upsert, idempotent on `(run_id, tool_call_id)`; the store owns the
+  // conflict idiom and the `wasInserted` verdict the Replicache poke is gated
+  // on. The stored row comes back verbatim on conflict, which is what the
+  // resume path below reads `status` / `decidedInput` off.
   // #293: redact secrets from the persisted `proposed_input` — but ONLY for an
   // autonomous call. A gated tool's `proposed_input` doubles as the
   // approval-resume payload (the `approved` branch below re-executes from it when
@@ -760,38 +698,21 @@ export async function dispatchToolCall(args: DispatchArgs): Promise<DispatchResu
   // a future gated secret-bearing tool. The hash + execute always use raw `input`.
   const proposedInputForRow =
     !requiresApproval && tool.redactInput ? tool.redactInput(input) : input;
-  const upserted = await db()
-    .insert(actionStagings)
-    .values({
-      userId: args.userId,
-      runId: args.runId,
-      stepId: args.stepId,
-      toolCallId: args.toolCallId,
-      toolName,
-      integration,
-      riskTier,
-      proposedInput: proposedInputForRow as object,
-      proposedInputHash,
-      requiresApproval,
-      status: "pending",
-      notifyAfterAt,
-      expiresAt,
-    })
-    .onConflictDoUpdate({
-      target: [actionStagings.runId, actionStagings.toolCallId],
-      set: { rowVersion: sql`${actionStagings.rowVersion}` },
-    })
-    .returning({ ...STAGING_COLUMNS, wasInserted: sql<boolean>`xmax = 0` });
-
-  const upsertedRow = upserted[0];
-  if (!upsertedRow) {
-    throw new Error(
-      `[dispatch] action_stagings upsert returned no row (run=${args.runId}, toolCallId=${args.toolCallId})`,
-    );
-  }
-  const { wasInserted, ...rowColumns } = upsertedRow;
-  const insertedNew = wasInserted;
-  const row: StagingRow = parseStagingRow(rowColumns);
+  const { row, wasInserted: insertedNew } = await stagingStore().upsertStaging({
+    userId: args.userId,
+    runId: args.runId,
+    stepId: args.stepId,
+    toolCallId: args.toolCallId,
+    toolName,
+    integration,
+    riskTier,
+    proposedInput: proposedInputForRow,
+    proposedInputHash,
+    requiresApproval,
+    status: "pending",
+    notifyAfterAt,
+    expiresAt,
+  });
   // Defensive: the (run_id, tool_call_id) unique index says one tool call id
   // maps to one row. If a caller re-dispatches the same id with a different
   // `toolName`, the model emitted two tools under the same call id — a
@@ -881,18 +802,8 @@ export async function dispatchToolCall(args: DispatchArgs): Promise<DispatchResu
       // not have been validated there.
       const reparsed = tool.inputSchema.safeParse(useInput);
       if (!reparsed.success) {
-        const now = new Date();
         const error = toPublicAppError(undefined, "tool_input_invalid");
-        await db()
-          .update(actionStagings)
-          .set({
-            status: "failed",
-            executeError: error,
-            executedAt: now,
-            rowVersion: sql`${actionStagings.rowVersion} + 1`,
-          })
-          .where(eq(actionStagings.id, row.id));
-        if (row.requiresApproval) emitReplicachePokes([ctx.userId], row.id);
+        await commitAndPoke(row, ctx, { status: "failed", error, executedAt: new Date() });
         // A post-approval reparse failure never reaches `executeToolWithSpan`
         // (no execution happened), so without this it would be a `failed` row
         // with no trace node (#345) — e.g. a user-edited approval payload that
@@ -1328,17 +1239,31 @@ async function guardPassthroughBudget(
   const priorCalls = await countRunPassthroughCalls(ctx.runId);
   if (priorCalls < PASSTHROUGH_PER_RUN_CEILING) return null;
   const envelope = passthroughBudgetExhausted(priorCalls);
-  await db()
-    .update(actionStagings)
-    .set({
-      status: "executed",
-      executeResult: envelope as object,
-      executedAt: new Date(),
-      rowVersion: sql`${actionStagings.rowVersion} + 1`,
-    })
-    .where(eq(actionStagings.id, row.id));
-  if (row.requiresApproval) emitReplicachePokes([ctx.userId], row.id);
+  // The envelope is minted here, never through the tool, so it cannot carry
+  // persistence poison — `sanitized: false` is the verdict, not a default.
+  await commitAndPoke(row, ctx, {
+    status: "executed",
+    result: envelope,
+    sanitized: false,
+    executedAt: new Date(),
+  });
   return { kind: "executed", stagingId: row.id, toolResult: envelope, editedByUser: false };
+}
+
+/**
+ * The only door onto a terminal staging write. Committing and poking are one
+ * step because they must stay in that order and must never be separated: the
+ * poke tells a connected client to re-pull the approvals queue, so a poke that
+ * beats its commit shows the row in its pre-terminal state. Gated on the row's
+ * `requires_approval` because an autonomous row was never in that queue.
+ */
+async function commitAndPoke(
+  row: StagingRow,
+  ctx: ToolExecuteContext,
+  commit: StagingCommit,
+): Promise<void> {
+  await stagingStore().commitStaging(row.id, commit);
+  if (row.requiresApproval) emitReplicachePokes([ctx.userId], row.id);
 }
 
 async function executeAndCommit(
@@ -1369,16 +1294,7 @@ async function executeAndCommit(
   }
   const now = new Date();
   if (error) {
-    await db()
-      .update(actionStagings)
-      .set({
-        status: "failed",
-        executeError: error,
-        executedAt: now,
-        rowVersion: sql`${actionStagings.rowVersion} + 1`,
-      })
-      .where(eq(actionStagings.id, row.id));
-    if (row.requiresApproval) emitReplicachePokes([ctx.userId], row.id);
+    await commitAndPoke(row, ctx, { status: "failed", error, executedAt: now });
     return { kind: "failed", stagingId: row.id, error };
   }
   // ADR-0070 §1.1: sanitize at the dispatch boundary, the instant the tool
@@ -1395,28 +1311,12 @@ async function executeAndCommit(
         ` from ${tool.name} result`,
     );
   }
-  // A tool legitimately returning `null` or `undefined` is stored as
-  // SQL NULL in `execute_result`. The `status='executed'` field is the
-  // discriminator for "execution happened" — readers should never infer
-  // "no result yet" from a null payload. The single-threaded-per-run
-  // executor model (one worker holds the lease) is what guarantees no
-  // other process can interleave a status flip between the
-  // `tool.execute` above and this UPDATE; if that invariant ever
-  // changes, add `AND status IN ('pending', 'approved')` here.
-  await db()
-    .update(actionStagings)
-    .set({
-      status: "executed",
-      executeResult: (result === undefined ? null : result) as object | null,
-      // Persist the sanitize verdict alongside the scrubbed result so the
-      // idempotent `executed` replay (see dispatchStagedRow) can re-emit the
-      // same "may be incomplete" notice rather than replaying it as pristine.
-      executeSanitized: didSanitize,
-      executedAt: now,
-      rowVersion: sql`${actionStagings.rowVersion} + 1`,
-    })
-    .where(eq(actionStagings.id, row.id));
-  if (row.requiresApproval) emitReplicachePokes([ctx.userId], row.id);
+  await commitAndPoke(row, ctx, {
+    status: "executed",
+    result,
+    sanitized: didSanitize,
+    executedAt: now,
+  });
   return {
     kind: "executed",
     stagingId: row.id,
