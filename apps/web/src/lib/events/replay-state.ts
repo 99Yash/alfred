@@ -29,7 +29,18 @@ export function replaySince(state: ReplayState): number {
   return barriers.length > 0 ? Math.min(state.cursor, ...barriers) : state.cursor;
 }
 
-/** Pure state transition used by both the browser controller and unit tests. */
+/**
+ * Pure state transition.
+ *
+ * **Callers must hand over a frame that came out of `parseEventFrame`.** Payload
+ * fields are read unguarded here and in `recoverableRunId`, so validation is a
+ * demand on the caller, not a property of this module. The two callers that exist
+ * both satisfy it: in production `noteReplayFrame` is the sole entry and
+ * `createEventSource` zod-parses every frame before it, and the unit tests build
+ * frames through the typed union, which is the same guarantee at compile time. A
+ * future caller that hands over an unvalidated frame puts whatever the payload
+ * carries into a barrier that is persisted to localStorage.
+ */
 export function advanceReplayState(state: ReplayState, frame: EventStreamFrame): ReplayState {
   const cursor = Math.max(state.cursor, frame.id);
   const runId = recoverableRunId(frame);
@@ -50,6 +61,9 @@ export function advanceReplayState(state: ReplayState, frame: EventStreamFrame):
  * Read before every transition instead of caching a tab-local cursor. That
  * makes sequential cross-tab writes monotonic and keeps active-run barriers
  * discovered by another tab in the shared state.
+ *
+ * `noteFrame` inherits `advanceReplayState`'s requirement on its caller: the
+ * frame must be one `parseEventFrame` produced.
  */
 export function createReplayStateController(store: ReplayStateStore) {
   let maxSeenId = 0;
@@ -92,18 +106,28 @@ function sameBarriers(left: ReplayState["activeRuns"], right: ReplayState["activ
  * Unlike `frameThreadId` there is deliberately **no** derived kind set and no
  * exhaustiveness guard on the `default` arm. `threadId` is a *coverage* claim —
  * every thread-scoped frame must be gated, so a payload that grows one and is
- * not classified is a bug. Recoverability is a *policy* choice: `runId` is on 8
- * of 11 payloads and `agent.run` / `agent.progress` / `tool.call` carry it and
- * are excluded on purpose, so a derived set would over-select and force a policy
- * edit at every new run-scoped kind. The reverse direction — "a new
- * runId-carrying kind should be considered for recovery" — is prose, not a type.
+ * not classified is a bug. Recoverability is a *policy* choice: `runId` is on 9
+ * of the 11 payloads (only `memory.fact_learned` and `inbox.updated` lack it),
+ * and **four** of those nine carry it and are excluded on purpose — `agent.run`,
+ * `agent.progress`, `tool.call` and `artifact.delta`. So a derived set would
+ * over-select and force a policy edit at every new run-scoped kind. Note the
+ * fourth: `artifact.delta` streams all run long the way `chat.delta` does, and it
+ * is deliberately not barriered, so an artifact stream interrupted by a reload is
+ * not recovered by this cursor. The reverse direction — "a new runId-carrying kind
+ * should be considered for recovery" — is prose, not a type.
  *
- * Reading `payload.runId` and `payload.phase` unguarded is safe because every
- * frame reaching here came out of `parseEventFrame`'s zod parse: `noteReplayFrame`
- * is the sole production caller and it is fed by `createEventSource`. That is a
- * property of the caller, not of this module — a second caller handing over an
- * unvalidated frame would put a malformed payload straight into a barrier that
- * is persisted to localStorage.
+ * `payload.runId` and `payload.phase` are read unguarded under the caller contract
+ * stated on `advanceReplayState`. The `isRecord` and `typeof` guards this replaced
+ * bought less than their shape suggested: a missing `runId` already early-returned
+ * with no barrier, and a `phase` other than `"completed"` already armed one, so
+ * they never stood between a malformed payload and a wrong barrier. Their only
+ * real effect was that a **non-object** payload was silently skipped where it now
+ * throws — and because `noteReplayFrame` runs *before* `openEventStream`'s
+ * subscriber fan-out, such a throw would drop the frame for every subscriber.
+ * Unreachable today: all eleven payload schemas are flat
+ * `z.object`, and a non-object output type would not compile at
+ * `frame.payload.runId`. It is reachable only behind a validator that does not
+ * validate.
  */
 function recoverableRunId(frame: EventStreamFrame): string | null {
   switch (frame.kind) {
