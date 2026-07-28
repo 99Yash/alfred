@@ -43,7 +43,6 @@ interface StreamSnapshot {
  */
 export function useChatStream(threadId: string | undefined): ChatStream {
   const [snapshot, setSnapshot] = useState<StreamSnapshot | null>(null);
-  const lastSnapshotRef = useRef<StreamingMessage | null>(null);
   const rafRef = useRef<number | null>(null);
   // The effect installs the real stopper once the SSE stream is open; the
   // returned `stopStream` is a stable proxy so consumers don't re-bind.
@@ -51,13 +50,16 @@ export function useChatStream(threadId: string | undefined): ChatStream {
   const stopStream = useCallback(() => stopFnRef.current?.(), []);
 
   useEffect(() => {
-    lastSnapshotRef.current = null;
     if (!threadId) return;
 
     // One cell per subscription, so the turn state cannot outlive the thread it
     // belongs to: carrying a previous thread's turn across a `threadId` change
     // is unrepresentable rather than undone by a reset statement.
     const cell = createChatStreamCell(threadId);
+    // The dedup baseline gets that same lifetime for the same reason: a fresh
+    // binding per subscription cannot hold a previous thread's snapshot, so
+    // nothing has to remember to clear it. Read and written only in `tick`.
+    let lastSnapshot: StreamingMessage | null = null;
 
     const ensureRaf = () => {
       if (rafRef.current !== null) return;
@@ -68,8 +70,8 @@ export function useChatStream(threadId: string | undefined): ChatStream {
           return;
         }
         const { snapshot: next, caughtUp } = projected;
-        if (!streamSnapshotsEqual(lastSnapshotRef.current, next)) {
-          lastSnapshotRef.current = next;
+        if (!streamSnapshotsEqual(lastSnapshot, next)) {
+          lastSnapshot = next;
           setSnapshot({ threadId, message: next });
         }
         // Keep ticking only while the eased buffers are catching up. Future
