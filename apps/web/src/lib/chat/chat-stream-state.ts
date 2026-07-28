@@ -179,23 +179,26 @@ export function createChatStreamCell(threadId: string): ChatStreamCell {
   return { threadId, current: null };
 }
 
-/**
- * The kinds whose payload names a thread, and so are subject to the hoisted
- * thread check in `applyChatFrame`.
- *
- * `ChatEventKind` is derived from the contract rather than listed, so the
- * assertion below stops compiling the moment a fifth `chat.*` kind is added
- * without being classified here. Only the `chat.*` family is asserted: the wider
- * `EventKind` union is deliberately not exhausted (see `applyChatFrame`), and
- * `artifact.delta` carries a `threadId` too but is not read by this reducer —
- * classifying it would change nothing, since a matching thread still falls
- * through to `false` at the bottom.
- */
+/** Derived from the contract, not listed — see `noThreadNamed`. */
 type ChatEventKind = Extract<EventKind, `chat.${string}`>;
-type ThreadScopedKind = "chat.message" | "chat.reasoning" | "chat.delta" | "chat.tool";
-type AssertNever<T extends never> = T;
-/** A new `chat.*` kind must be classified above — this line stops compiling first. */
-type _EveryChatKindIsThreadScoped = AssertNever<Exclude<ChatEventKind, ThreadScopedKind>>;
+
+/**
+ * The `default` arm of `frameThreadId`, and the reason it is a function rather
+ * than a bare `return null`: its parameter type says *no `chat.*` kind reaches
+ * here*, so adding a fifth one without classifying it below stops compiling at
+ * this call.
+ *
+ * Deliberately narrower than a full `EventKind` exhaustiveness check. The union
+ * is wider than the kinds a chat turn reads, and forcing this reducer to have an
+ * opinion on `inbox.updated` / `memory.fact_learned` / `tool.call` would be the
+ * exhaustiveness gap the module docstring says it is not. Note `artifact.delta`
+ * carries a `threadId` too and is still not classified: it falls out of
+ * `applyChatFrame`'s bottom `return false` either way, so classifying it would
+ * change nothing.
+ */
+function noThreadNamed(_kind: Exclude<EventKind, ChatEventKind>): null {
+  return null;
+}
 
 /**
  * The thread a frame names, or `null` for a kind that names none.
@@ -212,7 +215,7 @@ function frameThreadId(frame: EventStreamFrame): string | null {
     case "chat.tool":
       return frame.payload.threadId;
     default:
-      return null;
+      return noThreadNamed(frame.kind);
   }
 }
 
