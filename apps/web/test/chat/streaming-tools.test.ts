@@ -19,24 +19,16 @@ const baseEvent = {
 describe("applyStreamingToolEvent", () => {
   test("retracts an optimistic card for a non-execution result", () => {
     const tools = new Map<string, StreamingToolCall>();
-    applyStreamingToolEvent(tools, { ...baseEvent, status: "started" });
+    applyStreamingToolEvent(tools, { ...baseEvent, status: "started" }, 1_000);
     assert.equal(tools.size, 1);
 
-    applyStreamingToolEvent(tools, {
-      ...baseEvent,
-      status: "failed",
-      nonExecution: true,
-    });
+    applyStreamingToolEvent(tools, { ...baseEvent, status: "failed", nonExecution: true }, 2_000);
     assert.equal(tools.size, 0);
   });
 
   test("a retraction without an optimistic card is a no-op", () => {
     const tools = new Map<string, StreamingToolCall>();
-    applyStreamingToolEvent(tools, {
-      ...baseEvent,
-      status: "failed",
-      nonExecution: true,
-    });
+    applyStreamingToolEvent(tools, { ...baseEvent, status: "failed", nonExecution: true }, 1_000);
     assert.equal(tools.size, 0);
   });
 
