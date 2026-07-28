@@ -1,7 +1,7 @@
 import type { SyncedChatMessage } from "@alfred/sync";
 import { useCallback, useMemo, useRef, useState } from "react";
 import { Conversation } from "~/routes/-chat/conversation";
-import type { StreamingMessage } from "~/lib/chat/use-chat-stream";
+import type { StreamingMessage } from "~/lib/chat/chat-stream-state";
 import { SCROLL_CHAT_TO_BOTTOM_EVENT } from "~/lib/chat/use-run-complete";
 
 /**

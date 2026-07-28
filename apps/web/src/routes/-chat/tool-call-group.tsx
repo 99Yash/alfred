@@ -3,7 +3,7 @@ import * as Accordion from "@radix-ui/react-accordion";
 import { AWAIT_SUB_AGENT_TOOL, SPAWN_SUB_AGENT_TOOL } from "@alfred/contracts";
 import { ChevronRight } from "lucide-react";
 import { useId, useState } from "react";
-import type { SubAgentTrail } from "~/lib/chat/use-chat-stream";
+import type { SubAgentTrail } from "~/lib/chat/chat-stream-state";
 import { asString, parseJsonRecord } from "~/lib/json-record";
 import { cn } from "~/lib/utils";
 import { ChatProse } from "./chat-prose";
