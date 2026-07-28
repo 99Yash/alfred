@@ -31,12 +31,19 @@ import { throwUpstreamError } from "./upstream-error";
  *
  * Both hazards the skeleton absorbs are represented in the TYPES rather than in
  * this comment, because a seam that reads as "just do the thing" is exactly where
- * a silent hazard survives review: `bodyPolicy` is a config field (so a
- * body-sensitive provider cannot join by forgetting it), `retry` is a REQUIRED
- * config field that can say `"none"` (so no provider retries by accident, and the
- * worst-case wall time of a call is visible where the client is built), and
- * transient retry is gated on {@link isRetrySafeMethod} so a non-idempotent call
- * has to say `idempotent: true` before it can be re-sent.
+ * a silent hazard survives review. Each hazard's shape follows one rule: a field
+ * earns its place by encoding a hazard the seam absorbs, and whether it is
+ * REQUIRED or optional is set by whether absence is silently wrong or merely
+ * absent. Both hazards here default to *on*, so both fields are required:
+ *
+ *   - `bodyPolicy` — omitting it would let a non-2xx body travel onto the thrown
+ *     error, so a body-sensitive provider cannot join by forgetting it.
+ *   - `retry` — can say `"none"`, so no provider retries by accident and the
+ *     worst-case wall time of a call is visible where the client is built.
+ *
+ * `ProviderRequest.idempotent` is the third knob and is optional on purpose: its
+ * absence is the *safe* answer (retry is gated on {@link isRetrySafeMethod}, so a
+ * non-safe call has to say `idempotent: true` before it can be re-sent).
  */
 
 /** A query value the URL builder will stringify; `undefined` is dropped. */
@@ -69,15 +76,21 @@ export interface ProviderClientConfig {
    * property, not a per-call one — a provider whose error bodies can echo request
    * fragments (Notion) sets `"omit"` once here and every method inherits it.
    *
-   * No member of this seam sets it *yet*: GitHub and Vercel both take the bounded
-   * default. Notion is the one that will — it already passes `bodyPolicy: "omit"`
-   * to `authedJson` (`notion/client.ts`) and is queued to join this seam by the
-   * facade cutover (#551). The field exists so that migration is a bind-site
-   * value rather than a silent leak, per `docs/reference/structural-review.md`:
-   * a shared seam that cannot express a member's policy has not generalized it,
-   * it has excluded it.
+   * Required, and required for the same reason as `retry`: this hazard's default
+   * answer is *on* (a body travels, bounded and redacted, onto an error that flows
+   * into telemetry), so absence would be silently wrong rather than merely absent.
+   * `docs/reference/structural-review.md` — "when a seam's default answer to a
+   * hazard is *on*, an optional field is the wrong shape for it." Every bind
+   * states its posture, including the bounded `"summarize"` one; a new member
+   * cannot inherit a leak by omission, only by choosing it.
+   *
+   * GitHub and Vercel both choose `"summarize"`. Notion is the member the `"omit"`
+   * value is for — it already passes `bodyPolicy: "omit"` to `authedJson`
+   * (`notion/client.ts`) and is queued to join this seam by the facade cutover
+   * (#551). A shared seam that cannot express a member's policy has not
+   * generalized it, it has excluded it.
    */
-  bodyPolicy?: ErrorBodyPolicy | undefined;
+  bodyPolicy: ErrorBodyPolicy;
 }
 
 export interface ProviderRequest {
@@ -92,12 +105,18 @@ export interface ProviderRequest {
    * key, or it replaces state wholesale and the caller ignores the status. Safe
    * methods retry without it; see {@link isRetrySafeMethod}.
    *
+   * Optional, and NOT symmetric with `ProviderClientConfig.bodyPolicy` — the two
+   * hazards point opposite ways. Omitting `idempotent` is fail-safe: the method
+   * gate refuses the retry, which is the correct answer for anything it does not
+   * already know is safe. So absence here is merely absent, and an optional field
+   * is the right shape; `bodyPolicy`'s default answer is *on*, which is why that
+   * one is required.
+   *
    * No call site sets it *yet* — every request through this seam today is a safe
    * method. It stays because it is the only way a future write can say "this one
-   * is safe to re-send", and its absence would be silently wrong rather than
-   * merely absent: without it the seam's answer to the double-apply hazard is a
-   * flat "no", which is `docs/reference/structural-review.md`'s worked example of
-   * excluding a member instead of generalizing over it. Pinned by
+   * is safe to re-send"; without it the seam's answer to the double-apply hazard
+   * is a flat "no", which is `docs/reference/structural-review.md`'s worked example
+   * of excluding a member instead of generalizing over it. Pinned by
    * `test/provider-client.test.ts` (a `PUT` retries only with `idempotent: true`).
    */
   idempotent?: true | undefined;

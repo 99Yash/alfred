@@ -177,6 +177,10 @@ export function createGithubClient(options: GithubClientOptions) {
     // Fresh installation token per request; unwrapped only here, at the headers.
     resolve: async () => ({ headers: githubHeaders((await options.resolveToken()).token) }),
     retry: options.retry,
+    // GitHub's error bodies are prod-safe once bounded and secret-redacted, and
+    // the message ("Validation Failed", a rate-limit note) is what makes a failed
+    // tool call diagnosable. Stated, not inherited.
+    bodyPolicy: "summarize",
   });
 
   return {
