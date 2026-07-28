@@ -1,7 +1,11 @@
 import assert from "node:assert/strict";
 import { afterEach, describe, test } from "node:test";
 
-import { authedFetch, INTEGRATION_FETCH_TIMEOUT_MS } from "../src/shared/authed-fetch";
+import {
+  authedFetch,
+  INTEGRATION_FETCH_TIMEOUT_MS,
+  type AuthedFetchProfile,
+} from "../src/shared/authed-fetch";
 
 /**
  * `authedFetch` is the curated-tier transport core the four vendor clients
@@ -99,6 +103,25 @@ describe("authedFetch", () => {
     // Sanity-check the single-sourced default is a real positive duration.
     assert.equal(typeof INTEGRATION_FETCH_TIMEOUT_MS, "number");
     assert.ok(INTEGRATION_FETCH_TIMEOUT_MS > 0);
+  });
+
+  test("a profile cannot shorten the shared timeout", async () => {
+    const { calls } = stubFetch();
+    // The negative half of the test above: `INTEGRATION_FETCH_TIMEOUT_MS` is the
+    // ONLY timeout, so a profile carrying a per-provider override is inert. Built
+    // with `Object.assign` rather than an object literal so the assertion survives
+    // the field's absence from `AuthedFetchProfile` — a literal would be an
+    // excess-property error and a cast would only prove the cast compiles.
+    const profile: AuthedFetchProfile = { headers: {} };
+    await authedFetch(Object.assign({}, profile, { timeoutMs: 1 }), {
+      url: "https://api.example.com/a",
+    });
+
+    const { signal } = calls[0]!.init!;
+    assert.ok(signal instanceof AbortSignal);
+    // Well past the override, nowhere near the shared 30s: still live.
+    await new Promise((resolve) => setTimeout(resolve, 40));
+    assert.equal(signal.aborted, false, "profile timeoutMs must not shorten the shared timeout");
   });
 
   test("returns the underlying Response untouched (non-2xx does not throw)", async () => {

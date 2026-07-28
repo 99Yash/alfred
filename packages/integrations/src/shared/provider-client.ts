@@ -68,6 +68,14 @@ export interface ProviderClientConfig {
    * How much of a non-2xx body may ride on the thrown error. A per-PROVIDER
    * property, not a per-call one — a provider whose error bodies can echo request
    * fragments (Notion) sets `"omit"` once here and every method inherits it.
+   *
+   * No member of this seam sets it *yet*: GitHub and Vercel both take the bounded
+   * default. Notion is the one that will — it already passes `bodyPolicy: "omit"`
+   * to `authedJson` (`notion/client.ts`) and is queued to join this seam by the
+   * facade cutover (#551). The field exists so that migration is a bind-site
+   * value rather than a silent leak, per `docs/reference/structural-review.md`:
+   * a shared seam that cannot express a member's policy has not generalized it,
+   * it has excluded it.
    */
   bodyPolicy?: ErrorBodyPolicy | undefined;
 }
@@ -83,6 +91,14 @@ export interface ProviderRequest {
    * request genuinely cannot double-apply — it carries a provider idempotency
    * key, or it replaces state wholesale and the caller ignores the status. Safe
    * methods retry without it; see {@link isRetrySafeMethod}.
+   *
+   * No call site sets it *yet* — every request through this seam today is a safe
+   * method. It stays because it is the only way a future write can say "this one
+   * is safe to re-send", and its absence would be silently wrong rather than
+   * merely absent: without it the seam's answer to the double-apply hazard is a
+   * flat "no", which is `docs/reference/structural-review.md`'s worked example of
+   * excluding a member instead of generalizing over it. Pinned by
+   * `test/provider-client.test.ts` (a `PUT` retries only with `idempotent: true`).
    */
   idempotent?: true | undefined;
 }
