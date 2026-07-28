@@ -467,17 +467,30 @@ export function applyChatFrame(
  * doesn't keep typing while the server finalizes in the background.
  *
  * Returns whether anything changed — `false` when nothing is in flight or the
- * turn was already stopped. The `slice(0, shown)` truncation and the `done`
- * flip live here together so the freeze and the state it freezes cannot drift;
- * nothing reads either between them, so this is concentration, not an ordering
- * constraint.
+ * turn was already stopped. The truncation and the `done` flip live here
+ * together so the freeze and the state it freezes cannot drift. The freeze has
+ * to re-anchor before it slices, or a delta that advanced the segment since the
+ * last animation frame leaves it cutting the live segment to the *previous*
+ * segment's length; `anchorEasedSegment` hands back the segment, its text and
+ * its counter as one matched triple, so the slice below can only be written
+ * with all three in step. Reaching past it to `ref.shown` still compiles — see
+ * that function's own note.
+ *
+ * A segment the deltas already closed stays in the projected `narration` in
+ * full: closing it was the delta's doing, not the stop's. So a stop landing in
+ * that window freezes the live bubble at zero characters with the prose the
+ * user saw carried in `narration` instead. Whether that reaches the screen is
+ * the consumer's call, and today it is conditional: `conversation.tsx:596`
+ * renders the trail only inside `{stream.tools.length > 0 …}`, so a turn with
+ * no tool cards shows none of it. That render gate is pre-existing coupling
+ * this freeze cannot reach.
  */
 export function applyOptimisticStop(cell: ChatStreamCell): boolean {
   const r = cell.current;
   if (!r || r.stopped) return false;
-  // Freeze the current segment at what's shown so the bubble stops typing.
-  const answer = r.segments.get(r.currentSegment) ?? "";
-  r.segments.set(r.currentSegment, answer.slice(0, r.shown));
+  // Freeze the live segment at what's shown *of it* so the bubble stops typing.
+  const eased = anchorEasedSegment(r);
+  r.segments.set(eased.segment, eased.text.slice(0, eased.shown));
   r.reasoning = r.reasoning.slice(0, r.reasoningShown);
   r.stopped = true;
   r.done = true;
@@ -492,6 +505,34 @@ function ease(shown: number, full: number): number {
 }
 
 /**
+ * Re-anchor the eased counter to the live segment and hand back the segment it
+ * now describes, its received text, and the chars already shown of it.
+ *
+ * `shown` counts against `shownSegment` only, and `applyChatFrame` advances
+ * `currentSegment` without touching either — so between a segment-advancing
+ * delta and the next animation frame, `shown` describes a strictly earlier
+ * segment. Both readers (`tickDrip`, `applyOptimisticStop`) take the counter
+ * off the return value; the write-back in `tickDrip` is the only other mention
+ * of `ref.shown` in the file, so no read of it is currently unanchored. That is
+ * a property of the two call sites, not something a type enforces — a third
+ * reader that helps itself to `ref.shown` compiles fine and is wrong in the
+ * same invisible window. When the segment advances the counter restarts at 0:
+ * the new segment eases in from the start, the prior one having moved into the
+ * narration trail.
+ */
+function anchorEasedSegment(ref: StreamRef): { segment: number; text: string; shown: number } {
+  if (ref.shownSegment !== ref.currentSegment) {
+    ref.shownSegment = ref.currentSegment;
+    ref.shown = 0;
+  }
+  return {
+    segment: ref.shownSegment,
+    text: ref.segments.get(ref.shownSegment) ?? "",
+    shown: ref.shown,
+  };
+}
+
+/**
  * Advance the drip buffers one animation frame, then project the view.
  *
  * There is no way to obtain a `StreamingMessage` without the easing having run
@@ -500,16 +541,10 @@ function ease(shown: number, full: number): number {
  * to stop scheduling frames: later SSE frames restart the loop.
  */
 export function tickDrip(ref: StreamRef): { snapshot: StreamingMessage; caughtUp: boolean } {
-  // The current segment is the live reply; when it advances, restart the
-  // typing counter so the new segment eases in from the start (the prior
-  // segment has by then moved into the narration trail).
-  if (ref.shownSegment !== ref.currentSegment) {
-    ref.shownSegment = ref.currentSegment;
-    ref.shown = 0;
-  }
-  const answer = ref.segments.get(ref.currentSegment) ?? "";
+  const eased = anchorEasedSegment(ref);
+  const shown = ease(eased.shown, eased.text.length);
   ref.reasoningShown = ease(ref.reasoningShown, ref.reasoning.length);
-  ref.shown = ease(ref.shown, answer.length);
+  ref.shown = shown;
   const narration: SyncedChatNarration[] = [];
   for (const [index, text] of ref.segments) {
     if (index < ref.currentSegment && text.trim().length > 0) narration.push({ index, text });
@@ -519,7 +554,7 @@ export function tickDrip(ref: StreamRef): { snapshot: StreamingMessage; caughtUp
     snapshot: {
       messageId: ref.messageId,
       runId: ref.runId,
-      text: answer.slice(0, ref.shown),
+      text: eased.text.slice(0, shown),
       narration,
       reasoning: ref.reasoning.slice(0, ref.reasoningShown),
       reasoningActive: ref.reasoning.length > 0 && !ref.replyStarted && !ref.done,
@@ -533,7 +568,7 @@ export function tickDrip(ref: StreamRef): { snapshot: StreamingMessage; caughtUp
       compacting: ref.compacting,
       done: ref.done,
     },
-    caughtUp: ref.shown >= answer.length && ref.reasoningShown >= ref.reasoning.length,
+    caughtUp: shown >= eased.text.length && ref.reasoningShown >= ref.reasoning.length,
   };
 }
 
