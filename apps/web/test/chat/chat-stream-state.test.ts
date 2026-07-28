@@ -118,6 +118,24 @@ const unrelated = (): EventStreamFrame => ({
   payload: { runId: "run_1", step: "triage" },
   createdAt: CREATED_AT,
 });
+/**
+ * The one non-`chat.*` kind that *does* carry a `threadId`. Deliberately
+ * unclassified by the reducer's thread reader: it falls out of the bottom either
+ * way, so classifying it would change nothing.
+ */
+const artifactDelta = (threadId: string): EventStreamFrame => ({
+  id: nextId(),
+  kind: "artifact.delta",
+  payload: {
+    runId: "run_1",
+    threadId,
+    toolCallId: "tool_artifact",
+    seq: 1,
+    text: "# Draft",
+    mode: "replace",
+  },
+  createdAt: CREATED_AT,
+});
 
 const cellOf = () => createChatStreamCell(THREAD);
 
@@ -317,11 +335,7 @@ describe("applyChatFrame — absorption (a terminal is absorbing)", () => {
 
     // The ~16ms window: a delta advances `currentSegment` and the user hits
     // stop before the next animation frame re-anchors the eased counter.
-    applyChatFrame(
-      cell,
-      delta(2, "The full second segment of prose.", { segmentIndex: 1 }),
-      1_100,
-    );
+    applyChatFrame(cell, delta(2, "The full second segment of prose.", { segmentIndex: 1 }), 1_100);
     assert.equal(applyOptimisticStop(cell), true);
 
     const first = tick(cell);
@@ -350,11 +364,7 @@ describe("applyChatFrame — absorption (a terminal is absorbing)", () => {
     applyChatFrame(cell, delta(1, "0123456789012345678901234567890123456789"), 1_000);
     tick(cell);
 
-    applyChatFrame(
-      cell,
-      delta(2, "The full second segment of prose.", { segmentIndex: 1 }),
-      1_100,
-    );
+    applyChatFrame(cell, delta(2, "The full second segment of prose.", { segmentIndex: 1 }), 1_100);
     const { snapshot: mid } = tick(cell);
     assert.ok(
       mid.text.length > 0 && mid.text.length < 33,
@@ -416,16 +426,20 @@ describe("applyChatFrame — monotonicity (clause 3)", () => {
   });
 });
 
-describe("applyChatFrame — thread filter", () => {
+describe("applyChatFrame — thread filter (the cell's own identity)", () => {
   const other: Turn = { threadId: "thread_other", messageId: "msg_x", runId: "run_x" };
+  /** Every kind whose payload names a thread, in both shapes `chat.message` has. */
+  const foreignFrames = (): EventStreamFrame[] => [
+    started(other),
+    completed(other),
+    reasoning(1, "not ours", other),
+    delta(1, "not ours", { turn: other }),
+    tool({ turn: other }),
+    tool({ turn: other, subAgent: SUB, toolCallId: "child_tool_x" }),
+  ];
 
-  test("every threadId-carrying kind ignores another thread's frame", () => {
-    for (const frame of [
-      started(other),
-      delta(1, "not ours", { turn: other }),
-      reasoning(1, "not ours", other),
-      tool({ turn: other }),
-    ]) {
+  test("against an empty cell, a foreign frame mounts nothing", () => {
+    for (const frame of foreignFrames()) {
       const cell = cellOf();
       assert.equal(
         applyChatFrame(cell, frame, 1_000),
@@ -434,6 +448,103 @@ describe("applyChatFrame — thread filter", () => {
       );
       assert.equal(cell.current, null);
     }
+  });
+
+  test("against a live turn, a foreign frame leaves the projection byte-identical", () => {
+    // The assertion a return-value check cannot make: a guard hoisted *below* a
+    // mutation still returns false while having already written to the turn.
+    for (const frame of foreignFrames()) {
+      const cell = cellOf();
+      applyChatFrame(cell, started(), 1_000);
+      applyChatFrame(cell, reasoning(1, "thinking"), 1_000);
+      applyChatFrame(cell, delta(1, "our own answer"), 1_100);
+      applyChatFrame(cell, tool({ subAgent: SUB, toolCallId: "child_tool_1" }), 1_100);
+      const before = drain(cell).snapshot;
+
+      assert.equal(
+        applyChatFrame(cell, frame, 9_000),
+        false,
+        `${frame.kind} leaked across threads`,
+      );
+
+      assert.deepEqual(drain(cell).snapshot, before, `${frame.kind} mutated another thread's turn`);
+    }
+  });
+
+  test("the two kinds that name no thread still cannot mount a turn", () => {
+    // ADR-0073's shape: `agent.run` and `approval.requested` carry no `threadId`
+    // at all, so they pass the hoisted guard — and must then resolve only
+    // against a ref that already exists.
+    const cell = cellOf();
+    assert.equal(applyChatFrame(cell, run(SUB.childRunId, "completed"), 1_000), false);
+    assert.equal(applyChatFrame(cell, approval("run_1"), 1_000), false);
+    assert.equal(cell.current, null);
+  });
+
+  test("an unclassified kind is dropped whether or not its thread matches", () => {
+    // `artifact.delta` carries a `threadId` and is deliberately not classified:
+    // the bottom `return false` catches it either way, so the `default: null`
+    // arm of the thread reader has not started admitting anything.
+    const cell = cellOf();
+    applyChatFrame(cell, started(), 1_000);
+    const before = drain(cell).snapshot;
+    for (const threadId of [THREAD, "thread_other"]) {
+      assert.equal(applyChatFrame(cell, artifactDelta(threadId), 1_000), false);
+      assert.equal(applyChatFrame(cell, unrelated(), 1_000), false);
+    }
+    assert.deepEqual(drain(cell).snapshot, before);
+  });
+});
+
+describe("SubAgentTrail — identity is write-once", () => {
+  test("a second child under one parent call keeps the first child's identity", () => {
+    // The dependency `streamSnapshotsEqual` rests on, made executable. The
+    // server spawns exactly one child per `(parentRunId, parentToolCallId)`
+    // (`packages/api/src/modules/agent/sub-agents.ts` — `findExistingSubAgentRun`
+    // plus the sub-agent `dedupKey` unique index), so this case cannot happen in
+    // production. If it ever could, this is what the client would do: keep the
+    // first `subId`/`childRunId`, absorb the second child's calls into that
+    // trail, and report the two projections *equal* because neither field is
+    // compared. Pinning it means a change to either half is a red test rather
+    // than a silent merge.
+    const cell = cellOf();
+    applyChatFrame(cell, started(), 1_000);
+    applyChatFrame(cell, tool({ subAgent: SUB, toolCallId: "child_tool_1" }), 1_000);
+    const before = drain(cell).snapshot;
+
+    const impostor = {
+      parentToolCallId: SUB.parentToolCallId,
+      subId: "sub_b",
+      childRunId: "child_2",
+    };
+    assert.equal(
+      applyChatFrame(cell, tool({ subAgent: impostor, toolCallId: "child_tool_2" }), 2_000),
+      true,
+    );
+
+    const trail = refOf(cell).subAgents.get(SUB.parentToolCallId);
+    assert.ok(trail);
+    assert.deepEqual(
+      { subId: trail.subId, childRunId: trail.childRunId, startedTs: trail.startedTs },
+      { subId: SUB.subId, childRunId: SUB.childRunId, startedTs: 1_000 },
+    );
+    // …and the comparison the animation loop runs cannot tell them apart on
+    // identity alone. It reports unequal here only because a tool card was
+    // added; drop that card and the two snapshots compare equal.
+    const after = drain(cell).snapshot;
+    assert.equal(streamSnapshotsEqual(before, after), false);
+    assert.deepEqual(
+      after.subAgents[0]?.tools.map((t) => t.toolCallId),
+      ["child_tool_1", "child_tool_2"],
+    );
+    assert.equal(
+      streamSnapshotsEqual(before, {
+        ...after,
+        subAgents: after.subAgents.map((t) => ({ ...t, tools: t.tools.slice(0, 1) })),
+      }),
+      true,
+      "subId / childRunId / startedTs are deliberately not compared",
+    );
   });
 });
 
