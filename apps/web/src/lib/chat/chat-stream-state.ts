@@ -321,11 +321,16 @@ function ensureStreamRef(cell: ChatStreamCell, messageId: string, runId: string)
  * so an arm added later inherits it instead of having to remember it. The two
  * kinds that name no thread (`agent.run`, `approval.requested`) pass it and then
  * resolve only against a ref that already exists — they cannot mount one.
+ *
+ * `now` is required and deliberately has no default: the durations this records
+ * (`startedTs`, `endedTs`, `reasoningMs`) are measured at frame *receipt*, so the
+ * turn stays a function of the frames it has seen. Defaulting to `Date.now()`
+ * would let a caller that omits it silently swap in wall-clock time.
  */
 export function applyChatFrame(
   cell: ChatStreamCell,
   frame: EventStreamFrame,
-  now: number = Date.now(),
+  now: number,
 ): boolean {
   const named = frameThreadId(frame);
   if (named !== null && named !== cell.threadId) return false;
