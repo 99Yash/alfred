@@ -446,7 +446,10 @@ describe("applyChatFrame — absorption (a terminal is absorbing)", () => {
     // Every other replacement-turn case here uses `TURN_2`, which differs from
     // `TURN` in *both* fields — so a guard that compares only one of them still
     // lets those cases pass. These two shapes differ in exactly one field each,
-    // and each kills one half of the conjunction.
+    // and each kills one half of the conjunction. Both are spread from `TURN` so
+    // that "one field apart" is structural: hand-copying `TURN`'s literals here
+    // would let an edit to `TURN` turn both of them back into differs-in-both
+    // cases, silently reviving the two mutants this case exists to kill.
     //
     // Same messageId, new runId is the retry shape this file already pins for a
     // live turn ("a different runId for the same messageId mounts a fresh
@@ -455,7 +458,7 @@ describe("applyChatFrame — absorption (a terminal is absorbing)", () => {
     const retried = cellOf();
     applyChatFrame(retried, started(), 1_000);
     applyOptimisticStop(retried);
-    const retry = { threadId: THREAD, messageId: "msg_1", runId: "run_2" };
+    const retry = { ...TURN, runId: "run_2" };
     assert.equal(applyChatFrame(retried, started(retry), 1_000), true);
     assert.equal(refOf(retried).runId, "run_2");
     assert.equal(refOf(retried).stopped, false);
@@ -466,7 +469,7 @@ describe("applyChatFrame — absorption (a terminal is absorbing)", () => {
     const remounted = cellOf();
     applyChatFrame(remounted, started(), 1_000);
     applyOptimisticStop(remounted);
-    const sameRun = { threadId: THREAD, messageId: "msg_9", runId: "run_1" };
+    const sameRun = { ...TURN, messageId: "msg_9" };
     assert.equal(applyChatFrame(remounted, started(sameRun), 1_000), true);
     assert.equal(refOf(remounted).messageId, "msg_9");
     assert.equal(refOf(remounted).stopped, false);

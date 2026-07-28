@@ -321,6 +321,11 @@ export function applyChatFrame(
     // three inherit the identity comparison from `ensureStreamRef`; this arm has
     // to spell it out, because `compaction_*`/`completed` may not mount and so
     // have no `ensureStreamRef` return value to test the flag on.
+    //
+    // `r` is the ref as of frame arrival. The `started` arm below mounts through
+    // `ensureStreamRef` and does not refresh `r`, so anything added after that
+    // call — a recency check on the mount, say — must read `cell.current`, not
+    // `r`, which by then describes the outgoing turn.
     if (r !== null && r.stopped && r.messageId === p.messageId && r.runId === p.runId) return false;
     if (p.phase === "started") {
       ensureStreamRef(cell, p.messageId, p.runId);
