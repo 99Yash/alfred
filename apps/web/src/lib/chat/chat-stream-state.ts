@@ -1,6 +1,6 @@
-import type { EventKind, EventPayload } from "@alfred/contracts/events";
+import type { EventPayload } from "@alfred/contracts/events";
 import type { SyncedChatNarration } from "@alfred/sync";
-import type { EventStreamFrame } from "~/lib/events/frame";
+import { frameThreadId, type EventStreamFrame } from "~/lib/events/frame";
 import { markChatTimingByAssistant } from "./timing";
 
 /**
@@ -179,46 +179,6 @@ export function createChatStreamCell(threadId: string): ChatStreamCell {
   return { threadId, current: null };
 }
 
-/** Derived from the contract, not listed — see `noThreadNamed`. */
-type ChatEventKind = Extract<EventKind, `chat.${string}`>;
-
-/**
- * The `default` arm of `frameThreadId`, and the reason it is a function rather
- * than a bare `return null`: its parameter type says *no `chat.*` kind reaches
- * here*, so adding a fifth one without classifying it below stops compiling at
- * this call.
- *
- * Deliberately narrower than a full `EventKind` exhaustiveness check. The union
- * is wider than the kinds a chat turn reads, and forcing this reducer to have an
- * opinion on `inbox.updated` / `memory.fact_learned` / `tool.call` would be the
- * exhaustiveness gap the module docstring says it is not. Note `artifact.delta`
- * carries a `threadId` too and is still not classified: it falls out of
- * `applyChatFrame`'s bottom `return false` either way, so classifying it would
- * change nothing.
- */
-function noThreadNamed(_kind: Exclude<EventKind, ChatEventKind>): null {
-  return null;
-}
-
-/**
- * The thread a frame names, or `null` for a kind that names none.
- *
- * The single reader of `payload.threadId` in this module: a payload that drops
- * or renames the field fails to compile here instead of at each arm that used to
- * spell the comparison for itself.
- */
-function frameThreadId(frame: EventStreamFrame): string | null {
-  switch (frame.kind) {
-    case "chat.message":
-    case "chat.reasoning":
-    case "chat.delta":
-    case "chat.tool":
-      return frame.payload.threadId;
-    default:
-      return noThreadNamed(frame.kind);
-  }
-}
-
 /**
  * Whether a sub-agent's `chat.tool` event belongs to the turn currently on
  * screen. It must be able to *address* the in-flight turn but never *create*
@@ -325,9 +285,14 @@ function ensureStreamRef(cell: ChatStreamCell, messageId: string, runId: string)
  * design; this is not an exhaustiveness gap.
  *
  * The thread check is hoisted above the kind dispatch and runs unconditionally,
- * so an arm added later inherits it instead of having to remember it. The two
- * kinds that name no thread (`agent.run`, `approval.requested`) pass it and then
- * resolve only against a ref that already exists — they cannot mount one.
+ * so an arm added later inherits it instead of having to remember it. It covers
+ * *every* kind whose payload carries a `threadId`, derived from the payload
+ * schemas by `frameThreadId` rather than from the `chat.` name prefix — so a
+ * foreign-thread `artifact.delta` is gated here and *then* dropped by the bottom
+ * `return false`, and an arm for it would inherit a check it never spells. The
+ * kinds that name no thread (`agent.run`, `approval.requested`) pass the check
+ * and then resolve only against a ref that already exists — they cannot mount
+ * one.
  *
  * `now` is required and deliberately has no default: the durations this records
  * (`startedTs`, `endedTs`, `reasoningMs`) are measured at frame *receipt*, so the
