@@ -74,6 +74,16 @@ export function parseEventFrame<K extends EventKind>(
  * covers everything" claim, still false. (A `.passthrough()` payload schema puts
  * `string` in `keyof` and so is *over*-selected; that fails loudly at
  * `noThreadNamed`, which is the acceptable direction.)
+ *
+ * One case this does **not** close, established by probe in review: `keyof` over
+ * a union is the *intersection* of its members' keys, so a payload schema that is
+ * a `z.union`/`z.discriminatedUnion` carrying `threadId` on only some variants is
+ * classified threadless, reaches `noThreadNamed`, and compiles clean — un-gated.
+ * No entry in `eventPayloadSchemas` is a union today and none is planned, and a
+ * reducer arm would also have to be added before it could bite. Closing it for
+ * real means asserting every entry is a `z.ZodObject`, which is queued rather
+ * than done here; the point of this paragraph is that the set's coverage is
+ * derived from *flat object* schemas, not from any schema shape.
  */
 type ThreadScopedEventKind = {
   [K in EventKind]: "threadId" extends keyof EventPayload<K> ? K : never;
