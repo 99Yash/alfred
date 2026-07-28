@@ -27,6 +27,21 @@
  * enforceable, not just documented: a transport that dispatches by method gates
  * on {@link isRetrySafeMethod} and makes anything else opt in explicitly (see
  * `defineProviderClient`).
+ *
+ * CANCELLATION: there is none, by deliberate omission. Every thrown transport
+ * error is retried, including the `AbortError` from `authedFetch`'s own
+ * `AbortSignal.timeout` — which is correct, because that timeout IS the transient
+ * failure this loop exists to absorb. There is no caller-driven abort to confuse
+ * it with today: no reachable caller can supply a signal.
+ *
+ * That changes the moment one can. `TODO(#286)` threads a per-run `AbortSignal`
+ * through the dispatcher that builds these binds, and the repo's `AbortSignal.any`
+ * idiom makes a user's "Stop" indistinguishable from a timeout once inside
+ * `fetch`. So a caller-driven abort must be classified BEFORE the retry decision,
+ * or one Stop becomes `maxAttempts` more upstream requests. Re-adding a bare
+ * optional field is not enough; take the tree's settled shape for this — the
+ * required `abortSignal: AbortSignal | "none"` on
+ * `api/src/modules/agent/compaction/compact-with-retry.ts`.
  */
 
 import { withDefaults } from "@alfred/contracts";
