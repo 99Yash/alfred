@@ -279,6 +279,10 @@ describe("applyChatFrame — absorption (a terminal is absorbing)", () => {
     assert.ok(mid.text.length > 0 && mid.text.length < 40, `unexpected prefix: ${mid.text}`);
 
     assert.equal(applyOptimisticStop(cell), true);
+    // The tick `stopStream` schedules right after the stop must already be
+    // parked: a freeze that leaves easing work behind keeps typing post-click,
+    // and `drain` alone would not notice.
+    assert.equal(tickDrip(ref).caughtUp, true);
     const frozen = drain(cell).snapshot;
     assert.equal(frozen.text, mid.text);
     assert.equal(frozen.reasoning, mid.reasoning);
@@ -294,6 +298,71 @@ describe("applyChatFrame — absorption (a terminal is absorbing)", () => {
     assert.equal(after.text, mid.text);
     assert.equal(after.tools.length, 0);
     assert.equal(after.done, true);
+  });
+
+  test("a stop in the window after a segment-advancing delta freezes the live segment, not a prefix of it", () => {
+    const cell = cellOf();
+    applyChatFrame(cell, started(), ctx());
+    applyChatFrame(cell, delta(1, "0123456789012345678901234567890123456789"), ctx(1_000));
+
+    // One tick, so `shown` is a strict prefix and `shownSegment` is 0.
+    const ref = refOf(cell);
+    const { snapshot: mid } = tickDrip(ref);
+    assert.ok(mid.text.length > 0 && mid.text.length < 40, `unexpected prefix: ${mid.text}`);
+
+    // The ~16ms window: a delta advances `currentSegment` and the user hits
+    // stop before the next animation frame re-anchors the eased counter.
+    applyChatFrame(
+      cell,
+      delta(2, "The full second segment of prose.", { segmentIndex: 1 }),
+      ctx(1_100),
+    );
+    assert.equal(applyOptimisticStop(cell), true);
+
+    const first = tickDrip(ref);
+    // Slicing segment 1 with segment 0's counter truncated it to `"The f"`,
+    // which this tick then re-anchored and began easing out again as `"Th"`.
+    assert.equal(first.snapshot.text, "");
+    // …and re-anchoring without truncating would have eased the whole segment
+    // out after the click, with `caughtUp` false the whole way.
+    assert.equal(first.caughtUp, true);
+    // Segment 0 was closed by the delta, not by the stop, so the trail keeps it
+    // in full — the prose moved, it did not vanish.
+    assert.deepEqual(first.snapshot.narration, [
+      { index: 0, text: "0123456789012345678901234567890123456789" },
+    ]);
+
+    // The freeze is stable: no later tick reveals anything.
+    assert.deepEqual(drain(cell).snapshot, first.snapshot);
+  });
+
+  test("a stop after the new segment has eased freezes it at its own prefix", () => {
+    const cell = cellOf();
+    applyChatFrame(cell, started(), ctx());
+    applyChatFrame(cell, delta(1, "0123456789012345678901234567890123456789"), ctx(1_000));
+    const ref = refOf(cell);
+    tickDrip(ref);
+
+    applyChatFrame(
+      cell,
+      delta(2, "The full second segment of prose.", { segmentIndex: 1 }),
+      ctx(1_100),
+    );
+    const { snapshot: mid } = tickDrip(ref);
+    assert.ok(
+      mid.text.length > 0 && mid.text.length < 33,
+      `expected a strict prefix of segment 1: ${mid.text}`,
+    );
+    assert.ok("The full second segment of prose.".startsWith(mid.text));
+
+    assert.equal(applyOptimisticStop(cell), true);
+    const first = tickDrip(ref);
+    assert.equal(first.snapshot.text, mid.text);
+    assert.equal(first.caughtUp, true);
+    assert.deepEqual(first.snapshot.narration, [
+      { index: 0, text: "0123456789012345678901234567890123456789" },
+    ]);
+    assert.deepEqual(drain(cell).snapshot, first.snapshot);
   });
 
   test("a stop freezes only its own run — the next turn still mounts", () => {
