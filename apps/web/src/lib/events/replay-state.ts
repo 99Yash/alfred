@@ -22,7 +22,20 @@ export interface ReplayStateStore {
 /**
  * The next connection resumes from the oldest active chat barrier. While idle,
  * it resumes from the latest frame seen. Cursor progress and recovery barriers
- * are separate so an out-of-order chat frame can safely sit behind the cursor.
+ * are separate so a barrier can deliberately sit *behind* the cursor: a reload
+ * during a run resumes from before that run's first frame rather than from the
+ * newest id seen, which is what replays the in-flight turn.
+ *
+ * A barrier is deleted only by its own run's `chat.message` / `phase:
+ * "completed"` frame, and that deletion holds whatever id the frame arrives
+ * with, because `advanceReplayState`'s clearing branch never reads `frame.id`.
+ * The arming branch has no matching tolerance, and that is a known gap rather
+ * than a property of this module: a recoverable frame applied *after* its run's
+ * `completed` re-arms that run's barrier, and nothing can clear it again
+ * (a run publishes `completed` at most once), so `since` freezes at that
+ * barrier and is persisted. Arrival order cannot be assumed away —
+ * `packages/api/src/modules/events/index.ts` states that ids may arrive out of
+ * order when the relay retries a row and that consumers must be id-tolerant.
  */
 export function replaySince(state: ReplayState): number {
   const barriers = Object.values(state.activeRuns);
@@ -111,22 +124,43 @@ function sameBarriers(left: ReplayState["activeRuns"], right: ReplayState["activ
  * and **four** of those nine carry it and are excluded on purpose — `agent.run`,
  * `agent.progress`, `tool.call` and `artifact.delta`. So a derived set would
  * over-select and force a policy edit at every new run-scoped kind. Note the
- * fourth: `artifact.delta` streams all run long the way `chat.delta` does, and it
- * is deliberately not barriered, so an artifact stream interrupted by a reload is
- * not recovered by this cursor. The reverse direction — "a new runId-carrying kind
- * should be considered for recovery" — is prose, not a type.
+ * fourth: `artifact.delta` never arms or lowers a barrier **on its own**, and
+ * excluding it costs the artifact stream nothing, because its only publisher
+ * (`workflows/stream-model-turn.ts`, reached only from `chat-turn`) publishes
+ * under the chat run's own `runId`, and that run armed a barrier at
+ * `chat.message` / `phase: "started"` before its first delta. Replay is
+ * kind-agnostic — one global id range with no kind filter
+ * (`modules/events/replay.ts`) — so the chat barrier already spans the deltas,
+ * and after a reload the client's stream map is empty, so the replayed deltas
+ * are reassembled rather than dropped on `use-artifact-stream`'s seq guard. Do
+ * **not** "fix" the exclusion by adding `case "artifact.delta"`: that arms a
+ * second barrier only a `chat.message` can release. The reverse direction — "a
+ * new runId-carrying kind should be considered for recovery" — is prose, not a
+ * type.
  *
  * `payload.runId` and `payload.phase` are read unguarded under the caller contract
  * stated on `advanceReplayState`. The `isRecord` and `typeof` guards this replaced
- * bought less than their shape suggested: a missing `runId` already early-returned
- * with no barrier, and a `phase` other than `"completed"` already armed one, so
- * they never stood between a malformed payload and a wrong barrier. Their only
- * real effect was that a **non-object** payload was silently skipped where it now
- * throws — and because `noteReplayFrame` runs *before* `openEventStream`'s
- * subscriber fan-out, such a throw would drop the frame for every subscriber.
- * Unreachable today: all eleven payload schemas are flat
- * `z.object`, and a non-object output type would not compile at
- * `frame.payload.runId`. It is reachable only behind a validator that does not
+ * bought less than their shape suggested, but not nothing. For a payload the types
+ * permit they were inert: a missing `runId` already early-returned with no barrier,
+ * and a `phase` other than `"completed"` already armed one. For a payload the types
+ * now forbid, exactly two behaviours changed:
+ *
+ * - A **truthy non-string `runId`** (say `5`) used to be rejected by the `typeof`
+ *   check; it now arms `activeRuns["5"]` under a coerced key, which
+ *   `createReplayStateController` persists and `replayStateSchema` re-accepts on the
+ *   next load, freezing `since` there. So the guard did stand between one malformed
+ *   payload and a wrong, persisted barrier.
+ * - A **`null` or `undefined`** payload used to be skipped by `isRecord` and now
+ *   throws at `frame.payload.runId`. Only those two throw: a string, number, boolean
+ *   or array payload reads `undefined` off `.runId` and takes the same silent
+ *   no-barrier path as before, since `isRecord` rejected arrays and non-plain
+ *   prototypes too. Because `noteReplayFrame` runs *before* `openEventStream`'s
+ *   subscriber fan-out, a throw here would drop the frame for every subscriber.
+ *
+ * Both are unreachable today: every payload schema is a flat `z.object` and all nine
+ * `runId` declarations are `z.string().min(1)`, so neither shape survives
+ * `parseEventFrame`, and a non-object output type would not compile at
+ * `frame.payload.runId`. They are reachable only behind a validator that does not
  * validate.
  */
 function recoverableRunId(frame: EventStreamFrame): string | null {
