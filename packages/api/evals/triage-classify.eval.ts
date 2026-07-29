@@ -672,7 +672,7 @@ function isTransientOverload(err: unknown): boolean {
  * An empty-output failure from `generateObject`: the provider returns a 200 with
  * no parseable object, so the AI SDK throws `AI_NoOutputGeneratedError` /
  * `AI_NoObjectGeneratedError`. These fire ABOVE the model layer that
- * `getCheapModel`'s `withFallback` wraps — ai-retry only sees the raw provider
+ * `route`'s `withFallback` wraps — ai-retry only sees the raw provider
  * call *succeed*, so the flash-lite→flash fallback never engages. They are
  * transient (a fresh attempt almost always parses), and a Gemini blip would
  * otherwise skip a chunk of the suite and redden the gate with no code defect —

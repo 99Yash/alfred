@@ -1,4 +1,4 @@
-import { getBossModel, meteredGenerateObject } from "@alfred/ai";
+import { route, meteredGenerateObject } from "@alfred/ai";
 import {
   SEVERITY_SUSPECT_BOTS,
   TRIAGE_CATEGORIES,
@@ -108,7 +108,7 @@ export function shouldDeepen(args: {
 export async function deepenTriageClassification(
   args: DeepenTriageArgs,
 ): Promise<DeepenTriageResult> {
-  const model = getBossModel();
+  const model = route("boss").model();
   const result = await meteredGenerateObject<DeepenOutput>(
     {
       model,

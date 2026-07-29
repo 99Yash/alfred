@@ -1,5 +1,5 @@
 import {
-  getBossModel,
+  route,
   identifyLanguageModel,
   meteredGenerateText,
   isStepCount,
@@ -82,7 +82,7 @@ export async function runBriefingAgent(
     },
   ];
 
-  const model = getBossModel();
+  const model = route("boss").model();
   const result = await meteredGenerateText(
     {
       model,

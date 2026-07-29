@@ -3,11 +3,11 @@
  * disabled "Auto" pill. Mirrors dimension's agent-mode picker (a model
  * selector, not the autonomy toggle): a compact pill trigger opening a frosted
  * popover of label + description rows. The choice rides with each turn as
- * `tier`, which the server maps through `getChatModel` (standard → the fast
+ * `tier`, which the server maps through `route` (standard → the fast
  * everyday model, deep → the deeper-reasoning escalation).
  *
  * `ChatTier` aliases the canonical `ChatModelTier` from `@alfred/contracts`.
- * (Server-side the runtime mapping lives in `@alfred/ai` (`getChatModel`), a
+ * (Server-side the runtime mapping lives in `@alfred/ai` (`route`), a
  * server-only package that must never enter the web runtime bundle — see
  * `pnpm check:web-boundaries` — so the shared source of truth is the tier
  * literal in `@alfred/contracts`, importable from both sides, which keeps the

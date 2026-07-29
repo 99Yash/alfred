@@ -9,13 +9,13 @@
  *   2. Fallback path — a primary bound to a nonexistent Anthropic model id
  *      hard-errors, the cascade switches to Gemini, the call still succeeds,
  *      and the log row re-attributes to the served Google model.
- *   3. The dispatchers (`getBossModel`/`getChatModel`) return retryable
+ *   3. The dispatchers (`route`/`route`) return retryable
  *      models that proxy provider/modelId to the primary.
  */
 
 import { anthropic } from "@ai-sdk/anthropic";
 import { google } from "@ai-sdk/google";
-import { getBossModel, getChatModel, meteredGenerateText, withFallback } from "@alfred/ai";
+import { route, meteredGenerateText, withFallback } from "@alfred/ai";
 import { toRecord } from "@alfred/contracts";
 import { db, closeConnections } from "@alfred/db";
 import { apiCallLog } from "@alfred/db/schemas";
@@ -36,8 +36,8 @@ async function main() {
   let failures = 0;
 
   // --- 3. dispatcher identity proxying -------------------------------------
-  const boss = getBossModel() as { provider?: string; modelId?: string };
-  const chatDeep = getChatModel("deep") as { provider?: string; modelId?: string };
+  const boss = route("boss").model() as { provider?: string; modelId?: string };
+  const chatDeep = route("deep").model() as { provider?: string; modelId?: string };
   console.log(`boss model       → ${boss.provider}/${boss.modelId}`);
   console.log(`chat deep model  → ${chatDeep.provider}/${chatDeep.modelId}`);
   if (boss.modelId !== "claude-sonnet-4-6" || chatDeep.modelId !== "claude-opus-4-8") {

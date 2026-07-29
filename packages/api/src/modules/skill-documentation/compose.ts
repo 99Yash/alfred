@@ -1,4 +1,4 @@
-import { getBossModel, meteredGenerateText } from "@alfred/ai";
+import { route, meteredGenerateText } from "@alfred/ai";
 import type { SkillDocumentationContext } from "./context";
 
 /**
@@ -102,7 +102,7 @@ export interface ComposedDocumentation {
 export async function composeSkillDocumentation(args: ComposeArgs): Promise<ComposedDocumentation> {
   const result = await meteredGenerateText(
     {
-      model: getBossModel(),
+      model: route("boss").model(),
       instructions: SYSTEM_PROMPT,
       prompt: buildUserPrompt(args.context),
       temperature: 0.2,

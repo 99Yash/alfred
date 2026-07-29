@@ -1,4 +1,4 @@
-import { getCheapModel, meteredGenerateText } from "@alfred/ai";
+import { route, meteredGenerateText } from "@alfred/ai";
 import { toMessage } from "@alfred/contracts";
 import { db } from "@alfred/db";
 import { chatAttachments, chatMessages, chatThreads } from "@alfred/db/schemas";
@@ -99,7 +99,7 @@ export async function maybeGenerateThreadTitle(args: {
 
     const result = await meteredGenerateText(
       {
-        model: getCheapModel(),
+        model: route("cheap").model(),
         instructions: TITLE_SYSTEM_PROMPT,
         prompt: [userLine, assistantLine, "", "Title:"]
           .filter((line): line is string => line !== null)
