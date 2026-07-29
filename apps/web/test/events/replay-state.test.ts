@@ -59,7 +59,7 @@ const APPROVAL_REQUESTED: EventPayload<"approval.requested"> = {
 
 const INBOX_UPDATED: EventPayload<"inbox.updated"> = { reason: "ingested" };
 
-// The kinds `NOT_RECOVERABLE` names. Typed as `EventPayload<K>` so a kind whose
+// The kinds `SPEAKS_FOR_NO_RUN` names. Typed as `EventPayload<K>` so a kind whose
 // payload is run-scoped carries a `runId` because the contract requires it, not
 // because a literal was hand-copied — that `runId` is the premise the exclusion
 // assertion rests on.
@@ -125,14 +125,14 @@ const excludedFrames = (id: number): readonly EventStreamFrame[] => [
   { id, createdAt: "", kind: "memory.fact_learned", payload: MEMORY_FACT_LEARNED },
 ];
 
-// The kinds `RECOVERABLE` names, hand-listed. Membership in that table compels
+// The kinds `SPEAKS_FOR_A_RUN` names, hand-listed. Membership in that table compels
 // no `switch` arm to arm a barrier — `case "chat.tool": return null` retires a
-// recovered kind and still compiles — so these assertions are the only cover for
+// named kind and still compiles — so these assertions are the only cover for
 // that direction, at tier 4, and nothing makes the list track the table. Each
 // expected run id is read off its own fixture rather than re-typed, so the
 // assertion cannot drift from its premise
 // (.lessons/an-assertions-premise-needs-enforcing-not-typing.md).
-const recoveredFrames = (
+const barrierFrames = (
   id: number,
 ): readonly { readonly frame: EventStreamFrame; readonly runId: string }[] => [
   { frame: chatMessage(id), runId: CHAT_MESSAGE.runId },
@@ -156,10 +156,10 @@ describe("event replay state", () => {
     assert.equal(replaySince(state), 41);
   });
 
-  // The kinds `NOT_RECOVERABLE` names today: each advances the cursor and arms
+  // The kinds `SPEAKS_FOR_NO_RUN` names today: each advances the cursor and arms
   // nothing. Some of them carry a `runId` their typed payload requires, so this
   // is the exclusion policy and not a statement about which payloads have the
-  // field. Hand-listed like `recoveredFrames` — nothing makes it track the
+  // field. Hand-listed like `barrierFrames` — nothing makes it track the
   // table, so it covers the entries present today and not future ones.
   test("an excluded kind advances the cursor without arming a barrier", () => {
     for (const frame of excludedFrames(42)) {
@@ -171,8 +171,8 @@ describe("event replay state", () => {
     }
   });
 
-  test("a recovered kind arms its own run's barrier", () => {
-    for (const { frame, runId } of recoveredFrames(42)) {
+  test("a kind allowed to speak for a run arms that run's barrier", () => {
+    for (const { frame, runId } of barrierFrames(42)) {
       assert.deepEqual(
         advanceReplayState(emptyState(), frame),
         { cursor: 42, activeRuns: { [runId]: 41 } },
@@ -187,6 +187,16 @@ describe("event replay state", () => {
 
     assert.equal(later.cursor, 80);
     assert.equal(replaySince(later), 41);
+  });
+
+  test("compaction phases keep the run's existing barrier", () => {
+    for (const phase of ["compaction_started", "compaction_finished"] as const) {
+      const active = advanceReplayState(emptyState(), chatMessage(42, { phase: "started" }));
+      const compacting = advanceReplayState(active, chatMessage(60, { phase }));
+
+      assert.equal(compacting.activeRuns[CHAT_MESSAGE.runId], 41, phase);
+      assert.equal(replaySince(compacting), 41, phase);
+    }
   });
 
   test("completion releases only its run and resumes from the monotonic cursor", () => {
