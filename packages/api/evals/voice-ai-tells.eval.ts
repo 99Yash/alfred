@@ -1,5 +1,5 @@
 import path from "node:path";
-import { getChatModel, getCheapModel } from "@alfred/ai";
+import { route } from "@alfred/ai";
 import { generateText } from "ai";
 import { config as loadEnv } from "dotenv";
 import { evalite } from "evalite";
@@ -92,7 +92,7 @@ evalite<Case, TaskOutput>("Chat voice — direct, human, and useful", {
   data: () => CASES.map((input) => ({ input })),
   task: async (input): Promise<TaskOutput> => {
     const result = await generateText({
-      model: getChatModel("standard"),
+      model: route("standard").model(),
       system: SYSTEM,
       prompt: input.prompt,
       temperature: 0.3,
@@ -127,7 +127,7 @@ evalite<Case, TaskOutput>("Chat voice — direct, human, and useful", {
       rubric: QUALITY_RUBRIC,
       // Generation is Claude; use cheap Gemini as the judge to reduce spend and
       // avoid same-model-family preference.
-      model: getCheapModel(),
+      model: route("cheap").model(),
       skipWhen: ({ output }) => (output.text.trim().length === 0 ? "empty output" : null),
       prompt: ({ input, output }) =>
         [

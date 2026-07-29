@@ -1,5 +1,5 @@
 import path from "node:path";
-import { getChatModel } from "@alfred/ai";
+import { route } from "@alfred/ai";
 import {
   INTEGRATION_ACTIONS,
   type IntegrationSlug,
@@ -15,7 +15,7 @@ import { buildChatSystemPrompt } from "../src/modules/agent/workflows/chat-turn"
 
 // LESSON 03 / context-purity experiment: does a bloated tool menu degrade the
 // boss's tool SELECTION? We run the same realistic tasks through Sonnet 4.6
-// (getChatModel("standard"), the real chat driver) under two menus that BOTH
+// (route("standard").model(), the real chat driver) under two menus that BOTH
 // contain the correct tool:
 //   LEAN  = system tools + only the task's home integration  (~17-21 tools)
 //   FULL  = system tools + all 10 connected integrations     (~49 tools)
@@ -176,7 +176,7 @@ interface TaskOutput {
 async function runUnderMenu(input: string, slugs: IntegrationSlug[]): Promise<TaskOutput> {
   const loadable = slugs.filter((s): s is LoadableIntegrationSlug => s !== "system");
   const result = await generateText({
-    model: getChatModel("standard"),
+    model: route("standard").model(),
     instructions: buildChatSystemPrompt(formatDateGrounding(TIMEZONE, NOW), buildSummary(loadable)),
     prompt: input,
     temperature: 0,

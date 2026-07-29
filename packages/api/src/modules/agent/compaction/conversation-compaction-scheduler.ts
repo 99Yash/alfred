@@ -1,9 +1,4 @@
-import {
-  COMPACTOR_MODEL,
-  getChatModel,
-  resolveEffectiveInputWindowTokens,
-  type ChatModelTier,
-} from "@alfred/ai";
+import { route, resolveEffectiveInputWindowTokens, type ChatModelTier } from "@alfred/ai";
 import type { AgentTranscriptMessage } from "@alfred/contracts";
 import { db } from "@alfred/db";
 import { chatAttachmentRepresentations, chatAttachments, chatMessages } from "@alfred/db/schemas";
@@ -109,7 +104,7 @@ export async function scheduleConversationCompactionIfNeeded(args: {
   // next successful turn will advance from that watermark.
   if (!advanced) return "deduplicated";
   const effectiveInputWindowTokens = await resolveEffectiveInputWindowTokens({
-    models: [getChatModel(args.tier), COMPACTOR_MODEL],
+    models: [route(args.tier).model(), route("compactor").model()],
     outputReserveTokens: CHAT_MAX_OUTPUT_TOKENS,
   });
   const backgroundThreshold = backgroundCompactionThresholdTokens(effectiveInputWindowTokens);

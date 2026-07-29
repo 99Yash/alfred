@@ -1,4 +1,4 @@
-import { getBossModel, identifyLanguageModel, meteredGenerateObject } from "@alfred/ai";
+import { route, identifyLanguageModel, meteredGenerateObject } from "@alfred/ai";
 import {
   briefingComposerSchema,
   fullBriefingSchema,
@@ -140,7 +140,7 @@ function sanitizeFullBriefing(fb: FullBriefing): FullBriefing {
 }
 
 export async function composeBriefing(args: ComposeBriefingArgs): Promise<ComposedBriefing> {
-  const model = getBossModel();
+  const model = route("boss").model();
   try {
     const result = await meteredGenerateObject<BriefingComposerOutput>(
       {

@@ -1,7 +1,8 @@
 import {
-  getCheapModel,
+  route,
   identifyLanguageModel,
   meteredGenerateObject,
+  type LanguageModel,
   type MeteredGenerateObjectArgs,
 } from "@alfred/ai";
 import {
@@ -183,7 +184,7 @@ export interface ClassifyEmailArgs {
   hedgeDelayMs?: number;
   /**
    * Test/seam override for the cheap model call. Production leaves this unset
-   * and the real metered `getCheapModel()` call is used; tests inject canned
+   * and the real metered `route("cheap").model()` call is used; tests inject canned
    * pass outputs to exercise the conflict/second-pass/floor logic without a
    * live LLM (no model mocking framework in the repo).
    */
@@ -936,7 +937,7 @@ export async function classifyEmail(
   args: ClassifyEmailArgs,
 ): Promise<{ classification: TriageClassification; model: string; audit: ClassifyAudit }> {
   const useInjected = Boolean(args.runPass);
-  const model = useInjected ? null : getCheapModel();
+  const model = useInjected ? null : route("cheap").model();
   const baseModelId = model ? identifyLanguageModel(model).modelId : "injected";
   const runPass: RunPass = args.runPass ?? defaultRunPass(model, args);
 
@@ -1043,7 +1044,7 @@ function classifyHedgeBudget(): HedgeBudget {
  * error rather than a docstring violation.
  */
 export function classifyCallOptions(input: {
-  model: NonNullable<ReturnType<typeof getCheapModel>>;
+  model: LanguageModel;
   instructions: string;
   prompt: string;
   /** The hedge attempt's signal. Forwarded verbatim — see above. */
@@ -1093,10 +1094,7 @@ export function classifyCallOptions(input: {
  * exactly when the provider is already under pressure. {@link hedgeCeilingFor}
  * bounds how much of that this process can have in flight at once.
  */
-function defaultRunPass(
-  model: ReturnType<typeof getCheapModel> | null,
-  args: ClassifyEmailArgs,
-): RunPass {
+function defaultRunPass(model: LanguageModel | null, args: ClassifyEmailArgs): RunPass {
   const name = (pass: "first" | "second") =>
     pass === "second" ? "triage.classify.second_pass" : "triage.classify";
 

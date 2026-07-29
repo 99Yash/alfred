@@ -1,5 +1,5 @@
 import path from "node:path";
-import { getChatModel } from "@alfred/ai";
+import { route } from "@alfred/ai";
 import { serverEnv } from "@alfred/env/server";
 import { type Tool, type ToolSet, generateText, isStepCount, tool } from "ai";
 import { config as loadEnv } from "dotenv";
@@ -99,7 +99,7 @@ function runFirstCall(input: string) {
     [GET_PR_TOOL]: tool({ description: getPr.description, inputSchema: getPr.inputSchema }),
   };
   return generateText({
-    model: getChatModel("standard"),
+    model: route("standard").model(),
     instructions: SYSTEM,
     prompt: input,
     temperature: 0,
@@ -205,7 +205,7 @@ interface HonestyOutput {
 async function runHonestyScenario(c: HonestyCase): Promise<HonestyOutput> {
   const request = registeredGithubTool(REQUEST_TOOL);
   const result = await generateText({
-    model: getChatModel("standard"),
+    model: route("standard").model(),
     instructions: SYSTEM,
     prompt: c.input,
     temperature: 0,

@@ -18,7 +18,7 @@ import {
   CHAT_MAX_OUTPUT_TOKENS,
   scheduleConversationCompactionIfNeeded,
 } from "@alfred/api/backend";
-import { COMPACTOR_MODEL, getChatModel, resolveEffectiveInputWindowTokens } from "@alfred/ai";
+import { route, resolveEffectiveInputWindowTokens } from "@alfred/ai";
 import { warmPool } from "@alfred/api/runtime";
 import { closeScriptResources } from "../script-runtime";
 import { toMessage } from "@alfred/contracts";
@@ -38,7 +38,7 @@ if (COMMIT && !USER_ID) {
 async function main(): Promise<void> {
   await warmPool();
   const effectiveWindow = await resolveEffectiveInputWindowTokens({
-    models: [getChatModel("standard"), COMPACTOR_MODEL],
+    models: [route("standard").model(), route("compactor").model()],
     outputReserveTokens: CHAT_MAX_OUTPUT_TOKENS,
   });
   const threshold = backgroundCompactionThresholdTokens(effectiveWindow);

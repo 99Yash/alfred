@@ -1,5 +1,5 @@
 import path from "node:path";
-import { getChatModel } from "@alfred/ai";
+import { route } from "@alfred/ai";
 import { calendarListEventsInput } from "@alfred/contracts";
 import { serverEnv } from "@alfred/env/server";
 import { generateText, tool } from "ai";
@@ -112,7 +112,7 @@ evalite<string, TaskOutput, TargetWindow | null>("Agent date grounding", {
     // same way keeps it a faithful guard for the single-source path (#410).
     const system = buildChatSystemPrompt("", CONNECTED_SUMMARY);
     const result = await generateText({
-      model: getChatModel("standard"),
+      model: route("standard").model(),
       system,
       messages: [
         { role: "assistant", content: formatRuntimeTimeGrounding(TIMEZONE, NOW) },

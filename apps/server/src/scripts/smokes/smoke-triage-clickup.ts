@@ -9,7 +9,7 @@
  * Runs the real prod miss plus two counter-cases that must NOT be suppressed, so
  * we confirm the new principle flips the leak without over-correcting genuine work.
  */
-import { getCheapModel } from "@alfred/ai";
+import { route } from "@alfred/ai";
 import {
   classifyEmail,
   triageClassificationSchema,
@@ -160,7 +160,7 @@ const CASES: Case[] = [
 ];
 
 const EMPTY_OUTPUT_ATTEMPTS = 3;
-const liveModel = getCheapModel();
+const liveModel = route("cheap").model();
 
 const runLivePass: RunPass = async ({ system, prompt }) => {
   const result = await generateText({

@@ -1,6 +1,6 @@
 /**
  * Live web search for the boss / sub-agents (ADR-0022, amended 2026-06-12).
- * Backed by grounded Gemini 2.5 Flash via `getWebSearchModel()` +
+ * Backed by grounded Gemini 2.5 Flash via `route("webSearch").model()` +
  * `googleSearchGroundingTools()` — the model runs Google Search server-side
  * and returns a short, citation-grounded answer rather than a raw SERP, so the
  * boss can fold it straight into its turn. (Swapped off Perplexity Sonar Pro
@@ -14,7 +14,7 @@
  * way.
  */
 
-import { getWebSearchModel, googleSearchGroundingTools, meteredGenerateText } from "@alfred/ai";
+import { route, googleSearchGroundingTools, meteredGenerateText } from "@alfred/ai";
 import { getPath, isNonEmptyString, isRecord } from "@alfred/contracts";
 
 export interface WebSearchArgs {
@@ -146,7 +146,7 @@ function extractCitations(
 export async function runWebSearch(args: WebSearchArgs): Promise<WebSearchResult> {
   const result = await meteredGenerateText(
     {
-      model: getWebSearchModel(),
+      model: route("webSearch").model(),
       // Google runs the search server-side inside this single generation —
       // there's no client-side tool round trip to step through, so the
       // grounded answer lands directly in `result.text`.

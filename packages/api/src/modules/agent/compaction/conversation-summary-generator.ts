@@ -1,11 +1,9 @@
 import {
-  COMPACTOR_FALLBACK_MODEL,
-  COMPACTOR_MODEL,
   meteredGenerateObject,
   requestFitsContextWindow,
   resolveModelContextWindow,
+  route,
   type AttributedCall,
-  type LanguageModel,
 } from "@alfred/ai";
 import type { ChatMessageRole } from "@alfred/db/schemas";
 import { NoObjectGeneratedError } from "ai";
@@ -20,6 +18,10 @@ import {
 import { CHARS_PER_TOKEN } from "./tokens";
 
 export const CONVERSATION_SUMMARY_MAX_OUTPUT_TOKENS = 4_000;
+const conversationSummaryRoutes = {
+  primary: route("compactor"),
+  fallback: route("compactorFallback"),
+} as const;
 
 export interface ConversationSummaryEvidence {
   priorSummary: ConversationSummary | null;
@@ -138,10 +140,11 @@ async function runConversationSummaryModel(args: {
   abortSignal?: AbortSignal | undefined;
   timeoutMs?: number | undefined;
 }): Promise<unknown> {
-  const model = modelForRoute(args.route);
+  const modelRoute = conversationSummaryRoutes[args.route];
   const result = await meteredGenerateObject(
     {
-      model,
+      model: modelRoute.model(),
+      providerOptions: modelRoute.providerOptions(),
       schema: conversationSummarySchema,
       schemaName: "conversation_summary",
       schemaDescription: "A compact, source-attributed working summary of an Alfred chat thread.",
@@ -151,9 +154,6 @@ async function runConversationSummaryModel(args: {
       maxOutputTokens: CONVERSATION_SUMMARY_MAX_OUTPUT_TOKENS,
       ...(args.abortSignal ? { abortSignal: args.abortSignal } : {}),
       ...(args.timeoutMs === undefined ? {} : { timeout: args.timeoutMs }),
-      ...(args.route === "primary"
-        ? { providerOptions: { anthropic: { thinking: { type: "disabled" } } } }
-        : {}),
     },
     {
       ...args.attribution,
@@ -169,18 +169,14 @@ async function selectConversationSummaryModel(
   prompt: string,
 ): Promise<ConversationSummaryModelRoute> {
   const [primaryWindowTokens, fallbackWindowTokens] = await Promise.all([
-    resolveModelContextWindow(COMPACTOR_MODEL),
-    resolveModelContextWindow(COMPACTOR_FALLBACK_MODEL),
+    resolveModelContextWindow(conversationSummaryRoutes.primary.model()),
+    resolveModelContextWindow(conversationSummaryRoutes.fallback.model()),
   ]);
   return chooseConversationSummaryModel({
     inputTokens: estimateInputTokens(prompt),
     primaryWindowTokens,
     fallbackWindowTokens,
   });
-}
-
-function modelForRoute(route: ConversationSummaryModelRoute): LanguageModel {
-  return route === "primary" ? COMPACTOR_MODEL : COMPACTOR_FALLBACK_MODEL;
 }
 
 function estimateInputTokens(prompt: string): number {

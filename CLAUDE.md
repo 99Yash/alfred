@@ -25,7 +25,7 @@ Alfred is a personal AI assistant.
   | normalize an entity identity before mint/dedup | `canonicalizeIdentityValue(kind, value)`              | `@alfred/contracts`           |
   | display a slug / complete tool name            | `humanizeSlug` / `humanizeToolName`                   | `@alfred/contracts`           |
   | any calendar-day / zone / offset reading       | the timezone module — `resolveUserTimezone` for the zone, then `inZone(tz).day()` / `.hour()` / `.dayBounds()` / `.startOf(key)` / `.clock()` for anything needing one, and `addDays` / `weekdayIndex` / `formatDay` on the key for anything that doesn't. Zones are `IanaTimezone`, days are `LocalDateKey` | `@alfred/api` timezone        |
-  | a model handle                                 | `getChatModel` / `getCheapModel` / `getBossModel`     | `@alfred/ai`                  |
+  | a model handle + its reasoning options         | `route(name)`                                         | `@alfred/ai`                  |
   | a stored Google OAuth token                    | `getFreshAccessToken`                                 | `@alfred/integrations/google` |
   | enforce prose voice                            | `sanitizeVoice`                                       | `@alfred/api` voice-sanitize  |
 
