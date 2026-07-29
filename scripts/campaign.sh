@@ -20,18 +20,23 @@
 #   SLUG            campaign slug; inferred when .campaign/ holds exactly one
 #   ITEM            restrict to a single item id
 #   MAX_ITER        default 20
-#   MAX_BUDGET_USD  default 7, PER ITERATION — there is no overall cap, so the
-#                   ceiling on a run is MAX_ITER × MAX_BUDGET_USD. A `review`
-#                   phase runs three subagent lanes inside one iteration and does
-#                   not fit in the default; override it for that phase
-#                   (MAX_BUDGET_USD=20) or the round dies mid-synthesis and the
-#                   item is parked with only some lanes on disk.
+#   MAX_BUDGET_USD  default 12, PER ITERATION — there is no overall cap, so the
+#                   ceiling on a run is MAX_ITER × MAX_BUDGET_USD. Measured phase
+#                   costs: design ~$2.9, implement ~$4.1, revise ~$2.5, review
+#                   $6.6–9.0. A `review` phase fans out to three subagent lanes
+#                   inside ONE iteration, so anything under ~$10 kills it *after*
+#                   the lanes write and *during* synthesis — the reports are on
+#                   disk and salvageable, but the item parks with no verdict.
+#   MIN_PHASE_SECONDS
+#                   default 15. Below this, a non-progressing phase is treated as
+#                   never having run rather than as stuck. See the guard below.
 #   DRY_RUN         default 0
 
 set -euo pipefail
 
 MAX_ITER="${MAX_ITER:-20}"
-MAX_BUDGET_USD="${MAX_BUDGET_USD:-7}"
+MAX_BUDGET_USD="${MAX_BUDGET_USD:-12}"
+MIN_PHASE_SECONDS="${MIN_PHASE_SECONDS:-15}"
 DRY_RUN="${DRY_RUN:-0}"
 ITEM="${ITEM:-}"
 
@@ -274,8 +279,31 @@ for ((i = 1; i <= MAX_ITER; i++)); do
     exit 130
   fi
 
+  # A phase that dies in seconds never ran — a usage limit, an auth failure, or a
+  # prompt that would not render. `claude -p` reports a usage limit as a *`success`*
+  # result with 1 turn and $0.00, so exit status alone cannot tell it from a phase
+  # that genuinely made no progress. The clock can.
+  #
+  # Parking on it is actively destructive, and not hypothetically: a limit hits every
+  # subsequent iteration too, so ONE hard stop walks the rest of the queue marking
+  # items `needs-human` that never executed. That is exactly what happened on
+  # 2026-07-28 — five items parked in 13 seconds, each note overwritten with "no
+  # progress in phase design", which is also how their real notes were lost. Stop the
+  # run instead and leave state alone.
+  if [[ "$before" == "$after" && "$elapsed" -lt "$MIN_PHASE_SECONDS" ]]; then
+    echo
+    echo "item $id exited after only ${elapsed}s (exit $claude_status) — the phase never ran."
+    echo "Most likely a usage limit; also possible: auth, or a prompt-render failure."
+    echo "State left untouched, and the run is stopping so the queue is not parked behind it."
+    echo "Resume with: scripts/campaign.sh   (or ITEM=$id scripts/campaign.sh)"
+    exit 3
+  fi
+
   if [[ "$before" == "$after" ]]; then
     echo "no state movement on item $id ($before) after ${elapsed}s (exit $claude_status) — parking it."
+    # The work is often DONE and only the bookkeeping died — a phase writes
+    # (phase, round) last. Check the worktree for uncommitted edits and reviews/ for
+    # lane reports before re-running this item; see NOTES.md, "Campaign hygiene".
     park_item "$id" "no progress in phase ${before%%:*} (exit $claude_status)"
     continue
   fi
