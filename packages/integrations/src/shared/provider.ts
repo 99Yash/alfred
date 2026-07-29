@@ -2,10 +2,10 @@ import type { RetryPolicy } from "./retry";
 
 /**
  * The single source of truth for what any provider client needs to bind to a
- * user — the shape the facade's callable, its options type, and every provider
+ * user — the shape the integrations callable, its options type, and every provider
  * factory all derive from, so `userId` + `retry` are declared exactly once.
- * Lives in `shared/` (not `facade.ts`) so a provider client can reference it
- * without importing the facade that imports the client.
+ * Lives in `shared/` (not `integrations.ts`) so a provider client can reference it
+ * without importing the root module that imports the client.
  *
  * A bind holds no credential and imposes no lifetime rule. Nothing a bind
  * memoizes ({@link once}) is a secret: it memoizes CLIENT CONSTRUCTION, so
@@ -35,7 +35,7 @@ export type ProviderFactory = (options: ProviderBindOptions) => object;
  * Bind-scoped memoization: run `build` on first call, then return that same
  * result for the lifetime of the returned thunk.
  *
- * Used for exactly one thing — CLIENT CONSTRUCTION in the facade, so touching
+ * Used for exactly one thing — CLIENT CONSTRUCTION at the integrations root, so touching
  * `.github` twice yields one client rather than one per property access. It is
  * deliberately NOT used to memoize a credential resolve: a memo with no expiry
  * wrapped around a token with one turns "resolved fresh" into a rule about how

@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { describe, test } from "node:test";
 
-import { integrations } from "../src/facade";
+import { integrations } from "../src/integrations";
 import { once } from "../src/shared/provider";
 
 /**
@@ -13,7 +13,7 @@ import { once } from "../src/shared/provider";
  *      In this package it memoizes CLIENT CONSTRUCTION only; the async
  *      properties are pinned for a future caller, not exercised by one today.
  *      Deliberately NOT used on a credential resolve — see `provider.ts`.
- *   2. The facade's provider getters are memoized, so a tool touching `.github`
+ *   2. The root provider getters are memoized, so a tool touching `.github`
  *      twice works with ONE client. Since that client resolves its credential per
  *      request, a bind holds nothing that can go stale and imposes no rule about
  *      how long a caller may keep it.
@@ -78,7 +78,7 @@ describe("once", () => {
   });
 });
 
-describe("integrations facade", () => {
+describe("user-bound integrations", () => {
   test("returns the SAME provider client on repeated access within one bind", () => {
     const bound = integrations({ userId: "user_1", retry: RETRY });
     assert.equal(bound.github, bound.github, "one bind must yield one github client");
