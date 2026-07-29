@@ -16,7 +16,7 @@ import { isRecord } from "@alfred/contracts";
 import { jsonSchema, tool, type ToolSet } from "ai";
 import { randomUUID } from "node:crypto";
 import { flushLangfuse } from "../metering/langfuse";
-import { getCheapModel } from "../provider";
+import { route } from "../provider";
 import { meteredGenerateText } from "../metering/wrappers";
 
 const stamp = randomUUID().slice(0, 8);
@@ -60,7 +60,7 @@ async function main() {
   console.log(`[verify] forcing a tool-call turn (runId=${runId})`);
   const result = await meteredGenerateText(
     {
-      model: getCheapModel(),
+      model: route("cheap").model(),
       prompt: "What's the weather in Paris?",
       tools,
       toolChoice: "required",

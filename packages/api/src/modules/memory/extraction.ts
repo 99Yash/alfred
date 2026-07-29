@@ -1,4 +1,4 @@
-import { getCheapModel, meteredGenerateObject } from "@alfred/ai";
+import { route, meteredGenerateObject } from "@alfred/ai";
 import { confidenceSchema } from "@alfred/contracts";
 import type { Document } from "@alfred/db/schemas";
 import { factValueSchema } from "@alfred/sync";
@@ -14,7 +14,7 @@ import { z } from "zod";
  * testable and lets the workflow inject pre-baked proposals in test
  * mode without dragging the AI SDK into the test harness.
  *
- * Cheap-tier model per ADR-0016 (`getCheapModel()` → Gemini 2.5 Flash).
+ * Cheap-tier model per ADR-0016 (`route("cheap").model()` → Gemini 2.5 Flash).
  */
 
 export const factProposalSchema = z.object({
@@ -108,7 +108,7 @@ function userPrompt(args: ExtractDocumentArgs): string {
 export async function extractFactsFromDocument(args: ExtractDocumentArgs): Promise<FactProposal[]> {
   const result = await meteredGenerateObject<z.infer<typeof extractionResultSchema>>(
     {
-      model: getCheapModel(),
+      model: route("cheap").model(),
       instructions: SYSTEM_PROMPT,
       prompt: userPrompt(args),
       schema: extractionResultSchema,

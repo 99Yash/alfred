@@ -6,8 +6,7 @@ import { and, desc, eq, gte, inArray } from "drizzle-orm";
 import { isStepCount, tool } from "ai";
 import { z } from "zod";
 import {
-  getRegisteredModel,
-  getRegisteredModelProviderOptions,
+  route,
   flushMeteringWrites,
   meteredGenerateObject,
   meteredGenerateText,
@@ -18,8 +17,9 @@ import {
 const MODEL_IDS = ["gpt-5.6-sol", "gpt-5.6-luna"] as const satisfies readonly ModelId[];
 
 async function smokeModel(modelId: (typeof MODEL_IDS)[number]): Promise<void> {
-  const model = getRegisteredModel(modelId);
-  const providerOptions = getRegisteredModelProviderOptions(modelId, "medium");
+  const modelRoute = route(modelId, "medium");
+  const model = modelRoute.model();
+  const providerOptions = modelRoute.providerOptions();
   const attribution = { requestMeta: { smoke: "gpt-5.6", surface: modelId } } as const;
 
   const text = await meteredGenerateText(

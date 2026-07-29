@@ -1,12 +1,5 @@
 import { toMessage } from "@alfred/contracts";
-import {
-  COMPACTOR_FALLBACK_MODEL,
-  COMPACTOR_MODEL,
-  getBossModel,
-  getSubAgentModel,
-  resolveModelContextWindow,
-  type LanguageModel,
-} from "@alfred/ai";
+import { route, resolveModelContextWindow, type LanguageModel } from "@alfred/ai";
 
 /**
  * Boot-time guard for ADR-0035 (transcript compaction).
@@ -18,17 +11,17 @@ import {
  * loud, immediate failure with a clear remediation (`db:sync-prices`).
  *
  * Verified models cover every surface that consumes a context window:
- *   - `getBossModel()`  — drives the boss loop in `userAuthoredBriefWorkflow`.
- *   - `getSubAgentModel()` — drives sub-agent runs; same workflow today.
- *   - `COMPACTOR_MODEL` / `COMPACTOR_FALLBACK_MODEL` — the compactor
+ *   - `route("boss").model()`  — drives the boss loop in `userAuthoredBriefWorkflow`.
+ *   - `route("subAgent").model()` — drives sub-agent runs; same workflow today.
+ *   - compactor / compactorFallback routes — the compactor
  *     primitive sizes the prior-transcript payload before calling either.
  */
 export async function verifyMeteringModels(): Promise<void> {
   const checks: Array<{ label: string; model: LanguageModel }> = [
-    { label: "boss", model: getBossModel() },
-    { label: "sub_agent", model: getSubAgentModel() },
-    { label: "compactor", model: COMPACTOR_MODEL },
-    { label: "compactor_fallback", model: COMPACTOR_FALLBACK_MODEL },
+    { label: "boss", model: route("boss").model() },
+    { label: "sub_agent", model: route("subAgent").model() },
+    { label: "compactor", model: route("compactor").model() },
+    { label: "compactor_fallback", model: route("compactorFallback").model() },
   ];
 
   const failures: string[] = [];

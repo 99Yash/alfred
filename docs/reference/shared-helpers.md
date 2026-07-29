@@ -45,7 +45,7 @@ candidate `gate` rule — see [Closing the loop](#closing-the-loop).
 | read an environment variable | `serverEnv()` | `@alfred/env/server` | `process.env.*` — **repo invariant** |
 | validate a timezone string | `isIanaTimezone(value)` | `@alfred/contracts` | `function isValidTimezone` / a raw `Intl.DateTimeFormat` trial — **drift check bans it** |
 | any calendar-day, wall-clock, or UTC-offset reading | the `@alfred/api` timezone module — `resolveUserTimezone` for the zone, then `inZone(tz).day()` / `.hour()` / `.dayBounds()` / `.startOf(key)` / `.clock()` / `.format(at)`, and `addDays` / `weekdayIndex` / `formatDay` on the key ([full list](#timezone--alfredapi-srcmodulestimezone)) | `@alfred/api` timezone module | `Intl` glue per call site; day math in milliseconds; reading `getUTCDate()` off a user's instant; passing a bare `string` where `IanaTimezone` / `LocalDateKey` is expected |
-| get a language-model handle | `getChatModel` / `getCheapModel` | `@alfred/ai` | constructing a provider client |
+| get a language-model handle and reasoning policy | `route` | `@alfred/ai` | constructing a provider client |
 | run a query and read typed rows | `rowsFromExecute` + named Drizzle row types | `@alfred/db` | `(res as Row[])` |
 | restrict a query or partial index to live `agent_runs` | `runIsNotTerminal(t.status)` | `@alfred/db` schemas | `status NOT IN ('completed', 'failed', 'cancelled')` written out per site |
 | merge Tailwind class names (web) | `cn(...)` | `apps/web/src/lib/utils.ts` | template-string concatenation |
@@ -138,7 +138,7 @@ a `LocalDateKey`. Before the brands, `localStartOfDay(timezone, key)` compiled.
   local list of index names.
 
 ### Models — `@alfred/ai`
-- `getChatModel`, `getCheapModel`
+- `route`
 
 ### Web-local — `apps/web/src/lib/`
 - `cn` (`utils.ts`), `capitalize`/`lowerFirst`/`formatRelative` (`strings.ts`),

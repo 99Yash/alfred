@@ -1,4 +1,4 @@
-import { getBossModel, meteredGenerateText } from "@alfred/ai";
+import { route, meteredGenerateText } from "@alfred/ai";
 import type { AspectFinding } from "./aspects";
 import type { IdentityAnchor } from "./seed";
 import type { ColdStartSignals } from "./signals";
@@ -87,7 +87,7 @@ function mergeCitations(anchor: IdentityAnchor, aspects: AspectFinding[]): strin
 export async function synthesizeColdStart(args: SynthesizeColdStartArgs): Promise<ResearchResult> {
   const result = await meteredGenerateText(
     {
-      model: getBossModel(),
+      model: route("boss").model(),
       instructions: SYSTEM_PROMPT,
       prompt: buildPrompt(args),
       maxOutputTokens: SYNTHESIS_MAX_OUTPUT_TOKENS,

@@ -1,10 +1,5 @@
 import path from "node:path";
-import {
-  type ChatModelTier,
-  getChatModel,
-  getChatProviderOptions,
-  getSubAgentModel,
-} from "@alfred/ai";
+import { type ChatModelTier, route } from "@alfred/ai";
 import {
   calendarListEventsInput,
   fetchUrlInput,
@@ -197,11 +192,6 @@ const SOURCE_CASES: SourceCase[] = [
   },
 ];
 
-function providerOptions(tier: ChatModelTier = "standard"): Record<string, never> {
-  // Mirrors the AlfredAgent boundary cast used in other evals.
-  return getChatProviderOptions(tier) as unknown as Record<string, never>;
-}
-
 function toolSurface(): Record<string, Tool> {
   return {
     [READ_CONTEXT_TOOL]: tool({
@@ -240,12 +230,13 @@ function toolSurface(): Record<string, Tool> {
 }
 
 async function runSourceChoice(input: string): Promise<TaskOutput> {
+  const modelRoute = route("standard");
   const result = await generateText({
-    model: getChatModel("standard"),
+    model: modelRoute.model(),
     instructions: SYSTEM,
     prompt: input,
     timeout: { totalMs: EVAL_TIMEOUT_MS },
-    providerOptions: providerOptions(),
+    providerOptions: modelRoute.providerOptions(),
     tools: toolSurface(),
   });
   return collectOutput(result);
@@ -314,8 +305,9 @@ async function runThinPersonResearchReplay(
   userMessage: string,
   tier: ChatModelTier,
 ): Promise<TaskOutput> {
+  const modelRoute = route(tier);
   const result = await generateText({
-    model: getChatModel(tier),
+    model: modelRoute.model(),
     instructions: SYSTEM,
     messages: [
       { role: "user", content: "what do i know about sakshi" },
@@ -327,7 +319,7 @@ async function runThinPersonResearchReplay(
       { role: "user", content: userMessage },
     ],
     timeout: { totalMs: EVAL_TIMEOUT_MS },
-    providerOptions: providerOptions(tier),
+    providerOptions: modelRoute.providerOptions(),
     stopWhen: isStepCount(5),
     tools: {
       [READ_CONTEXT_TOOL]: tool({
@@ -522,8 +514,9 @@ async function runPersonResearchDepth(
   userMessage: string,
   tier: ChatModelTier,
 ): Promise<TaskOutput> {
+  const modelRoute = route(tier);
   const result = await generateText({
-    model: getChatModel(tier),
+    model: modelRoute.model(),
     instructions: SYSTEM,
     messages: [
       { role: "user", content: "what do we know about priya nair?" },
@@ -535,7 +528,7 @@ async function runPersonResearchDepth(
       { role: "user", content: userMessage },
     ],
     timeout: { totalMs: EVAL_TIMEOUT_MS },
-    providerOptions: providerOptions(tier),
+    providerOptions: modelRoute.providerOptions(),
     stopWhen: isStepCount(6),
     tools: {
       [READ_CONTEXT_TOOL]: tool({
@@ -697,7 +690,7 @@ const SUB_AGENT_CASES: SubAgentCase[] = [
 
 async function runSubAgentInvestigation(brief: string): Promise<TaskOutput> {
   const result = await generateText({
-    model: getSubAgentModel(),
+    model: route("subAgent").model(),
     instructions: SUB_SYSTEM,
     prompt: brief,
     timeout: { totalMs: EVAL_TIMEOUT_MS },

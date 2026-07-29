@@ -1,4 +1,4 @@
-import { getChatModel } from "@alfred/ai";
+import { route } from "@alfred/ai";
 import { generateObject, type LanguageModel } from "ai";
 import { createScorer } from "evalite";
 import { z } from "zod";
@@ -85,7 +85,7 @@ export function llmJudgeScorer<TInput, TOutput, TExpected>(
       if (skipReason) return { score: 0, metadata: skipReason };
       try {
         const result = await generateObject({
-          model: opts.model ?? getChatModel("standard"),
+          model: opts.model ?? route("standard").model(),
           schema: judgeOutputSchema,
           instructions: `${JUDGE_PREAMBLE}\n\nRubric:\n${opts.rubric}`,
           prompt: opts.prompt({ input, output, expected }),

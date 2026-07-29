@@ -1,4 +1,4 @@
-import { getCheapModel, meteredGenerateObject } from "@alfred/ai";
+import { route, meteredGenerateObject } from "@alfred/ai";
 import { confidenceSchema } from "@alfred/contracts";
 import { z } from "zod";
 import type { ColdStartSignals } from "./signals";
@@ -117,7 +117,7 @@ export async function extractColdStartFacts(
 ): Promise<ColdStartProposal[]> {
   const result = await meteredGenerateObject<z.infer<typeof extractColdStartResultSchema>>(
     {
-      model: getCheapModel(),
+      model: route("cheap").model(),
       instructions: SYSTEM_PROMPT,
       prompt: buildUserPrompt(args),
       schema: extractColdStartResultSchema,

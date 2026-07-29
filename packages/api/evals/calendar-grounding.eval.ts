@@ -1,5 +1,5 @@
 import path from "node:path";
-import { getChatModel } from "@alfred/ai";
+import { route } from "@alfred/ai";
 import { calendarListEventsInput } from "@alfred/contracts";
 import { serverEnv } from "@alfred/env/server";
 import { generateText, tool } from "ai";
@@ -85,7 +85,7 @@ const CASES: Case[] = [
 
 function runFirstCall(input: string) {
   return generateText({
-    model: getChatModel("standard"),
+    model: route("standard").model(),
     instructions: SYSTEM,
     messages: [
       { role: "assistant", content: formatRuntimeTimeGrounding(TIMEZONE, NOW) },

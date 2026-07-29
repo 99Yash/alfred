@@ -1,5 +1,5 @@
 import path from "node:path";
-import { getChatModel } from "@alfred/ai";
+import { route } from "@alfred/ai";
 import {
   githubGetPullRequestInput,
   githubSearchInput,
@@ -79,7 +79,7 @@ const CASES: Case[] = [
 
 function runFirstCall(input: string) {
   return generateText({
-    model: getChatModel("standard"),
+    model: route("standard").model(),
     instructions: SYSTEM,
     prompt: input,
     temperature: 0,

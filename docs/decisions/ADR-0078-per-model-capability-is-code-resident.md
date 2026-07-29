@@ -8,3 +8,24 @@
 **Alternatives.** (a) **`supportsEffort: boolean`** — rejected: effort vocabularies differ per provider; a boolean reintroduces the #224 400. The field carries the value set. (b) **Derive capabilities from models.dev at runtime** — rejected: opencode keeps it in code, the provider layer is sync + on the hot path, and models.dev has gaps; it stays an audit oracle reading the synced snapshot, never a runtime dependency (also honors the triage-eval-provider-coupling lesson — no live-provider coupling in CI). (c) **One flat per-model struct incl. tool-name shim** — rejected: conflates the per-model reasoning axis with the per-provider transform axis; `needsToolNameShim` is mis-framed as "non-Anthropic" when it's a per-provider pattern+length policy true for Anthropic *and* Google *and* (future) OpenAI. (d) **Key the dispatch on the logical provider forever** — accepted *for now* with a noted caveat: the same Claude model has different option shapes across `@ai-sdk/anthropic` / `-bedrock` / `-vertex`, so the key is conceptually the SDK *adapter*; Alfred is 1:1 today, a future Bedrock/Vertex add needs its own entry. (e) **Make `verify-capabilities` a CI gate** — rejected: non-gating tripwire run after a model swap; gating on a synced snapshot that can lag a models.dev change would redden CI on drift that isn't a code defect.
 
 **Cross-ref.** Amends the ADR-0053 reference in #313 and supersedes the `getChatProviderOptions` `tier === "deep"` branch ADR-0077 left as the #313 seam. Prevents the silent-fallback class of ADR-0077's motivating swap (#224/#303). Feeds the #249 model-router, which consumes the effort-label map (`reasoningOptions(model, routerEffort)`) rather than re-deriving it. Generalizes the tool-name policy from `.lessons/anthropic-rejects-dotted-tool-names` + `.lessons/swap-chat-model-live-browser-replay` (the Google bare-name inverse). Plan: `docs/plans/per-model-capability-map-v1.md`. **Parked (out of scope):** runtime DB-derived capabilities; opencode's schema-sanitization structured-output path (the cheap tier's same-provider pin already works); `temperature` plumbing (recorded, unsent); adding an OpenAI language model to `MODEL_REGISTRY`/chat tiers (OpenAI transcription still meters through `ProviderId`, but no OpenAI chat model is dispatched today).
+
+**Amendment (2026-07-29) — one deep provider adapter module.** The two-axis
+decision remains, but the per-provider mechanics moved from a dispatch fragment
+in `provider.ts` into the single `PROVIDER_ADAPTERS` map in
+`packages/ai/src/provider-adapter.ts`. Each adapter now owns concrete model
+construction, reasoning option shape, tool-name encoding policy, cache
+projection, and tool-loading protocol selection behind `withProviderAdapter`.
+`provider.ts` retains product route and fallback policy only. This removes the
+wrapper-ordering knowledge that had leaked across `provider.ts`,
+`provider-protocol.ts`, and `tool-name-shim.ts` while preserving
+`MODEL_CAPABILITIES` as the per-model source of truth.
+
+The product interface is now one `route(name)` handle rather than separate
+model getters and provider-option builders. `MODEL_ROUTES` declares each
+non-empty model chain with its reasoning policy; `.model()` and
+`.providerOptions()` fold the same chain, and route construction installs those
+options as overridable defaults around the composed fallback. The
+`ProviderAdaptedLanguageModel` brand is applied once, after composition, inside
+the provider-adapter module. This makes a third fallback leg a one-table edit
+and prevents a model chain from drifting away from its provider reasoning
+blocks.

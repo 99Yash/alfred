@@ -1,16 +1,19 @@
 import {
-  COMPACTOR_FALLBACK_MODEL,
-  COMPACTOR_MODEL,
   meteredGenerateText,
   requestFitsContextWindow,
   resolveModelContextWindow,
+  route,
   type AttributedCall,
+  type LanguageModel,
   type ModelMessage,
 } from "@alfred/ai";
 import type { AgentTranscriptMessage } from "@alfred/contracts";
 import { assertHandoffSections } from "./handoff";
 import { COMPACTOR_SYSTEM_PROMPT } from "./prompt";
 import { CHARS_PER_TOKEN, estimateTranscriptTokens } from "./tokens";
+
+const compactorModel: LanguageModel = route("compactor").model();
+const compactorFallbackModel: LanguageModel = route("compactorFallback").model();
 
 /**
  * Replace `prior` with a structured `<run_summary>` system message and
@@ -19,8 +22,8 @@ import { CHARS_PER_TOKEN, estimateTranscriptTokens } from "./tokens";
  * result back into `agent_runs.transcript`.
  *
  * Shape contract:
- *   - One metered LLM round-trip via `COMPACTOR_MODEL`, falling over to
- *     `COMPACTOR_FALLBACK_MODEL` only when the prior slice exceeds the
+ *   - One metered LLM round-trip via the compactor route, falling over to its
+ *     explicit fallback route only when the prior slice exceeds the
  *     primary compactor's context window.
  *   - The new system message carries NO `cacheControl` breakpoint of its
  *     own — it lands as `transcript[0]` where `decorateTranscript` owns all
@@ -87,7 +90,6 @@ export async function compactTranscript(
   const { prior, inFlightTail, attribution } = args;
   const model = await selectCompactorModel(prior);
 
-  const providerOptions = providerOptionsFor(model);
   const result = await meteredGenerateText(
     {
       model,
@@ -97,7 +99,6 @@ export async function compactTranscript(
       temperature: 0,
       instructions: COMPACTOR_SYSTEM_PROMPT,
       messages: [transcriptPayloadMessage(prior)] as ModelMessage[],
-      ...(providerOptions ? { providerOptions: providerOptions as Record<string, never> } : {}),
     },
     {
       ...attribution,
@@ -130,9 +131,9 @@ function transcriptPayloadMessage(
 
 async function selectCompactorModel(
   prior: readonly AgentTranscriptMessage[],
-): Promise<typeof COMPACTOR_MODEL> {
+): Promise<LanguageModel> {
   const priorTokens = estimateTranscriptTokens(prior);
-  const compactorWindow = await resolveModelContextWindow(COMPACTOR_MODEL);
+  const compactorWindow = await resolveModelContextWindow(compactorModel);
   if (
     requestFitsContextWindow(priorTokens, {
       contextWindowTokens: compactorWindow,
@@ -140,9 +141,9 @@ async function selectCompactorModel(
       fixedInputOverheadTokens: COMPACTOR_FIXED_INPUT_OVERHEAD_TOKENS,
     })
   ) {
-    return COMPACTOR_MODEL;
+    return compactorModel;
   }
-  const fallbackWindow = await resolveModelContextWindow(COMPACTOR_FALLBACK_MODEL);
+  const fallbackWindow = await resolveModelContextWindow(compactorFallbackModel);
   return chooseCompactorModel({ priorTokens, compactorWindow, fallbackWindow });
 }
 
@@ -157,7 +158,7 @@ export function chooseCompactorModel(args: {
   priorTokens: number;
   compactorWindow: number;
   fallbackWindow: number;
-}): typeof COMPACTOR_MODEL {
+}): LanguageModel {
   const budget = {
     outputReserveTokens: COMPACTOR_MAX_OUTPUT_TOKENS,
     fixedInputOverheadTokens: COMPACTOR_FIXED_INPUT_OVERHEAD_TOKENS,
@@ -168,7 +169,7 @@ export function chooseCompactorModel(args: {
       contextWindowTokens: args.compactorWindow,
     })
   ) {
-    return COMPACTOR_MODEL;
+    return compactorModel;
   }
   if (
     requestFitsContextWindow(args.priorTokens, {
@@ -176,7 +177,7 @@ export function chooseCompactorModel(args: {
       contextWindowTokens: args.fallbackWindow,
     })
   ) {
-    return COMPACTOR_FALLBACK_MODEL;
+    return compactorFallbackModel;
   }
   throw new Error("compactor_input_too_large");
 }
@@ -184,15 +185,6 @@ export function chooseCompactorModel(args: {
 /** Exported for the headroom regression test (#371). */
 export const compactorRequestOverheadTokens =
   COMPACTOR_FIXED_INPUT_OVERHEAD_TOKENS + COMPACTOR_MAX_OUTPUT_TOKENS;
-
-function providerOptionsFor(model: typeof COMPACTOR_MODEL): Record<string, unknown> | undefined {
-  if (model !== COMPACTOR_MODEL) return undefined;
-  return {
-    anthropic: {
-      thinking: { type: "disabled" },
-    },
-  };
-}
 
 /**
  * Enforce the handoff contract: the model output must be a single

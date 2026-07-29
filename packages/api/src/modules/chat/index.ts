@@ -999,7 +999,7 @@ export const chatRoutes = new Elysia({ prefix: "/api/chat", normalize: "typebox"
             userMessageId: t.String({ minLength: 1, maxLength: 100 }),
             // May be empty when the turn carries an attachment (image-only send).
             content: t.String({ minLength: 0, maxLength: 100_000 }),
-            // Model tier from the composer's picker; `getChatModel` maps it.
+            // Model tier from the composer's picker; `route` maps it.
             tier: t.Optional(t.Union([t.Literal("standard"), t.Literal("deep")])),
             // Selected by the artifact sidebar. Kept out of user prose and
             // ownership-scoped to this exact thread above.

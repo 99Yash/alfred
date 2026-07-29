@@ -5,7 +5,7 @@ import { z } from "zod";
  * source of truth for the tier literal, shared so the web bundle can reference
  * it without pulling in `@alfred/ai` (Node-only): the composer's tier picker
  * and the send-message hook both previously hand-declared the same literal.
- * `@alfred/ai`'s `getChatModel` maps each tier to a concrete model; see
+ * `@alfred/ai`'s `route` maps each tier to a concrete model; see
  * `provider.ts`.
  *
  *   - `standard` — the default conversational driver (the fast everyday model).

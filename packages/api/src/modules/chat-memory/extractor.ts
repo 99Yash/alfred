@@ -1,4 +1,4 @@
-import { getCheapModel, meteredGenerateObject } from "@alfred/ai";
+import { route, meteredGenerateObject } from "@alfred/ai";
 import {
   chatMemoryExtractionResultSchema,
   type ChatMemoryExtractionResult,
@@ -21,7 +21,7 @@ import type { ChatMessageRole } from "@alfred/db/schemas";
  * idle debounce means the whole conversation is visible, so a correction arc
  * has already resolved: capture the FINAL state, never the mid-thread wrong turn.
  *
- * Cheap-tier model per ADR-0016 (`getCheapModel()`).
+ * Cheap-tier model per ADR-0016 (`route("cheap").model()`).
  */
 
 /** One transcript turn the extractor reads (role + content only, D9). */
@@ -153,7 +153,7 @@ function defaultGenerate(args: ExtractThreadArgs): GenerateObject {
   return async ({ system, prompt }) => {
     const result = await meteredGenerateObject<ChatMemoryExtractionResult>(
       {
-        model: getCheapModel(),
+        model: route("cheap").model(),
         instructions: system,
         prompt,
         schema: chatMemoryExtractionResultSchema,

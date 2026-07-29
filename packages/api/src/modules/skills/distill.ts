@@ -1,4 +1,4 @@
-import { getCheapModel, meteredGenerateObject } from "@alfred/ai";
+import { route, meteredGenerateObject } from "@alfred/ai";
 import { confidenceSchema } from "@alfred/contracts";
 import { z } from "zod";
 import type { SkillLearnContext } from "./context";
@@ -119,7 +119,7 @@ export interface DistillSkillResult extends DistillResult {
 export async function distillSkill(args: DistillSkillArgs): Promise<DistillSkillResult> {
   const result = await meteredGenerateObject<DistillResult>(
     {
-      model: getCheapModel(),
+      model: route("cheap").model(),
       instructions: SYSTEM_PROMPT,
       prompt: buildUserPrompt({ context: args.context, prompt: args.prompt }),
       schema: distillResultSchema,
