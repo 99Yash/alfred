@@ -95,7 +95,7 @@ export function parseEventFrame<K extends EventKind>(
   //
   // `satisfies EventFrame` covers envelope **field presence and field types, for
   // required fields only**. It is what makes a *required* field added to
-  // `eventFrameSchema` a compile error here (TS1360) instead of an `undefined`
+  // `eventFrameSchema` a compile error here (TS2741) instead of an `undefined`
   // typed `string` at every consumer. Without it, the `as` alone accepts a
   // literal that omits a field outright, because a cast needs only one-way
   // comparability — a *renamed* field errors and a *missing* one does not.

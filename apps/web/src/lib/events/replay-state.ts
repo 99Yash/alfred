@@ -30,7 +30,7 @@ export interface ReplayStateStore {
  * "completed"` frame, and that deletion holds whatever id the frame arrives
  * with, because `advanceReplayState`'s clearing branch never reads `frame.id`.
  * The arming branch has no matching tolerance, and that is a known gap rather
- * than a property of this module: a recoverable frame applied *after* its run's
+ * than a property of this module: a frame that speaks for a barrier applied *after* its run's
  * `completed` re-arms that run's barrier, and nothing can clear it again
  * (a run publishes `completed` at most once), so `since` freezes at that
  * barrier and is persisted. Arrival order cannot be assumed away —
@@ -43,10 +43,30 @@ export function replaySince(state: ReplayState): number {
 }
 
 /**
+ * Whether a frame ends its run and therefore releases its replay barrier.
+ *
+ * The `switch` deliberately has no `default`: adding a `chat.message` phase
+ * makes this function's declared `boolean` return fail with TS2366 until the
+ * new phase is classified. This exhausts phases only; it does not enforce
+ * which event kinds should release a barrier.
+ */
+function releasesBarrier(frame: EventStreamFrame): boolean {
+  if (frame.kind !== "chat.message") return false;
+  switch (frame.payload.phase) {
+    case "completed":
+      return true;
+    case "started":
+    case "compaction_started":
+    case "compaction_finished":
+      return false;
+  }
+}
+
+/**
  * Pure state transition.
  *
  * **Callers must hand over a frame that came out of `parseEventFrame`.** Payload
- * fields are read unguarded here and in `recoverableRunId`, so validation is a
+ * fields are read unguarded here and in `barrierRunId`, so validation is a
  * demand on the caller, not a property of this module. The two callers that exist
  * both satisfy it: in production `noteReplayFrame` is the sole entry and
  * `createEventSource` zod-parses every frame before it, and the unit tests build
@@ -56,11 +76,11 @@ export function replaySince(state: ReplayState): number {
  */
 export function advanceReplayState(state: ReplayState, frame: EventStreamFrame): ReplayState {
   const cursor = Math.max(state.cursor, frame.id);
-  const runId = recoverableRunId(frame);
+  const runId = barrierRunId(frame);
   if (!runId) return cursor === state.cursor ? state : { ...state, cursor };
 
   const activeRuns = { ...state.activeRuns };
-  if (frame.kind === "chat.message" && frame.payload.phase === "completed") {
+  if (releasesBarrier(frame)) {
     delete activeRuns[runId];
   } else {
     const barrier = Math.max(0, frame.id - 1);
@@ -105,26 +125,26 @@ function sameBarriers(left: ReplayState["activeRuns"], right: ReplayState["activ
 }
 
 /**
- * Why each kind arms no recovery barrier — the exclusion ledger, one written
- * reason per unrecovered kind.
+ * Why each kind speaks for no replay barrier — the exclusion ledger, one
+ * written reason per excluded kind.
  *
  * The reasons are prose and nothing checks that they are true. What the table
- * enforces is that one *exists*: this table and `RECOVERABLE` partition the
+ * enforces is that one *exists*: this table and `SPEAKS_FOR_A_RUN` partition the
  * frame union's *membership*, so a kind in neither does not compile and a new
- * event kind cannot be added without stating its recoverability. That is the
+ * event kind cannot be added without stating its barrier policy. That is the
  * hazard `CLOSURE_POLICY`
  * guards on this event's producer side
  * (`packages/api/src/modules/agent/workflows/chat-turn-closure.ts`), where a fourth turn
  * ending compiled clean and silently inherited the `completed` policy.
  *
  * The key type is the whole frame union's `kind` rather than a run-scoped
- * subset, so a kind the payload contract already makes unrecoverable
+ * subset, so a kind the payload contract already makes unable to name a run
  * (`inbox.updated` and `memory.fact_learned` today — see their entries) writes
  * its reason here beside a kind excluded by policy. A run-scoped key type would
  * drop those kinds silently instead, and the reason nobody has to write is the
  * one this table exists to demand.
  */
-const NOT_RECOVERABLE = {
+const SPEAKS_FOR_NO_RUN = {
   "agent.run": "Workflow run lifecycle, not a chat turn: no bubble replays from it.",
   "agent.progress": "Step telemetry with no client state that survives a reload.",
   "tool.call": "Workflow tool telemetry; the chat trail's cards arrive as `chat.tool`.",
@@ -138,7 +158,7 @@ const NOT_RECOVERABLE = {
 } satisfies Partial<Record<EventStreamFrame["kind"], string>>;
 
 /**
- * The other half of the partition: every kind `NOT_RECOVERABLE` does not name.
+ * The other half of the partition: every kind `SPEAKS_FOR_NO_RUN` does not name.
  *
  * This literal, not the `switch`, is what partitions *membership*. A guard
  * called from an arm only enforces the arms it is called from, and `default` is
@@ -150,61 +170,61 @@ const NOT_RECOVERABLE = {
  *
  * What membership does **not** buy is an obligation on the arm. The value `true`
  * compels no `case` to mint anything, so `case "chat.tool": return null` retires
- * a recovered kind with no written reason and compiles clean — the ledger would
+ * an included kind with no written reason and compiles clean — the ledger would
  * then say a barrier is armed where the code arms none. Nothing at the type
- * level closes that direction; one runtime assertion per recovered kind in
+ * level closes that direction; one runtime assertion per included kind in
  * `test/events/replay-state.test.ts` does, at **tier 4** — the divergence is
  * detected after it is written, not prevented.
  */
-const RECOVERABLE = {
+const SPEAKS_FOR_A_RUN = {
   "chat.message": true,
   "chat.reasoning": true,
   "chat.delta": true,
   "chat.tool": true,
   "approval.requested": true,
-} satisfies Record<Exclude<EventStreamFrame["kind"], keyof typeof NOT_RECOVERABLE>, true>;
+} satisfies Record<Exclude<EventStreamFrame["kind"], keyof typeof SPEAKS_FOR_NO_RUN>, true>;
 
 /**
  * The `default` arm's return. `TS2345` here on a kind that arms nothing and has
- * no `NOT_RECOVERABLE` reason — a new event kind, or a deleted table entry.
+ * no `SPEAKS_FOR_NO_RUN` reason — a new event kind, or a deleted table entry.
  */
-function notRecovered(_kind: keyof typeof NOT_RECOVERABLE): null {
+function speaksForNoRun(_kind: keyof typeof SPEAKS_FOR_NO_RUN): null {
   return null;
 }
 
-declare const RECOVERED: unique symbol;
+declare const BARRIER_RUN_ID: unique symbol;
 
 /**
- * A run id that came out of `recoveredRunId`. The brand is why no arm can
+ * A run id that came out of `toBarrierRunId`. The brand is why no arm can
  * produce one without routing through that mint: a `case` returning
- * `frame.payload.runId` directly is `TS2322` against `recoverableRunId`'s
+ * `frame.payload.runId` directly is `TS2322` against `barrierRunId`'s
  * return type, which is the shape an author reaches for the moment a kind needs
  * arm-specific handling.
  */
-type RecoveredRunId = string & { readonly [RECOVERED]: true };
+type BarrierRunId = string & { readonly [BARRIER_RUN_ID]: true };
 
-/** The frames `RECOVERABLE` names — the only input the mint below accepts. */
-type RecoverableFrame = Extract<EventStreamFrame, { kind: keyof typeof RECOVERABLE }>;
+/** The frames `SPEAKS_FOR_A_RUN` names — the only input the mint below accepts. */
+type BarrierFrame = Extract<EventStreamFrame, { kind: keyof typeof SPEAKS_FOR_A_RUN }>;
 
 /**
- * The recovered arms' shared return, and the only mint of a `RecoveredRunId`.
+ * The included arms' shared return, and the only mint of a `BarrierRunId`.
  * `TS2345` here on the other direction: a kind promoted to a `case` while
- * keeping its `NOT_RECOVERABLE` reason, which would leave a ledger entry
+ * keeping its `SPEAKS_FOR_NO_RUN` reason, which would leave a ledger entry
  * contradicting the code.
  *
  * It takes the whole frame rather than a kind plus a run id read off that frame,
- * because two arguments cannot be related: `recoveredRunId("chat.delta",
+ * because two arguments cannot be related: `toBarrierRunId("chat.delta",
  * frame.payload.runId)` from an `agent.progress` arm type-checked, minting a
  * barrier under a kind the ledger excludes. One parameter makes that pair
  * unrepresentable.
  */
-function recoveredRunId(frame: RecoverableFrame): RecoveredRunId {
-  return frame.payload.runId as RecoveredRunId;
+function toBarrierRunId(frame: BarrierFrame): BarrierRunId {
+  return frame.payload.runId as BarrierRunId;
 }
 
 /**
- * The run a frame arms or releases a recovery barrier for, or `null` for a kind
- * this module does not recover.
+ * The run whose replay barrier a frame may arm or release, or `null` for a kind
+ * this module does not let speak for one.
  *
  * A `switch` and not the `Set<EventKind>` this used to be: a runtime membership
  * test narrows neither the key nor the object, so with the Set the `runId` read
@@ -216,26 +236,26 @@ function recoveredRunId(frame: RecoverableFrame): RecoveredRunId {
  *
  * Unlike `frameThreadId` there is no set derived from the *payloads*. `threadId`
  * is a *coverage* claim — every thread-scoped frame must be gated, so a payload
- * that grows one and is not classified is a bug. Recoverability is a *policy*
- * choice, so a payload-derived set would over-select and force a policy edit at
- * every new run-scoped kind. `NOT_RECOVERABLE` and `RECOVERABLE` state the
- * policy by hand instead and partition the union's membership between them,
- * which is where the compile errors come from — the two guards below only route
- * `frame.kind` into the halves those tables define, and no type makes a
- * recovered arm actually arm anything (see `RECOVERABLE`).
+ * that grows one and is not classified is a bug. Replay is kind-agnostic, so
+ * this list is not about what survives a reload: it names the frames allowed to
+ * speak for a run's barrier, and that is policy, which is why it is written
+ * rather than derived. `SPEAKS_FOR_NO_RUN` and `SPEAKS_FOR_A_RUN` state that
+ * policy and partition the union's membership — the two guards below only route
+ * `frame.kind` into the halves those tables define, and no type makes an
+ * included arm actually arm anything (see `SPEAKS_FOR_A_RUN`).
  *
  * `payload.runId` and `payload.phase` are read unguarded under the caller contract
  * stated on `advanceReplayState`.
  */
-function recoverableRunId(frame: EventStreamFrame): RecoveredRunId | null {
+function barrierRunId(frame: EventStreamFrame): BarrierRunId | null {
   switch (frame.kind) {
     case "chat.message":
     case "chat.reasoning":
     case "chat.delta":
     case "chat.tool":
     case "approval.requested":
-      return recoveredRunId(frame);
+      return toBarrierRunId(frame);
     default:
-      return notRecovered(frame.kind);
+      return speaksForNoRun(frame.kind);
   }
 }
