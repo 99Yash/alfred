@@ -34,6 +34,36 @@ const CHAT_DELTA: EventPayload<"chat.delta"> = {
 
 const INBOX_UPDATED: EventPayload<"inbox.updated"> = { reason: "ingested" };
 
+// The kinds `NOT_RECOVERABLE` names. Typed as `EventPayload<K>` so the four
+// run-scoped ones carry a `runId` because the contract requires it, not because
+// a literal was hand-copied — that `runId` is the premise the exclusion
+// assertion rests on.
+const AGENT_RUN: EventPayload<"agent.run"> = { runId: "run-1", phase: "started" };
+
+const AGENT_PROGRESS: EventPayload<"agent.progress"> = { runId: "run-1", step: "triage" };
+
+const TOOL_CALL: EventPayload<"tool.call"> = {
+  runId: "run-1",
+  toolName: "gmail.poll_recent",
+  status: "started",
+};
+
+const ARTIFACT_DELTA: EventPayload<"artifact.delta"> = {
+  runId: "run-1",
+  threadId: "thread-1",
+  toolCallId: "call-1",
+  seq: 0,
+  text: "# draft",
+  mode: "replace",
+};
+
+const MEMORY_FACT_LEARNED: EventPayload<"memory.fact_learned"> = {
+  factId: "fact-1",
+  key: "user.timezone",
+  preview: "Asia/Kolkata",
+  confidence: 1,
+};
+
 const chatMessage = (
   id: number,
   payload: Partial<EventPayload<"chat.message">> = {},
@@ -61,12 +91,34 @@ const inboxUpdated = (id: number): EventStreamFrame => ({
   payload: INBOX_UPDATED,
 });
 
+const excludedFrames = (id: number): readonly EventStreamFrame[] => [
+  { id, createdAt: "", kind: "agent.run", payload: AGENT_RUN },
+  { id, createdAt: "", kind: "agent.progress", payload: AGENT_PROGRESS },
+  { id, createdAt: "", kind: "tool.call", payload: TOOL_CALL },
+  { id, createdAt: "", kind: "artifact.delta", payload: ARTIFACT_DELTA },
+  { id, createdAt: "", kind: "inbox.updated", payload: INBOX_UPDATED },
+  { id, createdAt: "", kind: "memory.fact_learned", payload: MEMORY_FACT_LEARNED },
+];
+
 describe("event replay state", () => {
   test("a delta establishes a recovery barrier even when started was missed", () => {
     const state = advanceReplayState(emptyState(), chatDelta(42));
 
     assert.deepEqual(state, { cursor: 42, activeRuns: { "run-1": 41 } });
     assert.equal(replaySince(state), 41);
+  });
+
+  // Every kind `NOT_RECOVERABLE` names advances the cursor and arms nothing.
+  // Four of the six carry a `runId` their typed payload requires, so this is the
+  // exclusion policy and not a statement about which payloads have the field.
+  test("an excluded kind advances the cursor without arming a barrier", () => {
+    for (const frame of excludedFrames(42)) {
+      assert.deepEqual(
+        advanceReplayState(emptyState(), frame),
+        { cursor: 42, activeRuns: {} },
+        frame.kind,
+      );
+    }
   });
 
   test("the cursor advances while an active run keeps its earlier barrier", () => {
