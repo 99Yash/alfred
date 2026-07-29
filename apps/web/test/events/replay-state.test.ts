@@ -59,9 +59,9 @@ const APPROVAL_REQUESTED: EventPayload<"approval.requested"> = {
 
 const INBOX_UPDATED: EventPayload<"inbox.updated"> = { reason: "ingested" };
 
-// The kinds `NOT_RECOVERABLE` names. Typed as `EventPayload<K>` so the four
-// run-scoped ones carry a `runId` because the contract requires it, not because
-// a literal was hand-copied — that `runId` is the premise the exclusion
+// The kinds `NOT_RECOVERABLE` names. Typed as `EventPayload<K>` so a kind whose
+// payload is run-scoped carries a `runId` because the contract requires it, not
+// because a literal was hand-copied — that `runId` is the premise the exclusion
 // assertion rests on.
 const AGENT_RUN: EventPayload<"agent.run"> = { runId: "run-1", phase: "started" };
 
@@ -128,7 +128,7 @@ const excludedFrames = (id: number): readonly EventStreamFrame[] => [
 // The kinds `RECOVERABLE` names, hand-listed. Membership in that table compels
 // no `switch` arm to arm a barrier — `case "chat.tool": return null` retires a
 // recovered kind and still compiles — so these assertions are the only cover for
-// that direction, at tier 3, and nothing makes the list track the table. Each
+// that direction, at tier 4, and nothing makes the list track the table. Each
 // expected run id is read off its own fixture rather than re-typed, so the
 // assertion cannot drift from its premise
 // (.lessons/an-assertions-premise-needs-enforcing-not-typing.md).
@@ -156,11 +156,11 @@ describe("event replay state", () => {
     assert.equal(replaySince(state), 41);
   });
 
-  // The six kinds `NOT_RECOVERABLE` names today: each advances the cursor and
-  // arms nothing. Four of the six carry a `runId` their typed payload requires,
-  // so this is the exclusion policy and not a statement about which payloads have
-  // the field. Hand-listed like `recoveredFrames` — nothing makes it track the
-  // table, so it covers today's six and not the table's future contents.
+  // The kinds `NOT_RECOVERABLE` names today: each advances the cursor and arms
+  // nothing. Some of them carry a `runId` their typed payload requires, so this
+  // is the exclusion policy and not a statement about which payloads have the
+  // field. Hand-listed like `recoveredFrames` — nothing makes it track the
+  // table, so it covers the entries present today and not future ones.
   test("an excluded kind advances the cursor without arming a barrier", () => {
     for (const frame of excludedFrames(42)) {
       assert.deepEqual(
