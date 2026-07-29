@@ -4,7 +4,7 @@ import {
   type GraphqlPassthroughRequest,
   type PassthroughResult,
 } from "@alfred/contracts";
-import { railwayGraphqlRaw } from "@alfred/integrations/railway";
+import type { RailwayRawGraphqlResult } from "@alfred/integrations/railway";
 import { assertReadableGraphqlRequest } from "./gate";
 import { passthroughHttpResult, passthroughRejection, passthroughTransportError } from "./shaper";
 import { classifyTransportError } from "./transport";
@@ -23,7 +23,7 @@ import { classifyTransportError } from "./transport";
  * (including GraphQL `errors[]`) is the honest `http` envelope.
  */
 export async function runRailwayPassthrough(
-  token: string,
+  transport: (request: GraphqlPassthroughRequest) => Promise<RailwayRawGraphqlResult>,
   request: GraphqlPassthroughRequest,
 ): Promise<PassthroughResult> {
   const gate = assertReadableGraphqlRequest(request);
@@ -31,7 +31,7 @@ export async function runRailwayPassthrough(
 
   let raw;
   try {
-    raw = await railwayGraphqlRaw(token, request);
+    raw = await transport(request);
   } catch (err) {
     return passthroughTransportError(classifyTransportError(err), toMessage(err));
   }

@@ -1,6 +1,7 @@
 import { type ErrorBodyPolicy } from "@alfred/contracts";
 
 import { authedFetch, type AuthedFetchProfile, type AuthedFetchRequest } from "./authed-fetch";
+import { fetchWithRetry, isRetrySafeMethod, type RetryPolicy } from "./retry";
 import { throwUpstreamError } from "./upstream-error";
 
 /**
@@ -41,6 +42,9 @@ export interface AuthedJsonOptions {
    * server-side here and the thrown error carries none. See {@link ErrorBodyPolicy}.
    */
   bodyPolicy?: ErrorBodyPolicy | undefined;
+  /** Explicit retry posture; non-safe methods require `idempotent: true`. */
+  retry?: RetryPolicy | "none" | undefined;
+  idempotent?: true | undefined;
 }
 
 /**
@@ -55,7 +59,12 @@ export async function authedJson(
   request: AuthedFetchRequest,
   options: AuthedJsonOptions,
 ): Promise<unknown> {
-  const res = await authedFetch(profile, request);
+  const send = () => authedFetch(profile, request);
+  const eligible = options.idempotent === true || isRetrySafeMethod(request.method);
+  const res =
+    options.retry && options.retry !== "none" && eligible
+      ? await fetchWithRetry(send, { policy: options.retry })
+      : await send();
   if (!res.ok) {
     return throwUpstreamError({
       provider: options.provider,

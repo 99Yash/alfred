@@ -1,4 +1,5 @@
 import { z } from "zod";
+import type { RetryPolicy } from "../shared/retry";
 import { googleJson } from "./http";
 
 /**
@@ -75,7 +76,10 @@ export interface ListEventsResult {
   timeZone?: string | undefined;
 }
 
-export async function listEvents(args: ListEventsArgs): Promise<ListEventsResult> {
+export async function listEvents(
+  args: ListEventsArgs,
+  retry: RetryPolicy | "none" = "none",
+): Promise<ListEventsResult> {
   const calendarId = encodeURIComponent(args.calendarId ?? "primary");
   const url = new URL(`${API_BASE}/calendars/${calendarId}/events`);
   url.searchParams.set("timeMin", args.timeMin);
@@ -90,7 +94,7 @@ export async function listEvents(args: ListEventsArgs): Promise<ListEventsResult
   url.searchParams.set("orderBy", orderBy);
   url.searchParams.set("maxResults", String(args.maxResults ?? 50));
 
-  const json = await getJson(url.toString(), args.accessToken);
+  const json = await getJson(url.toString(), args.accessToken, retry);
   const parsed = listEventsResponseSchema.parse(json);
   // Filter out cancelled occurrences so callers don't need to special-case them.
   const events = (parsed.items ?? []).filter((e) => e.status !== "cancelled");
@@ -138,8 +142,8 @@ export async function createEvent(args: CreateEventArgs): Promise<CalendarEvent>
   return eventSchema.parse(json);
 }
 
-const getJson = (url: string, accessToken: string): Promise<unknown> =>
-  googleJson("calendar", "GET", url, accessToken);
+const getJson = (url: string, accessToken: string, retry: RetryPolicy | "none"): Promise<unknown> =>
+  googleJson("calendar", "GET", url, accessToken, undefined, retry);
 
 const postJson = (url: string, accessToken: string, payload: unknown): Promise<unknown> =>
   googleJson("calendar", "POST", url, accessToken, payload);

@@ -140,8 +140,8 @@ export interface ToolExecuteContext {
    * and that the right `userId` to bind is this call's. The dispatcher binds it
    * once from {@link ToolExecuteContext.userId}, so a tool cannot reach a
    * different user's credentials without going outside the context, and no tool
-   * ever holds a curated-read token (see `githubClientForUser`; the ADR-0074
-   * passthrough profile is the one place a header still crosses into tool code).
+   * ever holds a curated-read token (see `githubClientForUser`; ADR-0074 raw
+   * reads cross this boundary as opaque passthrough capabilities, never headers).
    *
    * Binding is lazy and holds no credential: a provider client is built on first
    * touch and resolves its credential per request, so nothing here goes stale and

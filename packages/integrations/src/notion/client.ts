@@ -7,8 +7,11 @@
 
 import { z } from "zod";
 
+import type { ProviderBindOptions } from "../shared/provider";
 import { authedJson } from "../shared/authed-json";
-import type { RestPassthroughProfile } from "../shared/rest-passthrough";
+import { getActiveBearerCredential } from "../shared/credentials";
+import { restPassthroughCapability, type RestPassthroughProfile } from "../shared/rest-passthrough";
+import type { RetryPolicy } from "../shared/retry";
 
 const NOTION_API = "https://api.notion.com/v1";
 const NOTION_VERSION = "2022-06-28";
@@ -19,7 +22,7 @@ const NOTION_VERSION = "2022-06-28";
  * header. The transport adds `Content-Type` only when a read-via-POST body is
  * sent, so it is deliberately absent here.
  */
-export function notionPassthroughProfile(token: string): RestPassthroughProfile {
+function notionPassthroughProfile(token: string): RestPassthroughProfile {
   return {
     baseUrl: NOTION_API,
     headers: {
@@ -42,6 +45,8 @@ async function notionFetch(
   accessToken: string,
   path: string,
   init?: { method?: string; body?: unknown },
+  retry: RetryPolicy | "none" = "none",
+  idempotent?: true,
 ): Promise<unknown> {
   return authedJson(
     {
@@ -52,7 +57,7 @@ async function notionFetch(
       },
     },
     { url: `${NOTION_API}${path}`, method: init?.method, body: init?.body },
-    { provider: "notion", bodyPolicy: "omit" },
+    { provider: "notion", bodyPolicy: "omit", retry, ...(idempotent ? { idempotent } : {}) },
   );
 }
 
@@ -108,17 +113,20 @@ export interface NotionSearchResult {
   hasMore: boolean;
 }
 
-export async function notionSearch(args: {
-  accessToken: string;
-  query?: string | undefined;
-  filter: "page" | "database" | "all";
-  pageSize: number;
-}): Promise<NotionSearchResult> {
+async function notionSearch(
+  accessToken: string,
+  args: {
+    query?: string | undefined;
+    filter: "page" | "database" | "all";
+    pageSize: number;
+  },
+  retry: RetryPolicy | "none",
+): Promise<NotionSearchResult> {
   const body: Record<string, unknown> = { page_size: args.pageSize };
   if (args.query) body.query = args.query;
   if (args.filter !== "all") body.filter = { value: args.filter, property: "object" };
   const json = notionListSchema.parse(
-    await notionFetch(args.accessToken, "/search", { method: "POST", body }),
+    await notionFetch(accessToken, "/search", { method: "POST", body }, retry, true),
   );
   return {
     hits: json.results.map((r) => ({
@@ -142,15 +150,16 @@ export interface NotionPage {
 }
 
 /** Pull a page's metadata plus a plain-text rendering of its top-level blocks. */
-export async function notionGetPage(args: {
-  accessToken: string;
-  pageId: string;
-}): Promise<NotionPage> {
+async function notionGetPage(
+  accessToken: string,
+  args: { pageId: string },
+  retry: RetryPolicy | "none",
+): Promise<NotionPage> {
   // The two reads are independent — fetch them concurrently (~half the latency).
   const id = encodeURIComponent(args.pageId);
   const [pageRaw, blocksRaw] = await Promise.all([
-    notionFetch(args.accessToken, `/pages/${id}`),
-    notionFetch(args.accessToken, `/blocks/${id}/children?page_size=100`),
+    notionFetch(accessToken, `/pages/${id}`, undefined, retry),
+    notionFetch(accessToken, `/blocks/${id}/children?page_size=100`, undefined, retry),
   ]);
   const page = notionObjectSchema.parse(pageRaw);
   const blocks = notionListSchema.parse(blocksRaw);
@@ -202,17 +211,19 @@ export interface NotionCreatedPage {
   url: string | null;
 }
 
-export async function notionCreatePage(args: {
-  accessToken: string;
-  parentPageId: string;
-  title: string;
-  content?: string | undefined;
-}): Promise<NotionCreatedPage> {
+async function notionCreatePage(
+  accessToken: string,
+  args: {
+    parentPageId: string;
+    title: string;
+    content?: string | undefined;
+  },
+): Promise<NotionCreatedPage> {
   // Notion caps a single request at 100 child blocks: create the page with the
   // first batch inline, then PATCH the remainder in further ≤100 batches.
   const children = paragraphBlocks(args.content);
   const json = notionObjectSchema.parse(
-    await notionFetch(args.accessToken, "/pages", {
+    await notionFetch(accessToken, "/pages", {
       method: "POST",
       body: {
         parent: { type: "page_id", page_id: args.parentPageId },
@@ -226,7 +237,7 @@ export async function notionCreatePage(args: {
   const pageId = String(json.id ?? "");
   if (pageId && children.length > NOTION_MAX_CHILDREN_PER_REQUEST) {
     await appendChildrenInBatches(
-      args.accessToken,
+      accessToken,
       pageId,
       children.slice(NOTION_MAX_CHILDREN_PER_REQUEST),
     );
@@ -234,12 +245,55 @@ export async function notionCreatePage(args: {
   return { id: pageId, url: typeof json.url === "string" ? json.url : null };
 }
 
-export async function notionAppendBlocks(args: {
-  accessToken: string;
-  blockId: string;
-  content: string;
-}): Promise<{ appended: number }> {
+async function notionAppendBlocks(
+  accessToken: string,
+  args: { blockId: string; content: string },
+): Promise<{ appended: number }> {
   const children = paragraphBlocks(args.content);
-  await appendChildrenInBatches(args.accessToken, args.blockId, children);
+  await appendChildrenInBatches(accessToken, args.blockId, children);
   return { appended: children.length };
 }
+
+export interface NotionTokenResolver {
+  (): Promise<string>;
+}
+
+/** Configured Notion client over a fresh-token resolver. */
+export function createNotionClient(
+  resolveToken: NotionTokenResolver,
+  retry: RetryPolicy | "none" = "none",
+) {
+  const passthrough = restPassthroughCapability({
+    slug: "notion",
+    retry,
+    resolveProfile: async () => notionPassthroughProfile(await resolveToken()),
+  });
+  return {
+    async search(args: Parameters<typeof notionSearch>[1]) {
+      return notionSearch(await resolveToken(), args, retry);
+    },
+    async getPage(args: Parameters<typeof notionGetPage>[1]) {
+      return notionGetPage(await resolveToken(), args, retry);
+    },
+    async createPage(args: Parameters<typeof notionCreatePage>[1]) {
+      return notionCreatePage(await resolveToken(), args);
+    },
+    async appendBlocks(args: Parameters<typeof notionAppendBlocks>[1]) {
+      return notionAppendBlocks(await resolveToken(), args);
+    },
+    passthrough,
+  };
+}
+
+/**
+ * The user-bound Notion door. The bearer credential is resolved per method so a
+ * rotated token is used immediately and never leaves the integrations package.
+ */
+export function notionClientForUser(options: ProviderBindOptions) {
+  return createNotionClient(
+    async () => (await getActiveBearerCredential(options.userId, "notion")).accessToken,
+    options.retry,
+  );
+}
+
+export type NotionClient = ReturnType<typeof notionClientForUser>;

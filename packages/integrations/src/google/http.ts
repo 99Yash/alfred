@@ -1,4 +1,5 @@
 import { authedJson } from "../shared/authed-json";
+import type { RetryPolicy } from "../shared/retry";
 
 /**
  * Shared authenticated-JSON transport for the Google REST clients
@@ -31,6 +32,7 @@ export async function googleJson(
   url: string,
   accessToken: string,
   payload?: unknown,
+  retry: RetryPolicy | "none" = "none",
 ): Promise<unknown> {
   return authedJson(
     {
@@ -42,6 +44,6 @@ export async function googleJson(
     // Non-GET always carries a JSON body (defaulting to `{}`); GET carries none,
     // so the transport adds `Content-Type` only for the former.
     { url, method, body: method === "GET" ? undefined : (payload ?? {}) },
-    { provider: service, urlLabel: url },
+    { provider: service, urlLabel: url, retry },
   );
 }

@@ -1,4 +1,5 @@
 import { z } from "zod";
+import type { RetryPolicy } from "../shared/retry";
 import { googleJson } from "./http";
 
 /**
@@ -69,9 +70,12 @@ export interface GetPresentationResult {
 }
 
 /** Fetch a presentation's metadata + slide count. */
-export async function getPresentation(args: GetPresentationArgs): Promise<GetPresentationResult> {
+export async function getPresentation(
+  args: GetPresentationArgs,
+  retry: RetryPolicy | "none" = "none",
+): Promise<GetPresentationResult> {
   const url = `${API_BASE}/${encodeURIComponent(args.presentationId)}`;
-  const json = await sendJson("GET", url, args.accessToken);
+  const json = await sendJson("GET", url, args.accessToken, undefined, retry);
   const parsed = presentationSchema.parse(json);
   return {
     presentationId: parsed.presentationId,
@@ -127,4 +131,5 @@ const sendJson = (
   url: string,
   accessToken: string,
   payload?: unknown,
-): Promise<unknown> => googleJson("slides", method, url, accessToken, payload);
+  retry: RetryPolicy | "none" = "none",
+): Promise<unknown> => googleJson("slides", method, url, accessToken, payload, retry);
