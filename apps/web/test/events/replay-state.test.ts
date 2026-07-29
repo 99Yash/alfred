@@ -32,6 +32,31 @@ const CHAT_DELTA: EventPayload<"chat.delta"> = {
   segmentIndex: 0,
 };
 
+const CHAT_REASONING: EventPayload<"chat.reasoning"> = {
+  runId: "run-1",
+  threadId: "thread-1",
+  messageId: "msg-1",
+  seq: 0,
+  text: "thinking",
+};
+
+const CHAT_TOOL: EventPayload<"chat.tool"> = {
+  runId: "run-1",
+  threadId: "thread-1",
+  messageId: "msg-1",
+  toolCallId: "call-1",
+  toolName: "system.fetch_url",
+  status: "started",
+  segmentIndex: 0,
+};
+
+const APPROVAL_REQUESTED: EventPayload<"approval.requested"> = {
+  runId: "run-1",
+  approvalId: "approval-1",
+  approvalKind: "step",
+  prompt: "Send the reply?",
+};
+
 const INBOX_UPDATED: EventPayload<"inbox.updated"> = { reason: "ingested" };
 
 // The kinds `NOT_RECOVERABLE` names. Typed as `EventPayload<K>` so the four
@@ -100,6 +125,29 @@ const excludedFrames = (id: number): readonly EventStreamFrame[] => [
   { id, createdAt: "", kind: "memory.fact_learned", payload: MEMORY_FACT_LEARNED },
 ];
 
+// The kinds `RECOVERABLE` names, hand-listed. Membership in that table compels
+// no `switch` arm to arm a barrier — `case "chat.tool": return null` retires a
+// recovered kind and still compiles — so these assertions are the only cover for
+// that direction, at tier 3, and nothing makes the list track the table. Each
+// expected run id is read off its own fixture rather than re-typed, so the
+// assertion cannot drift from its premise
+// (.lessons/an-assertions-premise-needs-enforcing-not-typing.md).
+const recoveredFrames = (
+  id: number,
+): readonly { readonly frame: EventStreamFrame; readonly runId: string }[] => [
+  { frame: chatMessage(id), runId: CHAT_MESSAGE.runId },
+  {
+    frame: { id, createdAt: "", kind: "chat.reasoning", payload: CHAT_REASONING },
+    runId: CHAT_REASONING.runId,
+  },
+  { frame: chatDelta(id), runId: CHAT_DELTA.runId },
+  { frame: { id, createdAt: "", kind: "chat.tool", payload: CHAT_TOOL }, runId: CHAT_TOOL.runId },
+  {
+    frame: { id, createdAt: "", kind: "approval.requested", payload: APPROVAL_REQUESTED },
+    runId: APPROVAL_REQUESTED.runId,
+  },
+];
+
 describe("event replay state", () => {
   test("a delta establishes a recovery barrier even when started was missed", () => {
     const state = advanceReplayState(emptyState(), chatDelta(42));
@@ -108,14 +156,26 @@ describe("event replay state", () => {
     assert.equal(replaySince(state), 41);
   });
 
-  // Every kind `NOT_RECOVERABLE` names advances the cursor and arms nothing.
-  // Four of the six carry a `runId` their typed payload requires, so this is the
-  // exclusion policy and not a statement about which payloads have the field.
+  // The six kinds `NOT_RECOVERABLE` names today: each advances the cursor and
+  // arms nothing. Four of the six carry a `runId` their typed payload requires,
+  // so this is the exclusion policy and not a statement about which payloads have
+  // the field. Hand-listed like `recoveredFrames` — nothing makes it track the
+  // table, so it covers today's six and not the table's future contents.
   test("an excluded kind advances the cursor without arming a barrier", () => {
     for (const frame of excludedFrames(42)) {
       assert.deepEqual(
         advanceReplayState(emptyState(), frame),
         { cursor: 42, activeRuns: {} },
+        frame.kind,
+      );
+    }
+  });
+
+  test("a recovered kind arms its own run's barrier", () => {
+    for (const { frame, runId } of recoveredFrames(42)) {
+      assert.deepEqual(
+        advanceReplayState(emptyState(), frame),
+        { cursor: 42, activeRuns: { [runId]: 41 } },
         frame.kind,
       );
     }
