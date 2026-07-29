@@ -196,6 +196,35 @@ jobs:
       - name: AI unit tests
         run: corepack pnpm --filter @alfred/ai test
 
+  web-unit-tests:
+    name: web-unit-tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Enable Corepack
+        run: corepack enable
+
+      - name: Resolve pnpm store path
+        run: echo "PNPM_STORE_PATH=$(corepack pnpm store path --silent)" >> "$GITHUB_ENV"
+
+      - uses: actions/cache@v4
+        with:
+          path: ${{ env.PNPM_STORE_PATH }}
+          key: ${{ runner.os }}-pnpm-store-${{ hashFiles('pnpm-lock.yaml') }}
+          restore-keys: ${{ runner.os }}-pnpm-store-
+
+      - name: Install dependencies
+        run: corepack pnpm install --frozen-lockfile
+
+      - name: Web unit tests
+        run: corepack pnpm --filter web test
+
   required:
     name: required
     runs-on: ubuntu-latest
@@ -205,16 +234,21 @@ jobs:
       - api-unit-tests
       - api-db-tests
       - ai-unit-tests
+      - web-unit-tests
     if: always()
     steps:
+      # The assertion below names no job. It reads the outcomes of the `needs:`
+      # list above, so a job added to that list is gated by this step without a
+      # second edit here. A job that is NOT in `needs:` still gates nothing.
       - name: Fail unless all required CI jobs passed
         env:
-          STATIC_RESULT: ${{ needs.static.result }}
-          API_UNIT_TESTS_RESULT: ${{ needs.api-unit-tests.result }}
-          API_DB_TESTS_RESULT: ${{ needs.api-db-tests.result }}
-          AI_UNIT_TESTS_RESULT: ${{ needs.ai-unit-tests.result }}
+          RESULTS: ${{ join(needs.*.result, ' ') }}
+          NEEDS: ${{ toJSON(needs) }}
         run: |
-          test "$STATIC_RESULT" = "success"
-          test "$API_UNIT_TESTS_RESULT" = "success"
-          test "$API_DB_TESTS_RESULT" = "success"
-          test "$AI_UNIT_TESTS_RESULT" = "success"
+          echo "$NEEDS"
+          # An empty RESULTS would run zero assertions and exit 0, so the gate
+          # would pass vacuously. Refuse it.
+          test -n "$RESULTS"
+          for result in $RESULTS; do
+            test "$result" = "success"
+          done
