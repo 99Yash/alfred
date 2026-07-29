@@ -14,25 +14,20 @@ import {
   driveSearchInput,
   restPassthroughInput,
 } from "@alfred/contracts";
-import {
-  DRIVE_SCOPE,
-  downloadFile,
-  exportFile,
-  getFile,
-  listFiles,
-} from "@alfred/integrations/google";
+import { DRIVE_SCOPE } from "@alfred/integrations/google";
 import { surfaceExternalFileArtifact } from "../artifacts/external-file";
-import { resolveGoogleAccessToken } from "./google-credentials";
-import { runGooglePassthrough } from "./passthrough";
+import { resolveGoogleCredential } from "./google-credentials";
+import { runRestPassthrough } from "./passthrough";
 import { liveTool, type RegisteredTool, type ToolExecuteContext } from "./registry";
 
-/** Resolve an access token for a Drive call — requires the `drive` scope. */
-function accessTokenFor(userId: string): Promise<string> {
-  return resolveGoogleAccessToken(userId, {
+/** Resolve the Drive-scoped Google account; the facade resolves its token. */
+async function credentialIdFor(userId: string): Promise<string> {
+  const credential = await resolveGoogleCredential(userId, {
     scopes: [DRIVE_SCOPE],
     noConnection: "drive_connection_required",
     noScope: "drive_scope_required",
   });
+  return credential.id;
 }
 
 /** Google-editable file (Doc/Sheet/Slide) — the only kind `export_file` can read as text. */
@@ -60,7 +55,7 @@ interface RenderedInSidebarResult {
  */
 async function maybeSurfaceUnreadableDriveFile(
   ctx: ToolExecuteContext,
-  args: { accessToken: string; fileId: string },
+  args: { credentialId: string; fileId: string },
 ): Promise<RenderedInSidebarResult | null> {
   // Artifacts are thread-owned — a non-chat run (briefing, sub-agent) has no
   // sidebar to surface into, so let the original error stand.
@@ -71,7 +66,7 @@ async function maybeSurfaceUnreadableDriveFile(
   // mimeType tells us whether text extraction was ever possible.
   let file;
   try {
-    file = await getFile({ accessToken: args.accessToken, fileId: args.fileId });
+    file = await ctx.integrations.google.drive.getFile(args);
   } catch {
     return null;
   }
@@ -111,9 +106,9 @@ export const driveTools: readonly RegisteredTool[] = [
     description: "Search or list the user's Drive files (with an optional Drive query string).",
     inputSchema: driveSearchInput,
     execute: async (input, ctx) => {
-      const accessToken = await accessTokenFor(ctx.userId);
-      return listFiles({
-        accessToken,
+      const credentialId = await credentialIdFor(ctx.userId);
+      return ctx.integrations.google.drive.listFiles({
+        credentialId,
         q: input.q,
         pageSize: input.pageSize,
         pageToken: input.pageToken,
@@ -128,8 +123,8 @@ export const driveTools: readonly RegisteredTool[] = [
     description: "Read one Drive file's metadata (name, mimeType, modified time, link, owners).",
     inputSchema: driveGetFileInput,
     execute: async (input, ctx) => {
-      const accessToken = await accessTokenFor(ctx.userId);
-      return getFile({ accessToken, fileId: input.fileId });
+      const credentialId = await credentialIdFor(ctx.userId);
+      return ctx.integrations.google.drive.getFile({ credentialId, fileId: input.fileId });
     },
   }),
   liveTool({
@@ -140,12 +135,16 @@ export const driveTools: readonly RegisteredTool[] = [
       "Read a Google-native file (Doc/Sheet/Slide) in as text so you can reason over its contents. Text export only (text/plain default, text/csv, text/markdown, text/html) — it does NOT produce a downloadable PDF/slides/spreadsheet; that is a separate capability. Use download_file for non-Google uploads. When the user wants a shareable document, a live Google Sheet/Doc link is the deliverable.",
     inputSchema: driveExportFileInput,
     execute: async (input, ctx) => {
-      const accessToken = await accessTokenFor(ctx.userId);
+      const credentialId = await credentialIdFor(ctx.userId);
       try {
-        return await exportFile({ accessToken, fileId: input.fileId, mimeType: input.mimeType });
+        return await ctx.integrations.google.drive.exportFile({
+          credentialId,
+          fileId: input.fileId,
+          mimeType: input.mimeType,
+        });
       } catch (err) {
         const surfaced = await maybeSurfaceUnreadableDriveFile(ctx, {
-          accessToken,
+          credentialId,
           fileId: input.fileId,
         });
         if (surfaced) return surfaced;
@@ -161,12 +160,15 @@ export const driveTools: readonly RegisteredTool[] = [
       "Download a non-Google file's contents as text (best for .txt/.csv/.json uploads; binary comes back garbled).",
     inputSchema: driveDownloadFileInput,
     execute: async (input, ctx) => {
-      const accessToken = await accessTokenFor(ctx.userId);
+      const credentialId = await credentialIdFor(ctx.userId);
       try {
-        return await downloadFile({ accessToken, fileId: input.fileId });
+        return await ctx.integrations.google.drive.downloadFile({
+          credentialId,
+          fileId: input.fileId,
+        });
       } catch (err) {
         const surfaced = await maybeSurfaceUnreadableDriveFile(ctx, {
-          accessToken,
+          credentialId,
           fileId: input.fileId,
         });
         if (surfaced) return surfaced;
@@ -190,8 +192,12 @@ export const driveTools: readonly RegisteredTool[] = [
     },
     inputSchema: restPassthroughInput,
     execute: async (input, ctx) => {
-      const token = await accessTokenFor(ctx.userId);
-      return runGooglePassthrough("drive", token, input);
+      const credentialId = await credentialIdFor(ctx.userId);
+      return runRestPassthrough(
+        "drive",
+        await ctx.integrations.google.drive.passthroughProfile(credentialId),
+        input,
+      );
     },
   }),
 ];

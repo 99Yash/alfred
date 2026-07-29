@@ -14,27 +14,8 @@ import {
   notionSearchInput,
   restPassthroughInput,
 } from "@alfred/contracts";
-import {
-  notionAppendBlocks,
-  notionCreatePage,
-  notionGetPage,
-  notionPassthroughProfile,
-  notionSearch,
-} from "@alfred/integrations/notion";
-import { getActiveBearerCredential } from "@alfred/integrations/shared";
 import { runRestPassthrough } from "./passthrough";
 import { liveTool, type RegisteredTool } from "./registry";
-
-/**
- * SUPERSEDED PATH, CALLERS ARE BEING MIGRATED (#551). Notion is not on the
- * `ctx.integrations` facade yet, so these tools still resolve the credential here
- * and pass a bare token into each `notion*` function. `notionClientForUser` in
- * #551 removes this helper along with every `token` parameter below it.
- */
-async function tokenFor(userId: string): Promise<string> {
-  const { accessToken } = await getActiveBearerCredential(userId, "notion");
-  return accessToken;
-}
 
 export const notionTools: readonly RegisteredTool[] = [
   liveTool({
@@ -45,9 +26,7 @@ export const notionTools: readonly RegisteredTool[] = [
       "Search the connected Notion workspace for pages and databases the integration can see. Returns id, title, url, and last-edited time. Use filter to restrict to pages or databases.",
     inputSchema: notionSearchInput,
     execute: async (input, ctx) => {
-      const accessToken = await tokenFor(ctx.userId);
-      return notionSearch({
-        accessToken,
+      return ctx.integrations.notion.search({
         query: input.query,
         filter: input.filter,
         pageSize: input.pageSize,
@@ -62,8 +41,7 @@ export const notionTools: readonly RegisteredTool[] = [
       "Read a Notion page: its title, url, and a plain-text rendering of its top-level blocks. Pass the page id from a search result.",
     inputSchema: notionGetPageInput,
     execute: async (input, ctx) => {
-      const accessToken = await tokenFor(ctx.userId);
-      return notionGetPage({ accessToken, pageId: input.pageId });
+      return ctx.integrations.notion.getPage({ pageId: input.pageId });
     },
   }),
   liveTool({
@@ -74,9 +52,7 @@ export const notionTools: readonly RegisteredTool[] = [
       "Create a new Notion page nested under an existing parent page (the integration must be shared with the parent). Optional content becomes paragraph blocks, one per line.",
     inputSchema: notionCreatePageInput,
     execute: async (input, ctx) => {
-      const accessToken = await tokenFor(ctx.userId);
-      return notionCreatePage({
-        accessToken,
+      return ctx.integrations.notion.createPage({
         parentPageId: input.parentPageId,
         title: input.title,
         content: input.content,
@@ -90,8 +66,10 @@ export const notionTools: readonly RegisteredTool[] = [
     description: "Append paragraph blocks (one per line) to an existing Notion page or block.",
     inputSchema: notionAppendBlocksInput,
     execute: async (input, ctx) => {
-      const accessToken = await tokenFor(ctx.userId);
-      return notionAppendBlocks({ accessToken, blockId: input.blockId, content: input.content });
+      return ctx.integrations.notion.appendBlocks({
+        blockId: input.blockId,
+        content: input.content,
+      });
     },
   }),
   liveTool({
@@ -110,8 +88,11 @@ export const notionTools: readonly RegisteredTool[] = [
     },
     inputSchema: restPassthroughInput,
     execute: async (input, ctx) => {
-      const accessToken = await tokenFor(ctx.userId);
-      return runRestPassthrough("notion", notionPassthroughProfile(accessToken), input);
+      return runRestPassthrough(
+        "notion",
+        await ctx.integrations.notion.passthroughProfile(),
+        input,
+      );
     },
   }),
 ];

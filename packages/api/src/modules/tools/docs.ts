@@ -4,23 +4,24 @@
  * Read-only tool surface (the grant is now full `documents`, but write
  * tools are separate — ADR-0043): a single `get_document` that flattens a
  * Doc into plain text + a heading outline.
- * Resolve the user's active Docs-scoped google credential, mint a fresh
- * token, call the thin client — via the shared credential resolver.
+ * Resolve the user's active Docs-scoped Google credential, then call the
+ * user-bound integration facade; tool code never receives its token.
  */
 
 import { docsGetDocumentInput, restPassthroughInput } from "@alfred/contracts";
-import { DOCS_SCOPE, getDocument } from "@alfred/integrations/google";
-import { resolveGoogleAccessToken } from "./google-credentials";
-import { runGooglePassthrough } from "./passthrough";
+import { DOCS_SCOPE } from "@alfred/integrations/google";
+import { resolveGoogleCredential } from "./google-credentials";
+import { runRestPassthrough } from "./passthrough";
 import { liveTool, type RegisteredTool } from "./registry";
 
-/** Resolve an access token for a Docs call — requires the `documents` scope. */
-function accessTokenFor(userId: string): Promise<string> {
-  return resolveGoogleAccessToken(userId, {
+/** Resolve the Docs-scoped Google account; the facade resolves its token. */
+async function credentialIdFor(userId: string): Promise<string> {
+  const credential = await resolveGoogleCredential(userId, {
     scopes: [DOCS_SCOPE],
     noConnection: "google_connection_required",
     noScope: "docs_scope_required",
   });
+  return credential.id;
 }
 
 export const docsTools: readonly RegisteredTool[] = [
@@ -32,8 +33,11 @@ export const docsTools: readonly RegisteredTool[] = [
       "Read a Google Doc's full text and heading outline. Provide the document id (from a Drive search or a Docs URL).",
     inputSchema: docsGetDocumentInput,
     execute: async (input, ctx) => {
-      const accessToken = await accessTokenFor(ctx.userId);
-      return getDocument({ accessToken, documentId: input.documentId });
+      const credentialId = await credentialIdFor(ctx.userId);
+      return ctx.integrations.google.docs.getDocument({
+        credentialId,
+        documentId: input.documentId,
+      });
     },
   }),
   liveTool({
@@ -52,8 +56,12 @@ export const docsTools: readonly RegisteredTool[] = [
     },
     inputSchema: restPassthroughInput,
     execute: async (input, ctx) => {
-      const token = await accessTokenFor(ctx.userId);
-      return runGooglePassthrough("docs", token, input);
+      const credentialId = await credentialIdFor(ctx.userId);
+      return runRestPassthrough(
+        "docs",
+        await ctx.integrations.google.docs.passthroughProfile(credentialId),
+        input,
+      );
     },
   }),
 ];

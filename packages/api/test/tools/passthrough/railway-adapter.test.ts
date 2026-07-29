@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { describe, test } from "node:test";
 import type { GraphqlPassthroughRequest } from "@alfred/contracts";
+import { railwayGraphqlRaw } from "@alfred/integrations/railway";
 import { runRailwayPassthrough } from "../../../src/modules/tools/passthrough";
 
 /**
@@ -32,6 +33,7 @@ function jsonResponse(body: unknown, status = 200): Response {
 }
 
 const query = (document: string): GraphqlPassthroughRequest => ({ document });
+const transport = (request: GraphqlPassthroughRequest) => railwayGraphqlRaw("tok", request);
 
 describe("runRailwayPassthrough — gate denial (never leaves Alfred)", () => {
   test("a mutation is a visible rejected envelope, no fetch issued", async () => {
@@ -41,7 +43,7 @@ describe("runRailwayPassthrough — gate denial (never leaves Alfred)", () => {
         fetched = true;
         return jsonResponse({});
       },
-      () => runRailwayPassthrough("tok", query("mutation { deleteService(id: 1) { id } }")),
+      () => runRailwayPassthrough(transport, query("mutation { deleteService(id: 1) { id } }")),
     );
     assert.equal(fetched, false, "gate must short-circuit before any network call");
     assert.equal(result.outcome, "rejected");
@@ -53,7 +55,7 @@ describe("runRailwayPassthrough — HTTP envelope", () => {
   test("a clean 200 with data is succeeded:true and carries the body", async () => {
     const result = await withMockedFetch(
       () => jsonResponse({ data: { me: { id: "u1" } } }),
-      () => runRailwayPassthrough("tok", query("query { me { id } }")),
+      () => runRailwayPassthrough(transport, query("query { me { id } }")),
     );
     assert.equal(result.outcome, "http");
     if (result.outcome === "http") {
@@ -70,7 +72,7 @@ describe("runRailwayPassthrough — HTTP envelope", () => {
     };
     const result = await withMockedFetch(
       () => jsonResponse(body),
-      () => runRailwayPassthrough("tok", query("query { me { id } x }")),
+      () => runRailwayPassthrough(transport, query("query { me { id } x }")),
     );
     assert.equal(result.outcome, "http");
     if (result.outcome === "http") {
@@ -85,7 +87,7 @@ describe("runRailwayPassthrough — HTTP envelope", () => {
   test("a non-2xx (e.g. 500) is honest: succeeded:false with the real status and body", async () => {
     const result = await withMockedFetch(
       () => jsonResponse({ errors: [{ message: "server error" }] }, 500),
-      () => runRailwayPassthrough("tok", query("query { me { id } }")),
+      () => runRailwayPassthrough(transport, query("query { me { id } }")),
     );
     assert.equal(result.outcome, "http");
     if (result.outcome === "http") {
@@ -103,7 +105,7 @@ describe("runRailwayPassthrough — transport failure classification", () => {
         err.name = "TimeoutError";
         throw err;
       },
-      () => runRailwayPassthrough("tok", query("query { me { id } }")),
+      () => runRailwayPassthrough(transport, query("query { me { id } }")),
     );
     assert.equal(result.outcome, "transport");
     if (result.outcome === "transport") {
@@ -119,7 +121,7 @@ describe("runRailwayPassthrough — transport failure classification", () => {
         (err as unknown as { cause: { code: string } }).cause = { code: "ENOTFOUND" };
         throw err;
       },
-      () => runRailwayPassthrough("tok", query("query { me { id } }")),
+      () => runRailwayPassthrough(transport, query("query { me { id } }")),
     );
     assert.equal(result.outcome, "transport");
     if (result.outcome === "transport") {

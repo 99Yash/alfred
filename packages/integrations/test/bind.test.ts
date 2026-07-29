@@ -82,6 +82,9 @@ describe("integrations facade", () => {
   test("returns the SAME provider client on repeated access within one bind", () => {
     const bound = integrations({ userId: "user_1", retry: RETRY });
     assert.equal(bound.github, bound.github, "one bind must yield one github client");
+    assert.equal(bound.google, bound.google);
+    assert.equal(bound.notion, bound.notion);
+    assert.equal(bound.railway, bound.railway);
     assert.equal(bound.vercel, bound.vercel);
   });
 
@@ -96,6 +99,12 @@ describe("integrations facade", () => {
     // provider is behind a getter, so an unconfigured provider cannot fail at
     // bind time and a tool pays for only the providers it uses.
     const bound = integrations({ userId: "user_1", retry: RETRY });
-    assert.deepEqual(Object.keys(bound).sort(), ["github", "vercel"]);
+    assert.deepEqual(Object.keys(bound).sort(), [
+      "github",
+      "google",
+      "notion",
+      "railway",
+      "vercel",
+    ]);
   });
 });

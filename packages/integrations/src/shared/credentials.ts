@@ -165,7 +165,12 @@ export type ActiveBearerCredential = Pick<
   "id" | "accessToken" | "accountId" | "accountLabel" | "metadata"
 >;
 
-/** List active bearer credentials, newest-updated first (capped at `limit`). */
+/**
+ * List active bearer credentials, newest-updated first (capped at `limit`).
+ *
+ * @internal Credential boundary for provider clients and non-tool background
+ * callers that do not have a ToolExecuteContext.
+ */
 export async function listActiveBearerCredentials(
   userId: string,
   provider: BearerProvider,
@@ -197,12 +202,11 @@ export async function listActiveBearerCredentials(
  * Throws a connect-me error when none exists — tool code surfaces that to the
  * boss so it asks the user to connect rather than inventing an answer.
  *
- * Still the right call from INSIDE a provider client — `vercelClientForUser` uses
- * it, wraps the token in a `Redacted`, and hands the client back. What is being
- * migrated away (#551) is calling it from TOOL code: a tool that reaches a bare
- * `accessToken` has to know which provider function to use and that the string it
- * gets must never be logged or persisted, when `ctx.integrations.<provider>`
- * already answers both. Notion and Railway tools are the remaining callers.
+ * Provider clients use this internally. Tool code enters through
+ * `ctx.integrations.<provider>` and never receives the returned token.
+ *
+ * @internal Credential boundary for provider clients and non-tool background
+ * callers that do not have a ToolExecuteContext.
  */
 export async function getActiveBearerCredential(
   userId: string,

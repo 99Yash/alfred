@@ -17,17 +17,13 @@
  * multiple scope-satisfying accounts here (no tool threads an explicit
  * accountId yet — a future refinement); the first match wins.
  *
- * A dead refresh token self-heals into an actionable error too:
- * `getFreshAccessToken` flips that credential to `needs_reauth`, so the next
- * call finds no active scope-satisfying credential and raises the policy's
- * connection/scope error instead of a generic failure.
+ * A dead refresh token self-heals into an actionable error too: the user-bound
+ * Google client flips that credential to `needs_reauth`, so the next call finds
+ * no active scope-satisfying credential and raises the policy's connection or
+ * scope error instead of a generic failure.
  */
 
-import {
-  getFreshAccessToken,
-  listCredentials,
-  type CredentialRow,
-} from "@alfred/integrations/google";
+import { listCredentials, type CredentialRow } from "@alfred/integrations/google";
 import { AppError, type AppErrorCode } from "../../lib/app-errors";
 
 /** True when the credential grants at least one of `scopes` (any-of). */
@@ -83,22 +79,4 @@ export async function resolveGoogleCredential(
   const scoped = active.find((c) => grantsAnyScope(c, policy.scopes));
   if (!scoped) throw new AppError(policy.noScope ?? policy.noConnection);
   return scoped;
-}
-
-/**
- * Resolve a scope-satisfying credential and mint a fresh access token in one step.
- *
- * SUPERSEDED PATH, CALLERS ARE BEING MIGRATED (#551). This is the chokepoint the
- * Google tools should use meanwhile — scope policy and token minting in one call —
- * but a bare token still crosses into tool code here. `googleClientForUser` in
- * #551 folds both the policy check and the `Redacted` token inside the client, and
- * the direct `getFreshAccessToken` calls in `gmail.ts` / `calendar.ts` collapse
- * into it.
- */
-export async function resolveGoogleAccessToken(
-  userId: string,
-  policy: GoogleScopePolicy,
-): Promise<string> {
-  const credential = await resolveGoogleCredential(userId, policy);
-  return getFreshAccessToken(credential.id);
 }

@@ -7,10 +7,9 @@
  * dispatcher's gate is `user_action_policies`, not the tier — the tier only
  * drives the staging-card UX (per the registry note / ADR-0034).
  *
- * Each execute resolves the user's active Sheets-scoped google credential via
- * the shared resolver, mints a fresh access token, then calls the thin Sheets
- * client. The `spreadsheets` scope is granted when the user connects the Sheets
- * feature; a connected account lacking it raises an actionable
+ * Each execute selects the user's active Sheets-scoped Google credential, then
+ * calls the user-bound integration facade. The `spreadsheets` scope is granted
+ * when the user connects the Sheets feature; a connected account lacking it raises an actionable
  * `sheets_scope_required` rather than a raw client `[sheets] 403`.
  */
 
@@ -23,26 +22,19 @@ import {
   sheetsGetValuesInput,
   sheetsUpdateValuesInput,
 } from "@alfred/contracts";
-import {
-  addSheet,
-  appendValues,
-  batchUpdateSpreadsheet,
-  createSpreadsheet,
-  getValues,
-  SHEETS_SCOPE,
-  updateValues,
-} from "@alfred/integrations/google";
-import { resolveGoogleAccessToken } from "./google-credentials";
-import { runGooglePassthrough } from "./passthrough";
+import { SHEETS_SCOPE } from "@alfred/integrations/google";
+import { resolveGoogleCredential } from "./google-credentials";
+import { runRestPassthrough } from "./passthrough";
 import { liveTool, type RegisteredTool } from "./registry";
 
-/** Resolve an access token for a Sheets call — requires the `spreadsheets` scope. */
-function accessTokenFor(userId: string): Promise<string> {
-  return resolveGoogleAccessToken(userId, {
+/** Resolve the Sheets-scoped Google account; the facade resolves its token. */
+async function credentialIdFor(userId: string): Promise<string> {
+  const credential = await resolveGoogleCredential(userId, {
     scopes: [SHEETS_SCOPE],
     noConnection: "google_connection_required",
     noScope: "sheets_scope_required",
   });
+  return credential.id;
 }
 
 export const sheetsTools: readonly RegisteredTool[] = [
@@ -53,8 +45,11 @@ export const sheetsTools: readonly RegisteredTool[] = [
     description: "Create a new Google Sheets spreadsheet in the user's Drive.",
     inputSchema: sheetsCreateInput,
     execute: async (input, ctx) => {
-      const accessToken = await accessTokenFor(ctx.userId);
-      return createSpreadsheet({ accessToken, title: input.title });
+      const credentialId = await credentialIdFor(ctx.userId);
+      return ctx.integrations.google.sheets.createSpreadsheet({
+        credentialId,
+        title: input.title,
+      });
     },
   }),
   liveTool({
@@ -64,8 +59,12 @@ export const sheetsTools: readonly RegisteredTool[] = [
     description: "Read a range of cell values from a spreadsheet (A1 notation).",
     inputSchema: sheetsGetValuesInput,
     execute: async (input, ctx) => {
-      const accessToken = await accessTokenFor(ctx.userId);
-      return getValues({ accessToken, spreadsheetId: input.spreadsheetId, range: input.range });
+      const credentialId = await credentialIdFor(ctx.userId);
+      return ctx.integrations.google.sheets.getValues({
+        credentialId,
+        spreadsheetId: input.spreadsheetId,
+        range: input.range,
+      });
     },
   }),
   liveTool({
@@ -75,9 +74,9 @@ export const sheetsTools: readonly RegisteredTool[] = [
     description: "Overwrite the values in a range of a spreadsheet (A1 notation).",
     inputSchema: sheetsUpdateValuesInput,
     execute: async (input, ctx) => {
-      const accessToken = await accessTokenFor(ctx.userId);
-      return updateValues({
-        accessToken,
+      const credentialId = await credentialIdFor(ctx.userId);
+      return ctx.integrations.google.sheets.updateValues({
+        credentialId,
         spreadsheetId: input.spreadsheetId,
         range: input.range,
         values: input.values,
@@ -92,9 +91,9 @@ export const sheetsTools: readonly RegisteredTool[] = [
     description: "Append rows after the last row of a table in a spreadsheet.",
     inputSchema: sheetsAppendValuesInput,
     execute: async (input, ctx) => {
-      const accessToken = await accessTokenFor(ctx.userId);
-      return appendValues({
-        accessToken,
+      const credentialId = await credentialIdFor(ctx.userId);
+      return ctx.integrations.google.sheets.appendValues({
+        credentialId,
         spreadsheetId: input.spreadsheetId,
         range: input.range,
         values: input.values,
@@ -110,9 +109,9 @@ export const sheetsTools: readonly RegisteredTool[] = [
       "Apply structural edits to a spreadsheet (add sheet, formatting, merge cells, …) via raw Sheets API request objects.",
     inputSchema: sheetsBatchUpdateInput,
     execute: async (input, ctx) => {
-      const accessToken = await accessTokenFor(ctx.userId);
-      return batchUpdateSpreadsheet({
-        accessToken,
+      const credentialId = await credentialIdFor(ctx.userId);
+      return ctx.integrations.google.sheets.batchUpdateSpreadsheet({
+        credentialId,
         spreadsheetId: input.spreadsheetId,
         requests: input.requests,
       });
@@ -125,8 +124,12 @@ export const sheetsTools: readonly RegisteredTool[] = [
     description: "Add a new tab (sheet) to a spreadsheet.",
     inputSchema: sheetsAddSheetInput,
     execute: async (input, ctx) => {
-      const accessToken = await accessTokenFor(ctx.userId);
-      return addSheet({ accessToken, spreadsheetId: input.spreadsheetId, title: input.title });
+      const credentialId = await credentialIdFor(ctx.userId);
+      return ctx.integrations.google.sheets.addSheet({
+        credentialId,
+        spreadsheetId: input.spreadsheetId,
+        title: input.title,
+      });
     },
   }),
   liveTool({
@@ -145,8 +148,12 @@ export const sheetsTools: readonly RegisteredTool[] = [
     },
     inputSchema: restPassthroughInput,
     execute: async (input, ctx) => {
-      const token = await accessTokenFor(ctx.userId);
-      return runGooglePassthrough("sheets", token, input);
+      const credentialId = await credentialIdFor(ctx.userId);
+      return runRestPassthrough(
+        "sheets",
+        await ctx.integrations.google.sheets.passthroughProfile(credentialId),
+        input,
+      );
     },
   }),
 ];

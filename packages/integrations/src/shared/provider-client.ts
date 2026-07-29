@@ -84,11 +84,9 @@ export interface ProviderClientConfig {
    * states its posture, including the bounded `"summarize"` one; a new member
    * cannot inherit a leak by omission, only by choosing it.
    *
-   * GitHub and Vercel both choose `"summarize"`. Notion is the member the `"omit"`
-   * value is for — it already passes `bodyPolicy: "omit"` to `authedJson`
-   * (`notion/client.ts`) and is queued to join this seam by the facade cutover
-   * (#551). A shared seam that cannot express a member's policy has not
-   * generalized it, it has excluded it.
+   * GitHub and Vercel both choose `"summarize"`. Notion is the member the
+   * `"omit"` value is for. A shared seam that cannot express a member's policy
+   * has not generalized it, it has excluded it.
    */
   bodyPolicy: ErrorBodyPolicy;
 }
