@@ -22,7 +22,7 @@ export function clamp01(n: number): number {
  * range has to be a soft expectation rather than a schema gate. A bare number
  * emits `{"type":"number"}`, which round-trips cleanly through structured
  * output. (Historically this also guarded a cross-provider Anthropic Haiku
- * fallback; `getCheapModel` now degrades same-provider to Gemini Flash, but the
+ * fallback; `route` now degrades same-provider to Gemini Flash, but the
  * bare-number choice stands — it keeps the schema portable and the constraint
  * one-sided is still enforced where it matters.)
  *

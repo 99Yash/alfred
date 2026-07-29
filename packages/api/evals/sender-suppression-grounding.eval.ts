@@ -1,5 +1,5 @@
 import path from "node:path";
-import { getChatModel, getChatProviderOptions } from "@alfred/ai";
+import { route } from "@alfred/ai";
 import {
   gmailSearchInput,
   gmailSearchResultSchema,
@@ -86,12 +86,13 @@ const CASES: Case[] = [
 ];
 
 function runFirstCall(input: string) {
+  const modelRoute = route("standard");
   return generateText({
-    model: getChatModel("standard"),
+    model: modelRoute.model(),
     instructions: SYSTEM,
     prompt: input,
     timeout: { totalMs: EVAL_TIMEOUT_MS },
-    providerOptions: standardProviderOptions(),
+    providerOptions: modelRoute.providerOptions(),
     // Real tool surface, execute-less so the run halts on the first tool call
     // and we can inspect what the model reached for first.
     tools: {
@@ -195,25 +196,19 @@ const RESOLUTION_CASES: ResolutionCase[] = [
   },
 ];
 
-function standardProviderOptions(): Record<string, never> {
-  // SAFETY: This mirrors `AlfredAgent`, which casts the project-level
-  // provider-options helper at the AI SDK boundary. The helper is intentionally
-  // looser so callers don't import provider-internal SDK types.
-  return getChatProviderOptions("standard") as unknown as Record<string, never>;
-}
-
 async function runResolutionScenario(
   input: string,
   searchResult: GmailSearchResult,
 ): Promise<ResolutionTaskOutput> {
   const remembered: RememberCall[] = [];
   const resolvedTodos: RememberCall[] = [];
+  const modelRoute = route("standard");
   const result = await generateText({
-    model: getChatModel("standard"),
+    model: modelRoute.model(),
     instructions: SYSTEM,
     prompt: input,
     timeout: { totalMs: EVAL_TIMEOUT_MS },
-    providerOptions: standardProviderOptions(),
+    providerOptions: modelRoute.providerOptions(),
     stopWhen: isStepCount(4),
     tools: {
       [SEARCH_TOOL]: tool({

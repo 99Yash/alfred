@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { describe, test } from "node:test";
 
-import { COMPACTOR_FALLBACK_MODEL, COMPACTOR_MODEL } from "@alfred/ai";
+import { route } from "@alfred/ai";
 
 import {
   chooseCompactorModel,
@@ -33,7 +33,7 @@ describe("chooseCompactorModel headroom (#371)", () => {
     const priorTokens = compactorWindow - compactorRequestOverheadTokens - 1;
     assert.equal(
       chooseCompactorModel({ priorTokens, compactorWindow, fallbackWindow }),
-      COMPACTOR_MODEL,
+      route("compactor").model(),
     );
   });
 
@@ -49,7 +49,7 @@ describe("chooseCompactorModel headroom (#371)", () => {
     );
     assert.equal(
       chooseCompactorModel({ priorTokens, compactorWindow, fallbackWindow }),
-      COMPACTOR_FALLBACK_MODEL,
+      route("compactorFallback").model(),
     );
   });
 

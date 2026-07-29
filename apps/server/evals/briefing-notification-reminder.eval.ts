@@ -1,5 +1,5 @@
 import path from "node:path";
-import { getBossModel, getRegisteredModel, type LanguageModel } from "@alfred/ai";
+import { route, type LanguageModel } from "@alfred/ai";
 import type { EmailListItem, PriorBriefingSummary } from "@alfred/api/backend";
 import type { DayShape } from "@alfred/contracts";
 import { generateText, isStepCount, tool } from "ai";
@@ -230,9 +230,9 @@ const EMPTY_OUTPUT: ComposeOutput = {
 function modelForLane(lane: ModelLane): LanguageModel {
   switch (lane) {
     case "boss":
-      return getBossModel();
+      return route("boss").model();
     case "forced-gemini":
-      return getRegisteredModel("gemini-3.5-flash");
+      return route("gemini-3.5-flash", "medium").model();
     default: {
       const _exhaustive: never = lane;
       return _exhaustive;

@@ -2,8 +2,7 @@ import {
   AlfredAgent,
   DEFAULT_TURN_STREAM_TIMEOUT,
   classifyStreamFinish,
-  getChatModel,
-  getChatProviderOptions,
+  route,
   type ChatModelTier,
   type ModelMessage,
 } from "@alfred/ai";
@@ -351,7 +350,8 @@ const chatTurnStep: Step<ChatRunState> = {
         workflow: CHAT_TURN_WORKFLOW_SLUG,
         spanCaller: "boss",
       });
-      const chatModel = getChatModel(state.tier);
+      const chatRoute = route(state.tier);
+      const chatModel = chatRoute.model();
 
       // Own cancellation before the context guard: compaction can make billable
       // model calls too, so Stop must cover it as well as the streamed answer.
@@ -429,7 +429,7 @@ const chatTurnStep: Step<ChatRunState> = {
         // Ask the model to expose its thinking so the turn streams
         // `reasoning-delta` parts → the chat UI's "Thinking…" accordion.
         // Tier-aware: `deep` escalates Anthropic adaptive-thinking effort.
-        providerOptions: getChatProviderOptions(state.tier),
+        providerOptions: chatRoute.providerOptions(),
         // `sessionId: threadId` groups every turn of this conversation (each its
         // own run/trace) under one Langfuse session (#226).
         attribution: {

@@ -1,7 +1,5 @@
 import {
-  COMPACTOR_MODEL,
-  getBossModel,
-  getSubAgentModel,
+  route,
   resolveEffectiveInputWindowTokens,
   AlfredAgent,
   type ModelMessage,
@@ -242,7 +240,7 @@ const bossTurnStep: Step<BriefRunState> = {
           workflow: USER_AUTHORED_BRIEF_WORKFLOW_SLUG,
           spanCaller: subAgent ? `sub:${subAgent.subId}` : "boss",
         }),
-      model: subAgent ? getSubAgentModel() : getBossModel(),
+      model: subAgent ? route("subAgent").model() : route("boss").model(),
       attribution: {
         kind: "llm",
         userId: ctx.userId,
@@ -594,9 +592,9 @@ const compactTranscriptStep: Step<BriefRunState> = {
 };
 
 async function resolvePressureThresholdTokens(isSubAgent: boolean): Promise<number> {
-  const agentModel = isSubAgent ? getSubAgentModel() : getBossModel();
+  const agentModel = isSubAgent ? route("subAgent").model() : route("boss").model();
   const effectiveWindow = await resolveEffectiveInputWindowTokens({
-    models: isSubAgent ? [agentModel] : [agentModel, COMPACTOR_MODEL],
+    models: isSubAgent ? [agentModel] : [agentModel, route("compactor").model()],
   });
   return compactionThresholdTokens(effectiveWindow);
 }

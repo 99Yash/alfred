@@ -8,7 +8,7 @@
  * computed cost, and (when LANGFUSE_* keys are present) flushes the
  * span so it shows up in the Langfuse dashboard.
  */
-import { flushLangfuse, getCheapModel, meteredGenerateText } from "@alfred/ai";
+import { flushLangfuse, route, meteredGenerateText } from "@alfred/ai";
 import { closeConnections, warmPool } from "@alfred/api/runtime";
 import { db } from "@alfred/db";
 import { apiCallLog } from "@alfred/db/schemas";
@@ -25,7 +25,7 @@ async function main() {
 
   const result = await meteredGenerateText(
     {
-      model: getCheapModel(),
+      model: route("cheap").model(),
       prompt: "Reply with the single word: ok",
       maxOutputTokens: 5,
     },

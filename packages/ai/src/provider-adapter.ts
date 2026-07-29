@@ -2,7 +2,7 @@ import { anthropic, type AnthropicLanguageModelOptions } from "@ai-sdk/anthropic
 import { google, type GoogleLanguageModelOptions } from "@ai-sdk/google";
 import { openai, type OpenAILanguageModelResponsesOptions } from "@ai-sdk/openai";
 import { INTEGRATION_ACTIONS, type IntegrationSlug, toRecord } from "@alfred/contracts";
-import { wrapLanguageModel, type LanguageModelMiddleware } from "ai";
+import { defaultSettingsMiddleware, wrapLanguageModel, type LanguageModelMiddleware } from "ai";
 import type { LanguageModel as LanguageModelV4 } from "ai-retry";
 import { z } from "zod";
 import {
@@ -146,14 +146,21 @@ const PROVIDER_ADAPTERS = {
  */
 const NATIVE_TOOL_LOADING_MODELS: ReadonlySet<ModelId> = new Set();
 
+function adapterForModel(modelId: ModelId): ProviderAdapter<ModelId> {
+  const provider = MODEL_REGISTRY[modelId];
+  // SAFETY: ProviderAdapterMap keys each entry by the exact ModelIdFor<P>
+  // derived from MODEL_REGISTRY. Looking the entry up through that same registry
+  // preserves the relation, but TypeScript cannot retain it through indexed access.
+  return PROVIDER_ADAPTERS[provider] as ProviderAdapter<ModelId>;
+}
+
 /**
  * Resolve the protocol selected for a concrete model. Capability, provider
  * mechanics, and rollout enablement must all agree before native mode can run.
  */
 function toolLoadingProtocolForModel(modelId: ModelId): ToolLoadingProtocol {
-  const provider = MODEL_REGISTRY[modelId];
   return MODEL_CAPABILITIES[modelId].nativeToolSearch &&
-    PROVIDER_ADAPTERS[provider].nativeToolSearch &&
+    adapterForModel(modelId).nativeToolSearch &&
     NATIVE_TOOL_LOADING_MODELS.has(modelId)
     ? "native"
     : "application";
@@ -360,8 +367,7 @@ function projectAnthropicRequest(params: CallOptions, cacheTtl: CacheTtl | undef
 }
 
 function middlewareFor(modelId: ModelId): LanguageModelMiddleware {
-  const provider = MODEL_REGISTRY[modelId];
-  const adapter = PROVIDER_ADAPTERS[provider] as ProviderAdapter<ModelId>;
+  const adapter = adapterForModel(modelId);
   return {
     specificationVersion: "v4",
     transformParams: async ({ params }) => {
@@ -476,15 +482,13 @@ export type ProviderAdaptedLanguageModel = LanguageModelV4 & {
 };
 
 /**
- * Wrap one concrete registered model at the single provider-adapter seam.
- * Protocol projection is outermost; name encoding is the inner provider edge.
+ * Probe/test seam for wrapping an injected concrete model. Production route
+ * construction goes through createProviderModel so model id and implementation
+ * cannot disagree.
  */
-export function withProviderAdapter(
-  modelId: ModelId,
-  model: LanguageModelV4,
-): ProviderAdaptedLanguageModel {
+export function withProviderAdapter(modelId: ModelId, model: LanguageModelV4): LanguageModelV4 {
   const provider = MODEL_REGISTRY[modelId];
-  const adapter = PROVIDER_ADAPTERS[provider] as ProviderAdapter<ModelId>;
+  const adapter = adapterForModel(modelId);
   const actualProvider = normalizeProvider(model.provider);
   if (actualProvider !== provider || model.modelId !== modelId) {
     throw new Error(
@@ -498,40 +502,52 @@ export function withProviderAdapter(
   return wrapLanguageModel({
     model: named,
     middleware: middlewareFor(modelId),
-  }) as ProviderAdaptedLanguageModel;
-}
-
-function adapterForModel(modelId: ModelId): ProviderAdapter<ModelId> {
-  const provider = MODEL_REGISTRY[modelId];
-  // SAFETY: ProviderAdapterMap keys each entry by the exact ModelIdFor<P>
-  // derived from MODEL_REGISTRY. Looking the entry up through that same registry
-  // preserves the relation, but TypeScript cannot retain it through indexed access.
-  return PROVIDER_ADAPTERS[provider] as ProviderAdapter<ModelId>;
+  }) as LanguageModelV4;
 }
 
 /** Construct one fully wrapped concrete model from Alfred's closed registry. */
-export function createProviderModel(modelId: ModelId): ProviderAdaptedLanguageModel {
+export function createProviderModel(modelId: ModelId): LanguageModelV4 {
   const adapter = adapterForModel(modelId);
   return withProviderAdapter(modelId, adapter.createModel(modelId));
 }
 
-/** Resolve one model's provider-namespaced reasoning block through its adapter. */
+export type ModelReasoningPolicy = EffortLevel | "disabled";
+
+/** Resolve one model's complete provider-namespaced reasoning block. */
 export function providerOptionsForModel(
   modelId: ModelId,
-  effort: EffortLevel,
-): { provider: ModelProviderId; options: NonNullable<ProviderOptions[string]> } {
+  reasoning: ModelReasoningPolicy,
+): ProviderOptions {
   const provider = MODEL_REGISTRY[modelId];
-  return { provider, options: adapterForModel(modelId).reasoningOptions(modelId, effort) };
+  const adapter = adapterForModel(modelId);
+  const options =
+    reasoning === "disabled"
+      ? adapter.disabledReasoningOptions(modelId)
+      : adapter.reasoningOptions(modelId, reasoning);
+  return { [provider]: options };
 }
 
-/** Resolve a provider's wire representation for an explicit no-reasoning policy. */
-export function disabledReasoningProviderOptionsForModel(modelId: ModelId): {
-  provider: ModelProviderId;
-  options: NonNullable<ProviderOptions[string]>;
-} {
-  const provider = MODEL_REGISTRY[modelId];
-  return {
-    provider,
-    options: adapterForModel(modelId).disabledReasoningOptions(modelId),
-  };
+/**
+ * Compose an adapted route inside the module that owns the brand. Every
+ * concrete leg crosses the provider seam before product fallback/default
+ * wrappers are applied, and the brand is restored once at the outer route seam.
+ */
+export function createProviderRouteModel(
+  chain: readonly [ModelId, ...ModelId[]],
+  composeFallback: (primary: LanguageModelV4, fallback: LanguageModelV4) => LanguageModelV4,
+  defaultProviderOptions?: ProviderOptions,
+): ProviderAdaptedLanguageModel {
+  let model: LanguageModelV4 = createProviderModel(chain[0]);
+  for (const modelId of chain.slice(1)) {
+    model = composeFallback(model, createProviderModel(modelId));
+  }
+  if (defaultProviderOptions) {
+    model = wrapLanguageModel({
+      model,
+      middleware: defaultSettingsMiddleware({
+        settings: { providerOptions: defaultProviderOptions },
+      }),
+    }) as LanguageModelV4;
+  }
+  return model as ProviderAdaptedLanguageModel;
 }

@@ -18,7 +18,7 @@
 
 // NOTE: this probe deliberately bypasses the package's model-dispatch helpers and
 // reads `process.env` directly. The whole point is to isolate the raw Anthropic
-// cache accounting from the agent stack — `getChatModel()` would pull in fallback
+// cache accounting from the agent stack — `route("standard").model()` would pull in fallback
 // wrapping, and `serverEnv()` would throw on ~19 unrelated vars a bare probe has no
 // business requiring. Do not "fix" this to route through the helpers.
 import { anthropic } from "@ai-sdk/anthropic";

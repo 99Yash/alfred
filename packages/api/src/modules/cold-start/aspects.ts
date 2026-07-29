@@ -1,4 +1,4 @@
-import { getSubAgentModel, isStepCount, meteredGenerateText } from "@alfred/ai";
+import { route, isStepCount, meteredGenerateText } from "@alfred/ai";
 import type { IdentityAnchor } from "./seed";
 import type { ColdStartSignals } from "./signals";
 import { buildColdStartWebTool } from "./web-tool";
@@ -125,7 +125,7 @@ async function runAspect(args: {
 
   const result = await meteredGenerateText(
     {
-      model: getSubAgentModel(),
+      model: route("subAgent").model(),
       instructions: SYSTEM_PROMPT,
       prompt: buildPrompt(args),
       tools: web.tools,

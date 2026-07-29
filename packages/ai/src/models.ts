@@ -209,7 +209,11 @@ const providerModelIdentitySchema = z
     }
   });
 
-/** Parse and correlate an untrusted provider/model pair, failing closed on drift. */
+/**
+ * Parse and correlate an untrusted provider/model pair, failing closed on drift.
+ * Reserved for provider-native-tool-loading Slice 3, where reported provider
+ * identity enters verified provider-discovered-call dispatch.
+ */
 export function parseProviderModelIdentity(input: unknown): ProviderModelIdentity {
   const parsed = providerModelIdentitySchema.parse(input);
   // SAFETY: the schema first narrows both closed enums, then superRefine proves

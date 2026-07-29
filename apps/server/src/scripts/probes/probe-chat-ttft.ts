@@ -17,12 +17,11 @@
  * ("haiku,sonnet"), PROBE_MAX_OUT (default 400).
  */
 import {
-  getBossModel,
-  getChatModel,
-  getChatProviderOptions,
+  route,
   streamText,
   tool,
   type LanguageModel,
+  type ModelRouteHandle,
   type Tool,
   type ToolSet,
 } from "@alfred/ai";
@@ -31,21 +30,17 @@ import { registerBuiltinTools } from "@alfred/api/runtime";
 import { INTEGRATION_SLUGS } from "@alfred/contracts";
 
 // Routed through the real dispatch helpers so the tool-name shim + provider
-// options match prod. `getChatModel("standard")` = Haiku (the chat Auto tier),
-// `getChatModel("deep")` = Opus + adaptive thinking (the Deep tier), and
-// `getBossModel()` = Sonnet (the background boss) — all withFallback-wrapped
+// options match prod. `route("standard").model()` = Haiku (the chat Auto tier),
+// `route("deep").model()` = Opus + adaptive thinking (the Deep tier), and
+// `route("boss").model()` = Sonnet (the background boss) — all withFallback-wrapped
 // (transparent on success). `thinking` carries the per-tier reasoning block so
 // the Deep tier faithfully emits reasoning tokens BEFORE tool calls — the exact
 // "5-7s thinking before tool calls" symptom this probe exists to isolate.
-type ChatProviderOptions = ReturnType<typeof getChatProviderOptions>;
-interface ProbeModel {
-  model: LanguageModel;
-  thinking?: ChatProviderOptions;
-}
-const MODELS: Record<string, () => ProbeModel> = {
-  haiku: () => ({ model: getChatModel("standard"), thinking: getChatProviderOptions("standard") }),
-  sonnet: () => ({ model: getBossModel() }),
-  opus: () => ({ model: getChatModel("deep"), thinking: getChatProviderOptions("deep") }),
+type ChatProviderOptions = ReturnType<ModelRouteHandle["providerOptions"]>;
+const MODELS: Record<string, () => ModelRouteHandle> = {
+  haiku: () => route("standard"),
+  sonnet: () => route("boss"),
+  opus: () => route("deep"),
 };
 const SELECTED = (process.env.PROBE_MODELS ?? "haiku,sonnet,opus")
   .split(",")
@@ -198,9 +193,14 @@ async function main(): Promise<void> {
   for (const m of SELECTED) {
     const make = MODELS[m];
     if (!make) continue;
-    const { model, thinking } = make();
-    await condition(`${m} · no tools`, model, undefined, thinking);
-    await condition(`${m} · ${count} tools (prod-like)`, model, tools, thinking);
+    const modelRoute = make();
+    await condition(`${m} · no tools`, modelRoute.model(), undefined, modelRoute.providerOptions());
+    await condition(
+      `${m} · ${count} tools (prod-like)`,
+      modelRoute.model(),
+      tools,
+      modelRoute.providerOptions(),
+    );
   }
   console.log(
     "\n# Read: if ttft ≈ total and tools inflate ttft → the 7s is the model ingesting the\n" +

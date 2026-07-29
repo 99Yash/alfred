@@ -9,23 +9,23 @@ import {
   type ModelId,
   parseProviderModelIdentity,
 } from "../src/models";
-import { getChatProviderOptions, getRegisteredModelProviderOptions } from "../src/provider";
+import { route } from "../src/provider";
 
 /**
  * The per-model capability map (ADR-0078) replaced the hardcoded tier→capability
- * branch in `getChatProviderOptions`. These offline invariants lock the two things
+ * branch in `route`. These offline invariants lock the two things
  * a future tier remap must never break: the tier-selected reasoning block, and
  * the clamp that keeps the dispatch from emitting an effort a model 400s on.
  */
 describe("provider capability dispatch", () => {
-  test("getChatProviderOptions follows the chat tier capability map", () => {
+  test("route follows the chat tier capability map", () => {
     // standard → Sonnet 4.6: adaptive thinking + clamped medium effort (ADR-0077 amendment).
-    assert.deepEqual(getChatProviderOptions("standard"), {
+    assert.deepEqual(route("standard").providerOptions(), {
       anthropic: { thinking: { type: "adaptive", display: "summarized" }, effort: "medium" },
       google: { thinkingConfig: { includeThoughts: true, thinkingLevel: "medium" } },
     });
     // deep → Opus 4.8: adaptive thinking + clamped effort.
-    assert.deepEqual(getChatProviderOptions("deep"), {
+    assert.deepEqual(route("deep").providerOptions(), {
       anthropic: { thinking: { type: "adaptive", display: "summarized" }, effort: "high" },
       google: { thinkingConfig: { includeThoughts: true, thinkingLevel: "high" } },
     });
@@ -80,19 +80,19 @@ describe("provider capability dispatch", () => {
   });
 
   test("Google dispatch maps effort models and preserves budget-based models", () => {
-    assert.deepEqual(getRegisteredModelProviderOptions("gemini-3.5-flash", "xhigh"), {
+    assert.deepEqual(route("gemini-3.5-flash", "xhigh").providerOptions(), {
       google: { thinkingConfig: { includeThoughts: true, thinkingLevel: "high" } },
     });
-    assert.deepEqual(getRegisteredModelProviderOptions("gemini-2.5-flash", "medium"), {
+    assert.deepEqual(route("gemini-2.5-flash", "medium").providerOptions(), {
       google: { thinkingConfig: { includeThoughts: true, thinkingBudget: -1 } },
     });
   });
 
   test("GPT-5.6 dispatch emits only supported Responses API effort values", () => {
-    assert.deepEqual(getRegisteredModelProviderOptions("gpt-5.6-sol", "max"), {
+    assert.deepEqual(route("gpt-5.6-sol", "max").providerOptions(), {
       openai: { reasoningEffort: "max" },
     });
-    assert.deepEqual(getRegisteredModelProviderOptions("gpt-5.6-luna", "minimal"), {
+    assert.deepEqual(route("gpt-5.6-luna", "minimal").providerOptions(), {
       openai: { reasoningEffort: "none" },
     });
   });

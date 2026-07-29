@@ -19,3 +19,13 @@ projection, and tool-loading protocol selection behind `withProviderAdapter`.
 wrapper-ordering knowledge that had leaked across `provider.ts`,
 `provider-protocol.ts`, and `tool-name-shim.ts` while preserving
 `MODEL_CAPABILITIES` as the per-model source of truth.
+
+The product interface is now one `route(name)` handle rather than separate
+model getters and provider-option builders. `MODEL_ROUTES` declares each
+non-empty model chain with its reasoning policy; `.model()` and
+`.providerOptions()` fold the same chain, and route construction installs those
+options as overridable defaults around the composed fallback. The
+`ProviderAdaptedLanguageModel` brand is applied once, after composition, inside
+the provider-adapter module. This makes a third fallback leg a one-table edit
+and prevents a model chain from drifting away from its provider reasoning
+blocks.
