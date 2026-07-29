@@ -22,20 +22,8 @@ import {
   sheetsGetValuesInput,
   sheetsUpdateValuesInput,
 } from "@alfred/contracts";
-import { SHEETS_SCOPE } from "@alfred/integrations/google";
-import { resolveGoogleCredential } from "./google-credentials";
 import { runRestPassthrough } from "./passthrough";
 import { liveTool, type RegisteredTool } from "./registry";
-
-/** Resolve the Sheets-scoped Google account; the facade resolves its token. */
-async function credentialIdFor(userId: string): Promise<string> {
-  const credential = await resolveGoogleCredential(userId, {
-    scopes: [SHEETS_SCOPE],
-    noConnection: "google_connection_required",
-    noScope: "sheets_scope_required",
-  });
-  return credential.id;
-}
 
 export const sheetsTools: readonly RegisteredTool[] = [
   liveTool({
@@ -45,7 +33,7 @@ export const sheetsTools: readonly RegisteredTool[] = [
     description: "Create a new Google Sheets spreadsheet in the user's Drive.",
     inputSchema: sheetsCreateInput,
     execute: async (input, ctx) => {
-      const credentialId = await credentialIdFor(ctx.userId);
+      const credentialId = (await ctx.integrations.google.sheets.credential()).id;
       return ctx.integrations.google.sheets.createSpreadsheet({
         credentialId,
         title: input.title,
@@ -59,7 +47,7 @@ export const sheetsTools: readonly RegisteredTool[] = [
     description: "Read a range of cell values from a spreadsheet (A1 notation).",
     inputSchema: sheetsGetValuesInput,
     execute: async (input, ctx) => {
-      const credentialId = await credentialIdFor(ctx.userId);
+      const credentialId = (await ctx.integrations.google.sheets.credential()).id;
       return ctx.integrations.google.sheets.getValues({
         credentialId,
         spreadsheetId: input.spreadsheetId,
@@ -74,7 +62,7 @@ export const sheetsTools: readonly RegisteredTool[] = [
     description: "Overwrite the values in a range of a spreadsheet (A1 notation).",
     inputSchema: sheetsUpdateValuesInput,
     execute: async (input, ctx) => {
-      const credentialId = await credentialIdFor(ctx.userId);
+      const credentialId = (await ctx.integrations.google.sheets.credential()).id;
       return ctx.integrations.google.sheets.updateValues({
         credentialId,
         spreadsheetId: input.spreadsheetId,
@@ -91,7 +79,7 @@ export const sheetsTools: readonly RegisteredTool[] = [
     description: "Append rows after the last row of a table in a spreadsheet.",
     inputSchema: sheetsAppendValuesInput,
     execute: async (input, ctx) => {
-      const credentialId = await credentialIdFor(ctx.userId);
+      const credentialId = (await ctx.integrations.google.sheets.credential()).id;
       return ctx.integrations.google.sheets.appendValues({
         credentialId,
         spreadsheetId: input.spreadsheetId,
@@ -109,7 +97,7 @@ export const sheetsTools: readonly RegisteredTool[] = [
       "Apply structural edits to a spreadsheet (add sheet, formatting, merge cells, …) via raw Sheets API request objects.",
     inputSchema: sheetsBatchUpdateInput,
     execute: async (input, ctx) => {
-      const credentialId = await credentialIdFor(ctx.userId);
+      const credentialId = (await ctx.integrations.google.sheets.credential()).id;
       return ctx.integrations.google.sheets.batchUpdateSpreadsheet({
         credentialId,
         spreadsheetId: input.spreadsheetId,
@@ -124,7 +112,7 @@ export const sheetsTools: readonly RegisteredTool[] = [
     description: "Add a new tab (sheet) to a spreadsheet.",
     inputSchema: sheetsAddSheetInput,
     execute: async (input, ctx) => {
-      const credentialId = await credentialIdFor(ctx.userId);
+      const credentialId = (await ctx.integrations.google.sheets.credential()).id;
       return ctx.integrations.google.sheets.addSheet({
         credentialId,
         spreadsheetId: input.spreadsheetId,
@@ -148,12 +136,8 @@ export const sheetsTools: readonly RegisteredTool[] = [
     },
     inputSchema: restPassthroughInput,
     execute: async (input, ctx) => {
-      const credentialId = await credentialIdFor(ctx.userId);
-      return runRestPassthrough(
-        "sheets",
-        await ctx.integrations.google.sheets.passthroughProfile(credentialId),
-        input,
-      );
+      const credentialId = (await ctx.integrations.google.sheets.credential()).id;
+      return runRestPassthrough(ctx.integrations.google.sheets.passthrough(credentialId), input);
     },
   }),
 ];

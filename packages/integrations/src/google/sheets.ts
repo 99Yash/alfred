@@ -1,4 +1,5 @@
 import { z } from "zod";
+import type { RetryPolicy } from "../shared/retry";
 import { googleJson } from "./http";
 
 /**
@@ -94,9 +95,12 @@ export interface GetValuesResult {
 }
 
 /** Read a range of cell values. */
-export async function getValues(args: GetValuesArgs): Promise<GetValuesResult> {
+export async function getValues(
+  args: GetValuesArgs,
+  retry: RetryPolicy | "none" = "none",
+): Promise<GetValuesResult> {
   const url = `${API_BASE}/${encodeURIComponent(args.spreadsheetId)}/values/${encodeURIComponent(args.range)}`;
-  const json = await sendJson("GET", url, args.accessToken);
+  const json = await sendJson("GET", url, args.accessToken, undefined, retry);
   const parsed = valueRangeSchema.parse(json);
   return { range: parsed.range, values: (parsed.values ?? []) as CellValue[][] };
 }
@@ -206,4 +210,5 @@ const sendJson = (
   url: string,
   accessToken: string,
   payload?: unknown,
-): Promise<unknown> => googleJson("sheets", method, url, accessToken, payload);
+  retry: RetryPolicy | "none" = "none",
+): Promise<unknown> => googleJson("sheets", method, url, accessToken, payload, retry);

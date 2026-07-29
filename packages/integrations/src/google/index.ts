@@ -8,8 +8,11 @@ export type {
 export { createEvent, listEvents } from "./calendar";
 export {
   createGoogleClient,
+  GoogleCredentialSelectionError,
   googleClientForUser,
+  type GoogleAuthority,
   type GoogleClient,
+  type GoogleCredential,
   type GoogleTokenResolver,
 } from "./client";
 export type { CredentialRow } from "./credentials";

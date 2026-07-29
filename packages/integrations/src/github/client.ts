@@ -3,7 +3,7 @@ import { z } from "zod";
 
 import type { ProviderBindOptions } from "../shared/provider";
 import { defineProviderClient } from "../shared/provider-client";
-import type { RestPassthroughProfile } from "../shared/rest-passthrough";
+import { restPassthroughCapability } from "../shared/rest-passthrough";
 import type { RetryPolicy } from "../shared/retry";
 import { getInstallationTokenForUser } from "./credentials";
 import { GITHUB_API, githubHeaders } from "./rest";
@@ -182,6 +182,14 @@ export function createGithubClient(options: GithubClientOptions) {
     // tool call diagnosable. Stated, not inherited.
     bodyPolicy: "summarize",
   });
+  const passthrough = restPassthroughCapability({
+    slug: "github",
+    retry: options.retry,
+    resolveProfile: async () => ({
+      baseUrl: GITHUB_API,
+      headers: githubHeaders((await options.resolveToken()).token),
+    }),
+  });
 
   return {
     /** The connected login (for resolving `author:@me`), resolved alongside the token. */
@@ -202,9 +210,7 @@ export function createGithubClient(options: GithubClientOptions) {
      * policy owned by `@alfred/api` (`assertReadableRestRequest`), and this
      * profile carries authority only.
      */
-    async passthroughProfile(): Promise<RestPassthroughProfile> {
-      return { baseUrl: GITHUB_API, headers: githubHeaders((await options.resolveToken()).token) };
-    },
+    passthrough,
 
     async search(args: {
       q: string;

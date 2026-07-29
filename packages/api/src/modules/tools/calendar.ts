@@ -7,14 +7,12 @@ import {
 import {
   CALENDAR_EVENTS_SCOPE,
   CALENDAR_READONLY_SCOPE,
-  requireScopes,
   type CalendarEvent,
 } from "@alfred/integrations/google";
 import type { z } from "zod";
 import { AppError, toPublicAppError, type PublicAppError } from "../../lib/app-errors";
 import { logger } from "../../lib/logger";
 import { addDays, inZone } from "../timezone";
-import { activeGoogleCredentials, resolveGoogleCredential } from "./google-credentials";
 import { runRestPassthrough } from "./passthrough";
 import { liveTool, type RegisteredTool, type ToolExecuteContext } from "./registry";
 
@@ -39,24 +37,6 @@ type CompactCalendarEvent = ReturnType<typeof compactEvent>;
 /** Read = either scope; write = the events scope. Matched any-of by the resolver. */
 const CALENDAR_READ_SCOPES = [CALENDAR_READONLY_SCOPE, CALENDAR_EVENTS_SCOPE] as const;
 const CALENDAR_WRITE_SCOPES = [CALENDAR_EVENTS_SCOPE] as const;
-
-/**
- * Every active Calendar-readable account — reads fan out across all of them
- * (an event may live in a personal or a work calendar), unlike the
- * single-credential Google tools.
- */
-async function calendarReadCredentials(userId: string): Promise<CalendarCredential[]> {
-  const creds = await activeGoogleCredentials(userId, CALENDAR_READ_SCOPES);
-  return creds.map((c) => ({ id: c.id, accountLabel: c.accountLabel }));
-}
-
-async function calendarWriteCredential(userId: string): Promise<CalendarCredential> {
-  const cred = await resolveGoogleCredential(userId, {
-    scopes: CALENDAR_WRITE_SCOPES,
-    noConnection: "calendar_connection_required",
-  });
-  return { id: cred.id, accountLabel: cred.accountLabel };
-}
 
 export function resolveCalendarListWindow(
   input: CalendarListEventsInput,
@@ -204,7 +184,7 @@ function allReadsFailed(
 
 async function executeListEvents(input: CalendarListEventsInput, ctx: ToolExecuteContext) {
   const window = resolveCalendarListWindow(input, ctx.timezone);
-  const credentials = await calendarReadCredentials(ctx.userId);
+  const credentials = await ctx.integrations.google.calendar.readCredentials();
   if (credentials.length === 0) {
     throw new AppError("calendar_read_connection_required");
   }
@@ -255,8 +235,7 @@ async function executeListEvents(input: CalendarListEventsInput, ctx: ToolExecut
 }
 
 async function executeCreateEvent(input: CalendarCreateEventInput, ctx: ToolExecuteContext) {
-  const credential = await calendarWriteCredential(ctx.userId);
-  await requireScopes(credential.id, ["calendar"]);
+  const credential = await ctx.integrations.google.calendar.writeCredential();
   const created = await ctx.integrations.google.calendar.createEvent({
     credentialId: credential.id,
     calendarId: input.calendarId,
@@ -335,15 +314,8 @@ export const calendarTools: readonly RegisteredTool[] = [
     },
     inputSchema: restPassthroughInput,
     execute: async (input, ctx) => {
-      const credential = await resolveGoogleCredential(ctx.userId, {
-        scopes: CALENDAR_READ_SCOPES,
-        noConnection: "calendar_read_connection_required",
-      });
-      return runRestPassthrough(
-        "calendar",
-        await ctx.integrations.google.calendar.passthroughProfile(credential.id),
-        input,
-      );
+      const credential = (await ctx.integrations.google.calendar.readCredentials())[0]!;
+      return runRestPassthrough(ctx.integrations.google.calendar.passthrough(credential.id), input);
     },
   }),
 ];

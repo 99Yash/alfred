@@ -15,7 +15,7 @@ import {
   railwayRecentDeploymentsInput,
   railwayRedeployInput,
 } from "@alfred/contracts";
-import type { RailwayCredential } from "@alfred/integrations/railway";
+import type { RailwayCredentialClient } from "@alfred/integrations/railway";
 import { runRailwayPassthrough } from "./passthrough";
 import { AppError } from "../../lib/app-errors";
 import {
@@ -28,7 +28,7 @@ import {
 } from "./railway-fanout";
 import { liveTool, type RegisteredTool, type ToolExecuteContext } from "./registry";
 
-async function credentialsFor(ctx: ToolExecuteContext): Promise<RailwayCredential[]> {
+async function credentialsFor(ctx: ToolExecuteContext): Promise<RailwayCredentialClient[]> {
   const credentials = await ctx.integrations.railway.credentials();
   if (credentials.length === 0) {
     throw new AppError("railway_connection_required");
@@ -39,7 +39,7 @@ async function credentialsFor(ctx: ToolExecuteContext): Promise<RailwayCredentia
 async function selectCredential(
   ctx: ToolExecuteContext,
   credentialId?: string,
-): Promise<RailwayCredential> {
+): Promise<RailwayCredentialClient> {
   return pickCredential(await credentialsFor(ctx), credentialId);
 }
 
@@ -52,9 +52,14 @@ export const railwayTools: readonly RegisteredTool[] = [
       "List the Railway projects across every connected credential, each tagged with its credentialId. Use this first to resolve project/service/environment ids — and the credentialId — for the other Railway tools.",
     inputSchema: railwayListProjectsInput,
     execute: async (_input, ctx) => {
+      const credentials = await credentialsFor(ctx);
       const { projects, failures } = await listProjectsForCredentials(
-        await credentialsFor(ctx),
-        (credentialId) => ctx.integrations.railway.listProjects({ credentialId }),
+        credentials,
+        (credentialId) => {
+          const credential = credentials.find((candidate) => candidate.id === credentialId);
+          if (!credential) throw new AppError("railway_credential_required");
+          return credential.listProjects();
+        },
       );
       // Surface partial failures (e.g. a stale credential) so the boss can tell
       // the user, but keep the happy-path output lean when nothing failed.
@@ -70,8 +75,7 @@ export const railwayTools: readonly RegisteredTool[] = [
     inputSchema: railwayListDeploymentsInput,
     execute: async (input, ctx) => {
       const credential = await selectCredential(ctx, input.credentialId);
-      const result = await ctx.integrations.railway.listDeployments({
-        credentialId: credential.id,
+      const result = await credential.listDeployments({
         projectId: input.projectId,
         serviceId: input.serviceId,
         environmentId: input.environmentId,
@@ -92,10 +96,19 @@ export const railwayTools: readonly RegisteredTool[] = [
       "List the most recent deployments across ALL Railway projects and every connected credential, newest first — each tagged with its project, service, status, createdAt, and credentialId. Use this to answer 'what deployed recently' or to build an activity digest: it fans out across every project for you, so you never have to call list_projects and then list_deployments per project. Never claim there are no recent deployments without calling this first. To read one project's fuller deployment history (or a specific service/environment), use list_deployments; for a single deployment's logs, use get_logs.",
     inputSchema: railwayRecentDeploymentsInput,
     execute: async (input, ctx) => {
+      const credentials = await credentialsFor(ctx);
       const { deployments, failures } = await listRecentDeploymentsForCredentials(
-        await credentialsFor(ctx),
-        (credentialId) => ctx.integrations.railway.listProjects({ credentialId }),
-        (args) => ctx.integrations.railway.listDeployments(args),
+        credentials,
+        (credentialId) => {
+          const credential = credentials.find((candidate) => candidate.id === credentialId);
+          if (!credential) throw new AppError("railway_credential_required");
+          return credential.listProjects();
+        },
+        ({ credentialId, ...args }) => {
+          const credential = credentials.find((candidate) => candidate.id === credentialId);
+          if (!credential) throw new AppError("railway_credential_required");
+          return credential.listDeployments(args);
+        },
         { overallLimit: input.limit },
       );
       // Surface partial failures (a stale credential, a project that wouldn't
@@ -113,8 +126,7 @@ export const railwayTools: readonly RegisteredTool[] = [
     inputSchema: railwayGetLogsInput,
     execute: async (input, ctx) => {
       const credential = await selectCredential(ctx, input.credentialId);
-      const result = await ctx.integrations.railway.getLogs({
-        credentialId: credential.id,
+      const result = await credential.getLogs({
         deploymentId: input.deploymentId,
         limit: input.limit,
       });
@@ -137,14 +149,7 @@ export const railwayTools: readonly RegisteredTool[] = [
     inputSchema: railwayGraphqlInput,
     execute: async (input, ctx) => {
       const credential = await selectCredential(ctx);
-      return runRailwayPassthrough(
-        (request) =>
-          ctx.integrations.railway.graphqlRaw({
-            credentialId: credential.id,
-            ...request,
-          }),
-        input,
-      );
+      return runRailwayPassthrough((request) => credential.graphqlRaw(request), input);
     },
   }),
   liveTool({
@@ -156,8 +161,7 @@ export const railwayTools: readonly RegisteredTool[] = [
     inputSchema: railwayRedeployInput,
     execute: async (input, ctx) => {
       const credential = await selectCredential(ctx, input.credentialId);
-      const result = await ctx.integrations.railway.redeploy({
-        credentialId: credential.id,
+      const result = await credential.redeploy({
         deploymentId: input.deploymentId,
       });
       return { ...credentialRef(credential), ...result };

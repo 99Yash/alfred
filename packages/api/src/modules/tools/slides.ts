@@ -18,20 +18,8 @@ import {
   slidesCreateInput,
   slidesGetInput,
 } from "@alfred/contracts";
-import { SLIDES_SCOPE } from "@alfred/integrations/google";
-import { resolveGoogleCredential } from "./google-credentials";
 import { runRestPassthrough } from "./passthrough";
 import { liveTool, type RegisteredTool } from "./registry";
-
-/** Resolve the Slides-scoped Google account; the facade resolves its token. */
-async function credentialIdFor(userId: string): Promise<string> {
-  const credential = await resolveGoogleCredential(userId, {
-    scopes: [SLIDES_SCOPE],
-    noConnection: "google_connection_required",
-    noScope: "slides_scope_required",
-  });
-  return credential.id;
-}
 
 export const slidesTools: readonly RegisteredTool[] = [
   liveTool({
@@ -41,7 +29,7 @@ export const slidesTools: readonly RegisteredTool[] = [
     description: "Create a new Google Slides presentation in the user's Drive.",
     inputSchema: slidesCreateInput,
     execute: async (input, ctx) => {
-      const credentialId = await credentialIdFor(ctx.userId);
+      const credentialId = (await ctx.integrations.google.slides.credential()).id;
       return ctx.integrations.google.slides.createPresentation({
         credentialId,
         title: input.title,
@@ -55,7 +43,7 @@ export const slidesTools: readonly RegisteredTool[] = [
     description: "Fetch a presentation's title, revision, and slide count.",
     inputSchema: slidesGetInput,
     execute: async (input, ctx) => {
-      const credentialId = await credentialIdFor(ctx.userId);
+      const credentialId = (await ctx.integrations.google.slides.credential()).id;
       return ctx.integrations.google.slides.getPresentation({
         credentialId,
         presentationId: input.presentationId,
@@ -70,7 +58,7 @@ export const slidesTools: readonly RegisteredTool[] = [
       "Edit a presentation (add slides, insert text, create shapes/images, …) via raw Slides API request objects.",
     inputSchema: slidesBatchUpdateInput,
     execute: async (input, ctx) => {
-      const credentialId = await credentialIdFor(ctx.userId);
+      const credentialId = (await ctx.integrations.google.slides.credential()).id;
       return ctx.integrations.google.slides.batchUpdatePresentation({
         credentialId,
         presentationId: input.presentationId,
@@ -85,7 +73,7 @@ export const slidesTools: readonly RegisteredTool[] = [
     description: "Append a blank slide (optionally with a predefined layout) to a presentation.",
     inputSchema: slidesAddSlideInput,
     execute: async (input, ctx) => {
-      const credentialId = await credentialIdFor(ctx.userId);
+      const credentialId = (await ctx.integrations.google.slides.credential()).id;
       return ctx.integrations.google.slides.addSlide({
         credentialId,
         presentationId: input.presentationId,
@@ -109,12 +97,8 @@ export const slidesTools: readonly RegisteredTool[] = [
     },
     inputSchema: restPassthroughInput,
     execute: async (input, ctx) => {
-      const credentialId = await credentialIdFor(ctx.userId);
-      return runRestPassthrough(
-        "slides",
-        await ctx.integrations.google.slides.passthroughProfile(credentialId),
-        input,
-      );
+      const credentialId = (await ctx.integrations.google.slides.credential()).id;
+      return runRestPassthrough(ctx.integrations.google.slides.passthrough(credentialId), input);
     },
   }),
 ];

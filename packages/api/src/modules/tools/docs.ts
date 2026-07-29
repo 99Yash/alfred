@@ -9,20 +9,8 @@
  */
 
 import { docsGetDocumentInput, restPassthroughInput } from "@alfred/contracts";
-import { DOCS_SCOPE } from "@alfred/integrations/google";
-import { resolveGoogleCredential } from "./google-credentials";
 import { runRestPassthrough } from "./passthrough";
 import { liveTool, type RegisteredTool } from "./registry";
-
-/** Resolve the Docs-scoped Google account; the facade resolves its token. */
-async function credentialIdFor(userId: string): Promise<string> {
-  const credential = await resolveGoogleCredential(userId, {
-    scopes: [DOCS_SCOPE],
-    noConnection: "google_connection_required",
-    noScope: "docs_scope_required",
-  });
-  return credential.id;
-}
 
 export const docsTools: readonly RegisteredTool[] = [
   liveTool({
@@ -33,7 +21,7 @@ export const docsTools: readonly RegisteredTool[] = [
       "Read a Google Doc's full text and heading outline. Provide the document id (from a Drive search or a Docs URL).",
     inputSchema: docsGetDocumentInput,
     execute: async (input, ctx) => {
-      const credentialId = await credentialIdFor(ctx.userId);
+      const credentialId = (await ctx.integrations.google.docs.credential()).id;
       return ctx.integrations.google.docs.getDocument({
         credentialId,
         documentId: input.documentId,
@@ -56,12 +44,8 @@ export const docsTools: readonly RegisteredTool[] = [
     },
     inputSchema: restPassthroughInput,
     execute: async (input, ctx) => {
-      const credentialId = await credentialIdFor(ctx.userId);
-      return runRestPassthrough(
-        "docs",
-        await ctx.integrations.google.docs.passthroughProfile(credentialId),
-        input,
-      );
+      const credentialId = (await ctx.integrations.google.docs.credential()).id;
+      return runRestPassthrough(ctx.integrations.google.docs.passthrough(credentialId), input);
     },
   }),
 ];

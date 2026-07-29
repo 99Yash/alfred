@@ -16,6 +16,7 @@ import { HttpError, summarizeBody, toMessage } from "@alfred/contracts";
 import { authedFetch } from "../shared/authed-fetch";
 import { listActiveBearerCredentials, type ActiveBearerCredential } from "../shared/credentials";
 import type { ProviderBindOptions } from "../shared/provider";
+import { fetchWithRetry, type RetryPolicy } from "../shared/retry";
 
 const RAILWAY_API = "https://backboard.railway.app/graphql/v2";
 
@@ -75,22 +76,25 @@ interface RailwayGraphqlPayload {
 async function railwayFetch(
   token: string,
   payload: RailwayGraphqlPayload,
+  retry: RetryPolicy | "none" = "none",
 ): Promise<{ status: number; ok: boolean; text: string }> {
-  const res = await authedFetch(
-    {
-      headers: { Authorization: `Bearer ${token}`, Accept: "application/json" },
-      redirect: "manual",
-    },
-    {
-      url: RAILWAY_API,
-      method: "POST",
-      body: {
-        query: payload.query,
-        variables: payload.variables ?? {},
-        ...(payload.operationName ? { operationName: payload.operationName } : {}),
+  const send = () =>
+    authedFetch(
+      {
+        headers: { Authorization: `Bearer ${token}`, Accept: "application/json" },
+        redirect: "manual",
       },
-    },
-  );
+      {
+        url: RAILWAY_API,
+        method: "POST",
+        body: {
+          query: payload.query,
+          variables: payload.variables ?? {},
+          ...(payload.operationName ? { operationName: payload.operationName } : {}),
+        },
+      },
+    );
+  const res = retry === "none" ? await send() : await fetchWithRetry(send, { policy: retry });
   return { status: res.status, ok: res.ok, text: await res.text() };
 }
 
@@ -117,12 +121,17 @@ export async function railwayGraphqlRaw(
     variables?: Record<string, unknown> | undefined;
     operationName?: string | undefined;
   },
+  retry: RetryPolicy | "none" = "none",
 ): Promise<RailwayRawGraphqlResult> {
-  const { status, text } = await railwayFetch(token, {
-    query: request.document,
-    variables: request.variables,
-    operationName: request.operationName,
-  });
+  const { status, text } = await railwayFetch(
+    token,
+    {
+      query: request.document,
+      variables: request.variables,
+      operationName: request.operationName,
+    },
+    retry,
+  );
   if (text.length === 0) return { status, body: null };
   try {
     return { status, body: JSON.parse(text) as unknown };
@@ -137,8 +146,9 @@ async function railwayGraphql<T>(
   token: string,
   query: string,
   variables?: Record<string, unknown>,
+  retry: RetryPolicy | "none" = "none",
 ): Promise<T> {
-  const { status, ok, text } = await railwayFetch(token, { query, variables });
+  const { status, ok, text } = await railwayFetch(token, { query, variables }, retry);
   if (!ok) {
     // `body: ""` is the `ErrorBodyPolicy` "omit" posture (see `httpErrorFromResponse`),
     // applied by hand because this is a GraphQL POST on `authedFetch`, not an
@@ -336,7 +346,10 @@ const PROJECT_NODE_FIELDS = `
   services { edges { node { id name } } }
   environments { edges { node { id name } } }`;
 
-export async function railwayListProjects(token: string): Promise<{ projects: RailwayProject[] }> {
+export async function railwayListProjects(
+  token: string,
+  retry: RetryPolicy | "none" = "none",
+): Promise<{ projects: RailwayProject[] }> {
   // Account tokens see workspace/team projects under `me.workspaces[].team.projects`
   // while top-level `projects` is the workspace-token path and can also include
   // personal projects for account tokens. The two reads are independent, so fire
@@ -345,8 +358,8 @@ export async function railwayListProjects(token: string): Promise<{ projects: Ra
   // working path. De-dupe by project id; `me` wins so a project that appears in
   // both keeps its workspace-scoped name.
   const [viaMe, topLevel] = await Promise.allSettled([
-    railwayListProjectsViaMe(token),
-    railwayListProjectsTopLevel(token),
+    railwayListProjectsViaMe(token, retry),
+    railwayListProjectsTopLevel(token, retry),
   ]);
 
   const projectsById = new Map<string, RailwayProject>();
@@ -377,7 +390,10 @@ export async function railwayListProjects(token: string): Promise<{ projects: Ra
   return { projects: [...projectsById.values()] };
 }
 
-async function railwayListProjectsViaMe(token: string): Promise<RailwayProject[]> {
+async function railwayListProjectsViaMe(
+  token: string,
+  retry: RetryPolicy | "none",
+): Promise<RailwayProject[]> {
   const data = await railwayGraphql<{
     // `me` can come back null for non-account tokens (mirrors the validate path);
     // don't dereference it blindly.
@@ -395,6 +411,8 @@ async function railwayListProjectsViaMe(token: string): Promise<RailwayProject[]
         }
       }
     }`,
+    undefined,
+    retry,
   );
   const projects: RailwayProject[] = [];
   for (const workspace of data.me?.workspaces ?? []) {
@@ -405,10 +423,15 @@ async function railwayListProjectsViaMe(token: string): Promise<RailwayProject[]
   return projects;
 }
 
-async function railwayListProjectsTopLevel(token: string): Promise<RailwayProject[]> {
+async function railwayListProjectsTopLevel(
+  token: string,
+  retry: RetryPolicy | "none",
+): Promise<RailwayProject[]> {
   const data = await railwayGraphql<{ projects: Connection<ProjectNode> }>(
     token,
     `query { projects { edges { node { ${PROJECT_NODE_FIELDS} } } } }`,
+    undefined,
+    retry,
   );
   return data.projects.edges.map((edge) => mapProjectNode(edge.node));
 }
@@ -421,13 +444,16 @@ export interface RailwayDeployment {
   serviceId: string | null;
 }
 
-export async function railwayListDeployments(args: {
-  token: string;
-  projectId: string;
-  serviceId?: string | undefined;
-  environmentId?: string | undefined;
-  limit: number;
-}): Promise<{ deployments: RailwayDeployment[] }> {
+export async function railwayListDeployments(
+  args: {
+    token: string;
+    projectId: string;
+    serviceId?: string | undefined;
+    environmentId?: string | undefined;
+    limit: number;
+  },
+  retry: RetryPolicy | "none" = "none",
+): Promise<{ deployments: RailwayDeployment[] }> {
   const data = await railwayGraphql<{
     deployments: Connection<{
       id: string;
@@ -452,6 +478,7 @@ export async function railwayListDeployments(args: {
         ...(args.environmentId ? { environmentId: args.environmentId } : {}),
       },
     },
+    retry,
   );
   return {
     deployments: data.deployments.edges.map(({ node }) => ({
@@ -477,11 +504,14 @@ export interface RailwayLogLine {
  */
 const MAX_LOG_LINE_CHARS = 2_000;
 
-export async function railwayGetLogs(args: {
-  token: string;
-  deploymentId: string;
-  limit: number;
-}): Promise<{ logs: RailwayLogLine[] }> {
+export async function railwayGetLogs(
+  args: {
+    token: string;
+    deploymentId: string;
+    limit: number;
+  },
+  retry: RetryPolicy | "none" = "none",
+): Promise<{ logs: RailwayLogLine[] }> {
   const data = await railwayGraphql<{
     deploymentLogs: Array<{ message: string; timestamp: string | null; severity: string | null }>;
   }>(
@@ -494,6 +524,7 @@ export async function railwayGetLogs(args: {
       }
     }`,
     { deploymentId: args.deploymentId, limit: args.limit },
+    retry,
   );
   return {
     logs: data.deploymentLogs.map((line) => ({
@@ -523,58 +554,59 @@ export async function railwayRedeploy(args: {
 /** Public credential identity used for multi-account provenance; never a secret. */
 export type RailwayCredential = Omit<ActiveBearerCredential, "accessToken">;
 
+export interface RailwayCredentialClient extends RailwayCredential {
+  listProjects(): Promise<{ projects: RailwayProject[] }>;
+  listDeployments(
+    args: Omit<Parameters<typeof railwayListDeployments>[0], "token">,
+  ): Promise<{ deployments: RailwayDeployment[] }>;
+  getLogs(
+    args: Omit<Parameters<typeof railwayGetLogs>[0], "token">,
+  ): Promise<{ logs: RailwayLogLine[] }>;
+  redeploy(
+    args: Omit<Parameters<typeof railwayRedeploy>[0], "token">,
+  ): Promise<{ id: string; status: string | null }>;
+  graphqlRaw(args: Parameters<typeof railwayGraphqlRaw>[1]): Promise<RailwayRawGraphqlResult>;
+}
+
+function configuredRailwayCredential(
+  credential: ActiveBearerCredential,
+  retry: RetryPolicy | "none",
+): RailwayCredentialClient {
+  const { accessToken, ...identity } = credential;
+  return {
+    ...identity,
+    listProjects: () => railwayListProjects(accessToken, retry),
+    listDeployments: (args) => railwayListDeployments({ ...args, token: accessToken }, retry),
+    getLogs: (args) => railwayGetLogs({ ...args, token: accessToken }, retry),
+    // Mutation: deliberately one attempt even when reads retry.
+    redeploy: (args) => railwayRedeploy({ ...args, token: accessToken }),
+    graphqlRaw: (args) => railwayGraphqlRaw(accessToken, args, retry),
+  };
+}
+
 /**
  * The user-bound Railway door. Credential metadata may leave the client so
  * callers can preserve multi-workspace provenance, but tokens are resolved and
  * consumed only by the methods below.
  */
-export function railwayClientForUser(options: ProviderBindOptions) {
-  const activeCredentials = () => listActiveBearerCredentials(options.userId, "railway");
-  const credentialFor = async (credentialId: string): Promise<ActiveBearerCredential> => {
-    const credential = (await activeCredentials()).find(
-      (candidate) => candidate.id === credentialId,
-    );
-    if (!credential) {
-      throw new Error("[railway.credentials] active credential not found");
-    }
-    return credential;
-  };
-  const tokenFor = async (credentialId: string) => (await credentialFor(credentialId)).accessToken;
-
+export function createRailwayClient(
+  activeCredentials: () => Promise<ActiveBearerCredential[]>,
+  retry: RetryPolicy | "none",
+) {
   return {
-    async credentials(): Promise<RailwayCredential[]> {
-      return (await activeCredentials()).map(
-        ({ accessToken: _accessToken, ...credential }) => credential,
+    async credentials(): Promise<RailwayCredentialClient[]> {
+      return (await activeCredentials()).map((credential) =>
+        configuredRailwayCredential(credential, retry),
       );
-    },
-    async listProjects(args: { credentialId: string }) {
-      return railwayListProjects(await tokenFor(args.credentialId));
-    },
-    async listDeployments(
-      args: Omit<Parameters<typeof railwayListDeployments>[0], "token"> & {
-        credentialId: string;
-      },
-    ) {
-      const { credentialId, ...request } = args;
-      return railwayListDeployments({ ...request, token: await tokenFor(credentialId) });
-    },
-    async getLogs(
-      args: Omit<Parameters<typeof railwayGetLogs>[0], "token"> & { credentialId: string },
-    ) {
-      const { credentialId, ...request } = args;
-      return railwayGetLogs({ ...request, token: await tokenFor(credentialId) });
-    },
-    async redeploy(
-      args: Omit<Parameters<typeof railwayRedeploy>[0], "token"> & { credentialId: string },
-    ) {
-      const { credentialId, ...request } = args;
-      return railwayRedeploy({ ...request, token: await tokenFor(credentialId) });
-    },
-    async graphqlRaw(args: Parameters<typeof railwayGraphqlRaw>[1] & { credentialId: string }) {
-      const { credentialId, ...request } = args;
-      return railwayGraphqlRaw(await tokenFor(credentialId), request);
     },
   };
 }
 
-export type RailwayClient = ReturnType<typeof railwayClientForUser>;
+export function railwayClientForUser(options: ProviderBindOptions) {
+  return createRailwayClient(
+    () => listActiveBearerCredentials(options.userId, "railway"),
+    options.retry,
+  );
+}
+
+export type RailwayClient = ReturnType<typeof createRailwayClient>;
