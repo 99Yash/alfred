@@ -105,6 +105,55 @@ function sameBarriers(left: ReplayState["activeRuns"], right: ReplayState["activ
 }
 
 /**
+ * Why each kind arms no recovery barrier — the exclusion ledger, one written
+ * reason per unrecovered kind.
+ *
+ * The reasons are prose and nothing checks that they are true. What the table
+ * enforces is that one *exists*: a kind classified by neither this table nor a
+ * `case` label below does not compile, so a new event kind cannot be added
+ * without stating its recoverability. That is the hazard `CLOSURE_POLICY`
+ * guards on this event's producer side
+ * (`packages/api/src/modules/chat/chat-turn-closure.ts`), where a fourth turn
+ * ending compiled clean and silently inherited the `completed` policy.
+ *
+ * The key type is the whole frame union's `kind` rather than a run-scoped
+ * subset, so the two kinds the contract makes structurally unrecoverable sit in
+ * the same table as the four excluded by policy.
+ */
+const NOT_RECOVERABLE = {
+  "agent.run": "Workflow run lifecycle, not a chat turn: no bubble replays from it.",
+  "agent.progress": "Step telemetry with no client state that survives a reload.",
+  "tool.call": "Workflow tool telemetry; the chat trail's cards arrive as `chat.tool`.",
+  "artifact.delta":
+    "Carries the chat run's own `runId`, and that run armed a barrier at `chat.message` / " +
+    '`phase: "started"` before its first delta. Replay is kind-agnostic (one global id range, ' +
+    "`modules/events/replay.ts`), so the chat barrier already spans the deltas and excluding " +
+    "this kind costs the artifact stream nothing.",
+  "inbox.updated": "Carries no `runId`.",
+  "memory.fact_learned": "Carries no `runId`.",
+} satisfies Partial<Record<EventStreamFrame["kind"], string>>;
+
+/**
+ * The `default` arm's return. `TS2345` here on a kind that arms nothing and has
+ * no `NOT_RECOVERABLE` reason — a new event kind, or a deleted table entry.
+ */
+function notRecovered(_kind: keyof typeof NOT_RECOVERABLE): null {
+  return null;
+}
+
+/**
+ * The recovered arms' shared return. `TS2345` here on the other direction: a
+ * kind promoted to a `case` while keeping its `NOT_RECOVERABLE` reason, which
+ * would leave a ledger entry contradicting the code.
+ */
+function recoveredRunId(
+  _kind: Exclude<EventStreamFrame["kind"], keyof typeof NOT_RECOVERABLE>,
+  runId: string,
+): string {
+  return runId;
+}
+
+/**
  * The run a frame arms or releases a recovery barrier for, or `null` for a kind
  * this module does not recover.
  *
@@ -116,25 +165,13 @@ function sameBarriers(left: ReplayState["activeRuns"], right: ReplayState["activ
  * is a compile error here rather than a `null` that silently stops establishing
  * a barrier.
  *
- * Unlike `frameThreadId` there is deliberately **no** derived kind set and no
- * exhaustiveness guard on the `default` arm. `threadId` is a *coverage* claim —
- * every thread-scoped frame must be gated, so a payload that grows one and is
- * not classified is a bug. Recoverability is a *policy* choice: `runId` is on 9
- * of the 11 payloads (only `memory.fact_learned` and `inbox.updated` lack it),
- * and **four** of those nine carry it and are excluded on purpose — `agent.run`,
- * `agent.progress`, `tool.call` and `artifact.delta`. So a derived set would
- * over-select and force a policy edit at every new run-scoped kind. Note the
- * fourth: `artifact.delta` never arms or lowers a barrier **on its own**, and
- * excluding it costs the artifact stream nothing, because its only publisher
- * (`workflows/stream-model-turn.ts`, reached only from `chat-turn`) publishes
- * under the chat run's own `runId`, and that run armed a barrier at
- * `chat.message` / `phase: "started"` before its first delta. Replay is
- * kind-agnostic — one global id range with no kind filter
- * (`modules/events/replay.ts`) — so the chat barrier already spans the deltas,
- * and after a reload the client's stream map is empty, so the replayed deltas
- * are reassembled rather than dropped on `use-artifact-stream`'s seq guard. The reverse direction — "a
- * new runId-carrying kind should be considered for recovery" — is prose, not a
- * type.
+ * Unlike `frameThreadId` there is no derived *recoverable* kind set. `threadId`
+ * is a *coverage* claim — every thread-scoped frame must be gated, so a payload
+ * that grows one and is not classified is a bug. Recoverability is a *policy*
+ * choice, so a derived set would over-select and force a policy edit at every
+ * new run-scoped kind. `NOT_RECOVERABLE` enforces the same claim from the other
+ * side: it selects nothing, and both arms below pass `frame.kind` through a
+ * guard whose parameter type makes an unclassified kind a compile error.
  *
  * `payload.runId` and `payload.phase` are read unguarded under the caller contract
  * stated on `advanceReplayState`.
@@ -146,8 +183,8 @@ function recoverableRunId(frame: EventStreamFrame): string | null {
     case "chat.delta":
     case "chat.tool":
     case "approval.requested":
-      return frame.payload.runId;
+      return recoveredRunId(frame.kind, frame.payload.runId);
     default:
-      return null;
+      return notRecovered(frame.kind);
   }
 }
