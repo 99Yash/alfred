@@ -29,6 +29,7 @@ import { ArtifactTriggerCard } from "./artifact-trigger-card";
 import {
   describeActivity,
   shouldShowStream,
+  shouldShowThinkingIndicator,
   type FollowUpSuggestion,
 } from "./conversation-helpers";
 import { ChatApprovalTray } from "./approval-tray";
@@ -593,14 +594,14 @@ function FeedFooter() {
             </div>
           ) : null}
 
-          {stream.tools.length > 0 ? (
-            <ToolCallGroup
-              tools={stream.tools}
-              narration={stream.narration}
-              subAgents={stream.subAgents}
-              active={!stream.done}
-            />
-          ) : null}
+          {/* No `tools.length` gate: a step whose cards all bounced still has
+           * prose to draw, and `ToolCallGroup` owns that emptiness rule. */}
+          <ToolCallGroup
+            tools={stream.tools}
+            narration={stream.narration}
+            subAgents={stream.subAgents}
+            active={!stream.done}
+          />
 
           {/* The action(s) a gated run is parked on, inline right under the tool
            * trail that proposed them. The tray no-ops when there's nothing to
@@ -619,10 +620,7 @@ function FeedFooter() {
                 <AssistantMarkdown text={stream.text} streaming={!stream.done} />
               </div>
             </div>
-          ) : stream.tools.length === 0 &&
-            stream.reasoning.length === 0 &&
-            !stream.reasoningActive &&
-            !stream.compacting ? (
+          ) : shouldShowThinkingIndicator(stream) ? (
             <div ref={streamTimingRefs.thinking}>
               <ThinkingIndicator />
             </div>

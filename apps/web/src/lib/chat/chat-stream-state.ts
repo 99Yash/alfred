@@ -548,11 +548,10 @@ export function applyChatFrame(
  * A segment the deltas already closed stays in the projected `narration` in
  * full: closing it was the delta's doing, not the stop's. So a stop landing in
  * that window freezes the live bubble at zero characters with the prose the
- * user saw carried in `narration` instead. Whether that reaches the screen is
- * the consumer's call, and today it is conditional: `conversation.tsx:596`
- * renders the trail only inside `{stream.tools.length > 0 …}`, so a turn with
- * no tool cards shows none of it. That render gate is pre-existing coupling
- * this freeze cannot reach.
+ * user saw carried in `narration` instead. That prose does reach the screen:
+ * `ToolCallGroup` draws the trail from both channels and its callers gate on
+ * neither, so a stopped turn with no tool cards still shows its closed
+ * segments.
  */
 export function applyOptimisticStop(cell: ChatStreamCell): boolean {
   const r = cell.current;
