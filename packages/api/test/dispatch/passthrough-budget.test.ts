@@ -7,6 +7,7 @@ import { closeConnections, db } from "@alfred/db";
 import {
   actionStagings,
   agentRuns,
+  integrationCredentials,
   user,
   userActionPolicies,
   userPreferences,
@@ -57,6 +58,21 @@ async function seedUser(): Promise<{ userId: string; runId: string }> {
     .values({ id: userId, name: "Test User", email: `${userId}@example.test` });
   // Autonomy so a no_risk read executes without an approval gate.
   await db().insert(userActionPolicies).values({ userId, defaultMode: "autonomy" });
+  // `github` is a loadable slug, so `evaluateSnapshotGates` gates the tool on
+  // connection *health* AFTER the passthrough kill switch — a turned-on tier on a
+  // disconnected integration is still unavailable, by design. Without a row here the
+  // snapshot reports `health: null` and the dispatch answers `not_allowed` before it
+  // ever reaches the ceiling this file exists to test. `ACCESS_SPECS`' github entry
+  // declares `anyOfScopes: []`, so any `status: "active"` row satisfies it.
+  await db()
+    .insert(integrationCredentials)
+    .values({
+      userId,
+      provider: "github",
+      accountId: `${userId}-gh`,
+      accessToken: "test-token",
+      status: "active",
+    });
   // Default-OFF passthrough tier: turn github ON so the kill-switch recheck passes.
   await db()
     .insert(userPreferences)
