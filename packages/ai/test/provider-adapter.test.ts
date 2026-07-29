@@ -1,11 +1,17 @@
 import assert from "node:assert/strict";
 import { describe, test } from "node:test";
 
+import { anthropic } from "@ai-sdk/anthropic";
 import { APICallError, generateText, tool } from "ai";
 import type { LanguageModel } from "ai-retry";
 import { MockLanguageModelV4 } from "ai/test";
 import { z } from "zod";
-import { attachProviderTurnPolicy, withProviderAdapter } from "../src/provider-adapter";
+import { MODEL_DEFINITIONS, type ModelId, type ModelProviderId } from "../src/models";
+import {
+  attachProviderTurnPolicy,
+  createProviderModel,
+  withProviderAdapter,
+} from "../src/provider-adapter";
 import { withFallback } from "../src/provider";
 
 type GenResult = Awaited<ReturnType<MockLanguageModelV4["doGenerate"]>>;
@@ -22,10 +28,7 @@ function okResult(): GenResult {
   };
 }
 
-function mockModel(
-  provider: "anthropic" | "google",
-  modelId: "claude-sonnet-4-6" | "gemini-3.5-flash",
-): MockLanguageModelV4 {
+function mockModel(provider: ModelProviderId, modelId: ModelId): MockLanguageModelV4 {
   return new MockLanguageModelV4({
     provider,
     modelId,
@@ -49,6 +52,14 @@ const tools = {
 };
 
 describe("provider turn protocol", () => {
+  test("constructs every registered model through the provider adapter seam", () => {
+    for (const definition of MODEL_DEFINITIONS) {
+      const model = createProviderModel(definition.id);
+      assert.equal(model.modelId, definition.id);
+      assert.match(model.provider, new RegExp(`^${definition.provider}(?:\\.|$)`));
+    }
+  });
+
   test("Anthropic consumes the internal envelope and owns all cache decoration", async () => {
     const inner = mockModel("anthropic", "claude-sonnet-4-6");
     const model = withProviderAdapter("claude-sonnet-4-6", asModel(inner));
@@ -101,6 +112,51 @@ describe("provider turn protocol", () => {
     assert.equal(cacheControl(call.tools![0]!), undefined);
     assert.equal(cacheControl(call.prompt[0]!), undefined);
     assert.equal(cacheControl(call.prompt[1]!), undefined);
+  });
+
+  test("OpenAI consumes the envelope and uses the adapter-owned name policy", async () => {
+    const inner = mockModel("openai", "gpt-5.6-sol");
+    const model = withProviderAdapter("gpt-5.6-sol", asModel(inner));
+
+    await generateText({
+      model,
+      prompt: "hello",
+      tools,
+      providerOptions: attachProviderTurnPolicy({ openai: { reasoningEffort: "medium" } }, "1h"),
+    });
+
+    const call = inner.doGenerateCalls[0];
+    assert.ok(call);
+    assert.deepEqual(call.providerOptions, { openai: { reasoningEffort: "medium" } });
+    assert.equal("alfredInternal" in (call.providerOptions ?? {}), false);
+    assert.equal(call.tools?.[0]?.name, "system__search_tools");
+    assert.equal(cacheControl(call.tools![0]!), undefined);
+    assert.equal(cacheControl(call.prompt[0]!), undefined);
+  });
+
+  test("name encoding leaves provider-defined tools unchanged", async () => {
+    const inner = mockModel("anthropic", "claude-sonnet-4-6");
+    const model = withProviderAdapter("claude-sonnet-4-6", asModel(inner));
+
+    await generateText({
+      model,
+      prompt: "hello",
+      tools: {
+        ...tools,
+        anthropic_tool_search: anthropic.tools.toolSearchBm25_20251119(),
+      },
+      providerOptions: attachProviderTurnPolicy(undefined, undefined),
+    });
+
+    const call = inner.doGenerateCalls[0];
+    assert.ok(call);
+    const providerTool = call.tools?.find((definition) => definition.type === "provider");
+    assert.ok(providerTool);
+    assert.equal(providerTool.id, "anthropic.tool_search_bm25_20251119");
+    assert.equal(
+      call.tools?.find((definition) => definition.type === "function")?.name,
+      "system__search_tools",
+    );
   });
 
   test("a cross-provider fallback reprojects the same request for Google", async () => {
@@ -163,6 +219,56 @@ describe("provider turn protocol", () => {
     assert.equal(cacheControl(call.prompt[0]!), undefined);
   });
 
+  test("disabled caching strips the envelope without adding breakpoints", async () => {
+    const inner = mockModel("anthropic", "claude-sonnet-4-6");
+    const model = withProviderAdapter("claude-sonnet-4-6", asModel(inner));
+
+    await generateText({
+      model,
+      instructions: "stable system",
+      messages: [{ role: "user", content: "hello" }],
+      tools,
+      providerOptions: attachProviderTurnPolicy(undefined, undefined),
+    });
+
+    const call = inner.doGenerateCalls[0];
+    assert.ok(call);
+    assert.equal(call.providerOptions, undefined);
+    assert.equal(cacheControl(call.tools![0]!), undefined);
+    assert.equal(cacheControl(call.prompt[0]!), undefined);
+    assert.equal(cacheControl(call.prompt[1]!), undefined);
+  });
+
+  test("cache projection preserves existing provider options", async () => {
+    const inner = mockModel("anthropic", "claude-sonnet-4-6");
+    const model = withProviderAdapter("claude-sonnet-4-6", asModel(inner));
+
+    await generateText({
+      model,
+      instructions: "stable system",
+      messages: [
+        {
+          role: "user",
+          content: "hello",
+          providerOptions: {
+            anthropic: { custom: "keep" },
+            openai: { other: "keep" },
+          },
+        },
+      ],
+      tools,
+      providerOptions: attachProviderTurnPolicy(undefined, "1h"),
+    });
+
+    const call = inner.doGenerateCalls[0];
+    assert.ok(call);
+    const last = call.prompt.at(-1);
+    assert.ok(last);
+    assert.equal(last.providerOptions?.anthropic?.custom, "keep");
+    assert.equal(last.providerOptions?.openai?.other, "keep");
+    assert.deepEqual(cacheControl(last), { type: "ephemeral", ttl: "1h" });
+  });
+
   test("tool-result bursts retain a prior cache-read boundary within the four-breakpoint cap", async () => {
     const inner = mockModel("anthropic", "claude-sonnet-4-6");
     const model = withProviderAdapter("claude-sonnet-4-6", asModel(inner));
@@ -203,6 +309,46 @@ describe("provider turn protocol", () => {
       cacheControl(message) === undefined ? [] : [index],
     );
     assert.deepEqual(cached, [0, 3, call.prompt.length - 1]);
+    assert.ok(cached.length + 1 <= 4, "system + tool + transcript cache points stay within cap");
+  });
+
+  test("compacted tool bursts stay within the four-breakpoint cap", async () => {
+    const inner = mockModel("anthropic", "claude-sonnet-4-6");
+    const model = withProviderAdapter("claude-sonnet-4-6", asModel(inner));
+    const toolResults = Array.from({ length: 8 }, (_, index) => ({
+      type: "tool-result" as const,
+      toolCallId: `call_${index}`,
+      toolName: "system.search_tools",
+      output: { type: "text" as const, value: `r${index}` },
+    }));
+
+    await generateText({
+      model,
+      instructions: "stable system",
+      messages: [
+        { role: "system", content: "<run_summary>summary</run_summary>" },
+        { role: "user", content: "again" },
+        {
+          role: "assistant",
+          content: [
+            {
+              type: "tool-call",
+              toolCallId: "call_0",
+              toolName: "system.search_tools",
+              input: { query: "x" },
+            },
+          ],
+        },
+        { role: "tool", content: toolResults },
+      ],
+      tools,
+      providerOptions: attachProviderTurnPolicy(undefined, "1h"),
+      allowSystemInMessages: true,
+    });
+
+    const call = inner.doGenerateCalls[0];
+    assert.ok(call);
+    const cached = call.prompt.filter((message) => cacheControl(message) !== undefined);
     assert.ok(cached.length + 1 <= 4, "system + tool + transcript cache points stay within cap");
   });
 
