@@ -38,7 +38,7 @@ function createEventSource(
 
   for (const kind of EVENT_KINDS) {
     source.addEventListener(kind, (msg) => {
-      const frame = parseEventFrame(kind, msg.data, msg.lastEventId);
+      const frame = parseEventFrame(kind, msg);
       if (frame) onFrame(frame);
     });
   }

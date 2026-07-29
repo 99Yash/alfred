@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { describe, test } from "node:test";
 
-import { eventPayloadSchemas, type EventPayload } from "@alfred/contracts/events";
+import { eventPayloadSchemas, type EventFrame, type EventPayload } from "@alfred/contracts/events";
 import { frameThreadId, parseEventFrame } from "../../src/lib/events/frame";
 
 /** A wire message body as the SSE `data:` line carries it. */
@@ -68,7 +68,7 @@ describe("parseEventFrame", () => {
       ["agent.run", agentRunPayload],
       ["artifact.delta", artifactDeltaPayload],
     ] as const) {
-      const frame = parseEventFrame(kind, wire(payload), "42");
+      const frame = parseEventFrame(kind, { data: wire(payload), lastEventId: "42" });
       assert.ok(frame, `${kind} should parse`);
       assert.equal(frame.kind, kind);
       assert.equal(frame.id, 42);
@@ -80,50 +80,89 @@ describe("parseEventFrame", () => {
   });
 
   test("a payload announced as the wrong kind is dropped, not passed through", () => {
-    assert.equal(parseEventFrame("agent.run", wire(chatDeltaPayload), "42"), null);
-    assert.equal(parseEventFrame("chat.delta", wire(agentRunPayload), "42"), null);
+    assert.equal(
+      parseEventFrame("agent.run", { data: wire(chatDeltaPayload), lastEventId: "42" }),
+      null,
+    );
+    assert.equal(
+      parseEventFrame("chat.delta", { data: wire(agentRunPayload), lastEventId: "42" }),
+      null,
+    );
   });
 
   test("a missing createdAt degrades to an empty string rather than dropping the frame", () => {
-    const frame = parseEventFrame("chat.delta", JSON.stringify({ payload: chatDeltaPayload }), "7");
+    const frame = parseEventFrame("chat.delta", {
+      data: JSON.stringify({ payload: chatDeltaPayload }),
+      lastEventId: "7",
+    });
     assert.ok(frame);
     assert.equal(frame.createdAt, "");
   });
 
   /**
-   * The tier-1 guard, and the only assertion here that `tsx --test` cannot
-   * make: it is checked by `tsc -p apps/web/tsconfig.test.json` (wired into
+   * The tier-1 guards, and the only assertions here that `tsx --test` cannot
+   * make: they are checked by `tsc -p apps/web/tsconfig.test.json` (wired into
    * web's `check-types`). If `payload` ever degrades back to `unknown` — or
-   * widens to the union of every kind's payload — the first assignment stops
+   * widens to the union of every kind's payload — the payload assignment stops
    * compiling. No runtime test can see that.
+   *
+   * Both are **positive assignability** assertions rather than bare
+   * `@ts-expect-error`s, deliberately: reading a field off `unknown` is itself an
+   * error, so an expect-error stays satisfied by a widened type and the guard
+   * never fires.
+   *
+   * The envelope assignment is the second axis and covers the *presence* of
+   * whatever `eventFrameSchema` declares beyond `kind` and `payload`. It is what
+   * `satisfies EventFrame` in `parseEventFrame` enforces at the literal. Two
+   * mutants run against this tree, standing in for a contract that grew a field
+   * (`type EventFrameNext = EventFrame & { userId: string }`, then `satisfies
+   * EventFrameNext` on the return literal). Verbatim, abbreviated only where the
+   * compiler itself elided:
+   *
+   * - `error TS1360: Type '{ id: number; kind: "agent.progress" | … ; payload: {
+   *   ...; } | ... 8 more ... | { ...; }; createdAt: string; }' does not satisfy
+   *   the expected type 'EventFrameNext'.` / `Property 'userId' is missing in type
+   *   '{ id: number; … }' but required in type '{ userId: string; }'.`
+   * - dropping `satisfies` under that same mutant: `tsc --noEmit` exits **0**.
+   *
+   * The second one is why the first is worth writing down: the cast alone accepts
+   * a literal that omits a field, so the `satisfies` — not the return type, and
+   * not this test's own assignment — is what fires. Reproduced the other way too,
+   * on unmodified `main`: deleting `createdAt` from the return literal there
+   * compiles clean.
    */
-  test("a narrowed frame's payload is exactly its own kind's payload type", () => {
-    const frame = parseEventFrame("chat.tool", wire(chatToolSubAgentPayload), "42");
+  test("a narrowed frame carries its own kind's payload type and the whole envelope", () => {
+    const frame = parseEventFrame("chat.tool", {
+      data: wire(chatToolSubAgentPayload),
+      lastEventId: "42",
+    });
     assert.ok(frame);
     const toolPayload: EventPayload<"chat.tool"> = frame.payload;
     assert.equal(toolPayload.toolName, "system.spawn_sub_agent");
+    const envelope: Omit<EventFrame, "kind" | "payload"> = frame;
+    assert.equal(envelope.id, 42);
     // @ts-expect-error a chat.tool payload is not interchangeable with chat.delta's
     const notADelta: EventPayload<"chat.delta"> = frame.payload;
     assert.ok(notADelta);
   });
 
   test("malformed wire input returns null", () => {
-    const cases: [string, unknown, unknown][] = [
-      ["non-string data", { payload: chatDeltaPayload }, "42"],
-      ["undefined data", undefined, "42"],
-      ["non-JSON data", "not json", "42"],
-      ["non-record JSON", "42", "42"],
-      ["null JSON", "null", "42"],
-      ["missing payload", JSON.stringify({ createdAt: "x" }), "42"],
-      ["empty lastEventId", wire(chatDeltaPayload), ""],
-      ["zero lastEventId", wire(chatDeltaPayload), "0"],
-      ["negative lastEventId", wire(chatDeltaPayload), "-1"],
-      ["non-numeric lastEventId", wire(chatDeltaPayload), "abc"],
-      ["fractional lastEventId", wire(chatDeltaPayload), "1.5"],
-      ["non-string lastEventId", wire(chatDeltaPayload), 42],
+    const cases: [string, { data: unknown; lastEventId: unknown }][] = [
+      ["non-string data", { data: { payload: chatDeltaPayload }, lastEventId: "42" }],
+      ["undefined data", { data: undefined, lastEventId: "42" }],
+      ["non-JSON data", { data: "not json", lastEventId: "42" }],
+      ["non-record JSON", { data: "42", lastEventId: "42" }],
+      ["null JSON", { data: "null", lastEventId: "42" }],
+      ["missing payload", { data: JSON.stringify({ createdAt: "x" }), lastEventId: "42" }],
+      ["empty lastEventId", { data: wire(chatDeltaPayload), lastEventId: "" }],
+      ["zero lastEventId", { data: wire(chatDeltaPayload), lastEventId: "0" }],
+      ["negative lastEventId", { data: wire(chatDeltaPayload), lastEventId: "-1" }],
+      ["non-numeric lastEventId", { data: wire(chatDeltaPayload), lastEventId: "abc" }],
+      ["fractional lastEventId", { data: wire(chatDeltaPayload), lastEventId: "1.5" }],
+      ["non-string lastEventId", { data: wire(chatDeltaPayload), lastEventId: 42 }],
     ];
-    for (const [label, data, lastEventId] of cases) {
-      assert.equal(parseEventFrame("chat.delta", data, lastEventId), null, label);
+    for (const [label, msg] of cases) {
+      assert.equal(parseEventFrame("chat.delta", msg), null, label);
     }
   });
 });
@@ -143,7 +182,7 @@ describe("frameThreadId", () => {
       // The kind item 21 exists for: it carries a thread and is not a `chat.*`.
       ["artifact.delta", artifactDeltaPayload],
     ] as const) {
-      const frame = parseEventFrame(kind, wire(payload), "1");
+      const frame = parseEventFrame(kind, { data: wire(payload), lastEventId: "1" });
       assert.ok(frame, `${kind} should parse`);
       assert.equal(frameThreadId(frame), "thread-1", kind);
     }
@@ -154,7 +193,7 @@ describe("frameThreadId", () => {
       ["agent.run", agentRunPayload],
       ["approval.requested", approvalRequestedPayload],
     ] as const) {
-      const frame = parseEventFrame(kind, wire(payload), "1");
+      const frame = parseEventFrame(kind, { data: wire(payload), lastEventId: "1" });
       assert.ok(frame, `${kind} should parse`);
       assert.equal(frameThreadId(frame), null, kind);
     }
