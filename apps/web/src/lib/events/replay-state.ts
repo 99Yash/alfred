@@ -118,8 +118,11 @@ function sameBarriers(left: ReplayState["activeRuns"], right: ReplayState["activ
  * ending compiled clean and silently inherited the `completed` policy.
  *
  * The key type is the whole frame union's `kind` rather than a run-scoped
- * subset, so the two kinds the contract makes structurally unrecoverable sit in
- * the same table as the four excluded by policy.
+ * subset, so a kind the payload contract already makes unrecoverable
+ * (`inbox.updated` and `memory.fact_learned` today — see their entries) writes
+ * its reason here beside a kind excluded by policy. A run-scoped key type would
+ * drop those kinds silently instead, and the reason nobody has to write is the
+ * one this table exists to demand.
  */
 const NOT_RECOVERABLE = {
   "agent.run": "Workflow run lifecycle, not a chat turn: no bubble replays from it.",
