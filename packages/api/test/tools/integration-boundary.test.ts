@@ -16,9 +16,9 @@ const TOOL_MODULES = [
 const OLD_CREDENTIAL_DOOR =
   /\b(?:getFreshAccessToken|getActiveBearerCredential|listActiveBearerCredentials|resolveGoogleAccessToken)\b|\.accessToken\b/;
 
-describe("integration facade cutover (#551)", () => {
+describe("integration boundary cutover (#551)", () => {
   for (const module of TOOL_MODULES) {
-    test(`${module} tools use the bound facade and never carry a provider token`, async () => {
+    test(`${module} tools use bound integrations and never carry a provider token`, async () => {
       const source = await readFile(
         new URL(`../../src/modules/tools/${module}.ts`, import.meta.url),
         "utf8",

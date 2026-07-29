@@ -5,7 +5,7 @@
  * tools are separate — ADR-0043): a single `get_document` that flattens a
  * Doc into plain text + a heading outline.
  * Resolve the user's active Docs-scoped Google credential, then call the
- * user-bound integration facade; tool code never receives its token.
+ * user-bound integrations root; tool code never receives its token.
  */
 
 import { docsGetDocumentInput, restPassthroughInput } from "@alfred/contracts";

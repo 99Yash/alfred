@@ -7,9 +7,9 @@ import { vercelClientForUser } from "./vercel/client";
 import { once, type ProviderBindOptions, type ProviderFactory } from "./shared/provider";
 
 /**
- * The unified integration facade. One callable binds a user once and hands back
- * every provider client already wired to *that user's* credentials, so a call
- * site reads as one continuous thought:
+ * The unified user-bound integrations entry point. One callable binds a user
+ * once and hands back every provider client already wired to *that user's*
+ * credentials, so a call site reads as one continuous thought:
  *
  *   integrations({ userId }).github.search({ q })
  *
@@ -22,7 +22,7 @@ import { once, type ProviderBindOptions, type ProviderFactory } from "./shared/p
  *   1. The user binds at the *root*, not per method. Binding is cheap and holds
  *      no secret — each provider is a lazily-built client over a credential
  *      *resolver*, so a credential is resolved through the real cache/refresh
- *      path when a method actually runs. The facade binds a *user*, never a token.
+ *      path when a method actually runs. The root binds a *user*, never a token.
  *
  *   2. Each provider is a memoized lazy `get`ter: touching `.github` builds only
  *      the GitHub client, and touching it twice yields the SAME client. The memo
@@ -47,11 +47,11 @@ import { once, type ProviderBindOptions, type ProviderFactory } from "./shared/p
  * background/non-tool work, but tool code never resolves or carries a token.
  */
 
-/** The facade's bind options — the one shared shape, surfaced under a call-site name. */
+/** The root bind options — the one shared shape, surfaced under a call-site name. */
 export type IntegrationsOptions = ProviderBindOptions;
 
 /**
- * The single source of truth for which providers the facade exposes. Add a
+ * The single source of truth for which providers the root exposes. Add a
  * provider here and its client type flows into {@link Integrations} automatically
  * — there is no second place to update. `satisfies` enforces the uniform factory
  * signature while preserving each entry's precise return type for the derivation.
@@ -81,13 +81,13 @@ export type Integrations = {
  * provider without per-provider glue.
  */
 export function integrations(options: IntegrationsOptions): Integrations {
-  const facade = {} as { [K in keyof ProviderRegistry]: ReturnType<ProviderRegistry[K]> };
+  const bound = {} as { [K in keyof ProviderRegistry]: ReturnType<ProviderRegistry[K]> };
   for (const key of Object.keys(providerRegistry) as (keyof ProviderRegistry)[]) {
     // Localized cast: iterating string keys collapses the registry to a union of
     // factory types; the uniform signature makes the call safe, and the public
     // return type stays precise per key via the mapped type above.
     const build = once(() => (providerRegistry[key] as ProviderFactory)(options));
-    Object.defineProperty(facade, key, { enumerable: true, get: build });
+    Object.defineProperty(bound, key, { enumerable: true, get: build });
   }
-  return facade;
+  return bound;
 }

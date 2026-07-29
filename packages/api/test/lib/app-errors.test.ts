@@ -35,7 +35,7 @@ test("registered errors keep their public code without exposing their cause", ()
   });
 });
 
-test("Google facade authority errors retain actionable tool error codes", () => {
+test("Google integration authority errors retain actionable tool error codes", () => {
   assert.deepEqual(toPublicAppError(new GoogleCredentialSelectionError("docs", "scope_required")), {
     code: "docs_scope_required",
     message:
