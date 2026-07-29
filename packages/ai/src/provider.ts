@@ -105,6 +105,10 @@ function createRouteHandle(definition: ModelRoute): ModelRouteHandle {
 
 const namedRouteHandles = new Map<ModelRouteName, ModelRouteHandle>();
 
+function isModelRouteName(value: ModelRouteName | ModelId): value is ModelRouteName {
+  return Object.hasOwn(MODEL_ROUTES, value);
+}
+
 /**
  * Resolve a named product route, or build a one-model probe/eval route with an
  * explicit reasoning policy. Both forms return the same paired route handle.
@@ -115,17 +119,16 @@ export function route(
   nameOrModelId: ModelRouteName | ModelId,
   reasoning?: ModelReasoningPolicy,
 ): ModelRouteHandle {
-  if (nameOrModelId in MODEL_ROUTES) {
-    const name = nameOrModelId as ModelRouteName;
-    let handle = namedRouteHandles.get(name);
+  if (isModelRouteName(nameOrModelId)) {
+    let handle = namedRouteHandles.get(nameOrModelId);
     if (!handle) {
-      handle = createRouteHandle(MODEL_ROUTES[name]);
-      namedRouteHandles.set(name, handle);
+      handle = createRouteHandle(MODEL_ROUTES[nameOrModelId]);
+      namedRouteHandles.set(nameOrModelId, handle);
     }
     return handle;
   }
   if (!reasoning) throw new Error(`registered model route ${nameOrModelId} needs reasoning policy`);
-  return createRouteHandle({ chain: [nameOrModelId as ModelId], reasoning });
+  return createRouteHandle({ chain: [nameOrModelId], reasoning });
 }
 
 const MEDIA_ENRICHMENT_ROUTES = [

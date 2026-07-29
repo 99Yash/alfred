@@ -498,11 +498,11 @@ export function withProviderAdapter(modelId: ModelId, model: LanguageModelV4): L
   const named = wrapLanguageModel({
     model,
     middleware: toolNameMiddleware(adapter.toolNameEncoding),
-  }) as LanguageModelV4;
+  });
   return wrapLanguageModel({
     model: named,
     middleware: middlewareFor(modelId),
-  }) as LanguageModelV4;
+  });
 }
 
 /** Construct one fully wrapped concrete model from Alfred's closed registry. */
@@ -547,7 +547,7 @@ export function createProviderRouteModel(
       middleware: defaultSettingsMiddleware({
         settings: { providerOptions: defaultProviderOptions },
       }),
-    }) as LanguageModelV4;
+    });
   }
   return model as ProviderAdaptedLanguageModel;
 }
