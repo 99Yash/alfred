@@ -14,6 +14,8 @@ import { createHash } from "node:crypto";
 import { HttpError, summarizeBody, toMessage } from "@alfred/contracts";
 
 import { authedFetch } from "../shared/authed-fetch";
+import { listActiveBearerCredentials, type ActiveBearerCredential } from "../shared/credentials";
+import type { ProviderBindOptions } from "../shared/provider";
 
 const RAILWAY_API = "https://backboard.railway.app/graphql/v2";
 
@@ -517,3 +519,62 @@ export async function railwayRedeploy(args: {
   );
   return { id: data.deploymentRedeploy.id, status: data.deploymentRedeploy.status };
 }
+
+/** Public credential identity used for multi-account provenance; never a secret. */
+export type RailwayCredential = Omit<ActiveBearerCredential, "accessToken">;
+
+/**
+ * The user-bound Railway door. Credential metadata may leave the client so
+ * callers can preserve multi-workspace provenance, but tokens are resolved and
+ * consumed only by the methods below.
+ */
+export function railwayClientForUser(options: ProviderBindOptions) {
+  const activeCredentials = () => listActiveBearerCredentials(options.userId, "railway");
+  const credentialFor = async (credentialId: string): Promise<ActiveBearerCredential> => {
+    const credential = (await activeCredentials()).find(
+      (candidate) => candidate.id === credentialId,
+    );
+    if (!credential) {
+      throw new Error("[railway.credentials] active credential not found");
+    }
+    return credential;
+  };
+  const tokenFor = async (credentialId: string) => (await credentialFor(credentialId)).accessToken;
+
+  return {
+    async credentials(): Promise<RailwayCredential[]> {
+      return (await activeCredentials()).map(
+        ({ accessToken: _accessToken, ...credential }) => credential,
+      );
+    },
+    async listProjects(args: { credentialId: string }) {
+      return railwayListProjects(await tokenFor(args.credentialId));
+    },
+    async listDeployments(
+      args: Omit<Parameters<typeof railwayListDeployments>[0], "token"> & {
+        credentialId: string;
+      },
+    ) {
+      const { credentialId, ...request } = args;
+      return railwayListDeployments({ ...request, token: await tokenFor(credentialId) });
+    },
+    async getLogs(
+      args: Omit<Parameters<typeof railwayGetLogs>[0], "token"> & { credentialId: string },
+    ) {
+      const { credentialId, ...request } = args;
+      return railwayGetLogs({ ...request, token: await tokenFor(credentialId) });
+    },
+    async redeploy(
+      args: Omit<Parameters<typeof railwayRedeploy>[0], "token"> & { credentialId: string },
+    ) {
+      const { credentialId, ...request } = args;
+      return railwayRedeploy({ ...request, token: await tokenFor(credentialId) });
+    },
+    async graphqlRaw(args: Parameters<typeof railwayGraphqlRaw>[1] & { credentialId: string }) {
+      const { credentialId, ...request } = args;
+      return railwayGraphqlRaw(await tokenFor(credentialId), request);
+    },
+  };
+}
+
+export type RailwayClient = ReturnType<typeof railwayClientForUser>;

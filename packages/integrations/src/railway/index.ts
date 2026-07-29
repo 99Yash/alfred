@@ -7,6 +7,7 @@ export {
   railwayGraphqlRaw,
   isRailwayAuthorizationError,
   RailwayGraphqlError,
+  railwayClientForUser,
 } from "./client";
 export type {
   RailwayAccount,
@@ -16,4 +17,6 @@ export type {
   RailwayDeployment,
   RailwayLogLine,
   RailwayRawGraphqlResult,
+  RailwayCredential,
+  RailwayClient,
 } from "./client";

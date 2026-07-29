@@ -15,17 +15,8 @@ import {
   railwayRecentDeploymentsInput,
   railwayRedeployInput,
 } from "@alfred/contracts";
-import {
-  railwayGetLogs,
-  railwayListDeployments,
-  railwayListProjects,
-  railwayRedeploy,
-} from "@alfred/integrations/railway";
+import type { RailwayCredential } from "@alfred/integrations/railway";
 import { runRailwayPassthrough } from "./passthrough";
-import {
-  listActiveBearerCredentials,
-  type ActiveBearerCredential,
-} from "@alfred/integrations/shared";
 import { AppError } from "../../lib/app-errors";
 import {
   credentialRef,
@@ -35,28 +26,21 @@ import {
   withCredential,
   type RailwayDeploymentWithCredential,
 } from "./railway-fanout";
-import { liveTool, type RegisteredTool } from "./registry";
+import { liveTool, type RegisteredTool, type ToolExecuteContext } from "./registry";
 
-async function credentialsFor(userId: string): Promise<ActiveBearerCredential[]> {
-  const credentials = await listActiveBearerCredentials(userId, "railway");
+async function credentialsFor(ctx: ToolExecuteContext): Promise<RailwayCredential[]> {
+  const credentials = await ctx.integrations.railway.credentials();
   if (credentials.length === 0) {
     throw new AppError("railway_connection_required");
   }
   return credentials;
 }
 
-/**
- * SUPERSEDED PATH, CALLERS ARE BEING MIGRATED (#551). Railway is not on the
- * `ctx.integrations` facade yet, so these tools still resolve a credential
- * themselves and pass a bare `accessToken` down. When `railwayClientForUser`
- * lands, both helpers here go away — the multi-credential fan-out is the
- * interesting part to carry over, not the token plumbing.
- */
-async function credentialFor(
-  userId: string,
+async function selectCredential(
+  ctx: ToolExecuteContext,
   credentialId?: string,
-): Promise<ActiveBearerCredential> {
-  return pickCredential(await credentialsFor(userId), credentialId);
+): Promise<RailwayCredential> {
+  return pickCredential(await credentialsFor(ctx), credentialId);
 }
 
 export const railwayTools: readonly RegisteredTool[] = [
@@ -69,8 +53,8 @@ export const railwayTools: readonly RegisteredTool[] = [
     inputSchema: railwayListProjectsInput,
     execute: async (_input, ctx) => {
       const { projects, failures } = await listProjectsForCredentials(
-        await credentialsFor(ctx.userId),
-        railwayListProjects,
+        await credentialsFor(ctx),
+        (credentialId) => ctx.integrations.railway.listProjects({ credentialId }),
       );
       // Surface partial failures (e.g. a stale credential) so the boss can tell
       // the user, but keep the happy-path output lean when nothing failed.
@@ -85,9 +69,9 @@ export const railwayTools: readonly RegisteredTool[] = [
       "List recent deployments for a Railway project, with status and id. Pass the credentialId from list_projects (omit if only one Railway connection exists). Narrow with serviceId or environmentId. Use the returned credentialId and deployment id with get_logs or redeploy.",
     inputSchema: railwayListDeploymentsInput,
     execute: async (input, ctx) => {
-      const credential = await credentialFor(ctx.userId, input.credentialId);
-      const result = await railwayListDeployments({
-        token: credential.accessToken,
+      const credential = await selectCredential(ctx, input.credentialId);
+      const result = await ctx.integrations.railway.listDeployments({
+        credentialId: credential.id,
         projectId: input.projectId,
         serviceId: input.serviceId,
         environmentId: input.environmentId,
@@ -109,9 +93,9 @@ export const railwayTools: readonly RegisteredTool[] = [
     inputSchema: railwayRecentDeploymentsInput,
     execute: async (input, ctx) => {
       const { deployments, failures } = await listRecentDeploymentsForCredentials(
-        await credentialsFor(ctx.userId),
-        railwayListProjects,
-        railwayListDeployments,
+        await credentialsFor(ctx),
+        (credentialId) => ctx.integrations.railway.listProjects({ credentialId }),
+        (args) => ctx.integrations.railway.listDeployments(args),
         { overallLimit: input.limit },
       );
       // Surface partial failures (a stale credential, a project that wouldn't
@@ -128,9 +112,9 @@ export const railwayTools: readonly RegisteredTool[] = [
       "Read recent logs for a Railway deployment. Pass the credentialId and deployment id from list_deployments (credentialId is optional when only one Railway connection exists).",
     inputSchema: railwayGetLogsInput,
     execute: async (input, ctx) => {
-      const credential = await credentialFor(ctx.userId, input.credentialId);
-      const result = await railwayGetLogs({
-        token: credential.accessToken,
+      const credential = await selectCredential(ctx, input.credentialId);
+      const result = await ctx.integrations.railway.getLogs({
+        credentialId: credential.id,
         deploymentId: input.deploymentId,
         limit: input.limit,
       });
@@ -152,8 +136,15 @@ export const railwayTools: readonly RegisteredTool[] = [
     },
     inputSchema: railwayGraphqlInput,
     execute: async (input, ctx) => {
-      const credential = await credentialFor(ctx.userId);
-      return runRailwayPassthrough(credential.accessToken, input);
+      const credential = await selectCredential(ctx);
+      return runRailwayPassthrough(
+        (request) =>
+          ctx.integrations.railway.graphqlRaw({
+            credentialId: credential.id,
+            ...request,
+          }),
+        input,
+      );
     },
   }),
   liveTool({
@@ -164,9 +155,9 @@ export const railwayTools: readonly RegisteredTool[] = [
       "Redeploy an existing Railway deployment (re-runs the same build/release). Pass the credentialId and deployment id from list_deployments (credentialId is optional when only one Railway connection exists). Also pass serviceName, projectName, and (when known) environmentName from list_projects — these name what is being redeployed on the human approval card; redeploy always requires approval, so omitting them leaves the approver staring at opaque ids.",
     inputSchema: railwayRedeployInput,
     execute: async (input, ctx) => {
-      const credential = await credentialFor(ctx.userId, input.credentialId);
-      const result = await railwayRedeploy({
-        token: credential.accessToken,
+      const credential = await selectCredential(ctx, input.credentialId);
+      const result = await ctx.integrations.railway.redeploy({
+        credentialId: credential.id,
         deploymentId: input.deploymentId,
       });
       return { ...credentialRef(credential), ...result };

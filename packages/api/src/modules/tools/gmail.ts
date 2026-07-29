@@ -23,22 +23,14 @@ import { documents } from "@alfred/db/schemas";
 import {
   type ExtractedMessage,
   extractMessageContent,
-  getFreshAccessToken,
-  getMessage,
   GMAIL_MODIFY_SCOPE,
   GMAIL_READONLY_SCOPE,
   GMAIL_SEND_SCOPE,
-  listMessages,
   requireScopes,
-  sendMessage,
 } from "@alfred/integrations/google";
 import { and, eq, inArray } from "drizzle-orm";
-import {
-  resolveGoogleAccessToken,
-  resolveGoogleCredential,
-  type GoogleScopePolicy,
-} from "./google-credentials";
-import { runGooglePassthrough } from "./passthrough";
+import { resolveGoogleCredential, type GoogleScopePolicy } from "./google-credentials";
+import { runRestPassthrough } from "./passthrough";
 import { liveTool, type RegisteredTool } from "./registry";
 
 /**
@@ -104,9 +96,9 @@ export const gmailTools: readonly RegisteredTool[] = [
     },
     inputSchema: gmailSearchInput,
     execute: async (input, ctx) => {
-      const accessToken = await resolveGoogleAccessToken(ctx.userId, GMAIL_READ_POLICY);
-      const result = await listMessages({
-        accessToken,
+      const credential = await resolveGoogleCredential(ctx.userId, GMAIL_READ_POLICY);
+      const result = await ctx.integrations.google.gmail.listMessages({
+        credentialId: credential.id,
         q: input.q,
         maxResults: input.maxResults,
         pageToken: input.pageToken,
@@ -151,7 +143,13 @@ export const gmailTools: readonly RegisteredTool[] = [
       const liveBySourceId = new Map<string, ExtractedMessage>();
       if (uncachedIds.length > 0) {
         const settled = await Promise.allSettled(
-          uncachedIds.map((id) => getMessage({ accessToken, id, format: "metadata" })),
+          uncachedIds.map((id) =>
+            ctx.integrations.google.gmail.getMessage({
+              credentialId: credential.id,
+              id,
+              format: "metadata",
+            }),
+          ),
         );
         for (const outcome of settled) {
           if (outcome.status === "fulfilled") {
@@ -250,8 +248,12 @@ export const gmailTools: readonly RegisteredTool[] = [
       // the search→read flow actually completes. A `documentId` that misses is
       // a genuine not_found (it's our own id; there's nothing live to fetch).
       if (input.messageId) {
-        const accessToken = await resolveGoogleAccessToken(ctx.userId, GMAIL_READ_POLICY);
-        const message = await getMessage({ accessToken, id: input.messageId, format: "full" });
+        const credential = await resolveGoogleCredential(ctx.userId, GMAIL_READ_POLICY);
+        const message = await ctx.integrations.google.gmail.getMessage({
+          credentialId: credential.id,
+          id: input.messageId,
+          format: "full",
+        });
         const extracted = extractMessageContent(message);
         return {
           status: "ok",
@@ -300,9 +302,8 @@ export const gmailTools: readonly RegisteredTool[] = [
       // before making the Gmail send request.
       const credential = await resolveGoogleCredential(ctx.userId, GMAIL_SEND_POLICY);
       await requireScopes(credential.id, ["reply_draft"]);
-      const accessToken = await getFreshAccessToken(credential.id);
-      const sent = await sendMessage({
-        accessToken,
+      const sent = await ctx.integrations.google.gmail.sendMessage({
+        credentialId: credential.id,
         to: input.to,
         cc: input.cc,
         bcc: input.bcc,
@@ -329,8 +330,12 @@ export const gmailTools: readonly RegisteredTool[] = [
     },
     inputSchema: restPassthroughInput,
     execute: async (input, ctx) => {
-      const token = await resolveGoogleAccessToken(ctx.userId, GMAIL_READ_POLICY);
-      return runGooglePassthrough("gmail", token, input);
+      const credential = await resolveGoogleCredential(ctx.userId, GMAIL_READ_POLICY);
+      return runRestPassthrough(
+        "gmail",
+        await ctx.integrations.google.gmail.passthroughProfile(credential.id),
+        input,
+      );
     },
   }),
 ];

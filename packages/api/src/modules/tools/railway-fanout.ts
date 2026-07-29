@@ -5,8 +5,11 @@
  * passed in here as plain data / an injected lister.
  */
 
-import { type RailwayDeployment, type RailwayProject } from "@alfred/integrations/railway";
-import type { ActiveBearerCredential } from "@alfred/integrations/shared";
+import {
+  type RailwayCredential,
+  type RailwayDeployment,
+  type RailwayProject,
+} from "@alfred/integrations/railway";
 import { AppError, toPublicAppError, type PublicAppError } from "../../lib/app-errors";
 import { logger } from "../../lib/logger";
 
@@ -37,11 +40,11 @@ export interface RailwayFanoutFailure extends PublicAppError {
   credentialLabel: string;
 }
 
-export function credentialLabel(credential: ActiveBearerCredential): string {
+export function credentialLabel(credential: RailwayCredential): string {
   return credential.accountLabel ?? credential.accountId;
 }
 
-export function credentialRef(credential: ActiveBearerCredential): RailwayCredentialRef {
+export function credentialRef(credential: RailwayCredential): RailwayCredentialRef {
   return {
     credentialId: credential.id,
     credentialLabel: credentialLabel(credential),
@@ -51,7 +54,7 @@ export function credentialRef(credential: ActiveBearerCredential): RailwayCreden
 
 export function withCredential<T extends object>(
   value: T,
-  credential: ActiveBearerCredential,
+  credential: RailwayCredential,
 ): T & RailwayCredentialRef {
   return { ...value, ...credentialRef(credential) };
 }
@@ -62,9 +65,9 @@ export function withCredential<T extends object>(
  * an explicit choice rather than guess which account to read or mutate.
  */
 export function pickCredential(
-  credentials: ActiveBearerCredential[],
+  credentials: RailwayCredential[],
   credentialId?: string,
-): ActiveBearerCredential {
+): RailwayCredential {
   if (credentialId) {
     const credential = credentials.find((c) => c.id === credentialId);
     if (!credential) {
@@ -89,8 +92,8 @@ export function pickCredential(
  * is surfaced verbatim for the boss to relay.
  */
 export async function listProjectsForCredentials(
-  credentials: ActiveBearerCredential[],
-  listProjects: (token: string) => Promise<{ projects: RailwayProject[] }>,
+  credentials: RailwayCredential[],
+  listProjects: (credentialId: string) => Promise<{ projects: RailwayProject[] }>,
 ): Promise<{ projects: RailwayProjectWithCredential[]; failures: RailwayFanoutFailure[] }> {
   // Fan out concurrently — the credentials are independent round-trips, each up
   // to a 30s timeout, so serializing them is pure latency. Merge the settled
@@ -98,7 +101,7 @@ export async function listProjectsForCredentials(
   // de-dupe stays deterministic ("first credential wins") regardless of which
   // request happened to resolve first.
   const settled = await Promise.allSettled(
-    credentials.map((credential) => listProjects(credential.accessToken)),
+    credentials.map((credential) => listProjects(credential.id)),
   );
   // With a single credential there is no sibling to fall back to, so fail with
   // a safe actionable error while retaining the provider detail only as cause.
@@ -168,10 +171,10 @@ function byCreatedAtDesc(a: RailwayRecentDeployment, b: RailwayRecentDeployment)
  * throws if the projects can't be read at all (nothing to sweep).
  */
 export async function listRecentDeploymentsForCredentials(
-  credentials: ActiveBearerCredential[],
-  listProjects: (token: string) => Promise<{ projects: RailwayProject[] }>,
+  credentials: RailwayCredential[],
+  listProjects: (credentialId: string) => Promise<{ projects: RailwayProject[] }>,
   listDeployments: (args: {
-    token: string;
+    credentialId: string;
     projectId: string;
     limit: number;
   }) => Promise<{ deployments: RailwayDeployment[] }>,
@@ -182,18 +185,14 @@ export async function listRecentDeploymentsForCredentials(
 
   const { projects, failures } = await listProjectsForCredentials(credentials, listProjects);
 
-  // `RailwayProjectWithCredential` carries only the credential *ref*, but the
-  // deployments read needs the access token — recover it by credential id.
-  const credentialById = new Map(credentials.map((credential) => [credential.id, credential]));
-
   const settled = await Promise.allSettled(
     projects.map(async (project): Promise<RailwayRecentDeployment[]> => {
-      const credential = credentialById.get(project.credentialId);
+      const credential = credentials.find((candidate) => candidate.id === project.credentialId);
       // A project only surfaced because its credential listed it, so the lookup
       // always resolves; guard defensively rather than assert.
       if (!credential) return [];
       const { deployments } = await listDeployments({
-        token: credential.accessToken,
+        credentialId: credential.id,
         projectId: project.id,
         limit: perProjectLimit,
       });

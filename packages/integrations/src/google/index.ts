@@ -6,6 +6,12 @@ export type {
   ListEventsResult,
 } from "./calendar";
 export { createEvent, listEvents } from "./calendar";
+export {
+  createGoogleClient,
+  googleClientForUser,
+  type GoogleClient,
+  type GoogleTokenResolver,
+} from "./client";
 export type { CredentialRow } from "./credentials";
 export { getFreshAccessToken, listCredentials, upsertCredential } from "./credentials";
 export type { DocumentHeading, GetDocumentArgs, GetDocumentResult } from "./docs";
