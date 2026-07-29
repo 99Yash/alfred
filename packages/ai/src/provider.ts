@@ -1,4 +1,4 @@
-import { google, type GoogleLanguageModelOptions } from "@ai-sdk/google";
+import { google } from "@ai-sdk/google";
 import type { ChatModelTier } from "@alfred/contracts";
 import { isCallerAbort } from "./abort";
 import {
@@ -16,7 +16,12 @@ import {
 import type { LanguageModel as LanguageModelV4 } from "ai-retry";
 import { createRetryableModel, error, or, timeout } from "ai-retry/language-model";
 import { type EffortLevel, MODEL_CAPABILITIES, type ModelId } from "./models";
-import { createProviderModel, providerOptionsForModel } from "./provider-adapter";
+import {
+  createProviderModel,
+  disabledReasoningProviderOptionsForModel,
+  providerOptionsForModel,
+  type ProviderAdaptedLanguageModel,
+} from "./provider-adapter";
 
 // Re-export so existing `@alfred/ai` consumers keep importing `ChatModelTier`
 // from here; the literal itself is owned by `@alfred/contracts` (single source
@@ -27,7 +32,7 @@ type ChatProviderOptions = NonNullable<Parameters<typeof generateText>[0]["provi
 const modelForId = createProviderModel;
 
 /** Construct any language model in Alfred's closed registry. */
-export function getRegisteredModel(id: ModelId): LanguageModel {
+export function getRegisteredModel(id: ModelId): ProviderAdaptedLanguageModel {
   return modelForId(id);
 }
 
@@ -47,12 +52,12 @@ export function getRegisteredModelProviderOptions(
  * concrete model is protocol-wrapped before fallback composition, so Gemini
  * receives the application projection without Anthropic cache metadata.)
  */
-export function getBossModel(): LanguageModel {
-  return withFallback(modelForId("claude-sonnet-4-6"), modelForId("gemini-3.5-flash"));
+export function getBossModel(): ProviderAdaptedLanguageModel {
+  return withAdaptedFallback(modelForId("claude-sonnet-4-6"), modelForId("gemini-3.5-flash"));
 }
 
-export function getSubAgentModel(): LanguageModel {
-  return withFallback(modelForId("claude-sonnet-4-6"), modelForId("gemini-3.5-flash"));
+export function getSubAgentModel(): ProviderAdaptedLanguageModel {
+  return withAdaptedFallback(modelForId("claude-sonnet-4-6"), modelForId("gemini-3.5-flash"));
 }
 
 /**
@@ -81,16 +86,11 @@ export function getSubAgentModel(): LanguageModel {
  * ever *wants* thinking can still pass its own `thinkingConfig.thinkingBudget`
  * and override this.
  */
+const cheapDisabledReasoning = disabledReasoningProviderOptionsForModel("gemini-2.5-flash-lite");
 const CHEAP_TIER_DEFAULTS = defaultSettingsMiddleware({
   settings: {
     providerOptions: {
-      // `satisfies` rather than a bare literal: `providerOptions` is an untyped
-      // JSON bag, so a misspelled `thinkingConfig` would silently no-op — and a
-      // test comparing the dispatch against the same misspelled literal would
-      // still pass.
-      google: {
-        thinkingConfig: { thinkingBudget: 0 },
-      } satisfies GoogleLanguageModelOptions,
+      [cheapDisabledReasoning.provider]: cheapDisabledReasoning.options,
     },
   },
 });
@@ -116,7 +116,13 @@ export function withCheapTierDefaults(model: LanguageModel): LanguageModel {
   });
 }
 
-export function getCheapModel(): LanguageModel {
+function withAdaptedCheapTierDefaults(
+  model: ProviderAdaptedLanguageModel,
+): ProviderAdaptedLanguageModel {
+  return withCheapTierDefaults(model) as ProviderAdaptedLanguageModel;
+}
+
+export function getCheapModel(): ProviderAdaptedLanguageModel {
   // Flash-Lite is Google's lowest-latency tier — typical p50 is well under
   // a second for the short JSON outputs triage/extraction produce. Switched
   // from `gemini-2.5-flash` after the user flagged label-write lag on a
@@ -137,8 +143,8 @@ export function getCheapModel(): LanguageModel {
   // that already works; the bigger Flash pool absorbs flash-lite pressure.
   // (Boss/chat fall back cross-provider to Anthropic because they run
   // `generateText`, not structured object generation — different constraint.)
-  return withCheapTierDefaults(
-    withFallback(modelForId("gemini-2.5-flash-lite"), modelForId("gemini-2.5-flash")),
+  return withAdaptedCheapTierDefaults(
+    withAdaptedFallback(modelForId("gemini-2.5-flash-lite"), modelForId("gemini-2.5-flash")),
   );
 }
 
@@ -165,7 +171,7 @@ export function mediaEnrichmentModelRoutes(
 export function getMediaEnrichmentModels(
   modality: import("./models").MediaInputModality,
   byteSize: number,
-): LanguageModel[] {
+): ProviderAdaptedLanguageModel[] {
   const routes = mediaEnrichmentModelRoutes(modality, byteSize);
   if (routes.length === 0) throw new Error("media_enrichment_input_unsupported");
   return routes.map(modelForId);
@@ -176,8 +182,9 @@ export function getMediaEnrichmentModels(
  * Keep it decoupled from the cheap tier: a bad handoff corrupts the rest
  * of a long boss run, while the incremental cost is negligible.
  */
-export const COMPACTOR_MODEL: LanguageModel = modelForId("claude-sonnet-4-6");
-export const COMPACTOR_FALLBACK_MODEL: LanguageModel = modelForId("gemini-2.5-flash");
+export const COMPACTOR_MODEL: ProviderAdaptedLanguageModel = modelForId("claude-sonnet-4-6");
+export const COMPACTOR_FALLBACK_MODEL: ProviderAdaptedLanguageModel =
+  modelForId("gemini-2.5-flash");
 
 /**
  * Live web-search model for short, agent-driven lookups.
@@ -192,7 +199,7 @@ export const COMPACTOR_FALLBACK_MODEL: LanguageModel = modelForId("gemini-2.5-fl
  * `attribution.kind = 'web_search'` so `api_call_log` rollups bucket the
  * spend correctly.
  */
-export function getWebSearchModel(): LanguageModel {
+export function getWebSearchModel(): ProviderAdaptedLanguageModel {
   return modelForId("gemini-2.5-flash");
 }
 
@@ -240,9 +247,9 @@ const CHAT_TIERS = {
   { primary: ModelId; fallback: ModelId; effort: EffortLevel }
 >;
 
-export function getChatModel(tier: ChatModelTier = "standard"): LanguageModel {
+export function getChatModel(tier: ChatModelTier = "standard"): ProviderAdaptedLanguageModel {
   const { primary, fallback } = CHAT_TIERS[tier];
-  return withFallback(modelForId(primary), modelForId(fallback));
+  return withAdaptedFallback(modelForId(primary), modelForId(fallback));
 }
 
 /**
@@ -357,4 +364,11 @@ export function withFallback(primary: LanguageModelV4, fallback: LanguageModelV4
       shouldSwitch.switch({ model: fallback }),
     ],
   });
+}
+
+function withAdaptedFallback(
+  primary: ProviderAdaptedLanguageModel,
+  fallback: ProviderAdaptedLanguageModel,
+): ProviderAdaptedLanguageModel {
+  return withFallback(primary, fallback) as ProviderAdaptedLanguageModel;
 }

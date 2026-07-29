@@ -14,12 +14,12 @@ import {
   type ModelId,
   type ModelIdFor,
   type ModelProviderId,
-  isModelIdForProvider,
   normalizeProvider,
 } from "./models";
 
 type CacheTtl = "5m" | "1h";
 type ToolLoadingProtocol = "application" | "native";
+type ToolNameEncoding = "double-underscore" | "identity";
 
 type AnthropicChatProviderOptions = Pick<AnthropicLanguageModelOptions, "thinking" | "effort">;
 type GoogleChatProviderOptions = Pick<GoogleLanguageModelOptions, "thinkingConfig">;
@@ -28,13 +28,18 @@ type AnthropicEffortLevel = NonNullable<AnthropicChatProviderOptions["effort"]>;
 type GoogleThinkingLevel = NonNullable<
   NonNullable<GoogleChatProviderOptions["thinkingConfig"]>["thinkingLevel"]
 >;
+type CallOptions = Parameters<NonNullable<LanguageModelMiddleware["transformParams"]>>[0]["params"];
 type ProviderOptions = NonNullable<CallOptions["providerOptions"]>;
+type ProviderOptionBag = NonNullable<ProviderOptions[string]>;
 
 interface ProviderAdapter<M extends ModelId> {
   readonly toolNameMaxLen: number;
+  readonly toolNameEncoding: ToolNameEncoding;
   readonly nativeToolSearch: boolean;
   createModel(modelId: M): LanguageModelV4;
-  reasoningOptions(modelId: M, effort: EffortLevel): Record<string, unknown>;
+  reasoningOptions(modelId: M, effort: EffortLevel): ProviderOptionBag;
+  disabledReasoningOptions(modelId: M): ProviderOptionBag;
+  projectRequest(params: CallOptions, cacheTtl: CacheTtl | undefined): CallOptions;
 }
 
 type ProviderAdapterMap = {
@@ -67,6 +72,7 @@ function isGoogleThinkingLevel(value: EffortLevel): value is GoogleThinkingLevel
 const PROVIDER_ADAPTERS = {
   anthropic: {
     toolNameMaxLen: 128,
+    toolNameEncoding: "double-underscore",
     nativeToolSearch: false,
     createModel: (modelId: ModelIdFor<"anthropic">) => anthropic(modelId),
     reasoningOptions(
@@ -86,9 +92,14 @@ const PROVIDER_ADAPTERS = {
         effort: clampedEffort,
       };
     },
+    disabledReasoningOptions: (_modelId: ModelIdFor<"anthropic">) => ({
+      thinking: { type: "disabled" },
+    }),
+    projectRequest: projectAnthropicRequest,
   },
   google: {
     toolNameMaxLen: 64,
+    toolNameEncoding: "double-underscore",
     nativeToolSearch: false,
     createModel: (modelId: ModelIdFor<"google">) => google(modelId),
     reasoningOptions(
@@ -105,9 +116,14 @@ const PROVIDER_ADAPTERS = {
       }
       return { thinkingConfig: { includeThoughts: true, thinkingBudget: -1 } };
     },
+    disabledReasoningOptions: (_modelId: ModelIdFor<"google">) => ({
+      thinkingConfig: { thinkingBudget: 0 },
+    }),
+    projectRequest: projectApplicationRequest,
   },
   openai: {
     toolNameMaxLen: 64,
+    toolNameEncoding: "double-underscore",
     nativeToolSearch: false,
     createModel: (modelId: ModelIdFor<"openai">) => openai.responses(modelId),
     reasoningOptions(
@@ -117,6 +133,10 @@ const PROVIDER_ADAPTERS = {
       const { effortValues } = MODEL_CAPABILITIES[modelId];
       return { reasoningEffort: clampEffort(effort, effortValues) };
     },
+    disabledReasoningOptions: (_modelId: ModelIdFor<"openai">) => ({
+      reasoningEffort: "none",
+    }),
+    projectRequest: projectApplicationRequest,
   },
 } as const satisfies ProviderAdapterMap;
 
@@ -163,30 +183,32 @@ function assertProtocolRegistry(): void {
 
 assertProtocolRegistry();
 
-function encodeToolName(name: string): string {
-  return name.replace(".", "__");
+function encodeToolName(name: string, encoding: ToolNameEncoding): string {
+  return encoding === "double-underscore" ? name.replace(".", "__") : name;
 }
 
-function decodeToolName(name: string): string {
-  return name.replace("__", ".");
+function decodeToolName(name: string, encoding: ToolNameEncoding): string {
+  return encoding === "double-underscore" ? name.replace("__", ".") : name;
 }
 
 function assertToolNameRegistry(): void {
-  const strictestMaxLen = Math.min(
-    ...Object.values(PROVIDER_ADAPTERS).map((adapter) => adapter.toolNameMaxLen),
-  );
-  for (const [integration, actions] of Object.entries(INTEGRATION_ACTIONS) as [
-    IntegrationSlug,
-    readonly string[],
-  ][]) {
-    for (const action of actions) {
-      const name = `${integration}.${action}`;
-      const encoded = encodeToolName(name);
-      if (name.split(".").length !== 2 || name.includes("__")) {
-        throw new Error(`${name} cannot round-trip through the provider tool-name encoding`);
-      }
-      if (!/^[a-zA-Z0-9_-]+$/.test(encoded) || encoded.length > strictestMaxLen) {
-        throw new Error(`${name} exceeds the strictest provider tool-name policy`);
+  for (const adapter of Object.values(PROVIDER_ADAPTERS)) {
+    for (const [integration, actions] of Object.entries(INTEGRATION_ACTIONS) as [
+      IntegrationSlug,
+      readonly string[],
+    ][]) {
+      for (const action of actions) {
+        const name = `${integration}.${action}`;
+        const encoded = encodeToolName(name, adapter.toolNameEncoding);
+        if (
+          adapter.toolNameEncoding === "double-underscore" &&
+          (name.split(".").length !== 2 || name.includes("__"))
+        ) {
+          throw new Error(`${name} cannot round-trip through the provider tool-name encoding`);
+        }
+        if (!/^[a-zA-Z0-9_.-]+$/.test(encoded) || encoded.length > adapter.toolNameMaxLen) {
+          throw new Error(`${name} exceeds a provider tool-name policy`);
+        }
       }
     }
   }
@@ -201,7 +223,6 @@ const turnEnvelopeSchema = z
   })
   .strict();
 
-type CallOptions = Parameters<NonNullable<LanguageModelMiddleware["transformParams"]>>[0]["params"];
 type InputProviderOptions = Record<string, Record<string, unknown>>;
 type PromptMessage = CallOptions["prompt"][number];
 type ToolDefinition = NonNullable<CallOptions["tools"]>[number];
@@ -312,26 +333,41 @@ function decorateAnthropicTools(
   return out;
 }
 
-function transformParams(provider: ModelProviderId, params: CallOptions): CallOptions {
+function cleanProviderRequest(params: CallOptions): {
+  clean: CallOptions;
+  cacheTtl: CacheTtl | undefined;
+} {
   const { cacheTtl, providerOptions } = consumeTurnEnvelope(params.providerOptions);
   const { providerOptions: _internalOptions, ...rest } = params;
   const clean = {
     ...rest,
     ...(providerOptions ? { providerOptions } : {}),
   };
-  if (provider !== "anthropic" || !cacheTtl) return clean;
+  return { clean, cacheTtl };
+}
+
+function projectApplicationRequest(params: CallOptions): CallOptions {
+  return params;
+}
+
+function projectAnthropicRequest(params: CallOptions, cacheTtl: CacheTtl | undefined): CallOptions {
+  if (!cacheTtl) return params;
   return {
-    ...clean,
-    prompt: decorateAnthropicPrompt(clean.prompt, cacheTtl),
-    ...(clean.tools ? { tools: decorateAnthropicTools(clean.tools, cacheTtl) } : {}),
+    ...params,
+    prompt: decorateAnthropicPrompt(params.prompt, cacheTtl),
+    ...(params.tools ? { tools: decorateAnthropicTools(params.tools, cacheTtl) } : {}),
   };
 }
 
 function middlewareFor(modelId: ModelId): LanguageModelMiddleware {
   const provider = MODEL_REGISTRY[modelId];
+  const adapter = PROVIDER_ADAPTERS[provider] as ProviderAdapter<ModelId>;
   return {
     specificationVersion: "v4",
-    transformParams: async ({ params }) => transformParams(provider, params),
+    transformParams: async ({ params }) => {
+      const { clean, cacheTtl } = cleanProviderRequest(params);
+      return adapter.projectRequest(clean, cacheTtl);
+    },
   };
 }
 
@@ -345,26 +381,29 @@ type StreamResult = Awaited<ReturnType<NonNullable<LanguageModelMiddleware["wrap
 type StreamPart = StreamResult["stream"] extends ReadableStream<infer P> ? P : never;
 type MessagePart = Extract<PromptMessage["content"], readonly unknown[]>[number];
 
-function encodeMessagePart(part: MessagePart): MessagePart {
+function encodeMessagePart(part: MessagePart, encoding: ToolNameEncoding): MessagePart {
   if ((part.type === "tool-call" || part.type === "tool-result") && "toolName" in part) {
-    return { ...part, toolName: encodeToolName(part.toolName) };
+    return { ...part, toolName: encodeToolName(part.toolName, encoding) };
   }
   return part;
 }
 
-function encodePromptMessage(message: PromptMessage): PromptMessage {
+function encodePromptMessage(message: PromptMessage, encoding: ToolNameEncoding): PromptMessage {
   if (!Array.isArray(message.content)) return message;
-  return { ...message, content: message.content.map(encodeMessagePart) } as PromptMessage;
+  return {
+    ...message,
+    content: message.content.map((part) => encodeMessagePart(part, encoding)),
+  } as PromptMessage;
 }
 
-function encodeParams(params: CallOptions): CallOptions {
+function encodeParams(params: CallOptions, encoding: ToolNameEncoding): CallOptions {
   return {
     ...params,
     ...(params.tools
       ? {
           tools: params.tools.map((definition) =>
             definition.type === "function"
-              ? { ...definition, name: encodeToolName(definition.name) }
+              ? { ...definition, name: encodeToolName(definition.name, encoding) }
               : definition,
           ),
         }
@@ -373,27 +412,27 @@ function encodeParams(params: CallOptions): CallOptions {
       ? {
           toolChoice: {
             ...params.toolChoice,
-            toolName: encodeToolName(params.toolChoice.toolName),
+            toolName: encodeToolName(params.toolChoice.toolName, encoding),
           },
         }
       : {}),
-    prompt: params.prompt.map(encodePromptMessage),
+    prompt: params.prompt.map((message) => encodePromptMessage(message, encoding)),
   };
 }
 
-function decodeContentPart(part: ContentPart): ContentPart {
+function decodeContentPart(part: ContentPart, encoding: ToolNameEncoding): ContentPart {
   if (
     (part.type === "tool-call" ||
       part.type === "tool-result" ||
       part.type === "tool-approval-request") &&
     "toolName" in part
   ) {
-    return { ...part, toolName: decodeToolName(part.toolName) };
+    return { ...part, toolName: decodeToolName(part.toolName, encoding) };
   }
   return part;
 }
 
-function decodeStreamPart(part: StreamPart): StreamPart {
+function decodeStreamPart(part: StreamPart, encoding: ToolNameEncoding): StreamPart {
   if (
     (part.type === "tool-input-start" ||
       part.type === "tool-call" ||
@@ -401,74 +440,79 @@ function decodeStreamPart(part: StreamPart): StreamPart {
       part.type === "tool-approval-request") &&
     "toolName" in part
   ) {
-    return { ...part, toolName: decodeToolName(part.toolName) };
+    return { ...part, toolName: decodeToolName(part.toolName, encoding) };
   }
   return part;
 }
 
-const toolNameMiddleware: LanguageModelMiddleware = {
-  specificationVersion: "v4",
-  transformParams: async ({ params }) => encodeParams(params),
-  wrapGenerate: async ({ doGenerate }) => {
-    const result = await doGenerate();
-    return { ...result, content: result.content.map(decodeContentPart) };
-  },
-  wrapStream: async ({ doStream }) => {
-    const { stream, ...rest } = await doStream();
-    return {
-      ...rest,
-      stream: stream.pipeThrough(
-        new TransformStream<StreamPart, StreamPart>({
-          transform: (chunk, controller) => controller.enqueue(decodeStreamPart(chunk)),
-        }),
-      ),
-    };
-  },
+function toolNameMiddleware(encoding: ToolNameEncoding): LanguageModelMiddleware {
+  return {
+    specificationVersion: "v4",
+    transformParams: async ({ params }) => encodeParams(params, encoding),
+    wrapGenerate: async ({ doGenerate }) => {
+      const result = await doGenerate();
+      return {
+        ...result,
+        content: result.content.map((part) => decodeContentPart(part, encoding)),
+      };
+    },
+    wrapStream: async ({ doStream }) => {
+      const { stream, ...rest } = await doStream();
+      return {
+        ...rest,
+        stream: stream.pipeThrough(
+          new TransformStream<StreamPart, StreamPart>({
+            transform: (chunk, controller) => controller.enqueue(decodeStreamPart(chunk, encoding)),
+          }),
+        ),
+      };
+    },
+  };
+}
+
+declare const providerAdaptedModel: unique symbol;
+export type ProviderAdaptedLanguageModel = LanguageModelV4 & {
+  readonly [providerAdaptedModel]: true;
 };
 
 /**
  * Wrap one concrete registered model at the single provider-adapter seam.
  * Protocol projection is outermost; name encoding is the inner provider edge.
  */
-export function withProviderAdapter(modelId: ModelId, model: LanguageModelV4): LanguageModelV4 {
+export function withProviderAdapter(
+  modelId: ModelId,
+  model: LanguageModelV4,
+): ProviderAdaptedLanguageModel {
   const provider = MODEL_REGISTRY[modelId];
+  const adapter = PROVIDER_ADAPTERS[provider] as ProviderAdapter<ModelId>;
   const actualProvider = normalizeProvider(model.provider);
   if (actualProvider !== provider || model.modelId !== modelId) {
     throw new Error(
       `${modelId} protocol cannot wrap ${actualProvider}/${model.modelId}; expected ${provider}/${modelId}`,
     );
   }
-  const named = wrapLanguageModel({ model, middleware: toolNameMiddleware }) as LanguageModelV4;
-  return wrapLanguageModel({ model: named, middleware: middlewareFor(modelId) }) as LanguageModelV4;
+  const named = wrapLanguageModel({
+    model,
+    middleware: toolNameMiddleware(adapter.toolNameEncoding),
+  }) as LanguageModelV4;
+  return wrapLanguageModel({
+    model: named,
+    middleware: middlewareFor(modelId),
+  }) as ProviderAdaptedLanguageModel;
 }
 
-function assertModelProvider<P extends ModelProviderId>(
-  modelId: ModelId,
-  provider: P,
-): asserts modelId is ModelIdFor<P> {
-  if (!isModelIdForProvider(modelId, provider)) {
-    throw new Error(`${modelId} is registered to ${MODEL_REGISTRY[modelId]}, not ${provider}`);
-  }
+function adapterForModel(modelId: ModelId): ProviderAdapter<ModelId> {
+  const provider = MODEL_REGISTRY[modelId];
+  // SAFETY: ProviderAdapterMap keys each entry by the exact ModelIdFor<P>
+  // derived from MODEL_REGISTRY. Looking the entry up through that same registry
+  // preserves the relation, but TypeScript cannot retain it through indexed access.
+  return PROVIDER_ADAPTERS[provider] as ProviderAdapter<ModelId>;
 }
 
 /** Construct one fully wrapped concrete model from Alfred's closed registry. */
-export function createProviderModel(modelId: ModelId): LanguageModelV4 {
-  const provider = MODEL_REGISTRY[modelId];
-  switch (provider) {
-    case "anthropic":
-      assertModelProvider(modelId, provider);
-      return withProviderAdapter(modelId, PROVIDER_ADAPTERS.anthropic.createModel(modelId));
-    case "google":
-      assertModelProvider(modelId, provider);
-      return withProviderAdapter(modelId, PROVIDER_ADAPTERS.google.createModel(modelId));
-    case "openai":
-      assertModelProvider(modelId, provider);
-      return withProviderAdapter(modelId, PROVIDER_ADAPTERS.openai.createModel(modelId));
-    default: {
-      const _exhaustive: never = provider;
-      return _exhaustive;
-    }
-  }
+export function createProviderModel(modelId: ModelId): ProviderAdaptedLanguageModel {
+  const adapter = adapterForModel(modelId);
+  return withProviderAdapter(modelId, adapter.createModel(modelId));
 }
 
 /** Resolve one model's provider-namespaced reasoning block through its adapter. */
@@ -477,22 +521,17 @@ export function providerOptionsForModel(
   effort: EffortLevel,
 ): { provider: ModelProviderId; options: NonNullable<ProviderOptions[string]> } {
   const provider = MODEL_REGISTRY[modelId];
-  switch (provider) {
-    case "anthropic":
-      assertModelProvider(modelId, provider);
-      return {
-        provider,
-        options: PROVIDER_ADAPTERS.anthropic.reasoningOptions(modelId, effort),
-      };
-    case "google":
-      assertModelProvider(modelId, provider);
-      return { provider, options: PROVIDER_ADAPTERS.google.reasoningOptions(modelId, effort) };
-    case "openai":
-      assertModelProvider(modelId, provider);
-      return { provider, options: PROVIDER_ADAPTERS.openai.reasoningOptions(modelId, effort) };
-    default: {
-      const _exhaustive: never = provider;
-      return _exhaustive;
-    }
-  }
+  return { provider, options: adapterForModel(modelId).reasoningOptions(modelId, effort) };
+}
+
+/** Resolve a provider's wire representation for an explicit no-reasoning policy. */
+export function disabledReasoningProviderOptionsForModel(modelId: ModelId): {
+  provider: ModelProviderId;
+  options: NonNullable<ProviderOptions[string]>;
+} {
+  const provider = MODEL_REGISTRY[modelId];
+  return {
+    provider,
+    options: adapterForModel(modelId).disabledReasoningOptions(modelId),
+  };
 }

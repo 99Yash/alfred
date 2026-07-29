@@ -3,7 +3,6 @@ import {
   type CallWarning,
   type FinishReason,
   type GenerateTextResult,
-  type LanguageModel,
   type LanguageModelUsage,
   type ModelMessage,
   type StreamTextResult,
@@ -12,7 +11,7 @@ import {
 } from "ai";
 import { withDefaults } from "@alfred/contracts";
 import { meteredGenerateText, meteredStreamText, type AttributedCall } from "./metering/wrappers";
-import { attachProviderTurnPolicy } from "./provider-adapter";
+import { attachProviderTurnPolicy, type ProviderAdaptedLanguageModel } from "./provider-adapter";
 
 /**
  * Provider-options bag, structurally identical to the SDK's
@@ -71,8 +70,14 @@ export interface AlfredAgentSettings<CTX = unknown> {
    */
   tools: (ctx: CTX) => Promise<ToolSet> | ToolSet;
 
-  /** Underlying model. Resolver form lets capability-tagged dispatch swap providers per CTX. */
-  model: LanguageModel | ((ctx: CTX) => Promise<LanguageModel> | LanguageModel);
+  /**
+   * Provider-adapted model from an @alfred/ai model factory. Resolver form lets
+   * capability-tagged dispatch swap providers per CTX without admitting a raw
+   * SDK model that cannot consume Alfred's internal turn-policy envelope.
+   */
+  model:
+    | ProviderAdaptedLanguageModel
+    | ((ctx: CTX) => Promise<ProviderAdaptedLanguageModel> | ProviderAdaptedLanguageModel);
 
   /**
    * Prompt-cache policy consumed by the concrete model's protocol wrapper.

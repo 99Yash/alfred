@@ -381,8 +381,9 @@ No behavior change.
 4. Move existing prompt-cache, reasoning, model-construction, and tool-name
    mechanics behind the concrete adapter wrapper. **Complete 2026-07-29.**
 5. Make every current request byte-equivalent for Anthropic and behavior-equivalent
-   for Gemini. **Covered offline by concrete-wrapper and forced-fallback tests;
-   live byte/cache accounting remains in Slice 0.**
+   for Gemini. **Normalized request behavior is covered offline by
+   concrete-wrapper and forced-fallback tests. Serialized Anthropic byte/cache
+   equivalence remains unproven until Slice 0's live probe.**
 6. Add exhaustive registry/adapter tests, including wrapper ordering and removal
    of the Alfred-only envelope. **Complete for application adapters 2026-07-29.**
 
