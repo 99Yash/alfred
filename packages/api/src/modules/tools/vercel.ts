@@ -71,7 +71,6 @@ export const vercelTools: readonly RegisteredTool[] = [
       relatedTools: ["vercel.list_projects", "vercel.list_deployments"],
     },
     inputSchema: restPassthroughInput,
-    execute: async (input, ctx) =>
-      runRestPassthrough("vercel", await ctx.integrations.vercel.passthroughProfile(), input),
+    execute: async (input, ctx) => runRestPassthrough(ctx.integrations.vercel.passthrough, input),
   }),
 ];

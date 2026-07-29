@@ -10,7 +10,8 @@ import { z } from "zod";
 import type { ProviderBindOptions } from "../shared/provider";
 import { authedJson } from "../shared/authed-json";
 import { getActiveBearerCredential } from "../shared/credentials";
-import type { RestPassthroughProfile } from "../shared/rest-passthrough";
+import { restPassthroughCapability, type RestPassthroughProfile } from "../shared/rest-passthrough";
+import type { RetryPolicy } from "../shared/retry";
 
 const NOTION_API = "https://api.notion.com/v1";
 const NOTION_VERSION = "2022-06-28";
@@ -41,11 +42,12 @@ function notionPassthroughProfile(token: string): RestPassthroughProfile {
  * is logged server-side (in {@link authedJson}) but never rides the thrown error.
  */
 async function notionFetch(
-  resolveToken: NotionTokenResolver,
+  accessToken: string,
   path: string,
   init?: { method?: string; body?: unknown },
+  retry: RetryPolicy | "none" = "none",
+  idempotent?: true,
 ): Promise<unknown> {
-  const accessToken = await resolveToken();
   return authedJson(
     {
       headers: {
@@ -55,7 +57,7 @@ async function notionFetch(
       },
     },
     { url: `${NOTION_API}${path}`, method: init?.method, body: init?.body },
-    { provider: "notion", bodyPolicy: "omit" },
+    { provider: "notion", bodyPolicy: "omit", retry, ...(idempotent ? { idempotent } : {}) },
   );
 }
 
@@ -112,18 +114,19 @@ export interface NotionSearchResult {
 }
 
 async function notionSearch(
-  resolveToken: NotionTokenResolver,
+  accessToken: string,
   args: {
     query?: string | undefined;
     filter: "page" | "database" | "all";
     pageSize: number;
   },
+  retry: RetryPolicy | "none",
 ): Promise<NotionSearchResult> {
   const body: Record<string, unknown> = { page_size: args.pageSize };
   if (args.query) body.query = args.query;
   if (args.filter !== "all") body.filter = { value: args.filter, property: "object" };
   const json = notionListSchema.parse(
-    await notionFetch(resolveToken, "/search", { method: "POST", body }),
+    await notionFetch(accessToken, "/search", { method: "POST", body }, retry, true),
   );
   return {
     hits: json.results.map((r) => ({
@@ -148,14 +151,15 @@ export interface NotionPage {
 
 /** Pull a page's metadata plus a plain-text rendering of its top-level blocks. */
 async function notionGetPage(
-  resolveToken: NotionTokenResolver,
+  accessToken: string,
   args: { pageId: string },
+  retry: RetryPolicy | "none",
 ): Promise<NotionPage> {
   // The two reads are independent — fetch them concurrently (~half the latency).
   const id = encodeURIComponent(args.pageId);
   const [pageRaw, blocksRaw] = await Promise.all([
-    notionFetch(resolveToken, `/pages/${id}`),
-    notionFetch(resolveToken, `/blocks/${id}/children?page_size=100`),
+    notionFetch(accessToken, `/pages/${id}`, undefined, retry),
+    notionFetch(accessToken, `/blocks/${id}/children?page_size=100`, undefined, retry),
   ]);
   const page = notionObjectSchema.parse(pageRaw);
   const blocks = notionListSchema.parse(blocksRaw);
@@ -189,13 +193,13 @@ function paragraphBlocks(content: string | undefined): Array<Record<string, unkn
 
 /** PATCH children onto a block in ≤100-block batches (Notion's per-request cap). */
 async function appendChildrenInBatches(
-  resolveToken: NotionTokenResolver,
+  accessToken: string,
   blockId: string,
   children: Array<Record<string, unknown>>,
 ): Promise<void> {
   const id = encodeURIComponent(blockId);
   for (let i = 0; i < children.length; i += NOTION_MAX_CHILDREN_PER_REQUEST) {
-    await notionFetch(resolveToken, `/blocks/${id}/children`, {
+    await notionFetch(accessToken, `/blocks/${id}/children`, {
       method: "PATCH",
       body: { children: children.slice(i, i + NOTION_MAX_CHILDREN_PER_REQUEST) },
     });
@@ -208,7 +212,7 @@ export interface NotionCreatedPage {
 }
 
 async function notionCreatePage(
-  resolveToken: NotionTokenResolver,
+  accessToken: string,
   args: {
     parentPageId: string;
     title: string;
@@ -219,7 +223,7 @@ async function notionCreatePage(
   // first batch inline, then PATCH the remainder in further ≤100 batches.
   const children = paragraphBlocks(args.content);
   const json = notionObjectSchema.parse(
-    await notionFetch(resolveToken, "/pages", {
+    await notionFetch(accessToken, "/pages", {
       method: "POST",
       body: {
         parent: { type: "page_id", page_id: args.parentPageId },
@@ -233,7 +237,7 @@ async function notionCreatePage(
   const pageId = String(json.id ?? "");
   if (pageId && children.length > NOTION_MAX_CHILDREN_PER_REQUEST) {
     await appendChildrenInBatches(
-      resolveToken,
+      accessToken,
       pageId,
       children.slice(NOTION_MAX_CHILDREN_PER_REQUEST),
     );
@@ -242,11 +246,11 @@ async function notionCreatePage(
 }
 
 async function notionAppendBlocks(
-  resolveToken: NotionTokenResolver,
+  accessToken: string,
   args: { blockId: string; content: string },
 ): Promise<{ appended: number }> {
   const children = paragraphBlocks(args.content);
-  await appendChildrenInBatches(resolveToken, args.blockId, children);
+  await appendChildrenInBatches(accessToken, args.blockId, children);
   return { appended: children.length };
 }
 
@@ -255,16 +259,29 @@ export interface NotionTokenResolver {
 }
 
 /** Configured Notion client over a fresh-token resolver. */
-export function createNotionClient(resolveToken: NotionTokenResolver) {
+export function createNotionClient(
+  resolveToken: NotionTokenResolver,
+  retry: RetryPolicy | "none" = "none",
+) {
+  const passthrough = restPassthroughCapability({
+    slug: "notion",
+    retry,
+    resolveProfile: async () => notionPassthroughProfile(await resolveToken()),
+  });
   return {
-    search: (args: Parameters<typeof notionSearch>[1]) => notionSearch(resolveToken, args),
-    getPage: (args: Parameters<typeof notionGetPage>[1]) => notionGetPage(resolveToken, args),
-    createPage: (args: Parameters<typeof notionCreatePage>[1]) =>
-      notionCreatePage(resolveToken, args),
-    appendBlocks: (args: Parameters<typeof notionAppendBlocks>[1]) =>
-      notionAppendBlocks(resolveToken, args),
-    passthroughProfile: async (): Promise<RestPassthroughProfile> =>
-      notionPassthroughProfile(await resolveToken()),
+    async search(args: Parameters<typeof notionSearch>[1]) {
+      return notionSearch(await resolveToken(), args, retry);
+    },
+    async getPage(args: Parameters<typeof notionGetPage>[1]) {
+      return notionGetPage(await resolveToken(), args, retry);
+    },
+    async createPage(args: Parameters<typeof notionCreatePage>[1]) {
+      return notionCreatePage(await resolveToken(), args);
+    },
+    async appendBlocks(args: Parameters<typeof notionAppendBlocks>[1]) {
+      return notionAppendBlocks(await resolveToken(), args);
+    },
+    passthrough,
   };
 }
 
@@ -275,6 +292,7 @@ export function createNotionClient(resolveToken: NotionTokenResolver) {
 export function notionClientForUser(options: ProviderBindOptions) {
   return createNotionClient(
     async () => (await getActiveBearerCredential(options.userId, "notion")).accessToken,
+    options.retry,
   );
 }
 

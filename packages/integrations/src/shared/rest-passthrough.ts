@@ -1,6 +1,11 @@
-import { summarizeBody, type RestPassthroughRequest } from "@alfred/contracts";
+import {
+  summarizeBody,
+  type RestPassthroughRequest,
+  type SupportedRestSlug,
+} from "@alfred/contracts";
 
 import { authedFetch } from "./authed-fetch";
+import { fetchWithRetry, type RetryPolicy } from "./retry";
 
 /**
  * The general read-only passthrough transport the tier (ADR-0074 rung-a) shares
@@ -50,6 +55,29 @@ export interface RestPassthroughProfile {
    * the same name cannot override an authority parameter the boundary set.
    */
   fixedQuery?: Record<string, string> | undefined;
+}
+
+/**
+ * Opaque, token-free authority for one provider's read-only passthrough.
+ * Authentication stays inside the integrations package; the API layer receives
+ * only the slug needed for its read gate and a callable transport.
+ */
+export interface RestPassthroughCapability {
+  readonly slug: SupportedRestSlug;
+  execute(request: RestPassthroughRequest): Promise<RawRestResponse>;
+}
+
+export function restPassthroughCapability(args: {
+  slug: SupportedRestSlug;
+  resolveProfile: () => Promise<RestPassthroughProfile>;
+  retry: RetryPolicy | "none";
+}): RestPassthroughCapability {
+  return {
+    slug: args.slug,
+    async execute(request) {
+      return restPassthroughFetch(await args.resolveProfile(), request, args.retry);
+    },
+  };
 }
 
 /**
@@ -109,6 +137,7 @@ function buildAndVerifyUrl(profile: RestPassthroughProfile, request: RestPassthr
 export async function restPassthroughFetch(
   profile: RestPassthroughProfile,
   request: RestPassthroughRequest,
+  retry: RetryPolicy | "none" = "none",
 ): Promise<RawRestResponse> {
   const url = buildAndVerifyUrl(profile, request);
   const method = request.method.toUpperCase();
@@ -118,10 +147,15 @@ export async function restPassthroughFetch(
   // (and encode) exactly when — and only when — a POST body is present. Redirects
   // are never followed: a signed provider redirect can carry credentials in its
   // URL, so a 3xx must be an HTTP outcome, not a hop.
-  const res = await authedFetch(
-    { headers: profile.headers, redirect: "manual" },
-    { url, method, body: method === "POST" ? request.body : undefined },
-  );
+  const send = () =>
+    authedFetch(
+      { headers: profile.headers, redirect: "manual" },
+      { url, method, body: method === "POST" ? request.body : undefined },
+    );
+  // The API gate admits only reads, including the two provider-specific
+  // read-via-POST endpoints. Retrying the capability is therefore safe even
+  // when the wire method is POST.
+  const res = retry === "none" ? await send() : await fetchWithRetry(send, { policy: retry });
 
   const redirectedTo =
     res.status >= 300 && res.status < 400

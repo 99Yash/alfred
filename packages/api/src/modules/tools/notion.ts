@@ -88,11 +88,7 @@ export const notionTools: readonly RegisteredTool[] = [
     },
     inputSchema: restPassthroughInput,
     execute: async (input, ctx) => {
-      return runRestPassthrough(
-        "notion",
-        await ctx.integrations.notion.passthroughProfile(),
-        input,
-      );
+      return runRestPassthrough(ctx.integrations.notion.passthrough, input);
     },
   }),
 ];

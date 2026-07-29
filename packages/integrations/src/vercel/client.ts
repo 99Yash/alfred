@@ -4,7 +4,7 @@ import { z } from "zod";
 import { getActiveBearerCredential } from "../shared/credentials";
 import type { ProviderBindOptions } from "../shared/provider";
 import { defineProviderClient, type ProviderRequestContext } from "../shared/provider-client";
-import type { RestPassthroughProfile } from "../shared/rest-passthrough";
+import { restPassthroughCapability } from "../shared/rest-passthrough";
 import type { RetryPolicy } from "../shared/retry";
 import { readVercelTeamId } from "./credential";
 
@@ -113,10 +113,10 @@ export interface VercelClientOptions {
 export function createVercelClient(options: VercelClientOptions) {
   /**
    * The one place a Vercel credential becomes a header. Both the curated reads
-   * (via `resolve`) and the passthrough profile go through it, so the authority a
-   * raw passthrough call carries is the same authority — origin, bearer, pinned
-   * team scope — that `projects()` carries, and a change cannot reach one and
-   * miss the other.
+   * (via `resolve`) and the passthrough capability go through it, so the authority
+   * a raw passthrough call carries is the same authority — origin, bearer, pinned
+   * team scope — that `projects()` carries, and a change cannot reach one and miss
+   * the other.
    */
   const authContext = async (): Promise<ProviderRequestContext> => {
     const { token, teamId } = await options.resolveAuth();
@@ -136,6 +136,11 @@ export function createVercelClient(options: VercelClientOptions) {
     // 403 on a team-scoped read. Stated, not inherited.
     bodyPolicy: "summarize",
   });
+  const passthrough = restPassthroughCapability({
+    slug: "vercel",
+    retry: options.retry,
+    resolveProfile: async () => ({ baseUrl: VERCEL_API, ...(await authContext()) }),
+  });
 
   return {
     /**
@@ -144,9 +149,7 @@ export function createVercelClient(options: VercelClientOptions) {
      * The gate that proves a request is a *read* is deliberately not here — that
      * is policy owned by `@alfred/api` (`assertReadableRestRequest`).
      */
-    async passthroughProfile(): Promise<RestPassthroughProfile> {
-      return { baseUrl: VERCEL_API, ...(await authContext()) };
-    },
+    passthrough,
 
     async projects(args?: { limit?: number }): Promise<VercelProject[]> {
       const json = listProjectsResponseSchema.parse(

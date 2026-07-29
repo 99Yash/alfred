@@ -219,8 +219,7 @@ export const githubTools: readonly RegisteredTool[] = [
       relatedTools: ["github.search", "github.get_pull_request"],
     },
     inputSchema: restPassthroughInput,
-    execute: async (input, ctx) =>
-      runRestPassthrough("github", await ctx.integrations.github.passthroughProfile(), input),
+    execute: async (input, ctx) => runRestPassthrough(ctx.integrations.github.passthrough, input),
   }),
 ];
 

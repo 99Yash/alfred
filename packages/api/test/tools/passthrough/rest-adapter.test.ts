@@ -1,7 +1,11 @@
 import assert from "node:assert/strict";
 import { describe, test } from "node:test";
-import type { RestPassthroughRequest } from "@alfred/contracts";
-import type { RestPassthroughProfile } from "@alfred/integrations/shared";
+import type { RestPassthroughRequest, SupportedRestSlug } from "@alfred/contracts";
+import {
+  restPassthroughFetch,
+  type RestPassthroughCapability,
+  type RestPassthroughProfile,
+} from "@alfred/integrations/shared";
 import { runRestPassthrough } from "../../../src/modules/tools/passthrough";
 
 /**
@@ -58,6 +62,13 @@ const VERCEL_PROFILE: RestPassthroughProfile = {
 
 const req = (r: Partial<RestPassthroughRequest> & { method: string; path: string }) =>
   r as RestPassthroughRequest;
+const capability = (
+  slug: SupportedRestSlug,
+  profile: RestPassthroughProfile,
+): RestPassthroughCapability => ({
+  slug,
+  execute: (request) => restPassthroughFetch(profile, request),
+});
 
 describe("runRestPassthrough — gate denial (never leaves Alfred)", () => {
   test("a write method (DELETE) is a visible rejected envelope, no fetch issued", async () => {
@@ -68,7 +79,10 @@ describe("runRestPassthrough — gate denial (never leaves Alfred)", () => {
         return jsonResponse({});
       },
       () =>
-        runRestPassthrough("github", GITHUB_PROFILE, req({ method: "DELETE", path: "/repos/a/b" })),
+        runRestPassthrough(
+          capability("github", GITHUB_PROFILE),
+          req({ method: "DELETE", path: "/repos/a/b" }),
+        ),
     );
     assert.equal(fetched, false, "gate must short-circuit before any network call");
     assert.equal(result.outcome, "rejected");
@@ -84,8 +98,7 @@ describe("runRestPassthrough — gate denial (never leaves Alfred)", () => {
       },
       () =>
         runRestPassthrough(
-          "github",
-          GITHUB_PROFILE,
+          capability("github", GITHUB_PROFILE),
           req({ method: "POST", path: "/repos/a/b/issues", body: { title: "x" } }),
         ),
     );
@@ -108,8 +121,7 @@ describe("runRestPassthrough — HTTP envelope", () => {
       },
       () =>
         runRestPassthrough(
-          "github",
-          GITHUB_PROFILE,
+          capability("github", GITHUB_PROFILE),
           req({ method: "GET", path: "/repos/a/b/commits", query: { per_page: 5, sha: "main" } }),
         ),
     );
@@ -136,8 +148,7 @@ describe("runRestPassthrough — HTTP envelope", () => {
       },
       () =>
         runRestPassthrough(
-          "vercel",
-          VERCEL_PROFILE,
+          capability("vercel", VERCEL_PROFILE),
           req({
             method: "GET",
             path: "/v9/projects",
@@ -153,7 +164,10 @@ describe("runRestPassthrough — HTTP envelope", () => {
     const result = await withMockedFetch(
       () => jsonResponse({ message: "Not Found" }, 404),
       () =>
-        runRestPassthrough("github", GITHUB_PROFILE, req({ method: "GET", path: "/repos/a/nope" })),
+        runRestPassthrough(
+          capability("github", GITHUB_PROFILE),
+          req({ method: "GET", path: "/repos/a/nope" }),
+        ),
     );
     assert.equal(result.outcome, "http");
     if (result.outcome === "http") {
@@ -174,8 +188,7 @@ describe("runRestPassthrough — HTTP envelope", () => {
       },
       () =>
         runRestPassthrough(
-          "notion",
-          NOTION_PROFILE,
+          capability("notion", NOTION_PROFILE),
           req({ method: "POST", path: "/search", body: { query: "roadmap" } }),
         ),
     );
@@ -193,8 +206,7 @@ describe("runRestPassthrough — HTTP envelope", () => {
         }),
       () =>
         runRestPassthrough(
-          "github",
-          GITHUB_PROFILE,
+          capability("github", GITHUB_PROFILE),
           req({ method: "GET", path: "/repos/a/b/tarball" }),
         ),
     );
@@ -216,8 +228,7 @@ describe("runRestPassthrough — HTTP envelope", () => {
       () => new Response(png, { status: 200, headers: { "Content-Type": "image/png" } }),
       () =>
         runRestPassthrough(
-          "github",
-          GITHUB_PROFILE,
+          capability("github", GITHUB_PROFILE),
           req({ method: "GET", path: "/repos/a/b/logo" }),
         ),
     );
@@ -243,7 +254,10 @@ describe("runRestPassthrough — failure classification (never throws)", () => {
         throw err;
       },
       () =>
-        runRestPassthrough("github", GITHUB_PROFILE, req({ method: "GET", path: "/repos/a/b" })),
+        runRestPassthrough(
+          capability("github", GITHUB_PROFILE),
+          req({ method: "GET", path: "/repos/a/b" }),
+        ),
     );
     assert.equal(result.outcome, "transport");
     if (result.outcome === "transport") {
@@ -267,7 +281,11 @@ describe("runRestPassthrough — failure classification (never throws)", () => {
         fetched = true;
         return jsonResponse({});
       },
-      () => runRestPassthrough("notion", escaping, req({ method: "GET", path: "/../v2/pages" })),
+      () =>
+        runRestPassthrough(
+          capability("notion", escaping),
+          req({ method: "GET", path: "/../v2/pages" }),
+        ),
     );
     // The gate rejects `..` first — the request never reaches the transport.
     assert.equal(fetched, false);

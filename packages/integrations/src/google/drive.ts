@@ -1,6 +1,7 @@
 import { httpErrorFromResponse } from "@alfred/contracts";
 import { z } from "zod";
 import { INTEGRATION_FETCH_TIMEOUT_MS } from "../shared/authed-fetch";
+import { fetchWithRetry, type RetryPolicy } from "../shared/retry";
 import { googleJson } from "./http";
 
 /**
@@ -62,7 +63,10 @@ export interface ListFilesResult {
 }
 
 /** Search/list files the user can see. */
-export async function listFiles(args: ListFilesArgs): Promise<ListFilesResult> {
+export async function listFiles(
+  args: ListFilesArgs,
+  retry: RetryPolicy | "none" = "none",
+): Promise<ListFilesResult> {
   const url = new URL(API_BASE);
   if (args.q) url.searchParams.set("q", args.q);
   url.searchParams.set("pageSize", String(args.pageSize ?? 25));
@@ -73,7 +77,7 @@ export async function listFiles(args: ListFilesArgs): Promise<ListFilesResult> {
   url.searchParams.set("supportsAllDrives", "true");
   url.searchParams.set("includeItemsFromAllDrives", "true");
 
-  const json = await getJson(url.toString(), args.accessToken);
+  const json = await getJson(url.toString(), args.accessToken, retry);
   const parsed = listFilesResponseSchema.parse(json);
   return { files: parsed.files ?? [], nextPageToken: parsed.nextPageToken };
 }
@@ -84,11 +88,14 @@ export interface GetFileArgs {
 }
 
 /** Fetch one file's metadata. */
-export async function getFile(args: GetFileArgs): Promise<DriveFile> {
+export async function getFile(
+  args: GetFileArgs,
+  retry: RetryPolicy | "none" = "none",
+): Promise<DriveFile> {
   const url = new URL(`${API_BASE}/${encodeURIComponent(args.fileId)}`);
   url.searchParams.set("fields", FILE_FIELDS);
   url.searchParams.set("supportsAllDrives", "true");
-  const json = await getJson(url.toString(), args.accessToken);
+  const json = await getJson(url.toString(), args.accessToken, retry);
   return fileSchema.parse(json);
 }
 
@@ -114,11 +121,14 @@ export interface FileContentResult {
  * Export a Google-native file (Doc/Sheet/Slide) to a text MIME type.
  * Fails for binary uploads — use {@link downloadFile} for those.
  */
-export async function exportFile(args: ExportFileArgs): Promise<FileContentResult> {
+export async function exportFile(
+  args: ExportFileArgs,
+  retry: RetryPolicy | "none" = "none",
+): Promise<FileContentResult> {
   const mimeType = args.mimeType ?? "text/plain";
   const url = new URL(`${API_BASE}/${encodeURIComponent(args.fileId)}/export`);
   url.searchParams.set("mimeType", mimeType);
-  const { text, truncated } = await getText(url.toString(), args.accessToken);
+  const { text, truncated } = await getText(url.toString(), args.accessToken, retry);
   return { fileId: args.fileId, mimeType, text, truncated };
 }
 
@@ -132,25 +142,31 @@ export interface DownloadFileArgs {
  * for textual uploads (.txt, .csv, .json, …); binary files come back as
  * mojibake. Capped at {@link MAX_CONTENT_BYTES}.
  */
-export async function downloadFile(args: DownloadFileArgs): Promise<FileContentResult> {
+export async function downloadFile(
+  args: DownloadFileArgs,
+  retry: RetryPolicy | "none" = "none",
+): Promise<FileContentResult> {
   const url = new URL(`${API_BASE}/${encodeURIComponent(args.fileId)}`);
   url.searchParams.set("alt", "media");
   url.searchParams.set("supportsAllDrives", "true");
-  const { text, truncated, mimeType } = await getText(url.toString(), args.accessToken);
+  const { text, truncated, mimeType } = await getText(url.toString(), args.accessToken, retry);
   return { fileId: args.fileId, mimeType: mimeType ?? "application/octet-stream", text, truncated };
 }
 
-const getJson = (url: string, accessToken: string): Promise<unknown> =>
-  googleJson("drive", "GET", url, accessToken);
+const getJson = (url: string, accessToken: string, retry: RetryPolicy | "none"): Promise<unknown> =>
+  googleJson("drive", "GET", url, accessToken, undefined, retry);
 
 async function getText(
   url: string,
   accessToken: string,
+  retry: RetryPolicy | "none",
 ): Promise<{ text: string; truncated: boolean; mimeType?: string }> {
-  const res = await fetch(url, {
-    headers: { Authorization: `Bearer ${accessToken}` },
-    signal: AbortSignal.timeout(INTEGRATION_FETCH_TIMEOUT_MS),
-  });
+  const send = () =>
+    fetch(url, {
+      headers: { Authorization: `Bearer ${accessToken}` },
+      signal: AbortSignal.timeout(INTEGRATION_FETCH_TIMEOUT_MS),
+    });
+  const res = retry === "none" ? await send() : await fetchWithRetry(send, { policy: retry });
   if (!res.ok) {
     throw await httpErrorFromResponse("drive", res, { url });
   }

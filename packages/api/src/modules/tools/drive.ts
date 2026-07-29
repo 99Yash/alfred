@@ -14,21 +14,9 @@ import {
   driveSearchInput,
   restPassthroughInput,
 } from "@alfred/contracts";
-import { DRIVE_SCOPE } from "@alfred/integrations/google";
 import { surfaceExternalFileArtifact } from "../artifacts/external-file";
-import { resolveGoogleCredential } from "./google-credentials";
 import { runRestPassthrough } from "./passthrough";
 import { liveTool, type RegisteredTool, type ToolExecuteContext } from "./registry";
-
-/** Resolve the Drive-scoped Google account; the facade resolves its token. */
-async function credentialIdFor(userId: string): Promise<string> {
-  const credential = await resolveGoogleCredential(userId, {
-    scopes: [DRIVE_SCOPE],
-    noConnection: "drive_connection_required",
-    noScope: "drive_scope_required",
-  });
-  return credential.id;
-}
 
 /** Google-editable file (Doc/Sheet/Slide) — the only kind `export_file` can read as text. */
 function isGoogleNativeMimeType(mimeType: string | undefined): boolean {
@@ -106,7 +94,7 @@ export const driveTools: readonly RegisteredTool[] = [
     description: "Search or list the user's Drive files (with an optional Drive query string).",
     inputSchema: driveSearchInput,
     execute: async (input, ctx) => {
-      const credentialId = await credentialIdFor(ctx.userId);
+      const credentialId = (await ctx.integrations.google.drive.credential()).id;
       return ctx.integrations.google.drive.listFiles({
         credentialId,
         q: input.q,
@@ -123,7 +111,7 @@ export const driveTools: readonly RegisteredTool[] = [
     description: "Read one Drive file's metadata (name, mimeType, modified time, link, owners).",
     inputSchema: driveGetFileInput,
     execute: async (input, ctx) => {
-      const credentialId = await credentialIdFor(ctx.userId);
+      const credentialId = (await ctx.integrations.google.drive.credential()).id;
       return ctx.integrations.google.drive.getFile({ credentialId, fileId: input.fileId });
     },
   }),
@@ -135,7 +123,7 @@ export const driveTools: readonly RegisteredTool[] = [
       "Read a Google-native file (Doc/Sheet/Slide) in as text so you can reason over its contents. Text export only (text/plain default, text/csv, text/markdown, text/html) — it does NOT produce a downloadable PDF/slides/spreadsheet; that is a separate capability. Use download_file for non-Google uploads. When the user wants a shareable document, a live Google Sheet/Doc link is the deliverable.",
     inputSchema: driveExportFileInput,
     execute: async (input, ctx) => {
-      const credentialId = await credentialIdFor(ctx.userId);
+      const credentialId = (await ctx.integrations.google.drive.credential()).id;
       try {
         return await ctx.integrations.google.drive.exportFile({
           credentialId,
@@ -160,7 +148,7 @@ export const driveTools: readonly RegisteredTool[] = [
       "Download a non-Google file's contents as text (best for .txt/.csv/.json uploads; binary comes back garbled).",
     inputSchema: driveDownloadFileInput,
     execute: async (input, ctx) => {
-      const credentialId = await credentialIdFor(ctx.userId);
+      const credentialId = (await ctx.integrations.google.drive.credential()).id;
       try {
         return await ctx.integrations.google.drive.downloadFile({
           credentialId,
@@ -192,12 +180,8 @@ export const driveTools: readonly RegisteredTool[] = [
     },
     inputSchema: restPassthroughInput,
     execute: async (input, ctx) => {
-      const credentialId = await credentialIdFor(ctx.userId);
-      return runRestPassthrough(
-        "drive",
-        await ctx.integrations.google.drive.passthroughProfile(credentialId),
-        input,
-      );
+      const credentialId = (await ctx.integrations.google.drive.credential()).id;
+      return runRestPassthrough(ctx.integrations.google.drive.passthrough(credentialId), input);
     },
   }),
 ];

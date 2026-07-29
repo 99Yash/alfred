@@ -64,10 +64,10 @@ export function withCredential<T extends object>(
  * omitted we default to the sole connection; with several connected we require
  * an explicit choice rather than guess which account to read or mutate.
  */
-export function pickCredential(
-  credentials: RailwayCredential[],
+export function pickCredential<T extends RailwayCredential>(
+  credentials: T[],
   credentialId?: string,
-): RailwayCredential {
+): T {
   if (credentialId) {
     const credential = credentials.find((c) => c.id === credentialId);
     if (!credential) {

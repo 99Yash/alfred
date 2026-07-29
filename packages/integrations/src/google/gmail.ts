@@ -1,5 +1,6 @@
 import { toMessage } from "@alfred/contracts";
 import { z } from "zod";
+import type { RetryPolicy } from "../shared/retry";
 import { googleJson } from "./http";
 
 /**
@@ -82,14 +83,17 @@ export interface ListMessagesResult {
   nextPageToken?: string | undefined;
 }
 
-export async function listMessages(args: ListMessagesArgs): Promise<ListMessagesResult> {
+export async function listMessages(
+  args: ListMessagesArgs,
+  retry: RetryPolicy | "none" = "none",
+): Promise<ListMessagesResult> {
   const url = new URL(`${API_BASE}/messages`);
   url.searchParams.set("maxResults", String(args.maxResults ?? 100));
   if (args.q) url.searchParams.set("q", args.q);
   if (args.pageToken) url.searchParams.set("pageToken", args.pageToken);
   if (args.labelIds) for (const l of args.labelIds) url.searchParams.append("labelIds", l);
 
-  const json = await getJson(url.toString(), args.accessToken);
+  const json = await getJson(url.toString(), args.accessToken, retry);
   const parsed = listMessagesResponseSchema.parse(json);
   return {
     messages: parsed.messages ?? [],
@@ -107,10 +111,13 @@ export interface GetMessageArgs {
   format?: "full" | "metadata" | "minimal" | "raw" | undefined;
 }
 
-export async function getMessage(args: GetMessageArgs): Promise<GmailMessage> {
+export async function getMessage(
+  args: GetMessageArgs,
+  retry: RetryPolicy | "none" = "none",
+): Promise<GmailMessage> {
   const url = new URL(`${API_BASE}/messages/${args.id}`);
   url.searchParams.set("format", args.format ?? "full");
-  const json = await getJson(url.toString(), args.accessToken);
+  const json = await getJson(url.toString(), args.accessToken, retry);
   return messageSchema.parse(json);
 }
 
@@ -147,8 +154,11 @@ export async function getThreadMessageLabels(args: {
   }));
 }
 
-const getJson = (url: string, accessToken: string): Promise<unknown> =>
-  googleJson("gmail", "GET", url, accessToken);
+const getJson = (
+  url: string,
+  accessToken: string,
+  retry: RetryPolicy | "none" = "none",
+): Promise<unknown> => googleJson("gmail", "GET", url, accessToken, undefined, retry);
 
 const postJson = (url: string, accessToken: string, payload: unknown): Promise<unknown> =>
   googleJson("gmail", "POST", url, accessToken, payload);

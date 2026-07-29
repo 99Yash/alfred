@@ -134,13 +134,19 @@ describe("vercel client team scope", () => {
     assert.equal(url.searchParams.has("teamId"), false);
   });
 
-  test("the passthrough profile carries the same pinned team scope the reads do", async () => {
+  test("the passthrough capability carries the same pinned team scope internally", async () => {
     // Otherwise a raw `vercel.request` would read personal scope on a team
     // install and report an empty result as a confident zero.
-    const profile = await client("team_abc").passthroughProfile();
-    assert.deepEqual(profile.fixedQuery, { teamId: "team_abc" });
-    const personal = await client(null).passthroughProfile();
-    assert.equal(personal.fixedQuery, undefined);
+    const teamCalls = stubFetch({ ok: true });
+    await client("team_abc").passthrough.execute({
+      method: "GET",
+      path: "/v9/projects",
+      query: {},
+    });
+    assert.equal(new URL(teamCalls[0]?.url ?? "").searchParams.get("teamId"), "team_abc");
+    const personalCalls = stubFetch({ ok: true });
+    await client(null).passthrough.execute({ method: "GET", path: "/v9/projects", query: {} });
+    assert.equal(new URL(personalCalls[0]?.url ?? "").searchParams.has("teamId"), false);
   });
 });
 
@@ -166,10 +172,12 @@ describe("vercel client auth", () => {
     });
   });
 
-  test("passthroughProfile pins the authority and carries auth as data", async () => {
-    const profile = await client("team_abc").passthroughProfile();
-    assert.equal(profile.baseUrl, "https://api.vercel.com");
-    assert.equal(profile.headers.Authorization, "Bearer vercel_secret_token");
+  test("passthrough is opaque and keeps bearer auth inside integrations", async () => {
+    const calls = stubFetch({ ok: true });
+    const passthrough = client("team_abc").passthrough;
+    assert.deepEqual(Object.keys(passthrough).sort(), ["execute", "slug"]);
+    await passthrough.execute({ method: "GET", path: "/v9/projects", query: {} });
+    assert.equal(calls[0]?.headers.Authorization, "Bearer vercel_secret_token");
   });
 
   test("resolves per request — no client memoizes a credential", async () => {
@@ -179,7 +187,7 @@ describe("vercel client auth", () => {
       resolves += 1;
     });
     await vercel.projects();
-    await vercel.passthroughProfile();
+    await vercel.passthrough.execute({ method: "GET", path: "/v9/projects", query: {} });
     // Two methods, two reads. `vercelClientForUser` behaves identically, so a
     // rotated credential is picked up on the next call rather than at the next
     // bind — and there is no lifetime rule for a caller to get wrong.

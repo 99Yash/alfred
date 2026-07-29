@@ -27,9 +27,10 @@ export const GOOGLE_PASSTHROUGH_BASE_URLS: Record<GoogleService, string> = {
 };
 
 /**
- * Build the passthrough profile for a Google service: its pinned base URL +
- * bearer auth. The `Content-Type` is added by the transport only when a
- * read-via-POST body is sent, so it is deliberately absent here.
+ * Build the private transport profile behind a Google passthrough capability:
+ * its pinned base URL + bearer auth. The profile never crosses the integrations
+ * boundary. The `Content-Type` is added by the transport only when a read-via-POST
+ * body is sent, so it is deliberately absent here.
  */
 export function googlePassthroughProfile(
   service: GoogleService,
