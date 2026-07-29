@@ -132,36 +132,12 @@ function sameBarriers(left: ReplayState["activeRuns"], right: ReplayState["activ
  * kind-agnostic — one global id range with no kind filter
  * (`modules/events/replay.ts`) — so the chat barrier already spans the deltas,
  * and after a reload the client's stream map is empty, so the replayed deltas
- * are reassembled rather than dropped on `use-artifact-stream`'s seq guard. Do
- * **not** "fix" the exclusion by adding `case "artifact.delta"`: that arms a
- * second barrier only a `chat.message` can release. The reverse direction — "a
+ * are reassembled rather than dropped on `use-artifact-stream`'s seq guard. The reverse direction — "a
  * new runId-carrying kind should be considered for recovery" — is prose, not a
  * type.
  *
  * `payload.runId` and `payload.phase` are read unguarded under the caller contract
- * stated on `advanceReplayState`. The `isRecord` and `typeof` guards this replaced
- * bought less than their shape suggested, but not nothing. For a payload the types
- * permit they were inert: a missing `runId` already early-returned with no barrier,
- * and a `phase` other than `"completed"` already armed one. For a payload the types
- * now forbid, exactly two behaviours changed:
- *
- * - A **truthy non-string `runId`** (say `5`) used to be rejected by the `typeof`
- *   check; it now arms `activeRuns["5"]` under a coerced key, which
- *   `createReplayStateController` persists and `replayStateSchema` re-accepts on the
- *   next load, freezing `since` there. So the guard did stand between one malformed
- *   payload and a wrong, persisted barrier.
- * - A **`null` or `undefined`** payload used to be skipped by `isRecord` and now
- *   throws at `frame.payload.runId`. Only those two throw: a string, number, boolean
- *   or array payload reads `undefined` off `.runId` and takes the same silent
- *   no-barrier path as before, since `isRecord` rejected arrays and non-plain
- *   prototypes too. Because `noteReplayFrame` runs *before* `openEventStream`'s
- *   subscriber fan-out, a throw here would drop the frame for every subscriber.
- *
- * Both are unreachable today: every payload schema is a flat `z.object` and all nine
- * `runId` declarations are `z.string().min(1)`, so neither shape survives
- * `parseEventFrame`, and a non-object output type would not compile at
- * `frame.payload.runId`. They are reachable only behind a validator that does not
- * validate.
+ * stated on `advanceReplayState`.
  */
 function recoverableRunId(frame: EventStreamFrame): string | null {
   switch (frame.kind) {
