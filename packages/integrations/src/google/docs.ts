@@ -1,4 +1,5 @@
 import { z } from "zod";
+import type { RetryPolicy } from "../shared/retry";
 import { googleJson } from "./http";
 
 /**
@@ -100,9 +101,12 @@ export interface GetDocumentResult {
 }
 
 /** Fetch a document and flatten its structure into plain text + a heading outline. */
-export async function getDocument(args: GetDocumentArgs): Promise<GetDocumentResult> {
+export async function getDocument(
+  args: GetDocumentArgs,
+  retry: RetryPolicy | "none" = "none",
+): Promise<GetDocumentResult> {
   const url = `${API_BASE}/${encodeURIComponent(args.documentId)}`;
-  const json = await getJson(url, args.accessToken);
+  const json = await getJson(url, args.accessToken, retry);
   const parsed = documentSchema.parse(json);
 
   const lines: string[] = [];
@@ -148,5 +152,5 @@ function collectElement(
   }
 }
 
-const getJson = (url: string, accessToken: string): Promise<unknown> =>
-  googleJson("docs", "GET", url, accessToken);
+const getJson = (url: string, accessToken: string, retry: RetryPolicy | "none"): Promise<unknown> =>
+  googleJson("docs", "GET", url, accessToken, undefined, retry);

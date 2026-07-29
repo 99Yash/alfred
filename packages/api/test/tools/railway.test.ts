@@ -362,13 +362,13 @@ describe("Railway credential fan-out", () => {
   });
 
   test("de-dupes projects across credentials (first wins) and tags provenance", async () => {
-    const byToken: Record<string, RailwayProject[]> = {
-      tok_a: [proj("p1", "from-a")],
-      tok_b: [proj("p1", "from-b"), proj("p2")],
+    const byCredential: Record<string, RailwayProject[]> = {
+      a: [proj("p1", "from-a")],
+      b: [proj("p1", "from-b"), proj("p2")],
     };
     const { projects, failures } = await listProjectsForCredentials(
       [cred("a", "A"), cred("b", "B")],
-      async (token) => ({ projects: byToken[token] ?? [] }),
+      async (credentialId) => ({ projects: byCredential[credentialId] ?? [] }),
     );
     assert.deepEqual(
       projects.map((p) => p.id),
@@ -383,8 +383,8 @@ describe("Railway credential fan-out", () => {
   test("tolerates an authz failure on one credential when another succeeds", async () => {
     const { projects, failures } = await listProjectsForCredentials(
       [cred("dead", "Dead"), cred("ok", "Ok")],
-      async (token) => {
-        if (token === "tok_dead") throw authz();
+      async (credentialId) => {
+        if (credentialId === "dead") throw authz();
         return { projects: [proj("p1")] };
       },
     );
@@ -403,8 +403,8 @@ describe("Railway credential fan-out", () => {
     // Regression: empty must not be conflated with all-failed.
     const { projects, failures } = await listProjectsForCredentials(
       [cred("dead", "Dead"), cred("empty", "Empty")],
-      async (token) => {
-        if (token === "tok_dead") throw authz();
+      async (credentialId) => {
+        if (credentialId === "dead") throw authz();
         return { projects: [] };
       },
     );
@@ -446,8 +446,8 @@ describe("Railway credential fan-out", () => {
   test("tolerates a transient non-authz failure on one credential when another succeeds", async () => {
     const { projects, failures } = await listProjectsForCredentials(
       [cred("flaky", "Flaky"), cred("ok", "Ok")],
-      async (token) => {
-        if (token === "tok_flaky") throw new Error("network down");
+      async (credentialId) => {
+        if (credentialId === "flaky") throw new Error("network down");
         return { projects: [proj("p1")] };
       },
     );
@@ -482,9 +482,9 @@ function projSvc(
 
 describe("Railway recent-deployment fan-out", () => {
   test("merges deployments across projects and credentials, newest first, tagged with project/service/credential", async () => {
-    const projectsByToken: Record<string, RailwayProject[]> = {
-      tok_a: [projSvc("p1", "alfred", [{ id: "svc1", name: "server" }])],
-      tok_b: [projSvc("p2", "milkpod", [{ id: "svc2", name: "web" }])],
+    const projectsByCredential: Record<string, RailwayProject[]> = {
+      a: [projSvc("p1", "alfred", [{ id: "svc1", name: "server" }])],
+      b: [projSvc("p2", "milkpod", [{ id: "svc2", name: "web" }])],
     };
     const depsByProject: Record<string, RailwayDeployment[]> = {
       p1: [dep("d_a1", "2026-07-14T03:00:00Z", "svc1")],
@@ -495,7 +495,7 @@ describe("Railway recent-deployment fan-out", () => {
     };
     const { deployments, failures } = await listRecentDeploymentsForCredentials(
       [cred("a", "A"), cred("b", "B")],
-      async (token) => ({ projects: projectsByToken[token] ?? [] }),
+      async (credentialId) => ({ projects: projectsByCredential[credentialId] ?? [] }),
       async ({ projectId }) => ({ deployments: depsByProject[projectId] ?? [] }),
     );
     assert.deepEqual(
@@ -584,8 +584,8 @@ describe("Railway recent-deployment fan-out", () => {
   test("carries a project-list failure through into the combined failures", async () => {
     const { deployments, failures } = await listRecentDeploymentsForCredentials(
       [cred("dead", "Dead"), cred("ok", "Ok")],
-      async (token) => {
-        if (token === "tok_dead") throw authz();
+      async (credentialId) => {
+        if (credentialId === "dead") throw authz();
         return { projects: [projSvc("p1", "alfred")] };
       },
       async () => ({ deployments: [dep("d1", "2026-07-14T03:00:00Z")] }),

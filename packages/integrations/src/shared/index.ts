@@ -31,7 +31,9 @@ export {
 export { once, type ProviderBindOptions, type ProviderFactory } from "./provider";
 export {
   restPassthroughFetch,
+  restPassthroughCapability,
   PassthroughUrlError,
+  type RestPassthroughCapability,
   type RestPassthroughProfile,
   type RawRestResponse,
 } from "./rest-passthrough";

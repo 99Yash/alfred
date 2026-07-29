@@ -11,8 +11,8 @@ import { createGithubClient } from "../src/github/client";
  *
  *   - the token is unwrapped only into the `Authorization` header, and never
  *     appears in a URL the transport logs or an error it throws;
- *   - `passthroughProfile()` hands out authority as data, so the passthrough tool
- *     never holds a credential;
+ *   - `passthrough` is an opaque authority capability, so the tool layer never
+ *     receives authenticated headers;
  *   - `getIssue` keeps the two shapes the deleted helper had — the 20k body cap
  *     and GitHub's object-or-string label union.
  *
@@ -94,14 +94,15 @@ describe("github client auth", () => {
     );
   });
 
-  test("passthroughProfile pins the authority and carries auth as data", async () => {
-    const profile = await client().passthroughProfile();
-    assert.equal(profile.baseUrl, "https://api.github.com");
-    assert.equal(profile.headers.Authorization, "Bearer ghs_secret_token");
-    // The version/User-Agent triple comes from the same place the curated reads
-    // use, so a bump cannot apply to one path and miss the other.
-    assert.equal(profile.headers["X-GitHub-Api-Version"], "2022-11-28");
-    assert.equal(profile.headers["User-Agent"], "alfred-app");
+  test("passthrough is an opaque capability and keeps auth inside integrations", async () => {
+    const calls = stubFetch({ ok: true });
+    const passthrough = client().passthrough;
+    assert.equal(passthrough.slug, "github");
+    assert.deepEqual(Object.keys(passthrough).sort(), ["execute", "slug"]);
+    await passthrough.execute({ method: "GET", path: "/repos/o/r", query: {} });
+    assert.equal(calls[0]?.headers.Authorization, "Bearer ghs_secret_token");
+    assert.equal(calls[0]?.headers["X-GitHub-Api-Version"], "2022-11-28");
+    assert.equal(calls[0]?.headers["User-Agent"], "alfred-app");
   });
 
   test("resolves per request — no client memoizes a credential", async () => {

@@ -16,10 +16,9 @@
  * header is honored when present, bounded by the policy's `maxDelayMs` so an
  * upstream-supplied delay can shorten but never exceed the caller's budget.
  *
- * This module is NOT on the `@alfred/integrations/shared` barrel (only
- * {@link RetryPolicy} is). Retry is an internal composition detail of
- * `defineProviderClient`, which is the only file that imports it; the configured
- * client is the public door.
+ * Retry remains an internal transport composition detail. Provider clients and
+ * passthrough capabilities may import it, but configured clients expose only the
+ * policy knob and executable operations — never the retry machinery itself.
  *
  * SAFETY: only the caller decides *which requests* are eligible — this must be
  * used for idempotent reads (GET/HEAD) unless the write carries an idempotency

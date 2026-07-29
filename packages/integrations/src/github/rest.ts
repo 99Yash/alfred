@@ -5,7 +5,7 @@ import type { Redacted } from "@alfred/contracts";
  * — declared once for the whole `github/` folder.
  *
  * It exists because the origin and the `Accept`/API-version/`User-Agent` triple
- * were restated in `app.ts` (App-JWT calls, the passthrough profile) and in
+ * were restated in `app.ts` (App-JWT calls, the passthrough transport) and in
  * `client.ts` (the curated read client). Two copies of "who we are to GitHub"
  * is one copy too many: a version bump or a `User-Agent` change is a domain
  * change with exactly one right answer, so it gets exactly one home.

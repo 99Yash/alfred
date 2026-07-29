@@ -1,14 +1,5 @@
-import {
-  toMessage,
-  type PassthroughResult,
-  type RestPassthroughRequest,
-  type SupportedRestSlug,
-} from "@alfred/contracts";
-import {
-  PassthroughUrlError,
-  restPassthroughFetch,
-  type RestPassthroughProfile,
-} from "@alfred/integrations/shared";
+import { toMessage, type PassthroughResult, type RestPassthroughRequest } from "@alfred/contracts";
+import { PassthroughUrlError, type RestPassthroughCapability } from "@alfred/integrations/shared";
 import { REST_GATE_CONFIG } from "./config";
 import { assertReadableRestRequest } from "./gate";
 import {
@@ -26,8 +17,8 @@ import { classifyTransportError } from "./transport";
  *
  *   read gate (method/path proven a read) → pinned-authority transport → honest envelope.
  *
- * The tool `execute` stays thin (resolve credential → build the provider profile
- * → this); every network and shaping concern lives here so the contract is
+ * The tool `execute` stays thin (select an opaque provider capability → this);
+ * every network and shaping concern lives behind those seams so the contract is
  * testable with a mocked `fetch`. Returns a {@link PassthroughResult} for every
  * outcome and NEVER throws:
  * - a gate denial is a visible `rejected` envelope (the boss self-corrects);
@@ -38,16 +29,15 @@ import { classifyTransportError } from "./transport";
  *   envelope with the real status and body.
  */
 export async function runRestPassthrough(
-  slug: SupportedRestSlug,
-  profile: RestPassthroughProfile,
+  capability: RestPassthroughCapability,
   request: RestPassthroughRequest,
 ): Promise<PassthroughResult> {
-  const gate = assertReadableRestRequest(REST_GATE_CONFIG[slug], request);
+  const gate = assertReadableRestRequest(REST_GATE_CONFIG[capability.slug], request);
   if (!gate.ok) return passthroughRejection(gate);
 
   let raw;
   try {
-    raw = await restPassthroughFetch(profile, request);
+    raw = await capability.execute(request);
   } catch (err) {
     if (err instanceof PassthroughUrlError) {
       // The constructed URL left the pinned namespace — a fail-closed rejection
