@@ -1,6 +1,4 @@
-import { anthropic, type AnthropicLanguageModelOptions } from "@ai-sdk/anthropic";
 import { google, type GoogleLanguageModelOptions } from "@ai-sdk/google";
-import { openai, type OpenAILanguageModelResponsesOptions } from "@ai-sdk/openai";
 import type { ChatModelTier } from "@alfred/contracts";
 import { isCallerAbort } from "./abort";
 import {
@@ -17,211 +15,16 @@ import {
 // warden does; see its packages/ai/src/models.ts.
 import type { LanguageModel as LanguageModelV4 } from "ai-retry";
 import { createRetryableModel, error, or, timeout } from "ai-retry/language-model";
-import {
-  type EffortLevel,
-  EFFORT_LEVELS,
-  MODEL_CAPABILITIES,
-  type ModelId,
-  type ModelIdFor,
-  isModelIdForProvider,
-  MODEL_REGISTRY,
-  type ModelProviderId,
-} from "./models";
-import { withToolNameShim } from "./tool-name-shim";
+import { type EffortLevel, MODEL_CAPABILITIES, type ModelId } from "./models";
+import { createProviderModel, providerOptionsForModel } from "./provider-adapter";
 
 // Re-export so existing `@alfred/ai` consumers keep importing `ChatModelTier`
 // from here; the literal itself is owned by `@alfred/contracts` (single source
 // of truth shared with the web bundle, which can't import `@alfred/ai`).
 export type { ChatModelTier };
 
-type AnthropicChatProviderOptions = Pick<AnthropicLanguageModelOptions, "thinking" | "effort">;
-type GoogleChatProviderOptions = Pick<GoogleLanguageModelOptions, "thinkingConfig">;
-type OpenAIChatProviderOptions = Pick<OpenAILanguageModelResponsesOptions, "reasoningEffort">;
-type AnthropicEffortLevel = NonNullable<AnthropicChatProviderOptions["effort"]>;
-type GoogleThinkingLevel = NonNullable<
-  NonNullable<GoogleChatProviderOptions["thinkingConfig"]>["thinkingLevel"]
->;
 type ChatProviderOptions = NonNullable<Parameters<typeof generateText>[0]["providerOptions"]>;
-type ToolNameProviderPolicy = {
-  readonly toolNameShim: boolean;
-  readonly toolNameMaxLen: number;
-};
-
-export const TOOL_NAME_PROVIDER_POLICIES = {
-  anthropic: { toolNameShim: true, toolNameMaxLen: 128 },
-  google: { toolNameShim: true, toolNameMaxLen: 64 },
-  openai: { toolNameShim: true, toolNameMaxLen: 64 },
-} as const satisfies Record<ModelProviderId, ToolNameProviderPolicy>;
-
-/**
- * Per-provider request mechanics (ADR-0078) — the structural quirks that live on
- * the provider/SDK-adapter axis, not the per-model axis (that's `MODEL_CAPABILITIES`
- * in `models.ts`). This is the one place a tier→model remap routes through, so it
- * can't reintroduce an unsupported reasoning param or a tool-name 400.
- *
- * Keyed by `ModelProviderId`. Conceptually the key is the *SDK adapter* (the same
- * Claude model has different option shapes across `@ai-sdk/anthropic`,
- * `@ai-sdk/amazon-bedrock`, `@ai-sdk/google-vertex/anthropic`); Alfred is 1:1
- * provider↔adapter today, so provider-keying is correct now — a future
- * Bedrock/Vertex adapter would need its own entry.
- */
-interface ProviderDispatch<M extends ModelId> {
-  /**
-   * Apply the `.`↔`__` tool-name shim at this provider's edge. Enabled for every
-   * dispatched language-model provider today.
-   */
-  readonly toolNameShim: boolean;
-  /** Max tool-name length the provider accepts; pinned by the tool-name registry invariant test. */
-  readonly toolNameMaxLen: number;
-  /**
-   * Build the AI-SDK reasoning/thinking block for `modelId` at the requested
-   * `effort`. Owns the block SHAPE; reads the model's `effortValues` and clamps,
-   * so a model with no effort param (`effortValues: []`) gets a light/empty block
-   * instead of an unsupported param. Return type is per-provider (covariant under
-   * the `satisfies` below) so the call sites keep the SDK-typed block.
-   */
-  reasoningOptions(modelId: M, effort: EffortLevel): Record<string, unknown>;
-}
-
-type ProviderDispatchMap = {
-  readonly [P in ModelProviderId]: ProviderDispatch<ModelIdFor<P>>;
-};
-
-/**
- * Snap a requested effort to the nearest value `allowed` actually contains, by
- * position in {@link EFFORT_LEVELS}. Callers gate on `allowed.length > 0`, so the
- * reduce always has a seed; it never emits a tier the model would 400 on.
- */
-export function clampEffort(desired: EffortLevel, allowed: readonly EffortLevel[]): EffortLevel {
-  const target = EFFORT_LEVELS.indexOf(desired);
-  return allowed.reduce((best, cur) =>
-    Math.abs(EFFORT_LEVELS.indexOf(cur) - target) < Math.abs(EFFORT_LEVELS.indexOf(best) - target)
-      ? cur
-      : best,
-  );
-}
-
-function isAnthropicEffortLevel(value: EffortLevel): value is AnthropicEffortLevel {
-  return value !== "none" && value !== "minimal";
-}
-
-function isGoogleThinkingLevel(value: EffortLevel): value is GoogleThinkingLevel {
-  return value === "minimal" || value === "low" || value === "medium" || value === "high";
-}
-
-const PROVIDER_DISPATCH = {
-  anthropic: {
-    ...TOOL_NAME_PROVIDER_POLICIES.anthropic,
-    reasoningOptions(
-      modelId: ModelIdFor<"anthropic">,
-      effort: EffortLevel,
-    ): AnthropicChatProviderOptions {
-      const { effortValues } = MODEL_CAPABILITIES[modelId];
-      // Empty block: Haiku 4.5 (ADR-0077) hard-400s on BOTH adaptive thinking and
-      // `effort` — they're Sonnet-4.6+/Opus-only. Any model with no effort param
-      // gets the light, fast interactive default.
-      if (effortValues.length === 0) return {};
-      const clampedEffort = clampEffort(effort, effortValues);
-      if (!isAnthropicEffortLevel(clampedEffort)) {
-        throw new Error(
-          `${modelId} declares Anthropic-incompatible effort value "${clampedEffort}"`,
-        );
-      }
-      return {
-        thinking: { type: "adaptive", display: "summarized" },
-        effort: clampedEffort,
-      };
-    },
-  },
-  google: {
-    ...TOOL_NAME_PROVIDER_POLICIES.google,
-    // `includeThoughts` surfaces the thought summary (not the raw chain). Gemini
-    // 3.x accepts an explicit thinking level; Gemini 2.5 Flash/Flash-Lite remain
-    // budget-based and use -1 to size their own thinking.
-    reasoningOptions(
-      modelId: ModelIdFor<"google">,
-      effort: EffortLevel,
-    ): GoogleChatProviderOptions {
-      const { effortValues } = MODEL_CAPABILITIES[modelId];
-      if (effortValues.length > 0) {
-        const thinkingLevel = clampEffort(effort, effortValues);
-        if (!isGoogleThinkingLevel(thinkingLevel)) {
-          throw new Error(`${modelId} declares Google-incompatible effort "${thinkingLevel}"`);
-        }
-        return { thinkingConfig: { includeThoughts: true, thinkingLevel } };
-      }
-      return { thinkingConfig: { includeThoughts: true, thinkingBudget: -1 } };
-    },
-  },
-  openai: {
-    ...TOOL_NAME_PROVIDER_POLICIES.openai,
-    reasoningOptions(
-      modelId: ModelIdFor<"openai">,
-      effort: EffortLevel,
-    ): OpenAIChatProviderOptions {
-      const { effortValues } = MODEL_CAPABILITIES[modelId];
-      return { reasoningEffort: clampEffort(effort, effortValues) };
-    },
-  },
-} as const satisfies ProviderDispatchMap;
-
-export function getShimmedToolNameMaxLen(): number {
-  return Math.min(
-    ...Object.values(PROVIDER_DISPATCH)
-      .filter((profile) => profile.toolNameShim)
-      .map((profile) => profile.toolNameMaxLen),
-  );
-}
-
-// Provider factories constrained to ids that actually exist in MODEL_REGISTRY
-// for that provider. Routing every `anthropic(...)`/`google(...)` literal
-// through these makes registry drift (a typo, or an id the registry never
-// listed) a compile error rather than a silent cost-attribution miss.
-// Each is wrapped in the tool-name boundary shim per `PROVIDER_DISPATCH`'s
-// `toolNameShim` policy so our dotted `integration.action` tool names survive a
-// provider that can't carry the `.` (Anthropic rejects it; Google strips the
-// prefix). The shim is a no-op on tool-less calls, so routing the whole factory
-// through it is safe and uniform.
-const anthropicModel = (id: ModelIdFor<"anthropic">) =>
-  PROVIDER_DISPATCH.anthropic.toolNameShim ? withToolNameShim(anthropic(id)) : anthropic(id);
-const googleModel = (id: ModelIdFor<"google">) =>
-  PROVIDER_DISPATCH.google.toolNameShim ? withToolNameShim(google(id)) : google(id);
-const openaiModel = (id: ModelIdFor<"openai">) =>
-  PROVIDER_DISPATCH.openai.toolNameShim
-    ? withToolNameShim(openai.responses(id))
-    : openai.responses(id);
-
-function assertModelProvider<P extends ModelProviderId>(
-  id: ModelId,
-  provider: P,
-): asserts id is ModelIdFor<P> {
-  if (!isModelIdForProvider(id, provider)) {
-    throw new Error(`${id} is registered to ${MODEL_REGISTRY[id]}, not ${provider}`);
-  }
-}
-
-function providerForModel(id: ModelId): ModelProviderId {
-  return MODEL_REGISTRY[id];
-}
-
-function modelForId(id: ModelId): LanguageModelV4 {
-  const provider = providerForModel(id);
-  switch (provider) {
-    case "anthropic":
-      assertModelProvider(id, "anthropic");
-      return anthropicModel(id);
-    case "google":
-      assertModelProvider(id, "google");
-      return googleModel(id);
-    case "openai":
-      assertModelProvider(id, "openai");
-      return openaiModel(id);
-    default: {
-      const _exhaustive: never = provider;
-      return _exhaustive;
-    }
-  }
-}
+const modelForId = createProviderModel;
 
 /** Construct any language model in Alfred's closed registry. */
 export function getRegisteredModel(id: ModelId): LanguageModel {
@@ -233,46 +36,23 @@ export function getRegisteredModelProviderOptions(
   id: ModelId,
   effort: EffortLevel,
 ): ChatProviderOptions {
-  const { provider, options } = reasoningOptionsForModel(id, effort);
+  const { provider, options } = providerOptionsForModel(id, effort);
   return { [provider]: options };
-}
-
-function reasoningOptionsForModel(
-  id: ModelId,
-  effort: EffortLevel,
-): { provider: ModelProviderId; options: NonNullable<ChatProviderOptions[string]> } {
-  const provider = MODEL_REGISTRY[id];
-  switch (provider) {
-    case "anthropic":
-      assertModelProvider(id, provider);
-      return { provider, options: PROVIDER_DISPATCH.anthropic.reasoningOptions(id, effort) };
-    case "google":
-      assertModelProvider(id, provider);
-      return { provider, options: PROVIDER_DISPATCH.google.reasoningOptions(id, effort) };
-    case "openai":
-      assertModelProvider(id, provider);
-      return { provider, options: PROVIDER_DISPATCH.openai.reasoningOptions(id, effort) };
-    default: {
-      const _exhaustive: never = provider;
-      return _exhaustive;
-    }
-  }
 }
 
 /**
  * Boss + sub-agent run on Anthropic Sonnet 4.6, degrading to Gemini 3.5 Flash
  * on provider failure via `withFallback`. (Restored 2026-06-07 after the
- * temporary 2026-05-21 → 2026-06-01 spend-cap swap to Gemini 2.5 Pro; the
- * Anthropic-specific provider options inside `AlfredAgent` — cacheControl
- * etc. — are namespaced under `providerOptions.anthropic`, so Gemini ignores
- * them when the fallback serves.)
+ * temporary 2026-05-21 → 2026-06-01 spend-cap swap to Gemini 2.5 Pro. Each
+ * concrete model is protocol-wrapped before fallback composition, so Gemini
+ * receives the application projection without Anthropic cache metadata.)
  */
 export function getBossModel(): LanguageModel {
-  return withFallback(anthropicModel("claude-sonnet-4-6"), googleModel("gemini-3.5-flash"));
+  return withFallback(modelForId("claude-sonnet-4-6"), modelForId("gemini-3.5-flash"));
 }
 
 export function getSubAgentModel(): LanguageModel {
-  return withFallback(anthropicModel("claude-sonnet-4-6"), googleModel("gemini-3.5-flash"));
+  return withFallback(modelForId("claude-sonnet-4-6"), modelForId("gemini-3.5-flash"));
 }
 
 /**
@@ -358,7 +138,7 @@ export function getCheapModel(): LanguageModel {
   // (Boss/chat fall back cross-provider to Anthropic because they run
   // `generateText`, not structured object generation — different constraint.)
   return withCheapTierDefaults(
-    withFallback(googleModel("gemini-2.5-flash-lite"), googleModel("gemini-2.5-flash")),
+    withFallback(modelForId("gemini-2.5-flash-lite"), modelForId("gemini-2.5-flash")),
   );
 }
 
@@ -396,8 +176,8 @@ export function getMediaEnrichmentModels(
  * Keep it decoupled from the cheap tier: a bad handoff corrupts the rest
  * of a long boss run, while the incremental cost is negligible.
  */
-export const COMPACTOR_MODEL: LanguageModel = anthropicModel("claude-sonnet-4-6");
-export const COMPACTOR_FALLBACK_MODEL: LanguageModel = googleModel("gemini-2.5-flash");
+export const COMPACTOR_MODEL: LanguageModel = modelForId("claude-sonnet-4-6");
+export const COMPACTOR_FALLBACK_MODEL: LanguageModel = modelForId("gemini-2.5-flash");
 
 /**
  * Live web-search model for short, agent-driven lookups.
@@ -413,7 +193,7 @@ export const COMPACTOR_FALLBACK_MODEL: LanguageModel = googleModel("gemini-2.5-f
  * spend correctly.
  */
 export function getWebSearchModel(): LanguageModel {
-  return googleModel("gemini-2.5-flash");
+  return modelForId("gemini-2.5-flash");
 }
 
 /**
@@ -471,7 +251,7 @@ export function getChatModel(tier: ChatModelTier = "standard"): LanguageModel {
  * The SDK passes only the block matching the active model and ignores the rest, so
  * emitting both keeps it correct across the Anthropic⇆Gemini `withFallback` swap.
  *
- * Each block is built by `PROVIDER_DISPATCH[provider].reasoningOptions`, reading
+ * Each block is built by the deep provider adapter map, reading
  * the resolved model's `effortValues`. The deleted tier-branch (ADR-0077's #313
  * seam) is now structural: `standard` resolves to Sonnet 4.6 with adaptive medium
  * effort; `deep` resolves to Opus with adaptive high effort. A future tier remap
@@ -482,7 +262,7 @@ export function getChatProviderOptions(tier: ChatModelTier = "standard"): ChatPr
   const { primary, fallback, effort } = CHAT_TIERS[tier];
   const options: ChatProviderOptions = {};
   for (const modelId of [primary, fallback]) {
-    const { provider, options: next } = reasoningOptionsForModel(modelId, effort);
+    const { provider, options: next } = providerOptionsForModel(modelId, effort);
     const prev = options[provider];
     if (prev && JSON.stringify(prev) !== JSON.stringify(next)) {
       throw new Error(

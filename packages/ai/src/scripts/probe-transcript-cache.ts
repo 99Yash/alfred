@@ -5,8 +5,7 @@
  *   $ ANTHROPIC_API_KEY=… pnpm --filter @alfred/ai exec tsx src/scripts/probe-transcript-cache.ts
  *   (or run from repo root with --env-file=apps/server/.env)
  *
- * Reproduces what AlfredAgent does — a cacheControl breakpoint on the system
- * block AND on the last transcript message (decorateTranscript) — then calls
+ * Drives the same concrete-model protocol wrapper AlfredAgent uses, then calls
  * the real model twice with a growing transcript:
  *
  *   Turn 1 (cold): expect cache_creation ≈ system+transcript, cache_read = 0.
@@ -25,7 +24,7 @@
 import { anthropic } from "@ai-sdk/anthropic";
 import { getPath, toRecord } from "@alfred/contracts";
 import { generateText, type ModelMessage } from "ai";
-import { decorateTranscript } from "../agent";
+import { attachProviderTurnPolicy, withProviderAdapter } from "../provider-adapter";
 
 const TTL = "5m" as const;
 const GENERATE_TIMEOUT_MS = 60_000;
@@ -38,14 +37,11 @@ const FILLER = Array.from(
   (_, i) => `Reference note ${i}: the quick brown fox jumps over the lazy dog near the riverbank.`,
 ).join(" ");
 
-const systemBlock = {
-  role: "system" as const,
-  content:
-    "You are a terse test assistant. Reply with a single short sentence. " +
-    "Here is durable context you must keep in mind: " +
-    FILLER,
-  providerOptions: { anthropic: { cacheControl: { type: "ephemeral", ttl: TTL } } },
-};
+const systemBlock =
+  "You are a terse test assistant. Reply with a single short sentence. " +
+  "Here is durable context you must keep in mind: " +
+  FILLER;
+const model = withProviderAdapter("claude-sonnet-4-6", anthropic("claude-sonnet-4-6"));
 
 function cacheStats(meta: unknown): { read: number; created: number } {
   // Anthropic reports cache accounting under providerMetadata.anthropic.usage
@@ -59,9 +55,10 @@ function cacheStats(meta: unknown): { read: number; created: number } {
 
 async function turn(label: string, transcript: ModelMessage[]): Promise<void> {
   const res = await generateText({
-    model: anthropic("claude-sonnet-4-6"),
+    model,
     instructions: systemBlock,
-    messages: decorateTranscript(transcript, TTL),
+    messages: transcript,
+    providerOptions: attachProviderTurnPolicy(undefined, TTL),
     maxOutputTokens: 64,
     temperature: 0,
     timeout: GENERATE_TIMEOUT_MS,

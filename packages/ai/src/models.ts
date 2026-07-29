@@ -20,6 +20,12 @@ export interface ModelCapabilities {
   readonly temperature: boolean;
   readonly inputModalities: readonly MediaInputModality[];
   readonly maxInlineMediaBytes: number;
+  /**
+   * The concrete model accepts its provider's native deferred-tool search
+   * protocol. This is support data, not a rollout switch: product routes stay
+   * on application loading until the provider protocol explicitly enables one.
+   */
+  readonly nativeToolSearch: boolean;
 }
 
 export const MEDIA_INPUT_MODALITIES = ["text", "image", "audio", "video", "pdf"] as const;
@@ -44,6 +50,7 @@ export const MODEL_DEFINITIONS = [
       temperature: false,
       inputModalities: ["text", "image", "pdf"],
       maxInlineMediaBytes: 32 * 1024 * 1024,
+      nativeToolSearch: true,
     },
   },
   {
@@ -54,6 +61,7 @@ export const MODEL_DEFINITIONS = [
       temperature: true,
       inputModalities: ["text", "image", "pdf"],
       maxInlineMediaBytes: 32 * 1024 * 1024,
+      nativeToolSearch: true,
     },
   },
   {
@@ -64,6 +72,9 @@ export const MODEL_DEFINITIONS = [
       temperature: true,
       inputModalities: ["text", "image", "pdf"],
       maxInlineMediaBytes: 32 * 1024 * 1024,
+      // Fail closed until the opt-in live probe confirms the installed SDK's
+      // request/response round trip for this dated Haiku model.
+      nativeToolSearch: false,
     },
   },
   {
@@ -74,6 +85,7 @@ export const MODEL_DEFINITIONS = [
       temperature: true,
       inputModalities: ["text", "image", "audio", "video", "pdf"],
       maxInlineMediaBytes: 50 * 1024 * 1024,
+      nativeToolSearch: false,
     },
   },
   {
@@ -84,6 +96,7 @@ export const MODEL_DEFINITIONS = [
       temperature: true,
       inputModalities: ["text", "image", "audio", "video"],
       maxInlineMediaBytes: 50 * 1024 * 1024,
+      nativeToolSearch: false,
     },
   },
   {
@@ -94,6 +107,7 @@ export const MODEL_DEFINITIONS = [
       temperature: true,
       inputModalities: ["text", "image", "audio", "video", "pdf"],
       maxInlineMediaBytes: 50 * 1024 * 1024,
+      nativeToolSearch: false,
     },
   },
   {
@@ -104,6 +118,7 @@ export const MODEL_DEFINITIONS = [
       temperature: false,
       inputModalities: ["text", "image", "pdf"],
       maxInlineMediaBytes: 20 * 1024 * 1024,
+      nativeToolSearch: true,
     },
   },
   {
@@ -114,6 +129,7 @@ export const MODEL_DEFINITIONS = [
       temperature: false,
       inputModalities: ["text", "image", "pdf"],
       maxInlineMediaBytes: 20 * 1024 * 1024,
+      nativeToolSearch: true,
     },
   },
 ] as const satisfies readonly [ModelDefinition, ...ModelDefinition[]];
@@ -169,6 +185,37 @@ export const MODEL_CAPABILITIES = indexedModels.capabilities;
 
 /** Providers that currently have language models in {@link MODEL_REGISTRY}. */
 export type ModelProviderId = (typeof MODEL_REGISTRY)[ModelId];
+
+/**
+ * Canonical correlated provider/model identity accepted at external boundaries
+ * that genuinely report both fields. Internal callers should pass only a
+ * {@link ModelId} and derive its provider from {@link MODEL_REGISTRY}.
+ */
+export type ProviderModelIdentity = {
+  [M in ModelId]: { readonly provider: (typeof MODEL_REGISTRY)[M]; readonly modelId: M };
+}[ModelId];
+
+const providerModelIdentitySchema = z
+  .object({
+    provider: providerIdSchema,
+    modelId: modelIdSchema,
+  })
+  .superRefine((value, ctx) => {
+    if (MODEL_REGISTRY[value.modelId] !== value.provider) {
+      ctx.addIssue({
+        code: "custom",
+        message: `${value.modelId} is registered to ${MODEL_REGISTRY[value.modelId]}, not ${value.provider}`,
+      });
+    }
+  });
+
+/** Parse and correlate an untrusted provider/model pair, failing closed on drift. */
+export function parseProviderModelIdentity(input: unknown): ProviderModelIdentity {
+  const parsed = providerModelIdentitySchema.parse(input);
+  // SAFETY: the schema first narrows both closed enums, then superRefine proves
+  // the exact relation represented by ProviderModelIdentity.
+  return parsed as ProviderModelIdentity;
+}
 
 /**
  * Registry ids for a given provider. Constrains the provider factories in
