@@ -111,10 +111,17 @@ describe("parseEventFrame", () => {
    * error, so an expect-error stays satisfied by a widened type and the guard
    * never fires.
    *
-   * The envelope assignment is the second axis and covers the *presence* of
-   * whatever `eventFrameSchema` declares beyond `kind` and `payload`. It is what
-   * `satisfies EventFrame` in `parseEventFrame` enforces at the literal. Two
-   * mutants run against this tree, standing in for a contract that grew a field
+   * The envelope assignment is the second axis, and it guards the **type** rather
+   * than the literal: it asks whether `EventStreamFrame` still carries every
+   * required field `eventFrameSchema` declares beyond `kind` and `payload`. It is
+   * not vacuous — narrow the envelope in `frame.ts` to `Pick<EventFrame, "id">`
+   * and this line is `error TS2741: Property 'createdAt' is missing … but required
+   * in type 'Omit<…, "kind" | "payload">'` (probed on this tree, together with
+   * TS2352 at that file's own cast and TS2339 at the debug events page).
+   *
+   * The *literal* is guarded somewhere else, by `satisfies EventFrame` in
+   * `parseEventFrame`, and that is a separate mechanism with a separate mutant.
+   * Standing in for a contract that grew a required field
    * (`type EventFrameNext = EventFrame & { userId: string }`, then `satisfies
    * EventFrameNext` on the return literal). Verbatim, abbreviated only where the
    * compiler itself elided:
@@ -126,10 +133,11 @@ describe("parseEventFrame", () => {
    * - dropping `satisfies` under that same mutant: `tsc --noEmit` exits **0**.
    *
    * The second one is why the first is worth writing down: the cast alone accepts
-   * a literal that omits a field, so the `satisfies` — not the return type, and
-   * not this test's own assignment — is what fires. Reproduced the other way too,
-   * on unmodified `main`: deleting `createdAt` from the return literal there
-   * compiles clean.
+   * a literal that omits a field, so the `satisfies` — and not the return type —
+   * is what fires there. Reproduced the other way too, on unmodified `main`:
+   * deleting `createdAt` from the return literal there compiles clean. Both
+   * mechanisms cover **required** fields only; an added `.optional()` field fires
+   * neither.
    */
   test("a narrowed frame carries its own kind's payload type and the whole envelope", () => {
     const frame = parseEventFrame("chat.tool", {
