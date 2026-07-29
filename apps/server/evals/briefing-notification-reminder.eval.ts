@@ -1,7 +1,5 @@
 import path from "node:path";
-import { google } from "@ai-sdk/google";
-import { getBossModel, type LanguageModel } from "@alfred/ai";
-import { withToolNameShim } from "@alfred/ai/tool-name-shim";
+import { getBossModel, getRegisteredModel, type LanguageModel } from "@alfred/ai";
 import type { EmailListItem, PriorBriefingSummary } from "@alfred/api/backend";
 import type { DayShape } from "@alfred/contracts";
 import { generateText, isStepCount, tool } from "ai";
@@ -234,7 +232,7 @@ function modelForLane(lane: ModelLane): LanguageModel {
     case "boss":
       return getBossModel();
     case "forced-gemini":
-      return withToolNameShim(google("gemini-3.5-flash"));
+      return getRegisteredModel("gemini-3.5-flash");
     default: {
       const _exhaustive: never = lane;
       return _exhaustive;

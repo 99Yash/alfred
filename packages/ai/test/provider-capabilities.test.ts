@@ -1,12 +1,15 @@
 import assert from "node:assert/strict";
 import { describe, test } from "node:test";
 
-import { EFFORT_LEVELS, type EffortLevel, MODEL_CAPABILITIES, type ModelId } from "../src/models";
 import {
-  clampEffort,
-  getChatProviderOptions,
-  getRegisteredModelProviderOptions,
-} from "../src/provider";
+  EFFORT_LEVELS,
+  type EffortLevel,
+  MODEL_CAPABILITIES,
+  MODEL_REGISTRY,
+  type ModelId,
+  parseProviderModelIdentity,
+} from "../src/models";
+import { getChatProviderOptions, getRegisteredModelProviderOptions } from "../src/provider";
 
 /**
  * The per-model capability map (ADR-0078) replaced the hardcoded tier→capability
@@ -48,6 +51,34 @@ describe("provider capability dispatch", () => {
     }
   });
 
+  test("native tool search support is code-resident and fails closed for unprobed models", () => {
+    assert.equal(MODEL_CAPABILITIES["claude-sonnet-4-6"].nativeToolSearch, true);
+    assert.equal(MODEL_CAPABILITIES["claude-opus-4-8"].nativeToolSearch, true);
+    assert.equal(MODEL_CAPABILITIES["claude-haiku-4-5-20251001"].nativeToolSearch, false);
+    assert.equal(MODEL_CAPABILITIES["gemini-3.5-flash"].nativeToolSearch, false);
+    assert.equal(MODEL_CAPABILITIES["gpt-5.6-sol"].nativeToolSearch, true);
+  });
+
+  test("external provider/model identities must match the canonical registry", () => {
+    assert.deepEqual(
+      parseProviderModelIdentity({ provider: "anthropic", modelId: "claude-sonnet-4-6" }),
+      { provider: "anthropic", modelId: "claude-sonnet-4-6" },
+    );
+
+    assert.throws(
+      () => parseProviderModelIdentity({ provider: "google", modelId: "claude-sonnet-4-6" }),
+      /registered to anthropic, not google/,
+    );
+    assert.throws(
+      () => parseProviderModelIdentity({ provider: "anthropic", modelId: "unknown-model" }),
+      /Invalid option/,
+    );
+
+    for (const [modelId, provider] of Object.entries(MODEL_REGISTRY)) {
+      assert.deepEqual(parseProviderModelIdentity({ provider, modelId }), { provider, modelId });
+    }
+  });
+
   test("Google dispatch maps effort models and preserves budget-based models", () => {
     assert.deepEqual(getRegisteredModelProviderOptions("gemini-3.5-flash", "xhigh"), {
       google: { thinkingConfig: { includeThoughts: true, thinkingLevel: "high" } },
@@ -55,24 +86,6 @@ describe("provider capability dispatch", () => {
     assert.deepEqual(getRegisteredModelProviderOptions("gemini-2.5-flash", "medium"), {
       google: { thinkingConfig: { includeThoughts: true, thinkingBudget: -1 } },
     });
-  });
-
-  test("clampEffort snaps a requested effort to the nearest allowed value", () => {
-    const opus = MODEL_CAPABILITIES["claude-opus-4-8"].effortValues; // full set
-    assert.equal(clampEffort("high", opus), "high"); // identity when present
-    assert.equal(clampEffort("max", opus), "max");
-
-    const sonnet = MODEL_CAPABILITIES["claude-sonnet-4-6"].effortValues; // no "xhigh"
-    // "xhigh" (index 3) is absent on sonnet; nearest is "high" (3) over "max" (4).
-    assert.equal(clampEffort("xhigh", sonnet), "high");
-
-    // A model exposing only one tier always returns it.
-    assert.equal(clampEffort("max", ["low"]), "low");
-
-    // Provider-specific vocabulary is represented, not silently dropped.
-    assert.equal(clampEffort("low", ["minimal", "low", "medium", "high"]), "low");
-    assert.equal(clampEffort("xhigh", ["minimal", "low", "medium", "high"]), "high");
-    assert.equal(clampEffort("low", ["none", "low", "medium", "high", "xhigh"]), "low");
   });
 
   test("GPT-5.6 dispatch emits only supported Responses API effort values", () => {
