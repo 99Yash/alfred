@@ -36,8 +36,8 @@ async function main() {
   let failures = 0;
 
   // --- 3. dispatcher identity proxying -------------------------------------
-  const boss = route("boss").model() as { provider?: string; modelId?: string };
-  const chatDeep = route("deep").model() as { provider?: string; modelId?: string };
+  const boss = route("boss").model();
+  const chatDeep = route("deep").model();
   console.log(`boss model       → ${boss.provider}/${boss.modelId}`);
   console.log(`chat deep model  → ${chatDeep.provider}/${chatDeep.modelId}`);
   if (boss.modelId !== "claude-sonnet-4-6" || chatDeep.modelId !== "claude-opus-4-8") {
