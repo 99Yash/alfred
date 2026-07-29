@@ -110,8 +110,9 @@ function sameBarriers(left: ReplayState["activeRuns"], right: ReplayState["activ
  *
  * The reasons are prose and nothing checks that they are true. What the table
  * enforces is that one *exists*: this table and `RECOVERABLE` partition the
- * frame union, so a kind in neither does not compile and a new event kind cannot
- * be added without stating its recoverability. That is the hazard `CLOSURE_POLICY`
+ * frame union's *membership*, so a kind in neither does not compile and a new
+ * event kind cannot be added without stating its recoverability. That is the
+ * hazard `CLOSURE_POLICY`
  * guards on this event's producer side
  * (`packages/api/src/modules/chat/chat-turn-closure.ts`), where a fourth turn
  * ending compiled clean and silently inherited the `completed` policy.
@@ -136,13 +137,20 @@ const NOT_RECOVERABLE = {
 /**
  * The other half of the partition: every kind `NOT_RECOVERABLE` does not name.
  *
- * This literal, not the `switch`, is what makes coverage a partition. A guard
+ * This literal, not the `switch`, is what partitions *membership*. A guard
  * called from an arm only enforces the arms it is called from, and `default` is
  * a sink — a hoisted early return, or an explicit `case` returning `null`,
- * diverts a kind before the sink and would otherwise let it arm no barrier
- * while carrying no written reason. Here a kind in neither table is `TS2741`
+ * diverts a kind before the sink, so the tables and not the guards are what
+ * make a kind's classification mandatory. A kind in neither table is `TS2741`
  * (missing key) and a kind in both is `TS2353` (excess property), wherever the
  * `switch` sends it.
+ *
+ * What membership does **not** buy is an obligation on the arm. The value `true`
+ * compels no `case` to mint anything, so `case "chat.tool": return null` retires
+ * a recovered kind with no written reason and compiles clean — the ledger would
+ * then say a barrier is armed where the code arms none. Nothing at the type
+ * level closes that direction; one runtime assertion per recovered kind in
+ * `test/events/replay-state.test.ts` does, at **tier 3**.
  */
 const RECOVERABLE = {
   "chat.message": true,
@@ -164,20 +172,30 @@ declare const RECOVERED: unique symbol;
 
 /**
  * A run id that came out of `recoveredRunId`. The brand is why no arm can
- * produce one without stating the kind: a `case` returning
+ * produce one without routing through that mint: a `case` returning
  * `frame.payload.runId` directly is `TS2322` against `recoverableRunId`'s
  * return type, which is the shape an author reaches for the moment a kind needs
  * arm-specific handling.
  */
 type RecoveredRunId = string & { readonly [RECOVERED]: true };
 
+/** The frames `RECOVERABLE` names — the only input the mint below accepts. */
+type RecoverableFrame = Extract<EventStreamFrame, { kind: keyof typeof RECOVERABLE }>;
+
 /**
- * The recovered arms' shared return. `TS2345` here on the other direction: a
- * kind promoted to a `case` while keeping its `NOT_RECOVERABLE` reason, which
- * would leave a ledger entry contradicting the code.
+ * The recovered arms' shared return, and the only mint of a `RecoveredRunId`.
+ * `TS2345` here on the other direction: a kind promoted to a `case` while
+ * keeping its `NOT_RECOVERABLE` reason, which would leave a ledger entry
+ * contradicting the code.
+ *
+ * It takes the whole frame rather than a kind plus a run id read off that frame,
+ * because two arguments cannot be related: `recoveredRunId("chat.delta",
+ * frame.payload.runId)` from an `agent.progress` arm type-checked, minting a
+ * barrier under a kind the ledger excludes. One parameter makes that pair
+ * unrepresentable.
  */
-function recoveredRunId(_kind: keyof typeof RECOVERABLE, runId: string): RecoveredRunId {
-  return runId as RecoveredRunId;
+function recoveredRunId(frame: RecoverableFrame): RecoveredRunId {
+  return frame.payload.runId as RecoveredRunId;
 }
 
 /**
@@ -197,9 +215,10 @@ function recoveredRunId(_kind: keyof typeof RECOVERABLE, runId: string): Recover
  * that grows one and is not classified is a bug. Recoverability is a *policy*
  * choice, so a payload-derived set would over-select and force a policy edit at
  * every new run-scoped kind. `NOT_RECOVERABLE` and `RECOVERABLE` state the
- * policy by hand instead and partition the union between them, which is where
- * the compile errors come from — the two guards below only route `frame.kind`
- * into the halves those tables define.
+ * policy by hand instead and partition the union's membership between them,
+ * which is where the compile errors come from — the two guards below only route
+ * `frame.kind` into the halves those tables define, and no type makes a
+ * recovered arm actually arm anything (see `RECOVERABLE`).
  *
  * `payload.runId` and `payload.phase` are read unguarded under the caller contract
  * stated on `advanceReplayState`.
@@ -211,7 +230,7 @@ function recoverableRunId(frame: EventStreamFrame): RecoveredRunId | null {
     case "chat.delta":
     case "chat.tool":
     case "approval.requested":
-      return recoveredRunId(frame.kind, frame.payload.runId);
+      return recoveredRunId(frame);
     default:
       return notRecovered(frame.kind);
   }
