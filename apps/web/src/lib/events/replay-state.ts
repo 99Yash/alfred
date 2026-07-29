@@ -114,7 +114,7 @@ function sameBarriers(left: ReplayState["activeRuns"], right: ReplayState["activ
  * event kind cannot be added without stating its recoverability. That is the
  * hazard `CLOSURE_POLICY`
  * guards on this event's producer side
- * (`packages/api/src/modules/chat/chat-turn-closure.ts`), where a fourth turn
+ * (`packages/api/src/modules/agent/workflows/chat-turn-closure.ts`), where a fourth turn
  * ending compiled clean and silently inherited the `completed` policy.
  *
  * The key type is the whole frame union's `kind` rather than a run-scoped
@@ -153,7 +153,8 @@ const NOT_RECOVERABLE = {
  * a recovered kind with no written reason and compiles clean — the ledger would
  * then say a barrier is armed where the code arms none. Nothing at the type
  * level closes that direction; one runtime assertion per recovered kind in
- * `test/events/replay-state.test.ts` does, at **tier 3**.
+ * `test/events/replay-state.test.ts` does, at **tier 4** — the divergence is
+ * detected after it is written, not prevented.
  */
 const RECOVERABLE = {
   "chat.message": true,
