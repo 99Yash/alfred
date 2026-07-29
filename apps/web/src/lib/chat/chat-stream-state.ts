@@ -309,6 +309,24 @@ export function applyChatFrame(
 
   if (frame.kind === "chat.message") {
     const p = frame.payload;
+    const r = cell.current;
+    // The freeze applies to the ref this frame *names*, exactly as in the five
+    // arms below — but it cannot be hoisted above the kind dispatch the way the
+    // thread check is. Four arms can *mount*: `started` just below, plus
+    // `chat.reasoning`, `chat.delta` and `chat.tool`'s boss arm, each of which
+    // calls `ensureStreamRef` before testing `stopped` so that a frame naming a
+    // new `(messageId, runId)` replaces a stopped ref. A
+    // blanket `cell.current?.stopped` above the dispatch would drop whichever of
+    // those four opens the next turn, and that turn would never render. Those
+    // three inherit the identity comparison from `ensureStreamRef`; this arm has
+    // to spell it out, because `compaction_*`/`completed` may not mount and so
+    // have no `ensureStreamRef` return value to test the flag on.
+    //
+    // `r` is the ref as of frame arrival. The `started` arm below mounts through
+    // `ensureStreamRef` and does not refresh `r`, so anything added after that
+    // call — a recency check on the mount, say — must read `cell.current`, not
+    // `r`, which by then describes the outgoing turn.
+    if (r !== null && r.stopped && r.messageId === p.messageId && r.runId === p.runId) return false;
     if (p.phase === "started") {
       ensureStreamRef(cell, p.messageId, p.runId);
       markChatTimingByAssistant(p.messageId, "stream_started_event", undefined, {
@@ -317,7 +335,6 @@ export function applyChatFrame(
       });
       return true;
     }
-    const r = cell.current;
     if (!r || r.messageId !== p.messageId || r.runId !== p.runId) return false;
     if (p.phase === "compaction_started" || p.phase === "compaction_finished") {
       r.compacting = p.phase === "compaction_started";

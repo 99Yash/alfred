@@ -320,11 +320,31 @@ describe("applyChatFrame — absorption (a terminal is absorbing)", () => {
     assert.equal(applyChatFrame(cell, tool({ toolCallId: "tool_late" }), 1_000), false);
     assert.equal(applyChatFrame(cell, run(SUB.childRunId, "completed"), 1_000), false);
     assert.equal(applyChatFrame(cell, approval("run_1"), 1_000), false);
+    // …and the sixth kind, `chat.message`, in all three of its post-`started`
+    // phases plus a replayed `started` for the same turn. `compaction_started`
+    // is the one that was live: it flipped `compacting` on a frozen bubble,
+    // which `conversation.tsx` relabels "Condensing conversation…" while
+    // *suppressing* the thinking spinner, and un-parked the rAF loop for a tick.
+    assert.equal(applyChatFrame(cell, compaction("compaction_started"), 1_000), false);
+    // Read on the projection *immediately* after that frame, not at the end of
+    // the block. `compacting` is on the snapshot and inside
+    // `streamSnapshotsEqual`, so it is both the user-visible fact and the reason
+    // a late flip re-renders — but `completed`'s own arm sets it back to `false`,
+    // so an end-state check after the frames below passes on a leaking guard.
+    assert.equal(drain(cell).snapshot.compacting, false);
+
+    assert.equal(applyChatFrame(cell, compaction("compaction_finished"), 1_000), false);
+    // `completed` additionally must not fire the `"completion_event"` mark, which
+    // is the `summarize: true` one, for a turn the user cut short.
+    assert.equal(applyChatFrame(cell, completed(), 1_000), false);
+    assert.equal(applyChatFrame(cell, started(), 1_000), false);
 
     const after = drain(cell).snapshot;
     assert.equal(after.text, mid.text);
     assert.equal(after.tools.length, 0);
     assert.equal(after.done, true);
+    assert.equal(after.compacting, false);
+    assert.equal(refOf(cell).stopped, true);
   });
 
   test("a stop in the window after a segment-advancing delta freezes the live segment, not a prefix of it", () => {
@@ -398,6 +418,61 @@ describe("applyChatFrame — absorption (a terminal is absorbing)", () => {
     assert.equal(refOf(cell).messageId, "msg_2");
     assert.equal(refOf(cell).stopped, false);
     assert.equal(drain(cell).snapshot.text, "a fresh turn");
+  });
+
+  test("a stop does not block the next turn's own chat.message/started", () => {
+    // `chat.message`'s stop guard has to name the frame's own
+    // `(messageId, runId)`, because `started` mounts the next turn over a
+    // stopped ref. A blanket `if (cell.current?.stopped) return false` — or the
+    // same check hoisted above the kind dispatch, next to the thread check,
+    // which is exactly where it looks like it belongs — drops this frame and the
+    // turn after any stop never renders. (The hoist would also strand a turn
+    // opened by `chat.reasoning`, `chat.delta` or `chat.tool`, which mount the
+    // same way.) This is the assertion that catches that.
+    const cell = cellOf();
+    applyChatFrame(cell, started(), 1_000);
+    applyChatFrame(cell, delta(1, "half an answer"), 1_000);
+    applyOptimisticStop(cell);
+
+    assert.equal(applyChatFrame(cell, started(TURN_2), 1_000), true);
+    assert.equal(refOf(cell).messageId, "msg_2");
+    assert.equal(refOf(cell).stopped, false);
+    // And the replacing turn is fully live, not a husk: its own frames apply.
+    assert.equal(applyChatFrame(cell, delta(1, "a fresh turn", { turn: TURN_2 }), 1_000), true);
+    assert.equal(drain(cell).snapshot.text, "a fresh turn");
+  });
+
+  test("the stop guard is keyed on messageId AND runId, not on either one alone", () => {
+    // Every other replacement-turn case here uses `TURN_2`, which differs from
+    // `TURN` in *both* fields — so a guard that compares only one of them still
+    // lets those cases pass. These two shapes differ in exactly one field each,
+    // and each kills one half of the conjunction. Both are spread from `TURN` so
+    // that "one field apart" is structural: hand-copying `TURN`'s literals here
+    // would let an edit to `TURN` turn both of them back into differs-in-both
+    // cases, silently reviving the two mutants this case exists to kill.
+    //
+    // Same messageId, new runId is the retry shape this file already pins for a
+    // live turn ("a different runId for the same messageId mounts a fresh
+    // turn"); dropping `runId` from the guard means a stopped turn can never be
+    // retried.
+    const retried = cellOf();
+    applyChatFrame(retried, started(), 1_000);
+    applyOptimisticStop(retried);
+    const retry = { ...TURN, runId: "run_2" };
+    assert.equal(applyChatFrame(retried, started(retry), 1_000), true);
+    assert.equal(refOf(retried).runId, "run_2");
+    assert.equal(refOf(retried).stopped, false);
+
+    // New messageId, same runId. Nothing in production is known to emit this,
+    // but the guard's `messageId` half is only load-bearing against it, so this
+    // is what makes that half of the `&&` enforced rather than decorative.
+    const remounted = cellOf();
+    applyChatFrame(remounted, started(), 1_000);
+    applyOptimisticStop(remounted);
+    const sameRun = { ...TURN, messageId: "msg_9" };
+    assert.equal(applyChatFrame(remounted, started(sameRun), 1_000), true);
+    assert.equal(refOf(remounted).messageId, "msg_9");
+    assert.equal(refOf(remounted).stopped, false);
   });
 
   test("a second stop, and a stop with nothing in flight, are no-ops", () => {
