@@ -4,6 +4,7 @@ import { after, before, beforeEach, describe, test } from "node:test";
 
 import { isRecord, restPassthroughInput } from "@alfred/contracts";
 import { closeConnections, db } from "@alfred/db";
+import type { SealedCredentialSecret } from "@alfred/db/credential-vault";
 import {
   actionStagings,
   agentRuns,
@@ -70,7 +71,10 @@ async function seedUser(): Promise<{ userId: string; runId: string }> {
       userId,
       provider: "github",
       accountId: `${userId}-gh`,
-      accessToken: "test-token",
+      // Deliberate unsealed write (#453). Nothing in this file opens the token —
+      // the row exists so `evaluateSnapshotGates` sees a healthy connection — so
+      // sealing it would only pull the whole `serverEnv()` fixture block in here.
+      accessToken: "test-token" as unknown as SealedCredentialSecret,
       status: "active",
     });
   // Default-OFF passthrough tier: turn github ON so the kill-switch recheck passes.

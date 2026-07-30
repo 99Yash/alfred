@@ -29,6 +29,7 @@ async function main() {
   console.log(`  account rows updated:                ${result.accountsUpdated}`);
   console.log(`  integration_credentials rows updated: ${result.integrationsUpdated}`);
   console.log(`  plaintext token fields remaining:     ${result.plaintextRemaining}`);
+  console.log(`  unopenable token fields remaining:    ${result.unopenableRemaining}`);
 
   if (result.plaintextRemaining > 0) {
     // In check mode before the rollout this is the expected, informative answer;
@@ -42,7 +43,18 @@ async function main() {
     process.exitCode = 1;
     return;
   }
-  console.log("  → every persisted OAuth token is sealed.");
+  if (result.unopenableRemaining > 0) {
+    // Reported separately because the fix is different: these rows ARE sealed,
+    // just not under OAUTH_CREDENTIAL_KEK as configured. Folding them into the
+    // plaintext count would send the operator to run a conversion that skips
+    // every one of them.
+    console.error(
+      "  → sealed under a different key. Restore the key that wrote them, or rewrap; see the runbook's rotation section.",
+    );
+    process.exitCode = 1;
+    return;
+  }
+  console.log("  → every persisted OAuth token is sealed and opens with the configured key.");
 }
 
 main()

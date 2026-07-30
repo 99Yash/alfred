@@ -24,6 +24,8 @@ const createdUserIds: string[] = [];
 const SERVER_ENV_FIXTURES: Record<string, string> = {
   REDIS_URL: "redis://localhost:6379",
   BETTER_AUTH_SECRET: "test better auth secret with length",
+  // #453: `serverEnv()` requires a 32-byte credential KEK in every environment.
+  OAUTH_CREDENTIAL_KEK: "MDEyMzQ1Njc4OWFiY2RlZjAxMjM0NTY3ODlhYmNkZWY",
   BETTER_AUTH_URL: "http://localhost:3001",
   ALFRED_ALLOWED_EMAIL: "test@example.com",
   RESEND_API_KEY: "test-resend",

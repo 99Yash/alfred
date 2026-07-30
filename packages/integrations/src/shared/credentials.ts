@@ -172,8 +172,16 @@ export async function listBearerCredentials(
 
 export type ActiveBearerCredential = Pick<
   IntegrationCredential,
-  "id" | "accessToken" | "accountId" | "accountLabel" | "metadata"
->;
+  "id" | "accountId" | "accountLabel" | "metadata"
+> & {
+  /**
+   * The **opened** bearer token, usable against the provider. Deliberately not
+   * derived from the column: `integration_credentials.access_token` is a sealed
+   * envelope, and one `string` type naming both representations is how a caller
+   * ends up sending ciphertext to Notion.
+   */
+  accessToken: string;
+};
 
 /**
  * List active bearer credentials, newest-updated first (capped at `limit`).

@@ -4,10 +4,12 @@ import { after, describe, test } from "node:test";
 
 import { closeConnections, db } from "@alfred/db";
 import {
+  createCredentialVault,
   credentialVault,
   encryptPersistedOAuthCredentials,
   assertPersistedCredentialsSealed,
   CredentialVaultError,
+  type SealedCredentialSecret,
 } from "@alfred/db/credential-vault";
 import { account, integrationCredentials, user } from "@alfred/db/schemas";
 import { getGithubAccessToken, upsertGithubCredential } from "@alfred/integrations/github";
@@ -252,8 +254,10 @@ describe("credential backfill (DB-backed)", { skip: SKIP }, () => {
         userId,
         provider: "google",
         accountId: randomUUID(),
-        accessToken: "plain-integration-access",
-        refreshToken: "plain-integration-refresh",
+        // The cast IS the point: this is the pre-#453 plaintext shape the brand
+        // now refuses, reproduced on purpose so the backfill has work to do.
+        accessToken: "plain-integration-access" as unknown as SealedCredentialSecret,
+        refreshToken: "plain-integration-refresh" as unknown as SealedCredentialSecret,
         expiresAt: new Date(Date.now() + 3_600_000),
         scopes: [],
       })
@@ -268,7 +272,7 @@ describe("credential backfill (DB-backed)", { skip: SKIP }, () => {
         userId,
         provider: "notion",
         accountId: randomUUID(),
-        accessToken: "plain-notion-access",
+        accessToken: "plain-notion-access" as unknown as SealedCredentialSecret,
         refreshToken: null,
         scopes: [],
       })
@@ -334,5 +338,69 @@ describe("credential backfill (DB-backed)", { skip: SKIP }, () => {
 
     // And the boot gate now passes.
     await assertPersistedCredentialsSealed();
+  });
+
+  /**
+   * The failure a shape-only check cannot see. A row sealed under a KEK this
+   * process does not hold matches the envelope shape exactly — same prefix, same
+   * algorithm, same field widths — so `isSealed` says yes, the plaintext count
+   * says zero, and every read of that row throws at request time. Both the
+   * conversion pass and the boot gate must ask whether the row OPENS.
+   */
+  test("an envelope from another key is reported, refused, and left alone", async (t) => {
+    ensureCredentialTestEnv();
+    const foreign = createCredentialVault(Buffer.from("fedcba9876543210fedcba9876543210", "utf8"));
+    const userId = await seedUser("test-vault-foreign-key");
+    const foreignEnvelope = foreign.seal("token-from-a-rotated-key");
+    const [seeded] = await db()
+      .insert(integrationCredentials)
+      .values({
+        userId,
+        provider: "notion",
+        accountId: randomUUID(),
+        accessToken: foreignEnvelope,
+        refreshToken: null,
+        scopes: [],
+      })
+      .returning({ id: integrationCredentials.id });
+    assert.ok(seeded);
+    // The premise: the configured vault agrees this LOOKS sealed. Without this
+    // the test could pass against a shape check that simply rejected the row.
+    assert.ok(
+      credentialVault().isSealed(foreignEnvelope),
+      "the foreign envelope must be shape-valid, or this test proves nothing",
+    );
+
+    // Unconditional: an unopenable row left behind makes every later run of this
+    // file fail on a state it did not create.
+    t.after(async () => {
+      await db().delete(integrationCredentials).where(eq(integrationCredentials.id, seeded.id));
+    });
+
+    const reported = await encryptPersistedOAuthCredentials({ checkOnly: true });
+    assert.ok(reported.unopenableRemaining >= 1, "the check must count a field it cannot open");
+
+    // The gate whose whole purpose is to stop a process that throws on every
+    // credential read.
+    await assert.rejects(assertPersistedCredentialsSealed, (err: unknown) => {
+      assert.ok(err instanceof CredentialVaultError);
+      assert.equal(err.failure, "unopenable_remaining");
+      return true;
+    });
+
+    // Conversion must abort rather than skip it as already-done: it holds only
+    // the new key, so it cannot rewrap, and pretending would half-apply a
+    // rotation.
+    await assert.rejects(
+      () => encryptPersistedOAuthCredentials(),
+      (err: unknown) => {
+        assert.ok(err instanceof CredentialVaultError);
+        assert.equal(err.failure, "unopenable_remaining");
+        return true;
+      },
+    );
+
+    const after = await rawIntegrationTokens(seeded.id);
+    assert.equal(after.accessToken, foreignEnvelope, "the refused row must be untouched");
   });
 });

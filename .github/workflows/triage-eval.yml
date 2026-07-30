@@ -73,6 +73,9 @@ jobs:
       # Format-valid dummies so serverEnv() passes; never used to connect.
       REDIS_URL: redis://localhost:6379
       BETTER_AUTH_SECRET: ci-dummy-better-auth-secret-32chars-min
+      # #453: serverEnv() requires a credential KEK decoding to 32 bytes. This
+      # one seals nothing real — CI writes no provider tokens.
+      OAUTH_CREDENTIAL_KEK: Y2ktZHVtbXkta2VrLTMyLWJ5dGVzLW5vdC1zZWNyZXQ
       BETTER_AUTH_URL: http://localhost:3001
       ALFRED_ALLOWED_EMAIL: ci@example.com
       RESEND_API_KEY: re_ci_dummy

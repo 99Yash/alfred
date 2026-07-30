@@ -1,6 +1,7 @@
 import type { AccountPersona } from "@alfred/contracts";
 import { sql } from "drizzle-orm";
 import { index, jsonb, pgTable, text, timestamp, uniqueIndex } from "drizzle-orm/pg-core";
+import type { SealedCredentialSecret } from "../credential-vault";
 import { createId, lifecycle_dates } from "../helpers";
 import { user } from "./auth";
 
@@ -27,9 +28,17 @@ import { user } from "./auth";
  *
  * `@alfred/db/credential-vault` owns that representation, and the three
  * persistence modules in `@alfred/integrations` (Google, GitHub, shared bearer)
- * are the only writers. Direct token persistence outside them is a defect: a
- * plaintext write survives every type check and then fails closed at the next
- * read, because the vault has no plaintext-compatibility branch.
+ * are the only writers. Both columns are typed {@link SealedCredentialSecret},
+ * so a plaintext write does not compile — the brand is only mintable by
+ * `credentialVault().seal`. A test that deliberately seeds the pre-#453
+ * plaintext shape casts, and says so at the cast.
+ *
+ * Better Auth's `account` table cannot have the same guard: its adapter hands
+ * the driver a loosely typed payload, so nothing there would typecheck against
+ * a branded column. That side is enforced at runtime instead, by the
+ * `encryptedAuthAdapter` decorator plus the boot gate. The asymmetry is
+ * deliberate: type-level where a writer exists to type, runtime where one does
+ * not.
  *
  * Why credentials and not content: a leaked row here is not a disclosure, it is
  * a transferable capability. Railway workspace tokens in particular CANNOT be
@@ -51,8 +60,8 @@ export const integrationCredentials = pgTable(
     accountId: text("account_id").notNull(),
     /** Email or display label surfaced in the UI ("dev.7@oliv.ai"). */
     accountLabel: text("account_label"),
-    accessToken: text("access_token").notNull(),
-    refreshToken: text("refresh_token"),
+    accessToken: text("access_token").$type<SealedCredentialSecret>().notNull(),
+    refreshToken: text("refresh_token").$type<SealedCredentialSecret>(),
     tokenType: text("token_type").default("Bearer"),
     expiresAt: timestamp("expires_at", { withTimezone: true }),
     /** Granted scopes parsed into an array — providers vary on space vs comma separation. */

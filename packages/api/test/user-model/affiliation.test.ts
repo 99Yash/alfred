@@ -3,6 +3,7 @@ import { randomUUID } from "node:crypto";
 import { after, describe, test } from "node:test";
 import { observationInsertSchema } from "@alfred/contracts";
 import { closeConnections, db } from "@alfred/db";
+import type { SealedCredentialSecret } from "@alfred/db/credential-vault";
 import {
   integrationCredentials,
   observationFamilyHeads,
@@ -82,8 +83,10 @@ async function seedGoogleCredential(args: {
       provider: "google",
       accountId: args.accountId,
       accountLabel: accountEmail,
-      accessToken: "access-token",
-      refreshToken: "refresh-token",
+      // Deliberate unsealed write (#453). This file asserts affiliation folding
+      // off `metadata`/`accountLabel`; no code path here opens either token.
+      accessToken: "access-token" as unknown as SealedCredentialSecret,
+      refreshToken: "refresh-token" as unknown as SealedCredentialSecret,
       expiresAt: new Date("2026-06-30T00:00:00.000Z"),
       scopes: [],
       metadata: hostedDomain ? { googleHostedDomain: hostedDomain } : {},
