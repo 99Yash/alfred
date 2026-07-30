@@ -112,8 +112,10 @@ app itself. Do not let user-facing copy imply otherwise.
 **Shape.** Envelope encryption, not direct: a per-secret 256-bit DEK encrypts
 the token, and the KEK only wraps DEKs, so a future rotation rewraps 32 bytes
 per row instead of re-encrypting every payload. `@alfred/db/credential-vault`
-owns the representation; the Better Auth adapter decorator and the three
-`@alfred/integrations` persistence modules are the only callers. Columns stay
+is the public seam; `credential-envelope.ts` owns the wire format and
+cryptography, and `credential-vault-maintenance.ts` owns conversion and boot
+verification. The Better Auth adapter decorator and the three
+`@alfred/integrations` persistence modules are the runtime callers. Columns stay
 `text` — the envelope carries its own version, algorithm, key id, nonces, and
 tags, so there is no `*_iv` / `*_kid` column and no schema migration.
 

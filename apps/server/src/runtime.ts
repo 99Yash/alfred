@@ -52,7 +52,7 @@ import {
 } from "@alfred/api/runtime";
 import { flushLangfuse, flushMeteringWrites } from "@alfred/ai";
 import { toMessage } from "@alfred/contracts";
-import { assertPersistedCredentialsSealed } from "@alfred/db/credential-vault";
+import { assertPersistedCredentialsSealed } from "@alfred/db/credential-vault-maintenance";
 import { serverEnv } from "@alfred/env/server";
 import { registerBuiltinWorkflows } from "./builtins";
 
