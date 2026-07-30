@@ -1,0 +1,428 @@
+import { serverEnv } from "@alfred/env/server";
+import { eq } from "drizzle-orm";
+import { createCipheriv, createDecipheriv, createHash, randomBytes } from "node:crypto";
+import { db } from "./index";
+import { account } from "./schema/auth";
+import { integrationCredentials } from "./schema/integrations";
+
+/**
+ * The persisted representation of an OAuth credential secret (#453).
+ *
+ * Every `access_token`, `refresh_token`, and `id_token` byte that reaches
+ * Postgres passes through here. A leaked row, a leaked read replica, or an
+ * off-platform backup therefore yields an authenticated envelope rather than a
+ * bearer token somebody can replay against Google, GitHub, Notion, Vercel, or
+ * Railway.
+ *
+ * What this defends and what it does not (see the ADR-0038 amendment): the
+ * key-encryption key (KEK) lives beside the application in its secret
+ * environment, so this does **not** defend against code execution on the app
+ * server — that attacker reads the KEK and calls `open` exactly like Alfred
+ * does. It defends the far likelier failure: a database artifact that travels
+ * without the secret environment attached to it.
+ *
+ * Envelope encryption, not direct encryption. A per-secret 256-bit data
+ * encryption key (DEK) encrypts the token; the KEK only ever wraps DEKs. A
+ * future KEK rotation therefore rewraps 32 bytes per row instead of
+ * re-encrypting every payload.
+ */
+
+/** `aes-256-gcm` — the one algorithm this version speaks. */
+const ALGORITHM = "A256GCM";
+const NODE_CIPHER = "aes-256-gcm";
+/** Envelope format marker. Bump with the format, never with the key. */
+const PREFIX = "acv1";
+const KEK_BYTES = 32;
+const DEK_BYTES = 32;
+/** 96-bit nonces, the size AES-GCM is specified for. */
+const NONCE_BYTES = 12;
+const TAG_BYTES = 16;
+/** Truncated KEK fingerprint. Names which key sealed a row without revealing it. */
+const KID_BYTES = 8;
+/** prefix · algorithm · kid · wrapNonce · wrappedDek · wrapTag · nonce · ciphertext · tag */
+const PART_COUNT = 9;
+const PART_SEPARATOR = ".";
+const BASE64URL_PATTERN = /^[A-Za-z0-9_-]*$/;
+
+/** Reasons a persisted value is not openable. Never carries the value itself. */
+export type CredentialVaultFailure =
+  | "not_a_string"
+  | "malformed_envelope"
+  | "unsupported_version"
+  | "unsupported_algorithm"
+  | "unknown_key"
+  | "authentication_failed"
+  | "key_unavailable"
+  | "already_sealed"
+  | "invalid_key_length"
+  | "plaintext_remaining";
+
+/**
+ * A credential-vault failure. The message names the failure kind and nothing
+ * else: an error that quoted its input would copy the ciphertext — or, for a
+ * row the backfill missed, the plaintext token — into every log sink that
+ * touches it. `detail` exists for non-secret operational context such as a row
+ * count; never pass a token, a column value, or a row id through it.
+ */
+export class CredentialVaultError extends Error {
+  readonly failure: CredentialVaultFailure;
+
+  constructor(failure: CredentialVaultFailure, detail?: string) {
+    super(`[credential-vault] ${failure}${detail ? `: ${detail}` : ""}`);
+    this.name = "CredentialVaultError";
+    this.failure = failure;
+  }
+}
+
+declare const sealedCredentialSecret: unique symbol;
+
+/**
+ * A sealed token as it is stored. Physically a `text` column value; the brand
+ * stops typed code from handing an already-sealed value back to {@link
+ * CredentialVault.seal}. The runtime parser in `open` stays authoritative,
+ * because a value read out of Postgres is `unknown` no matter what the type
+ * says.
+ */
+export type SealedCredentialSecret = string & {
+  readonly [sealedCredentialSecret]: true;
+};
+
+export interface CredentialVault {
+  /** Wrap a plaintext token for persistence. Throws if handed a sealed value. */
+  seal(plaintext: string): SealedCredentialSecret;
+  /** Validate and decrypt a persisted value. Throws on anything else. */
+  open(persisted: unknown): string;
+  /** Envelope-shape test for the backfill. Not an authorization check. */
+  isSealed(persisted: unknown): persisted is SealedCredentialSecret;
+}
+
+function encode(bytes: Uint8Array): string {
+  return Buffer.from(bytes).toString("base64url");
+}
+
+/**
+ * Strict base64url decode. `Buffer.from(s, "base64url")` silently skips
+ * characters it does not recognize, so a corrupted envelope would decode to
+ * *something* and fail later as a confusing authentication error instead of a
+ * clear malformed-envelope one. Re-encoding and comparing closes that.
+ */
+function decode(part: string, expectedBytes?: number): Buffer {
+  if (!BASE64URL_PATTERN.test(part)) throw new CredentialVaultError("malformed_envelope");
+  const bytes = Buffer.from(part, "base64url");
+  if (encode(bytes) !== part) throw new CredentialVaultError("malformed_envelope");
+  if (expectedBytes !== undefined && bytes.length !== expectedBytes) {
+    throw new CredentialVaultError("malformed_envelope");
+  }
+  return bytes;
+}
+
+function keyId(kek: Uint8Array): string {
+  return encode(createHash("sha256").update(kek).digest().subarray(0, KID_BYTES));
+}
+
+/**
+ * Additional authenticated data. Binds each ciphertext to the envelope header
+ * *and* to its own role, so a wrapped DEK can never be fed to the payload
+ * decryption step (or the reverse) and a header edit fails the tag check.
+ */
+function aad(kid: string, role: "dek" | "payload"): Buffer {
+  return Buffer.from([PREFIX, ALGORITHM, kid, role].join(PART_SEPARATOR), "utf8");
+}
+
+/** Envelope shape only: correct part count, marker, and fixed field widths. */
+function looksSealed(persisted: unknown): boolean {
+  if (typeof persisted !== "string") return false;
+  const parts = persisted.split(PART_SEPARATOR);
+  if (parts.length !== PART_COUNT) return false;
+  const [prefix, algorithm, kid, wrapNonce, wrappedDek, wrapTag, nonce, , tag] = parts;
+  if (prefix !== PREFIX || algorithm !== ALGORITHM) return false;
+  const widths: ReadonlyArray<[string | undefined, number]> = [
+    [kid, KID_BYTES],
+    [wrapNonce, NONCE_BYTES],
+    [wrappedDek, DEK_BYTES],
+    [wrapTag, TAG_BYTES],
+    [nonce, NONCE_BYTES],
+    [tag, TAG_BYTES],
+  ];
+  for (const [part, expected] of widths) {
+    if (part === undefined) return false;
+    try {
+      decode(part, expected);
+    } catch {
+      return false;
+    }
+  }
+  return true;
+}
+
+/**
+ * Build a vault around an explicit KEK. Tests use this; production goes
+ * through {@link credentialVault} so exactly one place reads the environment.
+ */
+export function createCredentialVault(kek: Uint8Array): CredentialVault {
+  if (kek.length !== KEK_BYTES) throw new CredentialVaultError("invalid_key_length");
+  const key = Buffer.from(kek);
+  const kid = keyId(key);
+
+  function seal(plaintext: string): SealedCredentialSecret {
+    if (looksSealed(plaintext)) throw new CredentialVaultError("already_sealed");
+    const dek = randomBytes(DEK_BYTES);
+    try {
+      const wrapNonce = randomBytes(NONCE_BYTES);
+      const wrapper = createCipheriv(NODE_CIPHER, key, wrapNonce);
+      wrapper.setAAD(aad(kid, "dek"));
+      const wrappedDek = Buffer.concat([wrapper.update(dek), wrapper.final()]);
+      const wrapTag = wrapper.getAuthTag();
+
+      const nonce = randomBytes(NONCE_BYTES);
+      const cipher = createCipheriv(NODE_CIPHER, dek, nonce);
+      cipher.setAAD(aad(kid, "payload"));
+      const ciphertext = Buffer.concat([cipher.update(plaintext, "utf8"), cipher.final()]);
+      const tag = cipher.getAuthTag();
+
+      return [
+        PREFIX,
+        ALGORITHM,
+        kid,
+        encode(wrapNonce),
+        encode(wrappedDek),
+        encode(wrapTag),
+        encode(nonce),
+        encode(ciphertext),
+        encode(tag),
+      ].join(PART_SEPARATOR) as SealedCredentialSecret;
+    } finally {
+      // `createCipheriv` copies the key, so the DEK is no longer needed. Best
+      // effort — it does not defend a heap dump taken mid-call.
+      dek.fill(0);
+    }
+  }
+
+  function open(persisted: unknown): string {
+    if (typeof persisted !== "string") throw new CredentialVaultError("not_a_string");
+    const parts = persisted.split(PART_SEPARATOR);
+    if (parts.length !== PART_COUNT) throw new CredentialVaultError("malformed_envelope");
+    const [
+      prefix,
+      algorithm,
+      envelopeKid,
+      rawWrapNonce,
+      rawWrappedDek,
+      rawWrapTag,
+      rawNonce,
+      rawCiphertext,
+      rawTag,
+    ] = parts;
+    if (prefix !== PREFIX) throw new CredentialVaultError("unsupported_version");
+    if (algorithm !== ALGORITHM) throw new CredentialVaultError("unsupported_algorithm");
+    if (
+      envelopeKid === undefined ||
+      rawWrapNonce === undefined ||
+      rawWrappedDek === undefined ||
+      rawWrapTag === undefined ||
+      rawNonce === undefined ||
+      rawCiphertext === undefined ||
+      rawTag === undefined
+    ) {
+      throw new CredentialVaultError("malformed_envelope");
+    }
+    decode(envelopeKid, KID_BYTES);
+    if (envelopeKid !== kid) throw new CredentialVaultError("unknown_key");
+
+    const wrapNonce = decode(rawWrapNonce, NONCE_BYTES);
+    const wrappedDek = decode(rawWrappedDek, DEK_BYTES);
+    const wrapTag = decode(rawWrapTag, TAG_BYTES);
+    const nonce = decode(rawNonce, NONCE_BYTES);
+    const ciphertext = decode(rawCiphertext);
+    const tag = decode(rawTag, TAG_BYTES);
+
+    let dek: Buffer | undefined;
+    try {
+      const unwrapper = createDecipheriv(NODE_CIPHER, key, wrapNonce);
+      unwrapper.setAAD(aad(kid, "dek"));
+      unwrapper.setAuthTag(wrapTag);
+      dek = Buffer.concat([unwrapper.update(wrappedDek), unwrapper.final()]);
+      if (dek.length !== DEK_BYTES) throw new CredentialVaultError("malformed_envelope");
+
+      const decipher = createDecipheriv(NODE_CIPHER, dek, nonce);
+      decipher.setAAD(aad(kid, "payload"));
+      decipher.setAuthTag(tag);
+      return Buffer.concat([decipher.update(ciphertext), decipher.final()]).toString("utf8");
+    } catch (err) {
+      // A GCM tag mismatch throws a generic `Error` whose message varies by
+      // Node version. Collapse everything to one redacted failure so a caller
+      // cannot distinguish "wrong key" from "edited ciphertext" from a log line.
+      if (err instanceof CredentialVaultError) throw err;
+      throw new CredentialVaultError("authentication_failed");
+    } finally {
+      dek?.fill(0);
+    }
+  }
+
+  function isSealed(persisted: unknown): persisted is SealedCredentialSecret {
+    return looksSealed(persisted);
+  }
+
+  return { seal, open, isSealed };
+}
+
+let _vault: CredentialVault | undefined;
+
+/**
+ * The production vault. Reads `OAUTH_CREDENTIAL_KEK` once and caches the
+ * result, so a running process holds one key schedule rather than re-deriving
+ * one per credential read.
+ *
+ * There is deliberately no derived default and no plaintext fallback: a
+ * missing KEK must stop the process, not quietly downgrade the store to the
+ * plaintext posture this replaces.
+ */
+export function credentialVault(): CredentialVault {
+  if (_vault) return _vault;
+  const configured = serverEnv().OAUTH_CREDENTIAL_KEK;
+  if (!configured) throw new CredentialVaultError("key_unavailable");
+  _vault = createCredentialVault(Buffer.from(configured, "base64url"));
+  return _vault;
+}
+
+/** Test seam: drop the cached production vault. */
+export function resetCredentialVaultForTest(): void {
+  _vault = undefined;
+}
+
+export interface CredentialBackfillResult {
+  accountsUpdated: number;
+  integrationsUpdated: number;
+  /** Non-null token fields still readable as plaintext once the pass finishes. */
+  plaintextRemaining: number;
+}
+
+/** The five columns that hold a bearer or refresh capability. */
+const ACCOUNT_SECRET_FIELDS = ["accessToken", "refreshToken", "idToken"] as const;
+const INTEGRATION_SECRET_FIELDS = ["accessToken", "refreshToken"] as const;
+
+function sealPending<Field extends string>(
+  row: Readonly<Record<Field, string | null>>,
+  fields: readonly Field[],
+  vault: CredentialVault,
+): Partial<Record<Field, SealedCredentialSecret>> {
+  const pending: Partial<Record<Field, SealedCredentialSecret>> = {};
+  for (const field of fields) {
+    const value = row[field];
+    if (value === null || vault.isSealed(value)) continue;
+    pending[field] = vault.seal(value);
+  }
+  return pending;
+}
+
+function countPlaintext<Field extends string>(
+  row: Readonly<Record<Field, string | null>>,
+  fields: readonly Field[],
+  vault: CredentialVault,
+): number {
+  return fields.filter((field) => {
+    const value = row[field];
+    return value !== null && !vault.isSealed(value);
+  }).length;
+}
+
+/**
+ * One-time, idempotent conversion of the existing plaintext rows (#453), plus
+ * the check that proves it finished.
+ *
+ * **Run this only with every writer stopped.** It is an in-place
+ * representation change in columns a running old process still reads as
+ * plaintext — that process would send an envelope to Google as a bearer token,
+ * or rewrite a token in plaintext after the check passed. The whole pass is one
+ * transaction, so a malformed row rolls the run back rather than leaving the
+ * table half-converted. See
+ * `docs/runbooks/oauth-credential-vault-rollout.md`.
+ */
+export async function encryptPersistedOAuthCredentials(options?: {
+  checkOnly?: boolean;
+}): Promise<CredentialBackfillResult> {
+  const checkOnly = options?.checkOnly === true;
+  const vault = credentialVault();
+
+  return db().transaction(async (tx) => {
+    let accountsUpdated = 0;
+    let integrationsUpdated = 0;
+
+    const accountRows = await tx
+      .select({
+        id: account.id,
+        accessToken: account.accessToken,
+        refreshToken: account.refreshToken,
+        idToken: account.idToken,
+      })
+      .from(account);
+    for (const row of accountRows) {
+      const pending = sealPending(row, ACCOUNT_SECRET_FIELDS, vault);
+      if (Object.keys(pending).length === 0) continue;
+      if (checkOnly) continue;
+      await tx.update(account).set(pending).where(eq(account.id, row.id));
+      accountsUpdated += 1;
+    }
+
+    const integrationRows = await tx
+      .select({
+        id: integrationCredentials.id,
+        accessToken: integrationCredentials.accessToken,
+        refreshToken: integrationCredentials.refreshToken,
+      })
+      .from(integrationCredentials);
+    for (const row of integrationRows) {
+      const pending = sealPending(row, INTEGRATION_SECRET_FIELDS, vault);
+      if (Object.keys(pending).length === 0) continue;
+      if (checkOnly) continue;
+      await tx
+        .update(integrationCredentials)
+        .set(pending)
+        .where(eq(integrationCredentials.id, row.id));
+      integrationsUpdated += 1;
+    }
+
+    // Re-read rather than trusting the counters: the point of this number is to
+    // catch a row the pass did not see, so counting what the pass wrote proves
+    // nothing.
+    const verifyAccounts = await tx
+      .select({
+        accessToken: account.accessToken,
+        refreshToken: account.refreshToken,
+        idToken: account.idToken,
+      })
+      .from(account);
+    const verifyIntegrations = await tx
+      .select({
+        accessToken: integrationCredentials.accessToken,
+        refreshToken: integrationCredentials.refreshToken,
+      })
+      .from(integrationCredentials);
+    const plaintextRemaining =
+      verifyAccounts.reduce(
+        (total, row) => total + countPlaintext(row, ACCOUNT_SECRET_FIELDS, vault),
+        0,
+      ) +
+      verifyIntegrations.reduce(
+        (total, row) => total + countPlaintext(row, INTEGRATION_SECRET_FIELDS, vault),
+        0,
+      );
+
+    return { accountsUpdated, integrationsUpdated, plaintextRemaining };
+  });
+}
+
+/**
+ * Boot gate. A process that starts against a half-converted table would serve
+ * traffic that throws on every credential read, and would rewrite plaintext
+ * behind the operator's back. Fail the boot instead.
+ */
+export async function assertPersistedCredentialsSealed(): Promise<void> {
+  const { plaintextRemaining } = await encryptPersistedOAuthCredentials({ checkOnly: true });
+  if (plaintextRemaining > 0) {
+    throw new CredentialVaultError(
+      "plaintext_remaining",
+      `${plaintextRemaining} token field(s) are not sealed — run the backfill with all writers stopped`,
+    );
+  }
+}

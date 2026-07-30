@@ -2,10 +2,17 @@
  * Dry-run replay for #282 (reply re-eval) + #279 (thread reconcile) — READ-ONLY.
  *
  * Simulates exactly what the two new code paths would do, against the live dev
- * DB + live Gmail, but MUTATES NOTHING: it never refreshes credentials, never
- * emits a triage event, never repoints `email_triage.document_id`, never deletes
- * a `documents` row. It only fetches live Gmail thread message lists (read) to
+ * DB + live Gmail, but MUTATES NOTHING IN THE TRIAGE DOMAIN: it never emits a
+ * triage event, never repoints `email_triage.document_id`, never deletes a
+ * `documents` row. It only fetches live Gmail thread message lists (read) to
  * compute what reconcile would prune.
+ *
+ * One exception, and it is deliberate (#453): the script resolves its token
+ * through `getFreshAccessToken`, which MAY refresh an expiring credential and
+ * write the new one back. It used to read `access_token` out of the row itself
+ * to stay write-free. Those bytes are now a sealed envelope, and a script that
+ * reached past the credential boundary to decrypt them would be a second,
+ * unowned copy of the vault. A credential refresh is the cheaper concession.
  *
  * #282 — for each thread that has BOTH a sent doc and a triage row, report the
  *        newest INBOUND doc the reply-re-eval would re-key the classify on, and
@@ -27,12 +34,11 @@ import {
 import { toMessage } from "@alfred/contracts";
 import { db } from "@alfred/db";
 import { documents, emailTriage, integrationCredentials } from "@alfred/db/schemas";
-import { getThreadMessageLabels } from "@alfred/integrations/google";
+import { getFreshAccessToken, getThreadMessageLabels } from "@alfred/integrations/google";
 import { and, desc, eq, inArray, sql } from "drizzle-orm";
 
 const SCAN_LIMIT_282 = 8;
 const SCAN_LIMIT_279 = 15;
-const TOKEN_EXPIRY_SAFETY_MS = 60_000;
 
 type DocRow = {
   id: string;
@@ -42,11 +48,6 @@ type DocRow = {
   accountId: string | null;
   metadata: Record<string, unknown>;
 };
-
-type GoogleCredentialSnapshot = Pick<
-  typeof integrationCredentials.$inferSelect,
-  "id" | "userId" | "accountId" | "accessToken" | "expiresAt" | "status"
->;
 
 async function loadThreadDocs(userId: string, threadId: string): Promise<DocRow[]> {
   return (await db()
@@ -84,9 +85,6 @@ async function main() {
       id: integrationCredentials.id,
       userId: integrationCredentials.userId,
       accountId: integrationCredentials.accountId,
-      accessToken: integrationCredentials.accessToken,
-      expiresAt: integrationCredentials.expiresAt,
-      status: integrationCredentials.status,
     })
     .from(integrationCredentials)
     .where(eq(integrationCredentials.provider, "google"));
@@ -97,20 +95,24 @@ async function main() {
   const firstCred = creds[0]!;
   const userId = firstCred.userId;
   const credByAccount = new Map(creds.map((c) => [c.accountId, c.id]));
-  const credById = new Map(creds.map((c) => [c.id, c]));
   const tokenCache = new Map<string, string>();
   async function tokenForAccount(accountId: string | null): Promise<string | null> {
     const credId = (accountId && credByAccount.get(accountId)) ?? firstCred.id;
-    if (tokenCache.has(credId)) return tokenCache.get(credId)!;
-    const cred = credById.get(credId);
-    if (!cred) return null;
-    const token = readOnlyUsableToken(cred);
-    if (!token) {
-      console.warn(`  stored token unavailable/expired for cred=${credId}; skipping live fetch`);
+    const cached = tokenCache.get(credId);
+    if (cached) return cached;
+    try {
+      // The credential boundary owns expiry, revocation, and decryption. A
+      // needs-reauth credential throws here, which is the same "skip the live
+      // fetch" outcome the old expiry check produced.
+      const token = await getFreshAccessToken(credId);
+      tokenCache.set(credId, token);
+      return token;
+    } catch (err) {
+      console.warn(
+        `  token unavailable for cred=${credId} (${toMessage(err)}); skipping live fetch`,
+      );
       return null;
     }
-    tokenCache.set(credId, token);
-    return token;
   }
 
   // ---- #282: reply re-eval candidates -------------------------------------
@@ -285,14 +287,6 @@ async function main() {
       `\n# Reconcile would touch ${threadsWithDead} thread(s), prune ${totalDead} dead doc(s)`,
     );
   }
-}
-
-function readOnlyUsableToken(cred: GoogleCredentialSnapshot): string | null {
-  if (cred.status !== "active") return null;
-  if (!cred.accessToken) return null;
-  if (!cred.expiresAt) return null;
-  if (cred.expiresAt.getTime() - Date.now() < TOKEN_EXPIRY_SAFETY_MS) return null;
-  return cred.accessToken;
 }
 
 function toStoredDoc(doc: DocRow): ReconcileStoredGmailDoc {

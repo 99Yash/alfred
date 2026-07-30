@@ -27,6 +27,14 @@ export const session = pgTable("session", {
   ...lifecycle_dates,
 });
 
+/**
+ * Better Auth's identity table. `access_token`, `refresh_token`, and `id_token`
+ * hold AES-256-GCM envelopes rather than usable tokens (#453) — the
+ * `encryptedAuthAdapter` decorator in `@alfred/auth` seals them on every write
+ * and opens them on every read, so Better Auth itself still sees plaintext and
+ * nothing in this package needs to know. `password` is already a Better Auth
+ * hash, not a reversible secret, so it stays as it is.
+ */
 export const account = pgTable("account", {
   id: text("id")
     .primaryKey()

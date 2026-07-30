@@ -19,17 +19,22 @@ import { user } from "./auth";
  *    own user identifier — Google `sub`, Slack workspace+user, etc.).
  *  - Scopes evolve independently of identity scopes.
  *
- * Tokens are stored plaintext for now. Encryption-at-rest is a TODO that
- * lands when we move past single-user — Postgres column encryption with a
- * KMS-derived key is the cleanest path; not blocking v1.
+ * `access_token` and `refresh_token` hold an authenticated AES-256-GCM
+ * envelope, never a usable token (#453, ADR-0038 as amended). The columns stay
+ * `text` because the envelope is self-describing — version, algorithm, key id,
+ * nonces, and tags all live inside the stored string, so nonce and tag columns
+ * would add migration surface without adding validation.
  *
- * Threat-model note: this deferral was sized when the blast radius was
- * read-mostly (read personal Gmail, read a Notion page). It now also covers
- * Railway workspace tokens, which CANNOT be scoped down — a Railway workspace
- * token is full workspace write (it can redeploy any service in a shared team).
- * The deferral may still be the right v1 call at single-user scale, but the
- * surface a leaked row exposes is strictly larger than it was; revisit
- * encryption before this store holds tokens for more than one user.
+ * `@alfred/db/credential-vault` owns that representation, and the three
+ * persistence modules in `@alfred/integrations` (Google, GitHub, shared bearer)
+ * are the only writers. Direct token persistence outside them is a defect: a
+ * plaintext write survives every type check and then fails closed at the next
+ * read, because the vault has no plaintext-compatibility branch.
+ *
+ * Why credentials and not content: a leaked row here is not a disclosure, it is
+ * a transferable capability. Railway workspace tokens in particular CANNOT be
+ * scoped down — one is full workspace write and can redeploy any service in a
+ * shared team.
  */
 export const integrationCredentials = pgTable(
   "integration_credentials",

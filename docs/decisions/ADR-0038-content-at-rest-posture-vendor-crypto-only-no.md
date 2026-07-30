@@ -1,5 +1,9 @@
 # ADR-0038 — Content-at-rest posture: vendor crypto only, no app-layer encryption
 
+> **Amended 2026-07-30 (#453) — credentials are carved out of this deferral.**
+> Content keeps the posture below. OAuth **credentials** do not: `account` and
+> `integration_credentials` token columns now hold AES-256-GCM envelopes under a
+> separate KEK (`OAUTH_CREDENTIAL_KEK`). See "Amendment" at the end of this file.
 
 **Decision.** No app-layer encryption on user content (`documents.content`, `chunks.content`, `attachment_pages.extracted_text`, `memory_facts.value`, briefing bodies, `email_sends.body`). Three concrete layers stand in:
 
@@ -54,3 +58,69 @@ Adding the encryption layer later is a straightforward forward migration — new
 - Same redaction list lives in one shared const (`SENSITIVE_LOG_PATHS` in `@alfred/contracts`) so Pino, Sentry, and any future logger pull from one source.
 
 **Caveat that goes in the codebase, not just here.** A short comment on `chunks.embedding` in `packages/db/src/schema/documents.ts` should call out: "Plaintext by design — encrypting kills pgvector. Embedding-inversion attacks can leak content from the vector alone; see ADR-0038." Future readers shouldn't discover the gap by accident.
+
+---
+
+## Amendment, 2026-07-30 — OAuth credentials are carved out (#453)
+
+**What changes.** `account.access_token`, `account.refresh_token`,
+`account.id_token`, `integration_credentials.access_token`, and
+`integration_credentials.refresh_token` are encrypted at the application layer.
+Everything else in the table above is unchanged: content stays vendor-encrypted
+only.
+
+**Why the original reasoning does not cover credentials.** The rejection above
+rests on one argument — a key in Railway env shares a blast radius with the
+ciphertext, so app-layer encryption is "theater". That argument is sound for
+content and wrong for credentials, because the two have different failure
+shapes:
+
+- **Content is a disclosure.** A leaked email body is read once. The damage is
+  bounded by what the row says.
+- **A credential is a transferable capability.** A leaked `refresh_token` is a
+  live grant against Gmail, Drive, GitHub, Notion, Vercel, or Railway, usable
+  from anywhere, for as long as the grant survives. Railway workspace tokens
+  cannot even be scoped down: one is full workspace write.
+
+So the blast-radius argument still applies to the *same* attacker (app-server
+RCE reads the KEK and calls `open`), but credentials have a *different* attacker
+the content argument never had to price: anyone holding a database artifact that
+travelled without the secret environment. A backup file, a support export, a
+read replica, a snapshot in someone's downloads folder. For content that
+attacker gets a disclosure the vendor-crypto row already covers. For credentials
+that attacker gets Alfred's Google account.
+
+**Two of this ADR's own revisit triggers already fired.** "A real
+backup-export workflow exists" and the broadened surface: ADR-0052 added GitHub
+App installation tokens, and the shared bearer layer added Railway, Notion, and
+Vercel. The `integration_credentials` docstring had already recorded that the
+deferral was sized for a read-mostly blast radius that no longer holds.
+
+**What this defends, stated honestly.**
+
+| Threat | Defended? |
+| --- | --- |
+| Leaked row, replica, snapshot, or support export | Yes — the tokens are envelopes |
+| Off-platform backup that does not carry the env | Yes |
+| Vendor employee with raw DB access | Yes, for credentials specifically |
+| App-server RCE | **No** — that attacker reads the KEK and calls `open` |
+| Someone who holds both the dump and the environment | No |
+
+A KEK beside the app is a real reduction in blast radius, not secrecy from the
+app itself. Do not let user-facing copy imply otherwise.
+
+**Shape.** Envelope encryption, not direct: a per-secret 256-bit DEK encrypts
+the token, and the KEK only wraps DEKs, so a future rotation rewraps 32 bytes
+per row instead of re-encrypting every payload. `@alfred/db/credential-vault`
+owns the representation; the Better Auth adapter decorator and the three
+`@alfred/integrations` persistence modules are the only callers. Columns stay
+`text` — the envelope carries its own version, algorithm, key id, nonces, and
+tags, so there is no `*_iv` / `*_kid` column and no schema migration.
+
+There is no plaintext-compatibility branch. A conversion runs once with every
+writer stopped, and `startRuntime` re-checks it before the process serves
+traffic. Procedure and rotation:
+[`docs/runbooks/oauth-credential-vault-rollout.md`](../runbooks/oauth-credential-vault-rollout.md).
+
+**Still deferred for content.** Path (b) — a key outside Railway — remains
+unbuilt for both content and credentials. The triggers above still govern it.
