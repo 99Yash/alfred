@@ -46,8 +46,12 @@ Set `OAUTH_CREDENTIAL_KEK` on the Railway `server` service, and in your local
 `apps/server/.env`. The value must decode to exactly 32 bytes; boot rejects
 anything else with a named error.
 
-Production **requires** the variable. Other environments may omit it, and then
-every credential read and write fails closed — there is no plaintext fallback.
+**Every** environment requires the variable, local development included. The
+vault also protects Better Auth's `account` token columns, so a process without
+the key does not lose only its integrations — it fails every sign-in and every
+session check. `serverEnv()` is the single owner of that requirement, so the
+failure is one boot error naming the generation command above, not a broken
+sign-in an hour later. There is no plaintext fallback.
 
 ## Step 3. Back up the database
 
@@ -72,8 +76,15 @@ Confirm nothing is serving before you continue.
 pnpm db:encrypt-credentials:check
 ```
 
-It writes nothing and prints the plaintext count. A non-zero count is expected
-here; the command exits `1` so it can never pass silently inside a pipeline.
+It writes nothing and prints two counts: plaintext fields, and fields that are
+envelope-shaped but do not open with the configured key. Before the first
+conversion the plaintext count is non-zero and the unopenable count is zero. The
+command exits `1` on either, so it can never pass silently inside a pipeline.
+
+The check *opens* every envelope it counts rather than pattern-matching its
+shape. Shape alone cannot tell a row this key can read from a row sealed under a
+different key, which is exactly the mistake the rotation procedure below would
+otherwise hide.
 
 ## Step 6. Convert
 
@@ -82,14 +93,17 @@ pnpm db:encrypt-credentials
 ```
 
 The whole pass is one transaction, so a malformed row rolls the run back rather
-than leaving the table half-converted. It skips rows that are already sealed, so
-running it twice is safe.
+than leaving the table half-converted. It skips rows that already open with the
+configured key, so running it twice is safe. It converts plaintext only: a row
+sealed under a *different* key aborts the run instead of being skipped as done,
+because rewrapping needs both keys.
 
 Expect:
 
 ```
   plaintext token fields remaining:     0
-  → every persisted OAuth token is sealed.
+  unopenable token fields remaining:    0
+  → every persisted OAuth token is sealed and opens with the configured key.
 ```
 
 ## Step 7. Verify, then start
@@ -123,12 +137,18 @@ Rotation is the same maintenance window, not an online operation.
 
 1. Generate a new key. Do **not** delete the old one yet.
 2. Stop every writer.
-3. Rewrap: read each row with the old key and write it with the new one. The
-   envelope carries a key id (`kid`) derived from the KEK, so a row sealed under
-   the old key fails `open` under the new one with `unknown_key` — the mismatch
-   is loud, never silent.
+3. Rewrap: read each row with the old key and write it with the new one.
+   **No command does this yet.** `db:encrypt-credentials` converts plaintext; it
+   holds one key, so it cannot read the old envelope and write the new one, and
+   it aborts rather than pretend. Until the rewrap pass exists, rotation means a
+   throwaway script holding both keys — or, at single-user scale, a reconnect of
+   every integration plus a fresh sign-in, which mints new tokens under the new
+   key and needs no rewrap at all.
 4. Swap `OAUTH_CREDENTIAL_KEK`, verify with `db:encrypt-credentials:check`,
-   restart.
+   restart. That check catches a missed rewrap: it opens every envelope, so a row
+   still sealed under the old key is reported as an unopenable field and exits
+   `1`. The boot gate refuses the same table, so a missed row cannot reach
+   traffic.
 5. Destroy the old key only after a verified boot.
 
 Never reuse a nonce. `seal` draws fresh random nonces per call, so the only way

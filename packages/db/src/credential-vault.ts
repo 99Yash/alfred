@@ -52,10 +52,10 @@ export type CredentialVaultFailure =
   | "unsupported_algorithm"
   | "unknown_key"
   | "authentication_failed"
-  | "key_unavailable"
   | "already_sealed"
   | "invalid_key_length"
-  | "plaintext_remaining";
+  | "plaintext_remaining"
+  | "unopenable_remaining";
 
 /**
  * A credential-vault failure. The message names the failure kind and nothing
@@ -273,15 +273,16 @@ let _vault: CredentialVault | undefined;
  * result, so a running process holds one key schedule rather than re-deriving
  * one per credential read.
  *
- * There is deliberately no derived default and no plaintext fallback: a
- * missing KEK must stop the process, not quietly downgrade the store to the
- * plaintext posture this replaces.
+ * Requiredness has exactly one owner, and it is not this function:
+ * `serverEnvSchema` requires `OAUTH_CREDENTIAL_KEK` in every environment and
+ * validates its decoded length, so by the time any caller gets here the key
+ * exists and is 32 bytes. There is deliberately no derived default and no
+ * plaintext fallback — a missing KEK stops the process at env validation, which
+ * is loud and one command from fixed, rather than at the first sign-in.
  */
 export function credentialVault(): CredentialVault {
   if (_vault) return _vault;
-  const configured = serverEnv().OAUTH_CREDENTIAL_KEK;
-  if (!configured) throw new CredentialVaultError("key_unavailable");
-  _vault = createCredentialVault(Buffer.from(configured, "base64url"));
+  _vault = createCredentialVault(Buffer.from(serverEnv().OAUTH_CREDENTIAL_KEK, "base64url"));
   return _vault;
 }
 
@@ -295,12 +296,48 @@ export interface CredentialBackfillResult {
   integrationsUpdated: number;
   /** Non-null token fields still readable as plaintext once the pass finishes. */
   plaintextRemaining: number;
+  /**
+   * Non-null token fields that are envelope-shaped but do **not** open with the
+   * configured key — a wrong or already-rotated `OAUTH_CREDENTIAL_KEK`. Counted
+   * separately from `plaintextRemaining` because the operator action differs:
+   * plaintext needs the conversion pass, an unopenable envelope needs the right
+   * key (or a rewrap under the old one). Folding the two would hand the
+   * operator the wrong diagnosis.
+   */
+  unopenableRemaining: number;
 }
 
 /** The five columns that hold a bearer or refresh capability. */
 const ACCOUNT_SECRET_FIELDS = ["accessToken", "refreshToken", "idToken"] as const;
 const INTEGRATION_SECRET_FIELDS = ["accessToken", "refreshToken"] as const;
 
+/**
+ * What a persisted non-null token value actually is, from this process's point
+ * of view. `isSealed` alone cannot answer this: it is a shape test that ignores
+ * `kid` deliberately, so a row sealed under a *different* KEK looks identical to
+ * one this process can read. Every caller below needs the stronger question, so
+ * the classification attempts the decryption. The plaintext it recovers is
+ * discarded immediately and never leaves this function.
+ */
+type PersistedTokenState = "plaintext" | "openable" | "unopenable";
+
+function classifyPersisted(value: string, vault: CredentialVault): PersistedTokenState {
+  if (!vault.isSealed(value)) return "plaintext";
+  try {
+    vault.open(value);
+    return "openable";
+  } catch {
+    return "unopenable";
+  }
+}
+
+/**
+ * Plan the conversion of one row: seal what is plaintext, leave what already
+ * opens, and refuse the rest. An envelope this key cannot open must not be
+ * counted as done — that is how a rotation half-applies — and it cannot be
+ * rewrapped here either, because the pass holds only the new key. Throwing
+ * inside the transaction rolls the whole run back.
+ */
 function sealPending<Field extends string>(
   row: Readonly<Record<Field, string | null>>,
   fields: readonly Field[],
@@ -309,21 +346,35 @@ function sealPending<Field extends string>(
   const pending: Partial<Record<Field, SealedCredentialSecret>> = {};
   for (const field of fields) {
     const value = row[field];
-    if (value === null || vault.isSealed(value)) continue;
+    if (value === null) continue;
+    const state = classifyPersisted(value, vault);
+    if (state === "openable") continue;
+    if (state === "unopenable") {
+      throw new CredentialVaultError(
+        "unopenable_remaining",
+        "a persisted envelope does not open with the configured OAUTH_CREDENTIAL_KEK — this pass converts plaintext, it cannot rewrap another key's envelope",
+      );
+    }
     pending[field] = vault.seal(value);
   }
   return pending;
 }
 
-function countPlaintext<Field extends string>(
+function countUnsealed<Field extends string>(
   row: Readonly<Record<Field, string | null>>,
   fields: readonly Field[],
   vault: CredentialVault,
-): number {
-  return fields.filter((field) => {
+): { plaintext: number; unopenable: number } {
+  let plaintext = 0;
+  let unopenable = 0;
+  for (const field of fields) {
     const value = row[field];
-    return value !== null && !vault.isSealed(value);
-  }).length;
+    if (value === null) continue;
+    const state = classifyPersisted(value, vault);
+    if (state === "plaintext") plaintext += 1;
+    else if (state === "unopenable") unopenable += 1;
+  }
+  return { plaintext, unopenable };
 }
 
 /**
@@ -335,7 +386,12 @@ function countPlaintext<Field extends string>(
  * plaintext — that process would send an envelope to Google as a bearer token,
  * or rewrite a token in plaintext after the check passed. The whole pass is one
  * transaction, so a malformed row rolls the run back rather than leaving the
- * table half-converted. See
+ * table half-converted.
+ *
+ * It converts plaintext and nothing else. An envelope that does not open with
+ * the configured key aborts the run instead of being skipped as "already done";
+ * rewrapping one key's envelope under another is a separate operation that
+ * needs both keys. See
  * `docs/runbooks/oauth-credential-vault-rollout.md`.
  */
 export async function encryptPersistedOAuthCredentials(options?: {
@@ -348,38 +404,41 @@ export async function encryptPersistedOAuthCredentials(options?: {
     let accountsUpdated = 0;
     let integrationsUpdated = 0;
 
-    const accountRows = await tx
-      .select({
-        id: account.id,
-        accessToken: account.accessToken,
-        refreshToken: account.refreshToken,
-        idToken: account.idToken,
-      })
-      .from(account);
-    for (const row of accountRows) {
-      const pending = sealPending(row, ACCOUNT_SECRET_FIELDS, vault);
-      if (Object.keys(pending).length === 0) continue;
-      if (checkOnly) continue;
-      await tx.update(account).set(pending).where(eq(account.id, row.id));
-      accountsUpdated += 1;
-    }
+    // The check mode plans nothing: sealing a value only to discard it would
+    // burn entropy and, worse, would make the check throw on the rotation case
+    // it exists to report.
+    if (!checkOnly) {
+      const accountRows = await tx
+        .select({
+          id: account.id,
+          accessToken: account.accessToken,
+          refreshToken: account.refreshToken,
+          idToken: account.idToken,
+        })
+        .from(account);
+      for (const row of accountRows) {
+        const pending = sealPending(row, ACCOUNT_SECRET_FIELDS, vault);
+        if (Object.keys(pending).length === 0) continue;
+        await tx.update(account).set(pending).where(eq(account.id, row.id));
+        accountsUpdated += 1;
+      }
 
-    const integrationRows = await tx
-      .select({
-        id: integrationCredentials.id,
-        accessToken: integrationCredentials.accessToken,
-        refreshToken: integrationCredentials.refreshToken,
-      })
-      .from(integrationCredentials);
-    for (const row of integrationRows) {
-      const pending = sealPending(row, INTEGRATION_SECRET_FIELDS, vault);
-      if (Object.keys(pending).length === 0) continue;
-      if (checkOnly) continue;
-      await tx
-        .update(integrationCredentials)
-        .set(pending)
-        .where(eq(integrationCredentials.id, row.id));
-      integrationsUpdated += 1;
+      const integrationRows = await tx
+        .select({
+          id: integrationCredentials.id,
+          accessToken: integrationCredentials.accessToken,
+          refreshToken: integrationCredentials.refreshToken,
+        })
+        .from(integrationCredentials);
+      for (const row of integrationRows) {
+        const pending = sealPending(row, INTEGRATION_SECRET_FIELDS, vault);
+        if (Object.keys(pending).length === 0) continue;
+        await tx
+          .update(integrationCredentials)
+          .set(pending)
+          .where(eq(integrationCredentials.id, row.id));
+        integrationsUpdated += 1;
+      }
     }
 
     // Re-read rather than trusting the counters: the point of this number is to
@@ -398,17 +457,20 @@ export async function encryptPersistedOAuthCredentials(options?: {
         refreshToken: integrationCredentials.refreshToken,
       })
       .from(integrationCredentials);
-    const plaintextRemaining =
-      verifyAccounts.reduce(
-        (total, row) => total + countPlaintext(row, ACCOUNT_SECRET_FIELDS, vault),
-        0,
-      ) +
-      verifyIntegrations.reduce(
-        (total, row) => total + countPlaintext(row, INTEGRATION_SECRET_FIELDS, vault),
-        0,
-      );
+    let plaintextRemaining = 0;
+    let unopenableRemaining = 0;
+    for (const row of verifyAccounts) {
+      const counts = countUnsealed(row, ACCOUNT_SECRET_FIELDS, vault);
+      plaintextRemaining += counts.plaintext;
+      unopenableRemaining += counts.unopenable;
+    }
+    for (const row of verifyIntegrations) {
+      const counts = countUnsealed(row, INTEGRATION_SECRET_FIELDS, vault);
+      plaintextRemaining += counts.plaintext;
+      unopenableRemaining += counts.unopenable;
+    }
 
-    return { accountsUpdated, integrationsUpdated, plaintextRemaining };
+    return { accountsUpdated, integrationsUpdated, plaintextRemaining, unopenableRemaining };
   });
 }
 
@@ -416,13 +478,26 @@ export async function encryptPersistedOAuthCredentials(options?: {
  * Boot gate. A process that starts against a half-converted table would serve
  * traffic that throws on every credential read, and would rewrite plaintext
  * behind the operator's back. Fail the boot instead.
+ *
+ * It gates on openability, not on envelope shape. Shape alone would pass a
+ * table sealed under a wrong or already-swapped key — every row looks right,
+ * `plaintextRemaining` is 0, and then every credential read throws at request
+ * time, which is precisely the outcome this gate exists to prevent.
  */
 export async function assertPersistedCredentialsSealed(): Promise<void> {
-  const { plaintextRemaining } = await encryptPersistedOAuthCredentials({ checkOnly: true });
+  const { plaintextRemaining, unopenableRemaining } = await encryptPersistedOAuthCredentials({
+    checkOnly: true,
+  });
   if (plaintextRemaining > 0) {
     throw new CredentialVaultError(
       "plaintext_remaining",
       `${plaintextRemaining} token field(s) are not sealed — run the backfill with all writers stopped`,
+    );
+  }
+  if (unopenableRemaining > 0) {
+    throw new CredentialVaultError(
+      "unopenable_remaining",
+      `${unopenableRemaining} sealed token field(s) do not open with the configured OAUTH_CREDENTIAL_KEK — the key is wrong, or a rotation rewrap did not run`,
     );
   }
 }
