@@ -67,6 +67,21 @@ function recordingAdapter() {
       calls.push({ op: "deleteMany", model: data.model, payload: null });
       return 1;
     },
+    // Both added by better-auth 1.6.25. They take a `where` and return a row,
+    // so they sit on the same side of this boundary as `findOne` and `update`.
+    consumeOne: async (data: { model: string }) => {
+      calls.push({ op: "consumeOne", model: data.model, payload: null });
+      return stored;
+    },
+    incrementOne: async (data: {
+      model: string;
+      increment: Record<string, number>;
+      set?: Record<string, unknown> | undefined;
+    }) => {
+      calls.push({ op: "incrementOne", model: data.model, payload: data.set ?? null });
+      stored = { ...stored, ...data.set };
+      return stored;
+    },
     transaction: async <R>(callback: (trx: unknown) => Promise<R>) => {
       calls.push({ op: "transaction", model: "-", payload: null });
       // Hand the callback a *separate* undecorated handle, exactly as drizzle
@@ -256,6 +271,71 @@ describe("encryptedAuthAdapter: scope of the boundary", () => {
     );
   });
 
+  /**
+   * `consumeOne` and `incrementOne` arrived with better-auth 1.6.25 and crossed
+   * this boundary undecorated, because completeness rested on a spread. Nothing
+   * routes them at `account` today — verification tokens and rate limits only —
+   * so these cases pin the boundary rather than a live path.
+   */
+  test("consumeOne opens the row it deletes", async () => {
+    harness.inner.setStored({ id: "acc_1", accessToken: vault.seal(ACCESS) });
+    const consumed = await harness.outer.consumeOne<{ accessToken: string }>({
+      model: "account",
+      where: [{ field: "id", value: "acc_1" }],
+    });
+    assert.equal(
+      consumed?.accessToken,
+      ACCESS,
+      "an undecorated consumeOne hands Better Auth an envelope and it uses it as a token",
+    );
+  });
+
+  test("incrementOne seals its `set` map and opens the result", async () => {
+    const bumped = await harness.outer.incrementOne<{ accessToken: string }>({
+      model: "account",
+      where: [{ field: "id", value: "acc_1" }],
+      increment: { failedAttempts: 1 },
+      // `set` writes absolute values atomically alongside the increments, so it
+      // is a token write path.
+      set: { accessToken: "ya29.replaced" },
+    });
+
+    const written = payloadOf(harness.inner, "incrementOne");
+    assert.ok(vault.isSealed(written.accessToken), "`set` reached the database unsealed");
+    assert.equal(bumped?.accessToken, "ya29.replaced", "the result was not opened for the caller");
+  });
+
+  test("an increment on a sealed column is refused", async () => {
+    // A sealed field holds a string envelope, so `field = field + 1` is
+    // incoherent rather than merely wrong.
+    await assert.rejects(
+      () =>
+        harness.outer.incrementOne({
+          model: "account",
+          where: [{ field: "id", value: "acc_1" }],
+          increment: { accessToken: 1 },
+        }),
+      CredentialVaultError,
+    );
+    assert.equal(harness.inner.calls.length, 0);
+  });
+
+  test("consumeOne and incrementOne leave other models alone", async () => {
+    harness.inner.setStored({ id: "ver_1", value: "plain-verification-token" });
+    const consumed = await harness.outer.consumeOne<{ value: string }>({
+      model: "verification",
+      where: [{ field: "identifier", value: "x" }],
+    });
+    assert.equal(consumed?.value, "plain-verification-token");
+
+    const limited = await harness.outer.incrementOne<{ value: string }>({
+      model: "rateLimit",
+      where: [{ field: "key", value: "k" }],
+      increment: { count: 1 },
+    });
+    assert.equal(limited?.value, "plain-verification-token");
+  });
+
   test("a where clause on a sealed column is rejected, not silently unmatched", async () => {
     // Fresh nonces mean `where accessToken = <plaintext>` can never match. A
     // pass-through would answer "no such account" in the middle of a sign-in.
@@ -272,6 +352,48 @@ describe("encryptedAuthAdapter: scope of the boundary", () => {
       0,
       "the rejected query must not reach the database at all",
     );
+  });
+
+  test("every member that takes a where rejects a sealed column", async () => {
+    // The guard is on the `where`, not on the return value, so it has to cover
+    // the members that carry no token at all. Without it these answer "0 rows"
+    // and "count 0" — the same silent wrong answer, just quieter than a failed
+    // sign-in.
+    const sealedWhere = [{ field: "refreshToken", value: REFRESH }];
+    await assert.rejects(
+      () => harness.outer.count({ model: "account", where: sealedWhere }),
+      CredentialVaultError,
+    );
+    await assert.rejects(
+      () => harness.outer.delete({ model: "account", where: sealedWhere }),
+      CredentialVaultError,
+    );
+    await assert.rejects(
+      () => harness.outer.deleteMany({ model: "account", where: sealedWhere }),
+      CredentialVaultError,
+    );
+    await assert.rejects(
+      () => harness.outer.findMany({ model: "account", where: sealedWhere }),
+      CredentialVaultError,
+    );
+    await assert.rejects(
+      () => harness.outer.updateMany({ model: "account", where: sealedWhere, update: {} }),
+      CredentialVaultError,
+    );
+    await assert.rejects(
+      () => harness.outer.consumeOne({ model: "account", where: sealedWhere }),
+      CredentialVaultError,
+    );
+    await assert.rejects(
+      () =>
+        harness.outer.incrementOne({
+          model: "account",
+          where: sealedWhere,
+          increment: { failedAttempts: 1 },
+        }),
+      CredentialVaultError,
+    );
+    assert.equal(harness.inner.calls.length, 0);
   });
 });
 

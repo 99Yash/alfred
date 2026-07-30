@@ -48,7 +48,11 @@ catalog:
   # `withFallback` in packages/ai/src/provider.ts). Same version warden
   # runs on the identical ai@7 / @ai-sdk/provider@4 resolution.
   ai-retry: ^2.0.0
-  better-auth: ^1.3.28
+  # Floor is 1.6.11, not the older ^1.3.28, because every release below it
+  # carries CVE-2026-53516: the OAuth callback auto-linked an account when the
+  # *provider* asserted `email_verified: true` without checking the *local*
+  # account's `emailVerified`. Never lower this bound. See #455.
+  better-auth: ^1.6.11
   bullmq: ^5.52.1
   clsx: ^2.1.1
   dotenv: ^17.2.2

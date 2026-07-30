@@ -20,9 +20,10 @@ export interface PublishEventArgs<K extends EventKind> {
 
 /**
  * Insert one event into the outbox. Validates the payload against the kind's
- * zod schema BEFORE writing — outbox rows are persisted forever, so garbage
- * in = garbage forever. Throws on invalid payloads; callers should treat this
- * as a programming error, not a runtime fallback.
+ * zod schema BEFORE writing — a bad row is replayed to the client for as long
+ * as it is retained (`OUTBOX_RETENTION_MS`, #533), and an unpublishable one is
+ * never reaped at all. Throws on invalid payloads; callers should treat this as
+ * a programming error, not a runtime fallback.
  *
  * Always pass `tx` when an event corresponds to a domain write, so a rolled-
  * back tx doesn't leak phantom events.
