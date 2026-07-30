@@ -1,3 +1,4 @@
+import { Errors } from "@alfred/contracts";
 import { db } from "@alfred/db";
 import { integrationCredentials, user } from "@alfred/db/schemas";
 import { serverEnv } from "@alfred/env/server";
@@ -12,7 +13,6 @@ import { randomBytes } from "node:crypto";
 import { Elysia, t } from "elysia";
 import { and, eq } from "drizzle-orm";
 import { authMacro } from "../../middleware/auth";
-import { BadRequestError, NotFoundError } from "../../middleware/errors";
 import {
   consumeOAuthNonce,
   rememberOAuthNonce,
@@ -85,7 +85,7 @@ export const githubIntegrationRoutes = new Elysia({
             provider: "github",
             id: params.id,
           });
-          if (!deleted) throw new NotFoundError("Credential not found");
+          if (!deleted) throw Errors.NotFoundError("Credential not found");
           return { id: deleted.id, ok: true };
         },
         { params: t.Object({ id: t.String() }) },
@@ -107,14 +107,14 @@ export const githubIntegrationRoutes = new Elysia({
       }
 
       const decoded = verifyOAuthState(query.state);
-      if (!decoded) throw new BadRequestError("Invalid state");
+      if (!decoded) throw Errors.BadRequestError("Invalid state");
 
       const storedUserId = await consumeOAuthNonce("github", decoded.nonce);
       if (!storedUserId || storedUserId !== decoded.userId) {
-        throw new BadRequestError("Invalid or expired state");
+        throw Errors.BadRequestError("Invalid or expired state");
       }
-      if (!query.code) throw new BadRequestError("Missing code");
-      if (!query.installation_id) throw new BadRequestError("Missing installation_id");
+      if (!query.code) throw Errors.BadRequestError("Missing code");
+      if (!query.installation_id) throw Errors.BadRequestError("Missing installation_id");
 
       const tokens = await exchangeUserCode(query.code);
       const installationId = query.installation_id;
@@ -123,7 +123,7 @@ export const githubIntegrationRoutes = new Elysia({
         installationId,
       });
       if (!installationMatchesUser) {
-        throw new BadRequestError("GitHub installation is not accessible to this user");
+        throw Errors.BadRequestError("GitHub installation is not accessible to this user");
       }
 
       // Onboarding lookup is independent of the credential upsert — race them.

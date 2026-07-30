@@ -1,6 +1,5 @@
 import { Elysia, t } from "elysia";
 import { authMacro } from "../../middleware/auth";
-import { BadRequestError, ConflictError, NotFoundError } from "../../middleware/errors";
 import { runOnce } from "./executor";
 import { closeAgentQueue, enqueueRun, getAgentQueue } from "./queue";
 import {
@@ -19,7 +18,7 @@ import {
 } from "./sub-agent-join-wake-worker";
 import { verifyMeteringModels } from "./verify-models";
 import { startAgentWorker, stopAgentWorker } from "./worker";
-import { toMessage } from "@alfred/contracts";
+import { Errors, toMessage } from "@alfred/contracts";
 
 export {
   registerWorkflow,
@@ -69,7 +68,7 @@ export const agent = new Elysia({ prefix: "/api/agent", normalize: "typebox" })
         "/runs",
         async ({ body, user }) => {
           if (isInternalWorkflowSlug(body.workflowSlug)) {
-            throw new NotFoundError("Workflow not found");
+            throw Errors.NotFoundError("Workflow not found");
           }
           try {
             const { runId } = await createRun({
@@ -92,12 +91,12 @@ export const agent = new Elysia({ prefix: "/api/agent", normalize: "typebox" })
             // distinguish "already running / already done" from a real
             // 4xx — the raw constraint name is unhelpful to clients.
             if (isUniqueViolation(err)) {
-              throw new ConflictError(
+              throw Errors.ConflictError(
                 `An active run for workflow "${body.workflowSlug}" already exists.`,
               );
             }
             const msg = toMessage(err);
-            throw new BadRequestError(msg);
+            throw Errors.BadRequestError(msg);
           }
         },
         {
@@ -113,7 +112,7 @@ export const agent = new Elysia({ prefix: "/api/agent", normalize: "typebox" })
         "/runs/:runId",
         async ({ params, user }) => {
           const run = await getRun(params.runId, user.id);
-          if (!run) throw new NotFoundError("Run not found");
+          if (!run) throw Errors.NotFoundError("Run not found");
           return run;
         },
         { params: t.Object({ runId: t.String() }) },
@@ -122,7 +121,7 @@ export const agent = new Elysia({ prefix: "/api/agent", normalize: "typebox" })
         "/runs/:runId/signal",
         async ({ params, body, user }) => {
           const run = await getRun(params.runId, user.id);
-          if (!run) throw new NotFoundError("Run not found");
+          if (!run) throw Errors.NotFoundError("Run not found");
           // Reshape the flat body into the discriminated union that
           // `signalRun` consumes. `kind` is `t.String()` rather than a
           // literal-union because Elysia 1.4's `exact-mirror` validator
@@ -135,7 +134,7 @@ export const agent = new Elysia({ prefix: "/api/agent", normalize: "typebox" })
             const kind = body.match.kind;
             if (kind === "hil") {
               if (!body.match.approvalId) {
-                throw new BadRequestError("match.kind='hil' requires approvalId");
+                throw Errors.BadRequestError("match.kind='hil' requires approvalId");
               }
               match = {
                 kind: "hil",
@@ -147,19 +146,19 @@ export const agent = new Elysia({ prefix: "/api/agent", normalize: "typebox" })
               };
             } else if (kind === "signal") {
               if (!body.match.name) {
-                throw new BadRequestError("match.kind='signal' requires name");
+                throw Errors.BadRequestError("match.kind='signal' requires name");
               }
               match = { kind: "signal", name: body.match.name };
             } else if (kind === "any") {
               match = { kind: "any" };
             } else {
-              throw new BadRequestError(
+              throw Errors.BadRequestError(
                 `match.kind must be 'hil' | 'signal' | 'any'; got ${String(kind)}`,
               );
             }
           }
           const woken = await signalRun({ runId: params.runId, match });
-          if (!woken) throw new ConflictError("Run not waiting on a matching condition");
+          if (!woken) throw Errors.ConflictError("Run not waiting on a matching condition");
           await enqueueRun(params.runId);
           return { ok: true };
         },
