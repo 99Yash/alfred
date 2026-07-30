@@ -6,11 +6,13 @@ import { closeConnections, db } from "@alfred/db";
 import {
   createCredentialVault,
   credentialVault,
-  encryptPersistedOAuthCredentials,
-  assertPersistedCredentialsSealed,
   CredentialVaultError,
   type SealedCredentialSecret,
 } from "@alfred/db/credential-vault";
+import {
+  assertPersistedCredentialsSealed,
+  encryptPersistedOAuthCredentials,
+} from "@alfred/db/credential-vault-maintenance";
 import { account, integrationCredentials, user } from "@alfred/db/schemas";
 import { getGithubAccessToken, upsertGithubCredential } from "@alfred/integrations/github";
 import {

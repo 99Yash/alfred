@@ -324,6 +324,22 @@ describe("encryptedAuthAdapter: declared joins", () => {
     assert.equal(row?.account[0]?.accessToken, ACCESS);
   });
 
+  test("an outer model may filter on a same-named field while joining account", async () => {
+    harness.inner.setStored({
+      id: "ses_1",
+      accessToken: "session-index-value",
+      account: [{ id: "acc_1", accessToken: vault.seal(ACCESS) }],
+    });
+    const row = await harness.outer.findOne<{
+      account: Array<{ accessToken: string }>;
+    }>({
+      model: "session",
+      where: [{ field: "accessToken", value: "session-index-value" }],
+      join: { account: true },
+    });
+    assert.equal(row?.account[0]?.accessToken, ACCESS);
+  });
+
   test("a one-to-one join yields an object, and is opened", async () => {
     harness.inner.setStored({
       id: "ses_1",

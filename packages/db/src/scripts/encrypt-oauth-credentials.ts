@@ -18,7 +18,7 @@
  */
 import { toMessage } from "@alfred/contracts";
 import { closeConnections } from "../index";
-import { encryptPersistedOAuthCredentials } from "../credential-vault";
+import { encryptPersistedOAuthCredentials } from "../credential-vault-maintenance";
 
 async function main() {
   const checkOnly = process.argv.includes("--check");

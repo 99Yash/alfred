@@ -31,7 +31,6 @@ import type { drizzleAdapter } from "better-auth/adapters/drizzle";
  */
 type AuthAdapterFactory = ReturnType<typeof drizzleAdapter>;
 type AuthAdapter = ReturnType<AuthAdapterFactory>;
-type AuthTransactionAdapter = Parameters<Parameters<AuthAdapter["transaction"]>[0]>[0];
 
 /** The Better Auth model whose tokens are sealed. */
 const ACCOUNT_MODEL = "account";
@@ -147,7 +146,7 @@ function decorateOperations(base: WithoutTransaction, vault: CredentialVault): W
 
   const findOne = (async (data: Parameters<AuthAdapter["findOne"]>[0]) => {
     if (data.model !== ACCOUNT_MODEL && !data.join) return base.findOne(data);
-    rejectSealedWhere(data.where);
+    if (data.model === ACCOUNT_MODEL) rejectSealedWhere(data.where);
     const result = await base.findOne(data);
     const withJoins = openJoined(result, data.join, vault);
     return data.model === ACCOUNT_MODEL ? openRow(withJoins, vault) : withJoins;
@@ -155,7 +154,7 @@ function decorateOperations(base: WithoutTransaction, vault: CredentialVault): W
 
   const findMany = (async (data: Parameters<AuthAdapter["findMany"]>[0]) => {
     if (data.model !== ACCOUNT_MODEL && !data.join) return base.findMany(data);
-    rejectSealedWhere(data.where);
+    if (data.model === ACCOUNT_MODEL) rejectSealedWhere(data.where);
     const rows = await base.findMany(data);
     return rows.map((row) => {
       const withJoins = openJoined(row, data.join, vault);
@@ -212,4 +211,4 @@ export function encryptedAuthAdapter(
   };
 }
 
-export type { AuthAdapter, AuthAdapterFactory, AuthTransactionAdapter };
+export type { AuthAdapter, AuthAdapterFactory };
