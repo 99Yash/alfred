@@ -1,6 +1,8 @@
 import {
+  ACCOUNT_SECRET_FIELDS,
   credentialVault,
   CredentialVaultError,
+  type AccountSecretField,
   type CredentialVault,
 } from "@alfred/db/credential-vault";
 import type { drizzleAdapter } from "better-auth/adapters/drizzle";
@@ -33,12 +35,17 @@ type AuthTransactionAdapter = Parameters<Parameters<AuthAdapter["transaction"]>[
 
 /** The Better Auth model whose tokens are sealed. */
 const ACCOUNT_MODEL = "account";
-/** Better Auth field names, which match the Drizzle schema keys. */
-const SEALED_FIELDS = ["accessToken", "refreshToken", "idToken"] as const;
-type SealedField = (typeof SEALED_FIELDS)[number];
-
-function isSealedField(field: string): field is SealedField {
-  return (SEALED_FIELDS as readonly string[]).includes(field);
+/**
+ * `ACCOUNT_SECRET_FIELDS` comes from `@alfred/db/credential-vault` rather than
+ * being restated here. The vault owns the column catalog, and its boot gate
+ * refuses to start unless every field in that tuple is sealed, so the two lists
+ * have to be the same list: a field only in this decorator is a column nothing
+ * verifies, and a field only in the gate is a process that never boots again.
+ * The Better Auth field names match the Drizzle schema keys, which is why one
+ * tuple can serve both.
+ */
+function isSealedField(field: string): field is AccountSecretField {
+  return (ACCOUNT_SECRET_FIELDS as readonly string[]).includes(field);
 }
 
 /**
@@ -48,7 +55,7 @@ function isSealedField(field: string): field is SealedField {
  */
 function sealWrite<T extends Record<string, unknown>>(payload: T, vault: CredentialVault): T {
   let sealed: Record<string, unknown> | undefined;
-  for (const field of SEALED_FIELDS) {
+  for (const field of ACCOUNT_SECRET_FIELDS) {
     if (!(field in payload)) continue;
     const value = payload[field];
     if (typeof value !== "string") continue;
@@ -70,7 +77,7 @@ function openRow(row: unknown, vault: CredentialVault): unknown {
   if (row === null || typeof row !== "object" || Array.isArray(row)) return row;
   const source = row as Record<string, unknown>;
   let opened: Record<string, unknown> | undefined;
-  for (const field of SEALED_FIELDS) {
+  for (const field of ACCOUNT_SECRET_FIELDS) {
     if (!(field in source)) continue;
     const value = source[field];
     if (value === null || value === undefined) continue;
