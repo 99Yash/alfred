@@ -10,7 +10,9 @@ app.use(authMacro).get("/protected", ({ user }) => user, { auth: true });
 
 // Global error handler (packages/api/src/middleware/error-handler.ts)
 // Normalises all errors to { error: string, code: string }.
-// Throw ApiError subclasses from services; do not set.status manually.
+// Throw an Errors.* factory from services; do not set.status manually.
+// throw Errors.NotFoundError("Thread not found");
+// Catch by code, not by class: if (isApiError(err, "CONFLICT")) …
 
 // Session cache (packages/api/src/middleware/session-cache.ts)
 // Call getSessionCached(request) — never auth().api.getSession() directly.

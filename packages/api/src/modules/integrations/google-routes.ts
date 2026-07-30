@@ -1,4 +1,4 @@
-import { ACCOUNT_PERSONAS, toMessage } from "@alfred/contracts";
+import { ACCOUNT_PERSONAS, Errors, toMessage } from "@alfred/contracts";
 import { db } from "@alfred/db";
 import { integrationCredentials, isDuplicateRunIndex, user } from "@alfred/db/schemas";
 import { gmailMailboxWritesEnabled, serverEnv } from "@alfred/env/server";
@@ -20,7 +20,6 @@ import { randomBytes } from "node:crypto";
 import { Elysia, t } from "elysia";
 import { and, eq } from "drizzle-orm";
 import { authMacro } from "../../middleware/auth";
-import { BadRequestError, NotFoundError, ServiceUnavailableError } from "../../middleware/errors";
 import { createRun, enqueueRun } from "../agent";
 import { uniqueViolationConstraint } from "../../lib/pg-errors";
 import { COLD_START_WORKFLOW_SLUG } from "../cold-start";
@@ -77,7 +76,7 @@ async function assertCredentialOwned(id: string, userId: string): Promise<void> 
     .select({ id: integrationCredentials.id })
     .from(integrationCredentials)
     .where(and(eq(integrationCredentials.id, id), eq(integrationCredentials.userId, userId)));
-  if (!owner[0]) throw new NotFoundError("Credential not found");
+  if (!owner[0]) throw Errors.NotFoundError("Credential not found");
 }
 
 const ORG_AFFILIATION_TRANSACTION_MAX_ATTEMPTS = 3;
@@ -124,7 +123,7 @@ export const googleIntegrationRoutes = new Elysia({
               .filter(Boolean);
             const known = parsed.filter((f): f is GoogleFeature => f in GOOGLE_FEATURE_SCOPES);
             if (known.length !== parsed.length) {
-              throw new BadRequestError(
+              throw Errors.BadRequestError(
                 `Unknown feature(s): ${parsed.filter((f) => !known.includes(f as GoogleFeature)).join(", ")}`,
               );
             }
@@ -195,7 +194,7 @@ export const googleIntegrationRoutes = new Elysia({
               ),
             );
           const ownerRow = owner[0];
-          if (!ownerRow) throw new NotFoundError("Credential not found");
+          if (!ownerRow) throw Errors.NotFoundError("Credential not found");
           // Capture a usable token before the row disappears, but only when this
           // environment is allowed to mutate the shared Gmail mailbox (#278).
           // The remote watch stop itself happens after the DB commit; otherwise
@@ -274,7 +273,7 @@ export const googleIntegrationRoutes = new Elysia({
               ),
             )
             .returning({ id: integrationCredentials.id, persona: integrationCredentials.persona });
-          if (!updated[0]) throw new NotFoundError("Credential not found");
+          if (!updated[0]) throw Errors.NotFoundError("Credential not found");
           return { credentialId: updated[0].id, persona: updated[0].persona };
         },
         {
@@ -287,12 +286,12 @@ export const googleIntegrationRoutes = new Elysia({
         async ({ params, user }) => {
           await assertCredentialOwned(params.id, user.id);
           const topic = serverEnv().GOOGLE_PUBSUB_TOPIC;
-          if (!topic) throw new ServiceUnavailableError("GOOGLE_PUBSUB_TOPIC not configured");
+          if (!topic) throw Errors.ServiceUnavailableError("GOOGLE_PUBSUB_TOPIC not configured");
           try {
             assertGmailPushOidcConfigured();
           } catch (err) {
             if (isGmailPushOidcConfigError(err)) {
-              throw new ServiceUnavailableError(toMessage(err));
+              throw Errors.ServiceUnavailableError(toMessage(err));
             }
             throw err;
           }
@@ -300,7 +299,7 @@ export const googleIntegrationRoutes = new Elysia({
           if (!state) {
             // #278: non-prod mailbox-write gate is off — be explicit rather than
             // returning a null watch the client would read as "installed".
-            throw new ServiceUnavailableError(
+            throw Errors.ServiceUnavailableError(
               "Gmail mailbox writes are disabled in this environment (GMAIL_MAILBOX_WRITES_ENABLED)",
             );
           }
@@ -365,10 +364,10 @@ export const googleIntegrationRoutes = new Elysia({
     "/callback",
     async ({ query, set }) => {
       if (!query.code || !query.state) {
-        throw new BadRequestError("Missing code or state");
+        throw Errors.BadRequestError("Missing code or state");
       }
       const decoded = verifyOAuthState(query.state);
-      if (!decoded) throw new BadRequestError("Invalid state");
+      if (!decoded) throw Errors.BadRequestError("Invalid state");
 
       // Atomically consume the nonce. If it's missing/expired/already used,
       // reject — this is what makes captured `state` values single-use.
@@ -376,7 +375,7 @@ export const googleIntegrationRoutes = new Elysia({
       // the signed state as a sanity check.
       const storedUserId = await consumeOAuthNonce("google", decoded.nonce);
       if (!storedUserId || storedUserId !== decoded.userId) {
-        throw new BadRequestError("Invalid or expired state");
+        throw Errors.BadRequestError("Invalid or expired state");
       }
 
       const tokens = await exchangeCode(query.code);

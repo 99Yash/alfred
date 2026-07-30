@@ -1,9 +1,9 @@
+import { Errors } from "@alfred/contracts";
 import { db } from "@alfred/db";
 import { user, userPreferences } from "@alfred/db/schemas";
 import { eq, sql } from "drizzle-orm";
 import { Elysia, t } from "elysia";
 import { authMacro } from "../../middleware/auth";
-import { NotFoundError } from "../../middleware/errors";
 import { isValidTimezone } from "../briefing/preferences";
 
 /**
@@ -28,7 +28,7 @@ export const onboardingRoutes = new Elysia({ prefix: "/api/me/onboarding", norma
           .where(eq(user.id, u.id))
           .limit(1);
         const row = rows[0];
-        if (!row) throw new NotFoundError("User not found");
+        if (!row) throw Errors.NotFoundError("User not found");
         return {
           routeToOnboarding: row.onboardedAt === null,
           onboardedAt: row.onboardedAt?.toISOString() ?? null,
@@ -44,7 +44,7 @@ export const onboardingRoutes = new Elysia({ prefix: "/api/me/onboarding", norma
               .where(eq(user.id, u.id))
               .returning({ onboardedAt: user.onboardedAt });
             const updated = rows[0];
-            if (!updated) throw new NotFoundError("User not found");
+            if (!updated) throw Errors.NotFoundError("User not found");
 
             // #229: infer the user's zone from the browser at onboarding so chat
             // date grounding + briefing delivery don't silently default to UTC.

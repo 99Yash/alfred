@@ -1,4 +1,4 @@
-import { redactSecrets, toMessage } from "@alfred/contracts";
+import { Errors, redactSecrets, toMessage } from "@alfred/contracts";
 import { isRailwayAuthorizationError, railwayValidateToken } from "@alfred/integrations/railway";
 import {
   deleteIntegrationCredential,
@@ -7,7 +7,6 @@ import {
 } from "@alfred/integrations/shared";
 import { Elysia, t } from "elysia";
 import { authMacro } from "../../middleware/auth";
-import { BadRequestError, NotFoundError, ServiceUnavailableError } from "../../middleware/errors";
 
 /**
  * Railway integration routes. Railway has no public OAuth, so the user pastes
@@ -31,7 +30,7 @@ export const railwayIntegrationRoutes = new Elysia({
         "/connect",
         async ({ user, body }) => {
           const token = body.token.trim();
-          if (!token) throw new BadRequestError("Missing token");
+          if (!token) throw Errors.BadRequestError("Missing token");
           let account: Awaited<ReturnType<typeof railwayValidateToken>>;
           try {
             account = await railwayValidateToken(token);
@@ -45,9 +44,9 @@ export const railwayIntegrationRoutes = new Elysia({
             // wrong. A transient upstream failure (5xx / timeout) must not tell
             // the user to regenerate a token that is perfectly valid.
             if (isRailwayAuthorizationError(err)) {
-              throw new BadRequestError("Railway rejected that token. Check it and try again.");
+              throw Errors.BadRequestError("Railway rejected that token. Check it and try again.");
             }
-            throw new ServiceUnavailableError(
+            throw Errors.ServiceUnavailableError(
               "Railway is unavailable right now. Try connecting again in a moment.",
             );
           }
@@ -78,7 +77,7 @@ export const railwayIntegrationRoutes = new Elysia({
             provider: "railway",
             id: params.id,
           });
-          if (!deleted) throw new NotFoundError("Credential not found");
+          if (!deleted) throw Errors.NotFoundError("Credential not found");
           return { id: deleted.id, ok: true };
         },
         { params: t.Object({ id: t.String() }) },
