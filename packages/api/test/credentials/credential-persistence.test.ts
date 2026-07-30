@@ -405,4 +405,42 @@ describe("credential backfill (DB-backed)", { skip: SKIP }, () => {
     const after = await rawIntegrationTokens(seeded.id);
     assert.equal(after.accessToken, foreignEnvelope, "the refused row must be untouched");
   });
+
+  test("an unsupported envelope version is never double-sealed as plaintext", async (t) => {
+    ensureCredentialTestEnv();
+    const userId = await seedUser("test-vault-future-version");
+    const current = credentialVault().seal("token-from-a-future-version");
+    const unsupported = `acv2.${current.split(".").slice(1).join(".")}`;
+    const [seeded] = await db()
+      .insert(integrationCredentials)
+      .values({
+        userId,
+        provider: "notion",
+        accountId: randomUUID(),
+        accessToken: unsupported as unknown as SealedCredentialSecret,
+        refreshToken: null,
+        scopes: [],
+      })
+      .returning({ id: integrationCredentials.id });
+    assert.ok(seeded);
+
+    t.after(async () => {
+      await db().delete(integrationCredentials).where(eq(integrationCredentials.id, seeded.id));
+    });
+
+    const reported = await encryptPersistedOAuthCredentials({ checkOnly: true });
+    assert.ok(reported.unopenableRemaining >= 1);
+    await assert.rejects(
+      () => encryptPersistedOAuthCredentials(),
+      (error: unknown) =>
+        error instanceof CredentialVaultError && error.failure === "unopenable_remaining",
+    );
+
+    const after = await rawIntegrationTokens(seeded.id);
+    assert.equal(
+      after.accessToken,
+      unsupported,
+      "the unsupported envelope must stay byte-identical",
+    );
+  });
 });

@@ -114,9 +114,14 @@ describe("credential vault: round trip", () => {
     assert.equal(parts[PART.algorithm], "A256GCM");
   });
 
-  test("seal refuses an already-sealed value", () => {
+  test("seal refuses current, future, and damaged envelope-family values", () => {
     const envelope = vault.seal("token");
     assertFailure(() => vault.seal(envelope), "already_sealed");
+    assertFailure(
+      () => vault.seal(`acv2.${envelope.split(".").slice(1).join(".")}`),
+      "already_sealed",
+    );
+    assertFailure(() => vault.seal("acv1.damaged"), "already_sealed");
   });
 });
 
@@ -224,11 +229,16 @@ describe("credential vault: open fails closed", () => {
 });
 
 describe("credential vault: isSealed", () => {
-  test("accepts an envelope and rejects everything else", () => {
+  test("recognizes the envelope family without claiming it is openable", () => {
     assert.equal(vault.isSealed(vault.seal("token")), true);
     // A foreign key's envelope is still an envelope — the shape test is
     // deliberately not an authorization check.
     assert.equal(vault.isSealed(createCredentialVault(OTHER_KEY).seal("token")), true);
+    assert.equal(vault.isSealed("acv1.A256GCM.short.a.b.c.d.e.f"), true);
+    assert.equal(
+      vault.isSealed(`acv2.A256GCM.${vault.seal("t").split(".").slice(2).join(".")}`),
+      true,
+    );
 
     for (const value of [
       "ya29.plain-token",
@@ -239,8 +249,6 @@ describe("credential vault: isSealed", () => {
       {},
       // A JWT is the closest real token shape; it must not read as sealed.
       "eyJhbGciOiJSUzI1NiJ9.eyJzdWIiOiIxIn0.signature",
-      "acv1.A256GCM.short.a.b.c.d.e.f",
-      `acv2.A256GCM.${vault.seal("t").split(".").slice(2).join(".")}`,
     ]) {
       assert.equal(vault.isSealed(value), false, `isSealed should reject ${String(value)}`);
     }

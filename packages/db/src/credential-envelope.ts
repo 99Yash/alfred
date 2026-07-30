@@ -17,6 +17,7 @@ const FORMAT = {
 } as const;
 
 const BASE64URL_PATTERN = /^[A-Za-z0-9_-]*$/;
+const ENVELOPE_FAMILY_PATTERN = /^acv[1-9]\d*\./;
 
 /** Reasons a persisted value is not openable. Never carries the value itself. */
 export type CredentialVaultFailure =
@@ -59,6 +60,7 @@ export type SealedCredentialSecret = symbol & {
 export interface CredentialVault {
   seal(plaintext: string): SealedCredentialSecret;
   open(persisted: unknown): string;
+  /** Marker test only. It does not prove version, format, key, or authenticity. */
   isSealed(persisted: unknown): persisted is SealedCredentialSecret;
 }
 
@@ -84,31 +86,14 @@ function additionalData(kid: string, role: "dek" | "payload"): Buffer {
   return Buffer.from([FORMAT.prefix, FORMAT.algorithm, kid, role].join(FORMAT.separator), "utf8");
 }
 
-/** Test envelope shape only. Opening remains the authority for key ownership. */
-function looksSealed(persisted: unknown): boolean {
-  if (typeof persisted !== "string") return false;
-  const parts = persisted.split(FORMAT.separator);
-  if (parts.length !== FORMAT.partCount) return false;
-  const [prefix, algorithm, kid, wrapNonce, wrappedDek, wrapTag, nonce, , tag] = parts;
-  if (prefix !== FORMAT.prefix || algorithm !== FORMAT.algorithm) return false;
-
-  const widths: ReadonlyArray<[string | undefined, number]> = [
-    [kid, FORMAT.kidBytes],
-    [wrapNonce, FORMAT.nonceBytes],
-    [wrappedDek, FORMAT.keyBytes],
-    [wrapTag, FORMAT.tagBytes],
-    [nonce, FORMAT.nonceBytes],
-    [tag, FORMAT.tagBytes],
-  ];
-  return widths.every(([part, width]) => {
-    if (part === undefined) return false;
-    try {
-      decode(part, width);
-      return true;
-    } catch {
-      return false;
-    }
-  });
+/**
+ * Recognize every Alfred credential-envelope version before parsing it. This is
+ * deliberately broader than the current format: conversion must fail closed on
+ * a future, unsupported, or damaged envelope instead of wrapping it as
+ * plaintext and making the damaged value look valid.
+ */
+function belongsToEnvelopeFamily(persisted: unknown): persisted is SealedCredentialSecret {
+  return typeof persisted === "string" && ENVELOPE_FAMILY_PATTERN.test(persisted);
 }
 
 /**
@@ -123,7 +108,9 @@ export function createCredentialVault(kek: Uint8Array): CredentialVault {
   const kid = keyId(key);
 
   function seal(plaintext: string): SealedCredentialSecret {
-    if (looksSealed(plaintext)) throw new CredentialVaultError("already_sealed");
+    if (belongsToEnvelopeFamily(plaintext)) {
+      throw new CredentialVaultError("already_sealed");
+    }
     const dek = randomBytes(FORMAT.keyBytes);
     try {
       const wrapNonce = randomBytes(FORMAT.nonceBytes);
@@ -221,6 +208,6 @@ export function createCredentialVault(kek: Uint8Array): CredentialVault {
   return {
     seal,
     open,
-    isSealed: (persisted): persisted is SealedCredentialSecret => looksSealed(persisted),
+    isSealed: belongsToEnvelopeFamily,
   };
 }
