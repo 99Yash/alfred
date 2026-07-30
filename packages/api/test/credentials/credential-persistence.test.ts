@@ -410,7 +410,7 @@ describe("credential backfill (DB-backed)", { skip: SKIP }, () => {
     ensureCredentialTestEnv();
     const userId = await seedUser("test-vault-future-version");
     const current = credentialVault().seal("token-from-a-future-version");
-    const unsupported = `acv2.${current.split(".").slice(1).join(".")}`;
+    const unsupported = `acv0.${current.split(".").slice(1).join(".")}`;
     const [seeded] = await db()
       .insert(integrationCredentials)
       .values({
