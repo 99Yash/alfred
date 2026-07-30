@@ -31,6 +31,45 @@ conversion, two failures follow:
 The second failure is the dangerous one, because it leaves the system looking
 converted. Stop every writer first.
 
+## Before the window
+
+This procedure uses
+[`railway connect --tunnel-only`](https://docs.railway.com/cli/connect) to reach
+the Postgres service over SSH. It does not need a public database proxy or a
+running `server` replica.
+
+Run every local command from a clean checkout of the exact revision that you
+will deploy. Confirm that the CLI points at Alfred production before you stop
+anything. The upgraded CLI must list `--tunnel-only` under
+`railway connect --help`.
+
+```bash
+railway upgrade
+railway status --json
+railway connect --help
+git status --short --branch
+git rev-parse HEAD
+```
+
+Railway SSH requires a registered local key. List the keys first:
+
+```bash
+railway ssh keys list
+```
+
+If this machine has no registered key, create and register a dedicated one
+before the maintenance window:
+
+```bash
+ssh-keygen -t ed25519 -f ~/.ssh/railway_alfred
+railway ssh keys add \
+  --key ~/.ssh/railway_alfred.pub \
+  --name alfred-maintenance
+```
+
+Rehearse the Step 5 tunnel while `server` is still running, then stop it with
+Ctrl-C. Do not begin the maintenance window until the tunnel opens.
+
 ## Step 1. Generate the key
 
 ```bash
@@ -55,12 +94,12 @@ sign-in an hour later. There is no plaintext fallback.
 
 ## Step 3. Back up the database
 
-```bash
-railway ssh -s server   # then pg_dump, or take a platform snapshot
-```
+Create a native backup of the Railway `Postgres` service from its **Backups**
+tab. Wait until Railway reports that the backup completed. Do not assume that
+the Node server image contains `pg_dump`.
 
-Take the backup **before** the conversion. Step 8 explains why a restore is your
-only rollback.
+Take the backup **before** the conversion. Step 8 explains why a restore is
+your only rollback.
 
 ## Step 4. Stop every writer
 
@@ -68,12 +107,40 @@ Scale the `server` service to zero replicas. That one process holds the HTTP
 listener and every worker (agent, ingestion, memory, briefing), so stopping it
 stops all writers.
 
-Confirm nothing is serving before you continue.
+Confirm in Railway that `server` has zero active replicas before you continue.
+Do not restart the old release after this point: once Step 6 converts a row, the
+old release would treat its envelope as a plaintext token.
 
 ## Step 5. Report before you convert
 
+Keep the `server` service at zero. In terminal A, open a tunnel directly to the
+database service:
+
 ```bash
-pnpm db:encrypt-credentials:check
+railway connect Postgres \
+  --environment production \
+  --tunnel-only \
+  --port 15432
+```
+
+The command prints a connection URL and keeps the tunnel open. In terminal B,
+read that URL into an environment variable without adding it to shell history:
+
+```bash
+printf 'Tunnel DATABASE_URL: '
+IFS= read -rs TUNNEL_DATABASE_URL
+printf '\n'
+export TUNNEL_DATABASE_URL
+```
+
+Then run the check from the clean checkout:
+
+```bash
+railway run \
+  --service server \
+  --environment production \
+  --no-local \
+  sh -c 'DATABASE_URL="$TUNNEL_DATABASE_URL" pnpm db:encrypt-credentials:check'
 ```
 
 It writes nothing and prints two counts: plaintext fields, and fields that are
@@ -86,10 +153,19 @@ shape. Shape alone cannot tell a row this key can read from a row sealed under a
 different key, which is exactly the mistake the rotation procedure below would
 otherwise hide.
 
+`railway run` executes the command on the local checkout. It supplies the
+production `server` variables, including `OAUTH_CREDENTIAL_KEK`; the inner
+`DATABASE_URL` assignment replaces Railway's private hostname with the local
+SSH-tunnel URL. The command does not attach to or start a `server` replica.
+
 ## Step 6. Convert
 
 ```bash
-pnpm db:encrypt-credentials
+railway run \
+  --service server \
+  --environment production \
+  --no-local \
+  sh -c 'DATABASE_URL="$TUNNEL_DATABASE_URL" pnpm db:encrypt-credentials'
 ```
 
 The whole pass is one transaction, so a malformed row rolls the run back rather
@@ -106,20 +182,39 @@ Expect:
   → every persisted OAuth token is sealed and opens with the configured key.
 ```
 
-## Step 7. Verify, then start
+## Step 7. Deploy, verify, then start
+
+Keep `server` at zero replicas. Merge and deploy the exact revision whose local
+checkout ran Step 6. Wait for Railway to build the new server image, run its
+pre-deploy command, and show the expected Git commit on the deployment. The old
+release must not be started again.
+
+With the database tunnel still open, verify the converted table:
 
 ```bash
-pnpm db:encrypt-credentials:check   # must print 0 and exit 0
+railway run \
+  --service server \
+  --environment production \
+  --no-local \
+  sh -c 'DATABASE_URL="$TUNNEL_DATABASE_URL" pnpm db:encrypt-credentials:check'
+# must print 0 / 0 and exit 0
 ```
 
-Then scale `server` back up. `startRuntime` runs the same check before the
-listener binds or any worker leases a job, so a missed row fails the boot rather
-than serving broken credential reads.
+Only after the deployment revision and the `0 / 0` result both match, scale
+`server` to one replica. `startRuntime` runs the same check before the listener
+binds or any worker leases a job, so a missed row fails the boot rather than
+serving broken credential reads.
 
 After the first successful boot, confirm one real read end to end: open the app,
 load the inbox, and check that a Gmail-backed view renders. That proves the
 `integration_credentials` path. Signing out and back in proves the `account`
 path.
+
+Close terminal A and remove the copied connection URL from terminal B:
+
+```bash
+unset TUNNEL_DATABASE_URL
+```
 
 ## Step 8. Rollback
 
@@ -135,23 +230,40 @@ Both procedures assume you are still inside the maintenance window, with the
 
 ### You need the pre-conversion state back
 
-Restore the Step 3 backup, **keep the key installed**, and convert again:
+Keep `server` at zero replicas. Restore the Step 3 backup from the Railway
+`Postgres` service, **keep the key installed**, reopen the Step 5 tunnel, and
+convert again:
 
 ```bash
-# restore the backup, then:
-pnpm db:encrypt-credentials         # the restored rows are plaintext again
-pnpm db:encrypt-credentials:check   # must print 0 / 0
+railway run \
+  --service server \
+  --environment production \
+  --no-local \
+  sh -c 'DATABASE_URL="$TUNNEL_DATABASE_URL" pnpm db:encrypt-credentials'
+railway run \
+  --service server \
+  --environment production \
+  --no-local \
+  sh -c 'DATABASE_URL="$TUNNEL_DATABASE_URL" pnpm db:encrypt-credentials:check'
 ```
 
-Then start `server`. Any credential written *after* the conversion is lost by the
-restore, and the affected integration needs a reconnect.
+Then start `server`. The restore loses every database write made after the
+backup, not only credential writes. Keep the service stopped until you accept
+that rollback boundary.
 
 ### You lost the key
 
 Every sealed token is unrecoverable, and the gate will not let the process boot
 to a state where a user could reconnect — the rows are envelope-shaped, so they
 count as unopenable rather than as plaintext. Clear the capability columns first,
-then boot, then reconnect:
+then boot, then reconnect. With `server` still at zero replicas, open the
+Postgres shell directly:
+
+```bash
+railway connect Postgres --environment production
+```
+
+Run:
 
 ```sql
 -- Better Auth identities: keep the row. It also holds the password hash, and
@@ -169,10 +281,11 @@ delete from integration_credentials;
 ```
 
 Install a new key (Step 1 and Step 2), confirm
-`pnpm db:encrypt-credentials:check` prints `0 / 0`, and start `server`. Then sign
-in again and reconnect each integration from the app; both flows mint fresh
-tokens, which are sealed under the new key on the way in. Nothing outside these
-columns is affected — threads, triage, todos, and memory are untouched.
+the Step 5 tunnel check prints `0 / 0`, and start `server`. Then sign in again
+and reconnect each integration from the app; both flows mint fresh tokens, which
+are sealed under the new key on the way in. Deleting
+`integration_credentials` also cascades its `ingestion_state` rows, so the next
+sync rebuilds those cursors. Threads, triage, todos, and memory are untouched.
 
 The same two statements are the escape hatch for a stuck `unopenable_remaining`
 boot in general: they are the cheap way out at single-user scale, and they cost a
@@ -192,11 +305,11 @@ Rotation is the same maintenance window, not an online operation.
    every integration plus a fresh sign-in, which mints new tokens under the new
    key and needs no rewrap at all. Step 8's two statements are how you clear the
    old envelopes so the gate lets the process boot far enough to reconnect.
-4. Swap `OAUTH_CREDENTIAL_KEK`, verify with `db:encrypt-credentials:check`,
-   restart. That check catches a missed rewrap: it opens every envelope, so a row
-   still sealed under the old key is reported as an unopenable field and exits
-   `1`. The boot gate refuses the same table, so a missed row cannot reach
-   traffic.
+4. Swap `OAUTH_CREDENTIAL_KEK`, verify through the Step 5 database connection with
+   `db:encrypt-credentials:check`, restart. That check catches a missed rewrap:
+   it opens every envelope, so a row still sealed under the old key is reported
+   as an unopenable field and exits `1`. The boot gate refuses the same table,
+   so a missed row cannot reach traffic.
 5. Destroy the old key only after a verified boot.
 
 Never reuse a nonce. `seal` draws fresh random nonces per call, so the only way
