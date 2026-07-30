@@ -18,6 +18,7 @@
 import pg from "pg";
 import { serverEnv } from "@alfred/env/server";
 import { isKnownEventKind, type EventFrame } from "./types";
+import { PeriodicTask } from "./periodic-task";
 import { publishFrameToUser } from "./user-events-bus";
 import { toMessage } from "@alfred/contracts";
 
@@ -25,13 +26,11 @@ const NOTIFY_CHANNEL = "events_outbox_new";
 const BATCH_SIZE = 256;
 const BACKSTOP_POLL_MS = 5_000;
 const RECONNECT_DELAY_MS = 2_000;
+/** Batches per wake, so one busy user cannot starve other work. */
+const MAX_BATCHES_PER_WAKE = 64;
 
 let pool: pg.Pool | undefined;
 let listenClient: pg.Client | undefined;
-let backstopTimer: ReturnType<typeof setInterval> | undefined;
-let drainPending = false;
-let drainInFlight = false;
-let stopped = true;
 
 interface OutboxRow {
   id: string; // bigserial returns as string in pg
@@ -104,47 +103,55 @@ async function drainOnce(): Promise<number> {
   }
 }
 
-async function drainLoop(): Promise<void> {
-  if (drainInFlight) {
-    drainPending = true;
-    return;
-  }
-  drainInFlight = true;
-  try {
-    do {
-      drainPending = false;
-      // Keep draining while batches are full — there could be more.
-      // Cap at 64 batches per wake to avoid starving other work.
-      let batches = 0;
-      while (batches < 64) {
-        const drained = await drainOnce().catch((err) => {
-          console.warn("[outbox-relay] drainOnce failed:", toMessage(err));
-          return 0;
-        });
-        batches += 1;
-        if (drained < BATCH_SIZE) break;
-      }
-    } while (drainPending && !stopped);
-  } finally {
-    drainInFlight = false;
+/**
+ * Drain until a batch comes back short, or the task is stopped.
+ *
+ * The re-entrancy guard, the coalescing of overlapping wakes, and the bounded
+ * wait on shutdown all live in `PeriodicTask` now. What is left here is the one
+ * thing specific to the relay: keep going while batches are full, and check the
+ * signal between them so a shutdown does not start a batch it cannot finish
+ * before the pool closes.
+ */
+async function drainPass(signal: AbortSignal): Promise<void> {
+  let batches = 0;
+  while (batches < MAX_BATCHES_PER_WAKE) {
+    if (signal.aborted) return;
+    const drained = await drainOnce().catch((err) => {
+      console.warn("[outbox-relay] drainOnce failed:", toMessage(err));
+      return 0;
+    });
+    batches += 1;
+    if (drained < BATCH_SIZE) break;
   }
 }
+
+const relay = new PeriodicTask({
+  name: "outbox-relay",
+  intervalMs: BACKSTOP_POLL_MS,
+  // The backstop only exists in case a NOTIFY is missed. `startListener` fires
+  // the first drain once it is actually listening, so there is nothing to do at
+  // the moment `start()` is called.
+  runOnStart: false,
+  pass: drainPass,
+});
 
 async function startListener(): Promise<void> {
   listenClient = new pg.Client({ connectionString: serverEnv().DATABASE_URL });
   listenClient.on("error", (err) => {
     console.warn("[outbox-relay] listen client error:", err.message);
   });
+  // `relay.trigger()` is already a no-op once stopped, so the notification path
+  // needs no guard of its own. The reconnect path still does: it must not build
+  // a new client after shutdown.
   listenClient.on("notification", () => {
-    if (stopped) return;
-    void drainLoop();
+    relay.trigger();
   });
   listenClient.on("end", () => {
-    if (stopped) return;
+    if (relay.stopped) return;
     console.warn("[outbox-relay] listen client ended; reconnecting");
     listenClient = undefined;
     setTimeout(() => {
-      if (stopped) return;
+      if (relay.stopped) return;
       void startListener().catch((err) => {
         console.warn("[outbox-relay] reconnect failed:", toMessage(err));
       });
@@ -154,12 +161,11 @@ async function startListener(): Promise<void> {
   await listenClient.connect();
   await listenClient.query(`LISTEN ${NOTIFY_CHANNEL}`);
   // Drain any rows that landed before the listener was up.
-  void drainLoop();
+  relay.trigger();
 }
 
 export async function startOutboxRelay(): Promise<void> {
-  if (!stopped) return;
-  stopped = false;
+  if (!relay.stopped) return;
 
   pool = new pg.Pool({
     connectionString: serverEnv().DATABASE_URL,
@@ -170,46 +176,39 @@ export async function startOutboxRelay(): Promise<void> {
     console.warn("[outbox-relay] pool error:", err.message);
   });
 
+  // Before the listener, so the drain it triggers has a live task to run on.
+  relay.start();
   await startListener();
-
-  backstopTimer = setInterval(() => {
-    if (stopped) return;
-    void drainLoop();
-  }, BACKSTOP_POLL_MS);
-  if (typeof backstopTimer === "object" && "unref" in backstopTimer) {
-    backstopTimer.unref();
-  }
 
   console.info("[outbox-relay] started");
 }
 
 export async function stopOutboxRelay(): Promise<void> {
-  if (stopped) return;
-  stopped = true;
+  if (relay.stopped) return;
 
-  if (backstopTimer) {
-    clearInterval(backstopTimer);
-    backstopTimer = undefined;
-  }
-
+  // Stop the task first: it aborts the pass and waits for it, which is what
+  // makes closing the pool below safe. Unlisten in between so no new NOTIFY
+  // arrives while we drain.
   if (listenClient) {
     try {
       await listenClient.query(`UNLISTEN ${NOTIFY_CHANNEL}`);
     } catch {
       // ignore
     }
+  }
+
+  const drained = await relay.stop();
+
+  if (listenClient) {
     await listenClient.end().catch(() => {});
     listenClient = undefined;
   }
 
-  // Wait for in-flight drain to finish before tearing down the pool.
-  // Bound the wait so a stuck drain doesn't block shutdown.
-  const deadline = Date.now() + 5_000;
-  while (drainInFlight && Date.now() < deadline) {
-    await new Promise((r) => setTimeout(r, 50));
-  }
-
   if (pool) {
+    // Only safe because `relay.stop()` resolved. If it timed out the pass still
+    // holds a client, and ending the pool here is the tear-out we are avoiding —
+    // so say so rather than close silently.
+    if (!drained) console.warn("[outbox-relay] closing pool with a drain still in flight");
     await pool.end().catch(() => {});
     pool = undefined;
   }

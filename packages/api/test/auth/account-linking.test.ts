@@ -8,15 +8,22 @@ import { fileURLToPath } from "node:url";
  * Coverage for CVE-2026-53516 (#455).
  *
  * The bug was in Better Auth's OAuth callback, so no Alfred code path can
- * reproduce it. What Alfred owns is the *configuration* that keeps the callback
- * closed, and configuration is exactly the kind of thing a later refactor
- * deletes without noticing. Both halves are asserted:
+ * reproduce it. The fix is the version floor, and the floor is what a later
+ * relock or a careless catalog edit can silently undo, so it is asserted in two
+ * independent places:
  *
- *   1. the installed version is at or above the fix, and
- *   2. `auth()` disables implicit linking on top of it.
+ *   1. every `better-auth` the lockfile resolves is at or above the fix, and
+ *   2. the catalog range cannot admit a version below it.
  *
- * Asserting only the version would pass a build that later downgrades the flag;
- * asserting only the flag would pass a build pinned to a vulnerable release.
+ * The lockfile case alone would pass the moment someone relocks against a
+ * loosened range; the catalog case alone would pass a lockfile that still holds
+ * a stale vulnerable copy.
+ *
+ * There is also one configuration case, and it is a *negative* one: the fix
+ * defaults `requireLocalEmailVerified` to true, so Alfred asserts it is never
+ * set to `false` rather than asserting some flag is set to `true`. Alfred
+ * deliberately configures no `accountLinking` block at all — see
+ * `packages/auth/src/index.ts` for why `disableImplicitLinking` was dropped.
  */
 
 /** Every required server env var, so `serverEnv()` parses without a real deploy. */
@@ -102,12 +109,6 @@ describe("account linking (CVE-2026-53516)", () => {
       isAtLeast(parseVersion(declared), FIXED_VERSION),
       `the catalog floor ^${declared} admits releases below ${FIXED_VERSION.join(".")} — CVE-2026-53516`,
     );
-  });
-
-  test("auth() refuses implicit account linking", async () => {
-    ensureAuthTestEnv();
-    const { auth } = await import("@alfred/auth");
-    assert.equal(auth().options.account?.accountLinking?.disableImplicitLinking, true);
   });
 
   test("auth() does not weaken the local-email-verified check", async () => {
