@@ -40,6 +40,24 @@ export function auth() {
         }),
       },
     },
+    // No `account.accountLinking` block, deliberately.
+    //
+    // CVE-2026-53516 (#455): the OAuth callback used to link a provider onto an
+    // existing user whenever the *provider* asserted `email_verified`, without
+    // checking the *local* account's `emailVerified` — so an attacker who
+    // pre-registered a local account under a victim's address inherited the
+    // victim's federated sign-in. The version floor is the fix. 1.6.11 added the
+    // missing check and defaults `requireLocalEmailVerified` to true, so the
+    // bump closes this on its own and no option here is load-bearing.
+    //
+    // `disableImplicitLinking: true` was considered and dropped. Implicit
+    // linking needs a second sign-in path to link *from*, and Google social is
+    // the only one Alfred has — there is no magic-link, email-OTP, or passkey
+    // plugin configured. So the flag could never fire, while its one real effect
+    // would arrive later and backwards: a user created by a future magic link
+    // has no `account` row, so signing in with Google afterward would be refused
+    // with no in-app way to link the two. Revisit it together with a second
+    // provider and a `linkSocial()` control, not before.
     databaseHooks: {
       user: {
         create: {
