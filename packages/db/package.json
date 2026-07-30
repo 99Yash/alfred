@@ -13,7 +13,9 @@
     "dev": "drizzle-kit studio",
     "db:generate": "drizzle-kit generate",
     "db:migrate": "drizzle-kit migrate",
-    "db:sync-prices": "tsx --env-file-if-exists=../../apps/server/.env src/scripts/sync-prices.ts"
+    "db:sync-prices": "tsx --env-file-if-exists=../../apps/server/.env src/scripts/sync-prices.ts",
+    "db:encrypt-credentials": "tsx --env-file-if-exists=../../apps/server/.env src/scripts/encrypt-oauth-credentials.ts",
+    "db:encrypt-credentials:check": "tsx --env-file-if-exists=../../apps/server/.env src/scripts/encrypt-oauth-credentials.ts --check"
   },
   "dependencies": {
     "@alfred/contracts": "workspace:*",
