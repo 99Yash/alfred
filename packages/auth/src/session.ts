@@ -16,9 +16,11 @@ function _createSessionAuth(env: {
     baseURL: env.BETTER_AUTH_URL,
     // Same boundary as `auth()` — see the note there.
     database: encryptedAuthAdapter(drizzleAdapter(db(), { provider: "pg", schema })),
-    // No `socialProviders` here, so no OAuth callback runs through this
-    // instance and the `accountLinking` policy `auth()` sets has nothing to
-    // apply to. Declare a provider here and you must copy that policy too.
+    // No `socialProviders` here, so no OAuth callback and no account linking
+    // runs through this instance. Declare a provider here and this becomes a
+    // second linking surface: re-read the `accountLinking` reasoning in
+    // `index.ts` before doing it, because the reason Alfred sets no policy is
+    // that it has exactly one sign-in path.
     trustedOrigins: [env.CORS_ORIGIN],
     advanced: {
       defaultCookieAttributes: {
