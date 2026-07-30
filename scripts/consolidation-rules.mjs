@@ -102,6 +102,17 @@ export const RULES = [
     owners: ["packages/contracts/src/errors.ts"],
     fix: "Use toMessage(err) from @alfred/contracts — the one caught-error-to-string helper.",
   },
+  {
+    id: "hand-built-api-error",
+    // Ten `class XError extends ApiError` subclasses re-encoded API_ERROR_CODES
+    // and each had to be imported by name; the codes are now the only encoding
+    // and `Errors` is the only door. Both drift shapes: a fresh subclass, and a
+    // direct `new ApiError(...)` that pairs a message with a code by hand.
+    re: /\bnew\s+ApiError\s*\(|\bextends\s+ApiError\b/,
+    severity: "gate",
+    owners: ["packages/contracts/src/api-errors.ts"],
+    fix: "Throw an Errors.* factory from @alfred/contracts — `throw Errors.NotFoundError(\"…\")`. It owns the code-to-status pairing. Catch with isApiError(err, \"NOT_FOUND\") rather than a per-kind class.",
+  },
 
   // ---- hints: canonical helper exists, legacy call sites remain -------------
   {

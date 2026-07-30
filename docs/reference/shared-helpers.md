@@ -36,6 +36,8 @@ candidate `gate` rule — see [Closing the loop](#closing-the-loop).
 | check a value is a present, non-empty string | `isNonEmptyString(x)` | `@alfred/contracts` | `typeof x === "string" && x.length` |
 | turn a caught error into a display string | `toMessage(err)` | `@alfred/contracts` | `String(err)` / `err.message` |
 | redact secrets from an error/body before logging | `redactSecrets` / `summarizeBody` | `@alfred/contracts` | ad-hoc regex |
+| fail a request with an HTTP status | `Errors.NotFoundError(msg)` and its 11 siblings | `@alfred/contracts` | `new ApiError(...)` or a new `extends ApiError` subclass — **the drift check bans both** |
+| catch one of our own HTTP failures | `isApiError(err, "CONFLICT", …)` | `@alfred/contracts` | a chain of per-kind `instanceof` tests |
 | parse **and** validate a JSON string | `parseJsonWith(raw, schema, fallback?)` | `@alfred/contracts` | `JSON.parse(...)` then a cast |
 | parse JSON that might be malformed, no schema | `safeJsonParse(raw)` | `@alfred/contracts` | `try { JSON.parse } catch` |
 | normalize / extract an email address | `parseEmailAddress(value)` | `@alfred/contracts` | manual `<...>` / lowercase parsing |
@@ -68,6 +70,20 @@ Validate external / persisted / protocol data instead of asserting it.
 - `redactSecrets`, `summarizeBody`, `MAX_ERROR_BODY_CHARS`
 - `isHttpError`, `httpErrorFromResponse`
 - We deliberately do **not** use Effect here — see the shared-error-primitives decision.
+
+### HTTP failures — `@alfred/contracts` (`src/api-errors.ts`)
+One class, one code table, one door. `HttpError` above is the *inbound* failure of a
+provider we called; `ApiError` is the *outbound* failure we answer a client with.
+- `Errors` — the factory namespace. Type `Errors.` and the editor lists all twelve
+  (`BadRequestError`, `NotFoundError`, `ConflictError`, …) with status and meaning. No
+  `new`, and nothing to import per kind.
+- `ApiError` — the one class. `code` is the discriminant, `statusCode` is derived from
+  it through `API_ERROR_STATUS`, so a call site cannot pair a status with a code that
+  disagrees.
+- `isApiError(err, ...codes)` — branch on the code. There is no per-kind class to test,
+  on purpose: the code already travels on the wire.
+- `apiErrorResponse` renders the wire body; `errorHandler` is the only caller that
+  sets the status.
 
 ### JSON — `@alfred/contracts` (`src/json.ts`)
 - `safeJsonParse`, `parseJsonWith` (overloaded: with/without fallback), `toJsonValue`

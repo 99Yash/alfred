@@ -1,38 +1,27 @@
+import { ApiError, apiErrorResponse, Errors, toMessage } from "@alfred/contracts";
 import { Elysia } from "elysia";
-import { ApiError, apiErrorResponse, type ApiErrorResponse } from "./errors";
-import { toMessage } from "@alfred/contracts";
 
 export const errorHandler = new Elysia({ name: "error-handler", normalize: "typebox" }).onError(
   { as: "global" },
   ({ code, error, set }) => {
-    if (error instanceof ApiError) {
-      set.status = error.statusCode;
-      return apiErrorResponse(error);
-    }
+    const respond = (apiError: ApiError) => {
+      set.status = apiError.statusCode;
+      return apiErrorResponse(apiError);
+    };
+
+    if (error instanceof ApiError) return respond(error);
 
     if (code === "VALIDATION") {
-      set.status = 400;
       const first = error.all[0];
-      const summary = first?.summary ? `Validation failed: ${first.summary}` : "Validation failed";
-      return apiError(summary, "VALIDATION_ERROR");
+      const summary = first?.summary ? `Validation failed: ${first.summary}` : undefined;
+      return respond(Errors.ValidationError(summary));
     }
 
-    if (code === "NOT_FOUND") {
-      set.status = 404;
-      return apiError("Not found", "NOT_FOUND");
-    }
+    if (code === "NOT_FOUND") return respond(Errors.NotFoundError());
 
-    if (code === "PARSE") {
-      set.status = 400;
-      return apiError("Invalid request body", "PARSE_ERROR");
-    }
+    if (code === "PARSE") return respond(Errors.ParseError());
 
     console.error("[api] Unhandled error:", toMessage(error));
-    set.status = 500;
-    return apiError("Internal server error", "INTERNAL_SERVER_ERROR");
+    return respond(Errors.InternalServerError());
   },
 );
-
-function apiError(error: string, code: ApiErrorResponse["code"]): ApiErrorResponse {
-  return { error, code };
-}

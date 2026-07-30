@@ -1,6 +1,8 @@
 import { transcribeAudio } from "@alfred/ai";
 import {
+  Errors,
   getPath,
+  isApiError,
   isNonEmptyString,
   MAX_ATTACHMENT_BYTES_PER_MESSAGE,
   MAX_ATTACHMENT_BYTES,
@@ -25,14 +27,6 @@ import { and, asc, eq, inArray, notInArray, sql } from "drizzle-orm";
 import { Elysia, t } from "elysia";
 import { emitReplicachePokes } from "../../events/replicache-events";
 import { authMacro } from "../../middleware/auth";
-import {
-  BadGatewayError,
-  BadRequestError,
-  ConflictError,
-  NotFoundError,
-  ServiceUnavailableError,
-  TooManyRequestsError,
-} from "../../middleware/errors";
 import { createCacheRedisConnection } from "../../queue/connection";
 import { createRun, enqueueRun, getRun } from "../agent/index";
 import { uniqueViolationConstraint } from "../../lib/pg-errors";
@@ -117,12 +111,12 @@ async function assertAttachmentUploadRateAllowed(userId: string): Promise<void> 
       ATTACHMENT_UPLOAD_RATE_LIMIT_SECONDS,
     );
     if (rateCount > ATTACHMENT_UPLOAD_RATE_LIMIT_COUNT) {
-      throw new TooManyRequestsError("Too many attachment uploads. Try again in a minute.");
+      throw Errors.TooManyRequestsError("Too many attachment uploads. Try again in a minute.");
     }
   } catch (err) {
-    if (err instanceof TooManyRequestsError) throw err;
+    if (isApiError(err, "TOO_MANY_REQUESTS")) throw err;
     console.warn("[chat] attachment upload rate limit unavailable:", toMessage(err));
-    throw new ServiceUnavailableError("Attachment upload quota is unavailable. Try again.");
+    throw Errors.ServiceUnavailableError("Attachment upload quota is unavailable. Try again.");
   }
 }
 
@@ -145,11 +139,11 @@ async function assertAttachmentUploadBudgetAllowed(args: {
       ATTACHMENT_UPLOAD_QUOTA_TTL_SECONDS,
     );
     if (messageCount > MAX_ATTACHMENTS_PER_MESSAGE) {
-      throw new BadRequestError(`You can attach up to ${MAX_ATTACHMENTS_PER_MESSAGE} files`);
+      throw Errors.BadRequestError(`You can attach up to ${MAX_ATTACHMENTS_PER_MESSAGE} files`);
     }
     if (messageBytes > MAX_ATTACHMENT_BYTES_PER_MESSAGE) {
       const mb = Math.round(MAX_ATTACHMENT_BYTES_PER_MESSAGE / (1024 * 1024));
-      throw new BadRequestError(`Attachments are too large — the combined limit is ${mb} MB`);
+      throw Errors.BadRequestError(`Attachments are too large — the combined limit is ${mb} MB`);
     }
 
     const pendingBytes = await incrementUploadCounter(
@@ -159,12 +153,12 @@ async function assertAttachmentUploadBudgetAllowed(args: {
     );
     if (pendingBytes > MAX_PENDING_ATTACHMENT_UPLOAD_BYTES) {
       await releasePendingUploadBudget(args.userId, args.size);
-      throw new TooManyRequestsError("Too many pending attachment uploads. Try again later.");
+      throw Errors.TooManyRequestsError("Too many pending attachment uploads. Try again later.");
     }
   } catch (err) {
-    if (err instanceof BadRequestError || err instanceof TooManyRequestsError) throw err;
+    if (isApiError(err, "BAD_REQUEST", "TOO_MANY_REQUESTS")) throw err;
     console.warn("[chat] attachment upload quota unavailable:", toMessage(err));
-    throw new ServiceUnavailableError("Attachment upload quota is unavailable. Try again.");
+    throw Errors.ServiceUnavailableError("Attachment upload quota is unavailable. Try again.");
   }
 }
 
@@ -197,7 +191,7 @@ async function findExistingChatTurnRun(
     ? storedArtifactTargetId
     : undefined;
   if (normalizedStoredTarget !== artifactTargetId) {
-    throw new ConflictError("Message id already belongs to a different chat turn");
+    throw Errors.ConflictError("Message id already belongs to a different chat turn");
   }
   const existingAssistantId = getPath(existing.metadata, "assistantMessageId");
   return {
@@ -392,12 +386,12 @@ export const chatRoutes = new Elysia({ prefix: "/api/chat", normalize: "typebox"
         "/transcribe",
         async ({ body }) => {
           if (!serverEnv().OPENAI_API_KEY) {
-            throw new ServiceUnavailableError(
+            throw Errors.ServiceUnavailableError(
               "Voice transcription isn't configured — set OPENAI_API_KEY on the server.",
             );
           }
           const audio = new Uint8Array(await body.audio.arrayBuffer());
-          if (audio.byteLength === 0) throw new BadRequestError("audio must not be empty");
+          if (audio.byteLength === 0) throw Errors.BadRequestError("audio must not be empty");
           try {
             const { text } = await transcribeAudio(audio);
             return { text: text.trim() };
@@ -406,7 +400,7 @@ export const chatRoutes = new Elysia({ prefix: "/api/chat", normalize: "typebox"
             // hiccup) are routine here — surface a retryable message instead
             // of a generic 500.
             console.warn("[chat] transcription failed:", toMessage(err));
-            throw new BadGatewayError("Transcription failed. Try again.");
+            throw Errors.BadGatewayError("Transcription failed. Try again.");
           }
         },
         {
@@ -431,7 +425,7 @@ export const chatRoutes = new Elysia({ prefix: "/api/chat", normalize: "typebox"
         "/attachments/upload",
         async ({ body, user }) => {
           if (!isStorageConfigured()) {
-            throw new ServiceUnavailableError(
+            throw Errors.ServiceUnavailableError(
               "File uploads aren't configured — set the CHAT_S3_* env vars on the server.",
             );
           }
@@ -455,7 +449,7 @@ export const chatRoutes = new Elysia({ prefix: "/api/chat", normalize: "typebox"
               .where(eq(chatAttachments.id, body.attachmentId))
               .limit(1);
             if (existingRows[0]) {
-              throw new ConflictError("Attachment already exists");
+              throw Errors.ConflictError("Attachment already exists");
             }
             if (await objectExists(storageKey)) {
               await assertStoredAttachmentReady({
@@ -481,14 +475,11 @@ export const chatRoutes = new Elysia({ prefix: "/api/chat", normalize: "typebox"
           } catch (err) {
             await releasePendingUploadBudget(user.id, reservedPendingBytes);
             if (
-              err instanceof BadRequestError ||
-              err instanceof ConflictError ||
-              err instanceof TooManyRequestsError ||
-              err instanceof ServiceUnavailableError
+              isApiError(err, "BAD_REQUEST", "CONFLICT", "TOO_MANY_REQUESTS", "SERVICE_UNAVAILABLE")
             )
               throw err;
             console.error("[chat] proxied upload failed:", toMessage(err));
-            throw new BadGatewayError("Couldn't store the upload. Try again.");
+            throw Errors.BadGatewayError("Couldn't store the upload. Try again.");
           }
         },
         {
@@ -518,9 +509,9 @@ export const chatRoutes = new Elysia({ prefix: "/api/chat", normalize: "typebox"
             .where(and(eq(chatAttachments.id, params.id), eq(chatAttachments.userId, user.id)))
             .limit(1);
           const row = rows[0];
-          if (!row) throw new NotFoundError("Attachment not found");
+          if (!row) throw Errors.NotFoundError("Attachment not found");
           if (!isStorageConfigured()) {
-            throw new ServiceUnavailableError("File storage isn't configured");
+            throw Errors.ServiceUnavailableError("File storage isn't configured");
           }
           set.status = 302;
           set.headers["Location"] = await attachmentUrl(row.storageKey);
@@ -541,19 +532,19 @@ export const chatRoutes = new Elysia({ prefix: "/api/chat", normalize: "typebox"
         "/runs/:runId/stop",
         async ({ params, user }) => {
           const run = await getRun(params.runId, user.id);
-          if (!run) throw new NotFoundError("Run not found");
+          if (!run) throw Errors.NotFoundError("Run not found");
           if (run.workflowSlug !== CHAT_TURN_WORKFLOW_SLUG) {
-            throw new BadRequestError("Not a chat run");
+            throw Errors.BadRequestError("Not a chat run");
           }
           if (run.status === "completed" || run.status === "failed" || run.status === "cancelled") {
-            throw new ConflictError("Run already finished");
+            throw Errors.ConflictError("Run already finished");
           }
           if (run.status === "waiting") {
-            throw new ConflictError("Run is awaiting approval — resolve the approval instead");
+            throw Errors.ConflictError("Run is awaiting approval — resolve the approval instead");
           }
           const recorded = await requestChatStop(params.runId);
           if (!recorded)
-            throw new ServiceUnavailableError("Couldn't reach the stop channel — try again");
+            throw Errors.ServiceUnavailableError("Couldn't reach the stop channel — try again");
           return { ok: true };
         },
         { params: t.Object({ runId: t.String({ minLength: 1, maxLength: 120 }) }) },
@@ -572,14 +563,14 @@ export const chatRoutes = new Elysia({ prefix: "/api/chat", normalize: "typebox"
           // or a re-attached one from a retry (image-only sends are valid: the
           // prompt is the image).
           if (content.length === 0 && attachments.length === 0 && retryAttachmentIds.length === 0) {
-            throw new BadRequestError("A message must have text or an attachment");
+            throw Errors.BadRequestError("A message must have text or an attachment");
           }
           if (retryAttachmentIds.length > 0 && !retryAttachmentMessageId) {
-            throw new BadRequestError("Retry attachments must include their source message");
+            throw Errors.BadRequestError("Retry attachments must include their source message");
           }
           const storageConfigured = isStorageConfigured();
           if ((attachments.length > 0 || retryAttachmentIds.length > 0) && !storageConfigured) {
-            throw new ServiceUnavailableError("File storage isn't configured");
+            throw Errors.ServiceUnavailableError("File storage isn't configured");
           }
 
           // Thread must be the caller's (or new). Reject cross-user posts.
@@ -590,7 +581,7 @@ export const chatRoutes = new Elysia({ prefix: "/api/chat", normalize: "typebox"
             .limit(1);
           const thread = existing[0];
           if (thread && thread.userId !== user.id) {
-            throw new NotFoundError("thread not found");
+            throw Errors.NotFoundError("thread not found");
           }
           if (artifactTargetId) {
             const ownedTargets = await db()
@@ -605,7 +596,7 @@ export const chatRoutes = new Elysia({ prefix: "/api/chat", normalize: "typebox"
               )
               .limit(1);
             if (!ownedTargets[0]) {
-              throw new BadRequestError("Artifact target doesn't belong to this chat");
+              throw Errors.BadRequestError("Artifact target doesn't belong to this chat");
             }
           }
 
@@ -626,10 +617,10 @@ export const chatRoutes = new Elysia({ prefix: "/api/chat", normalize: "typebox"
             existingMessage &&
             (existingMessage.userId !== user.id || existingMessage.threadId !== threadId)
           ) {
-            throw new ConflictError("Message id already belongs to another chat message");
+            throw Errors.ConflictError("Message id already belongs to another chat message");
           }
           if (existingMessage && existingMessage.content !== content) {
-            throw new ConflictError("Message id already belongs to a different chat turn");
+            throw Errors.ConflictError("Message id already belongs to a different chat turn");
           }
 
           // Per-thread concurrency guard (#488): if a different turn is still in
@@ -686,11 +677,11 @@ export const chatRoutes = new Elysia({ prefix: "/api/chat", normalize: "typebox"
               if (source) orderedSources.push(source);
             }
             if (orderedSources.length !== new Set(retryAttachmentIds).size) {
-              throw new BadRequestError("Retry attachments don't belong to that chat turn");
+              throw Errors.BadRequestError("Retry attachments don't belong to that chat turn");
             }
             const room = Math.max(0, MAX_ATTACHMENTS_PER_MESSAGE - attachments.length);
             if (orderedSources.length > room) {
-              throw new BadRequestError(
+              throw Errors.BadRequestError(
                 `You can attach up to ${MAX_ATTACHMENTS_PER_MESSAGE} files`,
               );
             }
@@ -698,7 +689,7 @@ export const chatRoutes = new Elysia({ prefix: "/api/chat", normalize: "typebox"
             for (const source of orderedSources) {
               if (selectedBytes + source.size > MAX_ATTACHMENT_BYTES_PER_MESSAGE) {
                 const mb = Math.round(MAX_ATTACHMENT_BYTES_PER_MESSAGE / (1024 * 1024));
-                throw new BadRequestError(
+                throw Errors.BadRequestError(
                   `Attachments are too large — the combined limit is ${mb} MB`,
                 );
               }
@@ -722,7 +713,7 @@ export const chatRoutes = new Elysia({ prefix: "/api/chat", normalize: "typebox"
                 rows: existingAttachments,
               })
             ) {
-              throw new ConflictError("Message id already belongs to a different chat turn");
+              throw Errors.ConflictError("Message id already belongs to a different chat turn");
             }
             const existingRun = await findExistingChatTurnRun(
               db(),
@@ -784,7 +775,7 @@ export const chatRoutes = new Elysia({ prefix: "/api/chat", normalize: "typebox"
                 await schedulePendingUploadCleanup(user.id, destKey);
               } catch (err) {
                 console.warn("[chat] retry attachment copy failed:", toMessage(err));
-                throw new BadGatewayError("Couldn't copy the retry attachments. Try again.");
+                throw Errors.BadGatewayError("Couldn't copy the retry attachments. Try again.");
               }
               retryAttachmentRows.push(
                 toAttachmentRow({
@@ -809,7 +800,7 @@ export const chatRoutes = new Elysia({ prefix: "/api/chat", normalize: "typebox"
             retryAttachmentRows.length === 0 &&
             !reuseExistingAttachmentRows
           ) {
-            throw new BadRequestError("No retryable attachments were found");
+            throw Errors.BadRequestError("No retryable attachments were found");
           }
 
           const attachmentRows = [...freshAttachmentRows, ...retryAttachmentRows];
@@ -854,10 +845,10 @@ export const chatRoutes = new Elysia({ prefix: "/api/chat", normalize: "typebox"
               writtenMessage.userId !== user.id ||
               writtenMessage.threadId !== threadId
             ) {
-              throw new ConflictError("Message id already belongs to another chat message");
+              throw Errors.ConflictError("Message id already belongs to another chat message");
             }
             if (writtenMessage.content !== content) {
-              throw new ConflictError("Message id already belongs to a different chat turn");
+              throw Errors.ConflictError("Message id already belongs to a different chat turn");
             }
 
             const currentAttachments = await loadAttachmentSummaries(
@@ -873,7 +864,7 @@ export const chatRoutes = new Elysia({ prefix: "/api/chat", normalize: "typebox"
                 rows: currentAttachments,
               })
             ) {
-              throw new ConflictError("Message id already belongs to a different chat turn");
+              throw Errors.ConflictError("Message id already belongs to a different chat turn");
             }
 
             // Persist attachment rows now that the owned message they reference
@@ -886,7 +877,7 @@ export const chatRoutes = new Elysia({ prefix: "/api/chat", normalize: "typebox"
                 body.userMessageId,
               );
               if (!sameInsertedAttachmentRows(attachmentRows, writtenAttachments)) {
-                throw new ConflictError("Message id already belongs to a different chat turn");
+                throw Errors.ConflictError("Message id already belongs to a different chat turn");
               }
               acceptedFreshAttachmentBytes = freshAttachmentRows.reduce(
                 (sum, row) => sum + row.size,

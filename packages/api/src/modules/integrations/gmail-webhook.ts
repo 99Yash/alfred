@@ -1,8 +1,7 @@
-import { toMessage } from "@alfred/contracts";
+import { Errors, toMessage } from "@alfred/contracts";
 import { findCredentialByEmail } from "@alfred/integrations/google";
 import { Elysia, t } from "elysia";
 import { createRemoteJWKSet, jwtVerify, type JWTPayload } from "jose";
-import { UnauthorizedError } from "../../middleware/errors";
 import {
   assertGmailPushOidcConfigured,
   pubSubOidcConfigFromEnv,
@@ -144,7 +143,7 @@ export function makeGmailWebhookRoutes(
         // 401 → Pub/Sub will retry, but a misconfigured audience would
         // retry forever. Logging at warn level keeps this visible without
         // paging on every notification.
-        throw new UnauthorizedError("Invalid OIDC token");
+        throw Errors.UnauthorizedError("Invalid OIDC token");
       }
 
       const envelope = body as PubSubEnvelope;
