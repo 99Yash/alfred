@@ -4,6 +4,7 @@ import { db } from "@alfred/db";
 import { credentialVault } from "@alfred/db/credential-vault";
 import { integrationCredentials } from "@alfred/db/schemas";
 import { and, eq, sql } from "drizzle-orm";
+import type { PgUpdateSetSource } from "drizzle-orm/pg-core";
 import { GoogleReauthRequiredError, refreshAccessToken } from "./oauth";
 
 /**
@@ -60,7 +61,7 @@ export async function upsertCredential(
   // two secrets, and each `seal` draws a fresh DEK and nonces.
   const sealedAccessToken = vault.seal(args.accessToken);
   const sealedRefreshToken = vault.seal(args.refreshToken);
-  const updateSet: Record<string, unknown> = {
+  const updateSet: PgUpdateSetSource<typeof integrationCredentials> = {
     accessToken: sealedAccessToken,
     // A re-connect issues a new refresh token; honour it.
     refreshToken: sealedRefreshToken,
