@@ -17,7 +17,7 @@ const FORMAT = {
 } as const;
 
 const BASE64URL_PATTERN = /^[A-Za-z0-9_-]*$/;
-const ENVELOPE_FAMILY_PATTERN = /^acv[1-9]\d*\./;
+const ENVELOPE_FAMILY_PATTERN = /^acv\d+\./;
 
 /** Reasons a persisted value is not openable. Never carries the value itself. */
 export type CredentialVaultFailure =

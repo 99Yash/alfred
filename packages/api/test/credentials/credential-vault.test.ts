@@ -121,6 +121,10 @@ describe("credential vault: round trip", () => {
       () => vault.seal(`acv2.${envelope.split(".").slice(1).join(".")}`),
       "already_sealed",
     );
+    assertFailure(
+      () => vault.seal(`acv0.${envelope.split(".").slice(1).join(".")}`),
+      "already_sealed",
+    );
     assertFailure(() => vault.seal("acv1.damaged"), "already_sealed");
   });
 });
@@ -239,6 +243,7 @@ describe("credential vault: isSealed", () => {
       vault.isSealed(`acv2.A256GCM.${vault.seal("t").split(".").slice(2).join(".")}`),
       true,
     );
+    assert.equal(vault.isSealed("acv0.damaged"), true);
 
     for (const value of [
       "ya29.plain-token",
