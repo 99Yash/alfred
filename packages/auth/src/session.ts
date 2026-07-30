@@ -16,6 +16,9 @@ function _createSessionAuth(env: {
     baseURL: env.BETTER_AUTH_URL,
     // Same boundary as `auth()` — see the note there.
     database: encryptedAuthAdapter(drizzleAdapter(db(), { provider: "pg", schema })),
+    // No `socialProviders` here, so no OAuth callback runs through this
+    // instance and the `accountLinking` policy `auth()` sets has nothing to
+    // apply to. Declare a provider here and you must copy that policy too.
     trustedOrigins: [env.CORS_ORIGIN],
     advanced: {
       defaultCookieAttributes: {
