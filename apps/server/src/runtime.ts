@@ -52,6 +52,7 @@ import {
 } from "@alfred/api/runtime";
 import { flushLangfuse, flushMeteringWrites } from "@alfred/ai";
 import { toMessage } from "@alfred/contracts";
+import { assertPersistedCredentialsSealed } from "@alfred/db/credential-vault-maintenance";
 import { serverEnv } from "@alfred/env/server";
 import { registerBuiltinWorkflows } from "./builtins";
 
@@ -66,6 +67,12 @@ export const OBSERVABILITY_FLUSH_TIMEOUT_MS = 2500;
 
 export async function startRuntime(): Promise<void> {
   await warmPool();
+  // #453 boot gate, before anything can serve a request or lease a job. A
+  // process that starts against a half-converted credential table would throw
+  // on every token read AND rewrite plaintext behind the operator's back, so
+  // an unfinished backfill must fail the boot instead of degrading quietly.
+  // See `docs/runbooks/oauth-credential-vault-rollout.md`.
+  await assertPersistedCredentialsSealed();
   // ADR-0035 guard: every agent model must have a populated
   // `model_prices.context_window`. A missing value means the compactor
   // can't size its 60% threshold, so the boss would loop unbounded.

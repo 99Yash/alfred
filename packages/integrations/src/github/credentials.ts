@@ -1,4 +1,5 @@
 import { db } from "@alfred/db";
+import { credentialVault } from "@alfred/db/credential-vault";
 import { integrationCredentials, type IntegrationCredential } from "@alfred/db/schemas";
 import { and, desc, eq } from "drizzle-orm";
 import { getInstallationToken } from "./app";
@@ -8,6 +9,11 @@ import { getInstallationToken } from "./app";
  * App). The stored `access_token` is the user-to-server *identity* token;
  * live REST access goes through short-lived installation tokens minted from
  * `installation_id` (see `getInstallationTokenForUser`).
+ *
+ * One of the three owners of credential encryption at rest (#453): the stored
+ * token is sealed on write and opened on read, so callers keep the same
+ * signatures. Installation tokens are minted per call and never persisted, so
+ * they never reach the vault.
  */
 
 export interface UpsertGithubCredentialArgs {
@@ -26,6 +32,10 @@ export interface UpsertGithubCredentialArgs {
 export async function upsertGithubCredential(
   args: UpsertGithubCredentialArgs,
 ): Promise<{ id: string }> {
+  const vault = credentialVault();
+  // Sealed once and reused by both the insert and the on-conflict update.
+  const sealedAccessToken = vault.seal(args.accessToken);
+  const sealedRefreshToken = args.refreshToken ? vault.seal(args.refreshToken) : null;
   const result = await db()
     .insert(integrationCredentials)
     .values({
@@ -33,8 +43,8 @@ export async function upsertGithubCredential(
       provider: "github",
       accountId: args.accountId,
       accountLabel: args.accountLabel ?? null,
-      accessToken: args.accessToken,
-      refreshToken: args.refreshToken ?? null,
+      accessToken: sealedAccessToken,
+      refreshToken: sealedRefreshToken,
       installationId: args.installationId ?? null,
       expiresAt: args.expiresAt,
       scopes: args.scopes,
@@ -48,8 +58,8 @@ export async function upsertGithubCredential(
         integrationCredentials.accountId,
       ],
       set: {
-        accessToken: args.accessToken,
-        refreshToken: args.refreshToken ?? null,
+        accessToken: sealedAccessToken,
+        refreshToken: sealedRefreshToken,
         installationId: args.installationId ?? null,
         expiresAt: args.expiresAt,
         scopes: args.scopes,
@@ -109,7 +119,7 @@ export async function getGithubAccessToken(credentialId: string): Promise<string
   if (row.status !== "active") {
     throw new Error(`[github.credentials] not active: ${credentialId} (status=${row.status})`);
   }
-  return row.accessToken;
+  return credentialVault().open(row.accessToken);
 }
 
 export interface UserInstallationToken {

@@ -4,6 +4,7 @@ import * as schema from "@alfred/db/schema/auth";
 import { serverEnv } from "@alfred/env/server";
 import { betterAuth, type BetterAuthOptions } from "better-auth";
 import { drizzleAdapter } from "better-auth/adapters/drizzle";
+import { encryptedAuthAdapter } from "./credential-adapter";
 import { getOnUserCreatedHooks } from "./hooks";
 
 export { registerOnUserCreated, type OnUserCreatedHook } from "./hooks";
@@ -15,10 +16,16 @@ export function auth() {
   const env = serverEnv();
 
   _auth = betterAuth<BetterAuthOptions>({
-    database: drizzleAdapter(db(), {
-      provider: "pg",
-      schema,
-    }),
+    // Both this initializer and `sessionAuth()` must wrap the adapter: the
+    // decorator is what keeps `account` OAuth tokens sealed at rest (#453), and
+    // an unwrapped initializer would write plaintext that every other read
+    // then fails to open.
+    database: encryptedAuthAdapter(
+      drizzleAdapter(db(), {
+        provider: "pg",
+        schema,
+      }),
+    ),
     trustedOrigins: [env.CORS_ORIGIN],
     socialProviders: {
       google: {
