@@ -1,6 +1,7 @@
 import type { AccountPersona } from "@alfred/contracts";
 import { sql } from "drizzle-orm";
 import { index, jsonb, pgTable, text, timestamp, uniqueIndex } from "drizzle-orm/pg-core";
+import type { SealedCredentialSecret } from "../credential-vault";
 import { createId, lifecycle_dates } from "../helpers";
 import { user } from "./auth";
 
@@ -19,17 +20,33 @@ import { user } from "./auth";
  *    own user identifier — Google `sub`, Slack workspace+user, etc.).
  *  - Scopes evolve independently of identity scopes.
  *
- * Tokens are stored plaintext for now. Encryption-at-rest is a TODO that
- * lands when we move past single-user — Postgres column encryption with a
- * KMS-derived key is the cleanest path; not blocking v1.
+ * `access_token` and `refresh_token` hold an authenticated AES-256-GCM
+ * envelope, never a usable token (#453, ADR-0038 as amended). The columns stay
+ * `text` because the envelope is self-describing — version, algorithm, key id,
+ * nonces, and tags all live inside the stored string, so nonce and tag columns
+ * would add migration surface without adding validation.
  *
- * Threat-model note: this deferral was sized when the blast radius was
- * read-mostly (read personal Gmail, read a Notion page). It now also covers
- * Railway workspace tokens, which CANNOT be scoped down — a Railway workspace
- * token is full workspace write (it can redeploy any service in a shared team).
- * The deferral may still be the right v1 call at single-user scale, but the
- * surface a leaked row exposes is strictly larger than it was; revisit
- * encryption before this store holds tokens for more than one user.
+ * `@alfred/db/credential-vault` owns that representation, and the three
+ * persistence modules in `@alfred/integrations` (Google, GitHub, shared bearer)
+ * are the only writers. Both columns are typed {@link SealedCredentialSecret},
+ * which is nominal in both directions: a plaintext write does not compile,
+ * because the brand is only mintable by `credentialVault().seal`, and a
+ * persisted value cannot reach a provider header, a template literal, or any
+ * `string` parameter without `credentialVault().open` first. A test that
+ * deliberately seeds the pre-#453 plaintext shape casts, and says so at the
+ * cast.
+ *
+ * Better Auth's `account` table cannot have the same guard: its adapter hands
+ * the driver a loosely typed payload, so nothing there would typecheck against
+ * a branded column. That side is enforced at runtime instead, by the
+ * `encryptedAuthAdapter` decorator plus the boot gate. The asymmetry is
+ * deliberate: type-level where a writer exists to type, runtime where one does
+ * not.
+ *
+ * Why credentials and not content: a leaked row here is not a disclosure, it is
+ * a transferable capability. Railway workspace tokens in particular CANNOT be
+ * scoped down — one is full workspace write and can redeploy any service in a
+ * shared team.
  */
 export const integrationCredentials = pgTable(
   "integration_credentials",
@@ -46,8 +63,8 @@ export const integrationCredentials = pgTable(
     accountId: text("account_id").notNull(),
     /** Email or display label surfaced in the UI ("dev.7@oliv.ai"). */
     accountLabel: text("account_label"),
-    accessToken: text("access_token").notNull(),
-    refreshToken: text("refresh_token"),
+    accessToken: text("access_token").$type<SealedCredentialSecret>().notNull(),
+    refreshToken: text("refresh_token").$type<SealedCredentialSecret>(),
     tokenType: text("token_type").default("Bearer"),
     expiresAt: timestamp("expires_at", { withTimezone: true }),
     /** Granted scopes parsed into an array — providers vary on space vs comma separation. */

@@ -1,8 +1,10 @@
 import type { AccountPersona } from "@alfred/contracts";
 import { toStringArray } from "@alfred/contracts";
 import { db } from "@alfred/db";
+import { credentialVault } from "@alfred/db/credential-vault";
 import { integrationCredentials } from "@alfred/db/schemas";
 import { and, eq, sql } from "drizzle-orm";
+import type { PgUpdateSetSource } from "drizzle-orm/pg-core";
 import { GoogleReauthRequiredError, refreshAccessToken } from "./oauth";
 
 /**
@@ -13,6 +15,11 @@ import { GoogleReauthRequiredError, refreshAccessToken } from "./oauth";
  *
  * Refresh-on-demand (vs background cron) keeps the implementation small
  * at single-user scale; a missed cron tick won't bury a request.
+ *
+ * This module is also one of the three owners of credential encryption at rest
+ * (#453): tokens are sealed immediately before they are written and opened
+ * immediately after they are read, so the public signatures below still hand
+ * callers a usable token in memory and nothing downstream learns the envelope.
  */
 
 /** Refresh when fewer than this many seconds remain on the token. */
@@ -49,10 +56,15 @@ export async function upsertCredential(
   args: UpsertCredentialsArgs,
   ex: DbExecutor = db(),
 ): Promise<{ id: string }> {
-  const updateSet: Record<string, unknown> = {
-    accessToken: args.accessToken,
+  const vault = credentialVault();
+  // Seal once and reuse: the insert and the on-conflict update carry the same
+  // two secrets, and each `seal` draws a fresh DEK and nonces.
+  const sealedAccessToken = vault.seal(args.accessToken);
+  const sealedRefreshToken = vault.seal(args.refreshToken);
+  const updateSet: PgUpdateSetSource<typeof integrationCredentials> = {
+    accessToken: sealedAccessToken,
     // A re-connect issues a new refresh token; honour it.
-    refreshToken: args.refreshToken,
+    refreshToken: sealedRefreshToken,
     expiresAt: args.expiresAt,
     scopes: args.scopes,
     metadata: args.metadata ?? {},
@@ -74,8 +86,8 @@ export async function upsertCredential(
       provider: args.provider,
       accountId: args.accountId,
       accountLabel: args.accountLabel ?? null,
-      accessToken: args.accessToken,
-      refreshToken: args.refreshToken,
+      accessToken: sealedAccessToken,
+      refreshToken: sealedRefreshToken,
       expiresAt: args.expiresAt,
       scopes: args.scopes,
       metadata: args.metadata ?? {},
@@ -116,21 +128,35 @@ async function loadCredential(
   ex: DbExecutor = db(),
   lockForUpdate = false,
 ): Promise<StoredCredentialRow | null> {
+  // Narrowed to the columns this function returns: a `select()` of the whole
+  // row would drag two ciphertexts through every caller that only wanted a
+  // status.
   const query = ex
-    .select()
+    .select({
+      id: integrationCredentials.id,
+      userId: integrationCredentials.userId,
+      accountId: integrationCredentials.accountId,
+      accountLabel: integrationCredentials.accountLabel,
+      accessToken: integrationCredentials.accessToken,
+      refreshToken: integrationCredentials.refreshToken,
+      expiresAt: integrationCredentials.expiresAt,
+      scopes: integrationCredentials.scopes,
+      status: integrationCredentials.status,
+    })
     .from(integrationCredentials)
     .where(eq(integrationCredentials.id, credentialId));
   const rows = lockForUpdate ? await query.for("update") : await query;
   const row = rows[0];
   if (!row) return null;
   if (!row.refreshToken) return null;
+  const vault = credentialVault();
   return {
     id: row.id,
     userId: row.userId,
     accountId: row.accountId,
     accountLabel: row.accountLabel,
-    accessToken: row.accessToken,
-    refreshToken: row.refreshToken,
+    accessToken: vault.open(row.accessToken),
+    refreshToken: vault.open(row.refreshToken),
     expiresAt: row.expiresAt,
     scopes: toStringArray(row.scopes),
     status: row.status,
@@ -203,8 +229,8 @@ export async function getFreshAccessToken(credentialId: string): Promise<string>
     await tx
       .update(integrationCredentials)
       .set({
-        accessToken: refreshed.accessToken,
-        refreshToken: refreshed.refreshToken ?? cred.refreshToken,
+        accessToken: credentialVault().seal(refreshed.accessToken),
+        refreshToken: credentialVault().seal(refreshed.refreshToken ?? cred.refreshToken),
         expiresAt: refreshed.expiresAt,
         // Don't overwrite scopes from refresh — Google sometimes omits them.
         scopes: refreshed.scopes.length ? refreshed.scopes : cred.scopes,
@@ -225,9 +251,22 @@ export async function listCredentials(
   const where = provider
     ? and(eq(integrationCredentials.userId, userId), eq(integrationCredentials.provider, provider))
     : eq(integrationCredentials.userId, userId);
-  const rows = await db().select().from(integrationCredentials).where(where);
+  // Presence, not value: this function reports which accounts are connected, so
+  // the refresh-token test is answered in SQL and no ciphertext leaves Postgres.
+  const rows = await db()
+    .select({
+      id: integrationCredentials.id,
+      userId: integrationCredentials.userId,
+      accountId: integrationCredentials.accountId,
+      accountLabel: integrationCredentials.accountLabel,
+      scopes: integrationCredentials.scopes,
+      status: integrationCredentials.status,
+      hasRefreshToken: sql<boolean>`${integrationCredentials.refreshToken} IS NOT NULL`,
+    })
+    .from(integrationCredentials)
+    .where(where);
   return rows
-    .filter((r) => r.refreshToken !== null)
+    .filter((r) => r.hasRefreshToken)
     .map((r) => ({
       id: r.id,
       userId: r.userId,

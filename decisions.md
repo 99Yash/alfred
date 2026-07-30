@@ -42,7 +42,7 @@ A running record of design decisions made while scoping alfred (a personal-assis
 | Composer model picker | Opaque tiers (`Default` / `Pro`); never raw provider/SKU names (ADR-0029)                                         |
 | Composer `+` menu / Tab autocomplete | Decoration-only in m12; behavior lands post-m13 (ADR-0030)                                         |
 | People research       | Explicit, citation-grounded person dossiers; review before durable memory writes (ADR-0031)                       |
-| Content privacy       | Vendor at-rest crypto + log redaction + no `documents.raw`; no app-layer encryption at v1 (ADR-0038)              |
+| Content privacy       | Content uses vendor at-rest crypto + log redaction; OAuth credentials use app-layer envelopes (ADR-0038 amendment) |
 | Attachment ingestion  | `attachments` + `attachment_pages` tables; Claude PDF/image extraction; dedicated `doc-extraction-runs` queue; four-gate cost shield (ADR-0039) |
 | Brief-only run shape  | Ping-pong `boss-turn` ↔ `dispatch-tools` steps; sentinel `userAuthoredBriefWorkflow` resolves all user-authored slugs; `agent_runs.transcript` jsonb; strict `@`-mention seed (ADR-0040)        |
 | Daily briefing        | Renders of an **open-loop** model, not input summaries; **morning discretionary** (silent on quiet days, errs toward sending) + **evening always-fires** (degrades to weather + sign-off); compose-time **read-only reconciliation** (triage labels immutable); recall anchored to calendar; advance-reminders/anomaly-detection parked (ADR-0048, amends ADR-0041). Retained from ADR-0041: cross-source gather, boss compose, `[[<kind>:<id>]]` references, split email/in-app surface, `briefings` entity |
@@ -106,7 +106,7 @@ this file exists so you never have to load all of them.
 | [0035](./docs/decisions/ADR-0035-transcript-compaction-cheap-tier-handoff.md) | Transcript compaction: cheap-tier handoff summary at 60% threshold |
 | [0036](./docs/decisions/ADR-0036-redis-as-scratchpad-primary-postgres-as.md) | Redis as scratchpad primary; Postgres as terminal snapshot |
 | [0037](./docs/decisions/ADR-0037-gmail-realtime-ingestion-via-messages-list.md) | Gmail realtime ingestion via `messages.list`; `history.list` demoted to catch-up |
-| [0038](./docs/decisions/ADR-0038-content-at-rest-posture-vendor-crypto-only-no.md) | Content-at-rest posture: vendor crypto only, no app-layer encryption |
+| [0038](./docs/decisions/ADR-0038-content-at-rest-posture-vendor-crypto-only-no.md) | Content uses vendor crypto; OAuth credentials use app-layer envelopes |
 | [0039](./docs/decisions/ADR-0039-email-attachment-ingestion-dedicated.md) | Email attachment ingestion: dedicated `attachments` family, page-bounded typed chunks, separate extraction queue |
 | [0040](./docs/decisions/ADR-0040-m13-phase-4-brief-only-execution-ping-pong.md) | m13 Phase 4 brief-only execution: ping-pong steps, sentinel workflow, dedicated transcript column, system-tool autonomy override |
 | [0041](./docs/decisions/ADR-0041-daily-briefing-v2-cross-source-llm-compose.md) | Daily briefing v2: cross-source LLM compose, split surface, `briefings` entity |

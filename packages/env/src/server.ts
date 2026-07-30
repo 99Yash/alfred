@@ -41,10 +41,60 @@ const optionalLongSecret = () =>
       .optional(),
   );
 
+/** Decoded byte length every AES-256 key in this codebase must have. */
+const KEK_BYTES = 32;
+
+/**
+ * A 256-bit key supplied as base64 or base64url. Validation decodes the value
+ * and checks the byte length, because the failure mode it prevents is silent:
+ * `Buffer.from` ignores characters it does not recognize, so a truncated or
+ * whitespace-mangled key decodes to *fewer* bytes and `createCipheriv` then
+ * rejects it at the first credential write rather than at boot. Normalized to
+ * base64url so the consumer decodes one way.
+ */
+const credentialKek = () =>
+  z.preprocess(
+    (v) => (typeof v === "string" && v.trim() === "" ? undefined : v),
+    z
+      .string({ error: `required — generate with \`openssl rand -base64 ${KEK_BYTES}\`` })
+      .refine((v) => v === v.trim(), {
+        error: "must not have leading or trailing whitespace",
+      })
+      .refine((v) => /^[A-Za-z0-9+/_-]+={0,2}$/.test(v), {
+        error: "must be base64 or base64url",
+      })
+      .refine((v) => Buffer.from(v, "base64url").length === KEK_BYTES, {
+        error: `must decode to exactly ${KEK_BYTES} bytes — generate with \`openssl rand -base64 ${KEK_BYTES}\``,
+      })
+      .transform((v) => Buffer.from(v, "base64url").toString("base64url")),
+  );
+
 const serverEnvSchema = z.object({
   DATABASE_URL: z.string().url(),
   REDIS_URL: z.string().url(),
   BETTER_AUTH_SECRET: z.string().min(32),
+  /**
+   * Key-encryption key for the OAuth credential vault (#453), base64 or
+   * base64url, decoding to exactly 32 bytes. Generate one with
+   * `openssl rand -base64 32`.
+   *
+   * Deliberately separate from `BETTER_AUTH_SECRET`: the auth secret signs
+   * cookies and is handled as a routine application secret, while this key is
+   * the only thing between a leaked database artifact and a replayable Google,
+   * GitHub, Notion, Vercel, or Railway token. Rotating one must not force
+   * rotating the other.
+   *
+   * Required in **every** environment, and required here rather than at the
+   * first credential read, because the vault also backs Better Auth's `account`
+   * token columns through `encryptedAuthAdapter`. A process that boots without
+   * this key does not degrade to "integrations are unavailable" — it fails
+   * every sign-in and every session check, in the adapter, at request time.
+   * One loud boot error naming the generation command is the cheaper failure.
+   * There is no plaintext fallback and no derived default. Read the value
+   * through `credentialVault()` in `@alfred/db/credential-vault`, never
+   * directly.
+   */
+  OAUTH_CREDENTIAL_KEK: credentialKek(),
   BETTER_AUTH_URL: z.string().url(),
   CORS_ORIGIN: z.string().default("http://localhost:3000"),
   NODE_ENV: z.enum(["development", "production", "test"]).default("development"),

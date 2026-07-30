@@ -3,6 +3,7 @@ import * as schema from "@alfred/db/schema/auth";
 import { serverEnv } from "@alfred/env/server";
 import { betterAuth } from "better-auth";
 import { drizzleAdapter } from "better-auth/adapters/drizzle";
+import { encryptedAuthAdapter } from "./credential-adapter";
 
 let _sessionAuth: ReturnType<typeof _createSessionAuth> | undefined;
 
@@ -13,7 +14,8 @@ function _createSessionAuth(env: {
 }) {
   return betterAuth({
     baseURL: env.BETTER_AUTH_URL,
-    database: drizzleAdapter(db(), { provider: "pg", schema }),
+    // Same boundary as `auth()` — see the note there.
+    database: encryptedAuthAdapter(drizzleAdapter(db(), { provider: "pg", schema })),
     trustedOrigins: [env.CORS_ORIGIN],
     advanced: {
       defaultCookieAttributes: {

@@ -3,8 +3,9 @@ import { randomUUID } from "node:crypto";
 import { after, describe, test } from "node:test";
 
 import { closeConnections, db } from "@alfred/db";
+import { credentialVault } from "@alfred/db/credential-vault";
 import { integrationCredentials, user } from "@alfred/db/schemas";
-import { getFreshAccessToken } from "@alfred/integrations/google";
+import { getFreshAccessToken, upsertCredential } from "@alfred/integrations/google";
 import { eq } from "drizzle-orm";
 
 const SKIP = process.env.DATABASE_URL ? false : "DATABASE_URL not set — skipping DB-backed test";
@@ -28,6 +29,11 @@ function ensureOAuthTestEnv(): void {
   process.env.GITHUB_APP_PRIVATE_KEY ??= "test";
   process.env.GITHUB_WEBHOOK_SECRET ??= "test";
   process.env.GITHUB_APP_REDIRECT_URI ??= "http://localhost:3001/github/callback";
+  // #453: the vault has no derived default, so the suite supplies a key.
+  process.env.OAUTH_CREDENTIAL_KEK ??= Buffer.from(
+    "0123456789abcdef0123456789abcdef",
+    "utf8",
+  ).toString("base64url");
 }
 
 describe("Google credential refresh (DB-backed)", { skip: SKIP }, () => {
@@ -41,18 +47,18 @@ describe("Google credential refresh (DB-backed)", { skip: SKIP }, () => {
     await db()
       .insert(user)
       .values({ id: userId, name: "Refresh Test", email: `${userId}@example.test` });
-    const [credential] = await db()
-      .insert(integrationCredentials)
-      .values({
-        userId,
-        provider: "google",
-        accountId: randomUUID(),
-        accessToken: "expired-access-token",
-        refreshToken: "refresh-token",
-        expiresAt: new Date(Date.now() - 60_000),
-        scopes: ["scope:old"],
-      })
-      .returning({ id: integrationCredentials.id });
+    // Seed through the owner, not with a raw insert: the row must hold sealed
+    // tokens (#453) or the refresh path below would be exercising a state the
+    // application can no longer produce.
+    const credential = await upsertCredential({
+      userId,
+      provider: "google",
+      accountId: randomUUID(),
+      accessToken: "expired-access-token",
+      refreshToken: "refresh-token",
+      expiresAt: new Date(Date.now() - 60_000),
+      scopes: ["scope:old"],
+    });
     assert.ok(credential);
 
     const originalFetch = globalThis.fetch;
@@ -85,7 +91,10 @@ describe("Google credential refresh (DB-backed)", { skip: SKIP }, () => {
         .select({ accessToken: integrationCredentials.accessToken })
         .from(integrationCredentials)
         .where(eq(integrationCredentials.id, credential.id));
-      assert.equal(stored?.accessToken, "fresh-access-token");
+      // The column must NOT equal the plaintext the callers received — that
+      // inequality is the whole point of the vault — and must open back to it.
+      assert.notEqual(stored?.accessToken, "fresh-access-token");
+      assert.equal(credentialVault().open(stored?.accessToken), "fresh-access-token");
     } finally {
       globalThis.fetch = originalFetch;
       await db().delete(user).where(eq(user.id, userId));

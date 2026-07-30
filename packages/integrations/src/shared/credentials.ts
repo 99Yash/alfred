@@ -1,5 +1,6 @@
 import type { BearerProvider, IntegrationSlug } from "@alfred/contracts";
 import { db } from "@alfred/db";
+import { credentialVault } from "@alfred/db/credential-vault";
 import { integrationCredentials, type IntegrationCredential } from "@alfred/db/schemas";
 import { and, desc, eq } from "drizzle-orm";
 
@@ -18,6 +19,11 @@ import { and, desc, eq } from "drizzle-orm";
  * shows "Connected" for a revoked token until something tries to use it. Fine at
  * single-user scale; a background health-check that demotes failing credentials
  * is the obvious follow-up.
+ *
+ * One of the three owners of credential encryption at rest (#453). The bearer
+ * tokens here are the ones a leaked row would hurt most — a Railway workspace
+ * token cannot be scoped down — so they are sealed on write and opened only in
+ * the two functions that exist to hand a caller a usable token.
  */
 
 /**
@@ -58,6 +64,10 @@ export interface UpsertBearerCredentialArgs {
 export async function upsertBearerCredential(
   args: UpsertBearerCredentialArgs,
 ): Promise<{ id: string }> {
+  const vault = credentialVault();
+  // Sealed once and reused by both the insert and the on-conflict update.
+  const sealedAccessToken = vault.seal(args.accessToken);
+  const sealedRefreshToken = args.refreshToken ? vault.seal(args.refreshToken) : null;
   const result = await db()
     .insert(integrationCredentials)
     .values({
@@ -65,8 +75,8 @@ export async function upsertBearerCredential(
       provider: args.provider,
       accountId: args.accountId,
       accountLabel: args.accountLabel ?? null,
-      accessToken: args.accessToken,
-      refreshToken: args.refreshToken ?? null,
+      accessToken: sealedAccessToken,
+      refreshToken: sealedRefreshToken,
       expiresAt: args.expiresAt ?? null,
       scopes: args.scopes ?? [],
       metadata: args.metadata ?? {},
@@ -79,8 +89,8 @@ export async function upsertBearerCredential(
         integrationCredentials.accountId,
       ],
       set: {
-        accessToken: args.accessToken,
-        refreshToken: args.refreshToken ?? null,
+        accessToken: sealedAccessToken,
+        refreshToken: sealedRefreshToken,
         expiresAt: args.expiresAt ?? null,
         scopes: args.scopes ?? [],
         metadata: args.metadata ?? {},
@@ -162,8 +172,16 @@ export async function listBearerCredentials(
 
 export type ActiveBearerCredential = Pick<
   IntegrationCredential,
-  "id" | "accessToken" | "accountId" | "accountLabel" | "metadata"
->;
+  "id" | "accountId" | "accountLabel" | "metadata"
+> & {
+  /**
+   * The **opened** bearer token, usable against the provider. Deliberately not
+   * derived from the column: `integration_credentials.access_token` is a sealed
+   * envelope, and one `string` type naming both representations is how a caller
+   * ends up sending ciphertext to Notion.
+   */
+  accessToken: string;
+};
 
 /**
  * List active bearer credentials, newest-updated first (capped at `limit`).
@@ -194,7 +212,8 @@ export async function listActiveBearerCredentials(
     )
     .orderBy(desc(integrationCredentials.updatedAt))
     .limit(limit);
-  return rows;
+  const vault = credentialVault();
+  return rows.map((row) => ({ ...row, accessToken: vault.open(row.accessToken) }));
 }
 
 /**
