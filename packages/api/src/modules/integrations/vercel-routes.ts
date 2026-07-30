@@ -1,3 +1,4 @@
+import { Errors } from "@alfred/contracts";
 import { serverEnv } from "@alfred/env/server";
 import {
   buildVercelInstallUrl,
@@ -13,7 +14,6 @@ import {
 import { randomBytes } from "node:crypto";
 import { Elysia, t } from "elysia";
 import { authMacro } from "../../middleware/auth";
-import { BadRequestError, NotFoundError, ServiceUnavailableError } from "../../middleware/errors";
 import {
   consumeOAuthNonce,
   rememberOAuthNonce,
@@ -41,7 +41,7 @@ export const vercelIntegrationRoutes = new Elysia({
     app
       .get("/connect", async ({ user, set }) => {
         if (!isVercelConfigured()) {
-          throw new ServiceUnavailableError("Vercel integration is not configured");
+          throw Errors.ServiceUnavailableError("Vercel integration is not configured");
         }
         const nonce = randomBytes(16).toString("hex");
         await rememberOAuthNonce({ provider: "vercel", nonce, userId: user.id });
@@ -62,7 +62,7 @@ export const vercelIntegrationRoutes = new Elysia({
             provider: "vercel",
             id: params.id,
           });
-          if (!deleted) throw new NotFoundError("Credential not found");
+          if (!deleted) throw Errors.NotFoundError("Credential not found");
           return { id: deleted.id, ok: true };
         },
         { params: t.Object({ id: t.String() }) },
@@ -78,13 +78,13 @@ export const vercelIntegrationRoutes = new Elysia({
           `${origin}/integrations?vercel_error=${encodeURIComponent(query.error)}`;
         return null;
       }
-      if (!query.code || !query.state) throw new BadRequestError("Missing code or state");
+      if (!query.code || !query.state) throw Errors.BadRequestError("Missing code or state");
 
       const decoded = verifyOAuthState(query.state);
-      if (!decoded) throw new BadRequestError("Invalid state");
+      if (!decoded) throw Errors.BadRequestError("Invalid state");
       const storedUserId = await consumeOAuthNonce("vercel", decoded.nonce);
       if (!storedUserId || storedUserId !== decoded.userId) {
-        throw new BadRequestError("Invalid or expired state");
+        throw Errors.BadRequestError("Invalid or expired state");
       }
 
       const tokens = await exchangeVercelCode(query.code);

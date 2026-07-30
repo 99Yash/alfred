@@ -2,6 +2,7 @@ import {
   TRIAGE_RAIL_SUPPRESSED_CATEGORIES,
   USAGE_ACTIVITY_DEFAULT_PAGE_SIZE,
   USAGE_ACTIVITY_MAX_PAGE_SIZE,
+  Errors,
   getPath,
   isUsageRunCategory,
   toRecord,
@@ -40,12 +41,6 @@ import {
 } from "drizzle-orm";
 import { Elysia, t } from "elysia";
 import { authMacro } from "../../middleware/auth";
-import {
-  BadRequestError,
-  ConflictError,
-  NotFoundError,
-  TooManyRequestsError,
-} from "../../middleware/errors";
 import { createCacheRedisConnection } from "../../queue/connection";
 import { resolveBriefingPreferences } from "../briefing/preferences";
 import { enqueueBriefingRun } from "../briefing/queue";
@@ -369,12 +364,12 @@ const USAGE_DEFAULT_WINDOW_DAYS = 30;
  */
 function resolveUsageRange(query: { start?: string; end?: string }): { start: Date; end: Date } {
   const end = query.end ? new Date(query.end) : new Date();
-  if (Number.isNaN(end.getTime())) throw new BadRequestError("Invalid `end` timestamp");
+  if (Number.isNaN(end.getTime())) throw Errors.BadRequestError("Invalid `end` timestamp");
   const start = query.start
     ? new Date(query.start)
     : new Date(end.getTime() - USAGE_DEFAULT_WINDOW_DAYS * 24 * 60 * 60 * 1000);
-  if (Number.isNaN(start.getTime())) throw new BadRequestError("Invalid `start` timestamp");
-  if (start.getTime() > end.getTime()) throw new BadRequestError("`start` must be before `end`");
+  if (Number.isNaN(start.getTime())) throw Errors.BadRequestError("Invalid `start` timestamp");
+  if (start.getTime() > end.getTime()) throw Errors.BadRequestError("`start` must be before `end`");
   return { start, end };
 }
 
@@ -402,7 +397,7 @@ export const meRoutes = new Elysia({ prefix: "/api/me", normalize: "typebox" })
           // with `lt` would leak the tied row off the next page).
           const parsedCursor = parseInboxCursor(query.cursor);
           if (parsedCursor === "invalid") {
-            throw new BadRequestError("Invalid cursor");
+            throw Errors.BadRequestError("Invalid cursor");
           }
 
           const baseWhere = and(
@@ -528,7 +523,7 @@ export const meRoutes = new Elysia({ prefix: "/api/me", normalize: "typebox" })
             .limit(1);
 
           const selected = selectedRows[0];
-          if (!selected) throw new NotFoundError("Not found");
+          if (!selected) throw Errors.NotFoundError("Not found");
 
           // Fan out to every sibling message in the same thread. Falls
           // back to the single row when the thread id is null (extremely
@@ -683,7 +678,7 @@ export const meRoutes = new Elysia({ prefix: "/api/me", normalize: "typebox" })
             return granted.includes(modifyScope);
           });
           if (modifyCreds.length === 0) {
-            throw new ConflictError(
+            throw Errors.ConflictError(
               "Gmail modify scope not granted. Reconnect Gmail to enable this action.",
             );
           }
@@ -706,7 +701,7 @@ export const meRoutes = new Elysia({ prefix: "/api/me", normalize: "typebox" })
             markedRows.push(...group);
           }
           if (markedRows.length === 0) {
-            throw new ConflictError(
+            throw Errors.ConflictError(
               "Gmail modify scope not granted for these messages. Reconnect Gmail to enable this action.",
             );
           }
@@ -900,7 +895,7 @@ export const meRoutes = new Elysia({ prefix: "/api/me", normalize: "typebox" })
 
         const claimed = await claimBriefingRunRetry({ userId: u.id, briefingDate, slot });
         if (!claimed) {
-          throw new TooManyRequestsError(
+          throw Errors.TooManyRequestsError(
             "Briefing generation is already retrying. Try again in a minute.",
           );
         }

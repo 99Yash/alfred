@@ -1,6 +1,8 @@
 import {
   type ChatAttachmentDescriptor,
   classifyUpload,
+  Errors,
+  isApiError,
   isPassThrough,
   MAX_ATTACHMENT_BYTES_PER_MESSAGE,
   MAX_ATTACHMENTS_PER_MESSAGE,
@@ -8,7 +10,6 @@ import {
 } from "@alfred/contracts";
 import type { NewChatAttachment } from "@alfred/db/schemas";
 import sharp from "sharp";
-import { BadRequestError } from "../../middleware/errors";
 import { buildAttachmentKey, headObject } from "./storage";
 
 /**
@@ -88,10 +89,10 @@ export async function assertPassThroughImageBytes(
 ): Promise<void> {
   const actualMime = sniffPassThroughImageMime(bytes);
   if (!actualMime) {
-    throw new BadRequestError("File contents are not a supported image");
+    throw Errors.BadRequestError("File contents are not a supported image");
   }
   if (actualMime !== normalizedMime(declaredMime)) {
-    throw new BadRequestError("File contents don't match the declared image type");
+    throw Errors.BadRequestError("File contents don't match the declared image type");
   }
   try {
     const input = Buffer.from(bytes);
@@ -101,18 +102,18 @@ export async function assertPassThroughImageBytes(
     }).metadata();
     const decodedMime = sharpFormatToMime(metadata.format);
     if (!decodedMime) {
-      throw new BadRequestError("File contents are not a supported image");
+      throw Errors.BadRequestError("File contents are not a supported image");
     }
     if (decodedMime !== normalizedMime(declaredMime)) {
-      throw new BadRequestError("File contents don't match the declared image type");
+      throw Errors.BadRequestError("File contents don't match the declared image type");
     }
     const width = metadata.width ?? 0;
     const height = metadata.height ?? 0;
     if (width < MIN_MODEL_IMAGE_EDGE_PX || height < MIN_MODEL_IMAGE_EDGE_PX) {
-      throw new BadRequestError("Image is too small to attach");
+      throw Errors.BadRequestError("Image is too small to attach");
     }
     if (width > MAX_MODEL_IMAGE_EDGE_PX || height > MAX_MODEL_IMAGE_EDGE_PX) {
-      throw new BadRequestError("Image dimensions are too large");
+      throw Errors.BadRequestError("Image dimensions are too large");
     }
 
     // Force libvips to decode pixels, not just parse container metadata.
@@ -123,8 +124,8 @@ export async function assertPassThroughImageBytes(
       .resize({ width: 1, height: 1, fit: "inside" })
       .toBuffer();
   } catch (err) {
-    if (err instanceof BadRequestError) throw err;
-    throw new BadRequestError("Image could not be decoded");
+    if (isApiError(err, "BAD_REQUEST")) throw err;
+    throw Errors.BadRequestError("Image could not be decoded");
   }
 }
 
@@ -138,17 +139,17 @@ export async function assertPassThroughImageBytes(
 export function assertUploadAllowed(mime: string, size: number): IngestPolicyEntry {
   const policy = classifyUpload(mime);
   if (!policy) {
-    throw new BadRequestError(`Unsupported file type: ${mime || "unknown"}`);
+    throw Errors.BadRequestError(`Unsupported file type: ${mime || "unknown"}`);
   }
   if (!isPassThrough(mime)) {
-    throw new BadRequestError(
+    throw Errors.BadRequestError(
       "Only image uploads are supported right now — other file types are coming soon.",
     );
   }
-  if (size <= 0) throw new BadRequestError("File must not be empty");
+  if (size <= 0) throw Errors.BadRequestError("File must not be empty");
   if (size > policy.maxBytes) {
     const mb = Math.round(policy.maxBytes / (1024 * 1024));
-    throw new BadRequestError(`File is too large — the limit is ${mb} MB`);
+    throw Errors.BadRequestError(`File is too large — the limit is ${mb} MB`);
   }
   return policy;
 }
@@ -157,12 +158,12 @@ export function assertAttachmentBatchAllowed(
   attachments: readonly Pick<AttachmentInput, "size">[],
 ): void {
   if (attachments.length > MAX_ATTACHMENTS_PER_MESSAGE) {
-    throw new BadRequestError(`You can attach up to ${MAX_ATTACHMENTS_PER_MESSAGE} files`);
+    throw Errors.BadRequestError(`You can attach up to ${MAX_ATTACHMENTS_PER_MESSAGE} files`);
   }
   const totalBytes = attachments.reduce((sum, attachment) => sum + attachment.size, 0);
   if (totalBytes > MAX_ATTACHMENT_BYTES_PER_MESSAGE) {
     const mb = Math.round(MAX_ATTACHMENT_BYTES_PER_MESSAGE / (1024 * 1024));
-    throw new BadRequestError(`Attachments are too large — the combined limit is ${mb} MB`);
+    throw Errors.BadRequestError(`Attachments are too large — the combined limit is ${mb} MB`);
   }
 }
 
@@ -211,12 +212,12 @@ export function validateStoredMeta(opts: {
   declared: { mime: string; size: number };
 }): void {
   if (opts.stored.size !== opts.declared.size) {
-    throw new BadRequestError("Attachment upload size doesn't match the sent message");
+    throw Errors.BadRequestError("Attachment upload size doesn't match the sent message");
   }
   const storedMime = normalizedMime(opts.stored.contentType);
   const declaredMime = normalizedMime(opts.declared.mime);
   if (storedMime && storedMime !== declaredMime) {
-    throw new BadRequestError("Stored attachment type doesn't match the sent message");
+    throw Errors.BadRequestError("Stored attachment type doesn't match the sent message");
   }
 }
 
@@ -242,7 +243,7 @@ export async function assertStoredAttachmentReady(opts: {
   try {
     meta = await headObject(opts.storageKey);
   } catch {
-    throw new BadRequestError("Attachment upload is missing or incomplete");
+    throw Errors.BadRequestError("Attachment upload is missing or incomplete");
   }
   validateStoredMeta({ stored: meta, declared: { mime: opts.mime, size: opts.size } });
 }
