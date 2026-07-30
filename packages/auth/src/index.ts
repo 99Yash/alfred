@@ -40,6 +40,26 @@ export function auth() {
         }),
       },
     },
+    account: {
+      accountLinking: {
+        // CVE-2026-53516 (#455). The OAuth callback used to link a provider
+        // onto an existing user whenever the *provider* asserted
+        // `email_verified`, without checking the *local* account's
+        // `emailVerified` — so an attacker who pre-registered a local account
+        // under a victim's address inherited the victim's federated sign-in.
+        //
+        // 1.6.11 fixed the missing check and defaults
+        // `requireLocalEmailVerified` to true. This flag is the stronger,
+        // independent statement: never link implicitly at all, whatever the
+        // provider claims and whoever we trust. A user who wants a second
+        // provider must call `linkSocial()` while already authenticated.
+        //
+        // Google is the only sign-in path today, so this changes no live
+        // behavior. It is set now because ADR-0009 specifies magic-link and
+        // passkey, and the linking surface arms the moment either ships.
+        disableImplicitLinking: true,
+      },
+    },
     databaseHooks: {
       user: {
         create: {

@@ -15,6 +15,12 @@ import { user } from "./auth";
  * Replicache pokes intentionally do NOT go through this table — they have a
  * separate, lower-latency bus (events/replicache-events.ts) because pokes are
  * idempotent hints, not durable state.
+ *
+ * Retention is bounded (#533): `events/outbox-reaper.ts` deletes rows whose
+ * `published_at` is older than `OUTBOX_RETENTION_MS`, and never deletes a row
+ * with `published_at IS NULL` because that row is undelivered work. Ids are
+ * never reused, so replay cursors stay valid — a cursor older than the window
+ * simply points at reaped history.
  */
 export const eventsOutbox = pgTable(
   "events_outbox",
