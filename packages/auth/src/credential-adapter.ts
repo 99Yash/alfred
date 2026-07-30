@@ -16,18 +16,21 @@ import type { drizzleAdapter } from "better-auth/adapters/drizzle";
  * own OAuth refresh and account-linking code keeps seeing plaintext and needs no
  * change.
  *
- * Why not Better Auth's own `account.encryptOAuthTokens` option: in the
- * installed 1.6.9 its write path does not cover `id_token`, it does not
+ * Why not Better Auth's own `account.encryptOAuthTokens` option: as of the
+ * installed 1.6.25 its write path does not cover `id_token`, it does not
  * transparently decrypt general adapter reads (only the paths it knows about),
  * and it derives its key from the Better Auth application secret rather than the
  * separate credential KEK this vault requires.
  */
 
 /**
- * Derived from `drizzleAdapter` rather than imported: better-auth 1.6.9 exports
- * `AdapterFactory` but not the `DBAdapter` instance type it produces, and
- * deriving both from the value we actually pass keeps this decorator correct
- * across a version bump instead of pinning a hand-copied shape.
+ * Derived from `drizzleAdapter` rather than imported.
+ *
+ * `@better-auth/core/db/adapter` does export `DBAdapter` as of 1.6.25, but that
+ * package is a transitive dependency of `better-auth` and not a dependency of
+ * `@alfred/auth`, so importing from it would be a phantom dependency that a
+ * hoisting change could break. Deriving from the value we actually pass costs
+ * nothing and cannot drift from it.
  */
 type AuthAdapterFactory = ReturnType<typeof drizzleAdapter>;
 type AuthAdapter = ReturnType<AuthAdapterFactory>;
@@ -122,13 +125,64 @@ function rejectSealedWhere(where: ReadonlyArray<{ field: string }> | undefined):
 type WithoutTransaction = Omit<AuthAdapter, "transaction">;
 
 /**
+ * What this decorator owes each adapter member.
+ *
+ * - `seal` — the member reads or writes a token value, so it needs
+ *   `sealWrite` on the way down, `openRow` on the way back, or both.
+ * - `guard-where` — the member never touches a token value but does take a
+ *   `where`, so it needs `rejectSealedWhere` and nothing else. Filtering on a
+ *   sealed column can never match, and for these members that surfaces as
+ *   "deleted 0 rows" or "count 0" rather than an error.
+ * - `inert` — no `where`, no row values. Nothing to do.
+ */
+type MemberDuty = "seal" | "guard-where" | "inert";
+
+/**
+ * Every member of the adapter, classified — and exhaustive by construction.
+ *
+ * This exists because the completeness of this boundary used to rest on a
+ * spread plus a comment listing method names. A spread passes anything new
+ * straight through, and better-auth proved the point: 1.6.25 added `consumeOne`
+ * and `incrementOne`, both of which take a `where` and return a row, and both
+ * crossed this seam undecorated while the comment above the spread still read as
+ * complete.
+ *
+ * The `satisfies` is the enforcement, and it runs both ways. A release that adds
+ * an adapter method fails the build here until someone classifies it; and once
+ * classified as anything but `inert`, `DecoratedMember` below makes the build
+ * fail again until an implementation exists. That is the difference between a
+ * documented boundary and a checked one.
+ */
+const MEMBER_DUTIES = {
+  create: "seal",
+  findOne: "seal",
+  findMany: "seal",
+  update: "seal",
+  updateMany: "seal",
+  consumeOne: "seal",
+  incrementOne: "seal",
+  count: "guard-where",
+  delete: "guard-where",
+  deleteMany: "guard-where",
+  id: "inert",
+  createSchema: "inert",
+  options: "inert",
+} satisfies Record<keyof WithoutTransaction, MemberDuty>;
+
+/** The members this module must supply an implementation for. */
+type DecoratedMember = {
+  [K in keyof typeof MEMBER_DUTIES]: (typeof MEMBER_DUTIES)[K] extends "inert" ? never : K;
+}[keyof typeof MEMBER_DUTIES];
+
+/**
  * Each decorated operation is written against the *instantiated* parameter type
  * and then asserted back to the generic member type.
  *
  * That assertion is unavoidable rather than lazy: `create`, `findOne`,
- * `findMany`, and `update` are generic in their row type, and TypeScript has no
- * way to say "same signature, same type parameter, one transform applied to the
- * result". The alternative is to re-declare four generic signatures by hand,
+ * `findMany`, `update`, `delete`, `consumeOne`, and `incrementOne` are generic in
+ * their row type, and TypeScript has no way to say "same signature, same type
+ * parameter, one transform applied to the result". The alternative is to
+ * re-declare seven generic signatures by hand,
  * which is the parallel-shape duplication the repo bans and would silently rot
  * on a better-auth bump. The row transform is `unknown`-in / `unknown`-out and
  * validates every value it opens, so the runtime guarantee does not rest on the
@@ -176,9 +230,76 @@ function decorateOperations(base: WithoutTransaction, vault: CredentialVault): W
     return base.updateMany({ ...data, update: sealWrite(data.update, vault) });
   };
 
-  // `count`, `delete`, `deleteMany`, `id`, `createSchema`, and `options` never
-  // carry a token value, so they delegate untouched.
-  return { ...base, create, findOne, findMany, update, updateMany };
+  /**
+   * Added in better-auth 1.6.25. Deletes one row and returns it, which makes it
+   * a read of token values as much as a delete — an undecorated pass-through
+   * would hand Better Auth raw envelopes and it would use them as tokens.
+   */
+  const consumeOne = (async (data: Parameters<AuthAdapter["consumeOne"]>[0]) => {
+    if (data.model !== ACCOUNT_MODEL) return base.consumeOne(data);
+    rejectSealedWhere(data.where);
+    const result = await base.consumeOne(data);
+    return openRow(result, vault);
+  }) as AuthAdapter["consumeOne"];
+
+  /**
+   * Added in better-auth 1.6.25. Its `set` map writes absolute values in the
+   * same atomic step as the increments, so it is a write path for token fields
+   * and has to seal. `increment` itself is numeric; a sealed field holds a
+   * string envelope, so incrementing one is incoherent rather than merely wrong
+   * and is refused.
+   */
+  const incrementOne = (async (data: Parameters<AuthAdapter["incrementOne"]>[0]) => {
+    if (data.model !== ACCOUNT_MODEL) return base.incrementOne(data);
+    rejectSealedWhere(data.where);
+    for (const field of Object.keys(data.increment)) {
+      if (isSealedField(field)) throw new CredentialVaultError("malformed_envelope");
+    }
+    const result = await base.incrementOne({
+      ...data,
+      ...(data.set ? { set: sealWrite(data.set, vault) } : {}),
+    });
+    return openRow(result, vault);
+  }) as AuthAdapter["incrementOne"];
+
+  /**
+   * `count`, `delete`, and `deleteMany` never carry a token value, but they do
+   * carry a `where`. A filter on a sealed column matches nothing, so without
+   * this they would answer "0 rows" — a silent wrong answer of exactly the kind
+   * `rejectSealedWhere` exists to prevent, just quieter than a failed sign-in.
+   */
+  const count: AuthAdapter["count"] = async (data) => {
+    if (data.model === ACCOUNT_MODEL) rejectSealedWhere(data.where);
+    return base.count(data);
+  };
+
+  const remove = (async (data: Parameters<AuthAdapter["delete"]>[0]) => {
+    if (data.model === ACCOUNT_MODEL) rejectSealedWhere(data.where);
+    return base.delete(data);
+  }) as AuthAdapter["delete"];
+
+  const deleteMany: AuthAdapter["deleteMany"] = async (data) => {
+    if (data.model === ACCOUNT_MODEL) rejectSealedWhere(data.where);
+    return base.deleteMany(data);
+  };
+
+  // Annotated, not inferred: the annotation is what makes a member classified
+  // `seal` or `guard-where` above and then forgotten here a build failure.
+  const decorated: Pick<WithoutTransaction, DecoratedMember> = {
+    create,
+    findOne,
+    findMany,
+    update,
+    updateMany,
+    consumeOne,
+    incrementOne,
+    count,
+    delete: remove,
+    deleteMany,
+  };
+
+  // `id`, `createSchema`, and `options` are the `inert` members and delegate.
+  return { ...base, ...decorated };
 }
 
 /**

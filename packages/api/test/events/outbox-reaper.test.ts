@@ -6,7 +6,15 @@ import { closeConnections, db } from "@alfred/db";
 import { eventsOutbox, user } from "@alfred/db/schemas";
 import { inArray } from "drizzle-orm";
 
-import { OUTBOX_RETENTION_MS, reapOutboxOnce } from "../../src/events/outbox-reaper";
+import {
+  isOutboxReaperRunning,
+  MAX_BATCHES_PER_PASS,
+  OUTBOX_RETENTION_MS,
+  REAP_BATCH_SIZE,
+  reapOutboxOnce,
+  startOutboxReaper,
+  stopOutboxReaper,
+} from "../../src/events/outbox-reaper";
 
 /**
  * Retention for `events_outbox` (#533), asserted against a real database.
@@ -56,6 +64,28 @@ async function seed(userId: string, now: Date): Promise<Seeded> {
     freshPublished: rows[1]?.id as number,
     oldUnpublished: rows[2]?.id as number,
   };
+}
+
+/**
+ * A signal that reports "not aborted" for its first `reads` reads and aborted
+ * after.
+ *
+ * A plain `AbortController` cannot express "abort between batch 1 and batch 2"
+ * without a race, and the placement of the check is precisely what is under
+ * test: a check placed *before* the loop, or omitted, changes how many rows the
+ * pass deletes. Only `aborted` is overridden, so every other member still
+ * behaves like the real signal it proxies.
+ */
+function signalAbortingAfterReads(reads: number): AbortSignal {
+  const controller = new AbortController();
+  let seen = 0;
+  return new Proxy(controller.signal, {
+    get(target, prop, receiver) {
+      if (prop === "aborted") return seen++ >= reads;
+      const value = Reflect.get(target, prop, receiver);
+      return typeof value === "function" ? value.bind(target) : value;
+    },
+  });
 }
 
 async function survivors(ids: number[]): Promise<Set<number>> {
@@ -135,5 +165,131 @@ describe("events_outbox retention", { skip: SKIP }, () => {
     const alive = await survivors([seeded.freshPublished, seeded.oldUnpublished]);
     assert.equal(alive.has(seeded.freshPublished), false);
     assert.equal(alive.has(seeded.oldUnpublished), true);
+  });
+
+  /**
+   * The paging bounds — the property the module docstring leads with, and the one
+   * that had no coverage.
+   *
+   * `batchSize` and `maxBatches` are lowered here rather than seeded around: at
+   * production values the cap only becomes observable at 100,001 rows. The bounds
+   * being parameters is what makes these cases cheap; the defaults are still the
+   * contract, and the case below pins them.
+   */
+  test("a pass stops at maxBatches * batchSize and leaves the rest for the next pass", async () => {
+    const now = new Date();
+    const userId = await seedUser();
+    const expired = new Date(now.getTime() - OUTBOX_RETENTION_MS - HOUR_MS);
+
+    // 10 deletable rows, and a pass allowed to take only 6 of them.
+    const rows = await db()
+      .insert(eventsOutbox)
+      .values(
+        Array.from({ length: 10 }, () => ({
+          userId,
+          kind: "chat.delta" as const,
+          payload: {},
+          createdAt: expired,
+          publishedAt: expired,
+        })),
+      )
+      .returning({ id: eventsOutbox.id });
+    const ids = rows.map((r) => r.id);
+
+    const deleted = await reapOutboxOnce(now, { batchSize: 2, maxBatches: 3 });
+
+    assert.equal(deleted, 6, "3 batches of 2 must stop at 6, not drain all 10");
+    const alive = await survivors(ids);
+    assert.equal(alive.size, 4, "the remainder must survive the capped pass");
+    // Oldest-first, because the page is ordered by id. A backlog must drain in
+    // insertion order rather than leaving arbitrary holes.
+    assert.deepEqual(
+      [...alive].sort((a, b) => a - b),
+      ids.slice(6),
+    );
+
+    // The next pass picks up where this one stopped — that is what makes the cap
+    // a spread rather than a leak.
+    const second = await reapOutboxOnce(now, { batchSize: 2, maxBatches: 3 });
+    assert.equal(second, 4);
+    assert.equal((await survivors(ids)).size, 0);
+  });
+
+  test("the shipped bounds are 5,000 rows over 20 batches", () => {
+    // A pass caps at 100,000 rows an hour. If either constant moves, the pool
+    // note and the timing claim in the module docstring need re-checking, so the
+    // numbers are pinned rather than merely read from the export.
+    assert.equal(REAP_BATCH_SIZE, 5_000);
+    assert.equal(MAX_BATCHES_PER_PASS, 20);
+  });
+
+  test("an aborted signal stops the pass between batches", async () => {
+    const now = new Date();
+    const userId = await seedUser();
+    const expired = new Date(now.getTime() - OUTBOX_RETENTION_MS - HOUR_MS);
+
+    const rows = await db()
+      .insert(eventsOutbox)
+      .values(
+        Array.from({ length: 6 }, () => ({
+          userId,
+          kind: "chat.delta" as const,
+          payload: {},
+          createdAt: expired,
+          publishedAt: expired,
+        })),
+      )
+      .returning({ id: eventsOutbox.id });
+    const ids = rows.map((r) => r.id);
+
+    // Aborted before the first batch: nothing may be deleted at all.
+    const upfront = new AbortController();
+    upfront.abort();
+    assert.equal(await reapOutboxOnce(now, { batchSize: 2, signal: upfront.signal }), 0);
+    assert.equal((await survivors(ids)).size, 6, "an already-aborted pass must not delete");
+
+    // Aborted *after* the first batch. `reapOutboxOnce` reads `signal.aborted`
+    // once per iteration, so a signal that reports false exactly once proves the
+    // check sits between batches — the thing whose absence made the reaper's
+    // documented shutdown protection false.
+    const deleted = await reapOutboxOnce(now, {
+      batchSize: 2,
+      signal: signalAbortingAfterReads(1),
+    });
+    assert.equal(deleted, 2, "exactly one batch may land before the abort is noticed");
+    assert.equal((await survivors(ids)).size, 4);
+  });
+
+  test("a second concurrent pass yields instead of racing the first", async () => {
+    const now = new Date();
+    const userId = await seedUser();
+    const seeded = await seed(userId, now);
+
+    // Both calls start before either awaits a round trip, so the guard is
+    // exercised deterministically. Without it both passes would select the same
+    // id page and the loser would hold a pool connection to delete nothing.
+    const [first, second] = await Promise.all([reapOutboxOnce(now), reapOutboxOnce(now)]);
+
+    assert.equal(second, 0, "the second caller must yield — the guard is on the entrypoint");
+    assert.ok(first >= 1, "the first caller still does the work");
+    assert.equal((await survivors([seeded.oldPublished])).size, 0);
+  });
+
+  test("start is idempotent and stop leaves the reaper stoppable again", async () => {
+    assert.equal(isOutboxReaperRunning(), false, "not running before start");
+
+    startOutboxReaper();
+    startOutboxReaper();
+    assert.equal(isOutboxReaperRunning(), true);
+
+    await stopOutboxReaper();
+    assert.equal(isOutboxReaperRunning(), false);
+
+    // A restart must work: the process-level bridge starts and stops this on
+    // every boot, and an AbortSignal cannot be un-aborted.
+    startOutboxReaper();
+    assert.equal(isOutboxReaperRunning(), true);
+    await stopOutboxReaper();
+    assert.equal(isOutboxReaperRunning(), false);
   });
 });

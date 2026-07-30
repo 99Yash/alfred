@@ -8,6 +8,10 @@
  *
  * Shutdown reverses that order: stop the reaper so no DELETE is open, then the
  * relay so we don't enqueue frames into a torn-down bus, then close the bus.
+ *
+ * Both loops run on `PeriodicTask`, so "stop" means the in-flight pass is
+ * aborted and awaited rather than merely un-scheduled. That is what lets
+ * `apps/server/src/runtime.ts` call `closeConnections()` after this resolves.
  */
 import { startOutboxReaper, stopOutboxReaper } from "./outbox-reaper";
 import { startOutboxRelay, stopOutboxRelay } from "./outbox-relay";
