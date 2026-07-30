@@ -29,9 +29,12 @@ import { user } from "./auth";
  * `@alfred/db/credential-vault` owns that representation, and the three
  * persistence modules in `@alfred/integrations` (Google, GitHub, shared bearer)
  * are the only writers. Both columns are typed {@link SealedCredentialSecret},
- * so a plaintext write does not compile — the brand is only mintable by
- * `credentialVault().seal`. A test that deliberately seeds the pre-#453
- * plaintext shape casts, and says so at the cast.
+ * which is nominal in both directions: a plaintext write does not compile,
+ * because the brand is only mintable by `credentialVault().seal`, and a
+ * persisted value cannot reach a provider header, a template literal, or any
+ * `string` parameter without `credentialVault().open` first. A test that
+ * deliberately seeds the pre-#453 plaintext shape casts, and says so at the
+ * cast.
  *
  * Better Auth's `account` table cannot have the same guard: its adapter hands
  * the driver a loosely typed payload, so nothing there would typecheck against

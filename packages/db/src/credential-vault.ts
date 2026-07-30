@@ -77,13 +77,30 @@ export class CredentialVaultError extends Error {
 declare const sealedCredentialSecret: unique symbol;
 
 /**
- * A sealed token as it is stored. Physically a `text` column value; the brand
- * stops typed code from handing an already-sealed value back to {@link
- * CredentialVault.seal}. The runtime parser in `open` stays authoritative,
- * because a value read out of Postgres is `unknown` no matter what the type
- * says.
+ * A sealed token as it is stored. Physically a `text` column value, and
+ * deliberately **not** a `string` to the type system: the only way out of this
+ * type is {@link CredentialVault.open}.
+ *
+ * Why the base is `symbol` rather than `string`. A `string & { brand }` is still
+ * assignable to `string`, so it guards only the direction nobody was going:
+ * `` `Bearer ${row.accessToken}` `` and `"Bearer " + row.accessToken` both
+ * compile against it and ship an envelope to a provider. Intersecting with
+ * `symbol` makes TypeScript reject implicit string conversion — TS2731 for a
+ * template literal, TS2469 for `+`, TS2339 for `.length` — on top of every
+ * `string` parameter and assignment, so an accidental plaintext/ciphertext
+ * confusion cannot compile in either direction. The base type is a claim about
+ * what a caller may do with the value, not about its runtime representation; the
+ * value is a string at run time and `text` in Postgres.
+ *
+ * What still compiles, honestly: an *explicit* conversion — `String(value)`, a
+ * `JSON.stringify` of the whole row, an `as unknown as string`. Those are
+ * deliberate acts, and the point of the brand is that the careless spelling is
+ * not one of them.
+ *
+ * The runtime parser in `open` stays authoritative regardless, because a value
+ * read out of Postgres is `unknown` no matter what the column type says.
  */
-export type SealedCredentialSecret = string & {
+export type SealedCredentialSecret = symbol & {
   readonly [sealedCredentialSecret]: true;
 };
 
@@ -180,6 +197,8 @@ export function createCredentialVault(kek: Uint8Array): CredentialVault {
       const ciphertext = Buffer.concat([cipher.update(plaintext, "utf8"), cipher.final()]);
       const tag = cipher.getAuthTag();
 
+      // The one mint site for the brand. Everything downstream must go through
+      // `open` to see a string again.
       return [
         PREFIX,
         ALGORITHM,
@@ -190,7 +209,7 @@ export function createCredentialVault(kek: Uint8Array): CredentialVault {
         encode(nonce),
         encode(ciphertext),
         encode(tag),
-      ].join(PART_SEPARATOR) as SealedCredentialSecret;
+      ].join(PART_SEPARATOR) as unknown as SealedCredentialSecret;
     } finally {
       // `createCipheriv` copies the key, so the DEK is no longer needed. Best
       // effort — it does not defend a heap dump taken mid-call.
@@ -307,8 +326,19 @@ export interface CredentialBackfillResult {
   unopenableRemaining: number;
 }
 
-/** The five columns that hold a bearer or refresh capability. */
-const ACCOUNT_SECRET_FIELDS = ["accessToken", "refreshToken", "idToken"] as const;
+/**
+ * The five columns that hold a bearer or refresh capability.
+ *
+ * `ACCOUNT_SECRET_FIELDS` is exported because two boundaries must agree on it
+ * exactly: `encryptedAuthAdapter` in `@alfred/auth` seals and opens these fields,
+ * and the boot gate below refuses to start unless every one of them is sealed. A
+ * field the adapter seals but the gate does not check leaves a column nothing
+ * verifies; a field the gate checks but the adapter does not seal makes the
+ * process refuse to boot forever. One tuple, owned here beside the rest of the
+ * column catalog, is what keeps the two lists from drifting.
+ */
+export const ACCOUNT_SECRET_FIELDS = ["accessToken", "refreshToken", "idToken"] as const;
+export type AccountSecretField = (typeof ACCOUNT_SECRET_FIELDS)[number];
 const INTEGRATION_SECRET_FIELDS = ["accessToken", "refreshToken"] as const;
 
 /**
@@ -319,15 +349,32 @@ const INTEGRATION_SECRET_FIELDS = ["accessToken", "refreshToken"] as const;
  * the classification attempts the decryption. The plaintext it recovers is
  * discarded immediately and never leaves this function.
  */
-type PersistedTokenState = "plaintext" | "openable" | "unopenable";
+type PersistedTokenState =
+  | { readonly state: "absent" }
+  | { readonly state: "plaintext"; readonly plaintext: string }
+  | { readonly state: "openable" }
+  | { readonly state: "unopenable" };
 
-function classifyPersisted(value: string, vault: CredentialVault): PersistedTokenState {
-  if (!vault.isSealed(value)) return "plaintext";
+/**
+ * The value arrives as `unknown` on purpose. `integration_credentials` types its
+ * token columns {@link SealedCredentialSecret}, and this pass exists precisely
+ * for the rows where that claim is not yet true, so the column type is the one
+ * thing it must not believe. The `plaintext` arm carries the narrowed string, so
+ * the caller seals a value this function already validated rather than
+ * re-deriving it.
+ */
+function classifyPersisted(value: unknown, vault: CredentialVault): PersistedTokenState {
+  if (value === null || value === undefined) return { state: "absent" };
+  // A `text` column cannot hold a non-string, so this arm is unreachable in
+  // practice. It answers `unopenable` rather than `plaintext` so an impossible
+  // value fails the gate closed instead of being handed to `seal`.
+  if (typeof value !== "string") return { state: "unopenable" };
+  if (!vault.isSealed(value)) return { state: "plaintext", plaintext: value };
   try {
     vault.open(value);
-    return "openable";
+    return { state: "openable" };
   } catch {
-    return "unopenable";
+    return { state: "unopenable" };
   }
 }
 
@@ -339,38 +386,49 @@ function classifyPersisted(value: string, vault: CredentialVault): PersistedToke
  * inside the transaction rolls the whole run back.
  */
 function sealPending<Field extends string>(
-  row: Readonly<Record<Field, string | null>>,
+  row: Readonly<Record<Field, unknown>>,
   fields: readonly Field[],
   vault: CredentialVault,
 ): Partial<Record<Field, SealedCredentialSecret>> {
   const pending: Partial<Record<Field, SealedCredentialSecret>> = {};
   for (const field of fields) {
-    const value = row[field];
-    if (value === null) continue;
-    const state = classifyPersisted(value, vault);
-    if (state === "openable") continue;
-    if (state === "unopenable") {
+    const classified = classifyPersisted(row[field], vault);
+    if (classified.state === "absent" || classified.state === "openable") continue;
+    if (classified.state === "unopenable") {
       throw new CredentialVaultError(
         "unopenable_remaining",
         "a persisted envelope does not open with the configured OAUTH_CREDENTIAL_KEK — this pass converts plaintext, it cannot rewrap another key's envelope",
       );
     }
-    pending[field] = vault.seal(value);
+    pending[field] = vault.seal(classified.plaintext);
   }
   return pending;
 }
 
+/**
+ * The same map, typed for `account`'s unbranded columns.
+ *
+ * `SealedCredentialSecret` is not assignable to `string`, which is the whole
+ * point of the brand — but Better Auth owns `account`'s payload types, so those
+ * Drizzle columns stay plain `text` (the schema docblock records the asymmetry)
+ * and an update there needs the text back. File-private on purpose: `open` is
+ * the only public way out of the brand.
+ */
+function asUnbranded<Field extends string>(
+  pending: Partial<Record<Field, SealedCredentialSecret>>,
+): Partial<Record<Field, string>> {
+  return pending as unknown as Partial<Record<Field, string>>;
+}
+
 function countUnsealed<Field extends string>(
-  row: Readonly<Record<Field, string | null>>,
+  row: Readonly<Record<Field, unknown>>,
   fields: readonly Field[],
   vault: CredentialVault,
 ): { plaintext: number; unopenable: number } {
   let plaintext = 0;
   let unopenable = 0;
   for (const field of fields) {
-    const value = row[field];
-    if (value === null) continue;
-    const state = classifyPersisted(value, vault);
+    const { state } = classifyPersisted(row[field], vault);
     if (state === "plaintext") plaintext += 1;
     else if (state === "unopenable") unopenable += 1;
   }
@@ -419,7 +477,7 @@ export async function encryptPersistedOAuthCredentials(options?: {
       for (const row of accountRows) {
         const pending = sealPending(row, ACCOUNT_SECRET_FIELDS, vault);
         if (Object.keys(pending).length === 0) continue;
-        await tx.update(account).set(pending).where(eq(account.id, row.id));
+        await tx.update(account).set(asUnbranded(pending)).where(eq(account.id, row.id));
         accountsUpdated += 1;
       }
 
