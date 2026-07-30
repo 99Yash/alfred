@@ -20,13 +20,18 @@
 #   SLUG            campaign slug; inferred when .campaign/ holds exactly one
 #   ITEM            restrict to a single item id
 #   MAX_ITER        default 20
-#   MAX_BUDGET_USD  default 12, PER ITERATION — there is no overall cap, so the
-#                   ceiling on a run is MAX_ITER × MAX_BUDGET_USD. Measured phase
-#                   costs: design ~$2.9, implement ~$4.1, revise ~$2.5, review
-#                   $6.6–9.0. A `review` phase fans out to three subagent lanes
-#                   inside ONE iteration, so anything under ~$10 kills it *after*
-#                   the lanes write and *during* synthesis — the reports are on
-#                   disk and salvageable, but the item parks with no verdict.
+#   MAX_BUDGET_USD  default 8, PER ITERATION, for every phase EXCEPT review.
+#                   There is no overall cap, so the ceiling on a run is
+#                   MAX_ITER × the largest per-phase budget. Measured phase costs:
+#                   design ~$2.9, implement ~$4.1, revise ~$2.5. 8 leaves roughly
+#                   2x headroom over the most expensive write phase.
+#   REVIEW_BUDGET_USD
+#                   default 12, and it is NOT bounded by MAX_BUDGET_USD — a review
+#                   phase fans out to three subagent lanes and then synthesizes
+#                   them inside ONE iteration, measured at $6.6–9.0. Anything under
+#                   ~$10 kills it *after* the lanes write and *during* synthesis:
+#                   the reports are on disk and salvageable, but the item parks
+#                   with no verdict. Lower this only to park a review deliberately.
 #   MIN_PHASE_SECONDS
 #                   default 15. Below this, a non-progressing phase is treated as
 #                   never having run rather than as stuck. See the guard below.
@@ -35,7 +40,8 @@
 set -euo pipefail
 
 MAX_ITER="${MAX_ITER:-20}"
-MAX_BUDGET_USD="${MAX_BUDGET_USD:-12}"
+MAX_BUDGET_USD="${MAX_BUDGET_USD:-8}"
+REVIEW_BUDGET_USD="${REVIEW_BUDGET_USD:-12}"
 MIN_PHASE_SECONDS="${MIN_PHASE_SECONDS:-15}"
 DRY_RUN="${DRY_RUN:-0}"
 ITEM="${ITEM:-}"
@@ -183,7 +189,7 @@ build_prompt() {
 
 # --- main loop ------------------------------------------------------------
 
-echo "campaign: $SLUG   base: $BASE_BRANCH   budget: \$$MAX_BUDGET_USD/iter"
+echo "campaign: $SLUG   base: $BASE_BRANCH   budget: \$$MAX_BUDGET_USD/iter, \$$REVIEW_BUDGET_USD for review"
 [[ -n "$ITEM" ]] && echo "restricted to item $ITEM"
 
 completed=0
@@ -210,8 +216,16 @@ for ((i = 1; i <= MAX_ITER; i++)); do
   [[ -f "$item_file" ]] || { echo "missing item file $item_file" >&2; exit 1; }
   [[ -n "$worktree" ]] || worktree="$REPO_ROOT/.claude/worktrees/$SLUG-$id"
 
+  # A review phase pays for three subagent lanes plus synthesis in one iteration;
+  # every other phase is a single lane. One budget for both starves one or overpays
+  # the other, so the phase picks.
+  case "$phase" in
+    review) iter_budget="$REVIEW_BUDGET_USD" ;;
+    *)      iter_budget="$MAX_BUDGET_USD" ;;
+  esac
+
   echo
-  echo "===== iteration $i/$MAX_ITER · item $id · phase $phase (round $round) ====="
+  echo "===== iteration $i/$MAX_ITER · item $id · phase $phase (round $round) · budget \$$iter_budget ====="
   echo "$title"
 
   prompt="$(build_prompt "$id" "$title" "$phase" "$round" "$item_file" "$worktree")"
@@ -254,7 +268,7 @@ for ((i = 1; i <= MAX_ITER; i++)); do
   set +e
   printf '%s' "$prompt" | claude -p \
       --permission-mode bypassPermissions \
-      --max-budget-usd "$MAX_BUDGET_USD" \
+      --max-budget-usd "$iter_budget" \
       --no-session-persistence \
       --output-format stream-json \
       --include-partial-messages \
