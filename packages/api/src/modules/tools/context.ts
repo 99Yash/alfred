@@ -44,6 +44,10 @@ export const TOOL_DISPATCH_RETRY: RetryPolicy = {
 export function toolExecuteContext(fields: ToolExecuteContextFields): ToolExecuteContext {
   return {
     ...fields,
-    integrations: integrations({ userId: fields.userId, retry: TOOL_DISPATCH_RETRY }),
+    integrations: integrations({
+      userId: fields.userId,
+      retry: TOOL_DISPATCH_RETRY,
+      accountRef: fields.accountRef,
+    }),
   };
 }

@@ -5,7 +5,11 @@ import type { WorkflowRevisionDefinition } from "@alfred/contracts";
 
 import type { IntegrationAvailabilitySnapshot } from "../../src/modules/integrations/availability";
 import { registerBuiltinTools } from "../../src/modules/tools";
-import { resolveWorkflowReadiness } from "../../src/modules/workflows/readiness";
+import {
+  canonicalizeWorkflowAccounts,
+  resolveWorkflowReadiness,
+} from "../../src/modules/workflows/readiness";
+import { validateWorkflowDefinition } from "../../src/modules/workflows/revisions";
 
 before(() => registerBuiltinTools());
 
@@ -22,6 +26,7 @@ const gmailAvailability: IntegrationAvailabilitySnapshot = {
       "google",
       [
         {
+          credentialId: "credential-1",
           accountId: "account-1",
           status: "active",
           scopes: new Set(["https://www.googleapis.com/auth/gmail.readonly"]),
@@ -29,6 +34,7 @@ const gmailAvailability: IntegrationAvailabilitySnapshot = {
           metadata: { watch: { expiresAt: "2026-08-01T00:00:00.000Z" } },
         },
         {
+          credentialId: "credential-2",
           accountId: "account-2",
           status: "active",
           scopes: new Set(["https://www.googleapis.com/auth/gmail.readonly"]),
@@ -57,6 +63,23 @@ function definition(
 }
 
 describe("workflow readiness", () => {
+  test("activation rejects a tool with no matching capability", () => {
+    const result = validateWorkflowDefinition(
+      definition({
+        allowedIntegrations: ["system"],
+        allowedTools: ["system.current_time", "system.read_user_context"],
+        requiredCapabilities: [{ tool: "system.current_time" }],
+      }),
+      { timezone: "UTC", requireActivatable: true },
+    );
+    assert.equal(result.ok, false);
+    if (result.ok) return;
+    assert.equal(
+      result.problems.some((problem) => problem.code === "tool_without_capability"),
+      true,
+    );
+  });
+
   test("a local system capability is ready without integration credentials", () => {
     assert.deepEqual(
       resolveWorkflowReadiness({ definition: definition(), availability: unavailable }),
@@ -76,6 +99,30 @@ describe("workflow readiness", () => {
     assert.equal(problems[0]?.code, "not_connected");
   });
 
+  test("thread-only tools are refused for a background workflow", () => {
+    const problems = resolveWorkflowReadiness({
+      definition: definition({
+        allowedTools: ["system.read_chat_history"],
+        requiredCapabilities: [{ tool: "system.read_chat_history" }],
+      }),
+      availability: unavailable,
+    });
+    assert.equal(problems[0]?.code, "requires_thread");
+  });
+
+  test("an unsupported requested tool becomes a truthful blocker", () => {
+    const problems = resolveWorkflowReadiness({
+      definition: definition({
+        allowedIntegrations: ["slack"],
+        allowedTools: [],
+        requiredCapabilities: [],
+      }),
+      availability: unavailable,
+      requestedCapabilities: [{ tool: "slack.send_message" }],
+    });
+    assert.equal(problems[0]?.code, "no_tool_surface");
+  });
+
   test("an exact account reference binds to the matching provider row", () => {
     const problems = resolveWorkflowReadiness({
       definition: definition({
@@ -86,6 +133,18 @@ describe("workflow readiness", () => {
       availability: gmailAvailability,
     });
     assert.deepEqual(problems, []);
+  });
+
+  test("an unambiguous account is canonicalized to its durable id", () => {
+    const canonical = canonicalizeWorkflowAccounts({
+      definition: definition({
+        allowedIntegrations: ["gmail"],
+        allowedTools: ["gmail.search"],
+        requiredCapabilities: [{ tool: "gmail.search", accountRef: "selected@example.com" }],
+      }),
+      availability: gmailAvailability,
+    });
+    assert.equal(canonical.requiredCapabilities[0]?.accountRef, "account-1");
   });
 
   test("an unknown account reference fails closed", () => {
@@ -135,5 +194,52 @@ describe("workflow readiness", () => {
       now: new Date("2026-07-31T00:00:00.000Z"),
     });
     assert.equal(problems.at(-1)?.code, "trigger_not_ready");
+  });
+
+  test("a Gmail event requires receiver, cursor, and recent-sync health", () => {
+    const healthy: IntegrationAvailabilitySnapshot = {
+      ...gmailAvailability,
+      providers: new Map([
+        [
+          "google",
+          [
+            {
+              credentialId: "credential-1",
+              accountId: "account-1",
+              status: "active",
+              scopes: new Set(["https://www.googleapis.com/auth/gmail.readonly"]),
+              accountLabel: "selected@example.com",
+              metadata: {
+                watch: {
+                  expiresAt: "2026-08-01T00:00:00.000Z",
+                  baselineHistoryId: "123",
+                  installedAt: "2026-07-31T00:00:00.000Z",
+                },
+              },
+              gmailEventHealth: {
+                receiverConfigured: true,
+                topicMatches: true,
+                cursorReady: true,
+                coverageGap: false,
+                lastSyncAt: new Date("2026-07-31T00:05:00.000Z"),
+              },
+            },
+          ],
+        ],
+      ]),
+    };
+    const problems = resolveWorkflowReadiness({
+      definition: definition({
+        trigger: {
+          kind: "event",
+          source: "gmail",
+          type: "message_received",
+          accountRef: "account-1",
+        },
+      }),
+      availability: healthy,
+      now: new Date("2026-07-31T00:10:00.000Z"),
+    });
+    assert.deepEqual(problems, []);
   });
 });

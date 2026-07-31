@@ -9,8 +9,11 @@ import {
   parseIanaTimezone,
   parseIntegrationMentions,
   isIntegrationSlug,
+  isToolName,
   toRecord,
+  workflowRequiredCapabilitySchema,
   type AgentTranscriptMessage,
+  type ToolName,
 } from "@alfred/contracts";
 import { db } from "@alfred/db";
 import { documents } from "@alfred/db/schemas";
@@ -75,6 +78,9 @@ const briefRunStateSchema = z
     // match the date grounding shown to the boss. Stored as a plain string and
     // re-parsed into a zone at each read (`parseIanaTimezone`).
     timezone: z.string().optional(),
+    // Exact immutable-revision envelope. Undefined only on legacy sub-agent runs.
+    allowedTools: z.array(z.string()).optional(),
+    requiredCapabilities: z.array(workflowRequiredCapabilitySchema).optional(),
     pendingToolCalls: z.array(pendingToolCallSchema),
     subAgent: subAgentMetadataSchema.nullable(),
     inFlightTailStart: z.number().int().min(0),
@@ -392,6 +398,8 @@ const dispatchToolsStep: Step<BriefRunState> = {
         timezone: state.timezone ? parseIanaTimezone(state.timezone) : undefined,
         activeTools: state.activeTools,
         allowedIntegrations: state.allowedIntegrations,
+        allowedTools: state.allowedTools?.filter(isToolName),
+        requiredCapabilities: state.requiredCapabilities,
       } as const;
       // Same *guard* the chat stream uses — never draw an optimistic card for a
       // tool off the run's active surface, since it bounces before execute — but
@@ -608,6 +616,8 @@ export const userAuthoredBriefWorkflow: Workflow<BriefRunState> = {
   initialState(input) {
     if (!input.brief) throw new Error("user-authored brief workflow requires a brief");
     const allowedIntegrations = readAllowedIntegrations(input.metadata);
+    const allowedTools = readAllowedTools(input.metadata);
+    const requiredCapabilities = readRequiredCapabilities(input.metadata);
     const eventSeed =
       input.trigger.kind === "event" &&
       input.trigger.source &&
@@ -618,12 +628,14 @@ export const userAuthoredBriefWorkflow: Workflow<BriefRunState> = {
       ...parseIntegrationMentions(input.brief, allowedIntegrations),
       ...eventSeed.filter((slug) => integrationAllowed(slug, allowedIntegrations)),
     ]);
-    const preloadedTools = registeredToolNamesForIntegrations(seededIntegrations);
+    const preloadedTools = allowedTools ?? registeredToolNamesForIntegrations(seededIntegrations);
     return {
-      activeTools: [...systemToolKernel(), ...preloadedTools],
+      activeTools: allowedTools ?? [...systemToolKernel(), ...preloadedTools],
       preloadedTools,
-      preloadApplied: false,
+      preloadApplied: allowedTools !== undefined,
       allowedIntegrations: [...allowedIntegrations],
+      ...(allowedTools ? { allowedTools } : {}),
+      ...(requiredCapabilities ? { requiredCapabilities } : {}),
       pendingToolCalls: [],
       subAgent: readSubAgentMetadata(input.metadata),
       inFlightTailStart: 0,
@@ -690,6 +702,19 @@ function readAllowedIntegrations(metadata: Record<string, unknown> | undefined):
   const raw = metadata?.allowedIntegrations;
   if (!Array.isArray(raw)) return [];
   return raw.filter((value): value is string => typeof value === "string");
+}
+
+function readAllowedTools(metadata: Record<string, unknown> | undefined): ToolName[] | undefined {
+  const raw = metadata?.allowedTools;
+  if (!Array.isArray(raw)) return undefined;
+  return raw.filter((value): value is ToolName => typeof value === "string" && isToolName(value));
+}
+
+function readRequiredCapabilities(metadata: Record<string, unknown> | undefined) {
+  const parsed = z
+    .array(workflowRequiredCapabilitySchema)
+    .safeParse(metadata?.requiredCapabilities);
+  return parsed.success ? parsed.data : undefined;
 }
 
 async function buildTriggerEventMessage(input: {

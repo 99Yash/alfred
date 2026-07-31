@@ -129,6 +129,21 @@ describe("workflow authoring tool contracts (#556)", () => {
     assert.deepEqual(definition.allowedTools, ["gmail.search"]);
     assert.deepEqual(definition.requiredCapabilities, [{ tool: "gmail.search" }]);
   });
+
+  test("accepts an unsupported requested capability so readiness can preserve the draft", () => {
+    const parsed = authorWorkflowInputSchema.parse({
+      name: "Slack follow-up",
+      brief: "Post a follow-up in Slack.",
+      trigger: { kind: "manual" },
+      capabilities: [{ tool: "slack.send_message" }],
+      intent: "Follow up in Slack.",
+      assumptions: [],
+      externalEffects: ["send a Slack message"],
+    });
+    const definition = definitionFromProposal(parsed);
+    assert.deepEqual(definition.allowedIntegrations, ["slack"]);
+    assert.deepEqual(definition.allowedTools, []);
+  });
 });
 
 describe("workflow authoring and activation acceptance (#556)", { skip: SKIP }, () => {
@@ -160,14 +175,21 @@ describe("workflow authoring and activation acceptance (#556)", { skip: SKIP }, 
     assert.equal(authorResult.status, "ready_to_activate");
 
     const proposal = activateWorkflowInputSchema.parse(getPath(authorResult, "activationProposal"));
-    assert.equal(proposal.schedule.summary, "Cron schedule: 0 8 * * 1-5");
+    assert.equal(proposal.schedule.summary, "Every weekday at 8:00 AM (Asia/Kolkata)");
     assert.match(proposal.schedule.nextRunAt ?? "", /^\d{4}-\d{2}-\d{2}T/);
     assert.deepEqual(proposal.definition.allowedTools, ["system.current_time"]);
     assert.deepEqual(proposal.authoringProposal.assumptions, []);
 
     const editedBrief = "Every weekday, summarize only urgent unread messages.";
     const activateResult = await activateTool.execute(
-      { ...proposal, definition: { ...proposal.definition, brief: editedBrief } },
+      {
+        ...proposal,
+        definition: {
+          ...proposal.definition,
+          brief: editedBrief,
+          trigger: { kind: "cron", schedule: "0 9 * * 1-5", timezone: "Asia/Kolkata" },
+        },
+      },
       context(userId, "activate-run"),
     );
     assert.ok(isRecord(activateResult));
@@ -183,6 +205,11 @@ describe("workflow authoring and activation acceptance (#556)", { skip: SKIP }, 
     assert.equal(revisions[0]?.brief, proposal.definition.brief);
     assert.equal(revisions[0]?.approvedAt, null, "the base revision must remain unchanged");
     assert.equal(revisions[1]?.brief, editedBrief);
+    assert.deepEqual(revisions[1]?.trigger, {
+      kind: "cron",
+      schedule: "0 9 * * 1-5",
+      timezone: "Asia/Kolkata",
+    });
     assert.ok(revisions[1]?.approvedAt);
 
     const [workflow] = await db()
@@ -226,6 +253,37 @@ describe("workflow authoring and activation acceptance (#556)", { skip: SKIP }, 
     assert.equal(workflow?.publishedRevisionId, null);
   });
 
+  test("changed assumptions create an attributable revision", async () => {
+    assert.ok(authorTool);
+    const userId = await seedUser(userIds);
+    const input = {
+      name: "Manual review",
+      brief: "Review the current inbox when I ask.",
+      trigger: { kind: "manual" as const },
+      capabilities: [{ tool: "system.current_time" as const }],
+      intent: "Save a manual inbox review.",
+      assumptions: ["Use the current timezone."],
+      externalEffects: [] as string[],
+    };
+    const first = await authorTool.execute(input, context(userId, "assumption-author-1"));
+    const firstProposal = activateWorkflowInputSchema.parse(getPath(first, "activationProposal"));
+
+    const second = await authorTool.execute(
+      {
+        ...input,
+        workflowId: firstProposal.workflowId,
+        expectedRowVersion: firstProposal.baseRowVersion,
+        assumptions: ["Use the current timezone and keep the answer concise."],
+      },
+      context(userId, "assumption-author-2"),
+    );
+    const secondProposal = activateWorkflowInputSchema.parse(getPath(second, "activationProposal"));
+    assert.notEqual(secondProposal.baseRevisionId, firstProposal.baseRevisionId);
+    assert.deepEqual(secondProposal.authoringProposal.assumptions, [
+      "Use the current timezone and keep the answer concise.",
+    ]);
+  });
+
   test("a disconnected capability saves a blocked draft without an activation proposal", async () => {
     assert.ok(authorTool);
     const userId = await seedUser(userIds);
@@ -244,6 +302,7 @@ describe("workflow authoring and activation acceptance (#556)", { skip: SKIP }, 
     assert.ok(isRecord(result));
     assert.equal(result.status, "blocked");
     assert.equal(getPath(result, "activationProposal"), undefined);
+    assert.equal(typeof getPath(result, "rowVersion"), "number");
     assert.equal(getPath(result, "readinessBlockers.0.code"), "not_connected");
   });
 });

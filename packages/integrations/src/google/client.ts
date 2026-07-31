@@ -111,6 +111,7 @@ function hasAuthority(credential: CredentialRow, authority: GoogleAuthority): bo
 async function credentialsForAuthority(
   userId: string,
   authority: GoogleAuthority,
+  accountRef?: string,
 ): Promise<GoogleCredential[]> {
   const active = (await listCredentials(userId, "google")).filter(
     (credential) => credential.status === "active",
@@ -118,7 +119,11 @@ async function credentialsForAuthority(
   if (active.length === 0) {
     throw new GoogleCredentialSelectionError(authority, "connection_required");
   }
-  const scoped = active.filter((credential) => hasAuthority(credential, authority));
+  const scoped = active.filter(
+    (credential) =>
+      hasAuthority(credential, authority) &&
+      (accountRef === undefined || credential.accountId === accountRef),
+  );
   if (scoped.length === 0) {
     throw new GoogleCredentialSelectionError(authority, "scope_required");
   }
@@ -260,7 +265,7 @@ export function googleClientForUser(options: ProviderBindOptions) {
     return getFreshAccessToken(credentialId);
   }, options.retry);
   const first = async (authority: GoogleAuthority) =>
-    (await credentialsForAuthority(options.userId, authority))[0]!;
+    (await credentialsForAuthority(options.userId, authority, options.accountRef))[0]!;
   return {
     ...client,
     gmail: {
@@ -270,7 +275,8 @@ export function googleClientForUser(options: ProviderBindOptions) {
     },
     calendar: {
       ...client.calendar,
-      readCredentials: () => credentialsForAuthority(options.userId, "calendar_read"),
+      readCredentials: () =>
+        credentialsForAuthority(options.userId, "calendar_read", options.accountRef),
       writeCredential: () => first("calendar_write"),
     },
     docs: { ...client.docs, credential: () => first("docs") },

@@ -105,6 +105,8 @@ export const eventWorkflowTriggerSchema = z.object({
   // can match. Per-source type validity is enforced in `emitEvent`.
   source: z.enum(EVENT_SOURCES),
   type: z.string(),
+  /** Durable provider account identity for user-authored external events. */
+  accountRef: z.string().min(1).max(200).optional(),
   filter: z.record(z.string(), z.unknown()).optional(),
 });
 export const manualWorkflowTriggerSchema = z.object({ kind: z.literal("manual") });
@@ -209,11 +211,18 @@ export const workflowRequiredCapabilitySchema = z.object({
 });
 export type WorkflowRequiredCapability = z.infer<typeof workflowRequiredCapabilitySchema>;
 
+/** A model request may name a capability that Alfred does not implement yet. */
+export const workflowRequestedCapabilitySchema = workflowRequiredCapabilitySchema.extend({
+  tool: z.string().trim().min(1).max(200),
+});
+export type WorkflowRequestedCapability = z.infer<typeof workflowRequestedCapabilitySchema>;
+
 /**
  * What the authoring turn understood and assumed, kept beside the revision so
  * the activation card (#556) can show the user the intent behind the contract
- * rather than opaque identifiers. Deliberately outside the content hash: a
- * reworded assumption is not a new definition.
+ * rather than opaque identifiers. It is outside the definition content hash,
+ * but a changed proposal still creates a revision so the approved explanation
+ * remains attributable to the row that was published.
  */
 export const workflowAuthoringProposalSchema = z.object({
   /** The user's request, as the authoring turn read it. */
@@ -223,7 +232,7 @@ export const workflowAuthoringProposalSchema = z.object({
   /** Categories of external change this workflow may cause ("sends email"). */
   externalEffects: z.array(z.string().min(1).max(200)).max(20),
   /** What authoring asked for, before the resolver narrowed the envelope. */
-  requestedCapabilities: z.array(workflowRequiredCapabilitySchema).max(50),
+  requestedCapabilities: z.array(workflowRequestedCapabilitySchema).max(50),
   /** Friendly schedule text for the card ("every weekday at 7:00 AM ET"). */
   scheduleSummary: z.string().max(200).optional(),
 });
@@ -290,6 +299,8 @@ export const authorableWorkflowTriggerSchema = z.discriminatedUnion("kind", [
     kind: z.literal("event"),
     source: z.literal("gmail"),
     type: z.literal("message_received"),
+    /** Canonical provider account id after server resolution. */
+    accountRef: z.string().min(1).max(200).optional(),
   }),
   manualWorkflowTriggerSchema,
 ]);
@@ -304,7 +315,7 @@ export const authorWorkflowInputSchema = z
     description: z.string().max(2000).optional(),
     brief: z.string().min(1).max(20000),
     trigger: authorableWorkflowTriggerSchema,
-    capabilities: z.array(workflowRequiredCapabilitySchema).min(1).max(50),
+    capabilities: z.array(workflowRequestedCapabilitySchema).min(1).max(50),
     intent: z.string().min(1).max(4000),
     assumptions: z.array(z.string().min(1).max(500)).max(20),
     externalEffects: z.array(z.string().min(1).max(200)).max(20),

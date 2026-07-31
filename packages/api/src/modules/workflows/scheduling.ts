@@ -93,7 +93,7 @@ export function computeNextRunAt(
 export function workflowScheduleSummary(trigger: WorkflowTrigger): string {
   switch (trigger.kind) {
     case "cron":
-      return `Cron schedule: ${trigger.schedule}`;
+      return describeCronSchedule(trigger.schedule, trigger.timezone);
     case "event":
       return "When Gmail receives a message";
     case "manual":
@@ -101,4 +101,37 @@ export function workflowScheduleSummary(trigger: WorkflowTrigger): string {
     case "on_signal":
       return `On signal: ${trigger.name}`;
   }
+}
+
+function describeCronSchedule(schedule: string, timezone?: string): string {
+  const [minute, hour, dayOfMonth, month, dayOfWeek] = schedule.trim().split(/\s+/);
+  const numericMinute = Number(minute);
+  const numericHour = Number(hour);
+  const zone = timezone ? ` (${timezone})` : "";
+  if (
+    Number.isInteger(numericMinute) &&
+    Number.isInteger(numericHour) &&
+    dayOfMonth === "*" &&
+    month === "*"
+  ) {
+    const time = friendlyClock(numericHour, numericMinute);
+    if (dayOfWeek === "1-5") return `Every weekday at ${time}${zone}`;
+    if (dayOfWeek === "*") return `Every day at ${time}${zone}`;
+    const weekday = dayOfWeek === undefined ? undefined : friendlyWeekdays(dayOfWeek);
+    if (weekday) return `Every ${weekday} at ${time}${zone}`;
+  }
+  return `Schedule ${schedule}${zone}`;
+}
+
+function friendlyClock(hour: number, minute: number): string {
+  const period = hour >= 12 ? "PM" : "AM";
+  const displayHour = hour % 12 || 12;
+  return `${displayHour}:${String(minute).padStart(2, "0")} ${period}`;
+}
+
+function friendlyWeekdays(value: string): string | null {
+  const names = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"];
+  const indexes = value.split(",").map(Number);
+  if (indexes.some((index) => !Number.isInteger(index) || index < 0 || index > 6)) return null;
+  return indexes.map((index) => names[index]).join(", ");
 }
