@@ -4,6 +4,31 @@ export {
   resolveWorkflowTimezone,
   validateCronTrigger,
 } from "./scheduling";
+export { canonicalWorkflowDefinition, workflowRevisionContentHash } from "./content-hash";
+export {
+  activateWorkflow,
+  clearWorkflowBlocked,
+  createWorkflowDraft,
+  reviseWorkflow,
+  reviseWorkflowFromPatch,
+  setWorkflowBlocked,
+  setWorkflowStatus,
+  validateWorkflowDefinition,
+} from "./revisions";
+export type {
+  ActivateWorkflowArgs,
+  CreateWorkflowDraftArgs,
+  InactiveWorkflowStatus,
+  ReviseWorkflowArgs,
+  WorkflowDefinitionDraft,
+  WorkflowDefinitionPatch,
+  WorkflowRevisedOutcome,
+  WorkflowRevisionOutcome,
+  WorkflowRevisionProblem,
+  WorkflowRevisionProblemCode,
+  WorkflowServiceFailure,
+  WorkflowServiceResult,
+} from "./revisions";
 export { emitEvent, type EmitEventArgs, type EmitEventResult } from "./events";
 export { seedBuiltinWorkflowsForAllUsers, seedBuiltinWorkflowsForUser } from "./seeder";
 export { dispatchDueCronWorkflows } from "./tick";
