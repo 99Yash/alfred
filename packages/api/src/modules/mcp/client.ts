@@ -5,6 +5,7 @@ import {
   jsonObjectSchema,
   mcpContentKindValues,
   type BoundedPassthroughBody,
+  type JsonValue,
   type McpContentKind,
   type McpResultProvenance,
 } from "@alfred/contracts";
@@ -135,7 +136,7 @@ export class McpRawClient {
   #catalogInvalidatedHandler: (() => void) | null = null;
   #toolsByName = new Map<string, Tool>();
   #inputValidators = new Map<string, JsonSchemaValidator<Record<string, unknown>>>();
-  #outputValidators = new Map<string, JsonSchemaValidator<Record<string, unknown>>>();
+  #outputValidators = new Map<string, JsonSchemaValidator<JsonValue>>();
 
   constructor(options: McpRawClientOptions) {
     // The destructure IS the split: bounds get their defaults, everything else is
@@ -309,7 +310,7 @@ export class McpRawClient {
     const revision = sha256Canonical(sortedTools);
     const nextToolsByName = new Map(sortedTools.map((tool) => [tool.name, tool]));
     const nextInputValidators = new Map<string, JsonSchemaValidator<Record<string, unknown>>>();
-    const nextOutputValidators = new Map<string, JsonSchemaValidator<Record<string, unknown>>>();
+    const nextOutputValidators = new Map<string, JsonSchemaValidator<JsonValue>>();
     for (const tool of sortedTools) {
       let validator: JsonSchemaValidator<Record<string, unknown>>;
       try {
@@ -327,9 +328,7 @@ export class McpRawClient {
         try {
           nextOutputValidators.set(
             tool.name,
-            this.#schemaValidator.getValidator<Record<string, unknown>>(
-              tool.outputSchema as JsonSchemaType,
-            ),
+            this.#schemaValidator.getValidator<JsonValue>(tool.outputSchema as JsonSchemaType),
           );
         } catch (err) {
           throw new McpClientError(
@@ -407,13 +406,6 @@ export class McpRawClient {
     if (!tool || !validator) {
       throw new McpClientError("unknown_tool", `Unknown MCP tool '${ref.remoteName}'`);
     }
-    if (tool.execution?.taskSupport === "required") {
-      throw new McpClientError(
-        "unsupported_task_tool",
-        `MCP tool '${tool.name}' requires experimental Tasks, which Alfred does not enable`,
-      );
-    }
-
     const jsonArgs = jsonObjectSchema.safeParse(args);
     if (!jsonArgs.success) {
       throw new McpClientError(

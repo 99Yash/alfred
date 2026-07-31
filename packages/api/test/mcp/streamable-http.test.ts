@@ -15,6 +15,7 @@ let legacySseResponse: ServerResponse | null = null;
 const observedCalls: string[] = [];
 const observedLegacyCalls: string[] = [];
 const observedLegacyMethods: string[] = [];
+let observedLegacyInitialize: unknown;
 
 before(async () => {
   const handler = createMcpHandler(() => {
@@ -61,6 +62,7 @@ before(async () => {
         return;
       }
       if (message.method === "initialize") {
+        observedLegacyInitialize = message;
         writeJson(res, {
           jsonrpc: "2.0",
           id,
@@ -165,7 +167,7 @@ after(async () => {
 });
 
 test("McpRawClient negotiates, catalogs, and calls a real Streamable HTTP server", async () => {
-  const wire: Array<{ method: string; sessionId: string | null }> = [];
+  const wire: Array<{ method: string; sessionId: string | null; body: unknown }> = [];
   const client = new McpRawClient({
     connectionId: "conn_http_test",
     endpoint,
@@ -178,6 +180,7 @@ test("McpRawClient negotiates, catalogs, and calls a real Streamable HTTP server
         wire.push({
           method: body.method,
           sessionId: new Headers(init?.headers).get("mcp-session-id"),
+          body,
         });
       }
       const response = await fetch(input, init);
@@ -211,6 +214,9 @@ test("McpRawClient negotiates, catalogs, and calls a real Streamable HTTP server
   assert.ok(wire.some((entry) => entry.method === "subscriptions/listen"));
   assert.ok(!wire.some((entry) => entry.method === "initialize"));
   assert.ok(wire.every((entry) => entry.sessionId === null));
+  const discover = wire.find((entry) => entry.method === "server/discover");
+  assert.ok(discover);
+  assert.doesNotMatch(JSON.stringify(discover.body), /tasks|extensions/);
 
   const catalog = await client.refreshCatalog();
   assert.deepEqual(
@@ -266,6 +272,9 @@ test("McpRawClient falls back to a 2025-11-25 Streamable HTTP server", async () 
   assert.equal(client.negotiatedServer?.serverName, "alfred-legacy-test");
   assert.equal(observedLegacyMethods.filter((method) => method === "server/discover").length, 1);
   assert.equal(observedLegacyMethods.filter((method) => method === "initialize").length, 1);
+  assert.ok(isRecord(observedLegacyInitialize));
+  assert.ok(isRecord(observedLegacyInitialize.params));
+  assert.deepEqual(observedLegacyInitialize.params.capabilities, {});
 
   const catalog = await client.refreshCatalog();
   assert.deepEqual(
