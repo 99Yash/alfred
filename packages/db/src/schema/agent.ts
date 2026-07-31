@@ -9,6 +9,7 @@ import {
 import { sql, type SQL, type SQLWrapper } from "drizzle-orm";
 import {
   bigserial,
+  foreignKey,
   index,
   integer,
   jsonb,
@@ -19,6 +20,7 @@ import {
 } from "drizzle-orm/pg-core";
 import { createId, lifecycle_dates } from "../helpers";
 import { user } from "./auth";
+import { workflowRevisions } from "./workflows";
 
 export { agentRunTriggerSchema };
 export type { AgentRunTrigger };
@@ -272,6 +274,14 @@ export const agentRuns = pgTable(
       .notNull()
       .references(() => user.id, { onDelete: "cascade" }),
     workflowSlug: text("workflow_slug").notNull(),
+    /**
+     * The `workflow_revisions.id` this run pinned when its occurrence was
+     * claimed (#555). The run keeps executing that definition even after the
+     * user edits the workflow, so a long unattended run can never change
+     * contract mid-flight. Null for built-ins, chat turns, and every row
+     * written before revisions existed.
+     */
+    workflowRevisionId: text("workflow_revision_id"),
     brief: text("brief"),
     status: text("status").notNull().default("pending"),
     state: jsonb("state")
@@ -310,6 +320,11 @@ export const agentRuns = pgTable(
     ...lifecycle_dates,
   },
   (t) => [
+    foreignKey({
+      name: "agent_runs_workflow_revision_owner_fk",
+      columns: [t.workflowRevisionId, t.userId],
+      foreignColumns: [workflowRevisions.id, workflowRevisions.userId],
+    }),
     index("agent_runs_user_idx").on(t.userId, t.status),
     index("agent_runs_runnable_idx")
       .on(t.lastCheckpointAt)

@@ -5,7 +5,10 @@ import { getWorkflow } from "./registry";
 import type { AgentDbExecutor, Workflow } from "./types";
 import { userAuthoredBriefWorkflow } from "./workflows/user-authored-brief";
 
-type UserAuthoredWorkflowRow = Pick<WorkflowRow, "brief" | "allowedIntegrations" | "isBuiltin">;
+type UserAuthoredWorkflowRow = Pick<
+  WorkflowRow,
+  "brief" | "allowedIntegrations" | "isBuiltin" | "publishedRevisionId"
+>;
 
 export interface ResolvedWorkflowForRun {
   workflow: Workflow<unknown>;
@@ -40,6 +43,7 @@ export async function resolveWorkflowForRun(args: {
       brief: workflows.brief,
       allowedIntegrations: workflows.allowedIntegrations,
       isBuiltin: workflows.isBuiltin,
+      publishedRevisionId: workflows.publishedRevisionId,
     })
     .from(workflows)
     .where(and(eq(workflows.userId, args.userId), eq(workflows.slug, args.workflowSlug)))

@@ -51,8 +51,14 @@ export function WorkflowDetailPage() {
 
   const view = syncedWorkflowToView(workflow);
   const active = workflow.status === "active";
+  const hasUnpublishedChanges =
+    workflow.currentRevisionId !== null &&
+    workflow.currentRevisionId !== workflow.publishedRevisionId;
 
-  const toggleActive = () => void updateWorkflow({ status: active ? "paused" : "active" });
+  const toggleActive = () =>
+    void updateWorkflow({
+      status: active && !hasUnpublishedChanges ? "paused" : "active",
+    });
 
   return (
     <DetailShell>
@@ -65,6 +71,16 @@ export function WorkflowDetailPage() {
           </h1>
           {workflow.description ? (
             <p className="mt-1 max-w-xl text-sm leading-5 text-app-fg-3">{workflow.description}</p>
+          ) : null}
+          {hasUnpublishedChanges ? (
+            <p className="mt-2 text-xs font-medium text-app-fg-3">
+              This workflow has unpublished changes.
+            </p>
+          ) : null}
+          {workflow.blocked ? (
+            <p className="mt-2 max-w-xl text-xs leading-5 text-rose-600">
+              {workflow.blocked.message}
+            </p>
           ) : null}
         </div>
         <div className="flex shrink-0 flex-wrap items-center gap-2">
@@ -98,12 +114,12 @@ export function WorkflowDetailPage() {
           <AppButton
             variant="primary"
             size="lg"
-            leading={active ? PAUSE_LEADING : PLAY_LEADING}
+            leading={active && !hasUnpublishedChanges ? PAUSE_LEADING : PLAY_LEADING}
             onClick={toggleActive}
             disabled={workflow.isBuiltin}
             title={workflow.isBuiltin ? "Built-in workflows can't be paused here" : undefined}
           >
-            {active ? "Pause" : "Activate"}
+            {active && !hasUnpublishedChanges ? "Pause" : "Activate"}
           </AppButton>
         </div>
       </header>

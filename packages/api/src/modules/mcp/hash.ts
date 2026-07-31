@@ -1,17 +1,12 @@
-import { canonicalJson } from "@alfred/contracts";
 import type { Tool } from "@modelcontextprotocol/client";
-import { createHash } from "node:crypto";
+import { sha256Canonical } from "../../lib/hash";
 
 /**
- * SHA-256 over a canonical JSON pre-image, prefixed `sha256:` — the same shape
- * the raw client uses for its catalog revision hash (`client.ts`). Node-only
- * (`node:crypto`), which is why these live in `@alfred/api` and not in
- * `@alfred/contracts`. `canonicalJson` (browser-safe, key-sorted) supplies the
- * deterministic pre-image so the digest is stable across hosts/processes.
+ * `sha256Canonical` is the shared digest (`lib/hash`); the MCP-specific hashes
+ * below are its callers. Re-exported here so `client.ts` and the broker keep
+ * one import for all four.
  */
-export function sha256Canonical(value: unknown): string {
-  return `sha256:${createHash("sha256").update(canonicalJson(value)).digest("hex")}`;
-}
+export { sha256Canonical };
 
 /**
  * Per-tool descriptor hash. Binds an approval/downgrade to the EXACT reviewed

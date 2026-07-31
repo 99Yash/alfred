@@ -149,6 +149,8 @@ export type AuthorableWorkflowTrigger = z.infer<typeof authorableWorkflowTrigger
  */
 export const workflowUpdateArgsSchema = z.object({
   slug: z.string().min(1),
+  /** The authoritative row version the editor read before making this change. */
+  expectedRowVersion: z.number().int().positive(),
   name: z.string().min(1).max(200).optional(),
   description: z.string().max(2_000).nullable().optional(),
   brief: z.string().max(20_000).nullable().optional(),
