@@ -17,6 +17,8 @@ export interface EmitEventArgs {
   source: EventSource;
   type: EventType;
   eventId: string;
+  /** Provider account that produced the event, for account-bound user workflows. */
+  accountRef?: string;
   payload?: Record<string, unknown>;
 }
 
@@ -62,6 +64,12 @@ export async function emitEvent(args: EmitEventArgs): Promise<EmitEventResult> {
           and(
             sql`${workflows.trigger}->>'source' = ${args.source}`,
             sql`${workflows.trigger}->>'type' = ${args.type}`,
+            or(
+              sql`${workflows.trigger}->>'accountRef' IS NULL`,
+              args.accountRef
+                ? sql`${workflows.trigger}->>'accountRef' = ${args.accountRef}`
+                : sql`false`,
+            ),
           ),
           legacyEventTriggerCondition(args),
         ),
@@ -109,14 +117,27 @@ export async function emitEvent(args: EmitEventArgs): Promise<EmitEventResult> {
           ({ runId } = await createRun({
             userId: args.userId,
             workflowSlug: row.slug,
-            input: { documentId, reason, force, source: args.source, type: args.type },
-            metadata: { source: args.source, type: args.type, eventId: args.eventId, documentId },
+            input: {
+              documentId,
+              reason,
+              force,
+              source: args.source,
+              type: args.type,
+              accountRef: args.accountRef,
+            },
+            metadata: {
+              source: args.source,
+              type: args.type,
+              eventId: args.eventId,
+              documentId,
+              accountRef: args.accountRef,
+            },
             trigger: {
               kind: "event",
               source: args.source,
               type: args.type,
               eventId: args.eventId,
-              payload: { documentId, reason },
+              payload: { documentId, reason, accountRef: args.accountRef },
             },
           }));
         } catch (err) {

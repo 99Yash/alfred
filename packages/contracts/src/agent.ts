@@ -349,6 +349,21 @@ export const workflowSchedulePreviewSchema = z
   .strict();
 export type WorkflowSchedulePreview = z.infer<typeof workflowSchedulePreviewSchema>;
 
+export const workflowAccountDisplaySchema = z.object({
+  provider: z.string().min(1).max(80),
+  accountRef: z.string().min(1).max(200),
+  accountLabel: z.string().min(1).max(200),
+});
+export type WorkflowAccountDisplay = z.infer<typeof workflowAccountDisplaySchema>;
+
+export const workflowCapabilityDisplaySchema = z.object({
+  tool: toolNameSchema,
+  title: z.string().min(1).max(200),
+  accountRef: z.string().min(1).max(200).optional(),
+  accountLabel: z.string().min(1).max(200).optional(),
+});
+export type WorkflowCapabilityDisplay = z.infer<typeof workflowCapabilityDisplaySchema>;
+
 export const authorableWorkflowDefinitionSchema = workflowRevisionDefinitionSchema.safeExtend({
   trigger: authorableWorkflowTriggerSchema,
 });
@@ -367,6 +382,8 @@ export const activateWorkflowInputSchema = z
     baseRowVersion: z.coerce.number().int().positive().meta({ readOnly: true }),
     definition: authorableWorkflowDefinitionSchema,
     schedule: workflowSchedulePreviewSchema.meta({ readOnly: true }),
+    resolvedAccounts: z.array(workflowAccountDisplaySchema).meta({ readOnly: true }),
+    resolvedCapabilities: z.array(workflowCapabilityDisplaySchema).meta({ readOnly: true }),
     authoringProposal: workflowAuthoringProposalSchema.meta({ readOnly: true }),
   })
   .strict();

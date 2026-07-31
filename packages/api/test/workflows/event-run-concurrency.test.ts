@@ -118,7 +118,10 @@ async function seedUser(): Promise<string> {
  * Only the requested slug is seeded — a user holding both test workflows would
  * make every dispatch match twice and blur which index fired.
  */
-async function seedUserWithEventWorkflow(slug = EVENT_WORKFLOW_SLUG): Promise<string> {
+async function seedUserWithEventWorkflow(
+  slug = EVENT_WORKFLOW_SLUG,
+  accountRef?: string,
+): Promise<string> {
   const userId = await seedUser();
   await db()
     .insert(workflows)
@@ -126,7 +129,12 @@ async function seedUserWithEventWorkflow(slug = EVENT_WORKFLOW_SLUG): Promise<st
       userId,
       slug,
       name: "event dedup test",
-      trigger: { kind: "event", source: SOURCE, type: TYPE },
+      trigger: {
+        kind: "event",
+        source: SOURCE,
+        type: TYPE,
+        ...(accountRef ? { accountRef } : {}),
+      },
       status: "active",
     });
   return userId;
@@ -279,6 +287,30 @@ describe("event-dispatch duplicate-run guard (#531)", { skip: SKIP }, () => {
     );
     assert.equal(a.failed + b.failed, 0, "and not as a failure");
     assert.equal(await countActiveEventRuns(userId, eventId), 1);
+  });
+
+  test("an account-bound workflow ignores another account's event", async () => {
+    const userId = await seedUserWithEventWorkflow(EVENT_WORKFLOW_SLUG, "gmail-account-a");
+
+    const wrongAccount = await emitEvent({
+      userId,
+      source: SOURCE,
+      type: TYPE,
+      eventId: `evt-${randomUUID()}`,
+      accountRef: "gmail-account-b",
+    });
+    assert.equal(wrongAccount.matched, 0);
+    assert.equal(wrongAccount.created, 0);
+
+    const selectedAccount = await emitEvent({
+      userId,
+      source: SOURCE,
+      type: TYPE,
+      eventId: `evt-${randomUUID()}`,
+      accountRef: "gmail-account-a",
+    });
+    assert.equal(selectedAccount.matched, 1);
+    assert.equal(selectedAccount.created, 1);
   });
 
   test("a dedup-key collision on a singleton workflow is a duplicate, not a failure", async () => {

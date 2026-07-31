@@ -7,6 +7,7 @@ import type { IntegrationAvailabilitySnapshot } from "../../src/modules/integrat
 import { registerBuiltinTools } from "../../src/modules/tools";
 import {
   canonicalizeWorkflowAccounts,
+  resolveWorkflowApprovalDisplay,
   resolveWorkflowReadiness,
 } from "../../src/modules/workflows/readiness";
 import { validateWorkflowDefinition } from "../../src/modules/workflows/revisions";
@@ -80,6 +81,34 @@ describe("workflow readiness", () => {
     );
   });
 
+  test("activation rejects more than one account binding for the same tool", () => {
+    const candidate = definition({
+      allowedIntegrations: ["gmail"],
+      allowedTools: ["gmail.search"],
+      requiredCapabilities: [
+        { tool: "gmail.search", accountRef: "account-1" },
+        { tool: "gmail.search", accountRef: "account-2" },
+      ],
+    });
+    const validated = validateWorkflowDefinition(candidate, {
+      timezone: "UTC",
+      requireActivatable: true,
+    });
+    assert.equal(validated.ok, false);
+    if (!validated.ok) {
+      assert.equal(
+        validated.problems.some((problem) => problem.code === "ambiguous_tool_capability"),
+        true,
+      );
+    }
+    assert.equal(
+      resolveWorkflowReadiness({ definition: candidate, availability: gmailAvailability }).some(
+        (problem) => problem.code === "choose_account",
+      ),
+      true,
+    );
+  });
+
   test("a local system capability is ready without integration credentials", () => {
     assert.deepEqual(
       resolveWorkflowReadiness({ definition: definition(), availability: unavailable }),
@@ -145,6 +174,32 @@ describe("workflow readiness", () => {
       availability: gmailAvailability,
     });
     assert.equal(canonical.requiredCapabilities[0]?.accountRef, "account-1");
+  });
+
+  test("the approval display pairs durable account ids with user-facing labels", () => {
+    const display = resolveWorkflowApprovalDisplay(
+      definition({
+        allowedIntegrations: ["gmail"],
+        allowedTools: ["gmail.search"],
+        requiredCapabilities: [{ tool: "gmail.search", accountRef: "account-1" }],
+      }),
+      gmailAvailability,
+    );
+    assert.deepEqual(display.resolvedAccounts, [
+      {
+        provider: "google",
+        accountRef: "account-1",
+        accountLabel: "selected@example.com",
+      },
+    ]);
+    assert.deepEqual(display.resolvedCapabilities, [
+      {
+        tool: "gmail.search",
+        title: "search Gmail",
+        accountRef: "account-1",
+        accountLabel: "selected@example.com",
+      },
+    ]);
   });
 
   test("an unknown account reference fails closed", () => {

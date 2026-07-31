@@ -321,7 +321,7 @@ export type GithubClient = ReturnType<typeof createGithubClient>;
 export function githubClientForUser(options: ProviderBindOptions): GithubClient {
   const { userId, retry } = options;
   const resolveToken = async () => {
-    const { token, accountLogin } = await getInstallationTokenForUser(userId);
+    const { token, accountLogin } = await getInstallationTokenForUser(userId, options.accountRef);
     return { token: redacted(token), accountLogin };
   };
   return createGithubClient({ resolveToken, retry });

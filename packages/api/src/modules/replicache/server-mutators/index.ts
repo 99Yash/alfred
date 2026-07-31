@@ -46,7 +46,6 @@ import { DEFAULT_APPROVAL_NOTIFY_DELAY_MS } from "../../action-policies";
 import { isSingleValuedKey } from "../../memory/fact-policy";
 import { valueSignature } from "../../memory/signature";
 import {
-  activateWorkflow,
   reviseWorkflowFromPatch,
   setWorkflowStatus,
   type WorkflowDefinitionPatch,
@@ -493,17 +492,11 @@ export const serverMutators = {
    * into "what it does" and "whether it runs", and turn a typed service failure
    * into the ACL error `push.ts` already handles.
    *
-   * Two behaviors change with revisions, both deliberate:
-   *
-   *   - An edit appends a revision and moves `current_revision_id`. On an
-   *     already-published workflow the running definition is untouched, so the
-   *     editor now produces *unpublished changes* rather than a live rewrite.
-   *   - Setting `status: 'active'` is an activation: it publishes the current
-   *     revision after full validation. That makes the settings toggle the
-   *     publish gate, which is what the plan asks for.
-   *
-   * The edit is applied before the status change, so a save-and-activate in one
-   * push publishes the revision the user just wrote.
+   * An edit appends a revision and moves `current_revision_id`. On an
+   * already-published workflow the running definition is untouched, so the
+   * editor produces *unpublished changes* rather than a live rewrite.
+   * Activation is refused here: publication must pass through the staged,
+   * high-risk exact-contract approval owned by `system.activate_workflow`.
    */
   async workflowUpdate(tx: DbTx, args: WorkflowUpdateArgs, ctx: ServerMutatorCtx): Promise<void> {
     const [existing] = await tx
@@ -516,6 +509,11 @@ export const serverMutators = {
     if (!existing) return;
     if (existing.isBuiltin) {
       throw new MutatorForbiddenError("cannot edit a built-in workflow");
+    }
+    if (args.status === "active") {
+      throw new MutatorForbiddenError(
+        "workflow activation requires the exact high-risk approval contract",
+      );
     }
 
     const patch: WorkflowDefinitionPatch = {
@@ -538,29 +536,14 @@ export const serverMutators = {
     }
 
     if (args.status === undefined) return;
-    const applied =
-      args.status === "active"
-        ? await activateWorkflow({
-            userId: ctx.userId,
-            workflowId: existing.id,
-            // A preceding semantic edit already claimed the expected version
-            // inside this transaction. A status-only activation claims the
-            // version the client read.
-            ...(hasDefinitionPatch ? {} : { expectedRowVersion: args.expectedRowVersion }),
-            tx,
-          })
-        : await setWorkflowStatus({
-            userId: ctx.userId,
-            workflowId: existing.id,
-            status: args.status,
-            ...(hasDefinitionPatch ? {} : { expectedRowVersion: args.expectedRowVersion }),
-            tx,
-          });
+    const applied = await setWorkflowStatus({
+      userId: ctx.userId,
+      workflowId: existing.id,
+      status: args.status,
+      ...(hasDefinitionPatch ? {} : { expectedRowVersion: args.expectedRowVersion }),
+      tx,
+    });
     if (!applied.ok) {
-      // Readiness failure is authoritative workflow state, not a rejected edit.
-      // The activation service persisted the blocker; the next pull replaces
-      // the optimistic active status with the saved inactive row.
-      if (applied.failure.kind === "readiness_blocked") return;
       throw workflowMutatorError(applied.failure);
     }
   },

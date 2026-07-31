@@ -17,6 +17,7 @@ import { systemTools } from "../../src/modules/tools/system";
 import { registerBuiltinTools } from "../../src/modules/tools";
 import { toolExecuteContext } from "../../src/modules/tools/context";
 import { definitionFromProposal } from "../../src/modules/workflows/authoring";
+import { refreshWorkflowActivationProposal } from "../../src/modules/workflows/revisions";
 
 const SKIP = (() => {
   try {
@@ -178,6 +179,10 @@ describe("workflow authoring and activation acceptance (#556)", { skip: SKIP }, 
     assert.equal(proposal.schedule.summary, "Every weekday at 8:00 AM (Asia/Kolkata)");
     assert.match(proposal.schedule.nextRunAt ?? "", /^\d{4}-\d{2}-\d{2}T/);
     assert.deepEqual(proposal.definition.allowedTools, ["system.current_time"]);
+    assert.deepEqual(proposal.resolvedCapabilities, [
+      { tool: "system.current_time", title: "check the current time" },
+    ]);
+    assert.deepEqual(proposal.resolvedAccounts, []);
     assert.deepEqual(proposal.authoringProposal.assumptions, []);
 
     const editedBrief = "Every weekday, summarize only urgent unread messages.";
@@ -187,7 +192,6 @@ describe("workflow authoring and activation acceptance (#556)", { skip: SKIP }, 
         definition: {
           ...proposal.definition,
           brief: editedBrief,
-          trigger: { kind: "cron", schedule: "0 9 * * 1-5", timezone: "Asia/Kolkata" },
         },
       },
       context(userId, "activate-run"),
@@ -205,11 +209,7 @@ describe("workflow authoring and activation acceptance (#556)", { skip: SKIP }, 
     assert.equal(revisions[0]?.brief, proposal.definition.brief);
     assert.equal(revisions[0]?.approvedAt, null, "the base revision must remain unchanged");
     assert.equal(revisions[1]?.brief, editedBrief);
-    assert.deepEqual(revisions[1]?.trigger, {
-      kind: "cron",
-      schedule: "0 9 * * 1-5",
-      timezone: "Asia/Kolkata",
-    });
+    assert.deepEqual(revisions[1]?.trigger, proposal.definition.trigger);
     assert.ok(revisions[1]?.approvedAt);
 
     const [workflow] = await db()
@@ -251,6 +251,82 @@ describe("workflow authoring and activation acceptance (#556)", { skip: SKIP }, 
       .where(eq(workflows.id, proposal.workflowId));
     assert.equal(workflow?.status, "draft");
     assert.equal(workflow?.publishedRevisionId, null);
+  });
+
+  test("a schedule edit is rebuilt into a fresh contract before activation", async () => {
+    assert.ok(authorTool);
+    assert.ok(activateTool);
+    const userId = await seedUser(userIds);
+    const authorResult = await authorTool.execute(
+      {
+        name: "Editable morning check",
+        brief: "Check the current time every weekday morning.",
+        trigger: { kind: "cron", schedule: "0 8 * * 1-5", timezone: "Asia/Kolkata" },
+        capabilities: [{ tool: "system.current_time" }],
+        intent: "Run a weekday morning check.",
+        assumptions: [],
+        externalEffects: [],
+      },
+      context(userId, "refresh-author-run"),
+    );
+    const proposal = activateWorkflowInputSchema.parse(getPath(authorResult, "activationProposal"));
+    const refreshed = await refreshWorkflowActivationProposal({
+      userId,
+      input: {
+        ...proposal,
+        definition: {
+          ...proposal.definition,
+          trigger: { kind: "cron", schedule: "0 9 * * 1-5", timezone: "Asia/Kolkata" },
+        },
+        authoringProposal: {
+          ...proposal.authoringProposal,
+          scheduleSummary: "tampered model summary",
+        },
+      },
+    });
+    assert.equal(refreshed.ok, true);
+    if (!refreshed.ok) return;
+    assert.equal(refreshed.input.schedule.summary, "Every weekday at 9:00 AM (Asia/Kolkata)");
+    assert.equal(
+      refreshed.input.authoringProposal.scheduleSummary,
+      "Every weekday at 9:00 AM (Asia/Kolkata)",
+    );
+
+    const activated = await activateTool.execute(
+      refreshed.input,
+      context(userId, "refresh-activate-run"),
+    );
+    assert.ok(isRecord(activated));
+    assert.equal(activated.status, "activated");
+    assert.equal(activated.revisedFromApprovalEdit, true);
+  });
+
+  test("activation rejects a proposal summary that the server did not derive", async () => {
+    assert.ok(authorTool);
+    assert.ok(activateTool);
+    const userId = await seedUser(userIds);
+    const authorResult = await authorTool.execute(
+      {
+        name: "Protected proposal",
+        brief: "Check the current time on request.",
+        trigger: { kind: "manual" },
+        capabilities: [{ tool: "system.current_time" }],
+        intent: "Run a manual check.",
+        assumptions: [],
+        externalEffects: [],
+      },
+      context(userId, "proposal-author-run"),
+    );
+    const proposal = activateWorkflowInputSchema.parse(getPath(authorResult, "activationProposal"));
+    const result = await activateTool.execute(
+      {
+        ...proposal,
+        authoringProposal: { ...proposal.authoringProposal, intent: "Misleading intent." },
+      },
+      context(userId, "proposal-activate-run"),
+    );
+    assert.ok(isRecord(result));
+    assert.equal(result.status, "validation_failed");
   });
 
   test("changed assumptions create an attributable revision", async () => {

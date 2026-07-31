@@ -235,7 +235,7 @@ export type VercelClient = ReturnType<typeof createVercelClient>;
 export function vercelClientForUser(options: ProviderBindOptions): VercelClient {
   const { userId, retry } = options;
   const resolveAuth = async () => {
-    const cred = await getActiveBearerCredential(userId, "vercel");
+    const cred = await getActiveBearerCredential(userId, "vercel", options.accountRef);
     return { token: redacted(cred.accessToken), teamId: readVercelTeamId(cred.metadata) };
   };
   return createVercelClient({ resolveAuth, retry });

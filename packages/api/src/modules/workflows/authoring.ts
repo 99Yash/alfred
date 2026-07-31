@@ -3,7 +3,6 @@ import {
   integrationFromToolName,
   isIntegrationSlug,
   isToolName,
-  toolLabel,
   type ActivateWorkflowInput,
   type AuthorableWorkflowDefinition,
   type AuthorWorkflowInput,
@@ -18,9 +17,9 @@ import { and, eq, like } from "drizzle-orm";
 import { availableSlug, slugBase } from "../../lib/slug";
 import { computeNextRunAt, workflowScheduleSummary } from "./scheduling";
 import { readFreshIntegrationAvailability } from "../integrations/availability";
-import { getTool } from "../tools/registry";
 import {
   canonicalizeWorkflowAccounts,
+  resolveWorkflowApprovalDisplay,
   resolveWorkflowReadiness,
   type WorkflowReadinessProblem,
 } from "./readiness";
@@ -29,6 +28,7 @@ import {
   createWorkflowDraft,
   reviseWorkflow,
   setWorkflowBlocked,
+  approvalProposalForDefinition,
   type WorkflowRevisionOutcome,
   type WorkflowServiceResult,
 } from "./revisions";
@@ -133,6 +133,7 @@ export async function authorWorkflowDraft(args: {
               revision: saved.revision,
               definition,
               authoringProposal,
+              availability,
               timezone: args.timezone,
             }),
           }
@@ -173,19 +174,16 @@ function authoringProposalFromInput(
   input: AuthorWorkflowInput,
   definition: AuthorableWorkflowDefinition,
 ): WorkflowAuthoringProposal {
-  const derivedEffects = definition.requiredCapabilities.flatMap((capability) => {
-    const tool = getTool(capability.tool);
-    if (!tool || integrationFromToolName(capability.tool) === "system") return [];
-    if (tool.riskTier === "no_risk" || tool.riskTier === "low") return [];
-    return [toolLabel(capability.tool)?.title ?? capability.tool];
-  });
-  return {
-    intent: input.intent,
-    assumptions: input.assumptions,
-    externalEffects: [...new Set([...input.externalEffects, ...derivedEffects])],
-    requestedCapabilities: input.capabilities,
-    scheduleSummary: workflowScheduleSummary(definition.trigger),
-  };
+  return approvalProposalForDefinition(
+    {
+      intent: input.intent,
+      assumptions: input.assumptions,
+      externalEffects: input.externalEffects,
+      requestedCapabilities: input.capabilities,
+      scheduleSummary: workflowScheduleSummary(definition.trigger),
+    },
+    definition,
+  );
 }
 
 function activationProposalFor(args: {
@@ -193,6 +191,7 @@ function activationProposalFor(args: {
   revision: WorkflowRevisionOutcome["revision"];
   definition: AuthorableWorkflowDefinition;
   authoringProposal: WorkflowAuthoringProposal;
+  availability: Awaited<ReturnType<typeof readFreshIntegrationAvailability>>;
   timezone: IanaTimezone;
 }): ActivateWorkflowInput {
   const timezone =
@@ -201,6 +200,10 @@ function activationProposalFor(args: {
       : args.timezone;
   const previewedAt = new Date();
   const nextRunAt = computeNextRunAt(args.definition.trigger, { from: previewedAt, timezone });
+  const { resolvedAccounts, resolvedCapabilities } = resolveWorkflowApprovalDisplay(
+    args.definition,
+    args.availability,
+  );
 
   return {
     workflowId: args.workflow.id,
@@ -214,6 +217,8 @@ function activationProposalFor(args: {
       previewedAt: previewedAt.toISOString(),
       ...(nextRunAt ? { nextRunAt: nextRunAt.toISOString() } : {}),
     },
+    resolvedAccounts,
+    resolvedCapabilities,
     authoringProposal: args.authoringProposal,
   };
 }
