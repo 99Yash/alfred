@@ -12,6 +12,7 @@ export const MCP_CLIENT_ERROR_CODES = [
   "missing_tools_capability",
   "catalog_required",
   "catalog_stale",
+  "descriptor_mismatch",
   "catalog_limit",
   "duplicate_tool",
   "invalid_schema",

@@ -166,6 +166,15 @@ export class McpRawClient {
     this.#catalogInvalidatedHandler = handler;
   }
 
+  /**
+   * Drop local catalog authority without announcing a remote change. The
+   * connection manager uses this after a durable compare-and-swap loses so the
+   * next attempt must fetch the server again instead of reusing a TTL-held view.
+   */
+  invalidateCatalogAuthority(): void {
+    this.#invalidateCatalog();
+  }
+
   async connect(): Promise<void> {
     if (this.#protocol) return;
     const endpoint = await this.#options.endpointAuthorization.authorize(
@@ -490,7 +499,7 @@ export class McpRawClient {
     if (isMcpDescriptorMismatchError(err)) {
       this.#announceCatalogInvalidated();
       throw new McpClientError(
-        "catalog_stale",
+        "descriptor_mismatch",
         "The MCP server rejected the admitted tool descriptor; refresh and reselect it",
       );
     }

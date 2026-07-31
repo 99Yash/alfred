@@ -143,7 +143,10 @@ export class SdkMcpProtocolClient implements McpProtocolClient {
     // keys narrow, so under `exactOptionalPropertyTypes` the SDK's class does
     // not structurally satisfy the SDK's own interface. Nothing on our side can
     // reconcile the two.
-    await this.#client.connect(this.#transport as Transport);
+    await this.#client.connect(
+      this.#transport as Transport,
+      requestOptions(this.#requestTimeoutMs),
+    );
     const capabilities = this.#client.getServerCapabilities();
     const server = this.#client.getServerVersion();
     const protocolEra = this.#era();

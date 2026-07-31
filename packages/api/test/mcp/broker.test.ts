@@ -4,7 +4,7 @@ import { after, before, describe, test } from "node:test";
 
 import { closeConnections, db } from "@alfred/db";
 import { actionStagings, agentRuns, mcpInvocation, user } from "@alfred/db/schemas";
-import { SdkErrorCode, SdkHttpError, type Tool } from "@modelcontextprotocol/client";
+import { ProtocolError, SdkErrorCode, SdkHttpError, type Tool } from "@modelcontextprotocol/client";
 import { eq, inArray, like } from "drizzle-orm";
 
 import {
@@ -370,6 +370,38 @@ describe("mcp execution broker (DB-backed, offline)", { skip: SKIP }, () => {
     assert.equal(second.reason, "ambiguity_barrier");
     assert.equal(second.priorInvocationId, first.invocationId);
     assert.equal(protocol.calls, callsBefore, "the blocked repeat must not be dispatched");
+  });
+
+  test("a post-delivery descriptor mismatch stays ambiguous and keeps the barrier", async () => {
+    const userId = await seedUser();
+    const connId = await seedConnection(userId);
+    const protocol = new FakeProtocol([tool("charge_card")]);
+    protocol.behavior = {
+      kind: "throw",
+      error: new ProtocolError(-32020, "HEADER_MISMATCH"),
+    };
+    const revision = await liveRevision(protocol, connId);
+    const broker = brokerWith(protocol);
+    const stagingId = await seedStaging(userId);
+
+    const outcome = await broker.callTool({
+      userId,
+      stagingId,
+      ref: {
+        kind: "mcp",
+        connectionId: connId,
+        remoteName: "charge_card",
+        catalogRevision: revision,
+      },
+      arguments: { amount: 4200 },
+    });
+
+    assert.equal(outcome.status, "ambiguous");
+    const [row] = await invocationsForStaging(stagingId);
+    assert.equal(row?.effectOutcome, "unknown");
+    assert.equal(row?.retryDisposition, "blocked");
+    assert.equal(row?.resolvedAt, null);
+    assert.equal(protocol.calls, 1);
   });
 
   test("a deterministic pre-delivery error throws and resolves the reservation as not-delivered", async () => {

@@ -46,6 +46,11 @@ before(async () => {
       await serveMcp(req, res);
       return;
     }
+    if (req.url === "/slow-mcp") {
+      await new Promise((resolve) => setTimeout(resolve, 100));
+      if (!res.destroyed) await serveMcp(req, res);
+      return;
+    }
     if (req.url === "/legacy-mcp" && req.method === "POST") {
       const chunks: Buffer[] = [];
       for await (const chunk of req) chunks.push(Buffer.from(chunk));
@@ -257,6 +262,17 @@ test("McpRawClient negotiates, catalogs, and calls a real Streamable HTTP server
     "the modern subscription must override an unexpired TTL",
   );
   await client.close();
+});
+
+test("McpRawClient applies its request deadline to the connect handshake", async () => {
+  const client = new McpRawClient({
+    connectionId: "conn_connect_timeout_test",
+    endpoint: new URL("/slow-mcp", endpoint),
+    endpointAuthorization: { authorize: async (candidate) => new URL(candidate.href) },
+    requestTimeoutMs: 20,
+  });
+
+  await assert.rejects(client.connect());
 });
 
 test("McpRawClient falls back to a 2025-11-25 Streamable HTTP server", async () => {
