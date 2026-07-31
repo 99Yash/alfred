@@ -24,6 +24,7 @@ import {
   todoKindSchema,
   todoSourcesSchema,
   todoStatusSchema,
+  toolNameSchema,
   triageCategorySchema,
   type IntegrationRule,
   type IntegrationRules,
@@ -54,10 +55,7 @@ export type FactValue = z.infer<typeof factValueSchema>;
 export const preferenceValueSchema = z.union([factValueSchema, z.null()]);
 export type PreferenceValue = z.infer<typeof preferenceValueSchema>;
 
-export const toolNameSchema = z.custom<ToolName>(
-  (value) => typeof value === "string" && isToolName(value),
-  { message: "must be a known tool name" },
-);
+export { toolNameSchema };
 
 export const syncedNoteSchema = z.object({
   id: z.string(),
