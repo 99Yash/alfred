@@ -272,6 +272,14 @@ export const agentRuns = pgTable(
       .notNull()
       .references(() => user.id, { onDelete: "cascade" }),
     workflowSlug: text("workflow_slug").notNull(),
+    /**
+     * The `workflow_revisions.id` this run pinned when its occurrence was
+     * claimed (#555). The run keeps executing that definition even after the
+     * user edits the workflow, so a long unattended run can never change
+     * contract mid-flight. Null for built-ins, chat turns, and every row
+     * written before revisions existed.
+     */
+    workflowRevisionId: text("workflow_revision_id"),
     brief: text("brief"),
     status: text("status").notNull().default("pending"),
     state: jsonb("state")

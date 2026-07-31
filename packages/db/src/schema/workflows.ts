@@ -1,9 +1,19 @@
 import {
+  workflowAuthoringProposalSchema,
+  workflowBlockedSchema,
   workflowHilGatesSchema,
+  workflowRequiredCapabilitySchema,
+  workflowRevisionDefinitionSchema,
   workflowStepSchema,
   workflowStepsSchema,
   workflowTriggerSchema,
+  type IntegrationSlug,
+  type ToolName,
+  type WorkflowAuthoringProposal,
+  type WorkflowBlocked,
   type WorkflowHilGates,
+  type WorkflowRequiredCapability,
+  type WorkflowRevisionDefinition,
   type WorkflowStep,
   type WorkflowSteps,
   type WorkflowTrigger,
@@ -22,8 +32,26 @@ import {
 import { createId, lifecycle_dates } from "../helpers";
 import { user } from "./auth";
 
-export { workflowHilGatesSchema, workflowStepSchema, workflowStepsSchema, workflowTriggerSchema };
-export type { WorkflowHilGates, WorkflowStep, WorkflowSteps, WorkflowTrigger };
+export {
+  workflowAuthoringProposalSchema,
+  workflowBlockedSchema,
+  workflowHilGatesSchema,
+  workflowRequiredCapabilitySchema,
+  workflowRevisionDefinitionSchema,
+  workflowStepSchema,
+  workflowStepsSchema,
+  workflowTriggerSchema,
+};
+export type {
+  WorkflowAuthoringProposal,
+  WorkflowBlocked,
+  WorkflowHilGates,
+  WorkflowRequiredCapability,
+  WorkflowRevisionDefinition,
+  WorkflowStep,
+  WorkflowSteps,
+  WorkflowTrigger,
+};
 
 /**
  * Workflows (ADR-0017).
@@ -47,6 +75,16 @@ export type { WorkflowHilGates, WorkflowStep, WorkflowSteps, WorkflowTrigger };
  * `agent_runs` already has status + started_at + ended_at + cost
  * attribution via `api_call_log`. Querying for a workflow's runs is
  * `SELECT … FROM agent_runs WHERE user_id = ? AND workflow_slug = ?`.
+ *
+ * **The definition columns are a denormalized copy (#555).** `name`,
+ * `description`, `brief`, `trigger` and `allowed_integrations` mirror the
+ * *published* revision — or the current one while `published_revision_id` is
+ * still null. They stay on this row because `trigger` backs the partial index
+ * the per-minute tick scans, and because the settings list and the Replicache
+ * read model want one row, not a join. The price of the copy is that it can
+ * drift, so exactly one writer is allowed: the revision service in
+ * `packages/api/src/modules/workflows/revisions.ts`. Nothing else may
+ * `UPDATE workflows SET trigger = …`.
  */
 export const workflows = pgTable(
   "workflows",
@@ -105,6 +143,25 @@ export const workflows = pgTable(
       .array()
       .notNull()
       .default(sql`ARRAY[]::text[]`),
+    /**
+     * Newest revision (#555). Null for built-ins, which own their definition in
+     * a TS module and never mint a revision row.
+     */
+    currentRevisionId: text("current_revision_id"),
+    /**
+     * The revision new occurrences pin. Advances only on activation, which is
+     * why editing an active workflow does not disturb what is scheduled: the
+     * tick reads this pointer, not `current_revision_id`. Null until the first
+     * activation, and always null for built-ins.
+     */
+    publishedRevisionId: text("published_revision_id"),
+    /**
+     * Operational readiness, deliberately separate from `status` (#555). A
+     * missing connection or a dead watch writes here; the user's pause writes
+     * `status`. Writing one must never clear the other. Shape:
+     * `workflowBlockedSchema`.
+     */
+    blocked: jsonb("blocked").$type<WorkflowBlocked>(),
     /** active | draft | paused | archived. Settings toggle flips active ↔ paused. */
     status: text("status").notNull().default("draft"),
     /** True for alfred-curated workflows seeded from the repo. */
@@ -156,4 +213,94 @@ export const workflows = pgTable(
   ],
 );
 
+/**
+ * Immutable workflow definitions (#555).
+ *
+ * One row per semantic edit. Rows are never updated in place — the only
+ * mutable column is `approved_at`, which activation stamps on the row it
+ * publishes. `workflows.current_revision_id` advances on every edit;
+ * `workflows.published_revision_id` advances only on activation. A run pins
+ * whichever revision was published when its occurrence was claimed
+ * (`agent_runs.workflow_revision_id`) and keeps executing that definition even
+ * after the user edits the workflow.
+ *
+ * `content_hash` is `workflowRevisionContentHash` over the definition fields
+ * only (`workflowRevisionDefinitionSchema`), so an edit that changes nothing
+ * semantic — a reordered tool list, a reworded assumption — re-hashes to the
+ * same value and appends no row.
+ *
+ * Built-ins never appear here. Their definition lives in
+ * `apps/server/src/builtins/workflows/<slug>.ts`, so seeding one mints no
+ * revision and both pointers stay null.
+ */
+export const workflowRevisions = pgTable(
+  "workflow_revisions",
+  {
+    id: text("id")
+      .primaryKey()
+      .$defaultFn(() => createId("wfr")),
+    workflowId: text("workflow_id")
+      .notNull()
+      .references(() => workflows.id, { onDelete: "cascade" }),
+    userId: text("user_id")
+      .notNull()
+      .references(() => user.id, { onDelete: "cascade" }),
+    /** 1-based, dense per workflow. The user-facing "v3" on the History tab. */
+    revisionNumber: integer("revision_number").notNull(),
+    /** `sha256:…` over the canonical definition. See the file header. */
+    contentHash: text("content_hash").notNull(),
+    name: text("name").notNull(),
+    description: text("description"),
+    brief: text("brief").notNull(),
+    trigger: jsonb("trigger").$type<WorkflowTrigger>().notNull(),
+    /** Coarse dispatcher backstop; copied to `workflows` on publish. */
+    allowedIntegrations: text("allowed_integrations")
+      .array()
+      .$type<IntegrationSlug[]>()
+      .notNull()
+      .default(sql`ARRAY[]::text[]`),
+    /**
+     * The exact execution envelope (#557 fills it). A run that proposes a tool
+     * outside this list gets `capability_mismatch` — an unattended workflow is
+     * never silently widened.
+     */
+    allowedTools: text("allowed_tools")
+      .array()
+      .$type<ToolName[]>()
+      .notNull()
+      .default(sql`ARRAY[]::text[]`),
+    /** Shape: `workflowRequiredCapabilitySchema[]`. Read by `check-readiness` (#558). */
+    requiredCapabilities: jsonb("required_capabilities")
+      .$type<WorkflowRequiredCapability[]>()
+      .notNull()
+      .default(sql`'[]'::jsonb`),
+    /**
+     * Original intent and assumptions for the activation card (#556). Shape:
+     * `workflowAuthoringProposalSchema`. Outside `content_hash` on purpose.
+     */
+    authoringProposal: jsonb("authoring_proposal").$type<WorkflowAuthoringProposal>(),
+    /** The `agent_runs.id` that authored this revision. Null for a direct user edit. */
+    createdByRunId: text("created_by_run_id"),
+    /** Set when this revision becomes the published one. Null while it is a draft. */
+    approvedAt: timestamp("approved_at", { withTimezone: true }),
+    createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
+  },
+  (t) => [
+    // Dense numbering under concurrency: the second writer to claim the same
+    // number hits a 23505 and retries against the row the first one committed.
+    uniqueIndex("workflow_revisions_number_idx").on(t.workflowId, t.revisionNumber),
+    // Idempotency guard, same shape as `skill_revisions_run_idx`: an
+    // agent-produced revision is unique per (workflow, producing run), so a
+    // step retry that re-enters the commit collapses onto the existing row
+    // instead of appending a duplicate. Partial on a non-null run id — a direct
+    // user edit carries none and may save many times.
+    uniqueIndex("workflow_revisions_run_idx")
+      .on(t.workflowId, t.createdByRunId)
+      .where(sql`${t.createdByRunId} IS NOT NULL`),
+  ],
+);
+
 export type Workflow = typeof workflows.$inferSelect;
+export type NewWorkflow = typeof workflows.$inferInsert;
+export type WorkflowRevision = typeof workflowRevisions.$inferSelect;
+export type NewWorkflowRevision = typeof workflowRevisions.$inferInsert;
