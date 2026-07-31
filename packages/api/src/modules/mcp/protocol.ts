@@ -17,21 +17,28 @@ export interface McpProtocolPage {
 }
 
 /**
- * Alfred's name for the two MCP protocol generations, keyed to the spec revision
- * that separates them. The SDK calls them `legacy` and `modern`, but those names
- * move: the next revision makes today's `modern` the new legacy. The date does
- * not move. `post_2026_07_28` includes the 2026-07-28 revision itself.
+ * The one catalog of SDK era, Alfred era, and admitted protocol revision. A new
+ * SDK era is a compile error here, and every downstream union/allowlist derives
+ * from this table instead of restating the correlation.
  */
-export type McpProtocolEra = "pre_2026_07_28" | "post_2026_07_28";
+const MCP_PROTOCOL_PROFILES = {
+  legacy: {
+    protocolEra: "pre_2026_07_28",
+    protocolVersion: "2025-11-25",
+  },
+  modern: {
+    protocolEra: "post_2026_07_28",
+    protocolVersion: "2026-07-28",
+  },
+} as const satisfies Record<ProtocolEra, { protocolEra: string; protocolVersion: string }>;
 
-/**
- * The only place SDK era names enter Alfred. A `Record` keyed on the SDK union
- * makes a third SDK era a compile error here instead of a silent default.
- */
-const MCP_PROTOCOL_ERAS: Record<ProtocolEra, McpProtocolEra> = {
-  legacy: "pre_2026_07_28",
-  modern: "post_2026_07_28",
-};
+type McpProtocolProfile = (typeof MCP_PROTOCOL_PROFILES)[ProtocolEra];
+export type McpProtocolEra = McpProtocolProfile["protocolEra"];
+export const MCP_SUPPORTED_PROTOCOL_VERSIONS: readonly McpProtocolProfile["protocolVersion"][] =
+  Object.freeze(Object.values(MCP_PROTOCOL_PROFILES).map((profile) => profile.protocolVersion));
+const MCP_SUPPORTED_PROTOCOL_VERSION_SET: ReadonlySet<string> = new Set(
+  MCP_SUPPORTED_PROTOCOL_VERSIONS,
+);
 
 export interface McpProtocolServer {
   protocolEra: McpProtocolEra;
@@ -44,15 +51,7 @@ export interface McpProtocolServer {
 
 type McpServerFacts = Omit<McpProtocolServer, "protocolEra" | "protocolVersion">;
 
-export type McpNegotiatedServer =
-  | (McpServerFacts & {
-      protocolEra: "pre_2026_07_28";
-      protocolVersion: "2025-11-25";
-    })
-  | (McpServerFacts & {
-      protocolEra: "post_2026_07_28";
-      protocolVersion: "2026-07-28";
-    });
+export type McpNegotiatedServer = McpServerFacts & McpProtocolProfile;
 
 /**
  * The small protocol surface Alfred consumes. Keeping this interface below
@@ -69,6 +68,7 @@ export interface McpProtocolClient {
     signal?: AbortSignal,
   ): Promise<McpProtocolCallResult>;
   onToolsChanged(handler: () => void | Promise<void>): void;
+  onConnectionUnhealthy(handler: (error: Error) => void | Promise<void>): void;
 }
 
 export interface SdkMcpProtocolClientOptions {
@@ -84,6 +84,8 @@ export class SdkMcpProtocolClient implements McpProtocolClient {
   readonly #transport: StreamableHTTPClientTransport;
   readonly #requestTimeoutMs: number;
   #toolsChangedHandler: (() => void | Promise<void>) | null = null;
+  #connectionUnhealthyHandler: ((error: Error) => void | Promise<void>) | null = null;
+  #closing = false;
 
   constructor(options: SdkMcpProtocolClientOptions) {
     const authProvider = options.authProvider;
@@ -122,7 +124,12 @@ export class SdkMcpProtocolClient implements McpProtocolClient {
     this.#toolsChangedHandler = handler;
   }
 
+  onConnectionUnhealthy(handler: (error: Error) => void | Promise<void>): void {
+    this.#connectionUnhealthyHandler = handler;
+  }
+
   async connect(): Promise<McpProtocolServer> {
+    this.#closing = false;
     // Third-party variance gap, not a claim about our types: the MCP SDK's own
     // transport classes declare `sessionId?: string | undefined` / `onclose?:
     // (() => void) | undefined` while its `Transport` interface declares those
@@ -137,6 +144,20 @@ export class SdkMcpProtocolClient implements McpProtocolClient {
     if (!protocolEra || !protocolVersion) {
       throw new Error("MCP SDK connected without a negotiated protocol era and version");
     }
+    if (protocolEra === "post_2026_07_28" && capabilities?.tools?.listChanged === true) {
+      const subscription = this.#client.autoOpenedSubscription;
+      if (!subscription) {
+        throw new Error(
+          "MCP server advertised tools list changes, but the modern list-change subscription did not open",
+        );
+      }
+      void subscription.closed.then((cause) => {
+        if (this.#closing || cause === "local") return;
+        void this.#connectionUnhealthyHandler?.(
+          new Error(`MCP modern list-change subscription closed (${cause})`),
+        );
+      });
+    }
     return {
       protocolEra,
       protocolVersion,
@@ -149,10 +170,11 @@ export class SdkMcpProtocolClient implements McpProtocolClient {
 
   #era(): McpProtocolEra | null {
     const era = this.#client.getProtocolEra();
-    return era ? MCP_PROTOCOL_ERAS[era] : null;
+    return era ? MCP_PROTOCOL_PROFILES[era].protocolEra : null;
   }
 
   async close(terminateSession: boolean): Promise<void> {
+    this.#closing = true;
     if (terminateSession && this.#era() === "pre_2026_07_28" && this.#transport.sessionId) {
       try {
         await this.#transport.terminateSession();
@@ -200,6 +222,37 @@ export class SdkMcpProtocolClient implements McpProtocolClient {
 
 export function isMcpSessionExpiredError(err: unknown): boolean {
   return err instanceof SdkHttpError && err.status === 404;
+}
+
+export function parseMcpNegotiatedServer(server: McpProtocolServer): McpNegotiatedServer {
+  const profile = Object.values(MCP_PROTOCOL_PROFILES).find(
+    (candidate) =>
+      candidate.protocolEra === server.protocolEra &&
+      candidate.protocolVersion === server.protocolVersion,
+  );
+  if (profile) {
+    const facts = {
+      serverName: server.serverName,
+      serverVersion: server.serverVersion,
+      hasTools: server.hasTools,
+      toolsListChanged: server.toolsListChanged,
+    };
+    switch (profile.protocolEra) {
+      case "pre_2026_07_28":
+        return { ...facts, ...profile };
+      case "post_2026_07_28":
+        return { ...facts, ...profile };
+    }
+  }
+  const version = server.protocolVersion || "unknown";
+  if (!MCP_SUPPORTED_PROTOCOL_VERSION_SET.has(version)) {
+    throw new Error(
+      `Alfred MCP supports protocols ${MCP_SUPPORTED_PROTOCOL_VERSIONS.join(" and ")}; server negotiated ${version}`,
+    );
+  }
+  throw new Error(
+    `MCP protocol era '${server.protocolEra}' does not match negotiated version ${version}`,
+  );
 }
 
 function requestOptions(timeout: number, signal?: AbortSignal) {

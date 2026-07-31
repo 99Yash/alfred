@@ -3,11 +3,11 @@
  * (`mcp_connections`, via `persistence.ts`) and live, in-memory `McpRawClient`
  * instances. Connection rows are durable; the SDK client behind them is not, so
  * the manager re-hydrates a client on demand, drives connect + catalog refresh,
- * and folds the refreshed catalog back into an immutable revision through
- * `publishCatalogRevision`. The execution broker asks this manager for a ready
- * client; it never constructs one itself.
+ * inserts the refreshed immutable revision, then promotes it only while that
+ * in-memory generation remains current. The execution broker asks this manager
+ * for a ready client; it never constructs one itself.
  *
- * Two injection seams keep the whole path testable offline (no network/OAuth):
+ * Injection seams keep the whole path testable offline (no network/OAuth/DB):
  *  - `clientFactory` builds the `McpRawClient` for a connection row. Tests pass a
  *    factory that wires a real client to a FAKE `McpProtocolClient` (via the raw
  *    client's own `protocolFactory`), exercising real validation/bounding code
@@ -16,6 +16,8 @@
  *    placeholder here: v1 enforces https + origin-pinning but the full SSRF /
  *    DNS-rebinding guard is a later slice, and no connection-creation route wires
  *    an untrusted endpoint to it yet.
+ *  - `persistence` lets lifecycle tests drive publication races without requiring
+ *    Postgres; production always receives the module-owned default adapter.
  *
  * PRD guardrail — first real server: the intended first connection is GitHub's
  * official remote MCP server (`https://api.githubcopilot.com/mcp/`, Streamable
@@ -35,10 +37,10 @@ import {
   type McpCatalogSnapshot,
   type McpEndpointAuthorization,
 } from "./client";
-import { boundedMcpErrorText } from "./errors";
+import { boundedMcpErrorText, McpClientError } from "./errors";
 import { computeDescriptorHashes } from "./hash";
 import {
-  publishCatalogRevision,
+  insertCatalogRevision,
   readConnection,
   updateConnection,
   type McpConnectionUpdate,
@@ -47,11 +49,26 @@ import type { McpNegotiatedServer } from "./protocol";
 
 export type McpClientFactory = (connection: McpConnection) => McpRawClient;
 
+export interface McpConnectionManagerPersistence {
+  readConnection: typeof readConnection;
+  updateConnection: typeof updateConnection;
+  insertCatalogRevision: typeof insertCatalogRevision;
+}
+
 export interface McpConnectionManagerOptions {
   clientFactory?: McpClientFactory;
   /** Handed to the default `clientFactory` only. Ignored when one is injected. */
   endpointAuthorization?: McpEndpointAuthorization;
+  persistence?: McpConnectionManagerPersistence;
 }
+
+const DEFAULT_PERSISTENCE: McpConnectionManagerPersistence = {
+  readConnection,
+  updateConnection,
+  insertCatalogRevision,
+};
+
+const MAX_CATALOG_STABILIZATION_ATTEMPTS = 3;
 
 export class McpConnectionNotFoundError extends Error {
   constructor(connectionId: string) {
@@ -93,13 +110,14 @@ function liveClientFactory(authorization: McpEndpointAuthorization): McpClientFa
 export class McpConnectionManager {
   readonly #clients = new Map<string, McpRawClient>();
   readonly #catalogRefreshes = new Map<string, Promise<void>>();
-  readonly #catalogRefreshAgain = new Set<string>();
   readonly #clientFactory: McpClientFactory;
+  readonly #persistence: McpConnectionManagerPersistence;
 
   constructor(options: McpConnectionManagerOptions = {}) {
     this.#clientFactory =
       options.clientFactory ??
       liveClientFactory(options.endpointAuthorization ?? new HttpsOriginPinnedAuthorization());
+    this.#persistence = options.persistence ?? DEFAULT_PERSISTENCE;
   }
 
   /**
@@ -114,12 +132,16 @@ export class McpConnectionManager {
     const cached = this.#clients.get(connectionId);
     if (cached) return cached;
 
-    const connection = await readConnection(connectionId);
+    const connection = await this.#persistence.readConnection(connectionId);
     if (!connection) throw new McpConnectionNotFoundError(connectionId);
 
     const client = this.#clientFactory(connection);
     try {
-      await this.#patch(connectionId, { status: "connecting", lastError: null });
+      await this.#patch(connectionId, {
+        status: "connecting",
+        currentCatalogRevisionId: null,
+        lastError: null,
+      });
       await client.connect();
       await this.#refreshAndPersistStable(connectionId, client);
       this.#clients.set(connectionId, client);
@@ -129,7 +151,11 @@ export class McpConnectionManager {
       await client.close().catch(() => undefined);
       // `boundedMcpErrorText`, not `toMessage`: the SDK inlines the whole upstream
       // response body into its thrown message, and this lands in a durable column.
-      await this.#patch(connectionId, { status: "failed", lastError: boundedMcpErrorText(err) });
+      await this.#patch(connectionId, {
+        status: "failed",
+        currentCatalogRevisionId: null,
+        lastError: boundedMcpErrorText(err),
+      });
       throw err;
     }
   }
@@ -173,20 +199,25 @@ export class McpConnectionManager {
     await Promise.all(clients.map((client) => client.close().catch(() => undefined)));
   }
 
-  async #persistCatalog(
-    connectionId: string,
-    snapshot: McpCatalogSnapshot,
-    negotiated: McpNegotiatedServer | null,
-  ): Promise<void> {
-    await publishCatalogRevision({
+  async #insertCatalog(connectionId: string, snapshot: McpCatalogSnapshot): Promise<string> {
+    const revision = await this.#persistence.insertCatalogRevision({
       connectionId,
       revisionHash: snapshot.revision,
       descriptors: snapshot.tools,
       descriptorHashes: computeDescriptorHashes(snapshot.tools),
       toolCount: snapshot.tools.length,
     });
+    return revision.id;
+  }
+
+  async #activateCatalog(
+    connectionId: string,
+    revisionId: string,
+    negotiated: McpNegotiatedServer | null,
+  ): Promise<void> {
     await this.#patch(connectionId, {
       status: "ready",
+      currentCatalogRevisionId: revisionId,
       lastConnectedAt: new Date(),
       lastError: null,
       ...(negotiated
@@ -205,7 +236,7 @@ export class McpConnectionManager {
   }
 
   async #patch(connectionId: string, patch: McpConnectionUpdate): Promise<void> {
-    await updateConnection(connectionId, patch);
+    await this.#persistence.updateConnection(connectionId, patch);
   }
 
   /**
@@ -217,29 +248,47 @@ export class McpConnectionManager {
     connectionId: string,
     client: McpRawClient,
   ): Promise<McpCatalogSnapshot> {
-    for (;;) {
-      const snapshot = await client.refreshCatalog();
-      await this.#persistCatalog(connectionId, snapshot, client.negotiatedServer);
+    for (let attempt = 1; attempt <= MAX_CATALOG_STABILIZATION_ATTEMPTS; attempt += 1) {
+      let snapshot: McpCatalogSnapshot;
+      try {
+        snapshot = await client.refreshCatalog();
+      } catch (err) {
+        if (
+          err instanceof McpClientError &&
+          err.code === "catalog_stale" &&
+          attempt < MAX_CATALOG_STABILIZATION_ATTEMPTS
+        ) {
+          continue;
+        }
+        throw err;
+      }
+
+      const revisionId = await this.#insertCatalog(connectionId, snapshot);
+      if (client.catalog?.revision !== snapshot.revision) continue;
+
+      await this.#activateCatalog(connectionId, revisionId, client.negotiatedServer);
       if (client.catalog?.revision === snapshot.revision) return snapshot;
+
+      // An event won the race with pointer activation. Remove the stale door
+      // before the bounded coordinator tries the replacement generation.
+      await this.#patch(connectionId, {
+        status: "stale",
+        currentCatalogRevisionId: null,
+      });
     }
+    throw new McpClientError(
+      "catalog_stale",
+      `The MCP catalog changed during ${MAX_CATALOG_STABILIZATION_ATTEMPTS} consecutive refresh attempts`,
+    );
   }
 
   /** Coalesce list-change bursts into one durable invalidate → refresh cycle. */
   #scheduleCatalogRefresh(connectionId: string, client: McpRawClient): void {
     if (this.#clients.get(connectionId) !== client) return;
-    if (this.#catalogRefreshes.has(connectionId)) {
-      this.#catalogRefreshAgain.add(connectionId);
-      return;
-    }
+    if (this.#catalogRefreshes.has(connectionId)) return;
     const refresh = this.#refreshInvalidatedCatalog(connectionId, client).finally(() => {
       if (this.#catalogRefreshes.get(connectionId) === refresh) {
         this.#catalogRefreshes.delete(connectionId);
-      }
-      if (
-        this.#catalogRefreshAgain.delete(connectionId) &&
-        this.#clients.get(connectionId) === client
-      ) {
-        this.#scheduleCatalogRefresh(connectionId, client);
       }
     });
     // Keep the background task observed even when no caller is waiting in

@@ -14,12 +14,12 @@ import { McpClientError } from "./errors";
 import { sha256Canonical } from "./hash";
 import {
   isMcpSessionExpiredError,
+  parseMcpNegotiatedServer,
   SdkMcpProtocolClient,
   type McpNegotiatedServer,
   type McpProtocolCallResult,
   type McpProtocolClient,
   type McpProtocolPage,
-  type McpProtocolServer,
   type SdkMcpProtocolClientOptions,
 } from "./protocol";
 
@@ -86,10 +86,6 @@ export interface McpRawClientOptions extends McpClientLimits {
   protocolFactory?: (endpoint: URL) => McpProtocolClient;
 }
 
-export const MCP_SUPPORTED_PROTOCOL_VERSIONS = ["2025-11-25", "2026-07-28"] as const;
-const MCP_SUPPORTED_PROTOCOL_VERSION_SET: ReadonlySet<string> = new Set(
-  MCP_SUPPORTED_PROTOCOL_VERSIONS,
-);
 const DEFAULT_REQUEST_TIMEOUT_MS = 30_000;
 const DEFAULT_MAX_CATALOG_PAGES = 100;
 const DEFAULT_MAX_CATALOG_TOOLS = 1_000;
@@ -161,8 +157,31 @@ export class McpRawClient {
       this.#invalidateCatalog();
       this.#catalogInvalidatedHandler?.();
     });
+    let connectionUnhealthy: Error | null = null;
+    let connectFinished = false;
+    protocol.onConnectionUnhealthy((error) => {
+      if (connectFinished && this.#protocol !== protocol) return;
+      connectionUnhealthy = error;
+      if (this.#protocol === protocol) {
+        this.#protocol = null;
+        this.#negotiatedServer = null;
+      }
+      this.#invalidateCatalog();
+      this.#catalogInvalidatedHandler?.();
+      void protocol.close(false).catch(() => undefined);
+    });
     try {
-      const negotiated = parseNegotiatedServer(await protocol.connect());
+      const server = await protocol.connect();
+      let negotiated: McpNegotiatedServer;
+      try {
+        negotiated = parseMcpNegotiatedServer(server);
+      } catch (err) {
+        throw new McpClientError(
+          "unsupported_protocol_version",
+          err instanceof Error ? err.message : "MCP protocol negotiation failed",
+        );
+      }
+      if (connectionUnhealthy) throw connectionUnhealthy;
       if (!negotiated.hasTools) {
         throw new McpClientError(
           "missing_tools_capability",
@@ -171,10 +190,12 @@ export class McpRawClient {
       }
       this.#negotiatedServer = negotiated;
     } catch (err) {
+      connectFinished = true;
       await protocol.close(false).catch(() => undefined);
       throw err;
     }
     this.#protocol = protocol;
+    connectFinished = true;
   }
 
   async close(options: { terminateSession?: boolean } = {}): Promise<void> {
@@ -576,30 +597,4 @@ function assertSafeSchema(toolName: string, direction: "input" | "output", schem
   };
 
   visit(schema, 0);
-}
-
-function parseNegotiatedServer(server: McpProtocolServer): McpNegotiatedServer {
-  const facts = {
-    serverName: server.serverName,
-    serverVersion: server.serverVersion,
-    hasTools: server.hasTools,
-    toolsListChanged: server.toolsListChanged,
-  };
-  if (server.protocolEra === "pre_2026_07_28" && server.protocolVersion === "2025-11-25") {
-    return { ...facts, protocolEra: "pre_2026_07_28", protocolVersion: "2025-11-25" };
-  }
-  if (server.protocolEra === "post_2026_07_28" && server.protocolVersion === "2026-07-28") {
-    return { ...facts, protocolEra: "post_2026_07_28", protocolVersion: "2026-07-28" };
-  }
-  const version = server.protocolVersion || "unknown";
-  if (!MCP_SUPPORTED_PROTOCOL_VERSION_SET.has(version)) {
-    throw new McpClientError(
-      "unsupported_protocol_version",
-      `Alfred MCP supports protocols ${MCP_SUPPORTED_PROTOCOL_VERSIONS.join(" and ")}; server negotiated ${version}`,
-    );
-  }
-  throw new McpClientError(
-    "unsupported_protocol_version",
-    `MCP protocol era '${server.protocolEra}' does not match negotiated version ${version}`,
-  );
 }

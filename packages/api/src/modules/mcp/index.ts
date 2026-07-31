@@ -5,7 +5,6 @@ export {
   type McpBrokerOutcome,
 } from "./broker";
 export {
-  MCP_SUPPORTED_PROTOCOL_VERSIONS,
   McpRawClient,
   type ExternalToolRef,
   type McpCallEnvelope,
@@ -20,6 +19,7 @@ export { reconcileInflightInvocations, type ReconcileSummary } from "./persisten
 export { MCP_CALL_RISK_FLOOR, resolveMcpCallRiskTier, type McpCallRiskInput } from "./risk";
 export { getMcpConnectionManager, getMcpExecutionBroker, _setMcpRuntimeForTests } from "./runtime";
 export {
+  MCP_SUPPORTED_PROTOCOL_VERSIONS,
   SdkMcpProtocolClient,
   type McpProtocolCallResult,
   type McpProtocolClient,

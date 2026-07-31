@@ -71,6 +71,7 @@ class FakeProtocol implements McpProtocolClient {
     return { content: [{ type: "text", text: "ok" }] };
   }
   onToolsChanged(): void {}
+  onConnectionUnhealthy(): void {}
 }
 
 // Permissive schema on purpose: these tests exercise ledger/barrier semantics,

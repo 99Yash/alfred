@@ -11,6 +11,7 @@ let endpoint: URL;
 let closeServer: (() => Promise<void>) | null = null;
 let closeHandler: (() => Promise<void>) | null = null;
 let notifyModernToolsChanged: (() => void) | null = null;
+let legacySseResponse: ServerResponse | null = null;
 const observedCalls: string[] = [];
 const observedLegacyCalls: string[] = [];
 const observedLegacyMethods: string[] = [];
@@ -65,7 +66,7 @@ before(async () => {
           id,
           result: {
             protocolVersion: "2025-11-25",
-            capabilities: { tools: {} },
+            capabilities: { tools: { listChanged: true } },
             serverInfo: { name: "alfred-legacy-test", version: "1" },
           },
         });
@@ -129,6 +130,19 @@ before(async () => {
       });
       return;
     }
+    if (req.url === "/legacy-mcp" && req.method === "GET") {
+      res.writeHead(200, {
+        "content-type": "text/event-stream",
+        "cache-control": "no-cache",
+        connection: "keep-alive",
+      });
+      res.write(": legacy list-change stream\n\n");
+      legacySseResponse = res;
+      req.on("close", () => {
+        if (legacySseResponse === res) legacySseResponse = null;
+      });
+      return;
+    }
     res.writeHead(404).end();
   });
 
@@ -145,6 +159,7 @@ before(async () => {
 });
 
 after(async () => {
+  legacySseResponse?.end();
   await closeHandler?.();
   await closeServer?.();
 });
@@ -236,7 +251,38 @@ test("McpRawClient falls back to a 2025-11-25 Streamable HTTP server", async () 
 
   assert.equal(result.outcome, "completed");
   assert.deepEqual(observedLegacyCalls, ["fallback once"]);
+  await waitFor(() => legacySseResponse !== null);
+  writeSseNotification(legacySseResponse, {
+    jsonrpc: "2.0",
+    method: "notifications/tools/list_changed",
+  });
+  await waitFor(() => client.catalog === null);
   await client.close();
+});
+
+test("modern connect fails when the advertised list-change subscription cannot open", async () => {
+  const client = new McpRawClient({
+    connectionId: "conn_modern_subscription_failure_test",
+    endpoint,
+    endpointAuthorization: { authorize: async (candidate) => new URL(candidate.href) },
+    fetch: async (input, init) => {
+      const body = typeof init?.body === "string" ? JSON.parse(init.body) : undefined;
+      if (isRecord(body) && body.method === "subscriptions/listen") {
+        return Response.json(
+          {
+            jsonrpc: "2.0",
+            id: body.id,
+            error: { code: -32_603, message: "Subscription unavailable" },
+          },
+          { status: 400 },
+        );
+      }
+      return fetch(input, init);
+    },
+  });
+
+  await assert.rejects(client.connect(), /list-change subscription/i);
+  assert.equal(client.negotiatedServer, null);
 });
 
 test("the real SDK cannot bypass Alfred's catalog page limit", async () => {
@@ -374,6 +420,11 @@ test("the real SDK does not replay tools/call after auth or header failures", as
 
 function writeJson(response: ServerResponse, value: unknown): void {
   response.writeHead(200, { "content-type": "application/json" }).end(JSON.stringify(value));
+}
+
+function writeSseNotification(response: ServerResponse | null, value: unknown): void {
+  assert.ok(response);
+  response.write(`event: message\ndata: ${JSON.stringify(value)}\n\n`);
 }
 
 async function waitFor(predicate: () => boolean): Promise<void> {

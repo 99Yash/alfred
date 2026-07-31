@@ -213,12 +213,32 @@ export async function publishCatalogRevision(
   input: PublishCatalogRevisionInput,
   runner: Db = db(),
 ): Promise<McpCatalogRevision> {
-  const run = (tx: Db) => publishCatalogRevisionInTx(input, tx);
+  const run = async (tx: Db) => {
+    const revision = await insertCatalogRevisionInTx(input, tx);
+    await tx
+      .update(mcpConnections)
+      .set({ currentCatalogRevisionId: revision.id })
+      .where(eq(mcpConnections.id, input.connectionId));
+    return revision;
+  };
   // Reuse a caller's transaction when given one; otherwise open our own.
   return runAtomic(runner, run);
 }
 
-async function publishCatalogRevisionInTx(
+/**
+ * Idempotently insert an immutable catalog revision without making it current.
+ * The connection manager uses this to verify that the in-memory generation is
+ * still live before it promotes the durable pointer.
+ */
+export async function insertCatalogRevision(
+  input: PublishCatalogRevisionInput,
+  runner: Db = db(),
+): Promise<McpCatalogRevision> {
+  const run = (tx: Db) => insertCatalogRevisionInTx(input, tx);
+  return runAtomic(runner, run);
+}
+
+async function insertCatalogRevisionInTx(
   input: PublishCatalogRevisionInput,
   tx: Db,
 ): Promise<McpCatalogRevision> {
@@ -244,11 +264,6 @@ async function publishCatalogRevisionInTx(
       `publishCatalogRevision: revision vanished for connection ${input.connectionId}`,
     );
   }
-
-  await tx
-    .update(mcpConnections)
-    .set({ currentCatalogRevisionId: revision.id })
-    .where(eq(mcpConnections.id, input.connectionId));
 
   return revision;
 }

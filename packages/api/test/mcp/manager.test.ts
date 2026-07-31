@@ -63,6 +63,7 @@ class FakeProtocol implements McpProtocolClient {
   onToolsChanged(handler: () => void | Promise<void>): void {
     this.#toolsChanged = handler;
   }
+  onConnectionUnhealthy(): void {}
   async emitToolsChanged(): Promise<void> {
     await this.#toolsChanged?.();
   }

@@ -28,6 +28,7 @@ class FakeProtocol implements McpProtocolClient {
   callError: Error | null = null;
   listHook: (() => void | Promise<void>) | null = null;
   #toolsChanged: (() => void | Promise<void>) | null = null;
+  #connectionUnhealthy: ((error: Error) => void | Promise<void>) | null = null;
 
   constructor(pages: McpProtocolPage[]) {
     this.pages = pages;
@@ -61,8 +62,16 @@ class FakeProtocol implements McpProtocolClient {
     this.#toolsChanged = handler;
   }
 
+  onConnectionUnhealthy(handler: (error: Error) => void | Promise<void>): void {
+    this.#connectionUnhealthy = handler;
+  }
+
   async emitToolsChanged(): Promise<void> {
     await this.#toolsChanged?.();
+  }
+
+  async emitConnectionUnhealthy(error = new Error("subscription closed")): Promise<void> {
+    await this.#connectionUnhealthy?.(error);
   }
 }
 
@@ -340,6 +349,19 @@ describe("McpRawClient catalog", () => {
     await assertMcpError(client.refreshCatalog(), "catalog_stale");
 
     assert.equal(client.catalog, null);
+  });
+
+  test("a lost invalidation channel drops protocol and catalog authority", async () => {
+    const protocol = new FakeProtocol([{ tools: [SEARCH_TOOL] }]);
+    const client = makeClient(protocol);
+    await client.connect();
+    await client.refreshCatalog();
+
+    await protocol.emitConnectionUnhealthy();
+
+    assert.equal(client.catalog, null);
+    assert.equal(client.negotiatedServer, null);
+    await assertMcpError(client.refreshCatalog(), "not_connected");
   });
 });
 
