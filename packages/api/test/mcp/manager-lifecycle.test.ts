@@ -20,6 +20,8 @@ import {
 class FakeProtocol implements McpProtocolClient {
   tools: Tool[] = [tool("tool_a")];
   connectCount = 0;
+  listCount = 0;
+  ttlMs = 0;
   onListTools: (() => void | Promise<void>) | null = null;
   #toolsChanged: (() => void | Promise<void>) | null = null;
 
@@ -38,8 +40,9 @@ class FakeProtocol implements McpProtocolClient {
   async close(): Promise<void> {}
 
   async listTools(): Promise<McpProtocolPage> {
+    this.listCount += 1;
     await this.onListTools?.();
-    return { tools: this.tools, ttlMs: 0, cacheScope: "private" };
+    return { tools: this.tools, ttlMs: this.ttlMs, cacheScope: "private" };
   }
 
   async callTool(): Promise<McpProtocolCallResult> {
@@ -90,7 +93,11 @@ class MemoryPersistence implements McpConnectionManagerPersistence {
   };
 }
 
-function managerWith(protocol: FakeProtocol, persistence: MemoryPersistence): McpConnectionManager {
+function managerWith(
+  protocol: FakeProtocol,
+  persistence: MemoryPersistence,
+  now?: () => number,
+): McpConnectionManager {
   return new McpConnectionManager({
     persistence,
     clientFactory: (row) =>
@@ -99,6 +106,7 @@ function managerWith(protocol: FakeProtocol, persistence: MemoryPersistence): Mc
         endpoint: new URL(row.endpointUrl),
         endpointAuthorization: { authorize: async (endpoint) => new URL(endpoint.href) },
         protocolFactory: () => protocol,
+        ...(now ? { now } : {}),
       }),
   });
 }
@@ -147,6 +155,31 @@ describe("mcp connection manager lifecycle", () => {
       ["tool_b"],
     );
     assert.equal(persistence.connection.status, "ready");
+  });
+
+  test("publishes a replacement catalog before preparing a call after TTL expiry", async () => {
+    let now = 1_000;
+    const protocol = new FakeProtocol();
+    protocol.ttlMs = 1_000;
+    const persistence = new MemoryPersistence();
+    const manager = managerWith(protocol, persistence, () => now);
+
+    await manager.getReadyClient(persistence.connection.id);
+    await manager.prepareToolCall(persistence.connection.id);
+    assert.equal(protocol.listCount, 1);
+    assert.equal(persistence.publications, 1);
+
+    now += 1_001;
+    protocol.tools = [tool("tool_b")];
+    const prepared = await manager.prepareToolCall(persistence.connection.id);
+
+    assert.equal(protocol.listCount, 2);
+    assert.equal(persistence.publications, 2);
+    assert.deepEqual(
+      prepared.catalog.tools.map((entry) => entry.name),
+      ["tool_b"],
+    );
+    assert.equal(persistence.connection.currentCatalogRevisionId, "revision-2");
   });
 
   test("bounds repeated invalidation during publication", async () => {

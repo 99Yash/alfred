@@ -449,6 +449,7 @@ test("the real SDK does not replay tools/call after auth or header failures", as
     ),
   );
   assert.equal(mismatchCalls, 1);
+  assert.equal(mismatchClient.catalog, null);
   await mismatchClient.close();
 });
 
