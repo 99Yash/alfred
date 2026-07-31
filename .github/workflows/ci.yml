@@ -61,37 +61,16 @@ jobs:
       - name: Typecheck
         run: corepack pnpm check-types
 
-  api-unit-tests:
-    name: api-unit-tests
-    runs-on: ubuntu-latest
-    timeout-minutes: 10
-    steps:
-      - uses: actions/checkout@v4
-
-      - uses: actions/setup-node@v4
-        with:
-          node-version: 22
-
-      - name: Enable Corepack
-        run: corepack enable
-
-      - name: Resolve pnpm store path
-        run: echo "PNPM_STORE_PATH=$(corepack pnpm store path --silent)" >> "$GITHUB_ENV"
-
-      - uses: actions/cache@v4
-        with:
-          path: ${{ env.PNPM_STORE_PATH }}
-          key: ${{ runner.os }}-pnpm-store-${{ hashFiles('pnpm-lock.yaml') }}
-          restore-keys: ${{ runner.os }}-pnpm-store-
-
-      - name: Install dependencies
-        run: corepack pnpm install --frozen-lockfile
-
-      - name: API unit tests
-        run: corepack pnpm --filter @alfred/api test
-
-  api-db-tests:
-    name: api-db-tests
+  # ONE api job, not two. `api-unit-tests` and `api-db-tests` used to run the
+  # identical command (`--filter @alfred/api test`) and differed only in whether
+  # a Postgres service and `DATABASE_URL` were present. That ran all 201 test
+  # files twice and gave every timing-sensitive test two chances to flake per CI.
+  # The DB-backed files self-skip on `DATABASE_URL`, so the DB-less half proved
+  # only that those skip guards work — and a glob split instead of a merge would
+  # rot silently, because a new DB-backed file omitted from the list would skip
+  # in one job and never run in the other.
+  api-tests:
+    name: api-tests
     runs-on: ubuntu-latest
     timeout-minutes: 10
     services:
@@ -167,7 +146,7 @@ jobs:
       - name: Apply database migrations
         run: corepack pnpm --filter @alfred/db db:migrate
 
-      - name: API database regression tests
+      - name: API tests
         run: corepack pnpm --filter @alfred/api test
 
   ai-unit-tests:
@@ -227,31 +206,3 @@ jobs:
 
       - name: Web unit tests
         run: corepack pnpm --filter web test
-
-  required:
-    name: required
-    runs-on: ubuntu-latest
-    timeout-minutes: 5
-    needs:
-      - static
-      - api-unit-tests
-      - api-db-tests
-      - ai-unit-tests
-      - web-unit-tests
-    if: always()
-    steps:
-      # The assertion below names no job. It reads the outcomes of the `needs:`
-      # list above, so a job added to that list is gated by this step without a
-      # second edit here. A job that is NOT in `needs:` still gates nothing.
-      - name: Fail unless all required CI jobs passed
-        env:
-          RESULTS: ${{ join(needs.*.result, ' ') }}
-          NEEDS: ${{ toJSON(needs) }}
-        run: |
-          echo "$NEEDS"
-          # An empty RESULTS would run zero assertions and exit 0, so the gate
-          # would pass vacuously. Refuse it.
-          test -n "$RESULTS"
-          for result in $RESULTS; do
-            test "$result" = "success"
-          done

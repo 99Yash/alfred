@@ -36,6 +36,9 @@ const SKIP = process.env.DATABASE_URL ? false : "DATABASE_URL not set — skippi
 const ID_PREFIX = "test-mcpbrk-";
 const createdUserIds: string[] = [];
 
+/** A revision no catalog can mint, for the stale-selection cases. */
+const STALE_REVISION = "sha256:stale";
+
 type CallBehavior = { kind: "ok" } | { kind: "tool_error" } | { kind: "throw"; error: unknown };
 
 class FakeProtocol implements McpProtocolClient {
@@ -217,13 +220,45 @@ describe("mcp execution broker (DB-backed, offline)", { skip: SKIP }, () => {
     assert.equal((await invocationsForStaging(stagingId)).length, 0);
   });
 
-  test("live descriptor drift discards a reviewed read policy and mints a barrier", async () => {
+  // The reviewed-read fast path above is an exemption from the ledger, and this
+  // is the guard on it: a `read` policy is honored only while the descriptor it
+  // was reviewed against is still the one in the current catalog. A server that
+  // quietly redefines a tool cannot keep an exemption granted for other behavior.
+  //
+  // The guard is the POLICY JOIN in `resolveMcpToolIdentity` (`persistence.ts`),
+  // which matches `mcp_tool_policy.descriptor_hash` against the hash the current
+  // catalog revision stores for that tool name. A stale reviewed hash simply does
+  // not join, so no policy is authorized and the conservative `unknown` default
+  // applies. Dropping that one join condition is the mutant this case kills.
+  //
+  // The broker's own `hash === identity.descriptorHash` check is a second gate on
+  // the same question, and it is NOT what this case exercises: removing it leaves
+  // this test green. It can only fire on a catalog row whose stored descriptor
+  // hashes disagree with its own revision hash, because a revision is
+  // `sha256Canonical(sortedTools)` over every descriptor (`client.ts`) — so
+  // editing a descriptor always moves the revision too, and the broker's
+  // catalog-revision check rejects that call earlier. Reach the reachable half:
+  // a policy row carrying an earlier review's hash, selected at the CURRENT
+  // revision.
+  test("a stale reviewed hash discards the read policy and takes the effectful path", async () => {
     const userId = await seedUser();
     const connId = await seedConnection(userId);
-    const reviewedDescriptor = tool("search");
-    const reviewedProtocol = new FakeProtocol([reviewedDescriptor]);
-    const reviewedRevision = await liveRevision(reviewedProtocol, connId);
+    const liveDescriptor = tool("search");
+    const protocol = new FakeProtocol([liveDescriptor]);
+    const revision = await liveRevision(protocol, connId);
 
+    // Reviewed as a read — but against a descriptor the server no longer serves.
+    const reviewedDescriptor = {
+      ...liveDescriptor,
+      description: "What the reviewer approved, before the server changed it",
+    } satisfies Tool;
+    // Without this the case would silently degrade into the matching-hash test
+    // above, which asserts the OPPOSITE outcome and would still pass.
+    assert.notEqual(
+      descriptorHash(reviewedDescriptor),
+      descriptorHash(liveDescriptor),
+      "the fixture is a drift case only if the two descriptors hash differently",
+    );
     await upsertToolPolicy({
       userId,
       connectionId: connId,
@@ -234,39 +269,25 @@ describe("mcp execution broker (DB-backed, offline)", { skip: SKIP }, () => {
       retryContract: "never",
     });
 
-    // The durable policy resolves for the selected revision, but first-use
-    // hydration observes a changed live descriptor. The broker must discard the
-    // read classification before the raw client's stale-revision guard throws.
-    const driftedDescriptor = {
-      ...tool("search"),
-      description: "The server changed this tool after review",
-    } satisfies Tool;
-    const driftedProtocol = new FakeProtocol([driftedDescriptor]);
     const stagingId = await seedStaging(userId);
+    const outcome = await brokerWith(protocol).callTool({
+      userId,
+      stagingId,
+      ref: { kind: "mcp", connectionId: connId, remoteName: "search", catalogRevision: revision },
+      arguments: {},
+    });
 
-    await assert.rejects(
-      brokerWith(driftedProtocol).callTool({
-        userId,
-        stagingId,
-        ref: {
-          kind: "mcp",
-          connectionId: connId,
-          remoteName: "search",
-          catalogRevision: reviewedRevision,
-        },
-        arguments: {},
-      }),
-      /catalog changed|refresh/i,
-    );
-
-    assert.equal(driftedProtocol.calls, 0, "descriptor drift must fail before tools/call");
+    // The exemption is gone: the call is ledgered like any unreviewed effect.
+    assert.equal(outcome.status, "completed");
     const [row] = await invocationsForStaging(stagingId);
-    assert.ok(row, "drifted policy must take the effectful barrier path");
+    assert.ok(row, "a discarded read policy must take the effectful barrier path");
     assert.equal(row.effectClass, "unknown");
-    assert.equal(row.policyRevision, null);
-    assert.equal(row.descriptorHash, descriptorHash(driftedDescriptor));
-    assert.equal(row.effectOutcome, "failed");
-    assert.equal(row.retryDisposition, "safe");
+    assert.equal(row.policyRevision, null, "no policy applied means no policy recorded");
+    assert.equal(
+      row.descriptorHash,
+      descriptorHash(liveDescriptor),
+      "the ledger records the descriptor that was actually called, not the reviewed one",
+    );
   });
 
   test("an unreviewed (unknown) write mints a ledger row and resolves succeeded", async () => {
@@ -404,17 +425,27 @@ describe("mcp execution broker (DB-backed, offline)", { skip: SKIP }, () => {
     assert.equal(protocol.calls, 1);
   });
 
-  test("a deterministic pre-delivery error throws and resolves the reservation as not-delivered", async () => {
+  // A stale catalog revision is refused by the BROKER, before the reservation is
+  // minted. The barrier exists to stop a repeat of a write that may have reached
+  // the remote application, so a call rejected before dispatch needs none — the
+  // same rule the foreign-connection case below proves for ownership. Read the
+  // pair together: this is the second of the two pre-dispatch refusals, and both
+  // must leave the ledger empty.
+  //
+  // This check sat inside the raw client until it moved into the broker, which is
+  // why an earlier version of this case expected a minted-then-resolved row. That
+  // row recorded a call that provably never happened.
+  test("a stale catalog revision is refused pre-dispatch and mints no reservation", async () => {
     const userId = await seedUser();
     const connId = await seedConnection(userId);
     const protocol = new FakeProtocol([tool("create_issue")]);
-    await liveRevision(protocol, connId);
+    const revision = await liveRevision(protocol, connId);
+    assert.notEqual(revision, STALE_REVISION, "the fixture must actually be a stale revision");
 
     const broker = brokerWith(protocol);
     const stagingId = await seedStaging(userId);
     const callsBefore = protocol.calls;
 
-    // A stale catalog revision is rejected by the raw client BEFORE any send.
     await assert.rejects(
       broker.callTool({
         userId,
@@ -423,7 +454,7 @@ describe("mcp execution broker (DB-backed, offline)", { skip: SKIP }, () => {
           kind: "mcp",
           connectionId: connId,
           remoteName: "create_issue",
-          catalogRevision: "sha256:stale",
+          catalogRevision: STALE_REVISION,
         },
         arguments: {},
       }),
@@ -431,10 +462,11 @@ describe("mcp execution broker (DB-backed, offline)", { skip: SKIP }, () => {
     );
 
     assert.equal(protocol.calls, callsBefore, "a stale-catalog call must not be dispatched");
-    const [row] = await invocationsForStaging(stagingId);
-    assert.equal(row?.effectOutcome, "failed");
-    assert.equal(row?.retryDisposition, "safe");
-    assert.ok(row?.resolvedAt, "a proven not-delivered call is resolved (retry-safe)");
+    assert.equal(
+      (await invocationsForStaging(stagingId)).length,
+      0,
+      "a call that provably never left the host earns no barrier",
+    );
   });
 
   // Reconnect/session-expiry regression (issue #540 VS Code findings): a session
