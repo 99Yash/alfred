@@ -1,10 +1,12 @@
 import {
   activateWorkflowInputSchema,
+  canonicalJson,
   getPath,
   integrationFromToolName,
   isIntegrationSlug,
   isLoadableIntegrationSlug,
   workflowRevisionDefinitionSchema,
+  workflowAuthoringProposalSchema,
   type WorkflowAuthoringProposal,
   type WorkflowBlocked,
   type IanaTimezone,
@@ -21,7 +23,11 @@ import {
 import { and, eq, sql } from "drizzle-orm";
 import { canonicalWorkflowDefinition, workflowRevisionContentHash } from "./content-hash";
 import { readFreshIntegrationAvailability } from "../integrations/availability";
-import { resolveWorkflowReadiness, type WorkflowReadinessProblem } from "./readiness";
+import {
+  canonicalizeWorkflowAccounts,
+  resolveWorkflowReadiness,
+  type WorkflowReadinessProblem,
+} from "./readiness";
 import {
   computeNextRunAt,
   resolveWorkflowTimezone,
@@ -66,7 +72,9 @@ export type WorkflowRevisionProblemCode =
   | "empty_integration_ceiling"
   | "trigger_source_not_allowed"
   | "tool_outside_ceiling"
-  | "capability_outside_envelope";
+  | "capability_outside_envelope"
+  | "tool_without_capability"
+  | "integration_outside_derived_ceiling";
 
 export interface WorkflowRevisionProblem {
   code: WorkflowRevisionProblemCode;
@@ -219,6 +227,30 @@ export function validateWorkflowDefinition(
     });
   }
 
+  const capabilityTools = new Set(requiredCapabilities.map((capability) => capability.tool));
+  for (const tool of allowedTools) {
+    if (capabilityTools.has(tool)) continue;
+    problems.push({
+      code: "tool_without_capability",
+      message: `'${tool}' is allowed but has no matching required capability.`,
+      field: "allowedTools",
+    });
+  }
+
+  const derivedIntegrations = new Set(allowedTools.map((tool) => integrationFromToolName(tool)));
+  if (trigger.kind === "event" && isIntegrationSlug(trigger.source)) {
+    derivedIntegrations.add(trigger.source);
+  }
+  for (const integration of allowedIntegrations) {
+    if (derivedIntegrations.has(integration)) continue;
+    if (!opts.requireActivatable) continue;
+    problems.push({
+      code: "integration_outside_derived_ceiling",
+      message: `'${integration}' is allowed but is not required by a tool or trigger.`,
+      field: "allowedIntegrations",
+    });
+  }
+
   return problems.length > 0 ? { ok: false, problems } : { ok: true, definition };
 }
 
@@ -358,7 +390,10 @@ export async function reviseWorkflow(
       ? await loadRevision(tx, existing.currentRevisionId)
       : null;
     const contentHash = workflowRevisionContentHash(definition);
-    if (current && current.contentHash === contentHash) {
+    const proposalUnchanged =
+      canonicalJson(current?.authoringProposal ?? null) ===
+      canonicalJson(args.authoringProposal ?? null);
+    if (current && current.contentHash === contentHash && proposalUnchanged) {
       return { ok: true, workflow: existing, revision: current, created: false };
     }
 
@@ -539,8 +574,13 @@ export async function activateWorkflowDefinition(
     };
   }
   const input = parsed.data;
-  const timezone = await resolveTimezoneForInput(args.userId, input.definition);
-  const validated = validateWorkflowDefinition(input.definition, {
+  const availability = await readFreshIntegrationAvailability(args.userId);
+  const canonicalInputDefinition = canonicalizeWorkflowAccounts({
+    definition: input.definition,
+    availability,
+  });
+  const timezone = await resolveTimezoneForInput(args.userId, canonicalInputDefinition);
+  const validated = validateWorkflowDefinition(canonicalInputDefinition, {
     timezone,
     requireActivatable: true,
   });
@@ -549,18 +589,16 @@ export async function activateWorkflowDefinition(
   }
 
   const definition = validated.definition;
-  const scheduleProblems = validateActivationSchedule(input, timezone);
-  if (scheduleProblems.length > 0) {
-    return { ok: false, failure: { kind: "validation_failed", problems: scheduleProblems } };
-  }
-  const blockers = resolveWorkflowReadiness({
-    definition,
-    availability: await readFreshIntegrationAvailability(args.userId),
-  });
-  if (blockers.length > 0) {
-    return { ok: false, failure: { kind: "readiness_blocked", blockers } };
-  }
   const approvedHash = workflowRevisionContentHash(definition);
+
+  // A derived preview must match an unchanged card. When the user edits the
+  // definition, the server recomputes the preview from that approved edit.
+  if (approvedHash === input.baseContentHash) {
+    const scheduleProblems = validateActivationSchedule(input, timezone);
+    if (scheduleProblems.length > 0) {
+      return { ok: false, failure: { kind: "validation_failed", problems: scheduleProblems } };
+    }
+  }
 
   return db().transaction(async (tx) => {
     const existing = await loadWorkflow(tx, args.userId, input.workflowId);
@@ -690,11 +728,37 @@ export async function activateWorkflow(
     }
 
     const definition = validated.definition;
+    const proposal = workflowAuthoringProposalSchema.safeParse(current.authoringProposal);
+    const blockers = resolveWorkflowReadiness({
+      definition,
+      availability: await readFreshIntegrationAvailability(args.userId),
+      requestedCapabilities: proposal.success
+        ? proposal.data.requestedCapabilities
+        : definition.requiredCapabilities,
+    });
+    if (blockers.length > 0) {
+      const first = blockers[0];
+      if (!first) throw new Error("workflow readiness returned an empty blocker set");
+      const blocked = await setWorkflowBlocked({
+        userId: args.userId,
+        workflowId: existing.id,
+        blocked: {
+          code: first.code,
+          message: blockers.map((problem) => problem.message).join(" "),
+          detectedAt: new Date().toISOString(),
+          revisionId: current.id,
+        },
+        tx,
+      });
+      if (!blocked.ok) return blocked;
+      return { ok: false, failure: { kind: "readiness_blocked", blockers } };
+    }
     const expectedRowVersion = args.expectedRowVersion ?? existing.rowVersion;
     const [published] = await tx
       .update(workflows)
       .set({
         status: "active",
+        blocked: null,
         publishedRevisionId: current.id,
         nextRunAt: computeNextRunAt(definition.trigger, { timezone }),
         ...mirroredColumns(definition),

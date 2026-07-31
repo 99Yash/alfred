@@ -87,6 +87,22 @@ describe("exact active tool dispatch", () => {
     assert.equal(executions, 0);
   });
 
+  test("an active tool outside the immutable revision envelope is rejected", async () => {
+    let executions = 0;
+    registerTool(scratchReadTool(() => executions++));
+
+    const result = await dispatchToolCall({
+      ...baseDispatch,
+      activeTools: ["system.read_scratch"],
+      allowedTools: ["system.current_time"],
+    });
+
+    assert.equal(result.kind, "not_allowed");
+    assert.equal(executions, 0);
+    if (result.kind !== "not_allowed") return;
+    assert.equal(result.result.status, "capability_mismatch");
+  });
+
   test("structured recovery activates the exact tool for a subsequent model reissue", async () => {
     let executions = 0;
     registerTool(scratchReadTool(() => executions++));

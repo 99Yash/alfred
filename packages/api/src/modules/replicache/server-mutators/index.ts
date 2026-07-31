@@ -556,7 +556,13 @@ export const serverMutators = {
             ...(hasDefinitionPatch ? {} : { expectedRowVersion: args.expectedRowVersion }),
             tx,
           });
-    if (!applied.ok) throw workflowMutatorError(applied.failure);
+    if (!applied.ok) {
+      // Readiness failure is authoritative workflow state, not a rejected edit.
+      // The activation service persisted the blocker; the next pull replaces
+      // the optimistic active status with the saved inactive row.
+      if (applied.failure.kind === "readiness_blocked") return;
+      throw workflowMutatorError(applied.failure);
+    }
   },
 
   // ── Todos (ADR-0050) ──────────────────────────────────────────────────

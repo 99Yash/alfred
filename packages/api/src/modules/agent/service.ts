@@ -136,7 +136,12 @@ export async function createRun(
     const metadataAllowedIntegrations = Array.isArray(metadata.allowedIntegrations)
       ? metadata.allowedIntegrations
       : row.allowedIntegrations;
-    metadata = { ...metadata, allowedIntegrations: metadataAllowedIntegrations };
+    metadata = {
+      ...metadata,
+      allowedIntegrations: metadataAllowedIntegrations,
+      allowedTools: row.allowedTools,
+      requiredCapabilities: row.requiredCapabilities,
+    };
   }
 
   const workflowInput = {

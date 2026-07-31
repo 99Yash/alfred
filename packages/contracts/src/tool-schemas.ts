@@ -52,7 +52,7 @@ import {
   GMAIL_SEARCH_QUERY_MAX_CHARS,
   GMAIL_SEARCH_SNIPPET_MAX_CHARS,
 } from "./tool-constants";
-import { TOOL_NAMES, type ToolName } from "./tools";
+import { type ToolName } from "./tools";
 
 /**
  * Zod's built-in email validator emits negative-lookahead assertions in JSON
@@ -1241,15 +1241,9 @@ export const loadToolInput = z
 
 export const currentTimeInput = z.object({}).strict();
 
-const modelToolNameSchema = z.enum(TOOL_NAMES);
-const modelWorkflowCapabilitySchema = workflowRequiredCapabilitySchema.extend({
-  tool: modelToolNameSchema,
-});
 export const authorWorkflowInput = coerceJsonArrayFields(
   ["capabilities", "assumptions", "externalEffects"],
-  authorWorkflowInputSchema.safeExtend({
-    capabilities: z.array(modelWorkflowCapabilitySchema).min(1).max(50),
-  }),
+  authorWorkflowInputSchema,
 );
 
 // Activation receives the server-canonical proposal returned by authoring. It

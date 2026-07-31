@@ -15,6 +15,8 @@ import type { RetryPolicy } from "./retry";
  */
 export interface ProviderBindOptions {
   userId: string;
+  /** Exact provider account id approved for this tool call, when one is pinned. */
+  accountRef?: string | undefined;
   /**
    * Transient-retry envelope for this bind's retry-safe requests, or `"none"` for
    * exactly one attempt.

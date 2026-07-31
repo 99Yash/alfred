@@ -38,6 +38,7 @@ import type {
   PolicyMode,
   ToolName,
   ToolRiskTier,
+  WorkflowRequiredCapability,
 } from "@alfred/contracts";
 import {
   APPROVAL_EXPIRY_MS,
@@ -141,6 +142,10 @@ export interface DispatchArgs {
   activeTools: readonly ToolName[];
   /** Workflow integration cap, enforced by exact tool discovery, load, and dispatch. */
   allowedIntegrations?: readonly string[] | undefined;
+  /** Exact approved tool envelope for an immutable workflow revision. */
+  allowedTools?: readonly ToolName[] | undefined;
+  /** Account/resource envelope paired with `allowedTools`. */
+  requiredCapabilities?: readonly WorkflowRequiredCapability[] | undefined;
 }
 
 interface RejectedToolResult {
@@ -173,7 +178,7 @@ interface InactiveToolResult {
 }
 
 interface NotAllowedToolResult {
-  status: "not_allowed";
+  status: "not_allowed" | "capability_mismatch";
   toolName: ToolName;
   integration: IntegrationSlug;
   message: string;
@@ -463,6 +468,15 @@ export async function dispatchToolCall(args: DispatchArgs): Promise<DispatchResu
 
   const integration = integrationFromToolName(toolName);
 
+  if (args.allowedTools && !args.allowedTools.includes(toolName)) {
+    const message = `Tool '${toolName}' is outside this workflow revision's approved capability envelope.`;
+    recordRejection({ dispatch: args, outcome: "not_allowed", reason: message, toolName });
+    return {
+      kind: "not_allowed",
+      result: { status: "capability_mismatch", toolName, integration, message },
+    };
+  }
+
   // The declared tool contract, enforced where it decides. `callers`,
   // `requiresThread`, `passthrough`, `credential` and the workflow integration
   // cap are declared once on the registration and evaluated by ONE evaluator, so
@@ -571,6 +585,8 @@ export async function dispatchToolCall(args: DispatchArgs): Promise<DispatchResu
     threadId: args.threadId,
     messageId: args.messageId,
     allowedIntegrations: args.allowedIntegrations,
+    accountRef: args.requiredCapabilities?.find((capability) => capability.tool === toolName)
+      ?.accountRef,
   });
   const scratchAccessError = validateScratchToolAccess({ toolName, input, caller });
   if (scratchAccessError) {

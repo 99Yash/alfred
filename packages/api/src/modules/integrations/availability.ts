@@ -1,4 +1,6 @@
 import {
+  getPath,
+  getStringPath,
   humanizeSlug,
   isLoadableIntegrationSlug,
   isPassthroughPreferenceOn,
@@ -9,7 +11,7 @@ import {
   type SupportedIntegrationSlug,
 } from "@alfred/contracts";
 import { db } from "@alfred/db";
-import { integrationCredentials, userPreferences } from "@alfred/db/schemas";
+import { ingestionState, integrationCredentials, userPreferences } from "@alfred/db/schemas";
 import {
   CALENDAR_EVENTS_SCOPE,
   CALENDAR_READONLY_SCOPE,
@@ -21,6 +23,7 @@ import {
 } from "@alfred/integrations/google";
 import { and, eq, inArray } from "drizzle-orm";
 import type { RegisteredTool } from "../tools/registry";
+import { pubSubOidcConfigFromEnv } from "./gmail-push-config";
 
 interface IntegrationAccessSpec {
   slug: LoadableIntegrationSlug;
@@ -46,11 +49,19 @@ const ACCESS_SPECS: readonly IntegrationAccessSpec[] = [
 ];
 
 export interface ProviderAvailability {
+  credentialId: string;
   accountId: string;
   status: string;
   scopes: Set<string>;
   accountLabel: string | null;
   metadata: Record<string, unknown>;
+  gmailEventHealth?: {
+    receiverConfigured: boolean;
+    topicMatches: boolean;
+    cursorReady: boolean;
+    coverageGap: boolean;
+    lastSyncAt: Date | null;
+  };
 }
 
 export interface IntegrationAvailability {
@@ -167,9 +178,10 @@ async function loadIntegrationAvailability(
   userId: string,
 ): Promise<IntegrationAvailabilitySnapshot> {
   const passthroughKeys = Object.values(PASSTHROUGH_PREFERENCE_KEYS);
-  const [rows, prefRows] = await Promise.all([
+  const [rows, prefRows, cursorRows] = await Promise.all([
     db()
       .select({
+        id: integrationCredentials.id,
         provider: integrationCredentials.provider,
         accountId: integrationCredentials.accountId,
         status: integrationCredentials.status,
@@ -185,6 +197,20 @@ async function loadIntegrationAvailability(
       .where(
         and(eq(userPreferences.userId, userId), inArray(userPreferences.key, passthroughKeys)),
       ),
+    db()
+      .select({
+        credentialId: ingestionState.credentialId,
+        state: ingestionState.state,
+        lastSyncAt: ingestionState.lastSyncAt,
+      })
+      .from(ingestionState)
+      .where(
+        and(
+          eq(ingestionState.userId, userId),
+          eq(ingestionState.provider, "google"),
+          eq(ingestionState.stream, "messages"),
+        ),
+      ),
   ]);
 
   const prefByKey = new Map(prefRows.map((row) => [row.key, row.value]));
@@ -197,14 +223,34 @@ async function loadIntegrationAvailability(
   }
 
   const byProvider = new Map<string, ProviderAvailability[]>();
+  const cursorByCredential = new Map(cursorRows.map((row) => [row.credentialId, row]));
+  const pushConfig = pubSubOidcConfigFromEnv();
+  const receiverConfigured =
+    Boolean(pushConfig.pushTopic) &&
+    (pushConfig.nodeEnv !== "production" ||
+      (Boolean(pushConfig.audience) && Boolean(pushConfig.expectedServiceAccount)));
   for (const row of rows) {
     const list = byProvider.get(row.provider) ?? [];
+    const cursor = cursorByCredential.get(row.id);
+    const watchTopic = getStringPath(row.metadata, "watch", "topic");
     list.push({
+      credentialId: row.id,
       accountId: row.accountId,
       status: row.status,
       scopes: new Set(toStringArray(row.scopes)),
       accountLabel: row.accountLabel,
       metadata: row.metadata,
+      ...(row.provider === "google"
+        ? {
+            gmailEventHealth: {
+              receiverConfigured,
+              topicMatches: Boolean(watchTopic && watchTopic === pushConfig.pushTopic),
+              cursorReady: Boolean(getStringPath(cursor?.state, "historyId")),
+              coverageGap: getPath(cursor?.state, "coverageGap") === true,
+              lastSyncAt: cursor?.lastSyncAt ?? null,
+            },
+          }
+        : {}),
     });
     byProvider.set(row.provider, list);
   }

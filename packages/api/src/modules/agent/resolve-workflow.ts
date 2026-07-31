@@ -1,5 +1,10 @@
 import { db } from "@alfred/db";
-import { workflows, type Workflow as WorkflowRow } from "@alfred/db/schemas";
+import {
+  workflowRevisions,
+  workflows,
+  type Workflow as WorkflowRow,
+  type WorkflowRevision,
+} from "@alfred/db/schemas";
 import { and, eq } from "drizzle-orm";
 import { getWorkflow } from "./registry";
 import type { AgentDbExecutor, Workflow } from "./types";
@@ -8,7 +13,8 @@ import { userAuthoredBriefWorkflow } from "./workflows/user-authored-brief";
 type UserAuthoredWorkflowRow = Pick<
   WorkflowRow,
   "brief" | "allowedIntegrations" | "isBuiltin" | "publishedRevisionId"
->;
+> &
+  Pick<WorkflowRevision, "allowedTools" | "requiredCapabilities">;
 
 export interface ResolvedWorkflowForRun {
   workflow: Workflow<unknown>;
@@ -44,8 +50,11 @@ export async function resolveWorkflowForRun(args: {
       allowedIntegrations: workflows.allowedIntegrations,
       isBuiltin: workflows.isBuiltin,
       publishedRevisionId: workflows.publishedRevisionId,
+      allowedTools: workflowRevisions.allowedTools,
+      requiredCapabilities: workflowRevisions.requiredCapabilities,
     })
     .from(workflows)
+    .leftJoin(workflowRevisions, eq(workflowRevisions.id, workflows.publishedRevisionId))
     .where(and(eq(workflows.userId, args.userId), eq(workflows.slug, args.workflowSlug)))
     .limit(1);
   const row = rows[0];
@@ -57,10 +66,19 @@ export async function resolveWorkflowForRun(args: {
       `[agent] builtin workflow slug=${args.workflowSlug} exists in DB but is not registered in code`,
     );
   }
+  if (!row.publishedRevisionId || !row.allowedTools || !row.requiredCapabilities) {
+    throw new Error(
+      `[agent] authored workflow slug=${args.workflowSlug} has no published revision`,
+    );
+  }
 
   return {
     workflow: userAuthoredBriefWorkflow as Workflow<unknown>,
     workflowSlug: args.workflowSlug,
-    userAuthoredRow: row,
+    userAuthoredRow: {
+      ...row,
+      allowedTools: row.allowedTools,
+      requiredCapabilities: row.requiredCapabilities,
+    },
   };
 }

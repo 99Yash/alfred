@@ -246,6 +246,7 @@ export const systemTools: readonly RegisteredTool[] = [
           ok: true,
           status: "blocked",
           workflowId: result.workflow.id,
+          rowVersion: result.workflow.rowVersion,
           revisionId: result.revision.id,
           revisionNumber: result.revision.revisionNumber,
           created: result.created,
