@@ -1,5 +1,5 @@
 {
-  "id": "3bedde27-cc61-469f-b3a6-d6bc1d312ef5",
+  "id": "64cc94c4-0e20-405a-b583-f42c871676f6",
   "prevId": "f7e7218a-6366-445e-8aae-0e420f85fcca",
   "version": "7",
   "dialect": "postgresql",
@@ -719,12 +719,6 @@
           "type": "text",
           "primaryKey": false,
           "notNull": true
-        },
-        "workflow_revision_id": {
-          "name": "workflow_revision_id",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false
         },
         "brief": {
           "name": "brief",
@@ -4868,6 +4862,13 @@
           "notNull": true,
           "default": "'[]'::jsonb"
         },
+        "required_scopes": {
+          "name": "required_scopes",
+          "type": "jsonb",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "'[]'::jsonb"
+        },
         "status": {
           "name": "status",
           "type": "text",
@@ -4976,6 +4977,19 @@
             "id"
           ],
           "onDelete": "cascade",
+          "onUpdate": "no action"
+        },
+        "mcp_connections_credential_id_mcp_oauth_credentials_id_fk": {
+          "name": "mcp_connections_credential_id_mcp_oauth_credentials_id_fk",
+          "tableFrom": "mcp_connections",
+          "tableTo": "mcp_oauth_credentials",
+          "columnsFrom": [
+            "credential_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "set null",
           "onUpdate": "no action"
         },
         "mcp_connections_current_revision_fk": {
@@ -5301,6 +5315,302 @@
             "id"
           ],
           "onDelete": "set null",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "policies": {},
+      "checkConstraints": {},
+      "isRLSEnabled": false
+    },
+    "public.mcp_oauth_authorization_attempts": {
+      "name": "mcp_oauth_authorization_attempts",
+      "schema": "",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "text",
+          "primaryKey": true,
+          "notNull": true
+        },
+        "user_id": {
+          "name": "user_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "connection_id": {
+          "name": "connection_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "state_hash": {
+          "name": "state_hash",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "code_verifier": {
+          "name": "code_verifier",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "expires_at": {
+          "name": "expires_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        },
+        "updated_at": {
+          "name": "updated_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": false,
+          "default": "current_timestamp"
+        }
+      },
+      "indexes": {
+        "mcp_oauth_attempts_state_idx": {
+          "name": "mcp_oauth_attempts_state_idx",
+          "columns": [
+            {
+              "expression": "state_hash",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": true,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "mcp_oauth_attempts_connection_idx": {
+          "name": "mcp_oauth_attempts_connection_idx",
+          "columns": [
+            {
+              "expression": "connection_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        }
+      },
+      "foreignKeys": {
+        "mcp_oauth_authorization_attempts_user_id_user_id_fk": {
+          "name": "mcp_oauth_authorization_attempts_user_id_user_id_fk",
+          "tableFrom": "mcp_oauth_authorization_attempts",
+          "tableTo": "user",
+          "columnsFrom": [
+            "user_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "cascade",
+          "onUpdate": "no action"
+        },
+        "mcp_oauth_authorization_attempts_connection_id_mcp_connections_id_fk": {
+          "name": "mcp_oauth_authorization_attempts_connection_id_mcp_connections_id_fk",
+          "tableFrom": "mcp_oauth_authorization_attempts",
+          "tableTo": "mcp_connections",
+          "columnsFrom": [
+            "connection_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "cascade",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "policies": {},
+      "checkConstraints": {},
+      "isRLSEnabled": false
+    },
+    "public.mcp_oauth_credentials": {
+      "name": "mcp_oauth_credentials",
+      "schema": "",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "text",
+          "primaryKey": true,
+          "notNull": true
+        },
+        "user_id": {
+          "name": "user_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "connection_id": {
+          "name": "connection_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "issuer": {
+          "name": "issuer",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "discovery_state": {
+          "name": "discovery_state",
+          "type": "jsonb",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "client_information": {
+          "name": "client_information",
+          "type": "jsonb",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "client_secret": {
+          "name": "client_secret",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "access_token": {
+          "name": "access_token",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "refresh_token": {
+          "name": "refresh_token",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "id_token": {
+          "name": "id_token",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "token_type": {
+          "name": "token_type",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "expires_in": {
+          "name": "expires_in",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "scope": {
+          "name": "scope",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "last_authorized_at": {
+          "name": "last_authorized_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        },
+        "updated_at": {
+          "name": "updated_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": false,
+          "default": "current_timestamp"
+        }
+      },
+      "indexes": {
+        "mcp_oauth_credentials_connection_idx": {
+          "name": "mcp_oauth_credentials_connection_idx",
+          "columns": [
+            {
+              "expression": "connection_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": true,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "mcp_oauth_credentials_user_issuer_idx": {
+          "name": "mcp_oauth_credentials_user_issuer_idx",
+          "columns": [
+            {
+              "expression": "user_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "issuer",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        }
+      },
+      "foreignKeys": {
+        "mcp_oauth_credentials_user_id_user_id_fk": {
+          "name": "mcp_oauth_credentials_user_id_user_id_fk",
+          "tableFrom": "mcp_oauth_credentials",
+          "tableTo": "user",
+          "columnsFrom": [
+            "user_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "cascade",
+          "onUpdate": "no action"
+        },
+        "mcp_oauth_credentials_connection_id_mcp_connections_id_fk": {
+          "name": "mcp_oauth_credentials_connection_id_mcp_connections_id_fk",
+          "tableFrom": "mcp_oauth_credentials",
+          "tableTo": "mcp_connections",
+          "columnsFrom": [
+            "connection_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "cascade",
           "onUpdate": "no action"
         }
       },
@@ -10571,190 +10881,6 @@
       },
       "isRLSEnabled": false
     },
-    "public.workflow_revisions": {
-      "name": "workflow_revisions",
-      "schema": "",
-      "columns": {
-        "id": {
-          "name": "id",
-          "type": "text",
-          "primaryKey": true,
-          "notNull": true
-        },
-        "workflow_id": {
-          "name": "workflow_id",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "user_id": {
-          "name": "user_id",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "revision_number": {
-          "name": "revision_number",
-          "type": "integer",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "content_hash": {
-          "name": "content_hash",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "name": {
-          "name": "name",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "description": {
-          "name": "description",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "brief": {
-          "name": "brief",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "trigger": {
-          "name": "trigger",
-          "type": "jsonb",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "allowed_integrations": {
-          "name": "allowed_integrations",
-          "type": "text[]",
-          "primaryKey": false,
-          "notNull": true,
-          "default": "ARRAY[]::text[]"
-        },
-        "allowed_tools": {
-          "name": "allowed_tools",
-          "type": "text[]",
-          "primaryKey": false,
-          "notNull": true,
-          "default": "ARRAY[]::text[]"
-        },
-        "required_capabilities": {
-          "name": "required_capabilities",
-          "type": "jsonb",
-          "primaryKey": false,
-          "notNull": true,
-          "default": "'[]'::jsonb"
-        },
-        "authoring_proposal": {
-          "name": "authoring_proposal",
-          "type": "jsonb",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "created_by_run_id": {
-          "name": "created_by_run_id",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "approved_at": {
-          "name": "approved_at",
-          "type": "timestamp with time zone",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "created_at": {
-          "name": "created_at",
-          "type": "timestamp with time zone",
-          "primaryKey": false,
-          "notNull": true,
-          "default": "now()"
-        }
-      },
-      "indexes": {
-        "workflow_revisions_number_idx": {
-          "name": "workflow_revisions_number_idx",
-          "columns": [
-            {
-              "expression": "workflow_id",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            },
-            {
-              "expression": "revision_number",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            }
-          ],
-          "isUnique": true,
-          "concurrently": false,
-          "method": "btree",
-          "with": {}
-        },
-        "workflow_revisions_run_idx": {
-          "name": "workflow_revisions_run_idx",
-          "columns": [
-            {
-              "expression": "workflow_id",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            },
-            {
-              "expression": "created_by_run_id",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            }
-          ],
-          "isUnique": true,
-          "where": "\"workflow_revisions\".\"created_by_run_id\" IS NOT NULL",
-          "concurrently": false,
-          "method": "btree",
-          "with": {}
-        }
-      },
-      "foreignKeys": {
-        "workflow_revisions_workflow_id_workflows_id_fk": {
-          "name": "workflow_revisions_workflow_id_workflows_id_fk",
-          "tableFrom": "workflow_revisions",
-          "tableTo": "workflows",
-          "columnsFrom": [
-            "workflow_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
-          "onDelete": "cascade",
-          "onUpdate": "no action"
-        },
-        "workflow_revisions_user_id_user_id_fk": {
-          "name": "workflow_revisions_user_id_user_id_fk",
-          "tableFrom": "workflow_revisions",
-          "tableTo": "user",
-          "columnsFrom": [
-            "user_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
-          "onDelete": "cascade",
-          "onUpdate": "no action"
-        }
-      },
-      "compositePrimaryKeys": {},
-      "uniqueConstraints": {},
-      "policies": {},
-      "checkConstraints": {},
-      "isRLSEnabled": false
-    },
     "public.workflows": {
       "name": "workflows",
       "schema": "",
@@ -10821,24 +10947,6 @@
           "primaryKey": false,
           "notNull": true,
           "default": "ARRAY[]::text[]"
-        },
-        "current_revision_id": {
-          "name": "current_revision_id",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "published_revision_id": {
-          "name": "published_revision_id",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "blocked": {
-          "name": "blocked",
-          "type": "jsonb",
-          "primaryKey": false,
-          "notNull": false
         },
         "status": {
           "name": "status",
