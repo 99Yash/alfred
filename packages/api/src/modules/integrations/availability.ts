@@ -45,10 +45,12 @@ const ACCESS_SPECS: readonly IntegrationAccessSpec[] = [
   { slug: "vercel", provider: "vercel", anyOfScopes: [] },
 ];
 
-interface ProviderRow {
+export interface ProviderAvailability {
+  accountId: string;
   status: string;
   scopes: Set<string>;
   accountLabel: string | null;
+  metadata: Record<string, unknown>;
 }
 
 export interface IntegrationAvailability {
@@ -81,7 +83,7 @@ export function toolAvailabilityContext(args: {
 
 export interface IntegrationAvailabilitySnapshot {
   integrations: ReadonlyMap<LoadableIntegrationSlug, IntegrationAvailability>;
-  providers: ReadonlyMap<string, readonly ProviderRow[]>;
+  providers: ReadonlyMap<string, readonly ProviderAvailability[]>;
   /**
    * Per-integration general-passthrough (ADR-0074) enablement. **Default OFF**:
    * an absent preference row means the tier is disabled, so every supported slug
@@ -148,6 +150,14 @@ export function readIntegrationAvailability(
   return pending;
 }
 
+/** Bypass the short dispatch memo for approval-time readiness revalidation. */
+export async function readFreshIntegrationAvailability(
+  userId: string,
+): Promise<IntegrationAvailabilitySnapshot> {
+  availabilityMemo.delete(userId);
+  return readIntegrationAvailability(userId);
+}
+
 /** Drop every memoized snapshot. Test-only — production entries expire by time. */
 export function clearIntegrationAvailabilityMemoForTests(): void {
   availabilityMemo.clear();
@@ -161,9 +171,11 @@ async function loadIntegrationAvailability(
     db()
       .select({
         provider: integrationCredentials.provider,
+        accountId: integrationCredentials.accountId,
         status: integrationCredentials.status,
         scopes: integrationCredentials.scopes,
         accountLabel: integrationCredentials.accountLabel,
+        metadata: integrationCredentials.metadata,
       })
       .from(integrationCredentials)
       .where(eq(integrationCredentials.userId, userId)),
@@ -184,13 +196,15 @@ async function loadIntegrationAvailability(
     passthroughEnabled.set(slug, isPassthroughPreferenceOn(prefByKey.get(key)));
   }
 
-  const byProvider = new Map<string, ProviderRow[]>();
+  const byProvider = new Map<string, ProviderAvailability[]>();
   for (const row of rows) {
     const list = byProvider.get(row.provider) ?? [];
     list.push({
+      accountId: row.accountId,
       status: row.status,
       scopes: new Set(toStringArray(row.scopes)),
       accountLabel: row.accountLabel,
+      metadata: row.metadata,
     });
     byProvider.set(row.provider, list);
   }

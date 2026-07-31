@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { randomUUID } from "node:crypto";
-import { after, describe, test } from "node:test";
+import { after, before, describe, test } from "node:test";
 
 import {
   activateWorkflowInputSchema,
@@ -14,6 +14,7 @@ import { databaseEnv } from "@alfred/env/database";
 import { asc, eq } from "drizzle-orm";
 
 import { systemTools } from "../../src/modules/tools/system";
+import { registerBuiltinTools } from "../../src/modules/tools";
 import { toolExecuteContext } from "../../src/modules/tools/context";
 import { definitionFromProposal } from "../../src/modules/workflows/authoring";
 
@@ -28,6 +29,8 @@ const SKIP = (() => {
 
 const authorTool = systemTools.find((tool) => tool.name === "system.author_workflow");
 const activateTool = systemTools.find((tool) => tool.name === "system.activate_workflow");
+
+before(() => registerBuiltinTools());
 
 describe("workflow authoring tool contracts (#556)", () => {
   test("only chat bosses can draft or activate, and activation keeps the high-risk floor", () => {
@@ -71,6 +74,44 @@ describe("workflow authoring tool contracts (#556)", () => {
       false,
       "cron authoring must resolve an IANA timezone before it can save",
     );
+    assert.equal(
+      authorWorkflowInputSchema.safeParse({
+        ...base,
+        trigger: { kind: "cron", schedule: "0 0 8 * * 1-5", timezone: "Asia/Kolkata" },
+      }).success,
+      false,
+      "workflow authoring accepts exactly five cron fields",
+    );
+    assert.equal(
+      activateWorkflowInputSchema.safeParse({
+        workflowId: "wf",
+        baseRevisionId: "rev",
+        baseContentHash: "sha256:base",
+        baseRowVersion: 1,
+        definition: {
+          name: "Internal signal",
+          description: null,
+          brief: "Run on an internal signal.",
+          trigger: { kind: "on_signal", name: "cold-start.ready" },
+          allowedIntegrations: ["system"],
+          allowedTools: ["system.current_time"],
+          requiredCapabilities: [{ tool: "system.current_time" }],
+        },
+        schedule: {
+          summary: "On signal: cold-start.ready",
+          timezone: "Asia/Kolkata",
+          previewedAt: "2026-07-31T00:00:00.000Z",
+        },
+        authoringProposal: {
+          intent: "Run internally.",
+          assumptions: [],
+          externalEffects: [],
+          requestedCapabilities: [{ tool: "system.current_time" }],
+        },
+      }).success,
+      false,
+      "approval edits cannot widen the v1 trigger subset",
+    );
   });
 
   test("derives an exact deduplicated tool envelope and trigger-source ceiling", () => {
@@ -108,11 +149,10 @@ describe("workflow authoring and activation acceptance (#556)", { skip: SKIP }, 
         description: "A concise inbox brief.",
         brief: "Every weekday, summarize unread messages that need my attention.",
         trigger: { kind: "cron", schedule: "0 8 * * 1-5", timezone: "Asia/Kolkata" },
-        capabilities: [{ tool: "gmail.search", accountRef: "primary" }],
+        capabilities: [{ tool: "system.current_time" }],
         intent: "Brief me on important unread mail before work.",
-        assumptions: ["Primary means my default Gmail account."],
+        assumptions: [],
         externalEffects: [],
-        scheduleSummary: "Every weekday at 8:00 AM IST",
       },
       context(userId, "author-run"),
     );
@@ -120,10 +160,10 @@ describe("workflow authoring and activation acceptance (#556)", { skip: SKIP }, 
     assert.equal(authorResult.status, "ready_to_activate");
 
     const proposal = activateWorkflowInputSchema.parse(getPath(authorResult, "activationProposal"));
-    assert.equal(proposal.schedule.summary, "Every weekday at 8:00 AM IST");
+    assert.equal(proposal.schedule.summary, "Cron schedule: 0 8 * * 1-5");
     assert.match(proposal.schedule.nextRunAt ?? "", /^\d{4}-\d{2}-\d{2}T/);
-    assert.deepEqual(proposal.definition.allowedTools, ["gmail.search"]);
-    assert.deepEqual(proposal.capabilities, [{ tool: "gmail.search", accountRef: "primary" }]);
+    assert.deepEqual(proposal.definition.allowedTools, ["system.current_time"]);
+    assert.deepEqual(proposal.authoringProposal.assumptions, []);
 
     const editedBrief = "Every weekday, summarize only urgent unread messages.";
     const activateResult = await activateTool.execute(
@@ -163,7 +203,7 @@ describe("workflow authoring and activation acceptance (#556)", { skip: SKIP }, 
         name: "Manual review",
         brief: "Review the current inbox when I ask.",
         trigger: { kind: "manual" },
-        capabilities: [{ tool: "gmail.search" }],
+        capabilities: [{ tool: "system.current_time" }],
         intent: "Save a manual inbox review.",
         assumptions: [],
         externalEffects: [],
@@ -184,6 +224,27 @@ describe("workflow authoring and activation acceptance (#556)", { skip: SKIP }, 
       .where(eq(workflows.id, proposal.workflowId));
     assert.equal(workflow?.status, "draft");
     assert.equal(workflow?.publishedRevisionId, null);
+  });
+
+  test("a disconnected capability saves a blocked draft without an activation proposal", async () => {
+    assert.ok(authorTool);
+    const userId = await seedUser(userIds);
+    const result = await authorTool.execute(
+      {
+        name: "Disconnected inbox review",
+        brief: "Review Gmail.",
+        trigger: { kind: "manual" },
+        capabilities: [{ tool: "gmail.search" }],
+        intent: "Review my inbox.",
+        assumptions: [],
+        externalEffects: [],
+      },
+      context(userId, "blocked-author-run"),
+    );
+    assert.ok(isRecord(result));
+    assert.equal(result.status, "blocked");
+    assert.equal(getPath(result, "activationProposal"), undefined);
+    assert.equal(getPath(result, "readinessBlockers.0.code"), "not_connected");
   });
 });
 

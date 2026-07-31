@@ -33,7 +33,7 @@ import {
   activateWorkflowInputSchema,
   authorWorkflowInputSchema,
   workflowRequiredCapabilitySchema,
-  workflowRevisionDefinitionSchema,
+  authorableWorkflowDefinitionSchema,
 } from "./agent";
 import {
   ARTIFACT_SECTION_MAX_CHARS,
@@ -1245,18 +1245,27 @@ const modelToolNameSchema = z.enum(TOOL_NAMES);
 const modelWorkflowCapabilitySchema = workflowRequiredCapabilitySchema.extend({
   tool: modelToolNameSchema,
 });
-const modelWorkflowDefinitionSchema = workflowRevisionDefinitionSchema.extend({
-  allowedTools: z.array(modelToolNameSchema).max(100),
-  requiredCapabilities: z.array(modelWorkflowCapabilitySchema).max(50),
-});
+export const authorWorkflowInput = coerceJsonArrayFields(
+  ["capabilities", "assumptions", "externalEffects"],
+  authorWorkflowInputSchema.safeExtend({
+    capabilities: z.array(modelWorkflowCapabilitySchema).min(1).max(50),
+  }),
+);
 
-export const authorWorkflowInput = authorWorkflowInputSchema.safeExtend({
-  capabilities: z.array(modelWorkflowCapabilitySchema).min(1).max(50),
+// Activation receives the server-canonical proposal returned by authoring. It
+// does not repeat the full tool-name enum for every nested definition field.
+// The model only copies these server-produced names; runtime parsing still uses
+// the narrowed contract schema inside `activateWorkflowDefinition`.
+const copiedWorkflowCapabilitySchema = workflowRequiredCapabilitySchema.extend({
+  tool: z.string().min(1).max(200),
 });
-
-export const activateWorkflowInput = activateWorkflowInputSchema.safeExtend({
-  definition: modelWorkflowDefinitionSchema,
-  capabilities: z.array(modelWorkflowCapabilitySchema).min(1).max(50),
+const copiedWorkflowDefinitionSchema = authorableWorkflowDefinitionSchema.extend({
+  allowedTools: z.array(z.string().min(1).max(200)).max(100),
+  requiredCapabilities: z.array(copiedWorkflowCapabilitySchema).max(50),
+});
+export const activateWorkflowInput = activateWorkflowInputSchema.extend({
+  definition: copiedWorkflowDefinitionSchema,
+  authoringProposal: z.unknown().meta({ readOnly: true }),
 });
 
 const scratchKey = z.string().min(1).max(240);

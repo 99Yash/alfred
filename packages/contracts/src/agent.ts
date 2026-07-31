@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { integrationSlugSchema } from "./briefing";
+import { integrationSlugSchema, isIanaTimezone } from "./briefing";
 import { EVENT_SOURCES } from "./event-triggers";
 import { toolNameSchema } from "./tools";
 
@@ -93,23 +93,31 @@ export const agentRunTriggerSchema = z.discriminatedUnion("kind", [
 ]);
 export type AgentRunTrigger = z.infer<typeof agentRunTriggerSchema>;
 
+export const cronWorkflowTriggerSchema = z.object({
+  kind: z.literal("cron"),
+  schedule: z.string(),
+  timezone: z.string().optional(),
+});
+export const eventWorkflowTriggerSchema = z.object({
+  kind: z.literal("event"),
+  // Closed enums per ADR-0047; `type` is required on writes so the
+  // `emitEvent` query (`trigger->>'source' = … AND trigger->>'type' = …`)
+  // can match. Per-source type validity is enforced in `emitEvent`.
+  source: z.enum(EVENT_SOURCES),
+  type: z.string(),
+  filter: z.record(z.string(), z.unknown()).optional(),
+});
+export const manualWorkflowTriggerSchema = z.object({ kind: z.literal("manual") });
+export const signalWorkflowTriggerSchema = z.object({
+  kind: z.literal("on_signal"),
+  name: z.string(),
+});
+
 export const workflowTriggerSchema = z.discriminatedUnion("kind", [
-  z.object({
-    kind: z.literal("cron"),
-    schedule: z.string(),
-    timezone: z.string().optional(),
-  }),
-  z.object({
-    kind: z.literal("event"),
-    // Closed enums per ADR-0047; `type` is required on writes so the
-    // `emitEvent` query (`trigger->>'source' = … AND trigger->>'type' = …`)
-    // can match. Per-source type validity is enforced in `emitEvent`.
-    source: z.enum(EVENT_SOURCES),
-    type: z.string(),
-    filter: z.record(z.string(), z.unknown()).optional(),
-  }),
-  z.object({ kind: z.literal("manual") }),
-  z.object({ kind: z.literal("on_signal"), name: z.string() }),
+  cronWorkflowTriggerSchema,
+  eventWorkflowTriggerSchema,
+  manualWorkflowTriggerSchema,
+  signalWorkflowTriggerSchema,
 ]);
 export type WorkflowTrigger = z.infer<typeof workflowTriggerSchema>;
 
@@ -272,15 +280,18 @@ export type WorkflowRevisionDefinition = z.infer<typeof workflowRevisionDefiniti
 export const authorableWorkflowTriggerSchema = z.discriminatedUnion("kind", [
   z.object({
     kind: z.literal("cron"),
-    schedule: z.string(),
-    timezone: z.string().min(1),
+    schedule: z
+      .string()
+      .trim()
+      .refine((value) => value.split(/\s+/).length === 5, "Expected a five-field cron expression"),
+    timezone: z.string().refine(isIanaTimezone, "Expected an IANA timezone identifier"),
   }),
   z.object({
     kind: z.literal("event"),
     source: z.literal("gmail"),
     type: z.literal("message_received"),
   }),
-  workflowTriggerSchema.options[2],
+  manualWorkflowTriggerSchema,
 ]);
 export type AuthorableWorkflowTrigger = z.infer<typeof authorableWorkflowTriggerSchema>;
 
@@ -297,7 +308,6 @@ export const authorWorkflowInputSchema = z
     intent: z.string().min(1).max(4000),
     assumptions: z.array(z.string().min(1).max(500)).max(20),
     externalEffects: z.array(z.string().min(1).max(200)).max(20),
-    scheduleSummary: z.string().min(1).max(200).optional(),
   })
   .strict()
   .superRefine((input, ctx) => {
@@ -321,11 +331,17 @@ export type AuthorWorkflowInput = z.infer<typeof authorWorkflowInputSchema>;
 export const workflowSchedulePreviewSchema = z
   .object({
     summary: z.string().min(1).max(200),
-    timezone: z.string().min(1),
+    timezone: z.string().refine(isIanaTimezone, "Expected an IANA timezone identifier"),
+    previewedAt: z.string().datetime(),
     nextRunAt: z.string().optional(),
   })
   .strict();
 export type WorkflowSchedulePreview = z.infer<typeof workflowSchedulePreviewSchema>;
+
+export const authorableWorkflowDefinitionSchema = workflowRevisionDefinitionSchema.safeExtend({
+  trigger: authorableWorkflowTriggerSchema,
+});
+export type AuthorableWorkflowDefinition = z.infer<typeof authorableWorkflowDefinitionSchema>;
 
 /**
  * Exact contract staged by `system.activate_workflow`. It carries both the
@@ -334,15 +350,13 @@ export type WorkflowSchedulePreview = z.infer<typeof workflowSchedulePreviewSche
  */
 export const activateWorkflowInputSchema = z
   .object({
-    workflowId: z.string().min(1),
-    baseRevisionId: z.string().min(1),
-    baseContentHash: z.string().min(1).max(256),
-    baseRowVersion: z.coerce.number().int().positive(),
-    definition: workflowRevisionDefinitionSchema,
-    schedule: workflowSchedulePreviewSchema,
-    capabilities: z.array(workflowRequiredCapabilitySchema).min(1).max(50),
-    assumptions: z.array(z.string().min(1).max(500)).max(20),
-    externalEffects: z.array(z.string().min(1).max(200)).max(20),
+    workflowId: z.string().min(1).meta({ readOnly: true }),
+    baseRevisionId: z.string().min(1).meta({ readOnly: true }),
+    baseContentHash: z.string().min(1).max(256).meta({ readOnly: true }),
+    baseRowVersion: z.coerce.number().int().positive().meta({ readOnly: true }),
+    definition: authorableWorkflowDefinitionSchema,
+    schedule: workflowSchedulePreviewSchema.meta({ readOnly: true }),
+    authoringProposal: workflowAuthoringProposalSchema.meta({ readOnly: true }),
   })
   .strict();
 export type ActivateWorkflowInput = z.infer<typeof activateWorkflowInputSchema>;

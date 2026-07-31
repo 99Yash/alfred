@@ -1,4 +1,4 @@
-import type { WorkflowTrigger } from "@alfred/contracts";
+import { parseIanaTimezone, type IanaTimezone, type WorkflowTrigger } from "@alfred/contracts";
 import { CronExpressionParser } from "cron-parser";
 import { isValidTimezone } from "../briefing/preferences";
 import { resolveUserTimezone } from "../timezone";
@@ -18,17 +18,19 @@ import { resolveUserTimezone } from "../timezone";
  *   3. UTC fallback.
  */
 
-export const DEFAULT_WORKFLOW_TIMEZONE = "UTC";
+export const DEFAULT_WORKFLOW_TIMEZONE = parseIanaTimezone("UTC");
 
 export function validateCronTrigger(
   trigger: WorkflowTrigger,
-  opts: { timezone?: string } = {},
+  opts: { timezone?: IanaTimezone } = {},
 ): { ok: true } | { ok: false; message: string } {
   if (trigger.kind !== "cron") return { ok: true };
-  const timezone = trigger.timezone ?? opts.timezone ?? DEFAULT_WORKFLOW_TIMEZONE;
   if (trigger.timezone && !isValidTimezone(trigger.timezone)) {
     return { ok: false, message: `invalid timezone '${trigger.timezone}'` };
   }
+  const timezone = trigger.timezone
+    ? parseIanaTimezone(trigger.timezone)
+    : (opts.timezone ?? DEFAULT_WORKFLOW_TIMEZONE);
   try {
     CronExpressionParser.parse(trigger.schedule, {
       currentDate: new Date(),
@@ -54,9 +56,9 @@ export function validateCronTrigger(
 export async function resolveWorkflowTimezone(
   userId: string,
   trigger: WorkflowTrigger,
-): Promise<string> {
+): Promise<IanaTimezone> {
   if (trigger.kind === "cron" && trigger.timezone && isValidTimezone(trigger.timezone)) {
-    return trigger.timezone;
+    return parseIanaTimezone(trigger.timezone);
   }
   return resolveUserTimezone(userId);
 }
@@ -73,7 +75,7 @@ export async function resolveWorkflowTimezone(
  */
 export function computeNextRunAt(
   trigger: WorkflowTrigger,
-  opts: { from?: Date; timezone: string },
+  opts: { from?: Date; timezone: IanaTimezone },
 ): Date | null {
   if (trigger.kind !== "cron") return null;
   try {
@@ -84,5 +86,19 @@ export function computeNextRunAt(
     return expr.next().toDate();
   } catch {
     return null;
+  }
+}
+
+/** Deterministic approval copy derived from the trigger it describes. */
+export function workflowScheduleSummary(trigger: WorkflowTrigger): string {
+  switch (trigger.kind) {
+    case "cron":
+      return `Cron schedule: ${trigger.schedule}`;
+    case "event":
+      return "When Gmail receives a message";
+    case "manual":
+      return "Manual runs only";
+    case "on_signal":
+      return `On signal: ${trigger.name}`;
   }
 }

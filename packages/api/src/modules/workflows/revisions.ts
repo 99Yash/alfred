@@ -1,4 +1,5 @@
 import {
+  activateWorkflowInputSchema,
   getPath,
   integrationFromToolName,
   isIntegrationSlug,
@@ -6,6 +7,7 @@ import {
   workflowRevisionDefinitionSchema,
   type WorkflowAuthoringProposal,
   type WorkflowBlocked,
+  type IanaTimezone,
   type WorkflowRevisionDefinition,
 } from "@alfred/contracts";
 import { db, type DbRoot, type DbTransaction } from "@alfred/db";
@@ -18,7 +20,14 @@ import {
 } from "@alfred/db/schemas";
 import { and, eq, sql } from "drizzle-orm";
 import { canonicalWorkflowDefinition, workflowRevisionContentHash } from "./content-hash";
-import { computeNextRunAt, resolveWorkflowTimezone, validateCronTrigger } from "./scheduling";
+import { readFreshIntegrationAvailability } from "../integrations/availability";
+import { resolveWorkflowReadiness, type WorkflowReadinessProblem } from "./readiness";
+import {
+  computeNextRunAt,
+  resolveWorkflowTimezone,
+  validateCronTrigger,
+  workflowScheduleSummary,
+} from "./scheduling";
 
 /**
  * The workflow draft / revision / activation service (#555,
@@ -74,6 +83,7 @@ export type WorkflowServiceFailure =
   | { kind: "no_current_revision" }
   /** The caller's `expectedRowVersion` lost a race. The caller re-reads and retries. */
   | { kind: "row_version_conflict"; expected: number }
+  | { kind: "readiness_blocked"; blockers: WorkflowReadinessProblem[] }
   /** The approval card was built against a definition that has since changed. */
   | {
       kind: "stale_revision";
@@ -125,7 +135,7 @@ type WorkflowExecutor = DbRoot | DbTransaction;
  */
 export function validateWorkflowDefinition(
   input: unknown,
-  opts: { timezone: string; requireActivatable?: boolean },
+  opts: { timezone: IanaTimezone; requireActivatable?: boolean },
 ):
   | { ok: true; definition: WorkflowRevisionDefinition }
   | { ok: false; problems: WorkflowRevisionProblem[] } {
@@ -497,13 +507,8 @@ export interface ActivateWorkflowArgs {
 
 export interface ActivateWorkflowDefinitionArgs {
   userId: string;
-  workflowId: string;
-  /** Immutable revision shown when the approval card was staged. */
-  baseRevisionId: string;
-  baseContentHash: string;
-  baseRowVersion: number;
-  /** Full definition from the approval card, including any user edits. */
-  definition: unknown;
+  /** Full activation contract from the approval card, including any user edits. */
+  input: unknown;
   createdByRunId?: string;
 }
 
@@ -519,8 +524,23 @@ export interface ActivateWorkflowDefinitionArgs {
 export async function activateWorkflowDefinition(
   args: ActivateWorkflowDefinitionArgs,
 ): Promise<WorkflowServiceResult<WorkflowRevisionOutcome & { revised: boolean }>> {
-  const timezone = await resolveTimezoneForInput(args.userId, args.definition);
-  const validated = validateWorkflowDefinition(args.definition, {
+  const parsed = activateWorkflowInputSchema.safeParse(args.input);
+  if (!parsed.success) {
+    return {
+      ok: false,
+      failure: {
+        kind: "validation_failed",
+        problems: parsed.error.issues.map((issue) => ({
+          code: "invalid_definition",
+          message: issue.message,
+          field: issue.path.join("."),
+        })),
+      },
+    };
+  }
+  const input = parsed.data;
+  const timezone = await resolveTimezoneForInput(args.userId, input.definition);
+  const validated = validateWorkflowDefinition(input.definition, {
     timezone,
     requireActivatable: true,
   });
@@ -529,10 +549,21 @@ export async function activateWorkflowDefinition(
   }
 
   const definition = validated.definition;
+  const scheduleProblems = validateActivationSchedule(input, timezone);
+  if (scheduleProblems.length > 0) {
+    return { ok: false, failure: { kind: "validation_failed", problems: scheduleProblems } };
+  }
+  const blockers = resolveWorkflowReadiness({
+    definition,
+    availability: await readFreshIntegrationAvailability(args.userId),
+  });
+  if (blockers.length > 0) {
+    return { ok: false, failure: { kind: "readiness_blocked", blockers } };
+  }
   const approvedHash = workflowRevisionContentHash(definition);
 
   return db().transaction(async (tx) => {
-    const existing = await loadWorkflow(tx, args.userId, args.workflowId);
+    const existing = await loadWorkflow(tx, args.userId, input.workflowId);
     if (!existing) return { ok: false, failure: { kind: "not_found" } };
     if (existing.isBuiltin) return { ok: false, failure: { kind: "builtin_immutable" } };
     if (!existing.currentRevisionId) {
@@ -541,28 +572,29 @@ export async function activateWorkflowDefinition(
 
     const current = await loadRevision(tx, existing.currentRevisionId);
     if (!current) return { ok: false, failure: { kind: "no_current_revision" } };
-    if (current.id !== args.baseRevisionId || current.contentHash !== args.baseContentHash) {
+    if (current.id !== input.baseRevisionId || current.contentHash !== input.baseContentHash) {
       return {
         ok: false,
         failure: {
           kind: "stale_revision",
-          expected: args.baseContentHash,
+          expected: input.baseContentHash,
           actual: current.contentHash,
-          expectedRevisionId: args.baseRevisionId,
+          expectedRevisionId: input.baseRevisionId,
           actualRevisionId: current.id,
         },
       };
     }
 
     let revised = false;
-    let expectedRowVersion = args.baseRowVersion;
+    let expectedRowVersion = input.baseRowVersion;
     if (approvedHash !== current.contentHash) {
       const result = await reviseWorkflow({
         userId: args.userId,
-        workflowId: args.workflowId,
+        workflowId: input.workflowId,
         definition,
+        authoringProposal: input.authoringProposal,
         createdByRunId: args.createdByRunId,
-        expectedRowVersion: args.baseRowVersion,
+        expectedRowVersion: input.baseRowVersion,
         tx,
       });
       if (!result.ok) return result;
@@ -572,13 +604,45 @@ export async function activateWorkflowDefinition(
 
     const activated = await activateWorkflow({
       userId: args.userId,
-      workflowId: args.workflowId,
+      workflowId: input.workflowId,
       expectedContentHash: approvedHash,
       expectedRowVersion,
       tx,
     });
     return activated.ok ? { ...activated, revised } : activated;
   });
+}
+
+function validateActivationSchedule(
+  input: ReturnType<typeof activateWorkflowInputSchema.parse>,
+  timezone: Awaited<ReturnType<typeof resolveWorkflowTimezone>>,
+): WorkflowRevisionProblem[] {
+  const problems: WorkflowRevisionProblem[] = [];
+  const previewedAt = new Date(input.schedule.previewedAt);
+  const expectedNext = computeNextRunAt(input.definition.trigger, { from: previewedAt, timezone });
+  const expectedSummary = workflowScheduleSummary(input.definition.trigger);
+  if (input.schedule.timezone !== timezone) {
+    problems.push({
+      code: "invalid_definition",
+      message: "The schedule preview timezone no longer matches the approved definition.",
+      field: "schedule.timezone",
+    });
+  }
+  if (input.schedule.summary !== expectedSummary) {
+    problems.push({
+      code: "invalid_definition",
+      message: "The schedule preview no longer matches the approved definition.",
+      field: "schedule.summary",
+    });
+  }
+  if ((input.schedule.nextRunAt ?? null) !== (expectedNext?.toISOString() ?? null)) {
+    problems.push({
+      code: "invalid_definition",
+      message: "The next-run preview no longer matches the approved definition.",
+      field: "schedule.nextRunAt",
+    });
+  }
+  return problems;
 }
 
 /**
@@ -846,7 +910,7 @@ async function insertRevision(
  * this point, and an unparseable one simply falls back to the user's zone,
  * where the validator then reports the real problem.
  */
-async function resolveTimezoneForInput(userId: string, input: unknown): Promise<string> {
+async function resolveTimezoneForInput(userId: string, input: unknown): Promise<IanaTimezone> {
   const trigger = workflowRevisionDefinitionSchema.shape.trigger.safeParse(
     getPath(input, "trigger"),
   );

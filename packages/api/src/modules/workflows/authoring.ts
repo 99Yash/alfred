@@ -2,17 +2,20 @@ import {
   canonicalJson,
   integrationFromToolName,
   type ActivateWorkflowInput,
+  type AuthorableWorkflowDefinition,
   type AuthorWorkflowInput,
+  type IanaTimezone,
   type IntegrationSlug,
   type WorkflowAuthoringProposal,
   type WorkflowRequiredCapability,
-  type WorkflowRevisionDefinition,
 } from "@alfred/contracts";
 import { db } from "@alfred/db";
 import { workflows } from "@alfred/db/schemas";
 import { and, eq, like } from "drizzle-orm";
 import { availableSlug, slugBase } from "../../lib/slug";
-import { computeNextRunAt } from "./scheduling";
+import { computeNextRunAt, workflowScheduleSummary } from "./scheduling";
+import { readIntegrationAvailability } from "../integrations/availability";
+import { resolveWorkflowReadiness, type WorkflowReadinessProblem } from "./readiness";
 import {
   createWorkflowDraft,
   reviseWorkflow,
@@ -22,18 +25,19 @@ import {
 
 export interface AuthoredWorkflowOutcome extends WorkflowRevisionOutcome {
   created: boolean;
-  activationProposal: ActivateWorkflowInput;
+  readiness: WorkflowReadinessProblem[];
+  activationProposal?: ActivateWorkflowInput;
 }
 
 /** Save a chat-authored proposal as a draft and return its exact approval input. */
 export async function authorWorkflowDraft(args: {
   userId: string;
   runId: string;
-  timezone: string;
+  timezone: IanaTimezone;
   input: AuthorWorkflowInput;
 }): Promise<WorkflowServiceResult<AuthoredWorkflowOutcome>> {
   const definition = definitionFromProposal(args.input);
-  const authoringProposal = authoringProposalFromInput(args.input);
+  const authoringProposal = authoringProposalFromInput(args.input, definition);
 
   let saved: WorkflowRevisionOutcome;
   let created: boolean;
@@ -61,23 +65,32 @@ export async function authorWorkflowDraft(args: {
     saved = drafted;
     created = true;
   }
+  const readiness = resolveWorkflowReadiness({
+    definition,
+    availability: await readIntegrationAvailability(args.userId),
+  });
   return {
     ok: true,
     workflow: saved.workflow,
     revision: saved.revision,
     created,
-    activationProposal: activationProposalFor({
-      workflow: saved.workflow,
-      revision: saved.revision,
-      definition,
-      authoringProposal,
-      timezone: args.timezone,
-    }),
+    readiness,
+    ...(readiness.length === 0
+      ? {
+          activationProposal: activationProposalFor({
+            workflow: saved.workflow,
+            revision: saved.revision,
+            definition,
+            authoringProposal,
+            timezone: args.timezone,
+          }),
+        }
+      : {}),
   };
 }
 
 /** Derive the exact stored execution envelope from the model-facing proposal. */
-export function definitionFromProposal(input: AuthorWorkflowInput): WorkflowRevisionDefinition {
+export function definitionFromProposal(input: AuthorWorkflowInput): AuthorableWorkflowDefinition {
   const requiredCapabilities = uniqueCapabilities(input.capabilities);
   const allowedTools = [...new Set(requiredCapabilities.map((capability) => capability.tool))];
   const integrations = new Set<IntegrationSlug>(
@@ -96,30 +109,32 @@ export function definitionFromProposal(input: AuthorWorkflowInput): WorkflowRevi
   };
 }
 
-function authoringProposalFromInput(input: AuthorWorkflowInput): WorkflowAuthoringProposal {
+function authoringProposalFromInput(
+  input: AuthorWorkflowInput,
+  definition: AuthorableWorkflowDefinition,
+): WorkflowAuthoringProposal {
   return {
     intent: input.intent,
     assumptions: input.assumptions,
     externalEffects: input.externalEffects,
     requestedCapabilities: input.capabilities,
-    ...(input.scheduleSummary ? { scheduleSummary: input.scheduleSummary } : {}),
+    scheduleSummary: workflowScheduleSummary(definition.trigger),
   };
 }
 
 function activationProposalFor(args: {
   workflow: WorkflowRevisionOutcome["workflow"];
   revision: WorkflowRevisionOutcome["revision"];
-  definition: WorkflowRevisionDefinition;
+  definition: AuthorableWorkflowDefinition;
   authoringProposal: WorkflowAuthoringProposal;
-  timezone: string;
+  timezone: IanaTimezone;
 }): ActivateWorkflowInput {
   const timezone =
     args.definition.trigger.kind === "cron"
       ? (args.definition.trigger.timezone ?? args.timezone)
       : args.timezone;
-  const nextRunAt = computeNextRunAt(args.definition.trigger, { timezone });
-  const summary =
-    args.authoringProposal.scheduleSummary ?? scheduleSummary(args.definition.trigger);
+  const previewedAt = new Date();
+  const nextRunAt = computeNextRunAt(args.definition.trigger, { from: previewedAt, timezone });
 
   return {
     workflowId: args.workflow.id,
@@ -128,27 +143,13 @@ function activationProposalFor(args: {
     baseRowVersion: args.workflow.rowVersion,
     definition: args.definition,
     schedule: {
-      summary,
+      summary: workflowScheduleSummary(args.definition.trigger),
       timezone,
+      previewedAt: previewedAt.toISOString(),
       ...(nextRunAt ? { nextRunAt: nextRunAt.toISOString() } : {}),
     },
-    capabilities: args.definition.requiredCapabilities,
-    assumptions: args.authoringProposal.assumptions,
-    externalEffects: args.authoringProposal.externalEffects,
+    authoringProposal: args.authoringProposal,
   };
-}
-
-function scheduleSummary(trigger: WorkflowRevisionDefinition["trigger"]): string {
-  switch (trigger.kind) {
-    case "cron":
-      return `Cron schedule: ${trigger.schedule}`;
-    case "event":
-      return "When Gmail receives a message";
-    case "manual":
-      return "Manual runs only";
-    case "on_signal":
-      return `On signal: ${trigger.name}`;
-  }
 }
 
 function uniqueCapabilities(

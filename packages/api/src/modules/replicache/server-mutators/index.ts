@@ -107,6 +107,8 @@ function workflowMutatorError(failure: WorkflowServiceFailure): MutatorForbidden
       return new MutatorForbiddenError("this workflow has no saved definition to activate");
     case "row_version_conflict":
       return new MutatorForbiddenError("the workflow changed while this edit was in flight");
+    case "readiness_blocked":
+      return new MutatorForbiddenError(failure.blockers.map((p) => p.message).join(" "));
     case "stale_revision":
       return new MutatorForbiddenError("the workflow definition changed before activation");
     case "slug_taken":
