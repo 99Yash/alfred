@@ -267,3 +267,82 @@ export const workflowRevisionDefinitionSchema = z.object({
   requiredCapabilities: z.array(workflowRequiredCapabilitySchema).max(50),
 });
 export type WorkflowRevisionDefinition = z.infer<typeof workflowRevisionDefinitionSchema>;
+
+/** The trigger subset a user may author in workflows v1 (#556). */
+export const authorableWorkflowTriggerSchema = z.discriminatedUnion("kind", [
+  z.object({
+    kind: z.literal("cron"),
+    schedule: z.string(),
+    timezone: z.string().min(1),
+  }),
+  z.object({
+    kind: z.literal("event"),
+    source: z.literal("gmail"),
+    type: z.literal("message_received"),
+  }),
+  workflowTriggerSchema.options[2],
+]);
+export type AuthorableWorkflowTrigger = z.infer<typeof authorableWorkflowTriggerSchema>;
+
+/** Model-facing proposal accepted by `system.author_workflow`. */
+export const authorWorkflowInputSchema = z
+  .object({
+    workflowId: z.string().min(1).optional(),
+    expectedRowVersion: z.coerce.number().int().positive().optional(),
+    name: z.string().min(1).max(200),
+    description: z.string().max(2000).optional(),
+    brief: z.string().min(1).max(20000),
+    trigger: authorableWorkflowTriggerSchema,
+    capabilities: z.array(workflowRequiredCapabilitySchema).min(1).max(50),
+    intent: z.string().min(1).max(4000),
+    assumptions: z.array(z.string().min(1).max(500)).max(20),
+    externalEffects: z.array(z.string().min(1).max(200)).max(20),
+    scheduleSummary: z.string().min(1).max(200).optional(),
+  })
+  .strict()
+  .superRefine((input, ctx) => {
+    if (input.workflowId && input.expectedRowVersion === undefined) {
+      ctx.addIssue({
+        code: "custom",
+        path: ["expectedRowVersion"],
+        message: "expectedRowVersion is required when revising an existing workflow",
+      });
+    }
+    if (!input.workflowId && input.expectedRowVersion !== undefined) {
+      ctx.addIssue({
+        code: "custom",
+        path: ["expectedRowVersion"],
+        message: "expectedRowVersion is only valid with workflowId",
+      });
+    }
+  });
+export type AuthorWorkflowInput = z.infer<typeof authorWorkflowInputSchema>;
+
+export const workflowSchedulePreviewSchema = z
+  .object({
+    summary: z.string().min(1).max(200),
+    timezone: z.string().min(1),
+    nextRunAt: z.string().optional(),
+  })
+  .strict();
+export type WorkflowSchedulePreview = z.infer<typeof workflowSchedulePreviewSchema>;
+
+/**
+ * Exact contract staged by `system.activate_workflow`. It carries both the
+ * immutable base identity and the full editable definition, so approval never
+ * binds only opaque database ids.
+ */
+export const activateWorkflowInputSchema = z
+  .object({
+    workflowId: z.string().min(1),
+    baseRevisionId: z.string().min(1),
+    baseContentHash: z.string().min(1).max(256),
+    baseRowVersion: z.coerce.number().int().positive(),
+    definition: workflowRevisionDefinitionSchema,
+    schedule: workflowSchedulePreviewSchema,
+    capabilities: z.array(workflowRequiredCapabilitySchema).min(1).max(50),
+    assumptions: z.array(z.string().min(1).max(500)).max(20),
+    externalEffects: z.array(z.string().min(1).max(200)).max(20),
+  })
+  .strict();
+export type ActivateWorkflowInput = z.infer<typeof activateWorkflowInputSchema>;
