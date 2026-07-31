@@ -21,6 +21,7 @@ import {
 import { sql } from "drizzle-orm";
 import {
   boolean,
+  foreignKey,
   index,
   integer,
   jsonb,
@@ -28,6 +29,7 @@ import {
   text,
   timestamp,
   uniqueIndex,
+  type AnyPgColumn,
 } from "drizzle-orm/pg-core";
 import { createId, lifecycle_dates } from "../helpers";
 import { user } from "./auth";
@@ -52,6 +54,15 @@ export type {
   WorkflowSteps,
   WorkflowTrigger,
 };
+
+/**
+ * Break the TypeScript inference cycle created by the two revision pointers.
+ * Drizzle evaluates the extra-config callback after both tables exist; the
+ * explicit column tuple keeps each table's inferred row type independent.
+ */
+function workflowRevisionWorkflowIdentity(): [AnyPgColumn, AnyPgColumn] {
+  return [workflowRevisions.workflowId, workflowRevisions.id];
+}
 
 /**
  * Workflows (ADR-0017).
@@ -197,6 +208,20 @@ export const workflows = pgTable(
   },
   (t) => [
     uniqueIndex("workflows_slug_idx").on(t.userId, t.slug),
+    // Composite target for revision ownership. `id` is already globally
+    // unique; this second key lets Postgres enforce that a revision carries
+    // the same user as its workflow.
+    uniqueIndex("workflows_id_user_idx").on(t.id, t.userId),
+    foreignKey({
+      name: "workflows_current_revision_fk",
+      columns: [t.id, t.currentRevisionId],
+      foreignColumns: workflowRevisionWorkflowIdentity(),
+    }),
+    foreignKey({
+      name: "workflows_published_revision_fk",
+      columns: [t.id, t.publishedRevisionId],
+      foreignColumns: workflowRevisionWorkflowIdentity(),
+    }),
     index("workflows_user_status_idx").on(t.userId, t.status, t.updatedAt),
     // The cron tick / event dispatcher only cares about active rows; this
     // partial index keeps the scan tight as paused/draft rows accumulate.
@@ -239,9 +264,7 @@ export const workflowRevisions = pgTable(
     id: text("id")
       .primaryKey()
       .$defaultFn(() => createId("wfr")),
-    workflowId: text("workflow_id")
-      .notNull()
-      .references(() => workflows.id, { onDelete: "cascade" }),
+    workflowId: text("workflow_id").notNull(),
     userId: text("user_id")
       .notNull()
       .references(() => user.id, { onDelete: "cascade" }),
@@ -286,6 +309,14 @@ export const workflowRevisions = pgTable(
     createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
   },
   (t) => [
+    foreignKey({
+      name: "workflow_revisions_workflow_owner_fk",
+      columns: [t.workflowId, t.userId],
+      foreignColumns: [workflows.id, workflows.userId],
+    }).onDelete("cascade"),
+    // Composite targets used by the workflow pointers and run attribution.
+    uniqueIndex("workflow_revisions_workflow_id_idx").on(t.workflowId, t.id),
+    uniqueIndex("workflow_revisions_id_user_idx").on(t.id, t.userId),
     // Dense numbering under concurrency: the second writer to claim the same
     // number hits a 23505 and retries against the row the first one committed.
     uniqueIndex("workflow_revisions_number_idx").on(t.workflowId, t.revisionNumber),

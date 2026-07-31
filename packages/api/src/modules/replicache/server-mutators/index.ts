@@ -523,11 +523,13 @@ export const serverMutators = {
       trigger: args.trigger,
       allowedIntegrations: args.allowedIntegrations,
     };
-    if (Object.values(patch).some((value) => value !== undefined)) {
+    const hasDefinitionPatch = Object.values(patch).some((value) => value !== undefined);
+    if (hasDefinitionPatch) {
       const revised = await reviseWorkflowFromPatch({
         userId: ctx.userId,
         workflowId: existing.id,
         patch,
+        expectedRowVersion: args.expectedRowVersion,
         tx,
       });
       if (!revised.ok) throw workflowMutatorError(revised.failure);
@@ -536,11 +538,20 @@ export const serverMutators = {
     if (args.status === undefined) return;
     const applied =
       args.status === "active"
-        ? await activateWorkflow({ userId: ctx.userId, workflowId: existing.id, tx })
+        ? await activateWorkflow({
+            userId: ctx.userId,
+            workflowId: existing.id,
+            // A preceding semantic edit already claimed the expected version
+            // inside this transaction. A status-only activation claims the
+            // version the client read.
+            ...(hasDefinitionPatch ? {} : { expectedRowVersion: args.expectedRowVersion }),
+            tx,
+          })
         : await setWorkflowStatus({
             userId: ctx.userId,
             workflowId: existing.id,
             status: args.status,
+            ...(hasDefinitionPatch ? {} : { expectedRowVersion: args.expectedRowVersion }),
             tx,
           });
     if (!applied.ok) throw workflowMutatorError(applied.failure);

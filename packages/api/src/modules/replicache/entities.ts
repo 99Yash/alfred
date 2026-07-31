@@ -15,6 +15,7 @@ import {
   userActionPolicies,
   userFacts,
   userPreferences,
+  workflowRevisions,
   workflows,
   type AgentRunTrigger,
   type ActionStaging,
@@ -33,6 +34,7 @@ import {
   type UserFact,
   type UserPreference,
   type Workflow,
+  type WorkflowRevision,
 } from "@alfred/db/schemas";
 import {
   MAX_ATTACHMENTS_PER_MESSAGE,
@@ -169,7 +171,7 @@ function isRecoverableSerializationError(err: unknown): boolean {
  * `IDB_KEY` forces a fetcher here, so server pull cannot silently forget a
  * client-visible entity.
  */
-const ENTITY_FETCHERS = {
+export const ENTITY_FETCHERS = {
   NOTE: async (tx, userId) => {
     const rows = await tx
       .select()
@@ -379,19 +381,27 @@ const ENTITY_FETCHERS = {
   // without an id lookup, matching the `/workflows/$workflow` route param.
   WORKFLOW: async (tx, userId) => {
     const rows = await tx
-      .select()
+      .select({ workflow: workflows, currentRevision: workflowRevisions })
       .from(workflows)
+      .leftJoin(workflowRevisions, eq(workflows.currentRevisionId, workflowRevisions.id))
       .where(eq(workflows.userId, userId))
       .orderBy(asc(workflows.slug));
     return rows
-      .filter((w: Workflow) => !isInternalWorkflowSlug(w.slug))
-      .flatMap((w: Workflow) =>
-        toEntityRow({
-          slug: "WORKFLOW",
-          id: w.slug,
-          rowVersion: w.rowVersion,
-          serialize: () => serializeWorkflow(w),
-        }),
+      .filter(({ workflow }: { workflow: Workflow }) => !isInternalWorkflowSlug(workflow.slug))
+      .flatMap(
+        ({
+          workflow,
+          currentRevision,
+        }: {
+          workflow: Workflow;
+          currentRevision: WorkflowRevision | null;
+        }) =>
+          toEntityRow({
+            slug: "WORKFLOW",
+            id: workflow.slug,
+            rowVersion: workflow.rowVersion,
+            serialize: () => serializeWorkflow(workflow, currentRevision),
+          }),
       );
   },
 
@@ -775,16 +785,22 @@ function serializeActionPolicy(p: UserActionPolicy): SyncedActionPolicy {
   });
 }
 
-function serializeWorkflow(w: Workflow): SyncedWorkflow {
+function serializeWorkflow(w: Workflow, currentRevision: WorkflowRevision | null): SyncedWorkflow {
   return syncedWorkflowSchema.parse({
     id: w.id,
     userId: w.userId,
     slug: w.slug,
-    name: w.name,
-    description: w.description,
-    trigger: w.trigger,
-    brief: w.brief,
-    allowedIntegrations: w.allowedIntegrations,
+    // The control row mirrors the published definition for dispatch. The
+    // editor reads the current draft instead, so saving an active workflow
+    // does not appear to revert on the next authoritative pull.
+    name: currentRevision?.name ?? w.name,
+    description: currentRevision?.description ?? w.description,
+    trigger: currentRevision?.trigger ?? w.trigger,
+    brief: currentRevision?.brief ?? w.brief,
+    allowedIntegrations: currentRevision?.allowedIntegrations ?? w.allowedIntegrations,
+    currentRevisionId: w.currentRevisionId,
+    publishedRevisionId: w.publishedRevisionId,
+    blocked: w.blocked,
     status: w.status,
     isBuiltin: w.isBuiltin,
     lastRunAt: toIso(w.lastRunAt),
