@@ -44,15 +44,19 @@ import {
   compareAndSetCatalogRevision,
   insertCatalogRevision,
   readConnection,
+  readOwnedConnection,
   updateConnection,
   type McpConnectionUpdate,
 } from "./persistence";
 import type { McpNegotiatedServer } from "./protocol";
+import { McpOAuthAuthorizationRequiredError, mcpOAuthProviderForConnection } from "./oauth";
+import { startMcpTraceSpan, type McpTraceContext } from "./trace";
 
 export type McpClientFactory = (connection: McpConnection) => McpRawClient;
 
 export interface McpConnectionManagerPersistence {
   readConnection: typeof readConnection;
+  readOwnedConnection: typeof readOwnedConnection;
   updateConnection: typeof updateConnection;
   insertCatalogRevision: typeof insertCatalogRevision;
   compareAndSetCatalogRevision: typeof compareAndSetCatalogRevision;
@@ -67,12 +71,14 @@ export interface McpConnectionManagerOptions {
 
 const DEFAULT_PERSISTENCE: McpConnectionManagerPersistence = {
   readConnection,
+  readOwnedConnection,
   updateConnection,
   insertCatalogRevision,
   compareAndSetCatalogRevision,
 };
 
 const MAX_CATALOG_STABILIZATION_ATTEMPTS = 3;
+export const MCP_OAUTH_PENDING_ISSUER = "oauth:pending";
 
 interface CatalogRefreshState {
   dirty: boolean;
@@ -103,17 +109,43 @@ class HttpsOriginPinnedAuthorization implements McpEndpointAuthorization {
 
 /**
  * The production factory: a live client per connection row, authorized by
- * `authorization`. Note what it does NOT pass — `authProvider`. Every connection
- * built here is therefore UNAUTHENTICATED; wiring the Alfred→server credential is
- * the OAuth slice's job (see `mcp_connections.credentialId`, still storeless).
+ * `authorization`. OAuth discovery runs before transport connect. The transport
+ * itself receives only a token reader, so it cannot refresh and replay an
+ * in-flight call.
  */
 function liveClientFactory(authorization: McpEndpointAuthorization): McpClientFactory {
-  return (connection) =>
-    new McpRawClient({
+  return (connection) => {
+    const usesOAuth = connection.credentialId !== null || connection.authServerIdentity !== null;
+    return new McpRawClient({
       connectionId: connection.id,
       endpoint: new URL(connection.endpointUrl),
       endpointAuthorization: authorization,
+      ...(usesOAuth
+        ? {
+            oauthProvider: mcpOAuthProviderForConnection({
+              connectionId: connection.id,
+              userId: connection.userId,
+              endpoint: new URL(connection.endpointUrl),
+            }),
+            onAuthorizationRequired: async () => {
+              await updateConnection(connection.id, {
+                status: "auth_required",
+                lastError: "Reconnect this MCP server to continue.",
+              });
+            },
+            onInsufficientScope: async (requiredScopes: string[]) => {
+              const suffix =
+                requiredScopes.length > 0 ? ` Required: ${requiredScopes.join(", ")}.` : "";
+              await updateConnection(connection.id, {
+                status: "auth_required",
+                requiredScopes,
+                lastError: `Reconnect this MCP server to grant additional permissions.${suffix}`,
+              });
+            },
+          }
+        : {}),
     });
+  };
 }
 
 export class McpConnectionManager {
@@ -139,7 +171,7 @@ export class McpConnectionManager {
    * along the way. On any failure the client is dropped and the connection is
    * marked `failed` with a bounded error string.
    */
-  async getReadyClient(connectionId: string): Promise<McpRawClient> {
+  async getReadyClient(connectionId: string, trace?: McpTraceContext): Promise<McpRawClient> {
     await this.#waitForCatalogRefresh(connectionId);
     const cached = this.#clients.get(connectionId);
     if (cached) return cached;
@@ -147,7 +179,7 @@ export class McpConnectionManager {
     const existingStart = this.#clientStarts.get(connectionId);
     if (existingStart) return existingStart;
 
-    const start = this.#startClient(connectionId).finally(() => {
+    const start = this.#startClient(connectionId, trace).finally(() => {
       if (this.#clientStarts.get(connectionId) === start) {
         this.#clientStarts.delete(connectionId);
       }
@@ -156,7 +188,7 @@ export class McpConnectionManager {
     return start;
   }
 
-  async #startClient(connectionId: string): Promise<McpRawClient> {
+  async #startClient(connectionId: string, trace?: McpTraceContext): Promise<McpRawClient> {
     const connection = await this.#persistence.readConnection(connectionId);
     if (!connection) throw new McpConnectionNotFoundError(connectionId);
 
@@ -171,9 +203,20 @@ export class McpConnectionManager {
         status: "connecting",
         lastError: null,
       });
-      await client.connect();
+      const connectSpan = startMcpTraceSpan({
+        name: "runtime.mcp.connect",
+        ...(trace ? { parent: trace } : {}),
+        metadata: { connectionId },
+      });
+      try {
+        await client.connect(connectSpan.context);
+        connectSpan.end({ status: "connected" });
+      } catch (error) {
+        connectSpan.end({ status: "error", level: "ERROR" });
+        throw error;
+      }
       for (let attempt = 1; attempt <= MAX_CATALOG_STABILIZATION_ATTEMPTS; attempt += 1) {
-        await this.#refreshAndPersistStable(connectionId, client);
+        await this.#refreshAndPersistStable(connectionId, client, undefined, connectSpan.context);
         if (client.catalog) break;
         if (attempt === MAX_CATALOG_STABILIZATION_ATTEMPTS) {
           throw new McpClientError(
@@ -187,6 +230,14 @@ export class McpConnectionManager {
       return client;
     } catch (err) {
       initializing = false;
+      if (err instanceof McpOAuthAuthorizationRequiredError) {
+        await client.close().catch(() => undefined);
+        await this.#patch(connectionId, {
+          status: "auth_required",
+          lastError: "Authorization is required to connect this MCP server.",
+        });
+        throw err;
+      }
       const expectedCurrentRevisionId =
         this.#activeRevisionIds.get(connectionId) ?? connection.currentCatalogRevisionId;
       this.#activeRevisionIds.delete(connectionId);
@@ -211,14 +262,18 @@ export class McpConnectionManager {
    * revision. Idempotent: an unchanged catalog re-publishes to the same revision
    * and only touches the connection's `lastConnectedAt`.
    */
-  async refreshCatalog(connectionId: string): Promise<McpCatalogSnapshot> {
-    const client = await this.getReadyClient(connectionId);
-    return this.#refreshAndPersistStable(connectionId, client);
+  async refreshCatalog(connectionId: string, trace?: McpTraceContext): Promise<McpCatalogSnapshot> {
+    const client = await this.getReadyClient(connectionId, trace);
+    return this.#refreshAndPersistStable(connectionId, client, undefined, trace);
   }
 
-  async prepareToolCall(connectionId: string, signal?: AbortSignal): Promise<McpPreparedToolCall> {
-    const client = await this.getReadyClient(connectionId);
-    return this.#prepareAndPersistStable(connectionId, client, signal);
+  async prepareToolCall(
+    connectionId: string,
+    signal?: AbortSignal,
+    trace?: McpTraceContext,
+  ): Promise<McpPreparedToolCall> {
+    const client = await this.getReadyClient(connectionId, trace);
+    return this.#prepareAndPersistStable(connectionId, client, signal, trace);
   }
 
   /** Route a validated call to a ready client. The broker owns the durable ledger around this. */
@@ -232,7 +287,9 @@ export class McpConnectionManager {
   }
 
   /** Close and forget a connection's live client; mark the row disconnected. */
-  async disconnect(connectionId: string): Promise<void> {
+  async disconnect(connectionId: string, userId: string): Promise<boolean> {
+    const owned = await this.#persistence.readOwnedConnection(connectionId, userId);
+    if (!owned) return false;
     this.#closingConnections.add(connectionId);
     try {
       await this.#clientStarts.get(connectionId)?.catch(() => undefined);
@@ -242,6 +299,7 @@ export class McpConnectionManager {
       this.#activeRevisionIds.delete(connectionId);
       if (client) await client.close().catch(() => undefined);
       await this.#patch(connectionId, { status: "disconnected" });
+      return true;
     } finally {
       this.#closingConnections.delete(connectionId);
     }
@@ -315,14 +373,49 @@ export class McpConnectionManager {
   async #refreshAndPersistStable(
     connectionId: string,
     client: McpRawClient,
+    signal?: AbortSignal,
+    trace?: McpTraceContext,
   ): Promise<McpCatalogSnapshot> {
-    return (await this.#prepareAndPersistStable(connectionId, client)).catalog;
+    return (await this.#prepareAndPersistStable(connectionId, client, signal, trace)).catalog;
   }
 
   async #prepareAndPersistStable(
     connectionId: string,
     client: McpRawClient,
     signal?: AbortSignal,
+    trace?: McpTraceContext,
+  ): Promise<McpPreparedToolCall> {
+    const span = startMcpTraceSpan({
+      name: "runtime.mcp.catalog_refresh",
+      ...(trace ? { parent: trace } : {}),
+      metadata: { connectionId },
+    });
+    try {
+      const prepared = await this.#prepareAndPersistStableInner(
+        connectionId,
+        client,
+        signal,
+        span.context,
+      );
+      span.end({
+        status: "ready",
+        metadata: {
+          catalogRevision: prepared.catalog.revision,
+          toolCount: prepared.catalog.tools.length,
+        },
+      });
+      return prepared;
+    } catch (error) {
+      span.end({ status: "error", level: "ERROR" });
+      throw error;
+    }
+  }
+
+  async #prepareAndPersistStableInner(
+    connectionId: string,
+    client: McpRawClient,
+    signal: AbortSignal | undefined,
+    trace: McpTraceContext,
   ): Promise<McpPreparedToolCall> {
     for (let attempt = 1; attempt <= MAX_CATALOG_STABILIZATION_ATTEMPTS; attempt += 1) {
       const durableBefore = await this.#persistence.readConnection(connectionId);
@@ -339,7 +432,7 @@ export class McpConnectionManager {
       }
       let prepared: McpPreparedToolCall;
       try {
-        prepared = await client.prepareToolCall(signal);
+        prepared = await client.prepareToolCall(signal, trace);
       } catch (err) {
         if (
           err instanceof McpClientError &&
