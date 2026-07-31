@@ -4,8 +4,7 @@ import { after, before, describe, test } from "node:test";
 
 import { closeConnections, db } from "@alfred/db";
 import { actionStagings, agentRuns, mcpInvocation, user } from "@alfred/db/schemas";
-import { StreamableHTTPError } from "@modelcontextprotocol/sdk/client/streamableHttp.js";
-import type { Tool } from "@modelcontextprotocol/sdk/types.js";
+import { ProtocolError, SdkErrorCode, SdkHttpError, type Tool } from "@modelcontextprotocol/client";
 import { eq, inArray, like } from "drizzle-orm";
 
 import {
@@ -44,6 +43,7 @@ class FakeProtocol implements McpProtocolClient {
   behavior: CallBehavior = { kind: "ok" };
   calls = 0;
   negotiated: McpNegotiatedServer = {
+    protocolEra: "pre_2026_07_28",
     protocolVersion: "2025-11-25",
     serverName: "fake",
     serverVersion: "1",
@@ -60,7 +60,7 @@ class FakeProtocol implements McpProtocolClient {
   }
   async close(): Promise<void> {}
   async listTools(): Promise<McpProtocolPage> {
-    return { tools: this.tools };
+    return { tools: this.tools, ttlMs: 0, cacheScope: "private" };
   }
   async callTool(): Promise<McpProtocolCallResult> {
     this.calls += 1;
@@ -71,6 +71,7 @@ class FakeProtocol implements McpProtocolClient {
     return { content: [{ type: "text", text: "ok" }] };
   }
   onToolsChanged(): void {}
+  onConnectionUnhealthy(): void {}
 }
 
 // Permissive schema on purpose: these tests exercise ledger/barrier semantics,
@@ -371,6 +372,38 @@ describe("mcp execution broker (DB-backed, offline)", { skip: SKIP }, () => {
     assert.equal(protocol.calls, callsBefore, "the blocked repeat must not be dispatched");
   });
 
+  test("a post-delivery descriptor mismatch stays ambiguous and keeps the barrier", async () => {
+    const userId = await seedUser();
+    const connId = await seedConnection(userId);
+    const protocol = new FakeProtocol([tool("charge_card")]);
+    protocol.behavior = {
+      kind: "throw",
+      error: new ProtocolError(-32020, "HEADER_MISMATCH"),
+    };
+    const revision = await liveRevision(protocol, connId);
+    const broker = brokerWith(protocol);
+    const stagingId = await seedStaging(userId);
+
+    const outcome = await broker.callTool({
+      userId,
+      stagingId,
+      ref: {
+        kind: "mcp",
+        connectionId: connId,
+        remoteName: "charge_card",
+        catalogRevision: revision,
+      },
+      arguments: { amount: 4200 },
+    });
+
+    assert.equal(outcome.status, "ambiguous");
+    const [row] = await invocationsForStaging(stagingId);
+    assert.equal(row?.effectOutcome, "unknown");
+    assert.equal(row?.retryDisposition, "blocked");
+    assert.equal(row?.resolvedAt, null);
+    assert.equal(protocol.calls, 1);
+  });
+
   test("a deterministic pre-delivery error throws and resolves the reservation as not-delivered", async () => {
     const userId = await seedUser();
     const connId = await seedConnection(userId);
@@ -420,7 +453,11 @@ describe("mcp execution broker (DB-backed, offline)", { skip: SKIP }, () => {
     // result — the raw client maps this to `session_expired`.
     protocol.behavior = {
       kind: "throw",
-      error: new StreamableHTTPError(404, "session expired mid-call"),
+      error: new SdkHttpError(
+        SdkErrorCode.ClientHttpFailedToOpenStream,
+        "session expired mid-call",
+        { status: 404 },
+      ),
     };
 
     const ref: ExternalToolRef = {

@@ -7,9 +7,11 @@ import { actionStagings, agentRuns, mcpInvocation, user } from "@alfred/db/schem
 import { eq, inArray, like } from "drizzle-orm";
 
 import {
+  compareAndSetCatalogRevision,
   createSuccessorInvocation,
   findUnresolvedBarrier,
   insertConnection,
+  insertCatalogRevision,
   insertInvocation,
   publishCatalogRevision,
   readConnection,
@@ -156,6 +158,42 @@ describe("mcp persistence (DB-backed)", { skip: SKIP }, () => {
     assert.equal((await readCurrentRevision(connId))?.id, revB.id);
     // The old revision is still readable (append-only history).
     assert.ok(await readRevisionByHash(connId, "sha256:aaa"));
+  });
+
+  test("catalog pointer compare-and-swap rejects a stale publisher", async () => {
+    const userId = await seedUser();
+    const connId = await seedConnection(userId);
+    const revisionA = await insertCatalogRevision({
+      connectionId: connId,
+      revisionHash: "sha256:cas-a",
+      descriptors: [{ name: "tool_a" }],
+      descriptorHashes: { tool_a: "sha256:h_a" },
+      toolCount: 1,
+    });
+    const revisionB = await insertCatalogRevision({
+      connectionId: connId,
+      revisionHash: "sha256:cas-b",
+      descriptors: [{ name: "tool_b" }],
+      descriptorHashes: { tool_b: "sha256:h_b" },
+      toolCount: 1,
+    });
+
+    const winner = await compareAndSetCatalogRevision({
+      connectionId: connId,
+      expectedCurrentRevisionId: null,
+      nextRevisionId: revisionA.id,
+      patch: { status: "ready" },
+    });
+    assert.equal(winner?.currentCatalogRevisionId, revisionA.id);
+
+    const stale = await compareAndSetCatalogRevision({
+      connectionId: connId,
+      expectedCurrentRevisionId: null,
+      nextRevisionId: revisionB.id,
+      patch: { status: "ready" },
+    });
+    assert.equal(stale, undefined);
+    assert.equal((await readConnection(connId))?.currentCatalogRevisionId, revisionA.id);
   });
 
   test("tool policy upsert then update-on-conflict", async () => {

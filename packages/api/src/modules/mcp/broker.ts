@@ -23,7 +23,7 @@
 
 import type { McpEffectClass } from "@alfred/contracts";
 import type { McpInvocation, McpToolPolicyRow } from "@alfred/db/schemas";
-import type { ExternalToolRef, McpCallEnvelope } from "./client";
+import type { ExternalToolRef, McpCallEnvelope, McpPreparedToolCall } from "./client";
 import { McpClientError, boundedMcpErrorText, isPreDeliveryErrorCode } from "./errors";
 import { canonicalArgsHash, descriptorHash } from "./hash";
 import type { McpConnectionManager } from "./manager";
@@ -111,7 +111,7 @@ export class McpExecutionBroker {
     // predates any `tools/call`, so it throws a deterministic pre-delivery error
     // (no barrier minted) and the dispatch seam records an ordinary failure. It is
     // enforced here, at the read, rather than left as a convention for multi-user.
-    const identity = await resolveMcpToolIdentity({
+    let identity = await resolveMcpToolIdentity({
       userId: input.userId,
       connectionId: ref.connectionId,
       remoteName: ref.remoteName,
@@ -127,13 +127,31 @@ export class McpExecutionBroker {
     // the mutable connection row again before first-use hydration: the identity
     // resolver proves ownership and policy, but its endpoint/credential snapshot
     // must not outlive a concurrent connection update.
-    const client = await this.#manager.getReadyClient(ref.connectionId);
+    const prepared = await this.#manager.prepareToolCall(ref.connectionId, input.signal);
+    if (prepared.catalog.revision !== ref.catalogRevision) {
+      throw new McpClientError(
+        "catalog_stale",
+        "The MCP catalog changed after this tool was selected; refresh and reselect it",
+      );
+    }
+    if (identity.status === "unresolved") {
+      identity = await resolveMcpToolIdentity({
+        userId: input.userId,
+        connectionId: ref.connectionId,
+        remoteName: ref.remoteName,
+        catalogRevision: ref.catalogRevision,
+      });
+    }
+    const connection = identity.connection;
+    if (!connection) {
+      throw new McpClientError("not_connected", `No connected MCP server '${ref.connectionId}'.`);
+    }
 
     // The durable identity and reviewed policy were resolved together above.
     // Honor that policy only if the exact live descriptor has the same hash. A
     // stale selection, missing live tool, or persisted/live drift therefore has
     // no policy and defaults to conservative `unknown`.
-    const liveTool = client.catalog?.tools.find((tool) => tool.name === ref.remoteName);
+    const liveTool = prepared.catalog.tools.find((tool) => tool.name === ref.remoteName);
     const hash = liveTool ? descriptorHash(liveTool) : undefined;
     const policy =
       identity.status === "resolved" && hash === identity.descriptorHash
@@ -146,7 +164,7 @@ export class McpExecutionBroker {
       // possibly-delivered one) is safe to surface and re-run, so it just throws.
       // The options object IS the conditional — a spread inside a fresh literal
       // would just be a redundant copy (oxlint's `no-useless-spread`).
-      const envelope = await this.#manager.callTool(
+      const envelope = await prepared.call(
         ref,
         input.arguments,
         input.signal ? { signal: input.signal } : {},
@@ -162,7 +180,8 @@ export class McpExecutionBroker {
       effectClass,
       descriptorHashValue: hash,
       policy,
-      connection: identity.connection,
+      connection,
+      prepared,
     });
   }
 
@@ -174,6 +193,7 @@ export class McpExecutionBroker {
       policy: McpToolPolicyRow | undefined;
       /** The owner-verified durable pointer already read in `callTool`. */
       connection: OwnedMcpConnectionRef;
+      prepared: McpPreparedToolCall;
     },
   ): Promise<McpBrokerOutcome> {
     const { ref } = input;
@@ -236,7 +256,7 @@ export class McpExecutionBroker {
     });
 
     try {
-      const envelope = await this.#manager.callTool(
+      const envelope = await resolved.prepared.call(
         ref,
         input.arguments,
         input.signal ? { signal: input.signal } : {},

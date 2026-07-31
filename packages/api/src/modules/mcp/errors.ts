@@ -12,13 +12,13 @@ export const MCP_CLIENT_ERROR_CODES = [
   "missing_tools_capability",
   "catalog_required",
   "catalog_stale",
+  "descriptor_mismatch",
   "catalog_limit",
   "duplicate_tool",
   "invalid_schema",
   "unknown_tool",
   "invalid_arguments",
   "invalid_output",
-  "unsupported_task_tool",
 ] as const;
 
 export type McpClientErrorCode = (typeof MCP_CLIENT_ERROR_CODES)[number];
@@ -43,7 +43,6 @@ const MCP_PRE_DELIVERY_ERROR_CODES: ReadonlySet<McpClientErrorCode> = new Set([
   "catalog_stale",
   "unknown_tool",
   "invalid_arguments",
-  "unsupported_task_tool",
 ]);
 
 /** True for a deterministic pre-delivery code (provably not delivered). */

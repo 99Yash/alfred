@@ -4,7 +4,7 @@ import { after, before, describe, test } from "node:test";
 
 import { closeConnections, db } from "@alfred/db";
 import { actionStagings, agentRuns, user, userActionPolicies } from "@alfred/db/schemas";
-import type { Tool } from "@modelcontextprotocol/sdk/types.js";
+import type { Tool } from "@modelcontextprotocol/client";
 import { and, eq, inArray, like } from "drizzle-orm";
 
 import { clearPolicyCacheForTests } from "../../src/modules/action-policies/resolve";

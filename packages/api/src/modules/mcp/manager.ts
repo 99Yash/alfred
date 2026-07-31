@@ -3,11 +3,11 @@
  * (`mcp_connections`, via `persistence.ts`) and live, in-memory `McpRawClient`
  * instances. Connection rows are durable; the SDK client behind them is not, so
  * the manager re-hydrates a client on demand, drives connect + catalog refresh,
- * and folds the refreshed catalog back into an immutable revision through
- * `publishCatalogRevision`. The execution broker asks this manager for a ready
- * client; it never constructs one itself.
+ * inserts the refreshed immutable revision, then promotes it only while that
+ * in-memory generation remains current. The execution broker asks this manager
+ * for a ready client; it never constructs one itself.
  *
- * Two injection seams keep the whole path testable offline (no network/OAuth):
+ * Injection seams keep the whole path testable offline (no network/OAuth/DB):
  *  - `clientFactory` builds the `McpRawClient` for a connection row. Tests pass a
  *    factory that wires a real client to a FAKE `McpProtocolClient` (via the raw
  *    client's own `protocolFactory`), exercising real validation/bounding code
@@ -16,6 +16,8 @@
  *    placeholder here: v1 enforces https + origin-pinning but the full SSRF /
  *    DNS-rebinding guard is a later slice, and no connection-creation route wires
  *    an untrusted endpoint to it yet.
+ *  - `persistence` lets lifecycle tests drive publication races without requiring
+ *    Postgres; production always receives the module-owned default adapter.
  *
  * PRD guardrail — first real server: the intended first connection is GitHub's
  * official remote MCP server (`https://api.githubcopilot.com/mcp/`, Streamable
@@ -34,11 +36,13 @@ import {
   type McpCallEnvelope,
   type McpCatalogSnapshot,
   type McpEndpointAuthorization,
+  type McpPreparedToolCall,
 } from "./client";
-import { boundedMcpErrorText } from "./errors";
+import { boundedMcpErrorText, McpClientError } from "./errors";
 import { computeDescriptorHashes } from "./hash";
 import {
-  publishCatalogRevision,
+  compareAndSetCatalogRevision,
+  insertCatalogRevision,
   readConnection,
   updateConnection,
   type McpConnectionUpdate,
@@ -47,10 +51,32 @@ import type { McpNegotiatedServer } from "./protocol";
 
 export type McpClientFactory = (connection: McpConnection) => McpRawClient;
 
+export interface McpConnectionManagerPersistence {
+  readConnection: typeof readConnection;
+  updateConnection: typeof updateConnection;
+  insertCatalogRevision: typeof insertCatalogRevision;
+  compareAndSetCatalogRevision: typeof compareAndSetCatalogRevision;
+}
+
 export interface McpConnectionManagerOptions {
   clientFactory?: McpClientFactory;
   /** Handed to the default `clientFactory` only. Ignored when one is injected. */
   endpointAuthorization?: McpEndpointAuthorization;
+  persistence?: McpConnectionManagerPersistence;
+}
+
+const DEFAULT_PERSISTENCE: McpConnectionManagerPersistence = {
+  readConnection,
+  updateConnection,
+  insertCatalogRevision,
+  compareAndSetCatalogRevision,
+};
+
+const MAX_CATALOG_STABILIZATION_ATTEMPTS = 3;
+
+interface CatalogRefreshState {
+  dirty: boolean;
+  promise: Promise<void>;
 }
 
 export class McpConnectionNotFoundError extends Error {
@@ -92,12 +118,18 @@ function liveClientFactory(authorization: McpEndpointAuthorization): McpClientFa
 
 export class McpConnectionManager {
   readonly #clients = new Map<string, McpRawClient>();
+  readonly #clientStarts = new Map<string, Promise<McpRawClient>>();
+  readonly #catalogRefreshes = new Map<string, CatalogRefreshState>();
+  readonly #activeRevisionIds = new Map<string, string>();
+  readonly #closingConnections = new Set<string>();
   readonly #clientFactory: McpClientFactory;
+  readonly #persistence: McpConnectionManagerPersistence;
 
   constructor(options: McpConnectionManagerOptions = {}) {
     this.#clientFactory =
       options.clientFactory ??
       liveClientFactory(options.endpointAuthorization ?? new HttpsOriginPinnedAuthorization());
+    this.#persistence = options.persistence ?? DEFAULT_PERSISTENCE;
   }
 
   /**
@@ -108,25 +140,68 @@ export class McpConnectionManager {
    * marked `failed` with a bounded error string.
    */
   async getReadyClient(connectionId: string): Promise<McpRawClient> {
+    await this.#waitForCatalogRefresh(connectionId);
     const cached = this.#clients.get(connectionId);
     if (cached) return cached;
 
-    const connection = await readConnection(connectionId);
+    const existingStart = this.#clientStarts.get(connectionId);
+    if (existingStart) return existingStart;
+
+    const start = this.#startClient(connectionId).finally(() => {
+      if (this.#clientStarts.get(connectionId) === start) {
+        this.#clientStarts.delete(connectionId);
+      }
+    });
+    this.#clientStarts.set(connectionId, start);
+    return start;
+  }
+
+  async #startClient(connectionId: string): Promise<McpRawClient> {
+    const connection = await this.#persistence.readConnection(connectionId);
     if (!connection) throw new McpConnectionNotFoundError(connectionId);
 
     const client = this.#clientFactory(connection);
+    let initializing = true;
+    client.onCatalogInvalidated(() => {
+      if (initializing) return;
+      this.#scheduleCatalogRefresh(connectionId, client);
+    });
     try {
-      await this.#patch(connectionId, { status: "connecting", lastError: null });
+      await this.#patch(connectionId, {
+        status: "connecting",
+        lastError: null,
+      });
       await client.connect();
-      const snapshot = await client.refreshCatalog();
-      await this.#persistCatalog(connectionId, snapshot, client.negotiatedServer);
+      for (let attempt = 1; attempt <= MAX_CATALOG_STABILIZATION_ATTEMPTS; attempt += 1) {
+        await this.#refreshAndPersistStable(connectionId, client);
+        if (client.catalog) break;
+        if (attempt === MAX_CATALOG_STABILIZATION_ATTEMPTS) {
+          throw new McpClientError(
+            "catalog_stale",
+            "The MCP catalog kept changing while the connection was starting",
+          );
+        }
+      }
       this.#clients.set(connectionId, client);
+      initializing = false;
       return client;
     } catch (err) {
+      initializing = false;
+      const expectedCurrentRevisionId =
+        this.#activeRevisionIds.get(connectionId) ?? connection.currentCatalogRevisionId;
+      this.#activeRevisionIds.delete(connectionId);
       await client.close().catch(() => undefined);
       // `boundedMcpErrorText`, not `toMessage`: the SDK inlines the whole upstream
       // response body into its thrown message, and this lands in a durable column.
-      await this.#patch(connectionId, { status: "failed", lastError: boundedMcpErrorText(err) });
+      await this.#persistence.compareAndSetCatalogRevision({
+        connectionId,
+        expectedCurrentRevisionId,
+        nextRevisionId: null,
+        patch: {
+          status: "failed",
+          lastError: boundedMcpErrorText(err),
+        },
+      });
       throw err;
     }
   }
@@ -138,9 +213,12 @@ export class McpConnectionManager {
    */
   async refreshCatalog(connectionId: string): Promise<McpCatalogSnapshot> {
     const client = await this.getReadyClient(connectionId);
-    const snapshot = await client.refreshCatalog();
-    await this.#persistCatalog(connectionId, snapshot, client.negotiatedServer);
-    return snapshot;
+    return this.#refreshAndPersistStable(connectionId, client);
+  }
+
+  async prepareToolCall(connectionId: string, signal?: AbortSignal): Promise<McpPreparedToolCall> {
+    const client = await this.getReadyClient(connectionId);
+    return this.#prepareAndPersistStable(connectionId, client, signal);
   }
 
   /** Route a validated call to a ready client. The broker owns the durable ledger around this. */
@@ -149,57 +227,254 @@ export class McpConnectionManager {
     args: unknown,
     options: { signal?: AbortSignal } = {},
   ): Promise<McpCallEnvelope> {
-    const client = await this.getReadyClient(ref.connectionId);
-    return client.callTool(ref, args, options);
+    const prepared = await this.prepareToolCall(ref.connectionId, options.signal);
+    return prepared.call(ref, args, options);
   }
 
   /** Close and forget a connection's live client; mark the row disconnected. */
   async disconnect(connectionId: string): Promise<void> {
-    const client = this.#clients.get(connectionId);
-    this.#clients.delete(connectionId);
-    if (client) await client.close().catch(() => undefined);
-    await this.#patch(connectionId, { status: "disconnected" });
+    this.#closingConnections.add(connectionId);
+    try {
+      await this.#clientStarts.get(connectionId)?.catch(() => undefined);
+      await this.#waitForCatalogRefresh(connectionId);
+      const client = this.#clients.get(connectionId);
+      this.#clients.delete(connectionId);
+      this.#activeRevisionIds.delete(connectionId);
+      if (client) await client.close().catch(() => undefined);
+      await this.#patch(connectionId, { status: "disconnected" });
+    } finally {
+      this.#closingConnections.delete(connectionId);
+    }
   }
 
   /** Drop all live clients (e.g. on shutdown). Does not touch persisted rows. */
   async closeAll(): Promise<void> {
+    for (const connectionId of this.#clients.keys()) {
+      this.#closingConnections.add(connectionId);
+    }
+    while (this.#catalogRefreshes.size > 0) {
+      await Promise.all([...this.#catalogRefreshes.values()].map((state) => state.promise));
+    }
     const clients = [...this.#clients.values()];
     this.#clients.clear();
+    this.#activeRevisionIds.clear();
     await Promise.all(clients.map((client) => client.close().catch(() => undefined)));
   }
 
-  async #persistCatalog(
-    connectionId: string,
-    snapshot: McpCatalogSnapshot,
-    negotiated: McpNegotiatedServer | null,
-  ): Promise<void> {
-    await publishCatalogRevision({
+  async #insertCatalog(connectionId: string, snapshot: McpCatalogSnapshot): Promise<string> {
+    const revision = await this.#persistence.insertCatalogRevision({
       connectionId,
       revisionHash: snapshot.revision,
       descriptors: snapshot.tools,
       descriptorHashes: computeDescriptorHashes(snapshot.tools),
       toolCount: snapshot.tools.length,
     });
-    await this.#patch(connectionId, {
-      status: "ready",
-      lastConnectedAt: new Date(),
-      lastError: null,
-      ...(negotiated
-        ? {
-            negotiatedProtocolVersion: negotiated.protocolVersion,
-            serverIdentity: {
-              protocolVersion: negotiated.protocolVersion,
-              serverName: negotiated.serverName,
-              serverVersion: negotiated.serverVersion,
-              hasTools: negotiated.hasTools,
-              toolsListChanged: negotiated.toolsListChanged,
-            },
-          }
-        : {}),
+    return revision.id;
+  }
+
+  async #activateCatalog(
+    connectionId: string,
+    expectedCurrentRevisionId: string | null,
+    revisionId: string,
+    negotiated: McpNegotiatedServer | null,
+  ): Promise<boolean> {
+    const activated = await this.#persistence.compareAndSetCatalogRevision({
+      connectionId,
+      expectedCurrentRevisionId,
+      nextRevisionId: revisionId,
+      patch: {
+        status: "ready",
+        lastConnectedAt: new Date(),
+        lastError: null,
+        ...(negotiated
+          ? {
+              negotiatedProtocolVersion: negotiated.protocolVersion,
+              serverIdentity: {
+                protocolVersion: negotiated.protocolVersion,
+                serverName: negotiated.serverName,
+                serverVersion: negotiated.serverVersion,
+                hasTools: negotiated.hasTools,
+                toolsListChanged: negotiated.toolsListChanged,
+              },
+            }
+          : {}),
+      },
     });
+    return activated !== undefined;
   }
 
   async #patch(connectionId: string, patch: McpConnectionUpdate): Promise<void> {
-    await updateConnection(connectionId, patch);
+    await this.#persistence.updateConnection(connectionId, patch);
+  }
+
+  /**
+   * Publish only a snapshot that remained live through the DB transaction. A
+   * list-change event during publication clears the raw catalog; loop once more
+   * so the durable pointer cannot become authoritative for an invalidated view.
+   */
+  async #refreshAndPersistStable(
+    connectionId: string,
+    client: McpRawClient,
+  ): Promise<McpCatalogSnapshot> {
+    return (await this.#prepareAndPersistStable(connectionId, client)).catalog;
+  }
+
+  async #prepareAndPersistStable(
+    connectionId: string,
+    client: McpRawClient,
+    signal?: AbortSignal,
+  ): Promise<McpPreparedToolCall> {
+    for (let attempt = 1; attempt <= MAX_CATALOG_STABILIZATION_ATTEMPTS; attempt += 1) {
+      const durableBefore = await this.#persistence.readConnection(connectionId);
+      if (!durableBefore) throw new McpConnectionNotFoundError(connectionId);
+      let priorCatalog = client.catalog;
+      const activeRevisionId = this.#activeRevisionIds.get(connectionId);
+      if (
+        priorCatalog &&
+        (activeRevisionId === undefined ||
+          durableBefore.currentCatalogRevisionId !== activeRevisionId)
+      ) {
+        client.invalidateCatalogAuthority();
+        priorCatalog = null;
+      }
+      let prepared: McpPreparedToolCall;
+      try {
+        prepared = await client.prepareToolCall(signal);
+      } catch (err) {
+        if (
+          err instanceof McpClientError &&
+          err.code === "catalog_stale" &&
+          attempt < MAX_CATALOG_STABILIZATION_ATTEMPTS
+        ) {
+          continue;
+        }
+        throw err;
+      }
+      const snapshot = prepared.catalog;
+      if (
+        snapshot === priorCatalog &&
+        activeRevisionId !== undefined &&
+        durableBefore.currentCatalogRevisionId === activeRevisionId
+      ) {
+        return prepared;
+      }
+
+      const revisionId = await this.#insertCatalog(connectionId, snapshot);
+      if (client.catalog !== snapshot) continue;
+
+      const activated = await this.#activateCatalog(
+        connectionId,
+        durableBefore.currentCatalogRevisionId,
+        revisionId,
+        client.negotiatedServer,
+      );
+      if (!activated) {
+        client.invalidateCatalogAuthority();
+        continue;
+      }
+      this.#activeRevisionIds.set(connectionId, revisionId);
+      if (client.catalog === snapshot) return prepared;
+
+      // An event won the race with pointer activation. Remove the stale door
+      // before the bounded coordinator tries the replacement generation.
+      await this.#persistence.compareAndSetCatalogRevision({
+        connectionId,
+        expectedCurrentRevisionId: revisionId,
+        nextRevisionId: null,
+        patch: { status: "stale" },
+      });
+      this.#activeRevisionIds.delete(connectionId);
+    }
+    throw new McpClientError(
+      "catalog_stale",
+      `The MCP catalog changed during ${MAX_CATALOG_STABILIZATION_ATTEMPTS} consecutive refresh attempts`,
+    );
+  }
+
+  /** Coalesce list-change bursts into one durable invalidate → refresh cycle. */
+  #scheduleCatalogRefresh(connectionId: string, client: McpRawClient): void {
+    if (this.#clients.get(connectionId) !== client) return;
+    if (this.#closingConnections.has(connectionId)) return;
+    const existing = this.#catalogRefreshes.get(connectionId);
+    if (existing) {
+      existing.dirty = true;
+      return;
+    }
+    const state: CatalogRefreshState = {
+      dirty: true,
+      promise: Promise.resolve(),
+    };
+    state.promise = this.#drainCatalogRefreshes(connectionId, client, state).finally(() => {
+      if (this.#catalogRefreshes.get(connectionId) === state) {
+        this.#catalogRefreshes.delete(connectionId);
+      }
+      if (
+        state.dirty &&
+        this.#clients.get(connectionId) === client &&
+        !this.#closingConnections.has(connectionId)
+      ) {
+        this.#scheduleCatalogRefresh(connectionId, client);
+      }
+    });
+    // Keep the background task observed even when no caller is waiting in
+    // `getReadyClient`; awaiters still receive the original rejection.
+    void state.promise.catch(() => undefined);
+    this.#catalogRefreshes.set(connectionId, state);
+  }
+
+  async #drainCatalogRefreshes(
+    connectionId: string,
+    client: McpRawClient,
+    state: CatalogRefreshState,
+  ): Promise<void> {
+    while (
+      state.dirty &&
+      this.#clients.get(connectionId) === client &&
+      !this.#closingConnections.has(connectionId)
+    ) {
+      state.dirty = false;
+      await this.#refreshInvalidatedCatalog(connectionId, client);
+    }
+  }
+
+  async #refreshInvalidatedCatalog(connectionId: string, client: McpRawClient): Promise<void> {
+    try {
+      // Fail closed while the replacement is fetched: local catalog readers
+      // must not keep serving the revision the server just invalidated.
+      const expectedCurrentRevisionId = this.#activeRevisionIds.get(connectionId) ?? null;
+      await this.#persistence.compareAndSetCatalogRevision({
+        connectionId,
+        expectedCurrentRevisionId,
+        nextRevisionId: null,
+        patch: {
+          status: "stale",
+          lastError: null,
+        },
+      });
+      this.#activeRevisionIds.delete(connectionId);
+      await this.#refreshAndPersistStable(connectionId, client);
+    } catch (err) {
+      if (this.#clients.get(connectionId) === client) {
+        this.#clients.delete(connectionId);
+      }
+      await client.close().catch(() => undefined);
+      await this.#persistence.compareAndSetCatalogRevision({
+        connectionId,
+        expectedCurrentRevisionId: null,
+        nextRevisionId: null,
+        patch: {
+          status: "failed",
+          lastError: boundedMcpErrorText(err),
+        },
+      });
+    }
+  }
+
+  async #waitForCatalogRefresh(connectionId: string): Promise<void> {
+    for (;;) {
+      const state = this.#catalogRefreshes.get(connectionId);
+      if (!state) return;
+      await state.promise;
+    }
   }
 }

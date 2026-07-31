@@ -4,7 +4,7 @@ import { after, before, describe, test } from "node:test";
 
 import { closeConnections, db } from "@alfred/db";
 import { user } from "@alfred/db/schemas";
-import type { Tool } from "@modelcontextprotocol/sdk/types.js";
+import type { Tool } from "@modelcontextprotocol/client";
 import { inArray, like } from "drizzle-orm";
 
 import { listMcpToolsLocal } from "../../src/modules/mcp";

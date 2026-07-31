@@ -1,7 +1,7 @@
 import {
   AlfredAgent,
-  DEFAULT_TURN_STREAM_TIMEOUT,
   classifyStreamFinish,
+  DEFAULT_TURN_STREAM_TIMEOUT,
   route,
   type ChatModelTier,
   type ModelMessage,
@@ -24,7 +24,6 @@ import { logger } from "../../../lib/logger";
 import { buildThreadArtifactsContext } from "../../artifacts/read";
 import { isChatStopRequested } from "../../chat/stop-signal";
 import { dispatchRoundReissued, dispatchToolCall, toolCallWouldGate } from "../../dispatch";
-import { runToolRound } from "./tool-round";
 import { readIntegrationAvailability } from "../../integrations/availability";
 import {
   assembleChatContext,
@@ -52,16 +51,6 @@ import {
 import { appendModelResponseMessages } from "../transcript-dedup";
 import type { Step, Workflow } from "../types";
 import {
-  assertStableChatSystem,
-  chatRunStateSchema,
-  closeLeadInNarration,
-  fullAssistantText,
-  interruptChatRun,
-  type ChatRunState,
-  type PendingToolCall,
-} from "./chat-turn-state";
-import { awaitedChildRunId, crossFinalizeBoundary } from "./finalize-guards";
-import {
   buildStoredContentParts,
   hydrateTranscriptForModel,
   loadReadyAttachments,
@@ -71,11 +60,22 @@ import {
   finalizeCancelledMessage,
   finalizeFailedMessage,
 } from "./chat-turn-closure";
+import {
+  assertStableChatSystem,
+  chatRunStateSchema,
+  closeLeadInNarration,
+  fullAssistantText,
+  interruptChatRun,
+  type ChatRunState,
+  type PendingToolCall,
+} from "./chat-turn-state";
+import { awaitedChildRunId, crossFinalizeBoundary } from "./finalize-guards";
 import { streamModelTurn } from "./stream-model-turn";
 import { isStreamTimeoutAbort } from "./stream-timeout";
-import { CHAT_TURN_CAP_MAX, openChatTurnRetries, resetChatTurnRetryBudgets } from "./turn-budgets";
 import { toolCardTerminal } from "./tool-card-events";
 import { toolEventOutcome } from "./tool-event-outcome";
+import { runToolRound } from "./tool-round";
+import { CHAT_TURN_CAP_MAX, openChatTurnRetries, resetChatTurnRetryBudgets } from "./turn-budgets";
 import { createTurnStopController } from "./turn-stop-controller";
 
 /**
