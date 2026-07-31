@@ -55,7 +55,7 @@ class FakeProtocol implements McpProtocolClient {
   }
   async close(): Promise<void> {}
   async listTools(): Promise<McpProtocolPage> {
-    return { tools: this.tools };
+    return { tools: this.tools, ttlMs: 0, cacheScope: "private" };
   }
   async callTool(): Promise<McpProtocolCallResult> {
     return this.callResult;

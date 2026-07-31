@@ -1,8 +1,10 @@
 import {
   Client,
+  MAX_CACHE_TTL_MS,
   SdkHttpError,
   StreamableHTTPClientTransport,
   type AuthProvider,
+  type CacheScope,
   type ProtocolEra,
   type StreamableHTTPClientTransportOptions,
   type Tool,
@@ -13,6 +15,8 @@ export type McpProtocolCallResult = Awaited<ReturnType<Client["callTool"]>>;
 
 export interface McpProtocolPage {
   tools: Tool[];
+  ttlMs: number;
+  cacheScope: CacheScope;
   nextCursor?: string;
 }
 
@@ -199,6 +203,8 @@ export class SdkMcpProtocolClient implements McpProtocolClient {
     );
     return {
       tools: result.tools,
+      ttlMs: normalizeCacheTtl(result.ttlMs),
+      cacheScope: result.cacheScope === "public" ? "public" : "private",
       ...(result.nextCursor ? { nextCursor: result.nextCursor } : {}),
     };
   }
@@ -218,6 +224,11 @@ export class SdkMcpProtocolClient implements McpProtocolClient {
       },
     );
   }
+}
+
+function normalizeCacheTtl(value: unknown): number {
+  if (typeof value !== "number" || !Number.isFinite(value)) return 0;
+  return Math.min(Math.max(0, value), MAX_CACHE_TTL_MS);
 }
 
 export function isMcpSessionExpiredError(err: unknown): boolean {

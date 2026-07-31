@@ -180,7 +180,26 @@ test("McpRawClient negotiates, catalogs, and calls a real Streamable HTTP server
           sessionId: new Headers(init?.headers).get("mcp-session-id"),
         });
       }
-      return fetch(input, init);
+      const response = await fetch(input, init);
+      if (isRecord(body) && body.method === "tools/list") {
+        const payload: unknown = await response.clone().json();
+        if (isRecord(payload) && isRecord(payload.result)) {
+          const headers = new Headers(response.headers);
+          headers.delete("content-length");
+          return Response.json(
+            {
+              ...payload,
+              result: {
+                ...payload.result,
+                ttlMs: 60_000,
+                cacheScope: "private",
+              },
+            },
+            { status: response.status, headers },
+          );
+        }
+      }
+      return response;
     },
   });
 
@@ -189,6 +208,7 @@ test("McpRawClient negotiates, catalogs, and calls a real Streamable HTTP server
   assert.equal(client.negotiatedServer?.protocolVersion, "2026-07-28");
   assert.equal(client.negotiatedServer?.serverName, "alfred-mcp-test");
   assert.ok(wire.some((entry) => entry.method === "server/discover"));
+  assert.ok(wire.some((entry) => entry.method === "subscriptions/listen"));
   assert.ok(!wire.some((entry) => entry.method === "initialize"));
   assert.ok(wire.every((entry) => entry.sessionId === null));
 
@@ -196,6 +216,14 @@ test("McpRawClient negotiates, catalogs, and calls a real Streamable HTTP server
   assert.deepEqual(
     catalog.tools.map((tool) => tool.name),
     ["echo"],
+  );
+  assert.equal(catalog.ttlMs, 60_000);
+  assert.equal(catalog.cacheScope, "private");
+  const listCallsBeforeCacheHit = wire.filter((entry) => entry.method === "tools/list").length;
+  assert.equal(await client.refreshCatalog(), catalog);
+  assert.equal(
+    wire.filter((entry) => entry.method === "tools/list").length,
+    listCallsBeforeCacheHit,
   );
   const result = await client.callTool(
     {
@@ -216,6 +244,12 @@ test("McpRawClient negotiates, catalogs, and calls a real Streamable HTTP server
   });
   notifyModernToolsChanged?.();
   await waitFor(() => client.catalog === null);
+  await client.refreshCatalog();
+  assert.equal(
+    wire.filter((entry) => entry.method === "tools/list").length,
+    listCallsBeforeCacheHit + 1,
+    "the modern subscription must override an unexpired TTL",
+  );
   await client.close();
 });
 

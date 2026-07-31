@@ -8,7 +8,12 @@ import {
   type McpContentKind,
   type McpResultProvenance,
 } from "@alfred/contracts";
-import type { JsonSchemaType, JsonSchemaValidator, Tool } from "@modelcontextprotocol/client";
+import type {
+  CacheScope,
+  JsonSchemaType,
+  JsonSchemaValidator,
+  Tool,
+} from "@modelcontextprotocol/client";
 import { AjvJsonSchemaValidator } from "@modelcontextprotocol/client/validators/ajv";
 import { McpClientError } from "./errors";
 import { sha256Canonical } from "./hash";
@@ -34,6 +39,8 @@ export interface McpCatalogSnapshot {
   connectionId: string;
   revision: string;
   tools: readonly Tool[];
+  ttlMs: number;
+  cacheScope: CacheScope;
 }
 
 export interface McpCallEnvelope {
@@ -83,6 +90,7 @@ export interface McpRawClientOptions extends McpClientLimits {
   endpointAuthorization: McpEndpointAuthorization;
   authProvider?: SdkMcpProtocolClientOptions["authProvider"];
   fetch?: SdkMcpProtocolClientOptions["fetch"];
+  now?: () => number;
   protocolFactory?: (endpoint: URL) => McpProtocolClient;
 }
 
@@ -103,13 +111,16 @@ const encoder = new TextEncoder();
  */
 export class McpRawClient {
   /** Identity + injected collaborators. The tunable bounds live on `#limits`. */
-  readonly #options: Omit<McpRawClientOptions, keyof McpClientLimits>;
+  readonly #options: Omit<McpRawClientOptions, keyof McpClientLimits | "now"> & {
+    now: () => number;
+  };
   /** The same bounds with every default already applied — no `??` at the use site. */
   readonly #limits: Required<McpClientLimits>;
   readonly #schemaValidator = new AjvJsonSchemaValidator();
   #protocol: McpProtocolClient | null = null;
   #negotiatedServer: McpNegotiatedServer | null = null;
   #catalog: McpCatalogSnapshot | null = null;
+  #catalogExpiresAt = 0;
   #catalogGeneration = 0;
   #catalogInvalidatedHandler: (() => void) | null = null;
   #toolsByName = new Map<string, Tool>();
@@ -119,8 +130,12 @@ export class McpRawClient {
   constructor(options: McpRawClientOptions) {
     // The destructure IS the split: bounds get their defaults, everything else is
     // wiring. `endpoint` is re-copied so a caller mutating theirs cannot move ours.
-    const { requestTimeoutMs, maxCatalogPages, maxCatalogTools, ...wiring } = options;
-    this.#options = { ...wiring, endpoint: new URL(options.endpoint.href) };
+    const { requestTimeoutMs, maxCatalogPages, maxCatalogTools, now, ...wiring } = options;
+    this.#options = {
+      ...wiring,
+      endpoint: new URL(options.endpoint.href),
+      now: now ?? Date.now,
+    };
     this.#limits = {
       requestTimeoutMs: requestTimeoutMs ?? DEFAULT_REQUEST_TIMEOUT_MS,
       maxCatalogPages: maxCatalogPages ?? DEFAULT_MAX_CATALOG_PAGES,
@@ -208,11 +223,16 @@ export class McpRawClient {
 
   async refreshCatalog(signal?: AbortSignal): Promise<McpCatalogSnapshot> {
     const protocol = this.#requireProtocol();
+    if (this.#catalog && this.#options.now() < this.#catalogExpiresAt) {
+      return this.#catalog;
+    }
     const refreshGeneration = this.#catalogGeneration;
     const tools: Tool[] = [];
     const names = new Set<string>();
     const seenCursors = new Set<string>();
     let catalogBytes = 0;
+    let ttlMs = 0;
+    let cacheScope: CacheScope = "private";
     let cursor: string | undefined;
 
     for (let pageNumber = 1; ; pageNumber++) {
@@ -225,6 +245,10 @@ export class McpRawClient {
       const page: McpProtocolPage = await protocol
         .listTools(cursor, signal)
         .catch((err: unknown) => this.#throwProtocolError(err, protocol));
+      if (pageNumber === 1) {
+        ttlMs = page.ttlMs;
+        cacheScope = page.cacheScope;
+      }
       for (const tool of page.tools) {
         assertAdmissibleToolDescriptor(tool);
         const descriptorBytes = encodedBytes(canonicalJson(tool));
@@ -320,7 +344,10 @@ export class McpRawClient {
       connectionId: this.#options.connectionId,
       revision,
       tools: sortedTools,
+      ttlMs,
+      cacheScope,
     });
+    this.#catalogExpiresAt = this.#options.now() + ttlMs;
     return this.#catalog;
   }
 
@@ -428,6 +455,7 @@ export class McpRawClient {
   #invalidateCatalog(): void {
     this.#catalogGeneration += 1;
     this.#catalog = null;
+    this.#catalogExpiresAt = 0;
     this.#toolsByName.clear();
     this.#inputValidators.clear();
     this.#outputValidators.clear();
