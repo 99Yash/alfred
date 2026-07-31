@@ -477,6 +477,18 @@ export async function dispatchToolCall(args: DispatchArgs): Promise<DispatchResu
     };
   }
 
+  const workflowCapabilities = args.allowedTools
+    ? (args.requiredCapabilities?.filter((capability) => capability.tool === toolName) ?? [])
+    : [];
+  if (args.allowedTools && workflowCapabilities.length !== 1) {
+    const message = `Tool '${toolName}' does not have one exact approved capability binding.`;
+    recordRejection({ dispatch: args, outcome: "not_allowed", reason: message, toolName });
+    return {
+      kind: "not_allowed",
+      result: { status: "capability_mismatch", toolName, integration, message },
+    };
+  }
+
   // The declared tool contract, enforced where it decides. `callers`,
   // `requiresThread`, `passthrough`, `credential` and the workflow integration
   // cap are declared once on the registration and evaluated by ONE evaluator, so
@@ -585,8 +597,7 @@ export async function dispatchToolCall(args: DispatchArgs): Promise<DispatchResu
     threadId: args.threadId,
     messageId: args.messageId,
     allowedIntegrations: args.allowedIntegrations,
-    accountRef: args.requiredCapabilities?.find((capability) => capability.tool === toolName)
-      ?.accountRef,
+    accountRef: workflowCapabilities[0]?.accountRef,
   });
   const scratchAccessError = validateScratchToolAccess({ toolName, input, caller });
   if (scratchAccessError) {

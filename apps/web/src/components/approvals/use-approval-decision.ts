@@ -9,9 +9,9 @@ import { formatJson } from "./format";
  * note sent back to Alfred.
  */
 export type ApprovalDecision =
-  | { decision: "approve"; editedInput?: unknown; reason?: never }
-  | { decision: "reject"; reason: string }
-  | { decision: "cancel_run"; reason: string };
+  | { decision: "approve"; expectedRowVersion: number; editedInput?: unknown; reason?: never }
+  | { decision: "reject"; expectedRowVersion: number; reason: string }
+  | { decision: "cancel_run"; expectedRowVersion: number; reason: string };
 
 export interface ApprovalDecisionState {
   /** The (possibly edited) tool input the reviewer will approve. */
@@ -101,7 +101,9 @@ export function useApprovalDecision(staging: SyncedActionStaging): ApprovalDecis
   const reasonMissing = reason.trim().length === 0;
 
   const approveDecision = (): ApprovalDecision =>
-    edited ? { decision: "approve", editedInput: draftInput } : { decision: "approve" };
+    edited
+      ? { decision: "approve", expectedRowVersion: staging.rowVersion, editedInput: draftInput }
+      : { decision: "approve", expectedRowVersion: staging.rowVersion };
 
   const run = async (execute: () => Promise<void>): Promise<void> => {
     if (busy || decided) return;

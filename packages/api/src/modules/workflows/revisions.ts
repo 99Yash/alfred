@@ -1,10 +1,13 @@
 import {
   activateWorkflowInputSchema,
+  authorableWorkflowDefinitionSchema,
   canonicalJson,
   getPath,
   integrationFromToolName,
   isIntegrationSlug,
   isLoadableIntegrationSlug,
+  toolCategoryOf,
+  toolLabel,
   workflowRevisionDefinitionSchema,
   workflowAuthoringProposalSchema,
   type WorkflowAuthoringProposal,
@@ -25,6 +28,7 @@ import { canonicalWorkflowDefinition, workflowRevisionContentHash } from "./cont
 import { readFreshIntegrationAvailability } from "../integrations/availability";
 import {
   canonicalizeWorkflowAccounts,
+  resolveWorkflowApprovalDisplay,
   resolveWorkflowReadiness,
   type WorkflowReadinessProblem,
 } from "./readiness";
@@ -74,6 +78,7 @@ export type WorkflowRevisionProblemCode =
   | "tool_outside_ceiling"
   | "capability_outside_envelope"
   | "tool_without_capability"
+  | "ambiguous_tool_capability"
   | "integration_outside_derived_ceiling";
 
 export interface WorkflowRevisionProblem {
@@ -234,6 +239,22 @@ export function validateWorkflowDefinition(
       code: "tool_without_capability",
       message: `'${tool}' is allowed but has no matching required capability.`,
       field: "allowedTools",
+    });
+  }
+
+  const capabilityCountByTool = new Map<string, number>();
+  for (const capability of requiredCapabilities) {
+    capabilityCountByTool.set(
+      capability.tool,
+      (capabilityCountByTool.get(capability.tool) ?? 0) + 1,
+    );
+  }
+  for (const [tool, count] of capabilityCountByTool) {
+    if (count === 1) continue;
+    problems.push({
+      code: "ambiguous_tool_capability",
+      message: `'${tool}' must select exactly one account and resource boundary per revision.`,
+      field: "requiredCapabilities",
     });
   }
 
@@ -548,6 +569,142 @@ export interface ActivateWorkflowDefinitionArgs {
 }
 
 /**
+ * Rebuild an edited activation card from server-owned facts. The original
+ * staging remains pending, so the user must approve this refreshed contract
+ * before the parked run can continue.
+ */
+export async function refreshWorkflowActivationProposal(args: {
+  userId: string;
+  input: unknown;
+}): Promise<
+  WorkflowServiceResult<{ input: ReturnType<typeof activateWorkflowInputSchema.parse> }>
+> {
+  const parsed = activateWorkflowInputSchema.safeParse(args.input);
+  if (!parsed.success) {
+    return {
+      ok: false,
+      failure: {
+        kind: "validation_failed",
+        problems: parsed.error.issues.map((issue) => ({
+          code: "invalid_definition",
+          message: issue.message,
+          field: issue.path.join("."),
+        })),
+      },
+    };
+  }
+  const requested = parsed.data;
+  const existing = await loadWorkflow(db(), args.userId, requested.workflowId);
+  if (!existing) return { ok: false, failure: { kind: "not_found" } };
+  if (existing.isBuiltin) return { ok: false, failure: { kind: "builtin_immutable" } };
+  if (!existing.currentRevisionId) {
+    return { ok: false, failure: { kind: "no_current_revision" } };
+  }
+  const current = await loadRevision(db(), existing.currentRevisionId);
+  if (!current) return { ok: false, failure: { kind: "no_current_revision" } };
+  if (
+    current.id !== requested.baseRevisionId ||
+    current.contentHash !== requested.baseContentHash ||
+    existing.rowVersion !== requested.baseRowVersion
+  ) {
+    return {
+      ok: false,
+      failure: {
+        kind: "stale_revision",
+        expected: requested.baseContentHash,
+        actual: current.contentHash,
+        expectedRevisionId: requested.baseRevisionId,
+        actualRevisionId: current.id,
+      },
+    };
+  }
+
+  const availability = await readFreshIntegrationAvailability(args.userId);
+  const canonicalDefinition = canonicalizeWorkflowAccounts({
+    definition: requested.definition,
+    availability,
+  });
+  const timezone = await resolveTimezoneForInput(args.userId, canonicalDefinition);
+  const validated = validateWorkflowDefinition(canonicalDefinition, {
+    timezone,
+    requireActivatable: true,
+  });
+  if (!validated.ok) {
+    return { ok: false, failure: { kind: "validation_failed", problems: validated.problems } };
+  }
+  const definition = authorableWorkflowDefinitionSchema.parse(validated.definition);
+  const baseProposal = workflowAuthoringProposalSchema.safeParse(current.authoringProposal);
+  if (!baseProposal.success) {
+    return {
+      ok: false,
+      failure: {
+        kind: "validation_failed",
+        problems: [
+          {
+            code: "invalid_definition",
+            message: "The stored workflow proposal is invalid and cannot be approved.",
+            field: "authoringProposal",
+          },
+        ],
+      },
+    };
+  }
+  const blockers = resolveWorkflowReadiness({
+    definition,
+    availability,
+    requestedCapabilities: definition.requiredCapabilities,
+  });
+  if (blockers.length > 0) {
+    return { ok: false, failure: { kind: "readiness_blocked", blockers } };
+  }
+
+  const previewedAt = new Date();
+  const nextRunAt = computeNextRunAt(definition.trigger, { from: previewedAt, timezone });
+  const display = resolveWorkflowApprovalDisplay(definition, availability);
+  return {
+    ok: true,
+    input: {
+      workflowId: existing.id,
+      baseRevisionId: current.id,
+      baseContentHash: current.contentHash,
+      baseRowVersion: existing.rowVersion,
+      definition,
+      schedule: {
+        summary: workflowScheduleSummary(definition.trigger),
+        timezone,
+        previewedAt: previewedAt.toISOString(),
+        ...(nextRunAt ? { nextRunAt: nextRunAt.toISOString() } : {}),
+      },
+      ...display,
+      authoringProposal: approvalProposalForDefinition(baseProposal.data, definition),
+    },
+  };
+}
+
+/** Add all executable effects and replace fields that the definition owns. */
+export function approvalProposalForDefinition(
+  base: WorkflowAuthoringProposal,
+  definition: WorkflowRevisionDefinition,
+): WorkflowAuthoringProposal {
+  const derivedEffects = definition.requiredCapabilities.flatMap((capability) => {
+    if (
+      integrationFromToolName(capability.tool) === "system" ||
+      toolCategoryOf(capability.tool) !== "action"
+    ) {
+      return [];
+    }
+    return [toolLabel(capability.tool)?.title ?? capability.tool];
+  });
+  return {
+    intent: base.intent,
+    assumptions: base.assumptions,
+    externalEffects: [...new Set([...base.externalEffects, ...derivedEffects])],
+    requestedCapabilities: definition.requiredCapabilities,
+    scheduleSummary: workflowScheduleSummary(definition.trigger),
+  };
+}
+
+/**
  * Activate the exact definition carried by an approval card (#556).
  *
  * The current pointer must still identify the card's base revision. A changed
@@ -590,14 +747,35 @@ export async function activateWorkflowDefinition(
 
   const definition = validated.definition;
   const approvedHash = workflowRevisionContentHash(definition);
+  const expectedDisplay = resolveWorkflowApprovalDisplay(definition, availability);
+  if (
+    canonicalJson(input.resolvedAccounts) !== canonicalJson(expectedDisplay.resolvedAccounts) ||
+    canonicalJson(input.resolvedCapabilities) !==
+      canonicalJson(expectedDisplay.resolvedCapabilities)
+  ) {
+    return {
+      ok: false,
+      failure: {
+        kind: "validation_failed",
+        problems: [
+          {
+            code: "invalid_definition",
+            message:
+              "The account and capability display no longer matches the approved definition.",
+            field: "resolvedCapabilities",
+          },
+        ],
+      },
+    };
+  }
 
-  // A derived preview must match an unchanged card. When the user edits the
-  // definition, the server recomputes the preview from that approved edit.
-  if (approvedHash === input.baseContentHash) {
-    const scheduleProblems = validateActivationSchedule(input, timezone);
-    if (scheduleProblems.length > 0) {
-      return { ok: false, failure: { kind: "validation_failed", problems: scheduleProblems } };
-    }
+  // The friendly preview is part of what the user approved. A trigger edit
+  // that makes it stale must be restaged with a fresh server preview; silently
+  // publishing the recomputed schedule would activate a contract the card did
+  // not show.
+  const scheduleProblems = validateActivationSchedule(input, timezone);
+  if (scheduleProblems.length > 0) {
+    return { ok: false, failure: { kind: "validation_failed", problems: scheduleProblems } };
   }
 
   return db().transaction(async (tx) => {
@@ -619,6 +797,29 @@ export async function activateWorkflowDefinition(
           actual: current.contentHash,
           expectedRevisionId: input.baseRevisionId,
           actualRevisionId: current.id,
+        },
+      };
+    }
+
+    const baseProposal = workflowAuthoringProposalSchema.safeParse(current.authoringProposal);
+    const expectedProposal = baseProposal.success
+      ? approvalProposalForDefinition(baseProposal.data, definition)
+      : null;
+    if (
+      !expectedProposal ||
+      canonicalJson(input.authoringProposal) !== canonicalJson(expectedProposal)
+    ) {
+      return {
+        ok: false,
+        failure: {
+          kind: "validation_failed",
+          problems: [
+            {
+              code: "invalid_definition",
+              message: "The proposal summary does not match the approved definition.",
+              field: "authoringProposal",
+            },
+          ],
         },
       };
     }

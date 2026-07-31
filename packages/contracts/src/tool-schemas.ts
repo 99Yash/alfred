@@ -32,8 +32,9 @@ import { z } from "zod";
 import {
   activateWorkflowInputSchema,
   authorWorkflowInputSchema,
-  workflowRequiredCapabilitySchema,
   authorableWorkflowDefinitionSchema,
+  workflowCapabilityDisplaySchema,
+  workflowRequiredCapabilitySchema,
 } from "./agent";
 import {
   ARTIFACT_SECTION_MAX_CHARS,
@@ -1257,10 +1258,17 @@ const copiedWorkflowDefinitionSchema = authorableWorkflowDefinitionSchema.extend
   allowedTools: z.array(z.string().min(1).max(200)).max(100),
   requiredCapabilities: z.array(copiedWorkflowCapabilitySchema).max(50),
 });
-export const activateWorkflowInput = activateWorkflowInputSchema.extend({
-  definition: copiedWorkflowDefinitionSchema,
-  authoringProposal: z.unknown().meta({ readOnly: true }),
+const copiedWorkflowCapabilityDisplaySchema = workflowCapabilityDisplaySchema.extend({
+  tool: z.string().min(1).max(200),
 });
+export const activateWorkflowInput = coerceJsonArrayFields(
+  ["resolvedAccounts", "resolvedCapabilities"],
+  activateWorkflowInputSchema.extend({
+    definition: copiedWorkflowDefinitionSchema,
+    resolvedCapabilities: z.array(copiedWorkflowCapabilityDisplaySchema).meta({ readOnly: true }),
+    authoringProposal: z.unknown().meta({ readOnly: true }),
+  }),
+);
 
 const scratchKey = z.string().min(1).max(240);
 

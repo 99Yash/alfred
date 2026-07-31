@@ -115,6 +115,37 @@ const FIXTURES: Record<string, { base: Record<string, unknown>; arrayFields: rea
       },
       arrayFields: ["capabilities", "assumptions", "externalEffects"],
     },
+    "system.activate_workflow": {
+      base: {
+        workflowId: "wf",
+        baseRevisionId: "rev",
+        baseContentHash: "hash",
+        baseRowVersion: 1,
+        definition: {
+          name: "Manual brief",
+          description: null,
+          brief: "Report the current time.",
+          trigger: { kind: "manual" },
+          allowedIntegrations: ["system"],
+          allowedTools: ["system.current_time"],
+          requiredCapabilities: [{ tool: "system.current_time" }],
+        },
+        schedule: {
+          summary: "Run manually",
+          timezone: "UTC",
+          previewedAt: "2026-07-31T00:00:00.000Z",
+        },
+        resolvedAccounts: [],
+        resolvedCapabilities: [{ tool: "system.current_time", title: "check the current time" }],
+        authoringProposal: {
+          intent: "Report the current time.",
+          assumptions: [],
+          externalEffects: [],
+          requestedCapabilities: [{ tool: "system.current_time" }],
+        },
+      },
+      arrayFields: ["resolvedAccounts", "resolvedCapabilities"],
+    },
     "system.suggest_todo": {
       base: {
         name: "Reply to the vendor contract",

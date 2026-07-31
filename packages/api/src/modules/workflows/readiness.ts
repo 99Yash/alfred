@@ -1,8 +1,12 @@
 import {
   canonicalJson,
   getStringPath,
+  humanizeSlug,
   integrationFromToolName,
   isToolName,
+  toolLabel,
+  type WorkflowAccountDisplay,
+  type WorkflowCapabilityDisplay,
   type WorkflowRequestedCapability,
   type WorkflowRequiredCapability,
   type WorkflowRevisionDefinition,
@@ -101,6 +105,63 @@ export function canonicalizeWorkflowAccounts<T extends WorkflowRevisionDefinitio
   };
 }
 
+export function resolveWorkflowApprovalDisplay(
+  definition: WorkflowRevisionDefinition,
+  availability: IntegrationAvailabilitySnapshot,
+): {
+  resolvedAccounts: WorkflowAccountDisplay[];
+  resolvedCapabilities: WorkflowCapabilityDisplay[];
+} {
+  const resolvedAccounts = new Map<string, WorkflowAccountDisplay>();
+  const displayAccount = (provider: string, accountRef: string) => {
+    const row = (availability.providers.get(provider) ?? []).find(
+      (candidate) => candidate.accountId === accountRef,
+    );
+    const account = {
+      provider,
+      accountRef,
+      accountLabel: row?.accountLabel ?? `${humanizeSlug(provider)} account`,
+    };
+    resolvedAccounts.set(`${provider}:${accountRef}`, account);
+    return account;
+  };
+
+  const resolvedCapabilities = definition.requiredCapabilities
+    .map((capability) => {
+      const tool = getTool(capability.tool);
+      const provider = tool?.availability?.credential?.provider;
+      const account =
+        provider && capability.accountRef
+          ? displayAccount(provider, capability.accountRef)
+          : undefined;
+      return {
+        tool: capability.tool,
+        title: toolLabel(capability.tool)?.title ?? capability.tool,
+        ...(capability.accountRef ? { accountRef: capability.accountRef } : {}),
+        ...(account ? { accountLabel: account.accountLabel } : {}),
+      };
+    })
+    .sort(
+      (a, b) =>
+        a.tool.localeCompare(b.tool) || (a.accountRef ?? "").localeCompare(b.accountRef ?? ""),
+    );
+
+  if (
+    definition.trigger.kind === "event" &&
+    definition.trigger.source === "gmail" &&
+    definition.trigger.accountRef
+  ) {
+    displayAccount("google", definition.trigger.accountRef);
+  }
+
+  return {
+    resolvedAccounts: [...resolvedAccounts.values()].sort(
+      (a, b) => a.provider.localeCompare(b.provider) || a.accountRef.localeCompare(b.accountRef),
+    ),
+    resolvedCapabilities,
+  };
+}
+
 /**
  * Resolve whether one exact workflow definition can run against a supplied
  * availability snapshot. The snapshot is gathered at the caller boundary so
@@ -115,6 +176,22 @@ export function resolveWorkflowReadiness(args: {
 }): WorkflowReadinessProblem[] {
   const problems: WorkflowReadinessProblem[] = [];
   const allowed = new Set(args.definition.allowedIntegrations);
+  const capabilityCountByTool = new Map<string, number>();
+
+  for (const capability of args.definition.requiredCapabilities) {
+    capabilityCountByTool.set(
+      capability.tool,
+      (capabilityCountByTool.get(capability.tool) ?? 0) + 1,
+    );
+  }
+  for (const [tool, count] of capabilityCountByTool) {
+    if (count === 1) continue;
+    problems.push({
+      code: "choose_account",
+      message: `Choose one account and resource boundary for '${tool}'.`,
+      field: "requiredCapabilities",
+    });
+  }
 
   for (const [index, capability] of (args.requestedCapabilities ?? []).entries()) {
     if (isToolName(capability.tool)) continue;
