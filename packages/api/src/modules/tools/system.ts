@@ -222,7 +222,7 @@ export const systemTools: readonly RegisteredTool[] = [
     riskTier: "no_risk",
     availability: { requiresThread: true, callers: ["boss"] },
     description:
-      "Save a recurring, Gmail-event, or manual workflow proposal as an inactive draft. Returns the server-canonical input for system.activate_workflow; copy that input instead of rebuilding it.",
+      "Save an inactive cron, Gmail-event, or manual workflow draft. Copy the returned server-canonical activation input.",
     discovery: {
       title: "Author workflow",
       summary: "Save an editable workflow draft from a user's chat request.",
@@ -241,6 +241,17 @@ export const systemTools: readonly RegisteredTool[] = [
         input,
       });
       if (!result.ok) return { ok: false, status: result.failure.kind, failure: result.failure };
+      if (result.readiness.length > 0 || !result.activationProposal) {
+        return {
+          ok: true,
+          status: "blocked",
+          workflowId: result.workflow.id,
+          revisionId: result.revision.id,
+          revisionNumber: result.revision.revisionNumber,
+          created: result.created,
+          readinessBlockers: result.readiness,
+        };
+      }
       return {
         ok: true,
         status: "ready_to_activate",
@@ -258,8 +269,7 @@ export const systemTools: readonly RegisteredTool[] = [
     action: "activate_workflow",
     riskTier: "high",
     availability: { requiresThread: true, callers: ["boss"] },
-    description:
-      "Activate the exact workflow definition shown on this approval card. The input is returned by system.author_workflow and includes the full editable contract, schedule, capabilities, assumptions, and external effects.",
+    description: "Publish the exact workflow definition in this editable approval contract.",
     discovery: {
       title: "Activate workflow",
       summary: "Publish an approved workflow revision and start its future occurrences.",
@@ -273,11 +283,8 @@ export const systemTools: readonly RegisteredTool[] = [
     execute: async (input, ctx) => {
       const result = await activateWorkflowDefinition({
         userId: ctx.userId,
-        workflowId: input.workflowId,
-        baseRevisionId: input.baseRevisionId,
-        baseContentHash: input.baseContentHash,
-        baseRowVersion: input.baseRowVersion,
-        definition: input.definition,
+        input,
+        createdByRunId: ctx.runId,
       });
       if (!result.ok) return { ok: false, status: result.failure.kind, failure: result.failure };
       return {

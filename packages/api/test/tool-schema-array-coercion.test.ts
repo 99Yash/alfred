@@ -103,6 +103,18 @@ const FIXTURES: Record<string, { base: Record<string, unknown>; arrayFields: rea
       },
       arrayFields: ["allowedIntegrations"],
     },
+    "system.author_workflow": {
+      base: {
+        name: "Weekday brief",
+        brief: "Summarize the current time every weekday.",
+        trigger: { kind: "cron", schedule: "0 8 * * 1-5", timezone: "Asia/Kolkata" },
+        capabilities: [{ tool: "system.current_time" }],
+        intent: "Run a weekday brief.",
+        assumptions: [],
+        externalEffects: [],
+      },
+      arrayFields: ["capabilities", "assumptions", "externalEffects"],
+    },
     "system.suggest_todo": {
       base: {
         name: "Reply to the vendor contract",
