@@ -16,6 +16,9 @@ const observedCalls: string[] = [];
 const observedLegacyCalls: string[] = [];
 const observedLegacyMethods: string[] = [];
 let observedLegacyInitialize: unknown;
+const TEST_TRACE = {
+  traceparent: "00-0123456789abcdef0123456789abcdef-0123456789abcdef-01",
+} as const;
 
 before(async () => {
   const handler = createMcpHandler(() => {
@@ -172,7 +175,12 @@ after(async () => {
 });
 
 test("McpRawClient negotiates, catalogs, and calls a real Streamable HTTP server", async () => {
-  const wire: Array<{ method: string; sessionId: string | null; body: unknown }> = [];
+  const wire: Array<{
+    method: string;
+    sessionId: string | null;
+    traceparent: string | null;
+    body: unknown;
+  }> = [];
   const client = new McpRawClient({
     connectionId: "conn_http_test",
     endpoint,
@@ -185,6 +193,7 @@ test("McpRawClient negotiates, catalogs, and calls a real Streamable HTTP server
         wire.push({
           method: body.method,
           sessionId: new Headers(init?.headers).get("mcp-session-id"),
+          traceparent: new Headers(init?.headers).get("traceparent"),
           body,
         });
       }
@@ -211,7 +220,7 @@ test("McpRawClient negotiates, catalogs, and calls a real Streamable HTTP server
     },
   });
 
-  await client.connect();
+  await client.connect(TEST_TRACE);
   assert.equal(client.negotiatedServer?.protocolEra, "post_2026_07_28");
   assert.equal(client.negotiatedServer?.protocolVersion, "2026-07-28");
   assert.equal(client.negotiatedServer?.serverName, "alfred-mcp-test");
@@ -221,9 +230,15 @@ test("McpRawClient negotiates, catalogs, and calls a real Streamable HTTP server
   assert.ok(wire.every((entry) => entry.sessionId === null));
   const discover = wire.find((entry) => entry.method === "server/discover");
   assert.ok(discover);
+  assert.equal(discover.traceparent, TEST_TRACE.traceparent);
   assert.doesNotMatch(JSON.stringify(discover.body), /tasks|extensions/);
+  assert.doesNotMatch(
+    JSON.stringify(discover.body),
+    /roots|sampling|elicitation/,
+    "Alfred must not advertise handlers that can fulfill multi-round-trip input",
+  );
 
-  const catalog = await client.refreshCatalog();
+  const catalog = await client.refreshCatalog(undefined, TEST_TRACE);
   assert.deepEqual(
     catalog.tools.map((tool) => tool.name),
     ["echo"],
@@ -244,6 +259,7 @@ test("McpRawClient negotiates, catalogs, and calls a real Streamable HTTP server
       catalogRevision: catalog.revision,
     },
     { value: "raw, not nested Code Mode" },
+    { trace: TEST_TRACE },
   );
 
   assert.equal(result.outcome, "completed");
@@ -253,6 +269,12 @@ test("McpRawClient negotiates, catalogs, and calls a real Streamable HTTP server
   assert.deepEqual(result.result.structuredContent, {
     echoed: "raw, not nested Code Mode",
   });
+  for (const method of ["tools/list", "tools/call"]) {
+    const request = wire.find((entry) => entry.method === method);
+    assert.ok(request && isRecord(request.body) && isRecord(request.body.params));
+    assert.ok(isRecord(request.body.params._meta));
+    assert.equal(request.body.params._meta.traceparent, TEST_TRACE.traceparent);
+  }
   notifyModernToolsChanged?.();
   await waitFor(() => client.catalog === null);
   await client.refreshCatalog();
@@ -291,6 +313,11 @@ test("McpRawClient falls back to a 2025-11-25 Streamable HTTP server", async () 
   assert.ok(isRecord(observedLegacyInitialize));
   assert.ok(isRecord(observedLegacyInitialize.params));
   assert.deepEqual(observedLegacyInitialize.params.capabilities, {});
+  assert.doesNotMatch(
+    JSON.stringify(observedLegacyInitialize),
+    /tasks|roots|sampling|elicitation/,
+    "legacy initialize must advertise neither Tasks nor MRTR handlers",
+  );
 
   const catalog = await client.refreshCatalog();
   assert.deepEqual(
@@ -404,11 +431,15 @@ test("the real SDK does not replay tools/call after auth or header failures", as
   await unauthorizedClient.close();
 
   let insufficientScopeCalls = 0;
+  const requiredScopes: string[][] = [];
   const insufficientScopeClient = new McpRawClient({
     connectionId: "conn_no_scope_replay_test",
     endpoint,
     endpointAuthorization: { authorize: async (candidate) => new URL(candidate.href) },
     authProvider: { token: async () => "test-token" },
+    onInsufficientScope: (scopes) => {
+      requiredScopes.push(scopes);
+    },
     fetch: async (input, init) => {
       const body = typeof init?.body === "string" ? JSON.parse(init.body) : undefined;
       if (isRecord(body) && body.method === "tools/call") {
@@ -435,8 +466,29 @@ test("the real SDK does not replay tools/call after auth or header failures", as
       },
       { value: "once" },
     ),
+    (error: unknown) =>
+      error instanceof Error &&
+      "code" in error &&
+      Reflect.get(error, "code") === "insufficient_scope",
   );
   assert.equal(insufficientScopeCalls, 1);
+  assert.deepEqual(requiredScopes, [["write"]]);
+  await assert.rejects(
+    insufficientScopeClient.callTool(
+      {
+        kind: "mcp",
+        connectionId: "conn_no_scope_replay_test",
+        remoteName: "echo",
+        catalogRevision: insufficientScopeCatalog.revision,
+      },
+      { value: "must stay parked" },
+    ),
+    (error: unknown) =>
+      error instanceof Error &&
+      "code" in error &&
+      Reflect.get(error, "code") === "insufficient_scope",
+  );
+  assert.equal(insufficientScopeCalls, 1, "visible re-consent state must not replay tools/call");
   await insufficientScopeClient.close();
 
   let mismatchCalls = 0;
