@@ -4,7 +4,7 @@ import { after, before, describe, test } from "node:test";
 
 import { closeConnections, db } from "@alfred/db";
 import { user } from "@alfred/db/schemas";
-import type { Tool } from "@modelcontextprotocol/sdk/types.js";
+import type { Tool } from "@modelcontextprotocol/client";
 import { inArray, like } from "drizzle-orm";
 
 import {
@@ -33,6 +33,7 @@ class FakeProtocol implements McpProtocolClient {
   tools: Tool[];
   callResult: McpProtocolCallResult = { content: [{ type: "text", text: "ok" }] };
   negotiated: McpNegotiatedServer = {
+    protocolEra: "legacy",
     protocolVersion: "2025-11-25",
     serverName: "fake",
     serverVersion: "1",

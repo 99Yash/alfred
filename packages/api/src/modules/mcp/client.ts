@@ -8,9 +8,8 @@ import {
   type McpContentKind,
   type McpResultProvenance,
 } from "@alfred/contracts";
-import { AjvJsonSchemaValidator } from "@modelcontextprotocol/sdk/validation/ajv";
-import type { JsonSchemaType, JsonSchemaValidator } from "@modelcontextprotocol/sdk/validation";
-import type { Tool } from "@modelcontextprotocol/sdk/types.js";
+import type { JsonSchemaType, JsonSchemaValidator, Tool } from "@modelcontextprotocol/client";
+import { AjvJsonSchemaValidator } from "@modelcontextprotocol/client/validators/ajv";
 import { McpClientError } from "./errors";
 import { sha256Canonical } from "./hash";
 import {
@@ -86,7 +85,10 @@ export interface McpRawClientOptions extends McpClientLimits {
   protocolFactory?: (endpoint: URL) => McpProtocolClient;
 }
 
-export const MCP_V1_PROTOCOL_VERSION = "2025-11-25";
+export const MCP_SUPPORTED_PROTOCOL_VERSIONS = ["2025-11-25", "2026-07-28"] as const;
+const MCP_SUPPORTED_PROTOCOL_VERSION_SET: ReadonlySet<string> = new Set(
+  MCP_SUPPORTED_PROTOCOL_VERSIONS,
+);
 const DEFAULT_REQUEST_TIMEOUT_MS = 30_000;
 const DEFAULT_MAX_CATALOG_PAGES = 100;
 const DEFAULT_MAX_CATALOG_TOOLS = 1_000;
@@ -152,10 +154,10 @@ export class McpRawClient {
     protocol.onToolsChanged(() => this.#invalidateCatalog());
     try {
       const negotiated = await protocol.connect();
-      if (negotiated.protocolVersion !== MCP_V1_PROTOCOL_VERSION) {
+      if (!MCP_SUPPORTED_PROTOCOL_VERSION_SET.has(negotiated.protocolVersion)) {
         throw new McpClientError(
           "unsupported_protocol_version",
-          `Alfred MCP v1 requires protocol ${MCP_V1_PROTOCOL_VERSION}; server negotiated ${negotiated.protocolVersion || "unknown"}`,
+          `Alfred MCP supports protocols ${MCP_SUPPORTED_PROTOCOL_VERSIONS.join(" and ")}; server negotiated ${negotiated.protocolVersion || "unknown"}`,
         );
       }
       if (!negotiated.hasTools) {
@@ -329,7 +331,7 @@ export class McpRawClient {
     if (tool.execution?.taskSupport === "required") {
       throw new McpClientError(
         "unsupported_task_tool",
-        `MCP tool '${tool.name}' requires experimental Tasks, which Alfred v1 does not enable`,
+        `MCP tool '${tool.name}' requires experimental Tasks, which Alfred does not enable`,
       );
     }
 
@@ -408,7 +410,9 @@ export class McpRawClient {
   }
 
   async #throwProtocolError(err: unknown, protocol: McpProtocolClient): Promise<never> {
-    if (!isMcpSessionExpiredError(err)) throw err;
+    if (this.#negotiatedServer?.protocolEra !== "legacy" || !isMcpSessionExpiredError(err)) {
+      throw err;
+    }
     if (this.#protocol === protocol) {
       this.#protocol = null;
       this.#negotiatedServer = null;

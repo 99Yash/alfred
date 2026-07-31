@@ -4,8 +4,7 @@ import { after, before, describe, test } from "node:test";
 
 import { closeConnections, db } from "@alfred/db";
 import { actionStagings, agentRuns, mcpInvocation, user } from "@alfred/db/schemas";
-import { StreamableHTTPError } from "@modelcontextprotocol/sdk/client/streamableHttp.js";
-import type { Tool } from "@modelcontextprotocol/sdk/types.js";
+import { SdkErrorCode, SdkHttpError, type Tool } from "@modelcontextprotocol/client";
 import { eq, inArray, like } from "drizzle-orm";
 
 import {
@@ -44,6 +43,7 @@ class FakeProtocol implements McpProtocolClient {
   behavior: CallBehavior = { kind: "ok" };
   calls = 0;
   negotiated: McpNegotiatedServer = {
+    protocolEra: "legacy",
     protocolVersion: "2025-11-25",
     serverName: "fake",
     serverVersion: "1",
@@ -420,7 +420,11 @@ describe("mcp execution broker (DB-backed, offline)", { skip: SKIP }, () => {
     // result — the raw client maps this to `session_expired`.
     protocol.behavior = {
       kind: "throw",
-      error: new StreamableHTTPError(404, "session expired mid-call"),
+      error: new SdkHttpError(
+        SdkErrorCode.ClientHttpFailedToOpenStream,
+        "session expired mid-call",
+        { status: 404 },
+      ),
     };
 
     const ref: ExternalToolRef = {

@@ -5,7 +5,7 @@ export {
   type McpBrokerOutcome,
 } from "./broker";
 export {
-  MCP_V1_PROTOCOL_VERSION,
+  MCP_SUPPORTED_PROTOCOL_VERSIONS,
   McpRawClient,
   type ExternalToolRef,
   type McpCallEnvelope,
