@@ -2,6 +2,8 @@ import { startRuntimeSpan, type RuntimeMetaValue, type RuntimeSpanCloser } from 
 import { createHash, randomBytes, randomUUID } from "node:crypto";
 
 export interface McpTraceContext {
+  /** Local run trace identity; never sent to the MCP peer. */
+  runId?: string;
   traceparent: string;
   tracestate?: string;
 }
@@ -23,13 +25,19 @@ function w3cTraceId(traceId: string): string {
 /** Create one scrubbed span and the controlled W3C context sent to the MCP peer. */
 export function startMcpTraceSpan(input: {
   traceId?: string;
+  parent?: McpTraceContext;
   name: "runtime.mcp.connect" | "runtime.mcp.catalog_refresh" | "runtime.mcp.broker_invoke";
   metadata?: Record<string, RuntimeMetaValue>;
 }): McpTraceSpan {
-  const runId = input.traceId ?? `mcp:${randomUUID()}`;
+  const runId = input.traceId ?? input.parent?.runId ?? `mcp:${randomUUID()}`;
+  const parentTraceId = input.parent?.traceparent.split("-")[1];
+  const traceId =
+    parentTraceId && /^[0-9a-f]{32}$/.test(parentTraceId) ? parentTraceId : w3cTraceId(runId);
   const spanId = randomBytes(8).toString("hex");
   const context: McpTraceContext = {
-    traceparent: `00-${w3cTraceId(runId)}-${spanId}-01`,
+    runId,
+    traceparent: `00-${traceId}-${spanId}-01`,
+    ...(input.parent?.tracestate ? { tracestate: input.parent.tracestate } : {}),
   };
   let span: RuntimeSpanCloser = { end() {} };
   try {

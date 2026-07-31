@@ -99,7 +99,7 @@ export const mcpIntegrationRoutes = new Elysia({
           authServerIdentity: MCP_OAUTH_PENDING_ISSUER,
           status: "disconnected",
         });
-        await getMcpConnectionManager().disconnect(connection.id);
+        await getMcpConnectionManager().disconnect(connection.id, user.id);
         const authorizationUrl = await beginAuthorization({
           connectionId: connection.id,
           userId: user.id,
@@ -117,7 +117,8 @@ export const mcpIntegrationRoutes = new Elysia({
       .get(
         "/connections/:id/reconsent",
         async ({ params, user, set }) => {
-          await getMcpConnectionManager().disconnect(params.id);
+          const disconnected = await getMcpConnectionManager().disconnect(params.id, user.id);
+          if (!disconnected) throw Errors.NotFoundError("MCP connection not found");
           const authorizationUrl = await beginAuthorization({
             connectionId: params.id,
             userId: user.id,

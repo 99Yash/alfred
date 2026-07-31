@@ -156,7 +156,7 @@ export class McpExecutionBroker {
     // the mutable connection row again before first-use hydration: the identity
     // resolver proves ownership and policy, but its endpoint/credential snapshot
     // must not outlive a concurrent connection update.
-    const prepared = await this.#manager.prepareToolCall(ref.connectionId, input.signal);
+    const prepared = await this.#manager.prepareToolCall(ref.connectionId, input.signal, trace);
     if (prepared.catalog.revision !== ref.catalogRevision) {
       throw new McpClientError(
         "catalog_stale",

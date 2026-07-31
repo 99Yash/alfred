@@ -2,7 +2,9 @@ import { db } from "@alfred/db";
 import { credentialVault, type CredentialVault } from "@alfred/db/credential-vault";
 import {
   mcpConnections,
+  mcpOauthAuthorizationAttempts,
   mcpOauthCredentials,
+  type McpOauthAuthorizationAttempt,
   type McpOauthCredential,
   type NewMcpOauthCredential,
 } from "@alfred/db/schemas";
@@ -13,6 +15,7 @@ import {
   validateClientMetadataUrl,
   type AuthorizationServerMetadata,
   type AuthResult,
+  type FetchLike,
   type OAuthClientInformationContext,
   type OAuthClientMetadata,
   type OAuthClientProvider,
@@ -21,7 +24,7 @@ import {
   type StoredOAuthClientInformation,
   type StoredOAuthTokens,
 } from "@modelcontextprotocol/client";
-import { and, eq } from "drizzle-orm";
+import { and, eq, gt, lt } from "drizzle-orm";
 import { createHash, randomBytes } from "node:crypto";
 import { z } from "zod";
 import { rememberOAuthNonce, signOAuthState } from "../integrations/oauth-state";
@@ -64,6 +67,10 @@ const oauthTokensSchema = z.object({
   issuer: z.string().url().optional(),
 });
 
+const MCP_OAUTH_FETCH_TIMEOUT_MS = 30_000;
+const MCP_OAUTH_REFRESH_SKEW_MS = 60_000;
+const MCP_OAUTH_ATTEMPT_TTL_MS = 10 * 60_000;
+
 type OAuthCredentialPatch = Partial<
   Pick<
     NewMcpOauthCredential,
@@ -76,8 +83,6 @@ type OAuthCredentialPatch = Partial<
     | "tokenType"
     | "expiresIn"
     | "scope"
-    | "codeVerifier"
-    | "oauthStateHash"
     | "lastAuthorizedAt"
   >
 >;
@@ -91,6 +96,22 @@ export interface McpOAuthCredentialStore {
     discoveryState: OAuthDiscoveryState;
   }): Promise<McpOauthCredential>;
   update(id: string, userId: string, patch: OAuthCredentialPatch): Promise<void>;
+  createAttempt(input: {
+    connectionId: string;
+    userId: string;
+    stateHash: string;
+  }): Promise<McpOauthAuthorizationAttempt>;
+  readAttempt(input: {
+    connectionId: string;
+    userId: string;
+    stateHash: string;
+  }): Promise<McpOauthAuthorizationAttempt | undefined>;
+  saveAttemptCodeVerifier(input: {
+    stateHash: string;
+    userId: string;
+    codeVerifier: McpOauthAuthorizationAttempt["codeVerifier"];
+  }): Promise<void>;
+  deleteAttempt(stateHash: string, userId: string): Promise<void>;
   updateConnectionAuthorization(input: {
     connectionId: string;
     userId: string;
@@ -128,15 +149,25 @@ class DbMcpOAuthCredentialStore implements McpOAuthCredentialStore {
         .limit(1);
       if (!owned) throw new Error("MCP OAuth connection does not belong to this user");
 
+      const [existing] = await tx
+        .select({ issuer: mcpOauthCredentials.issuer })
+        .from(mcpOauthCredentials)
+        .where(eq(mcpOauthCredentials.connectionId, input.connectionId))
+        .limit(1);
+      if (existing && existing.issuer !== input.issuer) {
+        throw new Error("MCP OAuth authorization server changed for this connection");
+      }
+
       const [credential] = await tx
         .insert(mcpOauthCredentials)
         .values({
           userId: input.userId,
+          connectionId: input.connectionId,
           issuer: input.issuer,
           discoveryState: input.discoveryState,
         })
         .onConflictDoUpdate({
-          target: [mcpOauthCredentials.userId, mcpOauthCredentials.issuer],
+          target: mcpOauthCredentials.connectionId,
           set: {
             discoveryState: input.discoveryState,
             updatedAt: new Date(),
@@ -166,6 +197,80 @@ class DbMcpOAuthCredentialStore implements McpOAuthCredentialStore {
       .where(and(eq(mcpOauthCredentials.id, id), eq(mcpOauthCredentials.userId, userId)));
   }
 
+  async createAttempt(input: {
+    connectionId: string;
+    userId: string;
+    stateHash: string;
+  }): Promise<McpOauthAuthorizationAttempt> {
+    return db().transaction(async (tx) => {
+      const now = new Date();
+      await tx
+        .delete(mcpOauthAuthorizationAttempts)
+        .where(
+          and(
+            eq(mcpOauthAuthorizationAttempts.connectionId, input.connectionId),
+            lt(mcpOauthAuthorizationAttempts.expiresAt, now),
+          ),
+        );
+      const [attempt] = await tx
+        .insert(mcpOauthAuthorizationAttempts)
+        .values({
+          ...input,
+          expiresAt: new Date(now.getTime() + MCP_OAUTH_ATTEMPT_TTL_MS),
+        })
+        .returning();
+      if (!attempt) throw new Error("MCP OAuth attempt insert returned no row");
+      return attempt;
+    });
+  }
+
+  async readAttempt(input: {
+    connectionId: string;
+    userId: string;
+    stateHash: string;
+  }): Promise<McpOauthAuthorizationAttempt | undefined> {
+    const [attempt] = await db()
+      .select()
+      .from(mcpOauthAuthorizationAttempts)
+      .where(
+        and(
+          eq(mcpOauthAuthorizationAttempts.connectionId, input.connectionId),
+          eq(mcpOauthAuthorizationAttempts.userId, input.userId),
+          eq(mcpOauthAuthorizationAttempts.stateHash, input.stateHash),
+          gt(mcpOauthAuthorizationAttempts.expiresAt, new Date()),
+        ),
+      )
+      .limit(1);
+    return attempt;
+  }
+
+  async saveAttemptCodeVerifier(input: {
+    stateHash: string;
+    userId: string;
+    codeVerifier: McpOauthAuthorizationAttempt["codeVerifier"];
+  }): Promise<void> {
+    await db()
+      .update(mcpOauthAuthorizationAttempts)
+      .set({ codeVerifier: input.codeVerifier, updatedAt: new Date() })
+      .where(
+        and(
+          eq(mcpOauthAuthorizationAttempts.stateHash, input.stateHash),
+          eq(mcpOauthAuthorizationAttempts.userId, input.userId),
+        ),
+      );
+  }
+
+  async deleteAttempt(stateHashValue: string, userId: string): Promise<void> {
+    await db()
+      .delete(mcpOauthAuthorizationAttempts)
+      .where(
+        and(
+          eq(mcpOauthAuthorizationAttempts.stateHash, stateHashValue),
+          eq(mcpOauthAuthorizationAttempts.userId, userId),
+        ),
+      );
+  }
+
   async updateConnectionAuthorization(input: {
     connectionId: string;
     userId: string;
@@ -176,7 +281,6 @@ class DbMcpOAuthCredentialStore implements McpOAuthCredentialStore {
       .set({
         grantedScopes: input.grantedScopes,
         requiredScopes: [],
-        status: "disconnected",
         lastError: null,
         updatedAt: new Date(),
       })
@@ -286,6 +390,7 @@ export class McpOAuthProvider implements OAuthClientProvider {
   readonly #userId: string;
   readonly #store: McpOAuthCredentialStore;
   readonly #vault: CredentialVault;
+  #attemptStateHash: string | null = null;
   readonly redirectUrl: URL;
   readonly clientMetadataUrl?: string;
   readonly clientMetadata: OAuthClientMetadata;
@@ -319,9 +424,11 @@ export class McpOAuthProvider implements OAuthClientProvider {
       nonce,
       connectionId: this.#connectionId,
     });
-    const credential = await this.#requireCredential();
-    await this.#store.update(credential.id, this.#userId, {
-      oauthStateHash: stateHash(state),
+    this.#attemptStateHash = stateHash(state);
+    await this.#store.createAttempt({
+      connectionId: this.#connectionId,
+      userId: this.#userId,
+      stateHash: this.#attemptStateHash,
     });
     return state;
   }
@@ -386,8 +493,6 @@ export class McpOAuthProvider implements OAuthClientProvider {
       tokenType: parsed.token_type,
       expiresIn: parsed.expires_in ?? null,
       scope: parsed.scope ?? credential.scope,
-      codeVerifier: null,
-      oauthStateHash: null,
       lastAuthorizedAt: new Date(),
     });
     await this.#store.updateConnectionAuthorization({
@@ -395,6 +500,10 @@ export class McpOAuthProvider implements OAuthClientProvider {
       userId: this.#userId,
       grantedScopes: scopeList(parsed.scope ?? credential.scope ?? undefined),
     });
+    if (this.#attemptStateHash) {
+      await this.#store.deleteAttempt(this.#attemptStateHash, this.#userId);
+      this.#attemptStateHash = null;
+    }
   }
 
   async redirectToAuthorization(authorizationUrl: URL): Promise<never> {
@@ -402,16 +511,23 @@ export class McpOAuthProvider implements OAuthClientProvider {
   }
 
   async saveCodeVerifier(codeVerifier: string): Promise<void> {
-    const credential = await this.#requireCredential();
-    await this.#store.update(credential.id, this.#userId, {
+    const attemptStateHash = this.#requireAttemptStateHash();
+    await this.#store.saveAttemptCodeVerifier({
+      stateHash: attemptStateHash,
+      userId: this.#userId,
       codeVerifier: this.#vault.seal(codeVerifier),
     });
   }
 
   async codeVerifier(): Promise<string> {
-    const credential = await this.#requireCredential();
-    if (!credential.codeVerifier) throw new Error("MCP OAuth PKCE verifier is missing");
-    return this.#vault.open(credential.codeVerifier);
+    const attemptStateHash = this.#requireAttemptStateHash();
+    const attempt = await this.#store.readAttempt({
+      connectionId: this.#connectionId,
+      userId: this.#userId,
+      stateHash: attemptStateHash,
+    });
+    if (!attempt?.codeVerifier) throw new Error("MCP OAuth PKCE verifier is missing");
+    return this.#vault.open(attempt.codeVerifier);
   }
 
   async saveDiscoveryState(state: OAuthDiscoveryState): Promise<void> {
@@ -438,8 +554,15 @@ export class McpOAuthProvider implements OAuthClientProvider {
   }
 
   async matchesState(state: string): Promise<boolean> {
-    const credential = await this.#store.readForConnection(this.#connectionId, this.#userId);
-    return credential?.oauthStateHash === stateHash(state);
+    const candidate = stateHash(state);
+    const attempt = await this.#store.readAttempt({
+      connectionId: this.#connectionId,
+      userId: this.#userId,
+      stateHash: candidate,
+    });
+    if (!attempt) return false;
+    this.#attemptStateHash = candidate;
+    return true;
   }
 
   async invalidateCredentials(
@@ -454,16 +577,31 @@ export class McpOAuthProvider implements OAuthClientProvider {
         idToken: null,
         clientInformation: null,
         clientSecret: null,
-        codeVerifier: null,
-        oauthStateHash: null,
         discoveryState: null,
       },
       client: { clientInformation: null, clientSecret: null },
       tokens: { accessToken: null, refreshToken: null, idToken: null },
-      verifier: { codeVerifier: null, oauthStateHash: null },
+      verifier: {},
       discovery: { discoveryState: null },
     };
     await this.#store.update(credential.id, this.#userId, patches[scope]);
+    if ((scope === "all" || scope === "verifier") && this.#attemptStateHash) {
+      await this.#store.deleteAttempt(this.#attemptStateHash, this.#userId);
+      this.#attemptStateHash = null;
+    }
+  }
+
+  async authorizationNeedsRefresh(now = Date.now()): Promise<boolean> {
+    const credential = await this.#store.readForConnection(this.#connectionId, this.#userId);
+    if (
+      !credential?.accessToken ||
+      credential.expiresIn === null ||
+      credential.lastAuthorizedAt === null
+    ) {
+      return false;
+    }
+    const expiresAt = credential.lastAuthorizedAt.getTime() + credential.expiresIn * 1_000;
+    return expiresAt <= now + MCP_OAUTH_REFRESH_SKEW_MS;
   }
 
   async #credentialForIssuer(issuer?: string): Promise<McpOauthCredential | undefined> {
@@ -476,6 +614,11 @@ export class McpOAuthProvider implements OAuthClientProvider {
     const credential = await this.#credentialForIssuer(issuer);
     if (!credential) throw new Error("MCP OAuth discovery state is missing");
     return credential;
+  }
+
+  #requireAttemptStateHash(): string {
+    if (!this.#attemptStateHash) throw new Error("MCP OAuth authorization attempt is missing");
+    return this.#attemptStateHash;
   }
 }
 
@@ -517,28 +660,62 @@ export function mcpOAuthProviderForConnection(input: {
   });
 }
 
+function timeoutBoundFetch(fetchFn: FetchLike, timeoutMs: number): FetchLike {
+  return (input, init) => {
+    const timeout = AbortSignal.timeout(timeoutMs);
+    const signal = init?.signal ? AbortSignal.any([init.signal, timeout]) : timeout;
+    return fetchFn(input, { ...init, signal });
+  };
+}
+
 /** Run refresh/discovery/consent before constructing the token-only transport. */
 export function authorizeMcpOAuth(
   provider: OAuthClientProvider,
   endpoint: URL,
-  options: { forceReauthorization?: boolean; scope?: string } = {},
+  options: {
+    forceReauthorization?: boolean;
+    scope?: string;
+    fetch?: FetchLike;
+    timeoutMs?: number;
+  } = {},
 ): Promise<AuthResult> {
+  const fetchFn = timeoutBoundFetch(
+    options.fetch ?? globalThis.fetch,
+    options.timeoutMs ?? MCP_OAUTH_FETCH_TIMEOUT_MS,
+  );
   const run = () =>
     auth(provider, {
       serverUrl: endpoint,
+      fetchFn,
       ...(options.forceReauthorization ? { forceReauthorization: true } : {}),
       ...(options.scope ? { scope: options.scope } : {}),
     });
   if (!(provider instanceof McpOAuthProvider)) return run();
-  const existing = authorizationFlights.get(provider.authorizationKey);
+  const flightKey = [
+    provider.authorizationKey,
+    options.forceReauthorization ? "force" : "normal",
+    options.scope ?? "",
+  ].join(":");
+  const existing = authorizationFlights.get(flightKey);
   if (existing) return existing;
   const flight = run().finally(() => {
-    if (authorizationFlights.get(provider.authorizationKey) === flight) {
-      authorizationFlights.delete(provider.authorizationKey);
+    if (authorizationFlights.get(flightKey) === flight) {
+      authorizationFlights.delete(flightKey);
     }
   });
-  authorizationFlights.set(provider.authorizationKey, flight);
+  authorizationFlights.set(flightKey, flight);
   return flight;
+}
+
+/** Refresh before a known expiry, while the call is still pre-delivery. */
+export async function refreshMcpOAuthIfNeeded(
+  provider: OAuthClientProvider,
+  endpoint: URL,
+  options: { fetch?: FetchLike; timeoutMs?: number } = {},
+): Promise<void> {
+  if (!(provider instanceof McpOAuthProvider)) return;
+  if (!(await provider.authorizationNeedsRefresh())) return;
+  await authorizeMcpOAuth(provider, endpoint, options);
 }
 
 /**
@@ -550,10 +727,15 @@ export async function finishMcpOAuth(
   provider: OAuthClientProvider,
   endpoint: URL,
   callbackParams: URLSearchParams,
+  options: { fetch?: FetchLike; timeoutMs?: number } = {},
 ): Promise<void> {
   const transport = new StreamableHTTPClientTransport(endpoint, {
     authProvider: provider,
     onInsufficientScope: "throw",
+    fetch: timeoutBoundFetch(
+      options.fetch ?? globalThis.fetch,
+      options.timeoutMs ?? MCP_OAUTH_FETCH_TIMEOUT_MS,
+    ),
   });
   await transport.finishAuth(callbackParams);
 }

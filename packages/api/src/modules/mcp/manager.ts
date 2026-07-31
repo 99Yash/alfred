@@ -44,6 +44,7 @@ import {
   compareAndSetCatalogRevision,
   insertCatalogRevision,
   readConnection,
+  readOwnedConnection,
   updateConnection,
   type McpConnectionUpdate,
 } from "./persistence";
@@ -55,6 +56,7 @@ export type McpClientFactory = (connection: McpConnection) => McpRawClient;
 
 export interface McpConnectionManagerPersistence {
   readConnection: typeof readConnection;
+  readOwnedConnection: typeof readOwnedConnection;
   updateConnection: typeof updateConnection;
   insertCatalogRevision: typeof insertCatalogRevision;
   compareAndSetCatalogRevision: typeof compareAndSetCatalogRevision;
@@ -69,6 +71,7 @@ export interface McpConnectionManagerOptions {
 
 const DEFAULT_PERSISTENCE: McpConnectionManagerPersistence = {
   readConnection,
+  readOwnedConnection,
   updateConnection,
   insertCatalogRevision,
   compareAndSetCatalogRevision,
@@ -124,6 +127,12 @@ function liveClientFactory(authorization: McpEndpointAuthorization): McpClientFa
               userId: connection.userId,
               endpoint: new URL(connection.endpointUrl),
             }),
+            onAuthorizationRequired: async () => {
+              await updateConnection(connection.id, {
+                status: "auth_required",
+                lastError: "Reconnect this MCP server to continue.",
+              });
+            },
             onInsufficientScope: async (requiredScopes: string[]) => {
               const suffix =
                 requiredScopes.length > 0 ? ` Required: ${requiredScopes.join(", ")}.` : "";
@@ -162,7 +171,7 @@ export class McpConnectionManager {
    * along the way. On any failure the client is dropped and the connection is
    * marked `failed` with a bounded error string.
    */
-  async getReadyClient(connectionId: string): Promise<McpRawClient> {
+  async getReadyClient(connectionId: string, trace?: McpTraceContext): Promise<McpRawClient> {
     await this.#waitForCatalogRefresh(connectionId);
     const cached = this.#clients.get(connectionId);
     if (cached) return cached;
@@ -170,7 +179,7 @@ export class McpConnectionManager {
     const existingStart = this.#clientStarts.get(connectionId);
     if (existingStart) return existingStart;
 
-    const start = this.#startClient(connectionId).finally(() => {
+    const start = this.#startClient(connectionId, trace).finally(() => {
       if (this.#clientStarts.get(connectionId) === start) {
         this.#clientStarts.delete(connectionId);
       }
@@ -179,7 +188,7 @@ export class McpConnectionManager {
     return start;
   }
 
-  async #startClient(connectionId: string): Promise<McpRawClient> {
+  async #startClient(connectionId: string, trace?: McpTraceContext): Promise<McpRawClient> {
     const connection = await this.#persistence.readConnection(connectionId);
     if (!connection) throw new McpConnectionNotFoundError(connectionId);
 
@@ -196,6 +205,7 @@ export class McpConnectionManager {
       });
       const connectSpan = startMcpTraceSpan({
         name: "runtime.mcp.connect",
+        ...(trace ? { parent: trace } : {}),
         metadata: { connectionId },
       });
       try {
@@ -206,7 +216,7 @@ export class McpConnectionManager {
         throw error;
       }
       for (let attempt = 1; attempt <= MAX_CATALOG_STABILIZATION_ATTEMPTS; attempt += 1) {
-        await this.#refreshAndPersistStable(connectionId, client);
+        await this.#refreshAndPersistStable(connectionId, client, undefined, connectSpan.context);
         if (client.catalog) break;
         if (attempt === MAX_CATALOG_STABILIZATION_ATTEMPTS) {
           throw new McpClientError(
@@ -252,14 +262,18 @@ export class McpConnectionManager {
    * revision. Idempotent: an unchanged catalog re-publishes to the same revision
    * and only touches the connection's `lastConnectedAt`.
    */
-  async refreshCatalog(connectionId: string): Promise<McpCatalogSnapshot> {
-    const client = await this.getReadyClient(connectionId);
-    return this.#refreshAndPersistStable(connectionId, client);
+  async refreshCatalog(connectionId: string, trace?: McpTraceContext): Promise<McpCatalogSnapshot> {
+    const client = await this.getReadyClient(connectionId, trace);
+    return this.#refreshAndPersistStable(connectionId, client, undefined, trace);
   }
 
-  async prepareToolCall(connectionId: string, signal?: AbortSignal): Promise<McpPreparedToolCall> {
-    const client = await this.getReadyClient(connectionId);
-    return this.#prepareAndPersistStable(connectionId, client, signal);
+  async prepareToolCall(
+    connectionId: string,
+    signal?: AbortSignal,
+    trace?: McpTraceContext,
+  ): Promise<McpPreparedToolCall> {
+    const client = await this.getReadyClient(connectionId, trace);
+    return this.#prepareAndPersistStable(connectionId, client, signal, trace);
   }
 
   /** Route a validated call to a ready client. The broker owns the durable ledger around this. */
@@ -273,7 +287,9 @@ export class McpConnectionManager {
   }
 
   /** Close and forget a connection's live client; mark the row disconnected. */
-  async disconnect(connectionId: string): Promise<void> {
+  async disconnect(connectionId: string, userId: string): Promise<boolean> {
+    const owned = await this.#persistence.readOwnedConnection(connectionId, userId);
+    if (!owned) return false;
     this.#closingConnections.add(connectionId);
     try {
       await this.#clientStarts.get(connectionId)?.catch(() => undefined);
@@ -283,6 +299,7 @@ export class McpConnectionManager {
       this.#activeRevisionIds.delete(connectionId);
       if (client) await client.close().catch(() => undefined);
       await this.#patch(connectionId, { status: "disconnected" });
+      return true;
     } finally {
       this.#closingConnections.delete(connectionId);
     }
@@ -356,17 +373,21 @@ export class McpConnectionManager {
   async #refreshAndPersistStable(
     connectionId: string,
     client: McpRawClient,
+    signal?: AbortSignal,
+    trace?: McpTraceContext,
   ): Promise<McpCatalogSnapshot> {
-    return (await this.#prepareAndPersistStable(connectionId, client)).catalog;
+    return (await this.#prepareAndPersistStable(connectionId, client, signal, trace)).catalog;
   }
 
   async #prepareAndPersistStable(
     connectionId: string,
     client: McpRawClient,
     signal?: AbortSignal,
+    trace?: McpTraceContext,
   ): Promise<McpPreparedToolCall> {
     const span = startMcpTraceSpan({
       name: "runtime.mcp.catalog_refresh",
+      ...(trace ? { parent: trace } : {}),
       metadata: { connectionId },
     });
     try {

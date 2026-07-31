@@ -216,7 +216,9 @@ describe("mcp connection manager (DB-backed)", { skip: SKIP }, () => {
     const manager = managerWith(new FakeProtocol([tool("tool_a")]));
 
     await manager.getReadyClient(connId);
-    await manager.disconnect(connId);
+    const ownerId = (await readConnection(connId))?.userId;
+    assert.ok(ownerId);
+    await manager.disconnect(connId, ownerId);
     assert.equal((await readConnection(connId))?.status, "disconnected");
   });
 });

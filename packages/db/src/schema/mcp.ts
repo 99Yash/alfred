@@ -82,10 +82,10 @@ export const mcpCatalogRevisions = pgTable(
  * Alfred → MCP authorization credentials, isolated from downstream provider
  * grants in `integration_credentials`.
  *
- * OAuth client identifiers and tokens belong to the authorization server that
- * issued them. The unique `(userId, issuer)` key is therefore the storage
- * authority. Discovery and PKCE state live beside the token so the callback leg
- * cannot silently rediscover a different authorization server.
+ * OAuth client identifiers and tokens belong to one protected-resource
+ * connection and the authorization server that issued them. The connection is
+ * the storage authority. Authorization-attempt state and PKCE live in the
+ * separate attempt table below.
  *
  * Secret-bearing fields use the shared authenticated credential envelope. JSON
  * fields remain `unknown`; the MCP OAuth provider validates them when it opens
@@ -100,6 +100,10 @@ export const mcpOauthCredentials = pgTable(
     userId: text("user_id")
       .notNull()
       .references(() => user.id, { onDelete: "cascade" }),
+    /** One protected-resource grant per durable MCP connection. */
+    connectionId: text("connection_id")
+      .notNull()
+      .references((): AnyPgColumn => mcpConnections.id, { onDelete: "cascade" }),
     /** Validated RFC 8414 / OIDC authorization-server issuer identifier. */
     issuer: text("issuer").notNull(),
     /** Persisted `OAuthDiscoveryState`; validated before every provider read. */
@@ -113,16 +117,12 @@ export const mcpOauthCredentials = pgTable(
     tokenType: text("token_type"),
     expiresIn: integer("expires_in"),
     scope: text("scope"),
-    /** PKCE verifier survives the browser redirect and is cleared after callback completion. */
-    codeVerifier: text("code_verifier").$type<SealedCredentialSecret>(),
-    /** Hash only; the signed state value itself returns through the browser. */
-    oauthStateHash: text("oauth_state_hash"),
     lastAuthorizedAt: timestamp("last_authorized_at", { withTimezone: true }),
     ...lifecycle_dates,
   },
   (t) => [
-    uniqueIndex("mcp_oauth_credentials_user_issuer_idx").on(t.userId, t.issuer),
-    index("mcp_oauth_credentials_state_idx").on(t.oauthStateHash),
+    uniqueIndex("mcp_oauth_credentials_connection_idx").on(t.connectionId),
+    index("mcp_oauth_credentials_user_issuer_idx").on(t.userId, t.issuer),
   ],
 );
 
@@ -190,6 +190,37 @@ export const mcpConnections = pgTable(
       foreignColumns: [mcpCatalogRevisions.connectionId, mcpCatalogRevisions.id],
       name: "mcp_connections_current_revision_fk",
     }),
+  ],
+);
+
+/**
+ * One browser authorization attempt. State and PKCE are attempt identity, not
+ * grant identity: two tabs may authorize the same connection without overwriting
+ * each other, and completing one attempt cannot consume another attempt's verifier.
+ */
+export const mcpOauthAuthorizationAttempts = pgTable(
+  "mcp_oauth_authorization_attempts",
+  {
+    id: text("id")
+      .primaryKey()
+      .$defaultFn(() => createId("mcpa")),
+    userId: text("user_id")
+      .notNull()
+      .references(() => user.id, { onDelete: "cascade" }),
+    connectionId: text("connection_id")
+      .notNull()
+      .references(() => mcpConnections.id, { onDelete: "cascade" }),
+    /** Hash only; the signed state value itself returns through the browser. */
+    stateHash: text("state_hash").notNull(),
+    /** Sealed PKCE verifier for exactly this state value. */
+    codeVerifier: text("code_verifier").$type<SealedCredentialSecret>(),
+    /** Attempt lifetime matches the browser nonce lifetime. */
+    expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),
+    ...lifecycle_dates,
+  },
+  (t) => [
+    uniqueIndex("mcp_oauth_attempts_state_idx").on(t.stateHash),
+    index("mcp_oauth_attempts_connection_idx").on(t.connectionId),
   ],
 );
 
@@ -383,6 +414,8 @@ export type McpConnection = typeof mcpConnections.$inferSelect;
 export type NewMcpConnection = typeof mcpConnections.$inferInsert;
 export type McpOauthCredential = typeof mcpOauthCredentials.$inferSelect;
 export type NewMcpOauthCredential = typeof mcpOauthCredentials.$inferInsert;
+export type McpOauthAuthorizationAttempt = typeof mcpOauthAuthorizationAttempts.$inferSelect;
+export type NewMcpOauthAuthorizationAttempt = typeof mcpOauthAuthorizationAttempts.$inferInsert;
 export type McpCatalogRevision = typeof mcpCatalogRevisions.$inferSelect;
 export type NewMcpCatalogRevision = typeof mcpCatalogRevisions.$inferInsert;
 export type McpToolPolicyRow = typeof mcpToolPolicy.$inferSelect;
