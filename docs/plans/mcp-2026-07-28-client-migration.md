@@ -43,10 +43,12 @@ to legacy session expiry.
 
 ### 2. Cross-era catalog invalidation and cache hints
 
-Status: next
+Status: partially implemented in PR #607
 
 - Use the SDK cross-era `listChanged.tools` callback with `autoRefresh: false`.
+  Implemented in PR #607.
 - Test both the legacy notification and modern `subscriptions/listen`.
+  Implemented in PR #607, including subscription-open failure and closure.
 - Carry `ttlMs` and `cacheScope` through `McpProtocolPage`.
 - Keep one full, bounded, multi-page refresh as the only revision publication
   path.
@@ -59,13 +61,14 @@ cannot publish; no cache hint can preserve stale descriptor authority.
 
 ### 3. Schema and header safety
 
-Status: pending
+Status: partially implemented in PR #607
 
 - Change output validators from object-only to any JSON value.
 - Test primitive, array, object, and `null` `structuredContent`.
 - Test primitive and array `outputSchema` roots.
 - Keep bounded local `$ref` support and reject external references.
 - Reject descriptors that contain `x-mcp-header` in the first profile.
+  Implemented in PR #607.
 - Remove the legacy core `execution.taskSupport` check. Keep Tasks unavailable
   through capability and extension negotiation.
 
@@ -114,8 +117,9 @@ Gate: no durable continuation design means no MRTR or Tasks capability.
 
 ## Pull request boundaries
 
-1. Adapter migration and cross-era transport tests.
-2. Catalog subscription, cache hints, and schema/header rules.
+1. Adapter migration, bounded cross-era catalog invalidation, transport tests,
+   and first-profile `x-mcp-header` rejection.
+2. Remaining cache hints and schema/output rules.
 3. Issue #547 OAuth and connection-state work.
 4. Trace propagation.
 
