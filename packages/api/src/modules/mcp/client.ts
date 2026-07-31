@@ -413,7 +413,10 @@ export class McpRawClient {
   }
 
   async #throwProtocolError(err: unknown, protocol: McpProtocolClient): Promise<never> {
-    if (this.#negotiatedServer?.protocolEra !== "legacy" || !isMcpSessionExpiredError(err)) {
+    if (
+      this.#negotiatedServer?.protocolEra !== "pre_2026_07_28" ||
+      !isMcpSessionExpiredError(err)
+    ) {
       throw err;
     }
     if (this.#protocol === protocol) {
@@ -582,11 +585,11 @@ function parseNegotiatedServer(server: McpProtocolServer): McpNegotiatedServer {
     hasTools: server.hasTools,
     toolsListChanged: server.toolsListChanged,
   };
-  if (server.protocolEra === "legacy" && server.protocolVersion === "2025-11-25") {
-    return { ...facts, protocolEra: "legacy", protocolVersion: "2025-11-25" };
+  if (server.protocolEra === "pre_2026_07_28" && server.protocolVersion === "2025-11-25") {
+    return { ...facts, protocolEra: "pre_2026_07_28", protocolVersion: "2025-11-25" };
   }
-  if (server.protocolEra === "modern" && server.protocolVersion === "2026-07-28") {
-    return { ...facts, protocolEra: "modern", protocolVersion: "2026-07-28" };
+  if (server.protocolEra === "post_2026_07_28" && server.protocolVersion === "2026-07-28") {
+    return { ...facts, protocolEra: "post_2026_07_28", protocolVersion: "2026-07-28" };
   }
   const version = server.protocolVersion || "unknown";
   if (!MCP_SUPPORTED_PROTOCOL_VERSION_SET.has(version)) {
