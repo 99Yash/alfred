@@ -35,6 +35,7 @@ import {
   type OwnedMcpConnectionRef,
   updateInvocation,
 } from "./persistence";
+import { startMcpTraceSpan, type McpTraceContext } from "./trace";
 
 const BLOCKED_BARRIER_MESSAGE =
   "A matching write to this MCP tool is already unresolved (it may have been delivered). " +
@@ -55,6 +56,8 @@ export interface McpBrokerCallInput {
   ref: ExternalToolRef;
   /** Opaque MCP arguments — validated against the exact tool schema by the raw client. */
   arguments: unknown;
+  /** Run trace id. Observability only; ledger correlation still copies the staging row. */
+  traceId?: string;
   signal?: AbortSignal;
 }
 
@@ -101,6 +104,32 @@ export class McpExecutionBroker {
    * reservation BEFORE dispatch and resolve the lifecycle around the network hop.
    */
   async callTool(input: McpBrokerCallInput): Promise<McpBrokerOutcome> {
+    const span = startMcpTraceSpan({
+      name: "runtime.mcp.broker_invoke",
+      ...(input.traceId ? { traceId: input.traceId } : {}),
+      metadata: {
+        connectionId: input.ref.connectionId,
+        remoteName: input.ref.remoteName,
+        stagingId: input.stagingId,
+      },
+    });
+    try {
+      const outcome = await this.#callTool(input, span.context);
+      span.end({
+        status: outcome.status,
+        metadata: {
+          invocationId:
+            "invocationId" in outcome ? outcome.invocationId : outcome.priorInvocationId,
+        },
+      });
+      return outcome;
+    } catch (error) {
+      span.end({ status: "error", level: "ERROR" });
+      throw error;
+    }
+  }
+
+  async #callTool(input: McpBrokerCallInput, trace: McpTraceContext): Promise<McpBrokerOutcome> {
     const { ref } = input;
 
     // Ownership is Alfred's trust boundary: an outbound effect must land only on a
@@ -127,7 +156,7 @@ export class McpExecutionBroker {
     // the mutable connection row again before first-use hydration: the identity
     // resolver proves ownership and policy, but its endpoint/credential snapshot
     // must not outlive a concurrent connection update.
-    const prepared = await this.#manager.prepareToolCall(ref.connectionId, input.signal);
+    const prepared = await this.#manager.prepareToolCall(ref.connectionId, input.signal, trace);
     if (prepared.catalog.revision !== ref.catalogRevision) {
       throw new McpClientError(
         "catalog_stale",
@@ -164,11 +193,10 @@ export class McpExecutionBroker {
       // possibly-delivered one) is safe to surface and re-run, so it just throws.
       // The options object IS the conditional — a spread inside a fresh literal
       // would just be a redundant copy (oxlint's `no-useless-spread`).
-      const envelope = await prepared.call(
-        ref,
-        input.arguments,
-        input.signal ? { signal: input.signal } : {},
-      );
+      const envelope = await prepared.call(ref, input.arguments, {
+        ...(input.signal ? { signal: input.signal } : {}),
+        trace,
+      });
       return {
         status: envelope.outcome === "completed" ? "completed" : "tool_error",
         invocationId: null,
@@ -182,6 +210,7 @@ export class McpExecutionBroker {
       policy,
       connection,
       prepared,
+      trace,
     });
   }
 
@@ -194,6 +223,7 @@ export class McpExecutionBroker {
       /** The owner-verified durable pointer already read in `callTool`. */
       connection: OwnedMcpConnectionRef;
       prepared: McpPreparedToolCall;
+      trace: McpTraceContext;
     },
   ): Promise<McpBrokerOutcome> {
     const { ref } = input;
@@ -256,11 +286,10 @@ export class McpExecutionBroker {
     });
 
     try {
-      const envelope = await resolved.prepared.call(
-        ref,
-        input.arguments,
-        input.signal ? { signal: input.signal } : {},
-      );
+      const envelope = await resolved.prepared.call(ref, input.arguments, {
+        ...(input.signal ? { signal: input.signal } : {}),
+        trace: resolved.trace,
+      });
       return this.#resolveResponse(invocation, envelope);
     } catch (err) {
       if (isProvenNotDelivered(err)) {

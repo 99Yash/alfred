@@ -108,6 +108,7 @@ export const mcpTools: readonly RegisteredTool[] = [
       const outcome = await getMcpExecutionBroker().callTool({
         userId: ctx.userId,
         stagingId: ctx.stagingId,
+        traceId: ctx.runId,
         ref,
         arguments: input.arguments,
         // Correlation (trace/step/tool-call) is NOT threaded from ctx: the broker's

@@ -19,6 +19,7 @@ export const MCP_CLIENT_ERROR_CODES = [
   "unknown_tool",
   "invalid_arguments",
   "invalid_output",
+  "insufficient_scope",
 ] as const;
 
 export type McpClientErrorCode = (typeof MCP_CLIENT_ERROR_CODES)[number];
@@ -30,7 +31,9 @@ export type McpClientErrorCode = (typeof MCP_CLIENT_ERROR_CODES)[number];
  * safe to treat as *not delivered* (retry-safe). Everything else
  * (`session_expired`, `invalid_output`, a transport/abort throw) happens at or
  * after that await and must be treated as possibly-delivered by the broker's
- * ambiguity ledger.
+ * ambiguity ledger. `insufficient_scope` is the one response-side exception:
+ * the resource server's 403 bearer challenge proves authorization rejected the
+ * request before the MCP tool ran.
  *
  * Kept BESIDE the code union on purpose: a new code must be classified here, in
  * the same file it is declared, rather than in a denylist shadowing the boundary
@@ -43,6 +46,7 @@ const MCP_PRE_DELIVERY_ERROR_CODES: ReadonlySet<McpClientErrorCode> = new Set([
   "catalog_stale",
   "unknown_tool",
   "invalid_arguments",
+  "insufficient_scope",
 ]);
 
 /** True for a deterministic pre-delivery code (provably not delivered). */

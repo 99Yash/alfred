@@ -62,6 +62,8 @@ function key(provider: string, nonce: string): string {
 const signedOAuthStateSchema = z.object({
   userId: z.string(),
   nonce: z.string(),
+  /** Present for OAuth flows that must resume one durable connection. */
+  connectionId: z.string().optional(),
 });
 
 export type SignedOAuthState = z.infer<typeof signedOAuthStateSchema>;

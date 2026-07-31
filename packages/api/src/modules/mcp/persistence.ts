@@ -36,7 +36,7 @@ import {
   type NewMcpInvocation,
   type NewMcpToolPolicyRow,
 } from "@alfred/db/schemas";
-import { and, eq, isNull, sql } from "drizzle-orm";
+import { and, desc, eq, isNull, sql } from "drizzle-orm";
 
 /** A transaction handle or the root client — either can run a query. */
 type Db = DbTransaction | ReturnType<typeof db>;
@@ -106,6 +106,7 @@ export type McpConnectionUpdate = Partial<
     | "authServerIdentity"
     | "credentialId"
     | "grantedScopes"
+    | "requiredScopes"
     | "endpointUrl"
     | "endpointOrigin"
   >
@@ -129,6 +130,54 @@ export async function insertConnection(
 ): Promise<McpConnection> {
   const [row] = await runner.insert(mcpConnections).values(values).returning();
   return requireRow(row, "insertConnection");
+}
+
+export async function upsertConnection(
+  values: NewMcpConnection,
+  runner: Db = db(),
+): Promise<McpConnection> {
+  const [row] = await runner
+    .insert(mcpConnections)
+    .values(values)
+    .onConflictDoUpdate({
+      target: [mcpConnections.userId, mcpConnections.canonicalResource],
+      set: {
+        label: values.label,
+        endpointUrl: values.endpointUrl,
+        endpointOrigin: values.endpointOrigin,
+        authServerIdentity: values.authServerIdentity,
+        status: "disconnected",
+        lastError: null,
+        updatedAt: new Date(),
+      },
+    })
+    .returning();
+  return requireRow(row, "upsertConnection");
+}
+
+export async function readOwnedConnection(
+  id: string,
+  userId: string,
+  runner: Db = db(),
+): Promise<McpConnection | undefined> {
+  const [row] = await runner
+    .select()
+    .from(mcpConnections)
+    .where(and(eq(mcpConnections.id, id), eq(mcpConnections.userId, userId)))
+    .limit(1);
+  return row;
+}
+
+export async function listOwnedConnections(
+  userId: string,
+  runner: Db = db(),
+): Promise<McpConnection[]> {
+  return runner
+    .select()
+    .from(mcpConnections)
+    .where(eq(mcpConnections.userId, userId))
+    .orderBy(desc(mcpConnections.updatedAt))
+    .limit(100);
 }
 
 export async function updateConnection(
