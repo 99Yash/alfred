@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { describe, test } from "node:test";
-import { SdkErrorCode, SdkHttpError, type Tool } from "@modelcontextprotocol/client";
+import { ProtocolError, SdkErrorCode, SdkHttpError, type Tool } from "@modelcontextprotocol/client";
 import {
   McpClientError,
   McpRawClient,
@@ -255,7 +255,7 @@ describe("McpRawClient catalog", () => {
         },
         { query: "stale" },
       ),
-      "catalog_required",
+      "catalog_stale",
     );
 
     const second = await client.refreshCatalog();
@@ -273,6 +273,75 @@ describe("McpRawClient catalog", () => {
       ),
       "catalog_stale",
     );
+    assert.equal(protocol.calls.length, 0);
+  });
+
+  test("refreshes an expired catalog before preparing a tool call", async () => {
+    let now = 1_000;
+    const protocol = new FakeProtocol([
+      {
+        tools: [SEARCH_TOOL],
+        ttlMs: 1_000,
+      },
+    ]);
+    const client = makeClient(protocol, { now: () => now });
+    await client.connect();
+    const catalog = await client.refreshCatalog();
+
+    now += 1_001;
+    protocol.pages.splice(0, 1, {
+      tools: [tool("replacement", { type: "object", properties: {} })],
+      ttlMs: 1_000,
+      cacheScope: "private",
+    });
+
+    await assertMcpError(
+      client.callTool(
+        {
+          kind: "mcp",
+          connectionId: "conn_1",
+          remoteName: "search",
+          catalogRevision: catalog.revision,
+        },
+        { query: "stale" },
+      ),
+      "catalog_stale",
+    );
+    assert.equal(protocol.listCalls, 2);
+    assert.equal(protocol.calls.length, 0);
+    assert.deepEqual(
+      client.catalog?.tools.map((entry) => entry.name),
+      ["replacement"],
+    );
+  });
+
+  test("invalidates a TTL-held catalog after HEADER_MISMATCH without replaying", async () => {
+    const protocol = new FakeProtocol([
+      {
+        tools: [SEARCH_TOOL],
+        ttlMs: 60_000,
+      },
+    ]);
+    const client = makeClient(protocol, { now: () => 1_000 });
+    await client.connect();
+    const catalog = await client.refreshCatalog();
+    protocol.callError = new ProtocolError(-32020, "HEADER_MISMATCH");
+
+    await assertMcpError(
+      client.callTool(
+        {
+          kind: "mcp",
+          connectionId: "conn_1",
+          remoteName: "search",
+          catalogRevision: catalog.revision,
+        },
+        { query: "once" },
+      ),
+      "catalog_stale",
+    );
+
+    assert.equal(client.catalog, null);
+    assert.equal(protocol.listCalls, 1);
     assert.equal(protocol.calls.length, 0);
   });
 
@@ -393,7 +462,7 @@ describe("McpRawClient catalog", () => {
     );
   });
 
-  test("a list_changed notification invalidates authority until refresh", async () => {
+  test("a list_changed notification refreshes authority before the next call", async () => {
     const protocol = new FakeProtocol([{ tools: [SEARCH_TOOL] }]);
     const client = makeClient(protocol);
     await client.connect();
@@ -401,19 +470,18 @@ describe("McpRawClient catalog", () => {
     await protocol.emitToolsChanged();
 
     assert.equal(client.catalog, null);
-    await assertMcpError(
-      client.callTool(
-        {
-          kind: "mcp",
-          connectionId: "conn_1",
-          remoteName: "search",
-          catalogRevision: catalog.revision,
-        },
-        { query: "hello" },
-      ),
-      "catalog_required",
+    const result = await client.callTool(
+      {
+        kind: "mcp",
+        connectionId: "conn_1",
+        remoteName: "search",
+        catalogRevision: catalog.revision,
+      },
+      { query: "hello" },
     );
-    assert.equal(protocol.calls.length, 0);
+    assert.equal(result.outcome, "completed");
+    assert.equal(protocol.listCalls, 2);
+    assert.equal(protocol.calls.length, 1);
   });
 
   test("does not commit a snapshot invalidated during pagination", async () => {

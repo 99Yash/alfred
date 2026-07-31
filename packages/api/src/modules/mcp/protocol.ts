@@ -1,6 +1,7 @@
 import {
   Client,
   MAX_CACHE_TTL_MS,
+  ProtocolError,
   SdkHttpError,
   StreamableHTTPClientTransport,
   type AuthProvider,
@@ -10,6 +11,8 @@ import {
   type Tool,
   type Transport,
 } from "@modelcontextprotocol/client";
+
+const HEADER_MISMATCH_ERROR_CODE = -32020;
 
 export type McpProtocolCallResult = Awaited<ReturnType<Client["callTool"]>>;
 
@@ -233,6 +236,10 @@ function normalizeCacheTtl(value: unknown): number {
 
 export function isMcpSessionExpiredError(err: unknown): boolean {
   return err instanceof SdkHttpError && err.status === 404;
+}
+
+export function isMcpDescriptorMismatchError(err: unknown): boolean {
+  return ProtocolError.isInstance(err) && err.code === HEADER_MISMATCH_ERROR_CODE;
 }
 
 export function parseMcpNegotiatedServer(server: McpProtocolServer): McpNegotiatedServer {

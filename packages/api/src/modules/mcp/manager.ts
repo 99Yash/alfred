@@ -36,6 +36,7 @@ import {
   type McpCallEnvelope,
   type McpCatalogSnapshot,
   type McpEndpointAuthorization,
+  type McpPreparedToolCall,
 } from "./client";
 import { boundedMcpErrorText, McpClientError } from "./errors";
 import { computeDescriptorHashes } from "./hash";
@@ -170,14 +171,19 @@ export class McpConnectionManager {
     return this.#refreshAndPersistStable(connectionId, client);
   }
 
+  async prepareToolCall(connectionId: string, signal?: AbortSignal): Promise<McpPreparedToolCall> {
+    const client = await this.getReadyClient(connectionId);
+    return this.#prepareAndPersistStable(connectionId, client, signal);
+  }
+
   /** Route a validated call to a ready client. The broker owns the durable ledger around this. */
   async callTool(
     ref: ExternalToolRef,
     args: unknown,
     options: { signal?: AbortSignal } = {},
   ): Promise<McpCallEnvelope> {
-    const client = await this.getReadyClient(ref.connectionId);
-    return client.callTool(ref, args, options);
+    const prepared = await this.prepareToolCall(ref.connectionId, options.signal);
+    return prepared.call(ref, args, options);
   }
 
   /** Close and forget a connection's live client; mark the row disconnected. */
@@ -248,10 +254,19 @@ export class McpConnectionManager {
     connectionId: string,
     client: McpRawClient,
   ): Promise<McpCatalogSnapshot> {
+    return (await this.#prepareAndPersistStable(connectionId, client)).catalog;
+  }
+
+  async #prepareAndPersistStable(
+    connectionId: string,
+    client: McpRawClient,
+    signal?: AbortSignal,
+  ): Promise<McpPreparedToolCall> {
     for (let attempt = 1; attempt <= MAX_CATALOG_STABILIZATION_ATTEMPTS; attempt += 1) {
-      let snapshot: McpCatalogSnapshot;
+      const priorCatalog = client.catalog;
+      let prepared: McpPreparedToolCall;
       try {
-        snapshot = await client.refreshCatalog();
+        prepared = await client.prepareToolCall(signal);
       } catch (err) {
         if (
           err instanceof McpClientError &&
@@ -262,12 +277,14 @@ export class McpConnectionManager {
         }
         throw err;
       }
+      const snapshot = prepared.catalog;
+      if (snapshot === priorCatalog) return prepared;
 
       const revisionId = await this.#insertCatalog(connectionId, snapshot);
-      if (client.catalog?.revision !== snapshot.revision) continue;
+      if (client.catalog !== snapshot) continue;
 
       await this.#activateCatalog(connectionId, revisionId, client.negotiatedServer);
-      if (client.catalog?.revision === snapshot.revision) return snapshot;
+      if (client.catalog === snapshot) return prepared;
 
       // An event won the race with pointer activation. Remove the stale door
       // before the bounded coordinator tries the replacement generation.

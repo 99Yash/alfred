@@ -18,6 +18,7 @@ import { AjvJsonSchemaValidator } from "@modelcontextprotocol/client/validators/
 import { McpClientError } from "./errors";
 import { sha256Canonical } from "./hash";
 import {
+  isMcpDescriptorMismatchError,
   isMcpSessionExpiredError,
   parseMcpNegotiatedServer,
   SdkMcpProtocolClient,
@@ -57,6 +58,15 @@ export interface McpCallEnvelope {
    * keeping the (sanitized, model-facing) `result` as the only durable copy.
    */
   provenance: McpResultProvenance;
+}
+
+export interface McpPreparedToolCall {
+  catalog: McpCatalogSnapshot;
+  call(
+    ref: ExternalToolRef,
+    args: unknown,
+    options?: { signal?: AbortSignal },
+  ): Promise<McpCallEnvelope>;
 }
 
 export interface McpEndpointAuthorization {
@@ -169,8 +179,7 @@ export class McpRawClient {
           ...(this.#options.fetch ? { fetch: this.#options.fetch } : {}),
         });
     protocol.onToolsChanged(() => {
-      this.#invalidateCatalog();
-      this.#catalogInvalidatedHandler?.();
+      this.#announceCatalogInvalidated();
     });
     let connectionUnhealthy: Error | null = null;
     let connectFinished = false;
@@ -181,8 +190,7 @@ export class McpRawClient {
         this.#protocol = null;
         this.#negotiatedServer = null;
       }
-      this.#invalidateCatalog();
-      this.#catalogInvalidatedHandler?.();
+      this.#announceCatalogInvalidated();
       void protocol.close(false).catch(() => undefined);
     });
     try {
@@ -356,12 +364,32 @@ export class McpRawClient {
     args: unknown,
     options: { signal?: AbortSignal } = {},
   ): Promise<McpCallEnvelope> {
+    const prepared = await this.prepareToolCall(options.signal);
+    return prepared.call(ref, args, options);
+  }
+
+  async prepareToolCall(signal?: AbortSignal): Promise<McpPreparedToolCall> {
+    const catalog = await this.refreshCatalog(signal);
+    const catalogGeneration = this.#catalogGeneration;
+    return Object.freeze({
+      catalog,
+      call: (ref: ExternalToolRef, args: unknown, options: { signal?: AbortSignal } = {}) =>
+        this.#callPreparedTool(catalogGeneration, catalog, ref, args, options),
+    });
+  }
+
+  async #callPreparedTool(
+    catalogGeneration: number,
+    catalog: McpCatalogSnapshot,
+    ref: ExternalToolRef,
+    args: unknown,
+    options: { signal?: AbortSignal },
+  ): Promise<McpCallEnvelope> {
     const protocol = this.#requireProtocol();
-    const catalog = this.#catalog;
-    if (!catalog) {
+    if (catalogGeneration !== this.#catalogGeneration || this.#catalog !== catalog) {
       throw new McpClientError(
         "catalog_required",
-        "The MCP catalog must be refreshed before a tool can be called",
+        "The MCP catalog changed after this tool call was prepared; refresh and reselect it",
       );
     }
     if (ref.connectionId !== this.#options.connectionId) {
@@ -461,7 +489,19 @@ export class McpRawClient {
     this.#outputValidators.clear();
   }
 
+  #announceCatalogInvalidated(): void {
+    this.#invalidateCatalog();
+    this.#catalogInvalidatedHandler?.();
+  }
+
   async #throwProtocolError(err: unknown, protocol: McpProtocolClient): Promise<never> {
+    if (isMcpDescriptorMismatchError(err)) {
+      this.#announceCatalogInvalidated();
+      throw new McpClientError(
+        "catalog_stale",
+        "The MCP server rejected the admitted tool descriptor; refresh and reselect it",
+      );
+    }
     if (
       this.#negotiatedServer?.protocolEra !== "pre_2026_07_28" ||
       !isMcpSessionExpiredError(err)
