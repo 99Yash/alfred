@@ -4,15 +4,23 @@ import {
   ProtocolError,
   SdkHttpError,
   StreamableHTTPClientTransport,
+  TRACEPARENT_META_KEY,
+  TRACESTATE_META_KEY,
   type AuthProvider,
   type CacheScope,
+  type ClientCapabilities,
   type ProtocolEra,
   type StreamableHTTPClientTransportOptions,
   type Tool,
   type Transport,
 } from "@modelcontextprotocol/client";
+import type { McpTraceContext } from "./trace";
 
 const HEADER_MISMATCH_ERROR_CODE = -32020;
+
+/** Alfred offers no server-callable handlers and no Tasks capability. */
+export const MCP_CLIENT_CAPABILITIES = Object.freeze({}) satisfies ClientCapabilities;
+export const MCP_INPUT_REQUIRED_PROFILE = Object.freeze({ autoFulfill: false });
 
 export type McpProtocolCallResult = Awaited<ReturnType<Client["callTool"]>>;
 
@@ -66,13 +74,18 @@ export type McpNegotiatedServer = McpServerFacts & McpProtocolProfile;
  * model-facing registry and makes the trust boundary deterministic to test.
  */
 export interface McpProtocolClient {
-  connect(): Promise<McpProtocolServer>;
+  connect(trace?: McpTraceContext): Promise<McpProtocolServer>;
   close(terminateSession: boolean): Promise<void>;
-  listTools(cursor: string | undefined, signal?: AbortSignal): Promise<McpProtocolPage>;
+  listTools(
+    cursor: string | undefined,
+    signal?: AbortSignal,
+    trace?: McpTraceContext,
+  ): Promise<McpProtocolPage>;
   callTool(
     tool: Tool,
     args: Record<string, unknown>,
     signal?: AbortSignal,
+    trace?: McpTraceContext,
   ): Promise<McpProtocolCallResult>;
   onToolsChanged(handler: () => void | Promise<void>): void;
   onConnectionUnhealthy(handler: (error: Error) => void | Promise<void>): void;
@@ -93,6 +106,7 @@ export class SdkMcpProtocolClient implements McpProtocolClient {
   #toolsChangedHandler: (() => void | Promise<void>) | null = null;
   #connectionUnhealthyHandler: ((error: Error) => void | Promise<void>) | null = null;
   #closing = false;
+  #connectTrace: McpTraceContext | undefined;
 
   constructor(options: SdkMcpProtocolClientOptions) {
     const authProvider = options.authProvider;
@@ -101,10 +115,10 @@ export class SdkMcpProtocolClient implements McpProtocolClient {
     this.#client = new Client(
       { name: "alfred", version: "1" },
       {
-        capabilities: {},
+        capabilities: MCP_CLIENT_CAPABILITIES,
         enforceStrictCapabilities: true,
         versionNegotiation: { mode: "auto" },
-        inputRequired: { autoFulfill: false },
+        inputRequired: MCP_INPUT_REQUIRED_PROFILE,
         listChanged: {
           tools: {
             autoRefresh: false,
@@ -116,13 +130,21 @@ export class SdkMcpProtocolClient implements McpProtocolClient {
         },
       },
     );
+    const fetchFn = options.fetch ?? globalThis.fetch;
     this.#transport = new StreamableHTTPClientTransport(options.endpoint, {
       // Token reads are safe before each request. Transport-owned recovery is
       // not: both 401 refresh and insufficient-scope step-up resend the same
       // JSON-RPC message below Alfred's invocation ledger.
       ...(authProvider ? { authProvider: { token: () => authProvider.token() } } : {}),
       onInsufficientScope: "throw",
-      ...(options.fetch ? { fetch: options.fetch } : {}),
+      fetch: (input, init) => {
+        const connectTrace = this.#connectTrace;
+        if (!connectTrace) return fetchFn(input, init);
+        const headers = new Headers(init?.headers);
+        headers.set("traceparent", connectTrace.traceparent);
+        if (connectTrace.tracestate) headers.set("tracestate", connectTrace.tracestate);
+        return fetchFn(input, { ...init, headers });
+      },
     });
     this.#requestTimeoutMs = options.requestTimeoutMs;
   }
@@ -135,18 +157,23 @@ export class SdkMcpProtocolClient implements McpProtocolClient {
     this.#connectionUnhealthyHandler = handler;
   }
 
-  async connect(): Promise<McpProtocolServer> {
+  async connect(trace?: McpTraceContext): Promise<McpProtocolServer> {
     this.#closing = false;
+    this.#connectTrace = trace;
     // Third-party variance gap, not a claim about our types: the MCP SDK's own
     // transport classes declare `sessionId?: string | undefined` / `onclose?:
     // (() => void) | undefined` while its `Transport` interface declares those
     // keys narrow, so under `exactOptionalPropertyTypes` the SDK's class does
     // not structurally satisfy the SDK's own interface. Nothing on our side can
     // reconcile the two.
-    await this.#client.connect(
-      this.#transport as Transport,
-      requestOptions(this.#requestTimeoutMs),
-    );
+    try {
+      await this.#client.connect(
+        this.#transport as Transport,
+        requestOptions(this.#requestTimeoutMs, undefined, trace),
+      );
+    } finally {
+      this.#connectTrace = undefined;
+    }
     const capabilities = this.#client.getServerCapabilities();
     const server = this.#client.getServerVersion();
     const protocolEra = this.#era();
@@ -196,16 +223,23 @@ export class SdkMcpProtocolClient implements McpProtocolClient {
     await this.#client.close();
   }
 
-  async listTools(cursor: string | undefined, signal?: AbortSignal): Promise<McpProtocolPage> {
+  async listTools(
+    cursor: string | undefined,
+    signal?: AbortSignal,
+    trace?: McpTraceContext,
+  ): Promise<McpProtocolPage> {
     // `Client.listTools(undefined)` auto-aggregates and caches every page. Use
     // the request primitive so Alfred alone owns pagination, bounds, and the
     // immutable catalog that later calls are allowed to consume.
     const result = await this.#client.request(
       {
         method: "tools/list",
-        params: cursor ? { cursor } : {},
+        params: {
+          ...(cursor ? { cursor } : {}),
+          ...(trace ? { _meta: traceMeta(trace) } : {}),
+        },
       },
-      requestOptions(this.#requestTimeoutMs, signal),
+      requestOptions(this.#requestTimeoutMs, signal, trace),
     );
     return {
       tools: result.tools,
@@ -219,11 +253,16 @@ export class SdkMcpProtocolClient implements McpProtocolClient {
     tool: Tool,
     args: Record<string, unknown>,
     signal?: AbortSignal,
+    trace?: McpTraceContext,
   ): Promise<McpProtocolCallResult> {
     return this.#client.callTool(
-      { name: tool.name, arguments: args },
       {
-        ...requestOptions(this.#requestTimeoutMs, signal),
+        name: tool.name,
+        arguments: args,
+        ...(trace ? { _meta: traceMeta(trace) } : {}),
+      },
+      {
+        ...requestOptions(this.#requestTimeoutMs, signal, trace),
         // This exact, Alfred-admitted descriptor bypasses the SDK list cache
         // and disables its HEADER_MISMATCH refetch-and-replay branch.
         toolDefinition: tool,
@@ -276,12 +315,34 @@ export function parseMcpNegotiatedServer(server: McpProtocolServer): McpNegotiat
   );
 }
 
-function requestOptions(timeout: number, signal?: AbortSignal) {
+function traceMeta(trace: McpTraceContext) {
+  return {
+    [TRACEPARENT_META_KEY]: trace.traceparent,
+    ...(trace.tracestate ? { [TRACESTATE_META_KEY]: trace.tracestate } : {}),
+  };
+}
+
+function requestOptions(timeout: number, signal?: AbortSignal, trace?: McpTraceContext) {
   // `maxTotalTimeout === timeout` deliberately collapses the SDK's progress-based
   // timeout EXTENSION: a server streaming progress notifications can otherwise
   // keep a `tools/call` alive past `timeout`, blurring the delivery boundary the
   // broker's ambiguity ledger depends on. Capping total time keeps a single
   // attempt from silently outliving its window. Replay is separately disabled
   // at the transport and `callTool` boundaries above.
-  return { timeout, maxTotalTimeout: timeout, ...(signal ? { signal } : {}) };
+  return {
+    timeout,
+    maxTotalTimeout: timeout,
+    ...(signal ? { signal } : {}),
+    // Connect negotiation has no public params hook. The same controlled W3C
+    // context rides HTTP headers there; ordinary MCP requests also carry it in
+    // `_meta` through `traceMeta`.
+    ...(trace
+      ? {
+          headers: {
+            traceparent: trace.traceparent,
+            ...(trace.tracestate ? { tracestate: trace.tracestate } : {}),
+          },
+        }
+      : {}),
+  };
 }

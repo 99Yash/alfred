@@ -21,6 +21,7 @@ import {
   uniqueIndex,
   type AnyPgColumn,
 } from "drizzle-orm/pg-core";
+import type { SealedCredentialSecret } from "../credential-vault";
 import { createId, lifecycle_dates } from "../helpers";
 import { actionStagings } from "./action-policies";
 import { user } from "./auth";
@@ -78,6 +79,54 @@ export const mcpCatalogRevisions = pgTable(
 );
 
 /**
+ * Alfred → MCP authorization credentials, isolated from downstream provider
+ * grants in `integration_credentials`.
+ *
+ * OAuth client identifiers and tokens belong to the authorization server that
+ * issued them. The unique `(userId, issuer)` key is therefore the storage
+ * authority. Discovery and PKCE state live beside the token so the callback leg
+ * cannot silently rediscover a different authorization server.
+ *
+ * Secret-bearing fields use the shared authenticated credential envelope. JSON
+ * fields remain `unknown`; the MCP OAuth provider validates them when it opens
+ * the persisted boundary.
+ */
+export const mcpOauthCredentials = pgTable(
+  "mcp_oauth_credentials",
+  {
+    id: text("id")
+      .primaryKey()
+      .$defaultFn(() => createId("mcpo")),
+    userId: text("user_id")
+      .notNull()
+      .references(() => user.id, { onDelete: "cascade" }),
+    /** Validated RFC 8414 / OIDC authorization-server issuer identifier. */
+    issuer: text("issuer").notNull(),
+    /** Persisted `OAuthDiscoveryState`; validated before every provider read. */
+    discoveryState: jsonb("discovery_state"),
+    /** Public DCR response fields. `client_secret` is split into the sealed column below. */
+    clientInformation: jsonb("client_information"),
+    clientSecret: text("client_secret").$type<SealedCredentialSecret>(),
+    accessToken: text("access_token").$type<SealedCredentialSecret>(),
+    refreshToken: text("refresh_token").$type<SealedCredentialSecret>(),
+    idToken: text("id_token").$type<SealedCredentialSecret>(),
+    tokenType: text("token_type"),
+    expiresIn: integer("expires_in"),
+    scope: text("scope"),
+    /** PKCE verifier survives the browser redirect and is cleared after callback completion. */
+    codeVerifier: text("code_verifier").$type<SealedCredentialSecret>(),
+    /** Hash only; the signed state value itself returns through the browser. */
+    oauthStateHash: text("oauth_state_hash"),
+    lastAuthorizedAt: timestamp("last_authorized_at", { withTimezone: true }),
+    ...lifecycle_dates,
+  },
+  (t) => [
+    uniqueIndex("mcp_oauth_credentials_user_issuer_idx").on(t.userId, t.issuer),
+    index("mcp_oauth_credentials_state_idx").on(t.oauthStateHash),
+  ],
+);
+
+/**
  * Durable connection FACTS — owner, pinned endpoint/origin, negotiated identity,
  * status, and a pointer to the current catalog revision. NOT live SDK objects
  * (the connection manager re-hydrates a `McpRawClient` in memory on demand) and
@@ -101,16 +150,17 @@ export const mcpConnections = pgTable(
     endpointOrigin: text("endpoint_origin").notNull(),
     /** Selected authorization-server identity. Null for unauthenticated servers. */
     authServerIdentity: text("auth_server_identity"),
-    /**
-     * Reference to the Alfred→MCP-server credential. A nullable plain-text
-     * column with NO foreign key in this slice: the dedicated MCP-credential
-     * store is shaped in the OAuth slice, and `integration_credentials` is
-     * deliberately NOT reused (the Alfred→MCP bearer is a distinct audience from
-     * any downstream provider grant). Null = no auth required (offline fake).
-     */
-    credentialId: text("credential_id"),
+    /** Alfred→MCP bearer, kept separate from downstream integration grants. */
+    credentialId: text("credential_id").references(() => mcpOauthCredentials.id, {
+      onDelete: "set null",
+    }),
     /** Granted scopes parsed to an array (mirrors `integration_credentials.scopes`). */
     grantedScopes: jsonb("granted_scopes")
+      .$type<string[]>()
+      .notNull()
+      .default(sql`'[]'::jsonb`),
+    /** Scope challenge awaiting visible user re-consent; empty outside that state. */
+    requiredScopes: jsonb("required_scopes")
       .$type<string[]>()
       .notNull()
       .default(sql`'[]'::jsonb`),
@@ -331,6 +381,8 @@ export const mcpInvocation = pgTable(
 
 export type McpConnection = typeof mcpConnections.$inferSelect;
 export type NewMcpConnection = typeof mcpConnections.$inferInsert;
+export type McpOauthCredential = typeof mcpOauthCredentials.$inferSelect;
+export type NewMcpOauthCredential = typeof mcpOauthCredentials.$inferInsert;
 export type McpCatalogRevision = typeof mcpCatalogRevisions.$inferSelect;
 export type NewMcpCatalogRevision = typeof mcpCatalogRevisions.$inferInsert;
 export type McpToolPolicyRow = typeof mcpToolPolicy.$inferSelect;
