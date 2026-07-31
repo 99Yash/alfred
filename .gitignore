@@ -87,6 +87,7 @@ apps/web/.screenshots/
 .handoff/
 .artifacts/
 teaching/
+.loop/
 
 # Campaign workspace (/campaign skill): per-run queue state and extracted findings.
 # The machinery (.claude/skills/campaign, scripts/campaign.sh) is tracked; the

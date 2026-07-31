@@ -13,25 +13,28 @@
 > open again. Tier 1 started. A second line of work that this order does not
 > name now takes most of the merges. The order itself still does not change. See
 > "State, 2026-07-31" near the end for everything after 07-30T08:33Z.
+>
+> **Amended 2026-07-31T14:10Z.** PR #611 completed #555's acceptance coverage,
+> #555 is closed, and `main` is green again. The order itself does not change.
 
 135 issues were open when this order was written. 26 of them are newer than the
 last tier artifact. The campaign holds 26 more items that are not issues at all.
 
 **Six closed the same day** (see "Closed 2026-07-30" at the end), so the live
-count is 129. **On 2026-07-31 the count is 125.**
+count is 129. **On 2026-07-31 the count is 124.**
 
 ## Three findings that change the shape, not only the order
 
 ### 1. Six epics are fully specified. None is in flight.
 
-| Epic | Slices | Blocked children |
-| --- | --- | --- |
-| #553 user-authored workflows v1 | 7 (#555 to #561) | **0** |
-| #554 composable automation substrate | 6 (#562 to #567) | 4 |
-| #422 Context Fabric | 9 (#423 to #431) | 9 |
-| #397 chat to memory capture | 4 (#399 to #402) | 4 |
-| #236 reply drafting | 7 (#237 to #243) | 6 |
-| #218 briefing slices | 5 (#416 to #420) | 5 |
+| Epic                                 | Slices           | Blocked children |
+| ------------------------------------ | ---------------- | ---------------- |
+| #553 user-authored workflows v1      | 7 (#555 to #561) | **0**            |
+| #554 composable automation substrate | 6 (#562 to #567) | 4                |
+| #422 Context Fabric                  | 9 (#423 to #431) | 9                |
+| #397 chat to memory capture          | 4 (#399 to #402) | 4                |
+| #236 reply drafting                  | 7 (#237 to #243) | 6                |
+| #218 briefing slices                 | 5 (#416 to #420) | 5                |
 
 Roughly 60 of the 135 open issues are children of these six. The backlog is
 rich in design and poor in build. Only #553 has no blocked child, so only #553
@@ -48,7 +51,7 @@ closing keyword and no `closingIssuesReferences`. The open count is still 129.
 carries no issue at all.
 
 Worse, the two lists overlap in one place and neither knows it. **#570 (wire the
-test trees into `check-types`) is campaign items 11, 12, 33 and 46.** Item 12
+test trees into** `check-types`**) is campaign items 11, 12, 33 and 46.** Item 12
 landed and put `web test` into CI. Item 07 added
 `apps/web/tsconfig.test.json`. #570 still says "201 test files" and still says
 nothing is typechecked. The real count is 225, and `packages/api`, `ai`, `db`,
@@ -89,7 +92,7 @@ Each claim below was checked against the code today, not read off the issue.
    `packages/api/src` or `packages/contracts/src`. A send-capable tool can be
    set to `autonomy` and then execute with no human gate. Fix the floor, not the
    instance.
-5. **#533 add a retention reaper to `events_outbox`.** No delete, reap,
+5. **#533 add a retention reaper to** `events_outbox`**.** No delete, reap,
    retention or prune path exists for the highest-volume table in the system.
    This one is a clock that runs in production.
 
@@ -104,13 +107,13 @@ this order was written. Two are unstarted.**
 `.campaign/backlog-tier0-20260730/state.json` is the machine record. Every line
 below was re-checked against `main` at `932dd8e7`.
 
-| Item | Phase | Receipt |
-| --- | --- | --- |
-| 1 · #453 vault | **landed, not rolled out** | PR #604, merged 08:09Z. `packages/db/src/credential-vault.ts`, `credential-envelope.ts`, `credential-vault-maintenance.ts` and `docs/runbooks/oauth-credential-vault-rollout.md` are on `main`. The PR body says `Refs #453`, not `Closes`, on purpose: the rollout is a maintenance window. See the next section. |
-| 2 · #455 better-auth | **built, on a branch** | The catalog floor moves `^1.3.28` -> `^1.6.11` and the lockfile resolves 1.6.25. The floor **is** the fix: 1.6.11 added the missing local-`emailVerified` check and defaults `requireLocalEmailVerified` to true. 3 tests in `packages/api/test/auth/account-linking.test.ts` — two pin the version from opposite ends (lockfile, catalog range), one asserts the default is never set to `false`. `disableImplicitLinking` was tried and dropped: with Google as the only sign-in path it can never fire, and it would refuse a later magic-link-first user's Google link with no in-app escape. See ADR-0009's 2026-07-30 correction. |
-| 3 · #457 Gmail webhook | **closed as a duplicate of #291** | PR #320 fixed it on 2026-06-28. `assertGmailPushOidcConfigured` (`gmail-push-config.ts:33`) throws when the audience is unset, and `verifyPubSubOidcForGmailWebhook` (`gmail-webhook.ts:88-93`) calls it before it returns. The skip survives only when `NODE_ENV !== "production"` **and** no push topic is set. |
-| 4 · #232 outbound floor | **already enforced. Re-scope the issue.** | The floor is `toolRequiresApproval` (`dispatch/index.ts:933`): `policyMode === "gated" \|\| riskTier === "high"`. A `high` tool gates under `autonomy` too. `gmail.send_draft` is `high` (`tools/gmail.ts:270`), and `registry.ts:372-396` refuses a `fast_path` tool that could ever gate. PR #577 preserved that contract. |
-| 5 · #533 outbox reaper | **built, on a branch** | `packages/api/src/events/outbox-reaper.ts` deletes published rows past `OUTBOX_RETENTION_MS` in bounded id pages, hourly, and exempts `published_at IS NULL`. 8 database-backed tests, plus 7 for the shared `PeriodicTask` lifecycle it now runs on. A structural review caught two real defects in the first cut: the `DELETE` used `id IN (subquery)`, which Postgres plans as a sequential scan of the whole table (91ms / 12,540 buffers at 800k rows, 20 times an hour) — now `id = any(array(...))`, an index scan at 2.5ms; and the pass never checked its stop flag between batches, so the documented shutdown protection did not exist. |
+| Item                    | Phase                                     | Receipt                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                            |
+| ----------------------- | ----------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | --- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| 1 · #453 vault          | **landed, not rolled out**                | PR #604, merged 08:09Z. `packages/db/src/credential-vault.ts`, `credential-envelope.ts`, `credential-vault-maintenance.ts` and `docs/runbooks/oauth-credential-vault-rollout.md` are on `main`. The PR body says `Refs #453`, not `Closes`, on purpose: the rollout is a maintenance window. See the next section.                                                                                                                                                                                                                                                                                                                                 |
+| 2 · #455 better-auth    | **built, on a branch**                    | The catalog floor moves `^1.3.28` -> `^1.6.11` and the lockfile resolves 1.6.25. The floor **is** the fix: 1.6.11 added the missing local-`emailVerified` check and defaults `requireLocalEmailVerified` to true. 3 tests in `packages/api/test/auth/account-linking.test.ts` — two pin the version from opposite ends (lockfile, catalog range), one asserts the default is never set to `false`. `disableImplicitLinking` was tried and dropped: with Google as the only sign-in path it can never fire, and it would refuse a later magic-link-first user's Google link with no in-app escape. See ADR-0009's 2026-07-30 correction.            |
+| 3 · #457 Gmail webhook  | **closed as a duplicate of #291**         | PR #320 fixed it on 2026-06-28. `assertGmailPushOidcConfigured` (`gmail-push-config.ts:33`) throws when the audience is unset, and `verifyPubSubOidcForGmailWebhook` (`gmail-webhook.ts:88-93`) calls it before it returns. The skip survives only when `NODE_ENV !== "production"` **and** no push topic is set.                                                                                                                                                                                                                                                                                                                                  |
+| 4 · #232 outbound floor | **already enforced. Re-scope the issue.** | The floor is `toolRequiresApproval` (`dispatch/index.ts:933`): `policyMode === "gated"                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                             |     | riskTier === "high"`. A `high`tool gates under`autonomy`too.`gmail.send_draft`is`high` (`tools/gmail.ts:270`), and `registry.ts:372-396`refuses a`fast_path` tool that could ever gate. PR #577 preserved that contract. |
+| 5 · #533 outbox reaper  | **built, on a branch**                    | `packages/api/src/events/outbox-reaper.ts` deletes published rows past `OUTBOX_RETENTION_MS` in bounded id pages, hourly, and exempts `published_at IS NULL`. 8 database-backed tests, plus 7 for the shared `PeriodicTask` lifecycle it now runs on. A structural review caught two real defects in the first cut: the `DELETE` used `id IN (subquery)`, which Postgres plans as a sequential scan of the whole table (91ms / 12,540 buffers at 800k rows, 20 times an hour) — now `id = any(array(...))`, an index scan at 2.5ms; and the pass never checked its stop flag between batches, so the documented shutdown protection did not exist. |
 
 Items 3 and 4 are the two the order got wrong. The order claimed each was checked
 against the code; both were read off the issue. The lesson is narrow and it costs
@@ -124,7 +127,7 @@ not exist because the floor is spelled `riskTier === "high"`.
   `riskTier: "medium"` (`tools/calendar.ts:284`), so under an `autonomy` policy
   it creates an event and mails every invitee with no human gate. That is the
   unguarded invite channel **#163** names, and it is the item the order told you
-  to lift out of #163 before closing it. Re-scope #232 to "outbound *invite*
+  to lift out of #163 before closing it. Re-scope #232 to "outbound _invite_
   floor" and keep it.
 - **#134** keeps a separate, smaller residual. The send path gates, so the mail
   cannot leave without approval, but no recipient allow-list exists anywhere in
@@ -179,13 +182,13 @@ holds the deploy pipeline shut.
 
 ## Tier 1. The one big bet: #553 workflows v1.
 
-> **Started 2026-07-31.** PR #610 landed the substrate half of #555. #555 stays
-> open. See "State, 2026-07-31".
+> **Started 2026-07-31.** PR #610 landed the substrate and PR #611 completed the
+> acceptance coverage. #555 is closed. See "State, 2026-07-31".
 
 Work it in its authored order:
 
 ```
-#555 -> #556 -> #557 -> #558 -> #559 -> #560 -> #561
+#555 (complete) -> #556 -> #557 -> #558 -> #559 -> #560 -> #561
 ```
 
 Why this epic and not the other five:
@@ -222,17 +225,17 @@ round on one file family.
 
 **Land these 10. They have real chains or they close an issue:**
 
-| Item | Why it survives |
-| --- | --- |
+| Item   | Why it survives                                                                                                                    |
+| ------ | ---------------------------------------------------------------------------------------------------------------------------------- |
 | 37, 38 | The replay barrier release does not match the run lifecycle. The 07-28 handoff traced a chain to a bubble that can never complete. |
-| 34 | A replayed older `chat.message/started` can blank the live turn. |
-| 25 | Union hole in the thread-scoped kind derivation. |
-| 44 | `writeFrame` does not send every envelope field the contract declares. |
-| 11 | **Closes #570.** Typechecks the test dirs in api, ai, integrations. |
-| 46 | `ci.yml` runs api twice, db, ai and web. It does not run integrations. |
-| 33 | jsdom in `apps/web`, but only if item 34 needs it. |
-| 06 | The briefing gather to compose seam. |
-| 30 | The staging-store port insert door. |
+| 34     | A replayed older `chat.message/started` can blank the live turn.                                                                   |
+| 25     | Union hole in the thread-scoped kind derivation.                                                                                   |
+| 44     | `writeFrame` does not send every envelope field the contract declares.                                                             |
+| 11     | **Closes #570.** Typechecks the test dirs in api, ai, integrations.                                                                |
+| 46     | `ci.yml` runs api twice, db, ai and web. It does not run integrations.                                                             |
+| 33     | jsdom in `apps/web`, but only if item 34 needs it.                                                                                 |
+| 06     | The briefing gather to compose seam.                                                                                               |
+| 30     | The staging-store port insert door.                                                                                                |
 
 **Drop the other 16.** They are items 13, 14, 20, 24, 26, 27, 28, 29, 35, 36,
 41, 42, 43, 45, 47, 48. Mark them `skipped` in `state.json`. File an issue only
@@ -263,14 +266,14 @@ system and are filed as three:
 Each of these had merged work and an open ticket. Every claim was checked against
 `main`, not read off a PR title.
 
-| Issue | Receipt |
-| --- | --- |
-| #191 parallel tool dispatch | `chat-turn.ts:677` dispatches the batch concurrently. Gated writes stay serial by design. PR #200. |
-| #195 dispatch round-trips | `staging-store.ts:190-207` is one `onConflictDoUpdate` with a no-op set and `xmax = 0`. The `SELECT`-back branch is gone. 3 round-trips to 2. PR #200. |
-| #184 diverged workflow helpers | `toolResultMessage` and `dispatchResultToToolOutput` are one copy in `dispatch/result-routing.ts:29,46`. `resolveSdkTools` no longer exists. `runToolRound` serves both workflows. PR #536. |
-| #137 "zero runtime tests" | The premise is false. 12 test files: 9 on compaction, 2 on lease, plus `commit-cancel-race.test.ts` on `(runId, stepId, attempt)`. |
+| Issue                           | Receipt                                                                                                                                                                                                  |
+| ------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| #191 parallel tool dispatch     | `chat-turn.ts:677` dispatches the batch concurrently. Gated writes stay serial by design. PR #200.                                                                                                       |
+| #195 dispatch round-trips       | `staging-store.ts:190-207` is one `onConflictDoUpdate` with a no-op set and `xmax = 0`. The `SELECT`-back branch is gone. 3 round-trips to 2. PR #200.                                                   |
+| #184 diverged workflow helpers  | `toolResultMessage` and `dispatchResultToToolOutput` are one copy in `dispatch/result-routing.ts:29,46`. `resolveSdkTools` no longer exists. `runToolRound` serves both workflows. PR #536.              |
+| #137 "zero runtime tests"       | The premise is false. 12 test files: 9 on compaction, 2 on lease, plus `commit-cancel-race.test.ts` on `(runId, stepId, attempt)`.                                                                       |
 | #529 general invocation tier v1 | `request` is registered on 8 integrations plus Railway GraphQL. `assertReadableRequest` at `gate.ts:235`. 11 test files plus `passthrough-honesty.eval.ts`. Flags default off per the PRD's own rollout. |
-| #287 show a doc inline | `ExternalFileBody` at `artifact-sidebar.tsx:511` cites #287 by number: trusted-host Drive `/preview` iframe with `allow-downloads`. |
+| #287 show a doc inline          | `ExternalFileBody` at `artifact-sidebar.tsx:511` cites #287 by number: trusted-host Drive `/preview` iframe with `allow-downloads`.                                                                      |
 
 ### Four that look done and are not
 
@@ -303,10 +306,10 @@ backup of the previous state is at `/tmp/state.json.bak`.
 
 ## Merged after this order was written
 
-| PR | Merged | What it is |
-| --- | --- | --- |
+| PR   | Merged    | What it is                                                                                                                                                                                                                                          |
+| ---- | --------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | #604 | 08:09:41Z | Tier 0 item 1. Encrypts the OAuth credential vault at rest. Envelope encryption, one KEK that wraps per-secret DEKs, no schema change and no migration. Amends ADR-0038. Deploy failed on the missing KEK. **Deployed clean on 2026-07-31T05:25Z.** |
-| #605 | 08:09:12Z | Not on this order. Collapses 10 `extends ApiError` subclasses into one class behind an `Errors` namespace in `@alfred/contracts`, and adds a `hand-built-api-error` rule to `scripts/consolidation-rules.mjs`. |
+| #605 | 08:09:12Z | Not on this order. Collapses 10 `extends ApiError` subclasses into one class behind an `Errors` namespace in `@alfred/contracts`, and adds a `hand-built-api-error` rule to `scripts/consolidation-rules.mjs`.                                      |
 
 PRs #606 to #610 merged after that. They are in "State, 2026-07-31" below.
 
@@ -322,19 +325,19 @@ Five PRs merged after the 07-30T08:33Z amendment: **#606, #607, #608, #609 and
 #610**. Every claim below was checked against `main` at `945937bb`, or against
 GitHub and Railway, not read off a PR title.
 
-The order does not change. Three things about the *state* do.
+The order does not change. Three things about the _state_ do.
 
 ## 1. Tier 0 is finished
 
 All five items are resolved and the four that were issues are closed.
 
-| Item | Phase | Receipt |
-| --- | --- | --- |
-| 1 · #453 vault | **rolled out. #453 closed 05:26:58Z.** | `OAUTH_CREDENTIAL_KEK` is set on the Railway `server` service and in `apps/server/.env`. Deployment `a7957d0e` is SUCCESS on `70ba61e9`, `api.alfred.beauty` answers 200, and the boot gate passed. The conversion pass was a **no-op**: `account` and `integration_credentials` both held 0 rows, and `db:encrypt-credentials:check` reported 0 plaintext and 0 unopenable before the deploy. So the runbook ran, but no ciphertext exists yet. The first Google sign-in writes the first sealed row, and that write is the real test of the vault. |
-| 2 · #455 better-auth | **merged. #455 closed 2026-07-30T10:01Z.** | PR #606. Live in production from `a7957d0e`. |
-| 3 · #457 Gmail webhook | **closed 2026-07-30T08:37Z** as a duplicate of #291. | No code change. The 07-30 correction was right. |
-| 4 · #232 outbound floor | **open, and still not re-scoped.** | The order told you to shrink #232 to the invite floor. #232 still carries its old title and its old body, so the issue still claims a hole that `toolRequiresApproval` closed. **This is the one piece of Tier 0 paperwork left.** #134 also stays open on its separate allow-list residual. |
-| 5 · #533 outbox reaper | **merged. #533 closed 2026-07-30T10:01Z.** | PR #606. `a7957d0e` logs `[outbox-reaper] started`. |
+| Item                    | Phase                                                | Receipt                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                              |
+| ----------------------- | ---------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 1 · #453 vault          | **rolled out. #453 closed 05:26:58Z.**               | `OAUTH_CREDENTIAL_KEK` is set on the Railway `server` service and in `apps/server/.env`. Deployment `a7957d0e` is SUCCESS on `70ba61e9`, `api.alfred.beauty` answers 200, and the boot gate passed. The conversion pass was a **no-op**: `account` and `integration_credentials` both held 0 rows, and `db:encrypt-credentials:check` reported 0 plaintext and 0 unopenable before the deploy. So the runbook ran, but no ciphertext exists yet. The first Google sign-in writes the first sealed row, and that write is the real test of the vault. |
+| 2 · #455 better-auth    | **merged. #455 closed 2026-07-30T10:01Z.**           | PR #606. Live in production from `a7957d0e`.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                         |
+| 3 · #457 Gmail webhook  | **closed 2026-07-30T08:37Z** as a duplicate of #291. | No code change. The 07-30 correction was right.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                      |
+| 4 · #232 outbound floor | **open, and still not re-scoped.**                   | The order told you to shrink #232 to the invite floor. #232 still carries its old title and its old body, so the issue still claims a hole that `toolRequiresApproval` closed. **This is the one piece of Tier 0 paperwork left.** #134 also stays open on its separate allow-list residual.                                                                                                                                                                                                                                                         |
+| 5 · #533 outbox reaper  | **merged. #533 closed 2026-07-30T10:01Z.**           | PR #606. `a7957d0e` logs `[outbox-reaper] started`.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                  |
 
 PR #606 is also the **first PR of the campaign era to carry a closing keyword**.
 It closed two issues at once. Finding 2 of this order said no body had one. That
@@ -344,7 +347,7 @@ recoverable.
 The retained-window detection gap that #533 uncovered is unchanged. It still
 belongs in the one later slice with #192 and #532.
 
-## 2. Tier 1 started, and #555 is half of a slice
+## 2. Tier 1 started, and #555 is complete
 
 PR #610 merged at 08:52Z. It is the substrate and the service:
 
@@ -360,14 +363,22 @@ PR #610 merged at 08:52Z. It is the substrate and the service:
 The PR body says `Refs #555` on purpose, because the four acceptance cases were
 probed against a real database but not committed as tests. The follow-up commit
 `be0e7aac` then committed `packages/api/test/workflows/revisions.test.ts` with
-**two** of the four. So the gap narrowed and did not close:
+**two** of the four:
 
 - covered: the active-edit / published-pin case, and the typed `row_version`
   conflict.
-- **not covered: pause never clears `blocked`, and `content_hash` is canonical
-  across processes.** The hash was probed by hand only.
+- still missing at merge: pause / blocker independence, and canonical
+  `content_hash` behavior across processes.
 
-**#555 stays open.** Do not start #556 until the other two cases are tests.
+PR #611 merged the remaining acceptance coverage in commit `4ef7866d`:
+
+- pausing preserves `blocked`, and clearing the blocker preserves the user's
+  `paused` status;
+- two separate Node processes hash the same definition identically despite
+  different object-key and set ordering.
+
+All five checks on #611 passed, including `api-tests`. **#555 closed at
+10:41Z.** The next workflow slice is #556.
 
 The remaining six slices keep their authored order:
 `#556 -> #557 -> #558 -> #559 -> #560 -> #561`.
@@ -376,7 +387,7 @@ The worktree `.claude/worktrees/workflow-revisions-555` still exists at
 `be0e7aac`. The branch is merged into `main` and the lock names pid 67061, which
 is gone. Remove the worktree and the lock.
 
-## 3. `main` is red, and nothing stops a red merge
+## 3. `main` is green again, but nothing stops a red merge
 
 `ci.yml` failed on the `#610` merge commit `945937bb`. One test fails:
 
@@ -389,14 +400,16 @@ not ok 1 - active edits stay visible as drafts while new runs pin the published 
   createRun (src/modules/agent/service.ts:150:33)
 ```
 
-This is a **harness defect, not a revision defect.** The test calls `createRun`,
+This was a **harness defect, not a revision defect.** The test calls `createRun`,
 which builds the user-authored brief's initial state, which asks for the system
 tool kernel. Nothing registered the kernel surface in that test process. The
 same case passed on the branch, where the file ran under a different entry set.
-The fix is to register the surface in the test, not to change `revisions.ts`.
+Commit `fb1b058d` registered the built-in tool surface in the test. CI passed on
+that commit at 10:36Z, and passed again on PR #611's merge commit `24a27b3f`.
+`main` is green.
 
-It matters because of what landed 2.5 hours earlier. **PR #608 removed the
-`required` job**, and `main` has no branch protection:
+It matters because of what landed 2.5 hours earlier. **PR #608 removed the**
+`required` **job**, and `main` has no branch protection:
 
 ```
 gh api repos/99Yash/alfred/branches/main/protection
@@ -405,9 +418,9 @@ gh api repos/99Yash/alfred/branches/main/protection
 
 That trade was deliberate and it is the repo owner's call. State the consequence
 plainly: `main` had **no** gate on 07-31, a red PR merged into it the same day,
-and the red is still there. The 27-of-40 red history that #608 set out to fix
-came from exactly this mechanism. #608 fixed the three *causes* it found. It did
-not remove the *path*.
+and it stayed red until `fb1b058d`. The 27-of-40 red history that #608 set out to
+fix came from exactly this mechanism. #608 fixed the three _causes_ it found. It
+did not remove the _path_.
 
 Two of #608's other effects are worth recording against the campaign:
 
@@ -417,7 +430,7 @@ Two of #608's other effects are worth recording against the campaign:
 - The `hedge budget` flake is fixed by counting concurrent hedges rather than
   cumulative ones.
 
-**Fix the red before anything else.** It is one test registration.
+**The immediate red is fixed.** The missing required aggregate gate is not.
 
 ## 4. A second line of work now takes most of the merges
 
@@ -432,10 +445,10 @@ line and the repo runs two.
 
 What the two PRs actually did:
 
-| PR | Merged | What it is |
-| --- | --- | --- |
+| PR   | Merged | What it is                                                                                                                                                                                                                                                                                                                                                                                                                                                        |
+| ---- | ------ | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | #607 | 05:20Z | Migrates the production adapter from `@modelcontextprotocol/sdk@1.29.0` to `@modelcontextprotocol/client@2.0.0`. Negotiates the modern `2026-07-28` protocol era with a `2025-11-25` fallback behind an explicit allowlist. Keeps Alfred's immutable catalog as the authority: no SDK list cache is promoted, MRTR fulfillment is off, and `tools/call` is never auto-replayed. This is **not** on #547's deferred list. It is a new item the SDK release forced. |
-| #609 | 08:05Z | OAuth discovery, credential handling, insufficient-scope recovery and durable connection routes, plus the GitHub MCP status / reconnect / consent UI, plus trace context through connect, catalog and invoke. Migration `0089_true_dust.sql`. |
+| #609 | 08:05Z | OAuth discovery, credential handling, insufficient-scope recovery and durable connection routes, plus the GitHub MCP status / reconnect / consent UI, plus trace context through connect, catalog and invoke. Migration `0089_true_dust.sql`.                                                                                                                                                                                                                     |
 
 Two facts about #609 to carry forward:
 
@@ -445,7 +458,7 @@ Two facts about #609 to carry forward:
   apply here" note is satisfied by construction rather than by a second design.
 - Its body says **"Testing: Not run (not requested)"**. The 26 files include
   `test/mcp/oauth.test.ts` (+193) and `test/mcp/manager-lifecycle.test.ts`
-  (+62), so tests were *written*. They were not *run* before merge, into a
+  (+62), so tests were _written_. They were not _run_ before merge, into a
   branch with no gate, on the same day the gate was removed.
 
 **#547 is not close to done.** The production endpoint authorizer is still the
@@ -465,7 +478,7 @@ came to sit with none in flight.
   morning.
 - **Tier 3 is untouched.** Every one of the 10 items to land is still `design`
   in `.campaign/arch-20260727/state.json`: 37, 38, 34, 25, 44, 11, 46, 33, 06,
-  30. The 16 to drop are still `design` too, not `skipped`. Nobody marked them.
+  1. The 16 to drop are still `design` too, not `skipped`. Nobody marked them.
 - **Item 46 survives #608.** `ci.yml` now runs `static`, `api-tests`,
   `ai-unit-tests` and `web-unit-tests`. It still does **not** run
   `@alfred/integrations`.
@@ -481,11 +494,8 @@ came to sit with none in flight.
 
 ## The live queue, 2026-07-31
 
-1. **Fix the red on `main`.** Register the system tool surface in
-   `test/workflows/revisions.test.ts`. One test.
-2. **Finish #555.** Commit the two remaining acceptance cases, then close it.
-3. **Re-scope #232** to the outbound *invite* floor, and lift the calendar item
+1. **Re-scope #232** to the outbound _invite_ floor, and lift the calendar item
    out of #163. This is the last of Tier 0.
-4. **Decide about #547** before its next PR. Rank it or pause it.
-5. Then **#556**, and the rest of #553 in order.
-6. Remove the `workflow-revisions-555` worktree.
+2. **Decide about #547** before its next PR. Rank it or pause it.
+3. Then **#556**, and the rest of #553 in order.
+4. Remove the `workflow-revisions-555` worktree.
