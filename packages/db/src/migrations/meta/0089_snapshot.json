@@ -1,5 +1,5 @@
 {
-  "id": "a3461076-fb0c-4af5-b6e7-164b6da10344",
+  "id": "64cc94c4-0e20-405a-b583-f42c871676f6",
   "prevId": "f7e7218a-6366-445e-8aae-0e420f85fcca",
   "version": "7",
   "dialect": "postgresql",
@@ -5324,6 +5324,127 @@
       "checkConstraints": {},
       "isRLSEnabled": false
     },
+    "public.mcp_oauth_authorization_attempts": {
+      "name": "mcp_oauth_authorization_attempts",
+      "schema": "",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "text",
+          "primaryKey": true,
+          "notNull": true
+        },
+        "user_id": {
+          "name": "user_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "connection_id": {
+          "name": "connection_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "state_hash": {
+          "name": "state_hash",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "code_verifier": {
+          "name": "code_verifier",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "expires_at": {
+          "name": "expires_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        },
+        "updated_at": {
+          "name": "updated_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": false,
+          "default": "current_timestamp"
+        }
+      },
+      "indexes": {
+        "mcp_oauth_attempts_state_idx": {
+          "name": "mcp_oauth_attempts_state_idx",
+          "columns": [
+            {
+              "expression": "state_hash",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": true,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "mcp_oauth_attempts_connection_idx": {
+          "name": "mcp_oauth_attempts_connection_idx",
+          "columns": [
+            {
+              "expression": "connection_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        }
+      },
+      "foreignKeys": {
+        "mcp_oauth_authorization_attempts_user_id_user_id_fk": {
+          "name": "mcp_oauth_authorization_attempts_user_id_user_id_fk",
+          "tableFrom": "mcp_oauth_authorization_attempts",
+          "tableTo": "user",
+          "columnsFrom": [
+            "user_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "cascade",
+          "onUpdate": "no action"
+        },
+        "mcp_oauth_authorization_attempts_connection_id_mcp_connections_id_fk": {
+          "name": "mcp_oauth_authorization_attempts_connection_id_mcp_connections_id_fk",
+          "tableFrom": "mcp_oauth_authorization_attempts",
+          "tableTo": "mcp_connections",
+          "columnsFrom": [
+            "connection_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "cascade",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "policies": {},
+      "checkConstraints": {},
+      "isRLSEnabled": false
+    },
     "public.mcp_oauth_credentials": {
       "name": "mcp_oauth_credentials",
       "schema": "",
@@ -5336,6 +5457,12 @@
         },
         "user_id": {
           "name": "user_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "connection_id": {
+          "name": "connection_id",
           "type": "text",
           "primaryKey": false,
           "notNull": true
@@ -5400,18 +5527,6 @@
           "primaryKey": false,
           "notNull": false
         },
-        "code_verifier": {
-          "name": "code_verifier",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "oauth_state_hash": {
-          "name": "oauth_state_hash",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false
-        },
         "last_authorized_at": {
           "name": "last_authorized_at",
           "type": "timestamp with time zone",
@@ -5434,6 +5549,21 @@
         }
       },
       "indexes": {
+        "mcp_oauth_credentials_connection_idx": {
+          "name": "mcp_oauth_credentials_connection_idx",
+          "columns": [
+            {
+              "expression": "connection_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": true,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
         "mcp_oauth_credentials_user_issuer_idx": {
           "name": "mcp_oauth_credentials_user_issuer_idx",
           "columns": [
@@ -5445,21 +5575,6 @@
             },
             {
               "expression": "issuer",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            }
-          ],
-          "isUnique": true,
-          "concurrently": false,
-          "method": "btree",
-          "with": {}
-        },
-        "mcp_oauth_credentials_state_idx": {
-          "name": "mcp_oauth_credentials_state_idx",
-          "columns": [
-            {
-              "expression": "oauth_state_hash",
               "isExpression": false,
               "asc": true,
               "nulls": "last"
@@ -5478,6 +5593,19 @@
           "tableTo": "user",
           "columnsFrom": [
             "user_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "cascade",
+          "onUpdate": "no action"
+        },
+        "mcp_oauth_credentials_connection_id_mcp_connections_id_fk": {
+          "name": "mcp_oauth_credentials_connection_id_mcp_connections_id_fk",
+          "tableFrom": "mcp_oauth_credentials",
+          "tableTo": "mcp_connections",
+          "columnsFrom": [
+            "connection_id"
           ],
           "columnsTo": [
             "id"

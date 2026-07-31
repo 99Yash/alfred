@@ -11,6 +11,7 @@ import {
   type McpProtocolCallResult,
   type McpProtocolClient,
   type McpProtocolPage,
+  type McpTraceContext,
 } from "../../src/modules/mcp";
 import {
   McpConnectionManager,
@@ -23,10 +24,13 @@ class FakeProtocol implements McpProtocolClient {
   listCount = 0;
   ttlMs = 0;
   onListTools: (() => void | Promise<void>) | null = null;
+  connectTrace: McpTraceContext | undefined;
+  listTraces: Array<McpTraceContext | undefined> = [];
   #toolsChanged: (() => void | Promise<void>) | null = null;
 
-  async connect(): Promise<McpNegotiatedServer> {
+  async connect(trace?: McpTraceContext): Promise<McpNegotiatedServer> {
     this.connectCount += 1;
+    this.connectTrace = trace;
     return {
       protocolEra: "pre_2026_07_28",
       protocolVersion: "2025-11-25",
@@ -39,8 +43,13 @@ class FakeProtocol implements McpProtocolClient {
 
   async close(): Promise<void> {}
 
-  async listTools(): Promise<McpProtocolPage> {
+  async listTools(
+    _cursor?: string,
+    _signal?: AbortSignal,
+    trace?: McpTraceContext,
+  ): Promise<McpProtocolPage> {
     this.listCount += 1;
+    this.listTraces.push(trace);
     await this.onListTools?.();
     return { tools: this.tools, ttlMs: this.ttlMs, cacheScope: "private" };
   }
@@ -73,6 +82,12 @@ class MemoryPersistence implements McpConnectionManagerPersistence {
 
   readConnection: McpConnectionManagerPersistence["readConnection"] = async (id) =>
     id === this.connection.id ? this.connection : undefined;
+
+  readOwnedConnection: McpConnectionManagerPersistence["readOwnedConnection"] = async (
+    id,
+    userId,
+  ) =>
+    id === this.connection.id && userId === this.connection.userId ? this.connection : undefined;
 
   updateConnection: McpConnectionManagerPersistence["updateConnection"] = async (id, patch) => {
     if (id !== this.connection.id) return undefined;
@@ -309,18 +324,55 @@ describe("mcp connection manager lifecycle", () => {
     );
   });
 
-  test("disconnect closes the invalidation gate before its first await", async () => {
+  test("disconnect drains a refresh that races with its ownership check", async () => {
     const protocol = new FakeProtocol();
     const persistence = new MemoryPersistence();
     const manager = managerWith(protocol, persistence);
 
     await manager.getReadyClient(persistence.connection.id);
-    const disconnect = manager.disconnect(persistence.connection.id);
+    const disconnect = manager.disconnect(persistence.connection.id, persistence.connection.userId);
     await protocol.emitToolsChanged();
     await disconnect;
 
-    assert.equal(protocol.listCount, 1, "disconnect must not admit a new refresh");
+    assert.equal(
+      protocol.listCount,
+      2,
+      "the admitted refresh must finish before disconnect returns",
+    );
     assert.equal(persistence.connection.status, "disconnected");
+  });
+
+  test("disconnect refuses a connection owned by another user before mutation", async () => {
+    const protocol = new FakeProtocol();
+    const persistence = new MemoryPersistence();
+    const manager = managerWith(protocol, persistence);
+
+    await manager.getReadyClient(persistence.connection.id);
+    const disconnected = await manager.disconnect(persistence.connection.id, "another-user");
+
+    assert.equal(disconnected, false);
+    assert.equal(persistence.connection.status, "ready");
+    assert.equal(protocol.connectCount, 1);
+  });
+
+  test("cold connect and catalog refresh inherit the invocation trace", async () => {
+    const protocol = new FakeProtocol();
+    const persistence = new MemoryPersistence();
+    const manager = managerWith(protocol, persistence);
+    const parent: McpTraceContext = {
+      runId: "run-trace",
+      traceparent: "00-0123456789abcdef0123456789abcdef-0123456789abcdef-01",
+    };
+
+    await manager.prepareToolCall(persistence.connection.id, undefined, parent);
+
+    const traceId = (trace: McpTraceContext | undefined) => trace?.traceparent.split("-")[1];
+    assert.equal(traceId(protocol.connectTrace), traceId(parent));
+    assert.ok(protocol.listTraces.length > 0);
+    for (const trace of protocol.listTraces) {
+      assert.equal(traceId(trace), traceId(parent));
+      assert.equal(trace?.runId, parent.runId);
+    }
   });
 
   test("bounds repeated invalidation during publication", async () => {

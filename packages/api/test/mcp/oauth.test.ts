@@ -1,17 +1,20 @@
 import assert from "node:assert/strict";
 import { describe, test } from "node:test";
 import { createCredentialVault } from "@alfred/db/credential-vault";
-import type { McpOauthCredential } from "@alfred/db/schemas";
+import type { McpOauthAuthorizationAttempt, McpOauthCredential } from "@alfred/db/schemas";
 import { IssuerMismatchError, type OAuthDiscoveryState } from "@modelcontextprotocol/client";
-import { randomBytes } from "node:crypto";
+import { createHash, randomBytes } from "node:crypto";
 import {
+  authorizeMcpOAuth,
   finishMcpOAuth,
   McpOAuthProvider,
+  refreshMcpOAuthIfNeeded,
   type McpOAuthCredentialStore,
 } from "../../src/modules/mcp";
 
 class MemoryStore implements McpOAuthCredentialStore {
   row: McpOauthCredential | undefined;
+  readonly attempts = new Map<string, McpOauthAuthorizationAttempt>();
   grantedScopes: string[] = [];
 
   async readForConnection(): Promise<McpOauthCredential | undefined> {
@@ -28,6 +31,7 @@ class MemoryStore implements McpOAuthCredentialStore {
     this.row = {
       id: "mcpo_test",
       userId: input.userId,
+      connectionId: input.connectionId,
       issuer: input.issuer,
       discoveryState: input.discoveryState,
       clientInformation: this.row?.clientInformation ?? null,
@@ -38,8 +42,6 @@ class MemoryStore implements McpOAuthCredentialStore {
       tokenType: this.row?.tokenType ?? null,
       expiresIn: this.row?.expiresIn ?? null,
       scope: this.row?.scope ?? null,
-      codeVerifier: this.row?.codeVerifier ?? null,
-      oauthStateHash: this.row?.oauthStateHash ?? null,
       lastAuthorizedAt: this.row?.lastAuthorizedAt ?? null,
       createdAt: this.row?.createdAt ?? now,
       updatedAt: now,
@@ -52,6 +54,54 @@ class MemoryStore implements McpOAuthCredentialStore {
     assert.equal(userId, this.row?.userId);
     if (!this.row) throw new Error("missing memory credential");
     Object.assign(this.row, patch, { updatedAt: new Date() });
+  }
+
+  async createAttempt(input: {
+    connectionId: string;
+    userId: string;
+    stateHash: string;
+  }): Promise<McpOauthAuthorizationAttempt> {
+    const now = new Date();
+    const attempt: McpOauthAuthorizationAttempt = {
+      id: `attempt_${this.attempts.size + 1}`,
+      ...input,
+      codeVerifier: null,
+      expiresAt: new Date(now.getTime() + 10 * 60_000),
+      createdAt: now,
+      updatedAt: now,
+    };
+    this.attempts.set(input.stateHash, attempt);
+    return attempt;
+  }
+
+  async readAttempt(input: {
+    connectionId: string;
+    userId: string;
+    stateHash: string;
+  }): Promise<McpOauthAuthorizationAttempt | undefined> {
+    const attempt = this.attempts.get(input.stateHash);
+    return attempt?.connectionId === input.connectionId &&
+      attempt.userId === input.userId &&
+      attempt.expiresAt.getTime() > Date.now()
+      ? attempt
+      : undefined;
+  }
+
+  async saveAttemptCodeVerifier(input: {
+    stateHash: string;
+    userId: string;
+    codeVerifier: McpOauthAuthorizationAttempt["codeVerifier"];
+  }): Promise<void> {
+    const attempt = this.attempts.get(input.stateHash);
+    assert.equal(attempt?.userId, input.userId);
+    if (!attempt) throw new Error("missing attempt");
+    attempt.codeVerifier = input.codeVerifier;
+  }
+
+  async deleteAttempt(stateHash: string, userId: string): Promise<void> {
+    const attempt = this.attempts.get(stateHash);
+    assert.equal(attempt?.userId, userId);
+    this.attempts.delete(stateHash);
   }
 
   async updateConnectionAuthorization(input: {
@@ -96,6 +146,10 @@ const DISCOVERY: OAuthDiscoveryState = {
     authorization_response_iss_parameter_supported: true,
   },
 };
+
+function hashState(value: string): string {
+  return createHash("sha256").update(value).digest("hex");
+}
 
 describe("MCP OAuth provider", () => {
   test("persists discovery and isolates client information by issuer", async () => {
@@ -166,6 +220,13 @@ describe("MCP OAuth provider", () => {
       },
       { issuer: "https://auth.example.test/" },
     );
+    const callbackState = "callback-state";
+    await store.createAttempt({
+      connectionId: "conn_test",
+      userId: "user_test",
+      stateHash: hashState(callbackState),
+    });
+    assert.equal(await oauth.matchesState(callbackState), true);
     await oauth.saveCodeVerifier("verifier");
 
     await assert.rejects(
@@ -181,5 +242,129 @@ describe("MCP OAuth provider", () => {
         error instanceof IssuerMismatchError && error.kind === "authorization_response",
     );
     assert.equal((await oauth.tokens())?.access_token, undefined);
+  });
+
+  test("keeps concurrent authorization attempts isolated by state", async () => {
+    const store = new MemoryStore();
+    const first = provider(store);
+    const second = provider(store);
+    await first.saveDiscoveryState(DISCOVERY);
+    for (const state of ["state-one", "state-two"]) {
+      await store.createAttempt({
+        connectionId: "conn_test",
+        userId: "user_test",
+        stateHash: hashState(state),
+      });
+    }
+
+    assert.equal(await first.matchesState("state-one"), true);
+    assert.equal(await second.matchesState("state-two"), true);
+    await first.saveCodeVerifier("verifier-one");
+    await second.saveCodeVerifier("verifier-two");
+
+    assert.equal(await first.codeVerifier(), "verifier-one");
+    assert.equal(await second.codeVerifier(), "verifier-two");
+  });
+
+  test("rejects an expired authorization attempt", async () => {
+    const store = new MemoryStore();
+    const oauth = provider(store);
+    const attempt = await store.createAttempt({
+      connectionId: "conn_test",
+      userId: "user_test",
+      stateHash: hashState("expired-state"),
+    });
+    attempt.expiresAt = new Date(Date.now() - 1);
+
+    assert.equal(await oauth.matchesState("expired-state"), false);
+  });
+
+  test("requires authorization when an expired token cannot refresh", async () => {
+    const store = new MemoryStore();
+    const oauth = provider(store);
+    await oauth.saveDiscoveryState(DISCOVERY);
+    await oauth.saveTokens(
+      {
+        access_token: "expired-access",
+        token_type: "Bearer",
+        expires_in: 1,
+        issuer: "https://auth.example.test/",
+      },
+      { issuer: "https://auth.example.test/" },
+    );
+    assert.ok(store.row);
+    store.row.lastAuthorizedAt = new Date(Date.now() - 120_000);
+
+    assert.equal(await oauth.authorizationNeedsRefresh(), true);
+  });
+
+  test("refreshes a known-expired token before MCP dispatch", async () => {
+    const store = new MemoryStore();
+    const oauth = provider(store);
+    await oauth.saveDiscoveryState(DISCOVERY);
+    await oauth.saveClientInformation(
+      { client_id: "client-id", issuer: "https://auth.example.test/" },
+      { issuer: "https://auth.example.test/" },
+    );
+    await oauth.saveTokens(
+      {
+        access_token: "expired-access",
+        refresh_token: "refresh-one",
+        token_type: "Bearer",
+        expires_in: 1,
+        issuer: "https://auth.example.test/",
+      },
+      { issuer: "https://auth.example.test/" },
+    );
+    assert.ok(store.row);
+    store.row.lastAuthorizedAt = new Date(Date.now() - 120_000);
+    let tokenRequests = 0;
+
+    await refreshMcpOAuthIfNeeded(oauth, new URL("https://mcp.example.test/mcp"), {
+      fetch: async (input) => {
+        assert.equal(String(input), "https://auth.example.test/token");
+        tokenRequests += 1;
+        return new Response(
+          JSON.stringify({
+            access_token: "fresh-access",
+            refresh_token: "refresh-two",
+            token_type: "Bearer",
+            expires_in: 3600,
+          }),
+          { status: 200, headers: { "content-type": "application/json" } },
+        );
+      },
+    });
+
+    assert.equal(tokenRequests, 1);
+    assert.equal((await oauth.tokens())?.access_token, "fresh-access");
+  });
+
+  test("aborts OAuth discovery at the configured deadline", async () => {
+    const store = new MemoryStore();
+    const oauth = provider(store);
+    const hangingFetch: typeof fetch = async (_input, init) =>
+      new Promise((_resolve, reject) => {
+        const fuse = setTimeout(
+          () => reject(new Error("OAuth timeout signal was not propagated")),
+          100,
+        );
+        init?.signal?.addEventListener(
+          "abort",
+          () => {
+            clearTimeout(fuse);
+            reject(init.signal?.reason);
+          },
+          { once: true },
+        );
+      });
+
+    await assert.rejects(
+      authorizeMcpOAuth(oauth, new URL("https://mcp.example.test/mcp"), {
+        fetch: hangingFetch,
+        timeoutMs: 5,
+      }),
+      (error: unknown) => error instanceof DOMException && error.name === "TimeoutError",
+    );
   });
 });

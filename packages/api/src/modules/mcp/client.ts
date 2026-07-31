@@ -20,7 +20,11 @@ import { InsufficientScopeError } from "@modelcontextprotocol/client";
 import { AjvJsonSchemaValidator } from "@modelcontextprotocol/client/validators/ajv";
 import { McpClientError } from "./errors";
 import { sha256Canonical } from "./hash";
-import { authorizeMcpOAuth } from "./oauth";
+import {
+  authorizeMcpOAuth,
+  McpOAuthAuthorizationRequiredError,
+  refreshMcpOAuthIfNeeded,
+} from "./oauth";
 import type { McpTraceContext } from "./trace";
 import {
   isMcpDescriptorMismatchError,
@@ -109,6 +113,7 @@ export interface McpRawClientOptions extends McpClientLimits {
    * token-only projection so it cannot refresh and replay `tools/call`.
    */
   oauthProvider?: OAuthClientProvider;
+  onAuthorizationRequired?: () => void | Promise<void>;
   onInsufficientScope?: (requiredScopes: string[]) => void | Promise<void>;
   fetch?: SdkMcpProtocolClientOptions["fetch"];
   now?: () => number;
@@ -402,6 +407,16 @@ export class McpRawClient {
     signal?: AbortSignal,
     trace?: McpTraceContext,
   ): Promise<McpPreparedToolCall> {
+    if (this.#options.oauthProvider) {
+      try {
+        await refreshMcpOAuthIfNeeded(this.#options.oauthProvider, this.#options.endpoint);
+      } catch (error) {
+        if (error instanceof McpOAuthAuthorizationRequiredError) {
+          await this.#options.onAuthorizationRequired?.();
+        }
+        throw error;
+      }
+    }
     const catalog = await this.refreshCatalog(signal, trace);
     const catalogGeneration = this.#catalogGeneration;
     return Object.freeze({
