@@ -1,3 +1,4 @@
+import { z } from "zod";
 import { enumGuard } from "./guards";
 
 export const POLICY_MODES = ["autonomy", "gated"] as const;
@@ -186,6 +187,18 @@ export function isToolName(value: string): value is ToolName {
   const actions: readonly string[] = INTEGRATION_ACTIONS[integration];
   return actions.includes(action);
 }
+
+/**
+ * The zod form of {@link isToolName}. Lives beside the guard it wraps so a
+ * persisted, model-proposed, or wire-carried tool name is narrowed to
+ * `ToolName` by parsing rather than by a cast. `z.custom` (not
+ * `z.string().refine(…)`) because only `z.custom` carries the narrowed output
+ * type through `z.infer`.
+ */
+export const toolNameSchema = z.custom<ToolName>(
+  (value) => typeof value === "string" && isToolName(value),
+  "Invalid tool name",
+);
 
 export const isLoadableIntegrationSlug = enumGuard(LOADABLE_INTEGRATION_SLUGS);
 

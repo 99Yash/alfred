@@ -1,5 +1,7 @@
 import { z } from "zod";
+import { integrationSlugSchema } from "./briefing";
 import { EVENT_SOURCES } from "./event-triggers";
+import { toolNameSchema } from "./tools";
 
 /**
  * Lifecycle status of an `agent_runs` row.
@@ -174,3 +176,94 @@ export type WorkflowSteps = z.infer<typeof workflowStepsSchema>;
 
 export const workflowHilGatesSchema = z.array(z.string());
 export type WorkflowHilGates = z.infer<typeof workflowHilGatesSchema>;
+
+// ── Workflow revisions (#555, docs/plans/workflows-v1.md) ────────────────────
+//
+// A workflow row is the stable identity the user controls; a revision is the
+// immutable definition a run executes. The two pointers on `workflows` differ
+// on purpose: `current_revision_id` is the newest draft, and
+// `published_revision_id` is what new occurrences pin. An unattended run must
+// keep the definition it started with, so editing an active workflow may never
+// change what is already scheduled.
+
+/**
+ * One thing a revision needs before it may run: an exact registered tool, and —
+ * when the tool can bind to more than one target — the account and the resource
+ * boundary the user approved. `resolveWorkflowCapabilities` (#557) produces
+ * these; this schema fixes only the stored shape.
+ */
+export const workflowRequiredCapabilitySchema = z.object({
+  tool: toolNameSchema,
+  /** Which connected account/installation the tool must use, when more than one exists. */
+  accountRef: z.string().min(1).max(200).optional(),
+  /** Provider-specific resource boundary (a repository, a calendar, a Slack channel). */
+  resourceScope: z.record(z.string(), z.unknown()).optional(),
+});
+export type WorkflowRequiredCapability = z.infer<typeof workflowRequiredCapabilitySchema>;
+
+/**
+ * What the authoring turn understood and assumed, kept beside the revision so
+ * the activation card (#556) can show the user the intent behind the contract
+ * rather than opaque identifiers. Deliberately outside the content hash: a
+ * reworded assumption is not a new definition.
+ */
+export const workflowAuthoringProposalSchema = z.object({
+  /** The user's request, as the authoring turn read it. */
+  intent: z.string().min(1).max(4000),
+  /** Statements the user approves along with the definition. */
+  assumptions: z.array(z.string().min(1).max(500)).max(20),
+  /** Categories of external change this workflow may cause ("sends email"). */
+  externalEffects: z.array(z.string().min(1).max(200)).max(20),
+  /** What authoring asked for, before the resolver narrowed the envelope. */
+  requestedCapabilities: z.array(workflowRequiredCapabilitySchema).max(50),
+  /** Friendly schedule text for the card ("every weekday at 7:00 AM ET"). */
+  scheduleSummary: z.string().max(200).optional(),
+});
+export type WorkflowAuthoringProposal = z.infer<typeof workflowAuthoringProposalSchema>;
+
+/**
+ * An operational blocker on a workflow — a missing connection, an expired
+ * watch, a capability the envelope no longer satisfies.
+ *
+ * This is a separate field from `status` because the two answer different
+ * questions. `status='paused'` is the user's intent; `blocked` is the machine's
+ * readiness. Writing one must never overwrite the other, or reconnecting an
+ * account silently un-pauses a workflow the user paused on purpose.
+ */
+export const workflowBlockedSchema = z.object({
+  /** Stable machine code: `missing_capability`, `trigger_not_ready`, `reauth_required`, … */
+  code: z.string().min(1).max(80),
+  /** One safe sentence for the user. Never raw provider text. */
+  message: z.string().min(1).max(500),
+  /** ISO-8601 instant the blocker was observed. */
+  detectedAt: z.string(),
+  /** The revision the blocker was observed against, when known. */
+  revisionId: z.string().min(1).optional(),
+});
+export type WorkflowBlocked = z.infer<typeof workflowBlockedSchema>;
+
+/**
+ * The definition half of a revision — every field a run's behavior depends on,
+ * and nothing else. This exact object is what `workflowRevisionContentHash`
+ * digests, so a semantic no-op edit re-hashes to the same value and appends no
+ * revision. Pointers, timestamps, the revision number and the authoring
+ * proposal stay out for that reason.
+ */
+export const workflowRevisionDefinitionSchema = z.object({
+  name: z.string().min(1).max(200),
+  description: z.string().max(2000).nullable(),
+  /**
+   * Natural-language brief — required, because a revision with no brief has
+   * nothing to run. Built-ins keep a null `workflows.brief` and mint no
+   * revision at all, so they never reach this schema.
+   */
+  brief: z.string().min(1).max(20000),
+  trigger: workflowTriggerSchema,
+  /** Coarse dispatcher backstop: which integrations a run may load at all. */
+  allowedIntegrations: z.array(integrationSlugSchema).max(20),
+  /** Exact envelope: the only tool names a run may activate or dispatch. */
+  allowedTools: z.array(toolNameSchema).max(100),
+  /** What must be ready before a run starts. Each tool here is in `allowedTools`. */
+  requiredCapabilities: z.array(workflowRequiredCapabilitySchema).max(50),
+});
+export type WorkflowRevisionDefinition = z.infer<typeof workflowRevisionDefinitionSchema>;
