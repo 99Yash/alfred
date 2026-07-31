@@ -1,5 +1,5 @@
 import { canonicalJson } from "@alfred/contracts";
-import type { Tool } from "@modelcontextprotocol/sdk/types.js";
+import type { Tool } from "@modelcontextprotocol/client";
 import { createHash } from "node:crypto";
 
 /**

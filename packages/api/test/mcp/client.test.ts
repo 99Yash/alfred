@@ -1,24 +1,29 @@
 import assert from "node:assert/strict";
 import { describe, test } from "node:test";
-import { StreamableHTTPError } from "@modelcontextprotocol/sdk/client/streamableHttp.js";
-import type { Tool } from "@modelcontextprotocol/sdk/types.js";
+import { ProtocolError, SdkErrorCode, SdkHttpError, type Tool } from "@modelcontextprotocol/client";
 import {
   McpClientError,
   McpRawClient,
   type McpProtocolCallResult,
   type McpProtocolClient,
   type McpProtocolPage,
-  type McpNegotiatedServer,
+  type McpProtocolServer,
 } from "../../src/modules/mcp";
+import { isPreDeliveryErrorCode } from "../../src/modules/mcp/errors";
+
+type FakePage = Omit<McpProtocolPage, "ttlMs" | "cacheScope"> &
+  Partial<Pick<McpProtocolPage, "ttlMs" | "cacheScope">>;
 
 class FakeProtocol implements McpProtocolClient {
   readonly pages: McpProtocolPage[];
   readonly calls: Array<{ name: string; args: Record<string, unknown> }> = [];
+  listCalls = 0;
   connected = false;
   closedWithTerminate: boolean | null = null;
   callResult: McpProtocolCallResult = { content: [{ type: "text", text: "ok" }] };
   connectError: Error | null = null;
-  negotiated: McpNegotiatedServer = {
+  negotiated: McpProtocolServer = {
+    protocolEra: "pre_2026_07_28",
     protocolVersion: "2025-11-25",
     serverName: "fake",
     serverVersion: "1",
@@ -28,12 +33,17 @@ class FakeProtocol implements McpProtocolClient {
   callError: Error | null = null;
   listHook: (() => void | Promise<void>) | null = null;
   #toolsChanged: (() => void | Promise<void>) | null = null;
+  #connectionUnhealthy: ((error: Error) => void | Promise<void>) | null = null;
 
-  constructor(pages: McpProtocolPage[]) {
-    this.pages = pages;
+  constructor(pages: FakePage[]) {
+    this.pages = pages.map((page) => ({
+      ttlMs: 0,
+      cacheScope: "private",
+      ...page,
+    }));
   }
 
-  async connect(): Promise<McpNegotiatedServer> {
+  async connect(): Promise<McpProtocolServer> {
     if (this.connectError) throw this.connectError;
     this.connected = true;
     return this.negotiated;
@@ -44,16 +54,17 @@ class FakeProtocol implements McpProtocolClient {
   }
 
   async listTools(cursor: string | undefined): Promise<McpProtocolPage> {
+    this.listCalls += 1;
     await this.listHook?.();
     const index = cursor ? Number(cursor) : 0;
     const page = this.pages[index];
-    if (!page) return { tools: [] };
+    if (!page) return { tools: [], ttlMs: 0, cacheScope: "private" };
     return page;
   }
 
-  async callTool(name: string, args: Record<string, unknown>): Promise<McpProtocolCallResult> {
+  async callTool(tool: Tool, args: Record<string, unknown>): Promise<McpProtocolCallResult> {
+    this.calls.push({ name: tool.name, args });
     if (this.callError) throw this.callError;
-    this.calls.push({ name, args });
     return this.callResult;
   }
 
@@ -61,8 +72,16 @@ class FakeProtocol implements McpProtocolClient {
     this.#toolsChanged = handler;
   }
 
+  onConnectionUnhealthy(handler: (error: Error) => void | Promise<void>): void {
+    this.#connectionUnhealthy = handler;
+  }
+
   async emitToolsChanged(): Promise<void> {
     await this.#toolsChanged?.();
+  }
+
+  async emitConnectionUnhealthy(error = new Error("subscription closed")): Promise<void> {
+    await this.#connectionUnhealthy?.(error);
   }
 }
 
@@ -136,13 +155,33 @@ describe("McpRawClient catalog", () => {
     await assertMcpError(client.refreshCatalog(), "not_connected");
   });
 
-  test("requires the v1 protocol and a server tools capability", async () => {
+  test("allows the 2025-11-25 and 2026-07-28 revisions, and rejects other versions", async () => {
+    const modernProtocol = new FakeProtocol([{ tools: [] }]);
+    modernProtocol.negotiated = {
+      ...modernProtocol.negotiated,
+      protocolEra: "post_2026_07_28",
+      protocolVersion: "2026-07-28",
+    };
+    const modernClient = makeClient(modernProtocol);
+    await modernClient.connect();
+    assert.equal(modernClient.negotiatedServer?.protocolEra, "post_2026_07_28");
+
     const oldProtocol = new FakeProtocol([{ tools: [] }]);
     oldProtocol.negotiated.protocolVersion = "2025-06-18";
     const oldClient = makeClient(oldProtocol);
     await assertMcpError(oldClient.connect(), "unsupported_protocol_version");
     assert.equal(oldProtocol.closedWithTerminate, false);
 
+    const mismatched = new FakeProtocol([{ tools: [] }]);
+    mismatched.negotiated = {
+      ...mismatched.negotiated,
+      protocolEra: "post_2026_07_28",
+      protocolVersion: "2025-11-25",
+    };
+    await assertMcpError(makeClient(mismatched).connect(), "unsupported_protocol_version");
+  });
+
+  test("requires the server tools capability", async () => {
     const noTools = new FakeProtocol([{ tools: [] }]);
     noTools.negotiated.hasTools = false;
     const noToolsClient = makeClient(noTools);
@@ -169,6 +208,147 @@ describe("McpRawClient catalog", () => {
 
     const second = await client.refreshCatalog();
     assert.equal(second.revision, first.revision, "same descriptors must keep the same authority");
+    assert.equal(protocol.listCalls, 4, "ttlMs: 0 must fetch every page again");
+  });
+
+  test("uses page-one cache hints without allowing TTL to preserve stale authority", async () => {
+    let now = 1_000;
+    const replacement = tool("replacement", { type: "object", properties: {} });
+    const protocol = new FakeProtocol([
+      {
+        tools: [SEARCH_TOOL],
+        nextCursor: "1",
+        ttlMs: 60_000,
+        cacheScope: "public",
+      },
+      {
+        tools: [],
+        ttlMs: 1,
+        cacheScope: "private",
+      },
+    ]);
+    const client = makeClient(protocol, { now: () => now });
+    await client.connect();
+
+    const first = await client.refreshCatalog();
+    assert.equal(first.ttlMs, 60_000);
+    assert.equal(first.cacheScope, "public");
+    assert.equal(protocol.listCalls, 2);
+
+    now += 59_000;
+    assert.equal(await client.refreshCatalog(), first);
+    assert.equal(protocol.listCalls, 2, "a fresh positive TTL may avoid a wire refresh");
+
+    protocol.pages.splice(0, protocol.pages.length, {
+      tools: [replacement],
+      ttlMs: 60_000,
+      cacheScope: "private",
+    });
+    await protocol.emitToolsChanged();
+    assert.equal(client.catalog, null);
+    await assertMcpError(
+      client.callTool(
+        {
+          kind: "mcp",
+          connectionId: "conn_1",
+          remoteName: "search",
+          catalogRevision: first.revision,
+        },
+        { query: "stale" },
+      ),
+      "catalog_stale",
+    );
+
+    const second = await client.refreshCatalog();
+    assert.equal(protocol.listCalls, 3, "list_changed must override the unexpired TTL");
+    assert.notEqual(second.revision, first.revision);
+    await assertMcpError(
+      client.callTool(
+        {
+          kind: "mcp",
+          connectionId: "conn_1",
+          remoteName: "replacement",
+          catalogRevision: first.revision,
+        },
+        {},
+      ),
+      "catalog_stale",
+    );
+    assert.equal(protocol.calls.length, 0);
+  });
+
+  test("refreshes an expired catalog before preparing a tool call", async () => {
+    let now = 1_000;
+    const protocol = new FakeProtocol([
+      {
+        tools: [SEARCH_TOOL],
+        ttlMs: 1_000,
+      },
+    ]);
+    const client = makeClient(protocol, { now: () => now });
+    await client.connect();
+    const catalog = await client.refreshCatalog();
+
+    now += 1_001;
+    protocol.pages.splice(0, 1, {
+      tools: [tool("replacement", { type: "object", properties: {} })],
+      ttlMs: 1_000,
+      cacheScope: "private",
+    });
+
+    await assertMcpError(
+      client.callTool(
+        {
+          kind: "mcp",
+          connectionId: "conn_1",
+          remoteName: "search",
+          catalogRevision: catalog.revision,
+        },
+        { query: "stale" },
+      ),
+      "catalog_stale",
+    );
+    assert.equal(protocol.listCalls, 2);
+    assert.equal(protocol.calls.length, 0);
+    assert.deepEqual(
+      client.catalog?.tools.map((entry) => entry.name),
+      ["replacement"],
+    );
+  });
+
+  test("invalidates a TTL-held catalog after HEADER_MISMATCH without replaying", async () => {
+    const protocol = new FakeProtocol([
+      {
+        tools: [SEARCH_TOOL],
+        ttlMs: 60_000,
+      },
+    ]);
+    const client = makeClient(protocol, { now: () => 1_000 });
+    await client.connect();
+    const catalog = await client.refreshCatalog();
+    protocol.callError = new ProtocolError(-32020, "HEADER_MISMATCH");
+
+    await assertMcpError(
+      client.callTool(
+        {
+          kind: "mcp",
+          connectionId: "conn_1",
+          remoteName: "search",
+          catalogRevision: catalog.revision,
+        },
+        { query: "once" },
+      ),
+      "descriptor_mismatch",
+    );
+
+    assert.equal(client.catalog, null);
+    assert.equal(protocol.listCalls, 1);
+    assert.equal(protocol.calls.length, 1);
+    assert.equal(
+      isPreDeliveryErrorCode("descriptor_mismatch"),
+      false,
+      "a remote mismatch response crossed the delivery boundary",
+    );
   });
 
   test("fails closed on duplicate names and pagination loops", async () => {
@@ -204,6 +384,84 @@ describe("McpRawClient catalog", () => {
     const externalRefClient = makeClient(externalRef);
     await externalRefClient.connect();
     await assertMcpError(externalRefClient.refreshCatalog(), "invalid_schema");
+
+    const modelSelectedHeader = new FakeProtocol([
+      {
+        tools: [
+          tool("header_channel", {
+            type: "object",
+            properties: {
+              tenant: {
+                type: "string",
+                "x-mcp-header": "tenant",
+              },
+            },
+          } as Tool["inputSchema"]),
+        ],
+      },
+    ]);
+    const headerClient = makeClient(modelSelectedHeader);
+    await headerClient.connect();
+    await assertMcpError(headerClient.refreshCatalog(), "invalid_schema");
+  });
+
+  test("supports local $ref within schema bounds and rejects over-deep local schemas", async () => {
+    const localRefTool = tool(
+      "local_ref",
+      { type: "object", properties: {} },
+      {
+        outputSchema: {
+          $defs: {
+            result: {
+              type: "array",
+              items: { type: "integer" },
+            },
+          },
+          $ref: "#/$defs/result",
+        } as NonNullable<Tool["outputSchema"]>,
+      },
+    );
+    const localProtocol = new FakeProtocol([{ tools: [localRefTool] }]);
+    localProtocol.callResult = {
+      content: [{ type: "text", text: "ok" }],
+      structuredContent: [1, 2, 3],
+    } as McpProtocolCallResult;
+    const localClient = makeClient(localProtocol);
+    await localClient.connect();
+    const catalog = await localClient.refreshCatalog();
+
+    const result = await localClient.callTool(
+      {
+        kind: "mcp",
+        connectionId: "conn_1",
+        remoteName: "local_ref",
+        catalogRevision: catalog.revision,
+      },
+      {},
+    );
+    assert.equal(result.provenance.outputSchemaValidated, true);
+
+    let overDeep: Record<string, unknown> = { $ref: "#/$defs/result" };
+    for (let depth = 0; depth < 40; depth += 1) {
+      overDeep = { allOf: [overDeep] };
+    }
+    overDeep.$defs = { result: { type: "string" } };
+    const overDeepProtocol = new FakeProtocol([
+      {
+        tools: [
+          tool(
+            "over_deep_local_ref",
+            { type: "object", properties: {} },
+            {
+              outputSchema: overDeep as NonNullable<Tool["outputSchema"]>,
+            },
+          ),
+        ],
+      },
+    ]);
+    const overDeepClient = makeClient(overDeepProtocol);
+    await overDeepClient.connect();
+    await assertMcpError(overDeepClient.refreshCatalog(), "invalid_schema");
   });
 
   test("refuses $id/$anchor so a server cannot poison the shared validator cache", async () => {
@@ -269,7 +527,7 @@ describe("McpRawClient catalog", () => {
     );
   });
 
-  test("a list_changed notification invalidates authority until refresh", async () => {
+  test("a list_changed notification refreshes authority before the next call", async () => {
     const protocol = new FakeProtocol([{ tools: [SEARCH_TOOL] }]);
     const client = makeClient(protocol);
     await client.connect();
@@ -277,19 +535,18 @@ describe("McpRawClient catalog", () => {
     await protocol.emitToolsChanged();
 
     assert.equal(client.catalog, null);
-    await assertMcpError(
-      client.callTool(
-        {
-          kind: "mcp",
-          connectionId: "conn_1",
-          remoteName: "search",
-          catalogRevision: catalog.revision,
-        },
-        { query: "hello" },
-      ),
-      "catalog_required",
+    const result = await client.callTool(
+      {
+        kind: "mcp",
+        connectionId: "conn_1",
+        remoteName: "search",
+        catalogRevision: catalog.revision,
+      },
+      { query: "hello" },
     );
-    assert.equal(protocol.calls.length, 0);
+    assert.equal(result.outcome, "completed");
+    assert.equal(protocol.listCalls, 2);
+    assert.equal(protocol.calls.length, 1);
   });
 
   test("does not commit a snapshot invalidated during pagination", async () => {
@@ -301,6 +558,19 @@ describe("McpRawClient catalog", () => {
     await assertMcpError(client.refreshCatalog(), "catalog_stale");
 
     assert.equal(client.catalog, null);
+  });
+
+  test("a lost invalidation channel drops protocol and catalog authority", async () => {
+    const protocol = new FakeProtocol([{ tools: [SEARCH_TOOL] }]);
+    const client = makeClient(protocol);
+    await client.connect();
+    await client.refreshCatalog();
+
+    await protocol.emitConnectionUnhealthy();
+
+    assert.equal(client.catalog, null);
+    assert.equal(client.negotiatedServer, null);
+    await assertMcpError(client.refreshCatalog(), "not_connected");
   });
 });
 
@@ -358,7 +628,7 @@ describe("McpRawClient calls", () => {
     assert.equal(protocol.calls.length, 0);
   });
 
-  test("does not silently invoke tools that require experimental Tasks", async () => {
+  test("ignores the legacy execution.taskSupport field", async () => {
     const taskTool = tool(
       "long_job",
       { type: "object", properties: {} },
@@ -369,19 +639,18 @@ describe("McpRawClient calls", () => {
     await client.connect();
     const catalog = await client.refreshCatalog();
 
-    await assertMcpError(
-      client.callTool(
-        {
-          kind: "mcp",
-          connectionId: "conn_1",
-          remoteName: "long_job",
-          catalogRevision: catalog.revision,
-        },
-        {},
-      ),
-      "unsupported_task_tool",
+    const result = await client.callTool(
+      {
+        kind: "mcp",
+        connectionId: "conn_1",
+        remoteName: "long_job",
+        catalogRevision: catalog.revision,
+      },
+      {},
     );
-    assert.equal(protocol.calls.length, 0);
+
+    assert.equal(result.outcome, "completed");
+    assert.deepEqual(protocol.calls, [{ name: "long_job", args: {} }]);
   });
 
   test("preserves tool error state and bounds oversized untrusted results", async () => {
@@ -443,6 +712,84 @@ describe("McpRawClient calls", () => {
       ),
       "invalid_output",
     );
+  });
+
+  test("validates every JSON structuredContent shape and non-object output roots", async () => {
+    const cases: Array<{
+      name: string;
+      outputSchema: NonNullable<Tool["outputSchema"]>;
+      structuredContent: unknown;
+    }> = [
+      {
+        name: "primitive",
+        outputSchema: { type: "string" } as NonNullable<Tool["outputSchema"]>,
+        structuredContent: "ready",
+      },
+      {
+        name: "array",
+        outputSchema: {
+          type: "array",
+          items: { type: "number" },
+        } as NonNullable<Tool["outputSchema"]>,
+        structuredContent: [1, 2, 3],
+      },
+      {
+        name: "object",
+        outputSchema: {
+          type: "object",
+          properties: { ready: { const: true } },
+          required: ["ready"],
+          additionalProperties: false,
+        },
+        structuredContent: { ready: true },
+      },
+      {
+        name: "null",
+        outputSchema: { type: "null" } as NonNullable<Tool["outputSchema"]>,
+        structuredContent: null,
+      },
+    ];
+
+    for (const fixture of cases) {
+      const protocol = new FakeProtocol([
+        {
+          tools: [
+            tool(
+              fixture.name,
+              { type: "object", properties: {} },
+              {
+                outputSchema: fixture.outputSchema,
+              },
+            ),
+          ],
+        },
+      ]);
+      protocol.callResult = {
+        content: [{ type: "text", text: fixture.name }],
+        structuredContent: fixture.structuredContent,
+      } as McpProtocolCallResult;
+      const client = makeClient(protocol);
+      await client.connect();
+      const catalog = await client.refreshCatalog();
+
+      const result = await client.callTool(
+        {
+          kind: "mcp",
+          connectionId: "conn_1",
+          remoteName: fixture.name,
+          catalogRevision: catalog.revision,
+        },
+        {},
+      );
+
+      assert.equal(result.outcome, "completed", fixture.name);
+      assert.equal(result.provenance.outputSchemaValidated, true, fixture.name);
+      assert.deepEqual(
+        (result.result as { structuredContent: unknown }).structuredContent,
+        fixture.structuredContent,
+        fixture.name,
+      );
+    }
   });
 
   test("an invalid_output error carries the census computed at response time", async () => {
@@ -582,7 +929,11 @@ describe("McpRawClient calls", () => {
 
   test("turns session-expiry 404 into reconnect-required state without retrying the call", async () => {
     const protocol = new FakeProtocol([{ tools: [SEARCH_TOOL] }]);
-    protocol.callError = new StreamableHTTPError(404, "session expired");
+    protocol.callError = new SdkHttpError(
+      SdkErrorCode.ClientHttpFailedToOpenStream,
+      "session expired",
+      { status: 404 },
+    );
     const client = makeClient(protocol);
     await client.connect();
     const catalog = await client.refreshCatalog();
@@ -600,10 +951,44 @@ describe("McpRawClient calls", () => {
       "session_expired",
     );
 
-    assert.equal(protocol.calls.length, 0, "an expired write-capable call must never auto-retry");
+    assert.equal(protocol.calls.length, 1, "an expired write-capable call must never auto-retry");
     assert.equal(client.catalog, null);
     assert.equal(client.negotiatedServer, null);
     await assertMcpError(client.refreshCatalog(), "not_connected");
+  });
+
+  test("does not treat a post_2026_07_28 404 as a pre_2026_07_28 session expiry", async () => {
+    const protocol = new FakeProtocol([{ tools: [SEARCH_TOOL] }]);
+    protocol.negotiated = {
+      ...protocol.negotiated,
+      protocolEra: "post_2026_07_28",
+      protocolVersion: "2026-07-28",
+    };
+    const http404 = new SdkHttpError(
+      SdkErrorCode.ClientHttpFailedToOpenStream,
+      "modern route missing",
+      { status: 404 },
+    );
+    protocol.callError = http404;
+    const client = makeClient(protocol);
+    await client.connect();
+    const catalog = await client.refreshCatalog();
+
+    await assert.rejects(
+      client.callTool(
+        {
+          kind: "mcp",
+          connectionId: "conn_1",
+          remoteName: "search",
+          catalogRevision: catalog.revision,
+        },
+        { query: "hello" },
+      ),
+      (err: unknown) => err === http404,
+    );
+
+    assert.equal(client.catalog?.revision, catalog.revision);
+    assert.equal(client.negotiatedServer?.protocolEra, "post_2026_07_28");
   });
 
   test("close can explicitly terminate a remote session and clears the catalog", async () => {

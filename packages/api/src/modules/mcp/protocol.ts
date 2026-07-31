@@ -1,20 +1,54 @@
-import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import {
-  StreamableHTTPError,
+  Client,
+  MAX_CACHE_TTL_MS,
+  ProtocolError,
+  SdkHttpError,
   StreamableHTTPClientTransport,
+  type AuthProvider,
+  type CacheScope,
+  type ProtocolEra,
   type StreamableHTTPClientTransportOptions,
-} from "@modelcontextprotocol/sdk/client/streamableHttp.js";
-import type { Transport } from "@modelcontextprotocol/sdk/shared/transport.js";
-import { ToolListChangedNotificationSchema, type Tool } from "@modelcontextprotocol/sdk/types.js";
+  type Tool,
+  type Transport,
+} from "@modelcontextprotocol/client";
+
+const HEADER_MISMATCH_ERROR_CODE = -32020;
 
 export type McpProtocolCallResult = Awaited<ReturnType<Client["callTool"]>>;
 
 export interface McpProtocolPage {
   tools: Tool[];
+  ttlMs: number;
+  cacheScope: CacheScope;
   nextCursor?: string;
 }
 
-export interface McpNegotiatedServer {
+/**
+ * The one catalog of SDK era, Alfred era, and admitted protocol revision. A new
+ * SDK era is a compile error here, and every downstream union/allowlist derives
+ * from this table instead of restating the correlation.
+ */
+const MCP_PROTOCOL_PROFILES = {
+  legacy: {
+    protocolEra: "pre_2026_07_28",
+    protocolVersion: "2025-11-25",
+  },
+  modern: {
+    protocolEra: "post_2026_07_28",
+    protocolVersion: "2026-07-28",
+  },
+} as const satisfies Record<ProtocolEra, { protocolEra: string; protocolVersion: string }>;
+
+type McpProtocolProfile = (typeof MCP_PROTOCOL_PROFILES)[ProtocolEra];
+export type McpProtocolEra = McpProtocolProfile["protocolEra"];
+export const MCP_SUPPORTED_PROTOCOL_VERSIONS: readonly McpProtocolProfile["protocolVersion"][] =
+  Object.freeze(Object.values(MCP_PROTOCOL_PROFILES).map((profile) => profile.protocolVersion));
+const MCP_SUPPORTED_PROTOCOL_VERSION_SET: ReadonlySet<string> = new Set(
+  MCP_SUPPORTED_PROTOCOL_VERSIONS,
+);
+
+export interface McpProtocolServer {
+  protocolEra: McpProtocolEra;
   protocolVersion: string;
   serverName: string;
   serverVersion: string;
@@ -22,26 +56,31 @@ export interface McpNegotiatedServer {
   toolsListChanged: boolean;
 }
 
+type McpServerFacts = Omit<McpProtocolServer, "protocolEra" | "protocolVersion">;
+
+export type McpNegotiatedServer = McpServerFacts & McpProtocolProfile;
+
 /**
- * The small protocol surface Alfred v1 consumes. Keeping this interface below
+ * The small protocol surface Alfred consumes. Keeping this interface below
  * the execution broker prevents SDK/session details from leaking into the
  * model-facing registry and makes the trust boundary deterministic to test.
  */
 export interface McpProtocolClient {
-  connect(): Promise<McpNegotiatedServer>;
+  connect(): Promise<McpProtocolServer>;
   close(terminateSession: boolean): Promise<void>;
   listTools(cursor: string | undefined, signal?: AbortSignal): Promise<McpProtocolPage>;
   callTool(
-    name: string,
+    tool: Tool,
     args: Record<string, unknown>,
     signal?: AbortSignal,
   ): Promise<McpProtocolCallResult>;
   onToolsChanged(handler: () => void | Promise<void>): void;
+  onConnectionUnhealthy(handler: (error: Error) => void | Promise<void>): void;
 }
 
 export interface SdkMcpProtocolClientOptions {
   endpoint: URL;
-  authProvider?: StreamableHTTPClientTransportOptions["authProvider"];
+  authProvider?: AuthProvider;
   fetch?: StreamableHTTPClientTransportOptions["fetch"];
   requestTimeoutMs: number;
 }
@@ -51,37 +90,87 @@ export class SdkMcpProtocolClient implements McpProtocolClient {
   readonly #client: Client;
   readonly #transport: StreamableHTTPClientTransport;
   readonly #requestTimeoutMs: number;
+  #toolsChangedHandler: (() => void | Promise<void>) | null = null;
+  #connectionUnhealthyHandler: ((error: Error) => void | Promise<void>) | null = null;
+  #closing = false;
 
   constructor(options: SdkMcpProtocolClientOptions) {
-    // Empty capabilities are intentional: Alfred v1 does not offer roots,
+    const authProvider = options.authProvider;
+    // Empty capabilities are intentional: Alfred does not offer roots,
     // sampling, or elicitation to an untrusted remote server.
     this.#client = new Client(
       { name: "alfred", version: "1" },
-      { capabilities: {}, enforceStrictCapabilities: true },
+      {
+        capabilities: {},
+        enforceStrictCapabilities: true,
+        versionNegotiation: { mode: "auto" },
+        inputRequired: { autoFulfill: false },
+        listChanged: {
+          tools: {
+            autoRefresh: false,
+            debounceMs: 0,
+            onChanged: () => {
+              void this.#toolsChangedHandler?.();
+            },
+          },
+        },
+      },
     );
     this.#transport = new StreamableHTTPClientTransport(options.endpoint, {
-      ...(options.authProvider ? { authProvider: options.authProvider } : {}),
+      // Token reads are safe before each request. Transport-owned recovery is
+      // not: both 401 refresh and insufficient-scope step-up resend the same
+      // JSON-RPC message below Alfred's invocation ledger.
+      ...(authProvider ? { authProvider: { token: () => authProvider.token() } } : {}),
+      onInsufficientScope: "throw",
       ...(options.fetch ? { fetch: options.fetch } : {}),
     });
     this.#requestTimeoutMs = options.requestTimeoutMs;
   }
 
   onToolsChanged(handler: () => void | Promise<void>): void {
-    this.#client.setNotificationHandler(ToolListChangedNotificationSchema, handler);
+    this.#toolsChangedHandler = handler;
   }
 
-  async connect(): Promise<McpNegotiatedServer> {
+  onConnectionUnhealthy(handler: (error: Error) => void | Promise<void>): void {
+    this.#connectionUnhealthyHandler = handler;
+  }
+
+  async connect(): Promise<McpProtocolServer> {
+    this.#closing = false;
     // Third-party variance gap, not a claim about our types: the MCP SDK's own
     // transport classes declare `sessionId?: string | undefined` / `onclose?:
     // (() => void) | undefined` while its `Transport` interface declares those
     // keys narrow, so under `exactOptionalPropertyTypes` the SDK's class does
     // not structurally satisfy the SDK's own interface. Nothing on our side can
     // reconcile the two.
-    await this.#client.connect(this.#transport as Transport);
+    await this.#client.connect(
+      this.#transport as Transport,
+      requestOptions(this.#requestTimeoutMs),
+    );
     const capabilities = this.#client.getServerCapabilities();
     const server = this.#client.getServerVersion();
+    const protocolEra = this.#era();
+    const protocolVersion = this.#client.getNegotiatedProtocolVersion();
+    if (!protocolEra || !protocolVersion) {
+      throw new Error("MCP SDK connected without a negotiated protocol era and version");
+    }
+    if (protocolEra === "post_2026_07_28" && capabilities?.tools?.listChanged === true) {
+      const subscription = this.#client.autoOpenedSubscription;
+      if (!subscription) {
+        throw new Error(
+          "MCP server advertised tools list changes, but the modern list-change subscription did not open",
+        );
+      }
+      void subscription.closed.then((cause) => {
+        if (this.#closing || cause === "local") return;
+        void this.#connectionUnhealthyHandler?.(
+          new Error(`MCP modern list-change subscription closed (${cause})`),
+        );
+      });
+    }
     return {
-      protocolVersion: this.#transport.protocolVersion ?? "",
+      protocolEra,
+      protocolVersion,
       serverName: server?.name ?? "unknown",
       serverVersion: server?.version ?? "unknown",
       hasTools: capabilities?.tools !== undefined,
@@ -89,8 +178,14 @@ export class SdkMcpProtocolClient implements McpProtocolClient {
     };
   }
 
+  #era(): McpProtocolEra | null {
+    const era = this.#client.getProtocolEra();
+    return era ? MCP_PROTOCOL_PROFILES[era].protocolEra : null;
+  }
+
   async close(terminateSession: boolean): Promise<void> {
-    if (terminateSession && this.#transport.sessionId) {
+    this.#closing = true;
+    if (terminateSession && this.#era() === "pre_2026_07_28" && this.#transport.sessionId) {
       try {
         await this.#transport.terminateSession();
       } catch {
@@ -102,39 +197,91 @@ export class SdkMcpProtocolClient implements McpProtocolClient {
   }
 
   async listTools(cursor: string | undefined, signal?: AbortSignal): Promise<McpProtocolPage> {
-    const result = await this.#client.listTools(
-      cursor ? { cursor } : undefined,
+    // `Client.listTools(undefined)` auto-aggregates and caches every page. Use
+    // the request primitive so Alfred alone owns pagination, bounds, and the
+    // immutable catalog that later calls are allowed to consume.
+    const result = await this.#client.request(
+      {
+        method: "tools/list",
+        params: cursor ? { cursor } : {},
+      },
       requestOptions(this.#requestTimeoutMs, signal),
     );
     return {
       tools: result.tools,
+      ttlMs: normalizeCacheTtl(result.ttlMs),
+      cacheScope: result.cacheScope === "public" ? "public" : "private",
       ...(result.nextCursor ? { nextCursor: result.nextCursor } : {}),
     };
   }
 
   async callTool(
-    name: string,
+    tool: Tool,
     args: Record<string, unknown>,
     signal?: AbortSignal,
   ): Promise<McpProtocolCallResult> {
     return this.#client.callTool(
-      { name, arguments: args },
-      undefined,
-      requestOptions(this.#requestTimeoutMs, signal),
+      { name: tool.name, arguments: args },
+      {
+        ...requestOptions(this.#requestTimeoutMs, signal),
+        // This exact, Alfred-admitted descriptor bypasses the SDK list cache
+        // and disables its HEADER_MISMATCH refetch-and-replay branch.
+        toolDefinition: tool,
+      },
     );
   }
 }
 
+function normalizeCacheTtl(value: unknown): number {
+  if (typeof value !== "number" || !Number.isFinite(value)) return 0;
+  return Math.min(Math.max(0, value), MAX_CACHE_TTL_MS);
+}
+
 export function isMcpSessionExpiredError(err: unknown): boolean {
-  return err instanceof StreamableHTTPError && err.code === 404;
+  return err instanceof SdkHttpError && err.status === 404;
+}
+
+export function isMcpDescriptorMismatchError(err: unknown): boolean {
+  return ProtocolError.isInstance(err) && err.code === HEADER_MISMATCH_ERROR_CODE;
+}
+
+export function parseMcpNegotiatedServer(server: McpProtocolServer): McpNegotiatedServer {
+  const profile = Object.values(MCP_PROTOCOL_PROFILES).find(
+    (candidate) =>
+      candidate.protocolEra === server.protocolEra &&
+      candidate.protocolVersion === server.protocolVersion,
+  );
+  if (profile) {
+    const facts = {
+      serverName: server.serverName,
+      serverVersion: server.serverVersion,
+      hasTools: server.hasTools,
+      toolsListChanged: server.toolsListChanged,
+    };
+    switch (profile.protocolEra) {
+      case "pre_2026_07_28":
+        return { ...facts, ...profile };
+      case "post_2026_07_28":
+        return { ...facts, ...profile };
+    }
+  }
+  const version = server.protocolVersion || "unknown";
+  if (!MCP_SUPPORTED_PROTOCOL_VERSION_SET.has(version)) {
+    throw new Error(
+      `Alfred MCP supports protocols ${MCP_SUPPORTED_PROTOCOL_VERSIONS.join(" and ")}; server negotiated ${version}`,
+    );
+  }
+  throw new Error(
+    `MCP protocol era '${server.protocolEra}' does not match negotiated version ${version}`,
+  );
 }
 
 function requestOptions(timeout: number, signal?: AbortSignal) {
   // `maxTotalTimeout === timeout` deliberately collapses the SDK's progress-based
   // timeout EXTENSION: a server streaming progress notifications can otherwise
   // keep a `tools/call` alive past `timeout`, blurring the delivery boundary the
-  // broker's ambiguity ledger depends on. This is NOT a retry — the SDK never
-  // re-sends a `tools/call` — but capping total time keeps a single attempt from
-  // silently outliving its window. See the no-replay invariant in `broker.ts`.
+  // broker's ambiguity ledger depends on. Capping total time keeps a single
+  // attempt from silently outliving its window. Replay is separately disabled
+  // at the transport and `callTool` boundaries above.
   return { timeout, maxTotalTimeout: timeout, ...(signal ? { signal } : {}) };
 }

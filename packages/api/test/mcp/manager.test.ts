@@ -4,7 +4,7 @@ import { after, before, describe, test } from "node:test";
 
 import { closeConnections, db } from "@alfred/db";
 import { user } from "@alfred/db/schemas";
-import type { Tool } from "@modelcontextprotocol/sdk/types.js";
+import type { Tool } from "@modelcontextprotocol/client";
 import { inArray, like } from "drizzle-orm";
 
 import {
@@ -33,6 +33,7 @@ class FakeProtocol implements McpProtocolClient {
   tools: Tool[];
   callResult: McpProtocolCallResult = { content: [{ type: "text", text: "ok" }] };
   negotiated: McpNegotiatedServer = {
+    protocolEra: "pre_2026_07_28",
     protocolVersion: "2025-11-25",
     serverName: "fake",
     serverVersion: "1",
@@ -42,6 +43,7 @@ class FakeProtocol implements McpProtocolClient {
 
   /** Set to reject `connect()` — exercises the manager's failure branch. */
   connectError: Error | null = null;
+  #toolsChanged: (() => void | Promise<void>) | null = null;
 
   constructor(tools: Tool[]) {
     this.tools = tools;
@@ -53,12 +55,18 @@ class FakeProtocol implements McpProtocolClient {
   }
   async close(): Promise<void> {}
   async listTools(): Promise<McpProtocolPage> {
-    return { tools: this.tools };
+    return { tools: this.tools, ttlMs: 0, cacheScope: "private" };
   }
   async callTool(): Promise<McpProtocolCallResult> {
     return this.callResult;
   }
-  onToolsChanged(): void {}
+  onToolsChanged(handler: () => void | Promise<void>): void {
+    this.#toolsChanged = handler;
+  }
+  onConnectionUnhealthy(): void {}
+  async emitToolsChanged(): Promise<void> {
+    await this.#toolsChanged?.();
+  }
 }
 
 function tool(name: string): Tool {
@@ -142,6 +150,25 @@ describe("mcp connection manager (DB-backed)", { skip: SKIP }, () => {
     const snapshot = await manager.refreshCatalog(connId);
     assert.equal(snapshot.tools.length, 2);
     assert.notEqual((await readConnection(connId))?.currentCatalogRevisionId, firstRevisionId);
+  });
+
+  test("list_changed clears and replaces the durable catalog revision", async () => {
+    const connId = await seedConnection();
+    const protocol = new FakeProtocol([tool("tool_a")]);
+    const manager = managerWith(protocol);
+
+    await manager.getReadyClient(connId);
+    const first = await readConnection(connId);
+    assert.ok(first?.currentCatalogRevisionId);
+
+    protocol.tools = [tool("tool_b")];
+    await protocol.emitToolsChanged();
+    await manager.getReadyClient(connId);
+
+    const second = await readConnection(connId);
+    assert.equal(second?.status, "ready");
+    assert.ok(second?.currentCatalogRevisionId);
+    assert.notEqual(second?.currentCatalogRevisionId, first.currentCatalogRevisionId);
   });
 
   test("callTool routes through the ready client against the live revision", async () => {
