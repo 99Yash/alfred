@@ -16,6 +16,10 @@
 >
 > **Amended 2026-07-31T14:10Z.** PR #611 completed #555's acceptance coverage,
 > #555 is closed, and `main` is green again. The order itself does not change.
+>
+> **Amended 2026-07-31T14:18Z.** The final Tier 0 reconciliation is complete:
+> #232 now owns only the outbound Calendar invite floor, and that finding has
+> moved out of #163. #234 now records the same ownership boundary.
 
 135 issues were open when this order was written. 26 of them are newer than the
 last tier artifact. The campaign holds 26 more items that are not issues at all.
@@ -71,6 +75,9 @@ and they hide the real order.
 Close them as a batch. **One exception first:** #163 names an unguarded calendar
 invite channel, a sibling of #134. Lift that item out before you close #163.
 
+> Done 2026-07-31. The invite item now belongs to #232. #163 contains only its
+> two remaining tool-dispatch reliability findings.
+
 ## Tier 0. Now. Five items, all verified, all small.
 
 Each claim below was checked against the code today, not read off the issue.
@@ -112,7 +119,7 @@ below was re-checked against `main` at `932dd8e7`.
 | 1 · #453 vault          | **landed, not rolled out**                | PR #604, merged 08:09Z. `packages/db/src/credential-vault.ts`, `credential-envelope.ts`, `credential-vault-maintenance.ts` and `docs/runbooks/oauth-credential-vault-rollout.md` are on `main`. The PR body says `Refs #453`, not `Closes`, on purpose: the rollout is a maintenance window. See the next section.                                                                                                                                                                                                                                                                                                                                 |
 | 2 · #455 better-auth    | **built, on a branch**                    | The catalog floor moves `^1.3.28` -> `^1.6.11` and the lockfile resolves 1.6.25. The floor **is** the fix: 1.6.11 added the missing local-`emailVerified` check and defaults `requireLocalEmailVerified` to true. 3 tests in `packages/api/test/auth/account-linking.test.ts` — two pin the version from opposite ends (lockfile, catalog range), one asserts the default is never set to `false`. `disableImplicitLinking` was tried and dropped: with Google as the only sign-in path it can never fire, and it would refuse a later magic-link-first user's Google link with no in-app escape. See ADR-0009's 2026-07-30 correction.            |
 | 3 · #457 Gmail webhook  | **closed as a duplicate of #291**         | PR #320 fixed it on 2026-06-28. `assertGmailPushOidcConfigured` (`gmail-push-config.ts:33`) throws when the audience is unset, and `verifyPubSubOidcForGmailWebhook` (`gmail-webhook.ts:88-93`) calls it before it returns. The skip survives only when `NODE_ENV !== "production"` **and** no push topic is set.                                                                                                                                                                                                                                                                                                                                  |
-| 4 · #232 outbound floor | **already enforced. Re-scope the issue.** | The floor is `toolRequiresApproval` (`dispatch/index.ts:933`): `policyMode === "gated"                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                             |     | riskTier === "high"`. A `high`tool gates under`autonomy`too.`gmail.send_draft`is`high` (`tools/gmail.ts:270`), and `registry.ts:372-396`refuses a`fast_path` tool that could ever gate. PR #577 preserved that contract. |
+| 4 · #232 outbound floor | **already enforced. Re-scope the issue.** | The floor is `toolRequiresApproval` (`dispatch/index.ts:933`): `policyMode === "gated" \|\| riskTier === "high"`. A `high` tool gates under `autonomy` too. `gmail.send_draft` is `high` (`tools/gmail.ts:270`), and `registry.ts:372-396` refuses a `fast_path` tool that could ever gate. PR #577 preserved that contract. |
 | 5 · #533 outbox reaper  | **built, on a branch**                    | `packages/api/src/events/outbox-reaper.ts` deletes published rows past `OUTBOX_RETENTION_MS` in bounded id pages, hourly, and exempts `published_at IS NULL`. 8 database-backed tests, plus 7 for the shared `PeriodicTask` lifecycle it now runs on. A structural review caught two real defects in the first cut: the `DELETE` used `id IN (subquery)`, which Postgres plans as a sequential scan of the whole table (91ms / 12,540 buffers at 800k rows, 20 times an hour) — now `id = any(array(...))`, an index scan at 2.5ms; and the pass never checked its stop flag between batches, so the documented shutdown protection did not exist. |
 
 Items 3 and 4 are the two the order got wrong. The order claimed each was checked
@@ -133,6 +140,10 @@ not exist because the floor is spelled `riskTier === "high"`.
   cannot leave without approval, but no recipient allow-list exists anywhere in
   `packages/api/src` or `packages/integrations/src`. #134 is about the
   allow-list, not about the gate.
+
+> Completed 2026-07-31. #232 is now the input-dependent invite floor:
+> `calendar.create_event` with attendees must resolve to `high`; an event with
+> no attendees keeps its current tier. #163 no longer owns this finding.
 
 So the live Tier 0 queue is one item: **finish the #453 rollout.** #455 and #533
 are built on `fix/tier0-better-auth-outbox-retention`.
@@ -327,16 +338,18 @@ GitHub and Railway, not read off a PR title.
 
 The order does not change. Three things about the _state_ do.
 
-## 1. Tier 0 is finished
+## 1. Tier 0 reconciliation is finished
 
-All five items are resolved and the four that were issues are closed.
+The original five-item reconciliation is complete. The broad #232 claim was
+already fixed in code; #232 remains open only for the narrower Calendar invite
+hole that the reconciliation isolated.
 
 | Item                    | Phase                                                | Receipt                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                              |
 | ----------------------- | ---------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | 1 · #453 vault          | **rolled out. #453 closed 05:26:58Z.**               | `OAUTH_CREDENTIAL_KEK` is set on the Railway `server` service and in `apps/server/.env`. Deployment `a7957d0e` is SUCCESS on `70ba61e9`, `api.alfred.beauty` answers 200, and the boot gate passed. The conversion pass was a **no-op**: `account` and `integration_credentials` both held 0 rows, and `db:encrypt-credentials:check` reported 0 plaintext and 0 unopenable before the deploy. So the runbook ran, but no ciphertext exists yet. The first Google sign-in writes the first sealed row, and that write is the real test of the vault. |
 | 2 · #455 better-auth    | **merged. #455 closed 2026-07-30T10:01Z.**           | PR #606. Live in production from `a7957d0e`.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                         |
 | 3 · #457 Gmail webhook  | **closed 2026-07-30T08:37Z** as a duplicate of #291. | No code change. The 07-30 correction was right.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                      |
-| 4 · #232 outbound floor | **open, and still not re-scoped.**                   | The order told you to shrink #232 to the invite floor. #232 still carries its old title and its old body, so the issue still claims a hole that `toolRequiresApproval` closed. **This is the one piece of Tier 0 paperwork left.** #134 also stays open on its separate allow-list residual.                                                                                                                                                                                                                                                         |
+| 4 · #232 outbound floor | **re-scoped 2026-07-31; invite floor remains open.** | #232 now covers only `calendar.create_event` with non-empty `attendees`: resolve it as `high`, then let the existing floor require approval under `autonomy`. Events without attendees keep the current policy behavior. The Calendar item is no longer in #163, and #134 stays separate for Gmail allow-list and draft-first work.                                                                                                                                                                                                    |
 | 5 · #533 outbox reaper  | **merged. #533 closed 2026-07-30T10:01Z.**           | PR #606. `a7957d0e` logs `[outbox-reaper] started`.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                  |
 
 PR #606 is also the **first PR of the campaign era to carry a closing keyword**.
@@ -487,15 +500,17 @@ came to sit with none in flight.
   `apps/web/tsconfig.test.json` is still the only test tsconfig. The test file
   count is now **236**, not the 225 this order corrected it to, and not the 201
   the issue claims. Campaign item 11 still closes it.
-- **The ~20 residue issues are all still open.** Tier 4 did not run. #163 still
-  holds the calendar-invite item that #232's re-scope needs.
+- **The ~20 residue issues are all still open.** Tier 4 did not run. The one
+  extraction is complete: #232 now owns the Calendar invite floor, and #163
+  contains only its two remaining tool-dispatch reliability findings.
 - **#580, #159 and #532** are still real, exactly as the "Four that look done"
   section says.
 
 ## The live queue, 2026-07-31
 
-1. **Re-scope #232** to the outbound _invite_ floor, and lift the calendar item
-   out of #163. This is the last of Tier 0.
-2. **Decide about #547** before its next PR. Rank it or pause it.
-3. Then **#556**, and the rest of #553 in order.
-4. Remove the `workflow-revisions-555` worktree.
+Tier 0 has no remaining reconciliation work. #232 stays open as a precisely
+scoped outbound-safety implementation issue.
+
+1. **Decide about #547** before its next PR. Rank it or pause it.
+2. Then **#556**, and the rest of #553 in order.
+3. Remove the `workflow-revisions-555` worktree.
