@@ -43,18 +43,22 @@ to legacy session expiry.
 
 ### 2. Cross-era catalog invalidation and cache hints
 
-Status: partially implemented in PR #607
+Status: implemented in PR #607 and its cache-hint follow-up
 
 - Use the SDK cross-era `listChanged.tools` callback with `autoRefresh: false`.
   Implemented in PR #607.
 - Test both the legacy notification and modern `subscriptions/listen`.
   Implemented in PR #607, including subscription-open failure and closure.
-- Carry `ttlMs` and `cacheScope` through `McpProtocolPage`.
+- Carry `ttlMs` and `cacheScope` through `McpProtocolPage`. Implemented in the
+  cache-hint follow-up with conservative `0` / `private` defaults.
 - Keep one full, bounded, multi-page refresh as the only revision publication
-  path.
+  path. Implemented; page-one hints apply only after the complete catalog is
+  admitted.
 - Treat a change event or descriptor mismatch as stronger than any TTL.
+  Implemented with modern wire and revision-authority regression tests.
 - Keep cache data private to one connection and user. Do not share `public`
-  cache entries yet.
+  cache entries yet. Implemented by retaining hints only on each live raw
+  client; no cross-client cache store exists.
 
 Gate: both eras invalidate the current revision; a change during pagination
 cannot publish; no cache hint can preserve stale descriptor authority.

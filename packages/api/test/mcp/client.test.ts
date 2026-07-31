@@ -10,9 +10,13 @@ import {
   type McpProtocolServer,
 } from "../../src/modules/mcp";
 
+type FakePage = Omit<McpProtocolPage, "ttlMs" | "cacheScope"> &
+  Partial<Pick<McpProtocolPage, "ttlMs" | "cacheScope">>;
+
 class FakeProtocol implements McpProtocolClient {
   readonly pages: McpProtocolPage[];
   readonly calls: Array<{ name: string; args: Record<string, unknown> }> = [];
+  listCalls = 0;
   connected = false;
   closedWithTerminate: boolean | null = null;
   callResult: McpProtocolCallResult = { content: [{ type: "text", text: "ok" }] };
@@ -30,8 +34,12 @@ class FakeProtocol implements McpProtocolClient {
   #toolsChanged: (() => void | Promise<void>) | null = null;
   #connectionUnhealthy: ((error: Error) => void | Promise<void>) | null = null;
 
-  constructor(pages: McpProtocolPage[]) {
-    this.pages = pages;
+  constructor(pages: FakePage[]) {
+    this.pages = pages.map((page) => ({
+      ttlMs: 0,
+      cacheScope: "private",
+      ...page,
+    }));
   }
 
   async connect(): Promise<McpProtocolServer> {
@@ -45,10 +53,11 @@ class FakeProtocol implements McpProtocolClient {
   }
 
   async listTools(cursor: string | undefined): Promise<McpProtocolPage> {
+    this.listCalls += 1;
     await this.listHook?.();
     const index = cursor ? Number(cursor) : 0;
     const page = this.pages[index];
-    if (!page) return { tools: [] };
+    if (!page) return { tools: [], ttlMs: 0, cacheScope: "private" };
     return page;
   }
 
@@ -198,6 +207,73 @@ describe("McpRawClient catalog", () => {
 
     const second = await client.refreshCatalog();
     assert.equal(second.revision, first.revision, "same descriptors must keep the same authority");
+    assert.equal(protocol.listCalls, 4, "ttlMs: 0 must fetch every page again");
+  });
+
+  test("uses page-one cache hints without allowing TTL to preserve stale authority", async () => {
+    let now = 1_000;
+    const replacement = tool("replacement", { type: "object", properties: {} });
+    const protocol = new FakeProtocol([
+      {
+        tools: [SEARCH_TOOL],
+        nextCursor: "1",
+        ttlMs: 60_000,
+        cacheScope: "public",
+      },
+      {
+        tools: [],
+        ttlMs: 1,
+        cacheScope: "private",
+      },
+    ]);
+    const client = makeClient(protocol, { now: () => now });
+    await client.connect();
+
+    const first = await client.refreshCatalog();
+    assert.equal(first.ttlMs, 60_000);
+    assert.equal(first.cacheScope, "public");
+    assert.equal(protocol.listCalls, 2);
+
+    now += 59_000;
+    assert.equal(await client.refreshCatalog(), first);
+    assert.equal(protocol.listCalls, 2, "a fresh positive TTL may avoid a wire refresh");
+
+    protocol.pages.splice(0, protocol.pages.length, {
+      tools: [replacement],
+      ttlMs: 60_000,
+      cacheScope: "private",
+    });
+    await protocol.emitToolsChanged();
+    assert.equal(client.catalog, null);
+    await assertMcpError(
+      client.callTool(
+        {
+          kind: "mcp",
+          connectionId: "conn_1",
+          remoteName: "search",
+          catalogRevision: first.revision,
+        },
+        { query: "stale" },
+      ),
+      "catalog_required",
+    );
+
+    const second = await client.refreshCatalog();
+    assert.equal(protocol.listCalls, 3, "list_changed must override the unexpired TTL");
+    assert.notEqual(second.revision, first.revision);
+    await assertMcpError(
+      client.callTool(
+        {
+          kind: "mcp",
+          connectionId: "conn_1",
+          remoteName: "replacement",
+          catalogRevision: first.revision,
+        },
+        {},
+      ),
+      "catalog_stale",
+    );
+    assert.equal(protocol.calls.length, 0);
   });
 
   test("fails closed on duplicate names and pagination loops", async () => {
