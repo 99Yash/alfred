@@ -9,6 +9,7 @@ import {
   type McpProtocolPage,
   type McpProtocolServer,
 } from "../../src/modules/mcp";
+import { isPreDeliveryErrorCode } from "../../src/modules/mcp/errors";
 
 type FakePage = Omit<McpProtocolPage, "ttlMs" | "cacheScope"> &
   Partial<Pick<McpProtocolPage, "ttlMs" | "cacheScope">>;
@@ -62,8 +63,8 @@ class FakeProtocol implements McpProtocolClient {
   }
 
   async callTool(tool: Tool, args: Record<string, unknown>): Promise<McpProtocolCallResult> {
-    if (this.callError) throw this.callError;
     this.calls.push({ name: tool.name, args });
+    if (this.callError) throw this.callError;
     return this.callResult;
   }
 
@@ -337,12 +338,17 @@ describe("McpRawClient catalog", () => {
         },
         { query: "once" },
       ),
-      "catalog_stale",
+      "descriptor_mismatch",
     );
 
     assert.equal(client.catalog, null);
     assert.equal(protocol.listCalls, 1);
-    assert.equal(protocol.calls.length, 0);
+    assert.equal(protocol.calls.length, 1);
+    assert.equal(
+      isPreDeliveryErrorCode("descriptor_mismatch"),
+      false,
+      "a remote mismatch response crossed the delivery boundary",
+    );
   });
 
   test("fails closed on duplicate names and pagination loops", async () => {
@@ -945,7 +951,7 @@ describe("McpRawClient calls", () => {
       "session_expired",
     );
 
-    assert.equal(protocol.calls.length, 0, "an expired write-capable call must never auto-retry");
+    assert.equal(protocol.calls.length, 1, "an expired write-capable call must never auto-retry");
     assert.equal(client.catalog, null);
     assert.equal(client.negotiatedServer, null);
     await assertMcpError(client.refreshCatalog(), "not_connected");

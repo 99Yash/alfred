@@ -144,6 +144,36 @@ export async function updateConnection(
   return row;
 }
 
+export interface CompareAndSetCatalogRevisionInput {
+  connectionId: string;
+  expectedCurrentRevisionId: string | null;
+  nextRevisionId: string | null;
+  patch: Omit<McpConnectionUpdate, "currentCatalogRevisionId">;
+}
+
+/**
+ * Change catalog authority only if no other worker changed the durable pointer
+ * since this operation began. A losing publisher must fetch again; a stale
+ * invalidator must not clear a newer worker's revision.
+ */
+export async function compareAndSetCatalogRevision(
+  input: CompareAndSetCatalogRevisionInput,
+  runner: Db = db(),
+): Promise<McpConnection | undefined> {
+  const expectedPointer = input.expectedCurrentRevisionId
+    ? eq(mcpConnections.currentCatalogRevisionId, input.expectedCurrentRevisionId)
+    : isNull(mcpConnections.currentCatalogRevisionId);
+  const [row] = await runner
+    .update(mcpConnections)
+    .set({
+      ...input.patch,
+      currentCatalogRevisionId: input.nextRevisionId,
+    })
+    .where(and(eq(mcpConnections.id, input.connectionId), expectedPointer))
+    .returning();
+  return row;
+}
+
 // ===========================================================================
 // Catalog revisions (immutable, append-only)
 // ===========================================================================
