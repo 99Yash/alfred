@@ -23,6 +23,7 @@ export {
   SdkMcpProtocolClient,
   type McpProtocolCallResult,
   type McpProtocolClient,
+  type McpProtocolEra,
   type McpProtocolPage,
   type McpProtocolServer,
   type McpNegotiatedServer,

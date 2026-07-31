@@ -33,7 +33,7 @@ class FakeProtocol implements McpProtocolClient {
   tools: Tool[];
   callResult: McpProtocolCallResult = { content: [{ type: "text", text: "ok" }] };
   negotiated: McpNegotiatedServer = {
-    protocolEra: "legacy",
+    protocolEra: "pre_2026_07_28",
     protocolVersion: "2025-11-25",
     serverName: "fake",
     serverVersion: "1",

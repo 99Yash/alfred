@@ -18,7 +18,7 @@ class FakeProtocol implements McpProtocolClient {
   callResult: McpProtocolCallResult = { content: [{ type: "text", text: "ok" }] };
   connectError: Error | null = null;
   negotiated: McpProtocolServer = {
-    protocolEra: "legacy",
+    protocolEra: "pre_2026_07_28",
     protocolVersion: "2025-11-25",
     serverName: "fake",
     serverVersion: "1",
@@ -136,16 +136,16 @@ describe("McpRawClient catalog", () => {
     await assertMcpError(client.refreshCatalog(), "not_connected");
   });
 
-  test("allows the modern and legacy revisions, and rejects other versions", async () => {
+  test("allows the 2025-11-25 and 2026-07-28 revisions, and rejects other versions", async () => {
     const modernProtocol = new FakeProtocol([{ tools: [] }]);
     modernProtocol.negotiated = {
       ...modernProtocol.negotiated,
-      protocolEra: "modern",
+      protocolEra: "post_2026_07_28",
       protocolVersion: "2026-07-28",
     };
     const modernClient = makeClient(modernProtocol);
     await modernClient.connect();
-    assert.equal(modernClient.negotiatedServer?.protocolEra, "modern");
+    assert.equal(modernClient.negotiatedServer?.protocolEra, "post_2026_07_28");
 
     const oldProtocol = new FakeProtocol([{ tools: [] }]);
     oldProtocol.negotiated.protocolVersion = "2025-06-18";
@@ -156,7 +156,7 @@ describe("McpRawClient catalog", () => {
     const mismatched = new FakeProtocol([{ tools: [] }]);
     mismatched.negotiated = {
       ...mismatched.negotiated,
-      protocolEra: "modern",
+      protocolEra: "post_2026_07_28",
       protocolVersion: "2025-11-25",
     };
     await assertMcpError(makeClient(mismatched).connect(), "unsupported_protocol_version");
@@ -649,11 +649,11 @@ describe("McpRawClient calls", () => {
     await assertMcpError(client.refreshCatalog(), "not_connected");
   });
 
-  test("does not treat a modern 404 as legacy session expiry", async () => {
+  test("does not treat a post_2026_07_28 404 as a pre_2026_07_28 session expiry", async () => {
     const protocol = new FakeProtocol([{ tools: [SEARCH_TOOL] }]);
     protocol.negotiated = {
       ...protocol.negotiated,
-      protocolEra: "modern",
+      protocolEra: "post_2026_07_28",
       protocolVersion: "2026-07-28",
     };
     const http404 = new SdkHttpError(
@@ -680,7 +680,7 @@ describe("McpRawClient calls", () => {
     );
 
     assert.equal(client.catalog?.revision, catalog.revision);
-    assert.equal(client.negotiatedServer?.protocolEra, "modern");
+    assert.equal(client.negotiatedServer?.protocolEra, "post_2026_07_28");
   });
 
   test("close can explicitly terminate a remote session and clears the catalog", async () => {

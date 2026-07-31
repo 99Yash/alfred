@@ -16,8 +16,25 @@ export interface McpProtocolPage {
   nextCursor?: string;
 }
 
+/**
+ * Alfred's name for the two MCP protocol generations, keyed to the spec revision
+ * that separates them. The SDK calls them `legacy` and `modern`, but those names
+ * move: the next revision makes today's `modern` the new legacy. The date does
+ * not move. `post_2026_07_28` includes the 2026-07-28 revision itself.
+ */
+export type McpProtocolEra = "pre_2026_07_28" | "post_2026_07_28";
+
+/**
+ * The only place SDK era names enter Alfred. A `Record` keyed on the SDK union
+ * makes a third SDK era a compile error here instead of a silent default.
+ */
+const MCP_PROTOCOL_ERAS: Record<ProtocolEra, McpProtocolEra> = {
+  legacy: "pre_2026_07_28",
+  modern: "post_2026_07_28",
+};
+
 export interface McpProtocolServer {
-  protocolEra: ProtocolEra;
+  protocolEra: McpProtocolEra;
   protocolVersion: string;
   serverName: string;
   serverVersion: string;
@@ -29,11 +46,11 @@ type McpServerFacts = Omit<McpProtocolServer, "protocolEra" | "protocolVersion">
 
 export type McpNegotiatedServer =
   | (McpServerFacts & {
-      protocolEra: "legacy";
+      protocolEra: "pre_2026_07_28";
       protocolVersion: "2025-11-25";
     })
   | (McpServerFacts & {
-      protocolEra: "modern";
+      protocolEra: "post_2026_07_28";
       protocolVersion: "2026-07-28";
     });
 
@@ -115,7 +132,7 @@ export class SdkMcpProtocolClient implements McpProtocolClient {
     await this.#client.connect(this.#transport as Transport);
     const capabilities = this.#client.getServerCapabilities();
     const server = this.#client.getServerVersion();
-    const protocolEra = this.#client.getProtocolEra();
+    const protocolEra = this.#era();
     const protocolVersion = this.#client.getNegotiatedProtocolVersion();
     if (!protocolEra || !protocolVersion) {
       throw new Error("MCP SDK connected without a negotiated protocol era and version");
@@ -130,12 +147,13 @@ export class SdkMcpProtocolClient implements McpProtocolClient {
     };
   }
 
+  #era(): McpProtocolEra | null {
+    const era = this.#client.getProtocolEra();
+    return era ? MCP_PROTOCOL_ERAS[era] : null;
+  }
+
   async close(terminateSession: boolean): Promise<void> {
-    if (
-      terminateSession &&
-      this.#client.getProtocolEra() === "legacy" &&
-      this.#transport.sessionId
-    ) {
+    if (terminateSession && this.#era() === "pre_2026_07_28" && this.#transport.sessionId) {
       try {
         await this.#transport.terminateSession();
       } catch {
