@@ -30,6 +30,12 @@
 
 import { z } from "zod";
 import {
+  activateWorkflowInputSchema,
+  authorWorkflowInputSchema,
+  workflowRequiredCapabilitySchema,
+  workflowRevisionDefinitionSchema,
+} from "./agent";
+import {
   ARTIFACT_SECTION_MAX_CHARS,
   artifactFormatSchema,
   artifactKindSchema,
@@ -46,7 +52,7 @@ import {
   GMAIL_SEARCH_QUERY_MAX_CHARS,
   GMAIL_SEARCH_SNIPPET_MAX_CHARS,
 } from "./tool-constants";
-import type { ToolName } from "./tools";
+import { TOOL_NAMES, type ToolName } from "./tools";
 
 /**
  * Zod's built-in email validator emits negative-lookahead assertions in JSON
@@ -1235,6 +1241,24 @@ export const loadToolInput = z
 
 export const currentTimeInput = z.object({}).strict();
 
+const modelToolNameSchema = z.enum(TOOL_NAMES);
+const modelWorkflowCapabilitySchema = workflowRequiredCapabilitySchema.extend({
+  tool: modelToolNameSchema,
+});
+const modelWorkflowDefinitionSchema = workflowRevisionDefinitionSchema.extend({
+  allowedTools: z.array(modelToolNameSchema).max(100),
+  requiredCapabilities: z.array(modelWorkflowCapabilitySchema).max(50),
+});
+
+export const authorWorkflowInput = authorWorkflowInputSchema.safeExtend({
+  capabilities: z.array(modelWorkflowCapabilitySchema).min(1).max(50),
+});
+
+export const activateWorkflowInput = activateWorkflowInputSchema.safeExtend({
+  definition: modelWorkflowDefinitionSchema,
+  capabilities: z.array(modelWorkflowCapabilitySchema).min(1).max(50),
+});
+
 const scratchKey = z.string().min(1).max(240);
 
 export const readScratchInput = z.object({ key: scratchKey }).strict();
@@ -1715,6 +1739,8 @@ export const TOOL_INPUT_SCHEMAS = {
   "system.search_tools": searchToolsInput,
   "system.load_tool": loadToolInput,
   "system.current_time": currentTimeInput,
+  "system.author_workflow": authorWorkflowInput,
+  "system.activate_workflow": activateWorkflowInput,
   "system.read_user_context": readUserContextInput,
   "system.read_chat_history": readChatHistoryInput,
   "system.read_scratch": readScratchInput,

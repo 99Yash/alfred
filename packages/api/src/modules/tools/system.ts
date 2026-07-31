@@ -1,6 +1,8 @@
 import {
   appendArtifactPageInput,
   appendArtifactSectionInput,
+  activateWorkflowInput,
+  authorWorkflowInput,
   createArtifactInput,
   editInstructionInput,
   forgetInstructionInput,
@@ -57,6 +59,8 @@ import { liveTool, type RegisteredTool } from "./registry";
 import { parseScratchToolKey } from "./scratch-key";
 import { runWebSearch } from "./web-search";
 import { resolveExactToolLoad, searchAvailableTools } from "./discovery";
+import { authorWorkflowDraft } from "../workflows/authoring";
+import { activateWorkflowDefinition } from "../workflows/revisions";
 
 /**
  * Resolve the provenance an artifact tool needs from the call context. Returns
@@ -211,6 +215,82 @@ export const systemTools: readonly RegisteredTool[] = [
     },
     inputSchema: currentTimeInput,
     execute: async (_input, ctx) => currentTimeSnapshot(ctx.timezone),
+  }),
+  liveTool({
+    integration: "system",
+    action: "author_workflow",
+    riskTier: "no_risk",
+    availability: { requiresThread: true, callers: ["boss"] },
+    description:
+      "Save a recurring, Gmail-event, or manual workflow proposal as an inactive draft. Returns the server-canonical input for system.activate_workflow; copy that input instead of rebuilding it.",
+    discovery: {
+      title: "Author workflow",
+      summary: "Save an editable workflow draft from a user's chat request.",
+      aliases: ["create automation", "save recurring workflow", "draft workflow"],
+      tags: ["workflow", "automation", "schedule"],
+      entities: ["workflow", "automation"],
+      verbs: ["author", "draft", "save"],
+      relatedTools: ["system.activate_workflow"],
+    },
+    inputSchema: authorWorkflowInput,
+    execute: async (input, ctx) => {
+      const result = await authorWorkflowDraft({
+        userId: ctx.userId,
+        runId: ctx.runId,
+        timezone: ctx.timezone,
+        input,
+      });
+      if (!result.ok) return { ok: false, status: result.failure.kind, failure: result.failure };
+      return {
+        ok: true,
+        status: "ready_to_activate",
+        workflowId: result.workflow.id,
+        revisionId: result.revision.id,
+        revisionNumber: result.revision.revisionNumber,
+        contentHash: result.revision.contentHash,
+        created: result.created,
+        activationProposal: result.activationProposal,
+      };
+    },
+  }),
+  liveTool({
+    integration: "system",
+    action: "activate_workflow",
+    riskTier: "high",
+    availability: { requiresThread: true, callers: ["boss"] },
+    description:
+      "Activate the exact workflow definition shown on this approval card. The input is returned by system.author_workflow and includes the full editable contract, schedule, capabilities, assumptions, and external effects.",
+    discovery: {
+      title: "Activate workflow",
+      summary: "Publish an approved workflow revision and start its future occurrences.",
+      aliases: ["approve automation", "publish workflow", "enable recurring workflow"],
+      tags: ["workflow", "automation", "approval"],
+      entities: ["workflow", "automation"],
+      verbs: ["activate", "publish", "approve"],
+      relatedTools: ["system.author_workflow"],
+    },
+    inputSchema: activateWorkflowInput,
+    execute: async (input, ctx) => {
+      const result = await activateWorkflowDefinition({
+        userId: ctx.userId,
+        workflowId: input.workflowId,
+        baseRevisionId: input.baseRevisionId,
+        baseContentHash: input.baseContentHash,
+        baseRowVersion: input.baseRowVersion,
+        definition: input.definition,
+      });
+      if (!result.ok) return { ok: false, status: result.failure.kind, failure: result.failure };
+      return {
+        ok: true,
+        status: "activated",
+        workflowId: result.workflow.id,
+        revisionId: result.revision.id,
+        revisionNumber: result.revision.revisionNumber,
+        contentHash: result.revision.contentHash,
+        nextRunAt: result.workflow.nextRunAt?.toISOString() ?? null,
+        revisedFromApprovalEdit: result.revised,
+      };
+    },
   }),
   liveTool({
     integration: "system",

@@ -75,7 +75,13 @@ export type WorkflowServiceFailure =
   /** The caller's `expectedRowVersion` lost a race. The caller re-reads and retries. */
   | { kind: "row_version_conflict"; expected: number }
   /** The approval card was built against a definition that has since changed. */
-  | { kind: "stale_revision"; expected: string; actual: string }
+  | {
+      kind: "stale_revision";
+      expected: string;
+      actual: string;
+      expectedRevisionId?: string;
+      actualRevisionId?: string;
+    }
   | { kind: "validation_failed"; problems: WorkflowRevisionProblem[] };
 
 export type WorkflowServiceResult<T> =
@@ -487,6 +493,92 @@ export interface ActivateWorkflowArgs {
   expectedContentHash?: string;
   expectedRowVersion?: number;
   tx?: DbTransaction;
+}
+
+export interface ActivateWorkflowDefinitionArgs {
+  userId: string;
+  workflowId: string;
+  /** Immutable revision shown when the approval card was staged. */
+  baseRevisionId: string;
+  baseContentHash: string;
+  baseRowVersion: number;
+  /** Full definition from the approval card, including any user edits. */
+  definition: unknown;
+  createdByRunId?: string;
+}
+
+/**
+ * Activate the exact definition carried by an approval card (#556).
+ *
+ * The current pointer must still identify the card's base revision. A changed
+ * pointer is stale even if a later revision happens to have the same hash. If
+ * the user edited the card, the approved definition is appended as a new
+ * immutable revision and that new revision is published in the same
+ * transaction. The base row is never mutated.
+ */
+export async function activateWorkflowDefinition(
+  args: ActivateWorkflowDefinitionArgs,
+): Promise<WorkflowServiceResult<WorkflowRevisionOutcome & { revised: boolean }>> {
+  const timezone = await resolveTimezoneForInput(args.userId, args.definition);
+  const validated = validateWorkflowDefinition(args.definition, {
+    timezone,
+    requireActivatable: true,
+  });
+  if (!validated.ok) {
+    return { ok: false, failure: { kind: "validation_failed", problems: validated.problems } };
+  }
+
+  const definition = validated.definition;
+  const approvedHash = workflowRevisionContentHash(definition);
+
+  return db().transaction(async (tx) => {
+    const existing = await loadWorkflow(tx, args.userId, args.workflowId);
+    if (!existing) return { ok: false, failure: { kind: "not_found" } };
+    if (existing.isBuiltin) return { ok: false, failure: { kind: "builtin_immutable" } };
+    if (!existing.currentRevisionId) {
+      return { ok: false, failure: { kind: "no_current_revision" } };
+    }
+
+    const current = await loadRevision(tx, existing.currentRevisionId);
+    if (!current) return { ok: false, failure: { kind: "no_current_revision" } };
+    if (current.id !== args.baseRevisionId || current.contentHash !== args.baseContentHash) {
+      return {
+        ok: false,
+        failure: {
+          kind: "stale_revision",
+          expected: args.baseContentHash,
+          actual: current.contentHash,
+          expectedRevisionId: args.baseRevisionId,
+          actualRevisionId: current.id,
+        },
+      };
+    }
+
+    let revised = false;
+    let expectedRowVersion = args.baseRowVersion;
+    if (approvedHash !== current.contentHash) {
+      const result = await reviseWorkflow({
+        userId: args.userId,
+        workflowId: args.workflowId,
+        definition,
+        createdByRunId: args.createdByRunId,
+        expectedRowVersion: args.baseRowVersion,
+        tx,
+      });
+      if (!result.ok) return result;
+      revised = result.created;
+      expectedRowVersion = result.workflow.rowVersion;
+    }
+
+    const activated = await activateWorkflow({
+      userId: args.userId,
+      workflowId: args.workflowId,
+      expectedContentHash: approvedHash,
+      expectedRowVersion,
+      tx,
+    });
+    return activated.ok ? { ...activated, revised } : activated;
+  });
 }
 
 /**

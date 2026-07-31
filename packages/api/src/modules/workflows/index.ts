@@ -5,8 +5,11 @@ export {
   validateCronTrigger,
 } from "./scheduling";
 export { canonicalWorkflowDefinition, workflowRevisionContentHash } from "./content-hash";
+export { authorWorkflowDraft, definitionFromProposal } from "./authoring";
+export type { AuthoredWorkflowOutcome } from "./authoring";
 export {
   activateWorkflow,
+  activateWorkflowDefinition,
   clearWorkflowBlocked,
   createWorkflowDraft,
   reviseWorkflow,
@@ -17,6 +20,7 @@ export {
 } from "./revisions";
 export type {
   ActivateWorkflowArgs,
+  ActivateWorkflowDefinitionArgs,
   CreateWorkflowDraftArgs,
   InactiveWorkflowStatus,
   ReviseWorkflowArgs,
