@@ -45,7 +45,13 @@ import { and, eq, gt, inArray, isNull, lte, or, sql } from "drizzle-orm";
 import { DEFAULT_APPROVAL_NOTIFY_DELAY_MS } from "../../action-policies";
 import { isSingleValuedKey } from "../../memory/fact-policy";
 import { valueSignature } from "../../memory/signature";
-import { computeNextRunAt, resolveWorkflowTimezone, validateCronTrigger } from "../../workflows";
+import {
+  activateWorkflow,
+  reviseWorkflowFromPatch,
+  setWorkflowStatus,
+  type WorkflowDefinitionPatch,
+  type WorkflowServiceFailure,
+} from "../../workflows";
 import { MutatorForbiddenError } from "../authz";
 
 /**
@@ -81,6 +87,37 @@ async function lockFactKey(tx: DbTx, userId: string, key: string): Promise<void>
 function canonicalFactKey(rawKey: string): string {
   const canon = canonicalizeFactKey(rawKey);
   return canon.ok ? canon.key : rawKey;
+}
+
+/**
+ * Turn a revision-service failure into the one error `push.ts` understands.
+ *
+ * The savepoint around each mutator rolls back on any throw, so a rejected edit
+ * leaves no partial revision behind. `MutatorForbiddenError` is the right
+ * carrier for all of these: none is retryable, and the client's optimistic
+ * patch is discarded on the next authoritative pull either way.
+ */
+function workflowMutatorError(failure: WorkflowServiceFailure): MutatorForbiddenError {
+  switch (failure.kind) {
+    case "validation_failed":
+      return new MutatorForbiddenError(failure.problems.map((p) => p.message).join(" "));
+    case "builtin_immutable":
+      return new MutatorForbiddenError("cannot edit a built-in workflow");
+    case "no_current_revision":
+      return new MutatorForbiddenError("this workflow has no saved definition to activate");
+    case "row_version_conflict":
+      return new MutatorForbiddenError("the workflow changed while this edit was in flight");
+    case "stale_revision":
+      return new MutatorForbiddenError("the workflow definition changed before activation");
+    case "slug_taken":
+      return new MutatorForbiddenError(`a workflow named '${failure.slug}' already exists`);
+    case "not_found":
+      return new MutatorForbiddenError("workflow not found");
+    default: {
+      const unhandled: never = failure;
+      return unhandled;
+    }
+  }
 }
 
 function canonicalSource(rawKey: string, source: MemorySource): MemorySource {
@@ -448,11 +485,23 @@ export const serverMutators = {
 
   /**
    * Patch a user-authored workflow (m13 Phase 8 event-trigger authoring).
-   * Refuses built-in rows and enforces the ADR-0047 cap that an event
-   * workflow's `allowed_integrations` (if non-empty) must include its own
-   * trigger source — otherwise the run can't act on what fired it. Cron
-   * denormalization (`next_run_at`, ADR-0027) is recomputed only when the
-   * trigger or status actually changes.
+   *
+   * Every definition write goes through the revision service (#555) — this
+   * mutator owns transport concerns only: find the row by slug, split the patch
+   * into "what it does" and "whether it runs", and turn a typed service failure
+   * into the ACL error `push.ts` already handles.
+   *
+   * Two behaviors change with revisions, both deliberate:
+   *
+   *   - An edit appends a revision and moves `current_revision_id`. On an
+   *     already-published workflow the running definition is untouched, so the
+   *     editor now produces *unpublished changes* rather than a live rewrite.
+   *   - Setting `status: 'active'` is an activation: it publishes the current
+   *     revision after full validation. That makes the settings toggle the
+   *     publish gate, which is what the plan asks for.
+   *
+   * The edit is applied before the status change, so a save-and-activate in one
+   * push publishes the revision the user just wrote.
    */
   async workflowUpdate(tx: DbTx, args: WorkflowUpdateArgs, ctx: ServerMutatorCtx): Promise<void> {
     const [existing] = await tx
@@ -467,49 +516,34 @@ export const serverMutators = {
       throw new MutatorForbiddenError("cannot edit a built-in workflow");
     }
 
-    const nextTrigger = args.trigger ?? existing.trigger;
-    const nextStatus = args.status ?? existing.status;
-    const nextAllowed = args.allowedIntegrations ?? existing.allowedIntegrations;
-
-    if (
-      nextTrigger.kind === "event" &&
-      nextAllowed.length > 0 &&
-      !nextAllowed.includes(nextTrigger.source)
-    ) {
-      throw new MutatorForbiddenError(
-        `allowed_integrations must include the event trigger source '${nextTrigger.source}'`,
-      );
+    const patch: WorkflowDefinitionPatch = {
+      name: args.name,
+      description: args.description,
+      brief: args.brief,
+      trigger: args.trigger,
+      allowedIntegrations: args.allowedIntegrations,
+    };
+    if (Object.values(patch).some((value) => value !== undefined)) {
+      const revised = await reviseWorkflowFromPatch({
+        userId: ctx.userId,
+        workflowId: existing.id,
+        patch,
+        tx,
+      });
+      if (!revised.ok) throw workflowMutatorError(revised.failure);
     }
 
-    const triggerOrStatusChanged = args.trigger !== undefined || args.status !== undefined;
-    let nextRunAt: Date | null = null;
-    if (triggerOrStatusChanged && nextTrigger.kind === "cron" && nextStatus === "active") {
-      const timezone = await resolveWorkflowTimezone(ctx.userId, nextTrigger);
-      const validation = validateCronTrigger(nextTrigger, { timezone });
-      if (!validation.ok) {
-        throw new MutatorForbiddenError(validation.message);
-      }
-      nextRunAt = computeNextRunAt(nextTrigger, { timezone });
-      if (!nextRunAt) {
-        throw new MutatorForbiddenError("cron schedule did not produce a next run");
-      }
-    }
-
-    await tx
-      .update(workflows)
-      .set({
-        ...(args.name !== undefined ? { name: args.name } : {}),
-        ...(args.description !== undefined ? { description: args.description } : {}),
-        ...(args.brief !== undefined ? { brief: args.brief } : {}),
-        ...(args.allowedIntegrations !== undefined
-          ? { allowedIntegrations: args.allowedIntegrations }
-          : {}),
-        ...(args.status !== undefined ? { status: args.status } : {}),
-        ...(args.trigger !== undefined ? { trigger: args.trigger } : {}),
-        ...(triggerOrStatusChanged ? { nextRunAt } : {}),
-        rowVersion: sql`${workflows.rowVersion} + 1`,
-      })
-      .where(eq(workflows.id, existing.id));
+    if (args.status === undefined) return;
+    const applied =
+      args.status === "active"
+        ? await activateWorkflow({ userId: ctx.userId, workflowId: existing.id, tx })
+        : await setWorkflowStatus({
+            userId: ctx.userId,
+            workflowId: existing.id,
+            status: args.status,
+            tx,
+          });
+    if (!applied.ok) throw workflowMutatorError(applied.failure);
   },
 
   // ── Todos (ADR-0050) ──────────────────────────────────────────────────
