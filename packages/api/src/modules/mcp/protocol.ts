@@ -2,6 +2,7 @@ import {
   Client,
   SdkHttpError,
   StreamableHTTPClientTransport,
+  type AuthProvider,
   type ProtocolEra,
   type StreamableHTTPClientTransportOptions,
   type Tool,
@@ -15,7 +16,7 @@ export interface McpProtocolPage {
   nextCursor?: string;
 }
 
-export interface McpNegotiatedServer {
+export interface McpProtocolServer {
   protocolEra: ProtocolEra;
   protocolVersion: string;
   serverName: string;
@@ -24,17 +25,29 @@ export interface McpNegotiatedServer {
   toolsListChanged: boolean;
 }
 
+type McpServerFacts = Omit<McpProtocolServer, "protocolEra" | "protocolVersion">;
+
+export type McpNegotiatedServer =
+  | (McpServerFacts & {
+      protocolEra: "legacy";
+      protocolVersion: "2025-11-25";
+    })
+  | (McpServerFacts & {
+      protocolEra: "modern";
+      protocolVersion: "2026-07-28";
+    });
+
 /**
  * The small protocol surface Alfred consumes. Keeping this interface below
  * the execution broker prevents SDK/session details from leaking into the
  * model-facing registry and makes the trust boundary deterministic to test.
  */
 export interface McpProtocolClient {
-  connect(): Promise<McpNegotiatedServer>;
+  connect(): Promise<McpProtocolServer>;
   close(terminateSession: boolean): Promise<void>;
   listTools(cursor: string | undefined, signal?: AbortSignal): Promise<McpProtocolPage>;
   callTool(
-    name: string,
+    tool: Tool,
     args: Record<string, unknown>,
     signal?: AbortSignal,
   ): Promise<McpProtocolCallResult>;
@@ -43,7 +56,7 @@ export interface McpProtocolClient {
 
 export interface SdkMcpProtocolClientOptions {
   endpoint: URL;
-  authProvider?: StreamableHTTPClientTransportOptions["authProvider"];
+  authProvider?: AuthProvider;
   fetch?: StreamableHTTPClientTransportOptions["fetch"];
   requestTimeoutMs: number;
 }
@@ -56,6 +69,7 @@ export class SdkMcpProtocolClient implements McpProtocolClient {
   #toolsChangedHandler: (() => void | Promise<void>) | null = null;
 
   constructor(options: SdkMcpProtocolClientOptions) {
+    const authProvider = options.authProvider;
     // Empty capabilities are intentional: Alfred does not offer roots,
     // sampling, or elicitation to an untrusted remote server.
     this.#client = new Client(
@@ -77,7 +91,11 @@ export class SdkMcpProtocolClient implements McpProtocolClient {
       },
     );
     this.#transport = new StreamableHTTPClientTransport(options.endpoint, {
-      ...(options.authProvider ? { authProvider: options.authProvider } : {}),
+      // Token reads are safe before each request. Transport-owned recovery is
+      // not: both 401 refresh and insufficient-scope step-up resend the same
+      // JSON-RPC message below Alfred's invocation ledger.
+      ...(authProvider ? { authProvider: { token: () => authProvider.token() } } : {}),
+      onInsufficientScope: "throw",
       ...(options.fetch ? { fetch: options.fetch } : {}),
     });
     this.#requestTimeoutMs = options.requestTimeoutMs;
@@ -87,7 +105,7 @@ export class SdkMcpProtocolClient implements McpProtocolClient {
     this.#toolsChangedHandler = handler;
   }
 
-  async connect(): Promise<McpNegotiatedServer> {
+  async connect(): Promise<McpProtocolServer> {
     // Third-party variance gap, not a claim about our types: the MCP SDK's own
     // transport classes declare `sessionId?: string | undefined` / `onclose?:
     // (() => void) | undefined` while its `Transport` interface declares those
@@ -129,8 +147,14 @@ export class SdkMcpProtocolClient implements McpProtocolClient {
   }
 
   async listTools(cursor: string | undefined, signal?: AbortSignal): Promise<McpProtocolPage> {
-    const result = await this.#client.listTools(
-      cursor ? { cursor } : undefined,
+    // `Client.listTools(undefined)` auto-aggregates and caches every page. Use
+    // the request primitive so Alfred alone owns pagination, bounds, and the
+    // immutable catalog that later calls are allowed to consume.
+    const result = await this.#client.request(
+      {
+        method: "tools/list",
+        params: cursor ? { cursor } : {},
+      },
       requestOptions(this.#requestTimeoutMs, signal),
     );
     return {
@@ -140,13 +164,18 @@ export class SdkMcpProtocolClient implements McpProtocolClient {
   }
 
   async callTool(
-    name: string,
+    tool: Tool,
     args: Record<string, unknown>,
     signal?: AbortSignal,
   ): Promise<McpProtocolCallResult> {
     return this.#client.callTool(
-      { name, arguments: args },
-      requestOptions(this.#requestTimeoutMs, signal),
+      { name: tool.name, arguments: args },
+      {
+        ...requestOptions(this.#requestTimeoutMs, signal),
+        // This exact, Alfred-admitted descriptor bypasses the SDK list cache
+        // and disables its HEADER_MISMATCH refetch-and-replay branch.
+        toolDefinition: tool,
+      },
     );
   }
 }
@@ -159,8 +188,8 @@ function requestOptions(timeout: number, signal?: AbortSignal) {
   // `maxTotalTimeout === timeout` deliberately collapses the SDK's progress-based
   // timeout EXTENSION: a server streaming progress notifications can otherwise
   // keep a `tools/call` alive past `timeout`, blurring the delivery boundary the
-  // broker's ambiguity ledger depends on. This is NOT a retry — the SDK never
-  // re-sends a `tools/call` — but capping total time keeps a single attempt from
-  // silently outliving its window. See the no-replay invariant in `broker.ts`.
+  // broker's ambiguity ledger depends on. Capping total time keeps a single
+  // attempt from silently outliving its window. Replay is separately disabled
+  // at the transport and `callTool` boundaries above.
   return { timeout, maxTotalTimeout: timeout, ...(signal ? { signal } : {}) };
 }

@@ -7,7 +7,7 @@ import {
   type McpProtocolCallResult,
   type McpProtocolClient,
   type McpProtocolPage,
-  type McpNegotiatedServer,
+  type McpProtocolServer,
 } from "../../src/modules/mcp";
 
 class FakeProtocol implements McpProtocolClient {
@@ -17,7 +17,7 @@ class FakeProtocol implements McpProtocolClient {
   closedWithTerminate: boolean | null = null;
   callResult: McpProtocolCallResult = { content: [{ type: "text", text: "ok" }] };
   connectError: Error | null = null;
-  negotiated: McpNegotiatedServer = {
+  negotiated: McpProtocolServer = {
     protocolEra: "legacy",
     protocolVersion: "2025-11-25",
     serverName: "fake",
@@ -33,7 +33,7 @@ class FakeProtocol implements McpProtocolClient {
     this.pages = pages;
   }
 
-  async connect(): Promise<McpNegotiatedServer> {
+  async connect(): Promise<McpProtocolServer> {
     if (this.connectError) throw this.connectError;
     this.connected = true;
     return this.negotiated;
@@ -51,9 +51,9 @@ class FakeProtocol implements McpProtocolClient {
     return page;
   }
 
-  async callTool(name: string, args: Record<string, unknown>): Promise<McpProtocolCallResult> {
+  async callTool(tool: Tool, args: Record<string, unknown>): Promise<McpProtocolCallResult> {
     if (this.callError) throw this.callError;
-    this.calls.push({ name, args });
+    this.calls.push({ name: tool.name, args });
     return this.callResult;
   }
 
@@ -152,6 +152,14 @@ describe("McpRawClient catalog", () => {
     const oldClient = makeClient(oldProtocol);
     await assertMcpError(oldClient.connect(), "unsupported_protocol_version");
     assert.equal(oldProtocol.closedWithTerminate, false);
+
+    const mismatched = new FakeProtocol([{ tools: [] }]);
+    mismatched.negotiated = {
+      ...mismatched.negotiated,
+      protocolEra: "modern",
+      protocolVersion: "2025-11-25",
+    };
+    await assertMcpError(makeClient(mismatched).connect(), "unsupported_protocol_version");
   });
 
   test("requires the server tools capability", async () => {
@@ -216,6 +224,25 @@ describe("McpRawClient catalog", () => {
     const externalRefClient = makeClient(externalRef);
     await externalRefClient.connect();
     await assertMcpError(externalRefClient.refreshCatalog(), "invalid_schema");
+
+    const modelSelectedHeader = new FakeProtocol([
+      {
+        tools: [
+          tool("header_channel", {
+            type: "object",
+            properties: {
+              tenant: {
+                type: "string",
+                "x-mcp-header": "tenant",
+              },
+            },
+          } as Tool["inputSchema"]),
+        ],
+      },
+    ]);
+    const headerClient = makeClient(modelSelectedHeader);
+    await headerClient.connect();
+    await assertMcpError(headerClient.refreshCatalog(), "invalid_schema");
   });
 
   test("refuses $id/$anchor so a server cannot poison the shared validator cache", async () => {

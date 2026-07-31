@@ -19,6 +19,7 @@ import {
   type McpProtocolCallResult,
   type McpProtocolClient,
   type McpProtocolPage,
+  type McpProtocolServer,
   type SdkMcpProtocolClientOptions,
 } from "./protocol";
 
@@ -114,6 +115,7 @@ export class McpRawClient {
   #negotiatedServer: McpNegotiatedServer | null = null;
   #catalog: McpCatalogSnapshot | null = null;
   #catalogGeneration = 0;
+  #catalogInvalidatedHandler: (() => void) | null = null;
   #toolsByName = new Map<string, Tool>();
   #inputValidators = new Map<string, JsonSchemaValidator<Record<string, unknown>>>();
   #outputValidators = new Map<string, JsonSchemaValidator<Record<string, unknown>>>();
@@ -138,6 +140,10 @@ export class McpRawClient {
     return this.#negotiatedServer;
   }
 
+  onCatalogInvalidated(handler: () => void): void {
+    this.#catalogInvalidatedHandler = handler;
+  }
+
   async connect(): Promise<void> {
     if (this.#protocol) return;
     const endpoint = await this.#options.endpointAuthorization.authorize(
@@ -151,15 +157,12 @@ export class McpRawClient {
           ...(this.#options.authProvider ? { authProvider: this.#options.authProvider } : {}),
           ...(this.#options.fetch ? { fetch: this.#options.fetch } : {}),
         });
-    protocol.onToolsChanged(() => this.#invalidateCatalog());
+    protocol.onToolsChanged(() => {
+      this.#invalidateCatalog();
+      this.#catalogInvalidatedHandler?.();
+    });
     try {
-      const negotiated = await protocol.connect();
-      if (!MCP_SUPPORTED_PROTOCOL_VERSION_SET.has(negotiated.protocolVersion)) {
-        throw new McpClientError(
-          "unsupported_protocol_version",
-          `Alfred MCP supports protocols ${MCP_SUPPORTED_PROTOCOL_VERSIONS.join(" and ")}; server negotiated ${negotiated.protocolVersion || "unknown"}`,
-        );
-      }
+      const negotiated = parseNegotiatedServer(await protocol.connect());
       if (!negotiated.hasTools) {
         throw new McpClientError(
           "missing_tools_capability",
@@ -351,7 +354,7 @@ export class McpRawClient {
     }
 
     const result: McpProtocolCallResult = await protocol
-      .callTool(tool.name, validated.data, options.signal)
+      .callTool(tool, validated.data, options.signal)
       .catch((err: unknown) => this.#throwProtocolError(err, protocol));
     const isToolError = isRecord(result) && result.isError === true;
     const outputValidator = this.#outputValidators.get(tool.name);
@@ -534,6 +537,12 @@ function assertSafeSchema(toolName: string, direction: "input" | "output", schem
           `MCP tool '${toolName}' ${direction} schema declares a forbidden ${key}`,
         );
       }
+      if (key === "x-mcp-header") {
+        throw new McpClientError(
+          "invalid_schema",
+          `MCP tool '${toolName}' ${direction} schema declares forbidden x-mcp-header`,
+        );
+      }
       if (
         (key === "$ref" || key === "$dynamicRef" || key === "$recursiveRef") &&
         (typeof child !== "string" || !child.startsWith("#"))
@@ -564,4 +573,30 @@ function assertSafeSchema(toolName: string, direction: "input" | "output", schem
   };
 
   visit(schema, 0);
+}
+
+function parseNegotiatedServer(server: McpProtocolServer): McpNegotiatedServer {
+  const facts = {
+    serverName: server.serverName,
+    serverVersion: server.serverVersion,
+    hasTools: server.hasTools,
+    toolsListChanged: server.toolsListChanged,
+  };
+  if (server.protocolEra === "legacy" && server.protocolVersion === "2025-11-25") {
+    return { ...facts, protocolEra: "legacy", protocolVersion: "2025-11-25" };
+  }
+  if (server.protocolEra === "modern" && server.protocolVersion === "2026-07-28") {
+    return { ...facts, protocolEra: "modern", protocolVersion: "2026-07-28" };
+  }
+  const version = server.protocolVersion || "unknown";
+  if (!MCP_SUPPORTED_PROTOCOL_VERSION_SET.has(version)) {
+    throw new McpClientError(
+      "unsupported_protocol_version",
+      `Alfred MCP supports protocols ${MCP_SUPPORTED_PROTOCOL_VERSIONS.join(" and ")}; server negotiated ${version}`,
+    );
+  }
+  throw new McpClientError(
+    "unsupported_protocol_version",
+    `MCP protocol era '${server.protocolEra}' does not match negotiated version ${version}`,
+  );
 }
