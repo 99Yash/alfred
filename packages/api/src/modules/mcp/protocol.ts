@@ -1,11 +1,12 @@
-import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import {
-  StreamableHTTPError,
+  Client,
+  SdkHttpError,
   StreamableHTTPClientTransport,
+  type ProtocolEra,
   type StreamableHTTPClientTransportOptions,
-} from "@modelcontextprotocol/sdk/client/streamableHttp.js";
-import type { Transport } from "@modelcontextprotocol/sdk/shared/transport.js";
-import { ToolListChangedNotificationSchema, type Tool } from "@modelcontextprotocol/sdk/types.js";
+  type Tool,
+  type Transport,
+} from "@modelcontextprotocol/client";
 
 export type McpProtocolCallResult = Awaited<ReturnType<Client["callTool"]>>;
 
@@ -15,6 +16,7 @@ export interface McpProtocolPage {
 }
 
 export interface McpNegotiatedServer {
+  protocolEra: ProtocolEra;
   protocolVersion: string;
   serverName: string;
   serverVersion: string;
@@ -23,7 +25,7 @@ export interface McpNegotiatedServer {
 }
 
 /**
- * The small protocol surface Alfred v1 consumes. Keeping this interface below
+ * The small protocol surface Alfred consumes. Keeping this interface below
  * the execution broker prevents SDK/session details from leaking into the
  * model-facing registry and makes the trust boundary deterministic to test.
  */
@@ -51,13 +53,28 @@ export class SdkMcpProtocolClient implements McpProtocolClient {
   readonly #client: Client;
   readonly #transport: StreamableHTTPClientTransport;
   readonly #requestTimeoutMs: number;
+  #toolsChangedHandler: (() => void | Promise<void>) | null = null;
 
   constructor(options: SdkMcpProtocolClientOptions) {
-    // Empty capabilities are intentional: Alfred v1 does not offer roots,
+    // Empty capabilities are intentional: Alfred does not offer roots,
     // sampling, or elicitation to an untrusted remote server.
     this.#client = new Client(
       { name: "alfred", version: "1" },
-      { capabilities: {}, enforceStrictCapabilities: true },
+      {
+        capabilities: {},
+        enforceStrictCapabilities: true,
+        versionNegotiation: { mode: "auto" },
+        inputRequired: { autoFulfill: false },
+        listChanged: {
+          tools: {
+            autoRefresh: false,
+            debounceMs: 0,
+            onChanged: () => {
+              void this.#toolsChangedHandler?.();
+            },
+          },
+        },
+      },
     );
     this.#transport = new StreamableHTTPClientTransport(options.endpoint, {
       ...(options.authProvider ? { authProvider: options.authProvider } : {}),
@@ -67,7 +84,7 @@ export class SdkMcpProtocolClient implements McpProtocolClient {
   }
 
   onToolsChanged(handler: () => void | Promise<void>): void {
-    this.#client.setNotificationHandler(ToolListChangedNotificationSchema, handler);
+    this.#toolsChangedHandler = handler;
   }
 
   async connect(): Promise<McpNegotiatedServer> {
@@ -80,8 +97,14 @@ export class SdkMcpProtocolClient implements McpProtocolClient {
     await this.#client.connect(this.#transport as Transport);
     const capabilities = this.#client.getServerCapabilities();
     const server = this.#client.getServerVersion();
+    const protocolEra = this.#client.getProtocolEra();
+    const protocolVersion = this.#client.getNegotiatedProtocolVersion();
+    if (!protocolEra || !protocolVersion) {
+      throw new Error("MCP SDK connected without a negotiated protocol era and version");
+    }
     return {
-      protocolVersion: this.#transport.protocolVersion ?? "",
+      protocolEra,
+      protocolVersion,
       serverName: server?.name ?? "unknown",
       serverVersion: server?.version ?? "unknown",
       hasTools: capabilities?.tools !== undefined,
@@ -90,7 +113,11 @@ export class SdkMcpProtocolClient implements McpProtocolClient {
   }
 
   async close(terminateSession: boolean): Promise<void> {
-    if (terminateSession && this.#transport.sessionId) {
+    if (
+      terminateSession &&
+      this.#client.getProtocolEra() === "legacy" &&
+      this.#transport.sessionId
+    ) {
       try {
         await this.#transport.terminateSession();
       } catch {
@@ -119,14 +146,13 @@ export class SdkMcpProtocolClient implements McpProtocolClient {
   ): Promise<McpProtocolCallResult> {
     return this.#client.callTool(
       { name, arguments: args },
-      undefined,
       requestOptions(this.#requestTimeoutMs, signal),
     );
   }
 }
 
 export function isMcpSessionExpiredError(err: unknown): boolean {
-  return err instanceof StreamableHTTPError && err.code === 404;
+  return err instanceof SdkHttpError && err.status === 404;
 }
 
 function requestOptions(timeout: number, signal?: AbortSignal) {

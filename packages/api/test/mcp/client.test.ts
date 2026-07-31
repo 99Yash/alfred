@@ -1,7 +1,6 @@
 import assert from "node:assert/strict";
 import { describe, test } from "node:test";
-import { StreamableHTTPError } from "@modelcontextprotocol/sdk/client/streamableHttp.js";
-import type { Tool } from "@modelcontextprotocol/sdk/types.js";
+import { SdkErrorCode, SdkHttpError, type Tool } from "@modelcontextprotocol/client";
 import {
   McpClientError,
   McpRawClient,
@@ -19,6 +18,7 @@ class FakeProtocol implements McpProtocolClient {
   callResult: McpProtocolCallResult = { content: [{ type: "text", text: "ok" }] };
   connectError: Error | null = null;
   negotiated: McpNegotiatedServer = {
+    protocolEra: "legacy",
     protocolVersion: "2025-11-25",
     serverName: "fake",
     serverVersion: "1",
@@ -136,13 +136,25 @@ describe("McpRawClient catalog", () => {
     await assertMcpError(client.refreshCatalog(), "not_connected");
   });
 
-  test("requires the v1 protocol and a server tools capability", async () => {
+  test("allows the modern and legacy revisions, and rejects other versions", async () => {
+    const modernProtocol = new FakeProtocol([{ tools: [] }]);
+    modernProtocol.negotiated = {
+      ...modernProtocol.negotiated,
+      protocolEra: "modern",
+      protocolVersion: "2026-07-28",
+    };
+    const modernClient = makeClient(modernProtocol);
+    await modernClient.connect();
+    assert.equal(modernClient.negotiatedServer?.protocolEra, "modern");
+
     const oldProtocol = new FakeProtocol([{ tools: [] }]);
     oldProtocol.negotiated.protocolVersion = "2025-06-18";
     const oldClient = makeClient(oldProtocol);
     await assertMcpError(oldClient.connect(), "unsupported_protocol_version");
     assert.equal(oldProtocol.closedWithTerminate, false);
+  });
 
+  test("requires the server tools capability", async () => {
     const noTools = new FakeProtocol([{ tools: [] }]);
     noTools.negotiated.hasTools = false;
     const noToolsClient = makeClient(noTools);
@@ -582,7 +594,11 @@ describe("McpRawClient calls", () => {
 
   test("turns session-expiry 404 into reconnect-required state without retrying the call", async () => {
     const protocol = new FakeProtocol([{ tools: [SEARCH_TOOL] }]);
-    protocol.callError = new StreamableHTTPError(404, "session expired");
+    protocol.callError = new SdkHttpError(
+      SdkErrorCode.ClientHttpFailedToOpenStream,
+      "session expired",
+      { status: 404 },
+    );
     const client = makeClient(protocol);
     await client.connect();
     const catalog = await client.refreshCatalog();
@@ -604,6 +620,40 @@ describe("McpRawClient calls", () => {
     assert.equal(client.catalog, null);
     assert.equal(client.negotiatedServer, null);
     await assertMcpError(client.refreshCatalog(), "not_connected");
+  });
+
+  test("does not treat a modern 404 as legacy session expiry", async () => {
+    const protocol = new FakeProtocol([{ tools: [SEARCH_TOOL] }]);
+    protocol.negotiated = {
+      ...protocol.negotiated,
+      protocolEra: "modern",
+      protocolVersion: "2026-07-28",
+    };
+    const http404 = new SdkHttpError(
+      SdkErrorCode.ClientHttpFailedToOpenStream,
+      "modern route missing",
+      { status: 404 },
+    );
+    protocol.callError = http404;
+    const client = makeClient(protocol);
+    await client.connect();
+    const catalog = await client.refreshCatalog();
+
+    await assert.rejects(
+      client.callTool(
+        {
+          kind: "mcp",
+          connectionId: "conn_1",
+          remoteName: "search",
+          catalogRevision: catalog.revision,
+        },
+        { query: "hello" },
+      ),
+      (err: unknown) => err === http404,
+    );
+
+    assert.equal(client.catalog?.revision, catalog.revision);
+    assert.equal(client.negotiatedServer?.protocolEra, "modern");
   });
 
   test("close can explicitly terminate a remote session and clears the catalog", async () => {
