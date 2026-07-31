@@ -24,6 +24,7 @@ export {
   type McpProtocolCallResult,
   type McpProtocolClient,
   type McpProtocolPage,
+  type McpProtocolServer,
   type McpNegotiatedServer,
   type SdkMcpProtocolClientOptions,
 } from "./protocol";
