@@ -16,10 +16,7 @@ import type { DispatchResult } from "../dispatch";
 import { startToolLoadSpan, startToolPreloadSpan, startToolSurfaceSpan } from "./runtime-spans";
 import { estimateToolSurfaceBudget } from "./schema-budget";
 
-export const toolNameSchema = z.custom<ToolName>(
-  (value) => typeof value === "string" && isToolName(value),
-  "Invalid tool name",
-);
+export { toolNameSchema } from "@alfred/contracts";
 
 export function registeredToolNamesForIntegrations(integrations: readonly string[]): ToolName[] {
   const names = new Set<ToolName>();

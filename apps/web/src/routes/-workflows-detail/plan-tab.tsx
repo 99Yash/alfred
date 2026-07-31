@@ -107,7 +107,7 @@ export function PlanTab({
   onSave,
 }: {
   workflow: SyncedWorkflow;
-  onSave: (args: Omit<WorkflowUpdateArgs, "slug">) => Promise<void>;
+  onSave: (args: Omit<WorkflowUpdateArgs, "slug" | "expectedRowVersion">) => Promise<void>;
 }) {
   const readOnly = workflow.isBuiltin;
   // The draft seeds once per mount. The parent keys this component on
