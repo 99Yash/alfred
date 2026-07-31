@@ -8,12 +8,17 @@
 > **Amended 2026-07-30T08:33Z**, same day, to record what landed and to correct
 > two Tier 0 claims that were read off an issue instead of the code. The order
 > itself does not change. See "Tier 0 status" and "Prod deploys are blocked".
+>
+> **Amended 2026-07-31T10:27Z.** Tier 0 is finished and the deploy pipeline is
+> open again. Tier 1 started. A second line of work that this order does not
+> name now takes most of the merges. The order itself still does not change. See
+> "State, 2026-07-31" near the end for everything after 07-30T08:33Z.
 
 135 issues were open when this order was written. 26 of them are newer than the
 last tier artifact. The campaign holds 26 more items that are not issues at all.
 
 **Six closed the same day** (see "Closed 2026-07-30" at the end), so the live
-count is 129.
+count is 129. **On 2026-07-31 the count is 125.**
 
 ## Three findings that change the shape, not only the order
 
@@ -48,6 +53,10 @@ landed and put `web test` into CI. Item 07 added
 `apps/web/tsconfig.test.json`. #570 still says "201 test files" and still says
 nothing is typechecked. The real count is 225, and `packages/api`, `ai`, `db`,
 `integrations` and `contracts` all still declare `"include": ["src"]`.
+
+> Updated 2026-07-31. PR #606 carries `Closes #455` and `Closes #533`, so the
+> "not one body has a closing keyword" claim no longer holds. The #570 count is
+> now 236 files. See "State, 2026-07-31".
 
 ### 3. About 20 issues are review residue, not work
 
@@ -88,6 +97,9 @@ Each claim below was checked against the code today, not read off the issue.
 
 **Tier 0 is not done. One of the five is built. Two were already fixed before
 this order was written. Two are unstarted.**
+
+> Superseded on 2026-07-31. All five are now resolved. This table stays as the
+> 07-30 record. Read "State, 2026-07-31" for the current phase of each item.
 
 `.campaign/backlog-tier0-20260730/state.json` is the machine record. Every line
 below was re-checked against `main` at `932dd8e7`.
@@ -140,6 +152,9 @@ prescribes for #192, #532 and #533 together — not in the reaper.
 
 ## Prod deploys are blocked
 
+> **Fixed 2026-07-31T05:25Z. This section is history.** The KEK is set, the boot
+> gate passes, and production deploys again. See "State, 2026-07-31".
+
 `OAUTH_CREDENTIAL_KEK` is **required** by `serverEnv()`
 (`packages/env/src/server.ts:97`, no default and no `.optional()`). It is **not
 set** on the Railway `server` service. So:
@@ -163,6 +178,9 @@ Do this before any other Tier 0 item. It is the only thing in the backlog that
 holds the deploy pipeline shut.
 
 ## Tier 1. The one big bet: #553 workflows v1.
+
+> **Started 2026-07-31.** PR #610 landed the substrate half of #555. #555 stays
+> open. See "State, 2026-07-31".
 
 Work it in its authored order:
 
@@ -287,9 +305,187 @@ backup of the previous state is at `/tmp/state.json.bak`.
 
 | PR | Merged | What it is |
 | --- | --- | --- |
-| #604 | 08:09:41Z | Tier 0 item 1. Encrypts the OAuth credential vault at rest. Envelope encryption, one KEK that wraps per-secret DEKs, no schema change and no migration. Amends ADR-0038. Deploy failed on the missing KEK. |
+| #604 | 08:09:41Z | Tier 0 item 1. Encrypts the OAuth credential vault at rest. Envelope encryption, one KEK that wraps per-secret DEKs, no schema change and no migration. Amends ADR-0038. Deploy failed on the missing KEK. **Deployed clean on 2026-07-31T05:25Z.** |
 | #605 | 08:09:12Z | Not on this order. Collapses 10 `extends ApiError` subclasses into one class behind an `Errors` namespace in `@alfred/contracts`, and adds a `hand-built-api-error` rule to `scripts/consolidation-rules.mjs`. |
+
+PRs #606 to #610 merged after that. They are in "State, 2026-07-31" below.
 
 `.claude/worktrees/backlog-tier0-20260730-01` still holds the item 1 worktree at
 `5e9b2a24`. `git worktree list` reports it as `prunable`, and the branch is
-merged. Remove it.
+merged. Remove it. **Done: the worktree is gone.**
+
+---
+
+# State, 2026-07-31T10:27Z
+
+Five PRs merged after the 07-30T08:33Z amendment: **#606, #607, #608, #609 and
+#610**. Every claim below was checked against `main` at `945937bb`, or against
+GitHub and Railway, not read off a PR title.
+
+The order does not change. Three things about the *state* do.
+
+## 1. Tier 0 is finished
+
+All five items are resolved and the four that were issues are closed.
+
+| Item | Phase | Receipt |
+| --- | --- | --- |
+| 1 · #453 vault | **rolled out. #453 closed 05:26:58Z.** | `OAUTH_CREDENTIAL_KEK` is set on the Railway `server` service and in `apps/server/.env`. Deployment `a7957d0e` is SUCCESS on `70ba61e9`, `api.alfred.beauty` answers 200, and the boot gate passed. The conversion pass was a **no-op**: `account` and `integration_credentials` both held 0 rows, and `db:encrypt-credentials:check` reported 0 plaintext and 0 unopenable before the deploy. So the runbook ran, but no ciphertext exists yet. The first Google sign-in writes the first sealed row, and that write is the real test of the vault. |
+| 2 · #455 better-auth | **merged. #455 closed 2026-07-30T10:01Z.** | PR #606. Live in production from `a7957d0e`. |
+| 3 · #457 Gmail webhook | **closed 2026-07-30T08:37Z** as a duplicate of #291. | No code change. The 07-30 correction was right. |
+| 4 · #232 outbound floor | **open, and still not re-scoped.** | The order told you to shrink #232 to the invite floor. #232 still carries its old title and its old body, so the issue still claims a hole that `toolRequiresApproval` closed. **This is the one piece of Tier 0 paperwork left.** #134 also stays open on its separate allow-list residual. |
+| 5 · #533 outbox reaper | **merged. #533 closed 2026-07-30T10:01Z.** | PR #606. `a7957d0e` logs `[outbox-reaper] started`. |
+
+PR #606 is also the **first PR of the campaign era to carry a closing keyword**.
+It closed two issues at once. Finding 2 of this order said no body had one. That
+is no longer true, and #602 (`Closes #551`) preceded it on 07-29. The habit is
+recoverable.
+
+The retained-window detection gap that #533 uncovered is unchanged. It still
+belongs in the one later slice with #192 and #532.
+
+## 2. Tier 1 started, and #555 is half of a slice
+
+PR #610 merged at 08:52Z. It is the substrate and the service:
+
+- `workflow_revisions`, `workflows.current_revision_id` /
+  `published_revision_id` / `blocked`, and `agent_runs.workflow_revision_id`,
+  in additive migration `0090_nappy_owl.sql`.
+- `packages/api/src/modules/workflows/revisions.ts` — create-draft, revise,
+  validate, activate, status and blocker writers.
+- `workflowUpdate` no longer writes `workflows`. It routes through the service.
+- A committed backfill that mints revision 1 for existing user-authored rows.
+- `toolNameSchema` moves to `@alfred/contracts`; both former copies re-export it.
+
+The PR body says `Refs #555` on purpose, because the four acceptance cases were
+probed against a real database but not committed as tests. The follow-up commit
+`be0e7aac` then committed `packages/api/test/workflows/revisions.test.ts` with
+**two** of the four. So the gap narrowed and did not close:
+
+- covered: the active-edit / published-pin case, and the typed `row_version`
+  conflict.
+- **not covered: pause never clears `blocked`, and `content_hash` is canonical
+  across processes.** The hash was probed by hand only.
+
+**#555 stays open.** Do not start #556 until the other two cases are tests.
+
+The remaining six slices keep their authored order:
+`#556 -> #557 -> #558 -> #559 -> #560 -> #561`.
+
+The worktree `.claude/worktrees/workflow-revisions-555` still exists at
+`be0e7aac`. The branch is merged into `main` and the lock names pid 67061, which
+is gone. Remove the worktree and the lock.
+
+## 3. `main` is red, and nothing stops a red merge
+
+`ci.yml` failed on the `#610` merge commit `945937bb`. One test fails:
+
+```
+not ok 1 - active edits stay visible as drafts while new runs pin the published revision
+  test/workflows/revisions.test.ts
+  error: 'No system tools are registered for the kernel surface'
+  systemToolKernel (src/modules/agent/tool-surface.ts:33:11)
+  Object.initialState (src/modules/agent/workflows/user-authored-brief.ts:623:24)
+  createRun (src/modules/agent/service.ts:150:33)
+```
+
+This is a **harness defect, not a revision defect.** The test calls `createRun`,
+which builds the user-authored brief's initial state, which asks for the system
+tool kernel. Nothing registered the kernel surface in that test process. The
+same case passed on the branch, where the file ran under a different entry set.
+The fix is to register the surface in the test, not to change `revisions.ts`.
+
+It matters because of what landed 2.5 hours earlier. **PR #608 removed the
+`required` job**, and `main` has no branch protection:
+
+```
+gh api repos/99Yash/alfred/branches/main/protection
+→ 404 Branch not protected
+```
+
+That trade was deliberate and it is the repo owner's call. State the consequence
+plainly: `main` had **no** gate on 07-31, a red PR merged into it the same day,
+and the red is still there. The 27-of-40 red history that #608 set out to fix
+came from exactly this mechanism. #608 fixed the three *causes* it found. It did
+not remove the *path*.
+
+Two of #608's other effects are worth recording against the campaign:
+
+- `api-unit-tests` and `api-db-tests` are now one `api-tests` job. All 201 files
+  no longer run twice per CI, so a timing-sensitive test gets one chance to
+  flake, not two. A glob split was rejected on purpose.
+- The `hedge budget` flake is fixed by counting concurrent hedges rather than
+  cumulative ones.
+
+**Fix the red before anything else.** It is one test registration.
+
+## 4. A second line of work now takes most of the merges
+
+Three of the last four PRs are MCP: **#607**, **#609**, and #608 partly, because
+two of its three red causes were MCP tests. Both #607 and #609 say `Refs #547`.
+
+This order named #553 as the one big bet and froze the other five epics. **#547
+is not one of those five.** It is the MCP connection-and-OAuth slice, the
+follow-up to the closed #540, and this order never ranked it. So it is not a
+violation of the freeze. It is a gap in the order: the order describes one live
+line and the repo runs two.
+
+What the two PRs actually did:
+
+| PR | Merged | What it is |
+| --- | --- | --- |
+| #607 | 05:20Z | Migrates the production adapter from `@modelcontextprotocol/sdk@1.29.0` to `@modelcontextprotocol/client@2.0.0`. Negotiates the modern `2026-07-28` protocol era with a `2025-11-25` fallback behind an explicit allowlist. Keeps Alfred's immutable catalog as the authority: no SDK list cache is promoted, MRTR fulfillment is off, and `tools/call` is never auto-replayed. This is **not** on #547's deferred list. It is a new item the SDK release forced. |
+| #609 | 08:05Z | OAuth discovery, credential handling, insufficient-scope recovery and durable connection routes, plus the GitHub MCP status / reconnect / consent UI, plus trace context through connect, catalog and invoke. Migration `0089_true_dust.sql`. |
+
+Two facts about #609 to carry forward:
+
+- The MCP credential store **uses the vault**: `mcp/oauth.ts:2` imports
+  `credentialVault` from `@alfred/db/credential-vault`. So #453's KEK covers the
+  Alfred-to-MCP-server bearer too, and #547's own "plaintext-token concerns
+  apply here" note is satisfied by construction rather than by a second design.
+- Its body says **"Testing: Not run (not requested)"**. The 26 files include
+  `test/mcp/oauth.test.ts` (+193) and `test/mcp/manager-lifecycle.test.ts`
+  (+62), so tests were *written*. They were not *run* before merge, into a
+  branch with no gate, on the same day the gate was removed.
+
+**#547 is not close to done.** The production endpoint authorizer is still the
+placeholder: `manager.ts:96` still reads "Placeholder endpoint authorization for
+the default factory. Enforces https and…". SSRF hardening, the connection-trust
+nonce, and the reviewed-downgrade write path are all still open, and so is the
+ADR that amends ADR-0018.
+
+**The call this order will not make for you:** either rank #547 beside #553 and
+say so, or stop merging it. Two unranked live lines is how six specified epics
+came to sit with none in flight.
+
+## 5. What did not move
+
+- **Tier 2 is untouched.** #210, #353, #354, #573 and #478 are all open, and no
+  PR since 07-30 references any of them. These are still the four you feel every
+  morning.
+- **Tier 3 is untouched.** Every one of the 10 items to land is still `design`
+  in `.campaign/arch-20260727/state.json`: 37, 38, 34, 25, 44, 11, 46, 33, 06,
+  30. The 16 to drop are still `design` too, not `skipped`. Nobody marked them.
+- **Item 46 survives #608.** `ci.yml` now runs `static`, `api-tests`,
+  `ai-unit-tests` and `web-unit-tests`. It still does **not** run
+  `@alfred/integrations`.
+- **#570 drifted further.** `packages/api`, `ai`, `db`, `integrations`,
+  `contracts` and `sync` all still declare `"include": ["src"]`.
+  `apps/web/tsconfig.test.json` is still the only test tsconfig. The test file
+  count is now **236**, not the 225 this order corrected it to, and not the 201
+  the issue claims. Campaign item 11 still closes it.
+- **The ~20 residue issues are all still open.** Tier 4 did not run. #163 still
+  holds the calendar-invite item that #232's re-scope needs.
+- **#580, #159 and #532** are still real, exactly as the "Four that look done"
+  section says.
+
+## The live queue, 2026-07-31
+
+1. **Fix the red on `main`.** Register the system tool surface in
+   `test/workflows/revisions.test.ts`. One test.
+2. **Finish #555.** Commit the two remaining acceptance cases, then close it.
+3. **Re-scope #232** to the outbound *invite* floor, and lift the calendar item
+   out of #163. This is the last of Tier 0.
+4. **Decide about #547** before its next PR. Rank it or pause it.
+5. Then **#556**, and the rest of #553 in order.
+6. Remove the `workflow-revisions-555` worktree.

@@ -9,6 +9,7 @@ import { eq } from "drizzle-orm";
 
 import { createRun } from "../../src/modules/agent/service";
 import { ENTITY_FETCHERS } from "../../src/modules/replicache/entities";
+import { registerBuiltinTools } from "../../src/modules/tools";
 import {
   activateWorkflow,
   createWorkflowDraft,
@@ -56,6 +57,7 @@ describe("workflow revision invariants (#555)", { skip: SKIP }, () => {
   });
 
   test("active edits stay visible as drafts while new runs pin the published revision", async () => {
+    registerBuiltinTools();
     const userId = await seedUser();
     const slug = `revision-test-${randomUUID()}`;
     const created = await createWorkflowDraft({
