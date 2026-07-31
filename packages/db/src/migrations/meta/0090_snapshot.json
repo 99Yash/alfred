@@ -1,5 +1,5 @@
 {
-  "id": "60ece1ee-72ac-4985-96d2-968e907a18cd",
+  "id": "6f97609a-1dfb-42ce-af32-5a20000bea7c",
   "prevId": "64cc94c4-0e20-405a-b583-f42c871676f6",
   "version": "7",
   "dialect": "postgresql",
@@ -1011,6 +1011,21 @@
             "id"
           ],
           "onDelete": "cascade",
+          "onUpdate": "no action"
+        },
+        "agent_runs_workflow_revision_owner_fk": {
+          "name": "agent_runs_workflow_revision_owner_fk",
+          "tableFrom": "agent_runs",
+          "tableTo": "workflow_revisions",
+          "columnsFrom": [
+            "workflow_revision_id",
+            "user_id"
+          ],
+          "columnsTo": [
+            "id",
+            "user_id"
+          ],
+          "onDelete": "no action",
           "onUpdate": "no action"
         }
       },
@@ -10993,6 +11008,48 @@
         }
       },
       "indexes": {
+        "workflow_revisions_workflow_id_idx": {
+          "name": "workflow_revisions_workflow_id_idx",
+          "columns": [
+            {
+              "expression": "workflow_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": true,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "workflow_revisions_id_user_idx": {
+          "name": "workflow_revisions_id_user_idx",
+          "columns": [
+            {
+              "expression": "id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "user_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": true,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
         "workflow_revisions_number_idx": {
           "name": "workflow_revisions_number_idx",
           "columns": [
@@ -11038,19 +11095,6 @@
         }
       },
       "foreignKeys": {
-        "workflow_revisions_workflow_id_workflows_id_fk": {
-          "name": "workflow_revisions_workflow_id_workflows_id_fk",
-          "tableFrom": "workflow_revisions",
-          "tableTo": "workflows",
-          "columnsFrom": [
-            "workflow_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
-          "onDelete": "cascade",
-          "onUpdate": "no action"
-        },
         "workflow_revisions_user_id_user_id_fk": {
           "name": "workflow_revisions_user_id_user_id_fk",
           "tableFrom": "workflow_revisions",
@@ -11060,6 +11104,21 @@
           ],
           "columnsTo": [
             "id"
+          ],
+          "onDelete": "cascade",
+          "onUpdate": "no action"
+        },
+        "workflow_revisions_workflow_owner_fk": {
+          "name": "workflow_revisions_workflow_owner_fk",
+          "tableFrom": "workflow_revisions",
+          "tableTo": "workflows",
+          "columnsFrom": [
+            "workflow_id",
+            "user_id"
+          ],
+          "columnsTo": [
+            "id",
+            "user_id"
           ],
           "onDelete": "cascade",
           "onUpdate": "no action"
@@ -11244,6 +11303,27 @@
           "method": "btree",
           "with": {}
         },
+        "workflows_id_user_idx": {
+          "name": "workflows_id_user_idx",
+          "columns": [
+            {
+              "expression": "id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "user_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": true,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
         "workflows_user_status_idx": {
           "name": "workflows_user_status_idx",
           "columns": [
@@ -11322,6 +11402,36 @@
             "id"
           ],
           "onDelete": "cascade",
+          "onUpdate": "no action"
+        },
+        "workflows_current_revision_fk": {
+          "name": "workflows_current_revision_fk",
+          "tableFrom": "workflows",
+          "tableTo": "workflow_revisions",
+          "columnsFrom": [
+            "id",
+            "current_revision_id"
+          ],
+          "columnsTo": [
+            "workflow_id",
+            "id"
+          ],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        },
+        "workflows_published_revision_fk": {
+          "name": "workflows_published_revision_fk",
+          "tableFrom": "workflows",
+          "tableTo": "workflow_revisions",
+          "columnsFrom": [
+            "id",
+            "published_revision_id"
+          ],
+          "columnsTo": [
+            "workflow_id",
+            "id"
+          ],
+          "onDelete": "no action",
           "onUpdate": "no action"
         }
       },

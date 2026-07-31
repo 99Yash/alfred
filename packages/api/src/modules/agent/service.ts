@@ -157,6 +157,7 @@ export async function createRun(
     .values({
       userId: args.userId,
       workflowSlug,
+      workflowRevisionId: resolved.userAuthoredRow?.publishedRevisionId ?? null,
       brief,
       state: (initialState as object) ?? {},
       transcript,

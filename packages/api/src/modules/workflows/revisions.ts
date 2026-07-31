@@ -4,12 +4,9 @@ import {
   isIntegrationSlug,
   isLoadableIntegrationSlug,
   workflowRevisionDefinitionSchema,
-  type ToolName,
   type WorkflowAuthoringProposal,
   type WorkflowBlocked,
-  type WorkflowRequiredCapability,
   type WorkflowRevisionDefinition,
-  type WorkflowTrigger,
 } from "@alfred/contracts";
 import { db, type DbRoot, type DbTransaction } from "@alfred/db";
 import { createId } from "@alfred/db/helpers";
@@ -20,7 +17,6 @@ import {
   type WorkflowRevision,
 } from "@alfred/db/schemas";
 import { and, eq, sql } from "drizzle-orm";
-import { isUniqueViolation } from "../../lib/pg-errors";
 import { canonicalWorkflowDefinition, workflowRevisionContentHash } from "./content-hash";
 import { computeNextRunAt, resolveWorkflowTimezone, validateCronTrigger } from "./scheduling";
 
@@ -100,8 +96,8 @@ export interface WorkflowRevisedOutcome extends WorkflowRevisionOutcome {
   created: boolean;
 }
 
-/** A `db()` handle or a caller-supplied transaction (the Replicache push tx). */
-type WorkflowTx = DbRoot | DbTransaction;
+/** A read executor or an existing transaction supplied by a composing caller. */
+type WorkflowExecutor = DbRoot | DbTransaction;
 
 // ── Validation ───────────────────────────────────────────────────────────────
 
@@ -221,7 +217,7 @@ export interface CreateWorkflowDraftArgs {
   authoringProposal?: WorkflowAuthoringProposal;
   /** The `agent_runs.id` that authored this. Retrying that run collapses onto one row. */
   createdByRunId?: string;
-  tx?: WorkflowTx;
+  tx?: DbTransaction;
 }
 
 /**
@@ -243,38 +239,44 @@ export async function createWorkflowDraft(
 
   const definition = validated.definition;
   const revisionId = createId("wfr");
-  const executor = args.tx ?? db();
-
-  try {
-    const [workflow] = await executor
+  const run = async (
+    tx: DbTransaction,
+  ): Promise<WorkflowServiceResult<WorkflowRevisionOutcome>> => {
+    // Insert the stable identity first, then the revision, then its pointer.
+    // This order satisfies the pointer FK while the transaction keeps the
+    // three writes atomic.
+    const [created] = await tx
       .insert(workflows)
       .values({
         userId: args.userId,
         slug: args.slug,
         status: "draft",
         isBuiltin: false,
-        currentRevisionId: revisionId,
         ...mirroredColumns(definition),
       })
+      .onConflictDoNothing({ target: [workflows.userId, workflows.slug] })
       .returning();
-    if (!workflow) return { ok: false, failure: { kind: "not_found" } };
+    if (!created) return { ok: false, failure: { kind: "slug_taken", slug: args.slug } };
 
-    const revision = await insertRevision(executor, {
+    const revision = await insertRevision(tx, {
       id: revisionId,
-      workflowId: workflow.id,
+      workflowId: created.id,
       userId: args.userId,
       revisionNumber: 1,
       definition,
       authoringProposal: args.authoringProposal,
       createdByRunId: args.createdByRunId,
     });
+    const [workflow] = await tx
+      .update(workflows)
+      .set({ currentRevisionId: revisionId })
+      .where(eq(workflows.id, created.id))
+      .returning();
+    if (!workflow) return { ok: false, failure: { kind: "not_found" } };
 
     return { ok: true, workflow, revision };
-  } catch (err) {
-    if (isUniqueViolation(err))
-      return { ok: false, failure: { kind: "slug_taken", slug: args.slug } };
-    throw err;
-  }
+  };
+  return args.tx ? run(args.tx) : db().transaction(run);
 }
 
 // ── Revise ───────────────────────────────────────────────────────────────────
@@ -287,15 +289,9 @@ export async function createWorkflowDraft(
  * below has to be able to carry that null forward so the validator — not the
  * merge — is what reports it.
  */
-export interface WorkflowDefinitionDraft {
-  name: string;
-  description: string | null;
+export type WorkflowDefinitionDraft = Omit<WorkflowRevisionDefinition, "brief"> & {
   brief: string | null;
-  trigger: WorkflowTrigger;
-  allowedIntegrations: string[];
-  allowedTools: ToolName[];
-  requiredCapabilities: WorkflowRequiredCapability[];
-}
+};
 
 /** A partial edit. An absent key means "leave it alone"; `null` means "clear it". */
 export type WorkflowDefinitionPatch = {
@@ -313,7 +309,7 @@ export interface ReviseWorkflowArgs {
    * is possible; supplying it turns a lost update into a typed conflict.
    */
   expectedRowVersion?: number | undefined;
-  tx?: WorkflowTx;
+  tx?: DbTransaction;
 }
 
 /**
@@ -337,57 +333,71 @@ export async function reviseWorkflow(
   }
 
   const definition = validated.definition;
-  const executor = args.tx ?? db();
+  const run = async (tx: DbTransaction): Promise<WorkflowServiceResult<WorkflowRevisedOutcome>> => {
+    const existing = await loadWorkflow(tx, args.userId, args.workflowId);
+    if (!existing) return { ok: false, failure: { kind: "not_found" } };
+    if (existing.isBuiltin) return { ok: false, failure: { kind: "builtin_immutable" } };
 
-  const existing = await loadWorkflow(executor, args.userId, args.workflowId);
-  if (!existing) return { ok: false, failure: { kind: "not_found" } };
-  if (existing.isBuiltin) return { ok: false, failure: { kind: "builtin_immutable" } };
+    const current = existing.currentRevisionId
+      ? await loadRevision(tx, existing.currentRevisionId)
+      : null;
+    const contentHash = workflowRevisionContentHash(definition);
+    if (current && current.contentHash === contentHash) {
+      return { ok: true, workflow: existing, revision: current, created: false };
+    }
 
-  const current = existing.currentRevisionId
-    ? await loadRevision(executor, existing.currentRevisionId)
-    : null;
-  const contentHash = workflowRevisionContentHash(definition);
-  if (current && current.contentHash === contentHash) {
-    return { ok: true, workflow: existing, revision: current, created: false };
-  }
+    const revisionId = createId("wfr");
+    // The published revision keeps running, so only a workflow that has never
+    // been activated refreshes its denormalized copy from this edit.
+    const mirrors = existing.publishedRevisionId === null;
+    const nextRunAt =
+      mirrors && existing.status === "active"
+        ? computeNextRunAt(definition.trigger, { timezone })
+        : undefined;
+    const expectedRowVersion = args.expectedRowVersion ?? existing.rowVersion;
 
-  const revisionId = createId("wfr");
-  // The published revision keeps running, so only a workflow that has never
-  // been activated refreshes its denormalized copy from this edit.
-  const mirrors = existing.publishedRevisionId === null;
-  const nextRunAt =
-    mirrors && existing.status === "active"
-      ? computeNextRunAt(definition.trigger, { timezone })
-      : undefined;
+    const [claimed] = await tx
+      .update(workflows)
+      .set({
+        rowVersion: sql`${workflows.rowVersion} + 1`,
+      })
+      .where(rowVersionGuard(existing.id, expectedRowVersion))
+      .returning();
+    if (!claimed) {
+      return {
+        ok: false,
+        failure: { kind: "row_version_conflict", expected: expectedRowVersion },
+      };
+    }
 
-  const [claimed] = await executor
-    .update(workflows)
-    .set({
-      currentRevisionId: revisionId,
-      ...(mirrors ? mirroredColumns(definition) : {}),
-      ...(nextRunAt !== undefined ? { nextRunAt } : {}),
-      rowVersion: sql`${workflows.rowVersion} + 1`,
-    })
-    .where(rowVersionGuard(existing.id, args.expectedRowVersion))
-    .returning();
-  if (!claimed) {
-    return {
-      ok: false,
-      failure: { kind: "row_version_conflict", expected: args.expectedRowVersion ?? -1 },
-    };
-  }
+    const revision = await insertRevision(tx, {
+      id: revisionId,
+      workflowId: existing.id,
+      userId: args.userId,
+      revisionNumber: (current?.revisionNumber ?? 0) + 1,
+      definition,
+      authoringProposal: args.authoringProposal,
+      createdByRunId: args.createdByRunId,
+    });
 
-  const revision = await insertRevision(executor, {
-    id: revisionId,
-    workflowId: existing.id,
-    userId: args.userId,
-    revisionNumber: (current?.revisionNumber ?? 0) + 1,
-    definition,
-    authoringProposal: args.authoringProposal,
-    createdByRunId: args.createdByRunId,
-  });
+    // The FK requires the immutable row to exist before either pointer can
+    // reference it. The claim above already serialized concurrent editors;
+    // this second update completes that claimed transition without another
+    // row-version increment.
+    const [workflow] = await tx
+      .update(workflows)
+      .set({
+        currentRevisionId: revisionId,
+        ...(mirrors ? mirroredColumns(definition) : {}),
+        ...(nextRunAt !== undefined ? { nextRunAt } : {}),
+      })
+      .where(eq(workflows.id, existing.id))
+      .returning();
+    if (!workflow) return { ok: false, failure: { kind: "not_found" } };
 
-  return { ok: true, workflow: claimed, revision, created: true };
+    return { ok: true, workflow, revision, created: true };
+  };
+  return args.tx ? run(args.tx) : db().transaction(run);
 }
 
 /**
@@ -407,38 +417,41 @@ export async function reviseWorkflowFromPatch(args: {
   authoringProposal?: WorkflowAuthoringProposal | undefined;
   createdByRunId?: string | undefined;
   expectedRowVersion?: number | undefined;
-  tx?: WorkflowTx;
+  tx?: DbTransaction;
 }): Promise<WorkflowServiceResult<WorkflowRevisedOutcome>> {
-  const executor = args.tx ?? db();
+  const run = async (tx: DbTransaction): Promise<WorkflowServiceResult<WorkflowRevisedOutcome>> => {
+    const existing = await loadWorkflow(tx, args.userId, args.workflowId);
+    if (!existing) return { ok: false, failure: { kind: "not_found" } };
+    if (existing.isBuiltin) return { ok: false, failure: { kind: "builtin_immutable" } };
 
-  const existing = await loadWorkflow(executor, args.userId, args.workflowId);
-  if (!existing) return { ok: false, failure: { kind: "not_found" } };
-  if (existing.isBuiltin) return { ok: false, failure: { kind: "builtin_immutable" } };
+    const current = existing.currentRevisionId
+      ? await loadRevision(tx, existing.currentRevisionId)
+      : null;
+    const base: WorkflowDefinitionDraft = current
+      ? definitionOf(current)
+      : {
+          name: existing.name,
+          description: existing.description,
+          brief: existing.brief,
+          trigger: existing.trigger,
+          allowedIntegrations: workflowRevisionDefinitionSchema.shape.allowedIntegrations.parse(
+            existing.allowedIntegrations,
+          ),
+          allowedTools: [],
+          requiredCapabilities: [],
+        };
 
-  const current = existing.currentRevisionId
-    ? await loadRevision(executor, existing.currentRevisionId)
-    : null;
-  const base: WorkflowDefinitionDraft = current
-    ? definitionOf(current)
-    : {
-        name: existing.name,
-        description: existing.description,
-        brief: existing.brief,
-        trigger: existing.trigger,
-        allowedIntegrations: existing.allowedIntegrations,
-        allowedTools: [],
-        requiredCapabilities: [],
-      };
-
-  return reviseWorkflow({
-    userId: args.userId,
-    workflowId: args.workflowId,
-    definition: applyDefinitionPatch(base, args.patch),
-    authoringProposal: args.authoringProposal,
-    createdByRunId: args.createdByRunId,
-    expectedRowVersion: args.expectedRowVersion,
-    tx: executor,
-  });
+    return reviseWorkflow({
+      userId: args.userId,
+      workflowId: args.workflowId,
+      definition: applyDefinitionPatch(base, args.patch),
+      authoringProposal: args.authoringProposal,
+      createdByRunId: args.createdByRunId,
+      expectedRowVersion: args.expectedRowVersion,
+      tx,
+    });
+  };
+  return args.tx ? run(args.tx) : db().transaction(run);
 }
 
 /**
@@ -473,7 +486,7 @@ export interface ActivateWorkflowArgs {
    */
   expectedContentHash?: string;
   expectedRowVersion?: number;
-  tx?: WorkflowTx;
+  tx?: DbTransaction;
 }
 
 /**
@@ -489,65 +502,71 @@ export interface ActivateWorkflowArgs {
 export async function activateWorkflow(
   args: ActivateWorkflowArgs,
 ): Promise<WorkflowServiceResult<WorkflowRevisionOutcome>> {
-  const executor = args.tx ?? db();
+  const run = async (
+    tx: DbTransaction,
+  ): Promise<WorkflowServiceResult<WorkflowRevisionOutcome>> => {
+    const existing = await loadWorkflow(tx, args.userId, args.workflowId);
+    if (!existing) return { ok: false, failure: { kind: "not_found" } };
+    if (existing.isBuiltin) return { ok: false, failure: { kind: "builtin_immutable" } };
+    if (!existing.currentRevisionId) return { ok: false, failure: { kind: "no_current_revision" } };
 
-  const existing = await loadWorkflow(executor, args.userId, args.workflowId);
-  if (!existing) return { ok: false, failure: { kind: "not_found" } };
-  if (existing.isBuiltin) return { ok: false, failure: { kind: "builtin_immutable" } };
-  if (!existing.currentRevisionId) return { ok: false, failure: { kind: "no_current_revision" } };
+    const current = await loadRevision(tx, existing.currentRevisionId);
+    if (!current) return { ok: false, failure: { kind: "no_current_revision" } };
 
-  const current = await loadRevision(executor, existing.currentRevisionId);
-  if (!current) return { ok: false, failure: { kind: "no_current_revision" } };
+    if (args.expectedContentHash && args.expectedContentHash !== current.contentHash) {
+      return {
+        ok: false,
+        failure: {
+          kind: "stale_revision",
+          expected: args.expectedContentHash,
+          actual: current.contentHash,
+        },
+      };
+    }
 
-  if (args.expectedContentHash && args.expectedContentHash !== current.contentHash) {
-    return {
-      ok: false,
-      failure: {
-        kind: "stale_revision",
-        expected: args.expectedContentHash,
-        actual: current.contentHash,
-      },
-    };
-  }
+    const timezone = await resolveWorkflowTimezone(args.userId, current.trigger);
+    const validated = validateWorkflowDefinition(definitionOf(current), {
+      timezone,
+      requireActivatable: true,
+    });
+    if (!validated.ok) {
+      return { ok: false, failure: { kind: "validation_failed", problems: validated.problems } };
+    }
 
-  const timezone = await resolveWorkflowTimezone(args.userId, current.trigger);
-  const validated = validateWorkflowDefinition(definitionOf(current), {
-    timezone,
-    requireActivatable: true,
-  });
-  if (!validated.ok) {
-    return { ok: false, failure: { kind: "validation_failed", problems: validated.problems } };
-  }
+    const definition = validated.definition;
+    const expectedRowVersion = args.expectedRowVersion ?? existing.rowVersion;
+    const [published] = await tx
+      .update(workflows)
+      .set({
+        status: "active",
+        publishedRevisionId: current.id,
+        nextRunAt: computeNextRunAt(definition.trigger, { timezone }),
+        ...mirroredColumns(definition),
+        rowVersion: sql`${workflows.rowVersion} + 1`,
+      })
+      .where(rowVersionGuard(existing.id, expectedRowVersion))
+      .returning();
+    if (!published) {
+      return {
+        ok: false,
+        failure: { kind: "row_version_conflict", expected: expectedRowVersion },
+      };
+    }
 
-  const definition = validated.definition;
-  const [published] = await executor
-    .update(workflows)
-    .set({
-      status: "active",
-      publishedRevisionId: current.id,
-      nextRunAt: computeNextRunAt(definition.trigger, { timezone }),
-      ...mirroredColumns(definition),
-      rowVersion: sql`${workflows.rowVersion} + 1`,
-    })
-    .where(rowVersionGuard(existing.id, args.expectedRowVersion))
-    .returning();
-  if (!published) {
-    return {
-      ok: false,
-      failure: { kind: "row_version_conflict", expected: args.expectedRowVersion ?? -1 },
-    };
-  }
+    // `approved_at` is the one mutable column on an otherwise immutable row, and
+    // it is stamped once: republishing an already-approved revision keeps the
+    // instant the user actually approved it.
+    const [revision] = await tx
+      .update(workflowRevisions)
+      .set({ approvedAt: new Date() })
+      .where(
+        and(eq(workflowRevisions.id, current.id), sql`${workflowRevisions.approvedAt} IS NULL`),
+      )
+      .returning();
 
-  // `approved_at` is the one mutable column on an otherwise immutable row, and
-  // it is stamped once: republishing an already-approved revision keeps the
-  // instant the user actually approved it.
-  const [revision] = await executor
-    .update(workflowRevisions)
-    .set({ approvedAt: new Date() })
-    .where(and(eq(workflowRevisions.id, current.id), sql`${workflowRevisions.approvedAt} IS NULL`))
-    .returning();
-
-  return { ok: true, workflow: published, revision: revision ?? current };
+    return { ok: true, workflow: published, revision: revision ?? current };
+  };
+  return args.tx ? run(args.tx) : db().transaction(run);
 }
 
 // ── Status and blocked — independent fields, independent writers ─────────────
@@ -569,15 +588,28 @@ export async function setWorkflowStatus(args: {
   userId: string;
   workflowId: string;
   status: InactiveWorkflowStatus;
-  tx?: WorkflowTx;
+  expectedRowVersion?: number | undefined;
+  tx?: WorkflowExecutor;
 }): Promise<WorkflowServiceResult<{ workflow: Workflow }>> {
   const executor = args.tx ?? db();
   const [workflow] = await executor
     .update(workflows)
     .set({ status: args.status, nextRunAt: null, rowVersion: sql`${workflows.rowVersion} + 1` })
-    .where(and(eq(workflows.id, args.workflowId), eq(workflows.userId, args.userId)))
+    .where(
+      and(
+        eq(workflows.userId, args.userId),
+        rowVersionGuard(args.workflowId, args.expectedRowVersion),
+      ),
+    )
     .returning();
-  return workflow ? { ok: true, workflow } : { ok: false, failure: { kind: "not_found" } };
+  return workflow
+    ? { ok: true, workflow }
+    : args.expectedRowVersion === undefined
+      ? { ok: false, failure: { kind: "not_found" } }
+      : {
+          ok: false,
+          failure: { kind: "row_version_conflict", expected: args.expectedRowVersion },
+        };
 }
 
 /**
@@ -588,7 +620,7 @@ export async function setWorkflowBlocked(args: {
   userId: string;
   workflowId: string;
   blocked: WorkflowBlocked;
-  tx?: WorkflowTx;
+  tx?: WorkflowExecutor;
 }): Promise<WorkflowServiceResult<{ workflow: Workflow }>> {
   return writeBlocked(args.userId, args.workflowId, args.blocked, args.tx);
 }
@@ -600,7 +632,7 @@ export async function setWorkflowBlocked(args: {
 export async function clearWorkflowBlocked(args: {
   userId: string;
   workflowId: string;
-  tx?: WorkflowTx;
+  tx?: WorkflowExecutor;
 }): Promise<WorkflowServiceResult<{ workflow: Workflow }>> {
   return writeBlocked(args.userId, args.workflowId, null, args.tx);
 }
@@ -609,7 +641,7 @@ async function writeBlocked(
   userId: string,
   workflowId: string,
   blocked: WorkflowBlocked | null,
-  tx?: WorkflowTx,
+  tx?: WorkflowExecutor,
 ): Promise<WorkflowServiceResult<{ workflow: Workflow }>> {
   const executor = tx ?? db();
   const [workflow] = await executor
@@ -657,7 +689,7 @@ function rowVersionGuard(workflowId: string, expectedRowVersion: number | undefi
 }
 
 async function loadWorkflow(
-  executor: WorkflowTx,
+  executor: WorkflowExecutor,
   userId: string,
   workflowId: string,
 ): Promise<Workflow | null> {
@@ -670,7 +702,7 @@ async function loadWorkflow(
 }
 
 async function loadRevision(
-  executor: WorkflowTx,
+  executor: WorkflowExecutor,
   revisionId: string,
 ): Promise<WorkflowRevision | null> {
   const [row] = await executor
@@ -682,7 +714,7 @@ async function loadRevision(
 }
 
 async function insertRevision(
-  executor: WorkflowTx,
+  executor: WorkflowExecutor,
   args: {
     id: string;
     workflowId: string;

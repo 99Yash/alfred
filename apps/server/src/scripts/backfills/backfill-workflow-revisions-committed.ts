@@ -1,7 +1,7 @@
 /**
  * COMMITTED backfill: mint revision 1 for every user-authored workflow (#555).
  *
- * Migration `0090_fresh_genesis` adds `workflow_revisions` plus the two pointers
+ * Migration `0090_nappy_owl` adds `workflow_revisions` plus the two pointers
  * on `workflows`, but it cannot fill them. The content hash is SHA-256 over a
  * canonical JSON pre-image produced by `workflowRevisionContentHash`, so a SQL
  * `UPDATE` would either omit the hash or invent one that no later `revise` call

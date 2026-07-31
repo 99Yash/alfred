@@ -56,7 +56,7 @@ export function useWorkflows(): WorkflowsState {
 export interface WorkflowState {
   workflow: SyncedWorkflow | null;
   /** Persist an edit; the server confirms on the next pull. */
-  updateWorkflow: (args: Omit<WorkflowUpdateArgs, "slug">) => Promise<void>;
+  updateWorkflow: (args: Omit<WorkflowUpdateArgs, "slug" | "expectedRowVersion">) => Promise<void>;
   loading: boolean;
   error: string | null;
   retry: () => void;
@@ -83,15 +83,17 @@ export function useWorkflow(slug: string): WorkflowState {
     );
   }, [rep, slug]);
 
+  const current = snapshot?.rep === rep && snapshot.slug === slug ? snapshot : null;
   const updateWorkflow = useCallback(
-    async (args: Omit<WorkflowUpdateArgs, "slug">): Promise<void> => {
+    async (args: Omit<WorkflowUpdateArgs, "slug" | "expectedRowVersion">): Promise<void> => {
       if (!rep) return;
-      await rep.mutate.workflowUpdate({ slug, ...args });
+      const expectedRowVersion = current?.workflow?.rowVersion;
+      if (expectedRowVersion === undefined) return;
+      await rep.mutate.workflowUpdate({ slug, expectedRowVersion, ...args });
     },
-    [rep, slug],
+    [current?.workflow?.rowVersion, rep, slug],
   );
 
-  const current = snapshot?.rep === rep && snapshot.slug === slug ? snapshot : null;
   return {
     workflow: current?.workflow ?? null,
     updateWorkflow,
