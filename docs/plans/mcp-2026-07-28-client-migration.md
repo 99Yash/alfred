@@ -65,7 +65,7 @@ cannot publish; no cache hint can preserve stale descriptor authority.
 
 ### 3. Schema and header safety
 
-Status: partially implemented in PR #607
+Status: implemented across PR #607 and its schema/cache-hint follow-up
 
 - Change output validators from object-only to any JSON value.
 - Test primitive, array, object, and `null` `structuredContent`.

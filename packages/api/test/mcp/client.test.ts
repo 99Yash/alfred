@@ -399,6 +399,65 @@ describe("McpRawClient catalog", () => {
     await assertMcpError(headerClient.refreshCatalog(), "invalid_schema");
   });
 
+  test("supports local $ref within schema bounds and rejects over-deep local schemas", async () => {
+    const localRefTool = tool(
+      "local_ref",
+      { type: "object", properties: {} },
+      {
+        outputSchema: {
+          $defs: {
+            result: {
+              type: "array",
+              items: { type: "integer" },
+            },
+          },
+          $ref: "#/$defs/result",
+        } as NonNullable<Tool["outputSchema"]>,
+      },
+    );
+    const localProtocol = new FakeProtocol([{ tools: [localRefTool] }]);
+    localProtocol.callResult = {
+      content: [{ type: "text", text: "ok" }],
+      structuredContent: [1, 2, 3],
+    } as McpProtocolCallResult;
+    const localClient = makeClient(localProtocol);
+    await localClient.connect();
+    const catalog = await localClient.refreshCatalog();
+
+    const result = await localClient.callTool(
+      {
+        kind: "mcp",
+        connectionId: "conn_1",
+        remoteName: "local_ref",
+        catalogRevision: catalog.revision,
+      },
+      {},
+    );
+    assert.equal(result.provenance.outputSchemaValidated, true);
+
+    let overDeep: Record<string, unknown> = { $ref: "#/$defs/result" };
+    for (let depth = 0; depth < 40; depth += 1) {
+      overDeep = { allOf: [overDeep] };
+    }
+    overDeep.$defs = { result: { type: "string" } };
+    const overDeepProtocol = new FakeProtocol([
+      {
+        tools: [
+          tool(
+            "over_deep_local_ref",
+            { type: "object", properties: {} },
+            {
+              outputSchema: overDeep as NonNullable<Tool["outputSchema"]>,
+            },
+          ),
+        ],
+      },
+    ]);
+    const overDeepClient = makeClient(overDeepProtocol);
+    await overDeepClient.connect();
+    await assertMcpError(overDeepClient.refreshCatalog(), "invalid_schema");
+  });
+
   test("refuses $id/$anchor so a server cannot poison the shared validator cache", async () => {
     // Ajv caches compiled validators by `$id`. A permissive schema registered
     // under `$id: "x"` would otherwise be returned for any later tool reusing
@@ -563,7 +622,7 @@ describe("McpRawClient calls", () => {
     assert.equal(protocol.calls.length, 0);
   });
 
-  test("does not silently invoke tools that require experimental Tasks", async () => {
+  test("ignores the legacy execution.taskSupport field", async () => {
     const taskTool = tool(
       "long_job",
       { type: "object", properties: {} },
@@ -574,19 +633,18 @@ describe("McpRawClient calls", () => {
     await client.connect();
     const catalog = await client.refreshCatalog();
 
-    await assertMcpError(
-      client.callTool(
-        {
-          kind: "mcp",
-          connectionId: "conn_1",
-          remoteName: "long_job",
-          catalogRevision: catalog.revision,
-        },
-        {},
-      ),
-      "unsupported_task_tool",
+    const result = await client.callTool(
+      {
+        kind: "mcp",
+        connectionId: "conn_1",
+        remoteName: "long_job",
+        catalogRevision: catalog.revision,
+      },
+      {},
     );
-    assert.equal(protocol.calls.length, 0);
+
+    assert.equal(result.outcome, "completed");
+    assert.deepEqual(protocol.calls, [{ name: "long_job", args: {} }]);
   });
 
   test("preserves tool error state and bounds oversized untrusted results", async () => {
@@ -648,6 +706,84 @@ describe("McpRawClient calls", () => {
       ),
       "invalid_output",
     );
+  });
+
+  test("validates every JSON structuredContent shape and non-object output roots", async () => {
+    const cases: Array<{
+      name: string;
+      outputSchema: NonNullable<Tool["outputSchema"]>;
+      structuredContent: unknown;
+    }> = [
+      {
+        name: "primitive",
+        outputSchema: { type: "string" } as NonNullable<Tool["outputSchema"]>,
+        structuredContent: "ready",
+      },
+      {
+        name: "array",
+        outputSchema: {
+          type: "array",
+          items: { type: "number" },
+        } as NonNullable<Tool["outputSchema"]>,
+        structuredContent: [1, 2, 3],
+      },
+      {
+        name: "object",
+        outputSchema: {
+          type: "object",
+          properties: { ready: { const: true } },
+          required: ["ready"],
+          additionalProperties: false,
+        },
+        structuredContent: { ready: true },
+      },
+      {
+        name: "null",
+        outputSchema: { type: "null" } as NonNullable<Tool["outputSchema"]>,
+        structuredContent: null,
+      },
+    ];
+
+    for (const fixture of cases) {
+      const protocol = new FakeProtocol([
+        {
+          tools: [
+            tool(
+              fixture.name,
+              { type: "object", properties: {} },
+              {
+                outputSchema: fixture.outputSchema,
+              },
+            ),
+          ],
+        },
+      ]);
+      protocol.callResult = {
+        content: [{ type: "text", text: fixture.name }],
+        structuredContent: fixture.structuredContent,
+      } as McpProtocolCallResult;
+      const client = makeClient(protocol);
+      await client.connect();
+      const catalog = await client.refreshCatalog();
+
+      const result = await client.callTool(
+        {
+          kind: "mcp",
+          connectionId: "conn_1",
+          remoteName: fixture.name,
+          catalogRevision: catalog.revision,
+        },
+        {},
+      );
+
+      assert.equal(result.outcome, "completed", fixture.name);
+      assert.equal(result.provenance.outputSchemaValidated, true, fixture.name);
+      assert.deepEqual(
+        (result.result as { structuredContent: unknown }).structuredContent,
+        fixture.structuredContent,
+        fixture.name,
+      );
+    }
   });
 
   test("an invalid_output error carries the census computed at response time", async () => {
