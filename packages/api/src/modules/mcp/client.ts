@@ -13,11 +13,15 @@ import type {
   CacheScope,
   JsonSchemaType,
   JsonSchemaValidator,
+  OAuthClientProvider,
   Tool,
 } from "@modelcontextprotocol/client";
+import { InsufficientScopeError } from "@modelcontextprotocol/client";
 import { AjvJsonSchemaValidator } from "@modelcontextprotocol/client/validators/ajv";
 import { McpClientError } from "./errors";
 import { sha256Canonical } from "./hash";
+import { authorizeMcpOAuth } from "./oauth";
+import type { McpTraceContext } from "./trace";
 import {
   isMcpDescriptorMismatchError,
   isMcpSessionExpiredError,
@@ -66,7 +70,7 @@ export interface McpPreparedToolCall {
   call(
     ref: ExternalToolRef,
     args: unknown,
-    options?: { signal?: AbortSignal },
+    options?: { signal?: AbortSignal; trace?: McpTraceContext },
   ): Promise<McpCallEnvelope>;
 }
 
@@ -100,6 +104,12 @@ export interface McpRawClientOptions extends McpClientLimits {
   endpoint: URL;
   endpointAuthorization: McpEndpointAuthorization;
   authProvider?: SdkMcpProtocolClientOptions["authProvider"];
+  /**
+   * Full OAuth provider used only before connect. The HTTP transport receives a
+   * token-only projection so it cannot refresh and replay `tools/call`.
+   */
+  oauthProvider?: OAuthClientProvider;
+  onInsufficientScope?: (requiredScopes: string[]) => void | Promise<void>;
   fetch?: SdkMcpProtocolClientOptions["fetch"];
   now?: () => number;
   protocolFactory?: (endpoint: URL) => McpProtocolClient;
@@ -137,6 +147,7 @@ export class McpRawClient {
   #toolsByName = new Map<string, Tool>();
   #inputValidators = new Map<string, JsonSchemaValidator<Record<string, unknown>>>();
   #outputValidators = new Map<string, JsonSchemaValidator<JsonValue>>();
+  #authorizationBlocked: McpClientError | null = null;
 
   constructor(options: McpRawClientOptions) {
     // The destructure IS the split: bounds get their defaults, everything else is
@@ -175,17 +186,28 @@ export class McpRawClient {
     this.#invalidateCatalog();
   }
 
-  async connect(): Promise<void> {
+  async connect(trace?: McpTraceContext): Promise<void> {
     if (this.#protocol) return;
     const endpoint = await this.#options.endpointAuthorization.authorize(
       new URL(this.#options.endpoint.href),
     );
+    if (this.#options.oauthProvider) {
+      await authorizeMcpOAuth(this.#options.oauthProvider, endpoint);
+    }
     const protocol = this.#options.protocolFactory
       ? this.#options.protocolFactory(endpoint)
       : new SdkMcpProtocolClient({
           endpoint,
           requestTimeoutMs: this.#limits.requestTimeoutMs,
-          ...(this.#options.authProvider ? { authProvider: this.#options.authProvider } : {}),
+          ...(this.#options.oauthProvider
+            ? {
+                authProvider: {
+                  token: async () => (await this.#options.oauthProvider?.tokens())?.access_token,
+                },
+              }
+            : this.#options.authProvider
+              ? { authProvider: this.#options.authProvider }
+              : {}),
           ...(this.#options.fetch ? { fetch: this.#options.fetch } : {}),
         });
     protocol.onToolsChanged(() => {
@@ -204,7 +226,7 @@ export class McpRawClient {
       void protocol.close(false).catch(() => undefined);
     });
     try {
-      const server = await protocol.connect();
+      const server = await protocol.connect(trace);
       let negotiated: McpNegotiatedServer;
       try {
         negotiated = parseMcpNegotiatedServer(server);
@@ -239,7 +261,7 @@ export class McpRawClient {
     if (protocol) await protocol.close(options.terminateSession === true);
   }
 
-  async refreshCatalog(signal?: AbortSignal): Promise<McpCatalogSnapshot> {
+  async refreshCatalog(signal?: AbortSignal, trace?: McpTraceContext): Promise<McpCatalogSnapshot> {
     const protocol = this.#requireProtocol();
     if (this.#catalog && this.#options.now() < this.#catalogExpiresAt) {
       return this.#catalog;
@@ -261,7 +283,7 @@ export class McpRawClient {
         );
       }
       const page: McpProtocolPage = await protocol
-        .listTools(cursor, signal)
+        .listTools(cursor, signal, trace)
         .catch((err: unknown) => this.#throwProtocolError(err, protocol));
       if (pageNumber === 1) {
         ttlMs = page.ttlMs;
@@ -370,19 +392,25 @@ export class McpRawClient {
   async callTool(
     ref: ExternalToolRef,
     args: unknown,
-    options: { signal?: AbortSignal } = {},
+    options: { signal?: AbortSignal; trace?: McpTraceContext } = {},
   ): Promise<McpCallEnvelope> {
-    const prepared = await this.prepareToolCall(options.signal);
+    const prepared = await this.prepareToolCall(options.signal, options.trace);
     return prepared.call(ref, args, options);
   }
 
-  async prepareToolCall(signal?: AbortSignal): Promise<McpPreparedToolCall> {
-    const catalog = await this.refreshCatalog(signal);
+  async prepareToolCall(
+    signal?: AbortSignal,
+    trace?: McpTraceContext,
+  ): Promise<McpPreparedToolCall> {
+    const catalog = await this.refreshCatalog(signal, trace);
     const catalogGeneration = this.#catalogGeneration;
     return Object.freeze({
       catalog,
-      call: (ref: ExternalToolRef, args: unknown, options: { signal?: AbortSignal } = {}) =>
-        this.#callPreparedTool(catalogGeneration, catalog, ref, args, options),
+      call: (
+        ref: ExternalToolRef,
+        args: unknown,
+        options: { signal?: AbortSignal; trace?: McpTraceContext } = {},
+      ) => this.#callPreparedTool(catalogGeneration, catalog, ref, args, options),
     });
   }
 
@@ -391,9 +419,10 @@ export class McpRawClient {
     catalog: McpCatalogSnapshot,
     ref: ExternalToolRef,
     args: unknown,
-    options: { signal?: AbortSignal },
+    options: { signal?: AbortSignal; trace?: McpTraceContext },
   ): Promise<McpCallEnvelope> {
     const protocol = this.#requireProtocol();
+    if (this.#authorizationBlocked) throw this.#authorizationBlocked;
     if (catalogGeneration !== this.#catalogGeneration || this.#catalog !== catalog) {
       throw new McpClientError(
         "catalog_required",
@@ -431,7 +460,7 @@ export class McpRawClient {
     }
 
     const result: McpProtocolCallResult = await protocol
-      .callTool(tool, validated.data, options.signal)
+      .callTool(tool, validated.data, options.signal, options.trace)
       .catch((err: unknown) => this.#throwProtocolError(err, protocol));
     const isToolError = isRecord(result) && result.isError === true;
     const outputValidator = this.#outputValidators.get(tool.name);
@@ -496,6 +525,23 @@ export class McpRawClient {
   }
 
   async #throwProtocolError(err: unknown, protocol: McpProtocolClient): Promise<never> {
+    if (err instanceof InsufficientScopeError) {
+      const requiredScopes =
+        err.requiredScope
+          ?.split(/\s+/)
+          .filter((scope) => /^[A-Za-z0-9._:/-]{1,200}$/.test(scope))
+          .slice(0, 50) ?? [];
+      await this.#options.onInsufficientScope?.(requiredScopes);
+      const detail =
+        requiredScopes.length > 0
+          ? ` Additional permissions required: ${requiredScopes.join(", ")}.`
+          : "";
+      this.#authorizationBlocked = new McpClientError(
+        "insufficient_scope",
+        `The MCP connection needs renewed consent.${detail}`,
+      );
+      throw this.#authorizationBlocked;
+    }
     if (isMcpDescriptorMismatchError(err)) {
       this.#announceCatalogInvalidated();
       throw new McpClientError(

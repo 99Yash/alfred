@@ -17,6 +17,22 @@
 
 5. **Recall scaling stays PG-native.** If name/ID recall needs more than pgvector cosine, the answer is the already-chosen P6 path — Postgres `tsvector` FTS + pgvector fused via RRF — **no new infra** (consistent with the existing "Not turbopuffer" stance).
 
+**What it would cost (priced 2026-07-31; list prices, re-check before citing).** Baseline is the current Railway bill: **~$5-8/month all-in**, Alfred alone ~$5.
+
+| Option | Price | Note |
+| --- | --- | --- |
+| [Neo4j AuraDB Free](https://neo4j.com/pricing/) | $0 | 200k node+relationship cap; no backup/SLA; pauses when idle. Managed, so it carries the ADR-0038 problem below |
+| Neo4j AuraDB Professional | $65/GB/mo; smallest instance $0.09/hr = $65.70/mo | |
+| Neo4j Community, self-hosted on Railway | ~$15-25/mo | Second container, 1-2 GB RAM |
+| [Zep Cloud Free](https://www.getzep.com/pricing) | $0 | 10k credits/mo |
+| Zep Cloud Flex | $104/mo ($1,250/yr), then $25 per 10k | 50k credits/mo |
+
+Zep bills **1 credit per 350 bytes of episode**, so a 2 KB email ≈ 6 credits; at ~100 emails/day that is ~18k credits/month, which clears the free tier and lands on Flex.
+
+**The dominant cost is the model bill, not the database.** Graphiti — the engine under both Zep Cloud and a self-hosted Neo4j — does LLM-driven ingestion: roughly five calls per episode (entity extraction, entity resolution, edge extraction, edge dedup, temporal invalidation). At ~100 episodes/day on a cheap model that is an **estimated $50-100/month of additional LLM spend** — an estimate from list rates, not a measured trajectory, and therefore the first number to verify if this is ever revisited (see [.lessons/model-cost-recompute-from-tokens.md](../../.lessons/model-cost-recompute-from-tokens.md)). It also duplicates work: triage already runs a model over every email. **Realistic all-in: ~$65-200/month against a ~$5-8/month baseline**, i.e. the cost lands on LLM spend, which is already ~96% Anthropic and the only lever that moves the bill.
+
+Cost is a *supporting* argument, not the decision. Micro-decisions 1 and 3 stand at $0: the free tier is the *managed* tier, so it does not escape the ADR-0038 objection, and no price makes the source of truth leaving Postgres cheap.
+
 **Revisit trigger (written in so this isn't re-litigated).** The one condition that flips this: **multi-tenant Alfred at scale** — many users, large merged graphs, frequent deep traversals under latency pressure. Single-user Alfred never reaches it. If Alfred becomes a multi-user product *and* traversal latency becomes a measured bottleneck, benchmark a graph engine for the **graph limb only** (`entities`/`entity_relations`) — never the facts/preferences, which stay in Postgres for the reversibility UX.
 
 **What this amends / builds on.**
