@@ -6,6 +6,7 @@ import {
   hedgeCeilingFor,
   runHedged,
   type HedgeAttempt,
+  type HedgeBudget,
 } from "../../src/modules/triage/hedge";
 
 /**
@@ -45,6 +46,82 @@ function recorder(): Recorder {
 function track(rec: Recorder, attempt: HedgeAttempt, signal: AbortSignal): void {
   rec.attempts.push(attempt);
   signal.addEventListener("abort", () => rec.aborted.push(attempt));
+}
+
+interface CeilingHarness {
+  /** Pass this to `runHedged` in place of the raw budget. */
+  budget: HedgeBudget;
+  /** Resolves once every caller has decided whether to duplicate. */
+  decided: Promise<void>;
+  /** Resolves once every granted duplicate has produced its answer. */
+  answered: Promise<void>;
+  /** Call from a hedge draw, just before it resolves. */
+  hedgeSettled(): void;
+}
+
+/**
+ * Sequencing for the concurrent-ceiling case, built out of counted events
+ * rather than durations.
+ *
+ * Elapsed time cannot separate "all five callers decided" from "a hedge settled
+ * and released its slot". On a loaded runner the five `delayMs` timers land in
+ * different millisecond buckets, the event loop turns between them, and a short
+ * hedge settles in the middle of the decisions — at which point a later caller
+ * takes the freed slot, a cumulative count of 3 becomes correct behaviour, and
+ * the test fails while the code is right. This was the single largest source of
+ * red builds on `main`, so the case is sequenced on `tryAcquire`, which
+ * `runHedged` calls exactly once per caller that reaches the hedge point: for
+ * the ones that win a slot and for the ones the ceiling turns away.
+ *
+ * `answered` waits for the duplicates that were actually GRANTED, never for a
+ * fixed two. A mutant that grants none would otherwise leave every original
+ * waiting on a hedge that never runs, and the case would hang to the job
+ * timeout instead of failing.
+ */
+function ceilingHarness(callers: number, inner: HedgeBudget): CeilingHarness {
+  // Both executors run synchronously, so the openers are assigned before
+  // `tryAcquire` can reach them.
+  let openDecided = (): void => {};
+  const decided = new Promise<void>((resolve) => {
+    openDecided = () => resolve();
+  });
+  let openAnswered = (): void => {};
+  const answered = new Promise<void>((resolve) => {
+    openAnswered = () => resolve();
+  });
+
+  let decisions = 0;
+  let granted = 0;
+  let settled = 0;
+
+  // Only meaningful once every caller has decided: until then `granted` is
+  // still climbing, so an early equality would open the gate on a prefix.
+  const openWhenAllGrantedHaveAnswered = (): void => {
+    if (decisions >= callers && settled >= granted) openAnswered();
+  };
+
+  return {
+    budget: {
+      tryAcquire() {
+        const acquired = inner.tryAcquire();
+        decisions += 1;
+        if (acquired) granted += 1;
+        if (decisions >= callers) {
+          openDecided();
+          openWhenAllGrantedHaveAnswered();
+        }
+        return acquired;
+      },
+      release: () => inner.release(),
+      inFlight: () => inner.inFlight(),
+    },
+    decided,
+    answered,
+    hedgeSettled() {
+      settled += 1;
+      openWhenAllGrantedHaveAnswered();
+    },
+  };
 }
 
 describe("runHedged", () => {
@@ -198,20 +275,30 @@ describe("hedge budget", () => {
   });
 
   test("concurrent slow calls duplicate only up to the ceiling", async () => {
-    const budget = createHedgeBudget(2);
     const recs = Array.from({ length: 5 }, recorder);
+    // NO duration decides this outcome. `delayMs` is the only timer left,
+    // because wanting to hedge is what the case is about. See `ceilingHarness`.
+    const gate = ceilingHarness(recs.length, createHedgeBudget(2));
 
     const results = await Promise.all(
       recs.map((rec) =>
         runHedged({
           delayMs: DELAY,
-          budget,
+          budget: gate.budget,
           run: ({ attempt, signal }) => {
             track(rec, attempt, signal);
             // Every call is slow enough to want a hedge — the burst case. The
-            // original still answers eventually, which is what an over-budget
-            // call falls back to waiting for.
-            return attempt === 0 ? after(DELAY * 3, "slow", signal) : after(1, "hedge", signal);
+            // original answers only after the granted duplicates have, which is
+            // what an over-budget call falls back to waiting for, and which makes
+            // the hedge win its race by construction rather than by arithmetic
+            // on two timeouts.
+            if (attempt === 0) return gate.answered.then(() => "slow" as const);
+            // A granted duplicate holds its slot until every caller has decided,
+            // so it cannot hand a freed slot to a caller still making up its mind.
+            return gate.decided.then(() => {
+              gate.hedgeSettled();
+              return "hedge" as const;
+            });
           },
         }),
       ),
