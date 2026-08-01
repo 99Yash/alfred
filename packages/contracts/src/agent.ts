@@ -254,6 +254,14 @@ export const workflowRecoveryActionSchema = z.discriminatedUnion("kind", [
 ]);
 export type WorkflowRecoveryAction = z.infer<typeof workflowRecoveryActionSchema>;
 
+/** Server-owned navigation for a recovery action the current product can execute. */
+export const workflowRecoveryNavigationSchema = z.object({
+  kind: z.literal("oauth"),
+  label: z.string().min(1).max(120),
+  path: z.string().startsWith("/api/integrations/").max(1_000),
+});
+export type WorkflowRecoveryNavigation = z.infer<typeof workflowRecoveryNavigationSchema>;
+
 /**
  * What the authoring turn understood and assumed, kept beside the revision so
  * the activation card (#556) can show the user the intent behind the contract

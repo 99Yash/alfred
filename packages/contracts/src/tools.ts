@@ -45,6 +45,7 @@ export const INTEGRATION_ACTIONS = {
     "load_tool",
     "current_time",
     "author_workflow",
+    "recover_workflow",
     "activate_workflow",
     "spawn_sub_agent",
     "await_sub_agent",
@@ -272,6 +273,11 @@ export const TOOL_LABELS: Record<ToolName, ToolLabel> = {
     running: "Saving a workflow draft",
     done: "Saved a workflow draft",
     title: "save a workflow draft",
+  },
+  "system.recover_workflow": {
+    running: "Recovering a workflow draft",
+    done: "Recovered a workflow draft",
+    title: "recover a workflow draft",
   },
   "system.activate_workflow": {
     running: "Activating a workflow",
@@ -627,6 +633,7 @@ export const TOOL_CATEGORIES: Record<ToolName, ToolCategory> = {
   "system.load_tool": "system",
   "system.current_time": "system",
   "system.author_workflow": "action",
+  "system.recover_workflow": "action",
   "system.activate_workflow": "action",
   "system.spawn_sub_agent": "system",
   "system.await_sub_agent": "system",

@@ -95,6 +95,24 @@ describe("workflow readiness", () => {
     assert.deepEqual(result.missing, []);
   });
 
+  test("the pure resolver preserves exact resource-access evidence", () => {
+    const result = resolveWorkflowCapabilities({
+      definition: definition(),
+      requested: [{ tool: "system.current_time", resourceScope: { calendarId: "primary" } }],
+      availability: unavailable,
+      toolCatalog: createToolCatalog(listRegisteredTools()),
+      gmailEventHealth: new Map(),
+      resourceAccessFacts: [
+        {
+          tool: "system.current_time",
+          resourceScope: { calendarId: "primary" },
+          granted: true,
+        },
+      ],
+    });
+    assert.deepEqual(result.missing, []);
+  });
+
   test("the pure resolver includes the trigger source and gives no fake action for Slack", () => {
     const result = resolveWorkflowCapabilities({
       definition: definition({
@@ -356,7 +374,7 @@ describe("workflow readiness", () => {
     assert.equal(problems[0]?.code, "choose_account");
   });
 
-  test("an unverified resource scope stays blocked with the exact grant action", () => {
+  test("an unverified resource scope stays blocked without an invented grant action", () => {
     const problems = resolveWorkflowReadiness({
       definition: definition({
         requiredCapabilities: [
@@ -366,11 +384,7 @@ describe("workflow readiness", () => {
       availability: unavailable,
     });
     assert.equal(problems[0]?.code, "resource_not_granted");
-    assert.deepEqual(problems[0]?.recoveryAction, {
-      kind: "grant_resource",
-      integration: "system",
-      resourceScope: { calendarId: "primary" },
-    });
+    assert.equal(problems[0]?.recoveryAction, undefined);
   });
 
   test("a supplied exact resource grant satisfies the resource boundary", () => {
@@ -583,5 +597,55 @@ describe("workflow readiness", () => {
       now: new Date("2026-07-31T00:10:00.000Z"),
     });
     assert.equal(problems.at(-1)?.code, "provider_unhealthy");
+  });
+
+  test("server-side Gmail delivery configuration does not offer OAuth recovery", () => {
+    const selected = gmailAvailability.providers.get("google")?.[0];
+    assert.ok(selected);
+    const problems = resolveWorkflowReadiness({
+      definition: definition({
+        trigger: {
+          kind: "event",
+          source: "gmail",
+          type: "message_received",
+          accountRef: "account-1",
+        },
+      }),
+      availability: {
+        ...gmailAvailability,
+        providers: new Map([
+          [
+            "google",
+            [
+              {
+                ...selected,
+                metadata: {
+                  watch: {
+                    expiresAt: "2026-08-01T00:00:00.000Z",
+                    baselineHistoryId: "123",
+                    installedAt: "2026-07-29T00:00:00.000Z",
+                  },
+                },
+              },
+            ],
+          ],
+        ]),
+      },
+      gmailEventHealth: new Map([
+        [
+          "credential-1",
+          {
+            receiverConfigured: false,
+            topicMatches: false,
+            cursorReady: true,
+            coverageGap: false,
+            lastSyncAt: new Date("2026-07-31T00:05:00.000Z"),
+          },
+        ],
+      ]),
+      now: new Date("2026-07-31T00:10:00.000Z"),
+    });
+    assert.equal(problems.at(-1)?.code, "provider_unhealthy");
+    assert.equal(problems.at(-1)?.recoveryAction, undefined);
   });
 });

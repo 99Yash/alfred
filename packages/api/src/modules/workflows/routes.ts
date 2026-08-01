@@ -3,6 +3,7 @@ import { Elysia, t } from "elysia";
 
 import { authMacro } from "../../middleware/auth";
 import { recoverWorkflowDraft } from "./revisions";
+import { workflowRecoveryNavigation } from "./recovery-navigation";
 
 /** Revalidation boundary used after connect/reauthorize returns to a blocked draft. */
 export const workflowRoutes = new Elysia({ prefix: "/api/workflows", normalize: "typebox" })
@@ -18,12 +19,18 @@ export const workflowRoutes = new Elysia({ prefix: "/api/workflows", normalize: 
         });
         if (!result.ok) return result;
         if (!result.activationProposal) {
+          const recovery = workflowRecoveryNavigation({
+            workflowId: result.workflow.id,
+            revisionId: result.revision.id,
+            readiness: result.readiness,
+          });
           return {
             ok: true as const,
             status: "blocked" as const,
             workflowId: result.workflow.id,
             revisionId: result.revision.id,
             readiness: result.readiness,
+            ...(recovery ? { recovery } : {}),
           };
         }
         return {
