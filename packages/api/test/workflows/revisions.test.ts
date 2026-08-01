@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
 import { randomUUID } from "node:crypto";
-import { after, describe, test } from "node:test";
+import { after, before, describe, test } from "node:test";
 
 import type { WorkflowRevisionDefinition } from "@alfred/contracts";
 import { closeConnections, db } from "@alfred/db";
@@ -39,8 +39,8 @@ function definition(brief: string): WorkflowRevisionDefinition {
     brief,
     trigger: { kind: "manual" as const },
     allowedIntegrations: ["system" as const],
-    allowedTools: [],
-    requiredCapabilities: [],
+    allowedTools: ["system.current_time"],
+    requiredCapabilities: [{ tool: "system.current_time" }],
   };
 }
 
@@ -54,6 +54,8 @@ async function seedUser(): Promise<string> {
 }
 
 describe("workflow revision invariants (#555)", { skip: SKIP }, () => {
+  before(() => registerBuiltinTools());
+
   after(async () => {
     for (const userId of createdUserIds) {
       await db().delete(user).where(eq(user.id, userId));
@@ -62,7 +64,6 @@ describe("workflow revision invariants (#555)", { skip: SKIP }, () => {
   });
 
   test("active edits stay visible as drafts while new runs pin the published revision", async () => {
-    registerBuiltinTools();
     const userId = await seedUser();
     const slug = `revision-test-${randomUUID()}`;
     const created = await createWorkflowDraft({

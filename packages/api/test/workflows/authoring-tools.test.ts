@@ -423,7 +423,9 @@ describe("workflow authoring and activation acceptance (#556)", { skip: SKIP }, 
     assert.equal(result.status, "blocked");
     assert.equal(getPath(result, "activationProposal"), undefined);
     assert.equal(typeof getPath(result, "rowVersion"), "number");
-    assert.equal(getPath(result, "readinessBlockers.0.code"), "not_connected");
+    const readinessBlockers = getPath(result, "readinessBlockers");
+    assert.ok(Array.isArray(readinessBlockers));
+    assert.equal(getPath(readinessBlockers[0], "code"), "not_connected");
   });
 });
 

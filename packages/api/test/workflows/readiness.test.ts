@@ -5,21 +5,27 @@ import type { WorkflowRevisionDefinition } from "@alfred/contracts";
 
 import type { IntegrationAvailabilitySnapshot } from "../../src/modules/integrations/availability";
 import { registerBuiltinTools } from "../../src/modules/tools";
+import { createToolCatalog, listRegisteredTools } from "../../src/modules/tools/registry";
 import {
   canonicalizeWorkflowAccounts,
+  resolveWorkflowCapabilities,
   resolveWorkflowApprovalDisplay,
   resolveWorkflowReadiness as resolveWorkflowReadinessBase,
 } from "../../src/modules/workflows/readiness";
 import { validateWorkflowDefinition } from "../../src/modules/workflows/revisions";
 
 function resolveWorkflowReadiness(
-  args: Omit<Parameters<typeof resolveWorkflowReadinessBase>[0], "gmailEventHealth"> & {
+  args: Omit<
+    Parameters<typeof resolveWorkflowReadinessBase>[0],
+    "gmailEventHealth" | "toolCatalog"
+  > & {
     gmailEventHealth?: Parameters<typeof resolveWorkflowReadinessBase>[0]["gmailEventHealth"];
   },
 ) {
   return resolveWorkflowReadinessBase({
     ...args,
     gmailEventHealth: args.gmailEventHealth ?? new Map(),
+    toolCatalog: createToolCatalog(listRegisteredTools()),
   });
 }
 
@@ -75,6 +81,48 @@ function definition(
 }
 
 describe("workflow readiness", () => {
+  test("the pure resolver derives an exact active envelope", () => {
+    const result = resolveWorkflowCapabilities({
+      definition: definition(),
+      requested: [{ tool: "system.current_time" }],
+      availability: unavailable,
+      toolCatalog: createToolCatalog(listRegisteredTools()),
+      gmailEventHealth: new Map(),
+    });
+    assert.deepEqual(result.definition.allowedIntegrations, ["system"]);
+    assert.deepEqual(result.definition.allowedTools, ["system.current_time"]);
+    assert.equal(result.definition.requiredCapabilities[0]?.tool, "system.current_time");
+    assert.deepEqual(result.missing, []);
+  });
+
+  test("the pure resolver includes the trigger source and gives no fake action for Slack", () => {
+    const result = resolveWorkflowCapabilities({
+      definition: definition({
+        trigger: { kind: "event", source: "gmail", type: "message_received" },
+      }),
+      requested: [{ tool: "slack.send_message" }],
+      availability: unavailable,
+      toolCatalog: createToolCatalog(listRegisteredTools()),
+      gmailEventHealth: new Map(),
+    });
+    assert.deepEqual(result.definition.allowedIntegrations, ["gmail", "slack"]);
+    assert.deepEqual(result.definition.allowedTools, ["slack.send_message"]);
+    assert.equal(result.missing[0]?.code, "no_tool_surface");
+  });
+
+  test("a catalog tool without a runtime implementation stays inside the envelope", () => {
+    const result = resolveWorkflowCapabilities({
+      definition: definition(),
+      requested: [{ tool: "system.current_time" }],
+      availability: unavailable,
+      toolCatalog: createToolCatalog([]),
+      gmailEventHealth: new Map(),
+    });
+    assert.deepEqual(result.definition.allowedTools, ["system.current_time"]);
+    assert.deepEqual(result.definition.requiredCapabilities, [{ tool: "system.current_time" }]);
+    assert.equal(result.missing[0]?.code, "no_tool_surface");
+  });
+
   test("activation rejects a tool with no matching capability", () => {
     const result = validateWorkflowDefinition(
       definition({
@@ -171,6 +219,7 @@ describe("workflow readiness", () => {
         requiredCapabilities: [{ tool: "gmail.search", accountRef: "account-1" }],
       }),
       availability: gmailAvailability,
+      toolCatalog: createToolCatalog(listRegisteredTools()),
     });
     assert.deepEqual(problems, []);
   });
@@ -195,6 +244,7 @@ describe("workflow readiness", () => {
         requiredCapabilities: [{ tool: "gmail.search", accountRef: "account-1" }],
       }),
       gmailAvailability,
+      createToolCatalog(listRegisteredTools()),
     );
     assert.deepEqual(display.resolvedAccounts, [
       {
@@ -312,5 +362,104 @@ describe("workflow readiness", () => {
       now: new Date("2026-07-31T00:10:00.000Z"),
     });
     assert.deepEqual(problems, []);
+  });
+
+  test("an expired Gmail watch asks for renewal even when sync is stale", () => {
+    const selected = gmailAvailability.providers.get("google")?.[0];
+    assert.ok(selected);
+    const problems = resolveWorkflowReadiness({
+      definition: definition({
+        trigger: {
+          kind: "event",
+          source: "gmail",
+          type: "message_received",
+          accountRef: "account-1",
+        },
+      }),
+      availability: {
+        ...gmailAvailability,
+        providers: new Map([
+          [
+            "google",
+            [
+              {
+                ...selected,
+                metadata: {
+                  watch: {
+                    expiresAt: "2026-07-30T00:00:00.000Z",
+                    baselineHistoryId: "123",
+                    installedAt: "2026-07-29T00:00:00.000Z",
+                  },
+                },
+              },
+            ],
+          ],
+        ]),
+      },
+      gmailEventHealth: new Map([
+        [
+          "credential-1",
+          {
+            receiverConfigured: true,
+            topicMatches: true,
+            cursorReady: true,
+            coverageGap: true,
+            lastSyncAt: new Date("2026-07-30T00:00:00.000Z"),
+          },
+        ],
+      ]),
+      now: new Date("2026-07-31T00:10:00.000Z"),
+    });
+    assert.equal(problems.at(-1)?.code, "trigger_not_ready");
+    assert.match(problems.at(-1)?.message ?? "", /renew its watch/);
+  });
+
+  test("a configured live watch reports delayed delivery as provider health", () => {
+    const selected = gmailAvailability.providers.get("google")?.[0];
+    assert.ok(selected);
+    const problems = resolveWorkflowReadiness({
+      definition: definition({
+        trigger: {
+          kind: "event",
+          source: "gmail",
+          type: "message_received",
+          accountRef: "account-1",
+        },
+      }),
+      availability: {
+        ...gmailAvailability,
+        providers: new Map([
+          [
+            "google",
+            [
+              {
+                ...selected,
+                metadata: {
+                  watch: {
+                    expiresAt: "2026-08-01T00:00:00.000Z",
+                    baselineHistoryId: "123",
+                    installedAt: "2026-07-29T00:00:00.000Z",
+                  },
+                },
+              },
+            ],
+          ],
+        ]),
+      },
+      gmailEventHealth: new Map([
+        [
+          "credential-1",
+          {
+            receiverConfigured: true,
+            topicMatches: true,
+            cursorReady: true,
+            coverageGap: true,
+            lastSyncAt: new Date("2026-07-30T00:00:00.000Z"),
+          },
+        ],
+      ]),
+      now: new Date("2026-07-31T00:10:00.000Z"),
+    });
+    assert.equal(problems.at(-1)?.code, "provider_unhealthy");
   });
 });
