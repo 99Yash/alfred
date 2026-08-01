@@ -1,7 +1,7 @@
 import { sanitizeErrorMessage } from "@alfred/contracts";
 import type { SenderExtractionEvent } from "../triage";
 
-export const DEFAULT_DECISION_TRACE_KEY = "default";
+const DEFAULT_DECISION_TRACE_KEY = "default";
 const MAX_DECISION_TRACE_KEY_LENGTH = 200;
 
 export function normalizeDecisionTraceKey(decisionKey?: string): string {
@@ -30,7 +30,7 @@ export function normalizeDecisionTraceKey(decisionKey?: string): string {
  * triage is the first producer (ADR-0051 sender-extraction event); briefing /
  * memory-extraction / cold-start adopt incrementally by adding entries.
  */
-export interface DecisionTraceRegistry {
+interface DecisionTraceRegistry {
   "triage.classification": SenderExtractionEvent;
 }
 

@@ -271,7 +271,7 @@ export type LeaseResult =
  * emit the `runtime.queue.lease` span *outside* the `FOR UPDATE` tx (#409) —
  * keeping tracing off the hot lock path.
  */
-export interface LeaseQueueInfo {
+interface LeaseQueueInfo {
   /** now - last_checkpoint_at at lease time (ms); null when the row was never checkpointed. */
   staleMs: number | null;
   /** Run status observed just before this lease flipped it to `running`. */

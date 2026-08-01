@@ -11,7 +11,7 @@
 import type { HTMLAttributes, Ref } from "react";
 import { cn } from "~/lib/utils";
 
-export type AvatarSize = "sm" | "md" | "lg";
+type AvatarSize = "sm" | "md" | "lg";
 
 interface AvatarProps extends HTMLAttributes<HTMLSpanElement> {
   /** When provided, the first character is rendered inside the disc. */

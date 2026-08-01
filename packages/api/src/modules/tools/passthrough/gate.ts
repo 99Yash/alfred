@@ -14,8 +14,8 @@ import type { RestProviderGateConfig } from "./config";
  *
  * This module owns the **REST** gate. GraphQL (Railway) parses the document into
  * an AST and lands with the Railway vertical slice (it needs the `graphql`
- * dependency); it will compose here behind a `PassthroughRequest`-discriminating
- * `assertReadableRequest`.
+ * dependency); it composes here behind a `PassthroughRequest`-discriminating
+ * entry point.
  *
  * Posture (ADR-0074): the pinned namespace + method gate + exact read-via-POST
  * allowlist — not the (broad-grant, single-user) token scope — is the
@@ -220,20 +220,4 @@ export function assertReadableGraphqlRequest(request: GraphqlPassthroughRequest)
   }
 
   return { ok: true };
-}
-
-/**
- * The single read-gate entry point, discriminating on transport. REST providers
- * carry their per-provider policy config; Railway (GraphQL) needs none. Keeps the
- * two gates behind one call so a future REST provider slots in without a new
- * dispatch branch.
- */
-export type PassthroughGateInput =
-  | { transport: "rest"; config: RestProviderGateConfig; request: RestPassthroughRequest }
-  | { transport: "graphql"; request: GraphqlPassthroughRequest };
-
-export function assertReadableRequest(input: PassthroughGateInput): ReadGateResult {
-  return input.transport === "graphql"
-    ? assertReadableGraphqlRequest(input.request)
-    : assertReadableRestRequest(input.config, input.request);
 }

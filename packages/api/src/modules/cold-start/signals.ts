@@ -42,7 +42,7 @@ export interface ColdStartSignals {
  * which tells the cold-start prompt not to research "what does gmail.com do as a
  * company."
  */
-export const CONSUMER_EMAIL_DOMAINS = FREE_MAIL_DOMAINS;
+const CONSUMER_EMAIL_DOMAINS = FREE_MAIL_DOMAINS;
 
 function parseDomain(email: string): string | null {
   const at = email.lastIndexOf("@");

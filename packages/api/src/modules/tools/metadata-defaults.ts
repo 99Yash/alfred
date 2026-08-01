@@ -35,7 +35,7 @@ import type { ToolDiscoveryMetadata } from "./registry";
  * importer can pass an imported server slug (`linear`, `stripe`, …) without
  * widening the closed registry enums the builtin name/action checks depend on.
  */
-export type ProviderLabel = string;
+type ProviderLabel = string;
 
 /**
  * Generic verb synonyms, keyed by the action's leading token. This is English

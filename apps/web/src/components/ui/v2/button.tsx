@@ -14,13 +14,13 @@
 import type { ButtonHTMLAttributes, ReactNode, Ref } from "react";
 import { cn } from "~/lib/utils";
 
-export type AppButtonVariant =
+type AppButtonVariant =
   | "primary" /* solid purple-4 — the brand CTA */
   | "white" /* elevated white pill — the default visitors.now button */
   | "ghost" /* transparent until hover, then bg-a2 */
   | "destructive"; /* solid red-4 */
 
-export type AppButtonSize = "sm" | "md" | "lg";
+type AppButtonSize = "sm" | "md" | "lg";
 
 interface AppButtonProps extends ButtonHTMLAttributes<HTMLButtonElement> {
   variant?: AppButtonVariant | undefined;

@@ -106,7 +106,7 @@ export interface EvidenceBadge {
 }
 
 /** One record in a `record-list` evidence panel. Renders without an `href`. */
-export interface EvidenceRow {
+interface EvidenceRow {
   /** Stable list key (the record's url/id, falling back to its title). */
   key: string;
   /** Primary line — what the record is. */
@@ -133,7 +133,7 @@ export interface RecordListView {
 }
 
 /** One labeled fact in an entity panel. */
-export interface EntityFact {
+interface EntityFact {
   label: string;
   value: string;
 }
@@ -149,8 +149,6 @@ export interface EntityView {
   /** A short peek at the body (email snippet, issue lede). */
   excerpt?: string | undefined;
 }
-
-export type EvidenceView = BrowsingView | RecordListView | EntityView;
 
 /** Read a numeric leaf off a best-effort parsed record. */
 function asNumber(value: unknown): number | undefined {

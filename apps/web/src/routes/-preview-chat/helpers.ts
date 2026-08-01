@@ -5,14 +5,14 @@ import type {
 import type { RailInboxItem, RailMeetingItem, RailTodoItem } from "~/routes/-chat/rail/models";
 
 /** Preview fixtures group by time only; "pinned" is a per-entry flag, not a bucket. */
-export type ThreadGroup = Exclude<ShellThreadGroup, "pinned">;
+type ThreadGroup = Exclude<ShellThreadGroup, "pinned">;
 
 /** Canonical thread entry plus the preview blurb the fixtures render. */
 export interface PreviewThreadEntry extends ShellThreadEntry {
   preview: string;
 }
 
-export const THREADS: Record<ThreadGroup, PreviewThreadEntry[]> = {
+const THREADS: Record<ThreadGroup, PreviewThreadEntry[]> = {
   today: [
     {
       id: "morning-brief",

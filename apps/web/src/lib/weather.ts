@@ -41,7 +41,7 @@ const weatherConditionSchema = z.enum([
 export type WeatherCondition = z.infer<typeof weatherConditionSchema>;
 
 const temperatureUnitSchema = z.enum(["C", "F"]);
-export type TemperatureUnit = z.infer<typeof temperatureUnitSchema>;
+type TemperatureUnit = z.infer<typeof temperatureUnitSchema>;
 
 /**
  * Schema is the source of truth for the snapshot's shape — it also validates

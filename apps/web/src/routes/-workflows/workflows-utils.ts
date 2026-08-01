@@ -11,7 +11,7 @@ import {
 
 /** Fallback tile tints, cycled by slug hash for workflows without bespoke art. */
 const FALLBACK_TINTS = ["violet", "emerald", "amber"] as const;
-export type WorkflowTint = (typeof FALLBACK_TINTS)[number];
+type WorkflowTint = (typeof FALLBACK_TINTS)[number];
 
 export type WorkflowDefinition = {
   id: string;

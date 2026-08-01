@@ -10,7 +10,7 @@ import type { ReplicacheModel } from "./model";
 const POSTGRES_INTEGER_MAX = 2_147_483_647;
 const MAX_ACCEPTED_COOKIE_ORDER = POSTGRES_INTEGER_MAX - 1;
 
-export type PatchOp =
+type PatchOp =
   | { op: "put"; key: string; value: Record<string, unknown> }
   | { op: "del"; key: string }
   | { op: "clear" };

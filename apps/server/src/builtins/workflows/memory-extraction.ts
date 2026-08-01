@@ -55,5 +55,3 @@ export const memoryExtractionWorkflow: Workflow<State> = {
     finalize: { id: "finalize", run: runMemoryFinalize },
   },
 };
-
-export type MemoryExtractionInput = z.infer<typeof inputSchema>;

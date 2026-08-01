@@ -8,7 +8,7 @@ export namespace ReplicacheModel {
    * TypeBox cap — returns 422 before the handler runs. Sized well above
    * the soft cap so legitimate clients never hit it.
    */
-  export const HARD_MUTATION_LIMIT = 1000;
+  const HARD_MUTATION_LIMIT = 1000;
 
   /**
    * Cookie identifies the client's previous CVR snapshot. Embeds
@@ -40,7 +40,7 @@ export namespace ReplicacheModel {
   });
   export type Pull = typeof pull.static;
 
-  export const pushMutation = t.Object({
+  const pushMutation = t.Object({
     id: t.Integer({ minimum: 0 }),
     clientID: t.String({ minLength: 1, maxLength: 200 }),
     name: t.String({ minLength: 1, maxLength: 100 }),
@@ -51,7 +51,6 @@ export namespace ReplicacheModel {
     // happened to round to integers in some browsers and "looked" fine in passing.
     timestamp: t.Number({ minimum: 0 }),
   });
-  export type PushMutation = typeof pushMutation.static;
 
   export const push = t.Object({
     pushVersion: t.Literal(1),

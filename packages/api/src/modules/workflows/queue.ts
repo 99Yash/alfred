@@ -15,7 +15,7 @@ import { dispatchDueCronWorkflows } from "./tick";
  * cadence. m12 ships this as a sibling; a follow-up pass migrates the
  * per-feature ticks onto this one and retires them.
  */
-export const WORKFLOWS_QUEUE_NAME = "workflows-tick";
+const WORKFLOWS_QUEUE_NAME = "workflows-tick";
 
 export type WorkflowsJobData = { kind: "workflows.tick" };
 

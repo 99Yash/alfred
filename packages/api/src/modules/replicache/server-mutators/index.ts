@@ -806,6 +806,3 @@ export const serverMutators = {
     return { applied: rows.length > 0 };
   },
 } satisfies Record<MutatorName, ServerMutator>;
-
-export type ServerMutators = typeof serverMutators;
-export type ServerMutatorName = keyof ServerMutators;

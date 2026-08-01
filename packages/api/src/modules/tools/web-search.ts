@@ -28,7 +28,7 @@ export interface WebSearchArgs {
   abortSignal?: AbortSignal | undefined;
 }
 
-export interface WebSearchSource {
+interface WebSearchSource {
   /**
    * The link to follow. For Gemini grounding this is a `vertexaisearch.cloud.
    * google.com` redirect that resolves to the real publisher when opened — it
@@ -44,7 +44,7 @@ export interface WebSearchSource {
   title?: string | undefined;
 }
 
-export interface WebSearchHit {
+interface WebSearchHit {
   /** The URL the caller can open with `system.fetch_url`. */
   url: string;
   /** Grounding's publisher/page label, when available. */

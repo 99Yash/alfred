@@ -18,7 +18,7 @@ const API_URL =
  */
 
 /** MIME types the composer accepts today — the model-readable images. */
-export const ACCEPTED_MIME_TYPES = SUPPORTED_FILE_TYPES.filter(isPassThrough);
+const ACCEPTED_MIME_TYPES = SUPPORTED_FILE_TYPES.filter(isPassThrough);
 
 /** `accept` attribute for the file input. */
 export const ACCEPT_ATTR = ACCEPTED_MIME_TYPES.join(",");

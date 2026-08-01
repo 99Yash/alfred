@@ -30,7 +30,7 @@ export const subAgentIdSchema = z
  * the whole turn (it survives HIL parks and resumes), so it stays a valid
  * stream key for as long as the child can be running.
  */
-export const subAgentChatOriginSchema = z
+const subAgentChatOriginSchema = z
   .object({
     threadId: z.string().min(1),
     messageId: z.string().min(1),

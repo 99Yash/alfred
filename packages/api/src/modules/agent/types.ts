@@ -2,7 +2,6 @@ import type { AgentTranscriptMessage } from "@alfred/contracts";
 import type { DbRoot, DbTransaction } from "@alfred/db";
 import type { DecisionTraceFor, DecisionTraceKind, DecisionTraceOptions } from "./decision-traces";
 import {
-  RUN_STATUSES,
   isTerminalStatus,
   type AgentRunTrigger,
   type ApprovalKind,
@@ -12,7 +11,7 @@ import {
 } from "@alfred/contracts";
 import type { z } from "zod";
 
-export type MaybePromise<T> = T | Promise<T>;
+type MaybePromise<T> = T | Promise<T>;
 
 /**
  * Run lifecycle states (mirrors the `status` column on `agent_runs`).
@@ -27,7 +26,7 @@ export type MaybePromise<T> = T | Promise<T>;
  *   failed     terminal error
  *   cancelled  user-initiated stop
  */
-export { RUN_STATUSES, isTerminalStatus };
+export { isTerminalStatus };
 export type { ApprovalKind, RunStatus, WakeCondition };
 
 /** Outbound effect staged inside a step's commit — fired by the dispatcher worker (m7+). */
@@ -169,11 +168,11 @@ export type TerminalOutcome =
  * The distributed form (rather than `TerminalRunFields<S> & TerminalOutcome`) is
  * what makes `switch (ctx.outcome)` narrow `error` / `reason`.
  */
-export type TerminalClosureContext<S> =
+type TerminalClosureContext<S> =
   | (TerminalRunFields<S> & { outcome: "failed"; error: string })
   | (TerminalRunFields<S> & { outcome: "cancelled"; reason: string });
 
-export type WorkflowClosure<S> =
+type WorkflowClosure<S> =
   | {
       /** This workflow never leaves client-facing state that needs terminal repair. */
       kind: "none";
@@ -199,11 +198,11 @@ export interface WorkflowInput {
 
 export type AgentDbExecutor = DbRoot | DbTransaction;
 
-export interface WorkflowInitContext {
+interface WorkflowInitContext {
   db: AgentDbExecutor;
 }
 
-export interface DedupKeyArgs extends WorkflowInput {
+interface DedupKeyArgs extends WorkflowInput {
   userId: string;
 }
 

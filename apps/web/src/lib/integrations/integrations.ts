@@ -1,6 +1,6 @@
 import type { IntegrationBrand } from "~/lib/integrations/integration-icons";
 
-export type IntegrationStatus = "connected" | "available" | "soon";
+type IntegrationStatus = "connected" | "available" | "soon";
 
 export type IntegrationCategory =
   | "Connected"

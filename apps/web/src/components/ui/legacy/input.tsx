@@ -13,7 +13,7 @@
 import type { InputHTMLAttributes, ReactNode, Ref } from "react";
 import { cn } from "~/lib/utils";
 
-export type LegacyInputVariant = "default" | "search";
+type LegacyInputVariant = "default" | "search";
 
 interface LegacyInputProps extends InputHTMLAttributes<HTMLInputElement> {
   variant?: LegacyInputVariant | undefined;

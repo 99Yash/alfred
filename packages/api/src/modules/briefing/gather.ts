@@ -125,7 +125,7 @@ export interface BriefingInstructionSuppression {
   effect: "exclude_briefing_priority";
 }
 
-export interface BriefingClosedLoop {
+interface BriefingClosedLoop {
   documentId: string;
   category: PriorityCategory;
   subject: string | null;

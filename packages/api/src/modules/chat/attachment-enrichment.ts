@@ -11,9 +11,9 @@ import { z } from "zod";
 import { readObject } from "./storage";
 
 export const CHAT_ATTACHMENT_REPRESENTATION_VERSION = 1;
-export const CHAT_MEDIA_ENRICHMENT_CYCLE_BUDGET_MICROUSD = 500_000;
-export const CHAT_MEDIA_ENRICHMENT_TRIGGER_RATIO = 0.8;
-export const CHAT_MEDIA_ENRICHMENT_CASCADE_TIMEOUT_MS = 3 * 60_000;
+const CHAT_MEDIA_ENRICHMENT_CYCLE_BUDGET_MICROUSD = 500_000;
+const CHAT_MEDIA_ENRICHMENT_TRIGGER_RATIO = 0.8;
+const CHAT_MEDIA_ENRICHMENT_CASCADE_TIMEOUT_MS = 3 * 60_000;
 
 const boundedText = z.string().max(20_000);
 const evidenceSchema = z

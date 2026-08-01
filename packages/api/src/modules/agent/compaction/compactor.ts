@@ -64,7 +64,7 @@ export interface CompactTranscriptResult {
  * model-selection fit check (`selectCompactorModel`) reserves the exact same
  * headroom it later sends as `maxOutputTokens` — the two must not drift.
  */
-export const COMPACTOR_MAX_OUTPUT_TOKENS = 2000;
+const COMPACTOR_MAX_OUTPUT_TOKENS = 2000;
 
 /**
  * Tokens that ride along in the compaction request on top of the `prior`

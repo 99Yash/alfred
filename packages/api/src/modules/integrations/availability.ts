@@ -54,7 +54,7 @@ export interface ProviderAvailability {
   metadata: Record<string, unknown>;
 }
 
-export interface IntegrationAvailability {
+interface IntegrationAvailability {
   health: "active" | "needs_reauth" | null;
   accountLabel: string | null;
 }
@@ -157,11 +157,6 @@ export async function readFreshIntegrationAvailability(
 ): Promise<IntegrationAvailabilitySnapshot> {
   availabilityMemo.delete(userId);
   return readIntegrationAvailability(userId);
-}
-
-/** Drop every memoized snapshot. Test-only — production entries expire by time. */
-export function clearIntegrationAvailabilityMemoForTests(): void {
-  availabilityMemo.clear();
 }
 
 async function loadIntegrationAvailability(

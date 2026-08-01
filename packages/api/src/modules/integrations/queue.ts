@@ -58,7 +58,7 @@ import {
  *  - user_model.gmail_kind_refold — refresh active Gmail kind projection after
  *                    live observation capture.
  */
-export const INGESTION_QUEUE_NAME = "ingestion-runs";
+const INGESTION_QUEUE_NAME = "ingestion-runs";
 const REALTIME_EMIT_CONCURRENCY = 10;
 const REALTIME_EMBED_CONCURRENCY = 4;
 export const FULL_RESYNC_REPLY_REEVAL_THREAD_LIMIT = 25;

@@ -9,7 +9,7 @@
 import type { Ref, TextareaHTMLAttributes } from "react";
 import { cn } from "~/lib/utils";
 
-export type AppTextareaVariant = "card" | "inline";
+type AppTextareaVariant = "card" | "inline";
 
 interface AppTextareaProps extends TextareaHTMLAttributes<HTMLTextAreaElement> {
   variant?: AppTextareaVariant | undefined;

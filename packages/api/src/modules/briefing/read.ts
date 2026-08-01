@@ -504,7 +504,7 @@ export interface SurfacedKeys {
  * `previouslySurfaced` flag on {@link EmailListItem}; it replaces relying on
  * the agent to fuzzy-match prose across `list_prior_briefings`.
  */
-export async function listRecentlySurfacedKeys(args: {
+async function listRecentlySurfacedKeys(args: {
   userId: string;
   /** Upper bound the lookback window subtracts from — pass the run's frozen "until". */
   before: Date;

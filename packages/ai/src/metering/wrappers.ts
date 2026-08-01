@@ -55,7 +55,7 @@ function modelIdsFor(model: LanguageModel): ModelIdentifiers {
  * against an infinite hang, not an SLA — latency-sensitive callers still pass a
  * tighter `timeout` (e.g. the 15s chat-title call), which wins over this.
  */
-export const DEFAULT_LLM_TIMEOUT_MS = 600_000;
+const DEFAULT_LLM_TIMEOUT_MS = 600_000;
 
 /**
  * Streaming backstop for direct {@link meteredStreamText} callers that don't
@@ -175,7 +175,7 @@ export function usageFromSdk(usage: LanguageModelUsage | undefined, cacheWriteTt
 }
 
 export type GenerateTextArgs = Parameters<typeof generateText>[0];
-export type EmbedArgs = Parameters<typeof embed>[0];
+type EmbedArgs = Parameters<typeof embed>[0];
 
 type ObjectSchema<O> = Parameters<typeof Output.object<O>>[0]["schema"];
 

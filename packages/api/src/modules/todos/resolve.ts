@@ -6,7 +6,7 @@ import { z } from "zod";
 import { emitReplicachePokes } from "../../events/replicache-events";
 import { normalizeSenderEmail } from "../memory/sender-email";
 
-export const resolveTodosForGmailSenderArgsSchema = z.object({
+const resolveTodosForGmailSenderArgsSchema = z.object({
   userId: z.string().min(1),
   senderEmail: z.string().nullish(),
   sourceThreadId: z.string().nullish(),

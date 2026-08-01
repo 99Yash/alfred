@@ -154,7 +154,7 @@ function buildBossSystemPrompt(grounding: string, connectedSummary: string): str
   });
 }
 
-export function buildSubAgentSystemPromptBase(subId: string): string {
+function buildSubAgentSystemPromptBase(subId: string): string {
   return [
     "You are Alfred's investigation specialist, working a focused brief to a real conclusion. You exist because this question needs more than a single lookup — a one-and-done answer is a failed investigation, whatever the subject is.",
     [

@@ -1,7 +1,7 @@
 import { loadChatThreadContext, type LoadedChatThreadContext } from "./chat-context-store";
 
-export const FOREGROUND_COMPACTION_WAIT_MS = 500;
-export const FOREGROUND_COMPACTION_POLL_MS = 50;
+const FOREGROUND_COMPACTION_WAIT_MS = 500;
+const FOREGROUND_COMPACTION_POLL_MS = 50;
 
 export interface ConversationCompactionWaitDependencies {
   loadContext?: (userId: string, threadId: string) => Promise<LoadedChatThreadContext | null>;

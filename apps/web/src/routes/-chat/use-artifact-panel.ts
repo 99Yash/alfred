@@ -11,7 +11,7 @@ import { getLocalStorageItem, setLocalStorageItem } from "~/lib/storage/storage"
  * executes and the id is bound, the selection migrates to the real id.
  */
 const PENDING_PREFIX = "pending:";
-export function pendingSelectionId(toolCallId: string): string {
+function pendingSelectionId(toolCallId: string): string {
   return `${PENDING_PREFIX}${toolCallId}`;
 }
 export function pendingToolCallId(selectedId: string | null): string | null {
@@ -32,8 +32,8 @@ export function pendingToolCallId(selectedId: string | null): string | null {
  */
 
 const WIDTH_KEY = "alfred:artifact-panel-width";
-export const ARTIFACT_PANEL_MIN_WIDTH = 360;
-export const ARTIFACT_PANEL_MAX_WIDTH = 760;
+const ARTIFACT_PANEL_MIN_WIDTH = 360;
+const ARTIFACT_PANEL_MAX_WIDTH = 760;
 const ARTIFACT_PANEL_DEFAULT_WIDTH = 460;
 
 export interface ArtifactPanelState {

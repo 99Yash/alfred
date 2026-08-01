@@ -101,7 +101,7 @@ interface GroupProps {
   children: ReactNode;
 }
 
-export function Group({ heading, children }: GroupProps) {
+function Group({ heading, children }: GroupProps) {
   return (
     <CommandPrimitive.Group
       heading={heading}
@@ -138,7 +138,7 @@ interface ItemProps {
   children: ReactNode;
 }
 
-export function Item({
+function Item({
   value,
   keywords,
   onSelect,
@@ -187,7 +187,7 @@ export function Item({
 /* Legend (footer keyboard hints)                                              */
 /* -------------------------------------------------------------------------- */
 
-export function Legend({ hints }: { hints?: ReadonlyArray<{ keys: ReactNode; label: string }> }) {
+function Legend({ hints }: { hints?: ReadonlyArray<{ keys: ReactNode; label: string }> }) {
   const items = hints ?? [
     { keys: "↑↓", label: "Navigate" },
     { keys: "↵", label: "Select" },

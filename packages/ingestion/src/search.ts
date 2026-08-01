@@ -2,7 +2,7 @@ import { EMBEDDING_DIMENSIONS, embed } from "@alfred/ai/embeddings";
 import { db } from "@alfred/db";
 import { formatVectorFloat32 } from "@alfred/db/helpers";
 import { chunks, documents } from "@alfred/db/schemas";
-import { and, desc, eq, isNotNull, sql } from "drizzle-orm";
+import { and, eq, isNotNull, sql } from "drizzle-orm";
 
 /**
  * Semantic search over the chunked corpus. Returns top-K chunks ranked
@@ -130,6 +130,3 @@ function assertQueryEmbedding(v: number[]): void {
     throw new Error(`[semantic-search] expected ${EMBEDDING_DIMENSIONS}-dim query embedding`);
   }
 }
-
-// Re-export desc for callers that build their own queries.
-export { desc };

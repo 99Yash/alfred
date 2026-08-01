@@ -63,7 +63,7 @@ export async function stopSubAgentJoinWakeWorker(): Promise<void> {
   _worker = undefined;
 }
 
-export interface SubAgentJoinWakeResult {
+interface SubAgentJoinWakeResult {
   status: "woken" | "noop";
   childRunId: string;
   parentRunId?: string;

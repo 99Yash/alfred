@@ -18,11 +18,11 @@ export const TRIAGE_SENDER_KIND_FEATURE_KEY = "feature.internal.triage_sender_ki
  * check ({@link isTriageDemotingEntityKind}), the signal's `kind`, and the
  * decision-trace's `senderKind` all derive from this.
  */
-export const TRIAGE_DEMOTING_ENTITY_KINDS = [
+const TRIAGE_DEMOTING_ENTITY_KINDS = [
   "group",
   "service",
 ] as const satisfies readonly EntityNodeKind[];
-export type TriageDemotingEntityKind = (typeof TRIAGE_DEMOTING_ENTITY_KINDS)[number];
+type TriageDemotingEntityKind = (typeof TRIAGE_DEMOTING_ENTITY_KINDS)[number];
 
 const TRIAGE_DEMOTING_ENTITY_KIND_SET = new Set<EntityNodeKind>(TRIAGE_DEMOTING_ENTITY_KINDS);
 
