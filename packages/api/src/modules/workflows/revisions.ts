@@ -28,6 +28,7 @@ import {
 import { and, eq, sql } from "drizzle-orm";
 import { canonicalWorkflowDefinition, workflowRevisionContentHash } from "./content-hash";
 import { readFreshIntegrationAvailability } from "../integrations/availability";
+import { createToolCatalog, listRegisteredTools, type ToolCatalog } from "../tools/registry";
 import {
   canonicalizeWorkflowAccounts,
   resolveWorkflowApprovalDisplay,
@@ -126,21 +127,6 @@ export interface WorkflowRevisedOutcome extends WorkflowRevisionOutcome {
    * should tell the user nothing changed rather than claim a new draft.
    */
   created: boolean;
-}
-
-/** Read the current immutable draft for recovery without exposing raw queries. */
-export async function readWorkflowCurrentRevision(args: {
-  userId: string;
-  workflowId: string;
-}): Promise<WorkflowServiceResult<WorkflowRevisionOutcome & { definition: WorkflowRevisionDefinition }>> {
-  const workflow = await loadWorkflow(db(), args.userId, args.workflowId);
-  if (!workflow) return { ok: false, failure: { kind: "not_found" } };
-  if (!workflow.currentRevisionId) {
-    return { ok: false, failure: { kind: "no_current_revision" } };
-  }
-  const revision = await loadRevision(db(), workflow.currentRevisionId);
-  if (!revision) return { ok: false, failure: { kind: "no_current_revision" } };
-  return { ok: true, workflow, revision, definition: definitionOf(revision) };
 }
 
 /** A read executor or an existing transaction supplied by a composing caller. */
@@ -620,27 +606,19 @@ export async function refreshWorkflowActivationProposal(args: {
   }
   const current = await loadRevision(db(), existing.currentRevisionId);
   if (!current) return { ok: false, failure: { kind: "no_current_revision" } };
-  if (
-    current.id !== requested.baseRevisionId ||
-    current.contentHash !== requested.baseContentHash ||
-    existing.rowVersion !== requested.baseRowVersion
-  ) {
-    return {
-      ok: false,
-      failure: {
-        kind: "stale_revision",
-        expected: requested.baseContentHash,
-        actual: current.contentHash,
-        expectedRevisionId: requested.baseRevisionId,
-        actualRevisionId: current.id,
-      },
-    };
-  }
+  const stale = staleRevisionFailure(existing, current, {
+    revisionId: requested.baseRevisionId,
+    contentHash: requested.baseContentHash,
+    rowVersion: requested.baseRowVersion,
+  });
+  if (stale) return { ok: false, failure: stale };
 
   const { availability, gmailEventHealth } = await readWorkflowReadinessContext(args.userId);
+  const toolCatalog = createToolCatalog(listRegisteredTools());
   const canonicalDefinition = canonicalizeWorkflowAccounts({
     definition: requested.definition,
     availability,
+    toolCatalog,
   });
   const timezone = await resolveTimezoneForInput(args.userId, canonicalDefinition);
   const validated = validateWorkflowDefinition(canonicalDefinition, {
@@ -672,6 +650,7 @@ export async function refreshWorkflowActivationProposal(args: {
     availability,
     requestedCapabilities: definition.requiredCapabilities,
     gmailEventHealth,
+    toolCatalog,
   });
   if (blockers.length > 0) {
     return { ok: false, failure: { kind: "readiness_blocked", blockers } };
@@ -687,6 +666,7 @@ export async function refreshWorkflowActivationProposal(args: {
       definition,
       authoringProposal: baseProposal.data,
       availability,
+      toolCatalog,
       timezone,
     }),
   };
@@ -724,6 +704,7 @@ export function buildWorkflowActivationProposal(args: {
   definition: AuthorableWorkflowDefinition;
   authoringProposal: WorkflowAuthoringProposal;
   availability: Awaited<ReturnType<typeof readFreshIntegrationAvailability>>;
+  toolCatalog: ToolCatalog;
   timezone: IanaTimezone;
   previewedAt?: Date | undefined;
 }): ActivateWorkflowInput {
@@ -744,7 +725,7 @@ export function buildWorkflowActivationProposal(args: {
       previewedAt: previewedAt.toISOString(),
       ...(nextRunAt ? { nextRunAt: nextRunAt.toISOString() } : {}),
     },
-    ...resolveWorkflowApprovalDisplay(args.definition, args.availability),
+    ...resolveWorkflowApprovalDisplay(args.definition, args.availability, args.toolCatalog),
     authoringProposal: approvalProposalForDefinition(args.authoringProposal, args.definition),
   };
 }
@@ -808,35 +789,24 @@ export async function activateWorkflowDefinition(
   // Classify a stale approval by its immutable identity before validating the
   // editable contract. A stale base hash is not a malformed definition, and
   // callers need the typed stale result so they can restage the same draft.
-  // The transaction below repeats this check to protect the write from a race.
-  const staleBase = await db().transaction(async (tx) => {
-    const existing = await loadWorkflow(tx, args.userId, input.workflowId);
-    if (!existing?.currentRevisionId) return null;
-    const current = await loadRevision(tx, existing.currentRevisionId);
-    if (
-      !current ||
-      (current.id === input.baseRevisionId && current.contentHash === input.baseContentHash)
-    ) {
-      return null;
-    }
-    return current;
-  });
-  if (staleBase) {
-    return {
-      ok: false,
-      failure: {
-        kind: "stale_revision",
-        expected: input.baseContentHash,
-        actual: staleBase.contentHash,
-        expectedRevisionId: input.baseRevisionId,
-        actualRevisionId: staleBase.id,
-      },
-    };
+  // The write transaction repeats this check to protect against a later race.
+  const staleWorkflow = await loadWorkflow(db(), args.userId, input.workflowId);
+  const staleRevision = staleWorkflow?.currentRevisionId
+    ? await loadRevision(db(), staleWorkflow.currentRevisionId)
+    : null;
+  if (staleWorkflow && staleRevision) {
+    const stale = staleRevisionFailure(staleWorkflow, staleRevision, {
+      revisionId: input.baseRevisionId,
+      contentHash: input.baseContentHash,
+    });
+    if (stale) return { ok: false, failure: stale };
   }
   const availability = await readFreshIntegrationAvailability(args.userId);
+  const toolCatalog = createToolCatalog(listRegisteredTools());
   const canonicalInputDefinition = canonicalizeWorkflowAccounts({
     definition: input.definition,
     availability,
+    toolCatalog,
   });
   const timezone = await resolveTimezoneForInput(args.userId, canonicalInputDefinition);
   const validated = validateWorkflowDefinition(canonicalInputDefinition, {
@@ -849,7 +819,7 @@ export async function activateWorkflowDefinition(
 
   const definition = validated.definition;
   const approvedHash = workflowRevisionContentHash(definition);
-  const expectedDisplay = resolveWorkflowApprovalDisplay(definition, availability);
+  const expectedDisplay = resolveWorkflowApprovalDisplay(definition, availability, toolCatalog);
   if (
     canonicalJson(input.resolvedAccounts) !== canonicalJson(expectedDisplay.resolvedAccounts) ||
     canonicalJson(input.resolvedCapabilities) !==
@@ -890,18 +860,11 @@ export async function activateWorkflowDefinition(
 
     const current = await loadRevision(tx, existing.currentRevisionId);
     if (!current) return { ok: false, failure: { kind: "no_current_revision" } };
-    if (current.id !== input.baseRevisionId || current.contentHash !== input.baseContentHash) {
-      return {
-        ok: false,
-        failure: {
-          kind: "stale_revision",
-          expected: input.baseContentHash,
-          actual: current.contentHash,
-          expectedRevisionId: input.baseRevisionId,
-          actualRevisionId: current.id,
-        },
-      };
-    }
+    const stale = staleRevisionFailure(existing, current, {
+      revisionId: input.baseRevisionId,
+      contentHash: input.baseContentHash,
+    });
+    if (stale) return { ok: false, failure: stale };
 
     const baseProposal = workflowAuthoringProposalSchema.safeParse(current.authoringProposal);
     const expectedProposal = baseProposal.success
@@ -1041,6 +1004,7 @@ export async function activateWorkflow(
     const definition = validated.definition;
     const proposal = workflowAuthoringProposalSchema.safeParse(current.authoringProposal);
     const { availability, gmailEventHealth } = await readWorkflowReadinessContext(args.userId);
+    const toolCatalog = createToolCatalog(listRegisteredTools());
     const blockers = resolveWorkflowReadiness({
       definition,
       availability,
@@ -1048,22 +1012,18 @@ export async function activateWorkflow(
         ? proposal.data.requestedCapabilities
         : definition.requiredCapabilities,
       gmailEventHealth,
+      toolCatalog,
     });
-    if (blockers.length > 0) {
-      const first = blockers[0];
-      if (!first) throw new Error("workflow readiness returned an empty blocker set");
-      const blocked = await setWorkflowBlocked({
+    if (blockers[0]) {
+      const reconciled = await reconcileWorkflowReadiness({
         userId: args.userId,
-        workflowId: existing.id,
-        blocked: {
-          code: first.code,
-          message: blockers.map((problem) => problem.message).join(" "),
-          detectedAt: new Date().toISOString(),
-          revisionId: current.id,
-        },
+        workflow: existing,
+        revisionId: current.id,
+        readiness: blockers,
+        target: "activation",
         tx,
       });
-      if (!blocked.ok) return blocked;
+      if (!reconciled.ok) return reconciled;
       return { ok: false, failure: { kind: "readiness_blocked", blockers } };
     }
     const expectedRowVersion = args.expectedRowVersion ?? existing.rowVersion;
@@ -1103,6 +1063,45 @@ export async function activateWorkflow(
 }
 
 // ── Status and blocked — independent fields, independent writers ─────────────
+
+/**
+ * Project one readiness verdict onto `workflows.blocked` in the transaction
+ * that owns the revision. A draft cannot clear or replace the blocker for a
+ * different published revision.
+ */
+export async function reconcileWorkflowReadiness(args: {
+  userId: string;
+  workflow: Workflow;
+  revisionId: string;
+  readiness: readonly WorkflowReadinessProblem[];
+  target: "draft" | "activation";
+  tx: DbTransaction;
+}): Promise<WorkflowServiceResult<{ workflow: Workflow }>> {
+  const ownsBlockedState =
+    args.target === "activation" ||
+    args.workflow.publishedRevisionId === null ||
+    args.workflow.publishedRevisionId === args.revisionId;
+  if (!ownsBlockedState) return { ok: true, workflow: args.workflow };
+
+  const first = args.readiness[0];
+  if (first) {
+    return writeBlocked(
+      args.userId,
+      args.workflow.id,
+      {
+        code: first.code,
+        message: args.readiness.map((problem) => problem.message).join(" "),
+        detectedAt: new Date().toISOString(),
+        revisionId: args.revisionId,
+      },
+      args.tx,
+    );
+  }
+  if (args.target === "activation" || args.workflow.blocked === null) {
+    return { ok: true, workflow: args.workflow };
+  }
+  return writeBlocked(args.userId, args.workflow.id, null, args.tx);
+}
 
 /**
  * The statuses a plain status write may set. `active` is absent on purpose:
@@ -1186,6 +1185,27 @@ async function writeBlocked(
 }
 
 // ── Internals ────────────────────────────────────────────────────────────────
+
+function staleRevisionFailure(
+  workflow: Workflow,
+  revision: WorkflowRevision,
+  expected: { revisionId: string; contentHash: string; rowVersion?: number },
+): Extract<WorkflowServiceFailure, { kind: "stale_revision" }> | null {
+  if (
+    revision.id === expected.revisionId &&
+    revision.contentHash === expected.contentHash &&
+    (expected.rowVersion === undefined || workflow.rowVersion === expected.rowVersion)
+  ) {
+    return null;
+  }
+  return {
+    kind: "stale_revision",
+    expected: expected.contentHash,
+    actual: revision.contentHash,
+    expectedRevisionId: expected.revisionId,
+    actualRevisionId: revision.id,
+  };
+}
 
 /**
  * The columns on `workflows` that mirror a revision. Kept in one place so every
