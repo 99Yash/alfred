@@ -221,6 +221,40 @@ export const workflowRequestedCapabilitySchema = workflowRequiredCapabilitySchem
 export type WorkflowRequestedCapability = z.infer<typeof workflowRequestedCapabilitySchema>;
 
 /**
+ * One truthful next step for a blocked workflow draft. The action is data, not
+ * a URL: each authoring surface owns its navigation while the resolver owns
+ * which recovery can actually change the readiness verdict.
+ */
+export const workflowRecoveryActionSchema = z.discriminatedUnion("kind", [
+  z.object({
+    kind: z.literal("connect"),
+    integration: integrationSlugSchema,
+  }),
+  z.object({
+    kind: z.literal("reauthorize"),
+    integration: integrationSlugSchema,
+    accountRef: z.string().min(1).max(200).optional(),
+    acceptableScopes: z.array(z.string().min(1)).min(1).optional(),
+  }),
+  z.object({
+    kind: z.literal("choose_account"),
+    integration: integrationSlugSchema,
+  }),
+  z.object({
+    kind: z.literal("grant_resource"),
+    integration: integrationSlugSchema,
+    accountRef: z.string().min(1).max(200).optional(),
+    resourceScope: jsonObjectSchema,
+  }),
+  z.object({
+    kind: z.literal("enable_feature"),
+    integration: integrationSlugSchema,
+  }),
+  z.object({ kind: z.literal("retry") }),
+]);
+export type WorkflowRecoveryAction = z.infer<typeof workflowRecoveryActionSchema>;
+
+/**
  * What the authoring turn understood and assumed, kept beside the revision so
  * the activation card (#556) can show the user the intent behind the contract
  * rather than opaque identifiers. It is outside the definition content hash,

@@ -108,6 +108,7 @@ describe("workflow readiness", () => {
     assert.deepEqual(result.definition.allowedIntegrations, ["gmail", "slack"]);
     assert.deepEqual(result.definition.allowedTools, []);
     assert.equal(result.missing[0]?.code, "no_tool_surface");
+    assert.equal(result.missing[0]?.recoveryAction, undefined);
   });
 
   test("a catalog tool without a runtime implementation stays inside the envelope", () => {
@@ -185,6 +186,86 @@ describe("workflow readiness", () => {
       availability: unavailable,
     });
     assert.equal(problems[0]?.code, "not_connected");
+    assert.deepEqual(problems[0]?.recoveryAction, {
+      kind: "connect",
+      integration: "gmail",
+    });
+  });
+
+  test("a credential that needs reauthorization returns the selected account action", () => {
+    const problems = resolveWorkflowReadiness({
+      definition: definition({
+        allowedIntegrations: ["gmail"],
+        allowedTools: ["gmail.search"],
+        requiredCapabilities: [{ tool: "gmail.search", accountRef: "account-1" }],
+      }),
+      availability: {
+        integrations: new Map([["gmail", { health: "needs_reauth", accountLabel: null }]]),
+        providers: new Map([
+          [
+            "google",
+            [
+              {
+                credentialId: "credential-1",
+                accountId: "account-1",
+                status: "needs_reauth",
+                scopes: new Set(["https://www.googleapis.com/auth/gmail.readonly"]),
+                accountLabel: "selected@example.com",
+                metadata: {},
+              },
+            ],
+          ],
+        ]),
+        passthroughEnabled: new Map(),
+      },
+    });
+    assert.equal(problems[0]?.code, "needs_reauth");
+    assert.deepEqual(problems[0]?.recoveryAction, {
+      kind: "reauthorize",
+      integration: "gmail",
+      accountRef: "account-1",
+      acceptableScopes: [
+        "https://www.googleapis.com/auth/gmail.readonly",
+        "https://www.googleapis.com/auth/gmail.modify",
+      ],
+    });
+  });
+
+  test("a Gmail write on a read-only account names the missing permission action", () => {
+    const problems = resolveWorkflowReadiness({
+      definition: definition({
+        allowedIntegrations: ["gmail"],
+        allowedTools: ["gmail.send_draft"],
+        requiredCapabilities: [{ tool: "gmail.send_draft", accountRef: "account-1" }],
+      }),
+      availability: gmailAvailability,
+    });
+    assert.equal(problems[0]?.code, "missing_scope");
+    assert.deepEqual(problems[0]?.recoveryAction, {
+      kind: "reauthorize",
+      integration: "gmail",
+      accountRef: "account-1",
+      acceptableScopes: ["https://www.googleapis.com/auth/gmail.send"],
+    });
+  });
+
+  test("a disabled passthrough feature returns an enable action", () => {
+    const problems = resolveWorkflowReadiness({
+      definition: definition({
+        allowedIntegrations: ["gmail"],
+        allowedTools: ["gmail.request"],
+        requiredCapabilities: [{ tool: "gmail.request" }],
+      }),
+      availability: {
+        ...gmailAvailability,
+        passthroughEnabled: new Map([["gmail", false]]),
+      },
+    });
+    assert.equal(problems[0]?.code, "feature_disabled");
+    assert.deepEqual(problems[0]?.recoveryAction, {
+      kind: "enable_feature",
+      integration: "gmail",
+    });
   });
 
   test("thread-only tools are refused for a background workflow", () => {
@@ -275,7 +356,7 @@ describe("workflow readiness", () => {
     assert.equal(problems[0]?.code, "choose_account");
   });
 
-  test("an unsupported resource scope stays blocked", () => {
+  test("an unverified resource scope stays blocked with the exact grant action", () => {
     const problems = resolveWorkflowReadiness({
       definition: definition({
         requiredCapabilities: [
@@ -285,6 +366,47 @@ describe("workflow readiness", () => {
       availability: unavailable,
     });
     assert.equal(problems[0]?.code, "resource_not_granted");
+    assert.deepEqual(problems[0]?.recoveryAction, {
+      kind: "grant_resource",
+      integration: "system",
+      resourceScope: { calendarId: "primary" },
+    });
+  });
+
+  test("a supplied exact resource grant satisfies the resource boundary", () => {
+    const problems = resolveWorkflowReadiness({
+      definition: definition({
+        requiredCapabilities: [
+          { tool: "system.current_time", resourceScope: { calendarId: "primary" } },
+        ],
+      }),
+      availability: unavailable,
+      resourceAccessFacts: [
+        {
+          tool: "system.current_time",
+          resourceScope: { calendarId: "primary" },
+          granted: true,
+        },
+      ],
+    });
+    assert.deepEqual(problems, []);
+  });
+
+  test("connection recovery takes priority over a resource grant", () => {
+    const problems = resolveWorkflowReadiness({
+      definition: definition({
+        allowedIntegrations: ["gmail"],
+        allowedTools: ["gmail.search"],
+        requiredCapabilities: [{ tool: "gmail.search", resourceScope: { labelId: "important" } }],
+      }),
+      availability: unavailable,
+    });
+    assert.equal(problems.length, 1);
+    assert.equal(problems[0]?.code, "not_connected");
+    assert.deepEqual(problems[0]?.recoveryAction, {
+      kind: "connect",
+      integration: "gmail",
+    });
   });
 
   test("a Gmail event requires a live watch", () => {
