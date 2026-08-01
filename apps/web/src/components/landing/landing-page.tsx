@@ -39,13 +39,7 @@ const NAV_CTA = (
   </FrostButton>
 );
 
-export function LandingPage({
-  healthOk,
-  healthLoading,
-}: {
-  healthOk: boolean;
-  healthLoading: boolean;
-}) {
+export function LandingPage() {
   return (
     <LandingBackground className="min-h-[100dvh] w-full overflow-x-hidden">
       {/* `<main>` gives the page its required primary landmark (the footer and
@@ -55,7 +49,7 @@ export function LandingPage({
       <main className="relative mx-auto w-full max-w-5xl px-5 pb-16 sm:px-10 lg:px-0">
         <LandingSpine />
 
-        <Hero onGetStarted={goToLogin} healthOk={healthOk} healthLoading={healthLoading} />
+        <Hero onGetStarted={goToLogin} />
 
         <FadeInOnScroll className="mt-32 sm:mt-44">
           <div id="benefits">
@@ -72,7 +66,7 @@ export function LandingPage({
         <LandingCtaSection onGetStarted={goToLogin} />
       </main>
 
-      <LandingFooter onGetStarted={goToLogin} healthOk={healthOk} />
+      <LandingFooter onGetStarted={goToLogin} />
 
       <FloatingPillNav
         logo={
@@ -101,35 +95,13 @@ const NAV_LINK =
 /* Hero                                                                */
 /* ------------------------------------------------------------------ */
 
-function Hero({
-  onGetStarted,
-  healthOk,
-  healthLoading,
-}: {
-  onGetStarted: () => void;
-  healthOk: boolean;
-  healthLoading: boolean;
-}) {
+function Hero({ onGetStarted }: { onGetStarted: () => void }) {
   return (
     <section className="relative space-y-5 pt-32 text-center lg:pt-44">
       <FadeInOnScroll>
         <div className="flex flex-wrap items-center justify-center gap-2">
           <EyebrowChip icon={<Sparkles className="size-3.5" strokeWidth={2} />} accent="indigo">
             Personal AI assistant
-          </EyebrowChip>
-          <EyebrowChip
-            icon={
-              <span
-                aria-hidden
-                className={cn(
-                  "size-1.5 rounded-full",
-                  healthLoading ? "bg-neutral-400" : healthOk ? "bg-emerald-400" : "bg-amber-400",
-                )}
-              />
-            }
-            accent={healthLoading ? "neutral" : healthOk ? "emerald" : "amber"}
-          >
-            {healthLoading ? "Checking server…" : healthOk ? "Server online" : "Server unreachable"}
           </EyebrowChip>
         </div>
       </FadeInOnScroll>

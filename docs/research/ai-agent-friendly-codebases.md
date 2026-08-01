@@ -115,14 +115,12 @@ This is stronger than “write a good `AGENTS.md`.” Instructions help an agent
 
 ### Conclusion
 
-Alfred chose a good outer monorepo shape on day one, but it did not make the
-first domain modules deep. The initial scaffold named technical packages and
-future subsystems, exposed broad import surfaces, and had no executable contract
-tests. As the product grew, domain knowledge spread through `@alfred/api` and
-callers learned implementation details. Much of the July structural work has
-been the delayed payment for this choice: consolidate parallel idioms, assign
-one owner, make states representable in types, and recover seams around agent
-execution, integrations, time, errors, credentials, and streaming state.
+Alfred has a useful outer monorepo shape, but its current backend domain modules
+are not deep enough. Technical packages are clear, while domain knowledge has
+spread through `@alfred/api` and callers can reach many implementation details.
+The present code contains strong seams around model routing, integration
+clients, time, errors, credentials, and streaming state, but the remaining
+internal dependency graph is still highly connected.
 
 This is not a reason for a repository rewrite. Alfred now has many of the right
 mechanisms. The next step is to apply them consistently to the remaining
@@ -131,23 +129,19 @@ obvious.
 
 ### What the repository shows
 
-The actual repository root commit is `5d22193d` on 2026-04-27, not the later
-history import on 2026-07-17. The root commit contained 51 tracked TypeScript
-files and no tests. Its scaffolding plan required build, type-check, migration,
-manual boot, and one end-to-end health call. It did not require a contract test
-for an important domain seam because the domain behavior was intentionally
-deferred.
+The Git history has been rewritten and is not reliable evidence for Alfred's
+development sequence. This assessment therefore uses only the present code,
+tests, documentation, and build checks. The “day-one” section below is a design
+counterfactual, not a claim about what the project actually did.
 
-Several day-one choices were good and should remain:
+Several current choices are good and should remain:
 
-- The repo had a short orientation document, 25 ADRs, explicit package purposes,
-  and a staged milestone plan.
+- The repo has a short orientation document, explicit package purposes, a large
+  ADR record, and staged implementation plans.
 - Browser/server separation, schema ownership, migrations, and package naming
-  were stated early.
-- The scaffold stopped at a working vertical health call instead of pretending
-  that placeholder business logic was complete.
+  are explicit.
 
-The structural misses were more important than the documentation misses:
+The structural gaps are more important than the documentation gaps:
 
 - Packages were mainly technical layers: `api`, `db`, `ai`, `sync`,
   `integrations`, and `ingestion`. This was a useful deployment and runtime map,
@@ -155,15 +149,12 @@ The structural misses were more important than the documentation misses:
 - Several packages exported `./*`. A caller could bypass the root interface and
   bind to any source file. Some of those wildcard exports remain in
   `contracts`, `db`, `env`, `sync`, and `auth` today.
-- The scaffold created generic files such as `utils.ts`, `helpers.ts`,
+- The repository contains generic files such as `utils.ts`, `helpers.ts`,
   `schemas.ts`, and `types.ts`. These names do not say which decision they own
   and invite unrelated knowledge to accumulate.
-- The milestone briefs specified files and implementation order more often than
+- Several milestone briefs specify files and implementation order more often than
   an owned decision, a small interface, allowed dependencies, observable
   behavior, and a contract test.
-- No test ran on day one. Therefore the first agents learned mainly from the
-  compiler and manual smoke checks, not from executable behavior at module
-  seams.
 
 The present repository is much stronger, but the remaining pressure is visible:
 
@@ -181,16 +172,12 @@ The present repository is much stronger, but the remaining pressure is visible:
   omits both type-checking and tests, while CI assembles the complete feedback
   loop across several jobs. An agent must know that assembly instead of finding
   one local, non-mutating command.
-- From 2026-07-17 through this audit, 79 commit subjects mention a refactor,
-  consolidation, owner, seam, boundary, protocol, or derivation. The titles are
-  unusually direct evidence that the repository has been recovering missing
-  ownership and interfaces after feature growth.
 
 Counts are diagnostic signals, not quality scores. A cross-module import can be
 correct, a large file can belong to a deep module, and a test can assert the
 wrong contract. The important fact is the combination: broad reachability,
-two-way dependencies, repeated ownership refactors, and behavior checks that
-are harder to invoke locally than they should be.
+two-way dependencies, and behavior checks that are harder to invoke locally
+than they should be.
 
 ### What Alfred should have done from day one
 
