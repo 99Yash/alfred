@@ -31,6 +31,10 @@
 > schema budget, and merge CI is green. #557 remains open for the recovery
 > contract and its remaining acceptance coverage; see the latest state at the
 > end.
+>
+> **Amended 2026-08-01T08:03Z.** PR #617 finished and closed #557. Its merge
+> CI is green. The authored workflow queue now moves to #558; see the latest
+> state at the end.
 
 135 issues were open when this order was written. 26 of them are newer than the
 last tier artifact. The campaign holds 26 more items that are not issues at all.
@@ -632,6 +636,55 @@ This does **not** close #557. The remaining contract is concrete:
 1. Finish and close **#557**: typed recovery actions, same-draft recovery,
    resource facts, and the remaining resolver acceptance matrix.
 2. Continue the authored order: `#558 -> #559 -> #560 -> #561`.
+3. Decide whether **#547** is ranked beside #553 or paused before another MCP
+   PR merges.
+4. Remove the still-locked `workflow-revisions-555` worktree.
+
+---
+
+# State, 2026-08-01T08:03Z
+
+PR **#617** merged at 07:58:31Z as `88e14465` and closed **#557** one second
+later. The merge-commit `ci` and React Doctor runs completed green at 08:02Z.
+
+## 1. #557 is complete
+
+The merge finishes the capability and blocked-draft recovery contract that the
+05:26Z state section left open:
+
+- `WorkflowReadinessProblem` now carries typed recovery actions for connect,
+  reauthorize, account choice, resource grant, feature enablement and retry.
+  `no_tool_surface` deliberately carries no action, so an unsupported Slack
+  request cannot masquerade as a fixable OAuth problem.
+- The resolver accepts caller-supplied facts for one exact tool, account and
+  resource boundary. A missing or denied fact stays fail-closed, while an exact
+  grant satisfies readiness. Connection recovery takes precedence over a
+  resource action when both are missing.
+- The direct resolver matrix now covers `needs_reauth`, `missing_scope`,
+  `feature_disabled`, Gmail write on a read-only account, and resource access.
+- Google connect / reauthorize can carry the workflow and immutable revision
+  identity in signed, single-use OAuth state. The callback revalidates that
+  exact draft, refuses a revision that changed while OAuth was open, and returns
+  to the workflow instead of losing the user's authored intent.
+- Recovery canonicalizes newly available account facts into the activation
+  proposal without mutating the base revision. Approval remains the only path
+  that can append and publish the canonical definition.
+- `POST /api/workflows/:id/recovery` returns the fresh blocked state or the
+  server-owned activation proposal. The workflow page validates that proposal
+  at the browser boundary and presents its schedule, account-bound capabilities
+  and external effects.
+- Repeating the same blocked recheck is idempotent, so the OAuth callback and
+  page handoff do not increment `row_version` twice for one unchanged blocker.
+
+PR CI passed `static`, `api-tests`, `ai-unit-tests`, `web-unit-tests` and React
+Doctor before merge. The merge commit passed the same `ci` and React Doctor
+workflows after merge.
+
+## The live queue, 2026-08-01T08:03Z
+
+1. Start **#558**: durable occurrence identity and the async
+   `check-readiness` first step.
+2. Continue the authored order: `#559 -> #560 -> #561`.
 3. Decide whether **#547** is ranked beside #553 or paused before another MCP
    PR merges.
 4. Remove the still-locked `workflow-revisions-555` worktree.
