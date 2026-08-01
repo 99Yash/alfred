@@ -69,8 +69,8 @@ export function UsageLine({ usage }: { usage: NonNullable<SyncedChatMessage["usa
     <div
       className={cn(
         "inline-flex max-w-full flex-wrap items-center gap-x-2.5 gap-y-1.5",
-        "rounded-lg border border-app-bg-a2 bg-app-bg-a1 px-2.5 py-1.5",
-        "font-mono text-[11px] leading-none text-app-fg-2 tabular-nums",
+        "rounded-lg bg-app-bg-a1 px-2.5 py-1.5",
+        "text-[11px] leading-none text-app-fg-2 tabular-nums",
       )}
     >
       <Stat icon={ArrowUp} value={formatTokens(usage.inputTokens)} title="Input tokens" />
@@ -82,7 +82,6 @@ export function UsageLine({ usage }: { usage: NonNullable<SyncedChatMessage["usa
         >
           <Zap className="size-3 shrink-0 text-app-amber-4" />
           <span className="text-app-fg-3">{formatTokens(usage.cachedInputTokens)}</span>
-          <CacheMeter pct={cachePct} />
           <span className="text-app-fg-1">{cachePct}%</span>
         </span>
       ) : null}
@@ -114,7 +113,7 @@ export function UsageLine({ usage }: { usage: NonNullable<SyncedChatMessage["usa
             key={m.model}
             title={
               provider
-                ? `${provider.label} — model served this turn${m.calls > 1 ? ` (${m.calls} calls)` : ""}${fell ? " · fallback from Anthropic primary" : ""}`
+                ? `${provider.label} served this turn${m.calls > 1 ? ` (${m.calls} calls)` : ""}${fell ? " · fallback from Anthropic" : ""}`
                 : "Model served this turn"
             }
             className="inline-flex items-center gap-1.5 rounded-md bg-app-bg-a2 px-1.5 py-1 text-app-fg-4 transition-colors hover:bg-app-bg-a3"
