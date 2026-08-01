@@ -1,5 +1,5 @@
 import { isIndexable } from "@alfred/contracts";
-import { serverEnv } from "@alfred/env/server";
+import { nodeEnv } from "@alfred/env/server";
 import pino, { type DestinationStream } from "pino";
 import { AppError } from "./app-errors";
 import { pgErrorChain } from "./pg-errors";
@@ -116,25 +116,15 @@ export function safeErrorDiagnostic(err: unknown): string {
     .join(" ");
 }
 
-/**
- * Whether the running process is non-production. Outside production the
- * operator owns the logs, so verbose error diagnostics are safe to surface.
- * `serverEnv()` throwing (unvalidated env in bare test runs) falls back to
- * `false`, keeping logging strict by default.
- */
-function isNonProduction(): boolean {
-  try {
-    return serverEnv().NODE_ENV !== "production";
-  } catch {
-    return false;
-  }
-}
-
 export function createLogger(destination?: DestinationStream, opts?: { verboseErrors?: boolean }) {
-  // Decided once at construction. The dev server loads `--env-file=.env` before
-  // any import, so `serverEnv()` resolves here; production pins
-  // `NODE_ENV=production` → strict. Tests pass `verboseErrors` explicitly.
-  const verbose = opts?.verboseErrors ?? isNonProduction();
+  // Decided once at construction, and this module builds a logger at import
+  // time, so the read must survive a process that never validated its env — a
+  // bare test run has no `--env-file`. `nodeEnv()` reads that one field and
+  // never throws, which also keeps verbosity independent of the other ~25
+  // variables: a broken DATABASE_URL must not silence dev diagnostics.
+  // Outside production the operator owns the logs, so verbose is safe there.
+  // Tests pass `verboseErrors` explicitly.
+  const verbose = opts?.verboseErrors ?? nodeEnv() !== "production";
   const options = {
     name: "alfred-api",
     serializers: { err: (err: unknown) => serializeError(err, verbose) },
