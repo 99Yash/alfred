@@ -288,6 +288,7 @@ export const learnSkillWorkflow: Workflow<State> = {
               type: "completed",
               eventId: `learn-skill:${ctx.runId}`,
             },
+            workflowRevisionId: null,
           });
           await enqueueRun(created.runId);
           docRunId = created.runId;

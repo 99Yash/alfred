@@ -1,11 +1,20 @@
 import {
+  activateWorkflowInputSchema,
+  authorableWorkflowDefinitionSchema,
+  canonicalJson,
   getPath,
   integrationFromToolName,
   isIntegrationSlug,
   isLoadableIntegrationSlug,
+  toolCategoryOf,
+  toolLabel,
   workflowRevisionDefinitionSchema,
+  workflowAuthoringProposalSchema,
+  type ActivateWorkflowInput,
+  type AuthorableWorkflowDefinition,
   type WorkflowAuthoringProposal,
   type WorkflowBlocked,
+  type IanaTimezone,
   type WorkflowRevisionDefinition,
 } from "@alfred/contracts";
 import { db, type DbRoot, type DbTransaction } from "@alfred/db";
@@ -18,7 +27,20 @@ import {
 } from "@alfred/db/schemas";
 import { and, eq, sql } from "drizzle-orm";
 import { canonicalWorkflowDefinition, workflowRevisionContentHash } from "./content-hash";
-import { computeNextRunAt, resolveWorkflowTimezone, validateCronTrigger } from "./scheduling";
+import { readFreshIntegrationAvailability } from "../integrations/availability";
+import {
+  canonicalizeWorkflowAccounts,
+  resolveWorkflowApprovalDisplay,
+  resolveWorkflowReadiness,
+  type WorkflowReadinessProblem,
+} from "./readiness";
+import {
+  computeNextRunAt,
+  resolveWorkflowTimezone,
+  validateCronTrigger,
+  workflowScheduleSummary,
+} from "./scheduling";
+import { readWorkflowReadinessContext } from "./readiness-context";
 
 /**
  * The workflow draft / revision / activation service (#555,
@@ -57,7 +79,10 @@ export type WorkflowRevisionProblemCode =
   | "empty_integration_ceiling"
   | "trigger_source_not_allowed"
   | "tool_outside_ceiling"
-  | "capability_outside_envelope";
+  | "capability_outside_envelope"
+  | "tool_without_capability"
+  | "ambiguous_tool_capability"
+  | "integration_outside_derived_ceiling";
 
 export interface WorkflowRevisionProblem {
   code: WorkflowRevisionProblemCode;
@@ -74,8 +99,15 @@ export type WorkflowServiceFailure =
   | { kind: "no_current_revision" }
   /** The caller's `expectedRowVersion` lost a race. The caller re-reads and retries. */
   | { kind: "row_version_conflict"; expected: number }
+  | { kind: "readiness_blocked"; blockers: WorkflowReadinessProblem[] }
   /** The approval card was built against a definition that has since changed. */
-  | { kind: "stale_revision"; expected: string; actual: string }
+  | {
+      kind: "stale_revision";
+      expected: string;
+      actual: string;
+      expectedRevisionId?: string;
+      actualRevisionId?: string;
+    }
   | { kind: "validation_failed"; problems: WorkflowRevisionProblem[] };
 
 export type WorkflowServiceResult<T> =
@@ -119,7 +151,7 @@ type WorkflowExecutor = DbRoot | DbTransaction;
  */
 export function validateWorkflowDefinition(
   input: unknown,
-  opts: { timezone: string; requireActivatable?: boolean },
+  opts: { timezone: IanaTimezone; requireActivatable?: boolean },
 ):
   | { ok: true; definition: WorkflowRevisionDefinition }
   | { ok: false; problems: WorkflowRevisionProblem[] } {
@@ -200,6 +232,46 @@ export function validateWorkflowDefinition(
       code: "capability_outside_envelope",
       message: `'${capability.tool}' is required but is not in the allowed tools.`,
       field: "requiredCapabilities",
+    });
+  }
+
+  const capabilityTools = new Set(requiredCapabilities.map((capability) => capability.tool));
+  for (const tool of allowedTools) {
+    if (capabilityTools.has(tool)) continue;
+    problems.push({
+      code: "tool_without_capability",
+      message: `'${tool}' is allowed but has no matching required capability.`,
+      field: "allowedTools",
+    });
+  }
+
+  const capabilityCountByTool = new Map<string, number>();
+  for (const capability of requiredCapabilities) {
+    capabilityCountByTool.set(
+      capability.tool,
+      (capabilityCountByTool.get(capability.tool) ?? 0) + 1,
+    );
+  }
+  for (const [tool, count] of capabilityCountByTool) {
+    if (count === 1) continue;
+    problems.push({
+      code: "ambiguous_tool_capability",
+      message: `'${tool}' must select exactly one account and resource boundary per revision.`,
+      field: "requiredCapabilities",
+    });
+  }
+
+  const derivedIntegrations = new Set(allowedTools.map((tool) => integrationFromToolName(tool)));
+  if (trigger.kind === "event" && isIntegrationSlug(trigger.source)) {
+    derivedIntegrations.add(trigger.source);
+  }
+  for (const integration of allowedIntegrations) {
+    if (derivedIntegrations.has(integration)) continue;
+    if (!opts.requireActivatable) continue;
+    problems.push({
+      code: "integration_outside_derived_ceiling",
+      message: `'${integration}' is allowed but is not required by a tool or trigger.`,
+      field: "allowedIntegrations",
     });
   }
 
@@ -342,7 +414,10 @@ export async function reviseWorkflow(
       ? await loadRevision(tx, existing.currentRevisionId)
       : null;
     const contentHash = workflowRevisionContentHash(definition);
-    if (current && current.contentHash === contentHash) {
+    const proposalUnchanged =
+      canonicalJson(current?.authoringProposal ?? null) ===
+      canonicalJson(args.authoringProposal ?? null);
+    if (current && current.contentHash === contentHash && proposalUnchanged) {
       return { ok: true, workflow: existing, revision: current, created: false };
     }
 
@@ -489,6 +564,392 @@ export interface ActivateWorkflowArgs {
   tx?: DbTransaction;
 }
 
+export interface ActivateWorkflowDefinitionArgs {
+  userId: string;
+  /** Full activation contract from the approval card, including any user edits. */
+  input: unknown;
+  createdByRunId?: string;
+}
+
+/**
+ * Rebuild an edited activation card from server-owned facts. The original
+ * staging remains pending, so the user must approve this refreshed contract
+ * before the parked run can continue.
+ */
+export async function refreshWorkflowActivationProposal(args: {
+  userId: string;
+  input: unknown;
+}): Promise<
+  WorkflowServiceResult<{ input: ReturnType<typeof activateWorkflowInputSchema.parse> }>
+> {
+  const parsed = activateWorkflowInputSchema.safeParse(args.input);
+  if (!parsed.success) {
+    return {
+      ok: false,
+      failure: {
+        kind: "validation_failed",
+        problems: parsed.error.issues.map((issue) => ({
+          code: "invalid_definition",
+          message: issue.message,
+          field: issue.path.join("."),
+        })),
+      },
+    };
+  }
+  const requested = parsed.data;
+  const existing = await loadWorkflow(db(), args.userId, requested.workflowId);
+  if (!existing) return { ok: false, failure: { kind: "not_found" } };
+  if (existing.isBuiltin) return { ok: false, failure: { kind: "builtin_immutable" } };
+  if (!existing.currentRevisionId) {
+    return { ok: false, failure: { kind: "no_current_revision" } };
+  }
+  const current = await loadRevision(db(), existing.currentRevisionId);
+  if (!current) return { ok: false, failure: { kind: "no_current_revision" } };
+  if (
+    current.id !== requested.baseRevisionId ||
+    current.contentHash !== requested.baseContentHash ||
+    existing.rowVersion !== requested.baseRowVersion
+  ) {
+    return {
+      ok: false,
+      failure: {
+        kind: "stale_revision",
+        expected: requested.baseContentHash,
+        actual: current.contentHash,
+        expectedRevisionId: requested.baseRevisionId,
+        actualRevisionId: current.id,
+      },
+    };
+  }
+
+  const { availability, gmailEventHealth } = await readWorkflowReadinessContext(args.userId);
+  const canonicalDefinition = canonicalizeWorkflowAccounts({
+    definition: requested.definition,
+    availability,
+  });
+  const timezone = await resolveTimezoneForInput(args.userId, canonicalDefinition);
+  const validated = validateWorkflowDefinition(canonicalDefinition, {
+    timezone,
+    requireActivatable: true,
+  });
+  if (!validated.ok) {
+    return { ok: false, failure: { kind: "validation_failed", problems: validated.problems } };
+  }
+  const definition = authorableWorkflowDefinitionSchema.parse(validated.definition);
+  const baseProposal = workflowAuthoringProposalSchema.safeParse(current.authoringProposal);
+  if (!baseProposal.success) {
+    return {
+      ok: false,
+      failure: {
+        kind: "validation_failed",
+        problems: [
+          {
+            code: "invalid_definition",
+            message: "The stored workflow proposal is invalid and cannot be approved.",
+            field: "authoringProposal",
+          },
+        ],
+      },
+    };
+  }
+  const blockers = resolveWorkflowReadiness({
+    definition,
+    availability,
+    requestedCapabilities: definition.requiredCapabilities,
+    gmailEventHealth,
+  });
+  if (blockers.length > 0) {
+    return { ok: false, failure: { kind: "readiness_blocked", blockers } };
+  }
+
+  return {
+    ok: true,
+    input: buildWorkflowActivationProposal({
+      workflowId: existing.id,
+      baseRevisionId: current.id,
+      baseContentHash: current.contentHash,
+      baseRowVersion: existing.rowVersion,
+      definition,
+      authoringProposal: baseProposal.data,
+      availability,
+      timezone,
+    }),
+  };
+}
+
+/** Add all executable effects and replace fields that the definition owns. */
+export function approvalProposalForDefinition(
+  base: WorkflowAuthoringProposal,
+  definition: WorkflowRevisionDefinition,
+): WorkflowAuthoringProposal {
+  const derivedEffects = definition.requiredCapabilities.flatMap((capability) => {
+    if (
+      integrationFromToolName(capability.tool) === "system" ||
+      toolCategoryOf(capability.tool) !== "action"
+    ) {
+      return [];
+    }
+    return [toolLabel(capability.tool)?.title ?? capability.tool];
+  });
+  return {
+    intent: base.intent,
+    assumptions: base.assumptions,
+    externalEffects: [...new Set([...base.externalEffects, ...derivedEffects])],
+    requestedCapabilities: definition.requiredCapabilities,
+    scheduleSummary: workflowScheduleSummary(definition.trigger),
+  };
+}
+
+/** Build the one exact activation contract shown by every authoring surface. */
+export function buildWorkflowActivationProposal(args: {
+  workflowId: string;
+  baseRevisionId: string;
+  baseContentHash: string;
+  baseRowVersion: number;
+  definition: AuthorableWorkflowDefinition;
+  authoringProposal: WorkflowAuthoringProposal;
+  availability: Awaited<ReturnType<typeof readFreshIntegrationAvailability>>;
+  timezone: IanaTimezone;
+  previewedAt?: Date | undefined;
+}): ActivateWorkflowInput {
+  const previewedAt = args.previewedAt ?? new Date();
+  const nextRunAt = computeNextRunAt(args.definition.trigger, {
+    from: previewedAt,
+    timezone: args.timezone,
+  });
+  return {
+    workflowId: args.workflowId,
+    baseRevisionId: args.baseRevisionId,
+    baseContentHash: args.baseContentHash,
+    baseRowVersion: args.baseRowVersion,
+    definition: args.definition,
+    schedule: {
+      summary: workflowScheduleSummary(args.definition.trigger),
+      timezone: args.timezone,
+      previewedAt: previewedAt.toISOString(),
+      ...(nextRunAt ? { nextRunAt: nextRunAt.toISOString() } : {}),
+    },
+    ...resolveWorkflowApprovalDisplay(args.definition, args.availability),
+    authoringProposal: approvalProposalForDefinition(args.authoringProposal, args.definition),
+  };
+}
+
+/**
+ * Activate the exact definition carried by an approval card (#556).
+ *
+ * The current pointer must still identify the card's base revision. A changed
+ * pointer is stale even if a later revision happens to have the same hash. If
+ * the user edited the card, the approved definition is appended as a new
+ * immutable revision and that new revision is published in the same
+ * transaction. The base row is never mutated.
+ */
+export async function activateWorkflowDefinition(
+  args: ActivateWorkflowDefinitionArgs,
+): Promise<WorkflowServiceResult<WorkflowRevisionOutcome & { revised: boolean }>> {
+  const parsed = activateWorkflowInputSchema.safeParse(args.input);
+  if (!parsed.success) {
+    return {
+      ok: false,
+      failure: {
+        kind: "validation_failed",
+        problems: parsed.error.issues.map((issue) => ({
+          code: "invalid_definition",
+          message: issue.message,
+          field: issue.path.join("."),
+        })),
+      },
+    };
+  }
+  const input = parsed.data;
+  const inputHash = workflowRevisionContentHash(input.definition);
+  const alreadyApplied = await db().transaction(async (tx) => {
+    const existing = await loadWorkflow(tx, args.userId, input.workflowId);
+    if (
+      !existing ||
+      existing.status !== "active" ||
+      !existing.currentRevisionId ||
+      existing.publishedRevisionId !== existing.currentRevisionId
+    ) {
+      return null;
+    }
+    const current = await loadRevision(tx, existing.currentRevisionId);
+    if (
+      !current?.approvedAt ||
+      current.contentHash !== inputHash ||
+      canonicalJson(current.authoringProposal) !== canonicalJson(input.authoringProposal)
+    ) {
+      return null;
+    }
+    return { workflow: existing, revision: current };
+  });
+  if (alreadyApplied) {
+    return {
+      ok: true,
+      ...alreadyApplied,
+      revised: alreadyApplied.revision.id !== input.baseRevisionId,
+    };
+  }
+  const availability = await readFreshIntegrationAvailability(args.userId);
+  const canonicalInputDefinition = canonicalizeWorkflowAccounts({
+    definition: input.definition,
+    availability,
+  });
+  const timezone = await resolveTimezoneForInput(args.userId, canonicalInputDefinition);
+  const validated = validateWorkflowDefinition(canonicalInputDefinition, {
+    timezone,
+    requireActivatable: true,
+  });
+  if (!validated.ok) {
+    return { ok: false, failure: { kind: "validation_failed", problems: validated.problems } };
+  }
+
+  const definition = validated.definition;
+  const approvedHash = workflowRevisionContentHash(definition);
+  const expectedDisplay = resolveWorkflowApprovalDisplay(definition, availability);
+  if (
+    canonicalJson(input.resolvedAccounts) !== canonicalJson(expectedDisplay.resolvedAccounts) ||
+    canonicalJson(input.resolvedCapabilities) !==
+      canonicalJson(expectedDisplay.resolvedCapabilities)
+  ) {
+    return {
+      ok: false,
+      failure: {
+        kind: "validation_failed",
+        problems: [
+          {
+            code: "invalid_definition",
+            message:
+              "The account and capability display no longer matches the approved definition.",
+            field: "resolvedCapabilities",
+          },
+        ],
+      },
+    };
+  }
+
+  // The friendly preview is part of what the user approved. A trigger edit
+  // that makes it stale must be restaged with a fresh server preview; silently
+  // publishing the recomputed schedule would activate a contract the card did
+  // not show.
+  const scheduleProblems = validateActivationSchedule(input, timezone);
+  if (scheduleProblems.length > 0) {
+    return { ok: false, failure: { kind: "validation_failed", problems: scheduleProblems } };
+  }
+
+  return db().transaction(async (tx) => {
+    const existing = await loadWorkflow(tx, args.userId, input.workflowId);
+    if (!existing) return { ok: false, failure: { kind: "not_found" } };
+    if (existing.isBuiltin) return { ok: false, failure: { kind: "builtin_immutable" } };
+    if (!existing.currentRevisionId) {
+      return { ok: false, failure: { kind: "no_current_revision" } };
+    }
+
+    const current = await loadRevision(tx, existing.currentRevisionId);
+    if (!current) return { ok: false, failure: { kind: "no_current_revision" } };
+    if (current.id !== input.baseRevisionId || current.contentHash !== input.baseContentHash) {
+      return {
+        ok: false,
+        failure: {
+          kind: "stale_revision",
+          expected: input.baseContentHash,
+          actual: current.contentHash,
+          expectedRevisionId: input.baseRevisionId,
+          actualRevisionId: current.id,
+        },
+      };
+    }
+
+    const baseProposal = workflowAuthoringProposalSchema.safeParse(current.authoringProposal);
+    const expectedProposal = baseProposal.success
+      ? approvalProposalForDefinition(baseProposal.data, definition)
+      : null;
+    if (
+      !expectedProposal ||
+      canonicalJson(input.authoringProposal) !== canonicalJson(expectedProposal)
+    ) {
+      return {
+        ok: false,
+        failure: {
+          kind: "validation_failed",
+          problems: [
+            {
+              code: "invalid_definition",
+              message: "The proposal summary does not match the approved definition.",
+              field: "authoringProposal",
+            },
+          ],
+        },
+      };
+    }
+
+    let revised = false;
+    let expectedRowVersion = input.baseRowVersion;
+    if (approvedHash !== current.contentHash) {
+      const result = await reviseWorkflow({
+        userId: args.userId,
+        workflowId: input.workflowId,
+        definition,
+        authoringProposal: input.authoringProposal,
+        createdByRunId: args.createdByRunId,
+        expectedRowVersion: input.baseRowVersion,
+        tx,
+      });
+      if (!result.ok) return result;
+      revised = result.created;
+      expectedRowVersion = result.workflow.rowVersion;
+    }
+
+    const activated = await activateWorkflow({
+      userId: args.userId,
+      workflowId: input.workflowId,
+      expectedContentHash: approvedHash,
+      expectedRowVersion,
+      tx,
+    });
+    return activated.ok ? { ...activated, revised } : activated;
+  });
+}
+
+function validateActivationSchedule(
+  input: ReturnType<typeof activateWorkflowInputSchema.parse>,
+  timezone: Awaited<ReturnType<typeof resolveWorkflowTimezone>>,
+): WorkflowRevisionProblem[] {
+  const problems: WorkflowRevisionProblem[] = [];
+  const previewedAt = new Date(input.schedule.previewedAt);
+  const expectedNext = computeNextRunAt(input.definition.trigger, { from: previewedAt, timezone });
+  const currentNext = computeNextRunAt(input.definition.trigger, { from: new Date(), timezone });
+  const expectedSummary = workflowScheduleSummary(input.definition.trigger);
+  if (input.schedule.timezone !== timezone) {
+    problems.push({
+      code: "invalid_definition",
+      message: "The schedule preview timezone no longer matches the approved definition.",
+      field: "schedule.timezone",
+    });
+  }
+  if (input.schedule.summary !== expectedSummary) {
+    problems.push({
+      code: "invalid_definition",
+      message: "The schedule preview no longer matches the approved definition.",
+      field: "schedule.summary",
+    });
+  }
+  if ((input.schedule.nextRunAt ?? null) !== (expectedNext?.toISOString() ?? null)) {
+    problems.push({
+      code: "invalid_definition",
+      message: "The next-run preview no longer matches the approved definition.",
+      field: "schedule.nextRunAt",
+    });
+  }
+  if ((input.schedule.nextRunAt ?? null) !== (currentNext?.toISOString() ?? null)) {
+    problems.push({
+      code: "invalid_definition",
+      message: "The next-run preview has passed. Review the refreshed schedule.",
+      field: "schedule.nextRunAt",
+    });
+  }
+  return problems;
+}
+
 /**
  * Publish the current revision: `published_revision_id = current_revision_id`.
  *
@@ -496,8 +957,8 @@ export interface ActivateWorkflowArgs {
  * reactivation to re-run the identical validation as creation — a workflow
  * paused for a month may reference a tool that no longer exists.
  *
- * Activation does not clear `blocked`. Readiness is observed by the run's
- * `check-readiness` step (#558), not asserted by the act of activating.
+ * Activation rechecks readiness and clears an obsolete `blocked` state before
+ * publishing. The run's `check-readiness` step still protects later drift.
  */
 export async function activateWorkflow(
   args: ActivateWorkflowArgs,
@@ -534,11 +995,39 @@ export async function activateWorkflow(
     }
 
     const definition = validated.definition;
+    const proposal = workflowAuthoringProposalSchema.safeParse(current.authoringProposal);
+    const { availability, gmailEventHealth } = await readWorkflowReadinessContext(args.userId);
+    const blockers = resolveWorkflowReadiness({
+      definition,
+      availability,
+      requestedCapabilities: proposal.success
+        ? proposal.data.requestedCapabilities
+        : definition.requiredCapabilities,
+      gmailEventHealth,
+    });
+    if (blockers.length > 0) {
+      const first = blockers[0];
+      if (!first) throw new Error("workflow readiness returned an empty blocker set");
+      const blocked = await setWorkflowBlocked({
+        userId: args.userId,
+        workflowId: existing.id,
+        blocked: {
+          code: first.code,
+          message: blockers.map((problem) => problem.message).join(" "),
+          detectedAt: new Date().toISOString(),
+          revisionId: current.id,
+        },
+        tx,
+      });
+      if (!blocked.ok) return blocked;
+      return { ok: false, failure: { kind: "readiness_blocked", blockers } };
+    }
     const expectedRowVersion = args.expectedRowVersion ?? existing.rowVersion;
     const [published] = await tx
       .update(workflows)
       .set({
         status: "active",
+        blocked: null,
         publishedRevisionId: current.id,
         nextRunAt: computeNextRunAt(definition.trigger, { timezone }),
         ...mirroredColumns(definition),
@@ -754,7 +1243,7 @@ async function insertRevision(
  * this point, and an unparseable one simply falls back to the user's zone,
  * where the validator then reports the real problem.
  */
-async function resolveTimezoneForInput(userId: string, input: unknown): Promise<string> {
+async function resolveTimezoneForInput(userId: string, input: unknown): Promise<IanaTimezone> {
   const trigger = workflowRevisionDefinitionSchema.shape.trigger.safeParse(
     getPath(input, "trigger"),
   );

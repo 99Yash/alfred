@@ -291,7 +291,8 @@ export function createNotionClient(
  */
 export function notionClientForUser(options: ProviderBindOptions) {
   return createNotionClient(
-    async () => (await getActiveBearerCredential(options.userId, "notion")).accessToken,
+    async () =>
+      (await getActiveBearerCredential(options.userId, "notion", options.accountRef)).accessToken,
     options.retry,
   );
 }

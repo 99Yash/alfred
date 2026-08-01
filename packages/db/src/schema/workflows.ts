@@ -251,8 +251,9 @@ export const workflows = pgTable(
  *
  * `content_hash` is `workflowRevisionContentHash` over the definition fields
  * only (`workflowRevisionDefinitionSchema`), so an edit that changes nothing
- * semantic — a reordered tool list, a reworded assumption — re-hashes to the
- * same value and appends no row.
+ * semantic — such as a reordered tool list — re-hashes to the same value and
+ * appends no row. Proposal-only edits, including assumptions, append a row so
+ * the reviewed explanation stays attributable.
  *
  * Built-ins never appear here. Their definition lives in
  * `apps/server/src/builtins/workflows/<slug>.ts`, so seeding one mints no
@@ -326,7 +327,7 @@ export const workflowRevisions = pgTable(
     // instead of appending a duplicate. Partial on a non-null run id — a direct
     // user edit carries none and may save many times.
     uniqueIndex("workflow_revisions_run_idx")
-      .on(t.workflowId, t.createdByRunId)
+      .on(t.workflowId, t.createdByRunId, t.contentHash)
       .where(sql`${t.createdByRunId} IS NOT NULL`),
   ],
 );

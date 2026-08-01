@@ -20,7 +20,7 @@
 import { db } from "@alfred/db";
 import { actionStagings } from "@alfred/db/schemas";
 import { and, eq, sql } from "drizzle-orm";
-import { Worker, type Job } from "bullmq";
+import { DelayedError, Worker, type Job } from "bullmq";
 import { emitReplicachePokes } from "../../events/replicache-events";
 import { createRedisConnection } from "../../queue/connection";
 import { enqueueRun, signalRunInTx } from "../agent";
@@ -64,16 +64,24 @@ export async function stopApprovalExpiryWorker(): Promise<void> {
 
 async function processApprovalExpiryJob(job: Job<ApprovalExpiryJobData>): Promise<unknown> {
   const { stagingId, userId } = approvalExpiryJobDataSchema.parse(job.data);
-  return expireStaging({ stagingId, userId });
+  const result = await expireStaging({ stagingId, userId });
+  if (result.status === "deferred") {
+    await job.moveToDelayed(result.expiresAt.getTime(), job.token);
+    throw new DelayedError();
+  }
+  return result;
 }
 
-export interface ExpireStagingResult {
-  status: "expired" | "skipped";
-  stagingId: string;
-  reason?: string;
-  runId?: string;
-  enqueued?: boolean;
-}
+export type ExpireStagingResult =
+  | {
+      status: "expired";
+      stagingId: string;
+      runId: string;
+      enqueued: boolean;
+      reason?: undefined;
+    }
+  | { status: "skipped"; stagingId: string; reason: string }
+  | { status: "deferred"; stagingId: string; expiresAt: Date; reason?: undefined };
 
 /**
  * Core expiry transition, callable directly (the BullMQ job is a thin
@@ -102,6 +110,7 @@ export async function expireStaging(args: {
         riskTier: string;
       }
     | { kind: "skipped"; reason: string }
+    | { kind: "deferred"; expiresAt: Date }
   >(async (tx) => {
     const rows = await tx
       .select({
@@ -113,6 +122,7 @@ export async function expireStaging(args: {
         toolName: actionStagings.toolName,
         integration: actionStagings.integration,
         riskTier: actionStagings.riskTier,
+        expiresAt: actionStagings.expiresAt,
       })
       .from(actionStagings)
       .where(and(eq(actionStagings.id, stagingId), eq(actionStagings.userId, userId)))
@@ -122,6 +132,9 @@ export async function expireStaging(args: {
     if (!row) return { kind: "skipped", reason: "missing" };
     if (row.status !== "pending") return { kind: "skipped", reason: row.status };
     if (!row.requiresApproval) return { kind: "skipped", reason: "not_gated" };
+    if (row.expiresAt && row.expiresAt.getTime() > Date.now()) {
+      return { kind: "deferred", expiresAt: row.expiresAt };
+    }
 
     const signalOutcome = await signalRunInTx(tx, {
       runId: row.runId,
@@ -157,6 +170,9 @@ export async function expireStaging(args: {
   });
 
   if (outcome.kind === "skipped") return { status: "skipped", reason: outcome.reason, stagingId };
+  if (outcome.kind === "deferred") {
+    return { status: "deferred", stagingId, expiresAt: outcome.expiresAt };
+  }
 
   emitReplicachePokes([userId], stagingId);
   // Best-effort approval-wait span (#409): the gated action sat unanswered from

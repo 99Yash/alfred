@@ -45,6 +45,8 @@ interface BaseFieldSpec {
   optional: boolean;
   /** Schema default, pre-filled when the proposed input omits the key. */
   default?: unknown;
+  /** Display context that is derived server-side and cannot be edited safely. */
+  readOnly?: boolean | undefined;
 }
 
 export type FieldSpec =
@@ -132,6 +134,7 @@ function fieldFromProperty(key: string, prop: JsonSchema, required: boolean): Fi
     description: asString(prop.description),
     optional: !required,
     default: prop.default,
+    readOnly: prop.readOnly === true,
   };
 
   const enumValues = Array.isArray(prop.enum) ? prop.enum : undefined;

@@ -55,10 +55,9 @@ export function WorkflowDetailPage() {
     workflow.currentRevisionId !== null &&
     workflow.currentRevisionId !== workflow.publishedRevisionId;
 
-  const toggleActive = () =>
-    void updateWorkflow({
-      status: active && !hasUnpublishedChanges ? "paused" : "active",
-    });
+  const pauseWorkflow = () => {
+    if (active) void updateWorkflow({ status: "paused" });
+  };
 
   return (
     <DetailShell>
@@ -114,12 +113,18 @@ export function WorkflowDetailPage() {
           <AppButton
             variant="primary"
             size="lg"
-            leading={active && !hasUnpublishedChanges ? PAUSE_LEADING : PLAY_LEADING}
-            onClick={toggleActive}
-            disabled={workflow.isBuiltin}
-            title={workflow.isBuiltin ? "Built-in workflows can't be paused here" : undefined}
+            leading={active ? PAUSE_LEADING : PLAY_LEADING}
+            onClick={pauseWorkflow}
+            disabled={workflow.isBuiltin || !active}
+            title={
+              workflow.isBuiltin
+                ? "Built-in workflows can't be paused here"
+                : !active
+                  ? "Activate this workflow from chat to review its exact contract"
+                  : undefined
+            }
           >
-            {active && !hasUnpublishedChanges ? "Pause" : "Activate"}
+            {active ? "Pause" : "Activate in chat"}
           </AppButton>
         </div>
       </header>

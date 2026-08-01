@@ -122,6 +122,8 @@ export interface ToolExecuteContext {
   stepId: string;
   /** Stable id from the model's tool call — used as the staging row's tool_call_id. */
   toolCallId: string;
+  /** Exact provider account id approved by an immutable workflow revision. */
+  accountRef?: string | undefined;
   /**
    * The `action_stagings` row id this execution is committing, when the call went
    * through the staged/approved path. Present only for staged tools (the fast

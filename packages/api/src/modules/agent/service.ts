@@ -79,17 +79,31 @@ export function minStaleAfterMs(): number {
   return min;
 }
 
-export interface CreateRunArgs extends WorkflowInput {
+type DelayedOccurrenceTrigger = Extract<AgentRunTrigger, { kind: "cron" | "event" }>;
+type ImmediateOccurrenceTrigger = Exclude<AgentRunTrigger, DelayedOccurrenceTrigger>;
+
+type CreateRunBase = Omit<WorkflowInput, "trigger"> & {
   userId: string;
   workflowSlug: string;
+  /** Caller-owned durable identity for a manual/test occurrence. */
+  requestId?: string | undefined;
   /**
    * What caused this run to be created (ADR-0027). Required — every
    * call-site declares its kind explicitly so the unified dispatcher
    * surface stays auditable. `metadata` remains for diagnostic
    * breadcrumbs (e.g. webhook delivery id, internal idempotency).
    */
-  trigger: AgentRunTrigger;
-}
+};
+
+export type CreateRunArgs = CreateRunBase &
+  (
+    | {
+        trigger: DelayedOccurrenceTrigger;
+        /** Exact approved revision selected with the occurrence; null declares a builtin. */
+        workflowRevisionId: string | null;
+      }
+    | { trigger: ImmediateOccurrenceTrigger; workflowRevisionId?: never }
+  );
 
 export interface CreateRunResult {
   runId: string;
@@ -118,6 +132,8 @@ export async function createRun(
   const resolved = await resolveWorkflowForRun({
     userId: args.userId,
     workflowSlug: args.workflowSlug,
+    workflowRevisionId: args.workflowRevisionId ?? undefined,
+    requireSelectedRevision: trigger.kind === "cron" || trigger.kind === "event",
     tx: ex,
   });
   const workflow = resolved.workflow;
@@ -132,11 +148,16 @@ export async function createRun(
 
   if (resolved.userAuthoredRow) {
     const row = resolved.userAuthoredRow;
-    brief = brief ?? row.brief ?? undefined;
-    const metadataAllowedIntegrations = Array.isArray(metadata.allowedIntegrations)
-      ? metadata.allowedIntegrations
-      : row.allowedIntegrations;
-    metadata = { ...metadata, allowedIntegrations: metadataAllowedIntegrations };
+    // A revision-backed run executes only the definition it names. Caller
+    // overrides would make workflowRevisionId claim one contract while the
+    // transcript and integration ceiling execute another.
+    brief = row.brief ?? undefined;
+    metadata = {
+      ...metadata,
+      allowedIntegrations: row.allowedIntegrations,
+      allowedTools: row.allowedTools,
+      requiredCapabilities: row.requiredCapabilities,
+    };
   }
 
   const workflowInput = {
@@ -150,26 +171,49 @@ export async function createRun(
   const initialState = workflow.initialState(workflowInput);
   const transcript = (await workflow.initialTranscript?.(workflowInput, { db: ex })) ?? [];
 
-  const dedupKey = workflow.dedupKey?.(workflowInput) ?? null;
+  const manualRequestKey =
+    resolved.userAuthoredRow && trigger.kind === "manual"
+      ? args.requestId
+        ? `manual:${args.requestId}`
+        : null
+      : null;
+  if (resolved.userAuthoredRow && trigger.kind === "manual" && !manualRequestKey) {
+    throw new Error("A user-authored manual run requires requestId");
+  }
+  const dedupKey = manualRequestKey ?? workflow.dedupKey?.(workflowInput) ?? null;
 
-  const inserted = await ex
-    .insert(agentRuns)
-    .values({
-      userId: args.userId,
-      workflowSlug,
-      workflowRevisionId: resolved.userAuthoredRow?.publishedRevisionId ?? null,
-      brief,
-      state: (initialState as object) ?? {},
-      transcript,
-      currentStep: workflow.initialStep,
-      metadata: metadata as object,
-      trigger,
-      status: "pending",
-      dedupKey,
-    })
-    .returning({ id: agentRuns.id });
+  const insert = ex.insert(agentRuns).values({
+    userId: args.userId,
+    workflowSlug,
+    workflowRevisionId: resolved.userAuthoredRow?.revisionId ?? null,
+    brief,
+    state: (initialState as object) ?? {},
+    transcript,
+    currentStep: workflow.initialStep,
+    metadata: metadata as object,
+    trigger,
+    status: "pending",
+    dedupKey,
+  });
+  const inserted = manualRequestKey
+    ? await insert.onConflictDoNothing().returning({ id: agentRuns.id })
+    : await insert.returning({ id: agentRuns.id });
 
   const row = inserted[0];
+  if (!row && manualRequestKey) {
+    const [existing] = await ex
+      .select({ id: agentRuns.id })
+      .from(agentRuns)
+      .where(
+        and(
+          eq(agentRuns.userId, args.userId),
+          eq(agentRuns.workflowSlug, workflowSlug),
+          eq(agentRuns.dedupKey, manualRequestKey),
+        ),
+      )
+      .limit(1);
+    if (existing) return { runId: existing.id };
+  }
   if (!row) throw new Error("[agent] failed to insert run row");
   return { runId: row.id };
 }

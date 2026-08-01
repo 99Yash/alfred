@@ -132,8 +132,15 @@ export interface UserInstallationToken {
  * connection — the token REST calls (PR search, issues) actually use. Also
  * returns the connected login so callers can resolve `author:@me`.
  */
-export async function getInstallationTokenForUser(userId: string): Promise<UserInstallationToken> {
-  const active = (await listGithubCredentials(userId)).find((c) => c.status === "active");
+export async function getInstallationTokenForUser(
+  userId: string,
+  accountRef?: string,
+): Promise<UserInstallationToken> {
+  const active = (await listGithubCredentials(userId)).find(
+    (credential) =>
+      credential.status === "active" &&
+      (accountRef === undefined || credential.accountId === accountRef),
+  );
   if (!active) {
     throw new Error(
       `[github.credentials] user ${userId} has no active github credential — connect GitHub in settings`,

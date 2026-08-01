@@ -50,7 +50,7 @@ export function ApprovalInputEditor({
           id={`${idPrefix}-${field.key}`}
           field={field}
           value={record[field.key] ?? field.default}
-          disabled={disabled}
+          disabled={disabled || field.readOnly}
           onChange={(next) => {
             const updated = { ...record };
             if (next === undefined) delete updated[field.key];

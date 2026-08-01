@@ -192,6 +192,11 @@ interface EnqueueBriefingRunArgs {
  */
 export async function enqueueBriefingRun(args: EnqueueBriefingRunArgs): Promise<{ runId: string }> {
   const slot = args.slot ?? "morning";
+  const trigger =
+    args.reason === "cron"
+      ? ({ kind: "cron", scheduledFor: new Date().toISOString() } as const)
+      : ({ kind: "manual" } as const);
+  const occurrence = trigger.kind === "cron" ? { trigger, workflowRevisionId: null } : { trigger };
   const { runId } = await createRun({
     userId: args.userId,
     workflowSlug: DAILY_BRIEFING_WORKFLOW_SLUG,
@@ -205,10 +210,7 @@ export async function enqueueBriefingRun(args: EnqueueBriefingRunArgs): Promise<
     // still owns its own per-feature fan-out (because matching local
     // hour ≠ a single `next_run_at`), so we stamp the trigger here
     // rather than at a central dispatcher.
-    trigger:
-      args.reason === "cron"
-        ? { kind: "cron", scheduledFor: new Date().toISOString() }
-        : { kind: "manual" },
+    ...occurrence,
   });
   await enqueueRun(runId);
   return { runId };

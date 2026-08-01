@@ -30,6 +30,13 @@
 
 import { z } from "zod";
 import {
+  activateWorkflowInputSchema,
+  authorWorkflowInputSchema,
+  authorableWorkflowDefinitionSchema,
+  workflowCapabilityDisplaySchema,
+  workflowRequiredCapabilitySchema,
+} from "./agent";
+import {
   ARTIFACT_SECTION_MAX_CHARS,
   artifactFormatSchema,
   artifactKindSchema,
@@ -46,7 +53,7 @@ import {
   GMAIL_SEARCH_QUERY_MAX_CHARS,
   GMAIL_SEARCH_SNIPPET_MAX_CHARS,
 } from "./tool-constants";
-import type { ToolName } from "./tools";
+import { type ToolName } from "./tools";
 
 /**
  * Zod's built-in email validator emits negative-lookahead assertions in JSON
@@ -1235,6 +1242,34 @@ export const loadToolInput = z
 
 export const currentTimeInput = z.object({}).strict();
 
+export const authorWorkflowInput = coerceJsonArrayFields(
+  ["capabilities", "assumptions", "externalEffects"],
+  authorWorkflowInputSchema,
+);
+
+// Activation receives the server-canonical proposal returned by authoring. It
+// does not repeat the full tool-name enum for every nested definition field.
+// The model only copies these server-produced names; runtime parsing still uses
+// the narrowed contract schema inside `activateWorkflowDefinition`.
+const copiedWorkflowCapabilitySchema = workflowRequiredCapabilitySchema.extend({
+  tool: z.string().min(1).max(200),
+});
+const copiedWorkflowDefinitionSchema = authorableWorkflowDefinitionSchema.extend({
+  allowedTools: z.array(z.string().min(1).max(200)).max(100),
+  requiredCapabilities: z.array(copiedWorkflowCapabilitySchema).max(50),
+});
+const copiedWorkflowCapabilityDisplaySchema = workflowCapabilityDisplaySchema.extend({
+  tool: z.string().min(1).max(200),
+});
+export const activateWorkflowInput = coerceJsonArrayFields(
+  ["resolvedAccounts", "resolvedCapabilities"],
+  activateWorkflowInputSchema.extend({
+    definition: copiedWorkflowDefinitionSchema,
+    resolvedCapabilities: z.array(copiedWorkflowCapabilityDisplaySchema).meta({ readOnly: true }),
+    authoringProposal: z.unknown().meta({ readOnly: true }),
+  }),
+);
+
 const scratchKey = z.string().min(1).max(240);
 
 export const readScratchInput = z.object({ key: scratchKey }).strict();
@@ -1715,6 +1750,8 @@ export const TOOL_INPUT_SCHEMAS = {
   "system.search_tools": searchToolsInput,
   "system.load_tool": loadToolInput,
   "system.current_time": currentTimeInput,
+  "system.author_workflow": authorWorkflowInput,
+  "system.activate_workflow": activateWorkflowInput,
   "system.read_user_context": readUserContextInput,
   "system.read_chat_history": readChatHistoryInput,
   "system.read_scratch": readScratchInput,

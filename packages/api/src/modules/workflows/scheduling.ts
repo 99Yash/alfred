@@ -1,4 +1,4 @@
-import type { WorkflowTrigger } from "@alfred/contracts";
+import { parseIanaTimezone, type IanaTimezone, type WorkflowTrigger } from "@alfred/contracts";
 import { CronExpressionParser } from "cron-parser";
 import { isValidTimezone } from "../briefing/preferences";
 import { resolveUserTimezone } from "../timezone";
@@ -18,17 +18,19 @@ import { resolveUserTimezone } from "../timezone";
  *   3. UTC fallback.
  */
 
-export const DEFAULT_WORKFLOW_TIMEZONE = "UTC";
+export const DEFAULT_WORKFLOW_TIMEZONE = parseIanaTimezone("UTC");
 
 export function validateCronTrigger(
   trigger: WorkflowTrigger,
-  opts: { timezone?: string } = {},
+  opts: { timezone?: IanaTimezone } = {},
 ): { ok: true } | { ok: false; message: string } {
   if (trigger.kind !== "cron") return { ok: true };
-  const timezone = trigger.timezone ?? opts.timezone ?? DEFAULT_WORKFLOW_TIMEZONE;
   if (trigger.timezone && !isValidTimezone(trigger.timezone)) {
     return { ok: false, message: `invalid timezone '${trigger.timezone}'` };
   }
+  const timezone = trigger.timezone
+    ? parseIanaTimezone(trigger.timezone)
+    : (opts.timezone ?? DEFAULT_WORKFLOW_TIMEZONE);
   try {
     CronExpressionParser.parse(trigger.schedule, {
       currentDate: new Date(),
@@ -54,9 +56,9 @@ export function validateCronTrigger(
 export async function resolveWorkflowTimezone(
   userId: string,
   trigger: WorkflowTrigger,
-): Promise<string> {
+): Promise<IanaTimezone> {
   if (trigger.kind === "cron" && trigger.timezone && isValidTimezone(trigger.timezone)) {
-    return trigger.timezone;
+    return parseIanaTimezone(trigger.timezone);
   }
   return resolveUserTimezone(userId);
 }
@@ -73,7 +75,7 @@ export async function resolveWorkflowTimezone(
  */
 export function computeNextRunAt(
   trigger: WorkflowTrigger,
-  opts: { from?: Date; timezone: string },
+  opts: { from?: Date; timezone: IanaTimezone },
 ): Date | null {
   if (trigger.kind !== "cron") return null;
   try {
@@ -85,4 +87,51 @@ export function computeNextRunAt(
   } catch {
     return null;
   }
+}
+
+/** Deterministic approval copy derived from the trigger it describes. */
+export function workflowScheduleSummary(trigger: WorkflowTrigger): string {
+  switch (trigger.kind) {
+    case "cron":
+      return describeCronSchedule(trigger.schedule, trigger.timezone);
+    case "event":
+      return "For every Gmail delivery; Alfred evaluates semantic conditions inside the run";
+    case "manual":
+      return "Manual runs only";
+    case "on_signal":
+      return `On signal: ${trigger.name}`;
+  }
+}
+
+function describeCronSchedule(schedule: string, timezone?: string): string {
+  const [minute, hour, dayOfMonth, month, dayOfWeek] = schedule.trim().split(/\s+/);
+  const numericMinute = Number(minute);
+  const numericHour = Number(hour);
+  const zone = timezone ? ` (${timezone})` : "";
+  if (
+    Number.isInteger(numericMinute) &&
+    Number.isInteger(numericHour) &&
+    dayOfMonth === "*" &&
+    month === "*"
+  ) {
+    const time = friendlyClock(numericHour, numericMinute);
+    if (dayOfWeek === "1-5") return `Every weekday at ${time}${zone}`;
+    if (dayOfWeek === "*") return `Every day at ${time}${zone}`;
+    const weekday = dayOfWeek === undefined ? undefined : friendlyWeekdays(dayOfWeek);
+    if (weekday) return `Every ${weekday} at ${time}${zone}`;
+  }
+  return `Schedule ${schedule}${zone}`;
+}
+
+function friendlyClock(hour: number, minute: number): string {
+  const period = hour >= 12 ? "PM" : "AM";
+  const displayHour = hour % 12 || 12;
+  return `${displayHour}:${String(minute).padStart(2, "0")} ${period}`;
+}
+
+function friendlyWeekdays(value: string): string | null {
+  const names = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"];
+  const indexes = value.split(",").map(Number);
+  if (indexes.some((index) => !Number.isInteger(index) || index < 0 || index > 6)) return null;
+  return indexes.map((index) => names[index]).join(", ");
 }

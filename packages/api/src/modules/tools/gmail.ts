@@ -106,6 +106,7 @@ export const gmailTools: readonly RegisteredTool[] = [
                 and(
                   eq(documents.userId, ctx.userId),
                   eq(documents.source, "gmail"),
+                  ctx.accountRef ? eq(documents.accountId, ctx.accountRef) : undefined,
                   inArray(documents.sourceId, messageIds),
                 ),
               )
@@ -189,11 +190,13 @@ export const gmailTools: readonly RegisteredTool[] = [
         ? and(
             eq(documents.userId, ctx.userId),
             eq(documents.source, "gmail"),
+            ctx.accountRef ? eq(documents.accountId, ctx.accountRef) : undefined,
             eq(documents.id, input.documentId),
           )
         : and(
             eq(documents.userId, ctx.userId),
             eq(documents.source, "gmail"),
+            ctx.accountRef ? eq(documents.accountId, ctx.accountRef) : undefined,
             eq(documents.sourceId, input.messageId!),
           );
       const rows = await db()

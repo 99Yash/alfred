@@ -604,7 +604,7 @@ export function createRailwayClient(
 
 export function railwayClientForUser(options: ProviderBindOptions) {
   return createRailwayClient(
-    () => listActiveBearerCredentials(options.userId, "railway"),
+    () => listActiveBearerCredentials(options.userId, "railway", 100, options.accountRef),
     options.retry,
   );
 }

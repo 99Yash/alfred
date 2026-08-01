@@ -137,7 +137,13 @@ export function ApprovalCard({
             <button
               type="button"
               disabled={busy || reasonMissing}
-              onClick={() => decide({ decision: "cancel_run", reason: reason.trim() })}
+              onClick={() =>
+                decide({
+                  decision: "cancel_run",
+                  expectedRowVersion: staging.rowVersion,
+                  reason: reason.trim(),
+                })
+              }
               className={cn(
                 "inline-flex items-center gap-1.5 rounded-lg px-2 py-1 text-[12px] font-medium text-app-red-4",
                 "transition-colors hover:bg-app-red-1 disabled:cursor-not-allowed disabled:opacity-40",
@@ -152,7 +158,13 @@ export function ApprovalCard({
               size="sm"
               leading={ICON_REVISE_SM}
               disabled={busy || reasonMissing}
-              onClick={() => decide({ decision: "reject", reason: reason.trim() })}
+              onClick={() =>
+                decide({
+                  decision: "reject",
+                  expectedRowVersion: staging.rowVersion,
+                  reason: reason.trim(),
+                })
+              }
             >
               Send revision
             </AppButton>
@@ -182,7 +194,11 @@ export function ApprovalCard({
           disabled={busy}
           onClick={() => decide(approveDecision())}
         >
-          {edited ? "Approve changes" : "Approve"}
+          {edited && staging.toolName === "system.activate_workflow"
+            ? "Review changes"
+            : edited
+              ? "Approve changes"
+              : "Approve"}
         </AppButton>
       </div>
     </AppCard>
