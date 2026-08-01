@@ -9,6 +9,7 @@
  * writes into the parent run's scratchpad namespace.
  */
 
+import { randomUUID } from "node:crypto";
 import { createRun, dispatchToolCall, readScratch } from "@alfred/api/backend";
 import {
   closeAgentQueue,
@@ -79,6 +80,7 @@ async function main(): Promise<void> {
     userId,
     workflowSlug: WORKFLOW_SLUG,
     trigger: { kind: "manual" },
+    occurrence: { kind: "manual", requestId: randomUUID() },
   });
   console.log(`[smoke-sub-agents] user=${userId} parent=${parent.runId}`);
 

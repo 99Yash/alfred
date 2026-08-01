@@ -13,6 +13,7 @@
  * the staging row, which is enough to exercise the UI decision flow.
  */
 
+import { randomUUID } from "node:crypto";
 import { createRun, enqueueRun } from "@alfred/api/backend";
 import { closeAgentQueue, warmPool } from "@alfred/api/runtime";
 import { db } from "@alfred/db";
@@ -91,6 +92,7 @@ async function main(): Promise<void> {
     userId: target.id,
     workflowSlug: WORKFLOW_SLUG,
     trigger: { kind: "manual" },
+    occurrence: { kind: "manual", requestId: randomUUID() },
   });
   await enqueueRun(runId);
   console.log(`[qa-gated-staging] run enqueued: ${runId}`);
