@@ -72,7 +72,7 @@ const NONTRIVIAL_HTML_BYTES = 500;
 // eslint-disable-next-line no-control-regex -- matching control bytes is the point: we strip them.
 const CONTROL_BYTES = /[\u0000-\u0008\u000b\u000c\u000e-\u001f\u007f]/g;
 
-export interface FetchUrlOk {
+interface FetchUrlOk {
   ok: true;
   /** The URL as requested. */
   url: string;
@@ -472,7 +472,7 @@ export type Transport = (url: string, signal: AbortSignal) => Promise<RawRespons
  * text, or `null` when rendering is unavailable (no key) or yields nothing.
  * Injectable so tests don't hit the network.
  */
-export type Renderer = (
+type Renderer = (
   url: string,
   signal: AbortSignal,
 ) => Promise<{ text: string; title?: string } | null>;

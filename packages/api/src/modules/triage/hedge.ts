@@ -36,7 +36,7 @@
 /** Which of the two draws this invocation is. `0` is the original call. */
 export type HedgeAttempt = 0 | 1;
 
-export interface HedgeAttemptInput {
+interface HedgeAttemptInput {
   attempt: HedgeAttempt;
   /**
    * Aborted as soon as the *other* attempt wins. Callers must forward it to the

@@ -15,7 +15,7 @@ import { toMessage } from "@alfred/contracts";
  * (which is provider-bounded) and the agent queue (which is run-id
  * keyed) so the daily trigger stays in its own lane.
  */
-export const MEMORY_QUEUE_NAME = "memory-cron";
+const MEMORY_QUEUE_NAME = "memory-cron";
 
 export type MemoryJobData =
   /** Repeatable trigger; handler enumerates active users and creates a run for each. */

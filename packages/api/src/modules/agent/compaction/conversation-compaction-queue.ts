@@ -10,7 +10,7 @@ import {
 } from "./chat-context-store";
 import { compactConversationSynchronously } from "./synchronous-conversation-compaction";
 
-export const CONVERSATION_COMPACTION_QUEUE_NAME = "conversation-compaction";
+const CONVERSATION_COMPACTION_QUEUE_NAME = "conversation-compaction";
 
 const jobDataSchema = z.object({
   kind: z.literal("conversation.compact"),
@@ -46,11 +46,11 @@ export interface ConversationCompactionQueueDependencies {
 let queue: Queue<ConversationCompactionJobData> | undefined;
 let worker: Worker<ConversationCompactionJobData> | undefined;
 
-export function conversationCompactionJobId(threadId: string): string {
+function conversationCompactionJobId(threadId: string): string {
   return `conversation-compact.${threadId}`.replaceAll(":", ".");
 }
 
-export function getConversationCompactionQueue(): Queue<ConversationCompactionJobData> {
+function getConversationCompactionQueue(): Queue<ConversationCompactionJobData> {
   if (queue) return queue;
   queue = new Queue(CONVERSATION_COMPACTION_QUEUE_NAME, {
     connection: createRedisConnection(),

@@ -40,7 +40,7 @@ export interface RailwayFanoutFailure extends PublicAppError {
   credentialLabel: string;
 }
 
-export function credentialLabel(credential: RailwayCredential): string {
+function credentialLabel(credential: RailwayCredential): string {
   return credential.accountLabel ?? credential.accountId;
 }
 

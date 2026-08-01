@@ -27,7 +27,7 @@ import { cn } from "~/lib/utils";
 
 export type TabsVariant = "underline" | "segmented" | "pill";
 
-export interface TabItem<T extends string = string> {
+interface TabItem<T extends string = string> {
   value: T;
   label: ReactNode;
   /** Optional leading icon — typically a 14px Lucide glyph. */

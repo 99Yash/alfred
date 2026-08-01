@@ -24,7 +24,7 @@ import {
 import { type ToolCatalog } from "../tools/registry";
 import type { GmailEventHealth } from "./gmail-event-readiness";
 
-export type WorkflowReadinessProblemCode =
+type WorkflowReadinessProblemCode =
   | ToolUnavailabilityCode
   | "no_tool_surface"
   | "choose_account"

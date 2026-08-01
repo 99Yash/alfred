@@ -1,7 +1,6 @@
 import type { LoadableIntegrationSlug } from "@alfred/contracts";
 import {
   availableToolNames,
-  readIntegrationAvailability,
   type IntegrationAvailabilitySnapshot,
   type ToolAvailabilityContext,
 } from "../integrations/availability";
@@ -88,22 +87,6 @@ const CONNECTED_HEADER =
 
 const NO_INTEGRATIONS_TEXT =
   "You have no integrations connected right now. If the user asks about their email, calendar, files, or other connected data, tell them they need to connect it first — never pretend to have access you do not.";
-
-/**
- * Build the connected summary for `userId`, bounded to `allowedIntegrations`
- * (empty = unrestricted among connected loadable integrations, per ADR-0053).
- * One DB read; call it once at run start and cache the result in run state.
- */
-export async function buildConnectedSummary(
-  userId: string,
-  allowedIntegrations: readonly string[],
-): Promise<string> {
-  const availability = await readIntegrationAvailability(userId);
-  return buildConnectedSummaryFromAvailability(availability, allowedIntegrations, {
-    caller: "boss",
-    hasThread: true,
-  });
-}
 
 export function buildConnectedSummaryFromAvailability(
   availability: IntegrationAvailabilitySnapshot,

@@ -174,5 +174,3 @@ export function defineProviderClient(config: ProviderClientConfig): ProviderClie
     },
   };
 }
-
-export type { RetryPolicy };

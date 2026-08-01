@@ -23,7 +23,7 @@ import { toMessage } from "@alfred/contracts";
  * own lane mirrors `memory-cron` and keeps the agent queue free of
  * cron metadata.
  */
-export const BRIEFING_QUEUE_NAME = "briefing-cron";
+const BRIEFING_QUEUE_NAME = "briefing-cron";
 
 export type BriefingJobData =
   /** Repeatable: fires hourly; fans out to matching users. */

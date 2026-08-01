@@ -111,7 +111,6 @@ import { createTurnStopController } from "./turn-stop-controller";
 export const CHAT_TURN_WORKFLOW_SLUG = "__chat-turn__";
 
 /** Shared with the future pre-call context guard; never reserve a different output shape. */
-export { CHAT_MAX_OUTPUT_TOKENS } from "../compaction";
 const CHAT_INPUT_ESTIMATE_WARN_UNDERSHOOT_RATIO = 0.1;
 export const ARTIFACT_MUTATION_TOOL_NAMES = [
   "system.create_artifact",

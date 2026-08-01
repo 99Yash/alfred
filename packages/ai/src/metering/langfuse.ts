@@ -606,7 +606,7 @@ export function resolveTraceName(meta: MeteredMeta): string {
  * generations; mirroring any single call's I/O to the root would misrepresent
  * the run.
  */
-export function isAdhocTrace(meta: MeteredMeta): boolean {
+function isAdhocTrace(meta: MeteredMeta): boolean {
   return !meta.runId;
 }
 

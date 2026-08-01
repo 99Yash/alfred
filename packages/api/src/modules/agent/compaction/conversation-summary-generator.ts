@@ -17,7 +17,7 @@ import {
 } from "./conversation-summary";
 import { CHARS_PER_TOKEN } from "./tokens";
 
-export const CONVERSATION_SUMMARY_MAX_OUTPUT_TOKENS = 4_000;
+const CONVERSATION_SUMMARY_MAX_OUTPUT_TOKENS = 4_000;
 const conversationSummaryRoutes = {
   primary: route("compactor"),
   fallback: route("compactorFallback"),

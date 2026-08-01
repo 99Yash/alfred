@@ -11,14 +11,14 @@
 import type { ButtonHTMLAttributes, Ref, ReactNode } from "react";
 import { cn } from "~/lib/utils";
 
-export type LegacyButtonVariant =
+type LegacyButtonVariant =
   | "primary" /* purple gradient — the default CTA */
   | "white" /* white gradient — high-emphasis non-brand CTA (Upgrade Plan) */
   | "destructive" /* red gradient — Logout, Delete */
   | "ghost" /* translucent white-on-dark — Manage / Connect / Share */
   | "send"; /* gray→white disk — composer send affordance */
 
-export type LegacyButtonSize = "sm" | "md" | "mdPlus" | "lg";
+type LegacyButtonSize = "sm" | "md" | "mdPlus" | "lg";
 
 interface LegacyButtonProps extends ButtonHTMLAttributes<HTMLButtonElement> {
   variant?: LegacyButtonVariant | undefined;

@@ -18,14 +18,6 @@ export function getWorkflow(slug: string): Workflow<unknown> | undefined {
   return registry.get(slug);
 }
 
-export function requireWorkflow(slug: string): Workflow<unknown> {
-  const wf = registry.get(slug);
-  if (!wf) {
-    throw new Error(`[agent] no workflow registered for slug=${slug}`);
-  }
-  return wf;
-}
-
 export function listWorkflows(): Workflow<unknown>[] {
   return [...registry.values()];
 }

@@ -8,7 +8,7 @@ import { eventPayloadSchemas, type EventKind, type EventPayload } from "./types"
  * `.insert(...)` surface, so a single helper can run inside or outside a tx.
  */
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
-export type EventPublisher = any;
+type EventPublisher = any;
 
 export interface PublishEventArgs<K extends EventKind> {
   /** Drizzle handle. Pass the surrounding tx so the outbox row commits with the domain write. */

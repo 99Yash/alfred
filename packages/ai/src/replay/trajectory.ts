@@ -42,7 +42,7 @@ export interface TraceLike {
 }
 
 /** One executed tool call in a run, normalized for comparison. */
-export interface TrajectoryStep {
+interface TrajectoryStep {
   toolName: string;
   /** Canonicalized args (object key order is irrelevant to identity). */
   input: unknown;

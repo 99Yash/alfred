@@ -46,7 +46,7 @@ export interface ToolDiscoveryMetadata {
   relatedTools?: readonly ToolName[];
 }
 
-export interface ToolAvailabilityMetadata {
+interface ToolAvailabilityMetadata {
   /** Always expose this tool in the run-local bootstrap surface. Omit for lazy-loaded tools. */
   surface?: "kernel";
   /** Credential capability required by this exact tool, when narrower than its integration. */

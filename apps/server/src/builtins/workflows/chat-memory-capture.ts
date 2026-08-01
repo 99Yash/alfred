@@ -266,5 +266,3 @@ export const chatMemoryCaptureWorkflow: Workflow<State> = {
     },
   },
 };
-
-export type ChatMemoryCaptureInput = z.infer<typeof inputSchema>;

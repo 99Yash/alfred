@@ -12,7 +12,7 @@ import {
   type IntegrationProvider,
 } from "~/lib/integrations/integrations";
 
-export interface CredentialRow {
+interface CredentialRow {
   id: string;
   accountId: string;
   accountLabel: string | null;
@@ -24,12 +24,6 @@ export interface CredentialRow {
   lastRefreshedAt: string | null;
   createdAt: string;
 }
-
-/**
- * Legacy alias for back-compat with callers still on the Google-only
- * shape. New code should use `CredentialRow`.
- */
-export type GoogleCredentialRow = CredentialRow;
 
 export interface ConnectedAccount {
   /** `integration_credentials.id` — the disconnect target. */

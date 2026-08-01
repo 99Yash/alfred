@@ -6,8 +6,6 @@ import { nullableChatMessageWatermark } from "./chat-message-watermark";
 import type { ChatSummaryWatermark, LoadedChatThreadContext } from "./chat-context-store";
 import { estimateTranscriptTokens } from "./tokens";
 
-export const CHAT_VERBATIM_TAIL_BUDGET_TOKENS = 8_000;
-
 export interface ChatContextMessage {
   id: string;
   role: ChatMessageRole;

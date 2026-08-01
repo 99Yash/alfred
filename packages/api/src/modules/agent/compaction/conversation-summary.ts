@@ -2,7 +2,7 @@ import { z } from "zod";
 
 const boundedText = z.string().trim().min(1).max(8_000);
 
-export const conversationSummarySourceSchema = z
+const conversationSummarySourceSchema = z
   .object({
     kind: z.enum(["message", "tool", "attachment"]),
     id: z.string().min(1).max(256),

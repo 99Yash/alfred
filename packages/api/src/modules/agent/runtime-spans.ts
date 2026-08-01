@@ -201,7 +201,7 @@ export function summarizeDispatchBatch(
  * (`error`). This is the single source for that vocabulary; the closer's typed
  * `end` makes a typo or a new-but-unhandled terminal a compile error.
  */
-export type DispatchBatchTerminal = "committed" | "staged" | "parked" | "error";
+type DispatchBatchTerminal = "committed" | "staged" | "parked" | "error";
 
 export interface DispatchBatchSpanArgs {
   runId: string;
@@ -508,7 +508,7 @@ export function buildToolSurfaceSpanInput(args: ToolSurfaceSpanArgs): RuntimeSpa
 }
 
 /** The surface the model was shown this turn, folded onto the span at end. */
-export interface ToolSurfaceSummary {
+interface ToolSurfaceSummary {
   /** Total tools the model can call this turn (after caller/thread gating). */
   activeCount: number;
   /** Of those, the always-on kernel tools. */
@@ -648,7 +648,7 @@ export function startToolSearchSpan(args: ToolSearchSpanArgs): ToolSearchSpanClo
 export const RUNTIME_TOOL_LOAD = "runtime.tool_load";
 
 /** Outcome of an exact tool load — mirrors `resolveExactToolLoad`. */
-export type ToolLoadOutcome = "ok" | "unknown_tool" | ToolUnavailabilityCode;
+type ToolLoadOutcome = "ok" | "unknown_tool" | ToolUnavailabilityCode;
 
 /**
  * How a lazy tool reached the active surface. A `runtime.tool_load` span is
@@ -658,7 +658,7 @@ export type ToolLoadOutcome = "ok" | "unknown_tool" | ToolUnavailabilityCode;
  * dispatcher bounced the schema-blind call, and the workflow auto-activated it
  * for the next turn.
  */
-export type ToolLoadSource = "model_load" | "inactive_bounce";
+type ToolLoadSource = "model_load" | "inactive_bounce";
 
 export interface ToolLoadSpanArgs {
   runId: string;

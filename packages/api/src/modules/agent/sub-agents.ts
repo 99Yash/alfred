@@ -36,8 +36,6 @@ export type SpawnSubAgentInput = z.infer<typeof spawnSubAgentInputSchema>;
  */
 export const awaitSubAgentInputSchema = joinToolInput.strict();
 
-export type AwaitSubAgentInput = z.infer<typeof awaitSubAgentInputSchema>;
-
 export interface ChildRunOutcome {
   ok: boolean;
   /** True once the child reached a terminal status (completed/failed/cancelled). */

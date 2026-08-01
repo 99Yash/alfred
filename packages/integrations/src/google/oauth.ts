@@ -192,7 +192,7 @@ const tokenResponseSchema = z.object({
   refresh_token: z.string().optional(),
   id_token: z.string().optional(),
 });
-export type GoogleTokenResponse = z.infer<typeof tokenResponseSchema>;
+type GoogleTokenResponse = z.infer<typeof tokenResponseSchema>;
 
 export interface ExchangeCodeResult extends GoogleTokenResponse {
   /** Decoded `sub` from the id_token — provider-side stable user id. */

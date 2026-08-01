@@ -24,7 +24,7 @@ import type { ToolExecuteContext, ToolExecuteContextFields } from "./registry";
  * and a hung upstream cannot eat the whole turn. Raise it only alongside a
  * per-call deadline.
  */
-export const TOOL_DISPATCH_RETRY: RetryPolicy = {
+const TOOL_DISPATCH_RETRY: RetryPolicy = {
   maxAttempts: 2,
   baseDelayMs: 250,
   maxDelayMs: 1_000,

@@ -8,7 +8,7 @@ import { truncateRationale } from "../rationale";
  * key would compile, ship, and split one floor's rows across two prefixes with
  * nothing to notice it. A fourth demoting floor adds an arm here.
  */
-export type FloorDemotionKey = "sender_kind_floor" | "meeting_floor";
+type FloorDemotionKey = "sender_kind_floor" | "meeting_floor";
 
 /**
  * What a floor DECIDES. Floors return a verdict rather than a classification so

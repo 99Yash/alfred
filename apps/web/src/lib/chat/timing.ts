@@ -114,7 +114,7 @@ export function markChatTimingByAssistant(
   mark(turn, stage, detail, options);
 }
 
-export function getChatTimingSnapshot(): Array<{
+function getChatTimingSnapshot(): Array<{
   threadId: string;
   userMessageId?: string | undefined;
   assistantMessageId?: string | undefined;

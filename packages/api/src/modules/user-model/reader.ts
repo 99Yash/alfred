@@ -258,5 +258,3 @@ export function userModelReader(
     listCoOccurrence,
   };
 }
-
-export type UserModelReader = ReturnType<typeof userModelReader>;

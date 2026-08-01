@@ -25,7 +25,7 @@ import {
 import { CHAT_MAX_OUTPUT_TOKENS } from "./chat-request-pressure";
 import { estimateSerializedTokens } from "./tokens";
 
-export const BACKGROUND_COMPACTION_RATIO = 0.6;
+const BACKGROUND_COMPACTION_RATIO = 0.6;
 export const BACKGROUND_COMPACTION_ABSOLUTE_CAP_TOKENS = 200_000;
 
 export function backgroundCompactionThresholdTokens(effectiveInputWindowTokens: number): number {

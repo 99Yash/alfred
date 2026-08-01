@@ -10,9 +10,9 @@ import { emitReplicachePokes } from "../../events/replicache-events";
 import { createRedisConnection, isQueueEnabled } from "../../queue/connection";
 import { notify } from "../notifications";
 
-export const APPROVAL_NOTIFICATION_QUEUE_NAME = "staging-notify";
+const APPROVAL_NOTIFICATION_QUEUE_NAME = "staging-notify";
 
-export const approvalNotificationJobDataSchema = z.object({
+const approvalNotificationJobDataSchema = z.object({
   stagingId: z.string().min(1),
   userId: z.string().min(1),
 });

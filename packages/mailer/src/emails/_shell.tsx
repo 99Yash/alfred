@@ -67,7 +67,7 @@ export const bodyStyles = {
   muted: { color: "#9ca3af", fontSize: "13px", lineHeight: "1.6" },
 } as const;
 
-export const formatDate = (iso: string, timeZone?: string): string => {
+const formatDate = (iso: string, timeZone?: string): string => {
   const d = new Date(iso);
   return d.toLocaleDateString("en-US", {
     month: "short",

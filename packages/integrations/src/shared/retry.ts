@@ -62,7 +62,7 @@ const DEFAULT_POLICY: Required<RetryPolicy> = {
 };
 
 /** Rate-limited (429) or a transient upstream 5xx — the same rule as `HttpError.retryable`. */
-export function isRetryableStatus(status: number): boolean {
+function isRetryableStatus(status: number): boolean {
   return status === 429 || (status >= 500 && status <= 599);
 }
 

@@ -8,7 +8,7 @@
 import type { ButtonHTMLAttributes, ReactNode, Ref } from "react";
 import { cn } from "~/lib/utils";
 
-export type IconButtonSize = "sm" | "md";
+type IconButtonSize = "sm" | "md";
 
 interface IconButtonProps extends Omit<ButtonHTMLAttributes<HTMLButtonElement>, "aria-label"> {
   /** Accessible label — also rendered as the native `title` for cursor tooltip. */

@@ -9,7 +9,7 @@ import {
   chatAttachmentRepresentationSchema,
 } from "../../chat/attachment-enrichment";
 
-export const CHAT_HISTORY_RESULT_LIMIT = 10;
+const CHAT_HISTORY_RESULT_LIMIT = 10;
 export const CHAT_HISTORY_EXCERPT_CHARS = 4_000;
 
 type MessageRow = {

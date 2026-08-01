@@ -11,7 +11,7 @@
 import type { Ref, TextareaHTMLAttributes } from "react";
 import { cn } from "~/lib/utils";
 
-export type LegacyTextareaVariant = "card" | "inline";
+type LegacyTextareaVariant = "card" | "inline";
 
 interface LegacyTextareaProps extends TextareaHTMLAttributes<HTMLTextAreaElement> {
   variant?: LegacyTextareaVariant | undefined;

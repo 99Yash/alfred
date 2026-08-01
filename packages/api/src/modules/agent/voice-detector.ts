@@ -14,7 +14,7 @@
  * Pure and side-effect free — safe to import anywhere.
  */
 
-export type VoiceTellSeverity = "high" | "medium" | "low";
+type VoiceTellSeverity = "high" | "medium" | "low";
 
 export interface VoiceTell {
   /** Stable rule identifier, e.g. `inflated-word`. */

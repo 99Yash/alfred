@@ -18,7 +18,7 @@ import type IORedis from "ioredis";
 import { createRedisConnection, isQueueEnabled } from "../queue/connection";
 import { isRecord, toMessage } from "@alfred/contracts";
 
-export interface ReplicachePoke {
+interface ReplicachePoke {
   userId: string;
   /** Empty string for user-scoped pokes with no specific entity context. */
   assetId: string;

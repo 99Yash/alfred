@@ -24,7 +24,7 @@ import type { PendingToolCall } from "./pending-tool-call";
  * dispatch results (`staged` = HIL approval, `parked` = sub-agent await) so a
  * new interrupt kind can't be forgotten here.
  */
-export type DispatchRoundWake = Extract<DispatchResult, { kind: "staged" | "parked" }>["wake"];
+type DispatchRoundWake = Extract<DispatchResult, { kind: "staged" | "parked" }>["wake"];
 
 /**
  * How this round's batch is dispatched. `serial` runs the calls one at a time in
@@ -35,7 +35,7 @@ export type DispatchRoundWake = Extract<DispatchResult, { kind: "staged" | "park
  * must still run in model order despite being ungated (chat's artifact mutations
  * share body state); everything else in the autonomy lane overlaps.
  */
-export type ToolDispatchOrdering<Call extends PendingToolCall> =
+type ToolDispatchOrdering<Call extends PendingToolCall> =
   | { readonly kind: "serial" }
   | {
       readonly kind: "concurrent-autonomy";

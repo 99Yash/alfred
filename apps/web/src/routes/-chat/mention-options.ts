@@ -9,7 +9,7 @@ export interface MentionOption {
   icon?: LucideIcon | undefined;
 }
 
-export const MENTION_OPTIONS: ReadonlyArray<MentionOption> = [
+const MENTION_OPTIONS: ReadonlyArray<MentionOption> = [
   { value: "gmail", label: "Gmail", brand: "gmail", subtitle: "Search your inbox" },
   { value: "calendar", label: "Calendar", brand: "google_calendar", subtitle: "Today's events" },
   { value: "drive", label: "Drive", brand: "google_drive", subtitle: "Docs and files" },

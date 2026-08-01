@@ -16,8 +16,6 @@ import type { DispatchResult } from "../dispatch";
 import { startToolLoadSpan, startToolPreloadSpan, startToolSurfaceSpan } from "./runtime-spans";
 import { estimateToolSurfaceBudget } from "./schema-budget";
 
-export { toolNameSchema } from "@alfred/contracts";
-
 export function registeredToolNamesForIntegrations(integrations: readonly string[]): ToolName[] {
   const names = new Set<ToolName>();
   for (const integration of integrations) {
