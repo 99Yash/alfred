@@ -2490,6 +2490,7 @@
     .app-tip[data-state="closed"] {
       animation: none !important;
       transform: none !important;
+      will-change: auto;
     }
   }
 
