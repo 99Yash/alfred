@@ -708,7 +708,16 @@ async function emitGmailMessageEvents(
   documentIds: string[],
   reason: "webhook" | "manual" | "ingest" | "reply",
 ): Promise<void> {
-  const accountByDocumentId = await gmailAccountRefsForDocuments(userId, documentIds);
+  let accountByDocumentId: Map<string, string>;
+  try {
+    accountByDocumentId = await gmailAccountRefsForDocuments(userId, documentIds);
+  } catch (err) {
+    console.warn(
+      `[ingestion:worker] failed to resolve Gmail event accounts user=${userId}:`,
+      toMessage(err),
+    );
+    return;
+  }
   await mapConcurrent(documentIds, REALTIME_EMIT_CONCURRENCY, async (documentId) => {
     try {
       const accountRef = accountByDocumentId.get(documentId);
@@ -887,11 +896,11 @@ async function reEvaluateRepliedThreads(
   targets: ReplyReevalTarget[],
 ): Promise<void> {
   if (!targets.length) return;
-  const accountByDocumentId = await gmailAccountRefsForDocuments(
-    userId,
-    targets.map((target) => target.documentId),
-  );
   try {
+    const accountByDocumentId = await gmailAccountRefsForDocuments(
+      userId,
+      targets.map((target) => target.documentId),
+    );
     await mapConcurrent(
       targets,
       REALTIME_EMIT_CONCURRENCY,

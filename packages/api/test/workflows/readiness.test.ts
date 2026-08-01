@@ -8,9 +8,20 @@ import { registerBuiltinTools } from "../../src/modules/tools";
 import {
   canonicalizeWorkflowAccounts,
   resolveWorkflowApprovalDisplay,
-  resolveWorkflowReadiness,
+  resolveWorkflowReadiness as resolveWorkflowReadinessBase,
 } from "../../src/modules/workflows/readiness";
 import { validateWorkflowDefinition } from "../../src/modules/workflows/revisions";
+
+function resolveWorkflowReadiness(
+  args: Omit<Parameters<typeof resolveWorkflowReadinessBase>[0], "gmailEventHealth"> & {
+    gmailEventHealth?: Parameters<typeof resolveWorkflowReadinessBase>[0]["gmailEventHealth"];
+  },
+) {
+  return resolveWorkflowReadinessBase({
+    ...args,
+    gmailEventHealth: args.gmailEventHealth ?? new Map(),
+  });
+}
 
 before(() => registerBuiltinTools());
 
@@ -214,7 +225,7 @@ describe("workflow readiness", () => {
     assert.equal(problems[0]?.code, "choose_account");
   });
 
-  test("an unverifiable resource scope fails closed", () => {
+  test("an unsupported resource scope stays blocked", () => {
     const problems = resolveWorkflowReadiness({
       definition: definition({
         requiredCapabilities: [
@@ -271,13 +282,6 @@ describe("workflow readiness", () => {
                   installedAt: "2026-07-31T00:00:00.000Z",
                 },
               },
-              gmailEventHealth: {
-                receiverConfigured: true,
-                topicMatches: true,
-                cursorReady: true,
-                coverageGap: false,
-                lastSyncAt: new Date("2026-07-31T00:05:00.000Z"),
-              },
             },
           ],
         ],
@@ -293,6 +297,18 @@ describe("workflow readiness", () => {
         },
       }),
       availability: healthy,
+      gmailEventHealth: new Map([
+        [
+          "credential-1",
+          {
+            receiverConfigured: true,
+            topicMatches: true,
+            cursorReady: true,
+            coverageGap: false,
+            lastSyncAt: new Date("2026-07-31T00:05:00.000Z"),
+          },
+        ],
+      ]),
       now: new Date("2026-07-31T00:10:00.000Z"),
     });
     assert.deepEqual(problems, []);

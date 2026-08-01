@@ -2,6 +2,7 @@ import { z } from "zod";
 import { integrationSlugSchema, isIanaTimezone } from "./briefing";
 import { EVENT_SOURCES } from "./event-triggers";
 import { toolNameSchema } from "./tools";
+import { jsonObjectSchema } from "./user-model";
 
 /**
  * Lifecycle status of an `agent_runs` row.
@@ -207,7 +208,9 @@ export const workflowRequiredCapabilitySchema = z.object({
   /** Which connected account/installation the tool must use, when more than one exists. */
   accountRef: z.string().min(1).max(200).optional(),
   /** Provider-specific resource boundary (a repository, a calendar, a Slack channel). */
-  resourceScope: z.record(z.string(), z.unknown()).optional(),
+  resourceScope: jsonObjectSchema
+    .refine((value) => Object.keys(value).length > 0, "Resource scope cannot be empty")
+    .optional(),
 });
 export type WorkflowRequiredCapability = z.infer<typeof workflowRequiredCapabilitySchema>;
 
@@ -361,6 +364,7 @@ export const workflowCapabilityDisplaySchema = z.object({
   title: z.string().min(1).max(200),
   accountRef: z.string().min(1).max(200).optional(),
   accountLabel: z.string().min(1).max(200).optional(),
+  resourceScope: jsonObjectSchema.optional(),
 });
 export type WorkflowCapabilityDisplay = z.infer<typeof workflowCapabilityDisplaySchema>;
 

@@ -194,7 +194,11 @@ export function ApprovalCard({
           disabled={busy}
           onClick={() => decide(approveDecision())}
         >
-          {edited ? "Approve changes" : "Approve"}
+          {edited && staging.toolName === "system.activate_workflow"
+            ? "Review changes"
+            : edited
+              ? "Approve changes"
+              : "Approve"}
         </AppButton>
       </div>
     </AppCard>

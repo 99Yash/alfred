@@ -98,9 +98,25 @@ describe("workflow revision invariants (#555)", { skip: SKIP }, () => {
     assert.equal(entity.currentRevisionId, revised.revision.id);
     assert.equal(entity.publishedRevisionId, activated.revision.id);
 
+    await assert.rejects(
+      createRun({
+        userId,
+        workflowSlug: slug,
+        workflowRevisionId: revised.revision.id,
+        trigger: {
+          kind: "event",
+          source: "test",
+          type: "draft-revision",
+          eventId: "draft-revision-attempt",
+        },
+      }),
+      /no approved selected revision/,
+    );
+
     const { runId } = await createRun({
       userId,
       workflowSlug: slug,
+      requestId: "published-revision-manual-run",
       trigger: { kind: "manual" },
     });
     const [run] = await db()
