@@ -8,7 +8,15 @@ import {
   listWorkflows,
   registerWorkflow,
 } from "./registry";
-import { cancelRun, createRun, getRun, signalRun, signalRunInTx, type SignalArgs } from "./service";
+import {
+  cancelRun,
+  createRun,
+  getRun,
+  replayRun,
+  signalRun,
+  signalRunInTx,
+  type SignalArgs,
+} from "./service";
 import { isUniqueViolation } from "../../lib/pg-errors";
 import { finalizeCancelledRun } from "./terminal-closure";
 import { closeSubAgentJoinWakeQueue } from "./sub-agent-join-wake-queue";
@@ -25,6 +33,7 @@ export {
   listWorkflows,
   listPublicWorkflows,
   createRun,
+  replayRun,
   getRun,
   signalRun,
   signalRunInTx,
@@ -74,7 +83,6 @@ export const agent = new Elysia({ prefix: "/api/agent", normalize: "typebox" })
             const { runId } = await createRun({
               userId: user.id,
               workflowSlug: body.workflowSlug,
-              requestId: body.requestId,
               brief: body.brief,
               input: body.input,
               metadata: body.metadata,
@@ -82,6 +90,10 @@ export const agent = new Elysia({ prefix: "/api/agent", normalize: "typebox" })
               // and event dispatchers go through their own paths; an
               // HTTP-initiated run is always manual per ADR-0027.
               trigger: { kind: "manual" },
+              occurrence: {
+                kind: "manual",
+                requestId: body.requestId,
+              },
             });
             await enqueueRun(runId);
             return { runId };
@@ -103,10 +115,30 @@ export const agent = new Elysia({ prefix: "/api/agent", normalize: "typebox" })
         {
           body: t.Object({
             workflowSlug: t.String({ minLength: 1, maxLength: 120 }),
-            requestId: t.Optional(t.String({ minLength: 1, maxLength: 200 })),
+            requestId: t.String({ minLength: 1, maxLength: 200 }),
             brief: t.Optional(t.String({ maxLength: 4_000 })),
             input: t.Optional(t.Unknown()),
             metadata: t.Optional(t.Record(t.String(), t.Unknown())),
+          }),
+        },
+      )
+      .post(
+        "/runs/:runId/replay",
+        async ({ params, body, user }) => {
+          const replayed = await replayRun({
+            userId: user.id,
+            runId: params.runId,
+            requestId: body.requestId,
+            revisionChoice: body.revisionChoice,
+          });
+          await enqueueRun(replayed.runId);
+          return replayed;
+        },
+        {
+          params: t.Object({ runId: t.String() }),
+          body: t.Object({
+            requestId: t.String({ minLength: 1, maxLength: 200 }),
+            revisionChoice: t.Union([t.Literal("original"), t.Literal("latest")]),
           }),
         },
       )

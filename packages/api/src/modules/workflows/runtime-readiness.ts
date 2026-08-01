@@ -86,6 +86,9 @@ export async function checkWorkflowRunReadiness(args: {
       .where(and(eq(workflows.id, row.workflow!.id), eq(workflows.userId, args.userId)))
       .for("update");
     if (!lockedWorkflow) throw new Error(`[workflows:readiness] workflow disappeared`);
+    if (lockedWorkflow.publishedRevisionId !== row.revision!.id) {
+      return { ownsWorkflow: false as const };
+    }
     const before = lockedWorkflow.blocked;
     const reconciled = await reconcileWorkflowReadiness({
       userId: args.userId,
@@ -95,8 +98,12 @@ export async function checkWorkflowRunReadiness(args: {
       target: "activation",
       tx,
     });
-    return { before, reconciled };
+    return { ownsWorkflow: true as const, before, reconciled };
   });
+  if (!recorded.ownsWorkflow) {
+    if (disposition === "ready") return { kind: "ready" };
+    return { kind: "blocked", problems, newlyBlocked: false };
+  }
   if (!recorded.reconciled.ok) {
     throw new Error(`[workflows:readiness] failed to record readiness verdict`);
   }

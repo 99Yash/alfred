@@ -669,7 +669,6 @@ export const userAuthoredBriefWorkflow: Workflow<BriefRunState> = {
           };
         }
         if (verdict.kind === "blocked") {
-          if (verdict.newlyBlocked) await ctx.log("Workflow blocked: action is required.");
           return { kind: "blocked", state: ctx.state, output: { readiness: verdict.problems } };
         }
         const delay = READINESS_RETRY_DELAYS_MS[ctx.state.readinessDeferrals];

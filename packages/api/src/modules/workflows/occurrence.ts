@@ -1,6 +1,6 @@
 import { sha256Canonical } from "../../lib/hash";
 
-type WorkflowOccurrenceIdentity =
+export type WorkflowOccurrenceIdentity =
   | {
       kind: "cron";
       workflowId: string;
@@ -12,7 +12,6 @@ type WorkflowOccurrenceIdentity =
       workflowId: string;
       provider: string;
       eventId: string;
-      reason?: string | undefined;
     }
   | { kind: "manual"; workflowId: string; requestId: string }
   | {

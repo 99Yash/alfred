@@ -6,28 +6,16 @@ import { createRun } from "../agent/service";
 import { enqueueRun } from "../agent/queue";
 import { computeNextRunAt, resolveWorkflowTimezone } from "./scheduling";
 import { toMessage } from "@alfred/contracts";
-import { workflowOccurrenceKey } from "./occurrence";
 
 /**
  * One tick of the generic workflow dispatcher (ADR-0027).
  *
  * Reads up to `BATCH` rows from the partial cron index, then per row:
  *
- *  1. **CAS-advance `next_run_at`** — `UPDATE … WHERE id=? AND
- *     next_run_at=oldNext` returns 0 rows if another tick worker (or a
- *     manual write) already advanced the row. We bail on miss without
- *     creating a run, guaranteeing at-most-one fire per scheduled
- *     instant across racing workers.
- *  2. **`createRun`** with `trigger: { kind: 'cron', scheduledFor }`.
- *  3. **`enqueueRun`** with `jobId: workflow:{id}:scheduled:{iso}` —
- *     BullMQ's native dedup makes a retried tick (e.g. attempt 2 after
- *     a Redis blip) a no-op on duplicate jobId.
- *
- * A crash between step 1 and step 2/3 produces a missed fire (row
- * advanced, no run created). Personal-scale ADR-0027 documents this as
- * acceptable — the next scheduled fire produces a fresh row. Mitigation
- * via 2PC / outbox is deferred until missed-fire data shows it's worth
- * the complexity.
+ *  1. In one database transaction, CAS-advance `next_run_at` and create the
+ *     database-unique pending occurrence. A racing worker updates zero rows.
+ *  2. After commit, enqueue with `jobId: workflow.{id}.scheduled.{millis}`.
+ *     A Redis/process failure leaves the pending row for the recovery sweep.
  */
 const BATCH = 100;
 
@@ -177,12 +165,12 @@ async function dispatchOne(
   // CAS: only this tick worker may advance the row from the instant we
   // SELECTed. A racing worker hits 0 rows updated and bails. drizzle's
   // `.update().returning()` is the cleanest way to read affected rows.
-  const occurrenceKey = workflowOccurrenceKey({
+  const occurrence = {
     kind: "cron",
     workflowId: row.id,
     revisionId: row.isBuiltin ? null : row.publishedRevisionId,
     scheduledFor: scheduledForIso,
-  });
+  } as const;
   const claimed = await db().transaction(async (tx) => {
     const updated = await tx
       .update(workflows)
@@ -197,7 +185,7 @@ async function dispatchOne(
         workflowSlug: row.slug,
         workflowRevisionId: row.isBuiltin ? null : row.publishedRevisionId,
         brief: row.brief ?? undefined,
-        occurrenceKey,
+        occurrence,
         trigger: { kind: "cron", scheduledFor: scheduledForIso },
       },
       tx,

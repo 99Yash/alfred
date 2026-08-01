@@ -919,6 +919,10 @@ export const chatRoutes = new Elysia({ prefix: "/api/chat", normalize: "typebox"
                     userId: user.id,
                     workflowSlug: CHAT_TURN_WORKFLOW_SLUG,
                     trigger: { kind: "manual" },
+                    occurrence: {
+                      kind: "manual",
+                      requestId: body.userMessageId,
+                    },
                     metadata: {
                       threadId,
                       assistantMessageId,

@@ -1,6 +1,7 @@
 import { user as userTable, type AgentRunTrigger } from "@alfred/db/schemas";
 import { embed } from "@alfred/ai/embeddings";
 import { Queue, Worker, type Job } from "bullmq";
+import { randomUUID } from "node:crypto";
 import { db } from "@alfred/db";
 import { createRedisConnection } from "../../queue/connection";
 import { createRun, enqueueRun } from "../agent/index";
@@ -84,7 +85,7 @@ async function processMemoryJob(job: Job<MemoryJobData>): Promise<unknown> {
     case "memory.extract.daily": {
       // Single-user today, but the shape carries us forward.
       const users = await db().select({ id: userTable.id }).from(userTable);
-      const scheduledFor = new Date().toISOString();
+      const scheduledFor = new Date(job.timestamp).toISOString();
       let enqueued = 0;
       for (const u of users) {
         await enqueueExtractionForUser(u.id, {
@@ -96,7 +97,9 @@ async function processMemoryJob(job: Job<MemoryJobData>): Promise<unknown> {
       return { enqueued };
     }
     case "memory.extract.run": {
-      const result = await enqueueExtractionForUser(data.userId);
+      const result = await enqueueExtractionForUser(data.userId, {
+        requestId: `memory-job:${job.id ?? job.timestamp}`,
+      });
       console.log(`[memory:worker] memory.extract.run user=${data.userId} runId=${result.runId}`);
       return result;
     }
@@ -202,13 +205,43 @@ export async function enqueueExtractionForUser(
     >;
     /** Trigger context — defaults to manual when called ad-hoc. */
     trigger?: AgentRunTrigger;
+    /** Stable identity supplied by a retryable caller. */
+    requestId?: string;
   },
 ): Promise<{ runId: string }> {
   const trigger = opts?.trigger ?? { kind: "manual" as const };
   const occurrence =
-    trigger.kind === "cron" || trigger.kind === "event"
-      ? { trigger, workflowRevisionId: null }
-      : { trigger };
+    trigger.kind === "cron"
+      ? {
+          trigger,
+          workflowRevisionId: null,
+          occurrence: {
+            kind: "cron" as const,
+            workflowId: "memory-extraction",
+            revisionId: null,
+            scheduledFor: trigger.scheduledFor,
+          },
+        }
+      : trigger.kind === "event"
+        ? {
+            trigger,
+            workflowRevisionId: null,
+            occurrence: {
+              kind: "event" as const,
+              workflowId: "memory-extraction",
+              provider: trigger.source ?? "unknown",
+              eventId: trigger.eventId,
+            },
+          }
+        : trigger.kind === "manual"
+          ? {
+              trigger,
+              occurrence: {
+                kind: "manual" as const,
+                requestId: opts?.requestId ?? randomUUID(),
+              },
+            }
+          : { trigger };
   const { runId } = await createRun({
     userId,
     workflowSlug: "memory-extraction",

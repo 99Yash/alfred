@@ -178,6 +178,33 @@ describe("summarizeRunBottlenecks", () => {
     assert.equal(summary.queueMs, 900); // 1000 - 100
   });
 
+  test("classifies deferred backoff separately from worker queue time", () => {
+    const summary = summarizeRunBottlenecks({
+      run: { startedAt: t(0), endedAt: t(10_000) },
+      apiCalls: [],
+      steps: [
+        {
+          stepId: "check-readiness",
+          status: "deferred",
+          startedAt: t(0),
+          endedAt: t(100),
+          errorReason: null,
+        },
+        {
+          stepId: "check-readiness",
+          status: "completed",
+          startedAt: t(5_100),
+          endedAt: t(5_200),
+          errorReason: null,
+        },
+      ],
+      stagings: [],
+    });
+
+    assert.equal(summary.deferredWaitMs, 5_000);
+    assert.equal(summary.queueMs, 0);
+  });
+
   test("wallClockMs is null until the run has both started and ended", () => {
     const running = summarizeRunBottlenecks({
       run: { startedAt: t(0), endedAt: null },

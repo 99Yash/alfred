@@ -123,6 +123,43 @@ describe("exact active tool dispatch", () => {
     assert.equal(result.result.status, "capability_mismatch");
   });
 
+  test("a workflow resource boundary rejects different validated input", async () => {
+    let executions = 0;
+    registerTool(scratchReadTool(() => executions++));
+
+    const result = await dispatchToolCall({
+      ...baseDispatch,
+      activeTools: ["system.read_scratch"],
+      allowedTools: ["system.read_scratch"],
+      requiredCapabilities: [
+        { tool: "system.read_scratch", resourceScope: { key: "shared.approved" } },
+      ],
+    });
+
+    assert.equal(result.kind, "not_allowed");
+    assert.equal(executions, 0);
+    if (result.kind !== "not_allowed") return;
+    assert.equal(result.result.status, "capability_mismatch");
+  });
+
+  test("an exact workflow resource boundary reaches execution", async () => {
+    let executions = 0;
+    registerTool(scratchReadTool(() => executions++));
+
+    const result = await dispatchToolCall({
+      ...baseDispatch,
+      input: { key: "shared.approved" },
+      activeTools: ["system.read_scratch"],
+      allowedTools: ["system.read_scratch"],
+      requiredCapabilities: [
+        { tool: "system.read_scratch", resourceScope: { key: "shared.approved" } },
+      ],
+    });
+
+    assert.equal(result.kind, "executed");
+    assert.equal(executions, 1);
+  });
+
   test("structured recovery activates the exact tool for a subsequent model reissue", async () => {
     let executions = 0;
     registerTool(scratchReadTool(() => executions++));
