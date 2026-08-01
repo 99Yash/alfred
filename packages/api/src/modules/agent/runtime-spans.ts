@@ -409,7 +409,7 @@ export function startSubAgentWaitSpan(args: SubAgentWaitSpanArgs): SubAgentWaitS
 export const RUNTIME_QUEUE_LEASE = "runtime.queue.lease";
 
 /** Run status observed just before a lease flipped it to `running`. */
-export type QueueLeaseFromStatus = "pending" | "runnable" | "running";
+export type QueueLeaseFromStatus = "pending" | "runnable" | "running" | "deferred";
 
 export interface QueueLeaseSpanArgs {
   runId: string;

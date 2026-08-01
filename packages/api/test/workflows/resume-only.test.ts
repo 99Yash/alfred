@@ -92,6 +92,10 @@ describe("resume-only workflow run behavior", () => {
           userId: "new-run-owner",
           workflowSlug: RESUME_ONLY_SLUG,
           trigger: { kind: "manual" },
+          occurrence: {
+            kind: "manual",
+            requestId: "resume-only-rejection",
+          },
         },
         rejectDatabaseAccess,
       ),

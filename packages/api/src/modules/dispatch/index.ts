@@ -46,6 +46,7 @@ import {
   hashToolInput,
   INTEGRATION_ACTIONS,
   integrationFromToolName,
+  inputMatchesWorkflowResourceScope,
   isIntegrationSlug,
   isRecord,
   isTerminalStatus,
@@ -581,6 +582,15 @@ export async function dispatchToolCall(args: DispatchArgs): Promise<DispatchResu
     };
   }
   const input = parsed.data as unknown;
+  const approvedResourceScope = workflowCapabilities[0]?.resourceScope;
+  if (approvedResourceScope && !inputMatchesWorkflowResourceScope(input, approvedResourceScope)) {
+    const message = `Tool '${toolName}' input is outside this workflow revision's approved resource boundary.`;
+    recordRejection({ dispatch: args, outcome: "not_allowed", reason: message, toolName });
+    return {
+      kind: "not_allowed",
+      result: { status: "capability_mismatch", toolName, integration, message },
+    };
+  }
   const caller = args.caller ?? "boss";
   // `toolExecuteContext` derives the provider bind from `userId`, so every
   // provider client this call reaches is wired to THIS user's credentials and no

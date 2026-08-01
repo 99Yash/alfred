@@ -51,12 +51,15 @@ export const agentRunSchema = z.object({
     "completed",
     "failed",
     "cancelled",
+    "deferred",
+    "blocked",
   ]),
   step: z.string().min(1).max(120).optional(),
   attempt: z.number().int().nonnegative().optional(),
   workflowSlug: z.string().min(1).max(120).optional(),
   wake: z.unknown().optional(),
   error: z.string().max(4_000).optional(),
+  retryAt: z.string().optional(),
 });
 
 export const memoryFactLearnedSchema = z.object({

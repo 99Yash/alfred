@@ -183,6 +183,24 @@ describe("lease backstop (DB-backed)", { skip: SKIP }, () => {
     assert.equal(await runStatus(runId), "running");
   });
 
+  test("a readiness deferral since prior reclaims resets the count", async () => {
+    const { runId } = await seedStaleRunningRun(6);
+    await insertReclaimedStep(runId, 3);
+    await insertReclaimedStep(runId, 4);
+    await db().insert(agentSteps).values({
+      runId,
+      stepId: STEP,
+      attempt: 5,
+      status: "deferred",
+      endedAt: STALE_CHECKPOINT,
+    });
+    await insertRunningStep(runId, 6);
+
+    const leased = await leaseRun(runId);
+    assert.equal(leased.kind, "leased", "a committed defer resets the reclaim tail");
+    assert.equal(await runStatus(runId), "running");
+  });
+
   test("a successful step since the prior reclaims resets the count", async () => {
     // attempt 3 reclaimed, attempt 4 COMPLETED (forward progress), attempt 6 reclaimed,
     // current orphan at 7. Only attempt 6 counts (> last completed 4) → priorReclaims=1

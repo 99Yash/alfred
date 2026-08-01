@@ -1,5 +1,26 @@
 # ADR-0027 — Workflow trigger dispatch: generic `workflows.tick` + denormalized `next_run_at` + unified `trigger` on `agent_runs`
 
+## Amendment, 2026-08-01 — durable occurrence identity (#558)
+
+BullMQ job IDs are no longer the source of truth for trigger idempotency. Each cron,
+provider-event, and user-authored manual/test occurrence stores one database-unique
+`agent_runs.occurrence_key`. The key remains unique after the run becomes terminal.
+
+The cron dispatcher now advances `workflows.next_run_at` and creates the pending run
+in one database transaction. It enqueues only after commit. A crash after commit and
+before enqueue leaves a pending row that the existing recovery sweep can enqueue.
+Provider redelivery and manual retries resolve the existing row through the same
+unique claim. BullMQ job IDs remain a useful delivery optimization, but they do not
+define occurrence identity.
+
+The `createRun` trigger union requires the matching occurrence identity rather than
+accepting an optional precomputed key. Manual callers provide a request id; the run
+service adds the resolved workflow identity. Replay is a separate manual occurrence
+linked through `replay_of_run_id` with an explicit original/latest revision choice.
+
+This amendment replaces the original “Idempotency is a BullMQ jobId” decision and
+the implementation note that accepted a missed fire between cursor advance and run
+creation. The generic tick, denormalized cursor, and unified trigger decisions remain.
 
 **Decision.** Three coordinated choices that together define how a `workflows` row becomes an `agent_runs` row:
 

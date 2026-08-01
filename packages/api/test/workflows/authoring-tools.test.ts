@@ -249,16 +249,22 @@ describe("workflow authoring and activation acceptance (#556)", { skip: SKIP }, 
     const firstManual = await createRun({
       userId,
       workflowSlug: workflow!.slug,
-      requestId: "manual-request-1",
       brief: "Unapproved replacement brief.",
       trigger: { kind: "manual" },
+      occurrence: {
+        kind: "manual",
+        requestId: "manual-request-1",
+      },
     });
     const retriedManual = await createRun({
       userId,
       workflowSlug: workflow!.slug,
-      requestId: "manual-request-1",
       brief: "Another unapproved replacement.",
       trigger: { kind: "manual" },
+      occurrence: {
+        kind: "manual",
+        requestId: "manual-request-1",
+      },
     });
     assert.equal(retriedManual.runId, firstManual.runId);
     const [manualRun] = await db()
@@ -275,8 +281,11 @@ describe("workflow authoring and activation acceptance (#556)", { skip: SKIP }, 
     const terminalRetry = await createRun({
       userId,
       workflowSlug: workflow!.slug,
-      requestId: "manual-request-1",
       trigger: { kind: "manual" },
+      occurrence: {
+        kind: "manual",
+        requestId: "manual-request-1",
+      },
     });
     assert.equal(terminalRetry.runId, firstManual.runId);
   });

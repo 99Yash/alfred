@@ -210,6 +210,10 @@ async function processChatMemoryJob(job: Job<ChatMemoryJobData>): Promise<unknow
       // anchor is carried in metadata (as the chat-turn workflow does), where the
       // workflow reads it.
       trigger: { kind: "manual" },
+      occurrence: {
+        kind: "manual",
+        requestId: `${data.threadId}:${data.captureAfterMessageId}`,
+      },
       metadata: {
         threadId: data.threadId,
         captureAfterMessageId: data.captureAfterMessageId,

@@ -82,7 +82,7 @@ async function processBriefingJob(job: Job<BriefingJobData>): Promise<unknown> {
   const data = job.data;
   switch (data.kind) {
     case "briefing.tick":
-      return handleTick();
+      return handleTick(new Date(job.timestamp));
     case "briefing.run":
       return handleManualRun(data.userId, data.slot ?? "morning", data.reason ?? "manual");
     default: {
@@ -106,8 +106,7 @@ interface TickResult {
  * is allowed to be loose. Worst case a duplicate tick resumes or skips
  * the same terminal briefing row.
  */
-async function handleTick(): Promise<TickResult> {
-  const now = new Date();
+async function handleTick(now: Date = new Date()): Promise<TickResult> {
   const users = await db().select({ id: userTable.id }).from(userTable);
 
   let enqueued = 0;
@@ -152,6 +151,7 @@ async function handleTick(): Promise<TickResult> {
           slot: s.slot,
           briefingDate,
           reason: "cron",
+          scheduledFor: now.toISOString(),
         });
         enqueued++;
       }
@@ -183,6 +183,7 @@ interface EnqueueBriefingRunArgs {
   slot?: BriefingSlot;
   briefingDate: string;
   reason: "cron" | "manual" | "forced";
+  scheduledFor?: string;
 }
 
 /**
@@ -194,9 +195,27 @@ export async function enqueueBriefingRun(args: EnqueueBriefingRunArgs): Promise<
   const slot = args.slot ?? "morning";
   const trigger =
     args.reason === "cron"
-      ? ({ kind: "cron", scheduledFor: new Date().toISOString() } as const)
+      ? ({ kind: "cron", scheduledFor: args.scheduledFor ?? new Date().toISOString() } as const)
       : ({ kind: "manual" } as const);
-  const occurrence = trigger.kind === "cron" ? { trigger, workflowRevisionId: null } : { trigger };
+  const occurrence =
+    trigger.kind === "cron"
+      ? {
+          trigger,
+          workflowRevisionId: null,
+          occurrence: {
+            kind: "cron" as const,
+            workflowId: DAILY_BRIEFING_WORKFLOW_SLUG,
+            revisionId: null,
+            scheduledFor: trigger.scheduledFor,
+          },
+        }
+      : {
+          trigger,
+          occurrence: {
+            kind: "manual" as const,
+            requestId: `${args.briefingDate}:${slot}:${args.reason}`,
+          },
+        };
   const { runId } = await createRun({
     userId: args.userId,
     workflowSlug: DAILY_BRIEFING_WORKFLOW_SLUG,

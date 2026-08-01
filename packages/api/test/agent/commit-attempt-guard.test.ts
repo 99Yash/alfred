@@ -110,6 +110,7 @@ function runRow(userId: string, runId: string, attempt: number) {
     currentStep: STEP,
     attempt,
     metadata: {},
+    deferredUntil: null,
   };
 }
 
@@ -120,6 +121,7 @@ async function readRun(runId: string) {
       currentStep: agentRuns.currentStep,
       attempt: agentRuns.attempt,
       lastCheckpointAt: agentRuns.lastCheckpointAt,
+      deferredUntil: agentRuns.deferredUntil,
     })
     .from(agentRuns)
     .where(eq(agentRuns.id, runId));
@@ -171,6 +173,41 @@ describe("commit attempt-guard (DB-backed)", { skip: SKIP }, () => {
     assert.equal(run?.currentStep, "dispatch-tools", "step advances");
     assert.equal(run?.status, "runnable");
     assert.equal(await readStepStatus(runId, 5), "completed", "the step row is marked completed");
+  });
+
+  test("a deferred step persists its retry boundary without ending the occurrence", async () => {
+    const { userId, runId } = await seedRunningRun(2);
+    const retryAt = new Date(Date.now() + 60_000);
+    const outcome = await commitStepSuccess(
+      runRow(userId, runId, 2),
+      STEP,
+      2,
+      { kind: "defer", state: { readinessDeferrals: 1 }, retryAt },
+      [],
+      [],
+    );
+    assert.equal(outcome.kind, "deferred");
+    const run = await readRun(runId);
+    assert.equal(run?.status, "deferred");
+    assert.equal(run?.attempt, 3);
+    assert.equal(run?.deferredUntil?.toISOString(), retryAt.toISOString());
+    assert.equal(await readStepStatus(runId, 2), "deferred");
+  });
+
+  test("a terminal readiness result blocks the occurrence", async () => {
+    const { userId, runId } = await seedRunningRun(4);
+    const outcome = await commitStepSuccess(
+      runRow(userId, runId, 4),
+      STEP,
+      4,
+      { kind: "blocked", state: {}, output: { code: "needs_reauth" } },
+      [],
+      [],
+    );
+    assert.equal(outcome.kind, "blocked");
+    const run = await readRun(runId);
+    assert.equal(run?.status, "blocked");
+    assert.equal(await readStepStatus(runId, 4), "blocked");
   });
 
   test("superseded: a commit at a stale attempt is rejected and rolls back", async () => {

@@ -1,6 +1,6 @@
 import { toMessage } from "@alfred/contracts";
 import { db, rowsFromExecute } from "@alfred/db";
-import { actionStagings, agentRuns, agentSteps } from "@alfred/db/schemas";
+import { actionStagings, agentRuns, agentSteps, workflows } from "@alfred/db/schemas";
 import {
   agentRunTriggerSchema,
   runStatusSchema,
@@ -32,6 +32,7 @@ import {
   type WorkflowInput,
 } from "./types";
 import { userAuthoredBriefWorkflow } from "./workflows/user-authored-brief";
+import { workflowOccurrenceKey, type WorkflowOccurrenceIdentity } from "../workflows/occurrence";
 
 /**
  * After this much silence on `last_checkpoint_at`, a `running` row is
@@ -79,14 +80,15 @@ export function minStaleAfterMs(): number {
   return min;
 }
 
-type DelayedOccurrenceTrigger = Extract<AgentRunTrigger, { kind: "cron" | "event" }>;
-type ImmediateOccurrenceTrigger = Exclude<AgentRunTrigger, DelayedOccurrenceTrigger>;
+type CronOccurrence = Extract<WorkflowOccurrenceIdentity, { kind: "cron" }>;
+type EventOccurrence = Extract<WorkflowOccurrenceIdentity, { kind: "event" }>;
+type ManualOccurrence = Extract<WorkflowOccurrenceIdentity, { kind: "manual" }>;
+type ManualOccurrenceRequest = Omit<ManualOccurrence, "workflowId">;
+type ReplayOccurrence = Extract<WorkflowOccurrenceIdentity, { kind: "replay" }>;
 
 type CreateRunBase = Omit<WorkflowInput, "trigger"> & {
   userId: string;
   workflowSlug: string;
-  /** Caller-owned durable identity for a manual/test occurrence. */
-  requestId?: string | undefined;
   /**
    * What caused this run to be created (ADR-0027). Required — every
    * call-site declares its kind explicitly so the unified dispatcher
@@ -98,15 +100,46 @@ type CreateRunBase = Omit<WorkflowInput, "trigger"> & {
 export type CreateRunArgs = CreateRunBase &
   (
     | {
-        trigger: DelayedOccurrenceTrigger;
+        trigger: Extract<AgentRunTrigger, { kind: "cron" }>;
         /** Exact approved revision selected with the occurrence; null declares a builtin. */
         workflowRevisionId: string | null;
+        occurrence: CronOccurrence;
       }
-    | { trigger: ImmediateOccurrenceTrigger; workflowRevisionId?: never }
+    | {
+        trigger: Extract<AgentRunTrigger, { kind: "event" }>;
+        /** Exact approved revision selected with the occurrence; null declares a builtin. */
+        workflowRevisionId: string | null;
+        occurrence: EventOccurrence;
+      }
+    | {
+        trigger: Extract<AgentRunTrigger, { kind: "manual" }>;
+        workflowRevisionId?: never;
+        occurrence: ManualOccurrenceRequest;
+      }
+    | {
+        trigger: Extract<AgentRunTrigger, { kind: "manual" }>;
+        /** Replay explicitly selects the original or latest approved revision. */
+        workflowRevisionId: string;
+        occurrence: ReplayOccurrence;
+      }
+    | {
+        trigger: Extract<AgentRunTrigger, { kind: "on_signal" }>;
+        workflowRevisionId?: never;
+        occurrence?: never;
+      }
   );
 
 export interface CreateRunResult {
   runId: string;
+  /** False when this call found the run that already owns the occurrence. */
+  created: boolean;
+}
+
+export interface ReplayRunArgs {
+  userId: string;
+  runId: string;
+  requestId: string;
+  revisionChoice: "original" | "latest";
 }
 
 /**
@@ -129,11 +162,15 @@ export async function createRun(
 ): Promise<CreateRunResult> {
   const trigger = agentRunTriggerSchema.parse(args.trigger);
   const ex = tx ?? db();
+  const occurrence = "occurrence" in args ? args.occurrence : undefined;
+  const selectedRevisionId =
+    "workflowRevisionId" in args ? (args.workflowRevisionId ?? undefined) : undefined;
+  const replay = occurrence?.kind === "replay";
   const resolved = await resolveWorkflowForRun({
     userId: args.userId,
     workflowSlug: args.workflowSlug,
-    workflowRevisionId: args.workflowRevisionId ?? undefined,
-    requireSelectedRevision: trigger.kind === "cron" || trigger.kind === "event",
+    workflowRevisionId: selectedRevisionId,
+    requireSelectedRevision: trigger.kind === "cron" || trigger.kind === "event" || replay,
     tx: ex,
   });
   const workflow = resolved.workflow;
@@ -172,14 +209,17 @@ export async function createRun(
   const transcript = (await workflow.initialTranscript?.(workflowInput, { db: ex })) ?? [];
 
   const manualRequestKey =
-    resolved.userAuthoredRow && trigger.kind === "manual"
-      ? args.requestId
-        ? `manual:${args.requestId}`
-        : null
+    resolved.userAuthoredRow && trigger.kind === "manual" && occurrence?.kind === "manual"
+      ? `manual:${occurrence.requestId}`
       : null;
-  if (resolved.userAuthoredRow && trigger.kind === "manual" && !manualRequestKey) {
-    throw new Error("A user-authored manual run requires requestId");
-  }
+  const occurrenceIdentity: WorkflowOccurrenceIdentity | undefined =
+    occurrence?.kind === "manual"
+      ? {
+          ...occurrence,
+          workflowId: resolved.userAuthoredRow?.workflowId ?? workflowSlug,
+        }
+      : occurrence;
+  const occurrenceKey = occurrenceIdentity ? workflowOccurrenceKey(occurrenceIdentity) : undefined;
   const dedupKey = manualRequestKey ?? workflow.dedupKey?.(workflowInput) ?? null;
 
   const insert = ex.insert(agentRuns).values({
@@ -194,13 +234,19 @@ export async function createRun(
     trigger,
     status: "pending",
     dedupKey,
+    occurrenceKey,
+    replayOfRunId: occurrence?.kind === "replay" ? occurrence.replayOfRunId : undefined,
   });
-  const inserted = manualRequestKey
-    ? await insert.onConflictDoNothing().returning({ id: agentRuns.id })
-    : await insert.returning({ id: agentRuns.id });
+  const inserted = occurrenceKey
+    ? await insert
+        .onConflictDoNothing({ target: [agentRuns.userId, agentRuns.occurrenceKey] })
+        .returning({ id: agentRuns.id })
+    : manualRequestKey
+      ? await insert.onConflictDoNothing().returning({ id: agentRuns.id })
+      : await insert.returning({ id: agentRuns.id });
 
   const row = inserted[0];
-  if (!row && manualRequestKey) {
+  if (!row && (occurrenceKey || manualRequestKey)) {
     const [existing] = await ex
       .select({ id: agentRuns.id })
       .from(agentRuns)
@@ -208,14 +254,63 @@ export async function createRun(
         and(
           eq(agentRuns.userId, args.userId),
           eq(agentRuns.workflowSlug, workflowSlug),
-          eq(agentRuns.dedupKey, manualRequestKey),
+          occurrenceKey
+            ? eq(agentRuns.occurrenceKey, occurrenceKey)
+            : eq(agentRuns.dedupKey, manualRequestKey!),
         ),
       )
       .limit(1);
-    if (existing) return { runId: existing.id };
+    if (existing) return { runId: existing.id, created: false };
   }
   if (!row) throw new Error("[agent] failed to insert run row");
-  return { runId: row.id };
+  return { runId: row.id, created: true };
+}
+
+/** Create a new user-authored occurrence linked to a prior run. */
+export async function replayRun(args: ReplayRunArgs): Promise<CreateRunResult> {
+  const [original] = await db()
+    .select({
+      id: agentRuns.id,
+      workflowSlug: agentRuns.workflowSlug,
+      workflowRevisionId: agentRuns.workflowRevisionId,
+    })
+    .from(agentRuns)
+    .where(and(eq(agentRuns.id, args.runId), eq(agentRuns.userId, args.userId)))
+    .limit(1);
+  if (!original) throw new Error(`[agent] replay source run not found: ${args.runId}`);
+
+  const [workflow] = await db()
+    .select({
+      id: workflows.id,
+      isBuiltin: workflows.isBuiltin,
+      publishedRevisionId: workflows.publishedRevisionId,
+    })
+    .from(workflows)
+    .where(and(eq(workflows.userId, args.userId), eq(workflows.slug, original.workflowSlug)))
+    .limit(1);
+  if (!workflow || workflow.isBuiltin) {
+    throw new Error("Only user-authored workflow runs can be replayed");
+  }
+
+  const workflowRevisionId =
+    args.revisionChoice === "original" ? original.workflowRevisionId : workflow.publishedRevisionId;
+  if (!workflowRevisionId) {
+    throw new Error(`[agent] replay revision is unavailable for run=${args.runId}`);
+  }
+
+  return createRun({
+    userId: args.userId,
+    workflowSlug: original.workflowSlug,
+    workflowRevisionId,
+    trigger: { kind: "manual" },
+    occurrence: {
+      kind: "replay",
+      workflowId: workflow.id,
+      requestId: args.requestId,
+      replayOfRunId: original.id,
+      revisionChoice: args.revisionChoice,
+    },
+  });
 }
 
 export interface SignalArgs {
@@ -710,9 +805,10 @@ export async function getRun(runId: string, userId: string): Promise<RunSummary 
 }
 
 /**
- * Find run rows that are claimable by the worker pool: pending or runnable,
- * plus running rows whose owning worker's heartbeat has gone stale (presumed
- * dead). The stale window is per-step (ADR-0070 §1.4, Lever A): the SQL selects
+ * Find run rows that are claimable by the worker pool: pending, runnable, or a
+ * deferred row whose retry time arrived, plus running rows whose owning worker's
+ * heartbeat has gone stale (presumed dead). The stale window is per-step
+ * (ADR-0070 §1.4, Lever A): the SQL selects
  * running candidates at {@link minStaleAfterMs} (the smallest window, so nothing
  * is missed), then each is refined against its precise per-step window via
  * {@link resolveStaleAfterMs}. `leaseRun` re-checks the same window under the
@@ -733,6 +829,7 @@ export async function findResumableRunIds(opts: { limit?: number }): Promise<str
              EXTRACT(EPOCH FROM (now() - last_checkpoint_at)) * 1000 AS "staleMs"
       FROM agent_runs
       WHERE status IN ('pending', 'runnable')
+         OR (status = 'deferred' AND deferred_until <= now())
          OR (status = 'running' AND (
            last_checkpoint_at IS NULL
            OR last_checkpoint_at < (now() - make_interval(secs => ${minStaleAfterMs() / 1000}))
@@ -751,8 +848,8 @@ export async function findResumableRunIds(opts: { limit?: number }): Promise<str
     if (rows.length === 0) break;
     offset += rows.length;
     for (const row of rows) {
-      // pending/runnable are always claimable; only `running` rows are gated on
-      // the per-step stale window (the SQL floor over-selects them).
+      // Pending/runnable and due deferred rows are claimable; only `running`
+      // rows are gated on the per-step stale window.
       if (row.status !== "running") {
         resumable.push(row.id);
         if (resumable.length >= limit) break;

@@ -3,15 +3,24 @@ import { execFileSync } from "node:child_process";
 import { randomUUID } from "node:crypto";
 import { after, before, describe, test } from "node:test";
 
-import type { WorkflowRevisionDefinition } from "@alfred/contracts";
+import type { SealedCredentialSecret, WorkflowRevisionDefinition } from "@alfred/contracts";
 import { closeConnections, db } from "@alfred/db";
-import { agentRuns, user, workflowRevisions, workflows } from "@alfred/db/schemas";
+import {
+  agentRuns,
+  integrationCredentials,
+  user,
+  workflowRevisions,
+  workflows,
+} from "@alfred/db/schemas";
 import { databaseEnv } from "@alfred/env/database";
-import { eq } from "drizzle-orm";
+import { GMAIL_READONLY_SCOPE } from "@alfred/integrations/google";
+import { and, eq } from "drizzle-orm";
 
-import { createRun } from "../../src/modules/agent/service";
+import { runOnce } from "../../src/modules/agent/executor";
+import { createRun, findResumableRunIds, replayRun } from "../../src/modules/agent/service";
 import { ENTITY_FETCHERS } from "../../src/modules/replicache/entities";
 import { registerBuiltinTools } from "../../src/modules/tools";
+import { dispatchDueCronWorkflows } from "../../src/modules/workflows/tick";
 import {
   activateWorkflow,
   clearWorkflowBlocked,
@@ -105,6 +114,12 @@ describe("workflow revision invariants (#555)", { skip: SKIP }, () => {
         userId,
         workflowSlug: slug,
         workflowRevisionId: revised.revision.id,
+        occurrence: {
+          kind: "event",
+          workflowId: created.workflow.id,
+          provider: "test",
+          eventId: "draft-revision-attempt",
+        },
         trigger: {
           kind: "event",
           source: "test",
@@ -118,18 +133,97 @@ describe("workflow revision invariants (#555)", { skip: SKIP }, () => {
     const { runId } = await createRun({
       userId,
       workflowSlug: slug,
-      requestId: "published-revision-manual-run",
       trigger: { kind: "manual" },
+      occurrence: {
+        kind: "manual",
+        requestId: "published-revision-manual-run",
+      },
     });
     const [run] = await db()
       .select({
         workflowRevisionId: agentRuns.workflowRevisionId,
         brief: agentRuns.brief,
+        occurrenceKey: agentRuns.occurrenceKey,
       })
       .from(agentRuns)
       .where(eq(agentRuns.id, runId));
     assert.equal(run?.workflowRevisionId, activated.revision.id);
     assert.equal(run?.brief, "published brief");
+    assert.match(run?.occurrenceKey ?? "", /^occ_v1:manual:sha256:/);
+
+    await db().update(agentRuns).set({ status: "completed" }).where(eq(agentRuns.id, runId));
+    const duplicate = await createRun({
+      userId,
+      workflowSlug: slug,
+      trigger: { kind: "manual" },
+      occurrence: {
+        kind: "manual",
+        requestId: "published-revision-manual-run",
+      },
+    });
+    assert.equal(duplicate.runId, runId, "terminal status must not release the occurrence key");
+    assert.equal(duplicate.created, false);
+
+    for (const occurrence of [
+      {
+        occurrence: {
+          kind: "event",
+          workflowId: created.workflow.id,
+          provider: "gmail",
+          eventId: "delivery-1",
+        },
+        trigger: {
+          kind: "event" as const,
+          source: "gmail",
+          type: "message_received",
+          eventId: "delivery-1",
+        },
+      },
+      {
+        occurrence: {
+          kind: "cron",
+          workflowId: created.workflow.id,
+          revisionId: activated.revision.id,
+          scheduledFor: "2026-08-01T07:00:00.000Z",
+        },
+        trigger: { kind: "cron" as const, scheduledFor: "2026-08-01T07:00:00.000Z" },
+      },
+    ]) {
+      const first = await createRun({
+        userId,
+        workflowSlug: slug,
+        workflowRevisionId: activated.revision.id,
+        occurrence: occurrence.occurrence,
+        trigger: occurrence.trigger,
+      });
+      await db()
+        .update(agentRuns)
+        .set({ status: "completed" })
+        .where(eq(agentRuns.id, first.runId));
+      const redelivery = await createRun({
+        userId,
+        workflowSlug: slug,
+        workflowRevisionId: activated.revision.id,
+        occurrence: occurrence.occurrence,
+        trigger: occurrence.trigger,
+      });
+      assert.equal(redelivery.runId, first.runId);
+      assert.equal(redelivery.created, false);
+    }
+
+    const pending = await createRun({
+      userId,
+      workflowSlug: slug,
+      trigger: { kind: "manual" },
+      occurrence: {
+        kind: "manual",
+        requestId: "claimed-before-enqueue",
+      },
+    });
+    assert.ok(
+      (await findResumableRunIds({ limit: 1_000 })).includes(pending.runId),
+      "the recovery sweep must find a claimed row when enqueue did not happen",
+    );
   });
 
   test("a stale concurrent edit returns a typed row-version conflict", async () => {
@@ -174,6 +268,290 @@ describe("workflow revision invariants (#555)", { skip: SKIP }, () => {
       .from(workflows)
       .where(eq(workflows.id, created.workflow.id));
     assert.equal(workflow?.currentRevisionId, first.ok ? first.revision.id : null);
+  });
+
+  test("replay creates a linked occurrence with an explicit revision choice", async () => {
+    const userId = await seedUser();
+    const slug = `replay-${randomUUID()}`;
+    const created = await createWorkflowDraft({
+      userId,
+      slug,
+      definition: definition("original brief"),
+    });
+    assert.equal(created.ok, true);
+    if (!created.ok) return;
+    const activatedOriginal = await activateWorkflow({
+      userId,
+      workflowId: created.workflow.id,
+      expectedRowVersion: created.workflow.rowVersion,
+    });
+    assert.equal(activatedOriginal.ok, true);
+    if (!activatedOriginal.ok) return;
+
+    const source = await createRun({
+      userId,
+      workflowSlug: slug,
+      trigger: { kind: "manual" },
+      occurrence: {
+        kind: "manual",
+        requestId: "source",
+      },
+    });
+    const revised = await reviseWorkflow({
+      userId,
+      workflowId: created.workflow.id,
+      definition: definition("latest brief"),
+      expectedRowVersion: activatedOriginal.workflow.rowVersion,
+    });
+    assert.equal(revised.ok, true);
+    if (!revised.ok) return;
+    const activatedLatest = await activateWorkflow({
+      userId,
+      workflowId: created.workflow.id,
+      expectedRowVersion: revised.workflow.rowVersion,
+    });
+    assert.equal(activatedLatest.ok, true);
+    if (!activatedLatest.ok) return;
+
+    const originalReplay = await replayRun({
+      userId,
+      runId: source.runId,
+      requestId: "replay-original",
+      revisionChoice: "original",
+    });
+    const latestReplay = await replayRun({
+      userId,
+      runId: source.runId,
+      requestId: "replay-latest",
+      revisionChoice: "latest",
+    });
+    const replayRows = await db()
+      .select({
+        id: agentRuns.id,
+        replayOfRunId: agentRuns.replayOfRunId,
+        workflowRevisionId: agentRuns.workflowRevisionId,
+      })
+      .from(agentRuns)
+      .where(eq(agentRuns.replayOfRunId, source.runId));
+    const originalRow = replayRows.find((row) => row.id === originalReplay.runId);
+    const latestRow = replayRows.find((row) => row.id === latestReplay.runId);
+    assert.equal(originalRow?.workflowRevisionId, activatedOriginal.revision.id);
+    assert.equal(latestRow?.workflowRevisionId, activatedLatest.revision.id);
+    assert.equal(originalRow?.replayOfRunId, source.runId);
+    assert.equal(latestRow?.replayOfRunId, source.runId);
+
+    const duplicate = await replayRun({
+      userId,
+      runId: source.runId,
+      requestId: "replay-latest",
+      revisionChoice: "latest",
+    });
+    assert.equal(duplicate.runId, latestReplay.runId);
+    assert.equal(duplicate.created, false);
+  });
+
+  test("cron claim and cursor advance survive an enqueue failure as one pending occurrence", async () => {
+    const userId = await seedUser();
+    const slug = `cron-occurrence-${randomUUID()}`;
+    const created = await createWorkflowDraft({
+      userId,
+      slug,
+      definition: {
+        ...definition("cron occurrence"),
+        trigger: { kind: "cron", schedule: "* * * * *", timezone: "UTC" },
+      },
+    });
+    assert.equal(created.ok, true);
+    if (!created.ok) return;
+    const activated = await activateWorkflow({
+      userId,
+      workflowId: created.workflow.id,
+      expectedRowVersion: created.workflow.rowVersion,
+    });
+    assert.equal(activated.ok, true);
+    if (!activated.ok) return;
+
+    const scheduledFor = new Date(Date.now() - 60_000);
+    await db()
+      .update(workflows)
+      .set({ nextRunAt: scheduledFor })
+      .where(eq(workflows.id, created.workflow.id));
+    const tick = await dispatchDueCronWorkflows(new Date(), {
+      enqueueRun: async () => {
+        throw new Error("simulated Redis outage after commit");
+      },
+    });
+    assert.equal(tick.failed, 1);
+
+    const [run] = await db()
+      .select({
+        id: agentRuns.id,
+        status: agentRuns.status,
+        occurrenceKey: agentRuns.occurrenceKey,
+      })
+      .from(agentRuns)
+      .where(and(eq(agentRuns.userId, userId), eq(agentRuns.workflowSlug, slug)))
+      .limit(1);
+    assert.equal(run?.status, "pending");
+    assert.match(run?.occurrenceKey ?? "", /^occ_v1:cron:sha256:/);
+    assert.ok(run && (await findResumableRunIds({ limit: 1_000 })).includes(run.id));
+
+    const [workflow] = await db()
+      .select({ nextRunAt: workflows.nextRunAt, lastScheduledAt: workflows.lastScheduledAt })
+      .from(workflows)
+      .where(eq(workflows.id, created.workflow.id));
+    assert.equal(workflow?.lastScheduledAt?.toISOString(), scheduledFor.toISOString());
+    assert.ok(workflow?.nextRunAt && workflow.nextRunAt > scheduledFor);
+  });
+
+  test("credential loss blocks the occurrence before the first model turn", async () => {
+    const userId = await seedUser();
+    const accountRef = `google-${randomUUID()}`;
+    const [credential] = await db()
+      .insert(integrationCredentials)
+      .values({
+        userId,
+        provider: "google",
+        accountId: accountRef,
+        accountLabel: "test@example.test",
+        accessToken: "test-token" as unknown as SealedCredentialSecret,
+        scopes: [GMAIL_READONLY_SCOPE],
+        status: "active",
+      })
+      .returning({ id: integrationCredentials.id });
+    assert.ok(credential);
+
+    const slug = `readiness-loss-${randomUUID()}`;
+    const created = await createWorkflowDraft({
+      userId,
+      slug,
+      definition: {
+        name: "Credential loss",
+        description: null,
+        brief: "Search Gmail.",
+        trigger: { kind: "manual" },
+        allowedIntegrations: ["gmail"],
+        allowedTools: ["gmail.search"],
+        requiredCapabilities: [{ tool: "gmail.search", accountRef }],
+      },
+    });
+    assert.equal(created.ok, true);
+    if (!created.ok) return;
+    const activated = await activateWorkflow({
+      userId,
+      workflowId: created.workflow.id,
+      expectedRowVersion: created.workflow.rowVersion,
+    });
+    assert.equal(activated.ok, true);
+    if (!activated.ok) return;
+
+    await db()
+      .update(integrationCredentials)
+      .set({ status: "needs_reauth" })
+      .where(eq(integrationCredentials.id, credential.id));
+    const run = await createRun({
+      userId,
+      workflowSlug: slug,
+      trigger: { kind: "manual" },
+      occurrence: {
+        kind: "manual",
+        requestId: "credential-loss",
+      },
+    });
+    const outcome = await runOnce(run.runId);
+    assert.equal(outcome.kind, "blocked");
+
+    const [storedRun] = await db()
+      .select({ status: agentRuns.status, currentStep: agentRuns.currentStep })
+      .from(agentRuns)
+      .where(eq(agentRuns.id, run.runId));
+    assert.equal(storedRun?.status, "blocked");
+    assert.equal(storedRun?.currentStep, "check-readiness");
+    const [storedWorkflow] = await db()
+      .select({ blocked: workflows.blocked })
+      .from(workflows)
+      .where(eq(workflows.id, created.workflow.id));
+    assert.equal(storedWorkflow?.blocked?.code, "needs_reauth");
+  });
+
+  test("an old pinned run cannot block a newly published revision", async () => {
+    const userId = await seedUser();
+    const accountRef = `google-${randomUUID()}`;
+    const [credential] = await db()
+      .insert(integrationCredentials)
+      .values({
+        userId,
+        provider: "google",
+        accountId: accountRef,
+        accountLabel: "stale@example.test",
+        accessToken: "test-token" as unknown as SealedCredentialSecret,
+        scopes: [GMAIL_READONLY_SCOPE],
+        status: "active",
+      })
+      .returning({ id: integrationCredentials.id });
+    assert.ok(credential);
+
+    const slug = `stale-readiness-${randomUUID()}`;
+    const created = await createWorkflowDraft({
+      userId,
+      slug,
+      definition: {
+        name: "Old Gmail revision",
+        description: null,
+        brief: "Search Gmail.",
+        trigger: { kind: "manual" },
+        allowedIntegrations: ["gmail"],
+        allowedTools: ["gmail.search"],
+        requiredCapabilities: [{ tool: "gmail.search", accountRef }],
+      },
+    });
+    assert.equal(created.ok, true);
+    if (!created.ok) return;
+    const activatedV1 = await activateWorkflow({
+      userId,
+      workflowId: created.workflow.id,
+      expectedRowVersion: created.workflow.rowVersion,
+    });
+    assert.equal(activatedV1.ok, true);
+    if (!activatedV1.ok) return;
+    const oldRun = await createRun({
+      userId,
+      workflowSlug: slug,
+      trigger: { kind: "manual" },
+      occurrence: {
+        kind: "manual",
+        requestId: "old-revision",
+      },
+    });
+
+    const revised = await reviseWorkflow({
+      userId,
+      workflowId: created.workflow.id,
+      definition: definition("Current healthy revision"),
+      expectedRowVersion: activatedV1.workflow.rowVersion,
+    });
+    assert.equal(revised.ok, true);
+    if (!revised.ok) return;
+    const activatedV2 = await activateWorkflow({
+      userId,
+      workflowId: created.workflow.id,
+      expectedRowVersion: revised.workflow.rowVersion,
+    });
+    assert.equal(activatedV2.ok, true);
+    if (!activatedV2.ok) return;
+
+    await db()
+      .update(integrationCredentials)
+      .set({ status: "needs_reauth" })
+      .where(eq(integrationCredentials.id, credential.id));
+    const outcome = await runOnce(oldRun.runId);
+    assert.equal(outcome.kind, "blocked");
+    const [storedWorkflow] = await db()
+      .select({ blocked: workflows.blocked, publishedRevisionId: workflows.publishedRevisionId })
+      .from(workflows)
+      .where(eq(workflows.id, created.workflow.id));
+    assert.equal(storedWorkflow?.blocked, null);
+    assert.equal(storedWorkflow?.publishedRevisionId, activatedV2.revision.id);
   });
 
   test("connection recovery revalidates the same immutable draft and presents activation", async () => {
