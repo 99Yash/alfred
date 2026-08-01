@@ -9,33 +9,27 @@
  * wiring, and Settings UI land in the subsequent integration slices.
  */
 
-export { REST_GATE_CONFIG, type RestProviderGateConfig } from "./config";
+export { REST_GATE_CONFIG } from "./config";
 export {
   assertReadableRestRequest,
   assertReadableGraphqlRequest,
-  assertReadableRequest,
-  type PassthroughGateInput,
 } from "./gate";
-export { classifyTransportError } from "./transport";
 export { runRailwayPassthrough } from "./railway-adapter";
 export { runRestPassthrough } from "./rest-adapter";
 export {
   boundPassthroughBody,
   PASSTHROUGH_MAX_ARRAY_ITEMS,
   PASSTHROUGH_MAX_BODY_BYTES,
-  type BoundedPassthroughBody,
 } from "./bounds";
 export {
   passthroughBinaryResult,
   passthroughHttpResult,
   passthroughRejection,
   passthroughTransportError,
-  type HttpResultArgs,
 } from "./shaper";
 export {
   countRunPassthroughCalls,
   passthroughBudgetExhausted,
   PASSTHROUGH_PER_RUN_CEILING,
-  type PassthroughBudgetExhausted,
 } from "./budget";
-export { passthroughTruncationTelemetry, type PassthroughTruncationTelemetry } from "./telemetry";
+export { passthroughTruncationTelemetry } from "./telemetry";

@@ -35,18 +35,5 @@ export * from "./team-graph";
 export * from "./style-profiles";
 export * from "./rejected";
 export * from "./extraction";
-export {
-  startMemoryWorker,
-  stopMemoryWorker,
-  closeMemoryQueue,
-  getMemoryQueue,
-  enqueueExtractionForUser,
-  type MemoryJobData,
-} from "./queue";
+export { startMemoryWorker, stopMemoryWorker, closeMemoryQueue } from "./queue";
 export { scheduleRepeatableMemoryJobs } from "./repeatable";
-export {
-  runMemoryFinalize,
-  runMemoryPickDocuments,
-  runMemoryProcess,
-  type MemoryExtractionOperationState,
-} from "./workflow-operations";

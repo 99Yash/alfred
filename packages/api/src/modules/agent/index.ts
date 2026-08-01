@@ -1,13 +1,7 @@
 import { Elysia, t } from "elysia";
 import { authMacro } from "../../middleware/auth";
-import { runOnce } from "./executor";
 import { closeAgentQueue, enqueueRun, getAgentQueue } from "./queue";
-import {
-  isInternalWorkflowSlug,
-  listPublicWorkflows,
-  listWorkflows,
-  registerWorkflow,
-} from "./registry";
+import { isInternalWorkflowSlug, listPublicWorkflows, registerWorkflow } from "./registry";
 import {
   cancelRun,
   createRun,
@@ -18,7 +12,6 @@ import {
   type SignalArgs,
 } from "./service";
 import { isUniqueViolation } from "../../lib/pg-errors";
-import { finalizeCancelledRun } from "./terminal-closure";
 import { closeSubAgentJoinWakeQueue } from "./sub-agent-join-wake-queue";
 import {
   startSubAgentJoinWakeWorker,
@@ -30,18 +23,13 @@ import { Errors, toMessage } from "@alfred/contracts";
 
 export {
   registerWorkflow,
-  listWorkflows,
-  listPublicWorkflows,
   createRun,
-  replayRun,
   getRun,
   signalRun,
   signalRunInTx,
   cancelRun,
-  finalizeCancelledRun,
   enqueueRun,
   getAgentQueue,
-  runOnce,
   startAgentWorker,
   stopAgentWorker,
   startSubAgentJoinWakeWorker,
@@ -58,7 +46,7 @@ export type {
   Workflow,
   WorkflowInput,
 } from "./types";
-export type { CancelOutcome, CancelRunArgs, SignalArgs, SignalOutcome } from "./service";
+export type { CancelOutcome, SignalOutcome } from "./service";
 
 export const agent = new Elysia({ prefix: "/api/agent", normalize: "typebox" })
   .use(authMacro)
