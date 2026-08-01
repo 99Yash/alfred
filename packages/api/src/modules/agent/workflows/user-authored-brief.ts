@@ -61,6 +61,7 @@ import {
 import type { Step, Workflow } from "../types";
 import { pendingToolCallSchema } from "./pending-tool-call";
 import { BRIEF_TURN_CAP_MAX, openBriefTurnRetries } from "./turn-budgets";
+import { checkWorkflowRunReadiness } from "../../workflows/runtime-readiness";
 
 // This workflow is the one sub-agents run on (see SUB_AGENT_WORKFLOW_SLUG);
 // keep the slug single-sourced so the two never drift.
@@ -97,11 +98,14 @@ const briefRunStateSchema = z
     // provider stuck returning empties — not scattered empties across a long run.
     // Default 0 for runs minted before the field existed.
     emptyRetries: z.number().int().min(0).default(0),
+    readinessDeferrals: z.number().int().min(0).default(0),
   })
   .transform((state) => foldToolSurfaceState(state));
 type BriefRunState = z.infer<typeof briefRunStateSchema>;
 
 const COMPACT_TRANSCRIPT_STEP_ID = "compact-transcript";
+const CHECK_READINESS_STEP_ID = "check-readiness";
+const READINESS_RETRY_DELAYS_MS = [60_000, 5 * 60_000, 15 * 60_000] as const;
 /**
  * Skip the compactor call when the prior transcript is below this byte
  * size — the boss has barely begun and the round-trip would cost more
@@ -611,7 +615,7 @@ export const userAuthoredBriefWorkflow: Workflow<BriefRunState> = {
   slug: USER_AUTHORED_BRIEF_WORKFLOW_SLUG,
   name: "User-authored brief",
   trigger: { kind: "manual" },
-  initialStep: "boss-turn",
+  initialStep: CHECK_READINESS_STEP_ID,
   closure: { kind: "none" },
   initialState(input) {
     if (!input.brief) throw new Error("user-authored brief workflow requires a brief");
@@ -642,6 +646,7 @@ export const userAuthoredBriefWorkflow: Workflow<BriefRunState> = {
       turnCount: 0,
       lastInputTokens: 0,
       emptyRetries: 0,
+      readinessDeferrals: 0,
     };
   },
   async initialTranscript(input) {
@@ -652,6 +657,33 @@ export const userAuthoredBriefWorkflow: Workflow<BriefRunState> = {
     return transcript;
   },
   steps: {
+    [CHECK_READINESS_STEP_ID]: {
+      id: CHECK_READINESS_STEP_ID,
+      async run(ctx) {
+        const verdict = await checkWorkflowRunReadiness({ runId: ctx.runId, userId: ctx.userId });
+        if (verdict.kind === "ready") {
+          return {
+            kind: "next",
+            state: { ...ctx.state, readinessDeferrals: 0 },
+            nextStep: "boss-turn",
+          };
+        }
+        if (verdict.kind === "blocked") {
+          if (verdict.newlyBlocked) await ctx.log("Workflow blocked: action is required.");
+          return { kind: "blocked", state: ctx.state, output: { readiness: verdict.problems } };
+        }
+        const delay = READINESS_RETRY_DELAYS_MS[ctx.state.readinessDeferrals];
+        if (delay === undefined) {
+          throw new Error("Workflow readiness stayed unavailable after the bounded retry policy");
+        }
+        return {
+          kind: "defer",
+          state: { ...ctx.state, readinessDeferrals: ctx.state.readinessDeferrals + 1 },
+          retryAt: new Date(Date.now() + delay),
+          output: { reason: verdict.reason },
+        };
+      },
+    },
     "boss-turn": bossTurnStep,
     "dispatch-tools": dispatchToolsStep,
     [COMPACT_TRANSCRIPT_STEP_ID]: compactTranscriptStep,

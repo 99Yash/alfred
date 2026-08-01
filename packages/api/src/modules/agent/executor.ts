@@ -237,6 +237,8 @@ export type RunOutcome =
   | { kind: "advanced"; runId: string; nextStep: string }
   | { kind: "completed"; runId: string }
   | { kind: "interrupted"; runId: string; wake: WakeCondition }
+  | { kind: "deferred"; runId: string; retryAt: Date }
+  | { kind: "blocked"; runId: string }
   | { kind: "failed"; runId: string; error: string }
   | { kind: "skipped"; runId: string; reason: RunSkipReason };
 
@@ -277,6 +279,7 @@ interface RunRow {
   currentStep: string;
   attempt: number;
   metadata: unknown;
+  deferredUntil: Date | null;
 }
 
 export interface RunOnceOptions {
@@ -437,6 +440,7 @@ export async function leaseRun(runId: string): Promise<LeaseResult> {
     const result = await tx.execute(sql`
       SELECT id, user_id AS "userId", workflow_slug AS "workflowSlug", status,
              state, transcript, current_step AS "currentStep", attempt, metadata,
+             deferred_until AS "deferredUntil",
              EXTRACT(EPOCH FROM (now() - last_checkpoint_at)) * 1000 AS "staleMs"
       FROM agent_runs
       WHERE id = ${runId}
@@ -449,6 +453,9 @@ export async function leaseRun(runId: string): Promise<LeaseResult> {
     const status = runStatusSchema.parse(row.status);
     if (isTerminalStatus(status)) return { kind: "none" };
     if (status === "waiting") return { kind: "none" }; // signal will flip to runnable first
+    if (status === "deferred" && row.deferredUntil && row.deferredUntil > new Date()) {
+      return { kind: "none" };
+    }
 
     // A `running` row is normally held by another worker. But if its
     // heartbeat (`last_checkpoint_at`) is older than the lease window,
@@ -612,6 +619,7 @@ export async function leaseRun(runId: string): Promise<LeaseResult> {
       .set({
         status: "running",
         attempt,
+        deferredUntil: null,
         startedAt: status === "pending" ? new Date() : undefined,
         lastCheckpointAt: new Date(),
       })
@@ -626,8 +634,7 @@ export async function leaseRun(runId: string): Promise<LeaseResult> {
       });
     }
 
-    // `status` is narrowed to pending | runnable | running here (terminal and
-    // waiting returned above), which is exactly `QueueLeaseFromStatus`.
+    // `status` is narrowed to pending | runnable | running | deferred here.
     const queue: LeaseQueueInfo = {
       staleMs,
       fromStatus: status as QueueLeaseFromStatus,
@@ -706,7 +713,7 @@ export async function commitStepSuccess(
       ? undefined
       : (sanitizeToolResult(result.transcript).value as AgentTranscriptMessage[]);
   const cleanOutput =
-    result.kind === "done"
+    result.kind === "done" || result.kind === "blocked" || result.kind === "defer"
       ? (sanitizeToolResult(result.output ?? null).value as object | null)
       : null;
   const cleanWake =
@@ -760,7 +767,14 @@ async function commitStepSuccessTx(
     await tx
       .update(agentSteps)
       .set({
-        status: result.kind === "interrupt" ? "interrupted" : "completed",
+        status:
+          result.kind === "interrupt"
+            ? "interrupted"
+            : result.kind === "defer"
+              ? "deferred"
+              : result.kind === "blocked"
+                ? "blocked"
+                : "completed",
         output: cleanOutput,
         endedAt: now,
       })
@@ -864,6 +878,51 @@ async function commitStepSuccessTx(
         payload: { runId: run.id, phase: "completed", step: stepId, attempt },
       });
       return { kind: "completed", runId: run.id };
+    }
+
+    if (result.kind === "blocked") {
+      await commitGuardedRunUpdate(tx, run, stepId, attempt, {
+        state: cleanState as object,
+        status: "blocked",
+        output: cleanOutput,
+        endedAt: now,
+        lastCheckpointAt: now,
+        updatedAt: now,
+        ...(cleanTranscript === undefined ? {} : { transcript: cleanTranscript }),
+      });
+      await publishEvent({
+        tx,
+        userId: run.userId,
+        kind: "agent.run",
+        payload: { runId: run.id, phase: "blocked", step: stepId, attempt },
+      });
+      return { kind: "blocked", runId: run.id };
+    }
+
+    if (result.kind === "defer") {
+      await commitGuardedRunUpdate(tx, run, stepId, attempt, {
+        state: cleanState as object,
+        status: "deferred",
+        output: cleanOutput,
+        deferredUntil: result.retryAt,
+        attempt: attempt + 1,
+        lastCheckpointAt: now,
+        updatedAt: now,
+        ...(cleanTranscript === undefined ? {} : { transcript: cleanTranscript }),
+      });
+      await publishEvent({
+        tx,
+        userId: run.userId,
+        kind: "agent.run",
+        payload: {
+          runId: run.id,
+          phase: "deferred",
+          step: stepId,
+          attempt,
+          retryAt: result.retryAt.toISOString(),
+        },
+      });
+      return { kind: "deferred", runId: run.id, retryAt: result.retryAt };
     }
 
     // interrupt

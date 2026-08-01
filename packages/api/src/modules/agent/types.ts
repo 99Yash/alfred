@@ -50,6 +50,14 @@ export interface StagedAction {
 export type StepResult<S> =
   | { kind: "next"; state: S; nextStep: string; transcript?: AgentTranscriptMessage[] }
   | { kind: "done"; state: S; output?: unknown; transcript?: AgentTranscriptMessage[] }
+  | { kind: "blocked"; state: S; output: unknown; transcript?: AgentTranscriptMessage[] }
+  | {
+      kind: "defer";
+      state: S;
+      retryAt: Date;
+      output?: unknown;
+      transcript?: AgentTranscriptMessage[];
+    }
   | { kind: "interrupt"; state: S; wake: WakeCondition; transcript?: AgentTranscriptMessage[] };
 
 /** Context handed to a step body. Steps mutate via the return value, not by reaching out. */
