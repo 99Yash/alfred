@@ -13,6 +13,7 @@ import {
   promoteScratchInput,
   readScratchInput,
   readUserContextInput,
+  recoverWorkflowInput,
   readChatHistoryInput,
   fetchUrlInput,
   rememberInput,
@@ -60,7 +61,25 @@ import { parseScratchToolKey } from "./scratch-key";
 import { runWebSearch } from "./web-search";
 import { resolveExactToolLoad, searchAvailableTools } from "./discovery";
 import { authorWorkflowDraft } from "../workflows/authoring";
-import { activateWorkflowDefinition } from "../workflows/revisions";
+import { activateWorkflowDefinition, recoverWorkflowDraft } from "../workflows/revisions";
+import { workflowRecoveryNavigation } from "../workflows/recovery-navigation";
+import type { WorkflowReadinessProblem } from "../workflows/readiness";
+
+function blockedWorkflowRecoveryResult(args: {
+  workflowId: string;
+  revisionId: string;
+  readiness: readonly WorkflowReadinessProblem[];
+}) {
+  const recovery = workflowRecoveryNavigation(args);
+  return {
+    ok: true as const,
+    status: "blocked" as const,
+    workflowId: args.workflowId,
+    revisionId: args.revisionId,
+    readinessBlockers: args.readiness,
+    ...(recovery ? { recovery } : {}),
+  };
+}
 
 /**
  * Resolve the provenance an artifact tool needs from the call context. Returns
@@ -243,14 +262,14 @@ export const systemTools: readonly RegisteredTool[] = [
       if (!result.ok) return { ok: false, status: result.failure.kind, failure: result.failure };
       if (result.readiness.length > 0 || !result.activationProposal) {
         return {
-          ok: true,
-          status: "blocked",
-          workflowId: result.workflow.id,
+          ...blockedWorkflowRecoveryResult({
+            workflowId: result.workflow.id,
+            revisionId: result.revision.id,
+            readiness: result.readiness,
+          }),
           rowVersion: result.workflow.rowVersion,
-          revisionId: result.revision.id,
           revisionNumber: result.revision.revisionNumber,
           created: result.created,
-          readinessBlockers: result.readiness,
         };
       }
       return {
@@ -261,6 +280,46 @@ export const systemTools: readonly RegisteredTool[] = [
         revisionNumber: result.revision.revisionNumber,
         contentHash: result.revision.contentHash,
         created: result.created,
+        activationProposal: result.activationProposal,
+      };
+    },
+  }),
+  liveTool({
+    integration: "system",
+    action: "recover_workflow",
+    riskTier: "no_risk",
+    availability: { requiresThread: true, callers: ["boss"] },
+    description:
+      "Revalidate one exact immutable workflow draft after setup and return the server-canonical activation proposal. Copy that proposal directly into system.activate_workflow; never reconstruct it.",
+    discovery: {
+      title: "Recover workflow",
+      summary: "Resume a blocked workflow draft after connection or permission setup.",
+      aliases: ["resume workflow recovery", "continue workflow activation"],
+      tags: ["workflow", "recovery", "activation"],
+      entities: ["workflow", "draft", "automation"],
+      verbs: ["recover", "resume", "continue"],
+      relatedTools: ["system.activate_workflow"],
+    },
+    inputSchema: recoverWorkflowInput,
+    execute: async (input, ctx) => {
+      const result = await recoverWorkflowDraft({
+        userId: ctx.userId,
+        workflowId: input.workflowId,
+        revisionId: input.revisionId,
+      });
+      if (!result.ok) return { ok: false, status: result.failure.kind, failure: result.failure };
+      if (!result.activationProposal) {
+        return blockedWorkflowRecoveryResult({
+          workflowId: result.workflow.id,
+          revisionId: result.revision.id,
+          readiness: result.readiness,
+        });
+      }
+      return {
+        ok: true,
+        status: "ready_to_activate",
+        workflowId: result.workflow.id,
+        revisionId: result.revision.id,
         activationProposal: result.activationProposal,
       };
     },

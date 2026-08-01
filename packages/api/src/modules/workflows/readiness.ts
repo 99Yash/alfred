@@ -6,8 +6,10 @@ import {
   isIntegrationSlug,
   isToolName,
   toolLabel,
+  type ToolName,
   type WorkflowAccountDisplay,
   type WorkflowCapabilityDisplay,
+  type WorkflowRecoveryAction,
   type WorkflowRequestedCapability,
   type WorkflowRequiredCapability,
   type WorkflowRevisionDefinition,
@@ -34,6 +36,18 @@ export interface WorkflowReadinessProblem {
   code: WorkflowReadinessProblemCode;
   message: string;
   field: string;
+  /** Omitted when no user action can truthfully make the capability runnable. */
+  recoveryAction?: WorkflowRecoveryAction;
+}
+
+/** A caller-supplied verdict for one exact account and provider resource boundary. */
+export interface WorkflowResourceAccessFact {
+  tool: ToolName;
+  accountRef?: string;
+  resourceScope: Record<string, unknown>;
+  granted: boolean;
+  /** Supplied only when the owning provider boundary has an executable remedy. */
+  recoveryAction?: WorkflowRecoveryAction;
 }
 
 export interface WorkflowCapabilityResolution<TDefinition extends WorkflowReadinessDefinition> {
@@ -191,6 +205,7 @@ export function resolveWorkflowReadiness(args: {
   requestedCapabilities?: readonly WorkflowRequestedCapability[];
   gmailEventHealth: ReadonlyMap<string, GmailEventHealth>;
   toolCatalog: ToolCatalog;
+  resourceAccessFacts?: readonly WorkflowResourceAccessFact[];
   now?: Date;
 }): WorkflowReadinessProblem[] {
   const problems: WorkflowReadinessProblem[] = [];
@@ -232,15 +247,6 @@ export function resolveWorkflowReadiness(args: {
       });
       continue;
     }
-    if (capability.resourceScope) {
-      problems.push({
-        code: "resource_not_granted",
-        message: `Alfred cannot yet verify the resource boundary for '${capability.tool}'.`,
-        field: `${field}.resourceScope`,
-      });
-      continue;
-    }
-
     const availability = evaluateToolAvailability(args.availability, tool, allowed, {
       caller: "boss",
       hasThread: false,
@@ -250,6 +256,7 @@ export function resolveWorkflowReadiness(args: {
         code: availability.code,
         message: availability.reason,
         field: `${field}.tool`,
+        ...recoveryForToolProblem(availability.code, tool, capability.accountRef),
       });
       continue;
     }
@@ -267,7 +274,9 @@ export function resolveWorkflowReadiness(args: {
           code: "choose_account",
           message: `Choose the connected account for '${capability.tool}' from the available account labels.`,
           field: `${field}.accountRef`,
+          recoveryAction: { kind: "choose_account", integration: tool.integration },
         });
+        continue;
       } else if (selectedRows.length === 1) {
         const activeRows = selectedRows.filter((row) => row.status === "active");
         if (activeRows.length === 0) {
@@ -275,7 +284,16 @@ export function resolveWorkflowReadiness(args: {
             code: "needs_reauth",
             message: `The selected account for '${capability.tool}' needs to be reconnected.`,
             field: `${field}.accountRef`,
+            recoveryAction: {
+              kind: "reauthorize",
+              integration: tool.integration,
+              accountRef: capability.accountRef,
+              ...(credential.anyOfScopes.length > 0
+                ? { acceptableScopes: [...credential.anyOfScopes] }
+                : {}),
+            },
           });
+          continue;
         } else if (
           credential &&
           credential.anyOfScopes.length > 0 &&
@@ -285,8 +303,34 @@ export function resolveWorkflowReadiness(args: {
             code: "missing_scope",
             message: `The selected account for '${capability.tool}' is missing a required permission.`,
             field: `${field}.accountRef`,
+            recoveryAction: {
+              kind: "reauthorize",
+              integration: tool.integration,
+              accountRef: capability.accountRef,
+              acceptableScopes: [...credential.anyOfScopes],
+            },
           });
+          continue;
         }
+      }
+    }
+
+    if (capability.resourceScope) {
+      const resourceFact = args.resourceAccessFacts?.find(
+        (fact) =>
+          fact.tool === capability.tool &&
+          fact.accountRef === capability.accountRef &&
+          canonicalJson(fact.resourceScope) === canonicalJson(capability.resourceScope),
+      );
+      if (!resourceFact?.granted) {
+        problems.push({
+          code: "resource_not_granted",
+          message: resourceFact
+            ? `The selected resource is not granted for '${capability.tool}'.`
+            : `Alfred cannot verify the selected resource for '${capability.tool}'.`,
+          field: `${field}.resourceScope`,
+          ...(resourceFact?.recoveryAction ? { recoveryAction: resourceFact.recoveryAction } : {}),
+        });
       }
     }
   }
@@ -328,31 +372,42 @@ export function resolveWorkflowReadiness(args: {
       const expiresAt = selectedRow
         ? getStringPath(selectedRow.metadata, "watch", "expiresAt")
         : undefined;
-      const watchConfigured = Boolean(
+      const watchInstalled = Boolean(
         selectedRow?.status === "active" &&
         selectedRow.scopes.has(GMAIL_READONLY_SCOPE) &&
         expiresAt &&
         new Date(expiresAt).getTime() > now.getTime() &&
         getStringPath(selectedRow.metadata, "watch", "baselineHistoryId") &&
-        getStringPath(selectedRow.metadata, "watch", "installedAt") &&
-        selectedHealth?.receiverConfigured &&
-        selectedHealth.topicMatches &&
-        selectedHealth.cursorReady,
+        getStringPath(selectedRow.metadata, "watch", "installedAt"),
+      );
+      const serverConfigurationBroken = Boolean(
+        watchInstalled &&
+        selectedHealth &&
+        (!selectedHealth.receiverConfigured || !selectedHealth.topicMatches),
       );
       const providerUnhealthy = Boolean(
-        watchConfigured &&
-        selectedHealth &&
-        (selectedHealth.coverageGap ||
-          !selectedHealth.lastSyncAt ||
-          (selectedHealth.lastSyncAt &&
-            now.getTime() - selectedHealth.lastSyncAt.getTime() > GMAIL_EVENT_HEALTH_MAX_AGE_MS)),
+        serverConfigurationBroken ||
+        (watchInstalled &&
+          selectedHealth &&
+          (selectedHealth.coverageGap ||
+            !selectedHealth.cursorReady ||
+            !selectedHealth.lastSyncAt ||
+            (selectedHealth.lastSyncAt &&
+              now.getTime() - selectedHealth.lastSyncAt.getTime() >
+                GMAIL_EVENT_HEALTH_MAX_AGE_MS))),
       );
+      const recoveryAction: WorkflowRecoveryAction | undefined = serverConfigurationBroken
+        ? undefined
+        : providerUnhealthy
+          ? { kind: "retry" }
+          : { kind: "connect", integration: "gmail" };
       problems.push({
         code: providerUnhealthy ? "provider_unhealthy" : "trigger_not_ready",
         message: providerUnhealthy
           ? "Gmail event delivery is unhealthy; retry after delivery coverage recovers."
           : "Gmail event delivery is not ready; reconnect Gmail or renew its watch.",
         field: "trigger",
+        ...(recoveryAction ? { recoveryAction } : {}),
       });
     }
   }
@@ -371,6 +426,7 @@ export function resolveWorkflowCapabilities<TDefinition extends WorkflowRevision
   availability: IntegrationAvailabilitySnapshot;
   toolCatalog: ToolCatalog;
   gmailEventHealth: ReadonlyMap<string, GmailEventHealth>;
+  resourceAccessFacts?: readonly WorkflowResourceAccessFact[];
   now?: Date;
 }): WorkflowCapabilityResolution<TDefinition> {
   const requiredCapabilities = args.requested.flatMap((requested) =>
@@ -408,10 +464,38 @@ export function resolveWorkflowCapabilities<TDefinition extends WorkflowRevision
     requestedCapabilities: args.requested,
     gmailEventHealth: args.gmailEventHealth,
     toolCatalog: args.toolCatalog,
+    ...(args.resourceAccessFacts ? { resourceAccessFacts: args.resourceAccessFacts } : {}),
     ...(args.now ? { now: args.now } : {}),
   });
   return {
     definition,
     missing,
   };
+}
+
+function recoveryForToolProblem(
+  code: ToolUnavailabilityCode,
+  tool: NonNullable<ReturnType<ToolCatalog["get"]>>,
+  accountRef: string | undefined,
+): { recoveryAction?: WorkflowRecoveryAction } {
+  if (code === "not_connected") {
+    return { recoveryAction: { kind: "connect", integration: tool.integration } };
+  }
+  if (code === "needs_reauth" || code === "missing_scope") {
+    const acceptableScopes = tool.availability?.credential?.anyOfScopes;
+    return {
+      recoveryAction: {
+        kind: "reauthorize",
+        integration: tool.integration,
+        ...(accountRef ? { accountRef } : {}),
+        ...(acceptableScopes && acceptableScopes.length > 0
+          ? { acceptableScopes: [...acceptableScopes] }
+          : {}),
+      },
+    };
+  }
+  if (code === "feature_disabled") {
+    return { recoveryAction: { kind: "enable_feature", integration: tool.integration } };
+  }
+  return {};
 }

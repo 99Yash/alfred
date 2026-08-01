@@ -1,4 +1,4 @@
-import { useParams } from "@tanstack/react-router";
+import { useParams, useSearch } from "@tanstack/react-router";
 import { MoreHorizontal, Pause, Play, Share2 } from "lucide-react";
 import { useState } from "react";
 import { AppButton, AppCard, AppSegmented, AppSwitch } from "~/components/ui/v2";
@@ -10,6 +10,7 @@ import { BackLink } from "./back-link";
 import { DetailShell } from "./detail-shell";
 import { HistoryTab } from "./history-tab";
 import { PlanTab } from "./plan-tab";
+import { RecoveryPanel } from "./recovery-panel";
 import { ShareDialog } from "./share-dialog";
 
 type WorkflowTab = "plan" | "history" | "approvals";
@@ -26,6 +27,7 @@ const PLAY_LEADING = <Play size={14} />;
 
 export function WorkflowDetailPage() {
   const { workflow: slug } = useParams({ from: "/workflows/$workflow" });
+  const { workflow_recovery, revision_id } = useSearch({ from: "/workflows/$workflow" });
   const { workflow, updateWorkflow, loading } = useWorkflow(slug);
   const [tab, setTab] = useState<WorkflowTab>("plan");
   const [shareOpen, setShareOpen] = useState(false);
@@ -128,6 +130,10 @@ export function WorkflowDetailPage() {
           </AppButton>
         </div>
       </header>
+
+      {workflow_recovery && revision_id ? (
+        <RecoveryPanel workflowId={workflow.id} revisionId={revision_id} />
+      ) : null}
 
       <AppSegmented<WorkflowTab>
         value={tab}

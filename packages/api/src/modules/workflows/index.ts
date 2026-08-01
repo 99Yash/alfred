@@ -14,6 +14,7 @@ export {
   createWorkflowDraft,
   reviseWorkflow,
   reviseWorkflowFromPatch,
+  recoverWorkflowDraft,
   setWorkflowBlocked,
   setWorkflowStatus,
   validateWorkflowDefinition,
@@ -27,12 +28,14 @@ export type {
   WorkflowDefinitionDraft,
   WorkflowDefinitionPatch,
   WorkflowRevisedOutcome,
+  RecoveredWorkflowDraftOutcome,
   WorkflowRevisionOutcome,
   WorkflowRevisionProblem,
   WorkflowRevisionProblemCode,
   WorkflowServiceFailure,
   WorkflowServiceResult,
 } from "./revisions";
+export { workflowRoutes } from "./routes";
 export { emitEvent, type EmitEventArgs, type EmitEventResult } from "./events";
 export { seedBuiltinWorkflowsForAllUsers, seedBuiltinWorkflowsForUser } from "./seeder";
 export { dispatchDueCronWorkflows } from "./tick";

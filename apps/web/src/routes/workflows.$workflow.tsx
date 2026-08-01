@@ -1,3 +1,4 @@
+import { getStringPath } from "@alfred/contracts";
 import { createFileRoute } from "@tanstack/react-router";
 import { pageMeta } from "~/lib/page-meta";
 import { WorkflowDetailPage } from "./-workflows-detail/workflow-detail-page";
@@ -15,6 +16,14 @@ import { WorkflowDetailPage } from "./-workflows-detail/workflow-detail-page";
  *   /preview/workflows/$workflow    → app grammar
  */
 export const Route = createFileRoute("/workflows/$workflow")({
+  validateSearch: (params: Record<string, unknown>) => {
+    const workflowRecovery = getStringPath(params, "workflow_recovery");
+    const revisionId = getStringPath(params, "revision_id");
+    return {
+      ...(workflowRecovery ? { workflow_recovery: workflowRecovery } : {}),
+      ...(revisionId ? { revision_id: revisionId } : {}),
+    };
+  },
   head: ({ params }) =>
     pageMeta({
       title: `${params.workflow} · Workflows`,

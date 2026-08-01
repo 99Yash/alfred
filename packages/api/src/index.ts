@@ -14,6 +14,7 @@ import { integrations } from "./modules/integrations/index";
 import { meRoutes } from "./modules/me/index";
 import { onboardingRoutes } from "./modules/onboarding/index";
 import { skillsRoutes } from "./modules/skills/index";
+import { workflowRoutes } from "./modules/workflows/index";
 
 export { securityHeaders, type SecurityHeadersOptions } from "./middleware/security-headers";
 
@@ -36,6 +37,7 @@ export const app = new Elysia({ name: "api", normalize: "typebox" })
   .use(meRoutes)
   .use(onboardingRoutes)
   .use(skillsRoutes)
+  .use(workflowRoutes)
   .get("/health", async ({ set }) => {
     try {
       await db().execute(sql`SELECT 1`);
