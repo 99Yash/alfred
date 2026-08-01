@@ -31,6 +31,7 @@
  *     (covered by smoke-sub-agents.ts at the plumbing level).
  */
 
+import { randomUUID } from "node:crypto";
 import { createRun, enqueueRun, signalRun } from "@alfred/api/backend";
 import { closeAgentQueue, warmPool } from "@alfred/api/runtime";
 import { getStringPath, toRecord } from "@alfred/contracts";
@@ -262,6 +263,7 @@ async function main(): Promise<void> {
     userId: target.id,
     workflowSlug: WORKFLOW_SLUG,
     trigger: { kind: "manual" },
+    occurrence: { kind: "manual", requestId: randomUUID() },
   });
   await enqueueRun(runId);
   console.log(`[smoke-brief-execution] run enqueued: ${runId}`);

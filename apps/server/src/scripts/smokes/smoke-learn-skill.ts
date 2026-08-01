@@ -27,6 +27,7 @@
  *   7. `user_facts` rows whose `source.id = runId` exist (when the model
  *      emitted any proposals — single-string keys per the distill schema).
  */
+import { randomUUID } from "node:crypto";
 import { createRun, enqueueRun, LEARN_SKILL_WORKFLOW_SLUG } from "@alfred/api/backend";
 import { closeAgentQueue, warmPool } from "@alfred/api/runtime";
 import { db } from "@alfred/db";
@@ -156,6 +157,7 @@ async function main() {
     workflowSlug: LEARN_SKILL_WORKFLOW_SLUG,
     input: { skillId, prompt: SAMPLE_PROMPT, reason: "manual" },
     trigger: { kind: "manual" },
+    occurrence: { kind: "manual", requestId: randomUUID() },
   });
   await enqueueRun(runId);
   console.log(`[smoke-learn-skill] run enqueued: ${runId}`);

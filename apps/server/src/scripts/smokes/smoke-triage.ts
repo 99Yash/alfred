@@ -24,6 +24,7 @@
  *      the latest message strips alfred labels from every sibling — Gmail
  *      ends up with one alfred label across the whole thread.
  */
+import { randomUUID } from "node:crypto";
 import { createRun, enqueueRun, getTriage, TRIAGE_WORKFLOW_SLUG } from "@alfred/api/backend";
 import { closeAgentQueue, warmPool } from "@alfred/api/runtime";
 import { db } from "@alfred/db";
@@ -150,6 +151,7 @@ async function main() {
     input: { documentId: doc.id, reason: "manual" },
     metadata: { source: "smoke-triage" },
     trigger: { kind: "manual" },
+    occurrence: { kind: "manual", requestId: randomUUID() },
   });
   await enqueueRun(runId1);
   console.log(`[smoke-triage] run 1 enqueued: ${runId1}`);
@@ -214,6 +216,7 @@ async function main() {
     input: { documentId: doc.id, reason: "manual" },
     metadata: { source: "smoke-triage", attempt: 2 },
     trigger: { kind: "manual" },
+    occurrence: { kind: "manual", requestId: randomUUID() },
   });
   await enqueueRun(runId2);
   console.log(`[smoke-triage] run 2 enqueued: ${runId2}`);
@@ -322,6 +325,7 @@ async function main() {
         input: { documentId: latest.id, reason: "manual" },
         metadata: { source: "smoke-triage", phase: "strip-siblings" },
         trigger: { kind: "manual" },
+        occurrence: { kind: "manual", requestId: randomUUID() },
       });
       await enqueueRun(latestRunId);
       const latestRun = await pollRun(latestRunId, "strip-siblings");

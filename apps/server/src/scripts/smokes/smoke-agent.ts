@@ -7,6 +7,7 @@
  * actually runs the steps; this script just creates a run, watches it
  * progress, signals the HIL approval, and asserts the final output.
  */
+import { randomUUID } from "node:crypto";
 import { createRun, enqueueRun, signalRun } from "@alfred/api/backend";
 import { closeAgentQueue, warmPool } from "@alfred/api/runtime";
 import { db } from "@alfred/db";
@@ -62,6 +63,7 @@ async function main() {
     brief: "smoke test",
     input: { greeting: "hello durable runtime" },
     trigger: { kind: "manual" },
+    occurrence: { kind: "manual", requestId: randomUUID() },
   });
   console.log(`[smoke] created runId=${runId}`);
 

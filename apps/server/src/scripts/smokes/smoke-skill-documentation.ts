@@ -24,6 +24,7 @@
  *   6. The v2 revision row's metadata carries source counts and the
  *      previous (v1) revision id pointer.
  */
+import { randomUUID } from "node:crypto";
 import {
   createRun,
   enqueueRun,
@@ -152,6 +153,7 @@ async function main() {
     workflowSlug: LEARN_SKILL_WORKFLOW_SLUG,
     input: { skillId, prompt: SAMPLE_PROMPT, reason: "manual" },
     trigger: { kind: "manual" },
+    occurrence: { kind: "manual", requestId: randomUUID() },
   });
   await enqueueRun(learn.runId);
   console.log(`[smoke-skill-doc] learn enqueued: ${learn.runId}`);
