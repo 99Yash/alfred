@@ -20,7 +20,8 @@
  *    therefore includes the batch's own orchestration overhead by design.
  *  - Scratchpad time is Langfuse-only (#408) and is deliberately omitted here.
  *  - A gap between consecutive steps is classified by the *preceding* step's
- *    status: a gap after a parked (`interrupted`) step is a wait; a gap after a
+ *    status: a gap after `interrupted` is a wait, after `deferred` is policy
+ *    backoff, and after a
  *    step that ran to a non-parked terminal (`completed`/`failed`) is
  *    time-in-queue. `approvalWaitMs` is summed precisely from `action_stagings`
  *    (`decided_at − created_at`); `subAgentWaitMs` is the parked wall-clock not
@@ -32,6 +33,7 @@
 
 import { db } from "@alfred/db";
 import { actionStagings, agentRuns, agentSteps, apiCallLog } from "@alfred/db/schemas";
+import { isParkedAgentStepStatus } from "@alfred/contracts";
 import { asc, eq } from "drizzle-orm";
 
 /**
@@ -89,6 +91,8 @@ export interface RunBottleneckSummary {
   toolMs: number;
   /** Inter-step wall-clock left after subtracting approval + sub-agent waits. */
   queueMs: number;
+  /** Readiness/policy backoff following a deferred step. */
+  deferredWaitMs: number;
   /** Summed `decided_at − created_at` over stagings. */
   approvalWaitMs: number;
   /** Inter-step gaps following a non-approval `interrupted` step (join waits). */
@@ -143,13 +147,17 @@ export function summarizeRunBottlenecks(input: RunBottleneckInput): RunBottlenec
   // non-parked terminal is pure time-in-queue.
   let totalGapMs = 0;
   let waitGapMs = 0;
+  let deferredWaitMs = 0;
   for (let i = 1; i < steps.length; i++) {
     const prev = steps[i - 1];
     const cur = steps[i];
     if (!prev?.endedAt || !cur) continue;
     const gap = nonNegativeMs(prev.endedAt, cur.startedAt);
     totalGapMs += gap;
-    if (prev.status === "interrupted") waitGapMs += gap;
+    if (isParkedAgentStepStatus(prev.status)) {
+      if (prev.status === "deferred") deferredWaitMs += gap;
+      else waitGapMs += gap;
+    }
   }
 
   let approvalWaitMs = 0;
@@ -169,7 +177,7 @@ export function summarizeRunBottlenecks(input: RunBottleneckInput): RunBottlenec
   // Queue time is the inter-step wall-clock left after the attributed waits —
   // genuine time-in-queue plus stale-lease reclaim delay, never model, tool,
   // approval, or sub-agent time.
-  const queueMs = Math.max(0, totalGapMs - approvalWaitMs - subAgentWaitMs);
+  const queueMs = Math.max(0, totalGapMs - approvalWaitMs - subAgentWaitMs - deferredWaitMs);
 
   return {
     wallClockMs,
@@ -179,6 +187,7 @@ export function summarizeRunBottlenecks(input: RunBottleneckInput): RunBottlenec
     costUsd,
     toolMs,
     queueMs,
+    deferredWaitMs,
     approvalWaitMs,
     subAgentWaitMs,
     reclaims,

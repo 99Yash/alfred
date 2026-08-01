@@ -37,7 +37,7 @@ A running record of design decisions made while scoping alfred (a personal-assis
 | Observability         | Sentry (errors) + PostHog (product analytics) + Langfuse (agent traces) — all on free tiers                       |
 | Integration freshness | Webhooks where available + polling fallback (per-integration policy table in ADR-0024)                            |
 | Built-in features     | 7 background workflows shipped with the app (ADR-0025); user-authored workflows alongside                         |
-| Workflow trigger dispatch | Generic `workflows.tick` + denormalized `next_run_at` + unified `trigger` on `agent_runs` (ADR-0027)          |
+| Workflow trigger dispatch | Generic `workflows.tick` + denormalized `next_run_at` + unified `trigger` on `agent_runs`; durable database-unique occurrence claims are created with the run and cron cursor in one transaction, while BullMQ is delivery only (ADR-0027, amended by #558) |
 | Composer voice input  | Browser-native `SpeechRecognition` (Web Speech API); no server STT (ADR-0028)                                     |
 | Composer model picker | Opaque tiers (`Default` / `Pro`); never raw provider/SKU names (ADR-0029)                                         |
 | Composer `+` menu / Tab autocomplete | Decoration-only in m12; behavior lands post-m13 (ADR-0030)                                         |

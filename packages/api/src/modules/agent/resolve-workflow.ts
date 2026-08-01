@@ -14,7 +14,7 @@ type UserAuthoredWorkflowRow = Pick<WorkflowRow, "isBuiltin"> &
   Pick<
     WorkflowRevision,
     "brief" | "allowedIntegrations" | "allowedTools" | "requiredCapabilities" | "approvedAt"
-  > & { revisionId: string };
+  > & { workflowId: string; revisionId: string };
 
 export interface ResolvedWorkflowForRun {
   workflow: Workflow<unknown>;
@@ -57,6 +57,7 @@ export async function resolveWorkflowForRun(args: {
   const ex = args.tx ?? db();
   const rows = await ex
     .select({
+      workflowId: workflows.id,
       brief: workflowRevisions.brief,
       allowedIntegrations: workflowRevisions.allowedIntegrations,
       isBuiltin: workflows.isBuiltin,
@@ -110,6 +111,7 @@ export async function resolveWorkflowForRun(args: {
       brief: row.brief,
       allowedIntegrations: row.allowedIntegrations,
       isBuiltin: row.isBuiltin,
+      workflowId: row.workflowId,
       revisionId,
       allowedTools: row.allowedTools,
       requiredCapabilities: row.requiredCapabilities,

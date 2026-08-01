@@ -6,5 +6,8 @@ import { PgDialect } from "drizzle-orm/pg-core";
 
 test("the partial-index non-terminal predicate changes only deliberately", () => {
   const rendered = new PgDialect().sqlToQuery(runIsNotTerminal(agentRuns.status)).sql;
-  assert.equal(rendered, `"agent_runs"."status" NOT IN ('completed', 'failed', 'cancelled')`);
+  assert.equal(
+    rendered,
+    `"agent_runs"."status" NOT IN ('completed', 'failed', 'cancelled', 'blocked')`,
+  );
 });

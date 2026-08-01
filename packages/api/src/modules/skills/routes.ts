@@ -3,6 +3,7 @@ import { db } from "@alfred/db";
 import { skills } from "@alfred/db/schemas";
 import { and, eq } from "drizzle-orm";
 import { Elysia, t } from "elysia";
+import { randomUUID } from "node:crypto";
 import { emitReplicachePokes } from "../../events/replicache-events";
 import { authMacro } from "../../middleware/auth";
 import { createRun, enqueueRun } from "../agent";
@@ -72,6 +73,10 @@ export const skillsRoutes = new Elysia({ prefix: "/api/skills", normalize: "type
             workflowSlug: LEARN_SKILL_WORKFLOW_SLUG,
             input,
             trigger: { kind: "manual" },
+            occurrence: {
+              kind: "manual",
+              requestId: `initial:${skill.id}`,
+            },
           });
           await recordSkillRun({
             userId: user.id,
@@ -111,6 +116,10 @@ export const skillsRoutes = new Elysia({ prefix: "/api/skills", normalize: "type
               workflowSlug: LEARN_SKILL_WORKFLOW_SLUG,
               input,
               trigger: { kind: "manual" },
+              occurrence: {
+                kind: "manual",
+                requestId: randomUUID(),
+              },
             });
             await recordSkillRun({
               userId: user.id,

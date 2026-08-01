@@ -217,6 +217,10 @@ export async function spawnSubAgent(
       brief: args.brief,
       metadata,
       trigger: { kind: "manual" },
+      occurrence: {
+        kind: "manual",
+        requestId: `${args.parentRunId}:${args.parentToolCallId}`,
+      },
     });
   } catch (err) {
     // The `findExistingSubAgentRun` guard above is a non-atomic check-then-

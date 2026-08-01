@@ -118,6 +118,9 @@ async function processAgentJob(job: Job<AgentJobData>): Promise<void> {
     if (outcome.kind === "advanced") {
       await enqueueRun(runId);
     }
+    if (outcome.kind === "deferred") {
+      await enqueueRun(runId, { delayMs: Math.max(0, outcome.retryAt.getTime() - Date.now()) });
+    }
     // Which skips are worth a log is the executor's call, not this file's — it
     // owns the closed `RunSkipReason` set and declares the volume of each member
     // (`SKIP_REASON_VOLUME`). A `||` chain here would have to be revisited from
@@ -135,7 +138,7 @@ async function processAgentJob(job: Job<AgentJobData>): Promise<void> {
     // snapshotted too (#372): a run that dies with a turn-limit or tool error
     // still holds the working memory you most want to post-mortem, and a failed
     // run is terminal so there's no resume/double-write risk.
-    if (outcome.kind === "completed" || outcome.kind === "failed") {
+    if (outcome.kind === "completed" || outcome.kind === "failed" || outcome.kind === "blocked") {
       try {
         await snapshotScratchToPostgres(runId);
       } catch (err) {
@@ -147,7 +150,7 @@ async function processAgentJob(job: Job<AgentJobData>): Promise<void> {
     // immediate resume so the boss reports the real result this turn instead
     // of polling scratch and giving up (#268). Best-effort: a non-sub-agent
     // run or an already-moved-on parent is a no-op.
-    if (outcome.kind === "completed" || outcome.kind === "failed") {
+    if (outcome.kind === "completed" || outcome.kind === "failed" || outcome.kind === "blocked") {
       try {
         const parentRunId = await signalParentOfSubAgent(runId);
         if (parentRunId) await enqueueRun(parentRunId);

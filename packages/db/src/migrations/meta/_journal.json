@@ -652,6 +652,20 @@
       "when": 1785551756072,
       "tag": "0092_classy_namorita",
       "breakpoints": true
+    },
+    {
+      "idx": 93,
+      "version": "7",
+      "when": 1785579091272,
+      "tag": "0093_optimal_shinobi_shaw",
+      "breakpoints": true
+    },
+    {
+      "idx": 94,
+      "version": "7",
+      "when": 1785579260009,
+      "tag": "0094_cool_turbo",
+      "breakpoints": true
     }
   ]
 }
