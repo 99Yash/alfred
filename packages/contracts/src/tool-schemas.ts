@@ -1247,6 +1247,13 @@ export const authorWorkflowInput = coerceJsonArrayFields(
   authorWorkflowInputSchema,
 );
 
+export const recoverWorkflowInput = z
+  .object({
+    workflowId: z.string().min(1).max(200),
+    revisionId: z.string().min(1).max(200),
+  })
+  .strict();
+
 // Activation receives the server-canonical proposal returned by authoring. It
 // does not repeat the full tool-name enum for every nested definition field.
 // The model only copies these server-produced names; runtime parsing still uses
@@ -1751,6 +1758,7 @@ export const TOOL_INPUT_SCHEMAS = {
   "system.load_tool": loadToolInput,
   "system.current_time": currentTimeInput,
   "system.author_workflow": authorWorkflowInput,
+  "system.recover_workflow": recoverWorkflowInput,
   "system.activate_workflow": activateWorkflowInput,
   "system.read_user_context": readUserContextInput,
   "system.read_chat_history": readChatHistoryInput,

@@ -36,6 +36,7 @@ import {
   verifyOAuthState,
 } from "./oauth-state";
 import { assertGmailPushOidcConfigured, isGmailPushOidcConfigError } from "./gmail-push-config";
+import { recoverWorkflowDraft } from "../workflows/revisions";
 
 /**
  * Google integration routes.
@@ -133,9 +134,25 @@ export const googleIntegrationRoutes = new Elysia({
             features = known;
           }
 
+          const hasWorkflowId = query.workflowId !== undefined;
+          const hasRevisionId = query.revisionId !== undefined;
+          if (hasWorkflowId !== hasRevisionId) {
+            throw Errors.BadRequestError(
+              "workflowId and revisionId must be provided together for workflow recovery",
+            );
+          }
+          const workflowRecovery =
+            query.workflowId && query.revisionId
+              ? { workflowId: query.workflowId, revisionId: query.revisionId }
+              : undefined;
+
           const nonce = randomBytes(16).toString("hex");
           await rememberOAuthNonce({ provider: "google", nonce, userId: user.id });
-          const state = signOAuthState({ userId: user.id, nonce });
+          const state = signOAuthState({
+            userId: user.id,
+            nonce,
+            ...(workflowRecovery ? { workflowRecovery } : {}),
+          });
           const url = buildAuthorizeUrl({
             state,
             scopes: scopesForFeatures(features),
@@ -147,6 +164,8 @@ export const googleIntegrationRoutes = new Elysia({
         {
           query: t.Object({
             features: t.Optional(t.String({ maxLength: 200 })),
+            workflowId: t.Optional(t.String({ minLength: 1, maxLength: 200 })),
+            revisionId: t.Optional(t.String({ minLength: 1, maxLength: 200 })),
           }),
         },
       )
@@ -532,9 +551,28 @@ export const googleIntegrationRoutes = new Elysia({
         .limit(1);
       const stillOnboarding = userRow[0]?.onboardedAt === null;
       const connectedParam = `google_connected=${encodeURIComponent(tokens.accountEmail)}`;
-      const target = stillOnboarding
-        ? `/onboarding?step=2&${connectedParam}`
-        : `/?${connectedParam}`;
+      let target = stillOnboarding ? `/onboarding?step=2&${connectedParam}` : `/?${connectedParam}`;
+      if (!stillOnboarding && decoded.workflowRecovery) {
+        try {
+          const recovered = await recoverWorkflowDraft({
+            userId: decoded.userId,
+            workflowId: decoded.workflowRecovery.workflowId,
+            revisionId: decoded.workflowRecovery.revisionId,
+          });
+          if (recovered.ok) {
+            const recoveryStatus = recovered.activationProposal ? "ready" : "blocked";
+            target = `/workflows/${encodeURIComponent(recovered.workflow.slug)}?workflow_recovery=${recoveryStatus}&revision_id=${encodeURIComponent(recovered.revision.id)}`;
+          } else {
+            target = `/workflows?workflow_recovery=${encodeURIComponent(recovered.failure.kind)}`;
+          }
+        } catch (err) {
+          console.warn(
+            `[google.callback] failed to recover workflow ${decoded.workflowRecovery.workflowId}:`,
+            toMessage(err),
+          );
+          target = "/workflows?workflow_recovery=failed";
+        }
+      }
       set.status = 302;
       set.headers["Location"] = `${serverEnv().CORS_ORIGIN}${target}`;
       return null;

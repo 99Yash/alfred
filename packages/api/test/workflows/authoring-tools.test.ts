@@ -30,17 +30,21 @@ const SKIP = (() => {
 })();
 
 const authorTool = systemTools.find((tool) => tool.name === "system.author_workflow");
+const recoverTool = systemTools.find((tool) => tool.name === "system.recover_workflow");
 const activateTool = systemTools.find((tool) => tool.name === "system.activate_workflow");
 
 before(() => registerBuiltinTools());
 
 describe("workflow authoring tool contracts (#556)", () => {
-  test("only chat bosses can draft or activate, and activation keeps the high-risk floor", () => {
+  test("only chat bosses can draft, recover, or activate, and activation keeps the high-risk floor", () => {
     assert.ok(authorTool);
+    assert.ok(recoverTool);
     assert.ok(activateTool);
     assert.deepEqual(authorTool.availability, { requiresThread: true, callers: ["boss"] });
+    assert.deepEqual(recoverTool.availability, { requiresThread: true, callers: ["boss"] });
     assert.deepEqual(activateTool.availability, { requiresThread: true, callers: ["boss"] });
     assert.equal(authorTool.riskTier, "no_risk");
+    assert.equal(recoverTool.riskTier, "no_risk");
     assert.equal(activateTool.riskTier, "high");
     assert.equal(activateTool.staging, "staged");
   });
@@ -185,6 +189,18 @@ describe("workflow authoring and activation acceptance (#556)", { skip: SKIP }, 
     ]);
     assert.deepEqual(proposal.resolvedAccounts, []);
     assert.deepEqual(proposal.authoringProposal.assumptions, []);
+
+    assert.ok(recoverTool);
+    const recoveredResult = await recoverTool.execute(
+      { workflowId: proposal.workflowId, revisionId: proposal.baseRevisionId },
+      context(userId, "author-run"),
+    );
+    assert.ok(isRecord(recoveredResult));
+    assert.equal(recoveredResult.status, "ready_to_activate");
+    assert.deepEqual(
+      activateWorkflowInputSchema.parse(getPath(recoveredResult, "activationProposal")).definition,
+      proposal.definition,
+    );
 
     const editedBrief = "Every weekday, summarize only urgent unread messages.";
     const editedActivation = {

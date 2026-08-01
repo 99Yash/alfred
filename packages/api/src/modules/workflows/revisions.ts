@@ -129,6 +129,11 @@ export interface WorkflowRevisedOutcome extends WorkflowRevisionOutcome {
   created: boolean;
 }
 
+export interface RecoveredWorkflowDraftOutcome extends WorkflowRevisionOutcome {
+  readiness: WorkflowReadinessProblem[];
+  activationProposal?: ActivateWorkflowInput;
+}
+
 /** A read executor or an existing transaction supplied by a composing caller. */
 type WorkflowExecutor = DbRoot | DbTransaction;
 
@@ -672,6 +677,148 @@ export async function refreshWorkflowActivationProposal(args: {
   };
 }
 
+/**
+ * Revalidate one exact immutable draft after a connection or permission flow.
+ *
+ * Account canonicalization is projected into the activation proposal without
+ * mutating the base revision. If approval changes the canonical definition,
+ * {@link activateWorkflowDefinition} appends the approved revision before it
+ * publishes. This keeps the user on the same draft while preserving the
+ * append-only revision invariant.
+ */
+export async function recoverWorkflowDraft(args: {
+  userId: string;
+  workflowId: string;
+  revisionId: string;
+}): Promise<WorkflowServiceResult<RecoveredWorkflowDraftOutcome>> {
+  const initialWorkflow = await loadWorkflow(db(), args.userId, args.workflowId);
+  if (!initialWorkflow) return { ok: false, failure: { kind: "not_found" } };
+  if (initialWorkflow.isBuiltin) {
+    return { ok: false, failure: { kind: "builtin_immutable" } };
+  }
+  const baseRevision = await loadRevision(db(), args.revisionId);
+  if (
+    !baseRevision ||
+    baseRevision.userId !== args.userId ||
+    baseRevision.workflowId !== initialWorkflow.id
+  ) {
+    return { ok: false, failure: { kind: "not_found" } };
+  }
+  if (initialWorkflow.currentRevisionId !== baseRevision.id) {
+    const current = initialWorkflow.currentRevisionId
+      ? await loadRevision(db(), initialWorkflow.currentRevisionId)
+      : null;
+    return {
+      ok: false,
+      failure: {
+        kind: "stale_revision",
+        expected: baseRevision.contentHash,
+        actual: current?.contentHash ?? "missing",
+        expectedRevisionId: baseRevision.id,
+        ...(current ? { actualRevisionId: current.id } : {}),
+      },
+    };
+  }
+
+  const storedDefinition = definitionOf(baseRevision);
+  const baseProposal = workflowAuthoringProposalSchema.safeParse(baseRevision.authoringProposal);
+  if (!baseProposal.success) {
+    return {
+      ok: false,
+      failure: {
+        kind: "validation_failed",
+        problems: [
+          {
+            code: "invalid_definition",
+            message: "The stored workflow proposal is invalid and cannot be recovered.",
+            field: "authoringProposal",
+          },
+        ],
+      },
+    };
+  }
+
+  const { availability, gmailEventHealth } = await readWorkflowReadinessContext(args.userId);
+  const toolCatalog = createToolCatalog(listRegisteredTools());
+  const canonicalDefinition = canonicalizeWorkflowAccounts({
+    definition: storedDefinition,
+    availability,
+    toolCatalog,
+  });
+  const timezone = await resolveTimezoneForInput(args.userId, canonicalDefinition);
+  const validated = validateWorkflowDefinition(canonicalDefinition, {
+    timezone,
+    requireActivatable: true,
+  });
+  if (!validated.ok) {
+    return { ok: false, failure: { kind: "validation_failed", problems: validated.problems } };
+  }
+  const definition = authorableWorkflowDefinitionSchema.parse(validated.definition);
+  const readiness = resolveWorkflowReadiness({
+    definition,
+    availability,
+    requestedCapabilities: baseProposal.data.requestedCapabilities,
+    gmailEventHealth,
+    toolCatalog,
+  });
+
+  return db().transaction(async (tx) => {
+    const workflow = await loadWorkflow(tx, args.userId, args.workflowId);
+    if (!workflow) return { ok: false, failure: { kind: "not_found" } };
+    const current = workflow.currentRevisionId
+      ? await loadRevision(tx, workflow.currentRevisionId)
+      : null;
+    if (
+      !current ||
+      current.id !== baseRevision.id ||
+      current.contentHash !== baseRevision.contentHash
+    ) {
+      return {
+        ok: false,
+        failure: {
+          kind: "stale_revision",
+          expected: baseRevision.contentHash,
+          actual: current?.contentHash ?? "missing",
+          expectedRevisionId: baseRevision.id,
+          ...(current ? { actualRevisionId: current.id } : {}),
+        },
+      };
+    }
+
+    const reconciled = await reconcileWorkflowReadiness({
+      userId: args.userId,
+      workflow,
+      revisionId: current.id,
+      readiness,
+      target: "draft",
+      tx,
+    });
+    if (!reconciled.ok) return reconciled;
+
+    return {
+      ok: true,
+      workflow: reconciled.workflow,
+      revision: current,
+      readiness,
+      ...(readiness.length === 0
+        ? {
+            activationProposal: buildWorkflowActivationProposal({
+              workflowId: reconciled.workflow.id,
+              baseRevisionId: current.id,
+              baseContentHash: current.contentHash,
+              baseRowVersion: reconciled.workflow.rowVersion,
+              definition,
+              authoringProposal: baseProposal.data,
+              availability,
+              toolCatalog,
+              timezone,
+            }),
+          }
+        : {}),
+    };
+  });
+}
+
 /** Add all executable effects and replace fields that the definition owns. */
 export function approvalProposalForDefinition(
   base: WorkflowAuthoringProposal,
@@ -1085,12 +1232,20 @@ export async function reconcileWorkflowReadiness(args: {
 
   const first = args.readiness[0];
   if (first) {
+    const message = args.readiness.map((problem) => problem.message).join(" ");
+    if (
+      args.workflow.blocked?.code === first.code &&
+      args.workflow.blocked.message === message &&
+      args.workflow.blocked.revisionId === args.revisionId
+    ) {
+      return { ok: true, workflow: args.workflow };
+    }
     return writeBlocked(
       args.userId,
       args.workflow.id,
       {
         code: first.code,
-        message: args.readiness.map((problem) => problem.message).join(" "),
+        message,
         detectedAt: new Date().toISOString(),
         revisionId: args.revisionId,
       },

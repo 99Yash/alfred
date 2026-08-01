@@ -64,6 +64,13 @@ const signedOAuthStateSchema = z.object({
   nonce: z.string(),
   /** Present for OAuth flows that must resume one durable connection. */
   connectionId: z.string().optional(),
+  /** Exact immutable workflow draft to revalidate when OAuth returns. */
+  workflowRecovery: z
+    .object({
+      workflowId: z.string().min(1).max(200),
+      revisionId: z.string().min(1).max(200),
+    })
+    .optional(),
 });
 
 export type SignedOAuthState = z.infer<typeof signedOAuthStateSchema>;

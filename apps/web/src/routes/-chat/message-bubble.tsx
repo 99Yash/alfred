@@ -14,6 +14,7 @@ import { ReasoningSection } from "./reasoning-section";
 import { SourcesStrip } from "./sources-strip";
 import { collectSources } from "./sources";
 import { ToolCallGroup } from "./tool-call-group";
+import { WorkflowRecoveryCta } from "./workflow-recovery-cta";
 import { UsageLine } from "./usage-line";
 
 const MARKDOWN_CLASSES = cn(
@@ -337,6 +338,7 @@ export function MessageBubble({
        * persists narration with a null `toolCalls`, and its prose still
        * belongs on screen. `ToolCallGroup` owns that emptiness rule. */}
       <ToolCallGroup tools={tools} narration={message.narration ?? []} active={false} />
+      <WorkflowRecoveryCta tools={tools} />
       {message.content.length > 0 ? (
         <div ref={bodyRef}>
           <AssistantMarkdown text={message.content} />
