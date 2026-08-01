@@ -128,6 +128,21 @@ export interface WorkflowRevisedOutcome extends WorkflowRevisionOutcome {
   created: boolean;
 }
 
+/** Read the current immutable draft for recovery without exposing raw queries. */
+export async function readWorkflowCurrentRevision(args: {
+  userId: string;
+  workflowId: string;
+}): Promise<WorkflowServiceResult<WorkflowRevisionOutcome & { definition: WorkflowRevisionDefinition }>> {
+  const workflow = await loadWorkflow(db(), args.userId, args.workflowId);
+  if (!workflow) return { ok: false, failure: { kind: "not_found" } };
+  if (!workflow.currentRevisionId) {
+    return { ok: false, failure: { kind: "no_current_revision" } };
+  }
+  const revision = await loadRevision(db(), workflow.currentRevisionId);
+  if (!revision) return { ok: false, failure: { kind: "no_current_revision" } };
+  return { ok: true, workflow, revision, definition: definitionOf(revision) };
+}
+
 /** A read executor or an existing transaction supplied by a composing caller. */
 type WorkflowExecutor = DbRoot | DbTransaction;
 
@@ -787,6 +802,35 @@ export async function activateWorkflowDefinition(
       ok: true,
       ...alreadyApplied,
       revised: alreadyApplied.revision.id !== input.baseRevisionId,
+    };
+  }
+
+  // Classify a stale approval by its immutable identity before validating the
+  // editable contract. A stale base hash is not a malformed definition, and
+  // callers need the typed stale result so they can restage the same draft.
+  // The transaction below repeats this check to protect the write from a race.
+  const staleBase = await db().transaction(async (tx) => {
+    const existing = await loadWorkflow(tx, args.userId, input.workflowId);
+    if (!existing?.currentRevisionId) return null;
+    const current = await loadRevision(tx, existing.currentRevisionId);
+    if (
+      !current ||
+      (current.id === input.baseRevisionId && current.contentHash === input.baseContentHash)
+    ) {
+      return null;
+    }
+    return current;
+  });
+  if (staleBase) {
+    return {
+      ok: false,
+      failure: {
+        kind: "stale_revision",
+        expected: input.baseContentHash,
+        actual: staleBase.contentHash,
+        expectedRevisionId: input.baseRevisionId,
+        actualRevisionId: staleBase.id,
+      },
     };
   }
   const availability = await readFreshIntegrationAvailability(args.userId);

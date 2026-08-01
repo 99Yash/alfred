@@ -5,8 +5,10 @@ import type { WorkflowRevisionDefinition } from "@alfred/contracts";
 
 import type { IntegrationAvailabilitySnapshot } from "../../src/modules/integrations/availability";
 import { registerBuiltinTools } from "../../src/modules/tools";
+import { listRegisteredTools } from "../../src/modules/tools/registry";
 import {
   canonicalizeWorkflowAccounts,
+  resolveWorkflowCapabilities,
   resolveWorkflowApprovalDisplay,
   resolveWorkflowReadiness as resolveWorkflowReadinessBase,
 } from "../../src/modules/workflows/readiness";
@@ -75,6 +77,33 @@ function definition(
 }
 
 describe("workflow readiness", () => {
+  test("the pure resolver derives an exact active envelope", () => {
+    const result = resolveWorkflowCapabilities({
+      requested: [{ tool: "system.current_time" }],
+      trigger: { kind: "manual" },
+      availability: unavailable,
+      registeredTools: listRegisteredTools(),
+    });
+    assert.equal(result.satisfied, true);
+    assert.deepEqual(result.allowedIntegrations, ["system"]);
+    assert.deepEqual(result.allowedTools, ["system.current_time"]);
+    assert.equal(result.resolved[0]?.tool, "system.current_time");
+  });
+
+  test("the pure resolver includes the trigger source and gives no fake action for Slack", () => {
+    const result = resolveWorkflowCapabilities({
+      requested: [{ tool: "slack.send_message" }],
+      trigger: { kind: "event", source: "gmail", type: "message_received" },
+      availability: unavailable,
+      registeredTools: listRegisteredTools(),
+    });
+    assert.equal(result.satisfied, false);
+    assert.deepEqual(result.allowedIntegrations, ["gmail", "slack"]);
+    assert.deepEqual(result.allowedTools, []);
+    assert.equal(result.missing[0]?.code, "no_tool_surface");
+    assert.equal(result.missing[0]?.recovery, undefined);
+  });
+
   test("activation rejects a tool with no matching capability", () => {
     const result = validateWorkflowDefinition(
       definition({
@@ -137,6 +166,59 @@ describe("workflow readiness", () => {
       availability: unavailable,
     });
     assert.equal(problems[0]?.code, "not_connected");
+    assert.deepEqual(problems[0]?.recovery, { kind: "connect", integration: "gmail" });
+  });
+
+  test("a read-only Gmail grant names the missing write permission", () => {
+    const readonly = {
+      ...gmailAvailability,
+      providers: new Map([
+        [
+          "google",
+          [
+            {
+              credentialId: "credential-readonly",
+              accountId: "account-readonly",
+              status: "active",
+              scopes: new Set(["https://www.googleapis.com/auth/gmail.readonly"]),
+              accountLabel: "readonly@example.com",
+              metadata: {},
+            },
+          ],
+        ],
+      ]),
+    } satisfies IntegrationAvailabilitySnapshot;
+    const problems = resolveWorkflowReadiness({
+      definition: definition({
+        allowedIntegrations: ["gmail"],
+        allowedTools: ["gmail.send_draft"],
+        requiredCapabilities: [
+          { tool: "gmail.send_draft", accountRef: "account-readonly" },
+        ],
+      }),
+      availability: readonly,
+    });
+    assert.equal(problems[0]?.code, "missing_scope");
+    assert.deepEqual(problems[0]?.recovery, {
+      kind: "reauthorize",
+      integration: "gmail",
+    });
+  });
+
+  test("a disabled passthrough capability names the feature switch", () => {
+    const problems = resolveWorkflowReadiness({
+      definition: definition({
+        allowedIntegrations: ["notion"],
+        allowedTools: ["notion.request"],
+        requiredCapabilities: [{ tool: "notion.request" }],
+      }),
+      availability: unavailable,
+    });
+    assert.equal(problems[0]?.code, "feature_disabled");
+    assert.deepEqual(problems[0]?.recovery, {
+      kind: "enable_feature",
+      integration: "notion",
+    });
   });
 
   test("thread-only tools are refused for a background workflow", () => {
