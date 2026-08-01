@@ -230,8 +230,13 @@ export function ChatShell({ threadId, title }: ChatShellProps) {
     });
   }, [activeRunId, stopStream]);
 
+  // `skipDelayDuration` is the window in which a second tooltip opens with no
+  // delay, so the whole surface behaves as one hover group. Radix defaults it to
+  // 300ms, which is shorter than a pointer takes to cross the dense usage strip
+  // under a reply; 600ms keeps a sweep along that row in the crossfade path
+  // instead of re-arming the 300ms delay at every cell.
   return (
-    <Tooltip.Provider delayDuration={300}>
+    <Tooltip.Provider delayDuration={300} skipDelayDuration={600}>
       <div className="relative flex h-full min-w-0 flex-col">
         <TopBar
           title={title}
