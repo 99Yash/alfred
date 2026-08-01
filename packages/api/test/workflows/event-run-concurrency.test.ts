@@ -9,7 +9,6 @@ import {
   RUN_DEDUP_KEY_INDEX,
   agentRuns,
   user,
-  workflowRevisions,
   workflows,
 } from "@alfred/db/schemas";
 import { databaseEnv } from "@alfred/env/database";
@@ -23,7 +22,6 @@ import {
 import { createRun } from "../../src/modules/agent/service";
 import type { StepResult, Workflow } from "../../src/modules/agent/types";
 import { emitEvent } from "../../src/modules/workflows/events";
-import { createWorkflowDraft } from "../../src/modules/workflows/revisions";
 import { uniqueViolationConstraint } from "../../src/lib/pg-errors";
 import { closeRedis } from "../../src/queue/connection";
 
@@ -125,41 +123,24 @@ async function seedUserWithEventWorkflow(
   accountRef?: string,
 ): Promise<string> {
   const userId = await seedUser();
-  const drafted = await createWorkflowDraft({
-    userId,
-    slug,
-    definition: {
+  await db()
+    .insert(workflows)
+    .values({
+      userId,
+      slug,
       name: "event dedup test",
-      description: null,
-      brief: "Finish the event dedup test.",
       trigger: {
         kind: "event",
         source: SOURCE,
         type: TYPE,
         ...(accountRef ? { accountRef } : {}),
       },
-      allowedIntegrations: ["gmail", "system"],
-      allowedTools: ["system.current_time"],
-      requiredCapabilities: [{ tool: "system.current_time" }],
-    },
-  });
-  assert.equal(drafted.ok, true);
-  if (!drafted.ok) return userId;
-
-  // This suite tests event identity and duplicate insertion, not readiness.
-  // Publish the valid immutable revision directly so createRun exercises the
-  // same revision pin that production requires without needing a live Gmail
-  // watch in the fixture.
-  await db().transaction(async (tx) => {
-    await tx
-      .update(workflowRevisions)
-      .set({ approvedAt: new Date() })
-      .where(eq(workflowRevisions.id, drafted.revision.id));
-    await tx
-      .update(workflows)
-      .set({ status: "active", publishedRevisionId: drafted.revision.id })
-      .where(eq(workflows.id, drafted.workflow.id));
-  });
+      allowedIntegrations: ["gmail"],
+      status: "active",
+      // The runtime body is registered above, so this is a built-in fixture.
+      // Built-ins do not pin database revisions; user-authored rows must.
+      isBuiltin: true,
+    });
   return userId;
 }
 
