@@ -6,7 +6,6 @@ import { and, eq, or, sql } from "drizzle-orm";
 import { uniqueViolationConstraint } from "../../lib/pg-errors";
 import { enqueueRun } from "../agent/queue";
 import { createRun } from "../agent/service";
-import { workflowOccurrenceKey } from "./occurrence";
 
 export interface EmitEventArgs {
   userId: string;
@@ -106,13 +105,12 @@ export async function emitEvent(args: EmitEventArgs): Promise<EmitEventResult> {
             userId: args.userId,
             workflowSlug: row.slug,
             workflowRevisionId,
-            occurrenceKey: workflowOccurrenceKey({
+            occurrence: {
               kind: "event",
               workflowId: row.id,
               provider: args.source,
               eventId: args.eventId,
-              ...(reason ? { reason } : {}),
-            }),
+            },
             input: {
               documentId,
               reason,

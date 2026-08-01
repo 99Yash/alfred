@@ -389,7 +389,7 @@ describe("workflow readiness", () => {
     assert.equal(problems[0]?.code, "choose_account");
   });
 
-  test("an unverified resource scope stays blocked without an invented grant action", () => {
+  test("an approved scope without an external grant fact is enforced at dispatch", () => {
     const problems = resolveWorkflowReadiness({
       definition: definition({
         requiredCapabilities: [
@@ -398,8 +398,26 @@ describe("workflow readiness", () => {
       }),
       availability: unavailable,
     });
+    assert.deepEqual(problems, []);
+  });
+
+  test("an explicit current resource denial blocks readiness", () => {
+    const problems = resolveWorkflowReadiness({
+      definition: definition({
+        requiredCapabilities: [
+          { tool: "system.current_time", resourceScope: { calendarId: "primary" } },
+        ],
+      }),
+      availability: unavailable,
+      resourceAccessFacts: [
+        {
+          tool: "system.current_time",
+          resourceScope: { calendarId: "primary" },
+          granted: false,
+        },
+      ],
+    });
     assert.equal(problems[0]?.code, "resource_not_granted");
-    assert.equal(problems[0]?.recoveryAction, undefined);
   });
 
   test("a supplied exact resource grant satisfies the resource boundary", () => {

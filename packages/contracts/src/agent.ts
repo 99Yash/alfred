@@ -1,7 +1,8 @@
 import { z } from "zod";
 import { integrationSlugSchema, isIanaTimezone } from "./briefing";
 import { EVENT_SOURCES } from "./event-triggers";
-import { toolNameSchema } from "./tools";
+import { canonicalJson, toolNameSchema } from "./tools";
+import { isRecord } from "./guards";
 import { jsonObjectSchema } from "./user-model";
 
 /**
@@ -63,6 +64,43 @@ export function isTerminalStatus(s: RunStatus): boolean {
  * predicates are diffed on. See the note there.
  */
 export const TERMINAL_RUN_STATUSES = Object.freeze(RUN_STATUSES.filter(isTerminalStatus));
+
+export const agentStepStatusSchema = z.enum([
+  "running",
+  "completed",
+  "failed",
+  "interrupted",
+  "deferred",
+  "blocked",
+]);
+export type AgentStepStatus = z.infer<typeof agentStepStatusSchema>;
+
+const AGENT_STEP_STATUS_KIND = {
+  running: "live",
+  completed: "progress",
+  failed: "failure",
+  interrupted: "parked_progress",
+  deferred: "parked_progress",
+  blocked: "terminal",
+} as const satisfies Record<
+  AgentStepStatus,
+  "live" | "progress" | "failure" | "parked_progress" | "terminal"
+>;
+
+/** Step states that prove the executor committed useful progress. */
+export const AGENT_STEP_PROGRESS_STATUSES = Object.freeze(
+  agentStepStatusSchema.options.filter(
+    (status) =>
+      AGENT_STEP_STATUS_KIND[status] === "progress" ||
+      AGENT_STEP_STATUS_KIND[status] === "parked_progress",
+  ),
+);
+
+/** A committed step whose following wall-clock gap is intentional wait time. */
+export function isParkedAgentStepStatus(status: string): boolean {
+  const parsed = agentStepStatusSchema.safeParse(status);
+  return parsed.success && AGENT_STEP_STATUS_KIND[parsed.data] === "parked_progress";
+}
 
 export const approvalKindSchema = z.enum(["step", "action_staging"]);
 export type ApprovalKind = z.infer<typeof approvalKindSchema>;
@@ -217,6 +255,20 @@ export const workflowRequiredCapabilitySchema = z.object({
     .optional(),
 });
 export type WorkflowRequiredCapability = z.infer<typeof workflowRequiredCapabilitySchema>;
+
+/**
+ * Does validated tool input stay inside one revision's approved resource scope?
+ * Scope keys name input fields; nested scope objects must match as canonical JSON.
+ */
+export function inputMatchesWorkflowResourceScope(
+  input: unknown,
+  resourceScope: Record<string, unknown>,
+): boolean {
+  if (!isRecord(input)) return false;
+  return Object.entries(resourceScope).every(
+    ([key, approved]) => key in input && canonicalJson(input[key]) === canonicalJson(approved),
+  );
+}
 
 /** A model request may name a capability that Alfred does not implement yet. */
 export const workflowRequestedCapabilitySchema = workflowRequiredCapabilitySchema.extend({

@@ -315,7 +315,7 @@ export function resolveWorkflowReadiness(args: {
       }
     }
 
-    if (capability.resourceScope) {
+    if (capability.resourceScope && args.resourceAccessFacts) {
       const resourceFact = args.resourceAccessFacts?.find(
         (fact) =>
           fact.tool === capability.tool &&

@@ -22,7 +22,7 @@ describe("durable workflow occurrence identity (#558)", () => {
     );
   });
 
-  test("event identity omits revisions but preserves an explicit re-key reason", () => {
+  test("event identity is only the workflow, provider, and stable delivery id", () => {
     const base = {
       kind: "event" as const,
       workflowId: "wf_1",
@@ -30,10 +30,6 @@ describe("durable workflow occurrence identity (#558)", () => {
       eventId: "delivery_1",
     };
     assert.equal(workflowOccurrenceKey(base), workflowOccurrenceKey({ ...base }));
-    assert.notEqual(
-      workflowOccurrenceKey(base),
-      workflowOccurrenceKey({ ...base, reason: "reply_re_evaluation" }),
-    );
   });
 
   test("manual identity is the workflow plus caller request id", () => {

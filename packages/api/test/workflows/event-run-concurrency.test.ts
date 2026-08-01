@@ -348,7 +348,14 @@ describe("event-dispatch duplicate-run guard (#531)", { skip: SKIP }, () => {
       createRun({
         userId,
         workflowSlug: SINGLETON_WORKFLOW_SLUG,
-        trigger: { kind: "event", source: SOURCE, type: TYPE, eventId: `evt-${randomUUID()}` },
+        trigger: { kind: "event", source: SOURCE, type: TYPE, eventId: "evt-second" },
+        workflowRevisionId: null,
+        occurrence: {
+          kind: "event",
+          workflowId: SINGLETON_WORKFLOW_SLUG,
+          provider: SOURCE,
+          eventId: "evt-second",
+        },
       }),
     );
     assert.equal(constraint, RUN_DEDUP_KEY_INDEX);

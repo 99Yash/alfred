@@ -1,7 +1,18 @@
 import type { AgentTranscriptMessage } from "@alfred/contracts";
-import { sanitizeErrorMessage, sanitizeToolResult, toMessage } from "@alfred/contracts";
+import {
+  AGENT_STEP_PROGRESS_STATUSES,
+  sanitizeErrorMessage,
+  sanitizeToolResult,
+  toMessage,
+} from "@alfred/contracts";
 import { db, rowsFromExecute, type DbTransaction } from "@alfred/db";
-import { agentDecisionTraces, agentRuns, agentSteps, pendingActions } from "@alfred/db/schemas";
+import {
+  agentDecisionTraces,
+  agentRuns,
+  agentSteps,
+  pendingActions,
+  type AgentRun,
+} from "@alfred/db/schemas";
 import { runStatusSchema } from "@alfred/contracts";
 import { and, eq, sql } from "drizzle-orm";
 import type { PgUpdateSetSource } from "drizzle-orm/pg-core";
@@ -269,18 +280,24 @@ export interface LeaseQueueInfo {
   reclaimed: boolean;
 }
 
-interface RunRow {
-  id: string;
-  userId: string;
-  workflowSlug: string;
+type RunRow = Omit<
+  Pick<
+    AgentRun,
+    | "id"
+    | "userId"
+    | "workflowSlug"
+    | "status"
+    | "state"
+    | "transcript"
+    | "currentStep"
+    | "attempt"
+    | "metadata"
+    | "deferredUntil"
+  >,
+  "status"
+> & {
   status: RunStatus;
-  state: unknown;
-  transcript: AgentTranscriptMessage[];
-  currentStep: string;
-  attempt: number;
-  metadata: unknown;
-  deferredUntil: Date | null;
-}
+};
 
 export interface RunOnceOptions {
   /**
@@ -507,11 +524,13 @@ export async function leaseRun(runId: string): Promise<LeaseResult> {
             (SELECT max(attempt) FROM agent_steps
              WHERE run_id = ${row.id}
                AND step_id = ${row.currentStep}
-               -- Both are genuine forward progress: 'completed' (the step ran
-               -- and advanced/finished) and 'interrupted' (the step ran and
-               -- parked for HIL/wake, then resumes at attempt+1). A reclaim
-               -- after either must NOT count toward the backstop limit.
-               AND status IN ('completed', 'interrupted')),
+               -- Every status in AGENT_STEP_PROGRESS_STATUSES proves a commit:
+               -- completed advanced/finished; interrupted parked for HIL/wake;
+               -- deferred parked under a bounded retry policy. A reclaim after
+               -- any of them must NOT count toward the backstop limit.
+               AND status IN (${sql.raw(
+                 AGENT_STEP_PROGRESS_STATUSES.map((status) => `'${status}'`).join(", "),
+               )})),
             -1
           )
       `);
@@ -894,7 +913,14 @@ async function commitStepSuccessTx(
         tx,
         userId: run.userId,
         kind: "agent.run",
-        payload: { runId: run.id, phase: "blocked", step: stepId, attempt },
+        payload: {
+          runId: run.id,
+          phase: "blocked",
+          step: stepId,
+          attempt,
+          workflowSlug: run.workflowSlug,
+          error: "Workflow blocked: action is required.",
+        },
       });
       return { kind: "blocked", runId: run.id };
     }

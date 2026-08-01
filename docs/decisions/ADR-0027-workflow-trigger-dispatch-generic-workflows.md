@@ -13,6 +13,11 @@ Provider redelivery and manual retries resolve the existing row through the same
 unique claim. BullMQ job IDs remain a useful delivery optimization, but they do not
 define occurrence identity.
 
+The `createRun` trigger union requires the matching occurrence identity rather than
+accepting an optional precomputed key. Manual callers provide a request id; the run
+service adds the resolved workflow identity. Replay is a separate manual occurrence
+linked through `replay_of_run_id` with an explicit original/latest revision choice.
+
 This amendment replaces the original “Idempotency is a BullMQ jobId” decision and
 the implementation note that accepted a missed fire between cursor advance and run
 creation. The generic tick, denormalized cursor, and unified trigger decisions remain.

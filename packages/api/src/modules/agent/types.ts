@@ -21,6 +21,8 @@ export type MaybePromise<T> = T | Promise<T>;
  *   runnable   ready for the worker to claim
  *   running    a worker holds the lease
  *   waiting    parked on a `wakeCondition`
+ *   deferred   parked until a bounded retry instant
+ *   blocked    terminal readiness failure
  *   completed  terminal success
  *   failed     terminal error
  *   cancelled  user-initiated stop
@@ -45,6 +47,8 @@ export interface StagedAction {
  * What a step returns when it finishes:
  *  - `next` advances to another step in the same workflow
  *  - `done` completes the run with an optional output
+ *  - `defer` parks until a bounded retry instant
+ *  - `blocked` terminates on an actionable readiness failure
  *  - `interrupt` parks the run until the wake condition fires
  */
 export type StepResult<S> =
