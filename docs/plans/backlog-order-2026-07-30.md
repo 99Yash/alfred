@@ -20,6 +20,11 @@
 > **Amended 2026-07-31T14:18Z.** The final Tier 0 reconciliation is complete:
 > #232 now owns only the outbound Calendar invite floor, and that finding has
 > moved out of #163. #234 now records the same ownership boundary.
+>
+> **Amended 2026-08-01T02:54Z.** PR #612 merged and closed #556. The next
+> authored workflow slice is #557, although #612 already landed part of its
+> readiness substrate while closing activation review gaps. The merge left
+> `main` red in `api-tests`; see "State, 2026-08-01" at the end.
 
 135 issues were open when this order was written. 26 of them are newer than the
 last tier artifact. The campaign holds 26 more items that are not issues at all.
@@ -514,3 +519,64 @@ scoped outbound-safety implementation issue.
 1. **Decide about #547** before its next PR. Rank it or pause it.
 2. Then **#556**, and the rest of #553 in order.
 3. Remove the `workflow-revisions-555` worktree.
+
+---
+
+# State, 2026-08-01T02:54Z
+
+PR **#612** merged at 02:51:52Z as `71d50384` and closed **#556** one second
+later. The open issue count is now **123**. The authored workflow epic #553
+remains open.
+
+## 1. #556 is complete
+
+The merge contains the chat authoring and exact activation path:
+
+- `system.author_workflow` saves an inactive immutable draft and returns the
+  server-canonical activation proposal.
+- `system.activate_workflow` is `riskTier: "high"`, so ADR-0069 forces the
+  existing approval gate even under autonomy.
+- The activation input carries the workflow and base-revision identity, full
+  definition, schedule preview, resolved capability display, assumptions and
+  external-effect categories. It is not an opaque-id approval.
+- Approval-card edits append a new immutable revision and publish that exact
+  definition. Stale revision, content-hash, approval-input and row-version
+  checks fail closed.
+- Authoring is limited to an interactive boss caller. The v1 trigger surface is
+  concrete cron plus IANA timezone, manual, and Gmail `message_received`.
+- Runtime dispatch rejects a tool outside the revision's exact `allowed_tools`
+  envelope instead of widening an unattended workflow.
+
+Four review-fix commits followed the original implementation before merge:
+`d2ceac98`, `509917be`, `2e52305f` and `a25970c1`. They added more than #556's
+initial two-tool surface: activation-time capability and Gmail-event readiness,
+account binding, exact approval persistence/resume, event account isolation,
+and the supporting readiness tests. This is real substrate for **#557**, but
+#557 is still open. Do not close it from #612: its full acceptance still owns
+the pure resolver contract, every named recovery state, reconnect-to-the-same-
+draft behavior, and the complete blocked-draft matrix.
+
+## 2. `main` is red after the merge
+
+The merge checks report `static`, `ai-unit-tests`, `web-unit-tests` and both
+React Doctor checks green. `api-tests` failed: **2,173 passed and 8 failed**.
+The failures are:
+
+- the full tool schema is 80,029 bytes, 29 bytes above its 80,000-byte budget;
+- two #556 authoring/activation acceptance cases;
+- three event-dispatch duplicate/account-isolation cases;
+- two #555 revision-invariant cases.
+
+This is not a pre-merge failure: the job was still pending when #612 merged.
+The branch still has no required aggregate gate, so the same path recorded in
+the 2026-07-31 state section remains open.
+
+## The live queue, 2026-08-01
+
+1. Restore `main` to green after #612.
+2. Reconcile #612's readiness work against **#557**, then finish and close the
+   remaining #557 acceptance contract.
+3. Continue the authored order: `#558 -> #559 -> #560 -> #561`.
+4. Decide whether **#547** is ranked beside #553 or paused before another MCP
+   PR merges.
+5. Remove the still-locked `workflow-revisions-555` worktree.

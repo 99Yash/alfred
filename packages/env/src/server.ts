@@ -338,6 +338,23 @@ export function serverEnv(): ServerEnv {
 }
 
 /**
+ * `NODE_ENV` on its own, validated against the same field schema as
+ * `serverEnv()` but without the other ~25 variables. Total: an absent or
+ * unrecognized value falls back to the schema's declared default, so this never
+ * throws and there is no third "unknown" state for a caller to mishandle.
+ *
+ * For the reader that must answer before any entrypoint validates the whole
+ * environment — a module-scope default that runs on import, where a bare test
+ * run has no `--env-file`. Anything that needs a second variable wants
+ * `serverEnv()`, which throws and names what is missing.
+ */
+export function nodeEnv(): ServerEnv["NODE_ENV"] {
+  const field = serverEnvSchema.shape.NODE_ENV;
+  const result = field.safeParse(process.env.NODE_ENV);
+  return result.success ? result.data : field.parse(undefined);
+}
+
+/**
  * Whether Alfred may mutate the connected Gmail mailbox — triage label writes
  * and Gmail watch install/renew/stop (#278). The single decision point: an
  * explicit `GMAIL_MAILBOX_WRITES_ENABLED` wins, otherwise it defaults to
