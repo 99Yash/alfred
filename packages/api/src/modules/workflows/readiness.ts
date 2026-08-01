@@ -291,10 +291,7 @@ export function resolveWorkflowReadiness(args: {
     }
   }
 
-  if (
-    args.definition.trigger.kind === "event" &&
-    isIntegrationSlug(args.definition.trigger.source)
-  ) {
+  if (args.definition.trigger.kind === "event" && args.definition.trigger.source === "gmail") {
     const now = args.now ?? new Date();
     const gmailRows = args.availability.providers.get("google") ?? [];
     const hasReadyWatch = (row: ProviderAvailability) => {
@@ -388,7 +385,10 @@ export function resolveWorkflowCapabilities<TDefinition extends WorkflowRevision
     const prefix = separator === -1 ? requested.tool : requested.tool.slice(0, separator);
     if (isIntegrationSlug(prefix)) integrationSet.add(prefix);
   }
-  if (args.definition.trigger.kind === "event") {
+  if (
+    args.definition.trigger.kind === "event" &&
+    isIntegrationSlug(args.definition.trigger.source)
+  ) {
     integrationSet.add(args.definition.trigger.source);
   }
   const allowedIntegrations = [...integrationSet].sort();

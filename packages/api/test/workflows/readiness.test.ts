@@ -106,7 +106,7 @@ describe("workflow readiness", () => {
       gmailEventHealth: new Map(),
     });
     assert.deepEqual(result.definition.allowedIntegrations, ["gmail", "slack"]);
-    assert.deepEqual(result.definition.allowedTools, ["slack.send_message"]);
+    assert.deepEqual(result.definition.allowedTools, []);
     assert.equal(result.missing[0]?.code, "no_tool_surface");
   });
 
@@ -219,7 +219,6 @@ describe("workflow readiness", () => {
         requiredCapabilities: [{ tool: "gmail.search", accountRef: "account-1" }],
       }),
       availability: gmailAvailability,
-      toolCatalog: createToolCatalog(listRegisteredTools()),
     });
     assert.deepEqual(problems, []);
   });
@@ -232,6 +231,7 @@ describe("workflow readiness", () => {
         requiredCapabilities: [{ tool: "gmail.search", accountRef: "selected@example.com" }],
       }),
       availability: gmailAvailability,
+      toolCatalog: createToolCatalog(listRegisteredTools()),
     });
     assert.equal(canonical.requiredCapabilities[0]?.accountRef, "account-1");
   });
