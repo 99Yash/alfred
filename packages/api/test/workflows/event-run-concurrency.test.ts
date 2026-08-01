@@ -138,7 +138,7 @@ async function seedUserWithEventWorkflow(
         type: TYPE,
         ...(accountRef ? { accountRef } : {}),
       },
-      allowedIntegrations: ["system"],
+      allowedIntegrations: ["gmail", "system"],
       allowedTools: ["system.current_time"],
       requiredCapabilities: [{ tool: "system.current_time" }],
     },
