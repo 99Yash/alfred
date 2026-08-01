@@ -35,6 +35,17 @@
 > **Amended 2026-08-01T08:03Z.** PR #617 finished and closed #557. Its merge
 > CI is green. The authored workflow queue now moves to #558; see the latest
 > state at the end.
+>
+> **Amended 2026-08-01T10:59Z.** PR #619 finished and closed #558. The
+> occurrence and readiness tests are green, but the merged `static` job found
+> unupdated server-side `createRun` callers. Restore `main` to green before the
+> authored workflow queue moves to #559; see the latest state at the end.
+>
+> **Amended 2026-08-01T12:36Z.** PR #620 repaired the server-side occurrence
+> callers and restored `static`. Its `api-tests` check passed; the post-merge
+> run was then superseded by PR #621, whose full successor CI passed. `main` is
+> green and the authored workflow queue can move to #559. See the latest state
+> at the end.
 
 135 issues were open when this order was written. 26 of them are newer than the
 last tier artifact. The campaign holds 26 more items that are not issues at all.
@@ -685,6 +696,93 @@ workflows after merge.
 1. Start **#558**: durable occurrence identity and the async
    `check-readiness` first step.
 2. Continue the authored order: `#559 -> #560 -> #561`.
+3. Decide whether **#547** is ranked beside #553 or paused before another MCP
+   PR merges.
+4. Remove the still-locked `workflow-revisions-555` worktree.
+
+---
+
+## State, 2026-08-01T10:59Z
+
+## 1. #558 is complete
+
+PR #619 merged at 10:57Z and closed #558. It adds database-unique occurrence
+keys for cron, provider-event and manual runs. Cron run creation and cursor
+advance now commit in one transaction, while the queue is delivery only. A
+pending claim survives an enqueue failure for the recovery sweep to find.
+
+User-authored workflows now start with an asynchronous `check-readiness` step.
+Transient provider-health failures defer with a bounded retry schedule, while
+credential loss and other terminal readiness failures block the run before its
+first model turn. The run lifecycle, worker recovery and event contracts now
+carry the new `deferred` and `blocked` states.
+
+The merged PR passed `api-tests`, `ai-unit-tests`, `web-unit-tests` and React
+Doctor. The `static` job failed in `server#check-types`: server built-ins,
+backfills, QA and smoke scripts still call `createRun` without the new manual or
+event occurrence identity. This is a merge regression and must be fixed before
+starting the next workflow slice.
+
+## The live queue, 2026-08-01T10:59Z
+
+1. Restore `main` to green by updating every remaining server-side `createRun`
+   caller to provide durable occurrence identity.
+2. Start **#559**: logical effect identity, unknown write outcomes and
+   cancellation fencing.
+3. Continue the authored order: `#560 -> #561`.
+4. Decide whether **#547** is ranked beside #553 or paused before another MCP
+   PR merges.
+5. Remove the still-locked `workflow-revisions-555` worktree.
+
+---
+
+## State, 2026-08-01T12:36Z
+
+## 1. The #558 `static` regression is repaired
+
+PR #620 merged at 12:24:56Z as `62211993`. It updates every remaining
+server-side `createRun` caller for the occurrence contract that #619 made
+required:
+
+- backfill, operations, QA and smoke callers now mint a durable manual request
+  identity for each invocation; and
+- the learn-skill documentation handoff uses a stable event occurrence derived
+  from the parent run.
+
+The merge commit passed `static`, `ai-unit-tests`, `web-unit-tests` and React
+Doctor. The exact `server#check-types` failure recorded at 10:59Z is gone.
+
+## 2. Full merge CI is green
+
+PR #620's pull-request `api-tests` check completed successfully at 12:27:32Z.
+PR #621 merged one second earlier, and its new `main` push superseded #620's
+still-running post-merge workflow through `cancel-in-progress: true`. GitHub
+therefore cancelled the older run after its last printed test; that was not a
+failed assertion.
+
+PR #621's successor `main` workflow completed at 12:32:02Z with `static`,
+`api-tests`, `ai-unit-tests` and `web-unit-tests` green. React Doctor is green
+too. Because #621 descends from #620, the successor run covers the occurrence
+repair plus the later editor-configuration commit. `main` is green.
+
+## 3. Why `main` keeps going red
+
+The repeated red merges are not one flaky test. `main` has no branch protection
+and no required status checks. PRs #610, #612, #613 and #614 all merged while a
+later-failing check was still running. PR #619 merged after `static` had already
+failed. CI is finding real integration defects, but only after the commits are
+on `main`, so each defect becomes a separate repair PR.
+
+The cancellation setting adds noise during rapid merges, but it is not the
+cause of the real failures: a newer `main` run tests a descendant commit and
+supersedes the older run by design. The prevention is to require the full PR CI
+set before merge, not to keep repairing `main` after each result arrives.
+
+## The live queue, 2026-08-01T12:36Z
+
+1. Start **#559**: logical effect identity, unknown write outcomes and
+   cancellation fencing.
+2. Continue the authored order: `#560 -> #561`.
 3. Decide whether **#547** is ranked beside #553 or paused before another MCP
    PR merges.
 4. Remove the still-locked `workflow-revisions-555` worktree.
