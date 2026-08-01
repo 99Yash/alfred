@@ -28,6 +28,12 @@
     "apps/web": {
       "entry": ["test/**/*.test.{ts,tsx}"]
     },
+    "packages/ai": {
+      // Hand-run diagnostic/verification scripts (each documents its own tsx
+      // invocation; see docs/decisions/ADR-0078 and the model-router plans).
+      // Same category as apps/server and packages/api src/scripts — not dead.
+      "entry": ["src/scripts/**/*.ts"]
+    },
     "packages/api": {
       "entry": [
         "src/scripts/**/*.ts",

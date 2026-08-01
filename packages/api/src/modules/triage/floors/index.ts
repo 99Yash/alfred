@@ -27,10 +27,8 @@ export {
   isGithubNotificationSender,
   matchesCollabIntrinsicStake,
   matchesPrThread,
-  type SenderKindDemotionFloorContext,
-  type SenderKindDemotionReason,
 } from "./sender-kind";
-export { applyMeetingDemotionFloor, type MeetingDemotionReason } from "./meeting";
+export { applyMeetingDemotionFloor } from "./meeting";
 
 /** Everything the floor sequence reads about one email. Assembled by `classifyEmail`. */
 export interface FloorContext {

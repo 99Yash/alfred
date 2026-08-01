@@ -15,7 +15,6 @@
  * Reducers, the fold, and consumer cutover (briefing/triage/todos) build on these.
  */
 export { requireEntityIdNamespace } from "./namespace";
-export { type DbExecutor } from "./executor";
 export {
   appendObservationFamilyMember,
   insertObservation,
@@ -30,13 +29,7 @@ export {
   type GmailReductionResult,
 } from "./gmail-reducer";
 export {
-  classifyEntityKind,
-  type ClassifyEntityKindInput,
-  type GmailPayloadSignals,
-} from "./entity-kind-classifier";
-export {
   projectGmailKindProfiles,
-  type ProjectGmailKindProfilesArgs,
   type ProjectGmailKindProfilesResult,
 } from "./gmail-kind-fold";
 export {
@@ -56,7 +49,6 @@ export {
   ensureEntityNode,
   recordEntityIdentity,
   EntityIdentityConflictError,
-  type RecordEntityIdentityArgs,
 } from "./entities";
 export {
   activateProjectionVersion,
@@ -64,16 +56,6 @@ export {
   failProjectionRun,
   startProjectionRun,
   writeProjectionCursor,
-  type CompleteProjectionRunArgs,
-  type StartProjectionRunArgs,
-  type StartProjectionRunResult,
-  type WriteProjectionCursorArgs,
 } from "./projection";
-export {
-  userModelReader,
-  type ActiveEntityProfile,
-  type ActiveEntityEdge,
-  type ActiveEntityCoOccurrence,
-  type UserModelReader,
-} from "./reader";
-export { refoldActiveGmailKindProjection, type RefoldGmailKindProjectionResult } from "./refold";
+export { userModelReader, type ActiveEntityProfile } from "./reader";
+export { refoldActiveGmailKindProjection } from "./refold";
