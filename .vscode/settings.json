@@ -26,5 +26,15 @@
   },
   "[jsonc]": {
     "editor.defaultFormatter": "oxc.oxc-vscode"
-  }
+  },
+  // Tailwind v4 has no JS config. Point the extension at the CSS entry that
+  // holds `@import "tailwindcss"` and the `@theme inline` token map, so app
+  // tokens (app-fg-4, app-bg-2, ...) complete too.
+  "tailwindCSS.experimental.configFile": "apps/web/src/index.css",
+  // Entries are regex. The trailing pattern covers the `*ClassName` pass-through
+  // props (triggerClassName, overlayClassName, iconClassName, ...).
+  "tailwindCSS.classAttributes": ["class", "className", ".*ClassName"],
+  // `cn()` is the only class helper this repo uses (474 calls). Without this,
+  // module-level `const X = cn("...")` gets no completions or lint.
+  "tailwindCSS.classFunctions": ["cn"]
 }
