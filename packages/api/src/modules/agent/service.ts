@@ -32,6 +32,7 @@ import {
   type WorkflowInput,
 } from "./types";
 import { userAuthoredBriefWorkflow } from "./workflows/user-authored-brief";
+import { workflowOccurrenceKey } from "../workflows/occurrence";
 
 /**
  * After this much silence on `last_checkpoint_at`, a `running` row is
@@ -87,6 +88,8 @@ type CreateRunBase = Omit<WorkflowInput, "trigger"> & {
   workflowSlug: string;
   /** Caller-owned durable identity for a manual/test occurrence. */
   requestId?: string | undefined;
+  /** Database-unique identity for a durable trigger occurrence (#558). */
+  occurrenceKey?: string | undefined;
   /**
    * What caused this run to be created (ADR-0027). Required — every
    * call-site declares its kind explicitly so the unified dispatcher
@@ -107,6 +110,8 @@ export type CreateRunArgs = CreateRunBase &
 
 export interface CreateRunResult {
   runId: string;
+  /** False when this call found the run that already owns the occurrence. */
+  created: boolean;
 }
 
 /**
@@ -180,6 +185,15 @@ export async function createRun(
   if (resolved.userAuthoredRow && trigger.kind === "manual" && !manualRequestKey) {
     throw new Error("A user-authored manual run requires requestId");
   }
+  const occurrenceKey =
+    args.occurrenceKey ??
+    (resolved.userAuthoredRow && trigger.kind === "manual" && args.requestId
+      ? workflowOccurrenceKey({
+          kind: "manual",
+          workflowId: resolved.userAuthoredRow.workflowId,
+          requestId: args.requestId,
+        })
+      : undefined);
   const dedupKey = manualRequestKey ?? workflow.dedupKey?.(workflowInput) ?? null;
 
   const insert = ex.insert(agentRuns).values({
@@ -194,13 +208,18 @@ export async function createRun(
     trigger,
     status: "pending",
     dedupKey,
+    occurrenceKey,
   });
-  const inserted = manualRequestKey
-    ? await insert.onConflictDoNothing().returning({ id: agentRuns.id })
-    : await insert.returning({ id: agentRuns.id });
+  const inserted = occurrenceKey
+    ? await insert
+        .onConflictDoNothing({ target: [agentRuns.userId, agentRuns.occurrenceKey] })
+        .returning({ id: agentRuns.id })
+    : manualRequestKey
+      ? await insert.onConflictDoNothing().returning({ id: agentRuns.id })
+      : await insert.returning({ id: agentRuns.id });
 
   const row = inserted[0];
-  if (!row && manualRequestKey) {
+  if (!row && (occurrenceKey || manualRequestKey)) {
     const [existing] = await ex
       .select({ id: agentRuns.id })
       .from(agentRuns)
@@ -208,14 +227,16 @@ export async function createRun(
         and(
           eq(agentRuns.userId, args.userId),
           eq(agentRuns.workflowSlug, workflowSlug),
-          eq(agentRuns.dedupKey, manualRequestKey),
+          occurrenceKey
+            ? eq(agentRuns.occurrenceKey, occurrenceKey)
+            : eq(agentRuns.dedupKey, manualRequestKey!),
         ),
       )
       .limit(1);
-    if (existing) return { runId: existing.id };
+    if (existing) return { runId: existing.id, created: false };
   }
   if (!row) throw new Error("[agent] failed to insert run row");
-  return { runId: row.id };
+  return { runId: row.id, created: true };
 }
 
 export interface SignalArgs {
@@ -710,9 +731,10 @@ export async function getRun(runId: string, userId: string): Promise<RunSummary 
 }
 
 /**
- * Find run rows that are claimable by the worker pool: pending or runnable,
- * plus running rows whose owning worker's heartbeat has gone stale (presumed
- * dead). The stale window is per-step (ADR-0070 §1.4, Lever A): the SQL selects
+ * Find run rows that are claimable by the worker pool: pending, runnable, or a
+ * deferred row whose retry time arrived, plus running rows whose owning worker's
+ * heartbeat has gone stale (presumed dead). The stale window is per-step
+ * (ADR-0070 §1.4, Lever A): the SQL selects
  * running candidates at {@link minStaleAfterMs} (the smallest window, so nothing
  * is missed), then each is refined against its precise per-step window via
  * {@link resolveStaleAfterMs}. `leaseRun` re-checks the same window under the
@@ -733,6 +755,7 @@ export async function findResumableRunIds(opts: { limit?: number }): Promise<str
              EXTRACT(EPOCH FROM (now() - last_checkpoint_at)) * 1000 AS "staleMs"
       FROM agent_runs
       WHERE status IN ('pending', 'runnable')
+         OR (status = 'deferred' AND deferred_until <= now())
          OR (status = 'running' AND (
            last_checkpoint_at IS NULL
            OR last_checkpoint_at < (now() - make_interval(secs => ${minStaleAfterMs() / 1000}))
@@ -751,8 +774,8 @@ export async function findResumableRunIds(opts: { limit?: number }): Promise<str
     if (rows.length === 0) break;
     offset += rows.length;
     for (const row of rows) {
-      // pending/runnable are always claimable; only `running` rows are gated on
-      // the per-step stale window (the SQL floor over-selects them).
+      // Pending/runnable and due deferred rows are claimable; only `running`
+      // rows are gated on the per-step stale window.
       if (row.status !== "running") {
         resumable.push(row.id);
         if (resumable.length >= limit) break;

@@ -22,6 +22,8 @@ export const runStatusSchema = z.enum([
   "completed",
   "failed",
   "cancelled",
+  "deferred",
+  "blocked",
 ]);
 export const RUN_STATUSES = Object.freeze([...runStatusSchema.options]);
 export type RunStatus = z.infer<typeof runStatusSchema>;
@@ -41,6 +43,8 @@ const RUN_STATUS_KIND = {
   completed: "terminal",
   failed: "terminal",
   cancelled: "terminal",
+  deferred: "live",
+  blocked: "terminal",
 } as const satisfies Record<RunStatus, "live" | "terminal">;
 
 export function isTerminalStatus(s: RunStatus): boolean {

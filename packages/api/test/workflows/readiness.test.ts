@@ -12,6 +12,7 @@ import {
   resolveWorkflowApprovalDisplay,
   resolveWorkflowReadiness as resolveWorkflowReadinessBase,
 } from "../../src/modules/workflows/readiness";
+import { runtimeReadinessDisposition } from "../../src/modules/workflows/runtime-readiness";
 import { validateWorkflowDefinition } from "../../src/modules/workflows/revisions";
 
 function resolveWorkflowReadiness(
@@ -81,6 +82,20 @@ function definition(
 }
 
 describe("workflow readiness", () => {
+  test("runtime defers provider health but blocks credential loss", () => {
+    assert.equal(
+      runtimeReadinessDisposition([
+        { code: "provider_unhealthy", message: "Provider is unavailable.", field: "trigger" },
+      ]),
+      "deferred",
+    );
+    assert.equal(
+      runtimeReadinessDisposition([
+        { code: "needs_reauth", message: "Reconnect the account.", field: "capability" },
+      ]),
+      "blocked",
+    );
+  });
   test("the pure resolver derives an exact active envelope", () => {
     const result = resolveWorkflowCapabilities({
       definition: definition(),

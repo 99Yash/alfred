@@ -6,6 +6,7 @@ import { createRun } from "../agent/service";
 import { enqueueRun } from "../agent/queue";
 import { computeNextRunAt, resolveWorkflowTimezone } from "./scheduling";
 import { toMessage } from "@alfred/contracts";
+import { workflowOccurrenceKey } from "./occurrence";
 
 /**
  * One tick of the generic workflow dispatcher (ADR-0027).
@@ -43,6 +44,11 @@ export interface TickResult {
   failed: number;
 }
 
+export interface TickDependencies {
+  createRun?: typeof createRun;
+  enqueueRun?: typeof enqueueRun;
+}
+
 interface DueRow {
   id: string;
   slug: string;
@@ -54,7 +60,10 @@ interface DueRow {
   isBuiltin: boolean;
 }
 
-export async function dispatchDueCronWorkflows(now: Date = new Date()): Promise<TickResult> {
+export async function dispatchDueCronWorkflows(
+  now: Date = new Date(),
+  dependencies: TickDependencies = {},
+): Promise<TickResult> {
   const due = await selectDueRows(now);
 
   let enqueued = 0;
@@ -64,7 +73,7 @@ export async function dispatchDueCronWorkflows(now: Date = new Date()): Promise<
 
   for (const row of due) {
     try {
-      const result = await dispatchOne(row);
+      const result = await dispatchOne(row, dependencies);
       if (result === "enqueued") enqueued++;
       else if (result === "raced") raced++;
       else if (result === "invalid") invalid++;
@@ -101,6 +110,7 @@ async function selectDueRows(now: Date): Promise<DueRow[]> {
     .where(
       and(
         eq(workflows.status, "active"),
+        sql`${workflows.blocked} IS NULL`,
         sql`${workflows.trigger}->>'kind' = 'cron'`,
         sql`${workflows.nextRunAt} <= ${now.toISOString()}`,
       ),
@@ -129,7 +139,10 @@ async function selectDueRows(now: Date): Promise<DueRow[]> {
   return due;
 }
 
-async function dispatchOne(row: DueRow): Promise<"enqueued" | "raced" | "invalid"> {
+async function dispatchOne(
+  row: DueRow,
+  dependencies: TickDependencies,
+): Promise<"enqueued" | "raced" | "invalid"> {
   const scheduledFor = row.nextRunAt;
   const scheduledForIso = scheduledFor.toISOString();
 
@@ -164,30 +177,35 @@ async function dispatchOne(row: DueRow): Promise<"enqueued" | "raced" | "invalid
   // CAS: only this tick worker may advance the row from the instant we
   // SELECTed. A racing worker hits 0 rows updated and bails. drizzle's
   // `.update().returning()` is the cleanest way to read affected rows.
-  const updated = await db()
-    .update(workflows)
-    .set({
-      nextRunAt: newNext,
-      lastScheduledAt: scheduledFor,
-    })
-    .where(and(eq(workflows.id, row.id), eq(workflows.nextRunAt, scheduledFor)))
-    .returning({ id: workflows.id });
-
-  if (updated.length === 0) {
-    return "raced";
-  }
-
-  // `createRun` handles both registered built-ins and user-authored
-  // brief-only rows. Registry misses fall through to the sentinel
-  // workflow, then `createRun` validates the workflow row still exists
-  // for this user before inserting the run.
-  const { runId } = await createRun({
-    userId: row.userId,
-    workflowSlug: row.slug,
-    workflowRevisionId: row.isBuiltin ? null : row.publishedRevisionId,
-    brief: row.brief ?? undefined,
-    trigger: { kind: "cron", scheduledFor: scheduledForIso },
+  const occurrenceKey = workflowOccurrenceKey({
+    kind: "cron",
+    workflowId: row.id,
+    revisionId: row.isBuiltin ? null : row.publishedRevisionId,
+    scheduledFor: scheduledForIso,
   });
+  const claimed = await db().transaction(async (tx) => {
+    const updated = await tx
+      .update(workflows)
+      .set({ nextRunAt: newNext, lastScheduledAt: scheduledFor })
+      .where(and(eq(workflows.id, row.id), eq(workflows.nextRunAt, scheduledFor)))
+      .returning({ id: workflows.id });
+    if (updated.length === 0) return null;
+
+    return (dependencies.createRun ?? createRun)(
+      {
+        userId: row.userId,
+        workflowSlug: row.slug,
+        workflowRevisionId: row.isBuiltin ? null : row.publishedRevisionId,
+        brief: row.brief ?? undefined,
+        occurrenceKey,
+        trigger: { kind: "cron", scheduledFor: scheduledForIso },
+      },
+      tx,
+    );
+  });
+
+  if (!claimed) return "raced";
+  const { runId } = claimed;
 
   // jobId dedup defends against a tick retry (BullMQ attempts) firing a
   // second job for the same scheduled instant. Different `scheduledFor`
@@ -198,7 +216,7 @@ async function dispatchOne(row: DueRow): Promise<"enqueued" | "raced" | "invalid
   // bullmq/.../job.js). We use `.` separators and the millisecond
   // timestamp (sub-second uniqueness we never schedule at, but still
   // colon-free + numerically sortable).
-  await enqueueRun(runId, {
+  await (dependencies.enqueueRun ?? enqueueRun)(runId, {
     jobId: `workflow.${row.id}.scheduled.${scheduledFor.getTime()}`,
   });
 

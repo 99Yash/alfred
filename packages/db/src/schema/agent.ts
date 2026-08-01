@@ -17,6 +17,7 @@ import {
   text,
   timestamp,
   uniqueIndex,
+  type AnyPgColumn,
 } from "drizzle-orm/pg-core";
 import { createId, lifecycle_dates } from "../helpers";
 import { user } from "./auth";
@@ -52,6 +53,7 @@ export const EVENT_ACTIVE_RUN_INDEX = "agent_runs_event_active_idx";
  */
 export const RUN_DEDUP_KEY_INDEX = "agent_runs_dedup_key_idx";
 export const MANUAL_REQUEST_RUN_INDEX = "agent_runs_manual_request_idx";
+export const OCCURRENCE_RUN_INDEX = "agent_runs_occurrence_idx";
 
 /**
  * The `agent_runs` unique indexes whose constraint name a caller has to *branch
@@ -64,6 +66,7 @@ export const MANUAL_REQUEST_RUN_INDEX = "agent_runs_manual_request_idx";
  * collision meaning below becomes a build requirement.
  */
 export const AGENT_RUN_UNIQUE_INDEXES = [
+  OCCURRENCE_RUN_INDEX,
   EVENT_ACTIVE_RUN_INDEX,
   RUN_DEDUP_KEY_INDEX,
   MANUAL_REQUEST_RUN_INDEX,
@@ -110,6 +113,7 @@ export type AgentRunUniqueIndex = (typeof AGENT_RUN_UNIQUE_INDEXES)[number];
  *   as a typed "thread busy" instead (#488).
  */
 const AGENT_RUN_UNIQUE_INDEX_MEANING = {
+  [OCCURRENCE_RUN_INDEX]: "duplicate",
   [EVENT_ACTIVE_RUN_INDEX]: "duplicate",
   [RUN_DEDUP_KEY_INDEX]: "duplicate",
   [MANUAL_REQUEST_RUN_INDEX]: "duplicate",
@@ -263,6 +267,8 @@ export function eventRunIdentityMatch(t: EventRunIdentityColumns, identity: Even
  *  - `runnable`    — ready to execute the next step
  *  - `running`     — a worker holds the lease (heartbeat in `last_checkpoint_at`)
  *  - `waiting`     — parked on `wake_condition`; resume signal flips to runnable
+ *  - `deferred`    — readiness retry is parked until `deferred_until`
+ *  - `blocked`     — terminal readiness failure; user recovery is required
  *  - `completed`   — terminal success
  *  - `failed`      — terminal error
  *  - `cancelled`   — terminal user-initiated stop
@@ -309,6 +315,12 @@ export const agentRuns = pgTable(
      * populate it.
      */
     trigger: jsonb("trigger").$type<AgentRunTrigger>(),
+    /** Durable identity of one cron, event, manual/test, or replay occurrence (#558). */
+    occurrenceKey: text("occurrence_key"),
+    /** Original run when this occurrence is an explicit replay. */
+    replayOfRunId: text("replay_of_run_id").references((): AnyPgColumn => agentRuns.id),
+    /** Earliest instant a deferred readiness check may be leased again. */
+    deferredUntil: timestamp("deferred_until", { withTimezone: true }),
     /**
      * Optional workflow-declared singleton key. When non-null and the run
      * is not in a terminal-failure state, no second row with the same
@@ -332,6 +344,10 @@ export const agentRuns = pgTable(
     index("agent_runs_runnable_idx")
       .on(t.lastCheckpointAt)
       .where(sql`${t.status} IN ('pending', 'runnable', 'running')`),
+    index("agent_runs_deferred_idx")
+      .on(t.deferredUntil)
+      .where(sql`${t.status} = 'deferred'`),
+    uniqueIndex(OCCURRENCE_RUN_INDEX).on(t.userId, t.occurrenceKey),
     // Enforces "at most one active run per (user, workflow, dedup_key)."
     // Excludes failed/cancelled so a transient outage doesn't permanently
     // lock a workflow out — a later trigger can produce a fresh attempt.
