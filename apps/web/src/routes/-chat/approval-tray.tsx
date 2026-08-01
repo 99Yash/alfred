@@ -218,7 +218,7 @@ function InlineApprovalCard({
     await decide(approveDecision(), integrationName);
   };
 
-  const approveLabel = approvalLabel(staging.riskTier, edited);
+  const approveLabel = approvalLabel(staging.toolName, staging.riskTier, edited);
   const policy = policyCopy(staging.riskTier);
 
   return (
@@ -392,7 +392,8 @@ function InlineApprovalCard({
   );
 }
 
-function approvalLabel(riskTier: ToolRiskTier, edited: boolean): string {
+function approvalLabel(toolName: string, riskTier: ToolRiskTier, edited: boolean): string {
+  if (edited && toolName === "system.activate_workflow") return "Review changes";
   if (edited)
     return riskTier === "no_risk" || riskTier === "low" ? "Allow changes" : "Approve changes";
   return riskTier === "no_risk" || riskTier === "low" ? "Allow once" : "Approve";

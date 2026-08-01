@@ -19,6 +19,7 @@ import {
   type ToolUnavailabilityCode,
 } from "../integrations/availability";
 import { getTool } from "../tools/registry";
+import type { GmailEventHealth } from "./gmail-event-readiness";
 
 export type WorkflowReadinessProblemCode =
   | ToolUnavailabilityCode
@@ -139,6 +140,7 @@ export function resolveWorkflowApprovalDisplay(
         title: toolLabel(capability.tool)?.title ?? capability.tool,
         ...(capability.accountRef ? { accountRef: capability.accountRef } : {}),
         ...(account ? { accountLabel: account.accountLabel } : {}),
+        ...(capability.resourceScope ? { resourceScope: capability.resourceScope } : {}),
       };
     })
     .sort(
@@ -172,6 +174,7 @@ export function resolveWorkflowReadiness(args: {
   definition: WorkflowRevisionDefinition;
   availability: IntegrationAvailabilitySnapshot;
   requestedCapabilities?: readonly WorkflowRequestedCapability[];
+  gmailEventHealth: ReadonlyMap<string, GmailEventHealth>;
   now?: Date;
 }): WorkflowReadinessProblem[] {
   const problems: WorkflowReadinessProblem[] = [];
@@ -210,6 +213,14 @@ export function resolveWorkflowReadiness(args: {
         code: "no_tool_surface",
         message: `Alfred cannot automate '${capability.tool}' because it has no registered tool surface.`,
         field: `${field}.tool`,
+      });
+      continue;
+    }
+    if (capability.resourceScope) {
+      problems.push({
+        code: "resource_not_granted",
+        message: `Alfred cannot yet verify the resource boundary for '${capability.tool}'.`,
+        field: `${field}.resourceScope`,
       });
       continue;
     }
@@ -262,14 +273,6 @@ export function resolveWorkflowReadiness(args: {
         }
       }
     }
-
-    if (capability.resourceScope) {
-      problems.push({
-        code: "resource_not_granted",
-        message: `Resource-scoped access for '${capability.tool}' cannot be verified yet.`,
-        field: `${field}.resourceScope`,
-      });
-    }
   }
 
   if (args.definition.trigger.kind === "event") {
@@ -280,7 +283,7 @@ export function resolveWorkflowReadiness(args: {
       const expiresAt = getStringPath(row.metadata, "watch", "expiresAt");
       const baseline = getStringPath(row.metadata, "watch", "baselineHistoryId");
       const installedAt = getStringPath(row.metadata, "watch", "installedAt");
-      const health = row.gmailEventHealth;
+      const health = args.gmailEventHealth.get(row.credentialId);
       return Boolean(
         expiresAt &&
         baseline &&

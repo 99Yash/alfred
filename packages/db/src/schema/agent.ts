@@ -51,6 +51,7 @@ export const EVENT_ACTIVE_RUN_INDEX = "agent_runs_event_active_idx";
  * exists" — not "the dispatch failed".
  */
 export const RUN_DEDUP_KEY_INDEX = "agent_runs_dedup_key_idx";
+export const MANUAL_REQUEST_RUN_INDEX = "agent_runs_manual_request_idx";
 
 /**
  * The `agent_runs` unique indexes whose constraint name a caller has to *branch
@@ -65,6 +66,7 @@ export const RUN_DEDUP_KEY_INDEX = "agent_runs_dedup_key_idx";
 export const AGENT_RUN_UNIQUE_INDEXES = [
   EVENT_ACTIVE_RUN_INDEX,
   RUN_DEDUP_KEY_INDEX,
+  MANUAL_REQUEST_RUN_INDEX,
   CHAT_THREAD_ACTIVE_RUN_INDEX,
 ] as const;
 
@@ -110,6 +112,7 @@ export type AgentRunUniqueIndex = (typeof AGENT_RUN_UNIQUE_INDEXES)[number];
 const AGENT_RUN_UNIQUE_INDEX_MEANING = {
   [EVENT_ACTIVE_RUN_INDEX]: "duplicate",
   [RUN_DEDUP_KEY_INDEX]: "duplicate",
+  [MANUAL_REQUEST_RUN_INDEX]: "duplicate",
   [CHAT_THREAD_ACTIVE_RUN_INDEX]: "busy",
 } as const satisfies Record<AgentRunUniqueIndex, "duplicate" | "busy">;
 
@@ -346,6 +349,13 @@ export const agentRuns = pgTable(
     uniqueIndex("agent_runs_sub_agent_dedup_idx")
       .on(t.userId, t.workflowSlug, t.dedupKey)
       .where(sql`${t.workflowSlug} = '__user-authored-brief__' AND ${t.dedupKey} LIKE 'sub:%'`),
+    // Manual/test retries remain one occurrence after every terminal outcome.
+    // The general dedup index intentionally permits failed/cancelled retries;
+    // caller-supplied manual request ids do not, because they identify the same
+    // occurrence rather than a request to try the workflow again.
+    uniqueIndex(MANUAL_REQUEST_RUN_INDEX)
+      .on(t.userId, t.workflowSlug, t.dedupKey)
+      .where(sql`(${t.trigger} ->> 'kind') = 'manual' AND ${t.dedupKey} LIKE 'manual:%'`),
     // Enforces "at most one non-terminal run per (user, workflow, event
     // identity)" (#531). The duplicate check is a read followed by an insert,
     // so two

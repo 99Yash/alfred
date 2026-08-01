@@ -9,7 +9,7 @@ import {
   isRecord,
 } from "@alfred/contracts";
 import { closeConnections, db } from "@alfred/db";
-import { user, workflowRevisions, workflows } from "@alfred/db/schemas";
+import { agentRuns, user, workflowRevisions, workflows } from "@alfred/db/schemas";
 import { databaseEnv } from "@alfred/env/database";
 import { asc, eq } from "drizzle-orm";
 
@@ -18,6 +18,7 @@ import { registerBuiltinTools } from "../../src/modules/tools";
 import { toolExecuteContext } from "../../src/modules/tools/context";
 import { definitionFromProposal } from "../../src/modules/workflows/authoring";
 import { refreshWorkflowActivationProposal } from "../../src/modules/workflows/revisions";
+import { createRun } from "../../src/modules/agent/service";
 
 const SKIP = (() => {
   try {
@@ -186,19 +187,28 @@ describe("workflow authoring and activation acceptance (#556)", { skip: SKIP }, 
     assert.deepEqual(proposal.authoringProposal.assumptions, []);
 
     const editedBrief = "Every weekday, summarize only urgent unread messages.";
-    const activateResult = await activateTool.execute(
-      {
-        ...proposal,
-        definition: {
-          ...proposal.definition,
-          brief: editedBrief,
-        },
+    const editedActivation = {
+      ...proposal,
+      definition: {
+        ...proposal.definition,
+        brief: editedBrief,
       },
-      context(userId, "activate-run"),
+    };
+    const activateResult = await activateTool.execute(
+      editedActivation,
+      context(userId, "author-run"),
     );
     assert.ok(isRecord(activateResult));
     assert.equal(activateResult.status, "activated");
     assert.equal(activateResult.revisedFromApprovalEdit, true);
+
+    const retriedActivation = await activateTool.execute(
+      editedActivation,
+      context(userId, "author-run"),
+    );
+    assert.ok(isRecord(retriedActivation));
+    assert.equal(retriedActivation.status, "activated");
+    assert.equal(retriedActivation.revisedFromApprovalEdit, true);
 
     const revisions = await db()
       .select()
@@ -219,6 +229,40 @@ describe("workflow authoring and activation acceptance (#556)", { skip: SKIP }, 
     assert.equal(workflow?.status, "active");
     assert.equal(workflow?.currentRevisionId, revisions[1]?.id);
     assert.equal(workflow?.publishedRevisionId, revisions[1]?.id);
+
+    const firstManual = await createRun({
+      userId,
+      workflowSlug: workflow!.slug,
+      requestId: "manual-request-1",
+      brief: "Unapproved replacement brief.",
+      trigger: { kind: "manual" },
+    });
+    const retriedManual = await createRun({
+      userId,
+      workflowSlug: workflow!.slug,
+      requestId: "manual-request-1",
+      brief: "Another unapproved replacement.",
+      trigger: { kind: "manual" },
+    });
+    assert.equal(retriedManual.runId, firstManual.runId);
+    const [manualRun] = await db()
+      .select({ brief: agentRuns.brief, workflowRevisionId: agentRuns.workflowRevisionId })
+      .from(agentRuns)
+      .where(eq(agentRuns.id, firstManual.runId));
+    assert.equal(manualRun?.brief, editedBrief);
+    assert.equal(manualRun?.workflowRevisionId, revisions[1]?.id);
+
+    await db()
+      .update(agentRuns)
+      .set({ status: "failed" })
+      .where(eq(agentRuns.id, firstManual.runId));
+    const terminalRetry = await createRun({
+      userId,
+      workflowSlug: workflow!.slug,
+      requestId: "manual-request-1",
+      trigger: { kind: "manual" },
+    });
+    assert.equal(terminalRetry.runId, firstManual.runId);
   });
 
   test("a stale content hash refuses activation", async () => {

@@ -95,7 +95,7 @@ export function workflowScheduleSummary(trigger: WorkflowTrigger): string {
     case "cron":
       return describeCronSchedule(trigger.schedule, trigger.timezone);
     case "event":
-      return "When Gmail receives a message";
+      return "For every Gmail delivery; Alfred evaluates semantic conditions inside the run";
     case "manual":
       return "Manual runs only";
     case "on_signal":

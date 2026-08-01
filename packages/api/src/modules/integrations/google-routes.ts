@@ -503,6 +503,7 @@ export const googleIntegrationRoutes = new Elysia({
             type: "completed",
             eventId: `google.callback:${credential.id}`,
           },
+          workflowRevisionId: null,
         });
         await enqueueRun(runId);
       } catch (err) {

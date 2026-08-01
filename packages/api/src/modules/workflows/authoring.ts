@@ -15,11 +15,11 @@ import { db } from "@alfred/db";
 import { workflows } from "@alfred/db/schemas";
 import { and, eq, like } from "drizzle-orm";
 import { availableSlug, slugBase } from "../../lib/slug";
-import { computeNextRunAt, workflowScheduleSummary } from "./scheduling";
+import { workflowScheduleSummary } from "./scheduling";
 import { readFreshIntegrationAvailability } from "../integrations/availability";
+import { readWorkflowReadinessContext } from "./readiness-context";
 import {
   canonicalizeWorkflowAccounts,
-  resolveWorkflowApprovalDisplay,
   resolveWorkflowReadiness,
   type WorkflowReadinessProblem,
 } from "./readiness";
@@ -29,6 +29,7 @@ import {
   reviseWorkflow,
   setWorkflowBlocked,
   approvalProposalForDefinition,
+  buildWorkflowActivationProposal,
   type WorkflowRevisionOutcome,
   type WorkflowServiceResult,
 } from "./revisions";
@@ -48,7 +49,7 @@ export async function authorWorkflowDraft(args: {
 }): Promise<WorkflowServiceResult<AuthoredWorkflowOutcome>> {
   // Gather mutable setup before the first write. A transient availability-read
   // failure must not commit a draft and then make a retry create a second one.
-  const availability = await readFreshIntegrationAvailability(args.userId);
+  const { availability, gmailEventHealth } = await readWorkflowReadinessContext(args.userId);
   const definition = canonicalizeWorkflowAccounts({
     definition: definitionFromProposal(args.input),
     availability,
@@ -58,6 +59,7 @@ export async function authorWorkflowDraft(args: {
     definition,
     availability,
     requestedCapabilities: args.input.capabilities,
+    gmailEventHealth,
   });
   const slug = args.input.workflowId
     ? undefined
@@ -198,29 +200,16 @@ function activationProposalFor(args: {
     args.definition.trigger.kind === "cron"
       ? (args.definition.trigger.timezone ?? args.timezone)
       : args.timezone;
-  const previewedAt = new Date();
-  const nextRunAt = computeNextRunAt(args.definition.trigger, { from: previewedAt, timezone });
-  const { resolvedAccounts, resolvedCapabilities } = resolveWorkflowApprovalDisplay(
-    args.definition,
-    args.availability,
-  );
-
-  return {
+  return buildWorkflowActivationProposal({
     workflowId: args.workflow.id,
     baseRevisionId: args.revision.id,
     baseContentHash: args.revision.contentHash,
     baseRowVersion: args.workflow.rowVersion,
     definition: args.definition,
-    schedule: {
-      summary: workflowScheduleSummary(args.definition.trigger),
-      timezone,
-      previewedAt: previewedAt.toISOString(),
-      ...(nextRunAt ? { nextRunAt: nextRunAt.toISOString() } : {}),
-    },
-    resolvedAccounts,
-    resolvedCapabilities,
     authoringProposal: args.authoringProposal,
-  };
+    availability: args.availability,
+    timezone,
+  });
 }
 
 function uniqueCapabilities(

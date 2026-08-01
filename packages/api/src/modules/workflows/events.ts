@@ -53,6 +53,8 @@ export async function emitEvent(args: EmitEventArgs): Promise<EmitEventResult> {
     .select({
       slug: workflows.slug,
       allowedIntegrations: workflows.allowedIntegrations,
+      publishedRevisionId: workflows.publishedRevisionId,
+      isBuiltin: workflows.isBuiltin,
     })
     .from(workflows)
     .where(
@@ -94,6 +96,10 @@ export async function emitEvent(args: EmitEventArgs): Promise<EmitEventResult> {
           );
           return;
         }
+        if (!row.isBuiltin && !row.publishedRevisionId) {
+          throw new Error(`[workflows:event] workflow=${row.slug} has no published revision`);
+        }
+        const workflowRevisionId = row.isBuiltin ? null : row.publishedRevisionId;
 
         // Fast path only. This read and the insert below are not atomic, so
         // two concurrent dispatches of the same event (webhook + retry,
@@ -117,6 +123,7 @@ export async function emitEvent(args: EmitEventArgs): Promise<EmitEventResult> {
           ({ runId } = await createRun({
             userId: args.userId,
             workflowSlug: row.slug,
+            workflowRevisionId,
             input: {
               documentId,
               reason,

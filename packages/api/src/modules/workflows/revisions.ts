@@ -10,6 +10,8 @@ import {
   toolLabel,
   workflowRevisionDefinitionSchema,
   workflowAuthoringProposalSchema,
+  type ActivateWorkflowInput,
+  type AuthorableWorkflowDefinition,
   type WorkflowAuthoringProposal,
   type WorkflowBlocked,
   type IanaTimezone,
@@ -38,6 +40,7 @@ import {
   validateCronTrigger,
   workflowScheduleSummary,
 } from "./scheduling";
+import { readWorkflowReadinessContext } from "./readiness-context";
 
 /**
  * The workflow draft / revision / activation service (#555,
@@ -619,7 +622,7 @@ export async function refreshWorkflowActivationProposal(args: {
     };
   }
 
-  const availability = await readFreshIntegrationAvailability(args.userId);
+  const { availability, gmailEventHealth } = await readWorkflowReadinessContext(args.userId);
   const canonicalDefinition = canonicalizeWorkflowAccounts({
     definition: requested.definition,
     availability,
@@ -653,31 +656,24 @@ export async function refreshWorkflowActivationProposal(args: {
     definition,
     availability,
     requestedCapabilities: definition.requiredCapabilities,
+    gmailEventHealth,
   });
   if (blockers.length > 0) {
     return { ok: false, failure: { kind: "readiness_blocked", blockers } };
   }
 
-  const previewedAt = new Date();
-  const nextRunAt = computeNextRunAt(definition.trigger, { from: previewedAt, timezone });
-  const display = resolveWorkflowApprovalDisplay(definition, availability);
   return {
     ok: true,
-    input: {
+    input: buildWorkflowActivationProposal({
       workflowId: existing.id,
       baseRevisionId: current.id,
       baseContentHash: current.contentHash,
       baseRowVersion: existing.rowVersion,
       definition,
-      schedule: {
-        summary: workflowScheduleSummary(definition.trigger),
-        timezone,
-        previewedAt: previewedAt.toISOString(),
-        ...(nextRunAt ? { nextRunAt: nextRunAt.toISOString() } : {}),
-      },
-      ...display,
-      authoringProposal: approvalProposalForDefinition(baseProposal.data, definition),
-    },
+      authoringProposal: baseProposal.data,
+      availability,
+      timezone,
+    }),
   };
 }
 
@@ -701,6 +697,40 @@ export function approvalProposalForDefinition(
     externalEffects: [...new Set([...base.externalEffects, ...derivedEffects])],
     requestedCapabilities: definition.requiredCapabilities,
     scheduleSummary: workflowScheduleSummary(definition.trigger),
+  };
+}
+
+/** Build the one exact activation contract shown by every authoring surface. */
+export function buildWorkflowActivationProposal(args: {
+  workflowId: string;
+  baseRevisionId: string;
+  baseContentHash: string;
+  baseRowVersion: number;
+  definition: AuthorableWorkflowDefinition;
+  authoringProposal: WorkflowAuthoringProposal;
+  availability: Awaited<ReturnType<typeof readFreshIntegrationAvailability>>;
+  timezone: IanaTimezone;
+  previewedAt?: Date | undefined;
+}): ActivateWorkflowInput {
+  const previewedAt = args.previewedAt ?? new Date();
+  const nextRunAt = computeNextRunAt(args.definition.trigger, {
+    from: previewedAt,
+    timezone: args.timezone,
+  });
+  return {
+    workflowId: args.workflowId,
+    baseRevisionId: args.baseRevisionId,
+    baseContentHash: args.baseContentHash,
+    baseRowVersion: args.baseRowVersion,
+    definition: args.definition,
+    schedule: {
+      summary: workflowScheduleSummary(args.definition.trigger),
+      timezone: args.timezone,
+      previewedAt: previewedAt.toISOString(),
+      ...(nextRunAt ? { nextRunAt: nextRunAt.toISOString() } : {}),
+    },
+    ...resolveWorkflowApprovalDisplay(args.definition, args.availability),
+    authoringProposal: approvalProposalForDefinition(args.authoringProposal, args.definition),
   };
 }
 
@@ -731,6 +761,34 @@ export async function activateWorkflowDefinition(
     };
   }
   const input = parsed.data;
+  const inputHash = workflowRevisionContentHash(input.definition);
+  const alreadyApplied = await db().transaction(async (tx) => {
+    const existing = await loadWorkflow(tx, args.userId, input.workflowId);
+    if (
+      !existing ||
+      existing.status !== "active" ||
+      !existing.currentRevisionId ||
+      existing.publishedRevisionId !== existing.currentRevisionId
+    ) {
+      return null;
+    }
+    const current = await loadRevision(tx, existing.currentRevisionId);
+    if (
+      !current?.approvedAt ||
+      current.contentHash !== inputHash ||
+      canonicalJson(current.authoringProposal) !== canonicalJson(input.authoringProposal)
+    ) {
+      return null;
+    }
+    return { workflow: existing, revision: current };
+  });
+  if (alreadyApplied) {
+    return {
+      ok: true,
+      ...alreadyApplied,
+      revised: alreadyApplied.revision.id !== input.baseRevisionId,
+    };
+  }
   const availability = await readFreshIntegrationAvailability(args.userId);
   const canonicalInputDefinition = canonicalizeWorkflowAccounts({
     definition: input.definition,
@@ -859,6 +917,7 @@ function validateActivationSchedule(
   const problems: WorkflowRevisionProblem[] = [];
   const previewedAt = new Date(input.schedule.previewedAt);
   const expectedNext = computeNextRunAt(input.definition.trigger, { from: previewedAt, timezone });
+  const currentNext = computeNextRunAt(input.definition.trigger, { from: new Date(), timezone });
   const expectedSummary = workflowScheduleSummary(input.definition.trigger);
   if (input.schedule.timezone !== timezone) {
     problems.push({
@@ -881,6 +940,13 @@ function validateActivationSchedule(
       field: "schedule.nextRunAt",
     });
   }
+  if ((input.schedule.nextRunAt ?? null) !== (currentNext?.toISOString() ?? null)) {
+    problems.push({
+      code: "invalid_definition",
+      message: "The next-run preview has passed. Review the refreshed schedule.",
+      field: "schedule.nextRunAt",
+    });
+  }
   return problems;
 }
 
@@ -891,8 +957,8 @@ function validateActivationSchedule(
  * reactivation to re-run the identical validation as creation — a workflow
  * paused for a month may reference a tool that no longer exists.
  *
- * Activation does not clear `blocked`. Readiness is observed by the run's
- * `check-readiness` step (#558), not asserted by the act of activating.
+ * Activation rechecks readiness and clears an obsolete `blocked` state before
+ * publishing. The run's `check-readiness` step still protects later drift.
  */
 export async function activateWorkflow(
   args: ActivateWorkflowArgs,
@@ -930,12 +996,14 @@ export async function activateWorkflow(
 
     const definition = validated.definition;
     const proposal = workflowAuthoringProposalSchema.safeParse(current.authoringProposal);
+    const { availability, gmailEventHealth } = await readWorkflowReadinessContext(args.userId);
     const blockers = resolveWorkflowReadiness({
       definition,
-      availability: await readFreshIntegrationAvailability(args.userId),
+      availability,
       requestedCapabilities: proposal.success
         ? proposal.data.requestedCapabilities
         : definition.requiredCapabilities,
+      gmailEventHealth,
     });
     if (blockers.length > 0) {
       const first = blockers[0];
