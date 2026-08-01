@@ -34,6 +34,7 @@
  *   - `ANTHROPIC_API_KEY` set; Sonnet 4.6 is the boss model.
  *   - User row with a deliverable email (only when sending).
  */
+import { randomUUID } from "node:crypto";
 import {
   createRun,
   DAILY_BRIEFING_WORKFLOW_SLUG,
@@ -149,6 +150,7 @@ async function main() {
       dryRun: cli.noSend,
     },
     trigger: { kind: "manual" },
+    occurrence: { kind: "manual", requestId: randomUUID() },
   });
   await enqueueRun(runId);
   console.log(`[smoke-daily-briefing] run enqueued: ${runId}`);

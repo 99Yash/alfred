@@ -28,6 +28,7 @@
  *   # commit:
  *   node dist/scripts/backfills/backfill-triage-committed.js --commit
  */
+import { randomUUID } from "node:crypto";
 import {
   createRun,
   emitReplicachePokes,
@@ -214,6 +215,7 @@ async function processUser(u: TargetUser): Promise<void> {
         input: { documentId, reason: "manual", force: true },
         metadata: { source: "backfill-triage-committed" },
         trigger: { kind: "manual" },
+        occurrence: { kind: "manual", requestId: randomUUID() },
       });
       await enqueueRun(runId);
       enqueued++;

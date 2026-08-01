@@ -289,6 +289,12 @@ export const learnSkillWorkflow: Workflow<State> = {
               eventId: `learn-skill:${ctx.runId}`,
             },
             workflowRevisionId: null,
+            occurrence: {
+              kind: "event",
+              workflowId: SKILL_DOCUMENTATION_WORKFLOW_SLUG,
+              provider: "learn-skill",
+              eventId: `learn-skill:${ctx.runId}`,
+            },
           });
           await enqueueRun(created.runId);
           docRunId = created.runId;
