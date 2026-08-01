@@ -25,6 +25,12 @@
 > authored workflow slice is #557, although #612 already landed part of its
 > readiness substrate while closing activation review gaps. The merge left
 > `main` red in `api-tests`; see "State, 2026-08-01" at the end.
+>
+> **Amended 2026-08-01T05:26Z.** PRs #613 and #614 landed the pure #557
+> capability resolver and follow-up readiness fixes. PR #615 restored the tool
+> schema budget, and merge CI is green. #557 remains open for the recovery
+> contract and its remaining acceptance coverage; see the latest state at the
+> end.
 
 135 issues were open when this order was written. 26 of them are newer than the
 last tier artifact. The campaign holds 26 more items that are not issues at all.
@@ -580,3 +586,52 @@ the 2026-07-31 state section remains open.
 4. Decide whether **#547** is ranked beside #553 or paused before another MCP
    PR merges.
 5. Remove the still-locked `workflow-revisions-555` worktree.
+
+---
+
+# State, 2026-08-01T05:26Z
+
+PR **#615** merged at 05:22:08Z as `379212a3`. Its `main` push CI completed at
+05:26:20Z with `static`, `api-tests`, `ai-unit-tests`, `web-unit-tests` and
+React Doctor green. The first item in the 02:54Z live queue is complete:
+`main` is green again.
+
+The last failure was the full tool-schema budget. A follow-up edit had restored
+a longer `system.author_workflow` description, leaving the full surface at
+80,029 bytes against the unchanged 80,000-byte ceiling. #615 removed 33 bytes
+without changing the tool contract. The full surface is now 79,996 bytes.
+
+## 1. #557 has real substrate, but is not complete
+
+PR **#613** merged at 04:44:34Z as `547598e0`; PR **#614** merged at 05:07:17Z
+as `7a41741c`. Together they landed:
+
+- a pure `resolveWorkflowCapabilities` over caller-supplied availability and
+  tool-catalog state;
+- deterministic exact tool and integration envelopes, including the event
+  trigger source;
+- account canonicalization, account/resource blockers, Gmail trigger health,
+  and `no_tool_surface` for unsupported tools;
+- the existing runtime `capability_mismatch` enforcement with no silent
+  widening; and
+- database-backed fixture repairs for the immutable-revision rules from #612.
+
+This does **not** close #557. The remaining contract is concrete:
+
+- `WorkflowReadinessProblem` still carries only `code`, `message` and `field`;
+  it does not return the issue's typed, truthful recovery action;
+- no connect or reauthorize return boundary reruns readiness for the original
+  immutable draft and presents its activation proposal;
+- resource access is still fail-closed as unverifiable instead of being
+  resolved from supplied resource facts; and
+- the resolver acceptance matrix still needs direct cases for `needs_reauth`,
+  `missing_scope`, `feature_disabled`, and Gmail write on a read-only account.
+
+## The live queue, 2026-08-01T05:26Z
+
+1. Finish and close **#557**: typed recovery actions, same-draft recovery,
+   resource facts, and the remaining resolver acceptance matrix.
+2. Continue the authored order: `#558 -> #559 -> #560 -> #561`.
+3. Decide whether **#547** is ranked beside #553 or paused before another MCP
+   PR merges.
+4. Remove the still-locked `workflow-revisions-555` worktree.
