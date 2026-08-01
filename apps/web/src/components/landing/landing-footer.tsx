@@ -14,12 +14,9 @@ import { cn } from "~/lib/utils";
 export function LandingFooter({
   // eslint-disable-next-line @typescript-eslint/no-unused-vars
   onGetStarted: _onGetStarted,
-  healthOk,
 }: {
   onGetStarted: () => void;
-  healthOk?: boolean | undefined;
 }) {
-  const operational = healthOk !== false;
   const year = useCurrentYear();
   return (
     <footer
@@ -46,10 +43,7 @@ export function LandingFooter({
               wound down, Alfred is the personal AI coworker that runs quietly across every tool you
               already use.
             </p>
-            <div className="flex flex-col gap-2.5">
-              <OperationalPill operational={operational} />
-              <p className="text-[12.5px] text-neutral-400">© {year} Alfred</p>
-            </div>
+            <p className="text-[12.5px] text-neutral-400">© {year} Alfred</p>
           </div>
 
           {/* Product + Made by */}
@@ -130,33 +124,4 @@ function FooterColumn({ title, items }: { title: string; items: ReadonlyArray<Fo
 function useCurrentYear(): number {
   const [year] = useState(() => new Date().getFullYear());
   return year;
-}
-
-/**
- * Inline "Operational" status pill — mirrors visitors.now's footer status
- * indicator. Green dot when the API is reachable, amber when health hasn't
- * resolved yet or returned an error. We don't link to a dedicated status
- * page (there isn't one); the dot is the affordance.
- */
-function OperationalPill({ operational }: { operational: boolean }) {
-  return (
-    <span
-      className={cn(
-        "inline-flex w-fit items-center gap-2 text-[13px] font-medium",
-        operational ? "text-neutral-400" : "text-amber-400/85",
-      )}
-    >
-      <span className="relative grid size-2 place-items-center" aria-hidden>
-        {operational ? (
-          <>
-            <span className="absolute inset-0 animate-ping rounded-full bg-emerald-400/55" />
-            <span className="relative size-1.5 rounded-full bg-emerald-400" />
-          </>
-        ) : (
-          <span className="relative size-1.5 rounded-full bg-amber-400" />
-        )}
-      </span>
-      {operational ? "Operational" : "Degraded"}
-    </span>
-  );
 }

@@ -1058,7 +1058,6 @@ function AppHalf() {
       <DeviceBezelSection />
       <BenefitsRowSection />
       <FeatureCardSection />
-      <OperationalPillSection />
       <FadeInOnScrollSection />
       <HeroShowcaseSection />
       <MorningBriefingSection />
@@ -1597,36 +1596,6 @@ function FeatureCardDemo({
   );
 }
 
-/* ----------------------------- Operational pill ----------------------------- */
-
-function OperationalPillSection() {
-  return (
-    <Section
-      id="app-operational-pill"
-      title="Operational pill"
-      recipe="Footer status indicator — green ping-dot when API is reachable, amber when degraded. No separate status page; the dot is the affordance."
-    >
-      <AppCanvas>
-        <div className="flex flex-wrap gap-6">
-          <span className="inline-flex w-fit items-center gap-2 text-[13px] font-medium text-neutral-400">
-            <span className="relative grid size-2 place-items-center" aria-hidden>
-              <span className="absolute inset-0 animate-ping rounded-full bg-emerald-400/55" />
-              <span className="relative size-1.5 rounded-full bg-emerald-400" />
-            </span>
-            Operational
-          </span>
-          <span className="inline-flex w-fit items-center gap-2 text-[13px] font-medium text-amber-400/85">
-            <span className="relative grid size-2 place-items-center" aria-hidden>
-              <span className="relative size-1.5 rounded-full bg-amber-400" />
-            </span>
-            Degraded
-          </span>
-        </div>
-      </AppCanvas>
-    </Section>
-  );
-}
-
 /* ----------------------------- FadeInOnScroll ----------------------------- */
 
 function FadeInOnScrollSection() {
@@ -1724,10 +1693,10 @@ function LandingFooterPreview() {
     <Section
       id="app-footer"
       title="LandingFooter"
-      recipe="Dark, quiet footer — tagline column with operational pill + copyright, two grouped link columns. Sits on top-border neutral-900 hairline."
+      recipe="Dark, quiet footer — tagline column with copyright, two grouped link columns. Sits on top-border neutral-900 hairline."
     >
       <div className="overflow-hidden rounded-2xl border border-white/10">
-        <LandingFooter onGetStarted={() => undefined} healthOk={true} />
+        <LandingFooter onGetStarted={() => undefined} />
       </div>
     </Section>
   );
