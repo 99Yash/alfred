@@ -46,6 +46,8 @@ export interface WorkflowResourceAccessFact {
   accountRef?: string;
   resourceScope: Record<string, unknown>;
   granted: boolean;
+  /** Supplied only when the owning provider boundary has an executable remedy. */
+  recoveryAction?: WorkflowRecoveryAction;
 }
 
 export interface WorkflowCapabilityResolution<TDefinition extends WorkflowReadinessDefinition> {
@@ -327,12 +329,7 @@ export function resolveWorkflowReadiness(args: {
             ? `The selected resource is not granted for '${capability.tool}'.`
             : `Alfred cannot verify the selected resource for '${capability.tool}'.`,
           field: `${field}.resourceScope`,
-          recoveryAction: {
-            kind: "grant_resource",
-            integration: tool.integration,
-            ...(capability.accountRef ? { accountRef: capability.accountRef } : {}),
-            resourceScope: capability.resourceScope,
-          },
+          ...(resourceFact?.recoveryAction ? { recoveryAction: resourceFact.recoveryAction } : {}),
         });
       }
     }
@@ -375,34 +372,42 @@ export function resolveWorkflowReadiness(args: {
       const expiresAt = selectedRow
         ? getStringPath(selectedRow.metadata, "watch", "expiresAt")
         : undefined;
-      const watchConfigured = Boolean(
+      const watchInstalled = Boolean(
         selectedRow?.status === "active" &&
         selectedRow.scopes.has(GMAIL_READONLY_SCOPE) &&
         expiresAt &&
         new Date(expiresAt).getTime() > now.getTime() &&
         getStringPath(selectedRow.metadata, "watch", "baselineHistoryId") &&
-        getStringPath(selectedRow.metadata, "watch", "installedAt") &&
-        selectedHealth?.receiverConfigured &&
-        selectedHealth.topicMatches &&
-        selectedHealth.cursorReady,
+        getStringPath(selectedRow.metadata, "watch", "installedAt"),
+      );
+      const serverConfigurationBroken = Boolean(
+        watchInstalled &&
+        selectedHealth &&
+        (!selectedHealth.receiverConfigured || !selectedHealth.topicMatches),
       );
       const providerUnhealthy = Boolean(
-        watchConfigured &&
-        selectedHealth &&
-        (selectedHealth.coverageGap ||
-          !selectedHealth.lastSyncAt ||
-          (selectedHealth.lastSyncAt &&
-            now.getTime() - selectedHealth.lastSyncAt.getTime() > GMAIL_EVENT_HEALTH_MAX_AGE_MS)),
+        serverConfigurationBroken ||
+        (watchInstalled &&
+          selectedHealth &&
+          (selectedHealth.coverageGap ||
+            !selectedHealth.cursorReady ||
+            !selectedHealth.lastSyncAt ||
+            (selectedHealth.lastSyncAt &&
+              now.getTime() - selectedHealth.lastSyncAt.getTime() >
+                GMAIL_EVENT_HEALTH_MAX_AGE_MS))),
       );
+      const recoveryAction: WorkflowRecoveryAction | undefined = serverConfigurationBroken
+        ? undefined
+        : providerUnhealthy
+          ? { kind: "retry" }
+          : { kind: "connect", integration: "gmail" };
       problems.push({
         code: providerUnhealthy ? "provider_unhealthy" : "trigger_not_ready",
         message: providerUnhealthy
           ? "Gmail event delivery is unhealthy; retry after delivery coverage recovers."
           : "Gmail event delivery is not ready; reconnect Gmail or renew its watch.",
         field: "trigger",
-        recoveryAction: providerUnhealthy
-          ? { kind: "retry" }
-          : { kind: "connect", integration: "gmail" },
+        ...(recoveryAction ? { recoveryAction } : {}),
       });
     }
   }
@@ -452,7 +457,6 @@ export function resolveWorkflowCapabilities<TDefinition extends WorkflowRevision
     },
     availability: args.availability,
     toolCatalog: args.toolCatalog,
-    ...(args.resourceAccessFacts ? { resourceAccessFacts: args.resourceAccessFacts } : {}),
   });
   const missing = resolveWorkflowReadiness({
     definition,
@@ -460,6 +464,7 @@ export function resolveWorkflowCapabilities<TDefinition extends WorkflowRevision
     requestedCapabilities: args.requested,
     gmailEventHealth: args.gmailEventHealth,
     toolCatalog: args.toolCatalog,
+    ...(args.resourceAccessFacts ? { resourceAccessFacts: args.resourceAccessFacts } : {}),
     ...(args.now ? { now: args.now } : {}),
   });
   return {

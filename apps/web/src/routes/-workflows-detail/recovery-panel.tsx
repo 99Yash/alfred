@@ -1,9 +1,11 @@
 import { activateWorkflowInputSchema } from "@alfred/contracts";
 import { useQuery } from "@tanstack/react-query";
 import { CheckCircle2, CircleAlert, LoaderCircle } from "lucide-react";
+import { useState } from "react";
 
-import { AppCard } from "~/components/ui/v2";
-import { client } from "~/lib/eden";
+import { AppButton, AppCard } from "~/components/ui/v2";
+import { useSendMessage } from "~/lib/chat/use-send-message";
+import { API_URL, client } from "~/lib/eden";
 
 interface RecoveryPanelProps {
   workflowId: string;
@@ -11,6 +13,8 @@ interface RecoveryPanelProps {
 }
 
 export function RecoveryPanel({ workflowId, revisionId }: RecoveryPanelProps) {
+  const send = useSendMessage();
+  const [openingChat, setOpeningChat] = useState(false);
   const recovery = useQuery({
     queryKey: ["workflow-recovery", workflowId, revisionId],
     queryFn: async () => {
@@ -47,6 +51,7 @@ export function RecoveryPanel({ workflowId, revisionId }: RecoveryPanelProps) {
   }
 
   if (recovery.data.status === "blocked") {
+    const recoveryNavigation = recovery.data.recovery;
     return (
       <AppCard className="flex items-start gap-3 px-4 py-3 text-sm text-amber-800">
         <CircleAlert className="mt-0.5 size-4 shrink-0" aria-hidden="true" />
@@ -57,6 +62,27 @@ export function RecoveryPanel({ workflowId, revisionId }: RecoveryPanelProps) {
               <li key={`${problem.code}:${problem.field}`}>{problem.message}</li>
             ))}
           </ul>
+          <div className="mt-3 flex flex-wrap gap-2">
+            {recoveryNavigation ? (
+              <AppButton
+                variant="primary"
+                size="sm"
+                onClick={() => {
+                  window.location.href = `${API_URL}${recoveryNavigation.path}`;
+                }}
+              >
+                {recoveryNavigation.label}
+              </AppButton>
+            ) : null}
+            <AppButton
+              variant="ghost"
+              size="sm"
+              disabled={recovery.isFetching}
+              onClick={() => void recovery.refetch()}
+            >
+              {recovery.isFetching ? "Rechecking…" : "Recheck setup"}
+            </AppButton>
+          </div>
         </div>
       </AppCard>
     );
@@ -71,6 +97,16 @@ export function RecoveryPanel({ workflowId, revisionId }: RecoveryPanelProps) {
       </AppCard>
     );
   }
+
+  const openActivationChat = async () => {
+    setOpeningChat(true);
+    const sent = await send(
+      undefined,
+      `Resume workflow activation for workflow ${workflowId}, revision ${revisionId}. Call system.recover_workflow with these exact IDs. If it returns ready_to_activate, copy its activationProposal directly into system.activate_workflow without reconstructing it.`,
+      "standard",
+    );
+    if (!sent) setOpeningChat(false);
+  };
 
   return (
     <AppCard className="p-4 shadow-[0_1px_2px_rgba(0,0,0,0.04),0_6px_18px_rgba(0,0,0,0.04)]">
@@ -105,6 +141,15 @@ export function RecoveryPanel({ workflowId, revisionId }: RecoveryPanelProps) {
               External effects: {proposal.data.authoringProposal.externalEffects.join(", ")}.
             </p>
           ) : null}
+          <AppButton
+            className="mt-3"
+            variant="primary"
+            size="sm"
+            disabled={openingChat}
+            onClick={() => void openActivationChat()}
+          >
+            {openingChat ? "Opening chat…" : "Review activation in chat"}
+          </AppButton>
         </div>
       </div>
     </AppCard>

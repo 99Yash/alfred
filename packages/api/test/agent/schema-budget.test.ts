@@ -34,9 +34,11 @@ import { registerBuiltinTools } from "../../src/modules/tools";
 // read-only `.request` passthrough tool per supported integration (railway.graphql + the REST
 // family github/notion/vercel + the six Google products), each carrying a query-DSL-steering
 // description. These are lazy (never kernel), so the growth is only paid when everything loads.
+// Measured 2026-08-01: full 80,532 B — workflow recovery added one small lazy tool that
+// revalidates a blocked immutable draft before the existing high-risk activation tool runs.
 const KERNEL_SCHEMA_BYTES_CEILING = 6_600;
 const KERNEL_SCHEMA_TOKENS_CEILING = 1_700;
-const FULL_SCHEMA_BYTES_CEILING = 80_000;
+const FULL_SCHEMA_BYTES_CEILING = 81_000;
 
 /** The artifact/search giants must never bootstrap the kernel. */
 const NON_KERNEL_GIANTS: readonly ToolName[] = [
