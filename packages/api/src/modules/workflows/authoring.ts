@@ -1,8 +1,10 @@
 import {
   canonicalJson,
+  authorableWorkflowDefinitionSchema,
   integrationFromToolName,
   isIntegrationSlug,
   isToolName,
+  workflowAuthoringProposalSchema,
   type ActivateWorkflowInput,
   type AuthorableWorkflowDefinition,
   type AuthorWorkflowInput,
@@ -17,15 +19,17 @@ import { and, eq, like } from "drizzle-orm";
 import { availableSlug, slugBase } from "../../lib/slug";
 import { workflowScheduleSummary } from "./scheduling";
 import { readFreshIntegrationAvailability } from "../integrations/availability";
+import { listRegisteredTools } from "../tools/registry";
 import { readWorkflowReadinessContext } from "./readiness-context";
 import {
   canonicalizeWorkflowAccounts,
-  resolveWorkflowReadiness,
+  resolveWorkflowCapabilities,
   type WorkflowReadinessProblem,
 } from "./readiness";
 import {
   clearWorkflowBlocked,
   createWorkflowDraft,
+  readWorkflowCurrentRevision,
   reviseWorkflow,
   setWorkflowBlocked,
   approvalProposalForDefinition,
@@ -40,6 +44,99 @@ export interface AuthoredWorkflowOutcome extends WorkflowRevisionOutcome {
   activationProposal?: ActivateWorkflowInput;
 }
 
+/**
+ * Re-run readiness for the same saved draft after connect or reauthorization.
+ * A changed account binding stays on the same workflow identity and is carried
+ * in the new approval input; activation will append the attributable revision.
+ */
+export async function revalidateWorkflowDraft(args: {
+  userId: string;
+  workflowId: string;
+  timezone: IanaTimezone;
+}): Promise<WorkflowServiceResult<AuthoredWorkflowOutcome>> {
+  const current = await readWorkflowCurrentRevision(args);
+  if (!current.ok) return current;
+  const proposal = workflowAuthoringProposalSchema.safeParse(current.revision.authoringProposal);
+  const storedDefinition = authorableWorkflowDefinitionSchema.safeParse(current.definition);
+  if (!proposal.success || !storedDefinition.success) {
+    return {
+      ok: false,
+      failure: {
+        kind: "validation_failed",
+        problems: [
+          {
+            code: "invalid_definition",
+            message: "The saved workflow cannot be revalidated for authoring.",
+            field: !proposal.success ? "authoringProposal" : "definition",
+          },
+        ],
+      },
+    };
+  }
+
+  const { availability, gmailEventHealth } = await readWorkflowReadinessContext(args.userId);
+  const candidate = canonicalizeWorkflowAccounts({
+    definition: storedDefinition.data,
+    availability,
+  });
+  const resolution = resolveWorkflowCapabilities({
+    requested: proposal.data.requestedCapabilities,
+    trigger: candidate.trigger,
+    availability,
+    registeredTools: listRegisteredTools(),
+    gmailEventHealth,
+  });
+  const definition = {
+    ...candidate,
+    allowedIntegrations: resolution.allowedIntegrations,
+    allowedTools: resolution.allowedTools,
+  };
+  let workflow = current.workflow;
+  if (resolution.missing.length > 0) {
+    const first = resolution.missing[0];
+    if (!first) throw new Error("workflow readiness returned an empty blocker set");
+    const blocked = await setWorkflowBlocked({
+      userId: args.userId,
+      workflowId: workflow.id,
+      blocked: {
+        code: first.code,
+        message: resolution.missing.map((problem) => problem.message).join(" "),
+        detectedAt: new Date().toISOString(),
+        revisionId: current.revision.id,
+      },
+    });
+    if (!blocked.ok) return blocked;
+    workflow = blocked.workflow;
+  } else if (workflow.blocked !== null) {
+    const cleared = await clearWorkflowBlocked({
+      userId: args.userId,
+      workflowId: workflow.id,
+    });
+    if (!cleared.ok) return cleared;
+    workflow = cleared.workflow;
+  }
+
+  return {
+    ok: true,
+    workflow,
+    revision: current.revision,
+    created: false,
+    readiness: resolution.missing,
+    ...(resolution.missing.length === 0
+      ? {
+          activationProposal: activationProposalFor({
+            workflow,
+            revision: current.revision,
+            definition,
+            authoringProposal: approvalProposalForDefinition(proposal.data, definition),
+            availability,
+            timezone: args.timezone,
+          }),
+        }
+      : {}),
+  };
+}
+
 /** Save a chat-authored proposal as a draft and return its exact approval input. */
 export async function authorWorkflowDraft(args: {
   userId: string;
@@ -50,17 +147,24 @@ export async function authorWorkflowDraft(args: {
   // Gather mutable setup before the first write. A transient availability-read
   // failure must not commit a draft and then make a retry create a second one.
   const { availability, gmailEventHealth } = await readWorkflowReadinessContext(args.userId);
-  const definition = canonicalizeWorkflowAccounts({
+  const candidate = canonicalizeWorkflowAccounts({
     definition: definitionFromProposal(args.input),
     availability,
   });
-  const authoringProposal = authoringProposalFromInput(args.input, definition);
-  const readiness = resolveWorkflowReadiness({
-    definition,
+  const resolution = resolveWorkflowCapabilities({
+    requested: args.input.capabilities,
+    trigger: candidate.trigger,
     availability,
-    requestedCapabilities: args.input.capabilities,
+    registeredTools: listRegisteredTools(),
     gmailEventHealth,
   });
+  const definition = {
+    ...candidate,
+    allowedIntegrations: resolution.allowedIntegrations,
+    allowedTools: resolution.allowedTools,
+  };
+  const authoringProposal = authoringProposalFromInput(args.input, definition);
+  const readiness = resolution.missing;
   const slug = args.input.workflowId
     ? undefined
     : await workflowSlugForName(args.userId, args.input.name);

@@ -3,6 +3,7 @@ import {
   getStringPath,
   humanizeSlug,
   integrationFromToolName,
+  isIntegrationSlug,
   isToolName,
   toolLabel,
   type WorkflowAccountDisplay,
@@ -18,7 +19,7 @@ import {
   type ProviderAvailability,
   type ToolUnavailabilityCode,
 } from "../integrations/availability";
-import { getTool } from "../tools/registry";
+import { getTool, type RegisteredTool } from "../tools/registry";
 import type { GmailEventHealth } from "./gmail-event-readiness";
 
 export type WorkflowReadinessProblemCode =
@@ -26,15 +27,71 @@ export type WorkflowReadinessProblemCode =
   | "no_tool_surface"
   | "choose_account"
   | "resource_not_granted"
-  | "trigger_not_ready";
+  | "trigger_not_ready"
+  | "provider_unhealthy";
 
 export interface WorkflowReadinessProblem {
   code: WorkflowReadinessProblemCode;
   message: string;
   field: string;
+  recovery?: WorkflowRecoveryAction;
+}
+
+export type WorkflowRecoveryAction =
+  | { kind: "connect"; integration: string }
+  | { kind: "reauthorize"; integration: string }
+  | { kind: "choose_account" }
+  | { kind: "grant_resource" }
+  | { kind: "enable_feature"; integration: string }
+  | { kind: "retry" };
+
+export type ResolvedWorkflowCapability = WorkflowRequiredCapability;
+
+export interface WorkflowCapabilityResolution {
+  satisfied: boolean;
+  resolved: ResolvedWorkflowCapability[];
+  missing: WorkflowReadinessProblem[];
+  allowedIntegrations: ReturnType<typeof integrationFromToolName>[];
+  allowedTools: WorkflowRequiredCapability["tool"][];
 }
 
 const GMAIL_EVENT_HEALTH_MAX_AGE_MS = 15 * 60_000;
+
+function recoveryForProblem(
+  problem: WorkflowReadinessProblem,
+  definition: WorkflowRevisionDefinition,
+): WorkflowRecoveryAction | undefined {
+  const capabilityIndex = /^requiredCapabilities\.(\d+)/.exec(problem.field)?.[1];
+  const capability =
+    capabilityIndex === undefined
+      ? undefined
+      : definition.requiredCapabilities[Number(capabilityIndex)];
+  const integration = capability
+    ? integrationFromToolName(capability.tool)
+    : definition.trigger.kind === "event"
+      ? definition.trigger.source
+      : undefined;
+  switch (problem.code) {
+    case "not_connected":
+      return integration ? { kind: "connect", integration } : undefined;
+    case "needs_reauth":
+    case "missing_scope":
+      return integration ? { kind: "reauthorize", integration } : undefined;
+    case "choose_account":
+      return { kind: "choose_account" };
+    case "resource_not_granted":
+      return { kind: "grant_resource" };
+    case "feature_disabled":
+      return integration ? { kind: "enable_feature", integration } : undefined;
+    case "trigger_not_ready":
+    case "provider_unhealthy":
+      return { kind: "retry" };
+    default:
+      // In particular, no_tool_surface has no action: an OAuth flow cannot
+      // install an implementation that Alfred does not have.
+      return undefined;
+  }
+}
 
 function matchesAccountRef(row: ProviderAvailability, accountRef: string): boolean {
   const normalizedRef = accountRef.toLocaleLowerCase();
@@ -47,8 +104,9 @@ function matchesAccountRef(row: ProviderAvailability, accountRef: string): boole
 function eligibleRows(
   availability: IntegrationAvailabilitySnapshot,
   capability: WorkflowRequiredCapability,
+  lookupTool: (name: WorkflowRequiredCapability["tool"]) => RegisteredTool | undefined = getTool,
 ): ProviderAvailability[] {
-  const credential = getTool(capability.tool)?.availability?.credential;
+  const credential = lookupTool(capability.tool)?.availability?.credential;
   if (!credential) return [];
   return (availability.providers.get(credential.provider) ?? []).filter(
     (row) =>
@@ -62,9 +120,15 @@ function eligibleRows(
 export function canonicalizeWorkflowAccounts<T extends WorkflowRevisionDefinition>(args: {
   definition: T;
   availability: IntegrationAvailabilitySnapshot;
+  registeredTools?: readonly RegisteredTool[];
 }): T {
+  const suppliedTools = args.registeredTools
+    ? new Map(args.registeredTools.map((tool) => [tool.name, tool]))
+    : null;
+  const lookupTool = (name: WorkflowRequiredCapability["tool"]) =>
+    suppliedTools ? suppliedTools.get(name) : getTool(name);
   const capabilities = args.definition.requiredCapabilities.map((capability) => {
-    const rows = eligibleRows(args.availability, capability);
+    const rows = eligibleRows(args.availability, capability, lookupTool);
     const capabilityAccountRef = capability.accountRef;
     const selected = capabilityAccountRef
       ? rows.filter((row) => matchesAccountRef(row, capabilityAccountRef))
@@ -176,10 +240,16 @@ export function resolveWorkflowReadiness(args: {
   requestedCapabilities?: readonly WorkflowRequestedCapability[];
   gmailEventHealth: ReadonlyMap<string, GmailEventHealth>;
   now?: Date;
+  registeredTools?: readonly RegisteredTool[];
 }): WorkflowReadinessProblem[] {
   const problems: WorkflowReadinessProblem[] = [];
   const allowed = new Set(args.definition.allowedIntegrations);
   const capabilityCountByTool = new Map<string, number>();
+  const suppliedTools = args.registeredTools
+    ? new Map(args.registeredTools.map((tool) => [tool.name, tool]))
+    : null;
+  const lookupTool = (name: WorkflowRequiredCapability["tool"]) =>
+    suppliedTools ? suppliedTools.get(name) : getTool(name);
 
   for (const capability of args.definition.requiredCapabilities) {
     capabilityCountByTool.set(
@@ -207,7 +277,7 @@ export function resolveWorkflowReadiness(args: {
 
   for (const [index, capability] of args.definition.requiredCapabilities.entries()) {
     const field = `requiredCapabilities.${index}`;
-    const tool = getTool(capability.tool);
+    const tool = lookupTool(capability.tool);
     if (!tool) {
       problems.push({
         code: "no_tool_surface",
@@ -298,19 +368,106 @@ export function resolveWorkflowReadiness(args: {
       );
     };
     const accountRef = args.definition.trigger.accountRef;
+    const selectedRows = accountRef
+      ? gmailRows.filter((row) => matchesAccountRef(row, accountRef))
+      : [];
     const readyWatch = Boolean(
       accountRef &&
-      gmailRows.filter((row) => matchesAccountRef(row, accountRef)).length === 1 &&
-      gmailRows.some((row) => matchesAccountRef(row, accountRef) && hasReadyWatch(row)),
+      selectedRows.length === 1 &&
+      selectedRows.some((row) => hasReadyWatch(row)),
     );
     if (!readyWatch) {
+      const selectedHealth = selectedRows[0]
+        ? args.gmailEventHealth.get(selectedRows[0].credentialId)
+        : undefined;
+      const providerUnhealthy = Boolean(
+        selectedHealth &&
+          (selectedHealth.coverageGap ||
+            (selectedHealth.lastSyncAt &&
+              now.getTime() - selectedHealth.lastSyncAt.getTime() >
+                GMAIL_EVENT_HEALTH_MAX_AGE_MS)),
+      );
       problems.push({
-        code: "trigger_not_ready",
-        message: "Gmail event delivery is not ready; reconnect Gmail or renew its watch.",
+        code: providerUnhealthy ? "provider_unhealthy" : "trigger_not_ready",
+        message: providerUnhealthy
+          ? "Gmail event delivery is unhealthy; retry after delivery coverage recovers."
+          : "Gmail event delivery is not ready; reconnect Gmail or renew its watch.",
         field: "trigger",
       });
     }
   }
 
-  return problems;
+  return problems.map((problem) => {
+    const recovery = recoveryForProblem(problem, args.definition);
+    return recovery ? { ...problem, recovery } : problem;
+  });
+}
+
+/**
+ * Pure #557 capability resolver over a caller-supplied tool and availability
+ * snapshot. It derives the exact execution envelope and delegates the final
+ * runnable verdict to the same availability evaluator used by dispatch.
+ */
+export function resolveWorkflowCapabilities(args: {
+  requested: readonly WorkflowRequestedCapability[];
+  trigger: WorkflowRevisionDefinition["trigger"];
+  availability: IntegrationAvailabilitySnapshot;
+  registeredTools: readonly RegisteredTool[];
+  gmailEventHealth?: ReadonlyMap<string, GmailEventHealth>;
+  now?: Date;
+}): WorkflowCapabilityResolution {
+  const toolByName = new Map(args.registeredTools.map((tool) => [tool.name, tool]));
+  const requiredCapabilities = args.requested.flatMap((requested) =>
+    isToolName(requested.tool) && toolByName.has(requested.tool)
+      ? [{ ...requested, tool: requested.tool }]
+      : [],
+  );
+  const allowedTools = [...new Set(requiredCapabilities.map((capability) => capability.tool))];
+  const integrationSet = new Set<ReturnType<typeof integrationFromToolName>>(
+    allowedTools.map((tool) => integrationFromToolName(tool)),
+  );
+  for (const requested of args.requested) {
+    const separator = requested.tool.indexOf(".");
+    const prefix = separator === -1 ? requested.tool : requested.tool.slice(0, separator);
+    if (isIntegrationSlug(prefix)) integrationSet.add(prefix);
+  }
+  if (args.trigger.kind === "event" && isIntegrationSlug(args.trigger.source)) {
+    integrationSet.add(args.trigger.source);
+  }
+  const allowedIntegrations = [...integrationSet].sort();
+  const definition = canonicalizeWorkflowAccounts({
+    definition: {
+    name: "Capability resolution",
+    description: null,
+    brief: "Resolve the supplied workflow capability snapshot.",
+    trigger: args.trigger,
+    allowedIntegrations,
+    allowedTools,
+    requiredCapabilities,
+    },
+    availability: args.availability,
+    registeredTools: args.registeredTools,
+  });
+  const missing = resolveWorkflowReadiness({
+    definition,
+    availability: args.availability,
+    requestedCapabilities: args.requested,
+    gmailEventHealth: args.gmailEventHealth ?? new Map(),
+    ...(args.now ? { now: args.now } : {}),
+    registeredTools: args.registeredTools,
+  });
+  const resolved = definition.requiredCapabilities.flatMap((requested, index) => {
+    const tool = toolByName.get(requested.tool);
+    const fieldPrefix = `requiredCapabilities.${index}`;
+    return tool && !missing.some((problem) => problem.field.startsWith(fieldPrefix))
+      ? [requested]
+      : [];
+  });
+  return {
+    satisfied: missing.length === 0 && allowedTools.length > 0,
+    resolved,
+    missing,
+    allowedIntegrations,
+    allowedTools,
+  };
 }
