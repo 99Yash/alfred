@@ -3,6 +3,7 @@ import {
   getStringPath,
   humanizeSlug,
   integrationFromToolName,
+  isIntegrationSlug,
   isToolName,
   toolLabel,
   type WorkflowAccountDisplay,
@@ -18,7 +19,7 @@ import {
   type ProviderAvailability,
   type ToolUnavailabilityCode,
 } from "../integrations/availability";
-import { getTool } from "../tools/registry";
+import { type ToolCatalog } from "../tools/registry";
 import type { GmailEventHealth } from "./gmail-event-readiness";
 
 export type WorkflowReadinessProblemCode =
@@ -26,13 +27,24 @@ export type WorkflowReadinessProblemCode =
   | "no_tool_surface"
   | "choose_account"
   | "resource_not_granted"
-  | "trigger_not_ready";
+  | "trigger_not_ready"
+  | "provider_unhealthy";
 
 export interface WorkflowReadinessProblem {
   code: WorkflowReadinessProblemCode;
   message: string;
   field: string;
 }
+
+export interface WorkflowCapabilityResolution<TDefinition extends WorkflowReadinessDefinition> {
+  definition: TDefinition;
+  missing: WorkflowReadinessProblem[];
+}
+
+type WorkflowReadinessDefinition = Pick<
+  WorkflowRevisionDefinition,
+  "trigger" | "allowedIntegrations" | "requiredCapabilities"
+>;
 
 const GMAIL_EVENT_HEALTH_MAX_AGE_MS = 15 * 60_000;
 
@@ -47,8 +59,9 @@ function matchesAccountRef(row: ProviderAvailability, accountRef: string): boole
 function eligibleRows(
   availability: IntegrationAvailabilitySnapshot,
   capability: WorkflowRequiredCapability,
+  toolCatalog: ToolCatalog,
 ): ProviderAvailability[] {
-  const credential = getTool(capability.tool)?.availability?.credential;
+  const credential = toolCatalog.get(capability.tool)?.availability?.credential;
   if (!credential) return [];
   return (availability.providers.get(credential.provider) ?? []).filter(
     (row) =>
@@ -59,12 +72,13 @@ function eligibleRows(
 }
 
 /** Resolve display labels and unambiguous defaults to durable provider account ids. */
-export function canonicalizeWorkflowAccounts<T extends WorkflowRevisionDefinition>(args: {
+export function canonicalizeWorkflowAccounts<T extends WorkflowReadinessDefinition>(args: {
   definition: T;
   availability: IntegrationAvailabilitySnapshot;
+  toolCatalog: ToolCatalog;
 }): T {
   const capabilities = args.definition.requiredCapabilities.map((capability) => {
-    const rows = eligibleRows(args.availability, capability);
+    const rows = eligibleRows(args.availability, capability, args.toolCatalog);
     const capabilityAccountRef = capability.accountRef;
     const selected = capabilityAccountRef
       ? rows.filter((row) => matchesAccountRef(row, capabilityAccountRef))
@@ -109,6 +123,7 @@ export function canonicalizeWorkflowAccounts<T extends WorkflowRevisionDefinitio
 export function resolveWorkflowApprovalDisplay(
   definition: WorkflowRevisionDefinition,
   availability: IntegrationAvailabilitySnapshot,
+  toolCatalog: ToolCatalog,
 ): {
   resolvedAccounts: WorkflowAccountDisplay[];
   resolvedCapabilities: WorkflowCapabilityDisplay[];
@@ -129,7 +144,7 @@ export function resolveWorkflowApprovalDisplay(
 
   const resolvedCapabilities = definition.requiredCapabilities
     .map((capability) => {
-      const tool = getTool(capability.tool);
+      const tool = toolCatalog.get(capability.tool);
       const provider = tool?.availability?.credential?.provider;
       const account =
         provider && capability.accountRef
@@ -171,10 +186,11 @@ export function resolveWorkflowApprovalDisplay(
  * a fresh read.
  */
 export function resolveWorkflowReadiness(args: {
-  definition: WorkflowRevisionDefinition;
+  definition: WorkflowReadinessDefinition;
   availability: IntegrationAvailabilitySnapshot;
   requestedCapabilities?: readonly WorkflowRequestedCapability[];
   gmailEventHealth: ReadonlyMap<string, GmailEventHealth>;
+  toolCatalog: ToolCatalog;
   now?: Date;
 }): WorkflowReadinessProblem[] {
   const problems: WorkflowReadinessProblem[] = [];
@@ -207,7 +223,7 @@ export function resolveWorkflowReadiness(args: {
 
   for (const [index, capability] of args.definition.requiredCapabilities.entries()) {
     const field = `requiredCapabilities.${index}`;
-    const tool = getTool(capability.tool);
+    const tool = args.toolCatalog.get(capability.tool);
     if (!tool) {
       problems.push({
         code: "no_tool_surface",
@@ -275,7 +291,10 @@ export function resolveWorkflowReadiness(args: {
     }
   }
 
-  if (args.definition.trigger.kind === "event") {
+  if (
+    args.definition.trigger.kind === "event" &&
+    isIntegrationSlug(args.definition.trigger.source)
+  ) {
     const now = args.now ?? new Date();
     const gmailRows = args.availability.providers.get("google") ?? [];
     const hasReadyWatch = (row: ProviderAvailability) => {
@@ -298,19 +317,101 @@ export function resolveWorkflowReadiness(args: {
       );
     };
     const accountRef = args.definition.trigger.accountRef;
+    const selectedRows = accountRef
+      ? gmailRows.filter((row) => matchesAccountRef(row, accountRef))
+      : [];
     const readyWatch = Boolean(
-      accountRef &&
-      gmailRows.filter((row) => matchesAccountRef(row, accountRef)).length === 1 &&
-      gmailRows.some((row) => matchesAccountRef(row, accountRef) && hasReadyWatch(row)),
+      accountRef && selectedRows.length === 1 && selectedRows.some((row) => hasReadyWatch(row)),
     );
     if (!readyWatch) {
+      const selectedRow = selectedRows[0];
+      const selectedHealth = selectedRow
+        ? args.gmailEventHealth.get(selectedRow.credentialId)
+        : undefined;
+      const expiresAt = selectedRow
+        ? getStringPath(selectedRow.metadata, "watch", "expiresAt")
+        : undefined;
+      const watchConfigured = Boolean(
+        selectedRow?.status === "active" &&
+        selectedRow.scopes.has(GMAIL_READONLY_SCOPE) &&
+        expiresAt &&
+        new Date(expiresAt).getTime() > now.getTime() &&
+        getStringPath(selectedRow.metadata, "watch", "baselineHistoryId") &&
+        getStringPath(selectedRow.metadata, "watch", "installedAt") &&
+        selectedHealth?.receiverConfigured &&
+        selectedHealth.topicMatches &&
+        selectedHealth.cursorReady,
+      );
+      const providerUnhealthy = Boolean(
+        watchConfigured &&
+        selectedHealth &&
+        (selectedHealth.coverageGap ||
+          !selectedHealth.lastSyncAt ||
+          (selectedHealth.lastSyncAt &&
+            now.getTime() - selectedHealth.lastSyncAt.getTime() > GMAIL_EVENT_HEALTH_MAX_AGE_MS)),
+      );
       problems.push({
-        code: "trigger_not_ready",
-        message: "Gmail event delivery is not ready; reconnect Gmail or renew its watch.",
+        code: providerUnhealthy ? "provider_unhealthy" : "trigger_not_ready",
+        message: providerUnhealthy
+          ? "Gmail event delivery is unhealthy; retry after delivery coverage recovers."
+          : "Gmail event delivery is not ready; reconnect Gmail or renew its watch.",
         field: "trigger",
       });
     }
   }
 
   return problems;
+}
+
+/**
+ * Pure #557 capability resolver over a caller-supplied tool and availability
+ * snapshot. It derives the exact execution envelope and delegates the final
+ * runnable verdict to the same availability evaluator used by dispatch.
+ */
+export function resolveWorkflowCapabilities<TDefinition extends WorkflowRevisionDefinition>(args: {
+  definition: TDefinition;
+  requested: readonly WorkflowRequestedCapability[];
+  availability: IntegrationAvailabilitySnapshot;
+  toolCatalog: ToolCatalog;
+  gmailEventHealth: ReadonlyMap<string, GmailEventHealth>;
+  now?: Date;
+}): WorkflowCapabilityResolution<TDefinition> {
+  const requiredCapabilities = args.requested.flatMap((requested) =>
+    isToolName(requested.tool) ? [{ ...requested, tool: requested.tool }] : [],
+  );
+  const allowedTools = [...new Set(requiredCapabilities.map((capability) => capability.tool))];
+  const integrationSet = new Set<ReturnType<typeof integrationFromToolName>>(
+    allowedTools.map((tool) => integrationFromToolName(tool)),
+  );
+  for (const requested of args.requested) {
+    const separator = requested.tool.indexOf(".");
+    const prefix = separator === -1 ? requested.tool : requested.tool.slice(0, separator);
+    if (isIntegrationSlug(prefix)) integrationSet.add(prefix);
+  }
+  if (args.definition.trigger.kind === "event") {
+    integrationSet.add(args.definition.trigger.source);
+  }
+  const allowedIntegrations = [...integrationSet].sort();
+  const definition = canonicalizeWorkflowAccounts({
+    definition: {
+      ...args.definition,
+      allowedIntegrations,
+      allowedTools,
+      requiredCapabilities,
+    },
+    availability: args.availability,
+    toolCatalog: args.toolCatalog,
+  });
+  const missing = resolveWorkflowReadiness({
+    definition,
+    availability: args.availability,
+    requestedCapabilities: args.requested,
+    gmailEventHealth: args.gmailEventHealth,
+    toolCatalog: args.toolCatalog,
+    ...(args.now ? { now: args.now } : {}),
+  });
+  return {
+    definition,
+    missing,
+  };
 }

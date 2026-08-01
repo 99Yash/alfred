@@ -38,9 +38,21 @@ function TipArrow() {
  * Wrap the surface once in a `Tooltip.Provider`; each `Tip` is a self-contained
  * Root/Trigger/Content. A curved pointer arrow (dimension's rounded-tip shape)
  * ties the pill to its trigger; it inherits the pill fill so it reads as one
- * piece. The pill fades + scales in on open. This is the single tooltip
- * primitive for chat chrome — route every button through it rather than adding
- * a parallel tooltip.
+ * piece. This is the single tooltip primitive for chat chrome — route every
+ * button through it rather than adding a parallel tooltip.
+ *
+ * Motion lives in the `.app-tip` block in `index.css` and keys off Radix's
+ * `data-state`, because a tooltip has two different entrances. A cold reveal
+ * (`delayed-open`) fades and scales in. A move onto a neighbouring trigger
+ * inside the provider's `skipDelayDuration` opens the next pill instantly
+ * (`instant-open`), and repeating the scale-and-rise there makes a sweep along
+ * a dense row read as a burst of pops — so that state only crossfades against
+ * the outgoing pill's `closed` fade.
+ *
+ * `disableHoverableContent` drops Radix's grace polygon between trigger and
+ * pill. That polygon exists so a pointer can travel into interactive content;
+ * ours is a static label, and the polygon holds the old pill open while the
+ * next one is already showing, which is the other half of the jitter.
  */
 export function Tip({
   label,
@@ -67,7 +79,10 @@ export function Tip({
 }) {
   const { resolved } = useAppTheme();
   return (
-    <Tooltip.Root {...(delayDuration === undefined ? {} : { delayDuration })}>
+    <Tooltip.Root
+      disableHoverableContent
+      {...(delayDuration === undefined ? {} : { delayDuration })}
+    >
       <Tooltip.Trigger asChild>{children}</Tooltip.Trigger>
       <Tooltip.Portal>
         <Tooltip.Content
@@ -77,10 +92,9 @@ export function Tip({
           collisionPadding={8}
           data-app-theme={resolved}
           className={cn(
-            "group/tip app z-200 max-w-[16rem] rounded-lg px-2.5 py-1.5 text-xs",
+            "app-tip group/tip app z-200 max-w-[16rem] rounded-lg px-2.5 py-1.5 text-xs",
             "bg-app-fg-4 text-app-bg-1 shadow-[0_2px_8px_rgba(0,0,0,0.18)]",
-            "will-change-[transform,opacity] select-none",
-            "data-[state=delayed-open]:animate-[app-tooltip-in_140ms_cubic-bezier(0.22,1,0.36,1)]",
+            "select-none",
           )}
         >
           <div className="flex items-center gap-1.5">

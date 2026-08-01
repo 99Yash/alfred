@@ -135,7 +135,11 @@ async function seedUserWithEventWorkflow(
         type: TYPE,
         ...(accountRef ? { accountRef } : {}),
       },
+      allowedIntegrations: ["gmail"],
       status: "active",
+      // The runtime body is registered above, so this is a built-in fixture.
+      // Built-ins do not pin database revisions; user-authored rows must.
+      isBuiltin: true,
     });
   return userId;
 }

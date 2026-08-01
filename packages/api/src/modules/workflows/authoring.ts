@@ -17,17 +17,13 @@ import { and, eq, like } from "drizzle-orm";
 import { availableSlug, slugBase } from "../../lib/slug";
 import { workflowScheduleSummary } from "./scheduling";
 import { readFreshIntegrationAvailability } from "../integrations/availability";
+import { createToolCatalog, listRegisteredTools } from "../tools/registry";
 import { readWorkflowReadinessContext } from "./readiness-context";
+import { resolveWorkflowCapabilities, type WorkflowReadinessProblem } from "./readiness";
 import {
-  canonicalizeWorkflowAccounts,
-  resolveWorkflowReadiness,
-  type WorkflowReadinessProblem,
-} from "./readiness";
-import {
-  clearWorkflowBlocked,
   createWorkflowDraft,
+  reconcileWorkflowReadiness,
   reviseWorkflow,
-  setWorkflowBlocked,
   approvalProposalForDefinition,
   buildWorkflowActivationProposal,
   type WorkflowRevisionOutcome,
@@ -50,17 +46,17 @@ export async function authorWorkflowDraft(args: {
   // Gather mutable setup before the first write. A transient availability-read
   // failure must not commit a draft and then make a retry create a second one.
   const { availability, gmailEventHealth } = await readWorkflowReadinessContext(args.userId);
-  const definition = canonicalizeWorkflowAccounts({
+  const toolCatalog = createToolCatalog(listRegisteredTools());
+  const resolution = resolveWorkflowCapabilities({
     definition: definitionFromProposal(args.input),
+    requested: args.input.capabilities,
     availability,
-  });
-  const authoringProposal = authoringProposalFromInput(args.input, definition);
-  const readiness = resolveWorkflowReadiness({
-    definition,
-    availability,
-    requestedCapabilities: args.input.capabilities,
+    toolCatalog,
     gmailEventHealth,
   });
+  const definition = resolution.definition;
+  const authoringProposal = authoringProposalFromInput(args.input, definition);
+  const readiness = resolution.missing;
   const slug = args.input.workflowId
     ? undefined
     : await workflowSlugForName(args.userId, args.input.name);
@@ -96,31 +92,16 @@ export async function authorWorkflowDraft(args: {
       created = true;
     }
 
-    if (readiness.length > 0) {
-      const first = readiness[0];
-      if (!first) throw new Error("workflow readiness returned an empty blocker set");
-      const blocked = await setWorkflowBlocked({
-        userId: args.userId,
-        workflowId: saved.workflow.id,
-        blocked: {
-          code: first.code,
-          message: readiness.map((problem) => problem.message).join(" "),
-          detectedAt: new Date().toISOString(),
-          revisionId: saved.revision.id,
-        },
-        tx,
-      });
-      if (!blocked.ok) return blocked;
-      saved = { ...saved, workflow: blocked.workflow };
-    } else if (saved.workflow.blocked !== null) {
-      const cleared = await clearWorkflowBlocked({
-        userId: args.userId,
-        workflowId: saved.workflow.id,
-        tx,
-      });
-      if (!cleared.ok) return cleared;
-      saved = { ...saved, workflow: cleared.workflow };
-    }
+    const reconciled = await reconcileWorkflowReadiness({
+      userId: args.userId,
+      workflow: saved.workflow,
+      revisionId: saved.revision.id,
+      readiness,
+      target: "draft",
+      tx,
+    });
+    if (!reconciled.ok) return reconciled;
+    saved = { ...saved, workflow: reconciled.workflow };
 
     return {
       ok: true,
@@ -136,6 +117,7 @@ export async function authorWorkflowDraft(args: {
               definition,
               authoringProposal,
               availability,
+              toolCatalog,
               timezone: args.timezone,
             }),
           }
@@ -194,6 +176,7 @@ function activationProposalFor(args: {
   definition: AuthorableWorkflowDefinition;
   authoringProposal: WorkflowAuthoringProposal;
   availability: Awaited<ReturnType<typeof readFreshIntegrationAvailability>>;
+  toolCatalog: ReturnType<typeof createToolCatalog>;
   timezone: IanaTimezone;
 }): ActivateWorkflowInput {
   const timezone =
@@ -208,6 +191,7 @@ function activationProposalFor(args: {
     definition: args.definition,
     authoringProposal: args.authoringProposal,
     availability: args.availability,
+    toolCatalog: args.toolCatalog,
     timezone,
   });
 }

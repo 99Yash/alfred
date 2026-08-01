@@ -61,12 +61,28 @@ export type ChatErrorKind = (typeof chatErrorKindValues)[number];
 export const chatErrorKindSchema = z.enum(chatErrorKindValues);
 
 /**
+ * One agent's slice of a turn's spend: the boss run, or one sub-agent the boss
+ * spawned. `subId` is `null` for the boss and the child's own `subId` for a
+ * worker (`spawnSubAgent` stamps it on the child run's metadata).
+ */
+export const chatMessageAgentUsageSchema = z.object({
+  subId: z.string().nullable(),
+  calls: z.number().int().nonnegative(),
+  costUsd: z.number().nonnegative(),
+});
+export type ChatMessageAgentUsage = z.infer<typeof chatMessageAgentUsageSchema>;
+
+/**
  * Token usage + cost for one assistant turn, aggregated at finalize from the
- * turn's `api_call_log` rows (the boss run — sub-agent child runs are billed
- * separately and not folded in here). Surfaced only in a dev-gated readout
- * under the reply; the numbers already live in `api_call_log`, this is just the
- * per-message rollup carried to the client. All counts are whole tokens;
- * `costUsd` is the summed snapshot cost in dollars.
+ * turn's `api_call_log` rows. The totals cover the whole turn: the boss run
+ * plus every sub-agent run the boss spawned, because delegation moves most of
+ * a turn's spend into the children (see
+ * `.lessons/model-cost-recompute-from-tokens.md`, where a boss-only number hid
+ * the majority of the cost). `agents` carries the same money split per agent.
+ * Surfaced only in a dev-gated readout under the reply; the numbers already
+ * live in `api_call_log`, this is just the per-message rollup carried to the
+ * client. All counts are whole tokens; `costUsd` is the summed snapshot cost in
+ * dollars.
  */
 export const chatMessageUsageSchema = z.object({
   inputTokens: z.number().int().nonnegative(),
@@ -82,6 +98,13 @@ export const chatMessageUsageSchema = z.object({
    * Anthropic primary errored and `withFallback` degraded it (spend cap, 429).
    */
   models: z.array(z.object({ model: z.string(), calls: z.number().int().positive() })).default([]),
+  /**
+   * How the turn's cost divides across the agents that ran it, most expensive
+   * first, boss included. One entry means the boss did the whole turn alone.
+   * Empty on messages finalized before this split existed — a reader must treat
+   * an absent split as "unknown", not as "the boss spent nothing".
+   */
+  agents: z.array(chatMessageAgentUsageSchema).default([]),
 });
 export type ChatMessageUsage = z.infer<typeof chatMessageUsageSchema>;
 
