@@ -16,6 +16,7 @@ import {
   activateWorkflow,
   clearWorkflowBlocked,
   createWorkflowDraft,
+  recoverWorkflowDraft,
   reviseWorkflow,
   setWorkflowBlocked,
   setWorkflowStatus,
@@ -173,6 +174,94 @@ describe("workflow revision invariants (#555)", { skip: SKIP }, () => {
       .from(workflows)
       .where(eq(workflows.id, created.workflow.id));
     assert.equal(workflow?.currentRevisionId, first.ok ? first.revision.id : null);
+  });
+
+  test("connection recovery revalidates the same immutable draft and presents activation", async () => {
+    const userId = await seedUser();
+    const created = await createWorkflowDraft({
+      userId,
+      slug: `revision-recovery-${randomUUID()}`,
+      definition: definition("recover this draft"),
+      authoringProposal: {
+        intent: "Report the current time.",
+        assumptions: [],
+        externalEffects: [],
+        requestedCapabilities: [{ tool: "system.current_time" }],
+        scheduleSummary: "Run manually",
+      },
+    });
+    assert.equal(created.ok, true);
+    if (!created.ok) return;
+
+    const blocked = await setWorkflowBlocked({
+      userId,
+      workflowId: created.workflow.id,
+      blocked: {
+        code: "not_connected",
+        message: "Connect the required account.",
+        detectedAt: new Date().toISOString(),
+        revisionId: created.revision.id,
+      },
+    });
+    assert.equal(blocked.ok, true);
+
+    const recovered = await recoverWorkflowDraft({
+      userId,
+      workflowId: created.workflow.id,
+      revisionId: created.revision.id,
+    });
+    assert.equal(recovered.ok, true);
+    if (!recovered.ok) return;
+    assert.deepEqual(recovered.readiness, []);
+    assert.equal(recovered.workflow.blocked, null);
+    assert.equal(recovered.revision.id, created.revision.id);
+    assert.equal(recovered.activationProposal?.baseRevisionId, created.revision.id);
+    assert.equal(recovered.activationProposal?.baseContentHash, created.revision.contentHash);
+    assert.equal(recovered.activationProposal?.baseRowVersion, recovered.workflow.rowVersion);
+
+    const revisions = await db()
+      .select({ id: workflowRevisions.id })
+      .from(workflowRevisions)
+      .where(eq(workflowRevisions.workflowId, created.workflow.id));
+    assert.deepEqual(revisions, [{ id: created.revision.id }]);
+  });
+
+  test("connection recovery refuses a draft that changed during OAuth", async () => {
+    const userId = await seedUser();
+    const created = await createWorkflowDraft({
+      userId,
+      slug: `revision-recovery-stale-${randomUUID()}`,
+      definition: definition("before OAuth"),
+      authoringProposal: {
+        intent: "Report the current time.",
+        assumptions: [],
+        externalEffects: [],
+        requestedCapabilities: [{ tool: "system.current_time" }],
+      },
+    });
+    assert.equal(created.ok, true);
+    if (!created.ok) return;
+
+    const revised = await reviseWorkflow({
+      userId,
+      workflowId: created.workflow.id,
+      definition: definition("edited during OAuth"),
+      expectedRowVersion: created.workflow.rowVersion,
+    });
+    assert.equal(revised.ok, true);
+    if (!revised.ok) return;
+
+    const recovered = await recoverWorkflowDraft({
+      userId,
+      workflowId: created.workflow.id,
+      revisionId: created.revision.id,
+    });
+    assert.equal(recovered.ok, false);
+    if (recovered.ok) return;
+    assert.equal(recovered.failure.kind, "stale_revision");
+    if (recovered.failure.kind !== "stale_revision") return;
+    assert.equal(recovered.failure.expectedRevisionId, created.revision.id);
+    assert.equal(recovered.failure.actualRevisionId, revised.revision.id);
   });
 
   test("pause and operational blockers remain independent", async () => {
