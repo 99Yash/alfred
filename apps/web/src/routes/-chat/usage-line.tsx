@@ -215,7 +215,7 @@ export function UsageLine({ usage }: { usage: NonNullable<SyncedChatMessage["usa
     <div
       className={cn(
         "inline-flex max-w-full flex-wrap items-center gap-x-2.5 gap-y-1.5",
-        "rounded-lg bg-app-bg-a1 px-2.5 py-1.5",
+        "rounded-lg px-2.5 py-1.5",
         "text-[11px] leading-none text-app-fg-2 tabular-nums",
       )}
     >
@@ -285,7 +285,7 @@ export function UsageLine({ usage }: { usage: NonNullable<SyncedChatMessage["usa
                 : `${served}${provider ? ` Provider: ${provider.label}.` : ""}`
             }
           >
-            <span className="inline-flex items-center gap-1.5 rounded-md bg-app-bg-a2 px-1.5 py-1 text-app-fg-4 transition-colors hover:bg-app-bg-a3">
+            <span className="inline-flex items-center gap-1.5 rounded-md px-1.5 py-1 text-app-fg-4 transition-colors">
               {fell ? (
                 <span aria-hidden className="size-1.5 shrink-0 rounded-full bg-app-amber-4" />
               ) : null}
