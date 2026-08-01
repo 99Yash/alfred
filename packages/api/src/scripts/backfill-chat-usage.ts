@@ -18,17 +18,20 @@
  *
  * Scope (identical to the live feature):
  *   - role='assistant' rows with a non-null run_id whose usage rollup is
- *     incomplete: either usage is null (finalized before the column existed) OR
- *     usage was written by an early build that omitted the `models` array (the
- *     model chips render off `usage.models`, so those turns show the token/cost
- *     line but no model — the whole point of the readout);
- *   - sub-agent child runs are excluded (billed under their own run ids);
+ *     incomplete: usage is null (finalized before the column existed), OR usage
+ *     was written by an early build that omitted the `models` array (the model
+ *     chips render off `usage.models`, so those turns show the token/cost line
+ *     but no model — the whole point of the readout), OR usage predates the
+ *     per-agent split and therefore still holds a boss-only total;
+ *   - sub-agent child runs are folded into the turn that spawned them, and
+ *     labeled by their `subId` in the split, because a delegating turn spends
+ *     most of its money in its children;
  *   - a turn whose api_call_log rows are gone (INNER JOIN misses) stays as-is —
  *     the UI already renders a missing/empty rollup gracefully.
  */
 
 import { db, closeConnections } from "@alfred/db";
-import { apiCallLog, chatMessages } from "@alfred/db/schemas";
+import { agentRuns, apiCallLog, chatMessages } from "@alfred/db/schemas";
 import { chatMessageUsageSchema, type ChatMessageUsage } from "@alfred/contracts";
 import { and, eq, isNotNull, sql } from "drizzle-orm";
 import { foldModelUsage } from "../modules/agent/usage-fold";
@@ -36,13 +39,35 @@ import { foldModelUsage } from "../modules/agent/usage-fold";
 const COMMIT = process.argv.includes("--commit");
 
 /**
- * One `api_call_log` group per (message, model), summed across the message's
- * run — the same GROUP BY `aggregateRunUsage` runs, widened to carry the owning
- * message id so we can fold every candidate in a single scan (no N+1).
+ * The turn a metering row belongs to: the run that made the call, or — when
+ * that run is a sub-agent — the boss run that spawned it. Sub-agents cannot
+ * spawn sub-agents, so one hop reaches the boss from any run.
+ */
+const OWNER_RUN_ID = sql`coalesce(${agentRuns.metadata}->'subAgent'->>'parentRunId', ${apiCallLog.runId})`;
+
+/** Which agent made the call: null for the boss's own run, else the child's `subId`. */
+const SUB_ID = sql<
+  string | null
+>`case when ${apiCallLog.runId} = ${chatMessages.runId} then null else coalesce(${agentRuns.metadata}->'subAgent'->>'subId', 'sub-agent') end`;
+
+const MODEL = sql<string>`coalesce(${apiCallLog.model}, 'unknown')`;
+
+/**
+ * One `api_call_log` group per (message, agent, model), summed across every run
+ * that billed into the message's turn — the same GROUP BY `aggregateRunUsage`
+ * runs, widened to carry the owning message id so we can fold every candidate in
+ * a single scan (no N+1).
+ *
+ * Driven from `api_call_log` and mapped up to its owning turn (rather than
+ * joining down from each message) so the whole backfill is one pass with plain
+ * equi-joins, instead of a correlated child lookup per message. The `agent_runs`
+ * join is LEFT so a metering row whose run row is gone still counts, as the boss
+ * run's own spend.
  */
 async function loadGroups(): Promise<
   Array<{
     messageId: string;
+    subId: string | null;
     model: string;
     inputTokens: string;
     outputTokens: string;
@@ -54,24 +79,29 @@ async function loadGroups(): Promise<
   return db()
     .select({
       messageId: chatMessages.id,
-      model: sql<string>`coalesce(${apiCallLog.model}, 'unknown')`,
+      subId: SUB_ID,
+      model: MODEL,
       inputTokens: sql<string>`coalesce(sum(${apiCallLog.inputTokens}), 0)`,
       outputTokens: sql<string>`coalesce(sum(${apiCallLog.outputTokens}), 0)`,
       cachedInputTokens: sql<string>`coalesce(sum(${apiCallLog.cachedInputTokens}), 0)`,
       costUsd: sql<string>`coalesce(sum(${apiCallLog.costUsd}), 0)`,
       calls: sql<string>`count(*)`,
     })
-    .from(chatMessages)
-    .innerJoin(apiCallLog, eq(apiCallLog.runId, chatMessages.runId))
+    .from(apiCallLog)
+    .leftJoin(agentRuns, eq(agentRuns.id, apiCallLog.runId))
+    .innerJoin(chatMessages, sql`${chatMessages.runId} = ${OWNER_RUN_ID}`)
     .where(
       and(
         eq(chatMessages.role, "assistant"),
         isNotNull(chatMessages.runId),
-        // null usage OR usage present but with an empty/absent `models` array.
-        sql`(${chatMessages.usage} is null or coalesce(jsonb_array_length(${chatMessages.usage} -> 'models'), 0) = 0)`,
+        // null usage OR usage present but missing the `models` breakdown OR
+        // missing the per-agent split (boss-only totals from an older build).
+        sql`(${chatMessages.usage} is null
+          or coalesce(jsonb_array_length(${chatMessages.usage} -> 'models'), 0) = 0
+          or coalesce(jsonb_array_length(${chatMessages.usage} -> 'agents'), 0) = 0)`,
       ),
     )
-    .groupBy(chatMessages.id, sql`coalesce(${apiCallLog.model}, 'unknown')`);
+    .groupBy(chatMessages.id, SUB_ID, MODEL);
 }
 
 /**
@@ -109,9 +139,11 @@ async function main(): Promise<void> {
     }
     const usage = parsed.data;
     const models = usage.models.map((m) => `${m.model}×${m.calls}`).join(", ");
+    const workers = usage.agents.filter((a) => a.subId !== null).length;
     console.log(
       `${COMMIT ? "write" : "would write"} ${messageId} — ${usage.calls} calls, ` +
-        `$${usage.costUsd.toFixed(4)}, in=${usage.inputTokens} out=${usage.outputTokens} — [${models}]`,
+        `$${usage.costUsd.toFixed(4)}, in=${usage.inputTokens} out=${usage.outputTokens} — [${models}]` +
+        (workers > 0 ? ` — +${workers} worker(s)` : ""),
     );
     if (COMMIT) {
       // Bump rowVersion + updatedAt so the change is delivered on the next

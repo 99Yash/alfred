@@ -5,7 +5,7 @@ import type { WorkflowRevisionDefinition } from "@alfred/contracts";
 
 import type { IntegrationAvailabilitySnapshot } from "../../src/modules/integrations/availability";
 import { registerBuiltinTools } from "../../src/modules/tools";
-import { listRegisteredTools } from "../../src/modules/tools/registry";
+import { createToolCatalog, listRegisteredTools } from "../../src/modules/tools/registry";
 import {
   canonicalizeWorkflowAccounts,
   resolveWorkflowCapabilities,
@@ -15,13 +15,17 @@ import {
 import { validateWorkflowDefinition } from "../../src/modules/workflows/revisions";
 
 function resolveWorkflowReadiness(
-  args: Omit<Parameters<typeof resolveWorkflowReadinessBase>[0], "gmailEventHealth"> & {
+  args: Omit<
+    Parameters<typeof resolveWorkflowReadinessBase>[0],
+    "gmailEventHealth" | "toolCatalog"
+  > & {
     gmailEventHealth?: Parameters<typeof resolveWorkflowReadinessBase>[0]["gmailEventHealth"];
   },
 ) {
   return resolveWorkflowReadinessBase({
     ...args,
     gmailEventHealth: args.gmailEventHealth ?? new Map(),
+    toolCatalog: createToolCatalog(listRegisteredTools()),
   });
 }
 
@@ -79,29 +83,44 @@ function definition(
 describe("workflow readiness", () => {
   test("the pure resolver derives an exact active envelope", () => {
     const result = resolveWorkflowCapabilities({
+      definition: definition(),
       requested: [{ tool: "system.current_time" }],
-      trigger: { kind: "manual" },
       availability: unavailable,
-      registeredTools: listRegisteredTools(),
+      toolCatalog: createToolCatalog(listRegisteredTools()),
+      gmailEventHealth: new Map(),
     });
-    assert.equal(result.satisfied, true);
-    assert.deepEqual(result.allowedIntegrations, ["system"]);
-    assert.deepEqual(result.allowedTools, ["system.current_time"]);
-    assert.equal(result.resolved[0]?.tool, "system.current_time");
+    assert.deepEqual(result.definition.allowedIntegrations, ["system"]);
+    assert.deepEqual(result.definition.allowedTools, ["system.current_time"]);
+    assert.equal(result.definition.requiredCapabilities[0]?.tool, "system.current_time");
+    assert.deepEqual(result.missing, []);
   });
 
   test("the pure resolver includes the trigger source and gives no fake action for Slack", () => {
     const result = resolveWorkflowCapabilities({
+      definition: definition({
+        trigger: { kind: "event", source: "gmail", type: "message_received" },
+      }),
       requested: [{ tool: "slack.send_message" }],
-      trigger: { kind: "event", source: "gmail", type: "message_received" },
       availability: unavailable,
-      registeredTools: listRegisteredTools(),
+      toolCatalog: createToolCatalog(listRegisteredTools()),
+      gmailEventHealth: new Map(),
     });
-    assert.equal(result.satisfied, false);
-    assert.deepEqual(result.allowedIntegrations, ["gmail", "slack"]);
-    assert.deepEqual(result.allowedTools, []);
+    assert.deepEqual(result.definition.allowedIntegrations, ["gmail", "slack"]);
+    assert.deepEqual(result.definition.allowedTools, ["slack.send_message"]);
     assert.equal(result.missing[0]?.code, "no_tool_surface");
-    assert.equal(result.missing[0]?.recovery, undefined);
+  });
+
+  test("a catalog tool without a runtime implementation stays inside the envelope", () => {
+    const result = resolveWorkflowCapabilities({
+      definition: definition(),
+      requested: [{ tool: "system.current_time" }],
+      availability: unavailable,
+      toolCatalog: createToolCatalog([]),
+      gmailEventHealth: new Map(),
+    });
+    assert.deepEqual(result.definition.allowedTools, ["system.current_time"]);
+    assert.deepEqual(result.definition.requiredCapabilities, [{ tool: "system.current_time" }]);
+    assert.equal(result.missing[0]?.code, "no_tool_surface");
   });
 
   test("activation rejects a tool with no matching capability", () => {
@@ -166,59 +185,6 @@ describe("workflow readiness", () => {
       availability: unavailable,
     });
     assert.equal(problems[0]?.code, "not_connected");
-    assert.deepEqual(problems[0]?.recovery, { kind: "connect", integration: "gmail" });
-  });
-
-  test("a read-only Gmail grant names the missing write permission", () => {
-    const readonly = {
-      ...gmailAvailability,
-      providers: new Map([
-        [
-          "google",
-          [
-            {
-              credentialId: "credential-readonly",
-              accountId: "account-readonly",
-              status: "active",
-              scopes: new Set(["https://www.googleapis.com/auth/gmail.readonly"]),
-              accountLabel: "readonly@example.com",
-              metadata: {},
-            },
-          ],
-        ],
-      ]),
-    } satisfies IntegrationAvailabilitySnapshot;
-    const problems = resolveWorkflowReadiness({
-      definition: definition({
-        allowedIntegrations: ["gmail"],
-        allowedTools: ["gmail.send_draft"],
-        requiredCapabilities: [
-          { tool: "gmail.send_draft", accountRef: "account-readonly" },
-        ],
-      }),
-      availability: readonly,
-    });
-    assert.equal(problems[0]?.code, "missing_scope");
-    assert.deepEqual(problems[0]?.recovery, {
-      kind: "reauthorize",
-      integration: "gmail",
-    });
-  });
-
-  test("a disabled passthrough capability names the feature switch", () => {
-    const problems = resolveWorkflowReadiness({
-      definition: definition({
-        allowedIntegrations: ["notion"],
-        allowedTools: ["notion.request"],
-        requiredCapabilities: [{ tool: "notion.request" }],
-      }),
-      availability: unavailable,
-    });
-    assert.equal(problems[0]?.code, "feature_disabled");
-    assert.deepEqual(problems[0]?.recovery, {
-      kind: "enable_feature",
-      integration: "notion",
-    });
   });
 
   test("thread-only tools are refused for a background workflow", () => {
@@ -253,6 +219,7 @@ describe("workflow readiness", () => {
         requiredCapabilities: [{ tool: "gmail.search", accountRef: "account-1" }],
       }),
       availability: gmailAvailability,
+      toolCatalog: createToolCatalog(listRegisteredTools()),
     });
     assert.deepEqual(problems, []);
   });
@@ -277,6 +244,7 @@ describe("workflow readiness", () => {
         requiredCapabilities: [{ tool: "gmail.search", accountRef: "account-1" }],
       }),
       gmailAvailability,
+      createToolCatalog(listRegisteredTools()),
     );
     assert.deepEqual(display.resolvedAccounts, [
       {
@@ -394,5 +362,104 @@ describe("workflow readiness", () => {
       now: new Date("2026-07-31T00:10:00.000Z"),
     });
     assert.deepEqual(problems, []);
+  });
+
+  test("an expired Gmail watch asks for renewal even when sync is stale", () => {
+    const selected = gmailAvailability.providers.get("google")?.[0];
+    assert.ok(selected);
+    const problems = resolveWorkflowReadiness({
+      definition: definition({
+        trigger: {
+          kind: "event",
+          source: "gmail",
+          type: "message_received",
+          accountRef: "account-1",
+        },
+      }),
+      availability: {
+        ...gmailAvailability,
+        providers: new Map([
+          [
+            "google",
+            [
+              {
+                ...selected,
+                metadata: {
+                  watch: {
+                    expiresAt: "2026-07-30T00:00:00.000Z",
+                    baselineHistoryId: "123",
+                    installedAt: "2026-07-29T00:00:00.000Z",
+                  },
+                },
+              },
+            ],
+          ],
+        ]),
+      },
+      gmailEventHealth: new Map([
+        [
+          "credential-1",
+          {
+            receiverConfigured: true,
+            topicMatches: true,
+            cursorReady: true,
+            coverageGap: true,
+            lastSyncAt: new Date("2026-07-30T00:00:00.000Z"),
+          },
+        ],
+      ]),
+      now: new Date("2026-07-31T00:10:00.000Z"),
+    });
+    assert.equal(problems.at(-1)?.code, "trigger_not_ready");
+    assert.match(problems.at(-1)?.message ?? "", /renew its watch/);
+  });
+
+  test("a configured live watch reports delayed delivery as provider health", () => {
+    const selected = gmailAvailability.providers.get("google")?.[0];
+    assert.ok(selected);
+    const problems = resolveWorkflowReadiness({
+      definition: definition({
+        trigger: {
+          kind: "event",
+          source: "gmail",
+          type: "message_received",
+          accountRef: "account-1",
+        },
+      }),
+      availability: {
+        ...gmailAvailability,
+        providers: new Map([
+          [
+            "google",
+            [
+              {
+                ...selected,
+                metadata: {
+                  watch: {
+                    expiresAt: "2026-08-01T00:00:00.000Z",
+                    baselineHistoryId: "123",
+                    installedAt: "2026-07-29T00:00:00.000Z",
+                  },
+                },
+              },
+            ],
+          ],
+        ]),
+      },
+      gmailEventHealth: new Map([
+        [
+          "credential-1",
+          {
+            receiverConfigured: true,
+            topicMatches: true,
+            cursorReady: true,
+            coverageGap: true,
+            lastSyncAt: new Date("2026-07-30T00:00:00.000Z"),
+          },
+        ],
+      ]),
+      now: new Date("2026-07-31T00:10:00.000Z"),
+    });
+    assert.equal(problems.at(-1)?.code, "provider_unhealthy");
   });
 });

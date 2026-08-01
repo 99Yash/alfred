@@ -222,7 +222,7 @@ export const systemTools: readonly RegisteredTool[] = [
     riskTier: "no_risk",
     availability: { requiresThread: true, callers: ["boss"] },
     description:
-      "Save a cron, Gmail-event, or manual workflow draft and reuse its activation input.",
+      "Save an inactive cron, Gmail-event, or manual workflow draft. Copy the returned server-canonical activation input.",
     discovery: {
       title: "Author workflow",
       summary: "Save an editable workflow draft from a user's chat request.",

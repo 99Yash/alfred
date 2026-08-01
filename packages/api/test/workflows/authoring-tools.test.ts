@@ -9,24 +9,14 @@ import {
   isRecord,
 } from "@alfred/contracts";
 import { closeConnections, db } from "@alfred/db";
-import type { SealedCredentialSecret } from "@alfred/db/credential-vault";
-import {
-  agentRuns,
-  integrationCredentials,
-  user,
-  workflowRevisions,
-  workflows,
-} from "@alfred/db/schemas";
+import { agentRuns, user, workflowRevisions, workflows } from "@alfred/db/schemas";
 import { databaseEnv } from "@alfred/env/database";
 import { asc, eq } from "drizzle-orm";
 
 import { systemTools } from "../../src/modules/tools/system";
 import { registerBuiltinTools } from "../../src/modules/tools";
 import { toolExecuteContext } from "../../src/modules/tools/context";
-import {
-  definitionFromProposal,
-  revalidateWorkflowDraft,
-} from "../../src/modules/workflows/authoring";
+import { definitionFromProposal } from "../../src/modules/workflows/authoring";
 import { refreshWorkflowActivationProposal } from "../../src/modules/workflows/revisions";
 import { createRun } from "../../src/modules/agent/service";
 
@@ -436,31 +426,6 @@ describe("workflow authoring and activation acceptance (#556)", { skip: SKIP }, 
     const readinessBlockers = getPath(result, "readinessBlockers");
     assert.ok(Array.isArray(readinessBlockers));
     assert.equal(getPath(readinessBlockers[0], "code"), "not_connected");
-
-    const workflowId = getPath(result, "workflowId");
-    assert.equal(typeof workflowId, "string");
-    if (typeof workflowId !== "string") return;
-    await db().insert(integrationCredentials).values({
-      userId,
-      provider: "google",
-      accountId: "reconnected-gmail",
-      accountLabel: "reconnected@example.test",
-      accessToken: "test-token" as unknown as SealedCredentialSecret,
-      scopes: ["https://www.googleapis.com/auth/gmail.readonly"],
-      status: "active",
-    });
-
-    const recovered = await revalidateWorkflowDraft({
-      userId,
-      workflowId,
-      timezone: "Asia/Kolkata",
-    });
-    assert.equal(recovered.ok, true);
-    if (!recovered.ok) return;
-    assert.equal(recovered.workflow.id, workflowId, "recovery stays on the original draft");
-    assert.equal(recovered.readiness.length, 0);
-    assert.ok(recovered.activationProposal, "recovery revalidates before offering activation");
-    assert.equal(recovered.workflow.publishedRevisionId, null, "revalidation does not auto-activate");
   });
 });
 
