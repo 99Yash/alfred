@@ -3,27 +3,36 @@ import { ArrowDown, ArrowUp, Repeat, Zap } from "lucide-react";
 import { PROVIDERS, modelLabel, providerOf, type SvgIcon } from "~/components/provider-marks";
 import { formatCost, formatTokens } from "~/lib/usage-format";
 import { cn } from "~/lib/utils";
+import { Tip } from "./tip";
 
-/** One labeled stat cell: faint icon, tabular value, optional dim suffix. */
+/**
+ * One labeled stat cell: faint icon, tabular value, optional dim suffix. The
+ * strip abbreviates every number (`12.3k`), so the hover tip carries the label
+ * plus the exact figure — the reason to hover at all.
+ */
 function Stat({
   icon: Icon,
   iconClassName,
   value,
   suffix,
-  title,
+  label,
+  description,
 }: {
   icon: SvgIcon;
-  iconClassName?: string | undefined;
+  iconClassName?: React.SVGProps<SVGSVGElement>["className"] | undefined;
   value: string;
   suffix?: string | undefined;
-  title: string;
+  label: string;
+  description?: string | undefined;
 }) {
   return (
-    <span title={title} className="inline-flex items-center gap-1">
-      <Icon className={cn("size-3 shrink-0 text-app-fg-1", iconClassName)} />
-      <span className="text-app-fg-3">{value}</span>
-      {suffix ? <span className="text-app-fg-1">{suffix}</span> : null}
-    </span>
+    <Tip label={label} description={description}>
+      <span className="inline-flex items-center gap-1">
+        <Icon className={cn("size-3 shrink-0 text-app-fg-1", iconClassName)} />
+        <span className="text-app-fg-3">{value}</span>
+        {suffix ? <span className="text-app-fg-1">{suffix}</span> : null}
+      </span>
+    </Tip>
   );
 }
 
@@ -31,16 +40,39 @@ function Divider() {
   return <span aria-hidden className="h-3 w-px bg-app-bg-a3" />;
 }
 
+/** Circumference of the ring below, hoisted so it isn't recomputed per render. */
+const RING_RADIUS = 5;
+const RING_CIRCUMFERENCE = 2 * Math.PI * RING_RADIUS;
+
 /**
- * A hairline meter for the cache-hit share — the single biggest lever on turn
- * cost, so it earns a glance-able bar rather than a bare number. Amber fill on a
- * faint track, matching the `Zap` accent.
+ * A dial for the cache-hit share — the single biggest lever on turn cost, so it
+ * earns a glance-able shape rather than a bare number. Amber arc on a faint
+ * track, matching the `Zap` accent, sized to the row's cap height. The arc
+ * starts at twelve o'clock (`-rotate-90`) and fills clockwise.
  */
-function CacheMeter({ pct }: { pct: number }) {
+function CacheRing({ pct }: { pct: number }) {
   return (
-    <span aria-hidden className="h-1 w-6 overflow-hidden rounded-full bg-app-bg-a3">
-      <span className="block h-full rounded-full bg-app-amber-4" style={{ width: `${pct}%` }} />
-    </span>
+    <svg aria-hidden viewBox="0 0 14 14" className="size-3 shrink-0 -rotate-90">
+      <circle
+        cx="7"
+        cy="7"
+        r={RING_RADIUS}
+        fill="none"
+        strokeWidth="2"
+        className="stroke-app-bg-a3"
+      />
+      <circle
+        cx="7"
+        cy="7"
+        r={RING_RADIUS}
+        fill="none"
+        strokeWidth="2"
+        strokeLinecap="round"
+        strokeDasharray={RING_CIRCUMFERENCE}
+        strokeDashoffset={RING_CIRCUMFERENCE * (1 - pct / 100)}
+        className="stroke-app-amber-4"
+      />
+    </svg>
   );
 }
 
@@ -55,10 +87,15 @@ function CacheMeter({ pct }: { pct: number }) {
  * → models) inside one hairline "receipt" pill. Numbers are `tabular-nums` so
  * they don't jitter as they stream in. Cost is the anchor — brand ink, a touch
  * heavier — because it's the number we're actually watching. The cache share
- * gets a tiny amber meter since it's the biggest lever on that cost. Each served
+ * gets a tiny amber ring since it's the biggest lever on that cost. Each served
  * model wears its provider mark; a non-Anthropic chip glows amber because the
  * boss runs on `claude-*`, so a `gemini-*`/`gpt-*` model means the Anthropic
  * primary errored (spend cap, 429) and `withFallback` degraded the turn.
+ *
+ * Every cell carries a `Tip` hover card rather than a native `title`, so the
+ * abbreviated figure keeps its exact count and its explanation one hover away.
+ * `Tip` needs an ancestor `Tooltip.Provider`; `chat-shell.tsx` wraps the whole
+ * chat surface in one, so this component must stay inside that tree.
  */
 export function UsageLine({ usage }: { usage: NonNullable<SyncedChatMessage["usage"]> }) {
   const cost = formatCost(usage.costUsd);
@@ -73,33 +110,49 @@ export function UsageLine({ usage }: { usage: NonNullable<SyncedChatMessage["usa
         "text-[11px] leading-none text-app-fg-2 tabular-nums",
       )}
     >
-      <Stat icon={ArrowUp} value={formatTokens(usage.inputTokens)} title="Input tokens" />
-      <Stat icon={ArrowDown} value={formatTokens(usage.outputTokens)} title="Output tokens" />
+      <Stat
+        icon={ArrowUp}
+        value={formatTokens(usage.inputTokens)}
+        label="Input tokens"
+        description={`${usage.inputTokens.toLocaleString()} tokens sent to the model this turn. Prompt, transcript, and tool results.`}
+      />
+      <Stat
+        icon={ArrowDown}
+        value={formatTokens(usage.outputTokens)}
+        label="Output tokens"
+        description={`${usage.outputTokens.toLocaleString()} tokens the model wrote. Prose, reasoning, and tool arguments.`}
+      />
       {usage.cachedInputTokens > 0 ? (
-        <span
-          title={`Cached input — ${cachePct}% of input served from cache (the biggest lever on turn cost)`}
-          className="inline-flex items-center gap-1"
+        <Tip
+          label="Cached input"
+          description={`${usage.cachedInputTokens.toLocaleString()} of ${usage.inputTokens.toLocaleString()} input tokens (${cachePct}%) were served from the prompt cache. Cache hits are the biggest lever on turn cost.`}
         >
-          <Zap className="size-3 shrink-0 text-app-amber-4" />
-          <span className="text-app-fg-3">{formatTokens(usage.cachedInputTokens)}</span>
-          <span className="text-app-fg-1">{cachePct}%</span>
-        </span>
+          <span className="inline-flex items-center gap-1">
+            <Zap className="size-3 shrink-0 text-app-amber-4" />
+            <span className="text-app-fg-3">{formatTokens(usage.cachedInputTokens)}</span>
+            <CacheRing pct={cachePct} />
+            <span className="text-app-fg-1">{cachePct}%</span>
+          </span>
+        </Tip>
       ) : null}
 
       <Divider />
 
-      <span
-        title="Turn cost (boss run)"
-        className="inline-flex items-center gap-1.5 font-medium text-app-fg-4"
+      <Tip
+        label={`${cost} this turn`}
+        description="Boss run only, at the snapshot prices in api_call_log. Sub-agent runs bill separately."
       >
-        <span className="text-app-fg-2">$</span>
-        {cost.replace(/^\$/, "")}
-      </span>
+        <span className="inline-flex items-center gap-1.5 font-medium text-app-fg-4">
+          <span className="text-app-fg-2">$</span>
+          {cost.replace(/^\$/, "")}
+        </span>
+      </Tip>
       <Stat
         icon={Repeat}
         value={`${usage.calls}`}
         suffix={usage.calls === 1 ? "call" : "calls"}
-        title="LLM calls this turn"
+        label={usage.calls === 1 ? "1 LLM call" : `${usage.calls} LLM calls`}
+        description="One call per generation or tool round. A high count means the turn looped through many tools."
       />
 
       {usage.models.length > 0 ? <Divider /> : null}
@@ -108,27 +161,29 @@ export function UsageLine({ usage }: { usage: NonNullable<SyncedChatMessage["usa
         const provider = providerOf(m.model);
         const fell = provider !== null && provider !== PROVIDERS.anthropic;
         const Icon = provider?.Icon;
+        const served =
+          m.calls === 1 ? "Served 1 call this turn." : `Served ${m.calls} calls this turn.`;
         return (
-          <span
+          <Tip
             key={m.model}
-            title={
-              provider
-                ? `${provider.label} served this turn${m.calls > 1 ? ` (${m.calls} calls)` : ""}${fell ? " · fallback from Anthropic" : ""}`
-                : "Model served this turn"
+            label={m.model}
+            description={
+              fell
+                ? `${served} ${provider?.label} is a fallback. The Anthropic primary errored, so withFallback degraded the turn.`
+                : `${served}${provider ? ` Provider: ${provider.label}.` : ""}`
             }
-            className="inline-flex items-center gap-1.5 rounded-md bg-app-bg-a2 px-1.5 py-1 text-app-fg-4 transition-colors hover:bg-app-bg-a3"
           >
-            {fell ? (
-              <span
-                aria-hidden
-                className="size-1.5 shrink-0 rounded-full bg-app-amber-4"
-                title="Fallback from Anthropic primary"
-              />
-            ) : null}
-            {Icon ? <Icon className="size-3.5 shrink-0" style={{ color: provider?.tint }} /> : null}
-            <span className="font-medium">{modelLabel(m.model)}</span>
-            {m.calls > 1 ? <span className="text-app-fg-2">×{m.calls}</span> : null}
-          </span>
+            <span className="inline-flex items-center gap-1.5 rounded-md bg-app-bg-a2 px-1.5 py-1 text-app-fg-4 transition-colors hover:bg-app-bg-a3">
+              {fell ? (
+                <span aria-hidden className="size-1.5 shrink-0 rounded-full bg-app-amber-4" />
+              ) : null}
+              {Icon ? (
+                <Icon className="size-3.5 shrink-0" style={{ color: provider?.tint }} />
+              ) : null}
+              <span className="font-medium">{modelLabel(m.model)}</span>
+              {m.calls > 1 ? <span className="text-app-fg-2">×{m.calls}</span> : null}
+            </span>
+          </Tip>
         );
       })}
     </div>
