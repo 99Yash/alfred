@@ -2441,6 +2441,58 @@
     }
   }
 
+  /* Tooltip swap — the pill that opens while another one is still fading out,
+   * i.e. the pointer moved to a neighbouring trigger inside the provider's
+   * skip-delay window. Opacity only: repeating the scale-and-rise at every
+   * trigger along a dense row reads as a series of pops, not as one pill
+   * changing. Paired with `app-tooltip-out` it becomes a crossfade. */
+  @keyframes app-tooltip-swap {
+    from {
+      opacity: 0;
+    }
+    to {
+      opacity: 1;
+    }
+  }
+
+  /* Tooltip dismissal — shorter than either entrance so the outgoing pill is
+   * already faint by the time the incoming one is legible. */
+  @keyframes app-tooltip-out {
+    from {
+      opacity: 1;
+    }
+    to {
+      opacity: 0;
+    }
+  }
+
+  /* The three states of one tooltip pill, driven by Radix's `data-state`.
+   * `delayed-open` is a cold reveal and earns the full entrance;
+   * `instant-open` is a swap between neighbours and only crossfades. Radix
+   * wraps the content in `Presence`, so the `closed` animation runs to
+   * completion before the node unmounts. */
+  .app-tip {
+    will-change: transform, opacity;
+  }
+  .app-tip[data-state="delayed-open"] {
+    animation: app-tooltip-in 140ms cubic-bezier(0.22, 1, 0.36, 1);
+  }
+  .app-tip[data-state="instant-open"] {
+    animation: app-tooltip-swap 120ms cubic-bezier(0.22, 1, 0.36, 1);
+  }
+  .app-tip[data-state="closed"] {
+    animation: app-tooltip-out 90ms cubic-bezier(0.4, 0, 1, 1);
+  }
+  @media (prefers-reduced-motion: reduce) {
+    .app-tip,
+    .app-tip[data-state="delayed-open"],
+    .app-tip[data-state="instant-open"],
+    .app-tip[data-state="closed"] {
+      animation: none !important;
+      transform: none !important;
+    }
+  }
+
   /* Hover-lift — 2px rise + shadow bump. The transform is on a
    * `transition-transform` so it interpolates smoothly. Use on cards
    * that benefit from a "comes towards you" hover affordance. */
