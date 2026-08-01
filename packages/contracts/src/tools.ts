@@ -44,6 +44,8 @@ export const INTEGRATION_ACTIONS = {
     "search_tools",
     "load_tool",
     "current_time",
+    "author_workflow",
+    "activate_workflow",
     "spawn_sub_agent",
     "await_sub_agent",
     "read_user_context",
@@ -188,6 +190,15 @@ export function isToolName(value: string): value is ToolName {
   return actions.includes(action);
 }
 
+/** Closed tool-name values for model-facing JSON Schema enums. */
+export const TOOL_NAMES: readonly ToolName[] = INTEGRATION_SLUGS.flatMap((integration) =>
+  INTEGRATION_ACTIONS[integration].map((action) => {
+    const name = `${integration}.${action}`;
+    if (!isToolName(name)) throw new Error(`Invalid declared tool name '${name}'`);
+    return name;
+  }),
+);
+
 /**
  * The zod form of {@link isToolName}. Lives beside the guard it wraps so a
  * persisted, model-proposed, or wire-carried tool name is narrowed to
@@ -256,6 +267,16 @@ export const TOOL_LABELS: Record<ToolName, ToolLabel> = {
     running: "Checking the current time",
     done: "Checked the current time",
     title: "check the current time",
+  },
+  "system.author_workflow": {
+    running: "Saving a workflow draft",
+    done: "Saved a workflow draft",
+    title: "save a workflow draft",
+  },
+  "system.activate_workflow": {
+    running: "Activating a workflow",
+    done: "Activated a workflow",
+    title: "activate a workflow",
   },
   "system.spawn_sub_agent": {
     running: "Delegating a sub-task",
@@ -605,6 +626,8 @@ export const TOOL_CATEGORIES: Record<ToolName, ToolCategory> = {
   "system.search_tools": "system",
   "system.load_tool": "system",
   "system.current_time": "system",
+  "system.author_workflow": "action",
+  "system.activate_workflow": "action",
   "system.spawn_sub_agent": "system",
   "system.await_sub_agent": "system",
   "system.read_user_context": "system",

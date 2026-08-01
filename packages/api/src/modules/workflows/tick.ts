@@ -50,6 +50,8 @@ interface DueRow {
   brief: string | null;
   trigger: WorkflowTrigger;
   nextRunAt: Date;
+  publishedRevisionId: string | null;
+  isBuiltin: boolean;
 }
 
 export async function dispatchDueCronWorkflows(now: Date = new Date()): Promise<TickResult> {
@@ -92,6 +94,8 @@ async function selectDueRows(now: Date): Promise<DueRow[]> {
       brief: workflows.brief,
       trigger: workflows.trigger,
       nextRunAt: workflows.nextRunAt,
+      publishedRevisionId: workflows.publishedRevisionId,
+      isBuiltin: workflows.isBuiltin,
     })
     .from(workflows)
     .where(
@@ -180,6 +184,7 @@ async function dispatchOne(row: DueRow): Promise<"enqueued" | "raced" | "invalid
   const { runId } = await createRun({
     userId: row.userId,
     workflowSlug: row.slug,
+    workflowRevisionId: row.isBuiltin ? null : row.publishedRevisionId,
     brief: row.brief ?? undefined,
     trigger: { kind: "cron", scheduledFor: scheduledForIso },
   });

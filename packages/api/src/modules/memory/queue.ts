@@ -204,6 +204,11 @@ export async function enqueueExtractionForUser(
     trigger?: AgentRunTrigger;
   },
 ): Promise<{ runId: string }> {
+  const trigger = opts?.trigger ?? { kind: "manual" as const };
+  const occurrence =
+    trigger.kind === "cron" || trigger.kind === "event"
+      ? { trigger, workflowRevisionId: null }
+      : { trigger };
   const { runId } = await createRun({
     userId,
     workflowSlug: "memory-extraction",
@@ -214,7 +219,7 @@ export async function enqueueExtractionForUser(
       sinceDays: opts?.sinceDays,
       maxDocs: opts?.maxDocs,
     },
-    trigger: opts?.trigger ?? { kind: "manual" },
+    ...occurrence,
   });
   await enqueueRun(runId);
   return { runId };

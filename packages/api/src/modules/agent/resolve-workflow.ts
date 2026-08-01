@@ -1,14 +1,20 @@
 import { db } from "@alfred/db";
-import { workflows, type Workflow as WorkflowRow } from "@alfred/db/schemas";
-import { and, eq } from "drizzle-orm";
+import {
+  workflowRevisions,
+  workflows,
+  type Workflow as WorkflowRow,
+  type WorkflowRevision,
+} from "@alfred/db/schemas";
+import { and, eq, sql } from "drizzle-orm";
 import { getWorkflow } from "./registry";
 import type { AgentDbExecutor, Workflow } from "./types";
 import { userAuthoredBriefWorkflow } from "./workflows/user-authored-brief";
 
-type UserAuthoredWorkflowRow = Pick<
-  WorkflowRow,
-  "brief" | "allowedIntegrations" | "isBuiltin" | "publishedRevisionId"
->;
+type UserAuthoredWorkflowRow = Pick<WorkflowRow, "isBuiltin"> &
+  Pick<
+    WorkflowRevision,
+    "brief" | "allowedIntegrations" | "allowedTools" | "requiredCapabilities" | "approvedAt"
+  > & { revisionId: string };
 
 export interface ResolvedWorkflowForRun {
   workflow: Workflow<unknown>;
@@ -32,20 +38,45 @@ export interface ResolvedWorkflowForRun {
 export async function resolveWorkflowForRun(args: {
   userId: string;
   workflowSlug: string;
+  /** Exact immutable revision selected by the occurrence dispatcher. */
+  workflowRevisionId?: string | undefined;
+  /** Delayed occurrences must not fall forward to a newer published revision. */
+  requireSelectedRevision?: boolean | undefined;
   tx?: AgentDbExecutor;
 }): Promise<ResolvedWorkflowForRun> {
   const registered = getWorkflow(args.workflowSlug);
-  if (registered) return { workflow: registered, workflowSlug: registered.slug };
+  if (registered) {
+    if (args.workflowRevisionId) {
+      throw new Error(
+        `[agent] builtin workflow slug=${args.workflowSlug} cannot pin a database revision`,
+      );
+    }
+    return { workflow: registered, workflowSlug: registered.slug };
+  }
 
   const ex = args.tx ?? db();
   const rows = await ex
     .select({
-      brief: workflows.brief,
-      allowedIntegrations: workflows.allowedIntegrations,
+      brief: workflowRevisions.brief,
+      allowedIntegrations: workflowRevisions.allowedIntegrations,
       isBuiltin: workflows.isBuiltin,
       publishedRevisionId: workflows.publishedRevisionId,
+      allowedTools: workflowRevisions.allowedTools,
+      requiredCapabilities: workflowRevisions.requiredCapabilities,
+      approvedAt: workflowRevisions.approvedAt,
     })
     .from(workflows)
+    .leftJoin(
+      workflowRevisions,
+      and(
+        eq(workflowRevisions.workflowId, workflows.id),
+        eq(
+          workflowRevisions.id,
+          args.workflowRevisionId ??
+            (args.requireSelectedRevision ? sql`NULL` : workflows.publishedRevisionId),
+        ),
+      ),
+    )
     .where(and(eq(workflows.userId, args.userId), eq(workflows.slug, args.workflowSlug)))
     .limit(1);
   const row = rows[0];
@@ -57,10 +88,32 @@ export async function resolveWorkflowForRun(args: {
       `[agent] builtin workflow slug=${args.workflowSlug} exists in DB but is not registered in code`,
     );
   }
+  const revisionId =
+    args.workflowRevisionId ?? (args.requireSelectedRevision ? null : row.publishedRevisionId);
+  if (
+    !revisionId ||
+    row.brief === null ||
+    row.allowedIntegrations === null ||
+    !row.allowedTools ||
+    !row.requiredCapabilities ||
+    !row.approvedAt
+  ) {
+    throw new Error(
+      `[agent] authored workflow slug=${args.workflowSlug} has no approved selected revision`,
+    );
+  }
 
   return {
     workflow: userAuthoredBriefWorkflow as Workflow<unknown>,
     workflowSlug: args.workflowSlug,
-    userAuthoredRow: row,
+    userAuthoredRow: {
+      brief: row.brief,
+      allowedIntegrations: row.allowedIntegrations,
+      isBuiltin: row.isBuiltin,
+      revisionId,
+      allowedTools: row.allowedTools,
+      requiredCapabilities: row.requiredCapabilities,
+      approvedAt: row.approvedAt,
+    },
   };
 }

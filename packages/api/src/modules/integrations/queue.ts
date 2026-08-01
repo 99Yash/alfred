@@ -708,13 +708,25 @@ async function emitGmailMessageEvents(
   documentIds: string[],
   reason: "webhook" | "manual" | "ingest" | "reply",
 ): Promise<void> {
+  let accountByDocumentId: Map<string, string>;
+  try {
+    accountByDocumentId = await gmailAccountRefsForDocuments(userId, documentIds);
+  } catch (err) {
+    console.warn(
+      `[ingestion:worker] failed to resolve Gmail event accounts user=${userId}:`,
+      toMessage(err),
+    );
+    return;
+  }
   await mapConcurrent(documentIds, REALTIME_EMIT_CONCURRENCY, async (documentId) => {
     try {
+      const accountRef = accountByDocumentId.get(documentId);
       await emitEvent({
         userId,
         source: "gmail",
         type: "message_received",
         eventId: documentId,
+        ...(accountRef ? { accountRef } : {}),
         payload: { documentId, reason },
       });
     } catch (err) {
@@ -885,16 +897,22 @@ async function reEvaluateRepliedThreads(
 ): Promise<void> {
   if (!targets.length) return;
   try {
+    const accountByDocumentId = await gmailAccountRefsForDocuments(
+      userId,
+      targets.map((target) => target.documentId),
+    );
     await mapConcurrent(
       targets,
       REALTIME_EMIT_CONCURRENCY,
       async ({ threadId, documentId, eventId }) => {
         try {
+          const accountRef = accountByDocumentId.get(documentId);
           await emitEvent({
             userId,
             source: "gmail",
             type: "message_received",
             eventId,
+            ...(accountRef ? { accountRef } : {}),
             payload: { documentId, reason: "reply", force: true },
           });
         } catch (err) {
@@ -911,6 +929,29 @@ async function reEvaluateRepliedThreads(
       toMessage(err),
     );
   }
+}
+
+async function gmailAccountRefsForDocuments(
+  userId: string,
+  documentIds: readonly string[],
+): Promise<Map<string, string>> {
+  const accountByDocumentId = new Map<string, string>();
+  for (const ids of chunkArray(documentIds, REPLY_REEVAL_QUERY_CHUNK_SIZE)) {
+    const rows = await db()
+      .select({ id: documents.id, accountId: documents.accountId })
+      .from(documents)
+      .where(
+        and(
+          eq(documents.userId, userId),
+          eq(documents.source, "gmail"),
+          inArray(documents.id, ids),
+        ),
+      );
+    for (const row of rows) {
+      if (row.accountId) accountByDocumentId.set(row.id, row.accountId);
+    }
+  }
+  return accountByDocumentId;
 }
 
 /**

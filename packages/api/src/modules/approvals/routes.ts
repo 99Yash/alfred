@@ -6,10 +6,15 @@ import { emitReplicachePokes } from "../../events/replicache-events";
 import { authMacro } from "../../middleware/auth";
 import { enqueueRun, signalRunInTx, type CancelOutcome, type SignalOutcome } from "../agent";
 import { cancelRunInTx } from "../agent/service";
-import { removeApprovalExpiryJob } from "./expiry-queue";
+import { removeApprovalExpiryJob, scheduleApprovalExpiryJob } from "./expiry-queue";
 import { removeApprovalNotificationJob } from "./notification-queue";
 import { startApprovalWaitSpan, type ApprovalWaitOutcome } from "../agent/runtime-spans";
 import { Errors, toMessage } from "@alfred/contracts";
+import {
+  prepareWorkflowApprovalEdit,
+  restageWorkflowApproval,
+  type WorkflowApprovalEditPreparation,
+} from "./workflow-activation";
 
 type Decision = "approve" | "reject" | "cancel_run";
 
@@ -34,6 +39,13 @@ interface DecisionOutcome {
    * request→decision wall-clock without re-reading the row post-commit.
    */
   approvalWait?: ApprovalWaitEmit;
+}
+
+interface RefreshedOutcome {
+  runId: string;
+  status: "pending";
+  refreshed: true;
+  expiresAt: Date;
 }
 
 interface ApprovalWaitEmit {
@@ -69,8 +81,24 @@ export const approvalsRoutes = new Elysia({ prefix: "/api/approvals", normalize:
           throw Errors.BadRequestError("Rejecting an action requires a reason");
         }
 
+        // Canonicalization reads workflow and integration state. Keep those
+        // reads outside the decision transaction so the row lock covers only
+        // the atomic staging update or run wake.
+        let workflowEdit: WorkflowApprovalEditPreparation = { kind: "not_workflow" };
+        if (decision === "approve") {
+          workflowEdit = await prepareWorkflowApprovalEdit({
+            userId: user.id,
+            stagingId: params.stagingId,
+            expectedRowVersion: body.expectedRowVersion,
+            editedInput: body.editedInput,
+          });
+          if (workflowEdit.kind === "invalid") {
+            throw Errors.BadRequestError(workflowEdit.message);
+          }
+        }
+
         const outcome = await db().transaction<
-          DecisionOutcome | { notFound: true } | { conflict: string }
+          DecisionOutcome | RefreshedOutcome | { notFound: true } | { conflict: string }
         >(async (tx) => {
           const rows = await tx
             .select({
@@ -82,6 +110,7 @@ export const approvalsRoutes = new Elysia({ prefix: "/api/approvals", normalize:
               toolName: actionStagings.toolName,
               integration: actionStagings.integration,
               riskTier: actionStagings.riskTier,
+              rowVersion: actionStagings.rowVersion,
             })
             .from(actionStagings)
             .where(and(eq(actionStagings.id, params.stagingId), eq(actionStagings.userId, user.id)))
@@ -95,9 +124,19 @@ export const approvalsRoutes = new Elysia({ prefix: "/api/approvals", normalize:
           if (row.status !== "pending") {
             return { conflict: `Action is already ${row.status}` };
           }
+          if (row.rowVersion !== body.expectedRowVersion) {
+            return { conflict: "The approval changed. Review the latest contract." };
+          }
 
           const now = new Date();
           if (decision === "approve") {
+            // Workflow activation edits change the exact unattended contract.
+            // Rebuild the full card and require a second approval instead of
+            // waking the run with fields the user did not see.
+            if (workflowEdit.kind === "prepared" && workflowEdit.requiresReview) {
+              const expiresAt = await restageWorkflowApproval(tx, row.id, workflowEdit.input);
+              return { runId: row.runId, status: "pending", refreshed: true, expiresAt };
+            }
             const signalOutcome = await signalRunInTx(tx, {
               runId: row.runId,
               match: {
@@ -113,7 +152,11 @@ export const approvalsRoutes = new Elysia({ prefix: "/api/approvals", normalize:
               .set({
                 status: "approved",
                 decidedInput:
-                  body.editedInput === undefined ? undefined : (body.editedInput as object),
+                  workflowEdit.kind === "prepared"
+                    ? workflowEdit.input
+                    : body.editedInput === undefined
+                      ? undefined
+                      : (body.editedInput as object),
                 decidedAt: now,
                 rowVersion: sql`${actionStagings.rowVersion} + 1`,
               })
@@ -180,6 +223,21 @@ export const approvalsRoutes = new Elysia({ prefix: "/api/approvals", normalize:
         if ("conflict" in outcome) throw Errors.ConflictError(outcome.conflict);
 
         emitReplicachePokes([user.id], params.stagingId);
+        if ("refreshed" in outcome) {
+          await removeApprovalExpiryJob(params.stagingId);
+          await scheduleApprovalExpiryJob({
+            stagingId: params.stagingId,
+            userId: user.id,
+            delayMs: outcome.expiresAt.getTime() - Date.now(),
+          });
+          return {
+            ok: true,
+            runId: outcome.runId,
+            status: outcome.status,
+            refreshed: true,
+            enqueued: false,
+          };
+        }
         // Everything a `cancel_run` owes once its tx lands: the workflow's
         // client closure (chat-turn has to persist its assistant row and emit
         // `chat.message completed` or the streaming bubble hangs forever —
@@ -226,6 +284,7 @@ export const approvalsRoutes = new Elysia({ prefix: "/api/approvals", normalize:
         params: t.Object({ stagingId: t.String({ minLength: 1, maxLength: 120 }) }),
         body: t.Object({
           decision: t.String({ minLength: 1, maxLength: 32 }),
+          expectedRowVersion: t.Integer({ minimum: 1 }),
           editedInput: t.Optional(t.Unknown()),
           reason: t.Optional(t.String({ maxLength: 2_000 })),
         }),

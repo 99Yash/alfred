@@ -1,7 +1,8 @@
 import { z } from "zod";
-import { integrationSlugSchema } from "./briefing";
+import { integrationSlugSchema, isIanaTimezone } from "./briefing";
 import { EVENT_SOURCES } from "./event-triggers";
 import { toolNameSchema } from "./tools";
+import { jsonObjectSchema } from "./user-model";
 
 /**
  * Lifecycle status of an `agent_runs` row.
@@ -93,23 +94,33 @@ export const agentRunTriggerSchema = z.discriminatedUnion("kind", [
 ]);
 export type AgentRunTrigger = z.infer<typeof agentRunTriggerSchema>;
 
+export const cronWorkflowTriggerSchema = z.object({
+  kind: z.literal("cron"),
+  schedule: z.string(),
+  timezone: z.string().optional(),
+});
+export const eventWorkflowTriggerSchema = z.object({
+  kind: z.literal("event"),
+  // Closed enums per ADR-0047; `type` is required on writes so the
+  // `emitEvent` query (`trigger->>'source' = … AND trigger->>'type' = …`)
+  // can match. Per-source type validity is enforced in `emitEvent`.
+  source: z.enum(EVENT_SOURCES),
+  type: z.string(),
+  /** Durable provider account identity for user-authored external events. */
+  accountRef: z.string().min(1).max(200).optional(),
+  filter: z.record(z.string(), z.unknown()).optional(),
+});
+export const manualWorkflowTriggerSchema = z.object({ kind: z.literal("manual") });
+export const signalWorkflowTriggerSchema = z.object({
+  kind: z.literal("on_signal"),
+  name: z.string(),
+});
+
 export const workflowTriggerSchema = z.discriminatedUnion("kind", [
-  z.object({
-    kind: z.literal("cron"),
-    schedule: z.string(),
-    timezone: z.string().optional(),
-  }),
-  z.object({
-    kind: z.literal("event"),
-    // Closed enums per ADR-0047; `type` is required on writes so the
-    // `emitEvent` query (`trigger->>'source' = … AND trigger->>'type' = …`)
-    // can match. Per-source type validity is enforced in `emitEvent`.
-    source: z.enum(EVENT_SOURCES),
-    type: z.string(),
-    filter: z.record(z.string(), z.unknown()).optional(),
-  }),
-  z.object({ kind: z.literal("manual") }),
-  z.object({ kind: z.literal("on_signal"), name: z.string() }),
+  cronWorkflowTriggerSchema,
+  eventWorkflowTriggerSchema,
+  manualWorkflowTriggerSchema,
+  signalWorkflowTriggerSchema,
 ]);
 export type WorkflowTrigger = z.infer<typeof workflowTriggerSchema>;
 
@@ -197,15 +208,24 @@ export const workflowRequiredCapabilitySchema = z.object({
   /** Which connected account/installation the tool must use, when more than one exists. */
   accountRef: z.string().min(1).max(200).optional(),
   /** Provider-specific resource boundary (a repository, a calendar, a Slack channel). */
-  resourceScope: z.record(z.string(), z.unknown()).optional(),
+  resourceScope: jsonObjectSchema
+    .refine((value) => Object.keys(value).length > 0, "Resource scope cannot be empty")
+    .optional(),
 });
 export type WorkflowRequiredCapability = z.infer<typeof workflowRequiredCapabilitySchema>;
+
+/** A model request may name a capability that Alfred does not implement yet. */
+export const workflowRequestedCapabilitySchema = workflowRequiredCapabilitySchema.extend({
+  tool: z.string().trim().min(1).max(200),
+});
+export type WorkflowRequestedCapability = z.infer<typeof workflowRequestedCapabilitySchema>;
 
 /**
  * What the authoring turn understood and assumed, kept beside the revision so
  * the activation card (#556) can show the user the intent behind the contract
- * rather than opaque identifiers. Deliberately outside the content hash: a
- * reworded assumption is not a new definition.
+ * rather than opaque identifiers. It is outside the definition content hash,
+ * but a changed proposal still creates a revision so the approved explanation
+ * remains attributable to the row that was published.
  */
 export const workflowAuthoringProposalSchema = z.object({
   /** The user's request, as the authoring turn read it. */
@@ -215,7 +235,7 @@ export const workflowAuthoringProposalSchema = z.object({
   /** Categories of external change this workflow may cause ("sends email"). */
   externalEffects: z.array(z.string().min(1).max(200)).max(20),
   /** What authoring asked for, before the resolver narrowed the envelope. */
-  requestedCapabilities: z.array(workflowRequiredCapabilitySchema).max(50),
+  requestedCapabilities: z.array(workflowRequestedCapabilitySchema).max(50),
   /** Friendly schedule text for the card ("every weekday at 7:00 AM ET"). */
   scheduleSummary: z.string().max(200).optional(),
 });
@@ -267,3 +287,108 @@ export const workflowRevisionDefinitionSchema = z.object({
   requiredCapabilities: z.array(workflowRequiredCapabilitySchema).max(50),
 });
 export type WorkflowRevisionDefinition = z.infer<typeof workflowRevisionDefinitionSchema>;
+
+/** The trigger subset a user may author in workflows v1 (#556). */
+export const authorableWorkflowTriggerSchema = z.discriminatedUnion("kind", [
+  z.object({
+    kind: z.literal("cron"),
+    schedule: z
+      .string()
+      .trim()
+      .refine((value) => value.split(/\s+/).length === 5, "Expected a five-field cron expression"),
+    timezone: z.string().refine(isIanaTimezone, "Expected an IANA timezone identifier"),
+  }),
+  z.object({
+    kind: z.literal("event"),
+    source: z.literal("gmail"),
+    type: z.literal("message_received"),
+    /** Canonical provider account id after server resolution. */
+    accountRef: z.string().min(1).max(200).optional(),
+  }),
+  manualWorkflowTriggerSchema,
+]);
+export type AuthorableWorkflowTrigger = z.infer<typeof authorableWorkflowTriggerSchema>;
+
+/** Model-facing proposal accepted by `system.author_workflow`. */
+export const authorWorkflowInputSchema = z
+  .object({
+    workflowId: z.string().min(1).optional(),
+    expectedRowVersion: z.coerce.number().int().positive().optional(),
+    name: z.string().min(1).max(200),
+    description: z.string().max(2000).optional(),
+    brief: z.string().min(1).max(20000),
+    trigger: authorableWorkflowTriggerSchema,
+    capabilities: z.array(workflowRequestedCapabilitySchema).min(1).max(50),
+    intent: z.string().min(1).max(4000),
+    assumptions: z.array(z.string().min(1).max(500)).max(20),
+    externalEffects: z.array(z.string().min(1).max(200)).max(20),
+  })
+  .strict()
+  .superRefine((input, ctx) => {
+    if (input.workflowId && input.expectedRowVersion === undefined) {
+      ctx.addIssue({
+        code: "custom",
+        path: ["expectedRowVersion"],
+        message: "expectedRowVersion is required when revising an existing workflow",
+      });
+    }
+    if (!input.workflowId && input.expectedRowVersion !== undefined) {
+      ctx.addIssue({
+        code: "custom",
+        path: ["expectedRowVersion"],
+        message: "expectedRowVersion is only valid with workflowId",
+      });
+    }
+  });
+export type AuthorWorkflowInput = z.infer<typeof authorWorkflowInputSchema>;
+
+export const workflowSchedulePreviewSchema = z
+  .object({
+    summary: z.string().min(1).max(200),
+    timezone: z.string().refine(isIanaTimezone, "Expected an IANA timezone identifier"),
+    previewedAt: z.string().datetime(),
+    nextRunAt: z.string().optional(),
+  })
+  .strict();
+export type WorkflowSchedulePreview = z.infer<typeof workflowSchedulePreviewSchema>;
+
+export const workflowAccountDisplaySchema = z.object({
+  provider: z.string().min(1).max(80),
+  accountRef: z.string().min(1).max(200),
+  accountLabel: z.string().min(1).max(200),
+});
+export type WorkflowAccountDisplay = z.infer<typeof workflowAccountDisplaySchema>;
+
+export const workflowCapabilityDisplaySchema = z.object({
+  tool: toolNameSchema,
+  title: z.string().min(1).max(200),
+  accountRef: z.string().min(1).max(200).optional(),
+  accountLabel: z.string().min(1).max(200).optional(),
+  resourceScope: jsonObjectSchema.optional(),
+});
+export type WorkflowCapabilityDisplay = z.infer<typeof workflowCapabilityDisplaySchema>;
+
+export const authorableWorkflowDefinitionSchema = workflowRevisionDefinitionSchema.safeExtend({
+  trigger: authorableWorkflowTriggerSchema,
+});
+export type AuthorableWorkflowDefinition = z.infer<typeof authorableWorkflowDefinitionSchema>;
+
+/**
+ * Exact contract staged by `system.activate_workflow`. It carries both the
+ * immutable base identity and the full editable definition, so approval never
+ * binds only opaque database ids.
+ */
+export const activateWorkflowInputSchema = z
+  .object({
+    workflowId: z.string().min(1).meta({ readOnly: true }),
+    baseRevisionId: z.string().min(1).meta({ readOnly: true }),
+    baseContentHash: z.string().min(1).max(256).meta({ readOnly: true }),
+    baseRowVersion: z.coerce.number().int().positive().meta({ readOnly: true }),
+    definition: authorableWorkflowDefinitionSchema,
+    schedule: workflowSchedulePreviewSchema.meta({ readOnly: true }),
+    resolvedAccounts: z.array(workflowAccountDisplaySchema).meta({ readOnly: true }),
+    resolvedCapabilities: z.array(workflowCapabilityDisplaySchema).meta({ readOnly: true }),
+    authoringProposal: workflowAuthoringProposalSchema.meta({ readOnly: true }),
+  })
+  .strict();
+export type ActivateWorkflowInput = z.infer<typeof activateWorkflowInputSchema>;

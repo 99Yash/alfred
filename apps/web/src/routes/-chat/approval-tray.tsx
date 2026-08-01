@@ -157,13 +157,22 @@ function InlineApprovalCard({
   const decide = (decision: ApprovalDecision, alwaysAllowName?: string) => {
     if (preview) return;
     return run(async () => {
-      const { error: responseError } = await client.api
+      const { data, error: responseError } = await client.api
         .approvals({ stagingId: staging.id })
         .decision.post(decision);
       if (responseError) {
         throw new Error(
           responseErrorMessage(responseError.value, responseError.status, "Approval decision"),
         );
+      }
+      if (data && "refreshed" in data && data.refreshed) {
+        toast.info({
+          message: "Review the refreshed contract",
+          description:
+            "Alfred updated the derived schedule and account details. Approve it again to activate the workflow.",
+          position: "top-center",
+        });
+        return;
       }
       setDecided(true);
       onDecision();
@@ -209,7 +218,7 @@ function InlineApprovalCard({
     await decide(approveDecision(), integrationName);
   };
 
-  const approveLabel = approvalLabel(staging.riskTier, edited);
+  const approveLabel = approvalLabel(staging.toolName, staging.riskTier, edited);
   const policy = policyCopy(staging.riskTier);
 
   return (
@@ -324,7 +333,13 @@ function InlineApprovalCard({
                   size="sm"
                   leading={ICON_BAN}
                   disabled={busy || reasonMissing}
-                  onClick={() => decide({ decision: "cancel_run", reason: reason.trim() })}
+                  onClick={() =>
+                    decide({
+                      decision: "cancel_run",
+                      expectedRowVersion: staging.rowVersion,
+                      reason: reason.trim(),
+                    })
+                  }
                 >
                   End run
                 </AppButton>
@@ -334,7 +349,13 @@ function InlineApprovalCard({
                   leading={ICON_REVISE}
                   loading={busy}
                   disabled={busy || reasonMissing}
-                  onClick={() => decide({ decision: "reject", reason: reason.trim() })}
+                  onClick={() =>
+                    decide({
+                      decision: "reject",
+                      expectedRowVersion: staging.rowVersion,
+                      reason: reason.trim(),
+                    })
+                  }
                 >
                   Send revision
                 </AppButton>
@@ -371,7 +392,8 @@ function InlineApprovalCard({
   );
 }
 
-function approvalLabel(riskTier: ToolRiskTier, edited: boolean): string {
+function approvalLabel(toolName: string, riskTier: ToolRiskTier, edited: boolean): string {
+  if (edited && toolName === "system.activate_workflow") return "Review changes";
   if (edited)
     return riskTier === "no_risk" || riskTier === "low" ? "Allow changes" : "Approve changes";
   return riskTier === "no_risk" || riskTier === "low" ? "Allow once" : "Approve";

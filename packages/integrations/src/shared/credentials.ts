@@ -193,6 +193,7 @@ export async function listActiveBearerCredentials(
   userId: string,
   provider: BearerProvider,
   limit = 100,
+  accountRef?: string,
 ): Promise<ActiveBearerCredential[]> {
   const rows = await db()
     .select({
@@ -208,6 +209,7 @@ export async function listActiveBearerCredentials(
         eq(integrationCredentials.userId, userId),
         eq(integrationCredentials.provider, provider),
         eq(integrationCredentials.status, "active"),
+        accountRef ? eq(integrationCredentials.accountId, accountRef) : undefined,
       ),
     )
     .orderBy(desc(integrationCredentials.updatedAt))
@@ -230,8 +232,9 @@ export async function listActiveBearerCredentials(
 export async function getActiveBearerCredential(
   userId: string,
   provider: BearerProvider,
+  accountRef?: string,
 ): Promise<ActiveBearerCredential> {
-  const rows = await listActiveBearerCredentials(userId, provider, 1);
+  const rows = await listActiveBearerCredentials(userId, provider, 1, accountRef);
   const row = rows[0];
   if (!row) {
     throw new Error(

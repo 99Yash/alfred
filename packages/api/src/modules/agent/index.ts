@@ -74,6 +74,7 @@ export const agent = new Elysia({ prefix: "/api/agent", normalize: "typebox" })
             const { runId } = await createRun({
               userId: user.id,
               workflowSlug: body.workflowSlug,
+              requestId: body.requestId,
               brief: body.brief,
               input: body.input,
               metadata: body.metadata,
@@ -102,6 +103,7 @@ export const agent = new Elysia({ prefix: "/api/agent", normalize: "typebox" })
         {
           body: t.Object({
             workflowSlug: t.String({ minLength: 1, maxLength: 120 }),
+            requestId: t.Optional(t.String({ minLength: 1, maxLength: 200 })),
             brief: t.Optional(t.String({ maxLength: 4_000 })),
             input: t.Optional(t.Unknown()),
             metadata: t.Optional(t.Record(t.String(), t.Unknown())),
