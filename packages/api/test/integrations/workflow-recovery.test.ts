@@ -4,6 +4,8 @@ import { describe, test } from "node:test";
 import {
   registerWorkflowRecoveryHandler,
   resolveWorkflowRecoveryTarget,
+  workflowRecoveryRequestSchema,
+  workflowRecoveryResultSchema,
 } from "../../src/modules/integrations/workflow-recovery";
 
 const request = {
@@ -13,6 +15,37 @@ const request = {
 };
 
 describe("integration workflow recovery", () => {
+  test("validates strict recovery requests and results from their source schemas", () => {
+    assert.equal(workflowRecoveryRequestSchema.safeParse(request).success, true);
+    assert.equal(
+      workflowRecoveryRequestSchema.safeParse({ ...request, unexpected: true }).success,
+      false,
+    );
+    assert.equal(
+      workflowRecoveryResultSchema.safeParse({
+        status: "ready",
+        workflowSlug: "weekly-report",
+        revisionId: "revision-1",
+      }).success,
+      true,
+    );
+    assert.equal(
+      workflowRecoveryResultSchema.safeParse({
+        status: "failure",
+        failureKind: "stale_revision",
+        revisionId: "revision-1",
+      }).success,
+      false,
+    );
+  });
+
+  test("parses unknown input at the exported recovery interface", async () => {
+    await assert.rejects(
+      resolveWorkflowRecoveryTarget({ ...request, unexpected: true }),
+      /Unrecognized key/,
+    );
+  });
+
   test("returns the ready workflow redirect from a successful recovery", async () => {
     const unregister = registerWorkflowRecoveryHandler(async () => ({
       status: "ready",

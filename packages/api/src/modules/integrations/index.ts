@@ -20,6 +20,9 @@ export { scheduleRepeatableIngestionJobs } from "./repeatable";
 export {
   registerWorkflowRecoveryHandler,
   resolveWorkflowRecoveryTarget,
+  workflowRecoveryRequestSchema,
+  workflowRecoveryResultSchema,
+  workflowRecoveryStateSchema,
   type WorkflowRecoveryHandler,
   type WorkflowRecoveryRequest,
   type WorkflowRecoveryResult,
