@@ -32,9 +32,11 @@ import {
   scheduleGmailKindRefoldSweep,
 } from "./gmail-user-model";
 import {
-  processChatMediaJob,
-  scheduleChatAttachmentEnrichment,
-  type ChatMediaEnrichmentJobRequest,
+  claimChatMediaEnrichment,
+  cleanupChatMediaPrefix,
+  cleanupPendingChatMediaUploads,
+  enrichChatMedia,
+  recordChatMediaEnqueueFailure,
 } from "./chat-media";
 import { assertGmailPushOidcConfigured } from "./gmail-push-config";
 
@@ -374,27 +376,52 @@ export async function enqueuePendingUploadCleanup(userId: string, key: string): 
   );
 }
 
+interface ChatEnrichmentQueueDeps {
+  claim(attachmentId: string): Promise<"claimed" | "existing">;
+  enqueue(args: {
+    userId: string;
+    attachmentId: string;
+    estimatedCostMicrousd: number;
+  }): Promise<void>;
+  recordEnqueueFailure(attachmentId: string): Promise<void>;
+}
+
+/** Internal test seam for the claim -> enqueue -> failure-transition lifecycle. */
+export async function enqueueChatAttachmentEnrichmentWith(
+  deps: ChatEnrichmentQueueDeps,
+  args: { userId: string; attachmentId: string; estimatedCostMicrousd: number },
+): Promise<"scheduled" | "existing"> {
+  const claim = await deps.claim(args.attachmentId);
+  if (claim === "existing") return "existing";
+  try {
+    await deps.enqueue(args);
+    return "scheduled";
+  } catch (error) {
+    await deps.recordEnqueueFailure(args.attachmentId);
+    throw error;
+  }
+}
+
 export async function enqueueChatAttachmentEnrichment(args: {
   userId: string;
   attachmentId: string;
   estimatedCostMicrousd: number;
 }): Promise<"scheduled" | "existing"> {
-  return scheduleChatAttachmentEnrichment(args);
-}
-
-/** Queue transport used by runtime composition after chat claims the work. */
-export async function enqueueChatMediaEnrichmentJob(
-  request: ChatMediaEnrichmentJobRequest,
-): Promise<void> {
-  await getIngestionQueue().add(
-    "media.enrich",
+  return enqueueChatAttachmentEnrichmentWith(
     {
-      kind: "media.enrich",
-      userId: request.userId,
-      attachmentId: request.attachmentId,
-      estimatedCostMicrousd: request.estimatedCostMicrousd,
+      claim: async (attachmentId) => claimChatMediaEnrichment({ attachmentId }),
+      enqueue: async (request) => {
+        await getIngestionQueue().add(
+          "media.enrich",
+          { kind: "media.enrich", ...request },
+          { jobId: `media-enrich.${request.attachmentId}` },
+        );
+      },
+      recordEnqueueFailure: async (attachmentId) => {
+        await recordChatMediaEnqueueFailure({ attachmentId });
+      },
     },
-    { jobId: `media-enrich.${request.attachmentId}` },
+    args,
   );
 }
 
@@ -644,23 +671,20 @@ async function processIngestionJobData(data: IngestionJobData): Promise<unknown>
       return result;
     }
     case "media.cleanup": {
-      return processChatMediaJob({
-        kind: "cleanup-prefix",
+      return cleanupChatMediaPrefix({
         userId: data.userId,
         prefix: data.prefix,
       });
     }
     case "media.enrich": {
-      return processChatMediaJob({
-        kind: "enrich",
+      return enrichChatMedia({
         userId: data.userId,
         attachmentId: data.attachmentId,
         estimatedCostMicrousd: data.estimatedCostMicrousd,
       });
     }
     case "media.cleanup_pending_upload": {
-      return processChatMediaJob({
-        kind: "cleanup-pending-uploads",
+      return cleanupPendingChatMediaUploads({
         userId: data.userId,
         keys: data.keys,
       });

@@ -13,27 +13,25 @@ export {
   startIngestionWorker,
   stopIngestionWorker,
   closeIngestionQueue,
-  enqueueChatMediaEnrichmentJob,
   enqueueGmailKindRefold,
   getIngestionQueue,
 } from "./queue";
 export type { IngestionJobData } from "./queue";
 export { scheduleRepeatableIngestionJobs } from "./repeatable";
 export {
-  chatAttachmentEnrichmentScheduleRequestSchema,
-  chatAttachmentEnrichmentScheduleResultSchema,
-  chatMediaJobRequestSchema,
-  chatMediaJobResultSchema,
+  claimChatMediaEnrichment,
+  cleanupChatMediaPrefix,
+  cleanupPendingChatMediaUploads,
+  enrichChatMedia,
   NoChatMediaHandlerRegisteredError,
-  processChatMediaJob,
+  recordChatMediaEnqueueFailure,
   registerChatMediaHandler,
-  scheduleChatAttachmentEnrichment,
-  type ChatAttachmentEnrichmentScheduleRequest,
-  type ChatAttachmentEnrichmentScheduleResult,
-  type ChatMediaEnrichmentJobRequest,
+  type ChatMediaEnrichmentRequest,
   type ChatMediaHandler,
-  type ChatMediaJobRequest,
-  type ChatMediaJobResult,
+  type ChatMediaPendingUploadCleanupRequest,
+  type ChatMediaPendingUploadCleanupResult,
+  type ChatMediaPrefixCleanupRequest,
+  type ChatMediaPrefixCleanupResult,
 } from "./chat-media";
 export {
   captureGmailObservations,
