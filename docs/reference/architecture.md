@@ -50,6 +50,15 @@ maps workflow revalidation to the connection-facing `ready`, `blocked`, or
 typed-failure result. Integrations owns the HTTP redirect; it does not import
 the workflow implementation.
 
+Gmail post-insert repair enters through `runGmailPostInsertTriage`, and queued
+label reconciliation enters through `runGmailTriageRelabel`. Runtime composition
+registers one triage adapter for both operations before ingestion workers start.
+The ingestion queue owns provider polling, insert ordering, reply event identity,
+and BullMQ retry behavior. Triage owns live-thread repair, relabel queueing, and
+the mailbox-write gate. Requests and adapter results are validated at the
+integrations-owned interface, so integrations does not import the triage
+implementation.
+
 **Web → Auth:** `apps/web/src/lib/auth-client.ts` creates a Better Auth client. The web app calls `authClient.signIn.social({ provider: "google" })` from the login surface; Better Auth redirects through Google and back to `/api/auth/callback/google`, both mounted on the Elysia server.
 
 **API → Auth:** `packages/api/src/middleware/session-cache.ts` calls `auth().api.getSession()` with a two-layer cache (per-request WeakMap + 10-second token cache). Import `getSessionCached()` in route handlers; never call `auth()` directly from routes.

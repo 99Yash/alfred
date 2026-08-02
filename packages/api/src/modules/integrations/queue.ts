@@ -31,11 +31,10 @@ import {
 } from "../triggers";
 import { createRedisConnection } from "../../queue/connection";
 import {
-  findNewestLiveInboundGmailDocuments,
-  reconcileGmailThreads,
-  type LiveInboundGmailDocument,
-} from "../triage/gmail-reconcile";
-import { enqueueTriageRelabel, reconcileThreadLabel } from "../triage/tags";
+  runGmailPostInsertTriage,
+  runGmailTriageRelabel,
+  type GmailPostInsertTriageResult,
+} from "./gmail-triage";
 import { deleteObjects, deletePrefix, isStorageConfigured } from "../chat/storage";
 import {
   claimChatAttachmentEnrichment,
@@ -78,7 +77,21 @@ interface ReplyReevalRequest {
   sentAuthoredAt: Date | null;
 }
 
-type ReplyReevalTarget = LiveInboundGmailDocument & { eventId: string };
+type ReplyReevalRequestTarget = GmailPostInsertTriageResult["replyReevalTargets"][number];
+type ReplyReevalTarget = ReplyReevalRequestTarget & { eventId: string };
+
+export function pairReplyReevalTargets(
+  requests: readonly Pick<ReplyReevalRequest, "threadId" | "eventId">[],
+  targets: readonly ReplyReevalRequestTarget[],
+): ReplyReevalTarget[] {
+  const eventIdByThread = new Map(requests.map((request) => [request.threadId, request.eventId]));
+  return targets
+    .map((target): ReplyReevalTarget | null => {
+      const eventId = eventIdByThread.get(target.threadId);
+      return eventId ? { ...target, eventId } : null;
+    })
+    .filter((target): target is ReplyReevalTarget => target !== null);
+}
 
 export interface GmailPostInsertSideEffectPlan {
   triageReason: Extract<GmailMessageEventReason, "webhook" | "ingest"> | null;
@@ -620,7 +633,7 @@ async function processIngestionJob(job: Job<IngestionJobData>): Promise<unknown>
     case "triage.relabel": {
       // One label-writer for both the classifier and user overrides
       // (rfc-triage-tags.md, Invariant 6).
-      const result = await reconcileThreadLabel({
+      const result = await runGmailTriageRelabel({
         userId: data.userId,
         sourceThreadId: data.sourceThreadId,
       });
@@ -758,34 +771,16 @@ async function runGmailRepairSideEffects(
     plan.replyReevalThreadLimit == null
       ? allReplyReevalRequests
       : allReplyReevalRequests.slice(0, plan.replyReevalThreadLimit);
-  await reconcileThreadsBestEffort(
+  const { replyReevalTargets } = await runGmailPostInsertTriage({
     credentialId,
     userId,
-    plan.reconcileThreadIds,
-    plan.protectedDocumentIds,
-  );
-  const replyReevalTargets = await findNewestLiveInboundGmailDocuments({
-    credentialId,
-    userId,
-    threadIds: replyReevalRequests.map((request) => request.threadId),
-  }).catch((err: unknown) => {
-    console.warn(
-      `[ingestion:worker] live inbound resolve failed credential=${credentialId}:`,
-      toMessage(err),
-    );
-    return [];
+    reconcileThreadIds: plan.reconcileThreadIds,
+    protectedDocumentIds: plan.protectedDocumentIds,
+    replyReevalThreadIds: replyReevalRequests.map((request) => request.threadId),
   });
-  const eventIdByThread = new Map(
-    replyReevalRequests.map((request) => [request.threadId, request.eventId]),
-  );
   await reEvaluateRepliedThreads(
     userId,
-    replyReevalTargets
-      .map((target): ReplyReevalTarget | null => {
-        const eventId = eventIdByThread.get(target.threadId);
-        return eventId ? { ...target, eventId } : null;
-      })
-      .filter((target): target is ReplyReevalTarget => target !== null),
+    pairReplyReevalTargets(replyReevalRequests, replyReevalTargets),
   );
   if (plan.skippedReplyReevalSentDocs > 0) {
     console.warn(
@@ -961,50 +956,6 @@ async function gmailAccountRefsForDocuments(
     }
   }
   return accountByDocumentId;
-}
-
-/**
- * Converge a run's touched threads to the live Gmail message set (issue #279),
- * pruning the tail of dead/superseded `source_id`s. Best-effort and fanned out
- * OFF the tag-latency path so its threads.get calls never delay triage.
- */
-async function reconcileThreadsBestEffort(
-  credentialId: string,
-  userId: string,
-  threadIds: string[],
-  protectedDocumentIds: string[],
-): Promise<void> {
-  if (!threadIds.length) return;
-  try {
-    const result = await reconcileGmailThreads({
-      credentialId,
-      userId,
-      threadIds,
-      protectedDocumentIds,
-    });
-    if (result.docsDeleted > 0 || result.triageRepointed > 0) {
-      console.log(
-        `[ingestion:worker] gmail.reconcile credential=${credentialId} ` +
-          `threadsChecked=${result.threadsChecked} reconciled=${result.threadsReconciled} ` +
-          `docsDeleted=${result.docsDeleted} triageRepointed=${result.triageRepointed}`,
-      );
-    }
-    await mapConcurrent(result.repointedThreadIds, REALTIME_EMIT_CONCURRENCY, async (threadId) => {
-      try {
-        await enqueueTriageRelabel(userId, threadId);
-      } catch (err) {
-        console.warn(
-          `[ingestion:worker] reconcile relabel enqueue failed thread=${threadId}:`,
-          toMessage(err),
-        );
-      }
-    });
-  } catch (err) {
-    console.warn(
-      `[ingestion:worker] reconcileThreads failed credential=${credentialId}:`,
-      toMessage(err),
-    );
-  }
 }
 
 function compareNullableDatesDesc(a: Date | null, b: Date | null): number {
