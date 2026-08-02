@@ -4,52 +4,27 @@ const identifierSchema = z.string().min(1).max(500);
 const storageKeySchema = z.string().min(1).max(2_000);
 const countSchema = z.number().int().nonnegative();
 
-export const chatAttachmentEnrichmentScheduleRequestSchema = z
+const attachmentRequestSchema = z.object({ attachmentId: identifierSchema }).strict();
+const enrichmentRequestSchema = z
   .object({
     userId: identifierSchema,
     attachmentId: identifierSchema,
     estimatedCostMicrousd: countSchema,
   })
   .strict();
-
-export type ChatAttachmentEnrichmentScheduleRequest = z.infer<
-  typeof chatAttachmentEnrichmentScheduleRequestSchema
->;
-
-export const chatAttachmentEnrichmentScheduleResultSchema = z.enum(["scheduled", "existing"]);
-
-export type ChatAttachmentEnrichmentScheduleResult = z.infer<
-  typeof chatAttachmentEnrichmentScheduleResultSchema
->;
-
-const chatMediaEnrichmentJobRequestSchema = chatAttachmentEnrichmentScheduleRequestSchema
-  .extend({ kind: z.literal("enrich") })
+const prefixCleanupRequestSchema = z
+  .object({ userId: identifierSchema, prefix: storageKeySchema })
   .strict();
-const chatMediaPrefixCleanupJobRequestSchema = z
+const pendingUploadCleanupRequestSchema = z
   .object({
-    kind: z.literal("cleanup-prefix"),
-    userId: identifierSchema,
-    prefix: storageKeySchema,
-  })
-  .strict();
-const chatMediaPendingUploadCleanupJobRequestSchema = z
-  .object({
-    kind: z.literal("cleanup-pending-uploads"),
     userId: identifierSchema,
     // A defensive batch bound. Current jobs contain one key.
     keys: z.array(storageKeySchema).max(10_000),
   })
   .strict();
 
-export const chatMediaJobRequestSchema = z.discriminatedUnion("kind", [
-  chatMediaEnrichmentJobRequestSchema,
-  chatMediaPrefixCleanupJobRequestSchema,
-  chatMediaPendingUploadCleanupJobRequestSchema,
-]);
-
-export type ChatMediaJobRequest = z.infer<typeof chatMediaJobRequestSchema>;
-export type ChatMediaEnrichmentJobRequest = Extract<ChatMediaJobRequest, { kind: "enrich" }>;
-
+const claimResultSchema = z.enum(["claimed", "existing"]);
+const enrichmentResultSchema = z.enum(["persisted", "superseded", "missing"]);
 const storageUnconfiguredResultSchema = z
   .object({ removed: z.literal(0), skipped: z.literal("storage-unconfigured") })
   .strict();
@@ -57,27 +32,31 @@ const prefixCleanupResultSchema = z.object({ removed: countSchema }).strict();
 const pendingUploadCleanupResultSchema = z
   .object({ checked: countSchema, removed: countSchema })
   .strict();
-const enrichmentResultSchema = z.enum(["persisted", "superseded", "missing"]);
-const prefixJobResultSchema = z.union([storageUnconfiguredResultSchema, prefixCleanupResultSchema]);
-const pendingUploadJobResultSchema = z.union([
+
+const prefixResultSchema = z.union([storageUnconfiguredResultSchema, prefixCleanupResultSchema]);
+const pendingUploadResultSchema = z.union([
   storageUnconfiguredResultSchema,
   pendingUploadCleanupResultSchema,
 ]);
 
-export const chatMediaJobResultSchema = z.union([
-  enrichmentResultSchema,
-  storageUnconfiguredResultSchema,
-  prefixCleanupResultSchema,
-  pendingUploadCleanupResultSchema,
-]);
-
-export type ChatMediaJobResult = z.infer<typeof chatMediaJobResultSchema>;
+export type ChatMediaEnrichmentRequest = z.infer<typeof enrichmentRequestSchema>;
+export type ChatMediaPrefixCleanupRequest = z.infer<typeof prefixCleanupRequestSchema>;
+export type ChatMediaPendingUploadCleanupRequest = z.infer<
+  typeof pendingUploadCleanupRequestSchema
+>;
+export type ChatMediaPrefixCleanupResult = z.infer<typeof prefixResultSchema>;
+export type ChatMediaPendingUploadCleanupResult = z.infer<typeof pendingUploadResultSchema>;
 
 export interface ChatMediaHandler {
-  scheduleEnrichment(
-    request: ChatAttachmentEnrichmentScheduleRequest,
-  ): Promise<ChatAttachmentEnrichmentScheduleResult>;
-  processJob(request: ChatMediaJobRequest): Promise<ChatMediaJobResult>;
+  claimEnrichment(
+    request: z.infer<typeof attachmentRequestSchema>,
+  ): Promise<"claimed" | "existing">;
+  recordEnqueueFailure(request: z.infer<typeof attachmentRequestSchema>): Promise<void>;
+  enrich(request: ChatMediaEnrichmentRequest): Promise<z.infer<typeof enrichmentResultSchema>>;
+  cleanupPrefix(request: ChatMediaPrefixCleanupRequest): Promise<ChatMediaPrefixCleanupResult>;
+  cleanupPendingUploads(
+    request: ChatMediaPendingUploadCleanupRequest,
+  ): Promise<ChatMediaPendingUploadCleanupResult>;
 }
 
 export class NoChatMediaHandlerRegisteredError extends Error {
@@ -101,28 +80,38 @@ export function registerChatMediaHandler(handler: ChatMediaHandler): () => void 
   };
 }
 
-/** Claim and enqueue one attachment without exposing chat persistence details. */
-export async function scheduleChatAttachmentEnrichment(
-  request: unknown,
-): Promise<ChatAttachmentEnrichmentScheduleResult> {
-  const parsedRequest = chatAttachmentEnrichmentScheduleRequestSchema.parse(request);
+function handler(): ChatMediaHandler {
   if (!chatMediaHandler) throw new NoChatMediaHandlerRegisteredError();
-  return chatAttachmentEnrichmentScheduleResultSchema.parse(
-    await chatMediaHandler.scheduleEnrichment(parsedRequest),
-  );
+  return chatMediaHandler;
 }
 
-/** Process one queue-owned chat media job through the registered chat adapter. */
-export async function processChatMediaJob(request: unknown): Promise<ChatMediaJobResult> {
-  const parsedRequest = chatMediaJobRequestSchema.parse(request);
-  if (!chatMediaHandler) throw new NoChatMediaHandlerRegisteredError();
-  const result = await chatMediaHandler.processJob(parsedRequest);
-  switch (parsedRequest.kind) {
-    case "enrich":
-      return enrichmentResultSchema.parse(result);
-    case "cleanup-prefix":
-      return prefixJobResultSchema.parse(result);
-    case "cleanup-pending-uploads":
-      return pendingUploadJobResultSchema.parse(result);
-  }
+export async function claimChatMediaEnrichment(request: unknown): Promise<"claimed" | "existing"> {
+  const parsed = attachmentRequestSchema.parse(request);
+  return claimResultSchema.parse(await handler().claimEnrichment(parsed));
+}
+
+export async function recordChatMediaEnqueueFailure(request: unknown): Promise<void> {
+  const parsed = attachmentRequestSchema.parse(request);
+  await handler().recordEnqueueFailure(parsed);
+}
+
+export async function enrichChatMedia(
+  request: unknown,
+): Promise<z.infer<typeof enrichmentResultSchema>> {
+  const parsed = enrichmentRequestSchema.parse(request);
+  return enrichmentResultSchema.parse(await handler().enrich(parsed));
+}
+
+export async function cleanupChatMediaPrefix(
+  request: unknown,
+): Promise<ChatMediaPrefixCleanupResult> {
+  const parsed = prefixCleanupRequestSchema.parse(request);
+  return prefixResultSchema.parse(await handler().cleanupPrefix(parsed));
+}
+
+export async function cleanupPendingChatMediaUploads(
+  request: unknown,
+): Promise<ChatMediaPendingUploadCleanupResult> {
+  const parsed = pendingUploadCleanupRequestSchema.parse(request);
+  return pendingUploadResultSchema.parse(await handler().cleanupPendingUploads(parsed));
 }

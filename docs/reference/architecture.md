@@ -77,7 +77,10 @@ attachment claim and enqueue-failure transition, enrichment behavior, object
 storage checks and deletion, and durable-key lookup for pending-upload cleanup.
 The ingestion queue owns BullMQ job envelopes, delay, deduplication, retry, and
 retention settings. Missing composition and processing failures reject the job
-so worker retry and monitoring remain effective.
+so worker retry and monitoring remain effective. Pending-upload cleanup and
+durable attachment creation take the same transaction-scoped advisory lock for
+each storage key, so cleanup cannot delete an object after its attachment row
+commits.
 
 **Web → Auth:** `apps/web/src/lib/auth-client.ts` creates a Better Auth client. The web app calls `authClient.signIn.social({ provider: "google" })` from the login surface; Better Auth redirects through Google and back to `/api/auth/callback/google`, both mounted on the Elysia server.
 

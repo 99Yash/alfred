@@ -2,154 +2,170 @@ import assert from "node:assert/strict";
 import { describe, test } from "node:test";
 import { createChatMediaHandler } from "../../src/composition/chat-media";
 import {
-  chatAttachmentEnrichmentScheduleRequestSchema,
-  chatMediaJobRequestSchema,
+  claimChatMediaEnrichment,
+  cleanupChatMediaPrefix,
+  cleanupPendingChatMediaUploads,
+  enrichChatMedia,
   NoChatMediaHandlerRegisteredError,
-  processChatMediaJob,
+  recordChatMediaEnqueueFailure,
   registerChatMediaHandler,
-  scheduleChatAttachmentEnrichment,
   type ChatMediaHandler,
 } from "../../src/modules/integrations/chat-media";
+import { enqueueChatAttachmentEnrichmentWith } from "../../src/modules/integrations/queue";
 
-const scheduleRequest = {
+const enrichmentRequest = {
   userId: "user-1",
   attachmentId: "attachment-1",
   estimatedCostMicrousd: 42,
 };
 
-describe("chat media composition seam", () => {
-  test("owns strict bounded request schemas", () => {
-    assert.equal(
-      chatAttachmentEnrichmentScheduleRequestSchema.safeParse(scheduleRequest).success,
-      true,
-    );
-    assert.equal(
-      chatAttachmentEnrichmentScheduleRequestSchema.safeParse({
-        ...scheduleRequest,
-        unexpected: true,
-      }).success,
-      false,
-    );
-    assert.equal(
-      chatAttachmentEnrichmentScheduleRequestSchema.safeParse({
-        ...scheduleRequest,
-        estimatedCostMicrousd: -1,
-      }).success,
-      false,
-    );
-    assert.equal(
-      chatMediaJobRequestSchema.safeParse({
-        kind: "cleanup-pending-uploads",
-        userId: "user-1",
-        keys: [],
-      }).success,
-      true,
-    );
-    assert.equal(
-      chatMediaJobRequestSchema.safeParse({
-        kind: "cleanup-prefix",
-        userId: "user-1",
-        prefix: "x".repeat(2_001),
-      }).success,
-      false,
-    );
-  });
+function handlerFixture(overrides: Partial<ChatMediaHandler> = {}): ChatMediaHandler {
+  return {
+    async claimEnrichment() {
+      return "claimed";
+    },
+    async recordEnqueueFailure() {},
+    async enrich() {
+      return "persisted";
+    },
+    async cleanupPrefix() {
+      return { removed: 0 };
+    },
+    async cleanupPendingUploads(request) {
+      return { checked: request.keys.length, removed: 0 };
+    },
+    ...overrides,
+  };
+}
 
-  test("validates requests and the result for the selected job kind", async () => {
-    const received: unknown[] = [];
-    const unregister = registerChatMediaHandler({
-      async scheduleEnrichment(request) {
-        received.push(request);
-        return "scheduled";
-      },
-      async processJob(request) {
-        received.push(request);
-        return request.kind === "enrich" ? "persisted" : { removed: 2 };
-      },
-    });
+describe("chat media composition seam", () => {
+  test("validates each exact operation request and result", async () => {
+    const received: string[] = [];
+    const unregister = registerChatMediaHandler(
+      handlerFixture({
+        async claimEnrichment(request) {
+          received.push(`claim:${request.attachmentId}`);
+          return "claimed";
+        },
+        async recordEnqueueFailure(request) {
+          received.push(`fail:${request.attachmentId}`);
+        },
+        async enrich(request) {
+          received.push(`enrich:${request.attachmentId}`);
+          return "persisted";
+        },
+        async cleanupPrefix(request) {
+          received.push(`prefix:${request.prefix}`);
+          return { removed: 2 };
+        },
+        async cleanupPendingUploads(request) {
+          received.push(`pending:${request.keys.length}`);
+          return { checked: request.keys.length, removed: 1 };
+        },
+      }),
+    );
 
     try {
-      assert.equal(await scheduleChatAttachmentEnrichment(scheduleRequest), "scheduled");
-      assert.equal(await processChatMediaJob({ kind: "enrich", ...scheduleRequest }), "persisted");
+      assert.equal(await claimChatMediaEnrichment({ attachmentId: "attachment-1" }), "claimed");
+      await recordChatMediaEnqueueFailure({ attachmentId: "attachment-1" });
+      assert.equal(await enrichChatMedia(enrichmentRequest), "persisted");
       assert.deepEqual(
-        await processChatMediaJob({
-          kind: "cleanup-prefix",
+        await cleanupChatMediaPrefix({
           userId: "user-1",
           prefix: "chat/user-1/thread-1/",
         }),
         { removed: 2 },
       );
-      assert.equal(received.length, 3);
+      assert.deepEqual(
+        await cleanupPendingChatMediaUploads({ userId: "user-1", keys: ["kept", "orphaned"] }),
+        { checked: 2, removed: 1 },
+      );
+      assert.deepEqual(received, [
+        "claim:attachment-1",
+        "fail:attachment-1",
+        "enrich:attachment-1",
+        "prefix:chat/user-1/thread-1/",
+        "pending:2",
+      ]);
     } finally {
       unregister();
     }
+  });
 
-    const invalidHandler = {
-      async scheduleEnrichment() {
-        return "unexpected";
+  test("rejects invalid operation requests and invalid adapter results", async () => {
+    const invalidHandler = handlerFixture({
+      async enrich() {
+        return { removed: 1 };
       },
-      async processJob() {
-        return { checked: 1, removed: 1 };
-      },
-    } as unknown as ChatMediaHandler;
-    const unregisterInvalid = registerChatMediaHandler(invalidHandler);
+    } as unknown as Partial<ChatMediaHandler>);
+    const unregister = registerChatMediaHandler(invalidHandler);
     try {
-      await assert.rejects(() => scheduleChatAttachmentEnrichment(scheduleRequest));
       await assert.rejects(() =>
-        processChatMediaJob({
-          kind: "cleanup-prefix",
+        enrichChatMedia({ ...enrichmentRequest, estimatedCostMicrousd: -1 }),
+      );
+      await assert.rejects(() =>
+        cleanupChatMediaPrefix({
           userId: "user-1",
-          prefix: "chat/user-1/",
+          prefix: "x".repeat(2_001),
         }),
       );
+      await assert.rejects(() => enrichChatMedia(enrichmentRequest));
     } finally {
-      unregisterInvalid();
+      unregister();
     }
   });
 
   test("rejects missing runtime composition", async () => {
     await assert.rejects(
-      () => scheduleChatAttachmentEnrichment(scheduleRequest),
+      () => claimChatMediaEnrichment({ attachmentId: "attachment-1" }),
       NoChatMediaHandlerRegisteredError,
     );
     await assert.rejects(
-      () => processChatMediaJob({ kind: "enrich", ...scheduleRequest }),
+      () => enrichChatMedia(enrichmentRequest),
       NoChatMediaHandlerRegisteredError,
     );
   });
 
-  test("claims before enqueue and marks a claimed attachment when enqueue fails", async () => {
+  test("queue transport cannot bypass claim and records enqueue failure", async () => {
     const calls: string[] = [];
-    const handler = createChatMediaHandler({
-      async claimEnrichment(attachmentId) {
-        calls.push(`claim:${attachmentId}`);
-        return "claimed";
-      },
-      async enqueueEnrichmentJob(request) {
-        calls.push(`enqueue:${request.attachmentId}`);
-        throw new Error("redis unavailable");
-      },
-      async recordEnqueueFailure(attachmentId) {
-        calls.push(`fail:${attachmentId}`);
-      },
-    });
-
-    await assert.rejects(() => handler.scheduleEnrichment(scheduleRequest), /redis unavailable/);
+    await assert.rejects(
+      () =>
+        enqueueChatAttachmentEnrichmentWith(
+          {
+            async claim(attachmentId) {
+              calls.push(`claim:${attachmentId}`);
+              return "claimed";
+            },
+            async enqueue(request) {
+              calls.push(`enqueue:${request.attachmentId}`);
+              throw new Error("redis unavailable");
+            },
+            async recordEnqueueFailure(attachmentId) {
+              calls.push(`fail:${attachmentId}`);
+            },
+          },
+          enrichmentRequest,
+        ),
+      /redis unavailable/,
+    );
     assert.deepEqual(calls, ["claim:attachment-1", "enqueue:attachment-1", "fail:attachment-1"]);
   });
 
-  test("does not enqueue an existing enrichment", async () => {
+  test("queue transport does not enqueue an existing enrichment", async () => {
     let enqueues = 0;
-    const handler = createChatMediaHandler({
-      async claimEnrichment() {
-        return "existing";
+    const result = await enqueueChatAttachmentEnrichmentWith(
+      {
+        async claim() {
+          return "existing";
+        },
+        async enqueue() {
+          enqueues++;
+        },
+        async recordEnqueueFailure() {},
       },
-      async enqueueEnrichmentJob() {
-        enqueues++;
-      },
-    });
-
-    assert.equal(await handler.scheduleEnrichment(scheduleRequest), "existing");
+      enrichmentRequest,
+    );
+    assert.equal(result, "existing");
     assert.equal(enqueues, 0);
   });
 
@@ -162,7 +178,7 @@ describe("chat media composition seam", () => {
       },
     });
 
-    assert.equal(await handler.processJob({ kind: "enrich", ...scheduleRequest }), "superseded");
+    assert.equal(await handler.enrich(enrichmentRequest), "superseded");
     assert.deepEqual(received, {
       attachmentId: "attachment-1",
       estimatedCostMicrousd: 42,
@@ -184,59 +200,42 @@ describe("chat media composition seam", () => {
         deletes++;
         return 1;
       },
-      async loadRetainedKeys() {
-        deletes++;
-        return [];
-      },
-      async deleteObjects() {
+      async cleanupPendingUploads() {
         deletes++;
         return 1;
       },
     });
 
+    assert.deepEqual(await handler.cleanupPrefix({ userId: "user-1", prefix: "chat/user-1/" }), {
+      removed: 0,
+      skipped: "storage-unconfigured",
+    });
     assert.deepEqual(
-      await handler.processJob({
-        kind: "cleanup-prefix",
-        userId: "user-1",
-        prefix: "chat/user-1/",
-      }),
-      { removed: 0, skipped: "storage-unconfigured" },
-    );
-    assert.deepEqual(
-      await handler.processJob({
-        kind: "cleanup-pending-uploads",
-        userId: "user-1",
-        keys: ["kept", "orphaned"],
-      }),
+      await handler.cleanupPendingUploads({ userId: "user-1", keys: ["kept", "orphaned"] }),
       { removed: 0, skipped: "storage-unconfigured" },
     );
     assert.equal(deletes, 0);
   });
 
-  test("deletes only pending-upload keys without a durable attachment row", async () => {
-    let deleted: readonly string[] = [];
+  test("delegates pending cleanup as one coordinated operation", async () => {
+    let received: unknown;
     const handler = createChatMediaHandler({
       storageConfigured() {
         return true;
       },
-      async loadRetainedKeys(keys) {
-        assert.deepEqual(keys, ["kept", "orphaned"]);
-        return ["kept"];
-      },
-      async deleteObjects(keys) {
-        deleted = keys;
-        return keys.length;
+      async cleanupPendingUploads(request) {
+        received = request;
+        return 1;
       },
     });
 
     assert.deepEqual(
-      await handler.processJob({
-        kind: "cleanup-pending-uploads",
+      await handler.cleanupPendingUploads({
         userId: "user-1",
         keys: ["kept", "orphaned"],
       }),
       { checked: 2, removed: 1 },
     );
-    assert.deepEqual(deleted, ["orphaned"]);
+    assert.deepEqual(received, { userId: "user-1", keys: ["kept", "orphaned"] });
   });
 });
