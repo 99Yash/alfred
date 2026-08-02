@@ -11,7 +11,7 @@ import {
 import { findUnembeddedDocumentIds, embedDocument } from "@alfred/ingestion";
 import { gmailMailboxWritesEnabled, serverEnv } from "@alfred/env/server";
 import { db } from "@alfred/db";
-import { chatAttachments, documents, emailTriage } from "@alfred/db/schemas";
+import { documents, emailTriage } from "@alfred/db/schemas";
 import { and, eq, inArray } from "drizzle-orm";
 import { publishEvent } from "../../events/publish";
 import {
@@ -31,12 +31,13 @@ import {
   refoldGmailKindProjection,
   scheduleGmailKindRefoldSweep,
 } from "./gmail-user-model";
-import { deleteObjects, deletePrefix, isStorageConfigured } from "../chat/storage";
 import {
-  claimChatAttachmentEnrichment,
-  enrichClaimedChatAttachment,
-  recordChatAttachmentEnrichmentFailure,
-} from "../chat/attachment-enrichment";
+  claimChatMediaEnrichment,
+  cleanupChatMediaPrefix,
+  cleanupPendingChatMediaUploads,
+  enrichChatMedia,
+  recordChatMediaEnqueueFailure,
+} from "./chat-media";
 import { assertGmailPushOidcConfigured } from "./gmail-push-config";
 
 /**
@@ -375,26 +376,53 @@ export async function enqueuePendingUploadCleanup(userId: string, key: string): 
   );
 }
 
+interface ChatEnrichmentQueueDeps {
+  claim(attachmentId: string): Promise<"claimed" | "existing">;
+  enqueue(args: {
+    userId: string;
+    attachmentId: string;
+    estimatedCostMicrousd: number;
+  }): Promise<void>;
+  recordEnqueueFailure(attachmentId: string): Promise<void>;
+}
+
+/** Internal test seam for the claim -> enqueue -> failure-transition lifecycle. */
+export async function enqueueChatAttachmentEnrichmentWith(
+  deps: ChatEnrichmentQueueDeps,
+  args: { userId: string; attachmentId: string; estimatedCostMicrousd: number },
+): Promise<"scheduled" | "existing"> {
+  const claim = await deps.claim(args.attachmentId);
+  if (claim === "existing") return "existing";
+  try {
+    await deps.enqueue(args);
+    return "scheduled";
+  } catch (error) {
+    await deps.recordEnqueueFailure(args.attachmentId);
+    throw error;
+  }
+}
+
 export async function enqueueChatAttachmentEnrichment(args: {
   userId: string;
   attachmentId: string;
   estimatedCostMicrousd: number;
 }): Promise<"scheduled" | "existing"> {
-  const claim = await claimChatAttachmentEnrichment(args.attachmentId);
-  if (claim === "existing") return "existing";
-  try {
-    await getIngestionQueue().add(
-      "media.enrich",
-      { kind: "media.enrich", ...args },
-      {
-        jobId: `media-enrich.${args.attachmentId}`,
+  return enqueueChatAttachmentEnrichmentWith(
+    {
+      claim: async (attachmentId) => claimChatMediaEnrichment({ attachmentId }),
+      enqueue: async (request) => {
+        await getIngestionQueue().add(
+          "media.enrich",
+          { kind: "media.enrich", ...request },
+          { jobId: `media-enrich.${request.attachmentId}` },
+        );
       },
-    );
-    return "scheduled";
-  } catch (error) {
-    await recordChatAttachmentEnrichmentFailure(args.attachmentId, "enqueue_failed");
-    throw error;
-  }
+      recordEnqueueFailure: async (attachmentId) => {
+        await recordChatMediaEnqueueFailure({ attachmentId });
+      },
+    },
+    args,
+  );
 }
 
 export async function closeIngestionQueue(): Promise<void> {
@@ -643,45 +671,23 @@ async function processIngestionJobData(data: IngestionJobData): Promise<unknown>
       return result;
     }
     case "media.cleanup": {
-      if (!isStorageConfigured()) {
-        // Storage never provisioned → nothing was ever stored. No-op.
-        return { removed: 0, skipped: "storage-unconfigured" };
-      }
-      const removed = await deletePrefix(data.prefix);
-      console.log(
-        `[ingestion:worker] media.cleanup prefix=${data.prefix} removed=${removed} user=${data.userId}`,
-      );
-      return { removed };
+      return cleanupChatMediaPrefix({
+        userId: data.userId,
+        prefix: data.prefix,
+      });
     }
     case "media.enrich": {
-      return enrichClaimedChatAttachment({
+      return enrichChatMedia({
+        userId: data.userId,
         attachmentId: data.attachmentId,
         estimatedCostMicrousd: data.estimatedCostMicrousd,
-        attribution: {
-          userId: data.userId,
-          idempotencyKey: `media-enrich:${data.attachmentId}`,
-          name: "chat.attachment-enrichment.background",
-        },
       });
     }
     case "media.cleanup_pending_upload": {
-      if (!isStorageConfigured()) {
-        return { removed: 0, skipped: "storage-unconfigured" };
-      }
-      const rows =
-        data.keys.length > 0
-          ? await db()
-              .select({ storageKey: chatAttachments.storageKey })
-              .from(chatAttachments)
-              .where(inArray(chatAttachments.storageKey, data.keys))
-          : [];
-      const retained = new Set(rows.map((r) => r.storageKey));
-      const orphaned = data.keys.filter((key) => !retained.has(key));
-      const removed = await deleteObjects(orphaned);
-      console.log(
-        `[ingestion:worker] media.cleanup_pending_upload checked=${data.keys.length} removed=${removed} user=${data.userId}`,
-      );
-      return { checked: data.keys.length, removed };
+      return cleanupPendingChatMediaUploads({
+        userId: data.userId,
+        keys: data.keys,
+      });
     }
     default: {
       const _exhaustive: never = data;

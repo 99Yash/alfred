@@ -19,6 +19,21 @@ export {
 export type { IngestionJobData } from "./queue";
 export { scheduleRepeatableIngestionJobs } from "./repeatable";
 export {
+  claimChatMediaEnrichment,
+  cleanupChatMediaPrefix,
+  cleanupPendingChatMediaUploads,
+  enrichChatMedia,
+  NoChatMediaHandlerRegisteredError,
+  recordChatMediaEnqueueFailure,
+  registerChatMediaHandler,
+  type ChatMediaEnrichmentRequest,
+  type ChatMediaHandler,
+  type ChatMediaPendingUploadCleanupRequest,
+  type ChatMediaPendingUploadCleanupResult,
+  type ChatMediaPrefixCleanupRequest,
+  type ChatMediaPrefixCleanupResult,
+} from "./chat-media";
+export {
   captureGmailObservations,
   gmailKindRefoldRequestSchema,
   gmailKindRefoldResultSchema,
