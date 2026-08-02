@@ -272,11 +272,13 @@ export type Authorship =
     };
 
 /**
- * The document context `authoredByUser` reads. Derived from the `documents` row
- * so the shape can't drift from the schema (`metadata` is untyped `jsonb` →
- * `unknown`, narrowed here at the boundary).
+ * The document context `authoredByUser` reads. The first branch is derived from
+ * the `documents` row so it cannot drift from the schema. The `unknown` branch
+ * is the explicit missing-document sentinel used by the cleanup backfill.
  */
-export type AuthorshipDocument = Pick<Document, "source" | "metadata" | "accountId">;
+export type AuthorshipDocument =
+  | Pick<Document, "source" | "metadata" | "accountId">
+  | { source: "unknown"; metadata: unknown; accountId: null };
 
 /**
  * Everything `authoredByUser` needs to recognize "the user" across providers.

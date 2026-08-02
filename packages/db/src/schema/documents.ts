@@ -1,7 +1,19 @@
+import { DOCUMENT_SOURCES, type DocumentSource } from "@alfred/contracts";
 import { sql } from "drizzle-orm";
-import { index, integer, jsonb, pgTable, text, timestamp, uniqueIndex } from "drizzle-orm/pg-core";
+import {
+  check,
+  index,
+  integer,
+  jsonb,
+  pgTable,
+  text,
+  timestamp,
+  uniqueIndex,
+} from "drizzle-orm/pg-core";
 import { createId, lifecycle_dates, vectorColumn } from "../helpers";
 import { user } from "./auth";
+
+const documentSourcesSql = sql.raw(DOCUMENT_SOURCES.map((source) => `'${source}'`).join(", "));
 
 /**
  * One row per ingested object (email, calendar event, doc, slack message).
@@ -22,8 +34,7 @@ export const documents = pgTable(
     userId: text("user_id")
       .notNull()
       .references(() => user.id, { onDelete: "cascade" }),
-    /** 'gmail', 'gcal', 'slack', 'linear', 'github', 'notion', 'imessage'. */
-    source: text("source").notNull(),
+    source: text("source").$type<DocumentSource>().notNull(),
     /** Provider-native id (Gmail message id, Slack ts, Linear issue id). */
     sourceId: text("source_id").notNull(),
     /** Thread/conversation grouping — Gmail threadId, Slack thread_ts. NULL for stand-alone docs. */
@@ -75,6 +86,7 @@ export const documents = pgTable(
     ...lifecycle_dates,
   },
   (t) => [
+    check("documents_source_valid", sql`${t.source} IN (${documentSourcesSql})`),
     uniqueIndex("documents_source_id_idx").on(t.userId, t.source, t.sourceId),
     index("documents_user_source_idx").on(t.userId, t.source, t.authoredAt),
     index("documents_thread_idx").on(t.userId, t.source, t.sourceThreadId),
