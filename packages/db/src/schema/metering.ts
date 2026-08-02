@@ -93,10 +93,7 @@ export const modelPrices = pgTable(
     metadata: jsonb("metadata").default(sql`'{}'::jsonb`),
     createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
   },
-  (t) => [
-    uniqueIndex("model_prices_versioned_idx").on(t.provider, t.model, t.validFrom),
-    index("model_prices_lookup_idx").on(t.provider, t.model, t.validFrom),
-  ],
+  (t) => [uniqueIndex("model_prices_versioned_idx").on(t.provider, t.model, t.validFrom)],
 );
 
 export type ApiCallLog = typeof apiCallLog.$inferSelect;

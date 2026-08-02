@@ -90,7 +90,6 @@ export const integrationObjects = pgTable(
   },
   (t) => [
     uniqueIndex("integration_objects_identity_idx").on(t.userId, t.provider, t.kind, t.externalId),
-    index("integration_objects_kind_idx").on(t.userId, t.provider, t.kind),
     index("integration_objects_state_idx").on(t.userId, t.stateCategory),
   ],
 );
@@ -179,7 +178,6 @@ export const integrationObjectRelations = pgTable(
       t.entityId,
       t.relation,
     ),
-    index("integration_object_relations_object_idx").on(t.userId, t.objectId),
     index("integration_object_relations_entity_idx").on(t.userId, t.entityId),
   ],
 );
