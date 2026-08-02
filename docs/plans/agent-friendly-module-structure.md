@@ -483,11 +483,13 @@ and a developer can run one non-mutating verification command.
 the workflow trigger consumer in runtime composition. Google OAuth draft
 recovery now uses an integrations-owned callback interface with a workflow
 adapter in runtime composition, so the broader `integrations -> workflows`
-module edge is gone. Connection imports of triage, knowledge, and chat consumers
-still remain. The current sole consumer attempts durable occurrence claims
-before publication returns, but keeps per-workflow failure details inside
-automation. Durable delivery to several independent consumers remains later
-work in this phase.
+module edge is gone. Gmail post-insert repair and relabel jobs now use an
+integrations-owned Gmail triage interface with a triage adapter in runtime
+composition, so `integrations -> triage` is also gone. Connection imports of
+knowledge and chat consumers still remain. The current sole trigger consumer
+attempts durable occurrence claims before publication returns, but keeps
+per-workflow failure details inside automation. Durable delivery to several
+independent consumers remains later work in this phase.
 
 1. Create the in-place `triggers` interface under `packages/api`.
 2. Move durable publication out of `workflows/events`.

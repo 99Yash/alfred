@@ -18,6 +18,21 @@ export {
 export type { IngestionJobData } from "./queue";
 export { scheduleRepeatableIngestionJobs } from "./repeatable";
 export {
+  gmailPostInsertTriageRequestSchema,
+  gmailPostInsertTriageResultSchema,
+  gmailTriageRelabelRequestSchema,
+  gmailTriageRelabelResultSchema,
+  NoGmailTriageHandlerRegisteredError,
+  registerGmailTriageHandler,
+  runGmailPostInsertTriage,
+  runGmailTriageRelabel,
+  type GmailPostInsertTriageRequest,
+  type GmailPostInsertTriageResult,
+  type GmailTriageHandler,
+  type GmailTriageRelabelRequest,
+  type GmailTriageRelabelResult,
+} from "./gmail-triage";
+export {
   registerWorkflowRecoveryHandler,
   resolveWorkflowRecoveryTarget,
   workflowRecoveryRequestSchema,

@@ -18,6 +18,7 @@ import {
   initReplicachePokeBridge,
   reconcileInflightInvocations,
   registerBuiltinTools,
+  registerGmailTriage,
   registerOnUserCreated,
   registerTriggerConsumers,
   registerWorkflowRecovery,
@@ -50,6 +51,7 @@ import {
   stopSubAgentJoinWakeWorker,
   stopWorkflowsWorker,
   unregisterTriggerConsumers,
+  unregisterGmailTriage,
   unregisterWorkflowRecovery,
   verifyMeteringModels,
   warmPool,
@@ -96,6 +98,7 @@ export async function startRuntime(): Promise<void> {
   // their workflow or tool names.
   registerBuiltinWorkflows();
   registerBuiltinTools();
+  registerGmailTriage();
   registerTriggerConsumers();
   registerWorkflowRecovery();
 
@@ -162,6 +165,7 @@ export async function stopRuntime(): Promise<void> {
   // Registration is process-local and must be cleared even when an earlier
   // worker or queue closer rejects.
   unregisterTriggerConsumers();
+  unregisterGmailTriage();
   unregisterWorkflowRecovery();
 
   try {
