@@ -16,7 +16,7 @@ const TARGET_ASSISTANT_MODULES = new Set([
   "conversations",
   "corpus",
   "delivery",
-  "eventing",
+  "triggers",
   "execution",
   "knowledge",
   "settings",

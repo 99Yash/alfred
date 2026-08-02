@@ -109,7 +109,7 @@ export async function seedBuiltinWorkflowsForUser(userId: string): Promise<{
  * never reach pre-existing users on deploy. That gap silently broke email
  * triage in production: the trigger shape changed in code
  * (`gmail.poll_history` → `gmail.ingest` → `gmail`/`message_received`) but the
- * existing user's row stayed frozen at the original value, so `emitEvent`
+ * existing user's row stayed frozen at the original value, so `acceptEvent`
  * matched zero workflows and no triage runs were created.
  *
  * Calling this at boot closes that drift class: the `ON CONFLICT DO UPDATE`

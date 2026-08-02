@@ -30,7 +30,7 @@ export type {
   WorkflowServiceResult,
 } from "./revisions";
 export { workflowRoutes } from "./routes";
-export { emitEvent, type EmitEventArgs, type EmitEventResult } from "./events";
+export { acceptEvent, type AcceptEventResult } from "./events";
 export { seedBuiltinWorkflowsForAllUsers, seedBuiltinWorkflowsForUser } from "./seeder";
 export { dispatchDueCronWorkflows } from "./tick";
 export type { TickResult } from "./tick";

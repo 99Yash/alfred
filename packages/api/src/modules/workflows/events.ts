@@ -1,5 +1,4 @@
-import type { EventSource, EventType } from "@alfred/contracts";
-import { isEventTypeForSource, toMessage } from "@alfred/contracts";
+import { toMessage } from "@alfred/contracts";
 import { db } from "@alfred/db";
 import { isDuplicateRunIndex, workflows } from "@alfred/db/schemas";
 import { and, eq, or, sql } from "drizzle-orm";
@@ -7,17 +6,9 @@ import { uniqueViolationConstraint } from "../../lib/pg-errors";
 import { enqueueRun } from "../agent/queue";
 import { createRun } from "../agent/service";
 
-export interface EmitEventArgs {
-  userId: string;
-  source: EventSource;
-  type: EventType;
-  eventId: string;
-  /** Provider account that produced the event, for account-bound user workflows. */
-  accountRef?: string;
-  payload?: Record<string, unknown>;
-}
+import { domainEventSchema, gmailMessagePayloadSchema, type DomainEvent } from "../triggers";
 
-export interface EmitEventResult {
+export interface AcceptEventResult {
   matched: number;
   created: number;
   skippedDuplicate: number;
@@ -31,18 +22,18 @@ export interface EmitEventResult {
  * This is intentionally a direct DB query + run creation path, not the
  * realtime outbox/SSE event bus under `modules/events`.
  */
-export async function emitEvent(args: EmitEventArgs): Promise<EmitEventResult> {
-  if (!isEventTypeForSource(args.source, args.type)) {
-    throw new Error(`[workflows:event] type='${args.type}' is invalid for source='${args.source}'`);
-  }
-
-  const reason = typeof args.payload?.reason === "string" ? args.payload.reason : undefined;
-  const documentId =
-    typeof args.payload?.documentId === "string" ? args.payload.documentId : undefined;
+export async function acceptEvent(input: DomainEvent): Promise<AcceptEventResult> {
+  // Keep validation at this public automation seam as well as at publication,
+  // so a direct caller cannot bypass the owning domain-event contract.
+  const args = domainEventSchema.parse(input);
+  const gmailPayload =
+    args.source === "gmail" ? gmailMessagePayloadSchema.parse(args.payload ?? {}) : undefined;
+  const reason = gmailPayload?.reason;
+  const documentId = gmailPayload?.documentId;
   // Threaded into the run input so a re-key on an already-classified doc (the
   // outbound-reply re-eval, issue #282) bypasses the triage already-tagged
   // skip guard instead of no-op'ing.
-  const force = typeof args.payload?.force === "boolean" ? args.payload.force : undefined;
+  const force = gmailPayload?.force;
 
   const rows = await db()
     .select({
@@ -75,7 +66,7 @@ export async function emitEvent(args: EmitEventArgs): Promise<EmitEventResult> {
       ),
     );
 
-  const result: EmitEventResult = {
+  const result: AcceptEventResult = {
     matched: rows.length,
     created: 0,
     skippedDuplicate: 0,
@@ -172,7 +163,7 @@ export async function emitEvent(args: EmitEventArgs): Promise<EmitEventResult> {
  * this; any future event source must add its own mapping here, otherwise it
  * falls through to `false` (no legacy form to match).
  */
-function legacyEventTriggerCondition(args: EmitEventArgs) {
+function legacyEventTriggerCondition(args: DomainEvent) {
   if (args.source === "gmail" && args.type === "message_received") {
     return sql`${workflows.trigger}->>'source' = 'gmail.ingest'`;
   }
