@@ -8,13 +8,11 @@ import {
   type GoogleCredentialLifecycleHandler,
 } from "../modules/integrations";
 import {
-  isOrgAffiliationObservationAppendConflict,
   recordOrgAffiliationOnCredentialUpsert,
   recordOrgAffiliationOnDisconnect,
+  retryOnObservationChainConflict,
   type CredentialForAffiliation,
 } from "../modules/user-model";
-
-const ORG_AFFILIATION_TRANSACTION_MAX_ATTEMPTS = 3;
 
 type DeletedGoogleCredential = CredentialForAffiliation & { id: string };
 
@@ -31,7 +29,7 @@ interface GoogleCredentialLifecycleAdapterDeps {
     tx: DbTransaction,
   ): Promise<DeletedGoogleCredential | null>;
   recordDisconnect: typeof recordOrgAffiliationOnDisconnect;
-  isAppendConflict(error: unknown): boolean;
+  retryOnConflict: typeof retryOnObservationChainConflict;
 }
 
 async function loadPreviousCredential(
@@ -87,23 +85,8 @@ const DEFAULT_DEPS: GoogleCredentialLifecycleAdapterDeps = {
   recordUpsert: recordOrgAffiliationOnCredentialUpsert,
   deleteCredential,
   recordDisconnect: recordOrgAffiliationOnDisconnect,
-  isAppendConflict: isOrgAffiliationObservationAppendConflict,
+  retryOnConflict: retryOnObservationChainConflict,
 };
-
-async function withOrgAffiliationRetry<T>(
-  operation: () => Promise<T>,
-  isAppendConflict: (error: unknown) => boolean,
-): Promise<T> {
-  for (let attempt = 1; ; attempt++) {
-    try {
-      return await operation();
-    } catch (error) {
-      if (attempt >= ORG_AFFILIATION_TRANSACTION_MAX_ATTEMPTS || !isAppendConflict(error)) {
-        throw error;
-      }
-    }
-  }
-}
 
 /** Build the cross-domain transaction coordinator. Overrides are an internal test seam. */
 export function createGoogleCredentialLifecycleHandler(
@@ -113,56 +96,52 @@ export function createGoogleCredentialLifecycleHandler(
 
   return {
     async upsert(request) {
-      return withOrgAffiliationRetry(
-        () =>
-          deps.transaction(async (tx) => {
-            const previousCredential = await deps.loadPreviousCredential(
-              { userId: request.userId, accountId: request.accountId },
-              tx,
-            );
-            const credential = await deps.upsertCredential(
-              {
-                userId: request.userId,
-                provider: "google",
-                accountId: request.accountId,
-                accountLabel: request.accountEmail,
-                accessToken: request.accessToken,
-                refreshToken: request.refreshToken,
-                expiresAt: request.expiresAt,
-                scopes: request.scopes,
-                persona: detectPersona(request.hostedDomain ?? undefined),
-                metadata: {
-                  token_type: request.tokenType,
-                  ...(request.hostedDomain ? { googleHostedDomain: request.hostedDomain } : {}),
-                },
+      return deps.retryOnConflict(() =>
+        deps.transaction(async (tx) => {
+          const previousCredential = await deps.loadPreviousCredential(
+            { userId: request.userId, accountId: request.accountId },
+            tx,
+          );
+          const credential = await deps.upsertCredential(
+            {
+              userId: request.userId,
+              provider: "google",
+              accountId: request.accountId,
+              accountLabel: request.accountEmail,
+              accessToken: request.accessToken,
+              refreshToken: request.refreshToken,
+              expiresAt: request.expiresAt,
+              scopes: request.scopes,
+              persona: detectPersona(request.hostedDomain ?? undefined),
+              metadata: {
+                token_type: request.tokenType,
+                ...(request.hostedDomain ? { googleHostedDomain: request.hostedDomain } : {}),
               },
-              tx,
-            );
-            await deps.recordUpsert(
-              {
-                credentialId: credential.id,
-                previousCredential,
-                changedAt: request.changedAt,
-              },
-              tx,
-            );
-            return { credentialId: credential.id };
-          }),
-        deps.isAppendConflict,
+            },
+            tx,
+          );
+          await deps.recordUpsert(
+            {
+              credentialId: credential.id,
+              previousCredential,
+              changedAt: request.changedAt,
+            },
+            tx,
+          );
+          return { credentialId: credential.id };
+        }),
       );
     },
 
     async disconnect(request) {
-      return withOrgAffiliationRetry(
-        () =>
-          deps.transaction(async (tx) => {
-            const deleted = await deps.deleteCredential(request, tx);
-            if (!deleted) return { status: "already_absent" as const };
+      return deps.retryOnConflict(() =>
+        deps.transaction(async (tx) => {
+          const deleted = await deps.deleteCredential(request, tx);
+          if (!deleted) return { status: "already_absent" as const };
 
-            await deps.recordDisconnect(deleted, request.disconnectedAt, tx);
-            return { status: "deleted" as const };
-          }),
-        deps.isAppendConflict,
+          await deps.recordDisconnect(deleted, request.disconnectedAt, tx);
+          return { status: "deleted" as const };
+        }),
       );
     },
   };
