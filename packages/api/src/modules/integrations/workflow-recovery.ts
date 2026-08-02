@@ -1,4 +1,4 @@
-import { toMessage } from "@alfred/contracts";
+import { getStringPath, toMessage } from "@alfred/contracts";
 import { z } from "zod";
 
 export const workflowRecoveryStateSchema = z
@@ -56,8 +56,8 @@ export function registerWorkflowRecoveryHandler(handler: WorkflowRecoveryHandler
  * module owns only the connection-facing ready, blocked, and failure states.
  */
 export async function resolveWorkflowRecoveryTarget(request: unknown): Promise<string> {
-  const parsedRequest = workflowRecoveryRequestSchema.parse(request);
   try {
+    const parsedRequest = workflowRecoveryRequestSchema.parse(request);
     if (!recoveryHandler) {
       throw new Error("[integrations] no workflow recovery handler is registered");
     }
@@ -70,7 +70,7 @@ export async function resolveWorkflowRecoveryTarget(request: unknown): Promise<s
     return `/workflows/${encodeURIComponent(recovered.workflowSlug)}?workflow_recovery=${recovered.status}&revision_id=${encodeURIComponent(recovered.revisionId)}`;
   } catch (err) {
     console.warn(
-      `[google.callback] failed to recover workflow ${parsedRequest.workflowId}:`,
+      `[google.callback] failed to recover workflow ${getStringPath(request, "workflowId") ?? "unknown"}:`,
       toMessage(err),
     );
     return "/workflows?workflow_recovery=failed";
