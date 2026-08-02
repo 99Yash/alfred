@@ -8,6 +8,7 @@ import {
 } from "@alfred/contracts";
 import { z } from "zod";
 import { publishToConsumers, registerConsumer } from "./internal/consumer-registry";
+export { NoTriggerConsumersRegisteredError } from "./internal/consumer-registry";
 
 const domainEventIdentityShape = {
   userId: z.string().min(1).max(200),
@@ -16,13 +17,17 @@ const domainEventIdentityShape = {
   accountRef: z.string().min(1).max(200).optional(),
 };
 
-const gmailMessagePayloadSchema = z
+export const gmailMessagePayloadSchema = z
   .object({
     documentId: z.string().min(1).max(200).optional(),
     reason: z.enum(["webhook", "manual", "ingest", "reply"]).optional(),
     force: z.boolean().optional(),
   })
   .strict();
+
+export type GmailMessageEventReason = NonNullable<
+  z.infer<typeof gmailMessagePayloadSchema>["reason"]
+>;
 
 const payloadSchemaBySource: Record<EventSource, z.ZodType<unknown>> = {
   gmail: gmailMessagePayloadSchema,
@@ -100,6 +105,6 @@ export function registerTriggerConsumer(consumer: TriggerConsumer): () => void {
  * that consumer. A thrown consumer failure rejects publication after every
  * registered consumer has been called.
  */
-export async function publish(event: DomainEvent): Promise<PublishedEvent> {
+export async function publishDomainEvent(event: DomainEvent): Promise<PublishedEvent> {
   return publishToConsumers(domainEventSchema.parse(event));
 }

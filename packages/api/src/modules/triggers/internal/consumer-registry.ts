@@ -2,6 +2,13 @@ import type { DomainEvent, PublishedEvent, TriggerConsumer } from "..";
 
 const consumers = new Map<string, TriggerConsumer>();
 
+export class NoTriggerConsumersRegisteredError extends Error {
+  constructor() {
+    super("[triggers] no consumers are registered");
+    this.name = "NoTriggerConsumersRegisteredError";
+  }
+}
+
 export function registerConsumer(consumer: TriggerConsumer): () => void {
   if (consumers.has(consumer.name)) {
     throw new Error(`[triggers] consumer '${consumer.name}' is already registered`);
@@ -16,9 +23,10 @@ export function registerConsumer(consumer: TriggerConsumer): () => void {
 export async function publishToConsumers(event: DomainEvent): Promise<PublishedEvent> {
   const registered = [...consumers.values()];
   if (registered.length === 0) {
-    throw new Error("[triggers] no consumers are registered");
+    throw new NoTriggerConsumersRegisteredError();
   }
   const outcomes = await Promise.allSettled(registered.map((consumer) => consumer.accept(event)));
+  const acceptedConsumers = outcomes.filter((outcome) => outcome.status === "fulfilled").length;
   const failures = outcomes.flatMap((outcome, index) =>
     outcome.status === "rejected"
       ? [{ consumer: registered[index]?.name ?? "unknown", cause: outcome.reason }]
@@ -34,5 +42,5 @@ export async function publishToConsumers(event: DomainEvent): Promise<PublishedE
     );
   }
 
-  return { acceptedConsumers: outcomes.length };
+  return { acceptedConsumers };
 }

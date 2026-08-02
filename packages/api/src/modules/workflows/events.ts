@@ -6,7 +6,7 @@ import { uniqueViolationConstraint } from "../../lib/pg-errors";
 import { enqueueRun } from "../agent/queue";
 import { createRun } from "../agent/service";
 
-import { domainEventSchema, type DomainEvent } from "../triggers";
+import { domainEventSchema, gmailMessagePayloadSchema, type DomainEvent } from "../triggers";
 
 export interface AcceptEventResult {
   matched: number;
@@ -26,13 +26,14 @@ export async function acceptEvent(input: DomainEvent): Promise<AcceptEventResult
   // Keep validation at this public automation seam as well as at publication,
   // so a direct caller cannot bypass the owning domain-event contract.
   const args = domainEventSchema.parse(input);
-  const reason = typeof args.payload?.reason === "string" ? args.payload.reason : undefined;
-  const documentId =
-    typeof args.payload?.documentId === "string" ? args.payload.documentId : undefined;
+  const gmailPayload =
+    args.source === "gmail" ? gmailMessagePayloadSchema.parse(args.payload ?? {}) : undefined;
+  const reason = gmailPayload?.reason;
+  const documentId = gmailPayload?.documentId;
   // Threaded into the run input so a re-key on an already-classified doc (the
   // outbound-reply re-eval, issue #282) bypasses the triage already-tagged
   // skip guard instead of no-op'ing.
-  const force = typeof args.payload?.force === "boolean" ? args.payload.force : undefined;
+  const force = gmailPayload?.force;
 
   const rows = await db()
     .select({

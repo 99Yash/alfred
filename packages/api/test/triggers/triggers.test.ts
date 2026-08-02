@@ -1,6 +1,11 @@
 import assert from "node:assert/strict";
 import { describe, test } from "node:test";
-import { domainEventSchema, publish, registerTriggerConsumer } from "../../src/modules/triggers";
+import {
+  domainEventSchema,
+  NoTriggerConsumersRegisteredError,
+  publishDomainEvent,
+  registerTriggerConsumer,
+} from "../../src/modules/triggers";
 
 const event = {
   userId: "user-1",
@@ -27,7 +32,7 @@ describe("triggers", () => {
     });
 
     try {
-      const result = await publish(event);
+      const result = await publishDomainEvent(event);
       assert.deepEqual(result, { acceptedConsumers: 2 });
       assert.deepEqual(received.sort(), ["first:message-1", "second:message-1"]);
     } finally {
@@ -59,7 +64,10 @@ describe("triggers", () => {
   });
 
   test("rejects publication when runtime composition registered no consumer", async () => {
-    await assert.rejects(publish(event), /no consumers are registered/);
+    await assert.rejects(
+      publishDomainEvent(event),
+      (error: unknown) => error instanceof NoTriggerConsumersRegisteredError,
+    );
   });
 
   test("lets every consumer claim an event before reporting failures", async () => {
@@ -78,7 +86,7 @@ describe("triggers", () => {
     });
 
     try {
-      await assert.rejects(publish(event), /triggers-test-failure/);
+      await assert.rejects(publishDomainEvent(event), /triggers-test-failure/);
       assert.equal(successfulConsumerRan, true);
     } finally {
       unregisterFailure();
@@ -93,7 +101,7 @@ describe("triggers", () => {
     });
 
     try {
-      assert.deepEqual(await publish(event), { acceptedConsumers: 1 });
+      assert.deepEqual(await publishDomainEvent(event), { acceptedConsumers: 1 });
     } finally {
       unregister();
     }
