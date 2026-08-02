@@ -1,10 +1,5 @@
 import { Queue, Worker, type Job } from "bullmq";
-import {
-  mapConcurrent,
-  runTaskGroup,
-  toMessage,
-  USER_MODEL_PROJECTION_NAME,
-} from "@alfred/contracts";
+import { mapConcurrent, runTaskGroup, toMessage } from "@alfred/contracts";
 import {
   findCredentialsNeedingPoll,
   findExpiringGmailWatches,
@@ -16,12 +11,7 @@ import {
 import { findUnembeddedDocumentIds, embedDocument } from "@alfred/ingestion";
 import { gmailMailboxWritesEnabled, serverEnv } from "@alfred/env/server";
 import { db } from "@alfred/db";
-import {
-  activeProjectionVersions,
-  chatAttachments,
-  documents,
-  emailTriage,
-} from "@alfred/db/schemas";
+import { chatAttachments, documents, emailTriage } from "@alfred/db/schemas";
 import { and, eq, inArray } from "drizzle-orm";
 import { publishEvent } from "../../events/publish";
 import {
@@ -35,6 +25,12 @@ import {
   runGmailTriageRelabel,
   type GmailPostInsertTriageResult,
 } from "./gmail-triage";
+import {
+  captureGmailObservations,
+  NoGmailUserModelHandlerRegisteredError,
+  refoldGmailKindProjection,
+  scheduleGmailKindRefoldSweep,
+} from "./gmail-user-model";
 import { deleteObjects, deletePrefix, isStorageConfigured } from "../chat/storage";
 import {
   claimChatAttachmentEnrichment,
@@ -42,12 +38,6 @@ import {
   recordChatAttachmentEnrichmentFailure,
 } from "../chat/attachment-enrichment";
 import { assertGmailPushOidcConfigured } from "./gmail-push-config";
-import {
-  appendObservationFamilyMember,
-  reduceGmailDocument,
-  refoldActiveGmailKindProjection,
-  type GmailDocumentForReduction,
-} from "../user-model";
 
 /**
  * Ingestion queue. Each provider gets its own job kind so a stuck
@@ -66,7 +56,6 @@ const REALTIME_EMIT_CONCURRENCY = 10;
 const REALTIME_EMBED_CONCURRENCY = 4;
 export const FULL_RESYNC_REPLY_REEVAL_THREAD_LIMIT = 25;
 const REPLY_REEVAL_QUERY_CHUNK_SIZE = 1000;
-const USER_MODEL_OBSERVATION_QUERY_CHUNK_SIZE = 1000;
 const USER_MODEL_GMAIL_REFOLD_DEDUP_TTL_MS = 10 * 60 * 1000;
 const PENDING_UPLOAD_CLEANUP_DELAY_MS = 24 * 60 * 60 * 1000;
 
@@ -186,7 +175,7 @@ async function runGmailPostInsertSideEffects(args: {
     },
     async () => {
       if (insertedIds.length) {
-        await recordGmailObservationsForDocuments(result.userId, insertedIds);
+        await runGmailObservationCapture(result.userId, insertedIds);
       }
     },
     ...(embedInserts
@@ -416,7 +405,10 @@ export async function closeIngestionQueue(): Promise<void> {
 }
 
 async function processIngestionJob(job: Job<IngestionJobData>): Promise<unknown> {
-  const data = job.data;
+  return processIngestionJobData(job.data);
+}
+
+async function processIngestionJobData(data: IngestionJobData): Promise<unknown> {
   switch (data.kind) {
     case "gmail.ingest_recent": {
       const result = await ingestRecentGmail({
@@ -618,17 +610,10 @@ async function processIngestionJob(job: Job<IngestionJobData>): Promise<unknown>
       return { candidates: ids.length, succeeded, failed };
     }
     case "user_model.gmail_kind_refold": {
-      return refoldActiveGmailKindProjection(data.userId);
+      return runGmailKindRefoldJob(data.userId);
     }
     case "user_model.gmail_kind_refold_sweep": {
-      const userIds = await usersWithActiveUserModelProjection();
-      for (const uid of userIds) {
-        await enqueueGmailKindRefold(uid);
-      }
-      console.log(
-        `[ingestion:worker] user_model.gmail_kind_refold_sweep enqueued=${userIds.length}`,
-      );
-      return { enqueued: userIds.length };
+      return scheduleGmailKindRefoldSweep({});
     }
     case "triage.relabel": {
       // One label-writer for both the classifier and user overrides
@@ -703,6 +688,27 @@ async function processIngestionJob(job: Job<IngestionJobData>): Promise<unknown>
       throw new Error(`unknown ingestion job kind: ${JSON.stringify(_exhaustive)}`);
     }
   }
+}
+
+/** Run the user-model side effect while ignoring its best-effort result. */
+export async function runGmailObservationCapture(
+  userId: string,
+  documentIds: readonly string[],
+): Promise<void> {
+  try {
+    await captureGmailObservations({ userId, documentIds });
+  } catch (err) {
+    if (err instanceof NoGmailUserModelHandlerRegisteredError) throw err;
+    console.warn(
+      `[ingestion:worker] user-model gmail observation capture failed user=${userId}:`,
+      toMessage(err),
+    );
+  }
+}
+
+/** Run one refold job through the registered user-model handler. */
+export async function runGmailKindRefoldJob(userId: string) {
+  return refoldGmailKindProjection({ userId });
 }
 
 /**
@@ -973,84 +979,7 @@ function chunkArray<T>(values: readonly T[], size: number): T[][] {
   return chunks;
 }
 
-async function recordGmailObservationsForDocuments(
-  userId: string,
-  documentIds: readonly string[],
-): Promise<void> {
-  if (documentIds.length === 0) return;
-  try {
-    const docs: GmailDocumentForReduction[] = [];
-    for (const chunk of chunkArray(documentIds, USER_MODEL_OBSERVATION_QUERY_CHUNK_SIZE)) {
-      docs.push(
-        ...(await db()
-          .select({
-            id: documents.id,
-            userId: documents.userId,
-            sourceId: documents.sourceId,
-            sourceThreadId: documents.sourceThreadId,
-            accountId: documents.accountId,
-            title: documents.title,
-            authoredAt: documents.authoredAt,
-            raw: documents.raw,
-            metadata: documents.metadata,
-          })
-          .from(documents)
-          .where(
-            and(
-              eq(documents.userId, userId),
-              eq(documents.source, "gmail"),
-              inArray(documents.id, chunk),
-            ),
-          )),
-      );
-    }
-
-    let inserted = 0;
-    let deduped = 0;
-    let skipped = 0;
-    let warnings = 0;
-    let errors = 0;
-    for (const doc of docs) {
-      try {
-        const reduced = reduceGmailDocument(doc);
-        for (const issue of reduced.issues) {
-          if (issue.severity === "skip") skipped++;
-          else warnings++;
-          console.warn(
-            `[ingestion:worker] user-model gmail observation ${issue.severity} ` +
-              `doc=${doc.id} ${issue.code}: ${issue.message}`,
-          );
-        }
-        for (const observation of reduced.observations) {
-          const result = await appendObservationFamilyMember(observation);
-          if (result.status === "deduped") deduped++;
-          else inserted++;
-        }
-      } catch (err) {
-        errors++;
-        console.warn(
-          `[ingestion:worker] user-model gmail observation failed doc=${doc.id}:`,
-          toMessage(err),
-        );
-      }
-    }
-
-    console.log(
-      `[ingestion:worker] user-model gmail observations user=${userId} docs=${docs.length} ` +
-        `inserted=${inserted} deduped=${deduped} skipped=${skipped} warnings=${warnings} errors=${errors}`,
-    );
-    if (inserted > 0) {
-      await enqueueGmailKindRefold(userId);
-    }
-  } catch (err) {
-    console.warn(
-      `[ingestion:worker] user-model gmail observation capture failed user=${userId}:`,
-      toMessage(err),
-    );
-  }
-}
-
-async function enqueueGmailKindRefold(userId: string): Promise<void> {
+export async function enqueueGmailKindRefold(userId: string): Promise<void> {
   await getIngestionQueue().add(
     "user_model.gmail_kind_refold",
     { kind: "user_model.gmail_kind_refold", userId },
@@ -1065,15 +994,6 @@ async function enqueueGmailKindRefold(userId: string): Promise<void> {
       removeOnFail: { count: 50, age: 7 * 24 * 60 * 60 },
     },
   );
-}
-
-/** User ids with an ACTIVE user-model projection — the scheduled refold sweep's fan-out set. */
-async function usersWithActiveUserModelProjection(): Promise<string[]> {
-  const rows = await db()
-    .select({ userId: activeProjectionVersions.userId })
-    .from(activeProjectionVersions)
-    .where(eq(activeProjectionVersions.projectionName, USER_MODEL_PROJECTION_NAME));
-  return rows.map((row) => row.userId);
 }
 
 /**

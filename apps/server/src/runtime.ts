@@ -19,6 +19,7 @@ import {
   reconcileInflightInvocations,
   registerBuiltinTools,
   registerGmailTriage,
+  registerGmailUserModel,
   registerOnUserCreated,
   registerTriggerConsumers,
   registerWorkflowRecovery,
@@ -52,6 +53,7 @@ import {
   stopWorkflowsWorker,
   unregisterTriggerConsumers,
   unregisterGmailTriage,
+  unregisterGmailUserModel,
   unregisterWorkflowRecovery,
   verifyMeteringModels,
   warmPool,
@@ -99,6 +101,7 @@ export async function startRuntime(): Promise<void> {
   registerBuiltinWorkflows();
   registerBuiltinTools();
   registerGmailTriage();
+  registerGmailUserModel();
   registerTriggerConsumers();
   registerWorkflowRecovery();
 
@@ -166,6 +169,7 @@ export async function stopRuntime(): Promise<void> {
   // worker or queue closer rejects.
   unregisterTriggerConsumers();
   unregisterGmailTriage();
+  unregisterGmailUserModel();
   unregisterWorkflowRecovery();
 
   try {

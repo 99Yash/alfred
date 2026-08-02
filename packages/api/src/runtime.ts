@@ -1,5 +1,6 @@
 export { closeConnections, warmPool } from "@alfred/db";
 export { registerGmailTriage, unregisterGmailTriage } from "./composition/gmail-triage";
+export { registerGmailUserModel, unregisterGmailUserModel } from "./composition/gmail-user-model";
 export {
   registerTriggerConsumers,
   unregisterTriggerConsumers,
