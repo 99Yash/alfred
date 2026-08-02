@@ -75,7 +75,10 @@ describe("Google credential lifecycle composition seam", () => {
   });
 
   test("retries the complete upsert transaction and preserves reconnect evidence", async () => {
-    const conflict = new Error("observation append conflict");
+    const conflict = Object.assign(new Error("observation append conflict"), {
+      code: "23505",
+      constraint: "observations_no_fork_idx",
+    });
     const previousCredential = {
       userId: "user-1",
       accountId: "google-account-1",
@@ -104,9 +107,6 @@ describe("Google credential lifecycle composition seam", () => {
         receivedChangedAt.push(args.changedAt);
         if (receivedPrevious.length < 3) throw conflict;
         return { connectedCurrent: { status: "emitted" } };
-      },
-      isAppendConflict(error) {
-        return error === conflict;
       },
     });
 
@@ -142,9 +142,6 @@ describe("Google credential lifecycle composition seam", () => {
       },
       async recordUpsert() {
         throw appendFailure;
-      },
-      isAppendConflict() {
-        return false;
       },
     });
 
@@ -193,9 +190,6 @@ describe("Google credential lifecycle composition seam", () => {
       },
       async recordDisconnect() {
         throw appendFailure;
-      },
-      isAppendConflict() {
-        return false;
       },
     });
 

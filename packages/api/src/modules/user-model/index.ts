@@ -35,6 +35,7 @@ export {
   recordOrgAffiliationOnConnect,
   recordOrgAffiliationOnCredentialUpsert,
   recordOrgAffiliationOnDisconnect,
+  retryOnObservationChainConflict,
   type BuildOrgAffiliationResult,
   type BuildOrgAffiliationSkipReason,
   type CredentialForAffiliation,

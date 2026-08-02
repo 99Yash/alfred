@@ -4,6 +4,7 @@ import { describe, test } from "node:test";
 import {
   isObservationAppendConflict,
   isOrgAffiliationObservationAppendConflict,
+  retryOnObservationChainConflict,
 } from "../../src/modules/user-model";
 
 function pgError(fields: {
@@ -58,5 +59,40 @@ describe("user-model pg error classifiers", () => {
 
     assert.equal(isObservationAppendConflict(wrapped), true);
     assert.equal(isOrgAffiliationObservationAppendConflict(wrapped), false);
+  });
+});
+
+describe("org-affiliation observation-chain retry policy", () => {
+  test("makes no more than three attempts for a recognized conflict", async () => {
+    const conflict = pgError({
+      code: "23505",
+      constraint: "observations_no_fork_idx",
+    });
+    let attempts = 0;
+
+    await assert.rejects(
+      () =>
+        retryOnObservationChainConflict(async () => {
+          attempts++;
+          throw conflict;
+        }),
+      (error) => error === conflict,
+    );
+    assert.equal(attempts, 3);
+  });
+
+  test("does not retry an unrelated failure", async () => {
+    const failure = new Error("database unavailable");
+    let attempts = 0;
+
+    await assert.rejects(
+      () =>
+        retryOnObservationChainConflict(async () => {
+          attempts++;
+          throw failure;
+        }),
+      (error) => error === failure,
+    );
+    assert.equal(attempts, 1);
   });
 });
