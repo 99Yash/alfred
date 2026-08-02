@@ -20,6 +20,7 @@ import {
   registerBuiltinTools,
   registerOnUserCreated,
   registerTriggerConsumers,
+  registerWorkflowRecovery,
   scheduleRepeatableBriefingJobs,
   scheduleRepeatableIngestionJobs,
   scheduleRepeatableMemoryJobs,
@@ -49,6 +50,7 @@ import {
   stopSubAgentJoinWakeWorker,
   stopWorkflowsWorker,
   unregisterTriggerConsumers,
+  unregisterWorkflowRecovery,
   verifyMeteringModels,
   warmPool,
 } from "@alfred/api/runtime";
@@ -95,6 +97,7 @@ export async function startRuntime(): Promise<void> {
   registerBuiltinWorkflows();
   registerBuiltinTools();
   registerTriggerConsumers();
+  registerWorkflowRecovery();
 
   registerOnUserCreated(async (user) => {
     await seedBuiltinWorkflowsForUser(user.id);
@@ -159,6 +162,7 @@ export async function stopRuntime(): Promise<void> {
   // Registration is process-local and must be cleared even when an earlier
   // worker or queue closer rejects.
   unregisterTriggerConsumers();
+  unregisterWorkflowRecovery();
 
   try {
     // Workers are stopped, so no new metering rows or Langfuse spans will be

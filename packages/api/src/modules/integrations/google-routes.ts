@@ -36,7 +36,7 @@ import {
   verifyOAuthState,
 } from "./oauth-state";
 import { assertGmailPushOidcConfigured, isGmailPushOidcConfigError } from "./gmail-push-config";
-import { recoverWorkflowDraft } from "../workflows/revisions";
+import { resolveWorkflowRecoveryTarget } from "./workflow-recovery";
 
 /**
  * Google integration routes.
@@ -559,25 +559,11 @@ export const googleIntegrationRoutes = new Elysia({
       const connectedParam = `google_connected=${encodeURIComponent(tokens.accountEmail)}`;
       let target = stillOnboarding ? `/onboarding?step=2&${connectedParam}` : `/?${connectedParam}`;
       if (!stillOnboarding && decoded.workflowRecovery) {
-        try {
-          const recovered = await recoverWorkflowDraft({
-            userId: decoded.userId,
-            workflowId: decoded.workflowRecovery.workflowId,
-            revisionId: decoded.workflowRecovery.revisionId,
-          });
-          if (recovered.ok) {
-            const recoveryStatus = recovered.activationProposal ? "ready" : "blocked";
-            target = `/workflows/${encodeURIComponent(recovered.workflow.slug)}?workflow_recovery=${recoveryStatus}&revision_id=${encodeURIComponent(recovered.revision.id)}`;
-          } else {
-            target = `/workflows?workflow_recovery=${encodeURIComponent(recovered.failure.kind)}`;
-          }
-        } catch (err) {
-          console.warn(
-            `[google.callback] failed to recover workflow ${decoded.workflowRecovery.workflowId}:`,
-            toMessage(err),
-          );
-          target = "/workflows?workflow_recovery=failed";
-        }
+        target = await resolveWorkflowRecoveryTarget({
+          userId: decoded.userId,
+          workflowId: decoded.workflowRecovery.workflowId,
+          revisionId: decoded.workflowRecovery.revisionId,
+        });
       }
       set.status = 302;
       set.headers["Location"] = `${serverEnv().CORS_ORIGIN}${target}`;

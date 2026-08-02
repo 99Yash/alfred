@@ -3,6 +3,7 @@ import { z } from "zod";
 import { createHmac, timingSafeEqual } from "node:crypto";
 import type IORedis from "ioredis";
 import { createRedisConnection } from "../../queue/connection";
+import { workflowRecoveryStateSchema } from "./workflow-recovery";
 
 /**
  * Server-side OAuth state nonce store.
@@ -65,12 +66,7 @@ const signedOAuthStateSchema = z.object({
   /** Present for OAuth flows that must resume one durable connection. */
   connectionId: z.string().optional(),
   /** Exact immutable workflow draft to revalidate when OAuth returns. */
-  workflowRecovery: z
-    .object({
-      workflowId: z.string().min(1).max(200),
-      revisionId: z.string().min(1).max(200),
-    })
-    .optional(),
+  workflowRecovery: workflowRecoveryStateSchema.optional(),
 });
 
 export type SignedOAuthState = z.infer<typeof signedOAuthStateSchema>;
