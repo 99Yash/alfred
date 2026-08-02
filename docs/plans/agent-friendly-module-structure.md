@@ -1,6 +1,7 @@
 # Agent-friendly module structure
 
-> **Status:** active design plan. No structural migration has started.
+> **Status:** active migration plan. Phase 0 is complete and Phase 1 is in
+> progress.
 >
 > **Basis:** the repository state on 2026-08-01. Git history has been rewritten
 > and is not evidence for how the repository evolved.
@@ -150,7 +151,7 @@ The process still sees only `createAssistantRuntime().start()` and `.stop()`.
 | `execution` | Durable runs, leases, checkpoints, attempts, cancellation, resume, child joins, recipe registration | `registerRecipe`, `startRun`, `signalRun`, `cancelRun`, `getRun`; queueing is internal | `agent`, `scratchpad`, agent worker/join code |
 | `capabilities` | Capability catalog, model-visible surface, schema validation, authorization, risk, action staging, tool-call approval, execution, result routing | `registerCapabilities`, `resolveSurface`, `executeCalls`, `resolveApproval`; registry and queues stay private | `tools`, `dispatch`, `approvals`, `action-policies`, MCP execution ledger |
 | `automation` | User-authored workflow definitions, revisions, readiness, triggers, schedules, occurrence claims | `createDraft`, `revise`, `activate`, `acceptEvent`, `dispatchDue` | `workflows`; user-authored recipe compilation |
-| `eventing` | Durable domain-event publication and consumer delivery | `publish`, runtime consumer registration; no imports of consumers | `src/events`, `workflows/events`; not HTTP SSE framing |
+| `triggers` | Durable domain-event publication and trigger-consumer delivery | `publishDomainEvent`, runtime consumer registration; no imports of consumers | `src/events`, `workflows/events`; not HTTP SSE framing |
 | `connections` | Connected-account lifecycle, OAuth state, credential binding, provider availability, watches, webhooks, provider ingestion coordination | `connect`, `disconnect`, `availabilityFor`, `forUser`, `acceptWebhook` | legacy API `integrations`, provider-binding parts of `mcp`, ingestion queue |
 | `corpus` | Normalized documents, chunks, embedding state, indexing retries, semantic search | `indexDocument`, `retryPending`, `search` | `@alfred/ingestion`, document embedding work in integration jobs |
 | `knowledge` | Observation log, projections, facts, entities, significance, standing instructions, recall, correction | `observe`, `recall`, `contextFor`, `applyCorrection`, projection lifecycle | `memory`, `user-model`, `chat-memory` extraction behavior |
@@ -210,8 +211,8 @@ flowchart TD
   triage --> tasks
   tasks --> knowledge
 
-  product --> eventing
-  connections --> eventing
+  product --> triggers
+  connections --> triggers
   connections --> integrations["@alfred/integrations"]
   conversations --> corpus["@alfred/corpus"]
   knowledge --> corpus
@@ -280,18 +281,22 @@ MCP broker rules, and result routing. System capabilities that spawn or join a
 run receive bounded callbacks in `ExecutionContext`; they do not import
 execution internals.
 
-### Eventing
+### Triggers
+
+Here, `triggers` means publication of domain occurrences and delivery to the
+modules that react to them. It does not own workflow trigger definitions,
+filters, schedules, or occurrence claims; those remain in `automation`.
 
 ```ts
-interface Eventing {
-  publish(event: DomainEvent, options: PublishOptions): Promise<PublishedEvent>;
+interface Triggers {
+  publishDomainEvent(event: DomainEvent, options: PublishOptions): Promise<PublishedEvent>;
 }
 ```
 
-Consumers are registered in runtime composition. A connection event can wake
-automation, triage, or knowledge without the connection module importing any
-of them. Durable occurrence claims remain owned by automation/execution, not by
-the generic event transport.
+Trigger consumers are registered in runtime composition. A connection event can
+wake automation, triage, or knowledge without the connection module importing
+any of them. Durable occurrence claims remain owned by automation/execution,
+not by the generic event transport.
 
 ### Knowledge
 
@@ -333,7 +338,7 @@ two modules to import each other:
 packages/assistant/src/composition/
   recipes/                    register product recipes with execution
   capabilities/               register domain capability definitions
-  event-consumers/             connect domain events to consumers
+  trigger-consumers/           connect domain events to trigger consumers
 
 packages/http/src/
   <domain>.ts                  Elysia request/response adapters
@@ -473,7 +478,16 @@ and a developer can run one non-mutating verification command.
 
 ### Phase 1 — Give events one owner
 
-1. Create the in-place `eventing` interface under `packages/api`.
+**Status:** In progress (2026-08-02). The first slice adds the in-place
+`triggers` interface, routes Gmail ingestion publication through it, and wires
+the workflow trigger consumer in runtime composition. The Google OAuth recovery
+path still keeps the broader `integrations -> workflows` module edge alive.
+Connection imports of triage, knowledge, and chat consumers also remain. The
+current sole consumer attempts durable occurrence claims before publication
+returns, but keeps per-workflow failure details inside automation. Durable
+delivery to several independent consumers remains later work in this phase.
+
+1. Create the in-place `triggers` interface under `packages/api`.
 2. Move durable publication out of `workflows/events`.
 3. Make connection ingestion publish events without importing workflows,
    triage, knowledge, or chat.
