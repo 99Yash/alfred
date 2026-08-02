@@ -17,6 +17,13 @@ export {
 } from "./queue";
 export type { IngestionJobData } from "./queue";
 export { scheduleRepeatableIngestionJobs } from "./repeatable";
+export {
+  registerWorkflowRecoveryHandler,
+  resolveWorkflowRecoveryTarget,
+  type WorkflowRecoveryHandler,
+  type WorkflowRecoveryRequest,
+  type WorkflowRecoveryResult,
+} from "./workflow-recovery";
 
 export const integrations = new Elysia({ name: "integrations", normalize: "typebox" })
   .use(googleIntegrationRoutes)
