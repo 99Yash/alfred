@@ -1,40 +1,23 @@
+import { gmailKindRefoldSkippedReasonSchema } from "@alfred/contracts";
 import { z } from "zod";
 
-const identifierSchema = z.string().min(1);
+// Defensive process-local limits; normal Gmail identifiers and ingestion batches are far smaller.
+const identifierSchema = z.string().min(1).max(500);
+const identifierListSchema = z.array(identifierSchema).max(10_000);
 const countSchema = z.number().int().nonnegative();
 
 export const gmailObservationCaptureRequestSchema = z
   .object({
     userId: identifierSchema,
-    documentIds: z.array(identifierSchema),
+    documentIds: identifierListSchema,
   })
   .strict();
 
 export type GmailObservationCaptureRequest = z.infer<typeof gmailObservationCaptureRequestSchema>;
 
 export const gmailObservationCaptureResultSchema = z
-  .discriminatedUnion("status", [
-    z
-      .object({
-        status: z.literal("captured"),
-        documents: countSchema,
-        inserted: countSchema,
-        deduped: countSchema,
-        skipped: countSchema,
-        warnings: countSchema,
-        errors: countSchema,
-        refoldScheduled: z.boolean(),
-      })
-      .strict(),
-    z.object({ status: z.literal("failed") }).strict(),
-  ])
-  .refine(
-    (result) => result.status === "failed" || result.refoldScheduled === result.inserted > 0,
-    {
-      message: "refoldScheduled must match whether observations were inserted",
-      path: ["refoldScheduled"],
-    },
-  );
+  .object({ status: z.enum(["captured", "failed"]) })
+  .strict();
 
 export type GmailObservationCaptureResult = z.infer<typeof gmailObservationCaptureResultSchema>;
 
@@ -50,7 +33,7 @@ export const gmailKindRefoldResultSchema = z.discriminatedUnion("status", [
   z
     .object({
       status: z.literal("skipped"),
-      reason: z.string().min(1),
+      reason: gmailKindRefoldSkippedReasonSchema,
     })
     .strict(),
   z

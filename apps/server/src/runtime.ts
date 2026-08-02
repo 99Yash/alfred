@@ -73,6 +73,16 @@ import { registerBuiltinWorkflows } from "./builtins";
  */
 export const OBSERVABILITY_FLUSH_TIMEOUT_MS = 2500;
 
+async function runShutdownStep(label: string, step: () => Promise<void>): Promise<boolean> {
+  try {
+    await step();
+    return true;
+  } catch (err) {
+    console.error(`Error during shutdown step ${label}:`, toMessage(err));
+    return false;
+  }
+}
+
 export async function startRuntime(): Promise<void> {
   await warmPool();
   // #453 boot gate, before anything can serve a request or lease a job. A
@@ -135,41 +145,41 @@ export async function startRuntime(): Promise<void> {
 }
 
 export async function stopRuntime(): Promise<void> {
-  try {
-    // Stop the agent worker first so active steps can finish before Redis goes
-    // away. The join-wake worker must stop before the agent queue closes,
-    // because late wake jobs enqueue parent runs.
-    await stopAgentWorker();
-    await stopSubAgentJoinWakeWorker();
-    // The chat-memory debounce worker's fire creates + enqueues an agent run, so
-    // it must stop before the agent queue closes — same rationale as join-wake.
-    await stopChatMemoryWorker();
-    await stopConversationCompactionWorker();
-    await closeAgentQueue();
-    await closeSubAgentJoinWakeQueue();
-    await closeChatMemoryQueue();
-    await closeConversationCompactionQueue();
-    await stopApprovalNotificationWorker();
-    await closeApprovalNotificationQueue();
-    await stopApprovalExpiryWorker();
-    await closeApprovalExpiryQueue();
-    await stopIngestionWorker();
-    await closeIngestionQueue();
-    await stopMemoryWorker();
-    await closeMemoryQueue();
-    await stopBriefingWorker();
-    await closeBriefingQueue();
-    await stopWorkflowsWorker();
-    await closeWorkflowsQueue();
-    console.log("Workers stopped");
-  } catch (err) {
-    console.error("Error stopping workers:", toMessage(err));
+  // Preserve the required stop order, but attempt every step. One unrelated
+  // worker failure must not leave ingestion live while its adapters disappear.
+  await runShutdownStep("agent worker", stopAgentWorker);
+  await runShutdownStep("sub-agent join-wake worker", stopSubAgentJoinWakeWorker);
+  // The chat-memory debounce worker's fire creates + enqueues an agent run, so
+  // it must stop before the agent queue closes — same rationale as join-wake.
+  await runShutdownStep("chat-memory worker", stopChatMemoryWorker);
+  await runShutdownStep("conversation-compaction worker", stopConversationCompactionWorker);
+  await runShutdownStep("agent queue", closeAgentQueue);
+  await runShutdownStep("sub-agent join-wake queue", closeSubAgentJoinWakeQueue);
+  await runShutdownStep("chat-memory queue", closeChatMemoryQueue);
+  await runShutdownStep("conversation-compaction queue", closeConversationCompactionQueue);
+  await runShutdownStep("approval-notification worker", stopApprovalNotificationWorker);
+  await runShutdownStep("approval-notification queue", closeApprovalNotificationQueue);
+  await runShutdownStep("approval-expiry worker", stopApprovalExpiryWorker);
+  await runShutdownStep("approval-expiry queue", closeApprovalExpiryQueue);
+  const ingestionWorkerStopped = await runShutdownStep("ingestion worker", stopIngestionWorker);
+  await runShutdownStep("ingestion queue", closeIngestionQueue);
+  await runShutdownStep("memory worker", stopMemoryWorker);
+  await runShutdownStep("memory queue", closeMemoryQueue);
+  await runShutdownStep("briefing worker", stopBriefingWorker);
+  await runShutdownStep("briefing queue", closeBriefingQueue);
+  await runShutdownStep("workflows worker", stopWorkflowsWorker);
+  await runShutdownStep("workflows queue", closeWorkflowsQueue);
+  console.log("Worker shutdown attempted");
+
+  // These adapters serve ingestion jobs. Keep them registered if stopping that
+  // worker failed, so an already-leased job cannot observe missing composition.
+  if (ingestionWorkerStopped) {
+    unregisterTriggerConsumers();
+    unregisterGmailTriage();
+    unregisterGmailUserModel();
+  } else {
+    console.warn("Ingestion adapters retained because the ingestion worker did not stop");
   }
-  // Registration is process-local and must be cleared even when an earlier
-  // worker or queue closer rejects.
-  unregisterTriggerConsumers();
-  unregisterGmailTriage();
-  unregisterGmailUserModel();
   unregisterWorkflowRecovery();
 
   try {

@@ -673,6 +673,13 @@
       "when": 1785668300278,
       "tag": "0095_tan_the_call",
       "breakpoints": true
+    },
+    {
+      "idx": 96,
+      "version": "7",
+      "when": 1785670103970,
+      "tag": "0096_fancy_green_goblin",
+      "breakpoints": true
     }
   ]
 }
