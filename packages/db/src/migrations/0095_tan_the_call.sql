@@ -1,0 +1,1 @@
+ALTER TABLE "documents" ADD CONSTRAINT "documents_source_valid" CHECK ("documents"."source" IN ('gmail', 'gcal', 'slack', 'linear', 'github', 'notion', 'imessage'));

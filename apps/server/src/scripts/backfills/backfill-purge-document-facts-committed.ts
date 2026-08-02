@@ -207,7 +207,7 @@ async function processUser(u: { userId: string; email: string }): Promise<void> 
     // identity claims fail authorship.
     const gateDoc = doc
       ? { source: doc.source, metadata: doc.metadata, accountId: doc.accountId }
-      : { source: "unknown", metadata: {}, accountId: null };
+      : { source: "unknown" as const, metadata: {}, accountId: null };
     const gate = gateDocumentFact({
       proposal: { key: r.key, value: r.value },
       document: gateDoc,

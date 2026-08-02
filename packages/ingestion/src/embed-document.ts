@@ -1,7 +1,7 @@
 import { embedMany } from "@alfred/ai/embeddings";
 import { db } from "@alfred/db";
 import { buildEmbedFailureSet, EMBED_SUCCESS_RESET } from "@alfred/db/helpers";
-import { chunks, documents } from "@alfred/db/schemas";
+import { chunks, documents, type Document } from "@alfred/db/schemas";
 import { and, desc, eq, isNull, notExists, sql } from "drizzle-orm";
 import { createHash } from "node:crypto";
 import { chunkText, type Chunk } from "./chunker";
@@ -195,7 +195,7 @@ export async function embedDocument(args: EmbedDocumentArgs): Promise<EmbedDocum
  */
 export async function findUnembeddedDocumentIds(opts: {
   userId?: string;
-  source?: string;
+  source?: Document["source"];
   limit?: number;
 }): Promise<string[]> {
   const limit = opts.limit ?? 100;

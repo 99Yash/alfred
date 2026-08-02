@@ -1,7 +1,7 @@
 import { EMBEDDING_DIMENSIONS, embed } from "@alfred/ai/embeddings";
 import { db } from "@alfred/db";
 import { formatVectorFloat32 } from "@alfred/db/helpers";
-import { chunks, documents } from "@alfred/db/schemas";
+import { chunks, documents, type Document } from "@alfred/db/schemas";
 import { and, eq, isNotNull, sql } from "drizzle-orm";
 
 /**
@@ -23,7 +23,7 @@ export interface SearchArgs {
   queryEmbedding?: number[];
   userId: string;
   /** Restrict to a particular source (`gmail`, `slack`, …). */
-  source?: string;
+  source?: Document["source"];
   /** Top-K. Default 10. */
   limit?: number;
 }
@@ -31,7 +31,7 @@ export interface SearchArgs {
 export interface SearchHit {
   chunkId: string;
   documentId: string;
-  source: string;
+  source: Document["source"];
   title: string | null;
   position: number;
   /** First ~280 chars of the chunk for surfacing. */
