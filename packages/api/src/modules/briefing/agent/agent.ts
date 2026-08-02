@@ -128,4 +128,3 @@ export async function runBriefingAgent(
     steps: result.steps.length,
   };
 }
-

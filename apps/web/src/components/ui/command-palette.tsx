@@ -138,15 +138,7 @@ interface ItemProps {
   children: ReactNode;
 }
 
-function Item({
-  value,
-  keywords,
-  onSelect,
-  icon: Icon,
-  shortcut,
-  disabled,
-  children,
-}: ItemProps) {
+function Item({ value, keywords, onSelect, icon: Icon, shortcut, disabled, children }: ItemProps) {
   return (
     <CommandPrimitive.Item
       value={value}
