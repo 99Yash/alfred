@@ -21,14 +21,19 @@ import {
 } from "../../src/modules/agent/registry";
 import { createRun } from "../../src/modules/agent/service";
 import type { StepResult, Workflow } from "../../src/modules/agent/types";
-import { emitEvent } from "../../src/modules/workflows/events";
+import {
+  registerEventConsumers,
+  unregisterEventConsumers,
+} from "../../src/composition/event-consumers";
+import { publish } from "../../src/modules/eventing";
+import { acceptEvent } from "../../src/modules/workflows";
 import { uniqueViolationConstraint } from "../../src/lib/pg-errors";
 import { closeRedis } from "../../src/queue/connection";
 
 /**
  * DB-backed guard for the event-dispatch duplicate-run invariant (#531).
  *
- * `emitEvent` gated duplicates with a soft `hasNonTerminalEventRun` read
+ * `acceptEvent` gated duplicates with a soft `hasNonTerminalEventRun` read
  * immediately followed by `createRun` — a check-then-create TOCTOU with nothing
  * at the DB level behind it. The general dedup index only fires on a non-null
  * `dedup_key`, which event-triggered runs don't have, so two concurrent
@@ -114,7 +119,7 @@ async function seedUser(): Promise<string> {
 }
 
 /**
- * A user with one event-triggered workflow active, so `emitEvent` matches it.
+ * A user with one event-triggered workflow active, so `acceptEvent` matches it.
  * Only the requested slug is seeded — a user holding both test workflows would
  * make every dispatch match twice and blur which index fired.
  */
@@ -220,8 +225,10 @@ describe("event-dispatch duplicate-run guard (#531)", { skip: SKIP }, () => {
   before(() => {
     if (!getWorkflow(EVENT_WORKFLOW_SLUG)) registerWorkflow(eventWorkflow);
     if (!getWorkflow(SINGLETON_WORKFLOW_SLUG)) registerWorkflow(singletonEventWorkflow);
+    registerEventConsumers();
   });
   after(async () => {
+    unregisterEventConsumers();
     if (createdUserIds.length > 0) {
       await db().delete(user).where(inArray(user.id, createdUserIds));
     }
@@ -275,28 +282,22 @@ describe("event-dispatch duplicate-run guard (#531)", { skip: SKIP }, () => {
     assert.equal(await countActiveEventRuns(userId, eventId), 1);
   });
 
-  test("concurrent emitEvent dispatches of one event create exactly one run", async () => {
+  test("concurrent eventing publications create exactly one workflow run", async () => {
     const userId = await seedUserWithEventWorkflow();
     const eventId = `evt-${randomUUID()}`;
-    const dispatch = () => emitEvent({ userId, source: SOURCE, type: TYPE, eventId });
+    const dispatch = () => publish({ userId, source: SOURCE, type: TYPE, eventId });
 
     const [a, b] = await Promise.all([dispatch(), dispatch()]);
 
-    assert.equal(a.matched + b.matched, 2, "both dispatches matched the workflow");
-    assert.equal(a.created + b.created, 1, "only one of them created a run");
-    assert.equal(
-      a.skippedDuplicate + b.skippedDuplicate,
-      1,
-      "the loser is reported as a dropped duplicate",
-    );
-    assert.equal(a.failed + b.failed, 0, "and not as a failure");
+    assert.deepEqual(a, { delivered: 1 });
+    assert.deepEqual(b, { delivered: 1 });
     assert.equal(await countActiveEventRuns(userId, eventId), 1);
   });
 
   test("an account-bound workflow ignores another account's event", async () => {
     const userId = await seedUserWithEventWorkflow(EVENT_WORKFLOW_SLUG, "gmail-account-a");
 
-    const wrongAccount = await emitEvent({
+    const wrongAccount = await acceptEvent({
       userId,
       source: SOURCE,
       type: TYPE,
@@ -306,7 +307,7 @@ describe("event-dispatch duplicate-run guard (#531)", { skip: SKIP }, () => {
     assert.equal(wrongAccount.matched, 0);
     assert.equal(wrongAccount.created, 0);
 
-    const selectedAccount = await emitEvent({
+    const selectedAccount = await acceptEvent({
       userId,
       source: SOURCE,
       type: TYPE,
@@ -322,13 +323,13 @@ describe("event-dispatch duplicate-run guard (#531)", { skip: SKIP }, () => {
     // Two DIFFERENT events. Neither the fast-path read nor the event identity
     // index sees a duplicate — the workflow's `dedupKey` does, so the losing
     // insert raises 23505 on RUN_DEDUP_KEY_INDEX instead.
-    const first = await emitEvent({
+    const first = await acceptEvent({
       userId,
       source: SOURCE,
       type: TYPE,
       eventId: `evt-${randomUUID()}`,
     });
-    const second = await emitEvent({
+    const second = await acceptEvent({
       userId,
       source: SOURCE,
       type: TYPE,
@@ -341,7 +342,7 @@ describe("event-dispatch duplicate-run guard (#531)", { skip: SKIP }, () => {
     assert.equal(second.failed, 0, "not as a failure (#530/#531 review, D7)");
     assert.equal(await countActiveRuns(userId, SINGLETON_WORKFLOW_SLUG), 1);
 
-    // Pin WHICH index the drop above came from: bypassing `emitEvent`'s catch
+    // Pin WHICH index the drop above came from: bypassing `acceptEvent`'s catch
     // shows the raw collision is the dedup-key index, not the event identity
     // one — the case a catch matching only EVENT_ACTIVE_RUN_INDEX rethrew.
     const constraint = await expectUniqueViolation(() =>

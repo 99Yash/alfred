@@ -18,6 +18,7 @@ import {
   initReplicachePokeBridge,
   reconcileInflightInvocations,
   registerBuiltinTools,
+  registerEventConsumers,
   registerOnUserCreated,
   scheduleRepeatableBriefingJobs,
   scheduleRepeatableIngestionJobs,
@@ -47,6 +48,7 @@ import {
   stopPolicyBustSubscriber,
   stopSubAgentJoinWakeWorker,
   stopWorkflowsWorker,
+  unregisterEventConsumers,
   verifyMeteringModels,
   warmPool,
 } from "@alfred/api/runtime";
@@ -92,6 +94,7 @@ export async function startRuntime(): Promise<void> {
   // their workflow or tool names.
   registerBuiltinWorkflows();
   registerBuiltinTools();
+  registerEventConsumers();
 
   registerOnUserCreated(async (user) => {
     await seedBuiltinWorkflowsForUser(user.id);
@@ -153,6 +156,9 @@ export async function stopRuntime(): Promise<void> {
   } catch (err) {
     console.error("Error stopping workers:", toMessage(err));
   }
+  // Registration is process-local and must be cleared even when an earlier
+  // worker or queue closer rejects.
+  unregisterEventConsumers();
 
   try {
     // Workers are stopped, so no new metering rows or Langfuse spans will be

@@ -1,4 +1,5 @@
 export { closeConnections, warmPool } from "@alfred/db";
+export { registerEventConsumers, unregisterEventConsumers } from "./composition/event-consumers";
 export { closeRedis } from "./queue/connection";
 export { initEventBridge, closeEventBridge } from "./events/index";
 export { initReplicachePokeBridge, closeReplicachePokeBridge } from "./events/replicache-events";
