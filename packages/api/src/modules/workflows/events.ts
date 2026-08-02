@@ -6,7 +6,7 @@ import { uniqueViolationConstraint } from "../../lib/pg-errors";
 import { enqueueRun } from "../agent/queue";
 import { createRun } from "../agent/service";
 
-import type { DomainEvent } from "../eventing";
+import type { DomainEvent } from "../triggers";
 
 export interface AcceptEventResult {
   matched: number;
