@@ -1,5 +1,6 @@
 import { db } from "@alfred/db";
 import { chatAttachments } from "@alfred/db/schemas";
+import { withDefaults } from "@alfred/contracts";
 import { inArray } from "drizzle-orm";
 import {
   enqueueChatMediaEnrichmentJob,
@@ -50,7 +51,7 @@ const defaultDeps: ChatMediaAdapterDeps = {
 export function createChatMediaHandler(
   dependencies: Partial<ChatMediaAdapterDeps> = {},
 ): ChatMediaHandler {
-  const deps = { ...defaultDeps, ...dependencies };
+  const deps = withDefaults(defaultDeps, dependencies);
   return {
     async scheduleEnrichment(request) {
       const claim = await deps.claimEnrichment(request.attachmentId);
