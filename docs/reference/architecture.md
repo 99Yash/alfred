@@ -44,6 +44,12 @@ publication call. Durable delivery to several independent consumers is not
 complete. Realtime outbox and SSE updates use the separate `publishEvent`
 interface.
 
+Google OAuth draft recovery enters through `resolveWorkflowRecoveryTarget` in
+the integrations module. Runtime composition registers a workflow adapter that
+maps workflow revalidation to the connection-facing `ready`, `blocked`, or
+typed-failure result. Integrations owns the HTTP redirect; it does not import
+the workflow implementation.
+
 **Web → Auth:** `apps/web/src/lib/auth-client.ts` creates a Better Auth client. The web app calls `authClient.signIn.social({ provider: "google" })` from the login surface; Better Auth redirects through Google and back to `/api/auth/callback/google`, both mounted on the Elysia server.
 
 **API → Auth:** `packages/api/src/middleware/session-cache.ts` calls `auth().api.getSession()` with a two-layer cache (per-request WeakMap + 10-second token cache). Import `getSessionCached()` in route handlers; never call `auth()` directly from routes.
