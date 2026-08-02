@@ -70,6 +70,15 @@ settings. Capture failures remain best-effort, while missing composition and
 refold failures reject the ingestion job so worker retry and monitoring remain
 effective.
 
+Chat attachment enrichment scheduling and chat-media ingestion jobs enter
+through the integrations-owned chat-media interface. Runtime composition
+registers one chat adapter before ingestion workers start. The adapter owns the
+attachment claim and enqueue-failure transition, enrichment behavior, object
+storage checks and deletion, and durable-key lookup for pending-upload cleanup.
+The ingestion queue owns BullMQ job envelopes, delay, deduplication, retry, and
+retention settings. Missing composition and processing failures reject the job
+so worker retry and monitoring remain effective.
+
 **Web → Auth:** `apps/web/src/lib/auth-client.ts` creates a Better Auth client. The web app calls `authClient.signIn.social({ provider: "google" })` from the login surface; Better Auth redirects through Google and back to `/api/auth/callback/google`, both mounted on the Elysia server.
 
 **API → Auth:** `packages/api/src/middleware/session-cache.ts` calls `auth().api.getSession()` with a two-layer cache (per-request WeakMap + 10-second token cache). Import `getSessionCached()` in route handlers; never call `auth()` directly from routes.

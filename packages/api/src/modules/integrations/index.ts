@@ -13,11 +13,28 @@ export {
   startIngestionWorker,
   stopIngestionWorker,
   closeIngestionQueue,
+  enqueueChatMediaEnrichmentJob,
   enqueueGmailKindRefold,
   getIngestionQueue,
 } from "./queue";
 export type { IngestionJobData } from "./queue";
 export { scheduleRepeatableIngestionJobs } from "./repeatable";
+export {
+  chatAttachmentEnrichmentScheduleRequestSchema,
+  chatAttachmentEnrichmentScheduleResultSchema,
+  chatMediaJobRequestSchema,
+  chatMediaJobResultSchema,
+  NoChatMediaHandlerRegisteredError,
+  processChatMediaJob,
+  registerChatMediaHandler,
+  scheduleChatAttachmentEnrichment,
+  type ChatAttachmentEnrichmentScheduleRequest,
+  type ChatAttachmentEnrichmentScheduleResult,
+  type ChatMediaEnrichmentJobRequest,
+  type ChatMediaHandler,
+  type ChatMediaJobRequest,
+  type ChatMediaJobResult,
+} from "./chat-media";
 export {
   captureGmailObservations,
   gmailKindRefoldRequestSchema,
