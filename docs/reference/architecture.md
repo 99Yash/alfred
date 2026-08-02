@@ -16,7 +16,18 @@ Path alias `~/` maps to `src/` in both apps.
 
 **Web → API:** `apps/web/src/lib/eden.ts` creates an Eden treaty client typed against `App` from `@alfred/api`. The Vite dev server proxies `/api/auth/*` to `localhost:3001`; all other API calls use `VITE_API_URL` directly.
 
-**API entrypoints:** the `@alfred/api` root exports the composed Elysia `app`, its `App` type, and HTTP security-header helpers. Reusable server-side domain and queue services live at `@alfred/api/backend`. Worker lifecycle, registration, scheduling, bootstrap, and teardown operations live at `@alfred/api/runtime`. Supported deep imports are limited to the operational triage and queue paths declared in `packages/api/package.json`.
+**API entrypoints during migration:** the `@alfred/api` root exports the composed
+Elysia `app`, its `App` type, and HTTP security-header helpers. Reusable
+server-side domain and queue behavior still lives at `@alfred/api/backend`.
+Worker lifecycle, registration, scheduling, bootstrap, and teardown operations
+still live at `@alfred/api/runtime`. These are legacy doors, not the target
+interface.
+
+ADR-0089 moves product behavior and runtime composition to
+`@alfred/assistant`, moves HTTP adaptation to `@alfred/http`, and then deletes
+the legacy `@alfred/api` package. The migration breaks module cycles in place
+before it extracts either target package. See the
+[active structure plan](../plans/agent-friendly-module-structure.md).
 
 **Web → Auth:** `apps/web/src/lib/auth-client.ts` creates a Better Auth client. The web app calls `authClient.signIn.social({ provider: "google" })` from the login surface; Better Auth redirects through Google and back to `/api/auth/callback/google`, both mounted on the Elysia server.
 
@@ -44,6 +55,29 @@ Forbidden in `apps/web`:
 - Any import of `@alfred/ai` (contains server-only AI SDK providers).
 
 `pnpm check:web-boundaries` enforces these forbidden runtime imports for `apps/web`.
+
+## Architecture enforcement
+
+`pnpm check:architecture` scans source imports and checks the package graph, the
+assistant-module graph, and route-private web features. The committed baseline is
+[`scripts/module-architecture-baseline.json`](../../scripts/module-architecture-baseline.json).
+It records current debt so the checker permits the list to shrink but does not
+permit a new cyclic edge or private cross-module import.
+
+Use `pnpm check:architecture -- --print-graph` to print the current stable graph.
+Do not update the baseline to make a failure disappear. Change it only when an
+accepted ADR changes the target structure or when a path rename preserves an
+existing exception. Every exception needs an owner, a reason, and a removal
+phase.
+
+The local verification levels are:
+
+- `pnpm verify:fast`: architecture, boundaries, static checks, format, and types.
+- `pnpm verify`: `verify:fast` plus deterministic package tests.
+- `pnpm verify:db`: migrations plus API tests with Postgres and Redis available.
+
+All three commands do not change repository files. `pnpm format` is the
+explicit formatting command that writes files.
 
 ## Web organization
 

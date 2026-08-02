@@ -9,6 +9,7 @@ A running record of design decisions made while scoping alfred (a personal-assis
 | Layer                 | Choice                                                                                                            |
 | --------------------- | ----------------------------------------------------------------------------------------------------------------- |
 | Monorepo              | pnpm + Turborepo                                                                                                  |
+| Server package structure | `@alfred/http` adapters + `@alfred/assistant` product behavior; legacy `@alfred/api` is removed after extraction (ADR-0089) |
 | Runtime               | Node                                                                                                              |
 | Server                | Elysia (Eden typed client)                                                                                        |
 | Web                   | Vite + TanStack Router (SPA)                                                                                      |
@@ -62,7 +63,7 @@ A running record of design decisions made while scoping alfred (a personal-assis
 
 ## Decision index
 
-87 ADRs, one file each under [`docs/decisions/`](./docs/decisions/). Each
+88 ADRs, one file each under [`docs/decisions/`](./docs/decisions/). Each
 records the choice, the alternatives weighed, and why they lost — the part of the
 design that the code cannot state. Read the two or three that touch your change;
 this file exists so you never have to load all of them.
@@ -156,6 +157,7 @@ this file exists so you never have to load all of them.
 | [0086](./docs/decisions/ADR-0086-artifact-fancy-on-demand-is-a-curated.md) | Artifact "fancy on demand" is a curated capability vocabulary (motion / marks / diagrams / charts) added the way themes+archetypes were — named primitives in the retroactive shell, under one governed expression dial — and ships inside today's sealed sandbox; a headless render surface (fit-check → vision-repair → optional CDN assets) is the deferred substrate that lifts the ceiling (DESIGNED — 2026-07-15, see docs/plans/artifact-expression-system-v1.md) |
 | [0087](./docs/decisions/ADR-0087-code-mode-rung-b-v1-is-context-virtualization.md) | Code-Mode rung-(b) v1 is context virtualization, not composition/BYO-MCP: object handles + a network-less self-hosted isolate whose only capabilities are host functions (DESIGNED — grilled 2026-07-21, see docs/plans/code-mode-object-handles-v1.md) |
 | [0088](./docs/decisions/ADR-0088-the-mcp-call-approval-floor-is-a-floor-not-a.md) | The `mcp.call` approval floor is a floor, not a constant: a reviewed per-descriptor downgrade lowers it at the dispatch gate, delegated entirely to a single fail-closed resolver (BUILT — #541 Part 3; amends ADR-0069) |
+| [0089](./docs/decisions/ADR-0089-name-http-and-assistant-packages-by-ownership.md) | Name HTTP adapters and assistant behavior by ownership; break cycles before extraction |
 
 ## Appendices
 

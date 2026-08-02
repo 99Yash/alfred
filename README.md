@@ -89,7 +89,10 @@ Feature-gated or optional locally: `OPENAI_API_KEY`, `VOYAGE_API_KEY` (embedding
 ```bash
 corepack pnpm dev             # start both apps in watch mode
 corepack pnpm build           # production build of all packages
-corepack pnpm check-types     # tsc across all packages
+corepack pnpm verify:fast     # architecture, static checks, format, and types
+corepack pnpm verify          # verify:fast plus deterministic package tests
+corepack pnpm verify:db       # migrate and run Postgres/Redis-backed API tests
+corepack pnpm format          # write repository formatting changes
 corepack pnpm db:generate     # generate Drizzle migration from schema diff
 corepack pnpm db:migrate      # apply pending migrations
 corepack pnpm db:studio       # open Drizzle Studio
