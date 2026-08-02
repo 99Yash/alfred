@@ -18,6 +18,7 @@ import {
   initReplicachePokeBridge,
   reconcileInflightInvocations,
   registerBuiltinTools,
+  registerChatMedia,
   registerGmailTriage,
   registerGmailUserModel,
   registerOnUserCreated,
@@ -52,6 +53,7 @@ import {
   stopSubAgentJoinWakeWorker,
   stopWorkflowsWorker,
   unregisterTriggerConsumers,
+  unregisterChatMedia,
   unregisterGmailTriage,
   unregisterGmailUserModel,
   unregisterWorkflowRecovery,
@@ -110,6 +112,7 @@ export async function startRuntime(): Promise<void> {
   // their workflow or tool names.
   registerBuiltinWorkflows();
   registerBuiltinTools();
+  registerChatMedia();
   registerGmailTriage();
   registerGmailUserModel();
   registerTriggerConsumers();
@@ -175,6 +178,7 @@ export async function stopRuntime(): Promise<void> {
   // worker failed, so an already-leased job cannot observe missing composition.
   if (ingestionWorkerStopped) {
     unregisterTriggerConsumers();
+    unregisterChatMedia();
     unregisterGmailTriage();
     unregisterGmailUserModel();
   } else {

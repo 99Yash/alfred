@@ -1,4 +1,5 @@
 export { closeConnections, warmPool } from "@alfred/db";
+export { registerChatMedia, unregisterChatMedia } from "./composition/chat-media";
 export { registerGmailTriage, unregisterGmailTriage } from "./composition/gmail-triage";
 export { registerGmailUserModel, unregisterGmailUserModel } from "./composition/gmail-user-model";
 export {
