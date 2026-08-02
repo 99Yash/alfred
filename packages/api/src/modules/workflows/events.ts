@@ -6,7 +6,7 @@ import { uniqueViolationConstraint } from "../../lib/pg-errors";
 import { enqueueRun } from "../agent/queue";
 import { createRun } from "../agent/service";
 
-import type { DomainEvent } from "../triggers";
+import { domainEventSchema, type DomainEvent } from "../triggers";
 
 export interface AcceptEventResult {
   matched: number;
@@ -22,7 +22,10 @@ export interface AcceptEventResult {
  * This is intentionally a direct DB query + run creation path, not the
  * realtime outbox/SSE event bus under `modules/events`.
  */
-export async function acceptEvent(args: DomainEvent): Promise<AcceptEventResult> {
+export async function acceptEvent(input: DomainEvent): Promise<AcceptEventResult> {
+  // Keep validation at this public automation seam as well as at publication,
+  // so a direct caller cannot bypass the owning domain-event contract.
+  const args = domainEventSchema.parse(input);
   const reason = typeof args.payload?.reason === "string" ? args.payload.reason : undefined;
   const documentId =
     typeof args.payload?.documentId === "string" ? args.payload.documentId : undefined;

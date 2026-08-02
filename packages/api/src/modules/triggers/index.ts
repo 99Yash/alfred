@@ -1,4 +1,11 @@
-import { jsonObjectSchema } from "@alfred/contracts";
+import {
+  isEventSource,
+  isEventType,
+  isEventTypeForSource,
+  jsonObjectSchema,
+  type EventSource,
+  type EventType,
+} from "@alfred/contracts";
 import { z } from "zod";
 import { publishToConsumers, registerConsumer } from "./internal/consumer-registry";
 
@@ -17,37 +24,56 @@ const gmailMessagePayloadSchema = z
   })
   .strict();
 
-export const domainEventSchema = z.discriminatedUnion("source", [
-  z
-    .object({
-      ...domainEventIdentityShape,
-      source: z.literal("gmail"),
-      type: z.literal("message_received"),
-      payload: gmailMessagePayloadSchema.optional(),
-    })
-    .strict(),
-  z
-    .object({
-      ...domainEventIdentityShape,
-      source: z.literal("google.oauth.callback"),
-      type: z.literal("completed"),
-      payload: jsonObjectSchema.optional(),
-    })
-    .strict(),
-  z
-    .object({
-      ...domainEventIdentityShape,
-      source: z.literal("learn-skill"),
-      type: z.literal("completed"),
-      payload: jsonObjectSchema.optional(),
-    })
-    .strict(),
-]);
+const payloadSchemaBySource: Record<EventSource, z.ZodType<unknown>> = {
+  gmail: gmailMessagePayloadSchema,
+  "google.oauth.callback": jsonObjectSchema,
+  "learn-skill": jsonObjectSchema,
+};
+
+/**
+ * The legal source/type taxonomy stays owned by `@alfred/contracts` because it
+ * also shapes persisted run identity and browser workflow authoring. This
+ * module adds only the source-specific payload rule it owns.
+ */
+export const domainEventSchema = z
+  .object({
+    ...domainEventIdentityShape,
+    source: z.custom<EventSource>(
+      (value) => typeof value === "string" && isEventSource(value),
+      "Unknown event source",
+    ),
+    type: z.custom<EventType>(
+      (value) => typeof value === "string" && isEventType(value),
+      "Unknown event type",
+    ),
+    payload: jsonObjectSchema.optional(),
+  })
+  .strict()
+  .superRefine((event, context) => {
+    if (!isEventTypeForSource(event.source, event.type)) {
+      context.addIssue({
+        code: "custom",
+        message: `Event type '${event.type}' is invalid for source '${event.source}'`,
+        path: ["type"],
+      });
+    }
+
+    if (event.payload === undefined) return;
+    const parsedPayload = payloadSchemaBySource[event.source].safeParse(event.payload);
+    if (parsedPayload.success) return;
+    for (const issue of parsedPayload.error.issues) {
+      context.addIssue({
+        code: "custom",
+        message: issue.message,
+        path: ["payload", ...issue.path],
+      });
+    }
+  });
 
 export type DomainEvent = z.infer<typeof domainEventSchema>;
 
 export interface PublishedEvent {
-  delivered: number;
+  acceptedConsumers: number;
 }
 
 export interface TriggerConsumer {
@@ -69,10 +95,10 @@ export function registerTriggerConsumer(consumer: TriggerConsumer): () => void {
 /**
  * Publish one application domain event to every registered trigger consumer.
  *
- * Delivery is in-process. Each consumer owns its durable claim before it
- * performs asynchronous work, so a producer retry cannot create duplicate
- * work. A consumer failure rejects publication after all consumers have had a
- * chance to claim the event.
+ * Delivery is in-process. `acceptedConsumers` counts consumers whose `accept`
+ * method returned normally; consumer-specific result details stay private to
+ * that consumer. A thrown consumer failure rejects publication after every
+ * registered consumer has been called.
  */
 export async function publish(event: DomainEvent): Promise<PublishedEvent> {
   return publishToConsumers(domainEventSchema.parse(event));
