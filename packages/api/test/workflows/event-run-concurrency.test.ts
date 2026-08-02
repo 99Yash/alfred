@@ -25,7 +25,7 @@ import {
   registerTriggerConsumers,
   unregisterTriggerConsumers,
 } from "../../src/composition/trigger-consumers";
-import { publish } from "../../src/modules/triggers";
+import { publishDomainEvent } from "../../src/modules/triggers";
 import { acceptEvent } from "../../src/modules/workflows";
 import { uniqueViolationConstraint } from "../../src/lib/pg-errors";
 import { closeRedis } from "../../src/queue/connection";
@@ -285,7 +285,7 @@ describe("event-dispatch duplicate-run guard (#531)", { skip: SKIP }, () => {
   test("concurrent trigger publications create exactly one workflow run", async () => {
     const userId = await seedUserWithEventWorkflow();
     const eventId = `evt-${randomUUID()}`;
-    const dispatch = () => publish({ userId, source: SOURCE, type: TYPE, eventId });
+    const dispatch = () => publishDomainEvent({ userId, source: SOURCE, type: TYPE, eventId });
 
     const [a, b] = await Promise.all([dispatch(), dispatch()]);
 

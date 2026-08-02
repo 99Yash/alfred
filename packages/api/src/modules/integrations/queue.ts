@@ -24,7 +24,11 @@ import {
 } from "@alfred/db/schemas";
 import { and, eq, inArray } from "drizzle-orm";
 import { publishEvent } from "../../events/publish";
-import { publish } from "../triggers";
+import {
+  NoTriggerConsumersRegisteredError,
+  publishDomainEvent,
+  type GmailMessageEventReason,
+} from "../triggers";
 import { createRedisConnection } from "../../queue/connection";
 import {
   findNewestLiveInboundGmailDocuments,
@@ -68,8 +72,6 @@ const USER_MODEL_GMAIL_REFOLD_DEDUP_TTL_MS = 10 * 60 * 1000;
 const PENDING_UPLOAD_CLEANUP_DELAY_MS = 24 * 60 * 60 * 1000;
 
 type GmailInsertJobKind = "gmail.ingest_recent" | "gmail.poll_recent" | "gmail.poll_history";
-type GmailMessageEventReason = Parameters<typeof emitGmailMessageEvents>[2];
-
 interface ReplyReevalRequest {
   threadId: string;
   eventId: string;
@@ -691,11 +693,13 @@ async function processIngestionJob(job: Job<IngestionJobData>): Promise<unknown>
 }
 
 /**
- * Emit one Gmail message event per freshly-inserted Gmail document. Failures
- * are logged-and-swallowed: we never want trigger dispatch to fail the
- * ingestion job that just successfully wrote the docs. This includes a strict
- * domain-event validation failure: producer/schema drift drops that event and
- * emits a warning instead of retrying the completed ingestion write.
+ * Emit one Gmail message event per freshly-inserted Gmail document. Event-level
+ * failures are logged-and-swallowed so trigger dispatch does not fail an
+ * ingestion job that successfully wrote the docs. A missing consumer is a
+ * runtime-composition failure instead: it rejects the job so retries and
+ * monitoring expose the broken boot path. Strict schema drift remains an
+ * event-level failure and emits a warning instead of retrying the completed
+ * ingestion write.
  *
  * `reason` is a small audit string surfaced on the run's trigger payload so
  * we can tell webhook-driven triages apart from manual smoke runs in the logs.
@@ -708,7 +712,7 @@ async function processIngestionJob(job: Job<IngestionJobData>): Promise<unknown>
 async function emitGmailMessageEvents(
   userId: string,
   documentIds: string[],
-  reason: "webhook" | "manual" | "ingest" | "reply",
+  reason: GmailMessageEventReason,
 ): Promise<void> {
   let accountByDocumentId: Map<string, string>;
   try {
@@ -723,7 +727,7 @@ async function emitGmailMessageEvents(
   await mapConcurrent(documentIds, REALTIME_EMIT_CONCURRENCY, async (documentId) => {
     try {
       const accountRef = accountByDocumentId.get(documentId);
-      await publish({
+      await publishDomainEvent({
         userId,
         source: "gmail",
         type: "message_received",
@@ -732,6 +736,7 @@ async function emitGmailMessageEvents(
         payload: { documentId, reason },
       });
     } catch (err) {
+      if (err instanceof NoTriggerConsumersRegisteredError) throw err;
       console.warn(
         `[ingestion:worker] failed to emit gmail.message_received for doc=${documentId}:`,
         toMessage(err),
@@ -909,7 +914,7 @@ async function reEvaluateRepliedThreads(
       async ({ threadId, documentId, eventId }) => {
         try {
           const accountRef = accountByDocumentId.get(documentId);
-          await publish({
+          await publishDomainEvent({
             userId,
             source: "gmail",
             type: "message_received",
@@ -918,6 +923,7 @@ async function reEvaluateRepliedThreads(
             payload: { documentId, reason: "reply", force: true },
           });
         } catch (err) {
+          if (err instanceof NoTriggerConsumersRegisteredError) throw err;
           console.warn(
             `[ingestion:worker] reply re-eval failed thread=${threadId}:`,
             toMessage(err),
@@ -926,6 +932,7 @@ async function reEvaluateRepliedThreads(
       },
     );
   } catch (err) {
+    if (err instanceof NoTriggerConsumersRegisteredError) throw err;
     console.warn(
       `[ingestion:worker] reEvaluateRepliedThreads failed user=${userId}:`,
       toMessage(err),
