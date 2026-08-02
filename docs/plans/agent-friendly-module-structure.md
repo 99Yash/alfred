@@ -488,8 +488,10 @@ integrations-owned Gmail triage interface with a triage adapter in runtime
 composition, so `integrations -> triage` is also gone. Gmail observation capture
 and queued kind refolds now use an integrations-owned user-model interface with
 a runtime-composed adapter; the remaining `integrations -> user-model` edge is in
-Google routes, not the ingestion queue. Connection imports of knowledge and chat
-consumers still remain. The current sole trigger consumer
+Google routes, not the ingestion queue. Chat attachment enrichment and storage
+cleanup now use an integrations-owned chat-media interface with a
+runtime-composed adapter, so `integrations -> chat` is gone. Connection imports
+of knowledge consumers still remain. The current sole trigger consumer
 attempts durable occurrence claims before publication returns, but keeps
 per-workflow failure details inside automation. Durable delivery to several
 independent consumers remains later work in this phase.

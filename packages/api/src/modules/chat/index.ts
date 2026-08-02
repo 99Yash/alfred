@@ -48,6 +48,7 @@ import {
   objectExists,
   writeObject,
 } from "./storage";
+import { lockChatStorageKeys } from "./storage-coordination";
 import { requestChatStop } from "./stop-signal";
 
 const TITLE_MAX_CHARS = 80;
@@ -731,9 +732,9 @@ export const chatRoutes = new Elysia({ prefix: "/api/chat", normalize: "typebox"
           const now = new Date();
           const reuseExistingAttachmentRows = existingMessageAttachmentRows.length > 0;
 
-          // Build and verify the fresh attachment rows before any durable chat
-          // writes. A ready row is only created when the canonical object exists
-          // and its bytes match the declared pass-through image type.
+          // Build the fresh attachment rows before any durable chat writes.
+          // Storage verification runs inside the transaction after taking the
+          // same per-key lock as orphan cleanup.
           const freshAttachmentRows: AttachmentInsertRow[] = [];
           if (!reuseExistingAttachmentRows) {
             for (const [position, attachment] of attachments.entries()) {
@@ -742,11 +743,6 @@ export const chatRoutes = new Elysia({ prefix: "/api/chat", normalize: "typebox"
                 threadId,
                 messageId: body.userMessageId,
                 attachment: { ...attachment, position },
-              });
-              await assertStoredAttachmentReady({
-                storageKey: row.storageKey,
-                mime: row.mime,
-                size: row.size,
               });
               freshAttachmentRows.push(row);
             }
@@ -868,8 +864,21 @@ export const chatRoutes = new Elysia({ prefix: "/api/chat", normalize: "typebox"
             }
 
             // Persist attachment rows now that the owned message they reference
-            // exists. Keys were rebuilt and verified server-side above.
+            // exists. The lock makes the object check and durable row creation
+            // atomic with respect to pending-upload cleanup: cleanup either
+            // deletes first and this check fails, or observes the committed row.
             if (attachmentRows.length > 0 && currentAttachments.length === 0) {
+              await lockChatStorageKeys(
+                tx,
+                attachmentRows.map((row) => row.storageKey),
+              );
+              for (const row of attachmentRows) {
+                await assertStoredAttachmentReady({
+                  storageKey: row.storageKey,
+                  mime: row.mime,
+                  size: row.size,
+                });
+              }
               await tx.insert(chatAttachments).values(attachmentRows).onConflictDoNothing();
               const writtenAttachments = await loadAttachmentSummaries(
                 tx,

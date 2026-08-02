@@ -14,29 +14,26 @@
 //
 // Usage: node scripts/check-consolidation-drift.mjs
 
-import { existsSync, readFileSync } from "node:fs";
-import { execSync } from "node:child_process";
+import { readFileSync } from "node:fs";
 
 import { isSkippedPath, matchChains, matchLine } from "./consolidation-rules.mjs";
 import { selfTestFailures } from "./consolidation-rules.selftest.mjs";
+import { listGitSourceFiles } from "./git-source-files.mjs";
+import { gitSourceFileSelfTestFailures } from "./git-source-files.selftest.mjs";
 
 // A clean run of a rule that cannot see its own idiom is indistinguishable from
 // a clean run of a rule that works. Check the fixtures first, so "no drift"
 // means "looked and found nothing" rather than "looked at nothing".
 const selfTest = selfTestFailures();
+for (const failure of gitSourceFileSelfTestFailures()) selfTest.push(failure);
 if (selfTest.length > 0) {
-  console.error("Consolidation rule self-test failed — the rule itself is broken:\n");
+  console.error("Static check self-test failed:\n");
   for (const failure of selfTest) console.error(`  ${failure}`);
-  console.error("\nFix the rule in scripts/consolidation-rules.mjs before trusting this check.");
+  console.error("\nFix the rule or source discovery before trusting this check.");
   process.exit(1);
 }
 
-const files = execSync("git ls-files '*.ts' '*.tsx'", { encoding: "utf8" })
-  .split("\n")
-  .filter(Boolean)
-  .filter((f) => !isSkippedPath(f))
-  // `git ls-files` can list a staged-but-deleted path that's gone from disk.
-  .filter((f) => existsSync(f));
+const files = listGitSourceFiles(["*.ts", "*.tsx"]).filter((f) => !isSkippedPath(f));
 
 const violations = [];
 
