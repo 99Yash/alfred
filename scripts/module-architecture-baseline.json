@@ -83,7 +83,6 @@
       "integrations -> mcp",
       "integrations -> tools",
       "integrations -> triage",
-      "integrations -> user-model",
       "integrations -> workflows",
       "mcp -> integrations",
       "me -> briefing",
