@@ -24,8 +24,8 @@ import {
 } from "@alfred/db/schemas";
 import { and, eq, inArray } from "drizzle-orm";
 import { publishEvent } from "../../events/publish";
+import { publish } from "../eventing";
 import { createRedisConnection } from "../../queue/connection";
-import { emitEvent } from "../workflows/events";
 import {
   findNewestLiveInboundGmailDocuments,
   reconcileGmailThreads,
@@ -721,7 +721,7 @@ async function emitGmailMessageEvents(
   await mapConcurrent(documentIds, REALTIME_EMIT_CONCURRENCY, async (documentId) => {
     try {
       const accountRef = accountByDocumentId.get(documentId);
-      await emitEvent({
+      await publish({
         userId,
         source: "gmail",
         type: "message_received",
@@ -907,7 +907,7 @@ async function reEvaluateRepliedThreads(
       async ({ threadId, documentId, eventId }) => {
         try {
           const accountRef = accountByDocumentId.get(documentId);
-          await emitEvent({
+          await publish({
             userId,
             source: "gmail",
             type: "message_received",

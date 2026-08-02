@@ -1,6 +1,7 @@
 # Agent-friendly module structure
 
-> **Status:** active design plan. No structural migration has started.
+> **Status:** active migration plan. Phase 0 is complete and Phase 1 is in
+> progress.
 >
 > **Basis:** the repository state on 2026-08-01. Git history has been rewritten
 > and is not evidence for how the repository evolved.
@@ -472,6 +473,15 @@ Done when the repository rejects new cycles and unsupported internal imports,
 and a developer can run one non-mutating verification command.
 
 ### Phase 1 — Give events one owner
+
+**Status:** In progress (2026-08-02). The first slice adds the in-place
+`eventing` interface, routes Gmail ingestion publication through it, and wires
+the workflow event consumer in runtime composition. The Google OAuth recovery
+path still keeps the broader `integrations -> workflows` module edge alive.
+Connection imports of triage, knowledge, and chat consumers also remain. The
+current sole consumer makes its durable occurrence claim before publication
+returns; durable delivery to several independent consumers remains later work
+in this phase.
 
 1. Create the in-place `eventing` interface under `packages/api`.
 2. Move durable publication out of `workflows/events`.
