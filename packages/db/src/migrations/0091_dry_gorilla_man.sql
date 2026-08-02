@@ -1,1 +1,1 @@
-CREATE UNIQUE INDEX "agent_runs_manual_request_idx" ON "agent_runs" USING btree ("user_id","workflow_slug","dedup_key") WHERE ("agent_runs"."trigger" ->> 'kind') = 'manual' AND "agent_runs"."dedup_key" LIKE 'manual:%';
+CREATE UNIQUE INDEX IF NOT EXISTS "agent_runs_manual_request_idx" ON "agent_runs" USING btree ("user_id","workflow_slug","dedup_key") WHERE ("agent_runs"."trigger" ->> 'kind') = 'manual' AND "agent_runs"."dedup_key" LIKE 'manual:%';

@@ -13,10 +13,31 @@ export {
   startIngestionWorker,
   stopIngestionWorker,
   closeIngestionQueue,
+  enqueueGmailKindRefold,
   getIngestionQueue,
 } from "./queue";
 export type { IngestionJobData } from "./queue";
 export { scheduleRepeatableIngestionJobs } from "./repeatable";
+export {
+  captureGmailObservations,
+  gmailKindRefoldRequestSchema,
+  gmailKindRefoldResultSchema,
+  gmailKindRefoldSweepRequestSchema,
+  gmailKindRefoldSweepResultSchema,
+  gmailObservationCaptureRequestSchema,
+  gmailObservationCaptureResultSchema,
+  NoGmailUserModelHandlerRegisteredError,
+  refoldGmailKindProjection,
+  registerGmailUserModelHandler,
+  scheduleGmailKindRefoldSweep,
+  type GmailKindRefoldRequest,
+  type GmailKindRefoldResult,
+  type GmailKindRefoldSweepRequest,
+  type GmailKindRefoldSweepResult,
+  type GmailObservationCaptureRequest,
+  type GmailObservationCaptureResult,
+  type GmailUserModelHandler,
+} from "./gmail-user-model";
 export {
   gmailPostInsertTriageRequestSchema,
   gmailPostInsertTriageResultSchema,
