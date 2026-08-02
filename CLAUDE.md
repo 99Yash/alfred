@@ -5,7 +5,7 @@ Alfred is a personal assistant.
 - Derive source-of-truth shapes: use named Drizzle row types, `$inferInsert`, and `z.infer` instead of parallel interfaces.
 - Keep browser runtime code free of Node-only packages. Type-only imports are allowed only when TypeScript erases them; `pnpm check:web-boundaries` enforces the boundary.
 - Treat external, persisted, and protocol data as `unknown`; validate it at the owning boundary instead of asserting it with casts.
-- Apply database schema changes with `db:generate` then `db:migrate`. Never use `db:push`.
+- Apply database schema changes with `db:generate` then `db:migrate`.
 - Put cross-boundary browser-safe contracts in `@alfred/contracts`, Replicache models in `@alfred/sync` and implementation details in the package or feature that owns them.
 - Keep the repo root to config, entrypoints, and the four docs that live there (`README.md`, `CLAUDE.md`, `CONTEXT.md`, `decisions.md`). Everything else has a home, all four gitignored: screenshots, scraped assets, and DOM/network captures in `references/`; one-off DB/API probes in `references/scratch/` unless they earn a place in `scripts/`; HTML lessons and their runnable labs in `.teach/`; Markdown lessons in `.lessons/`. Tracked prose docs go under `docs/`.
 - Reach for an existing helper before writing a new `format*`/`parse*`/`is*`/`to*`/`get*` function or adding to a route `helpers.ts`. Don't create new grab-bag `utils.ts`/`helpers.ts` for anything generic. Three things find the helper for you, so this list stays short:
