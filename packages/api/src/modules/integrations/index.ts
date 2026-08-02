@@ -54,6 +54,24 @@ export {
   type GmailUserModelHandler,
 } from "./gmail-user-model";
 export {
+  disconnectGoogleCredentialConnection,
+  googleCredentialDisconnectRequestSchema,
+  googleCredentialDisconnectResultSchema,
+  googleCredentialUpsertRequestSchema,
+  googleCredentialUpsertResultSchema,
+  GoogleCredentialNotFoundError,
+  NoGoogleCredentialLifecycleHandlerRegisteredError,
+  registerGoogleCredentialLifecycleHandler,
+  upsertGoogleCredentialConnection,
+  type GoogleCredentialDisconnectHandlerRequest,
+  type GoogleCredentialDisconnectRequest,
+  type GoogleCredentialDisconnectResult,
+  type GoogleCredentialLifecycleHandler,
+  type GoogleCredentialUpsertHandlerRequest,
+  type GoogleCredentialUpsertRequest,
+  type GoogleCredentialUpsertResult,
+} from "./google-credential-lifecycle";
+export {
   gmailPostInsertTriageRequestSchema,
   gmailPostInsertTriageResultSchema,
   gmailTriageRelabelRequestSchema,

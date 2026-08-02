@@ -17,7 +17,6 @@
     "lint": "oxlint",
     "lint:fix": "oxlint --fix --fix-suggestions",
     "lint:fix:all": "oxlint --fix-dangerously",
-    "db:push": "turbo run db:push --filter=@alfred/db",
     "db:studio": "turbo run db:studio --filter=@alfred/db",
     "db:generate": "turbo run db:generate --filter=@alfred/db",
     "db:migrate": "turbo run db:migrate --filter=@alfred/db",
