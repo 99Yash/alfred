@@ -1111,6 +1111,15 @@ export type SignificanceComponents = z.infer<typeof significanceComponentsSchema
  */
 export const USER_MODEL_PROJECTION_NAME = "user-model";
 
+/** Stable BullMQ result reasons for a Gmail kind refold that does no work. */
+export const GMAIL_KIND_REFOLD_SKIPPED_REASONS = [
+  "no-active-projection",
+  "no-gmail-observations",
+  "up-to-date",
+] as const;
+export const gmailKindRefoldSkippedReasonSchema = z.enum(GMAIL_KIND_REFOLD_SKIPPED_REASONS);
+export type GmailKindRefoldSkippedReason = z.infer<typeof gmailKindRefoldSkippedReasonSchema>;
+
 export const PROJECTION_RUN_STATUS = ["running", "completed", "failed"] as const;
 export const projectionRunStatusSchema = z.enum(PROJECTION_RUN_STATUS);
 export type ProjectionRunStatus = (typeof PROJECTION_RUN_STATUS)[number];

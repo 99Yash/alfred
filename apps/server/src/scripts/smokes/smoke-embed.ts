@@ -19,7 +19,7 @@ import { and, desc, eq } from "drizzle-orm";
 import { createHash } from "node:crypto";
 
 const SMOKE_DOC = {
-  source: "smoke",
+  source: "gmail" as const,
   sourceId: "m7b-quarterly-update",
   title: "Quarterly board update — financials",
   body: `Q1 revenue came in at $4.2M, up 18% YoY. Gross margin held at 72%.
@@ -120,7 +120,7 @@ async function main() {
   const hits = await semanticSearch({
     query: "what's our quarterly revenue and cash runway?",
     userId,
-    source: "smoke",
+    source: SMOKE_DOC.source,
     limit: 3,
   });
   if (hits.length === 0) throw new Error("search returned 0 hits");
