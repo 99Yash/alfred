@@ -26,7 +26,7 @@ framework rewrite, or a request to make every file small.
 
 ## Current evidence
 
-The present backend implementation lives mostly in `@alfred/api`:
+The present server-side implementation lives mostly in `@alfred/api`:
 
 - `packages/api/src/modules` has 28 top-level directories and about 68,600 lines
   of TypeScript.
@@ -47,9 +47,10 @@ The present backend implementation lives mostly in `@alfred/api`:
 - `packages/api/src/modules/integrations/queue.ts` coordinates Gmail ingestion,
   embedding, triage, user-model projection, chat attachment enrichment,
   workflow events, storage cleanup, and UI update events.
-- The web feature directories are much healthier. There is only one current
-  relative import between route-private feature directories. The web plan
-  should preserve that locality instead of forcing a broad rewrite.
+- The web feature directories are much healthier. There are 15 current imports
+  between route-private feature directories: ten preview/styleguide adapters
+  and five product-feature imports. The web plan should preserve the general
+  locality and remove the five product-feature doors in Phase 7.
 
 These figures are navigation signals. A large file or an import edge is not a
 defect by itself. The load-bearing problem is that a caller can reach many
@@ -95,8 +96,8 @@ apps/
   web/                       browser composition and route-private features
 
 packages/
-  api/                       HTTP, SSE, webhook, and Replicache transport adapters
-  backend/                   server-side product modules and runtime composition
+  http/                      Elysia, SSE, webhook, and Replicache HTTP adapters
+  assistant/                 Alfred product modules and runtime composition
   contracts/                 browser-safe cross-boundary schemas and types
   sync/                      browser-safe Replicache protocol
   db/                        schema, migrations, connection, DB-level primitives
@@ -112,24 +113,25 @@ packages/
 
 ### Package decisions
 
-- Add `@alfred/backend`. It is the home for the server-side product model that
-  currently sits inside `@alfred/api`.
-- Keep `@alfred/api`, but reduce it to transport. Its public interface is the
-  Elysia `app`, `App` type, and transport-specific test helpers.
+- Add `@alfred/assistant`. It owns Alfred's product behavior that currently sits
+  inside `@alfred/api`.
+- Replace the mixed `@alfred/api` package with `@alfred/http` after product
+  behavior has moved. Its public interface is the Elysia `app`, `App` type, and
+  transport-specific test helpers.
 - Rename `@alfred/ingestion` to `@alfred/corpus` after its interface is deepened.
   It already owns both document indexing and search, so “ingestion” describes
   only half of its work.
 - Keep `@alfred/integrations`, but move credential persistence, application
-  queues, and cross-domain fan-out into `@alfred/backend/connections`.
+  queues, and cross-domain fan-out into `@alfred/assistant/connections`.
   Provider clients should accept validated configuration and credential
   resolvers instead of finding application state themselves.
 - Do not create one package per domain module. Package-level isolation is useful
   for runtime and deployment constraints. Internal module checks are a cheaper
-  and clearer tool for the backend product model.
-- Do not add a root export from `@alfred/backend`. Use explicit subpath exports
-  such as `@alfred/backend/execution` and `@alfred/backend/knowledge`.
+  and clearer tool for the assistant product model.
+- Do not add a root export from `@alfred/assistant`. Use explicit subpath exports
+  such as `@alfred/assistant/execution` and `@alfred/assistant/knowledge`.
 
-## Target backend modules
+## Target assistant modules
 
 Each directory below has this shape:
 
@@ -141,15 +143,15 @@ Each directory below has this shape:
 ```
 
 A worker-owning module may also expose lifecycle through its main interface.
-The process still sees only `createBackendRuntime().start()` and `.stop()`.
+The process still sees only `createAssistantRuntime().start()` and `.stop()`.
 
 | Module | Owns | Intended interface | Current main homes |
 | --- | --- | --- | --- |
 | `execution` | Durable runs, leases, checkpoints, attempts, cancellation, resume, child joins, recipe registration | `registerRecipe`, `startRun`, `signalRun`, `cancelRun`, `getRun`; queueing is internal | `agent`, `scratchpad`, agent worker/join code |
-| `capabilities` | Capability catalog, model-visible surface, schema validation, authorization, risk, staging, approval, execution, result routing | `registerCapabilities`, `resolveSurface`, `executeCalls`, `resolveApproval`; registry and queues stay private | `tools`, `dispatch`, `approvals`, `action-policies`, MCP execution ledger |
+| `capabilities` | Capability catalog, model-visible surface, schema validation, authorization, risk, action staging, tool-call approval, execution, result routing | `registerCapabilities`, `resolveSurface`, `executeCalls`, `resolveApproval`; registry and queues stay private | `tools`, `dispatch`, `approvals`, `action-policies`, MCP execution ledger |
 | `automation` | User-authored workflow definitions, revisions, readiness, triggers, schedules, occurrence claims | `createDraft`, `revise`, `activate`, `acceptEvent`, `dispatchDue` | `workflows`; user-authored recipe compilation |
 | `eventing` | Durable domain-event publication and consumer delivery | `publish`, runtime consumer registration; no imports of consumers | `src/events`, `workflows/events`; not HTTP SSE framing |
-| `connections` | Connected-account lifecycle, OAuth state, credential binding, provider availability, watches, webhooks, provider ingestion coordination | `connect`, `disconnect`, `availabilityFor`, `forUser`, `acceptWebhook` | API `integrations`, provider-binding parts of `mcp`, ingestion queue |
+| `connections` | Connected-account lifecycle, OAuth state, credential binding, provider availability, watches, webhooks, provider ingestion coordination | `connect`, `disconnect`, `availabilityFor`, `forUser`, `acceptWebhook` | legacy API `integrations`, provider-binding parts of `mcp`, ingestion queue |
 | `corpus` | Normalized documents, chunks, embedding state, indexing retries, semantic search | `indexDocument`, `retryPending`, `search` | `@alfred/ingestion`, document embedding work in integration jobs |
 | `knowledge` | Observation log, projections, facts, entities, significance, standing instructions, recall, correction | `observe`, `recall`, `contextFor`, `applyCorrection`, projection lifecycle | `memory`, `user-model`, `chat-memory` extraction behavior |
 | `settings` | User preferences, feature flags, account persona, briefing schedule, canonical timezone preference | `get`, `set`, `resolveTimezone`, `resolveFlags` | memory preferences, `features`, parts of briefing preferences and onboarding |
@@ -172,22 +174,25 @@ The process still sees only `createBackendRuntime().start()` and `.stop()`.
   notification is sent through `delivery`.
 - `chat-memory` splits: conversation-idle scheduling belongs to
   `conversations`; observation extraction belongs to `knowledge`.
+- `approvals` splits: generic step-level human-in-the-loop wake conditions
+  belong to `execution`; tool-call action staging and decisions belong to
+  `capabilities`; workflow activation validation belongs to `automation`.
 - `mcp` splits: connection/protocol/session behavior belongs to `connections`;
-  risk, approval, durable invocation, and tool-result correlation belong to
-  `capabilities`.
+  risk, tool-call approval, durable invocation, and tool-result correlation
+  belong to `capabilities`.
 
 ## Required dependency direction
 
 ```mermaid
 flowchart TD
-  server["apps/server<br/>composition root"] --> api["@alfred/api<br/>transport"]
-  server --> runtime["@alfred/backend/runtime"]
+  server["apps/server<br/>composition root"] --> http["@alfred/http<br/>HTTP adapters"]
+  server --> runtime["@alfred/assistant/runtime"]
   web["apps/web"] --> contracts["@alfred/contracts"]
   web --> sync["@alfred/sync"]
 
-  api --> backend["backend module interfaces"]
-  api --> auth["@alfred/auth"]
-  api --> sync
+  http --> assistant["assistant module interfaces"]
+  http --> auth["@alfred/auth"]
+  http --> sync
 
   runtime --> execution
   runtime --> capabilities
@@ -211,9 +216,9 @@ flowchart TD
   conversations --> corpus["@alfred/corpus"]
   knowledge --> corpus
 
-  backend --> db["@alfred/db"]
-  backend --> ai["@alfred/ai"]
-  backend --> contracts
+  assistant --> db["@alfred/db"]
+  assistant --> ai["@alfred/ai"]
+  assistant --> contracts
 ```
 
 The diagram omits some ordinary leaf dependencies. These rules are
@@ -221,6 +226,9 @@ load-bearing:
 
 - `execution` does not import conversations, automation, triage, briefing,
   skills, or other product recipes. Those modules register recipes with it.
+- `execution` owns generic step-level human-in-the-loop state and wake
+  conditions. It does not own tool-call action staging or workflow activation
+  policy.
 - `capabilities` does not import execution or feature modules. A capability
   handler receives a bounded execution context. Domain capability definitions
   are registered by top-level composition.
@@ -230,7 +238,7 @@ load-bearing:
   an adapter before `knowledge.observe`.
 - `time` is pure. `settings.resolveTimezone` reads the user preference and
   returns the branded zone used to bind `time.inZone`.
-- Transport packages may depend on many backend interfaces. Backend modules do
+- `@alfred/http` may depend on many assistant interfaces. Assistant modules do
   not import transport.
 
 ## Key interfaces
@@ -322,13 +330,13 @@ protocol. Put that code in an explicit top-level adapter instead of forcing the
 two modules to import each other:
 
 ```text
-packages/backend/src/composition/
+packages/assistant/src/composition/
   recipes/                    register product recipes with execution
   capabilities/               register domain capability definitions
   event-consumers/             connect domain events to consumers
 
-packages/api/src/
-  http/<domain>.ts             Elysia request/response adapters
+packages/http/src/
+  <domain>.ts                  Elysia request/response adapters
   sync/read/<domain>.ts        Replicache read contributors
   sync/write/<domain>.ts       server mutator adapters
   realtime/                    SSE and Replicache poke delivery
@@ -354,7 +362,7 @@ home for domain decisions.
 
 - Keep only browser/server, persisted-protocol, or provider-independent wire
   contracts in `@alfred/contracts` and `@alfred/sync`.
-- Keep server-only internal types in the owning backend module.
+- Keep server-only internal types in the owning assistant module.
 - Replace wildcard package exports with an explicit list of supported
   subpaths. Keep the root `@alfred/contracts` barrel temporarily for source
   compatibility, then reduce it after consumers use domain subpaths.
@@ -399,12 +407,12 @@ apps/web/src/
 Replace the list of worker lifecycle exports with:
 
 ```ts
-interface BackendRuntime {
+interface AssistantRuntime {
   start(): Promise<void>;
   stop(): Promise<void>;
 }
 
-function createBackendRuntime(config: RuntimeConfig): BackendRuntime;
+function createAssistantRuntime(config: RuntimeConfig): AssistantRuntime;
 ```
 
 The runtime implementation owns startup order, shutdown order, registration,
@@ -415,11 +423,12 @@ test harnesses without exposing production queue handles to ordinary callers.
 
 Add `scripts/check-module-architecture.mjs`. It must:
 
-1. parse package and backend-module imports;
+1. parse package and assistant-module imports;
 2. emit a stable dependency graph for diagnostics;
-3. reject new package or backend-module cycles;
+3. reject new package or assistant-module cycles;
 4. reject cross-module imports that bypass `index.ts`;
-5. reject backend imports from `@alfred/api` or `apps/server`;
+5. reject assistant imports from `@alfred/http`, legacy `@alfred/api`, or
+   `apps/server`;
 6. reject production imports from preview/debug web features;
 7. support narrow, reasoned legacy exceptions with an owner and removal phase;
 8. self-test its parser against fixtures before reporting a clean result.
@@ -450,8 +459,11 @@ reorganizations.
 
 ### Phase 0 — Record and enforce the map
 
+**Status:** Complete (2026-08-02). The checker, regression baseline,
+non-mutating verification commands, and ADR-0089 are in the repository.
+
 1. Add `check-module-architecture.mjs` with parser self-tests.
-2. Record the present package graph, backend module graph, SCCs, and supported
+2. Record the present package graph, assistant module graph, SCCs, and supported
    legacy exceptions.
 3. Add `verify:fast`, `verify`, and `verify:db`.
 4. Add an ADR for the package split and dependency direction in this plan.
@@ -474,8 +486,8 @@ green, and duplicate/retry behavior is unchanged.
 ### Phase 2 — Deepen the capability system
 
 1. Define the `capabilities` interface in place.
-2. Move catalog, discovery, active surface, dispatch, action policy, staging,
-   approvals, and MCP invocation enforcement behind it.
+2. Move catalog, discovery, active surface, dispatch, action policy, action
+   staging, tool-call approvals, and MCP invocation enforcement behind it.
 3. Move domain capability registration to composition adapters.
 4. Replace system-tool imports of execution and automation internals with
    bounded handler context callbacks or domain interfaces.
@@ -531,20 +543,23 @@ Done when the provider package does not import `@alfred/ingestion`, application
 queues, or unrelated domain modules, and the connection module does not import
 event consumers.
 
-### Phase 6 — Extract backend from transport
+### Phase 6 — Extract assistant behavior and HTTP transport
 
-1. Create `@alfred/backend` with explicit subpath exports.
+1. Create `@alfred/assistant` with explicit subpath exports.
 2. Move the now-acyclic modules from `@alfred/api` without changing their
    interfaces.
-3. Move Elysia routes to `packages/api/src/http`.
+3. Create `@alfred/http` and move Elysia routes into it.
 4. Split Replicache pull/push into domain composition adapters under
-   `packages/api/src/sync`.
-5. Replace `@alfred/api/backend` with explicit `@alfred/backend/<module>` imports
-   in operational scripts.
-6. Delete `packages/api/src/backend.ts` and remove transitional exports.
+   `packages/http/src/sync`.
+5. Replace `@alfred/api/backend` with explicit
+   `@alfred/assistant/<module>` imports in operational scripts.
+6. Switch the web Eden type import from `@alfred/api` to `@alfred/http`.
+7. Delete the legacy `@alfred/api` package after its last transitional export
+   and caller are gone.
 
-Done when `@alfred/api` contains transport only, `@alfred/backend` never imports
-it, and `apps/web` still imports only the `App` type from `@alfred/api`.
+Done when `@alfred/http` contains HTTP adapters only, `@alfred/assistant` never
+imports transport, the legacy `@alfred/api` package is gone, and `apps/web`
+imports only the `App` type from `@alfred/http`.
 
 ### Phase 7 — Close public surfaces and documentation
 
@@ -608,7 +623,7 @@ plus test adapters.
 
 ### Immediate package extraction
 
-The current 17-module SCC would force `@alfred/backend` to import old API
+The current 17-module SCC would force `@alfred/assistant` to import old API
 internals or require a large all-at-once move. Break cycles behind interfaces in
 place first; package extraction then becomes mechanical and reviewable.
 

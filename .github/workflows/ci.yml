@@ -43,23 +43,8 @@ jobs:
       - name: Install dependencies
         run: corepack pnpm install --frozen-lockfile
 
-      - name: Check web package boundaries
-        run: corepack pnpm check:web-boundaries
-
-      - name: Check import aliases
-        run: corepack pnpm check:imports
-
-      - name: Check consolidation drift
-        run: corepack pnpm check:consolidation
-
-      - name: Check duplication
-        run: corepack pnpm check:duplicates
-
-      - name: Lint
-        run: corepack pnpm lint
-
-      - name: Typecheck
-        run: corepack pnpm check-types
+      - name: Verify architecture, boundaries, style, and types
+        run: corepack pnpm verify:fast
 
   # ONE api job, not two. `api-unit-tests` and `api-db-tests` used to run the
   # identical command (`--filter @alfred/api test`) and differed only in whether

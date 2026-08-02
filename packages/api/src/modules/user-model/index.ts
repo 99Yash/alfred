@@ -28,10 +28,7 @@ export {
   type GmailReductionIssue,
   type GmailReductionResult,
 } from "./gmail-reducer";
-export {
-  projectGmailKindProfiles,
-  type ProjectGmailKindProfilesResult,
-} from "./gmail-kind-fold";
+export { projectGmailKindProfiles, type ProjectGmailKindProfilesResult } from "./gmail-kind-fold";
 export {
   buildOrgAffiliationObservationInput,
   isOrgAffiliationObservationAppendConflict,
@@ -45,11 +42,7 @@ export {
   type RecordOrgAffiliationOnCredentialUpsertResult,
   type RecordOrgAffiliationResult,
 } from "./affiliation";
-export {
-  ensureEntityNode,
-  recordEntityIdentity,
-  EntityIdentityConflictError,
-} from "./entities";
+export { ensureEntityNode, recordEntityIdentity, EntityIdentityConflictError } from "./entities";
 export {
   activateProjectionVersion,
   completeProjectionRun,
