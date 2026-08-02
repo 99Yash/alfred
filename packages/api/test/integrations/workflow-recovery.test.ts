@@ -39,11 +39,25 @@ describe("integration workflow recovery", () => {
     );
   });
 
-  test("parses unknown input at the exported recovery interface", async () => {
-    await assert.rejects(
-      resolveWorkflowRecoveryTarget({ ...request, unexpected: true }),
-      /Unrecognized key/,
-    );
+  test("degrades invalid input to the failed redirect, never throws", async () => {
+    // Register a handler that would produce a *ready* redirect for a valid
+    // request. So "failed" here can only come from the request parse failing
+    // inside the guarded path — not from the no-handler branch, and not from a
+    // parse that was skipped and let the extra key reach the handler.
+    const unregister = registerWorkflowRecoveryHandler(async () => ({
+      status: "ready",
+      workflowSlug: "weekly/report",
+      revisionId: "revision-1",
+    }));
+
+    try {
+      assert.equal(
+        await resolveWorkflowRecoveryTarget({ ...request, unexpected: true }),
+        "/workflows?workflow_recovery=failed",
+      );
+    } finally {
+      unregister();
+    }
   });
 
   test("returns the ready workflow redirect from a successful recovery", async () => {
