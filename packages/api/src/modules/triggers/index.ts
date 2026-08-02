@@ -50,26 +50,26 @@ export interface PublishedEvent {
   delivered: number;
 }
 
-export interface EventConsumer {
+export interface TriggerConsumer {
   name: string;
   accept(event: DomainEvent): Promise<unknown>;
 }
 
 /**
- * Register one durable consumer during runtime composition.
+ * Register one durable trigger consumer during runtime composition.
  *
  * The returned function removes that exact registration during teardown or a
  * test. Product modules publish through this module and never import the
  * consumers that react to the event.
  */
-export function registerEventConsumer(consumer: EventConsumer): () => void {
+export function registerTriggerConsumer(consumer: TriggerConsumer): () => void {
   return registerConsumer(consumer);
 }
 
 /**
- * Publish one application domain event to every registered consumer.
+ * Publish one application domain event to every registered trigger consumer.
  *
- * Event delivery is in-process. Each consumer owns its durable claim before it
+ * Delivery is in-process. Each consumer owns its durable claim before it
  * performs asynchronous work, so a producer retry cannot create duplicate
  * work. A consumer failure rejects publication after all consumers have had a
  * chance to claim the event.

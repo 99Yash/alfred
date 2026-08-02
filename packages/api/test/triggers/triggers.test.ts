@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { describe, test } from "node:test";
-import { domainEventSchema, publish, registerEventConsumer } from "../../src/modules/eventing";
+import { domainEventSchema, publish, registerTriggerConsumer } from "../../src/modules/triggers";
 
 const event = {
   userId: "user-1",
@@ -10,17 +10,17 @@ const event = {
   payload: { documentId: "document-1" },
 };
 
-describe("eventing", () => {
+describe("triggers", () => {
   test("publishes one event to every registered consumer", async () => {
     const received: string[] = [];
-    const unregisterFirst = registerEventConsumer({
-      name: "eventing-test-first",
+    const unregisterFirst = registerTriggerConsumer({
+      name: "triggers-test-first",
       accept: async (published) => {
         received.push(`first:${published.eventId}`);
       },
     });
-    const unregisterSecond = registerEventConsumer({
-      name: "eventing-test-second",
+    const unregisterSecond = registerTriggerConsumer({
+      name: "triggers-test-second",
       accept: async (published) => {
         received.push(`second:${published.eventId}`);
       },
@@ -51,21 +51,21 @@ describe("eventing", () => {
 
   test("lets every consumer claim an event before reporting failures", async () => {
     let successfulConsumerRan = false;
-    const unregisterFailure = registerEventConsumer({
-      name: "eventing-test-failure",
+    const unregisterFailure = registerTriggerConsumer({
+      name: "triggers-test-failure",
       accept: async () => {
         throw new Error("consumer failed");
       },
     });
-    const unregisterSuccess = registerEventConsumer({
-      name: "eventing-test-success",
+    const unregisterSuccess = registerTriggerConsumer({
+      name: "triggers-test-success",
       accept: async () => {
         successfulConsumerRan = true;
       },
     });
 
     try {
-      await assert.rejects(publish(event), /eventing-test-failure/);
+      await assert.rejects(publish(event), /triggers-test-failure/);
       assert.equal(successfulConsumerRan, true);
     } finally {
       unregisterFailure();

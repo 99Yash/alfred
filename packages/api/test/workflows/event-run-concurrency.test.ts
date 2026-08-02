@@ -22,10 +22,10 @@ import {
 import { createRun } from "../../src/modules/agent/service";
 import type { StepResult, Workflow } from "../../src/modules/agent/types";
 import {
-  registerEventConsumers,
-  unregisterEventConsumers,
-} from "../../src/composition/event-consumers";
-import { publish } from "../../src/modules/eventing";
+  registerTriggerConsumers,
+  unregisterTriggerConsumers,
+} from "../../src/composition/trigger-consumers";
+import { publish } from "../../src/modules/triggers";
 import { acceptEvent } from "../../src/modules/workflows";
 import { uniqueViolationConstraint } from "../../src/lib/pg-errors";
 import { closeRedis } from "../../src/queue/connection";
@@ -225,10 +225,10 @@ describe("event-dispatch duplicate-run guard (#531)", { skip: SKIP }, () => {
   before(() => {
     if (!getWorkflow(EVENT_WORKFLOW_SLUG)) registerWorkflow(eventWorkflow);
     if (!getWorkflow(SINGLETON_WORKFLOW_SLUG)) registerWorkflow(singletonEventWorkflow);
-    registerEventConsumers();
+    registerTriggerConsumers();
   });
   after(async () => {
-    unregisterEventConsumers();
+    unregisterTriggerConsumers();
     if (createdUserIds.length > 0) {
       await db().delete(user).where(inArray(user.id, createdUserIds));
     }
@@ -282,7 +282,7 @@ describe("event-dispatch duplicate-run guard (#531)", { skip: SKIP }, () => {
     assert.equal(await countActiveEventRuns(userId, eventId), 1);
   });
 
-  test("concurrent eventing publications create exactly one workflow run", async () => {
+  test("concurrent trigger publications create exactly one workflow run", async () => {
     const userId = await seedUserWithEventWorkflow();
     const eventId = `evt-${randomUUID()}`;
     const dispatch = () => publish({ userId, source: SOURCE, type: TYPE, eventId });

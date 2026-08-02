@@ -30,14 +30,14 @@ before it extracts either target package. See the
 [active structure plan](../plans/agent-friendly-module-structure.md).
 
 During Phase 1, application domain events enter through the in-place
-`packages/api/src/modules/eventing` interface. Producers publish there without
-importing consumers. `packages/api/src/composition/event-consumers.ts` wires
+`packages/api/src/modules/triggers` interface. Producers publish there without
+importing consumers. `packages/api/src/composition/trigger-consumers.ts` wires
 the workflow trigger consumer before background workers start. The current
 single consumer claims its workflow occurrence durably before publication
 returns. Durable delivery to several independent consumers is not complete.
 The older
 `packages/api/src/events` tree remains the transport-specific realtime outbox,
-SSE, and Replicache poke implementation; it is not the domain event interface.
+SSE, and Replicache poke implementation; it is not the domain trigger interface.
 
 **Web → Auth:** `apps/web/src/lib/auth-client.ts` creates a Better Auth client. The web app calls `authClient.signIn.social({ provider: "google" })` from the login surface; Better Auth redirects through Google and back to `/api/auth/callback/google`, both mounted on the Elysia server.
 

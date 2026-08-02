@@ -24,7 +24,7 @@ import {
 } from "@alfred/db/schemas";
 import { and, eq, inArray } from "drizzle-orm";
 import { publishEvent } from "../../events/publish";
-import { publish } from "../eventing";
+import { publish } from "../triggers";
 import { createRedisConnection } from "../../queue/connection";
 import {
   findNewestLiveInboundGmailDocuments,

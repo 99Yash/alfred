@@ -1,10 +1,10 @@
-import type { DomainEvent, EventConsumer, PublishedEvent } from "..";
+import type { DomainEvent, PublishedEvent, TriggerConsumer } from "..";
 
-const consumers = new Map<string, EventConsumer>();
+const consumers = new Map<string, TriggerConsumer>();
 
-export function registerConsumer(consumer: EventConsumer): () => void {
+export function registerConsumer(consumer: TriggerConsumer): () => void {
   if (consumers.has(consumer.name)) {
-    throw new Error(`[eventing] consumer '${consumer.name}' is already registered`);
+    throw new Error(`[triggers] consumer '${consumer.name}' is already registered`);
   }
   consumers.set(consumer.name, consumer);
 
@@ -16,7 +16,7 @@ export function registerConsumer(consumer: EventConsumer): () => void {
 export async function publishToConsumers(event: DomainEvent): Promise<PublishedEvent> {
   const registered = [...consumers.values()];
   if (registered.length === 0) {
-    throw new Error("[eventing] no consumers are registered");
+    throw new Error("[triggers] no consumers are registered");
   }
   const outcomes = await Promise.allSettled(registered.map((consumer) => consumer.accept(event)));
   const failures = outcomes.flatMap((outcome, index) =>
@@ -28,7 +28,7 @@ export async function publishToConsumers(event: DomainEvent): Promise<PublishedE
   if (failures.length > 0) {
     throw new AggregateError(
       failures.map((failure) => failure.cause),
-      `[eventing] ${failures.length} consumer(s) failed: ${failures
+      `[triggers] ${failures.length} consumer(s) failed: ${failures
         .map((failure) => failure.consumer)
         .join(", ")}`,
     );
