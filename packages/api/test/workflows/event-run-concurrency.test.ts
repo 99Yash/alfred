@@ -289,8 +289,8 @@ describe("event-dispatch duplicate-run guard (#531)", { skip: SKIP }, () => {
 
     const [a, b] = await Promise.all([dispatch(), dispatch()]);
 
-    assert.deepEqual(a, { delivered: 1 });
-    assert.deepEqual(b, { delivered: 1 });
+    assert.deepEqual(a, { acceptedConsumers: 1 });
+    assert.deepEqual(b, { acceptedConsumers: 1 });
     assert.equal(await countActiveEventRuns(userId, eventId), 1);
   });
 

@@ -283,6 +283,10 @@ execution internals.
 
 ### Triggers
 
+Here, `triggers` means publication of domain occurrences and delivery to the
+modules that react to them. It does not own workflow trigger definitions,
+filters, schedules, or occurrence claims; those remain in `automation`.
+
 ```ts
 interface Triggers {
   publish(event: DomainEvent, options: PublishOptions): Promise<PublishedEvent>;
@@ -479,9 +483,9 @@ and a developer can run one non-mutating verification command.
 the workflow trigger consumer in runtime composition. The Google OAuth recovery
 path still keeps the broader `integrations -> workflows` module edge alive.
 Connection imports of triage, knowledge, and chat consumers also remain. The
-current sole consumer makes its durable occurrence claim before publication
-returns; durable delivery to several independent consumers remains later work
-in this phase.
+current sole consumer attempts durable occurrence claims before publication
+returns, but keeps per-workflow failure details inside automation. Durable
+delivery to several independent consumers remains later work in this phase.
 
 1. Create the in-place `triggers` interface under `packages/api`.
 2. Move durable publication out of `workflows/events`.

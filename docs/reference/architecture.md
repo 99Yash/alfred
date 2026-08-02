@@ -32,9 +32,12 @@ before it extracts either target package. See the
 During Phase 1, application domain events enter through the in-place
 `packages/api/src/modules/triggers` interface. Producers publish there without
 importing consumers. `packages/api/src/composition/trigger-consumers.ts` wires
-the workflow trigger consumer before background workers start. The current
-single consumer claims its workflow occurrence durably before publication
-returns. Durable delivery to several independent consumers is not complete.
+the workflow trigger consumer before background workers start. In this name,
+“trigger” is the published domain occurrence, not a workflow trigger
+definition or schedule; automation still owns those. The current single
+consumer attempts its durable workflow occurrence claims before publication
+returns. It reports per-workflow failures internally instead of rejecting the
+publication call. Durable delivery to several independent consumers is not complete.
 The older
 `packages/api/src/events` tree remains the transport-specific realtime outbox,
 SSE, and Replicache poke implementation; it is not the domain trigger interface.

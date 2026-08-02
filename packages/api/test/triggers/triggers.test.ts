@@ -28,7 +28,7 @@ describe("triggers", () => {
 
     try {
       const result = await publish(event);
-      assert.deepEqual(result, { delivered: 2 });
+      assert.deepEqual(result, { acceptedConsumers: 2 });
       assert.deepEqual(received.sort(), ["first:message-1", "second:message-1"]);
     } finally {
       unregisterFirst();
@@ -42,6 +42,19 @@ describe("triggers", () => {
     assert.equal(
       domainEventSchema.safeParse({ ...event, payload: { documentId: 42 } }).success,
       false,
+    );
+    assert.equal(
+      domainEventSchema.safeParse({ ...event, payload: { extra: true } }).success,
+      false,
+    );
+    assert.equal(
+      domainEventSchema.safeParse({
+        ...event,
+        source: "google.oauth.callback",
+        type: "completed",
+        payload: { workflowId: "workflow-1" },
+      }).success,
+      true,
     );
   });
 
@@ -70,6 +83,19 @@ describe("triggers", () => {
     } finally {
       unregisterFailure();
       unregisterSuccess();
+    }
+  });
+
+  test("counts a consumer that returns a domain failure as accepted", async () => {
+    const unregister = registerTriggerConsumer({
+      name: "triggers-test-domain-failure",
+      accept: async () => ({ failed: 1 }),
+    });
+
+    try {
+      assert.deepEqual(await publish(event), { acceptedConsumers: 1 });
+    } finally {
+      unregister();
     }
   });
 });

@@ -693,7 +693,9 @@ async function processIngestionJob(job: Job<IngestionJobData>): Promise<unknown>
 /**
  * Emit one Gmail message event per freshly-inserted Gmail document. Failures
  * are logged-and-swallowed: we never want trigger dispatch to fail the
- * ingestion job that just successfully wrote the docs.
+ * ingestion job that just successfully wrote the docs. This includes a strict
+ * domain-event validation failure: producer/schema drift drops that event and
+ * emits a warning instead of retrying the completed ingestion write.
  *
  * `reason` is a small audit string surfaced on the run's trigger payload so
  * we can tell webhook-driven triages apart from manual smoke runs in the logs.

@@ -34,5 +34,5 @@ export async function publishToConsumers(event: DomainEvent): Promise<PublishedE
     );
   }
 
-  return { delivered: outcomes.length };
+  return { acceptedConsumers: outcomes.length };
 }
