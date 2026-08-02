@@ -90,6 +90,9 @@ export const documents = pgTable(
     uniqueIndex("documents_source_id_idx").on(t.userId, t.source, t.sourceId),
     index("documents_user_source_idx").on(t.userId, t.source, t.authoredAt),
     index("documents_thread_idx").on(t.userId, t.source, t.sourceThreadId),
+    index("documents_embed_sweep_idx")
+      .on(t.ingestedAt.desc())
+      .where(sql`${t.embedFailedAt} IS NULL`),
   ],
 );
 
