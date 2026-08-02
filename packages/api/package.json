@@ -17,6 +17,7 @@
     "build": "node ../../scripts/clean-package-dist.mjs && tsc -b --emitDeclarationOnly --force",
     "check-types": "tsc -b --emitDeclarationOnly",
     "test": "tsx --test --test-force-exit \"test/**/*.test.ts\"",
+    "test:db": "tsx --env-file-if-exists=../../apps/server/.env --test --test-force-exit \"test/**/*.test.ts\"",
     "eval": "evalite run",
     "eval:watch": "evalite watch"
   },
