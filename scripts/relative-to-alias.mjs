@@ -15,17 +15,14 @@
 //   --check  report what would change and exit non-zero if anything would; no writes.
 
 import { readFileSync, writeFileSync } from "node:fs";
-import { execSync } from "node:child_process";
 import path from "node:path";
+import { listGitSourceFiles } from "./git-source-files.mjs";
 
 const CHECK = process.argv.includes("--check");
 const MIN_PARENT_DEPTH = 2;
 
-// root: alias base dir (what `~` maps to). Every tracked ts/tsx under it is scanned.
-const ROOTS = [
-  { root: "apps/web/src" },
-  { root: "apps/server/src" },
-];
+// root: alias base dir (what `~` maps to). Every source file under it is scanned.
+const ROOTS = [{ root: "apps/web/src" }, { root: "apps/server/src" }];
 
 // `from "..."` and `import("...")`. Capture: lead, quote, specifier.
 const specRe = /(\bfrom\s*|\bimport\s*\(\s*)(["'])((?:\.\.?\/)[^"']*)\2/g;
@@ -45,11 +42,7 @@ let changedSpecs = 0;
 const report = [];
 
 for (const { root } of ROOTS) {
-  const files = execSync(`git ls-files '${root}/**/*.ts' '${root}/**/*.tsx'`, {
-    encoding: "utf8",
-  })
-    .split("\n")
-    .filter(Boolean);
+  const files = listGitSourceFiles([`${root}/**/*.ts`, `${root}/**/*.tsx`]);
 
   for (const file of files) {
     const fileDir = path.dirname(file);
@@ -70,6 +63,8 @@ for (const { root } of ROOTS) {
   }
 }
 
-console.log(`${CHECK ? "Would rewrite" : "Rewrote"} ${changedSpecs} specifiers across ${changedFiles} files:`);
+console.log(
+  `${CHECK ? "Would rewrite" : "Rewrote"} ${changedSpecs} specifiers across ${changedFiles} files:`,
+);
 for (const line of report) console.log(line);
 if (CHECK && changedSpecs > 0) process.exit(1);
