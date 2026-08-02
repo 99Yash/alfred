@@ -473,6 +473,7 @@ export const pendingActions = pgTable(
   },
   (t) => [
     uniqueIndex("pending_actions_idem_idx").on(t.idempotencyKey),
+    index("pending_actions_run_idx").on(t.runId),
     index("pending_actions_status_idx")
       .on(t.status, t.id)
       .where(sql`${t.status} = 'pending'`),
