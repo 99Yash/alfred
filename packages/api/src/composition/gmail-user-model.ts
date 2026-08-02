@@ -6,7 +6,6 @@ import {
   enqueueGmailKindRefold,
   registerGmailUserModelHandler,
   type GmailKindRefoldResult,
-  type GmailObservationCaptureResult,
   type GmailUserModelHandler,
 } from "../modules/integrations";
 import {
@@ -80,19 +79,6 @@ const DEFAULT_DEPS: GmailUserModelAdapterDeps = {
   refoldProjection: refoldActiveGmailKindProjection,
 };
 
-function emptyCaptureResult(): GmailObservationCaptureResult {
-  return {
-    status: "captured",
-    documents: 0,
-    inserted: 0,
-    deduped: 0,
-    skipped: 0,
-    warnings: 0,
-    errors: 0,
-    refoldScheduled: false,
-  };
-}
-
 function connectionRefoldResult(
   result: Awaited<ReturnType<typeof refoldActiveGmailKindProjection>>,
 ): GmailKindRefoldResult {
@@ -123,7 +109,7 @@ export function createGmailUserModelHandler(
   const deps = withDefaults(DEFAULT_DEPS, overrides);
   return {
     async capture(request) {
-      if (request.documentIds.length === 0) return emptyCaptureResult();
+      if (request.documentIds.length === 0) return { status: "captured" };
 
       try {
         const docs: GmailDocumentForReduction[] = [];
@@ -176,16 +162,7 @@ export function createGmailUserModelHandler(
         );
         if (inserted > 0) await deps.enqueueRefold(request.userId);
 
-        return {
-          status: "captured",
-          documents: docs.length,
-          inserted,
-          deduped,
-          skipped,
-          warnings,
-          errors,
-          refoldScheduled: inserted > 0,
-        };
+        return { status: "captured" };
       } catch (err) {
         console.warn(
           `[ingestion:worker] user-model gmail observation capture failed user=${request.userId}:`,

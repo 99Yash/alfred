@@ -1,4 +1,5 @@
 import {
+  type GmailKindRefoldSkippedReason,
   USER_MODEL_PROJECTION_NAME,
   canonicalizeIdentityValue,
   getStringPath,
@@ -63,7 +64,7 @@ import { userModelReader } from "./reader";
  * auto-activation, needs a manual re-activation) — the safe direction.
  */
 export type RefoldGmailKindProjectionResult =
-  | { readonly status: "skipped"; readonly reason: string }
+  | { readonly status: "skipped"; readonly reason: GmailKindRefoldSkippedReason }
   | {
       readonly status: "blocked";
       readonly reason: "logic-drift" | "unverifiable-active-run";

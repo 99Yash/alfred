@@ -35,28 +35,13 @@ describe("Gmail user-model composition seam", () => {
       false,
     );
     assert.equal(
-      gmailObservationCaptureResultSchema.safeParse({
-        status: "captured",
-        documents: 2,
-        inserted: 1,
-        deduped: 1,
-        skipped: 0,
-        warnings: 0,
-        errors: 0,
-        refoldScheduled: true,
-      }).success,
+      gmailObservationCaptureResultSchema.safeParse({ status: "captured" }).success,
       true,
     );
     assert.equal(
       gmailObservationCaptureResultSchema.safeParse({
         status: "captured",
-        documents: 2,
-        inserted: 0,
-        deduped: 2,
-        skipped: 0,
-        warnings: 0,
-        errors: 0,
-        refoldScheduled: true,
+        inserted: 1,
       }).success,
       false,
     );
@@ -70,6 +55,28 @@ describe("Gmail user-model composition seam", () => {
       true,
     );
     assert.equal(gmailKindRefoldSweepResultSchema.safeParse({ enqueued: 2 }).success, true);
+    assert.equal(
+      gmailKindRefoldResultSchema.safeParse({ status: "skipped", reason: "up-to-date" }).success,
+      true,
+    );
+    assert.equal(
+      gmailKindRefoldResultSchema.safeParse({ status: "skipped", reason: "up-to-dtae" }).success,
+      false,
+    );
+    assert.equal(
+      gmailObservationCaptureRequestSchema.safeParse({
+        userId: "u".repeat(501),
+        documentIds: [],
+      }).success,
+      false,
+    );
+    assert.equal(
+      gmailObservationCaptureRequestSchema.safeParse({
+        userId: "user-1",
+        documentIds: Array.from({ length: 10_001 }, (_, index) => `document-${index}`),
+      }).success,
+      false,
+    );
   });
 
   test("passes validated requests and results through the registered handler", async () => {
@@ -77,7 +84,7 @@ describe("Gmail user-model composition seam", () => {
     const unregister = registerGmailUserModelHandler({
       async capture(request) {
         received = request;
-        return capturedResult({ documents: 2, inserted: 0, deduped: 2 });
+        return { status: "captured" };
       },
       async refold(request) {
         assert.deepEqual(request, { userId: "user-1" });
@@ -90,10 +97,7 @@ describe("Gmail user-model composition seam", () => {
     });
 
     try {
-      assert.deepEqual(
-        await captureGmailObservations(captureRequest),
-        capturedResult({ documents: 2, inserted: 0, deduped: 2 }),
-      );
+      assert.deepEqual(await captureGmailObservations(captureRequest), { status: "captured" });
       assert.deepEqual(received, captureRequest);
       assert.deepEqual(await refoldGmailKindProjection({ userId: "user-1" }), {
         status: "skipped",
@@ -121,7 +125,7 @@ describe("Gmail user-model composition seam", () => {
 
     const invalidHandler = {
       async capture() {
-        return capturedResult({ inserted: 0, refoldScheduled: true });
+        return { status: "unexpected" };
       },
       async refold() {
         return { status: "activated", projectionVersion: -1 };
@@ -163,10 +167,9 @@ describe("Gmail user-model composition seam", () => {
     );
 
     try {
-      assert.deepEqual(
-        await captureGmailObservations({ userId: "user-1", documentIds: [] }),
-        capturedResult(),
-      );
+      assert.deepEqual(await captureGmailObservations({ userId: "user-1", documentIds: [] }), {
+        status: "captured",
+      });
       assert.equal(calls, 0);
     } finally {
       unregister();
@@ -186,10 +189,9 @@ describe("Gmail user-model composition seam", () => {
 
     try {
       const documentIds = Array.from({ length: 2001 }, (_, index) => `document-${index}`);
-      assert.deepEqual(
-        await captureGmailObservations({ userId: "user-1", documentIds }),
-        capturedResult(),
-      );
+      assert.deepEqual(await captureGmailObservations({ userId: "user-1", documentIds }), {
+        status: "captured",
+      });
       assert.deepEqual(chunkSizes, [1000, 1000, 1]);
     } finally {
       unregister();
@@ -258,18 +260,7 @@ describe("Gmail user-model composition seam", () => {
     );
 
     try {
-      assert.deepEqual(
-        await captureGmailObservations(captureRequest),
-        capturedResult({
-          documents: 5,
-          inserted: 1,
-          deduped: 1,
-          skipped: 1,
-          warnings: 1,
-          errors: 2,
-          refoldScheduled: true,
-        }),
-      );
+      assert.deepEqual(await captureGmailObservations(captureRequest), { status: "captured" });
       assert.deepEqual(enqueued, ["user-1"]);
       assert.match(String(warnings[0]?.[0]), /observation warn doc=inserted/);
       assert.match(String(warnings[1]?.[0]), /observation failed doc=append-error/);
@@ -308,10 +299,7 @@ describe("Gmail user-model composition seam", () => {
     );
 
     try {
-      assert.deepEqual(
-        await captureGmailObservations(captureRequest),
-        capturedResult({ documents: 1, deduped: 1 }),
-      );
+      assert.deepEqual(await captureGmailObservations(captureRequest), { status: "captured" });
       assert.equal(enqueued, 0);
     } finally {
       unregister();
@@ -415,30 +403,6 @@ describe("Gmail user-model composition seam", () => {
     }
   });
 });
-
-function capturedResult(
-  overrides: Partial<{
-    documents: number;
-    inserted: number;
-    deduped: number;
-    skipped: number;
-    warnings: number;
-    errors: number;
-    refoldScheduled: boolean;
-  }> = {},
-) {
-  return {
-    status: "captured" as const,
-    documents: 0,
-    inserted: 0,
-    deduped: 0,
-    skipped: 0,
-    warnings: 0,
-    errors: 0,
-    refoldScheduled: false,
-    ...overrides,
-  };
-}
 
 function gmailDoc(id: string): GmailDocumentForReduction {
   return {

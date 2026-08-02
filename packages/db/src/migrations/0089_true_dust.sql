@@ -44,6 +44,17 @@ BEGIN
 		RAISE EXCEPTION 'cannot migrate shared MCP OAuth credentials: more than one mcp_connections row uses the same credential';
 	END IF;
 END $$;--> statement-breakpoint
+DO $$
+BEGIN
+	IF EXISTS (
+		SELECT 1
+		FROM "mcp_connections" AS connection
+		JOIN "mcp_oauth_credentials" AS credential ON credential."id" = connection."credential_id"
+		WHERE connection."user_id" <> credential."user_id"
+	) THEN
+		RAISE EXCEPTION 'cannot migrate MCP OAuth credential with an owner different from its connection';
+	END IF;
+END $$;--> statement-breakpoint
 UPDATE "mcp_oauth_credentials" AS credential
 SET "connection_id" = connection."id"
 FROM "mcp_connections" AS connection
