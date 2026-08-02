@@ -21,6 +21,7 @@ import {
   registerChatMedia,
   registerGmailTriage,
   registerGmailUserModel,
+  registerGoogleCredentialLifecycle,
   registerOnUserCreated,
   registerTriggerConsumers,
   registerWorkflowRecovery,
@@ -56,6 +57,7 @@ import {
   unregisterChatMedia,
   unregisterGmailTriage,
   unregisterGmailUserModel,
+  unregisterGoogleCredentialLifecycle,
   unregisterWorkflowRecovery,
   verifyMeteringModels,
   warmPool,
@@ -115,6 +117,7 @@ export async function startRuntime(): Promise<void> {
   registerChatMedia();
   registerGmailTriage();
   registerGmailUserModel();
+  registerGoogleCredentialLifecycle();
   registerTriggerConsumers();
   registerWorkflowRecovery();
 
@@ -184,6 +187,7 @@ export async function stopRuntime(): Promise<void> {
   } else {
     console.warn("Ingestion adapters retained because the ingestion worker did not stop");
   }
+  unregisterGoogleCredentialLifecycle();
   unregisterWorkflowRecovery();
 
   try {

@@ -31,6 +31,7 @@ Alfred is a personal AI assistant.
 
 - Read [decisions.md](./decisions.md) before changing architecture. It is a snapshot table plus an index; the ADRs themselves are one file each under [`docs/decisions/`](./docs/decisions/). Open the two or three that touch your change — not all of them.
 - When opening a PR, state the issues it closes in the body with GitHub closing keywords (`Closes #N`), one per issue the PR _fully_ resolves. Reference a partially-addressed issue (e.g. `Refs #N`) without a closing keyword so it stays open.
+- Write each PR body for a reviewer who knows the Alfred product but does not know the changed flow. Use these sections: `Where this change sits`, `Why this change is needed`, `What this change does`, and `Preserved behavior`. Explain the user or background flow, the old and new ownership, the main implementation changes, and the invariants that must not change. Do not use file names as the only explanation.
 - Relevant or appropriate locations of handoff docs: at /private/tmp/claude-501/-Users-yash-Developer-self-alfred/... or ./.handoff here along with ./.lessons.
 
 ## References
