@@ -143,34 +143,31 @@ export async function embedDocument(args: EmbedDocumentArgs): Promise<EmbedDocum
     throw err;
   }
 
-  // Upsert per chunk position. The (document_id, position) unique index
-  // makes this a single-statement upsert per row.
-  for (let i = 0; i < toEmbed.length; i++) {
-    const chunk = toEmbed[i]!;
-    const vector = vectors[i]!;
-    const hash = toEmbedHashes[i]!;
-    await db()
-      .insert(chunks)
-      .values({
+  // Upsert every changed position in one round-trip. Conflict updates must
+  // read from `excluded`: each row has different content, vector, and hash.
+  await db()
+    .insert(chunks)
+    .values(
+      toEmbed.map((chunk, i) => ({
         documentId: doc.id,
         userId: doc.userId,
         position: chunk.position,
         content: chunk.content,
-        embedding: vector,
+        embedding: vectors[i]!,
         tokenCount: chunk.tokenCount,
-        contentHash: hash,
-      })
-      .onConflictDoUpdate({
-        target: [chunks.documentId, chunks.position],
-        set: {
-          content: chunk.content,
-          embedding: vector,
-          tokenCount: chunk.tokenCount,
-          contentHash: hash,
-          updatedAt: new Date(),
-        },
-      });
-  }
+        contentHash: toEmbedHashes[i]!,
+      })),
+    )
+    .onConflictDoUpdate({
+      target: [chunks.documentId, chunks.position],
+      set: {
+        content: sql`excluded.content`,
+        embedding: sql`excluded.embedding`,
+        tokenCount: sql`excluded.token_count`,
+        contentHash: sql`excluded.content_hash`,
+        updatedAt: new Date(),
+      },
+    });
 
   // Clear any prior poison-pill streak now that the doc embedded cleanly, so the
   // wall-clock grace is per-failure-streak and a resurrected doc doesn't carry a

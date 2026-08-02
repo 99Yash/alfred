@@ -99,7 +99,6 @@ export const integrationCredentials = pgTable(
   },
   (t) => [
     uniqueIndex("integration_credentials_unique_idx").on(t.userId, t.provider, t.accountId),
-    index("integration_credentials_user_idx").on(t.userId, t.provider),
     // Webhook deliveries resolve their owning user by GitHub installation id.
     index("integration_credentials_installation_idx").on(t.installationId),
   ],

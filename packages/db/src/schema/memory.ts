@@ -385,6 +385,9 @@ export const memoryChunks = pgTable(
   (t) => [
     index("memory_chunks_user_kind_idx").on(t.userId, t.kind, t.createdAt),
     uniqueIndex("memory_chunks_hash_idx").on(t.userId, t.kind, t.contentHash),
+    index("memory_chunks_embed_sweep_idx")
+      .on(t.id)
+      .where(sql`${t.embedding} IS NULL AND ${t.embedFailedAt} IS NULL`),
     check("memory_chunks_source_shape", memorySourceShapeCheck(t.source)),
   ],
 );
@@ -472,10 +475,7 @@ export const rejectedInferences = pgTable(
     rejectedAt: timestamp("rejected_at", { withTimezone: true }).defaultNow().notNull(),
     ...lifecycle_dates,
   },
-  (t) => [
-    uniqueIndex("rejected_inferences_signature_idx").on(t.userId, t.key, t.valueSignature),
-    index("rejected_inferences_key_idx").on(t.userId, t.key),
-  ],
+  (t) => [uniqueIndex("rejected_inferences_signature_idx").on(t.userId, t.key, t.valueSignature)],
 );
 
 export type UserFact = typeof userFacts.$inferSelect;
