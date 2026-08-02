@@ -1,21 +1,36 @@
 import { toMessage } from "@alfred/contracts";
+import { z } from "zod";
 
-export interface WorkflowRecoveryRequest {
-  userId: string;
-  workflowId: string;
-  revisionId: string;
-}
+export const workflowRecoveryStateSchema = z
+  .object({
+    workflowId: z.string().min(1).max(200),
+    revisionId: z.string().min(1).max(200),
+  })
+  .strict();
 
-export type WorkflowRecoveryResult =
-  | {
-      status: "ready" | "blocked";
-      workflowSlug: string;
-      revisionId: string;
-    }
-  | {
-      status: "failure";
-      failureKind: string;
-    };
+export const workflowRecoveryRequestSchema = workflowRecoveryStateSchema
+  .extend({ userId: z.string().min(1).max(200) })
+  .strict();
+
+export type WorkflowRecoveryRequest = z.infer<typeof workflowRecoveryRequestSchema>;
+
+export const workflowRecoveryResultSchema = z.discriminatedUnion("status", [
+  z
+    .object({
+      status: z.enum(["ready", "blocked"]),
+      workflowSlug: z.string().min(1).max(200),
+      revisionId: z.string().min(1).max(200),
+    })
+    .strict(),
+  z
+    .object({
+      status: z.literal("failure"),
+      failureKind: z.string().min(1).max(100),
+    })
+    .strict(),
+]);
+
+export type WorkflowRecoveryResult = z.infer<typeof workflowRecoveryResultSchema>;
 
 export type WorkflowRecoveryHandler = (
   request: WorkflowRecoveryRequest,
@@ -40,15 +55,14 @@ export function registerWorkflowRecoveryHandler(handler: WorkflowRecoveryHandler
  * redirect. Workflow result details stay behind the registered adapter; this
  * module owns only the connection-facing ready, blocked, and failure states.
  */
-export async function resolveWorkflowRecoveryTarget(
-  request: WorkflowRecoveryRequest,
-): Promise<string> {
+export async function resolveWorkflowRecoveryTarget(request: unknown): Promise<string> {
+  const parsedRequest = workflowRecoveryRequestSchema.parse(request);
   try {
     if (!recoveryHandler) {
       throw new Error("[integrations] no workflow recovery handler is registered");
     }
 
-    const recovered = await recoveryHandler(request);
+    const recovered = workflowRecoveryResultSchema.parse(await recoveryHandler(parsedRequest));
     if (recovered.status === "failure") {
       return `/workflows?workflow_recovery=${encodeURIComponent(recovered.failureKind)}`;
     }
@@ -56,7 +70,7 @@ export async function resolveWorkflowRecoveryTarget(
     return `/workflows/${encodeURIComponent(recovered.workflowSlug)}?workflow_recovery=${recovered.status}&revision_id=${encodeURIComponent(recovered.revisionId)}`;
   } catch (err) {
     console.warn(
-      `[google.callback] failed to recover workflow ${request.workflowId}:`,
+      `[google.callback] failed to recover workflow ${parsedRequest.workflowId}:`,
       toMessage(err),
     );
     return "/workflows?workflow_recovery=failed";
