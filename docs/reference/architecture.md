@@ -59,6 +59,17 @@ the mailbox-write gate. Requests and adapter results are validated at the
 integrations-owned interface, so integrations does not import the triage
 implementation.
 
+Gmail post-insert observation capture enters through `captureGmailObservations`,
+and the queued kind projection refresh enters through
+`refoldGmailKindProjection`. Runtime composition registers one user-model adapter
+before ingestion workers start. The adapter owns document loading in 1,000-row
+query chunks, reduction, observation-family append behavior, issue accounting,
+the decision to schedule a refold, and active-projection sweep selection. The
+ingestion queue still owns BullMQ transport, deduplication, retry, and retention
+settings. Capture failures remain best-effort, while missing composition and
+refold failures reject the ingestion job so worker retry and monitoring remain
+effective.
+
 **Web → Auth:** `apps/web/src/lib/auth-client.ts` creates a Better Auth client. The web app calls `authClient.signIn.social({ provider: "google" })` from the login surface; Better Auth redirects through Google and back to `/api/auth/callback/google`, both mounted on the Elysia server.
 
 **API → Auth:** `packages/api/src/middleware/session-cache.ts` calls `auth().api.getSession()` with a two-layer cache (per-request WeakMap + 10-second token cache). Import `getSessionCached()` in route handlers; never call `auth()` directly from routes.
