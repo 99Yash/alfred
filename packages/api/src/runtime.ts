@@ -3,6 +3,10 @@ export { registerChatMedia, unregisterChatMedia } from "./composition/chat-media
 export { registerGmailTriage, unregisterGmailTriage } from "./composition/gmail-triage";
 export { registerGmailUserModel, unregisterGmailUserModel } from "./composition/gmail-user-model";
 export {
+  registerGoogleCredentialLifecycle,
+  unregisterGoogleCredentialLifecycle,
+} from "./composition/google-credential-lifecycle";
+export {
   registerTriggerConsumers,
   unregisterTriggerConsumers,
 } from "./composition/trigger-consumers";

@@ -88,7 +88,8 @@ export function isOrgAffiliationObservationAppendConflict(err: unknown): boolean
   return constraint !== null && OBSERVATION_CHAIN_CONSTRAINTS.has(constraint);
 }
 
-async function retryOrgAffiliationAppend<T>(fn: () => Promise<T>): Promise<T> {
+/** Apply the one bounded retry policy for org-affiliation observation-chain conflicts. */
+export async function retryOnObservationChainConflict<T>(fn: () => Promise<T>): Promise<T> {
   for (let attempt = 1; ; attempt++) {
     try {
       return await fn();
@@ -253,7 +254,7 @@ async function insertOrgAffiliationObservation(
     );
   };
 
-  return tx ? runOnce(tx) : retryOrgAffiliationAppend(() => db().transaction(runOnce));
+  return tx ? runOnce(tx) : retryOnObservationChainConflict(() => db().transaction(runOnce));
 }
 
 async function loadGoogleCredentialForAffiliation(
@@ -370,7 +371,7 @@ export async function recordOrgAffiliationOnCredentialUpsert(
     };
   };
 
-  return tx ? run(tx) : retryOrgAffiliationAppend(() => db().transaction(run));
+  return tx ? run(tx) : retryOnObservationChainConflict(() => db().transaction(run));
 }
 
 /**
