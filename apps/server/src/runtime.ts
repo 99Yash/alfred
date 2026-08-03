@@ -18,13 +18,8 @@ import {
   initReplicachePokeBridge,
   reconcileInflightInvocations,
   registerBuiltinTools,
-  registerChatMedia,
-  registerGmailTriage,
-  registerGmailUserModel,
-  registerGoogleCredentialLifecycle,
   registerOnUserCreated,
-  registerTriggerConsumers,
-  registerWorkflowRecovery,
+  registerRuntimeAdapters,
   scheduleRepeatableBriefingJobs,
   scheduleRepeatableIngestionJobs,
   scheduleRepeatableMemoryJobs,
@@ -53,12 +48,7 @@ import {
   stopPolicyBustSubscriber,
   stopSubAgentJoinWakeWorker,
   stopWorkflowsWorker,
-  unregisterTriggerConsumers,
-  unregisterChatMedia,
-  unregisterGmailTriage,
-  unregisterGmailUserModel,
-  unregisterGoogleCredentialLifecycle,
-  unregisterWorkflowRecovery,
+  unregisterRuntimeAdapters,
   verifyMeteringModels,
   warmPool,
 } from "@alfred/api/runtime";
@@ -114,12 +104,7 @@ export async function startRuntime(): Promise<void> {
   // their workflow or tool names.
   registerBuiltinWorkflows();
   registerBuiltinTools();
-  registerChatMedia();
-  registerGmailTriage();
-  registerGmailUserModel();
-  registerGoogleCredentialLifecycle();
-  registerTriggerConsumers();
-  registerWorkflowRecovery();
+  registerRuntimeAdapters();
 
   registerOnUserCreated(async (user) => {
     await seedBuiltinWorkflowsForUser(user.id);
@@ -179,16 +164,10 @@ export async function stopRuntime(): Promise<void> {
 
   // These adapters serve ingestion jobs. Keep them registered if stopping that
   // worker failed, so an already-leased job cannot observe missing composition.
-  if (ingestionWorkerStopped) {
-    unregisterTriggerConsumers();
-    unregisterChatMedia();
-    unregisterGmailTriage();
-    unregisterGmailUserModel();
-  } else {
+  if (!ingestionWorkerStopped) {
     console.warn("Ingestion adapters retained because the ingestion worker did not stop");
   }
-  unregisterGoogleCredentialLifecycle();
-  unregisterWorkflowRecovery();
+  unregisterRuntimeAdapters({ ingestionWorkerStopped });
 
   try {
     // Workers are stopped, so no new metering rows or Langfuse spans will be
