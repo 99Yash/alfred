@@ -15,7 +15,6 @@ export {
   readsAvailabilitySnapshot,
   resolveToolAvailability,
   riskTierCountsForIntegration,
-  toolRunContext,
   clearToolRegistryForTests,
   type RiskTierCounts,
   type RegisteredTool,

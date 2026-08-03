@@ -29,6 +29,7 @@ describe("liveTool resolveRiskTier wiring", () => {
     userId: "user_1",
     timezone: "UTC",
     caller: "boss",
+    runContext: { caller: "boss", interaction: "background" },
   });
 
   test("preserves the static riskTier as the floor on the registry entry", () => {

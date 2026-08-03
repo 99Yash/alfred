@@ -178,6 +178,7 @@ async function main(): Promise<void> {
     input: { key: "shared.dispatch", value: { ok: true } },
     userId,
     caller: "boss",
+    runContext: { caller: "boss", interaction: "background" },
   });
   if (bossWrite.kind !== "executed") {
     throw new Error(
@@ -202,6 +203,7 @@ async function main(): Promise<void> {
     input: { key: "scratch.subA.dispatch", value: "sub-owned" },
     userId,
     caller: { subId: "subA" },
+    runContext: { caller: "sub_agent", interaction: "background" },
   });
   if (subWrite.kind !== "executed") {
     throw new Error(`[smoke-scratchpad] sub own write expected executed, got ${subWrite.kind}`);
@@ -225,6 +227,7 @@ async function main(): Promise<void> {
     input: { key: "shared.blocked", value: "no" },
     userId,
     caller: { subId: "subA" },
+    runContext: { caller: "sub_agent", interaction: "background" },
   });
   if (subSharedWrite.kind !== "invalid_input") {
     throw new Error(
@@ -241,6 +244,7 @@ async function main(): Promise<void> {
     input: { key: "scratch.subA.blocked", value: "no" },
     userId,
     caller: "boss",
+    runContext: { caller: "boss", interaction: "background" },
   });
   if (bossScratchWrite.kind !== "invalid_input") {
     throw new Error(
@@ -257,6 +261,7 @@ async function main(): Promise<void> {
     input: { key: "scratch.subB.findings" },
     userId,
     caller: { subId: "subA" },
+    runContext: { caller: "sub_agent", interaction: "background" },
   });
   if (subOtherRead.kind !== "invalid_input") {
     throw new Error(
@@ -273,6 +278,7 @@ async function main(): Promise<void> {
     input: { fromKey: "scratch.subA.dispatch", toKey: "shared.dispatch_promoted" },
     userId,
     caller: "boss",
+    runContext: { caller: "boss", interaction: "background" },
   });
   if (promotedByDispatch.kind !== "executed") {
     throw new Error(

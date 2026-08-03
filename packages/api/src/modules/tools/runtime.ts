@@ -1,4 +1,4 @@
-/** Server-boot registration for the built-in capability definitions. */
+/** Server-boot registration for the built-in tool definitions. */
 
 import { calendarTools } from "./calendar";
 import { registerToolsRuntimeAdapter } from "./tool-runtime-adapter";

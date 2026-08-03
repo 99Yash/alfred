@@ -55,7 +55,7 @@ import { promoteScratch, readScratch, writeScratch } from "../scratchpad";
 import { resolveTodosForGmailSender } from "../todos/resolve";
 import { suggestTodo } from "../todos/suggest";
 import { redactCredentialUrl, runFetchUrl } from "./fetch-url";
-import { liveTool, toolRunContext, type RegisteredTool } from "./registry";
+import { liveTool, type RegisteredTool } from "./registry";
 import { parseScratchToolKey } from "./scratch-key";
 import { runWebSearch } from "./web-search";
 import { resolveExactToolLoad, searchAvailableTools } from "./discovery";
@@ -159,7 +159,7 @@ export const systemTools: readonly RegisteredTool[] = [
           query: input.query,
           limit: input.limit,
           allowedIntegrations: ctx.allowedIntegrations ?? [],
-          context: toolRunContext({ caller: ctx.caller, threadId: ctx.threadId }),
+          context: ctx.runContext,
         });
         span.end({
           candidateNames: candidates.map((candidate) => candidate.name),
@@ -203,7 +203,7 @@ export const systemTools: readonly RegisteredTool[] = [
           userId: ctx.userId,
           name: input.name,
           allowedIntegrations: ctx.allowedIntegrations ?? [],
-          context: toolRunContext({ caller: ctx.caller, threadId: ctx.threadId }),
+          context: ctx.runContext,
         });
         span.end({
           outcome: result.ok ? "ok" : result.status,

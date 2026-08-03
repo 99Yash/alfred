@@ -128,6 +128,7 @@ function dispatchGithubRequest(userId: string, runId: string, page: number) {
     input: { method: "GET", path: `/repos/x/y/commits?page=${page}` },
     userId,
     caller: "boss",
+    runContext: { caller: "boss", interaction: "background" },
   });
 }
 

@@ -19,30 +19,27 @@ import { estimateToolSurfaceBudget } from "./schema-budget";
 const sdkSurfaceCache = new Map<string, ResolvedToolSurface>();
 
 const toolsRuntimeAdapter: ToolRuntimeAdapter = {
-  normalize(input) {
-    if (input.activeNames) {
-      return {
-        activeNames: registeredToolNames(input.activeNames),
-        kernelNames: listKernelTools().map((definition) => definition.name),
-      };
-    }
-
-    const kernelNames = requiredToolKernelNames();
-    const integrationNames = new Set<ToolName>();
-    for (const integration of input.legacyIntegrationNames ?? []) {
-      if (integration === "system" || !isIntegrationSlug(integration)) continue;
-      for (const definition of listToolsForIntegration(integration)) {
-        integrationNames.add(definition.name);
+  restore(source) {
+    switch (source.kind) {
+      case "kernel":
+        return requiredToolKernelNames();
+      case "exact":
+        return registeredToolNames(source.names);
+      case "legacy": {
+        const integrationNames = new Set<ToolName>();
+        for (const integration of source.integrationNames) {
+          if (integration === "system" || !isIntegrationSlug(integration)) continue;
+          for (const definition of listToolsForIntegration(integration)) {
+            integrationNames.add(definition.name);
+          }
+        }
+        return uniqueToolNames([
+          ...requiredToolKernelNames(),
+          ...integrationNames,
+          ...registeredToolNames(source.pendingNames),
+        ]);
       }
     }
-    return {
-      activeNames: uniqueToolNames([
-        ...kernelNames,
-        ...integrationNames,
-        ...registeredToolNames(input.pendingNames ?? []),
-      ]),
-      kernelNames,
-    };
   },
 
   /**
@@ -98,19 +95,18 @@ const toolsRuntimeAdapter: ToolRuntimeAdapter = {
     return uniqueToolNames([...names]);
   },
 
-  preparePreload(input) {
+  async selectPreload(input) {
     const prompt = latestUserPrompt(input.transcript);
     return {
       promptChars: prompt.length,
-      select: () =>
-        preloadToolsForPrompt({
-          userId: input.userId,
-          prompt,
-          allowedIntegrations: input.allowedIntegrations,
-          activeTools: input.activeNames,
-          context: input.context,
-          availability: input.availability,
-        }),
+      selectedNames: await preloadToolsForPrompt({
+        userId: input.userId,
+        prompt,
+        allowedIntegrations: input.allowedIntegrations,
+        activeTools: input.activeNames,
+        context: input.context,
+        availability: input.availability,
+      }),
     };
   },
 };

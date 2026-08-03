@@ -4,9 +4,9 @@ import { afterEach, beforeEach, test } from "node:test";
 import { z } from "zod";
 
 import {
-  normalizeToolSurface,
-  prepareToolPreload,
   resolveToolSurface,
+  restoreToolSurface,
+  selectToolPreload,
   toolNamesForIntegrations,
 } from "../../src/modules/tool-runtime";
 import { liveTool, registerTools } from "../../src/modules/tools/registry";
@@ -46,18 +46,16 @@ function registerSurfaceFixtures(): void {
   ]);
 }
 
-test("normalizes a legacy surface through the registered tool catalog", () => {
+test("restores a legacy surface through the registered tool catalog", () => {
   registerSurfaceFixtures();
 
   assert.deepEqual(
-    normalizeToolSurface({
-      legacyIntegrationNames: ["gmail", "system"],
+    restoreToolSurface({
+      kind: "legacy",
+      integrationNames: ["gmail", "system"],
       pendingNames: ["retired.tool"],
     }),
-    {
-      activeNames: ["gmail.search", "system.read_chat_history", "system.search_tools"],
-      kernelNames: ["system.read_chat_history", "system.search_tools"],
-    },
+    ["gmail.search", "system.read_chat_history", "system.search_tools"],
   );
 });
 
@@ -127,7 +125,7 @@ test("selects an exact available preload through the workflow allowlist", async 
   };
   const transcript = [{ role: "user", content: "gmail.search" }];
 
-  const allowed = prepareToolPreload({
+  const allowed = await selectToolPreload({
     userId: "user_1",
     transcript,
     allowedIntegrations: ["gmail"],
@@ -136,9 +134,9 @@ test("selects an exact available preload through the workflow allowlist", async 
     availability,
   });
   assert.equal(allowed.promptChars, transcript[0]?.content.length);
-  assert.deepEqual(await allowed.select(), ["gmail.search"]);
+  assert.deepEqual(allowed.selectedNames, ["gmail.search"]);
 
-  const disallowed = prepareToolPreload({
+  const disallowed = await selectToolPreload({
     userId: "user_1",
     transcript,
     allowedIntegrations: ["calendar"],
@@ -146,5 +144,5 @@ test("selects an exact available preload through the workflow allowlist", async 
     context: { caller: "boss", interaction: "live_chat" },
     availability,
   });
-  assert.deepEqual(await disallowed.select(), []);
+  assert.deepEqual(disallowed.selectedNames, []);
 });

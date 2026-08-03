@@ -31,6 +31,7 @@ async function main(): Promise<void> {
       toolCallId: "smoke-call",
       userId: "smoke-user",
       caller: "boss",
+      runContext: { caller: "boss", interaction: "background" },
       timezone: DEFAULT_USER_TIMEZONE,
     }),
   )) as { ok: boolean; answer: string; citations: string[] };

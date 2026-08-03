@@ -126,6 +126,8 @@ async function stageGatedDraft(userId: string, runId: string, toolCallId: string
     activeTools: ["gmail.send_draft"],
     input: DRAFT_INPUT,
     userId,
+    caller: "boss",
+    runContext: { caller: "boss", interaction: "background" },
   });
   assert(staged.kind === "staged", `expected 'staged', got '${staged.kind}'`);
   return (staged as { stagingId: string }).stagingId;
@@ -217,6 +219,8 @@ async function main(): Promise<void> {
     activeTools: ["gmail.send_draft"],
     input: DRAFT_INPUT,
     userId,
+    caller: "boss",
+    runContext: { caller: "boss", interaction: "background" },
   });
   assert(
     reDispatched.kind === "rejected",

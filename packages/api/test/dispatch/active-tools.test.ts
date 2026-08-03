@@ -267,6 +267,7 @@ const baseDispatch = {
   input: { key: "shared.test" },
   userId: "user_1",
   caller: "boss" as const,
+  runContext: { caller: "boss", interaction: "background" } as const,
   timezone: "UTC",
 };
 
