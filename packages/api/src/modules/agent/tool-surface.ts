@@ -7,12 +7,12 @@ import {
 } from "@alfred/contracts";
 import type { ToolSet } from "@alfred/ai";
 import { z } from "zod";
-import { normalizeToolSurface, prepareToolPreload, resolveToolSurface } from "../tool-runtime";
+import { resolveToolSurface, restoreToolSurface, selectToolPreload } from "../tool-runtime";
 import type { DispatchResult } from "../dispatch";
 import { startToolLoadSpan, startToolPreloadSpan, startToolSurfaceSpan } from "./runtime-spans";
 
 export function systemToolKernel(): ToolName[] {
-  return normalizeToolSurface({}).kernelNames;
+  return restoreToolSurface({ kind: "kernel" });
 }
 
 /** Expand persisted integration-level state once, then checkpoint exact names. */
@@ -21,16 +21,18 @@ export function migrateActiveTools(
   legacyActiveIntegrations: readonly string[] | undefined,
   legacyPendingToolNames: readonly string[] = [],
 ): ToolName[] {
-  return normalizeToolSurface({
-    activeNames: activeTools,
-    legacyIntegrationNames: legacyActiveIntegrations,
-    pendingNames: legacyPendingToolNames,
-  }).activeNames;
+  return activeTools !== undefined
+    ? restoreToolSurface({ kind: "exact", names: activeTools })
+    : restoreToolSurface({
+        kind: "legacy",
+        integrationNames: legacyActiveIntegrations ?? [],
+        pendingNames: legacyPendingToolNames,
+      });
 }
 
 /** Narrow a persisted auxiliary tool-name list without seeding the active kernel. */
 export function migrateRecordedToolNames(toolNames: readonly string[]): ToolName[] {
-  return normalizeToolSurface({ activeNames: toolNames }).activeNames;
+  return restoreToolSurface({ kind: "exact", names: toolNames });
 }
 
 /**
@@ -153,7 +155,7 @@ export function applyExactToolLoad(activeTools: readonly ToolName[], result: unk
 }
 
 function isRegisteredToolName(name: string): name is ToolName {
-  return isToolName(name) && normalizeToolSurface({ activeNames: [name] }).activeNames[0] === name;
+  return isToolName(name) && restoreToolSurface({ kind: "exact", names: [name] })[0] === name;
 }
 
 /**
@@ -213,7 +215,7 @@ export function buildSdkToolSet(
  * only per-turn cost is the (memoized) schema estimate and one best-effort span.
  * Observability never changes the returned set.
  */
-export function buildTurnToolSurface(args: {
+function buildTurnToolSurface(args: {
   activeTools: readonly ToolName[];
   context: ToolRunContext;
   runId: string;
@@ -254,13 +256,13 @@ export function buildTurnToolSurface(args: {
  * two entry points. A thrown ranking/availability error closes the span as an
  * error and propagates (the caller's step-retry owns recovery).
  */
-export async function applyPromptToolPreload(args: {
+async function applyPromptToolPreload(args: {
   state: {
     activeTools: ToolName[];
     preloadedTools: ToolName[];
-    allowedIntegrations: string[];
     preloadApplied: boolean;
   };
+  allowedIntegrations: readonly string[];
   userId: string;
   runId: string;
   workflow: string;
@@ -271,33 +273,80 @@ export async function applyPromptToolPreload(args: {
   availability: IntegrationAvailabilitySnapshot;
 }): Promise<void> {
   if (args.state.preloadApplied) return;
-  const preload = prepareToolPreload({
-    userId: args.userId,
-    transcript: args.transcript,
-    allowedIntegrations: args.state.allowedIntegrations,
-    activeNames: args.state.activeTools,
-    context: args.context,
-    availability: args.availability,
-  });
   const span = startToolPreloadSpan({
     runId: args.runId,
     workflow: args.workflow,
     caller: args.spanCaller,
     activeBefore: args.state.activeTools.length,
-    allowedIntegrationCount: args.state.allowedIntegrations.length,
-    promptChars: preload.promptChars,
+    allowedIntegrationCount: args.allowedIntegrations.length,
     startedAt: new Date(),
   });
   try {
-    const preloaded = await preload.select();
+    const preload = await selectToolPreload({
+      userId: args.userId,
+      transcript: args.transcript,
+      allowedIntegrations: args.allowedIntegrations,
+      activeNames: args.state.activeTools,
+      context: args.context,
+      availability: args.availability,
+    });
+    const preloaded = preload.selectedNames;
     for (const toolName of preloaded) {
       args.state.activeTools = activateTool(args.state.activeTools, toolName);
     }
     args.state.preloadedTools = uniqueToolNames([...args.state.preloadedTools, ...preloaded]);
-    span.end(preloaded, args.state.activeTools.length);
+    span.end(preloaded, args.state.activeTools.length, preload.promptChars);
   } catch (error) {
     span.error();
     throw error;
   }
   args.state.preloadApplied = true;
+}
+
+export interface ToolRunTools {
+  readonly context: ToolRunContext;
+  preload(
+    state: {
+      activeTools: ToolName[];
+      preloadedTools: ToolName[];
+      preloadApplied: boolean;
+    },
+    transcript: readonly { role: string; content: unknown }[],
+  ): Promise<void>;
+  forModel(activeTools: readonly ToolName[]): ToolSet;
+}
+
+/** Bind stable run facts once, then expose the two tool actions a model turn needs. */
+export function toolRuntimeForRun(args: {
+  userId: string;
+  runId: string;
+  workflow: string;
+  spanCaller: string;
+  context: ToolRunContext;
+  allowedIntegrations: readonly string[];
+  availability: IntegrationAvailabilitySnapshot;
+}): ToolRunTools {
+  return {
+    context: args.context,
+    preload: (state, transcript) =>
+      applyPromptToolPreload({
+        state,
+        allowedIntegrations: args.allowedIntegrations,
+        userId: args.userId,
+        runId: args.runId,
+        workflow: args.workflow,
+        spanCaller: args.spanCaller,
+        transcript,
+        context: args.context,
+        availability: args.availability,
+      }),
+    forModel: (activeTools) =>
+      buildTurnToolSurface({
+        activeTools,
+        context: args.context,
+        runId: args.runId,
+        workflow: args.workflow,
+        spanCaller: args.spanCaller,
+      }),
+  };
 }

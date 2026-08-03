@@ -1,10 +1,14 @@
 import type { ToolSet } from "@alfred/ai";
 import type { IntegrationAvailabilitySnapshot, ToolName, ToolRunContext } from "@alfred/contracts";
 
-export interface NormalizedToolSurface {
-  activeNames: ToolName[];
-  kernelNames: ToolName[];
-}
+export type ToolSurfaceSource =
+  | { kind: "kernel" }
+  | { kind: "exact"; names: readonly string[] }
+  | {
+      kind: "legacy";
+      integrationNames: readonly string[];
+      pendingNames: readonly string[];
+    };
 
 export interface ResolvedToolSurface {
   tools: ToolSet;
@@ -15,35 +19,26 @@ export interface ResolvedToolSurface {
   schemaTokens: number;
 }
 
-export interface ToolPreloadPlan {
-  /**
-   * Prompt extraction is synchronous so the workflow can attach its size to
-   * the span before timing the asynchronous selection. Keep `select` deferred:
-   * the workflow owns that span and must record selection failures on it.
-   */
+export interface SelectedToolPreload {
   promptChars: number;
-  select(): Promise<ToolName[]>;
+  selectedNames: ToolName[];
 }
 
 export interface ToolRuntimeAdapter {
-  normalize(input: {
-    activeNames?: readonly string[] | undefined;
-    legacyIntegrationNames?: readonly string[] | undefined;
-    pendingNames?: readonly string[] | undefined;
-  }): NormalizedToolSurface;
+  restore(source: ToolSurfaceSource): ToolName[];
   resolve(input: {
     activeNames: readonly ToolName[];
     context: ToolRunContext;
   }): ResolvedToolSurface;
   namesForIntegrations(integrations: readonly string[]): ToolName[];
-  preparePreload(input: {
+  selectPreload(input: {
     userId: string;
     transcript: readonly { role: string; content: unknown }[];
     allowedIntegrations: readonly string[];
     activeNames: readonly ToolName[];
     context: ToolRunContext;
     availability: IntegrationAvailabilitySnapshot;
-  }): ToolPreloadPlan;
+  }): Promise<SelectedToolPreload>;
 }
 
 let toolRuntimeAdapter: ToolRuntimeAdapter | undefined;
@@ -59,12 +54,9 @@ export function registerToolRuntimeAdapter(adapter: ToolRuntimeAdapter): () => v
   };
 }
 
-export function normalizeToolSurface(input: {
-  activeNames?: readonly string[] | undefined;
-  legacyIntegrationNames?: readonly string[] | undefined;
-  pendingNames?: readonly string[] | undefined;
-}): NormalizedToolSurface {
-  return requireToolRuntimeAdapter().normalize(input);
+/** Restore one explicit persisted-surface shape against today's tool catalog. */
+export function restoreToolSurface(source: ToolSurfaceSource): ToolName[] {
+  return requireToolRuntimeAdapter().restore(source);
 }
 
 /**
@@ -82,15 +74,15 @@ export function toolNamesForIntegrations(integrations: readonly string[]): ToolN
   return requireToolRuntimeAdapter().namesForIntegrations(integrations);
 }
 
-export function prepareToolPreload(input: {
+export function selectToolPreload(input: {
   userId: string;
   transcript: readonly { role: string; content: unknown }[];
   allowedIntegrations: readonly string[];
   activeNames: readonly ToolName[];
   context: ToolRunContext;
   availability: IntegrationAvailabilitySnapshot;
-}): ToolPreloadPlan {
-  return requireToolRuntimeAdapter().preparePreload(input);
+}): Promise<SelectedToolPreload> {
+  return requireToolRuntimeAdapter().selectPreload(input);
 }
 
 function requireToolRuntimeAdapter(): ToolRuntimeAdapter {

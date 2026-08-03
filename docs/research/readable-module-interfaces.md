@@ -74,14 +74,18 @@ The new `ToolRunContext` improves the interface because `caller` and `interactio
 
 The remaining change probe is remote execution. “Remote” is an execution location, not an interaction mode. Remote ingress should parse its protocol data, then map it to the same domain context used by local runs. Do not add `remote` beside `live_chat | background` unless remote execution changes tool eligibility by itself.
 
-The present public verbs need a vocabulary-ledger review:
+This PR now applies the call-site rule in four places:
 
-- `resolveToolSurface` describes the result but not the workflow moment. A caller must know that names already passed load-time gates and that boot registered an adapter.
-- `prepareToolPreload` exposes a two-step plan because tracing owns the async span. That ordering is real today, but it is infrastructure knowledge at the workflow call site. Keep it only while the workflow truly owns that observation boundary.
-- `normalizeToolSurface` combines restoration of legacy state with current active-name cleanup. Its public name hides that migration concern. It can be valid during cutover, but it needs an explicit deletion or narrowing point.
-- `toolNamesForIntegrations` is a catalog query, not a run operation. It may belong on a separate catalog/read interface if `tool-runtime` becomes the execution seam.
+- A workflow binds stable facts once with `toolRuntimeForRun(...)`. Its model path then reads `tools.preload(...)` and `tools.forModel(...)`.
+- Dispatch receives the same explicit `ToolRunContext`. It does not infer live chat from `threadId`. `threadId` is now only a conversation address.
+- `restoreToolSurface(...)` uses an explicit source: `kernel`, `exact`, or `legacy`. The caller cannot make a legacy merge by leaving fields undefined.
+- `selectToolPreload(...)` returns the selected tools and prompt size in one async result. The workflow does not coordinate a public two-step preload plan for telemetry.
 
-Do not solve these points with a fluent facade over the same four functions. First decide the domain operations that must change together. Then make those operations the public verbs and leave adapter registration in composition only.
+The dispatch input is also a discriminated union. A boss caller must carry `caller: "boss"`; a sub-agent caller must carry `caller: "sub_agent"`. TypeScript rejects a mismatch before execution.
+
+The seam is still narrower than its name can suggest. `tool-runtime` owns the model-visible tool surface, restoration, catalog lookup, and preload selection. `dispatch` still owns execution, approval, retry, and result routing. Also, built-in tools still provide one adapter through boot registration. These are valid remaining boundaries, but a later change must either deepen `tool-runtime` to own execution policy or keep its public description limited to model tool selection.
+
+`toolNamesForIntegrations` is still a catalog query, not a run action. If the catalog grows more public operations, move them behind a separate read interface. Do not add a fluent facade over forwarding functions.
 
 ## Sources
 

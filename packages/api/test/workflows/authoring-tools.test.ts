@@ -472,6 +472,7 @@ function context(userId: string, runId: string) {
     userId,
     timezone: "Asia/Kolkata",
     caller: "boss",
+    runContext: { caller: "boss", interaction: "live_chat" },
     threadId: "thread-1",
     messageId: "message-1",
   });

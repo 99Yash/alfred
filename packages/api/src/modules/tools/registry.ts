@@ -175,6 +175,8 @@ export interface ToolExecuteContext {
    * care; the scratchpad zone gate (Phase 6) does.
    */
   caller: "boss" | { subId: string };
+  /** Product facts used to expose and authorize tools for this run. */
+  runContext: ToolRunContext;
   /**
    * The chat thread + assistant message this call belongs to, when the call
    * originates from a chat turn. Present only for chat dispatch (the chat-turn
@@ -299,17 +301,6 @@ export interface RegisteredTool {
   execute: (input: unknown, ctx: ToolExecuteContext) => Promise<unknown>;
   /** See {@link LiveToolArgs.redactInput}. Erased to `unknown` at the registry boundary. */
   redactInput?: (input: unknown) => unknown;
-}
-
-/** Project execution data onto the product facts that tool eligibility uses. */
-export function toolRunContext(args: {
-  caller: "boss" | { subId: string } | undefined;
-  threadId: string | null | undefined;
-}): ToolRunContext {
-  return {
-    caller: args.caller === undefined || args.caller === "boss" ? "boss" : "sub_agent",
-    interaction: args.threadId ? "live_chat" : "background",
-  };
 }
 
 export type { ToolAvailabilityResult, ToolUnavailabilityCode } from "@alfred/contracts";

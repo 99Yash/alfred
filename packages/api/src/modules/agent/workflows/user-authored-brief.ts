@@ -47,11 +47,10 @@ import { formatDateGrounding, resolveUserTimezone } from "../grounding";
 import { composeAgentInstructions } from "../instructions";
 import {
   applyInactiveToolBounce,
-  applyPromptToolPreload,
   applySystemToolEffect,
-  buildTurnToolSurface,
   foldToolSurfaceState,
   systemToolKernel,
+  toolRuntimeForRun,
   toolSurfaceStateFields,
 } from "../tool-surface";
 import {
@@ -67,6 +66,30 @@ import { checkWorkflowRunReadiness } from "../../workflows/runtime-readiness";
 // This workflow is the one sub-agents run on (see SUB_AGENT_WORKFLOW_SLUG);
 // keep the slug single-sourced so the two never drift.
 export const USER_AUTHORED_BRIEF_WORKFLOW_SLUG = SUB_AGENT_WORKFLOW_SLUG;
+
+type BriefToolRunIdentity =
+  | {
+      caller: "boss";
+      runContext: ToolRunContext & { caller: "boss" };
+    }
+  | {
+      caller: { subId: string };
+      runContext: ToolRunContext & { caller: "sub_agent" };
+    };
+
+function briefToolRunIdentity(
+  subAgent: { subId: string } | null | undefined,
+): BriefToolRunIdentity {
+  return subAgent
+    ? {
+        caller: { subId: subAgent.subId },
+        runContext: { caller: "sub_agent", interaction: "background" },
+      }
+    : {
+        caller: "boss",
+        runContext: { caller: "boss", interaction: "background" },
+      };
+}
 
 const briefRunStateSchema = z
   .object({
@@ -217,40 +240,31 @@ const bossTurnStep: Step<BriefRunState> = {
     // This is a background interaction. Even a chat-spawned child only reports
     // through its parent. Its chat address is a display channel, not permission
     // to read or change that conversation.
-    const toolRunContext: ToolRunContext = {
-      caller: subAgent ? "sub_agent" : "boss",
-      interaction: "background",
-    };
-    if (state.connectedSummary === undefined) {
-      state.connectedSummary = buildConnectedSummaryFromAvailability(
-        await readIntegrationAvailability(ctx.userId),
-        state.allowedIntegrations,
-        toolRunContext,
-      );
-    }
-    await applyPromptToolPreload({
-      state,
+    const toolRunContext = briefToolRunIdentity(subAgent).runContext;
+    const availability = await readIntegrationAvailability(ctx.userId);
+    const tools = toolRuntimeForRun({
       userId: ctx.userId,
       runId: ctx.runId,
       workflow: USER_AUTHORED_BRIEF_WORKFLOW_SLUG,
       spanCaller: subAgent ? `sub:${subAgent.subId}` : "boss",
-      transcript,
       context: toolRunContext,
-      availability: await readIntegrationAvailability(ctx.userId),
+      allowedIntegrations: state.allowedIntegrations,
+      availability,
     });
+    if (state.connectedSummary === undefined) {
+      state.connectedSummary = buildConnectedSummaryFromAvailability(
+        availability,
+        state.allowedIntegrations,
+        tools.context,
+      );
+    }
+    await tools.preload(state, transcript);
     const agent = new AlfredAgent({
       id: subAgent ? subAgent.subId : "boss",
       system: subAgent
         ? buildSubAgentSystemPrompt(grounding, state.connectedSummary, subAgent.subId)
         : buildBossSystemPrompt(grounding, state.connectedSummary),
-      tools: () =>
-        buildTurnToolSurface({
-          activeTools: state.activeTools,
-          context: toolRunContext,
-          runId: ctx.runId,
-          workflow: USER_AUTHORED_BRIEF_WORKFLOW_SLUG,
-          spanCaller: subAgent ? `sub:${subAgent.subId}` : "boss",
-        }),
+      tools: () => tools.forModel(state.activeTools),
       model: subAgent ? route("subAgent").model() : route("boss").model(),
       attribution: {
         kind: "llm",
@@ -369,8 +383,8 @@ const dispatchToolsStep: Step<BriefRunState> = {
     // spans tag the caller identically. Ended once at the first terminal (staged
     // / parked / committed / a thrown fault); the closer owns the fold + is
     // idempotent.
-    const caller = state.subAgent ? { subId: state.subAgent.subId } : "boss";
-    const spanCaller = callerLabel(caller);
+    const runIdentity = briefToolRunIdentity(state.subAgent);
+    const spanCaller = callerLabel(runIdentity.caller);
     const batchCallCount = state.pendingToolCalls.length;
     const batchSpan: DispatchBatchSpanCloser | null =
       batchCallCount > 0
@@ -398,7 +412,7 @@ const dispatchToolsStep: Step<BriefRunState> = {
         toolName: call.toolName,
         input: call.input,
         userId: ctx.userId,
-        caller,
+        ...runIdentity,
         scratchpadRunId: state.subAgent?.parentRunId ?? ctx.runId,
         timezone: state.timezone ? parseIanaTimezone(state.timezone) : undefined,
         activeTools: state.activeTools,

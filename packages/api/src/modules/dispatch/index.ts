@@ -37,6 +37,7 @@ import type {
   IntegrationSlug,
   PolicyMode,
   ToolName,
+  ToolRunContext,
   ToolRiskTier,
   WorkflowRequiredCapability,
 } from "@alfred/contracts";
@@ -92,7 +93,6 @@ import {
   getTool,
   joinToolInput,
   resolveToolAvailability,
-  toolRunContext,
   type RegisteredTool,
   type ToolExecuteContext,
   type ToolUnavailabilityCode,
@@ -112,7 +112,7 @@ export {
   type TerminalDispatchResult,
 } from "./result-routing";
 
-export interface DispatchArgs {
+interface DispatchBaseArgs {
   runId: string;
   /** Logical executor step that owns this call — audit only. */
   stepId: string;
@@ -121,8 +121,6 @@ export interface DispatchArgs {
   toolName: string;
   input: unknown;
   userId: string;
-  /** Who is calling — boss or named sub-agent. Threaded into the tool context. */
-  caller?: ToolExecuteContext["caller"] | undefined;
   /**
    * Chat thread + assistant message that owns this call, when dispatched from a
    * chat turn. Threaded into the tool context so artifact tools (ADR-0075) can
@@ -146,6 +144,19 @@ export interface DispatchArgs {
   /** Account/resource envelope paired with `allowedTools`. */
   requiredCapabilities?: readonly WorkflowRequiredCapability[] | undefined;
 }
+
+/** One actor shape keeps execution identity and tool eligibility in agreement. */
+export type DispatchArgs = DispatchBaseArgs &
+  (
+    | {
+        caller: "boss";
+        runContext: ToolRunContext & { caller: "boss" };
+      }
+    | {
+        caller: { subId: string };
+        runContext: ToolRunContext & { caller: "sub_agent" };
+      }
+  );
 
 interface RejectedToolResult {
   status: "rejected_by_user";
@@ -431,6 +442,7 @@ function unavailableToolResult(args: {
 }
 
 export async function dispatchToolCall(args: DispatchArgs): Promise<DispatchResult> {
+  const caller = args.caller;
   if (!isToolName(args.toolName)) {
     const message = undeclaredToolMessage(args.toolName, args.allowedIntegrations);
     recordRejection({
@@ -505,7 +517,7 @@ export async function dispatchToolCall(args: DispatchArgs): Promise<DispatchResu
   const availability = await resolveToolAvailability({
     tool,
     allowed: new Set(args.allowedIntegrations ?? []),
-    context: toolRunContext({ caller: args.caller, threadId: args.threadId }),
+    context: args.runContext,
     loadSnapshot: () => readIntegrationAvailability(args.userId),
   });
   if (!availability.available) {
@@ -589,7 +601,6 @@ export async function dispatchToolCall(args: DispatchArgs): Promise<DispatchResu
       result: { status: "capability_mismatch", toolName, integration, message },
     };
   }
-  const caller = args.caller ?? "boss";
   // `toolExecuteContext` derives the provider bind from `userId`, so every
   // provider client this call reaches is wired to THIS user's credentials and no
   // tool resolves a credential itself. The bind is lazy — nothing is built and no
@@ -602,6 +613,7 @@ export async function dispatchToolCall(args: DispatchArgs): Promise<DispatchResu
     userId: args.userId,
     timezone: args.timezone ?? (await resolveUserTimezone(args.userId)),
     caller,
+    runContext: args.runContext,
     threadId: args.threadId,
     messageId: args.messageId,
     allowedIntegrations: args.allowedIntegrations,
