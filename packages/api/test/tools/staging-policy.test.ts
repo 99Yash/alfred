@@ -1,15 +1,13 @@
 import assert from "node:assert/strict";
 import { afterEach, describe, test } from "node:test";
 import { z } from "zod";
+import type { IntegrationAvailabilitySnapshot } from "@alfred/contracts";
 
-import {
-  resolveToolAvailability,
-  type IntegrationAvailabilitySnapshot,
-} from "../../src/modules/integrations/availability";
 import {
   clearToolRegistryForTests,
   liveTool,
   registerTool,
+  resolveToolAvailability,
 } from "../../src/modules/tools/registry";
 
 afterEach(() => {

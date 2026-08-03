@@ -1,15 +1,21 @@
-import { isToolName, type ToolName, type ToolRiskTier } from "@alfred/contracts";
+import {
+  isToolName,
+  type IntegrationAvailabilitySnapshot,
+  type ToolName,
+  type ToolRiskTier,
+} from "@alfred/contracts";
+import { readIntegrationAvailability } from "../integrations/availability";
+import { singularizePhrase } from "./metadata-defaults";
 import {
   evaluateToolAvailability,
   evaluateToolCatalog,
-  readIntegrationAvailability,
-  type IntegrationAvailabilitySnapshot,
+  getTool,
+  listRegisteredTools,
+  type RegisteredTool,
   type ToolAvailabilityContext,
   type ToolAvailabilityResult,
   type ToolUnavailabilityCode,
-} from "../integrations/availability";
-import { singularizePhrase } from "./metadata-defaults";
-import { getTool, listRegisteredTools, type RegisteredTool } from "./registry";
+} from "./registry";
 
 interface ToolCandidateBase {
   name: ToolName;

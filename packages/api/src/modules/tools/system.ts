@@ -44,7 +44,6 @@ import { readUserContext } from "../memory/user-context";
 import { readChatHistory } from "../agent/compaction";
 import { startToolLoadSpan, startToolSearchSpan } from "../agent/runtime-spans";
 import { callerLabel } from "../dispatch";
-import { toolAvailabilityContext } from "../integrations/availability";
 import { inZone } from "../timezone";
 import {
   editStandingInstruction,
@@ -56,7 +55,7 @@ import { promoteScratch, readScratch, writeScratch } from "../scratchpad";
 import { resolveTodosForGmailSender } from "../todos/resolve";
 import { suggestTodo } from "../todos/suggest";
 import { redactCredentialUrl, runFetchUrl } from "./fetch-url";
-import { liveTool, type RegisteredTool } from "./registry";
+import { liveTool, toolAvailabilityContext, type RegisteredTool } from "./registry";
 import { parseScratchToolKey } from "./scratch-key";
 import { runWebSearch } from "./web-search";
 import { resolveExactToolLoad, searchAvailableTools } from "./discovery";

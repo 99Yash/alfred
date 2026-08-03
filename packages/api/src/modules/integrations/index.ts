@@ -6,7 +6,6 @@ import { googleIntegrationRoutes } from "./google-routes";
 import { notionIntegrationRoutes } from "./notion-routes";
 import { mcpIntegrationRoutes } from "./mcp-routes";
 import { railwayIntegrationRoutes } from "./railway-routes";
-import { toolTiersRoutes } from "./tool-tiers-routes";
 import { vercelIntegrationRoutes } from "./vercel-routes";
 
 export {
@@ -105,5 +104,4 @@ export const integrations = new Elysia({ name: "integrations", normalize: "typeb
   .use(railwayIntegrationRoutes)
   .use(vercelIntegrationRoutes)
   .use(gmailWebhookRoutes)
-  .use(githubWebhookRoutes)
-  .use(toolTiersRoutes);
+  .use(githubWebhookRoutes);
