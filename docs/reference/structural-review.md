@@ -205,6 +205,25 @@ The tell is inverted from the rest of this document: **the naive call compiling 
 - Fix: declare once, derive the rest — `ProviderBindOptions` as the sole bind shape with the integrations root's public type mapped from `ReturnType` per registry entry; `FLOOR_SEQUENCE` as the ordered floor list with `FloorOutcome`'s audit keys mapped from it.
 - The prize is usually not the deduplication. Folding the triage floors made the *threading* structural: each floor now receives the previous floor's classification because the fold passes it, where before three hand-written calls each had to remember to pass `previous.classification` and passing the original instead would have silently disabled a floor.
 
+### Call-site narrative
+
+Required knowledge measures what the caller must already know. The call-site narrative measures what the interface lets the caller say. For each new or changed module interface, read one normal call site in execution order, without opening the implementation:
+
+> A strong call site states the workflow in domain order. It names product facts and actions, while setup and policy mechanics stay with their owner.
+
+`integrations({ userId }).github.search({ q })` passes because it reads as user-bound integrations → GitHub → search. The caller supplies the user and query it owns. It does not coordinate token lookup, refresh, caching, or transport. The object hops represent real ownership; they are not decorative fluent syntax.
+
+Run these checks:
+
+1. **Intent is visible.** Names state the domain action and the role of each input. Prefer `interaction: "live_chat" | "background"` to a storage-derived flag such as “has a thread.”
+2. **Mechanics are absent.** The caller does not coordinate registration, credentials, storage, caches, adapters, or registry order.
+3. **Hazards stay enforced.** Hidden auth, approval, retry, ordering, redaction, and access rules move to enforcement tiers 1–3, not only to comments.
+4. **Every hop is real.** An object or method boundary represents ownership, authority, lifetime, or a domain operation. Reject a fluent facade whose steps only forward parameters.
+5. **The ledger is negative.** The new interface removes more names and lifecycle facts than it adds.
+6. **The words survive a change probe.** Add the next caller, interaction mode, remote executor, or policy. The domain case should change one owner, and missed handling should fail statically or at the owning boundary.
+
+“Reads like poetry” is the result of these checks, not a separate style score. One clear verb is better than a sentence-shaped chain with shallow steps. The primary-source basis and a worked application to `tool-runtime` are in [Readable module interfaces](../research/readable-module-interfaces.md).
+
 ### The vocabulary ledger
 
 This is the gate that stops "make it read like poetry" from becoming a license to add abstractions. The move is only real if it is **net-negative in names a call site must know**:
@@ -350,7 +369,7 @@ The codebase is Andre Weissflog's [`floooh/chips`](https://github.com/floooh/chi
 A review that returns only local nits has performed only the surface sweep. Before finishing:
 
 - Produce **at least one up-observation** by running the pointers for the axes the diff touches, or state explicitly that you looked and none applies, and why.
-- For any call site the diff adds or changes, run the [required-knowledge](#required-knowledge--measuring-comprehension-obstruction) test once: write the naive version of that call, and say what makes it wrong and at which enforcement tier. A tier 4–5 answer is a finding even when no fact has a second home.
+- For any call site the diff adds or changes, run the [required-knowledge](#required-knowledge--measuring-comprehension-obstruction) test and the [call-site narrative](#call-site-narrative) once: write the naive call, list the hidden facts that make it wrong, and check that the replacement reads in domain order without hiding hazards. A tier 4–5 answer is a finding even when no fact has a second home.
 - For every claim that earned depth, give a **down-conclusion**: closed within scope, broken, or unproven, with the invariant and evidence. If no claim earned depth, state why the change is low-risk enough not to trace.
 
 Silence is not evidence of clean structure or closed behavior; it is usually evidence that the corresponding direction never ran.
@@ -361,7 +380,7 @@ Silence is not evidence of clean structure or closed behavior; it is usually evi
 
 1. **Orient:** state the change's intent and obligations; classify changed files as authored sources, derived artifacts, or external internals.
 2. **Map the domain:** recover the relevant identities, authorities, lifecycle, coordination, time, effects, representations, sources, and substrate assumptions; qualify each boundary at the dimension it constrains.
-3. **Probe and look up:** run grounded domain changes, compare each claim with its code mechanism, owner, or representation, then classify structural mismatches with the six axes; measure changed call sites for [required knowledge](#required-knowledge--measuring-comprehension-obstruction); route execution counterexamples down.
+3. **Probe and look up:** run grounded domain changes, compare each claim with its code mechanism, owner, or representation, then classify structural mismatches with the six axes; measure changed call sites for [required knowledge](#required-knowledge--measuring-comprehension-obstruction) and [call-site narrative](#call-site-narrative); route execution counterexamples down.
 4. **Sweep the surface:** apply the bounded [code-style.md](./code-style.md) prompts to authored semantic sources; reconcile generated artifacts against their source and intended delta.
 5. **Gate up-candidates:** name the exposing change, shared truth, anti-pattern risk, enforcement mechanism, remaining gap, and vocabulary ledger; hold the proposed shape to the [exemplar](#exemplars--structure-so-aligned-the-coordination-is-inevitable) standard — would one domain change land in one place because there is nowhere else it could go?
 6. **Choose depth:** select risky invariants and restructures that move ownership or behavior.
