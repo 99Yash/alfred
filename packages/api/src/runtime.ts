@@ -1,19 +1,5 @@
 export { closeConnections, warmPool } from "@alfred/db";
-export { registerChatMedia, unregisterChatMedia } from "./composition/chat-media";
-export { registerGmailTriage, unregisterGmailTriage } from "./composition/gmail-triage";
-export { registerGmailUserModel, unregisterGmailUserModel } from "./composition/gmail-user-model";
-export {
-  registerGoogleCredentialLifecycle,
-  unregisterGoogleCredentialLifecycle,
-} from "./composition/google-credential-lifecycle";
-export {
-  registerTriggerConsumers,
-  unregisterTriggerConsumers,
-} from "./composition/trigger-consumers";
-export {
-  registerWorkflowRecovery,
-  unregisterWorkflowRecovery,
-} from "./composition/workflow-recovery";
+export { registerRuntimeAdapters, unregisterRuntimeAdapters } from "./composition/runtime-adapters";
 export { closeRedis } from "./queue/connection";
 export { initEventBridge, closeEventBridge } from "./events/index";
 export { initReplicachePokeBridge, closeReplicachePokeBridge } from "./events/replicache-events";

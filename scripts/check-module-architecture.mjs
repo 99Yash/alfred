@@ -7,6 +7,8 @@ const BASELINE_PATH = join(ROOT, "scripts/module-architecture-baseline.json");
 const SOURCE_EXTENSIONS = [".ts", ".tsx", ".mts", ".cts"];
 const LEGACY_API_MODULES_ROOT = join(ROOT, "packages/api/src/modules");
 const ASSISTANT_SOURCE_ROOT = join(ROOT, "packages/assistant/src");
+const API_COMPOSITION_ROOT = join(ROOT, "packages/api/src/composition");
+const RUNTIME_ADAPTER_MANIFEST = join(API_COMPOSITION_ROOT, "runtime-adapters.ts");
 const TARGET_ASSISTANT_MODULES = new Set([
   "artifacts",
   "automation",
@@ -198,6 +200,173 @@ function lexSource(source) {
     index += 1;
   }
   return tokens;
+}
+
+function exportedRuntimeLifecycleSymbols(source) {
+  const tokens = lexSource(source);
+  const symbols = [];
+  const addSymbol = (token) => {
+    if (
+      token?.kind === "identifier" &&
+      /^(?:register|unregister)[A-Z][A-Za-z0-9_$]*$/.test(token.value)
+    ) {
+      symbols.push(token.value);
+    }
+  };
+  for (let index = 0; index < tokens.length; index += 1) {
+    if (tokens[index]?.value !== "export") continue;
+    let cursor = index + 1;
+    if (tokens[cursor]?.value === "async") cursor += 1;
+    if (tokens[cursor]?.value === "function") {
+      addSymbol(tokens[cursor + 1]);
+    } else if (["const", "let", "var"].includes(tokens[cursor]?.value)) {
+      addSymbol(tokens[cursor + 1]);
+    } else if (tokens[cursor]?.value === "{") {
+      cursor += 1;
+      while (cursor < tokens.length && tokens[cursor]?.value !== "}") {
+        const local = tokens[cursor];
+        if (local?.kind !== "identifier" || local.value === "type") {
+          cursor += 1;
+          continue;
+        }
+        if (tokens[cursor + 1]?.value === "as") {
+          addSymbol(tokens[cursor + 2]);
+          cursor += 3;
+        } else {
+          addSymbol(local);
+          cursor += 1;
+        }
+      }
+    }
+  }
+  return uniqueSorted(symbols);
+}
+
+function namedImports(source) {
+  const tokens = lexSource(source);
+  const imports = [];
+  for (let index = 0; index < tokens.length; index += 1) {
+    if (tokens[index]?.value !== "import" || tokens[index + 1]?.value !== "{") continue;
+    let cursor = index + 2;
+    const names = [];
+    while (cursor < tokens.length && tokens[cursor]?.value !== "}") {
+      const token = tokens[cursor];
+      if (token?.kind === "identifier" && token.value !== "type" && token.value !== "as") {
+        names.push(token.value);
+      }
+      cursor += 1;
+    }
+    while (cursor < tokens.length && tokens[cursor]?.value !== "from") cursor += 1;
+    const specifier = tokens[cursor + 1];
+    if (specifier?.kind !== "string") continue;
+    for (const name of names) imports.push({ name, specifier: specifier.value });
+  }
+  return imports;
+}
+
+function runtimeAdapterManifestRows(source) {
+  const tokens = lexSource(source);
+  const manifestName = tokens.findIndex((token) => token.value === "RUNTIME_ADAPTERS");
+  const start = tokens.findIndex((token, index) => index > manifestName && token.value === "[");
+  if (manifestName < 0 || start < 0) return [];
+
+  const rows = [];
+  let bracketDepth = 1;
+  let braceDepth = 0;
+  let register;
+  let unregister;
+  for (let index = start + 1; index < tokens.length && bracketDepth > 0; index += 1) {
+    const token = tokens[index];
+    if (token.value === "[") bracketDepth += 1;
+    else if (token.value === "]") bracketDepth -= 1;
+    else if (token.value === "{") {
+      braceDepth += 1;
+      if (braceDepth === 1) {
+        register = undefined;
+        unregister = undefined;
+      }
+    } else if (token.value === "}") {
+      if (braceDepth === 1 && register && unregister) rows.push({ register, unregister });
+      braceDepth -= 1;
+    } else if (
+      braceDepth === 1 &&
+      (token.value === "register" || token.value === "unregister") &&
+      tokens[index + 1]?.value === ":" &&
+      tokens[index + 2]?.kind === "identifier"
+    ) {
+      if (token.value === "register") register = tokens[index + 2].value;
+      else unregister = tokens[index + 2].value;
+    }
+  }
+  return rows;
+}
+
+function runtimeAdapterViolations(compositionSources, manifestSource) {
+  const violations = [];
+  const expectedPairs = [];
+  for (const { file, source } of compositionSources) {
+    const symbols = exportedRuntimeLifecycleSymbols(source);
+    const registers = symbols.filter((symbol) => symbol.startsWith("register"));
+    const unregisters = symbols.filter((symbol) => symbol.startsWith("unregister"));
+    const suffixes = uniqueSorted([
+      ...registers.map((symbol) => symbol.slice("register".length)),
+      ...unregisters.map((symbol) => symbol.slice("unregister".length)),
+    ]);
+    for (const suffix of suffixes) {
+      const register = `register${suffix}`;
+      const unregister = `unregister${suffix}`;
+      if (!registers.includes(register) || !unregisters.includes(unregister)) {
+        violations.push(
+          `unpaired runtime adapter lifecycle in ${relativeToRoot(file)}: expected ${register} and ${unregister}`,
+        );
+        continue;
+      }
+      const relativeModule = normalizePath(relative(API_COMPOSITION_ROOT, file)).replace(
+        /\.[^.]+$/,
+        "",
+      );
+      expectedPairs.push({
+        register,
+        specifier: relativeModule.startsWith(".") ? relativeModule : `./${relativeModule}`,
+        unregister,
+      });
+    }
+  }
+
+  const imports = namedImports(manifestSource);
+  const rows = runtimeAdapterManifestRows(manifestSource);
+  for (const expected of expectedPairs) {
+    for (const symbol of [expected.register, expected.unregister]) {
+      if (
+        !imports.some(
+          (imported) => imported.name === symbol && imported.specifier === expected.specifier,
+        )
+      ) {
+        violations.push(
+          `runtime adapter manifest must import ${symbol} from ${expected.specifier}`,
+        );
+      }
+    }
+    const matches = rows.filter(
+      (row) => row.register === expected.register && row.unregister === expected.unregister,
+    );
+    if (matches.length !== 1) {
+      violations.push(
+        `runtime adapter manifest must list ${expected.register}/${expected.unregister} exactly once (found ${matches.length})`,
+      );
+    }
+  }
+
+  const expectedRowKeys = new Set(
+    expectedPairs.map(({ register, unregister }) => `${register}/${unregister}`),
+  );
+  for (const row of rows) {
+    const key = `${row.register}/${row.unregister}`;
+    if (!expectedRowKeys.has(key)) {
+      violations.push(`runtime adapter manifest lists unknown lifecycle pair ${key}`);
+    }
+  }
+  return violations.sort((a, b) => a.localeCompare(b));
 }
 
 function resolveSourceImport(importer, specifier) {
@@ -544,6 +713,42 @@ const text = 'import "ignored-string"';
   if (JSON.stringify(components) !== JSON.stringify([["a", "b"], ["c"], ["d"]])) {
     failures.push(`SCC fixture mismatch: received ${JSON.stringify(components)}`);
   }
+
+  const lifecycleSource = `
+export function registerExample(): void {}
+export function unregisterExample(): void {}
+`;
+  const validManifestSource = `
+import { registerExample, unregisterExample } from "./example";
+export const RUNTIME_ADAPTERS = [
+  { register: registerExample, unregister: unregisterExample },
+];
+`;
+  const lifecycleFixture = [
+    { file: join(API_COMPOSITION_ROOT, "example.ts"), source: lifecycleSource },
+  ];
+  const validLifecycleViolations = runtimeAdapterViolations(lifecycleFixture, validManifestSource);
+  if (validLifecycleViolations.length > 0) {
+    failures.push(
+      `runtime adapter fixture mismatch: expected no violations, received ${JSON.stringify(validLifecycleViolations)}`,
+    );
+  }
+  const omittedLifecycleViolations = runtimeAdapterViolations(
+    lifecycleFixture,
+    validManifestSource.replace(
+      "{ register: registerExample, unregister: unregisterExample },",
+      "",
+    ),
+  );
+  if (
+    !omittedLifecycleViolations.some((violation) =>
+      violation.includes("must list registerExample/unregisterExample exactly once"),
+    )
+  ) {
+    failures.push(
+      `runtime adapter omission fixture mismatch: received ${JSON.stringify(omittedLifecycleViolations)}`,
+    );
+  }
   return failures;
 }
 
@@ -621,6 +826,12 @@ function checkArchitecture(architecture, baseline) {
       `production imports preview/debug code: ${imported.key} (line ${imported.line})`,
     );
   }
+  const compositionSources = walkSourceFiles(API_COMPOSITION_ROOT)
+    .filter((file) => file !== RUNTIME_ADAPTER_MANIFEST)
+    .map((file) => ({ file, source: readFileSync(file, "utf8") }));
+  violations.push(
+    ...runtimeAdapterViolations(compositionSources, readFileSync(RUNTIME_ADAPTER_MANIFEST, "utf8")),
+  );
   return violations.sort((a, b) => a.localeCompare(b));
 }
 
