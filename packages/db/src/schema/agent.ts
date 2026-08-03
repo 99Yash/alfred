@@ -273,6 +273,22 @@ export function eventRunIdentityMatch(t: EventRunIdentityColumns, identity: Even
  *  - `failed`      — terminal error
  *  - `cancelled`   — terminal user-initiated stop
  */
+
+/**
+ * Failure detail written to a run's or a step's `error` column. This is a
+ * producer-side shape only: `.$type` gives insert/update type-checking, not
+ * read validation, so it must stay wide enough for every writer. `message`
+ * is always present. A step failure adds `step` + `attempt`; a lease reclaim
+ * adds `reason`. `cancelledBy` is a legacy field retained for older rows.
+ */
+export type AgentError = {
+  message: string;
+  step?: string;
+  attempt?: number;
+  reason?: string;
+  cancelledBy?: string;
+};
+
 export const agentRuns = pgTable(
   "agent_runs",
   {
@@ -303,7 +319,7 @@ export const agentRuns = pgTable(
     currentStep: text("current_step").notNull(),
     attempt: integer("attempt").notNull().default(0),
     wakeCondition: jsonb("wake_condition"),
-    error: jsonb("error"),
+    error: jsonb("error").$type<AgentError>(),
     output: jsonb("output"),
     metadata: jsonb("metadata")
       .notNull()
@@ -433,7 +449,7 @@ export const agentSteps = pgTable(
     status: text("status").notNull().default("running"),
     input: jsonb("input"),
     output: jsonb("output"),
-    error: jsonb("error"),
+    error: jsonb("error").$type<AgentError>(),
     startedAt: timestamp("started_at", { withTimezone: true }).defaultNow().notNull(),
     endedAt: timestamp("ended_at", { withTimezone: true }),
   },
