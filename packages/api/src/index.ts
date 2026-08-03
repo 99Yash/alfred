@@ -15,6 +15,7 @@ import { meRoutes } from "./modules/me/index";
 import { onboardingRoutes } from "./modules/onboarding/index";
 import { skillsRoutes } from "./modules/skills/index";
 import { workflowRoutes } from "./modules/workflows/index";
+import { toolTiersRoutes } from "./modules/tools/index";
 
 export { securityHeaders, type SecurityHeadersOptions } from "./middleware/security-headers";
 
@@ -34,6 +35,7 @@ export const app = new Elysia({ name: "api", normalize: "typebox" })
   .use(approvalsRoutes)
   .use(chatRoutes)
   .use(integrations)
+  .use(toolTiersRoutes)
   .use(meRoutes)
   .use(onboardingRoutes)
   .use(skillsRoutes)

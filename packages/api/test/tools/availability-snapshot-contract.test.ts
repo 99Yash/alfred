@@ -1,13 +1,14 @@
 import assert from "node:assert/strict";
 import { after, before, describe, test } from "node:test";
+import type { IntegrationAvailabilitySnapshot } from "@alfred/contracts";
 
 import {
+  clearToolRegistryForTests,
   evaluateToolAvailability,
+  listRegisteredTools,
   readsAvailabilitySnapshot,
-  type IntegrationAvailabilitySnapshot,
-} from "../../src/modules/integrations/availability";
+} from "../../src/modules/tools/registry";
 import { registerBuiltinTools } from "../../src/modules/tools";
-import { clearToolRegistryForTests, listRegisteredTools } from "../../src/modules/tools/registry";
 
 /**
  * `readsAvailabilitySnapshot` is what lets the dispatch floor answer a `system.*`

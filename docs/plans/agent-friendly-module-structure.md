@@ -494,7 +494,10 @@ chat-media interface with a runtime-composed adapter, so `integrations -> chat`
 is gone. Google OAuth completion now publishes through the triggers interface,
 and the registered automation consumer starts cold-start research, so
 `integrations -> agent` and `integrations -> cold-start` are gone. Connection
-imports of other consumers still remain. The current sole trigger consumer
+availability now exposes connection state without interpreting registered tools,
+and tool-tier presentation is mounted by the API composition root, so
+`integrations -> tools` is gone. The separate `integrations -> mcp` edge still
+remains. The current sole trigger consumer
 attempts durable occurrence claims before publication returns, but keeps
 per-workflow failure details inside automation. Durable delivery to several
 independent consumers remains later work in this phase.

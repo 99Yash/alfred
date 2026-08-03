@@ -24,8 +24,7 @@
  */
 
 import { startRuntimeSpan, type RuntimeSpanCloser, type RuntimeSpanInput } from "@alfred/ai";
-import type { ToolName } from "@alfred/contracts";
-import type { ToolUnavailabilityCode } from "../integrations/availability";
+import type { ToolName, ToolUnavailabilityCode } from "@alfred/contracts";
 import type { DispatchResult } from "../dispatch";
 import { classifyLatency } from "./runtime-thresholds";
 

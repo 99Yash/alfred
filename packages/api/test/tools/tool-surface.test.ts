@@ -11,13 +11,13 @@ import {
   systemToolKernel,
 } from "../../src/modules/agent/tool-surface";
 import { preloadToolCatalog, type ToolCatalogAccess } from "../../src/modules/tools/discovery";
-import type { ToolAvailabilityResult } from "../../src/modules/integrations/availability";
 import { registerBuiltinTools } from "../../src/modules/tools/index";
 import {
   clearToolRegistryForTests,
   getTool,
   listKernelTools,
   listToolsForIntegration,
+  type ToolAvailabilityResult,
 } from "../../src/modules/tools/registry";
 
 /**
