@@ -51,3 +51,4 @@ export {
   type McpOAuthCredentialStore,
 } from "./oauth";
 export { startMcpTraceSpan, type McpTraceContext, type McpTraceSpan } from "./trace";
+export { mcpIntegrationRoutes } from "./routes";
