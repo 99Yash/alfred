@@ -1,21 +1,17 @@
 import { db } from "@alfred/db";
-import { emailSends, user } from "@alfred/db/schemas";
+import { emailSends, user, type NotificationKind } from "@alfred/db/schemas";
 import { serverEnv } from "@alfred/env/server";
 import { and, eq, ne } from "drizzle-orm";
 import { getResendClient } from "./resend-client";
 import { toMessage } from "@alfred/contracts";
 
 /**
- * Logical kinds of notification. Each maps to a row in `email_sends`
- * via its `kind` column. Adding a new kind: extend this union and pick
- * an idempotency-key convention (see `notifications.ts` schema doc).
+ * Logical kinds of notification live in the `@alfred/db` schema (the source of
+ * truth for `email_sends.kind` and its `CHECK`). Re-exported here so the
+ * `notify` surface keeps one import site. Add a new kind in `NOTIFICATION_KINDS`
+ * and pick an idempotency-key convention (see `notifications.ts` schema doc).
  */
-export type NotificationKind =
-  | "briefing"
-  | "evening_recap"
-  | "approval"
-  | "skill_documented"
-  | "health_alert";
+export type { NotificationKind };
 
 export interface NotifyArgs {
   userId: string;
