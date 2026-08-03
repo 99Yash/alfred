@@ -38,7 +38,7 @@ const EMPTY_SNAPSHOT: IntegrationAvailabilitySnapshot = {
  * here and this context clears all of it, so a failure below can only come from
  * the snapshot phase.
  */
-const PERMISSIVE = { caller: "boss", hasThread: true } as const;
+const PERMISSIVE = { caller: "boss", interaction: "live_chat" } as const;
 
 before(() => {
   clearToolRegistryForTests();

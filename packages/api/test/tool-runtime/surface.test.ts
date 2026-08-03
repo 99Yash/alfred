@@ -30,7 +30,7 @@ function registerSurfaceFixtures(): void {
       integration: "system",
       action: "read_chat_history",
       riskTier: "no_risk",
-      availability: { surface: "kernel", requiresThread: true },
+      availability: { surface: "kernel", requiresLiveChat: true },
       description: "Read chat history.",
       inputSchema: z.object({}).strict(),
       execute: async () => ({}),
@@ -66,7 +66,7 @@ test("projects the exact caller-visible schemas and matching metrics", () => {
 
   const surface = resolveToolSurface({
     activeNames: ["gmail.search", "system.read_chat_history", "system.search_tools"],
-    context: { caller: "boss", hasThread: false },
+    context: { caller: "boss", interaction: "background" },
   });
 
   assert.deepEqual(surface.surfacedNames, ["gmail.search", "system.search_tools"]);
@@ -81,7 +81,7 @@ test("resets cached projections with the shared tool fixture lifecycle", () => {
   registerSurfaceFixtures();
   const first = resolveToolSurface({
     activeNames: ["gmail.search"],
-    context: { caller: "boss", hasThread: true },
+    context: { caller: "boss", interaction: "live_chat" },
   });
   assert.equal(first.tools["gmail.search"]?.description, "Search Gmail.");
 
@@ -98,7 +98,7 @@ test("resets cached projections with the shared tool fixture lifecycle", () => {
   ]);
   const second = resolveToolSurface({
     activeNames: ["gmail.search"],
-    context: { caller: "boss", hasThread: true },
+    context: { caller: "boss", interaction: "live_chat" },
   });
   assert.equal(second.tools["gmail.search"]?.description, "Search a different fixture.");
 });
@@ -132,7 +132,7 @@ test("selects an exact available preload through the workflow allowlist", async 
     transcript,
     allowedIntegrations: ["gmail"],
     activeNames: ["system.search_tools"],
-    context: { caller: "boss", hasThread: true },
+    context: { caller: "boss", interaction: "live_chat" },
     availability,
   });
   assert.equal(allowed.promptChars, transcript[0]?.content.length);
@@ -143,7 +143,7 @@ test("selects an exact available preload through the workflow allowlist", async 
     transcript,
     allowedIntegrations: ["calendar"],
     activeNames: ["system.search_tools"],
-    context: { caller: "boss", hasThread: true },
+    context: { caller: "boss", interaction: "live_chat" },
     availability,
   });
   assert.deepEqual(await disallowed.select(), []);

@@ -5,10 +5,15 @@ import {
   registerToolRuntimeAdapter,
   type ResolvedToolSurface,
   type ToolRuntimeAdapter,
-  type ToolSurfaceContext,
 } from "../tool-runtime";
 import { latestUserPrompt, preloadToolsForPrompt } from "./discovery";
-import { getTool, listKernelTools, listToolsForIntegration, type RegisteredTool } from "./registry";
+import {
+  evaluateToolRunContext,
+  getTool,
+  listKernelTools,
+  listToolsForIntegration,
+  type RegisteredTool,
+} from "./registry";
 import { estimateToolSurfaceBudget } from "./schema-budget";
 
 const sdkSurfaceCache = new Map<string, ResolvedToolSurface>();
@@ -42,7 +47,7 @@ const toolsRuntimeAdapter: ToolRuntimeAdapter = {
 
   resolve(input) {
     const activeNames = uniqueToolNames(input.activeNames);
-    const key = `${input.context.caller}:${input.context.hasThread}:${activeNames.join(",")}`;
+    const key = `${input.context.caller}:${input.context.interaction}:${activeNames.join(",")}`;
     const cached = sdkSurfaceCache.get(key);
     if (cached) return cached;
 
@@ -50,7 +55,7 @@ const toolsRuntimeAdapter: ToolRuntimeAdapter = {
     const tools: Partial<Record<ToolName, Tool>> = {};
     for (const name of activeNames) {
       const definition = getTool(name);
-      if (!definition || !availableToCaller(definition, input.context)) continue;
+      if (!definition || !evaluateToolRunContext(definition, input.context).available) continue;
       definitions.push(definition);
       tools[name] = tool({
         description: definition.description,
@@ -128,10 +133,4 @@ function registeredToolNames(names: readonly string[]): ToolName[] {
 
 function uniqueToolNames(names: readonly ToolName[]): ToolName[] {
   return [...new Set(names)].sort();
-}
-
-function availableToCaller(definition: RegisteredTool, context: ToolSurfaceContext): boolean {
-  const availability = definition.availability;
-  if (availability?.callers && !availability.callers.includes(context.caller)) return false;
-  return !availability?.requiresThread || context.hasThread;
 }

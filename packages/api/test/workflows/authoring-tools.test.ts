@@ -40,9 +40,9 @@ describe("workflow authoring tool contracts (#556)", () => {
     assert.ok(authorTool);
     assert.ok(recoverTool);
     assert.ok(activateTool);
-    assert.deepEqual(authorTool.availability, { requiresThread: true, callers: ["boss"] });
-    assert.deepEqual(recoverTool.availability, { requiresThread: true, callers: ["boss"] });
-    assert.deepEqual(activateTool.availability, { requiresThread: true, callers: ["boss"] });
+    assert.deepEqual(authorTool.availability, { requiresLiveChat: true, callers: ["boss"] });
+    assert.deepEqual(recoverTool.availability, { requiresLiveChat: true, callers: ["boss"] });
+    assert.deepEqual(activateTool.availability, { requiresLiveChat: true, callers: ["boss"] });
     assert.equal(authorTool.riskTier, "no_risk");
     assert.equal(recoverTool.riskTier, "no_risk");
     assert.equal(activateTool.riskTier, "high");
