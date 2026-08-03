@@ -1,9 +1,8 @@
-import { getPath, getStringPath } from "@alfred/contracts";
+import { getPath, getStringPath, type IntegrationAvailabilitySnapshot } from "@alfred/contracts";
 import { db } from "@alfred/db";
 import { ingestionState } from "@alfred/db/schemas";
 import { and, eq } from "drizzle-orm";
 import { pubSubOidcConfigFromEnv } from "../integrations/gmail-push-config";
-import type { IntegrationAvailabilitySnapshot } from "../integrations/availability";
 
 export interface GmailEventHealth {
   receiverConfigured: boolean;

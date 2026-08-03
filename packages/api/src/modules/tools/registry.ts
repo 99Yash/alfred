@@ -16,12 +16,21 @@
 import type {
   ActionSlug,
   IanaTimezone,
+  IntegrationAvailabilitySnapshot,
   IntegrationSlug,
   RiskTierCounts,
   ToolName,
+  ToolAvailabilityResult,
   ToolRiskTier,
 } from "@alfred/contracts";
-import { buildToolName, INTEGRATION_ACTIONS, integrationFromToolName } from "@alfred/contracts";
+import {
+  buildToolName,
+  humanizeSlug,
+  INTEGRATION_ACTIONS,
+  integrationFromToolName,
+  isLoadableIntegrationSlug,
+  isSupportedPassthroughSlug,
+} from "@alfred/contracts";
 // Type-only, deliberately: importing the `integrations` VALUE here would pull
 // `@alfred/db` and `@alfred/ingestion` into the import graph of the module every
 // tool declaration imports. Building a context lives in `./context`.
@@ -289,6 +298,171 @@ export interface RegisteredTool {
   execute: (input: unknown, ctx: ToolExecuteContext) => Promise<unknown>;
   /** See {@link LiveToolArgs.redactInput}. Erased to `unknown` at the registry boundary. */
   redactInput?: (input: unknown) => unknown;
+}
+
+export interface ToolAvailabilityContext {
+  caller: "boss" | "sub_agent";
+  hasThread: boolean;
+}
+
+/** Project an execution context onto the facts that tool availability gates on. */
+export function toolAvailabilityContext(args: {
+  caller: "boss" | { subId: string } | undefined;
+  threadId: string | null | undefined;
+}): ToolAvailabilityContext {
+  return {
+    caller: args.caller === undefined || args.caller === "boss" ? "boss" : "sub_agent",
+    hasThread: Boolean(args.threadId),
+  };
+}
+
+export type { ToolAvailabilityResult, ToolUnavailabilityCode } from "@alfred/contracts";
+
+function evaluateRunContextGates(
+  tool: RegisteredTool,
+  allowed: ReadonlySet<string>,
+  context: ToolAvailabilityContext,
+): ToolAvailabilityResult {
+  if (tool.integration !== "system" && allowed.size > 0 && !allowed.has(tool.integration)) {
+    return {
+      available: false,
+      code: "not_allowed",
+      reason: "Outside this workflow's integration allowlist.",
+    };
+  }
+  if (tool.availability?.callers && !tool.availability.callers.includes(context.caller)) {
+    return {
+      available: false,
+      code: "wrong_caller",
+      reason: `Only the ${tool.availability.callers.join(" / ")} caller may use this tool.`,
+    };
+  }
+  if (tool.availability?.requiresThread && !context.hasThread) {
+    return {
+      available: false,
+      code: "requires_thread",
+      reason: "Runs only inside an interactive chat thread.",
+    };
+  }
+  return { available: true };
+}
+
+/** Whether connection state can change this tool's availability result. */
+export function readsAvailabilitySnapshot(tool: RegisteredTool): boolean {
+  return (
+    tool.availability?.passthrough === true ||
+    tool.availability?.credential !== undefined ||
+    isLoadableIntegrationSlug(tool.integration)
+  );
+}
+
+function evaluateSnapshotGates(
+  snapshot: IntegrationAvailabilitySnapshot,
+  tool: RegisteredTool,
+): ToolAvailabilityResult {
+  const name = humanizeSlug(tool.integration);
+
+  if (tool.availability?.passthrough) {
+    const enabled =
+      isSupportedPassthroughSlug(tool.integration) &&
+      snapshot.passthroughEnabled.get(tool.integration) === true;
+    if (!enabled) {
+      return {
+        available: false,
+        code: "feature_disabled",
+        reason: `${name} raw API access is turned off. Enable it under Settings → Features to use this tool.`,
+      };
+    }
+  }
+
+  const credential = tool.availability?.credential;
+  if (credential) {
+    const providerRows = snapshot.providers.get(credential.provider) ?? [];
+    if (providerRows.length === 0) {
+      return { available: false, code: "not_connected", reason: `${name} is not connected.` };
+    }
+    const activeRows = providerRows.filter((row) => row.status === "active");
+    if (activeRows.length === 0) {
+      return { available: false, code: "needs_reauth", reason: `${name} needs to be reconnected.` };
+    }
+    const scopeMatches =
+      credential.anyOfScopes.length === 0 ||
+      activeRows.some((row) => credential.anyOfScopes.some((scope) => row.scopes.has(scope)));
+    if (!scopeMatches) {
+      return {
+        available: false,
+        code: "missing_scope",
+        reason: `${name} is connected but missing a required permission; reconnect to grant it.`,
+      };
+    }
+    return { available: true };
+  }
+
+  if (isLoadableIntegrationSlug(tool.integration)) {
+    const health = snapshot.integrations.get(tool.integration)?.health;
+    if (health === "needs_reauth") {
+      return { available: false, code: "needs_reauth", reason: `${name} needs to be reconnected.` };
+    }
+    if (health !== "active") {
+      return { available: false, code: "not_connected", reason: `${name} is not connected.` };
+    }
+  }
+  return { available: true };
+}
+
+/** One policy for discovery, preload, workflow readiness, and dispatch. */
+export function evaluateToolAvailability(
+  snapshot: IntegrationAvailabilitySnapshot,
+  tool: RegisteredTool,
+  allowed: ReadonlySet<string>,
+  context: ToolAvailabilityContext,
+): ToolAvailabilityResult {
+  const contextResult = evaluateRunContextGates(tool, allowed, context);
+  if (!contextResult.available) return contextResult;
+  return evaluateSnapshotGates(snapshot, tool);
+}
+
+/** Evaluate one tool and lazily read connection state only when it can matter. */
+export async function resolveToolAvailability(args: {
+  tool: RegisteredTool;
+  allowed: ReadonlySet<string>;
+  context: ToolAvailabilityContext;
+  loadSnapshot: () => Promise<IntegrationAvailabilitySnapshot>;
+}): Promise<ToolAvailabilityResult> {
+  const contextResult = evaluateRunContextGates(args.tool, args.allowed, args.context);
+  if (!contextResult.available) return contextResult;
+  if (!readsAvailabilitySnapshot(args.tool)) return { available: true };
+  return evaluateSnapshotGates(await args.loadSnapshot(), args.tool);
+}
+
+export function availableToolNames(
+  snapshot: IntegrationAvailabilitySnapshot,
+  tools: readonly RegisteredTool[],
+  allowedIntegrations: readonly string[],
+  context: ToolAvailabilityContext,
+): Set<RegisteredTool["name"]> {
+  const allowed = new Set(allowedIntegrations);
+  const available = new Set<RegisteredTool["name"]>();
+  for (const tool of tools) {
+    if (evaluateToolAvailability(snapshot, tool, allowed, context).available) {
+      available.add(tool.name);
+    }
+  }
+  return available;
+}
+
+export function evaluateToolCatalog(
+  snapshot: IntegrationAvailabilitySnapshot,
+  tools: readonly RegisteredTool[],
+  allowedIntegrations: readonly string[],
+  context: ToolAvailabilityContext,
+): Map<RegisteredTool["name"], ToolAvailabilityResult> {
+  const allowed = new Set(allowedIntegrations);
+  const out = new Map<RegisteredTool["name"], ToolAvailabilityResult>();
+  for (const tool of tools) {
+    out.set(tool.name, evaluateToolAvailability(snapshot, tool, allowed, context));
+  }
+  return out;
 }
 
 /**

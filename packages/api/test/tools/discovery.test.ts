@@ -1,7 +1,11 @@
 import assert from "node:assert/strict";
 import { afterEach, describe, test } from "node:test";
 
-import type { LoadableIntegrationSlug, ToolName } from "@alfred/contracts";
+import type {
+  IntegrationAvailabilitySnapshot,
+  LoadableIntegrationSlug,
+  ToolName,
+} from "@alfred/contracts";
 import { z } from "zod";
 
 import { applyExactToolLoad } from "../../src/modules/agent/tool-surface";
@@ -13,15 +17,12 @@ import {
 } from "../../src/modules/tools/discovery";
 import {
   availableToolNames,
-  evaluateToolAvailability,
-  type IntegrationAvailabilitySnapshot,
-  type ToolAvailabilityResult,
-} from "../../src/modules/integrations/availability";
-import {
   clearToolRegistryForTests,
+  evaluateToolAvailability,
   liveTool,
   registerTool,
   type RegisteredTool,
+  type ToolAvailabilityResult,
 } from "../../src/modules/tools/registry";
 
 afterEach(() => clearToolRegistryForTests());

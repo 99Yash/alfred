@@ -1,9 +1,11 @@
 import assert from "node:assert/strict";
 import { before, describe, test } from "node:test";
 
-import type { WorkflowRevisionDefinition } from "@alfred/contracts";
+import type {
+  IntegrationAvailabilitySnapshot,
+  WorkflowRevisionDefinition,
+} from "@alfred/contracts";
 
-import type { IntegrationAvailabilitySnapshot } from "../../src/modules/integrations/availability";
 import { registerBuiltinTools } from "../../src/modules/tools";
 import { createToolCatalog, listRegisteredTools } from "../../src/modules/tools/registry";
 import {

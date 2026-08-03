@@ -27,15 +27,25 @@ export {
   registerTools,
   getTool,
   listToolsForIntegration,
+  availableToolNames,
+  evaluateToolAvailability,
+  evaluateToolCatalog,
+  readsAvailabilitySnapshot,
+  resolveToolAvailability,
   riskTierCountsForIntegration,
+  toolAvailabilityContext,
   clearToolRegistryForTests,
   type RiskTierCounts,
   type RegisteredTool,
   type LiveToolArgs,
   type ToolExecuteContext,
   type ToolExecuteContextFields,
+  type ToolAvailabilityContext,
+  type ToolAvailabilityResult,
+  type ToolUnavailabilityCode,
 } from "./registry";
 export { toolExecuteContext } from "./context";
+export { toolTiersRoutes } from "./tool-tiers-routes";
 
 export function registerBuiltinTools(): void {
   registerTools(systemTools);
