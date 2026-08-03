@@ -91,15 +91,13 @@ import { toolExecuteContext } from "../tools/context";
 import {
   getTool,
   joinToolInput,
-  type RegisteredTool,
-  type ToolExecuteContext,
-} from "../tools/registry";
-import {
-  readIntegrationAvailability,
   resolveToolAvailability,
   toolAvailabilityContext,
+  type RegisteredTool,
+  type ToolExecuteContext,
   type ToolUnavailabilityCode,
-} from "../integrations/availability";
+} from "../tools/registry";
+import { readIntegrationAvailability } from "../integrations/availability";
 import { resolveUserTimezone } from "../timezone";
 
 // Result routing lives beside the `DispatchResult` union it decodes, so the two

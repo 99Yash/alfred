@@ -8,6 +8,7 @@ export * from "./passthrough-bounds";
 export * from "./credentials";
 export * from "./document-source";
 export * from "./integration-objects";
+export * from "./integration-availability";
 export * from "./user-model";
 export * from "./chat-memory";
 export * from "./identity-affiliation";

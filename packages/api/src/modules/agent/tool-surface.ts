@@ -1,4 +1,10 @@
-import { isIntegrationSlug, isRecord, isToolName, type ToolName } from "@alfred/contracts";
+import {
+  isIntegrationSlug,
+  isRecord,
+  isToolName,
+  type IntegrationAvailabilitySnapshot,
+  type ToolName,
+} from "@alfred/contracts";
 import { tool, type Tool, type ToolSet } from "@alfred/ai";
 import { z } from "zod";
 import {
@@ -6,11 +12,8 @@ import {
   listKernelTools,
   listToolsForIntegration,
   type RegisteredTool,
+  type ToolAvailabilityContext,
 } from "../tools/registry";
-import type {
-  ToolAvailabilityContext,
-  IntegrationAvailabilitySnapshot,
-} from "../integrations/availability";
 import { latestUserPrompt, preloadToolsForPrompt } from "../tools/discovery";
 import type { DispatchResult } from "../dispatch";
 import { startToolLoadSpan, startToolPreloadSpan, startToolSurfaceSpan } from "./runtime-spans";

@@ -1,10 +1,9 @@
-import type { LoadableIntegrationSlug } from "@alfred/contracts";
+import type { IntegrationAvailabilitySnapshot, LoadableIntegrationSlug } from "@alfred/contracts";
 import {
   availableToolNames,
-  type IntegrationAvailabilitySnapshot,
+  listRegisteredTools,
   type ToolAvailabilityContext,
-} from "../integrations/availability";
-import { listRegisteredTools } from "../tools/registry";
+} from "../tools/registry";
 
 /**
  * ADR-0053 connected summary: a frozen, human-readable one-line-per-integration

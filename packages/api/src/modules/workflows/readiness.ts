@@ -6,6 +6,8 @@ import {
   isIntegrationSlug,
   isToolName,
   toolLabel,
+  type IntegrationAvailabilitySnapshot,
+  type ProviderAvailability,
   type ToolName,
   type WorkflowAccountDisplay,
   type WorkflowCapabilityDisplay,
@@ -17,11 +19,9 @@ import {
 import { GMAIL_READONLY_SCOPE } from "@alfred/integrations/google";
 import {
   evaluateToolAvailability,
-  type IntegrationAvailabilitySnapshot,
-  type ProviderAvailability,
+  type ToolCatalog,
   type ToolUnavailabilityCode,
-} from "../integrations/availability";
-import { type ToolCatalog } from "../tools/registry";
+} from "../tools/registry";
 import type { GmailEventHealth } from "./gmail-event-readiness";
 
 type WorkflowReadinessProblemCode =
