@@ -2,12 +2,12 @@ import assert from "node:assert/strict";
 import { after, before, describe, test } from "node:test";
 import { isToolName, type ToolName } from "@alfred/contracts";
 import { buildChatSystemPrompt } from "../../src/modules/agent/workflows/chat-turn";
+import { capabilityNamesForIntegrations } from "../../src/modules/capabilities";
 import {
   applyExactToolLoad,
   applySystemToolEffect,
   buildSdkToolSet,
   migrateActiveTools,
-  registeredToolNamesForIntegrations,
   systemToolKernel,
 } from "../../src/modules/agent/tool-surface";
 import { preloadToolCatalog, type ToolCatalogAccess } from "../../src/modules/tools/discovery";
@@ -222,7 +222,7 @@ describe("migrateActiveTools", () => {
     for (const name of systemToolKernel()) {
       assert.ok(migrated.includes(name), `kernel tool ${name} retained`);
     }
-    for (const name of registeredToolNamesForIntegrations(["gmail"])) {
+    for (const name of capabilityNamesForIntegrations(["gmail"])) {
       assert.ok(migrated.includes(name), `gmail tool ${name} retained`);
     }
   });
@@ -230,6 +230,15 @@ describe("migrateActiveTools", () => {
   test("legacy expansion never treats system as an eager integration", () => {
     const migrated = migrateActiveTools(undefined, ["system"], []);
     assert.deepEqual(migrated, systemToolKernel());
+  });
+
+  test("integration projection does not require or hide the system integration", () => {
+    assert.deepEqual(
+      capabilityNamesForIntegrations(["system"]),
+      listToolsForIntegration("system")
+        .map((tool) => tool.name)
+        .sort(),
+    );
   });
 
   test("legacy expansion unions a valid pending tool from outside the active integrations", () => {

@@ -19,6 +19,7 @@ import { db } from "@alfred/db";
 import { documents } from "@alfred/db/schemas";
 import { and, eq } from "drizzle-orm";
 import { z } from "zod";
+import { capabilityNamesForIntegrations } from "../../capabilities";
 import { compactTranscript, compactWithRetry } from "../compaction";
 import {
   estimateNextTurnInputTokens,
@@ -49,7 +50,6 @@ import {
   applySystemToolEffect,
   buildTurnToolSurface,
   foldToolSurfaceState,
-  registeredToolNamesForIntegrations,
   systemToolKernel,
   toolSurfaceStateFields,
 } from "../tool-surface";
@@ -632,7 +632,7 @@ export const userAuthoredBriefWorkflow: Workflow<BriefRunState> = {
       ...parseIntegrationMentions(input.brief, allowedIntegrations),
       ...eventSeed.filter((slug) => integrationAllowed(slug, allowedIntegrations)),
     ]);
-    const preloadedTools = allowedTools ?? registeredToolNamesForIntegrations(seededIntegrations);
+    const preloadedTools = allowedTools ?? capabilityNamesForIntegrations(seededIntegrations);
     return {
       activeTools: allowedTools ?? [...systemToolKernel(), ...preloadedTools],
       preloadedTools,

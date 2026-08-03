@@ -1,10 +1,9 @@
 /** Deterministic estimate of the model-visible capability schema payload. */
 
+import { APPROXIMATE_CHARS_PER_TOKEN } from "@alfred/ai";
 import { z } from "zod";
 
 import type { RegisteredTool } from "./registry";
-
-const SCHEMA_CHARS_PER_TOKEN = 4;
 
 export interface CapabilitySchemaSize {
   bytes: number;
@@ -41,7 +40,7 @@ export function capabilitySchemaSize(tool: CapabilitySchemaDefinition): Capabili
   });
   const size: CapabilitySchemaSize = {
     bytes: new TextEncoder().encode(serialized).byteLength,
-    tokens: Math.ceil(serialized.length / SCHEMA_CHARS_PER_TOKEN),
+    tokens: Math.ceil(serialized.length / APPROXIMATE_CHARS_PER_TOKEN),
   };
   schemaSizeCache.set(tool, size);
   return size;
