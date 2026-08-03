@@ -2,6 +2,7 @@ import {
   isToolName,
   type IntegrationAvailabilitySnapshot,
   type ToolName,
+  type ToolRunContext,
   type ToolRiskTier,
 } from "@alfred/contracts";
 import { readIntegrationAvailability } from "../integrations/availability";
@@ -12,7 +13,6 @@ import {
   getTool,
   listRegisteredTools,
   type RegisteredTool,
-  type ToolRunContext,
   type ToolAvailabilityResult,
   type ToolUnavailabilityCode,
 } from "./registry";

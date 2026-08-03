@@ -22,10 +22,10 @@ export {
   type LiveToolArgs,
   type ToolExecuteContext,
   type ToolExecuteContextFields,
-  type ToolRunContext,
   type ToolAvailabilityResult,
   type ToolUnavailabilityCode,
 } from "./registry";
+export type { ToolRunContext } from "@alfred/contracts";
 export { latestUserPrompt, preloadToolsForPrompt } from "./discovery";
 export { toolExecuteContext } from "./context";
 export { toolTiersRoutes } from "./tool-tiers-routes";

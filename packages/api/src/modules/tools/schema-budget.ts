@@ -1,4 +1,11 @@
-/** Deterministic estimate of the model-visible tool schema payload. */
+/**
+ * Tool-schema budget estimator (#414, PRD #405, User Story 15).
+ *
+ * Lazy loading is only useful when it shrinks the model-visible payload. This
+ * deterministic proxy mirrors the provider envelope but is not a byte-exact
+ * provider count; it exists to detect regressions in the same direction and at
+ * about the same scale as the real payload.
+ */
 
 import { APPROXIMATE_CHARS_PER_TOKEN } from "@alfred/ai";
 import { z } from "zod";
@@ -18,8 +25,15 @@ export interface ToolSurfaceBudget {
 
 export type ToolSchemaDefinition = Pick<RegisteredTool, "name" | "description" | "inputSchema">;
 
+// Registered definitions are write-once after boot. The definition, not its
+// schema, owns the cache entry because name and description also affect size.
 const schemaSizeCache = new WeakMap<ToolSchemaDefinition, ToolSchemaSize>();
 
+/**
+ * Estimate one model-visible tool envelope. Schema conversion failure keeps the
+ * name-and-description estimate instead of failing telemetry; the boot-time
+ * object-schema guard should make this a defence-in-depth path only.
+ */
 export function toolSchemaSize(tool: ToolSchemaDefinition): ToolSchemaSize {
   const cached = schemaSizeCache.get(tool);
   if (cached) return cached;

@@ -20,10 +20,10 @@ import type {
   IntegrationSlug,
   RiskTierCounts,
   ToolName,
+  ToolRunContext,
   ToolAvailabilityResult,
   ToolRiskTier,
 } from "@alfred/contracts";
-import type { ToolRunContext } from "../tool-runtime";
 import {
   buildToolName,
   humanizeSlug,
@@ -300,8 +300,6 @@ export interface RegisteredTool {
   /** See {@link LiveToolArgs.redactInput}. Erased to `unknown` at the registry boundary. */
   redactInput?: (input: unknown) => unknown;
 }
-
-export type { ToolRunContext } from "../tool-runtime";
 
 /** Project execution data onto the product facts that tool eligibility uses. */
 export function toolRunContext(args: {

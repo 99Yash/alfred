@@ -14,12 +14,13 @@ import {
   workflowRequiredCapabilitySchema,
   type AgentTranscriptMessage,
   type ToolName,
+  type ToolRunContext,
 } from "@alfred/contracts";
 import { db } from "@alfred/db";
 import { documents } from "@alfred/db/schemas";
 import { and, eq } from "drizzle-orm";
 import { z } from "zod";
-import { toolNamesForIntegrations, type ToolRunContext } from "../../tool-runtime";
+import { toolNamesForIntegrations } from "../../tool-runtime";
 import { compactTranscript, compactWithRetry } from "../compaction";
 import {
   estimateNextTurnInputTokens,
