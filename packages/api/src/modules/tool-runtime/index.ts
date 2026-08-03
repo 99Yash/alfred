@@ -1,21 +1,5 @@
 import type { ToolSet } from "@alfred/ai";
-import type { IntegrationAvailabilitySnapshot, ToolName } from "@alfred/contracts";
-
-/**
- * Facts about the run that change tool eligibility.
- *
- * `interaction` describes product behavior, not storage or execution location.
- * A live chat can use conversation-bound tools. A background run cannot, even
- * when it reports progress into a chat UI. Remote execution is orthogonal: its
- * validated ingress maps to one of these interaction modes.
- *
- * This value is built from trusted, already-validated run state. Validate
- * persisted, queued, or remote input at its owning boundary, then map it here.
- */
-export interface ToolRunContext {
-  caller: "boss" | "sub_agent";
-  interaction: "live_chat" | "background";
-}
+import type { IntegrationAvailabilitySnapshot, ToolName, ToolRunContext } from "@alfred/contracts";
 
 export interface NormalizedToolSurface {
   activeNames: ToolName[];
@@ -32,6 +16,11 @@ export interface ResolvedToolSurface {
 }
 
 export interface ToolPreloadPlan {
+  /**
+   * Prompt extraction is synchronous so the workflow can attach its size to
+   * the span before timing the asynchronous selection. Keep `select` deferred:
+   * the workflow owns that span and must record selection failures on it.
+   */
   promptChars: number;
   select(): Promise<ToolName[]>;
 }
@@ -78,6 +67,10 @@ export function normalizeToolSurface(input: {
   return requireToolRuntimeAdapter().normalize(input);
 }
 
+/**
+ * Project names that already passed load-time allowlist and credential gates.
+ * Tool-runtime registration is part of worker boot; calling before boot fails.
+ */
 export function resolveToolSurface(input: {
   activeNames: readonly ToolName[];
   context: ToolRunContext;

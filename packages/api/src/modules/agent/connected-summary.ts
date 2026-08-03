@@ -1,5 +1,8 @@
-import type { IntegrationAvailabilitySnapshot, LoadableIntegrationSlug } from "@alfred/contracts";
-import type { ToolRunContext } from "../tool-runtime";
+import type {
+  IntegrationAvailabilitySnapshot,
+  LoadableIntegrationSlug,
+  ToolRunContext,
+} from "@alfred/contracts";
 import { availableToolNames, listRegisteredTools } from "../tools/registry";
 
 /**

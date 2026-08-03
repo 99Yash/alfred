@@ -45,8 +45,15 @@ const toolsRuntimeAdapter: ToolRuntimeAdapter = {
     };
   },
 
+  /**
+   * Memoized per (caller, interaction, active-name-set). The registry is
+   * write-once after boot, so the projection is safe to share across turns and
+   * users. The registry is small, so the process-lifetime cache stays bounded
+   * in practice by the small number of distinct active sets.
+   */
   resolve(input) {
     const activeNames = uniqueToolNames(input.activeNames);
+    // ToolName is a dotted identifier and cannot contain a comma, so this join is collision-free.
     const key = `${input.context.caller}:${input.context.interaction}:${activeNames.join(",")}`;
     const cached = sdkSurfaceCache.get(key);
     if (cached) return cached;

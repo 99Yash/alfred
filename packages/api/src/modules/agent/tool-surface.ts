@@ -3,15 +3,11 @@ import {
   isToolName,
   type IntegrationAvailabilitySnapshot,
   type ToolName,
+  type ToolRunContext,
 } from "@alfred/contracts";
 import type { ToolSet } from "@alfred/ai";
 import { z } from "zod";
-import {
-  normalizeToolSurface,
-  prepareToolPreload,
-  resolveToolSurface,
-  type ToolRunContext,
-} from "../tool-runtime";
+import { normalizeToolSurface, prepareToolPreload, resolveToolSurface } from "../tool-runtime";
 import type { DispatchResult } from "../dispatch";
 import { startToolLoadSpan, startToolPreloadSpan, startToolSurfaceSpan } from "./runtime-spans";
 
@@ -183,14 +179,6 @@ function uniqueToolNames(toolNames: readonly ToolName[]): ToolName[] {
   return [...new Set(toolNames)].sort();
 }
 
-/**
- * Memoized SDK `ToolSet` per (caller, interaction, active-name-set). The registry
- * is write-once at boot, so a tool's SDK definition is a pure function of its
- * name; the returned object is treated as read-only by the SDK, so sharing one
- * instance across turns and users is safe. Keyed by the availability context too
- * because that changes which tools are exposed. Unbounded but bounded in
- * practice — the registry is small and the distinct active-set count is tiny.
- */
 /**
  * Project the run's exact active tool names into the SDK `ToolSet` for a model
  * turn, dropping tools the caller could never actually invoke so the model never
