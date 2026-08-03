@@ -16,8 +16,8 @@ import { randomBytes } from "node:crypto";
 import { Elysia, t } from "elysia";
 import { and, eq } from "drizzle-orm";
 import { authMacro } from "../../middleware/auth";
+import { publishDomainEvent } from "../triggers";
 import { getIngestionQueue } from "./queue";
-import { requestGoogleColdStartResearch } from "./google-cold-start-research";
 import {
   disconnectGoogleCredentialConnection,
   GoogleCredentialNotFoundError,
@@ -47,10 +47,10 @@ import { resolveWorkflowRecoveryTarget } from "./workflow-recovery";
  */
 
 /**
- * Best-effort post-callback side effects (initial-sync, watch install). A
+ * Best-effort post-callback side effects (initial-sync, watch install, event
+ * publication). A
  * failure here must not bounce the user to an OAuth error page, so each is
- * swallowed with a warn. The cold-start trigger below keeps its own block —
- * it has distinct unique-violation handling.
+ * swallowed with a warn.
  */
 async function bestEffort(label: string, fn: () => Promise<unknown>): Promise<void> {
   try {
@@ -60,21 +60,22 @@ async function bestEffort(label: string, fn: () => Promise<unknown>): Promise<vo
   }
 }
 
-type GoogleColdStartResearchRequester = typeof requestGoogleColdStartResearch;
+type DomainEventPublisher = typeof publishDomainEvent;
 
-/** Keep cold-start scheduling best-effort at the OAuth redirect boundary. */
-export async function requestColdStartResearchAfterGoogleCallback(
-  request: { userId: string; credentialId: string },
-  requestResearch: GoogleColdStartResearchRequester = requestGoogleColdStartResearch,
+/** Publish the completed connection occurrence without naming its consumers. */
+export async function publishGoogleCallbackCompleted(
+  userId: string,
+  credentialId: string,
+  publish: DomainEventPublisher = publishDomainEvent,
 ): Promise<void> {
-  await bestEffort(`failed to enqueue cold-start research for ${request.userId}`, async () => {
-    const result = await requestResearch(request);
-    if (result.status === "duplicate") {
-      console.log(
-        `[google.callback] cold-start research already exists for ${request.userId}; skipping.`,
-      );
-    }
-  });
+  await bestEffort(`failed to publish completed event for ${userId}`, () =>
+    publish({
+      userId,
+      source: "google.oauth.callback",
+      type: "completed",
+      eventId: `google.callback:${credentialId}`,
+    }),
+  );
 }
 
 /**
@@ -365,13 +366,10 @@ export const googleIntegrationRoutes = new Elysia({
         }),
       );
 
-      // Google is the first integration that supplies enough onboarding
-      // context for cold-start research (ADR-0011 + ADR-0022). Scheduling is
-      // best-effort so a research failure never changes the OAuth redirect.
-      await requestColdStartResearchAfterGoogleCallback({
-        userId: decoded.userId,
-        credentialId,
-      });
+      // Publish the connection occurrence through the generic trigger path.
+      // Cold-start research is one consumer today; future consumers do not
+      // require another integration-owned callback seam.
+      await publishGoogleCallbackCompleted(decoded.userId, credentialId);
 
       // Bounce back to the SPA. If the user hasn't finished onboarding yet,
       // pop them back onto step 2 of the flow (popular-integrations grid)

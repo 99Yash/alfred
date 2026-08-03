@@ -491,8 +491,8 @@ a runtime-composed adapter. Google credential affiliation updates now use a
 transaction-owning composition adapter, so `integrations -> user-model` is gone.
 Chat attachment enrichment and storage cleanup now use an integrations-owned
 chat-media interface with a runtime-composed adapter, so `integrations -> chat`
-is gone. Google OAuth cold-start scheduling now uses an integrations-owned
-request interface and a runtime-composed execution adapter, so
+is gone. Google OAuth completion now publishes through the triggers interface,
+and the registered automation consumer starts cold-start research, so
 `integrations -> agent` and `integrations -> cold-start` are gone. Connection
 imports of other consumers still remain. The current sole trigger consumer
 attempts durable occurrence claims before publication returns, but keeps
