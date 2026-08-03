@@ -59,16 +59,31 @@ const toolCapabilitySurfaceAdapter: CapabilitySurfaceAdapter = {
     }
 
     const budget = estimateCapabilitySurfaceBudget(definitions);
+    const surfacedNames = definitions.map((definition) => definition.name);
+    const loadedNames = definitions
+      .filter((definition) => definition.availability?.surface !== "kernel")
+      .map((definition) => definition.name);
     const resolved: ResolvedCapabilitySurface = {
       tools: tools as ToolSet,
-      surfacedNames: definitions.map((definition) => definition.name),
-      kernelCount: definitions.filter((definition) => definition.availability?.surface === "kernel")
-        .length,
+      surfacedNames,
+      loadedNames,
+      kernelCount: surfacedNames.length - loadedNames.length,
       schemaBytes: budget.schemaBytes,
       schemaTokens: budget.schemaTokens,
     };
     sdkSurfaceCache.set(key, resolved);
     return resolved;
+  },
+
+  namesForIntegrations(integrations) {
+    const names = new Set<ToolName>();
+    for (const integration of integrations) {
+      if (!isIntegrationSlug(integration)) continue;
+      for (const definition of listToolsForIntegration(integration)) {
+        names.add(definition.name);
+      }
+    }
+    return uniqueCapabilityNames([...names]);
   },
 
   preparePreload(input) {
@@ -90,6 +105,11 @@ const toolCapabilitySurfaceAdapter: CapabilitySurfaceAdapter = {
 
 export function registerToolCapabilitySurfaceAdapter(): void {
   registerCapabilitySurfaceAdapter(toolCapabilitySurfaceAdapter);
+}
+
+/** Test-only: clear projections whose keys assume the production write-once registry. */
+export function clearToolCapabilitySurfaceCacheForTests(): void {
+  sdkSurfaceCache.clear();
 }
 
 function requiredCapabilityKernelNames(): ToolName[] {

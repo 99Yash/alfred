@@ -15,12 +15,6 @@ import {
 import type { DispatchResult } from "../dispatch";
 import { startToolLoadSpan, startToolPreloadSpan, startToolSurfaceSpan } from "./runtime-spans";
 
-export function registeredToolNamesForIntegrations(integrations: readonly string[]): ToolName[] {
-  const surface = normalizeCapabilitySurface({ legacyIntegrationNames: integrations });
-  const kernel = new Set(surface.kernelNames);
-  return surface.activeNames.filter((name) => !kernel.has(name));
-}
-
 export function systemToolKernel(): ToolName[] {
   return normalizeCapabilitySurface({}).kernelNames;
 }
@@ -155,12 +149,17 @@ export function applyExactToolLoad(activeTools: readonly ToolName[], result: unk
     !isRecord(result) ||
     result.ok !== true ||
     typeof result.name !== "string" ||
-    !isToolName(result.name) ||
-    normalizeCapabilitySurface({ activeNames: [result.name] }).activeNames.length === 0
+    !isRegisteredCapabilityName(result.name)
   ) {
     return uniqueToolNames(activeTools);
   }
   return activateTool(activeTools, result.name);
+}
+
+function isRegisteredCapabilityName(name: string): name is ToolName {
+  return (
+    isToolName(name) && normalizeCapabilitySurface({ activeNames: [name] }).activeNames[0] === name
+  );
 }
 
 /**
@@ -244,10 +243,6 @@ export function buildTurnToolSurface(args: {
     context: args.context,
   });
   const tools = surface.tools;
-  // Only the loaded (non-kernel) names are carried on the span; the kernel count
-  // is the complement, so there's no need to materialize a second array for it.
-  const kernel = new Set(systemToolKernel());
-  const loaded = surface.surfacedNames.filter((name) => !kernel.has(name));
   startToolSurfaceSpan({
     runId: args.runId,
     workflow: args.workflow,
@@ -256,8 +251,8 @@ export function buildTurnToolSurface(args: {
   }).end({
     activeCount: surface.surfacedNames.length,
     kernelCount: surface.kernelCount,
-    loadedCount: loaded.length,
-    loadedTools: loaded,
+    loadedCount: surface.loadedNames.length,
+    loadedTools: surface.loadedNames,
     schemaBytes: surface.schemaBytes,
     schemaTokens: surface.schemaTokens,
     schemaRebuildMs: Date.now() - startMs,

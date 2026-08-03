@@ -7,17 +7,13 @@ import { activateTool, migrateActiveTools } from "../../src/modules/agent/tool-s
 import { chatTurnWorkflow } from "../../src/modules/agent/workflows/chat-turn";
 import { userAuthoredBriefWorkflow } from "../../src/modules/agent/workflows/user-authored-brief";
 import { _setDispatchTraceSinksForTests, dispatchToolCall } from "../../src/modules/dispatch";
-import { registerToolCapabilitySurfaceAdapter } from "../../src/modules/tools/capability-surface";
-import {
-  clearToolRegistryForTests,
-  liveTool,
-  registerTool,
-} from "../../src/modules/tools/registry";
+import { liveTool, registerTool } from "../../src/modules/tools/registry";
+import { resetToolFixtures } from "../lib/tool-fixtures";
 
 let restoreTraceSinks: (() => void) | undefined;
 
 beforeEach(() => {
-  registerToolCapabilitySurfaceAdapter();
+  resetToolFixtures();
   restoreTraceSinks = _setDispatchTraceSinksForTests({
     rejectionRecorder: () => {},
     toolSpanStarter: () => ({ success: () => {}, error: () => {} }),
@@ -26,7 +22,7 @@ beforeEach(() => {
 
 afterEach(() => {
   restoreTraceSinks?.();
-  clearToolRegistryForTests();
+  resetToolFixtures();
 });
 
 describe("exact active tool dispatch", () => {

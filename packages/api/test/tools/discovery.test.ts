@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { afterEach, before, describe, test } from "node:test";
+import { afterEach, beforeEach, describe, test } from "node:test";
 
 import type {
   IntegrationAvailabilitySnapshot,
@@ -9,7 +9,6 @@ import type {
 import { z } from "zod";
 
 import { applyExactToolLoad } from "../../src/modules/agent/tool-surface";
-import { registerToolCapabilitySurfaceAdapter } from "../../src/modules/tools/capability-surface";
 import {
   preloadToolCatalog,
   resolveExactToolLoad,
@@ -18,16 +17,16 @@ import {
 } from "../../src/modules/tools/discovery";
 import {
   availableToolNames,
-  clearToolRegistryForTests,
   evaluateToolAvailability,
   liveTool,
   registerTool,
   type RegisteredTool,
   type ToolAvailabilityResult,
 } from "../../src/modules/tools/registry";
+import { resetToolFixtures } from "../lib/tool-fixtures";
 
-before(() => registerToolCapabilitySurfaceAdapter());
-afterEach(() => clearToolRegistryForTests());
+beforeEach(resetToolFixtures);
+afterEach(resetToolFixtures);
 
 const gmailSearch = liveTool({
   integration: "gmail",

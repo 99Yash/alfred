@@ -14,6 +14,7 @@ export interface NormalizedCapabilitySurface {
 export interface ResolvedCapabilitySurface {
   tools: ToolSet;
   surfacedNames: ToolName[];
+  loadedNames: ToolName[];
   kernelCount: number;
   schemaBytes: number;
   schemaTokens: number;
@@ -34,6 +35,7 @@ export interface CapabilitySurfaceAdapter {
     activeNames: readonly ToolName[];
     context: CapabilitySurfaceContext;
   }): ResolvedCapabilitySurface;
+  namesForIntegrations(integrations: readonly string[]): ToolName[];
   preparePreload(input: {
     userId: string;
     transcript: readonly { role: string; content: unknown }[];
@@ -70,6 +72,10 @@ export function resolveCapabilitySurface(input: {
   context: CapabilitySurfaceContext;
 }): ResolvedCapabilitySurface {
   return requireSurfaceAdapter().resolve(input);
+}
+
+export function capabilityNamesForIntegrations(integrations: readonly string[]): ToolName[] {
+  return requireSurfaceAdapter().namesForIntegrations(integrations);
 }
 
 export function prepareCapabilityPreload(input: {

@@ -5,4 +5,5 @@ export * from "./embeddings";
 export * from "./tools";
 export * from "./agent";
 export * from "./context-window";
+export * from "./token-estimate";
 export * from "./metering/index";

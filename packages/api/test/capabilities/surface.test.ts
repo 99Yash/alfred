@@ -1,24 +1,21 @@
 import assert from "node:assert/strict";
-import { afterEach, test } from "node:test";
+import { afterEach, beforeEach, test } from "node:test";
 
 import { z } from "zod";
 
 import {
+  capabilityNamesForIntegrations,
   normalizeCapabilitySurface,
   prepareCapabilityPreload,
   resolveCapabilitySurface,
 } from "../../src/modules/capabilities";
-import {
-  clearToolRegistryForTests,
-  liveTool,
-  registerTools,
-} from "../../src/modules/tools/registry";
-import { registerToolCapabilitySurfaceAdapter } from "../../src/modules/tools/capability-surface";
+import { liveTool, registerTools } from "../../src/modules/tools/registry";
+import { resetToolFixtures } from "../lib/tool-fixtures";
 
-afterEach(() => clearToolRegistryForTests());
+beforeEach(resetToolFixtures);
+afterEach(resetToolFixtures);
 
 function registerSurfaceFixtures(): void {
-  registerToolCapabilitySurfaceAdapter();
   registerTools([
     liveTool({
       integration: "system",
@@ -73,10 +70,52 @@ test("projects the exact caller-visible schemas and matching metrics", () => {
   });
 
   assert.deepEqual(surface.surfacedNames, ["gmail.search", "system.search_tools"]);
+  assert.deepEqual(surface.loadedNames, ["gmail.search"]);
   assert.deepEqual(Object.keys(surface.tools).sort(), surface.surfacedNames);
   assert.equal(surface.kernelCount, 1);
   assert.ok(surface.schemaBytes > 0);
   assert.ok(surface.schemaTokens > 0);
+});
+
+test("resets cached projections with the shared tool fixture lifecycle", () => {
+  registerSurfaceFixtures();
+  const first = resolveCapabilitySurface({
+    activeNames: ["gmail.search"],
+    context: { caller: "boss", hasThread: true },
+  });
+  assert.equal(first.tools["gmail.search"]?.description, "Search Gmail.");
+
+  resetToolFixtures();
+  registerTools([
+    liveTool({
+      integration: "gmail",
+      action: "search",
+      riskTier: "low",
+      description: "Search a different fixture.",
+      inputSchema: z.object({ query: z.string() }).strict(),
+      execute: async () => ({}),
+    }),
+  ]);
+  const second = resolveCapabilitySurface({
+    activeNames: ["gmail.search"],
+    context: { caller: "boss", hasThread: true },
+  });
+  assert.equal(second.tools["gmail.search"]?.description, "Search a different fixture.");
+});
+
+test("lists integration tools without requiring a kernel", () => {
+  registerTools([
+    liveTool({
+      integration: "gmail",
+      action: "search",
+      riskTier: "low",
+      description: "Search Gmail.",
+      inputSchema: z.object({ query: z.string() }).strict(),
+      execute: async () => ({}),
+    }),
+  ]);
+
+  assert.deepEqual(capabilityNamesForIntegrations(["gmail", "system"]), ["gmail.search"]);
 });
 
 test("selects an exact available preload through the workflow allowlist", async () => {
