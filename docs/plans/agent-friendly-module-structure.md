@@ -1,7 +1,7 @@
 # Agent-friendly module structure
 
-> **Status:** active migration plan. Phase 0 is complete and Phase 1 is in
-> progress.
+> **Status:** active migration plan. Phases 0 and 1 are complete. Phase 2 is
+> next.
 >
 > **Basis:** the repository state on 2026-08-01. Git history has been rewritten
 > and is not evidence for how the repository evolved.
@@ -478,7 +478,7 @@ and a developer can run one non-mutating verification command.
 
 ### Phase 1 — Give events one owner
 
-**Status:** In progress (2026-08-03). The first slice adds the in-place
+**Status:** Complete (2026-08-03). The first slice adds the in-place
 `triggers` interface, routes Gmail ingestion publication through it, and wires
 the workflow trigger consumer in runtime composition. Google OAuth draft
 recovery now uses an integrations-owned callback interface with a workflow
@@ -496,8 +496,9 @@ and the registered automation consumer starts cold-start research, so
 `integrations -> agent` and `integrations -> cold-start` are gone. Connection
 availability now exposes connection state without interpreting registered tools,
 and tool-tier presentation is mounted by the API composition root, so
-`integrations -> tools` is gone. The separate `integrations -> mcp` edge still
-remains. The current sole trigger consumer
+`integrations -> tools` is gone. MCP now owns its connection routes and the API
+composition root mounts them directly, so `integrations -> mcp` is also gone.
+The current sole trigger consumer
 attempts durable occurrence claims before publication returns, but keeps
 per-workflow failure details inside automation. Durable delivery to several
 independent consumers remains later work in this phase.

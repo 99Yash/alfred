@@ -91,6 +91,12 @@ observation-chain conflicts. Disconnect uses the deleted row as evidence, so a
 losing delete appends no observation. Remote Gmail watch shutdown remains
 best-effort and starts only after the credential transaction commits.
 
+MCP owns its authenticated connection routes, public OAuth metadata and
+callback routes, persistence behavior, and runtime connection manager. The API
+composition root mounts this presentation directly. The integrations route
+aggregate does not import or mount MCP implementation details. MCP uses the
+integrations interface for the shared signed OAuth state and nonce store.
+
 **Web → Auth:** `apps/web/src/lib/auth-client.ts` creates a Better Auth client. The web app calls `authClient.signIn.social({ provider: "google" })` from the login surface; Better Auth redirects through Google and back to `/api/auth/callback/google`, both mounted on the Elysia server.
 
 **API → Auth:** `packages/api/src/middleware/session-cache.ts` calls `auth().api.getSession()` with a two-layer cache (per-request WeakMap + 10-second token cache). Import `getSessionCached()` in route handlers; never call `auth()` directly from routes.
