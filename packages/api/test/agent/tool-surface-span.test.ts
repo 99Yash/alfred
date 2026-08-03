@@ -132,7 +132,7 @@ describe("runtime.tool_surface", () => {
       returnedToolNames = Object.keys(
         buildTurnToolSurface({
           activeTools,
-          context: { caller: "boss", hasThread: true },
+          context: { caller: "boss", interaction: "live_chat" },
           runId: "run_real_surface",
           workflow: "__chat-turn__",
           spanCaller: "boss",

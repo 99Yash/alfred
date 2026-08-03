@@ -281,6 +281,11 @@ MCP broker rules, and result routing. System tools that spawn or join a
 run receive bounded callbacks in `ExecutionContext`; they do not import
 execution internals.
 
+Tool eligibility uses two independent run facts: caller identity and interaction
+mode (`live_chat` or `background`). Execution location is not part of this
+interface. A remote run maps to an interaction mode after its input is validated
+at the remote ingress. Trusted in-process context is not parsed again.
+
 ### Triggers
 
 Here, `triggers` means publication of domain occurrences and delivery to the

@@ -132,7 +132,7 @@ story rather than a new runtime.
 
 ### The authoring tool must be chat-only
 
-`system.author_workflow` should declare `requiresThread: true` and
+`system.author_workflow` should declare `requiresLiveChat: true` and
 `callers: ['boss']`. Without that availability constraint, a background
 user-authored brief can discover and invoke the authoring tool, allowing an
 unattended workflow to propose or recursively create workflows. High-risk
@@ -431,7 +431,7 @@ Before implementation, revise the plan in these places:
    draft with resumable setup actions.
 3. Route create, edit, activation, and reactivation through one validated
    revision service.
-4. Add `requiresThread` + boss-only availability to the authoring tool.
+4. Add `requiresLiveChat` + boss-only availability to the authoring tool.
 5. Put readiness in an async first step, not synchronous `initialState`.
 6. Separate desired active/paused state from system health blockers and specify
    reconnect behavior.

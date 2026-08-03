@@ -92,7 +92,7 @@ import {
   getTool,
   joinToolInput,
   resolveToolAvailability,
-  toolAvailabilityContext,
+  toolRunContext,
   type RegisteredTool,
   type ToolExecuteContext,
   type ToolUnavailabilityCode,
@@ -489,7 +489,7 @@ export async function dispatchToolCall(args: DispatchArgs): Promise<DispatchResu
   }
 
   // The declared tool contract, enforced where it decides. `callers`,
-  // `requiresThread`, `passthrough`, `credential` and the workflow integration
+  // `requiresLiveChat`, `passthrough`, `credential` and the workflow integration
   // cap are declared once on the registration and evaluated by ONE evaluator, so
   // discovery, load, the SDK projection and this floor agree by construction —
   // no branch here re-derives a permission from a tool name.
@@ -505,7 +505,7 @@ export async function dispatchToolCall(args: DispatchArgs): Promise<DispatchResu
   const availability = await resolveToolAvailability({
     tool,
     allowed: new Set(args.allowedIntegrations ?? []),
-    context: toolAvailabilityContext({ caller: args.caller, threadId: args.threadId }),
+    context: toolRunContext({ caller: args.caller, threadId: args.threadId }),
     loadSnapshot: () => readIntegrationAvailability(args.userId),
   });
   if (!availability.available) {

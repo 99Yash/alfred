@@ -249,7 +249,7 @@ export function resolveWorkflowReadiness(args: {
     }
     const availability = evaluateToolAvailability(args.availability, tool, allowed, {
       caller: "boss",
-      hasThread: false,
+      interaction: "background",
     });
     if (!availability.available) {
       problems.push({

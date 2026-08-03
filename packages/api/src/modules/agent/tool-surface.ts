@@ -10,7 +10,7 @@ import {
   normalizeToolSurface,
   prepareToolPreload,
   resolveToolSurface,
-  type ToolSurfaceContext,
+  type ToolRunContext,
 } from "../tool-runtime";
 import type { DispatchResult } from "../dispatch";
 import { startToolLoadSpan, startToolPreloadSpan, startToolSurfaceSpan } from "./runtime-spans";
@@ -184,7 +184,7 @@ function uniqueToolNames(toolNames: readonly ToolName[]): ToolName[] {
 }
 
 /**
- * Memoized SDK `ToolSet` per (caller, hasThread, active-name-set). The registry
+ * Memoized SDK `ToolSet` per (caller, interaction, active-name-set). The registry
  * is write-once at boot, so a tool's SDK definition is a pure function of its
  * name; the returned object is treated as read-only by the SDK, so sharing one
  * instance across turns and users is safe. Keyed by the availability context too
@@ -197,8 +197,7 @@ function uniqueToolNames(toolNames: readonly ToolName[]): ToolName[] {
  * burns a turn on a call the dispatcher would only bounce:
  *   - `callers` gates boss-only tools (the sub-agent join tools) out of sub-agent
  *     runs (ADR-0073), and
- *   - `requiresThread` gates thread-only tools (chat history) out of thread-less
- *     brief/sub-agent runs.
+ *   - `requiresLiveChat` gates conversation-bound tools out of background runs.
  * These are the caller-context predicates also used by
  * {@link availableToolNames}. Integration allowlists and credential health are
  * load-time gates: they were checked before a name entered `activeTools` and are
@@ -209,7 +208,7 @@ function uniqueToolNames(toolNames: readonly ToolName[]): ToolName[] {
  */
 export function buildSdkToolSet(
   activeTools: readonly ToolName[],
-  context: ToolSurfaceContext,
+  context: ToolRunContext,
 ): ToolSet {
   return resolveToolSurface({ activeNames: activeTools, context }).tools;
 }
@@ -228,7 +227,7 @@ export function buildSdkToolSet(
  */
 export function buildTurnToolSurface(args: {
   activeTools: readonly ToolName[];
-  context: ToolSurfaceContext;
+  context: ToolRunContext;
   runId: string;
   workflow: string;
   /** Span caller label (`boss` | `sub:<id>`); distinct from the availability caller kind. */
@@ -280,7 +279,7 @@ export async function applyPromptToolPreload(args: {
   /** Span caller label (`boss` | `sub:<id>`); distinct from the availability caller kind. */
   spanCaller: string;
   transcript: readonly { role: string; content: unknown }[];
-  context: ToolSurfaceContext;
+  context: ToolRunContext;
   availability: IntegrationAvailabilitySnapshot;
 }): Promise<void> {
   if (args.state.preloadApplied) return;

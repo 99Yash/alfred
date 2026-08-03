@@ -19,7 +19,7 @@ import { db } from "@alfred/db";
 import { documents } from "@alfred/db/schemas";
 import { and, eq } from "drizzle-orm";
 import { z } from "zod";
-import { toolNamesForIntegrations } from "../../tool-runtime";
+import { toolNamesForIntegrations, type ToolRunContext } from "../../tool-runtime";
 import { compactTranscript, compactWithRetry } from "../compaction";
 import {
   estimateNextTurnInputTokens,
@@ -213,18 +213,18 @@ const bossTurnStep: Step<BriefRunState> = {
     }
     // Persisted state carries the zone as a plain string; re-establish the type.
     const grounding = formatDateGrounding(parseIanaTimezone(state.timezone));
-    // `hasThread: false` throughout this workflow gates the tools that need a
-    // conversation to operate on (`requiresThread` — reading chat history,
-    // replying into the thread), and this run has none: even a chat-spawned child
-    // only *reports back* through its parent. It is deliberately NOT contradicted
-    // by `state.subAgent.chat` — that address exists so the child's tool cards can
-    // render inside the parent's bubble, which is a display channel, not a
-    // conversation the child can read or write.
+    // This is a background interaction. Even a chat-spawned child only reports
+    // through its parent. Its chat address is a display channel, not permission
+    // to read or change that conversation.
+    const toolRunContext: ToolRunContext = {
+      caller: subAgent ? "sub_agent" : "boss",
+      interaction: "background",
+    };
     if (state.connectedSummary === undefined) {
       state.connectedSummary = buildConnectedSummaryFromAvailability(
         await readIntegrationAvailability(ctx.userId),
         state.allowedIntegrations,
-        { caller: subAgent ? "sub_agent" : "boss", hasThread: false },
+        toolRunContext,
       );
     }
     await applyPromptToolPreload({
@@ -234,7 +234,7 @@ const bossTurnStep: Step<BriefRunState> = {
       workflow: USER_AUTHORED_BRIEF_WORKFLOW_SLUG,
       spanCaller: subAgent ? `sub:${subAgent.subId}` : "boss",
       transcript,
-      context: { caller: subAgent ? "sub_agent" : "boss", hasThread: false },
+      context: toolRunContext,
       availability: await readIntegrationAvailability(ctx.userId),
     });
     const agent = new AlfredAgent({
@@ -245,7 +245,7 @@ const bossTurnStep: Step<BriefRunState> = {
       tools: () =>
         buildTurnToolSurface({
           activeTools: state.activeTools,
-          context: { caller: subAgent ? "sub_agent" : "boss", hasThread: false },
+          context: toolRunContext,
           runId: ctx.runId,
           workflow: USER_AUTHORED_BRIEF_WORKFLOW_SLUG,
           spanCaller: subAgent ? `sub:${subAgent.subId}` : "boss",

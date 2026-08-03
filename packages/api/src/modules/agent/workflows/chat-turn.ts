@@ -295,11 +295,12 @@ const chatTurnStep: Step<ChatRunState> = {
       // Persisted state carries the zone as a plain string, so re-establish it as
       // a zone once per step rather than at each reading below.
       const timezone = parseIanaTimezone(state.timezone);
+      const toolRunContext = { caller: "boss", interaction: "live_chat" } as const;
       if (state.connectedSummary === undefined) {
         state.connectedSummary = buildConnectedSummaryFromAvailability(
           await readIntegrationAvailability(ctx.userId),
           state.allowedIntegrations,
-          { caller: "boss", hasThread: true },
+          toolRunContext,
         );
       }
       await applyPromptToolPreload({
@@ -309,7 +310,7 @@ const chatTurnStep: Step<ChatRunState> = {
         workflow: CHAT_TURN_WORKFLOW_SLUG,
         spanCaller: "boss",
         transcript: hydratedTranscript,
-        context: { caller: "boss", hasThread: true },
+        context: toolRunContext,
         availability: await readIntegrationAvailability(ctx.userId),
       });
       if (state.artifactsContext === undefined || state.artifactReference === undefined) {
@@ -344,7 +345,7 @@ const chatTurnStep: Step<ChatRunState> = {
         .join("\n\n");
       const sdkTools = buildTurnToolSurface({
         activeTools: state.activeTools,
-        context: { caller: "boss", hasThread: true },
+        context: toolRunContext,
         runId: ctx.runId,
         workflow: CHAT_TURN_WORKFLOW_SLUG,
         spanCaller: "boss",
