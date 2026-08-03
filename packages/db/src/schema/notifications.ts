@@ -1,6 +1,6 @@
 import { sql } from "drizzle-orm";
 import { check, index, jsonb, pgTable, text, timestamp, uniqueIndex } from "drizzle-orm/pg-core";
-import { createId, lifecycle_dates } from "../helpers";
+import { createId, inList, lifecycle_dates } from "../helpers";
 import { user } from "./auth";
 
 /**
@@ -19,9 +19,6 @@ export type NotificationKind = (typeof NOTIFICATION_KINDS)[number];
 /** `queued` on insert, then `sent` on Resend success or `failed` on error. */
 export const EMAIL_SEND_STATUSES = ["queued", "sent", "failed"] as const;
 export type EmailSendStatus = (typeof EMAIL_SEND_STATUSES)[number];
-
-const inList = (values: readonly string[]) =>
-  sql.raw(values.map((v) => `'${v}'`).join(", "));
 
 /**
  * Outbound email log + idempotency ledger (ADR-0020).

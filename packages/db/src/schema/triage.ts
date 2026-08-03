@@ -19,10 +19,8 @@ import {
   text,
   timestamp,
 } from "drizzle-orm/pg-core";
-import { lifecycle_dates } from "../helpers";
+import { inList, lifecycle_dates } from "../helpers";
 import { user } from "./auth";
-
-const triageCategoriesSql = sql.raw(TRIAGE_CATEGORIES.map((c) => `'${c}'`).join(", "));
 
 /**
  * Email triage classifications (ADR-0025 #1).
@@ -125,7 +123,7 @@ export const emailTriage = pgTable(
   },
   (t) => [
     primaryKey({ columns: [t.userId, t.sourceThreadId] }),
-    check("email_triage_category_valid", sql`${t.category} IN (${triageCategoriesSql})`),
+    check("email_triage_category_valid", sql`${t.category} IN (${inList(TRIAGE_CATEGORIES)})`),
     index("email_triage_user_category_idx").on(t.userId, t.category, t.classifiedAt),
     index("email_triage_user_classified_idx").on(t.userId, t.classifiedAt),
   ],
