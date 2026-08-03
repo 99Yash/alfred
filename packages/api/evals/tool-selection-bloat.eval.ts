@@ -10,7 +10,8 @@ import { type Tool, type ToolSet, generateText, tool } from "ai";
 import { config as loadEnv } from "dotenv";
 import { evalite } from "evalite";
 import { formatDateGrounding } from "../src/modules/agent/grounding";
-import { listToolsForIntegration, registerBuiltinTools } from "../src/modules/tools";
+import { listToolsForIntegration } from "../src/modules/tools";
+import { registerBuiltinTools } from "../src/modules/tools/runtime";
 import { buildChatSystemPrompt } from "../src/modules/agent/workflows/chat-turn";
 
 // LESSON 03 / context-purity experiment: does a bloated tool menu degrade the

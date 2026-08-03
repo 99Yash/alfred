@@ -97,6 +97,7 @@ async function main(): Promise<void> {
     },
     userId,
     caller: "boss",
+    runContext: { caller: "boss", interaction: "background" },
     allowedIntegrations: ["gmail"],
   });
   if (spawned.kind !== "executed") {
@@ -141,6 +142,7 @@ async function main(): Promise<void> {
     },
     userId,
     caller: "boss",
+    runContext: { caller: "boss", interaction: "background" },
     allowedIntegrations: ["gmail"],
   });
   if (redispatched.kind !== "executed") {
@@ -172,6 +174,7 @@ async function main(): Promise<void> {
     input: { subId: "subB", brief: "Nested spawn should be rejected.", allowedIntegrations: [] },
     userId,
     caller: { subId: "subA" },
+    runContext: { caller: "sub_agent", interaction: "background" },
     scratchpadRunId: parent.runId,
     allowedIntegrations: ["gmail"],
   });
@@ -189,6 +192,7 @@ async function main(): Promise<void> {
     input: { key: "scratch.subA.findings", value: { threads: 3 } },
     userId,
     caller: { subId: "subA" },
+    runContext: { caller: "sub_agent", interaction: "background" },
     scratchpadRunId: parent.runId,
     allowedIntegrations: ["gmail"],
   });

@@ -24,6 +24,7 @@ import {
   CHAT_TURN_WORKFLOW_SLUG,
   chatTurnWorkflow,
 } from "../../src/modules/agent/workflows/chat-turn";
+import { resetToolFixtures } from "../lib/tool-fixtures";
 
 /**
  * DB-backed closure tests for the ONE workflow that owes the user a visible
@@ -157,6 +158,7 @@ async function readChatMessageEvents(userId: string): Promise<unknown[]> {
 
 describe("chat-turn cancel closure (#530/#531 D2, DB-backed)", { skip: SKIP }, () => {
   before(async () => {
+    resetToolFixtures();
     await db()
       .delete(user)
       .where(like(user.id, `${ID_PREFIX}%`));
@@ -170,6 +172,7 @@ describe("chat-turn cancel closure (#530/#531 D2, DB-backed)", { skip: SKIP }, (
       await db().delete(user).where(inArray(user.id, createdUserIds));
     }
     _resetRegistryForTests();
+    resetToolFixtures();
     await closeConnections();
     // The cancel's post-commit obligations touch Redis (scratch snapshot,
     // Replicache pokes), so the connection has to come down with the pool.

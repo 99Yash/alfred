@@ -15,6 +15,7 @@ import {
   type AgentTranscriptMessage,
   type ArtifactFormat,
   type ToolName,
+  type ToolRunContext,
 } from "@alfred/contracts";
 import { db } from "@alfred/db";
 import { chatMessages } from "@alfred/db/schemas";
@@ -43,10 +44,9 @@ import { composeAgentInstructions } from "../instructions";
 import { startDispatchBatchSpan, type DispatchBatchSpanCloser } from "../runtime-spans";
 import {
   applyInactiveToolBounce,
-  applyPromptToolPreload,
   applySystemToolEffect,
-  buildTurnToolSurface,
   systemToolKernel,
+  toolRuntimeForRun,
 } from "../tool-surface";
 import { appendModelResponseMessages } from "../transcript-dedup";
 import type { Step, Workflow } from "../types";
@@ -109,6 +109,10 @@ import { createTurnStopController } from "./turn-stop-controller";
  *                              `await_sub_agent` tool.
  */
 export const CHAT_TURN_WORKFLOW_SLUG = "__chat-turn__";
+const CHAT_TOOL_RUN_CONTEXT = {
+  caller: "boss",
+  interaction: "live_chat",
+} as const satisfies ToolRunContext;
 
 /** Shared with the future pre-call context guard; never reserve a different output shape. */
 const CHAT_INPUT_ESTIMATE_WARN_UNDERSHOOT_RATIO = 0.1;
@@ -295,23 +299,24 @@ const chatTurnStep: Step<ChatRunState> = {
       // Persisted state carries the zone as a plain string, so re-establish it as
       // a zone once per step rather than at each reading below.
       const timezone = parseIanaTimezone(state.timezone);
-      if (state.connectedSummary === undefined) {
-        state.connectedSummary = buildConnectedSummaryFromAvailability(
-          await readIntegrationAvailability(ctx.userId),
-          state.allowedIntegrations,
-          { caller: "boss", hasThread: true },
-        );
-      }
-      await applyPromptToolPreload({
-        state,
+      const availability = await readIntegrationAvailability(ctx.userId);
+      const tools = toolRuntimeForRun({
         userId: ctx.userId,
         runId: ctx.runId,
         workflow: CHAT_TURN_WORKFLOW_SLUG,
         spanCaller: "boss",
-        transcript: hydratedTranscript,
-        context: { caller: "boss", hasThread: true },
-        availability: await readIntegrationAvailability(ctx.userId),
+        context: CHAT_TOOL_RUN_CONTEXT,
+        allowedIntegrations: state.allowedIntegrations,
+        availability,
       });
+      if (state.connectedSummary === undefined) {
+        state.connectedSummary = buildConnectedSummaryFromAvailability(
+          availability,
+          state.allowedIntegrations,
+          tools.context,
+        );
+      }
+      await tools.preload(state, hydratedTranscript);
       if (state.artifactsContext === undefined || state.artifactReference === undefined) {
         const artifactContext = await buildThreadArtifactsContext(
           ctx.userId,
@@ -342,13 +347,7 @@ const chatTurnStep: Step<ChatRunState> = {
       ]
         .filter((value) => value.length > 0)
         .join("\n\n");
-      const sdkTools = buildTurnToolSurface({
-        activeTools: state.activeTools,
-        context: { caller: "boss", hasThread: true },
-        runId: ctx.runId,
-        workflow: CHAT_TURN_WORKFLOW_SLUG,
-        spanCaller: "boss",
-      });
+      const sdkTools = tools.forModel(state.activeTools);
       const chatRoute = route(state.tier);
       const chatModel = chatRoute.model();
 
@@ -749,6 +748,7 @@ const dispatchToolsStep: Step<ChatRunState> = {
             input: call.input,
             userId: ctx.userId,
             caller: "boss",
+            runContext: CHAT_TOOL_RUN_CONTEXT,
             threadId: state.threadId,
             messageId: state.messageId,
             scratchpadRunId: ctx.runId,

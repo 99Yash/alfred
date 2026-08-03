@@ -167,6 +167,8 @@ async function main(): Promise<void> {
     activeTools: ["gmail.search"],
     input: { q: "in:inbox newer_than:1d" },
     userId,
+    caller: "boss",
+    runContext: { caller: "boss", interaction: "background" },
   });
   assert(auto.kind === "executed", `autonomy expected 'executed', got '${auto.kind}'`);
   assert(
@@ -198,6 +200,8 @@ async function main(): Promise<void> {
     activeTools: ["gmail.search"],
     input: { q: "in:inbox newer_than:1d" },
     userId,
+    caller: "boss",
+    runContext: { caller: "boss", interaction: "background" },
   });
   assert(auto2.kind === "executed", "idempotent re-dispatch expected 'executed'");
   assert(
@@ -214,6 +218,8 @@ async function main(): Promise<void> {
     activeTools: [],
     input: { q: "in:inbox" },
     userId,
+    caller: "boss",
+    runContext: { caller: "boss", interaction: "background" },
   });
   assert(
     unknownTool.kind === "unknown_tool",
@@ -237,6 +243,8 @@ async function main(): Promise<void> {
     activeTools: ["gmail.send_draft"],
     input: { to: ["yash@example.com"], subject: "phase 3 smoke", bodyText: "hi" },
     userId,
+    caller: "boss",
+    runContext: { caller: "boss", interaction: "background" },
   });
   assert(staged.kind === "staged", `gated expected 'staged', got '${staged.kind}'`);
   const stagedId = (staged as { stagingId: string }).stagingId;
@@ -271,6 +279,8 @@ async function main(): Promise<void> {
     activeTools: ["gmail.send_draft"],
     input: { to: ["yash@example.com"], subject: "phase 3 smoke", bodyText: "hi" },
     userId,
+    caller: "boss",
+    runContext: { caller: "boss", interaction: "background" },
   });
   assert(
     stillStaged.kind === "staged",
@@ -337,6 +347,8 @@ async function main(): Promise<void> {
       bodyText: "should not run",
     },
     userId,
+    caller: "boss",
+    runContext: { caller: "boss", interaction: "background" },
   });
   assert(resumed.kind === "executed", `resume expected 'executed', got '${resumed.kind}'`);
   assert(
@@ -363,6 +375,8 @@ async function main(): Promise<void> {
     activeTools: ["gmail.send_draft"],
     input: { to: ["someone@example.com"], subject: "do not send", bodyText: "no" },
     userId,
+    caller: "boss",
+    runContext: { caller: "boss", interaction: "background" },
   });
   assert(firstAttempt.kind === "staged", "retry-suppression setup expects staged on first try");
   const firstAttemptId = (firstAttempt as { stagingId: string }).stagingId;
@@ -388,6 +402,8 @@ async function main(): Promise<void> {
     activeTools: ["gmail.send_draft"],
     input: { to: ["someone@example.com"], subject: "do not send", bodyText: "no" },
     userId,
+    caller: "boss",
+    runContext: { caller: "boss", interaction: "background" },
   });
   assert(
     reproposed.kind === "rejected",

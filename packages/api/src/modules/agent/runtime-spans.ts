@@ -53,7 +53,6 @@ export interface ToolPreloadSpanArgs {
   caller: string;
   activeBefore: number;
   allowedIntegrationCount: number;
-  promptChars: number;
   startedAt: Date;
 }
 
@@ -73,13 +72,12 @@ export function buildToolPreloadSpanInput(args: ToolPreloadSpanArgs): RuntimeSpa
       caller: args.caller,
       activeBefore: args.activeBefore,
       allowedIntegrationCount: args.allowedIntegrationCount,
-      promptChars: args.promptChars,
     },
   };
 }
 
 export interface ToolPreloadSpanCloser {
-  end(selectedTools: readonly ToolName[], activeAfter: number): void;
+  end(selectedTools: readonly ToolName[], activeAfter: number, promptChars: number): void;
   error(): void;
 }
 
@@ -88,7 +86,7 @@ export function startToolPreloadSpan(args: ToolPreloadSpanArgs): ToolPreloadSpan
   const span = runtimeSpanStarter(buildToolPreloadSpanInput(args));
   let ended = false;
   return {
-    end(selectedTools, activeAfter) {
+    end(selectedTools, activeAfter, promptChars) {
       if (ended) return;
       ended = true;
       span.end({
@@ -97,6 +95,7 @@ export function startToolPreloadSpan(args: ToolPreloadSpanArgs): ToolPreloadSpan
           selectedCount: selectedTools.length,
           selectedTools: boundedNameList(selectedTools),
           activeAfter,
+          promptChars,
         },
       });
     },

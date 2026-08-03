@@ -22,7 +22,7 @@ const railwayGraphql = liveTool({
   execute: async () => ({}),
 });
 
-const ctx = { caller: "boss", hasThread: true } as const;
+const ctx = { caller: "boss", interaction: "live_chat" } as const;
 
 function snapshot(args: {
   railwayHealth?: "active" | "needs_reauth" | null;

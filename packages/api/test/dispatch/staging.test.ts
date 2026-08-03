@@ -186,6 +186,7 @@ describe("dispatch staging (DB-backed)", { skip: SKIP }, () => {
       input: { slug: "github" },
       userId,
       caller: "boss" as const,
+      runContext: { caller: "boss", interaction: "background" } as const,
     };
 
     const first = await dispatchToolCall(args);
@@ -228,6 +229,7 @@ describe("dispatch staging (DB-backed)", { skip: SKIP }, () => {
       input: { slug: "poison" },
       userId,
       caller: "boss" as const,
+      runContext: { caller: "boss", interaction: "background" } as const,
     };
 
     const first = await dispatchToolCall(args);
@@ -265,6 +267,7 @@ describe("dispatch staging (DB-backed)", { skip: SKIP }, () => {
       input: { slug: "sql-leak" },
       userId,
       caller: "boss",
+      runContext: { caller: "boss", interaction: "background" },
     });
 
     assert.deepEqual(result, {
@@ -315,6 +318,7 @@ describe("dispatch staging (DB-backed)", { skip: SKIP }, () => {
       activeTools: ["system.load_tool"],
       userId,
       caller: "boss",
+      runContext: { caller: "boss", interaction: "background" },
     });
 
     assert.deepEqual(result, {
@@ -350,6 +354,7 @@ describe("dispatch staging (DB-backed)", { skip: SKIP }, () => {
       input: { url: rawUrl },
       userId,
       caller: "boss",
+      runContext: { caller: "boss", interaction: "background" },
     });
 
     // execute() ran against the RAW url (idempotency + the in-tool credential
@@ -382,6 +387,7 @@ describe("dispatch staging (DB-backed)", { skip: SKIP }, () => {
       input: { slug: "calendar" },
       userId,
       caller: "boss",
+      runContext: { caller: "boss", interaction: "background" },
     });
     assert.equal(executeCount, before + 1, "a new tool_call_id is a distinct call and re-executes");
   });
@@ -398,6 +404,7 @@ describe("dispatch staging (DB-backed)", { skip: SKIP }, () => {
       input: { slug: "github" },
       userId,
       caller: "boss",
+      runContext: { caller: "boss", interaction: "background" },
     });
     // Same (runId, toolCallId), different toolName → the model emitted two
     // tools under one call id. The dispatcher must throw rather than silently
@@ -412,6 +419,7 @@ describe("dispatch staging (DB-backed)", { skip: SKIP }, () => {
         input: {},
         userId,
         caller: "boss",
+        runContext: { caller: "boss", interaction: "background" },
       }),
       /toolName mismatch on re-dispatch/,
     );

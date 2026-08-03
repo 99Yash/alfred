@@ -64,6 +64,7 @@ function baseArgs(overrides: Record<string, unknown> = {}) {
     input: { slug: "github" },
     userId: USER_ID,
     caller: "boss" as const,
+    runContext: { caller: "boss", interaction: "background" } as const,
     timezone: TIMEZONE,
     ...overrides,
   };

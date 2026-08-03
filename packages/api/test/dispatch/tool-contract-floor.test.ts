@@ -43,6 +43,7 @@ const baseDispatch = {
   toolCallId: "tc_1",
   userId: "user_1",
   timezone: "UTC",
+  runContext: { caller: "boss", interaction: "background" } as const,
 };
 
 /** A boss-only tool — the shape of the sub-agent join tools (ADR-0073). */
@@ -69,7 +70,7 @@ function threadOnlyTool(onExecute: () => void) {
     action: "read_chat_history",
     riskTier: "no_risk",
     description: "test thread-only tool",
-    availability: { surface: "kernel", requiresThread: true },
+    availability: { surface: "kernel", requiresLiveChat: true },
     staging: "fast_path",
     inputSchema: z.object({}).loose(),
     execute: async () => {
@@ -90,6 +91,7 @@ describe("the declared tool contract is enforced at the dispatch floor", () => {
       input: {},
       activeTools: ["system.spawn_sub_agent"],
       caller: { subId: "sub_a" },
+      runContext: { caller: "sub_agent", interaction: "background" },
     });
 
     assert.equal(result.kind, "not_allowed");
@@ -114,7 +116,7 @@ describe("the declared tool contract is enforced at the dispatch floor", () => {
     assert.equal(executions, 1);
   });
 
-  test("`requiresThread` refuses a thread-only tool in a thread-less run", async () => {
+  test("`requiresLiveChat` refuses a chat-only tool in a background run", async () => {
     let executions = 0;
     registerTool(threadOnlyTool(() => executions++));
 
@@ -129,10 +131,10 @@ describe("the declared tool contract is enforced at the dispatch floor", () => {
     assert.equal(result.kind, "not_allowed");
     assert.equal(executions, 0);
     if (result.kind !== "not_allowed") return;
-    assert.match(result.result.message, /chat thread/);
+    assert.match(result.result.message, /live chat/);
   });
 
-  test("`requiresThread` lets the same tool through inside a chat thread", async () => {
+  test("`requiresLiveChat` lets the same tool through inside a live chat", async () => {
     let executions = 0;
     registerTool(threadOnlyTool(() => executions++));
 
@@ -143,6 +145,7 @@ describe("the declared tool contract is enforced at the dispatch floor", () => {
       activeTools: ["system.read_chat_history"],
       caller: "boss" as const,
       threadId: "thr_1",
+      runContext: { caller: "boss", interaction: "live_chat" },
     });
 
     assert.equal(result.kind, "executed");
@@ -171,6 +174,7 @@ describe("the declared tool contract is enforced at the dispatch floor", () => {
       input: { nonsense: true },
       activeTools: ["system.promote"],
       caller: { subId: "sub_a" },
+      runContext: { caller: "sub_agent", interaction: "background" },
     });
 
     assert.equal(result.kind, "not_allowed");
@@ -191,6 +195,7 @@ describe("the declared tool contract is enforced at the dispatch floor", () => {
       input: {},
       activeTools: ["system.spawn_sub_agent"],
       caller: { subId: "sub_a" },
+      runContext: { caller: "sub_agent", interaction: "background" },
     });
 
     assert.notEqual(result.kind, "inactive_tool");

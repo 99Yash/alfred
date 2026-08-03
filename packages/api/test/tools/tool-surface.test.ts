@@ -2,16 +2,16 @@ import assert from "node:assert/strict";
 import { after, before, describe, test } from "node:test";
 import { isToolName, type ToolName } from "@alfred/contracts";
 import { buildChatSystemPrompt } from "../../src/modules/agent/workflows/chat-turn";
+import { toolNamesForIntegrations } from "../../src/modules/tool-runtime";
 import {
   applyExactToolLoad,
   applySystemToolEffect,
   buildSdkToolSet,
   migrateActiveTools,
-  registeredToolNamesForIntegrations,
   systemToolKernel,
 } from "../../src/modules/agent/tool-surface";
 import { preloadToolCatalog, type ToolCatalogAccess } from "../../src/modules/tools/discovery";
-import { registerBuiltinTools } from "../../src/modules/tools/index";
+import { registerBuiltinTools } from "../../src/modules/tools/runtime";
 import {
   clearToolRegistryForTests,
   getTool,
@@ -90,7 +90,7 @@ describe("systemToolKernel", () => {
   });
 });
 
-describe("buildSdkToolSet caller/thread projection", () => {
+describe("buildSdkToolSet caller/interaction projection", () => {
   // The kernel is one set of names; what actually reaches the model is filtered
   // by caller (boss vs sub_agent) and whether the run has a thread. The ladder
   // tools (search_tools/load_tool) must survive EVERY projection — they are the
@@ -98,20 +98,24 @@ describe("buildSdkToolSet caller/thread projection", () => {
   // could never climb to a tool it needs.
   const kernelNames = () => listKernelTools().map((t) => t.name);
 
-  test("chat (boss + thread) projects all eight kernel tools", () => {
-    const chat = Object.keys(buildSdkToolSet(kernelNames(), { caller: "boss", hasThread: true }));
+  test("live chat boss projects all eight kernel tools", () => {
+    const chat = Object.keys(
+      buildSdkToolSet(kernelNames(), { caller: "boss", interaction: "live_chat" }),
+    );
     assert.equal(chat.length, 8, `[${[...chat].sort().join(", ")}]`);
   });
 
-  test("a thread-less brief drops read_chat_history (requiresThread) → seven", () => {
-    const brief = Object.keys(buildSdkToolSet(kernelNames(), { caller: "boss", hasThread: false }));
+  test("a background brief drops read_chat_history (requiresLiveChat) → seven", () => {
+    const brief = Object.keys(
+      buildSdkToolSet(kernelNames(), { caller: "boss", interaction: "background" }),
+    );
     assert.equal(brief.length, 7);
     assert.ok(!brief.includes("system.read_chat_history"), `[${[...brief].sort().join(", ")}]`);
   });
 
   test("a sub-agent also drops spawn_sub_agent (boss-only caller) → five", () => {
     const sub = Object.keys(
-      buildSdkToolSet(kernelNames(), { caller: "sub_agent", hasThread: false }),
+      buildSdkToolSet(kernelNames(), { caller: "sub_agent", interaction: "background" }),
     );
     assert.equal(sub.length, 5);
     assert.ok(!sub.includes("system.read_chat_history"));
@@ -120,9 +124,9 @@ describe("buildSdkToolSet caller/thread projection", () => {
 
   test("the ladder (search_tools + load_tool) is projected in every context", () => {
     for (const context of [
-      { caller: "boss", hasThread: true },
-      { caller: "boss", hasThread: false },
-      { caller: "sub_agent", hasThread: false },
+      { caller: "boss", interaction: "live_chat" },
+      { caller: "boss", interaction: "background" },
+      { caller: "sub_agent", interaction: "background" },
     ] as const) {
       const names = Object.keys(buildSdkToolSet(kernelNames(), context));
       assert.ok(
@@ -222,7 +226,7 @@ describe("migrateActiveTools", () => {
     for (const name of systemToolKernel()) {
       assert.ok(migrated.includes(name), `kernel tool ${name} retained`);
     }
-    for (const name of registeredToolNamesForIntegrations(["gmail"])) {
+    for (const name of toolNamesForIntegrations(["gmail"])) {
       assert.ok(migrated.includes(name), `gmail tool ${name} retained`);
     }
   });
@@ -230,6 +234,15 @@ describe("migrateActiveTools", () => {
   test("legacy expansion never treats system as an eager integration", () => {
     const migrated = migrateActiveTools(undefined, ["system"], []);
     assert.deepEqual(migrated, systemToolKernel());
+  });
+
+  test("integration projection does not require or hide the system integration", () => {
+    assert.deepEqual(
+      toolNamesForIntegrations(["system"]),
+      listToolsForIntegration("system")
+        .map((tool) => tool.name)
+        .sort(),
+    );
   });
 
   test("legacy expansion unions a valid pending tool from outside the active integrations", () => {

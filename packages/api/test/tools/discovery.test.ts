@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { afterEach, describe, test } from "node:test";
+import { afterEach, beforeEach, describe, test } from "node:test";
 
 import type {
   IntegrationAvailabilitySnapshot,
@@ -17,15 +17,16 @@ import {
 } from "../../src/modules/tools/discovery";
 import {
   availableToolNames,
-  clearToolRegistryForTests,
   evaluateToolAvailability,
   liveTool,
   registerTool,
   type RegisteredTool,
   type ToolAvailabilityResult,
 } from "../../src/modules/tools/registry";
+import { resetToolFixtures } from "../lib/tool-fixtures";
 
-afterEach(() => clearToolRegistryForTests());
+beforeEach(resetToolFixtures);
+afterEach(resetToolFixtures);
 
 const gmailSearch = liveTool({
   integration: "gmail",
@@ -212,7 +213,7 @@ describe("tool discovery", () => {
         userId: "user_1",
         name: "system.fetch_url",
         allowedIntegrations: [],
-        context: { caller: "boss", hasThread: true },
+        context: { caller: "boss", interaction: "live_chat" },
         availability: {
           integrations: new Map(),
           providers: new Map(),
@@ -233,7 +234,7 @@ describe("tool discovery", () => {
         userId: "user_1",
         name: "notion.create_page",
         allowedIntegrations: [],
-        context: { caller: "boss", hasThread: true },
+        context: { caller: "boss", interaction: "live_chat" },
         availability: {
           integrations: new Map(),
           providers: new Map(),
@@ -251,7 +252,7 @@ describe("tool discovery", () => {
         userId: "user_1",
         name: "notion.create_page",
         allowedIntegrations: ["gmail"],
-        context: { caller: "boss", hasThread: true },
+        context: { caller: "boss", interaction: "live_chat" },
         availability: {
           integrations: new Map(),
           providers: new Map(),
@@ -272,7 +273,7 @@ describe("tool discovery", () => {
         userId: "user_1",
         name: "notion.nope",
         allowedIntegrations: [],
-        context: { caller: "boss", hasThread: true },
+        context: { caller: "boss", interaction: "live_chat" },
         availability: {
           integrations: new Map(),
           providers: new Map(),
@@ -367,7 +368,7 @@ test("exact availability respects tool scopes and caller context", () => {
     [
       ...availableToolNames(snapshot, [read, send, spawn], [], {
         caller: "sub_agent",
-        hasThread: false,
+        interaction: "background",
       }),
     ],
     ["gmail.search"],
@@ -390,7 +391,7 @@ describe("evaluateToolAvailability reason codes (#413)", () => {
     action: "read_chat_history",
     riskTier: "no_risk",
     description: "Read the thread.",
-    availability: { requiresThread: true },
+    availability: { requiresLiveChat: true },
     inputSchema: z.object({}).strict(),
     execute: async () => ({}),
   });
@@ -403,7 +404,7 @@ describe("evaluateToolAvailability reason codes (#413)", () => {
     inputSchema: z.object({}).strict(),
     execute: async () => ({}),
   });
-  const ctx = { caller: "boss", hasThread: true } as const;
+  const ctx = { caller: "boss", interaction: "live_chat" } as const;
   const active = (scopes: string[]): IntegrationAvailabilitySnapshot => ({
     integrations: new Map([["gmail", { health: "active", accountLabel: null }]]),
     providers: new Map([
@@ -453,19 +454,25 @@ describe("evaluateToolAvailability reason codes (#413)", () => {
 
   test("wrong_caller and requires_thread gate on run context", () => {
     assert.equal(
-      evaluateToolAvailability(empty, bossOnly, new Set(), { caller: "sub_agent", hasThread: true })
-        .available === false &&
+      evaluateToolAvailability(empty, bossOnly, new Set(), {
+        caller: "sub_agent",
+        interaction: "live_chat",
+      }).available === false &&
         evaluateToolAvailability(empty, bossOnly, new Set(), {
           caller: "sub_agent",
-          hasThread: true,
+          interaction: "live_chat",
         }).code,
       "wrong_caller",
     );
     assert.equal(
-      evaluateToolAvailability(empty, chatOnly, new Set(), { caller: "boss", hasThread: false })
-        .available === false &&
-        evaluateToolAvailability(empty, chatOnly, new Set(), { caller: "boss", hasThread: false })
-          .code,
+      evaluateToolAvailability(empty, chatOnly, new Set(), {
+        caller: "boss",
+        interaction: "background",
+      }).available === false &&
+        evaluateToolAvailability(empty, chatOnly, new Set(), {
+          caller: "boss",
+          interaction: "background",
+        }).code,
       "requires_thread",
     );
   });

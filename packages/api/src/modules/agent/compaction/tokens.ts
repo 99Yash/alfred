@@ -1,6 +1,7 @@
 import type { AgentTranscriptMessage } from "@alfred/contracts";
+import { APPROXIMATE_CHARS_PER_TOKEN } from "@alfred/ai";
 
-export const CHARS_PER_TOKEN = 4;
+export const CHARS_PER_TOKEN = APPROXIMATE_CHARS_PER_TOKEN;
 
 export function estimateSerializedTokens(value: unknown): number {
   return Math.ceil(JSON.stringify(value).length / CHARS_PER_TOKEN);

@@ -13,7 +13,7 @@ const TARGET_ASSISTANT_MODULES = new Set([
   "artifacts",
   "automation",
   "briefings",
-  "capabilities",
+  "tool-runtime",
   "connections",
   "conversations",
   "corpus",
