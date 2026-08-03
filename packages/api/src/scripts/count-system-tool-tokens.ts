@@ -2,8 +2,8 @@
  * One-off measurement: how much do the `system.*` tool schemas cost, in tokens,
  * when sent to the model each turn?
  *
- * Uses the repo's OWN production accounting — `toolSchemaSize` /
- * `estimateToolSurfaceBudget` from schema-budget.ts — the same serialization
+ * Uses the repo's OWN production accounting — `toolSchemaSize` from the
+ * capability schema budget — the same serialization
  * ({ name, description, inputSchema }) and CHARS_PER_TOKEN estimate that feeds
  * the `runtime.tool_surface` Langfuse span. Bytes are exact; the token column is
  * the chars/4 heuristic the system budgets with.
@@ -17,10 +17,10 @@ import { readFileSync } from "node:fs";
 import { resolve, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
 import { asSchema } from "ai";
-import { registerBuiltinTools } from "../modules/tools";
-import { getTool, listRegisteredTools } from "../modules/tools/registry";
+import { getTool, listRegisteredTools } from "../modules/tools";
+import { registerBuiltinTools } from "../modules/tools/runtime";
 import { systemToolKernel } from "../modules/agent/tool-surface";
-import { toolSchemaSize } from "../modules/agent/schema-budget";
+import { toolSchemaSize } from "../modules/tools/schema-budget";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const MODEL = "claude-opus-4-8";

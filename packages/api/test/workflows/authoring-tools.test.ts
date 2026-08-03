@@ -14,7 +14,7 @@ import { databaseEnv } from "@alfred/env/database";
 import { asc, eq } from "drizzle-orm";
 
 import { systemTools } from "../../src/modules/tools/system";
-import { registerBuiltinTools } from "../../src/modules/tools";
+import { registerBuiltinTools } from "../../src/modules/tools/runtime";
 import { toolExecuteContext } from "../../src/modules/tools/context";
 import { definitionFromProposal } from "../../src/modules/workflows/authoring";
 import { refreshWorkflowActivationProposal } from "../../src/modules/workflows/revisions";
@@ -40,9 +40,9 @@ describe("workflow authoring tool contracts (#556)", () => {
     assert.ok(authorTool);
     assert.ok(recoverTool);
     assert.ok(activateTool);
-    assert.deepEqual(authorTool.availability, { requiresThread: true, callers: ["boss"] });
-    assert.deepEqual(recoverTool.availability, { requiresThread: true, callers: ["boss"] });
-    assert.deepEqual(activateTool.availability, { requiresThread: true, callers: ["boss"] });
+    assert.deepEqual(authorTool.availability, { requiresLiveChat: true, callers: ["boss"] });
+    assert.deepEqual(recoverTool.availability, { requiresLiveChat: true, callers: ["boss"] });
+    assert.deepEqual(activateTool.availability, { requiresLiveChat: true, callers: ["boss"] });
     assert.equal(authorTool.riskTier, "no_risk");
     assert.equal(recoverTool.riskTier, "no_risk");
     assert.equal(activateTool.riskTier, "high");
@@ -472,6 +472,7 @@ function context(userId: string, runId: string) {
     userId,
     timezone: "Asia/Kolkata",
     caller: "boss",
+    runContext: { caller: "boss", interaction: "live_chat" },
     threadId: "thread-1",
     messageId: "message-1",
   });

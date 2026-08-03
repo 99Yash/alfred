@@ -2,6 +2,7 @@ import {
   isToolName,
   type IntegrationAvailabilitySnapshot,
   type ToolName,
+  type ToolRunContext,
   type ToolRiskTier,
 } from "@alfred/contracts";
 import { readIntegrationAvailability } from "../integrations/availability";
@@ -12,7 +13,6 @@ import {
   getTool,
   listRegisteredTools,
   type RegisteredTool,
-  type ToolAvailabilityContext,
   type ToolAvailabilityResult,
   type ToolUnavailabilityCode,
 } from "./registry";
@@ -77,7 +77,7 @@ export async function searchAvailableTools(args: {
   query: string;
   limit?: number | undefined;
   allowedIntegrations: readonly string[];
-  context: ToolAvailabilityContext;
+  context: ToolRunContext;
   availability?: IntegrationAvailabilitySnapshot | undefined;
 }): Promise<ToolSearchCandidate[]> {
   const tools = listRegisteredTools();
@@ -99,7 +99,7 @@ export async function preloadToolsForPrompt(args: {
   allowedIntegrations: readonly string[];
   activeTools: readonly ToolName[];
   limit?: number | undefined;
-  context: ToolAvailabilityContext;
+  context: ToolRunContext;
   availability?: IntegrationAvailabilitySnapshot | undefined;
 }): Promise<ToolName[]> {
   const tools = listRegisteredTools();
@@ -152,7 +152,7 @@ export async function resolveExactToolLoad(args: {
   userId: string;
   name: string;
   allowedIntegrations: readonly string[];
-  context: ToolAvailabilityContext;
+  context: ToolRunContext;
   availability?: IntegrationAvailabilitySnapshot | undefined;
 }): Promise<
   | { ok: true; name: ToolName }

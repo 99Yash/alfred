@@ -9,8 +9,8 @@ import {
   buildToolSurfaceSpanInput,
   startToolSurfaceSpan,
 } from "../../src/modules/agent/runtime-spans";
-import { buildTurnToolSurface, systemToolKernel } from "../../src/modules/agent/tool-surface";
-import { registerBuiltinTools } from "../../src/modules/tools";
+import { systemToolKernel, toolRuntimeForRun } from "../../src/modules/agent/tool-surface";
+import { registerBuiltinTools } from "../../src/modules/tools/runtime";
 
 function capture(run: () => void): { opened: RuntimeSpanInput[]; ended: RuntimeSpanEndArgs[] } {
   const opened: RuntimeSpanInput[] = [];
@@ -130,13 +130,19 @@ describe("runtime.tool_surface", () => {
     let returnedToolNames: string[] = [];
     const { opened, ended } = capture(() => {
       returnedToolNames = Object.keys(
-        buildTurnToolSurface({
-          activeTools,
-          context: { caller: "boss", hasThread: true },
+        toolRuntimeForRun({
+          userId: "user_1",
+          context: { caller: "boss", interaction: "live_chat" },
           runId: "run_real_surface",
           workflow: "__chat-turn__",
           spanCaller: "boss",
-        }),
+          allowedIntegrations: ["calendar"],
+          availability: {
+            integrations: new Map(),
+            providers: new Map(),
+            passthroughEnabled: new Map(),
+          },
+        }).forModel(activeTools),
       ).sort();
     });
 

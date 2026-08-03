@@ -1,9 +1,9 @@
-import type { IntegrationAvailabilitySnapshot, LoadableIntegrationSlug } from "@alfred/contracts";
-import {
-  availableToolNames,
-  listRegisteredTools,
-  type ToolAvailabilityContext,
-} from "../tools/registry";
+import type {
+  IntegrationAvailabilitySnapshot,
+  LoadableIntegrationSlug,
+  ToolRunContext,
+} from "@alfred/contracts";
+import { availableToolNames, listRegisteredTools } from "../tools/registry";
 
 /**
  * ADR-0053 connected summary: a frozen, human-readable one-line-per-integration
@@ -90,7 +90,7 @@ const NO_INTEGRATIONS_TEXT =
 export function buildConnectedSummaryFromAvailability(
   availability: IntegrationAvailabilitySnapshot,
   allowedIntegrations: readonly string[],
-  context: ToolAvailabilityContext,
+  context: ToolRunContext,
 ): string {
   const registeredTools = listRegisteredTools();
   const availableTools = availableToolNames(

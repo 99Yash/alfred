@@ -30,6 +30,7 @@ const baseDispatch: DispatchArgs = {
   input: { url: "https://example.com/?token=from-dispatch" },
   userId: "user_1",
   caller: "boss",
+  runContext: { caller: "boss", interaction: "background" },
   activeTools: ["system.fetch_url"],
 };
 

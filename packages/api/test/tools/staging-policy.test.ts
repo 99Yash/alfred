@@ -159,7 +159,7 @@ describe("resolveToolAvailability reads the credential snapshot only when it cou
     const result = await resolveToolAvailability({
       tool: tool({ action: "web_search" }),
       allowed: new Set(),
-      context: { caller: "boss", hasThread: true },
+      context: { caller: "boss", interaction: "live_chat" },
       loadSnapshot: exploding,
     });
     assert.deepEqual(result, { available: true });
@@ -183,7 +183,7 @@ describe("resolveToolAvailability reads the credential snapshot only when it cou
     const result = await resolveToolAvailability({
       tool: mcpListTools,
       allowed: new Set(),
-      context: { caller: "boss", hasThread: true },
+      context: { caller: "boss", interaction: "live_chat" },
       loadSnapshot: exploding,
     });
     assert.deepEqual(result, { available: true });
@@ -203,7 +203,7 @@ describe("resolveToolAvailability reads the credential snapshot only when it cou
     const result = await resolveToolAvailability({
       tool: gmailSearch,
       allowed: new Set(),
-      context: { caller: "sub_agent", hasThread: true },
+      context: { caller: "sub_agent", interaction: "live_chat" },
       loadSnapshot: exploding,
     });
     assert.equal(result.available, false);
@@ -229,7 +229,7 @@ describe("resolveToolAvailability reads the credential snapshot only when it cou
     const result = await resolveToolAvailability({
       tool: gmailSearch,
       allowed: new Set(),
-      context: { caller: "boss", hasThread: true },
+      context: { caller: "boss", interaction: "live_chat" },
       loadSnapshot: async () => {
         reads += 1;
         return snapshot;

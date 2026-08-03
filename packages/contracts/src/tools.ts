@@ -109,6 +109,22 @@ export type ToolName = {
 }[IntegrationSlug];
 
 /**
+ * Product facts about a run that change tool eligibility.
+ *
+ * `interaction` describes product behavior, not storage or execution location.
+ * A live chat can use conversation-bound tools. A background run cannot, even
+ * when it reports progress into a chat UI. Remote execution is orthogonal: its
+ * validated ingress maps to one of these interaction modes.
+ *
+ * Build this value from trusted, already-validated run state. Validate
+ * persisted, queued, or remote input at its owning boundary, then map it here.
+ */
+export interface ToolRunContext {
+  caller: "boss" | "sub_agent";
+  interaction: "live_chat" | "background";
+}
+
+/**
  * The two orchestration tools whose *names* five surfaces have to agree on —
  * the chat workflow (tally + fold guards), the dispatcher, the tool-card
  * presenter, the animated-icon map, and the activity trail that turns a spawn

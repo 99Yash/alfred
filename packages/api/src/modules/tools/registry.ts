@@ -20,6 +20,7 @@ import type {
   IntegrationSlug,
   RiskTierCounts,
   ToolName,
+  ToolRunContext,
   ToolAvailabilityResult,
   ToolRiskTier,
 } from "@alfred/contracts";
@@ -66,7 +67,7 @@ interface ToolAvailabilityMetadata {
   /** Caller kinds that may actually receive and invoke this tool. */
   callers?: readonly ("boss" | "sub_agent")[];
   /** True when execution requires an interactive chat thread. */
-  requiresThread?: boolean;
+  requiresLiveChat?: boolean;
   /**
    * Marks a general read-only passthrough tool (ADR-0074). Its integration slug
    * is the key for the default-OFF `feature.passthrough.<slug>` preference: with
@@ -174,6 +175,8 @@ export interface ToolExecuteContext {
    * care; the scratchpad zone gate (Phase 6) does.
    */
   caller: "boss" | { subId: string };
+  /** Product facts used to expose and authorize tools for this run. */
+  runContext: ToolRunContext;
   /**
    * The chat thread + assistant message this call belongs to, when the call
    * originates from a chat turn. Present only for chat dispatch (the chat-turn
@@ -300,28 +303,12 @@ export interface RegisteredTool {
   redactInput?: (input: unknown) => unknown;
 }
 
-export interface ToolAvailabilityContext {
-  caller: "boss" | "sub_agent";
-  hasThread: boolean;
-}
-
-/** Project an execution context onto the facts that tool availability gates on. */
-export function toolAvailabilityContext(args: {
-  caller: "boss" | { subId: string } | undefined;
-  threadId: string | null | undefined;
-}): ToolAvailabilityContext {
-  return {
-    caller: args.caller === undefined || args.caller === "boss" ? "boss" : "sub_agent",
-    hasThread: Boolean(args.threadId),
-  };
-}
-
 export type { ToolAvailabilityResult, ToolUnavailabilityCode } from "@alfred/contracts";
 
 function evaluateRunContextGates(
   tool: RegisteredTool,
   allowed: ReadonlySet<string>,
-  context: ToolAvailabilityContext,
+  context: ToolRunContext,
 ): ToolAvailabilityResult {
   if (tool.integration !== "system" && allowed.size > 0 && !allowed.has(tool.integration)) {
     return {
@@ -330,6 +317,14 @@ function evaluateRunContextGates(
       reason: "Outside this workflow's integration allowlist.",
     };
   }
+  return evaluateToolRunContext(tool, context);
+}
+
+/** One eligibility truth shared by model projection, discovery, and dispatch. */
+export function evaluateToolRunContext(
+  tool: RegisteredTool,
+  context: ToolRunContext,
+): ToolAvailabilityResult {
   if (tool.availability?.callers && !tool.availability.callers.includes(context.caller)) {
     return {
       available: false,
@@ -337,11 +332,11 @@ function evaluateRunContextGates(
       reason: `Only the ${tool.availability.callers.join(" / ")} caller may use this tool.`,
     };
   }
-  if (tool.availability?.requiresThread && !context.hasThread) {
+  if (tool.availability?.requiresLiveChat && context.interaction !== "live_chat") {
     return {
       available: false,
       code: "requires_thread",
-      reason: "Runs only inside an interactive chat thread.",
+      reason: "Runs only inside a live chat.",
     };
   }
   return { available: true };
@@ -415,7 +410,7 @@ export function evaluateToolAvailability(
   snapshot: IntegrationAvailabilitySnapshot,
   tool: RegisteredTool,
   allowed: ReadonlySet<string>,
-  context: ToolAvailabilityContext,
+  context: ToolRunContext,
 ): ToolAvailabilityResult {
   const contextResult = evaluateRunContextGates(tool, allowed, context);
   if (!contextResult.available) return contextResult;
@@ -426,7 +421,7 @@ export function evaluateToolAvailability(
 export async function resolveToolAvailability(args: {
   tool: RegisteredTool;
   allowed: ReadonlySet<string>;
-  context: ToolAvailabilityContext;
+  context: ToolRunContext;
   loadSnapshot: () => Promise<IntegrationAvailabilitySnapshot>;
 }): Promise<ToolAvailabilityResult> {
   const contextResult = evaluateRunContextGates(args.tool, args.allowed, args.context);
@@ -439,7 +434,7 @@ export function availableToolNames(
   snapshot: IntegrationAvailabilitySnapshot,
   tools: readonly RegisteredTool[],
   allowedIntegrations: readonly string[],
-  context: ToolAvailabilityContext,
+  context: ToolRunContext,
 ): Set<RegisteredTool["name"]> {
   const allowed = new Set(allowedIntegrations);
   const available = new Set<RegisteredTool["name"]>();
@@ -455,7 +450,7 @@ export function evaluateToolCatalog(
   snapshot: IntegrationAvailabilitySnapshot,
   tools: readonly RegisteredTool[],
   allowedIntegrations: readonly string[],
-  context: ToolAvailabilityContext,
+  context: ToolRunContext,
 ): Map<RegisteredTool["name"], ToolAvailabilityResult> {
   const allowed = new Set(allowedIntegrations);
   const out = new Map<RegisteredTool["name"], ToolAvailabilityResult>();

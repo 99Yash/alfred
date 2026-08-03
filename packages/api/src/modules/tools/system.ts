@@ -55,7 +55,7 @@ import { promoteScratch, readScratch, writeScratch } from "../scratchpad";
 import { resolveTodosForGmailSender } from "../todos/resolve";
 import { suggestTodo } from "../todos/suggest";
 import { redactCredentialUrl, runFetchUrl } from "./fetch-url";
-import { liveTool, toolAvailabilityContext, type RegisteredTool } from "./registry";
+import { liveTool, type RegisteredTool } from "./registry";
 import { parseScratchToolKey } from "./scratch-key";
 import { runWebSearch } from "./web-search";
 import { resolveExactToolLoad, searchAvailableTools } from "./discovery";
@@ -159,7 +159,7 @@ export const systemTools: readonly RegisteredTool[] = [
           query: input.query,
           limit: input.limit,
           allowedIntegrations: ctx.allowedIntegrations ?? [],
-          context: toolAvailabilityContext({ caller: ctx.caller, threadId: ctx.threadId }),
+          context: ctx.runContext,
         });
         span.end({
           candidateNames: candidates.map((candidate) => candidate.name),
@@ -203,7 +203,7 @@ export const systemTools: readonly RegisteredTool[] = [
           userId: ctx.userId,
           name: input.name,
           allowedIntegrations: ctx.allowedIntegrations ?? [],
-          context: toolAvailabilityContext({ caller: ctx.caller, threadId: ctx.threadId }),
+          context: ctx.runContext,
         });
         span.end({
           outcome: result.ok ? "ok" : result.status,
@@ -238,7 +238,7 @@ export const systemTools: readonly RegisteredTool[] = [
     integration: "system",
     action: "author_workflow",
     riskTier: "no_risk",
-    availability: { requiresThread: true, callers: ["boss"] },
+    availability: { requiresLiveChat: true, callers: ["boss"] },
     description:
       "Save an inactive workflow draft and return its server-canonical activation input.",
     discovery: {
@@ -287,7 +287,7 @@ export const systemTools: readonly RegisteredTool[] = [
     integration: "system",
     action: "recover_workflow",
     riskTier: "no_risk",
-    availability: { requiresThread: true, callers: ["boss"] },
+    availability: { requiresLiveChat: true, callers: ["boss"] },
     description:
       "Revalidate one exact immutable workflow draft after setup and return the server-canonical activation proposal. Copy that proposal directly into system.activate_workflow; never reconstruct it.",
     discovery: {
@@ -327,7 +327,7 @@ export const systemTools: readonly RegisteredTool[] = [
     integration: "system",
     action: "activate_workflow",
     riskTier: "high",
-    availability: { requiresThread: true, callers: ["boss"] },
+    availability: { requiresLiveChat: true, callers: ["boss"] },
     description: "Publish the exact workflow definition in this editable approval contract.",
     discovery: {
       title: "Activate workflow",
@@ -366,14 +366,14 @@ export const systemTools: readonly RegisteredTool[] = [
       "Search or fetch bounded raw evidence from the current chat thread when the conversation summary is insufficient. Fetch messages, tool outcomes, or attachment representations by their stable IDs. This never accesses another thread.",
     // Kernel: the chat prompt names this by name as a primary source, so it must
     // be visible on turn one — otherwise every first use pays a search/load dance
-    // plus a mid-run prompt-cache invalidation. `requiresThread` gates it out of
+    // plus a mid-run prompt-cache invalidation. `requiresLiveChat` gates it out of
     // thread-less brief/sub-agent runs at BOTH the SDK-tool boundary and the
     // dispatch floor, which refuses the call with `requires_thread` before input
     // parsing.
-    availability: { surface: "kernel", requiresThread: true },
+    availability: { surface: "kernel", requiresLiveChat: true },
     inputSchema: readChatHistoryInput,
     execute: async (input, ctx) => {
-      // Unreachable via dispatch (the floor's `requiresThread` gate answers
+      // Unreachable via dispatch (the floor's `requiresLiveChat` gate answers
       // first); kept for a direct `execute` — tests and any future non-dispatch
       // caller — so the tool never reads another thread by falling through.
       if (!ctx.threadId) {
@@ -731,7 +731,7 @@ export const systemTools: readonly RegisteredTool[] = [
     riskTier: "no_risk",
     description:
       "Produce a rich artifact the user reads in a side panel: a written `document` (markdown) or a deck/PDF of `pages` (HTML). Use this when the user asks you to write, draft, or build something substantial, instead of dumping it all into the chat reply. Pick the medium by how the deliverable is meant to be consumed, not by which looks more impressive: if it is read as prose — a brief, an overview, a primer, a report, notes, an explainer, a write-up — author a `document`. Reserve `pages` for deliverables that are inherently presentational or visually laid out — a slide deck or presentation to show, a pitch, a designed one-pager, a résumé, a printable PDF. When the ask is ambiguous, default to `document`: it is the right home for reading material and far cheaper to produce, so only reach for `pages` when the user actually signals slides, a deck, a presentation, or a designed/printable page. Opens the artifact; for a `document` author the opening section here (≤~1,800 words) and continue with append_artifact_section — do not attempt the whole document in one call; for `pages` follow with append_artifact_page per page. Each page is body-level HTML authored against the Alfred house shell: write only the page body, not a full standalone document. This is in-app content, not a downloadable file.",
-    availability: { requiresThread: true },
+    availability: { requiresLiveChat: true },
     inputSchema: createArtifactInput,
     execute: async (input, ctx) => {
       const resolved = resolveArtifactContext(ctx);
@@ -745,7 +745,7 @@ export const systemTools: readonly RegisteredTool[] = [
     riskTier: "no_risk",
     description:
       "Append one page to a `pages` artifact created with create_artifact. Call once per page, in order. Write body-level HTML only: never emit <html>, <head>, <body>, <!doctype>, <script>, external <link>/CDN tags, page width/height, page margins, or a body background. The Alfred house shell supplies page geometry, white surface, typography, tokens, and classes at render time. Preferred classes: art-stack, art-row, art-grid-2, art-split, art-center, art-between, art-fill, art-grow, art-wrap; art-display, art-title, art-headline, art-subhead, art-body, art-caption, art-eyebrow; art-card, art-panel, art-badge, art-rule, art-accent-mark, art-dot, art-list, art-stat-value, art-stat-label, art-bar-track, art-bar-fill. For a `pdf` document (resume, report, one-pager) use the denser document vocabulary instead of the big slide type: the first content wrapper must be art-doc, then compose with art-doc-name, art-doc-role, art-doc-section, art-doc-heading, art-doc-body, art-doc-meta, art-doc-header, art-doc-contact, art-doc-lede, art-doc-entry, art-doc-cols, art-doc-chips, and art-doc-rule. PDF pages that override --art-* tokens or declare custom font, font-family, or font-size values are rejected. Keep everything inside the fixed page box; there is no scrolling. Use one idea per page, split crowded content, keep code blocks short, and use a small inline <style> only for one-off geometry (reference the design tokens, never hardcode colors). Pages appear in the sidebar as you add them.",
-    availability: { requiresThread: true },
+    availability: { requiresLiveChat: true },
     inputSchema: appendArtifactPageInput,
     execute: async (input, ctx) => {
       const resolved = resolveArtifactContext(ctx);
@@ -759,7 +759,7 @@ export const systemTools: readonly RegisteredTool[] = [
     riskTier: "no_risk",
     description:
       "Append one section of markdown to a `document` created with create_artifact. Call once per section, in order — do not attempt the whole document in one call; each section renders in the sidebar as you add it. Write your own `##` headings and keep each section self-contained (close every code fence, finish every list/table) since the sidebar re-renders the accumulated document as each section arrives. Also use this to extend a document from an earlier turn.",
-    availability: { requiresThread: true },
+    availability: { requiresLiveChat: true },
     inputSchema: appendArtifactSectionInput,
     execute: async (input, ctx) => {
       const resolved = resolveArtifactContext(ctx);
@@ -773,7 +773,7 @@ export const systemTools: readonly RegisteredTool[] = [
     riskTier: "no_risk",
     description:
       "Revise an existing artifact: rename it, replace a document's markdown, or replace a deck's full page list. Use this when the user asks for an edit to something you already produced this conversation. For cross-turn content replacement, work only from a reference with contentComplete=true and copy its baseContentHash; never replace content from a partial reference. Rename-only edits need no hash.",
-    availability: { requiresThread: true },
+    availability: { requiresLiveChat: true },
     inputSchema: updateArtifactInput,
     execute: async (input, ctx) => {
       const resolved = resolveArtifactContext(ctx);

@@ -5,13 +5,13 @@ import type { ToolName } from "@alfred/contracts";
 import { z } from "zod";
 
 import { systemToolKernel } from "../../src/modules/agent/tool-surface";
-import { estimateToolSurfaceBudget, toolSchemaSize } from "../../src/modules/agent/schema-budget";
+import { estimateToolSurfaceBudget, toolSchemaSize } from "../../src/modules/tools/schema-budget";
 import {
   getTool,
   listRegisteredTools,
   type RegisteredTool,
 } from "../../src/modules/tools/registry";
-import { registerBuiltinTools } from "../../src/modules/tools";
+import { registerBuiltinTools } from "../../src/modules/tools/runtime";
 
 /**
  * Schema-budget regression guard (#414, PRD User Story 15). The whole point of

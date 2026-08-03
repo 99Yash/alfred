@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { afterEach, test } from "node:test";
+import { afterEach, beforeEach, test } from "node:test";
 
 import { z } from "zod";
 
@@ -9,13 +9,11 @@ import {
   systemToolKernel,
 } from "../../src/modules/agent/tool-surface";
 import { currentTimeSnapshot } from "../../src/modules/tools/system";
-import {
-  clearToolRegistryForTests,
-  liveTool,
-  registerTools,
-} from "../../src/modules/tools/registry";
+import { liveTool, registerTools } from "../../src/modules/tools/registry";
+import { resetToolFixtures } from "../lib/tool-fixtures";
 
-afterEach(() => clearToolRegistryForTests());
+beforeEach(resetToolFixtures);
+afterEach(resetToolFixtures);
 
 test("the default system kernel excludes loadable system capabilities", () => {
   registerTools([
