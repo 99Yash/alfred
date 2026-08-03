@@ -19,7 +19,7 @@ import { db } from "@alfred/db";
 import { documents } from "@alfred/db/schemas";
 import { and, eq } from "drizzle-orm";
 import { z } from "zod";
-import { capabilityNamesForIntegrations } from "../../capabilities";
+import { toolNamesForIntegrations } from "../../tool-runtime";
 import { compactTranscript, compactWithRetry } from "../compaction";
 import {
   estimateNextTurnInputTokens,
@@ -632,7 +632,7 @@ export const userAuthoredBriefWorkflow: Workflow<BriefRunState> = {
       ...parseIntegrationMentions(input.brief, allowedIntegrations),
       ...eventSeed.filter((slug) => integrationAllowed(slug, allowedIntegrations)),
     ]);
-    const preloadedTools = allowedTools ?? capabilityNamesForIntegrations(seededIntegrations);
+    const preloadedTools = allowedTools ?? toolNamesForIntegrations(seededIntegrations);
     return {
       activeTools: allowedTools ?? [...systemToolKernel(), ...preloadedTools],
       preloadedTools,

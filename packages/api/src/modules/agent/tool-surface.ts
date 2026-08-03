@@ -7,16 +7,16 @@ import {
 import type { ToolSet } from "@alfred/ai";
 import { z } from "zod";
 import {
-  normalizeCapabilitySurface,
-  prepareCapabilityPreload,
-  resolveCapabilitySurface,
-  type CapabilitySurfaceContext,
-} from "../capabilities";
+  normalizeToolSurface,
+  prepareToolPreload,
+  resolveToolSurface,
+  type ToolSurfaceContext,
+} from "../tool-runtime";
 import type { DispatchResult } from "../dispatch";
 import { startToolLoadSpan, startToolPreloadSpan, startToolSurfaceSpan } from "./runtime-spans";
 
 export function systemToolKernel(): ToolName[] {
-  return normalizeCapabilitySurface({}).kernelNames;
+  return normalizeToolSurface({}).kernelNames;
 }
 
 /** Expand persisted integration-level state once, then checkpoint exact names. */
@@ -25,7 +25,7 @@ export function migrateActiveTools(
   legacyActiveIntegrations: readonly string[] | undefined,
   legacyPendingToolNames: readonly string[] = [],
 ): ToolName[] {
-  return normalizeCapabilitySurface({
+  return normalizeToolSurface({
     activeNames: activeTools,
     legacyIntegrationNames: legacyActiveIntegrations,
     pendingNames: legacyPendingToolNames,
@@ -34,7 +34,7 @@ export function migrateActiveTools(
 
 /** Narrow a persisted auxiliary tool-name list without seeding the active kernel. */
 export function migrateRecordedToolNames(toolNames: readonly string[]): ToolName[] {
-  return normalizeCapabilitySurface({ activeNames: toolNames }).activeNames;
+  return normalizeToolSurface({ activeNames: toolNames }).activeNames;
 }
 
 /**
@@ -149,17 +149,15 @@ export function applyExactToolLoad(activeTools: readonly ToolName[], result: unk
     !isRecord(result) ||
     result.ok !== true ||
     typeof result.name !== "string" ||
-    !isRegisteredCapabilityName(result.name)
+    !isRegisteredToolName(result.name)
   ) {
     return uniqueToolNames(activeTools);
   }
   return activateTool(activeTools, result.name);
 }
 
-function isRegisteredCapabilityName(name: string): name is ToolName {
-  return (
-    isToolName(name) && normalizeCapabilitySurface({ activeNames: [name] }).activeNames[0] === name
-  );
+function isRegisteredToolName(name: string): name is ToolName {
+  return isToolName(name) && normalizeToolSurface({ activeNames: [name] }).activeNames[0] === name;
 }
 
 /**
@@ -211,9 +209,9 @@ function uniqueToolNames(toolNames: readonly ToolName[]): ToolName[] {
  */
 export function buildSdkToolSet(
   activeTools: readonly ToolName[],
-  context: CapabilitySurfaceContext,
+  context: ToolSurfaceContext,
 ): ToolSet {
-  return resolveCapabilitySurface({ activeNames: activeTools, context }).tools;
+  return resolveToolSurface({ activeNames: activeTools, context }).tools;
 }
 
 /**
@@ -230,7 +228,7 @@ export function buildSdkToolSet(
  */
 export function buildTurnToolSurface(args: {
   activeTools: readonly ToolName[];
-  context: CapabilitySurfaceContext;
+  context: ToolSurfaceContext;
   runId: string;
   workflow: string;
   /** Span caller label (`boss` | `sub:<id>`); distinct from the availability caller kind. */
@@ -238,7 +236,7 @@ export function buildTurnToolSurface(args: {
 }): ToolSet {
   const startedAt = new Date();
   const startMs = Date.now();
-  const surface = resolveCapabilitySurface({
+  const surface = resolveToolSurface({
     activeNames: args.activeTools,
     context: args.context,
   });
@@ -282,11 +280,11 @@ export async function applyPromptToolPreload(args: {
   /** Span caller label (`boss` | `sub:<id>`); distinct from the availability caller kind. */
   spanCaller: string;
   transcript: readonly { role: string; content: unknown }[];
-  context: CapabilitySurfaceContext;
+  context: ToolSurfaceContext;
   availability: IntegrationAvailabilitySnapshot;
 }): Promise<void> {
   if (args.state.preloadApplied) return;
-  const preload = prepareCapabilityPreload({
+  const preload = prepareToolPreload({
     userId: args.userId,
     transcript: args.transcript,
     allowedIntegrations: args.state.allowedIntegrations,

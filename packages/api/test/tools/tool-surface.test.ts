@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { after, before, describe, test } from "node:test";
 import { isToolName, type ToolName } from "@alfred/contracts";
 import { buildChatSystemPrompt } from "../../src/modules/agent/workflows/chat-turn";
-import { capabilityNamesForIntegrations } from "../../src/modules/capabilities";
+import { toolNamesForIntegrations } from "../../src/modules/tool-runtime";
 import {
   applyExactToolLoad,
   applySystemToolEffect,
@@ -222,7 +222,7 @@ describe("migrateActiveTools", () => {
     for (const name of systemToolKernel()) {
       assert.ok(migrated.includes(name), `kernel tool ${name} retained`);
     }
-    for (const name of capabilityNamesForIntegrations(["gmail"])) {
+    for (const name of toolNamesForIntegrations(["gmail"])) {
       assert.ok(migrated.includes(name), `gmail tool ${name} retained`);
     }
   });
@@ -234,7 +234,7 @@ describe("migrateActiveTools", () => {
 
   test("integration projection does not require or hide the system integration", () => {
     assert.deepEqual(
-      capabilityNamesForIntegrations(["system"]),
+      toolNamesForIntegrations(["system"]),
       listToolsForIntegration("system")
         .map((tool) => tool.name)
         .sort(),
