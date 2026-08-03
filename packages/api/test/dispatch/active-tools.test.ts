@@ -7,6 +7,7 @@ import { activateTool, migrateActiveTools } from "../../src/modules/agent/tool-s
 import { chatTurnWorkflow } from "../../src/modules/agent/workflows/chat-turn";
 import { userAuthoredBriefWorkflow } from "../../src/modules/agent/workflows/user-authored-brief";
 import { _setDispatchTraceSinksForTests, dispatchToolCall } from "../../src/modules/dispatch";
+import { registerToolCapabilitySurfaceAdapter } from "../../src/modules/tools/capability-surface";
 import {
   clearToolRegistryForTests,
   liveTool,
@@ -16,6 +17,7 @@ import {
 let restoreTraceSinks: (() => void) | undefined;
 
 beforeEach(() => {
+  registerToolCapabilitySurfaceAdapter();
   restoreTraceSinks = _setDispatchTraceSinksForTests({
     rejectionRecorder: () => {},
     toolSpanStarter: () => ({ success: () => {}, error: () => {} }),

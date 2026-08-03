@@ -54,7 +54,7 @@ export {
   startConversationCompactionWorker,
   stopConversationCompactionWorker,
 } from "./modules/agent/compaction";
-export { registerBuiltinTools } from "./modules/tools/index";
+export { registerBuiltinTools } from "./modules/tools/runtime";
 export { reconcileInflightInvocations } from "./modules/mcp/index";
 export {
   scheduleRepeatableWorkflowsJobs,

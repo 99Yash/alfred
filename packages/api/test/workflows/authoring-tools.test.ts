@@ -14,7 +14,7 @@ import { databaseEnv } from "@alfred/env/database";
 import { asc, eq } from "drizzle-orm";
 
 import { systemTools } from "../../src/modules/tools/system";
-import { registerBuiltinTools } from "../../src/modules/tools";
+import { registerBuiltinTools } from "../../src/modules/tools/runtime";
 import { toolExecuteContext } from "../../src/modules/tools/context";
 import { definitionFromProposal } from "../../src/modules/workflows/authoring";
 import { refreshWorkflowActivationProposal } from "../../src/modules/workflows/revisions";

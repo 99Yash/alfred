@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { afterEach, test } from "node:test";
+import { afterEach, before, test } from "node:test";
 
 import { z } from "zod";
 
@@ -14,7 +14,9 @@ import {
   liveTool,
   registerTools,
 } from "../../src/modules/tools/registry";
+import { registerToolCapabilitySurfaceAdapter } from "../../src/modules/tools/capability-surface";
 
+before(() => registerToolCapabilitySurfaceAdapter());
 afterEach(() => clearToolRegistryForTests());
 
 test("the default system kernel excludes loadable system capabilities", () => {

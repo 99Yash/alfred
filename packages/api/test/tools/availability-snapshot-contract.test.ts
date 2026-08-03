@@ -8,7 +8,7 @@ import {
   listRegisteredTools,
   readsAvailabilitySnapshot,
 } from "../../src/modules/tools/registry";
-import { registerBuiltinTools } from "../../src/modules/tools";
+import { registerBuiltinTools } from "../../src/modules/tools/runtime";
 
 /**
  * `readsAvailabilitySnapshot` is what lets the dispatch floor answer a `system.*`
