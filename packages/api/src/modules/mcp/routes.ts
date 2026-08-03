@@ -3,23 +3,23 @@ import { serverEnv } from "@alfred/env/server";
 import { Elysia, t } from "elysia";
 import { z } from "zod";
 import { authMacro } from "../../middleware/auth";
+import { consumeOAuthNonce, verifyOAuthState } from "../integrations";
+import { boundedMcpErrorText } from "./errors";
+import { MCP_OAUTH_PENDING_ISSUER } from "./manager";
 import {
   authorizeMcpOAuth,
-  boundedMcpErrorText,
   finishMcpOAuth,
-  getMcpConnectionManager,
-  MCP_OAUTH_PENDING_ISSUER,
   McpOAuthAuthorizationRequiredError,
   mcpOAuthClientConfiguration,
   mcpOAuthProviderForConnection,
-} from "../mcp";
+} from "./oauth";
 import {
   listOwnedConnections,
   readOwnedConnection,
   updateConnection,
   upsertConnection,
-} from "../mcp/persistence";
-import { consumeOAuthNonce, verifyOAuthState } from "./oauth-state";
+} from "./persistence";
+import { getMcpConnectionManager } from "./runtime";
 
 const GITHUB_MCP_ENDPOINT = new URL("https://api.githubcopilot.com/mcp");
 const callbackParamsSchema = z.object({ state: z.string().min(1) });
