@@ -1,6 +1,6 @@
 import { ACCOUNT_PERSONAS, Errors, toMessage } from "@alfred/contracts";
 import { db } from "@alfred/db";
-import { integrationCredentials, isDuplicateRunIndex, user } from "@alfred/db/schemas";
+import { integrationCredentials, user } from "@alfred/db/schemas";
 import { serverEnv } from "@alfred/env/server";
 import {
   buildAuthorizeUrl,
@@ -16,10 +16,8 @@ import { randomBytes } from "node:crypto";
 import { Elysia, t } from "elysia";
 import { and, eq } from "drizzle-orm";
 import { authMacro } from "../../middleware/auth";
-import { createRun, enqueueRun } from "../agent";
-import { uniqueViolationConstraint } from "../../lib/pg-errors";
-import { COLD_START_WORKFLOW_SLUG } from "../cold-start";
 import { getIngestionQueue } from "./queue";
+import { requestGoogleColdStartResearch } from "./google-cold-start-research";
 import {
   disconnectGoogleCredentialConnection,
   GoogleCredentialNotFoundError,
@@ -60,6 +58,23 @@ async function bestEffort(label: string, fn: () => Promise<unknown>): Promise<vo
   } catch (err) {
     console.warn(`[google.callback] ${label}:`, toMessage(err));
   }
+}
+
+type GoogleColdStartResearchRequester = typeof requestGoogleColdStartResearch;
+
+/** Keep cold-start scheduling best-effort at the OAuth redirect boundary. */
+export async function requestColdStartResearchAfterGoogleCallback(
+  request: { userId: string; credentialId: string },
+  requestResearch: GoogleColdStartResearchRequester = requestGoogleColdStartResearch,
+): Promise<void> {
+  await bestEffort(`failed to enqueue cold-start research for ${request.userId}`, async () => {
+    const result = await requestResearch(request);
+    if (result.status === "duplicate") {
+      console.log(
+        `[google.callback] cold-start research already exists for ${request.userId}; skipping.`,
+      );
+    }
+  });
 }
 
 /**
@@ -350,69 +365,13 @@ export const googleIntegrationRoutes = new Elysia({
         }),
       );
 
-      // Cold-start research seed (ADR-0011 + ADR-0022): once at most per
-      // user. Google is currently the only integration that contributes
-      // signals beyond the bare user row, so this callback doubles as the
-      // "onboarding complete enough to research" trigger.
-      //
-      // Lifetime uniqueness is enforced at the DB level: the workflow
-      // declares `dedupKey: () => 'cold-start'`, and the partial unique
-      // index on `agent_runs.(user_id, workflow_slug, dedup_key)` makes
-      // a duplicate `createRun` fail with Postgres `23505`. Two
-      // simultaneous callbacks both insert; the loser gets a unique
-      // violation and falls through. A prior failed/cancelled run is
-      // excluded from the index, so a transient Perplexity outage isn't
-      // a permanent lockout — a later reconnect re-fires.
-      //
-      // Since #531 this run's `event` trigger ALSO puts it under the event
-      // active-run index, so either of the two duplicate-run indexes can be the
-      // one that fires. Both mean "already exists", which is why the catch
-      // matches the named set rather than any 23505: a violation on some other
-      // constraint is a real fault and deserves the warn, not the reassuring
-      // "already exists" line.
-      //
-      // Nothing rethrows — a research-trigger problem must not bounce the user
-      // back to an OAuth error page.
-      try {
-        const { runId } = await createRun({
-          userId: decoded.userId,
-          workflowSlug: COLD_START_WORKFLOW_SLUG,
-          input: { reason: "signup" },
-          // OAuth callback is an external system event (Google's IdP).
-          // `eventId` is the credential id — naturally per-occurrence,
-          // and the `dedupKey: () => 'cold-start'` on the workflow
-          // already enforces lifetime-once, so this is mostly for
-          // breadcrumb-style filtering in History.
-          trigger: {
-            kind: "event",
-            source: "google.oauth.callback",
-            type: "completed",
-            eventId: `google.callback:${credentialId}`,
-          },
-          workflowRevisionId: null,
-          occurrence: {
-            kind: "event",
-            workflowId: COLD_START_WORKFLOW_SLUG,
-            provider: "google.oauth.callback",
-            eventId: `google.callback:${credentialId}`,
-          },
-        });
-        await enqueueRun(runId);
-      } catch (err) {
-        const constraint = uniqueViolationConstraint(err);
-        if (isDuplicateRunIndex(constraint)) {
-          // Reconnect after a successful (or in-flight) prior run —
-          // expected, log at info level only.
-          console.log(
-            `[google.callback] cold-start research already exists for ${decoded.userId} (${constraint}); skipping.`,
-          );
-        } else {
-          console.warn(
-            `[google.callback] failed to enqueue cold-start research for ${decoded.userId}:`,
-            toMessage(err),
-          );
-        }
-      }
+      // Google is the first integration that supplies enough onboarding
+      // context for cold-start research (ADR-0011 + ADR-0022). Scheduling is
+      // best-effort so a research failure never changes the OAuth redirect.
+      await requestColdStartResearchAfterGoogleCallback({
+        userId: decoded.userId,
+        credentialId,
+      });
 
       // Bounce back to the SPA. If the user hasn't finished onboarding yet,
       // pop them back onto step 2 of the flow (popular-integrations grid)

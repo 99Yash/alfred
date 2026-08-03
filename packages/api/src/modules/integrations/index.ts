@@ -72,6 +72,16 @@ export {
   type GoogleCredentialUpsertResult,
 } from "./google-credential-lifecycle";
 export {
+  googleColdStartResearchRequestSchema,
+  googleColdStartResearchResultSchema,
+  NoGoogleColdStartResearchHandlerRegisteredError,
+  registerGoogleColdStartResearchHandler,
+  requestGoogleColdStartResearch,
+  type GoogleColdStartResearchHandler,
+  type GoogleColdStartResearchRequest,
+  type GoogleColdStartResearchResult,
+} from "./google-cold-start-research";
+export {
   gmailPostInsertTriageRequestSchema,
   gmailPostInsertTriageResultSchema,
   gmailTriageRelabelRequestSchema,
