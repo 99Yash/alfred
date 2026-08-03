@@ -12,12 +12,9 @@ import {
 import { sql } from "drizzle-orm";
 import { check, date, index, integer, jsonb, pgTable, text, timestamp } from "drizzle-orm/pg-core";
 
-import { createId, lifecycle_dates } from "../helpers";
+import { createId, inList, lifecycle_dates } from "../helpers";
 import { agentRuns } from "./agent";
 import { user } from "./auth";
-
-const inList = (values: readonly string[]) =>
-  sql.raw(values.map((v) => `'${v}'`).join(", "));
 
 /**
  * Todos (ADR-0050) — a user-managed list of commitments, surfaced in the

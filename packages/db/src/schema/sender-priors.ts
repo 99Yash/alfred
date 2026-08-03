@@ -1,10 +1,8 @@
 import { TRIAGE_CATEGORIES, type TriageCategory } from "@alfred/contracts";
 import { sql } from "drizzle-orm";
 import { check, jsonb, pgTable, primaryKey, text, timestamp } from "drizzle-orm/pg-core";
-import { lifecycle_dates } from "../helpers";
+import { inList, lifecycle_dates } from "../helpers";
 import { user } from "./auth";
-
-const triageCategoriesSql = sql.raw(TRIAGE_CATEGORIES.map((c) => `'${c}'`).join(", "));
 
 /**
  * Per-sender category histogram (ADR-0051, triage v3).
@@ -49,7 +47,7 @@ export const senderPriors = pgTable(
   (t) => [
     primaryKey({ columns: [t.userId, t.senderKey] }),
     // `NULL` passes a `CHECK`, so the nullable column stays valid when unset.
-    check("sender_priors_last_category_valid", sql`${t.lastCategory} IN (${triageCategoriesSql})`),
+    check("sender_priors_last_category_valid", sql`${t.lastCategory} IN (${inList(TRIAGE_CATEGORIES)})`),
   ],
 );
 
