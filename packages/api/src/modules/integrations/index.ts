@@ -4,7 +4,6 @@ import { githubWebhookRoutes } from "./github-webhook";
 import { gmailWebhookRoutes } from "./gmail-webhook";
 import { googleIntegrationRoutes } from "./google-routes";
 import { notionIntegrationRoutes } from "./notion-routes";
-import { mcpIntegrationRoutes } from "./mcp-routes";
 import { railwayIntegrationRoutes } from "./railway-routes";
 import { vercelIntegrationRoutes } from "./vercel-routes";
 
@@ -16,6 +15,14 @@ export {
   getIngestionQueue,
 } from "./queue";
 export type { IngestionJobData } from "./queue";
+export {
+  consumeOAuthNonce,
+  rememberOAuthNonce,
+  signOAuthState,
+  verifyOAuthState,
+  type IssueNonceArgs,
+  type SignedOAuthState,
+} from "./oauth-state";
 export { scheduleRepeatableIngestionJobs } from "./repeatable";
 export {
   claimChatMediaEnrichment,
@@ -100,7 +107,6 @@ export const integrations = new Elysia({ name: "integrations", normalize: "typeb
   .use(googleIntegrationRoutes)
   .use(githubIntegrationRoutes)
   .use(notionIntegrationRoutes)
-  .use(mcpIntegrationRoutes)
   .use(railwayIntegrationRoutes)
   .use(vercelIntegrationRoutes)
   .use(gmailWebhookRoutes)
