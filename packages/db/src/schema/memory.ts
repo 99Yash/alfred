@@ -206,6 +206,7 @@ export const styleProfiles = pgTable(
       .default(sql`'[]'::jsonb`),
     /** Provenance: array of document ids the profile was distilled from. */
     sourceMsgIds: jsonb("source_msg_ids")
+      .$type<string[]>()
       .notNull()
       .default(sql`'[]'::jsonb`),
     generatedAt: timestamp("generated_at", { withTimezone: true }),
@@ -258,6 +259,7 @@ export const entities = pgTable(
     canonicalName: text("canonical_name").notNull(),
     /** Alternate names, email aliases, slack handles. */
     aliases: jsonb("aliases")
+      .$type<string[]>()
       .notNull()
       .default(sql`'[]'::jsonb`),
     /** Free-form bag — title, domain, headshot url, … */
