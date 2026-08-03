@@ -13,6 +13,7 @@ import {
 } from "@alfred/db/schemas";
 import { databaseEnv } from "@alfred/env/database";
 import { and, eq, inArray, sql } from "drizzle-orm";
+import { coldStartResearchWorkflow } from "../../../../apps/server/src/builtins/workflows/cold-start-research";
 
 import {
   _resetRegistryForTests,
@@ -27,6 +28,8 @@ import {
 } from "../../src/composition/trigger-consumers";
 import { publishDomainEvent } from "../../src/modules/triggers";
 import { acceptEvent } from "../../src/modules/workflows";
+import { publishGoogleCallbackCompleted } from "../../src/modules/integrations/google-routes";
+import { COLD_START_WORKFLOW_SLUG } from "../../src/modules/cold-start";
 import { uniqueViolationConstraint } from "../../src/lib/pg-errors";
 import { closeRedis } from "../../src/queue/connection";
 
@@ -149,6 +152,22 @@ async function seedUserWithEventWorkflow(
   return userId;
 }
 
+async function seedUserWithGoogleCallbackWorkflow(): Promise<string> {
+  const userId = await seedUser();
+  await db()
+    .insert(workflows)
+    .values({
+      userId,
+      slug: COLD_START_WORKFLOW_SLUG,
+      name: "cold-start callback reason test",
+      trigger: { kind: "event", source: "google.oauth.callback", type: "completed" },
+      allowedIntegrations: [],
+      status: "active",
+      isBuiltin: true,
+    });
+  return userId;
+}
+
 /** Insert an event-triggered run row shaped exactly as `createRun` writes it. */
 async function insertEventRun(args: {
   userId: string;
@@ -225,6 +244,7 @@ describe("event-dispatch duplicate-run guard (#531)", { skip: SKIP }, () => {
   before(() => {
     if (!getWorkflow(EVENT_WORKFLOW_SLUG)) registerWorkflow(eventWorkflow);
     if (!getWorkflow(SINGLETON_WORKFLOW_SLUG)) registerWorkflow(singletonEventWorkflow);
+    if (!getWorkflow(COLD_START_WORKFLOW_SLUG)) registerWorkflow(coldStartResearchWorkflow);
     registerTriggerConsumers();
   });
   after(async () => {
@@ -292,6 +312,20 @@ describe("event-dispatch duplicate-run guard (#531)", { skip: SKIP }, () => {
     assert.deepEqual(a, { acceptedConsumers: 1 });
     assert.deepEqual(b, { acceptedConsumers: 1 });
     assert.equal(await countActiveEventRuns(userId, eventId), 1);
+  });
+
+  test("a completed Google callback starts cold-start research with the signup reason", async () => {
+    const userId = await seedUserWithGoogleCallbackWorkflow();
+
+    await publishGoogleCallbackCompleted(userId, `credential-${randomUUID()}`);
+
+    const [run] = await db()
+      .select({ state: agentRuns.state })
+      .from(agentRuns)
+      .where(
+        and(eq(agentRuns.userId, userId), eq(agentRuns.workflowSlug, COLD_START_WORKFLOW_SLUG)),
+      );
+    assert.deepEqual(run?.state, { reason: "signup" });
   });
 
   test("an account-bound workflow ignores another account's event", async () => {
