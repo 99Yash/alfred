@@ -687,6 +687,13 @@
       "when": 1785675896377,
       "tag": "0097_outstanding_spirit",
       "breakpoints": true
+    },
+    {
+      "idx": 98,
+      "version": "7",
+      "when": 1785774204222,
+      "tag": "0098_colossal_warbound",
+      "breakpoints": true
     }
   ]
 }

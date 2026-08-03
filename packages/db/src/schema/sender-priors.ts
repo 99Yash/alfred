@@ -1,7 +1,10 @@
+import { TRIAGE_CATEGORIES, type TriageCategory } from "@alfred/contracts";
 import { sql } from "drizzle-orm";
-import { jsonb, pgTable, primaryKey, text, timestamp } from "drizzle-orm/pg-core";
+import { check, jsonb, pgTable, primaryKey, text, timestamp } from "drizzle-orm/pg-core";
 import { lifecycle_dates } from "../helpers";
 import { user } from "./auth";
+
+const triageCategoriesSql = sql.raw(TRIAGE_CATEGORIES.map((c) => `'${c}'`).join(", "));
 
 /**
  * Per-sender category histogram (ADR-0051, triage v3).
@@ -37,13 +40,17 @@ export const senderPriors = pgTable(
       .default(sql`'{}'::jsonb`)
       .$type<Record<string, number>>(),
     /** Most recent category Alfred assigned this sender — a cheap "latest" hint. */
-    lastCategory: text("last_category"),
+    lastCategory: text("last_category").$type<TriageCategory>(),
     /** Last-seen display name from the `From:` header, for debugging/UI. */
     displayName: text("display_name"),
     lastSeenAt: timestamp("last_seen_at", { withTimezone: true }),
     ...lifecycle_dates,
   },
-  (t) => [primaryKey({ columns: [t.userId, t.senderKey] })],
+  (t) => [
+    primaryKey({ columns: [t.userId, t.senderKey] }),
+    // `NULL` passes a `CHECK`, so the nullable column stays valid when unset.
+    check("sender_priors_last_category_valid", sql`${t.lastCategory} IN (${triageCategoriesSql})`),
+  ],
 );
 
 export type SenderPrior = typeof senderPriors.$inferSelect;

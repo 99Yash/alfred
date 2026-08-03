@@ -1,11 +1,15 @@
 import type {
   SignificanceBand,
+  TriageCategory,
   TriageTagSource,
   TriageTodoDecision,
   TriageTodoSuggestion,
 } from "@alfred/contracts";
+import { TRIAGE_CATEGORIES } from "@alfred/contracts";
+import { sql } from "drizzle-orm";
 import {
   boolean,
+  check,
   index,
   integer,
   jsonb,
@@ -17,6 +21,8 @@ import {
 } from "drizzle-orm/pg-core";
 import { lifecycle_dates } from "../helpers";
 import { user } from "./auth";
+
+const triageCategoriesSql = sql.raw(TRIAGE_CATEGORIES.map((c) => `'${c}'`).join(", "));
 
 /**
  * Email triage classifications (ADR-0025 #1).
@@ -48,9 +54,9 @@ export const emailTriage = pgTable(
      * One of `TRIAGE_CATEGORIES` (`urgent | action_needed | follow_up |
      * awaiting_reply | meeting | fyi | done | payment | newsletter |
      * marketing`). Stored as text (not pg enum) so adding a category is
-     * a code-only change.
+     * a code-only change; a `CHECK` keeps the set closed to `TRIAGE_CATEGORIES`.
      */
-    category: text("category").notNull(),
+    category: text("category").$type<TriageCategory>().notNull(),
     /** [0, 1] — surfaced in the UI for low-confidence soft-confirms. */
     confidence: real("confidence").notNull(),
     /** Short rationale from the classifier (audit + debugging). */
@@ -119,6 +125,7 @@ export const emailTriage = pgTable(
   },
   (t) => [
     primaryKey({ columns: [t.userId, t.sourceThreadId] }),
+    check("email_triage_category_valid", sql`${t.category} IN (${triageCategoriesSql})`),
     index("email_triage_user_category_idx").on(t.userId, t.category, t.classifiedAt),
     index("email_triage_user_classified_idx").on(t.userId, t.classifiedAt),
   ],
