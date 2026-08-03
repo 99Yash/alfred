@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { after, describe, test } from "node:test";
-import { registerBuiltinTools } from "../../src/modules/tools/index";
+import { registerBuiltinTools } from "../../src/modules/tools/runtime";
 import { clearToolRegistryForTests, listRegisteredTools } from "../../src/modules/tools/registry";
 
 /**

@@ -11,7 +11,7 @@ import {
   systemToolKernel,
 } from "../../src/modules/agent/tool-surface";
 import { preloadToolCatalog, type ToolCatalogAccess } from "../../src/modules/tools/discovery";
-import { registerBuiltinTools } from "../../src/modules/tools/index";
+import { registerBuiltinTools } from "../../src/modules/tools/runtime";
 import {
   clearToolRegistryForTests,
   getTool,

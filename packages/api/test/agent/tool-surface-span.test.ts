@@ -10,7 +10,7 @@ import {
   startToolSurfaceSpan,
 } from "../../src/modules/agent/runtime-spans";
 import { buildTurnToolSurface, systemToolKernel } from "../../src/modules/agent/tool-surface";
-import { registerBuiltinTools } from "../../src/modules/tools";
+import { registerBuiltinTools } from "../../src/modules/tools/runtime";
 
 function capture(run: () => void): { opened: RuntimeSpanInput[]; ended: RuntimeSpanEndArgs[] } {
   const opened: RuntimeSpanInput[] = [];

@@ -6,7 +6,7 @@ import type {
   WorkflowRevisionDefinition,
 } from "@alfred/contracts";
 
-import { registerBuiltinTools } from "../../src/modules/tools";
+import { registerBuiltinTools } from "../../src/modules/tools/runtime";
 import { createToolCatalog, listRegisteredTools } from "../../src/modules/tools/registry";
 import {
   canonicalizeWorkflowAccounts,

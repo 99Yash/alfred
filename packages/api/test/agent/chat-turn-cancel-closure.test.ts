@@ -24,6 +24,7 @@ import {
   CHAT_TURN_WORKFLOW_SLUG,
   chatTurnWorkflow,
 } from "../../src/modules/agent/workflows/chat-turn";
+import { registerToolCapabilitySurfaceAdapter } from "../../src/modules/tools/capability-surface";
 
 /**
  * DB-backed closure tests for the ONE workflow that owes the user a visible
@@ -157,6 +158,7 @@ async function readChatMessageEvents(userId: string): Promise<unknown[]> {
 
 describe("chat-turn cancel closure (#530/#531 D2, DB-backed)", { skip: SKIP }, () => {
   before(async () => {
+    registerToolCapabilitySurfaceAdapter();
     await db()
       .delete(user)
       .where(like(user.id, `${ID_PREFIX}%`));

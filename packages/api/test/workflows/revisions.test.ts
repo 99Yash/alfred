@@ -19,7 +19,7 @@ import { and, eq } from "drizzle-orm";
 import { runOnce } from "../../src/modules/agent/executor";
 import { createRun, findResumableRunIds, replayRun } from "../../src/modules/agent/service";
 import { ENTITY_FETCHERS } from "../../src/modules/replicache/entities";
-import { registerBuiltinTools } from "../../src/modules/tools";
+import { registerBuiltinTools } from "../../src/modules/tools/runtime";
 import { dispatchDueCronWorkflows } from "../../src/modules/workflows/tick";
 import {
   activateWorkflow,

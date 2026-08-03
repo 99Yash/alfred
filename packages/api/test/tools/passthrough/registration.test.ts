@@ -10,9 +10,9 @@ import {
 import {
   clearToolRegistryForTests,
   listToolsForIntegration,
-  registerBuiltinTools,
   type RegisteredTool,
 } from "../../../src/modules/tools";
+import { registerBuiltinTools } from "../../../src/modules/tools/runtime";
 
 /**
  * Registration invariant (PRD "Testing Decisions" — every supported slug has
