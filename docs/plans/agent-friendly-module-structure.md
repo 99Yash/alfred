@@ -149,7 +149,7 @@ The process still sees only `createAssistantRuntime().start()` and `.stop()`.
 | Module | Owns | Intended interface | Current main homes |
 | --- | --- | --- | --- |
 | `execution` | Durable runs, leases, checkpoints, attempts, cancellation, resume, child joins, recipe registration | `registerRecipe`, `startRun`, `signalRun`, `cancelRun`, `getRun`; queueing is internal | `agent`, `scratchpad`, agent worker/join code |
-| `capabilities` | Capability catalog, model-visible surface, schema validation, authorization, risk, action staging, tool-call approval, execution, result routing | `registerCapabilities`, `resolveSurface`, `executeCalls`, `resolveApproval`; registry and queues stay private | `tools`, `dispatch`, `approvals`, `action-policies`, MCP execution ledger |
+| `tool-runtime` | Tool catalog, model-visible tool surface, schema validation, authorization, risk, action staging, tool-call approval, execution, result routing | `registerTools`, `resolveSurface`, `executeCalls`, `resolveApproval`; registry and queues stay private | `tools`, `dispatch`, `approvals`, `action-policies`, MCP execution ledger |
 | `automation` | User-authored workflow definitions, revisions, readiness, triggers, schedules, occurrence claims | `createDraft`, `revise`, `activate`, `acceptEvent`, `dispatchDue` | `workflows`; user-authored recipe compilation |
 | `triggers` | Durable domain-event publication and trigger-consumer delivery | `publishDomainEvent`, runtime consumer registration; no imports of consumers | `src/events`, `workflows/events`; not HTTP SSE framing |
 | `connections` | Connected-account lifecycle, OAuth state, credential binding, provider availability, watches, webhooks, provider ingestion coordination | `connect`, `disconnect`, `availabilityFor`, `forUser`, `acceptWebhook` | legacy API `integrations`, provider-binding parts of `mcp`, ingestion queue |
@@ -177,10 +177,10 @@ The process still sees only `createAssistantRuntime().start()` and `.stop()`.
   `conversations`; observation extraction belongs to `knowledge`.
 - `approvals` splits: generic step-level human-in-the-loop wake conditions
   belong to `execution`; tool-call action staging and decisions belong to
-  `capabilities`; workflow activation validation belongs to `automation`.
+  `tool-runtime`; workflow activation validation belongs to `automation`.
 - `mcp` splits: connection/protocol/session behavior belongs to `connections`;
   risk, tool-call approval, durable invocation, and tool-result correlation
-  belong to `capabilities`.
+  belong to `tool-runtime`.
 
 ## Required dependency direction
 
@@ -196,14 +196,14 @@ flowchart TD
   http --> sync
 
   runtime --> execution
-  runtime --> capabilities
+  runtime --> tool_runtime["tool-runtime"]
   runtime --> automation
   runtime --> product["product modules"]
 
   automation --> execution
-  automation --> capabilities
+  automation --> tool_runtime
   conversations --> execution
-  execution --> capabilities
+  execution --> tool_runtime
 
   briefings --> knowledge
   briefings --> triage
@@ -230,8 +230,8 @@ load-bearing:
 - `execution` owns generic step-level human-in-the-loop state and wake
   conditions. It does not own tool-call action staging or workflow activation
   policy.
-- `capabilities` does not import execution or feature modules. A capability
-  handler receives a bounded execution context. Domain capability definitions
+- `tool-runtime` does not import execution or feature modules. A tool
+  handler receives a bounded execution context. Domain tool definitions
   are registered by top-level composition.
 - `connections` publishes domain events but does not import automation, triage,
   knowledge, or conversations to fan work out.
@@ -264,20 +264,20 @@ longer call `createRun` and `enqueueRun` separately. The few occurrence-claim
 paths that need a larger transaction use one explicit transactional operation;
 they do not receive the queue handle.
 
-### Capabilities
+### Tool runtime
 
 ```ts
-interface Capabilities {
-  register(definitions: readonly CapabilityDefinition[]): void;
-  resolveSurface(context: SurfaceContext): Promise<CapabilitySurface>;
-  execute(context: ExecutionContext, calls: readonly CapabilityCall[]): Promise<CallRound>;
+interface ToolRuntime {
+  register(definitions: readonly ToolDefinition[]): void;
+  resolveSurface(context: SurfaceContext): Promise<ToolSurface>;
+  execute(context: ExecutionContext, calls: readonly ToolCall[]): Promise<CallRound>;
   resolveApproval(command: ResolveApproval): Promise<ApprovalResolution>;
 }
 ```
 
 The implementation hides tool-name normalization, registry mechanics,
 availability, validation, risk floors, action policy, staging, approval jobs,
-MCP broker rules, and result routing. System capabilities that spawn or join a
+MCP broker rules, and result routing. System tools that spawn or join a
 run receive bounded callbacks in `ExecutionContext`; they do not import
 execution internals.
 
@@ -337,7 +337,7 @@ two modules to import each other:
 ```text
 packages/assistant/src/composition/
   recipes/                    register product recipes with execution
-  capabilities/               register domain capability definitions
+  tool-runtime/               register domain tool definitions
   trigger-consumers/           connect domain events to trigger consumers
 
 packages/http/src/
@@ -513,15 +513,15 @@ independent consumers remains later work in this phase.
 Done when `integrations -> workflows` is gone, event occurrence tests remain
 green, and duplicate/retry behavior is unchanged.
 
-### Phase 2 — Deepen the capability system
+### Phase 2 — Deepen the tool runtime
 
-1. Define the `capabilities` interface in place.
+1. Define the `tool-runtime` interface in place.
 2. Move catalog, discovery, active surface, dispatch, action policy, action
    staging, tool-call approvals, and MCP invocation enforcement behind it.
-3. Move domain capability registration to composition adapters.
+3. Move domain tool registration to composition adapters.
 4. Replace system-tool imports of execution and automation internals with
    bounded handler context callbacks or domain interfaces.
-5. Retarget existing tools/dispatch/approval tests at the capability interface;
+5. Retarget existing tools/dispatch/approval tests at the tool-runtime interface;
    keep focused internal tests only for complex pure transitions.
 
 Done when `agent <-> tools`, `agent <-> dispatch`, `dispatch <-> tools`, and

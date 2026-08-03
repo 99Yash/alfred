@@ -1,7 +1,7 @@
 /** Server-boot registration for the built-in capability definitions. */
 
 import { calendarTools } from "./calendar";
-import { registerToolCapabilitySurfaceAdapter } from "./capability-surface";
+import { registerToolsRuntimeAdapter } from "./tool-runtime-adapter";
 import { docsTools } from "./docs";
 import { driveTools } from "./drive";
 import { githubTools } from "./github";
@@ -29,5 +29,5 @@ export function registerBuiltinTools(): void {
   registerTools(vercelTools);
   registerTools(mcpTools);
   assertKernelToolsRegistered(systemTools);
-  registerToolCapabilitySurfaceAdapter();
+  registerToolsRuntimeAdapter();
 }

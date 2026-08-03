@@ -5,10 +5,7 @@ import type { ToolName } from "@alfred/contracts";
 import { z } from "zod";
 
 import { systemToolKernel } from "../../src/modules/agent/tool-surface";
-import {
-  capabilitySchemaSize,
-  estimateCapabilitySurfaceBudget,
-} from "../../src/modules/tools/schema-budget";
+import { estimateToolSurfaceBudget, toolSchemaSize } from "../../src/modules/tools/schema-budget";
 import {
   getTool,
   listRegisteredTools,
@@ -62,7 +59,7 @@ describe("tool-schema budget", () => {
   before(() => registerBuiltinTools());
 
   test("the kernel surface stays within its byte and token budget", () => {
-    const budget = estimateCapabilitySurfaceBudget(toolsByName(systemToolKernel()));
+    const budget = estimateToolSurfaceBudget(toolsByName(systemToolKernel()));
     assert.ok(
       budget.schemaBytes <= KERNEL_SCHEMA_BYTES_CEILING,
       `kernel schema is ${budget.schemaBytes} B, over the ${KERNEL_SCHEMA_BYTES_CEILING} B ceiling`,
@@ -74,15 +71,15 @@ describe("tool-schema budget", () => {
   });
 
   test("kernel, preloaded, and subsequently loaded surfaces grow predictably", () => {
-    const kernel = estimateCapabilitySurfaceBudget(toolsByName(systemToolKernel()));
-    const preloaded = estimateCapabilitySurfaceBudget(
+    const kernel = estimateToolSurfaceBudget(toolsByName(systemToolKernel()));
+    const preloaded = estimateToolSurfaceBudget(
       toolsByName([
         ...systemToolKernel(),
         "calendar.list_events" as ToolName,
         "gmail.search" as ToolName,
       ]),
     );
-    const loaded = estimateCapabilitySurfaceBudget(
+    const loaded = estimateToolSurfaceBudget(
       toolsByName([
         ...systemToolKernel(),
         "calendar.list_events" as ToolName,
@@ -90,7 +87,7 @@ describe("tool-schema budget", () => {
         "github.search" as ToolName,
       ]),
     );
-    const full = estimateCapabilitySurfaceBudget([...listRegisteredTools()]);
+    const full = estimateToolSurfaceBudget([...listRegisteredTools()]);
 
     // The lazy-tool win: each exact activation pays only for its own schema,
     // while the kernel remains a small fraction of the everything-loaded surface.
@@ -104,7 +101,7 @@ describe("tool-schema budget", () => {
   });
 
   test("the full surface stays within its byte budget", () => {
-    const budget = estimateCapabilitySurfaceBudget([...listRegisteredTools()]);
+    const budget = estimateToolSurfaceBudget([...listRegisteredTools()]);
     assert.ok(
       budget.schemaBytes <= FULL_SCHEMA_BYTES_CEILING,
       `full schema is ${budget.schemaBytes} B, over the ${FULL_SCHEMA_BYTES_CEILING} B ceiling`,
@@ -122,8 +119,8 @@ describe("tool-schema budget", () => {
     const tool = getTool("system.web_search" as ToolName);
     assert.ok(tool, "system.web_search should be registered");
     if (!tool) return;
-    const first = capabilitySchemaSize(tool);
-    const second = capabilitySchemaSize(tool);
+    const first = toolSchemaSize(tool);
+    const second = toolSchemaSize(tool);
     assert.deepEqual(first, second);
     assert.ok(first.bytes > 0);
     assert.ok(first.tokens > 0);
@@ -131,12 +128,12 @@ describe("tool-schema budget", () => {
 
   test("tools sharing one schema keep distinct name/description sizes", () => {
     const sharedSchema = z.object({ query: z.string() });
-    const compact = capabilitySchemaSize({
+    const compact = toolSchemaSize({
       name: "gmail.search",
       description: "Search mail",
       inputSchema: sharedSchema,
     });
-    const verbose = capabilitySchemaSize({
+    const verbose = toolSchemaSize({
       name: "github.search",
       description: "Search repositories, issues, and pull requests across GitHub",
       inputSchema: sharedSchema,
@@ -147,12 +144,12 @@ describe("tool-schema budget", () => {
   });
 
   test("reports UTF-8 bytes separately from character-based token estimates", () => {
-    const ascii = capabilitySchemaSize({
+    const ascii = toolSchemaSize({
       name: "gmail.search",
       description: "Search mail - quickly",
       inputSchema: z.object({}),
     });
-    const unicode = capabilitySchemaSize({
+    const unicode = toolSchemaSize({
       name: "gmail.search",
       description: "Search mail — quickly",
       inputSchema: z.object({}),

@@ -2,27 +2,27 @@ import { tool, type Tool, type ToolSet } from "@alfred/ai";
 import { isIntegrationSlug, isToolName, type ToolName } from "@alfred/contracts";
 
 import {
-  registerCapabilitySurfaceAdapter,
-  type CapabilitySurfaceAdapter,
-  type CapabilitySurfaceContext,
-  type ResolvedCapabilitySurface,
-} from "../capabilities";
+  registerToolRuntimeAdapter,
+  type ResolvedToolSurface,
+  type ToolRuntimeAdapter,
+  type ToolSurfaceContext,
+} from "../tool-runtime";
 import { latestUserPrompt, preloadToolsForPrompt } from "./discovery";
 import { getTool, listKernelTools, listToolsForIntegration, type RegisteredTool } from "./registry";
-import { estimateCapabilitySurfaceBudget } from "./schema-budget";
+import { estimateToolSurfaceBudget } from "./schema-budget";
 
-const sdkSurfaceCache = new Map<string, ResolvedCapabilitySurface>();
+const sdkSurfaceCache = new Map<string, ResolvedToolSurface>();
 
-const toolCapabilitySurfaceAdapter: CapabilitySurfaceAdapter = {
+const toolsRuntimeAdapter: ToolRuntimeAdapter = {
   normalize(input) {
     if (input.activeNames) {
       return {
-        activeNames: registeredCapabilityNames(input.activeNames),
+        activeNames: registeredToolNames(input.activeNames),
         kernelNames: listKernelTools().map((definition) => definition.name),
       };
     }
 
-    const kernelNames = requiredCapabilityKernelNames();
+    const kernelNames = requiredToolKernelNames();
     const integrationNames = new Set<ToolName>();
     for (const integration of input.legacyIntegrationNames ?? []) {
       if (integration === "system" || !isIntegrationSlug(integration)) continue;
@@ -31,17 +31,17 @@ const toolCapabilitySurfaceAdapter: CapabilitySurfaceAdapter = {
       }
     }
     return {
-      activeNames: uniqueCapabilityNames([
+      activeNames: uniqueToolNames([
         ...kernelNames,
         ...integrationNames,
-        ...registeredCapabilityNames(input.pendingNames ?? []),
+        ...registeredToolNames(input.pendingNames ?? []),
       ]),
       kernelNames,
     };
   },
 
   resolve(input) {
-    const activeNames = uniqueCapabilityNames(input.activeNames);
+    const activeNames = uniqueToolNames(input.activeNames);
     const key = `${input.context.caller}:${input.context.hasThread}:${activeNames.join(",")}`;
     const cached = sdkSurfaceCache.get(key);
     if (cached) return cached;
@@ -58,12 +58,12 @@ const toolCapabilitySurfaceAdapter: CapabilitySurfaceAdapter = {
       });
     }
 
-    const budget = estimateCapabilitySurfaceBudget(definitions);
+    const budget = estimateToolSurfaceBudget(definitions);
     const surfacedNames = definitions.map((definition) => definition.name);
     const loadedNames = definitions
       .filter((definition) => definition.availability?.surface !== "kernel")
       .map((definition) => definition.name);
-    const resolved: ResolvedCapabilitySurface = {
+    const resolved: ResolvedToolSurface = {
       tools: tools as ToolSet,
       surfacedNames,
       loadedNames,
@@ -83,7 +83,7 @@ const toolCapabilitySurfaceAdapter: CapabilitySurfaceAdapter = {
         names.add(definition.name);
       }
     }
-    return uniqueCapabilityNames([...names]);
+    return uniqueToolNames([...names]);
   },
 
   preparePreload(input) {
@@ -103,16 +103,16 @@ const toolCapabilitySurfaceAdapter: CapabilitySurfaceAdapter = {
   },
 };
 
-export function registerToolCapabilitySurfaceAdapter(): void {
-  registerCapabilitySurfaceAdapter(toolCapabilitySurfaceAdapter);
+export function registerToolsRuntimeAdapter(): void {
+  registerToolRuntimeAdapter(toolsRuntimeAdapter);
 }
 
 /** Test-only: clear projections whose keys assume the production write-once registry. */
-export function clearToolCapabilitySurfaceCacheForTests(): void {
+export function clearToolRuntimeCacheForTests(): void {
   sdkSurfaceCache.clear();
 }
 
-function requiredCapabilityKernelNames(): ToolName[] {
+function requiredToolKernelNames(): ToolName[] {
   const kernel = listKernelTools();
   if (kernel.length === 0) {
     throw new Error("No system tools are registered for the kernel surface");
@@ -120,17 +120,17 @@ function requiredCapabilityKernelNames(): ToolName[] {
   return kernel.map((definition) => definition.name);
 }
 
-function registeredCapabilityNames(names: readonly string[]): ToolName[] {
-  return uniqueCapabilityNames(
+function registeredToolNames(names: readonly string[]): ToolName[] {
+  return uniqueToolNames(
     names.filter((name): name is ToolName => isToolName(name) && getTool(name) !== undefined),
   );
 }
 
-function uniqueCapabilityNames(names: readonly ToolName[]): ToolName[] {
+function uniqueToolNames(names: readonly ToolName[]): ToolName[] {
   return [...new Set(names)].sort();
 }
 
-function availableToCaller(definition: RegisteredTool, context: CapabilitySurfaceContext): boolean {
+function availableToCaller(definition: RegisteredTool, context: ToolSurfaceContext): boolean {
   const availability = definition.availability;
   if (availability?.callers && !availability.callers.includes(context.caller)) return false;
   return !availability?.requiresThread || context.hasThread;

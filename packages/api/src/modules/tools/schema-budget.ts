@@ -1,29 +1,26 @@
-/** Deterministic estimate of the model-visible capability schema payload. */
+/** Deterministic estimate of the model-visible tool schema payload. */
 
 import { APPROXIMATE_CHARS_PER_TOKEN } from "@alfred/ai";
 import { z } from "zod";
 
 import type { RegisteredTool } from "./registry";
 
-export interface CapabilitySchemaSize {
+export interface ToolSchemaSize {
   bytes: number;
   tokens: number;
 }
 
-export interface CapabilitySurfaceBudget {
+export interface ToolSurfaceBudget {
   toolCount: number;
   schemaBytes: number;
   schemaTokens: number;
 }
 
-export type CapabilitySchemaDefinition = Pick<
-  RegisteredTool,
-  "name" | "description" | "inputSchema"
->;
+export type ToolSchemaDefinition = Pick<RegisteredTool, "name" | "description" | "inputSchema">;
 
-const schemaSizeCache = new WeakMap<CapabilitySchemaDefinition, CapabilitySchemaSize>();
+const schemaSizeCache = new WeakMap<ToolSchemaDefinition, ToolSchemaSize>();
 
-export function capabilitySchemaSize(tool: CapabilitySchemaDefinition): CapabilitySchemaSize {
+export function toolSchemaSize(tool: ToolSchemaDefinition): ToolSchemaSize {
   const cached = schemaSizeCache.get(tool);
   if (cached) return cached;
 
@@ -38,7 +35,7 @@ export function capabilitySchemaSize(tool: CapabilitySchemaDefinition): Capabili
     description: tool.description,
     inputSchema,
   });
-  const size: CapabilitySchemaSize = {
+  const size: ToolSchemaSize = {
     bytes: new TextEncoder().encode(serialized).byteLength,
     tokens: Math.ceil(serialized.length / APPROXIMATE_CHARS_PER_TOKEN),
   };
@@ -46,13 +43,13 @@ export function capabilitySchemaSize(tool: CapabilitySchemaDefinition): Capabili
   return size;
 }
 
-export function estimateCapabilitySurfaceBudget(
+export function estimateToolSurfaceBudget(
   definitions: readonly RegisteredTool[],
-): CapabilitySurfaceBudget {
+): ToolSurfaceBudget {
   let schemaBytes = 0;
   let schemaTokens = 0;
   for (const definition of definitions) {
-    const size = capabilitySchemaSize(definition);
+    const size = toolSchemaSize(definition);
     schemaBytes += size.bytes;
     schemaTokens += size.tokens;
   }

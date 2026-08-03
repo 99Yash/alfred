@@ -2,7 +2,7 @@
  * One-off measurement: how much do the `system.*` tool schemas cost, in tokens,
  * when sent to the model each turn?
  *
- * Uses the repo's OWN production accounting — `capabilitySchemaSize` from the
+ * Uses the repo's OWN production accounting — `toolSchemaSize` from the
  * capability schema budget — the same serialization
  * ({ name, description, inputSchema }) and CHARS_PER_TOKEN estimate that feeds
  * the `runtime.tool_surface` Langfuse span. Bytes are exact; the token column is
@@ -20,7 +20,7 @@ import { asSchema } from "ai";
 import { getTool, listRegisteredTools } from "../modules/tools";
 import { registerBuiltinTools } from "../modules/tools/runtime";
 import { systemToolKernel } from "../modules/agent/tool-surface";
-import { capabilitySchemaSize } from "../modules/tools/schema-budget";
+import { toolSchemaSize } from "../modules/tools/schema-budget";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const MODEL = "claude-opus-4-8";
@@ -83,7 +83,7 @@ async function main() {
 
   const rows = systemTools
     .map((t) => {
-      const { bytes, tokens } = capabilitySchemaSize(t);
+      const { bytes, tokens } = toolSchemaSize(t);
       return { name: t.name, kernel: kernelNames.has(t.name), bytes, tokens };
     })
     .sort((a, b) => b.tokens - a.tokens);

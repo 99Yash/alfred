@@ -4,11 +4,11 @@ import { afterEach, beforeEach, test } from "node:test";
 import { z } from "zod";
 
 import {
-  capabilityNamesForIntegrations,
-  normalizeCapabilitySurface,
-  prepareCapabilityPreload,
-  resolveCapabilitySurface,
-} from "../../src/modules/capabilities";
+  normalizeToolSurface,
+  prepareToolPreload,
+  resolveToolSurface,
+  toolNamesForIntegrations,
+} from "../../src/modules/tool-runtime";
 import { liveTool, registerTools } from "../../src/modules/tools/registry";
 import { resetToolFixtures } from "../lib/tool-fixtures";
 
@@ -46,11 +46,11 @@ function registerSurfaceFixtures(): void {
   ]);
 }
 
-test("normalizes a legacy surface through the registered capability catalog", () => {
+test("normalizes a legacy surface through the registered tool catalog", () => {
   registerSurfaceFixtures();
 
   assert.deepEqual(
-    normalizeCapabilitySurface({
+    normalizeToolSurface({
       legacyIntegrationNames: ["gmail", "system"],
       pendingNames: ["retired.tool"],
     }),
@@ -64,7 +64,7 @@ test("normalizes a legacy surface through the registered capability catalog", ()
 test("projects the exact caller-visible schemas and matching metrics", () => {
   registerSurfaceFixtures();
 
-  const surface = resolveCapabilitySurface({
+  const surface = resolveToolSurface({
     activeNames: ["gmail.search", "system.read_chat_history", "system.search_tools"],
     context: { caller: "boss", hasThread: false },
   });
@@ -79,7 +79,7 @@ test("projects the exact caller-visible schemas and matching metrics", () => {
 
 test("resets cached projections with the shared tool fixture lifecycle", () => {
   registerSurfaceFixtures();
-  const first = resolveCapabilitySurface({
+  const first = resolveToolSurface({
     activeNames: ["gmail.search"],
     context: { caller: "boss", hasThread: true },
   });
@@ -96,7 +96,7 @@ test("resets cached projections with the shared tool fixture lifecycle", () => {
       execute: async () => ({}),
     }),
   ]);
-  const second = resolveCapabilitySurface({
+  const second = resolveToolSurface({
     activeNames: ["gmail.search"],
     context: { caller: "boss", hasThread: true },
   });
@@ -115,7 +115,7 @@ test("lists integration tools without requiring a kernel", () => {
     }),
   ]);
 
-  assert.deepEqual(capabilityNamesForIntegrations(["gmail", "system"]), ["gmail.search"]);
+  assert.deepEqual(toolNamesForIntegrations(["gmail", "system"]), ["gmail.search"]);
 });
 
 test("selects an exact available preload through the workflow allowlist", async () => {
@@ -127,7 +127,7 @@ test("selects an exact available preload through the workflow allowlist", async 
   };
   const transcript = [{ role: "user", content: "gmail.search" }];
 
-  const allowed = prepareCapabilityPreload({
+  const allowed = prepareToolPreload({
     userId: "user_1",
     transcript,
     allowedIntegrations: ["gmail"],
@@ -138,7 +138,7 @@ test("selects an exact available preload through the workflow allowlist", async 
   assert.equal(allowed.promptChars, transcript[0]?.content.length);
   assert.deepEqual(await allowed.select(), ["gmail.search"]);
 
-  const disallowed = prepareCapabilityPreload({
+  const disallowed = prepareToolPreload({
     userId: "user_1",
     transcript,
     allowedIntegrations: ["calendar"],
