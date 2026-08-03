@@ -69,6 +69,7 @@ export const integrationCredentials = pgTable(
     expiresAt: timestamp("expires_at", { withTimezone: true }),
     /** Granted scopes parsed into an array — providers vary on space vs comma separation. */
     scopes: jsonb("scopes")
+      .$type<string[]>()
       .notNull()
       .default(sql`'[]'::jsonb`),
     /** Free-form provider-specific bag: id_token claims, raw refresh response, watch-channel ids, etc. */

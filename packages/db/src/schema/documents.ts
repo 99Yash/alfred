@@ -10,10 +10,8 @@ import {
   timestamp,
   uniqueIndex,
 } from "drizzle-orm/pg-core";
-import { createId, lifecycle_dates, vectorColumn } from "../helpers";
+import { createId, inList, lifecycle_dates, vectorColumn } from "../helpers";
 import { user } from "./auth";
-
-const documentSourcesSql = sql.raw(DOCUMENT_SOURCES.map((source) => `'${source}'`).join(", "));
 
 /**
  * One row per ingested object (email, calendar event, doc, slack message).
@@ -86,7 +84,7 @@ export const documents = pgTable(
     ...lifecycle_dates,
   },
   (t) => [
-    check("documents_source_valid", sql`${t.source} IN (${documentSourcesSql})`),
+    check("documents_source_valid", sql`${t.source} IN (${inList(DOCUMENT_SOURCES)})`),
     uniqueIndex("documents_source_id_idx").on(t.userId, t.source, t.sourceId),
     index("documents_user_source_idx").on(t.userId, t.source, t.authoredAt),
     index("documents_thread_idx").on(t.userId, t.source, t.sourceThreadId),

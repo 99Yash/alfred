@@ -1,7 +1,24 @@
 import { sql } from "drizzle-orm";
-import { index, jsonb, pgTable, text, timestamp, uniqueIndex } from "drizzle-orm/pg-core";
-import { createId, lifecycle_dates } from "../helpers";
+import { check, index, jsonb, pgTable, text, timestamp, uniqueIndex } from "drizzle-orm/pg-core";
+import { createId, inList, lifecycle_dates } from "../helpers";
 import { user } from "./auth";
+
+/**
+ * Every logical kind of email Alfred sends. This is the source of truth for
+ * `email_sends.kind`; `@alfred/api` imports the type for its `notify` surface.
+ */
+export const NOTIFICATION_KINDS = [
+  "briefing",
+  "evening_recap",
+  "approval",
+  "skill_documented",
+  "health_alert",
+] as const;
+export type NotificationKind = (typeof NOTIFICATION_KINDS)[number];
+
+/** `queued` on insert, then `sent` on Resend success or `failed` on error. */
+export const EMAIL_SEND_STATUSES = ["queued", "sent", "failed"] as const;
+export type EmailSendStatus = (typeof EMAIL_SEND_STATUSES)[number];
 
 /**
  * Outbound email log + idempotency ledger (ADR-0020).
@@ -32,8 +49,8 @@ export const emailSends = pgTable(
     userId: text("user_id")
       .notNull()
       .references(() => user.id, { onDelete: "cascade" }),
-    /** Logical kind: 'briefing', 'evening_recap', 'approval', etc. */
-    kind: text("kind").notNull(),
+    /** Logical kind — one of `NOTIFICATION_KINDS`. */
+    kind: text("kind").$type<NotificationKind>().notNull(),
     idempotencyKey: text("idempotency_key").notNull(),
     toAddress: text("to_address").notNull(),
     subject: text("subject").notNull(),
@@ -44,7 +61,7 @@ export const emailSends = pgTable(
       .notNull()
       .default(sql`'{}'::jsonb`),
     /** 'queued' → 'sent' | 'failed'. */
-    status: text("status").notNull().default("queued"),
+    status: text("status").$type<EmailSendStatus>().notNull().default("queued"),
     /** Resend's message id, for cross-referencing in their dashboard. */
     providerMessageId: text("provider_message_id"),
     /** Truncated provider error on failure; null on success. */
@@ -55,6 +72,8 @@ export const emailSends = pgTable(
   (t) => [
     uniqueIndex("email_sends_idem_idx").on(t.userId, t.idempotencyKey),
     index("email_sends_user_kind_idx").on(t.userId, t.kind, t.createdAt),
+    check("email_sends_kind_valid", sql`${t.kind} IN (${inList(NOTIFICATION_KINDS)})`),
+    check("email_sends_status_valid", sql`${t.status} IN (${inList(EMAIL_SEND_STATUSES)})`),
   ],
 );
 

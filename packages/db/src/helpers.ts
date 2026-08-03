@@ -31,6 +31,16 @@ export function createId(prefix?: string, { length = 12, separator = "_" } = {})
   return prefix ? `${prefix}${separator}${id}` : id;
 }
 
+/**
+ * Render a set of string literals as a comma-separated SQL list for an
+ * `IN (...)` clause — e.g. ``sql`${t.status} IN (${inList(TODO_STATUSES)})` ``.
+ * Shared by the enum `CHECK` constraints so the closed-set idiom lives once.
+ * `values` are trusted enum constants (never user input), so raw interpolation
+ * is safe.
+ */
+export const inList = (values: readonly string[]): SQL =>
+  sql.raw(values.map((v) => `'${v}'`).join(", "));
+
 export function generateRandomCode(length: number = 8) {
   return customAlphabet("123456789", length)();
 }

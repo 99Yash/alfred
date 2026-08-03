@@ -1,0 +1,2 @@
+ALTER TABLE "sender_priors" ADD CONSTRAINT "sender_priors_last_category_valid" CHECK ("sender_priors"."last_category" IN ('urgent', 'action_needed', 'follow_up', 'awaiting_reply', 'meeting', 'fyi', 'done', 'payment', 'newsletter', 'marketing'));--> statement-breakpoint
+ALTER TABLE "email_triage" ADD CONSTRAINT "email_triage_category_valid" CHECK ("email_triage"."category" IN ('urgent', 'action_needed', 'follow_up', 'awaiting_reply', 'meeting', 'fyi', 'done', 'payment', 'newsletter', 'marketing'));

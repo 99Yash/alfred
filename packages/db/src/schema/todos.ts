@@ -1,14 +1,18 @@
-import type {
-  TodoCreatedBy,
-  TodoExecutor,
-  TodoKind,
-  TodoSource,
-  TodoStatus,
+import type { TodoSource } from "@alfred/contracts";
+import {
+  TODO_CREATED_BY,
+  TODO_EXECUTORS,
+  TODO_KINDS,
+  TODO_STATUSES,
+  type TodoCreatedBy,
+  type TodoExecutor,
+  type TodoKind,
+  type TodoStatus,
 } from "@alfred/contracts";
 import { sql } from "drizzle-orm";
-import { date, index, integer, jsonb, pgTable, text, timestamp } from "drizzle-orm/pg-core";
+import { check, date, index, integer, jsonb, pgTable, text, timestamp } from "drizzle-orm/pg-core";
 
-import { createId, lifecycle_dates } from "../helpers";
+import { createId, inList, lifecycle_dates } from "../helpers";
 import { agentRuns } from "./agent";
 import { user } from "./auth";
 
@@ -84,6 +88,10 @@ export const todos = pgTable(
     index("todos_user_status_idx").on(t.userId, t.status),
     // Done-window prune lookup (status='done' AND completed_at >= now()-7d).
     index("todos_user_completed_idx").on(t.userId, t.completedAt),
+    check("todos_status_valid", sql`${t.status} IN (${inList(TODO_STATUSES)})`),
+    check("todos_kind_valid", sql`${t.kind} IN (${inList(TODO_KINDS)})`),
+    check("todos_created_by_valid", sql`${t.createdBy} IN (${inList(TODO_CREATED_BY)})`),
+    check("todos_executor_valid", sql`${t.executor} IN (${inList(TODO_EXECUTORS)})`),
   ],
 );
 
