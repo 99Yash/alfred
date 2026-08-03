@@ -78,8 +78,6 @@
       "drift-audit -> notifications",
       "drift-audit -> timezone",
       "features -> memory",
-      "integrations -> agent",
-      "integrations -> cold-start",
       "integrations -> mcp",
       "integrations -> tools",
       "integrations -> triage",

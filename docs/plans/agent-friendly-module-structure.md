@@ -478,7 +478,7 @@ and a developer can run one non-mutating verification command.
 
 ### Phase 1 — Give events one owner
 
-**Status:** In progress (2026-08-02). The first slice adds the in-place
+**Status:** In progress (2026-08-03). The first slice adds the in-place
 `triggers` interface, routes Gmail ingestion publication through it, and wires
 the workflow trigger consumer in runtime composition. Google OAuth draft
 recovery now uses an integrations-owned callback interface with a workflow
@@ -487,11 +487,14 @@ module edge is gone. Gmail post-insert repair and relabel jobs now use an
 integrations-owned Gmail triage interface with a triage adapter in runtime
 composition, so `integrations -> triage` is also gone. Gmail observation capture
 and queued kind refolds now use an integrations-owned user-model interface with
-a runtime-composed adapter; the remaining `integrations -> user-model` edge is in
-Google routes, not the ingestion queue. Chat attachment enrichment and storage
-cleanup now use an integrations-owned chat-media interface with a
-runtime-composed adapter, so `integrations -> chat` is gone. Connection imports
-of knowledge consumers still remain. The current sole trigger consumer
+a runtime-composed adapter. Google credential affiliation updates now use a
+transaction-owning composition adapter, so `integrations -> user-model` is gone.
+Chat attachment enrichment and storage cleanup now use an integrations-owned
+chat-media interface with a runtime-composed adapter, so `integrations -> chat`
+is gone. Google OAuth completion now publishes through the triggers interface,
+and the registered automation consumer starts cold-start research, so
+`integrations -> agent` and `integrations -> cold-start` are gone. Connection
+imports of other consumers still remain. The current sole trigger consumer
 attempts durable occurrence claims before publication returns, but keeps
 per-workflow failure details inside automation. Durable delivery to several
 independent consumers remains later work in this phase.
