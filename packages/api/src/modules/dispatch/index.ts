@@ -32,15 +32,7 @@
  * Callers don't need a separate "resume" entry point.
  */
 
-import type {
-  IanaTimezone,
-  IntegrationSlug,
-  PolicyMode,
-  ToolName,
-  ToolRunContext,
-  ToolRiskTier,
-  WorkflowRequiredCapability,
-} from "@alfred/contracts";
+import type { IntegrationSlug, PolicyMode, ToolName, ToolRiskTier } from "@alfred/contracts";
 import {
   APPROVAL_EXPIRY_MS,
   getPath,
@@ -66,6 +58,7 @@ import {
   type ToolSpanInput,
 } from "@alfred/ai";
 import { stagingStore, type StagingCommit, type StagingRow } from "./staging-store";
+import { registerToolCallRoundAdapter, type ToolCallDispatchArgs } from "../tool-runtime";
 import {
   APP_ERROR_REGISTRY,
   isAppErrorCode,
@@ -77,7 +70,6 @@ import { enrichInvalidInputMessage } from "./invalid-input";
 import { normalizeToolInputKeys } from "./normalize-keys";
 import { emitReplicachePokes } from "../../events/replicache-events";
 import { resolveApprovalNotifyDelayMs, resolvePolicyMode } from "../action-policies/resolve";
-import type { WakeCondition } from "../agent/types";
 import { joinChildRun } from "../agent/sub-agent-join";
 import { scheduleApprovalExpiryJob } from "../approvals/expiry-queue";
 import { scheduleApprovalNotificationJob } from "../approvals/notification-queue";
@@ -100,173 +92,9 @@ import {
 import { readIntegrationAvailability } from "../integrations/availability";
 import { resolveUserTimezone } from "../timezone";
 
-// Result routing lives beside the `DispatchResult` union it decodes, so the two
-// tool-running workflows (chat turn + sub-agent brief) and their tests consume
-// one owner instead of re-decoding the union at each call site.
-export {
-  dispatchRoundReissued,
-  isMutatingToolName,
-  isNonExecutionFailure,
-  toolCallLogStatus,
-  toolResultMessage,
-  type TerminalDispatchResult,
-} from "./result-routing";
-
-interface DispatchBaseArgs {
-  runId: string;
-  /** Logical executor step that owns this call — audit only. */
-  stepId: string;
-  /** Stable id from the model's tool call (deduplicates same call across step re-attempts). */
-  toolCallId: string;
-  toolName: string;
-  input: unknown;
-  userId: string;
-  /**
-   * Chat thread + assistant message that owns this call, when dispatched from a
-   * chat turn. Threaded into the tool context so artifact tools (ADR-0075) can
-   * attribute the artifact to its thread/message. Omitted for background runs.
-   */
-  threadId?: string | undefined;
-  messageId?: string | undefined;
-  /** Scratchpad namespace to use for system scratch tools. Defaults to `runId`. */
-  scratchpadRunId?: string | undefined;
-  /**
-   * The user's IANA timezone, if the caller already has it (e.g. chat snapshots
-   * it once per run). Omitted → the dispatcher reads the `"timezone"` pref.
-   */
-  timezone?: IanaTimezone | undefined;
-  /** Exact run-local capability surface. Registry membership alone is not executable. */
-  activeTools: readonly ToolName[];
-  /** Workflow integration cap, enforced by exact tool discovery, load, and dispatch. */
-  allowedIntegrations?: readonly string[] | undefined;
-  /** Exact approved tool envelope for an immutable workflow revision. */
-  allowedTools?: readonly ToolName[] | undefined;
-  /** Account/resource envelope paired with `allowedTools`. */
-  requiredCapabilities?: readonly WorkflowRequiredCapability[] | undefined;
-}
-
-/** One actor shape keeps execution identity and tool eligibility in agreement. */
-export type DispatchArgs = DispatchBaseArgs &
-  (
-    | {
-        caller: "boss";
-        runContext: ToolRunContext & { caller: "boss" };
-      }
-    | {
-        caller: { subId: string };
-        runContext: ToolRunContext & { caller: "sub_agent" };
-      }
-  );
-
-interface RejectedToolResult {
-  status: "rejected_by_user";
-  toolName: ToolName;
-  proposedInput: unknown;
-  reason: string;
-  /** Hint to the boss: same input verbatim will be auto-rejected again. */
-  retryPolicy: "do_not_retry_identical";
-}
-
-interface InvalidInputToolResult {
-  status: "invalid_input";
-  toolName: ToolName;
-  message: string;
-  issues?: unknown | undefined;
-}
-
-interface UnknownToolResult {
-  status: "unknown_tool";
-  toolName: string;
-  message: string;
-}
-
-interface InactiveToolResult {
-  status: "inactive_tool";
-  toolName: ToolName;
-  message: string;
-  recovery: { kind: "activate_and_reissue"; toolName: ToolName };
-}
-
-interface NotAllowedToolResult {
-  status: "not_allowed" | "capability_mismatch";
-  toolName: ToolName;
-  integration: IntegrationSlug;
-  message: string;
-}
-
-interface FeatureDisabledToolResult {
-  status: "feature_disabled";
-  toolName: ToolName;
-  integration: IntegrationSlug;
-  message: string;
-}
-
-export type DispatchResult =
-  | {
-      kind: "executed";
-      stagingId: string | null;
-      toolResult: unknown;
-      /** True when the user edited the input before approving — the boss
-       *  may want to surface that to the model so future suggestions
-       *  account for the correction. */
-      editedByUser: boolean;
-      /** ADR-0070: set when the result carried persistence-poison (NUL /
-       *  lone surrogates) that the dispatch-boundary sanitizer stripped. The
-       *  flag rides on the envelope, never on the result value (a bare
-       *  string/array result can't carry a property). */
-      sanitized?: boolean;
-    }
-  | {
-      kind: "failed";
-      stagingId: string | null;
-      error: PublicAppError;
-    }
-  | {
-      kind: "rejected";
-      /** `null` only on retry-suppression — no new row written. */
-      stagingId: string | null;
-      result: RejectedToolResult;
-    }
-  | {
-      kind: "staged";
-      stagingId: string;
-      wake: Extract<WakeCondition, { kind: "hil" }>;
-    }
-  | {
-      // ADR-0073: `system.await_sub_agent` on a still-running child. Carries a
-      // `signal` wake the parent parks on; the child fires it on terminal
-      // commit. Symmetric to `staged` — the agent loop turns it into a
-      // `StepResult.interrupt`, and the whole batch re-dispatches on resume.
-      kind: "parked";
-      wake: Extract<WakeCondition, { kind: "signal" }>;
-    }
-  | {
-      kind: "invalid_input";
-      result: InvalidInputToolResult;
-    }
-  | {
-      kind: "unknown_tool";
-      result: UnknownToolResult;
-    }
-  | {
-      kind: "inactive_tool";
-      result: InactiveToolResult;
-    }
-  | {
-      kind: "not_allowed";
-      result: NotAllowedToolResult;
-    }
-  | {
-      // ADR-0074: the general read-only passthrough tier is default-OFF per
-      // integration and killable without a deploy. A stale active surface (or a
-      // toggle flipped mid-run) that tries to call a disabled passthrough tool is
-      // rechecked here and bounced. UNLIKE a read-gate `rejected` (which is a
-      // visible, model-facing tool result), `feature_disabled` is hidden
-      // `nonExecution` plumbing — the model must not narrate a capability the
-      // user turned off. The two route oppositely on purpose (PRD dispatch note).
-      kind: "feature_disabled";
-      result: FeatureDisabledToolResult;
-    };
+export type DispatchArgs = ToolCallDispatchArgs;
+type DispatchToolCallRoundAdapter = Parameters<typeof registerToolCallRoundAdapter>[0];
+export type DispatchResult = Awaited<ReturnType<DispatchToolCallRoundAdapter["dispatch"]>>;
 
 const UNKNOWN_TOOL_TRACE_NAME = "<unknown>";
 const TOOLISH_NAME = /^[A-Za-z][A-Za-z0-9_.]*$/;
@@ -1004,6 +832,20 @@ export async function toolCallWouldGate(userId: string, toolName: string): Promi
   return toolRequiresApproval(policyMode, riskTier);
 }
 
+const dispatchToolCallRoundAdapter: DispatchToolCallRoundAdapter = {
+  dispatch: dispatchToolCall,
+  wouldWaitForApproval: toolCallWouldGate,
+  executionLane(toolName) {
+    if (!isToolName(toolName)) return null;
+    return getTool(toolName)?.executionLane ?? null;
+  },
+};
+
+/** Install the guarded dispatcher as tool-runtime's call-round adapter at boot. */
+export function registerDispatchToolCallRoundAdapter(): void {
+  registerToolCallRoundAdapter(dispatchToolCallRoundAdapter);
+}
+
 export function undeclaredToolMessage(
   toolName: string,
   allowedIntegrations: readonly string[] = [],
@@ -1420,7 +1262,9 @@ interface SynthesizeRejectionArgs {
   reason: string;
 }
 
-function synthesizeRejection(args: SynthesizeRejectionArgs): RejectedToolResult {
+function synthesizeRejection(
+  args: SynthesizeRejectionArgs,
+): Extract<DispatchResult, { kind: "rejected" }>["result"] {
   return {
     status: "rejected_by_user",
     toolName: args.toolName,

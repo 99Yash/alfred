@@ -49,7 +49,6 @@
       "agent -> artifacts",
       "agent -> chat",
       "agent -> chat-memory",
-      "agent -> dispatch",
       "agent -> integrations",
       "agent -> scratchpad",
       "agent -> timezone",

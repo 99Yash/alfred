@@ -6,7 +6,7 @@ import {
   CHAT_TOOL_NAME_MAX,
   chatToolSchema,
 } from "@alfred/contracts/events";
-import type { TerminalDispatchResult } from "../../src/modules/dispatch";
+import type { CompletedToolCall } from "../../src/modules/tool-runtime";
 import {
   readSubAgentMetadata,
   type SubAgentMetadata,
@@ -18,6 +18,22 @@ import {
   toolCardTerminal,
 } from "../../src/modules/agent/workflows/tool-card-events";
 import { toolEventOutcome } from "../../src/modules/agent/workflows/tool-event-outcome";
+
+function completion(
+  toolName: string,
+  result: unknown,
+  options: Partial<Omit<CompletedToolCall, "call" | "result">> = {},
+): CompletedToolCall {
+  return {
+    call: { toolCallId: "call", toolName, input: {} },
+    result,
+    status: "succeeded",
+    execution: "completed",
+    sanitized: false,
+    nonExecution: false,
+    ...options,
+  };
+}
 
 describe("sub-agent chat origin", () => {
   const base = {
@@ -92,10 +108,7 @@ describe("sub-agent tool cards", () => {
     const terminal = toolCardTerminal(
       target,
       { toolCallId: "call_1", toolName: "github.search" },
-      toolEventOutcome("github.search", {
-        kind: "executed",
-        toolResult: { items: [] },
-      } as unknown as TerminalDispatchResult),
+      toolEventOutcome(completion("github.search", { items: [] })),
       { segmentIndex: NESTED_SEGMENT_INDEX },
     );
 
@@ -116,10 +129,17 @@ describe("sub-agent tool cards", () => {
     const terminal = toolCardTerminal(
       target,
       { toolCallId: "call_2", toolName: "github.search" },
-      toolEventOutcome("github.search", {
-        kind: "inactive_tool",
-        result: { recovery: { toolName: "github.search" } },
-      } as unknown as TerminalDispatchResult),
+      toolEventOutcome(
+        completion(
+          "github.search",
+          { recovery: { toolName: "github.search" } },
+          {
+            status: "failed",
+            execution: "not_reached",
+            nonExecution: true,
+          },
+        ),
+      ),
       { segmentIndex: NESTED_SEGMENT_INDEX },
     );
     assert.equal(terminal.nonExecution, true);
@@ -155,10 +175,17 @@ describe("provider-supplied identity is clamped, not rejected", () => {
     const terminal = toolCardTerminal(
       target,
       { toolCallId: longCallId, toolName: longName },
-      toolEventOutcome(longName, {
-        kind: "unknown_tool",
-        result: { reason: "unknown_tool" },
-      } as unknown as TerminalDispatchResult),
+      toolEventOutcome(
+        completion(
+          longName,
+          { reason: "unknown_tool" },
+          {
+            status: "failed",
+            execution: "not_reached",
+            nonExecution: true,
+          },
+        ),
+      ),
       { segmentIndex: 0 },
     );
     assert.equal(terminal.toolName.length, CHAT_TOOL_NAME_MAX);
@@ -169,15 +196,8 @@ describe("provider-supplied identity is clamped, not rejected", () => {
 });
 
 describe("toolEventOutcome", () => {
-  const executed = (toolResult: unknown, sanitized?: boolean): TerminalDispatchResult =>
-    ({
-      kind: "executed",
-      toolResult,
-      ...(sanitized ? { sanitized } : {}),
-    }) as TerminalDispatchResult;
-
   test("an executed read succeeds and is never flagged as non-execution", () => {
-    const outcome = toolEventOutcome("gmail.search", executed({ messages: [] }));
+    const outcome = toolEventOutcome(completion("gmail.search", { messages: [] }));
     assert.equal(outcome.status, "succeeded");
     assert.equal(outcome.nonExecution, undefined);
   });
@@ -187,26 +207,42 @@ describe("toolEventOutcome", () => {
     // and the sub-agent trail derive it here so they cannot drift, and a surface
     // that lost it would render internal plumbing as a user-facing failure.
     for (const kind of ["invalid_input", "unknown_tool", "inactive_tool", "not_allowed"] as const) {
-      const outcome = toolEventOutcome("gmail.search", {
-        kind,
-        result: { reason: kind },
-      } as unknown as TerminalDispatchResult);
+      const outcome = toolEventOutcome(
+        completion(
+          "gmail.search",
+          { reason: kind },
+          {
+            status: "failed",
+            execution: "not_reached",
+            nonExecution: true,
+          },
+        ),
+      );
       assert.equal(outcome.status, "failed", kind);
       assert.equal(outcome.nonExecution, true, kind);
     }
   });
 
   test("a real execution fault is a visible failure, not a bounce", () => {
-    const outcome = toolEventOutcome("gmail.send_draft", {
-      kind: "failed",
-      error: { message: "upstream 500" },
-    } as unknown as TerminalDispatchResult);
+    const outcome = toolEventOutcome(
+      completion(
+        "gmail.send_draft",
+        { message: "upstream 500" },
+        {
+          status: "failed",
+          execution: "failed",
+        },
+      ),
+    );
     assert.equal(outcome.status, "failed");
     assert.equal(outcome.nonExecution, undefined);
   });
 
   test("the ADR-0070 sanitizer verdict rides along", () => {
-    assert.equal(toolEventOutcome("gmail.search", executed({ ok: true }, true)).sanitized, true);
-    assert.equal(toolEventOutcome("gmail.search", executed({ ok: true })).sanitized, undefined);
+    assert.equal(
+      toolEventOutcome(completion("gmail.search", { ok: true }, { sanitized: true })).sanitized,
+      true,
+    );
+    assert.equal(toolEventOutcome(completion("gmail.search", { ok: true })).sanitized, undefined);
   });
 });
