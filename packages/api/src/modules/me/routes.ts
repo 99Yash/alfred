@@ -595,13 +595,18 @@ export const meRoutes = new Elysia({ prefix: "/api/me", normalize: "typebox" })
           // with a delete — defensive).
           const selectedRow =
             threadRows.find((r) => r.documentId === params.documentId) ?? threadRows[0];
-          const detail: MeInboxDetail = {
+          // `satisfies`, not a type annotation: Eden Treaty infers the client
+          // response type from this return, and it indexes the literal's
+          // `messages: MeInboxMessage[]` correctly while the interface's
+          // `ReadonlyArray<MeInboxMessage>` collapsed the nested attachment
+          // element to `any` on the reader. The check still enforces the shape.
+          const detail = {
             threadId: selected.threadId ?? null,
             subject: selectedRow?.subject ?? selected.subject ?? null,
             category: selectedRow?.category ?? null,
             selectedDocumentId: params.documentId,
             messages,
-          };
+          } satisfies MeInboxDetail;
           return detail;
         },
         { params: t.Object({ documentId: t.String() }) },
