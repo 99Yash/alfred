@@ -109,7 +109,7 @@ const CHAT_TOOL_RUN_CONTEXT = {
 
 /** Shared with the future pre-call context guard; never reserve a different output shape. */
 const CHAT_INPUT_ESTIMATE_WARN_UNDERSHOOT_RATIO = 0.1;
-export const ARTIFACT_MUTATION_TOOL_NAMES = [
+const ARTIFACT_MUTATION_TOOL_NAMES = [
   "system.create_artifact",
   "system.append_artifact_page",
   "system.append_artifact_section",
