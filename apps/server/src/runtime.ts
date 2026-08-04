@@ -17,6 +17,7 @@ import {
   initEventBridge,
   initReplicachePokeBridge,
   reconcileInflightInvocations,
+  registerAgentSystemToolAdapter,
   registerBuiltinTools,
   registerOnUserCreated,
   registerRuntimeAdapters,
@@ -104,6 +105,11 @@ export async function startRuntime(): Promise<void> {
   // their workflow or tool names.
   registerBuiltinWorkflows();
   registerBuiltinTools();
+  // The system tools reach three agent behaviors (sub-agent spawn/join and
+  // chat-history retrieval) through a registered tool-runtime seam, so the tools
+  // module holds no agent import (ADR-0089). Install the agent-side handler here,
+  // after the tools register, so a first system-tool call finds it.
+  registerAgentSystemToolAdapter();
   registerRuntimeAdapters();
 
   registerOnUserCreated(async (user) => {

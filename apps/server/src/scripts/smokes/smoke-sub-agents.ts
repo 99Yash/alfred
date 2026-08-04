@@ -15,6 +15,7 @@ import {
   closeAgentQueue,
   closeConnections,
   closeRedis,
+  registerAgentSystemToolAdapter,
   registerBuiltinTools,
   warmPool,
 } from "@alfred/api/runtime";
@@ -71,6 +72,9 @@ function assertObject(value: unknown, label: string): asserts value is Record<st
 async function main(): Promise<void> {
   await warmPool();
   registerBuiltinTools();
+  // `system.spawn_sub_agent` runs through the tool-runtime seam, so the smoke
+  // must install the agent-side handler just like the server bootstrap does.
+  registerAgentSystemToolAdapter();
 
   const userId = await findOrCreateSmokeUser();
   await resetSmokeRows(userId);

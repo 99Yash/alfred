@@ -44,3 +44,10 @@ export type {
   ResultExtractor,
 } from "./types";
 export { ATTRIBUTION_KINDS, isAttributionKind, type AttributionKind } from "@alfred/contracts";
+export {
+  boundedNameList,
+  classifyLatency,
+  RUNTIME_LATENCY_THRESHOLDS,
+  type LatencyHealth,
+  type RuntimeLatencyKind,
+} from "./runtime-span-metadata";

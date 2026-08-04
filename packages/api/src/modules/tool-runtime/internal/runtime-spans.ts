@@ -1,4 +1,10 @@
-import { startRuntimeSpan, type RuntimeSpanCloser, type RuntimeSpanInput } from "@alfred/ai";
+import {
+  boundedNameList,
+  classifyLatency,
+  startRuntimeSpan,
+  type RuntimeSpanCloser,
+  type RuntimeSpanInput,
+} from "@alfred/ai";
 import type { ToolName, ToolUnavailabilityCode } from "@alfred/contracts";
 
 import type { ToolCallRun } from "../index";
@@ -133,6 +139,87 @@ export function startToolLoadSpan(args: ToolLoadSpanArgs): ToolLoadSpanCloser {
         status: outcome,
         level: outcome === "ok" ? "DEFAULT" : "WARNING",
         metadata: { latencyMs, loaded: outcome === "ok" },
+      });
+    },
+    error() {
+      if (ended) return;
+      ended = true;
+      span.end({ status: "error", level: "ERROR" });
+    },
+  };
+}
+
+/* ---------------------------------------------------------------------------
+ * Model-facing tool-search span (#414, PRD #405)
+ *
+ * The load span above records what reaches the active surface. This one records
+ * the model-facing catalog search that finds a tool to load. It lives beside the
+ * load span so tool-load and tool-search — the two lazy-tool discovery spans —
+ * share one owner and one `runtimeSpanStarter`. `tools/system.ts` is its only
+ * caller (the `system.search_tools` tool), so no agent code imports it back.
+ * ------------------------------------------------------------------------- */
+
+/** Stable observation name for the model-facing tool-search runtime span (PRD #405). */
+export const RUNTIME_TOOL_SEARCH = "runtime.tool_search";
+
+export interface ToolSearchSpanArgs {
+  runId: string;
+  /** `boss` or `sub:<id>`. */
+  caller: string;
+  /** Length of the search query in chars — never the raw query text. */
+  queryChars: number;
+  startedAt: Date;
+}
+
+/** Pure builder for the `runtime.tool_search` opening span. Exported for tests. */
+export function buildToolSearchSpanInput(args: ToolSearchSpanArgs): RuntimeSpanInput {
+  return {
+    runId: args.runId,
+    name: RUNTIME_TOOL_SEARCH,
+    startedAt: args.startedAt,
+    metadata: {
+      source: "model_search",
+      caller: args.caller,
+      queryChars: args.queryChars,
+    },
+  };
+}
+
+export interface ToolSearchSpanCloser {
+  /**
+   * Close with the candidate tool names the search returned and measured
+   * latency. An empty list is a `miss`. The names are recorded (bounded) so
+   * discovery tuning can tell "found the wrong tools" from "found nothing" —
+   * the more common metadata gap — instead of collapsing to a hit/miss binary.
+   */
+  end(result: { candidateNames: readonly ToolName[]; latencyMs: number }): void;
+  error(): void;
+}
+
+/**
+ * Open a `runtime.tool_search` span around a model-facing catalog search. A
+ * search returning no candidates is a `miss` — the discovery-metadata gap the
+ * PRD wants visible (User Story 17) — not an error, so it closes at DEFAULT with
+ * `status:"miss"`. The returned candidate names (not PII) are recorded bounded
+ * so an operator can see *what* was surfaced, not just how many. Latency is
+ * judged against the `tool_search` debug band. Idempotent — only the first
+ * `end`/`error` closes.
+ */
+export function startToolSearchSpan(args: ToolSearchSpanArgs): ToolSearchSpanCloser {
+  const span = runtimeSpanStarter(buildToolSearchSpanInput(args));
+  let ended = false;
+  return {
+    end({ candidateNames, latencyMs }) {
+      if (ended) return;
+      ended = true;
+      span.end({
+        status: candidateNames.length > 0 ? "hit" : "miss",
+        metadata: {
+          candidateCount: candidateNames.length,
+          candidateTools: boundedNameList(candidateNames),
+          latencyMs,
+          latencyHealth: classifyLatency("tool_search", latencyMs),
+        },
       });
     },
     error() {
