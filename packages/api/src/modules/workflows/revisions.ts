@@ -28,7 +28,7 @@ import {
 import { and, eq, sql } from "drizzle-orm";
 import { canonicalWorkflowDefinition, workflowRevisionContentHash } from "./content-hash";
 import { readFreshIntegrationAvailability } from "../integrations/availability";
-import { createToolCatalog, listRegisteredTools, type ToolCatalog } from "../tools/registry";
+import { workflowToolCatalog, type WorkflowToolCatalog } from "../tool-runtime";
 import {
   canonicalizeWorkflowAccounts,
   resolveWorkflowApprovalDisplay,
@@ -619,7 +619,7 @@ export async function refreshWorkflowActivationProposal(args: {
   if (stale) return { ok: false, failure: stale };
 
   const { availability, gmailEventHealth } = await readWorkflowReadinessContext(args.userId);
-  const toolCatalog = createToolCatalog(listRegisteredTools());
+  const toolCatalog = workflowToolCatalog();
   const canonicalDefinition = canonicalizeWorkflowAccounts({
     definition: requested.definition,
     availability,
@@ -739,7 +739,7 @@ export async function recoverWorkflowDraft(args: {
   }
 
   const { availability, gmailEventHealth } = await readWorkflowReadinessContext(args.userId);
-  const toolCatalog = createToolCatalog(listRegisteredTools());
+  const toolCatalog = workflowToolCatalog();
   const canonicalDefinition = canonicalizeWorkflowAccounts({
     definition: storedDefinition,
     availability,
@@ -851,7 +851,7 @@ export function buildWorkflowActivationProposal(args: {
   definition: AuthorableWorkflowDefinition;
   authoringProposal: WorkflowAuthoringProposal;
   availability: Awaited<ReturnType<typeof readFreshIntegrationAvailability>>;
-  toolCatalog: ToolCatalog;
+  toolCatalog: WorkflowToolCatalog;
   timezone: IanaTimezone;
   previewedAt?: Date | undefined;
 }): ActivateWorkflowInput {
@@ -949,7 +949,7 @@ export async function activateWorkflowDefinition(
     if (stale) return { ok: false, failure: stale };
   }
   const availability = await readFreshIntegrationAvailability(args.userId);
-  const toolCatalog = createToolCatalog(listRegisteredTools());
+  const toolCatalog = workflowToolCatalog();
   const canonicalInputDefinition = canonicalizeWorkflowAccounts({
     definition: input.definition,
     availability,
@@ -1151,7 +1151,7 @@ export async function activateWorkflow(
     const definition = validated.definition;
     const proposal = workflowAuthoringProposalSchema.safeParse(current.authoringProposal);
     const { availability, gmailEventHealth } = await readWorkflowReadinessContext(args.userId);
-    const toolCatalog = createToolCatalog(listRegisteredTools());
+    const toolCatalog = workflowToolCatalog();
     const blockers = resolveWorkflowReadiness({
       definition,
       availability,

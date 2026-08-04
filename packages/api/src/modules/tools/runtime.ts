@@ -16,6 +16,7 @@ import { sheetsTools } from "./sheets";
 import { slidesTools } from "./slides";
 import { systemTools } from "./system";
 import { vercelTools } from "./vercel";
+import { registerWorkflowToolCatalog } from "./workflow-tool-catalog-source";
 
 export function registerBuiltinTools(): void {
   registerTools(systemTools);
@@ -32,5 +33,6 @@ export function registerBuiltinTools(): void {
   registerTools(mcpTools);
   assertKernelToolsRegistered(systemTools);
   registerToolsRuntimeAdapter();
+  registerWorkflowToolCatalog();
   registerDispatchToolCallRoundAdapter();
 }

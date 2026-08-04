@@ -24,6 +24,13 @@ export {
   type SpawnSubAgentInput,
 } from "./sub-agent-contract";
 export { startToolLoadSpan, startToolSearchSpan } from "./internal/runtime-spans";
+export {
+  registerWorkflowToolCatalogSource,
+  workflowToolCatalog,
+  type WorkflowToolCatalog,
+  type WorkflowToolCatalogSource,
+  type WorkflowToolFacts,
+} from "./workflow-tool-catalog";
 
 export type ToolSurfaceSource =
   | { kind: "kernel" }
