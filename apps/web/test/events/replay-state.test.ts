@@ -357,6 +357,35 @@ describe("event replay state", () => {
     assert.deepEqual(idle.completedRuns, {});
   });
 
+  // A `completed` for a run this tab never armed leaves `activeRuns` unchanged
+  // (the delete is a no-op) but writes a `completedRuns` entry. The write gate
+  // must persist that record even though the barrier set did not change, or a
+  // fresh tab reloads without the terminal memory and a later stray re-arms.
+  test("persists a completed run recorded while another run stays active", () => {
+    let stored: ReplayState = {
+      cursor: 80,
+      activeRuns: { "run-2": 60 },
+      completedRuns: {},
+    };
+    let writes = 0;
+    const replay = createReplayStateController({
+      read: () => stored,
+      write: (state) => {
+        stored = state;
+        writes += 1;
+      },
+    });
+
+    // run-1 was never armed here; its completion at 81 sits above the floor
+    // run-2 holds (60), so it is recorded. activeRuns still holds run-2, so the
+    // write is gated on the completedRuns change alone.
+    replay.noteFrame(chatMessage(81, { runId: "run-1", phase: "completed" }));
+
+    assert.equal(writes, 1);
+    assert.equal(stored.completedRuns["run-1"], 81);
+    assert.deepEqual(stored.activeRuns, { "run-2": 60 });
+  });
+
   test("does not write localStorage for every delta while a barrier is active", () => {
     let stored = emptyState();
     let writes = 0;

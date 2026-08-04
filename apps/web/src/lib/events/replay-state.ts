@@ -138,10 +138,18 @@ export function createReplayStateController(store: ReplayStateStore) {
       const base = maxSeenId === current.cursor ? current : { ...current, cursor: maxSeenId };
       const next = advanceReplayState(base, frame);
       const barriersChanged = !sameBarriers(current.activeRuns, next.activeRuns);
+      const completedRunsChanged = !sameBarriers(current.completedRuns, next.completedRuns);
       // While a run is active its persisted barrier already supplies the
       // correct reload cursor, so keep high-frequency deltas in memory. Persist
-      // only lifecycle changes and idle progress.
-      if (next !== current && (barriersChanged || Object.keys(next.activeRuns).length === 0)) {
+      // lifecycle changes — a barrier arming or clearing, or a run recorded as
+      // completed — and idle progress. A `completed` for a run this tab never
+      // armed leaves `activeRuns` unchanged but still writes `completedRuns`, and
+      // that record must reach localStorage or a fresh tab loses the terminal
+      // memory the arming branch relies on to refuse a later stray.
+      if (
+        next !== current &&
+        (barriersChanged || completedRunsChanged || Object.keys(next.activeRuns).length === 0)
+      ) {
         store.write(next);
       }
     },
