@@ -20,22 +20,14 @@
  * they share the same injectable `runtimeSpanStarter` seam.
  */
 
-import { startRuntimeSpan, type RuntimeSpanCloser, type RuntimeSpanInput } from "@alfred/ai";
+import {
+  boundedNameList,
+  classifyLatency,
+  startRuntimeSpan,
+  type RuntimeSpanCloser,
+  type RuntimeSpanInput,
+} from "@alfred/ai";
 import type { ToolName } from "@alfred/contracts";
-import { classifyLatency } from "./runtime-thresholds";
-
-/**
- * Cap a joined tool-name list so span metadata stays bounded — the single owner
- * of that rule. Every runtime span that emits a tool-name list (preload,
- * surface, search) routes through this, so an unbounded `join(",")` can't leak
- * back into span metadata one closer at a time. Returns null for an empty list
- * so a "no names" span reads as absent rather than an empty string.
- */
-function boundedNameList(names: readonly string[]): string | null {
-  if (names.length === 0) return null;
-  const joined = names.join(",");
-  return joined.length <= 800 ? joined : `${joined.slice(0, 797)}...`;
-}
 
 /** Stable observation name for deterministic first-turn tool selection. */
 export const RUNTIME_TOOL_PRELOAD = "runtime.tool.preload";
@@ -295,14 +287,14 @@ export function startQueueLeaseSpan(args: QueueLeaseSpanArgs): QueueLeaseSpanClo
 /* ---------------------------------------------------------------------------
  * Lazy-tool quality spans (#414, PRD #405)
  *
- * The preload span above measures deterministic first-turn selection. These two
- * measure the *rest* of the lazy-tool surface: what the model was shown on a
- * given turn (`runtime.tool_surface` — active/kernel/loaded counts + estimated
- * schema payload), and the model-facing catalog search (`runtime.tool_search`).
- * The third lazy-tool span, `runtime.tool_load`, now lives in `tool-runtime`
- * (both load paths — explicit `system.load_tool` and dispatcher inactive-bounce
- * — must emit an identically shaped span, so one owner holds that shape; see
- * `tool-runtime/internal/runtime-spans.ts`). Together they let an operator judge
+ * The preload span above measures deterministic first-turn selection. This one
+ * measures what the model was shown on a given turn (`runtime.tool_surface` —
+ * active/kernel/loaded counts + estimated schema payload). The other two
+ * lazy-tool spans now live in `tool-runtime`: `runtime.tool_load` (both load
+ * paths — explicit `system.load_tool` and dispatcher inactive-bounce — must emit
+ * an identically shaped span) and `runtime.tool_search` (the model-facing
+ * catalog search, whose only caller is `system.search_tools`); see
+ * `tool-runtime/internal/runtime-spans.ts`. Together they let an operator judge
  * whether lazy loading is shrinking the payload rather than moving latency
  * around, and where discovery metadata is too weak for search to find the right
  * tool.
@@ -388,77 +380,6 @@ export function startToolSurfaceSpan(args: ToolSurfaceSpanArgs): ToolSurfaceSpan
           schemaTokens: summary.schemaTokens,
           schemaRebuildMs: summary.schemaRebuildMs,
           schemaRebuildHealth: classifyLatency("schema_rebuild", summary.schemaRebuildMs),
-        },
-      });
-    },
-    error() {
-      if (ended) return;
-      ended = true;
-      span.end({ status: "error", level: "ERROR" });
-    },
-  };
-}
-
-/** Stable observation name for the model-facing tool-search runtime span (PRD #405). */
-export const RUNTIME_TOOL_SEARCH = "runtime.tool_search";
-
-export interface ToolSearchSpanArgs {
-  runId: string;
-  /** `boss` or `sub:<id>`. */
-  caller: string;
-  /** Length of the search query in chars — never the raw query text. */
-  queryChars: number;
-  startedAt: Date;
-}
-
-/** Pure builder for the `runtime.tool_search` opening span. Exported for tests. */
-export function buildToolSearchSpanInput(args: ToolSearchSpanArgs): RuntimeSpanInput {
-  return {
-    runId: args.runId,
-    name: RUNTIME_TOOL_SEARCH,
-    startedAt: args.startedAt,
-    metadata: {
-      source: "model_search",
-      caller: args.caller,
-      queryChars: args.queryChars,
-    },
-  };
-}
-
-export interface ToolSearchSpanCloser {
-  /**
-   * Close with the candidate tool names the search returned and measured
-   * latency. An empty list is a `miss`. The names are recorded (bounded) so
-   * discovery tuning can tell "found the wrong tools" from "found nothing" —
-   * the more common metadata gap — instead of collapsing to a hit/miss binary.
-   */
-  end(result: { candidateNames: readonly ToolName[]; latencyMs: number }): void;
-  error(): void;
-}
-
-/**
- * Open a `runtime.tool_search` span around a model-facing catalog search. A
- * search returning no candidates is a `miss` — the discovery-metadata gap the
- * PRD wants visible (User Story 17) — not an error, so it closes at DEFAULT with
- * `status:"miss"`. The returned candidate names (not PII) are recorded bounded
- * so an operator can see *what* was surfaced, not just how many. Latency is
- * judged against the `tool_search` debug band. Idempotent — only the first
- * `end`/`error` closes.
- */
-export function startToolSearchSpan(args: ToolSearchSpanArgs): ToolSearchSpanCloser {
-  const span = runtimeSpanStarter(buildToolSearchSpanInput(args));
-  let ended = false;
-  return {
-    end({ candidateNames, latencyMs }) {
-      if (ended) return;
-      ended = true;
-      span.end({
-        status: candidateNames.length > 0 ? "hit" : "miss",
-        metadata: {
-          candidateCount: candidateNames.length,
-          candidateTools: boundedNameList(candidateNames),
-          latencyMs,
-          latencyHealth: classifyLatency("tool_search", latencyMs),
         },
       });
     },

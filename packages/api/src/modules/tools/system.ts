@@ -33,17 +33,17 @@ import {
   updateArtifact,
   type ArtifactWriteContext,
 } from "../artifacts/write";
+import type { ToolExecuteContext } from "./registry";
+import { readUserContext } from "../memory/user-context";
 import {
   awaitSubAgentInputSchema,
+  readChatHistory,
   readChildRunOutcome,
   spawnSubAgent,
   spawnSubAgentInputSchema,
-} from "../agent/sub-agents";
-import type { ToolExecuteContext } from "./registry";
-import { readUserContext } from "../memory/user-context";
-import { readChatHistory } from "../agent/compaction";
-import { startToolSearchSpan } from "../agent/runtime-spans";
-import { startToolLoadSpan } from "../tool-runtime";
+  startToolLoadSpan,
+  startToolSearchSpan,
+} from "../tool-runtime";
 import { callerLabel } from "../dispatch";
 import { inZone } from "../timezone";
 import {
