@@ -9,6 +9,13 @@ const LEGACY_API_MODULES_ROOT = join(ROOT, "packages/api/src/modules");
 const ASSISTANT_SOURCE_ROOT = join(ROOT, "packages/assistant/src");
 const API_COMPOSITION_ROOT = join(ROOT, "packages/api/src/composition");
 const RUNTIME_ADAPTER_MANIFEST = join(API_COMPOSITION_ROOT, "runtime-adapters.ts");
+const TOOL_RUNTIME_ROOT = join(LEGACY_API_MODULES_ROOT, "tool-runtime");
+const BOOT_PORT_DEFINER = join(TOOL_RUNTIME_ROOT, "boot-port.ts");
+// Every boot-seam call passes a generic argument (`bootPort<Type>(`), so a literal
+// `bootPort(` matches no call site. This pattern allows the generic; import and
+// re-export lines lack the `<`, so they never match.
+const BOOT_PORT_CALL_PATTERN = /\bbootPort\s*<[^\n>]*>\s*\(/;
+const BOOT_SEAM_HEADER_LABELS = ["Surface:", "Owns/hides:", "Why the seam:", "Wiring:"];
 const TARGET_ASSISTANT_MODULES = new Set([
   "artifacts",
   "automation",
@@ -364,6 +371,19 @@ function runtimeAdapterViolations(compositionSources, manifestSource) {
     const key = `${row.register}/${row.unregister}`;
     if (!expectedRowKeys.has(key)) {
       violations.push(`runtime adapter manifest lists unknown lifecycle pair ${key}`);
+    }
+  }
+  return violations.sort((a, b) => a.localeCompare(b));
+}
+
+function bootSeamHeaderViolations(sources) {
+  const violations = [];
+  for (const { file, source } of sources) {
+    if (!BOOT_PORT_CALL_PATTERN.test(source)) continue;
+    for (const label of BOOT_SEAM_HEADER_LABELS) {
+      if (!source.includes(label)) {
+        violations.push(`boot-seam header missing "${label}" in ${relativeToRoot(file)}`);
+      }
     }
   }
   return violations.sort((a, b) => a.localeCompare(b));
@@ -749,6 +769,26 @@ export const RUNTIME_ADAPTERS = [
       `runtime adapter omission fixture mismatch: received ${JSON.stringify(omittedLifecycleViolations)}`,
     );
   }
+
+  // A boot-seam call with three of four labels must report the fourth as missing.
+  // The fixture uses the real `bootPort<X>(` form, so a literal `bootPort(` matcher
+  // would match nothing and this self-test would fail — a green check gates nothing.
+  const bootSeamFixtureSource = `
+/**
+ * Surface:  chat.
+ * Owns/hides: the fixture seam; keeps its slot private.
+ * Why the seam: it proves the header check fails on a missing label.
+ */
+const examplePort = bootPort<Example>("example");
+`;
+  const bootSeamFixtureViolations = bootSeamHeaderViolations([
+    { file: join(TOOL_RUNTIME_ROOT, "self-test-fixture.ts"), source: bootSeamFixtureSource },
+  ]);
+  if (!bootSeamFixtureViolations.some((violation) => violation.includes('missing "Wiring:"'))) {
+    failures.push(
+      `boot-seam header fixture mismatch: received ${JSON.stringify(bootSeamFixtureViolations)}`,
+    );
+  }
   return failures;
 }
 
@@ -832,6 +872,10 @@ function checkArchitecture(architecture, baseline) {
   violations.push(
     ...runtimeAdapterViolations(compositionSources, readFileSync(RUNTIME_ADAPTER_MANIFEST, "utf8")),
   );
+  const toolRuntimeSources = walkSourceFiles(TOOL_RUNTIME_ROOT)
+    .filter((file) => !/\.test\.tsx?$/.test(file) && file !== BOOT_PORT_DEFINER)
+    .map((file) => ({ file, source: readFileSync(file, "utf8") }));
+  violations.push(...bootSeamHeaderViolations(toolRuntimeSources));
   return violations.sort((a, b) => a.localeCompare(b));
 }
 
