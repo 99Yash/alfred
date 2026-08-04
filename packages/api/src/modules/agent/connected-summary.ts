@@ -3,7 +3,7 @@ import type {
   LoadableIntegrationSlug,
   ToolRunContext,
 } from "@alfred/contracts";
-import { availableToolNames, listRegisteredTools } from "../tools/registry";
+import { availableToolNamesByIntegration } from "../tool-runtime";
 
 /**
  * ADR-0053 connected summary: a frozen, human-readable one-line-per-integration
@@ -92,13 +92,11 @@ export function buildConnectedSummaryFromAvailability(
   allowedIntegrations: readonly string[],
   context: ToolRunContext,
 ): string {
-  const registeredTools = listRegisteredTools();
-  const availableTools = availableToolNames(
+  const availableByIntegration = availableToolNamesByIntegration({
     availability,
-    registeredTools,
     allowedIntegrations,
     context,
-  );
+  });
   const allowed = new Set(allowedIntegrations);
   const lines: string[] = [];
   for (const spec of SUMMARY_SLUGS) {
@@ -113,10 +111,7 @@ export function buildConnectedSummaryFromAvailability(
     // `integration.action` strings is the shape it should paste verbatim.
     const identity = spec.showIdentity ? access.accountLabel : null;
     const binding = identity ? ` — connected as ${identity}` : "";
-    const tools = registeredTools
-      .filter((tool) => tool.integration === spec.slug && availableTools.has(tool.name))
-      .map((tool) => tool.name)
-      .sort();
+    const tools = availableByIntegration.get(spec.slug) ?? [];
     // A slug with credentials but no executable tools needs reauthorization.
     // Exact tool availability wins when a narrower scope still supports part
     // of the integration (for example Gmail read without Gmail send).

@@ -8,9 +8,11 @@ import {
 } from "../tool-runtime";
 import { latestUserPrompt, preloadToolsForPrompt } from "./discovery";
 import {
+  availableToolNames,
   evaluateToolRunContext,
   getTool,
   listKernelTools,
+  listRegisteredTools,
   listToolsForIntegration,
   type RegisteredTool,
 } from "./registry";
@@ -93,6 +95,25 @@ const toolsRuntimeAdapter: ToolRuntimeAdapter = {
       }
     }
     return uniqueToolNames([...names]);
+  },
+
+  availableToolNamesByIntegration(input) {
+    const registeredTools = listRegisteredTools();
+    const available = availableToolNames(
+      input.availability,
+      registeredTools,
+      input.allowedIntegrations,
+      input.context,
+    );
+    const grouped = new Map<string, ToolName[]>();
+    for (const tool of registeredTools) {
+      if (!available.has(tool.name)) continue;
+      const names = grouped.get(tool.integration);
+      if (names) names.push(tool.name);
+      else grouped.set(tool.integration, [tool.name]);
+    }
+    for (const names of grouped.values()) names.sort();
+    return grouped;
   },
 
   async selectPreload(input) {
