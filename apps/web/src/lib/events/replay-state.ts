@@ -4,13 +4,19 @@ import type { EventStreamFrame } from "./frame";
 
 export const replayStateSchema = z
   .preprocess(
-    (value) => (typeof value === "number" ? { cursor: value, activeRuns: {} } : value),
+    (value) =>
+      typeof value === "number" ? { cursor: value, activeRuns: {}, completedRuns: {} } : value,
     z.object({
       cursor: z.number().int().nonnegative(),
       activeRuns: z.record(z.string(), z.number().int().nonnegative()),
+      // The ids of runs whose `completed` was already applied, so a later frame
+      // that merely names one cannot re-arm its barrier. `.default({})` lets a
+      // legacy `{ cursor, activeRuns }` value from before this field parse
+      // without migration.
+      completedRuns: z.record(z.string(), z.number().int().nonnegative()).default({}),
     }),
   )
-  .default({ cursor: 0, activeRuns: {} });
+  .default({ cursor: 0, activeRuns: {}, completedRuns: {} });
 
 export type ReplayState = z.infer<typeof replayStateSchema>;
 
@@ -29,13 +35,13 @@ export interface ReplayStateStore {
  * A barrier is deleted only by its own run's `chat.message` / `phase:
  * "completed"` frame, and that deletion holds whatever id the frame arrives
  * with, because `advanceReplayState`'s clearing branch never reads `frame.id`.
- * The arming branch has no matching tolerance, and that is a known gap rather
- * than a property of this module: a frame that speaks for a barrier applied *after* its run's
- * `completed` re-arms that run's barrier, and nothing can clear it again
- * (a run publishes `completed` at most once), so `since` freezes at that
- * barrier and is persisted. Arrival order cannot be assumed away —
- * `packages/api/src/modules/events/index.ts` states that ids may arrive out of
- * order when the relay retries a row and that consumers must be id-tolerant.
+ * The arming branch carries the matching tolerance: a run whose `completed` was
+ * applied is recorded in `completedRuns`, and a later frame that merely names it
+ * arms nothing. So after any sequence of frames — arriving in any id order, which
+ * `packages/api/src/modules/events/index.ts` warns is routine when the relay
+ * retries a row — a run whose `completed` has been applied holds no entry in
+ * `activeRuns`, and `since` never freezes below the cursor because of a frame
+ * that only names an already-completed run.
  */
 export function replaySince(state: ReplayState): number {
   const barriers = Object.values(state.activeRuns);
@@ -77,17 +83,41 @@ function releasesBarrier(frame: EventStreamFrame): boolean {
 export function advanceReplayState(state: ReplayState, frame: EventStreamFrame): ReplayState {
   const cursor = Math.max(state.cursor, frame.id);
   const runId = barrierRunId(frame);
-  if (!runId) return cursor === state.cursor ? state : { ...state, cursor };
 
   const activeRuns = { ...state.activeRuns };
-  if (releasesBarrier(frame)) {
-    delete activeRuns[runId];
-  } else {
-    const barrier = Math.max(0, frame.id - 1);
-    activeRuns[runId] = Math.min(activeRuns[runId] ?? barrier, barrier);
+  const completedRuns = { ...state.completedRuns };
+
+  if (runId) {
+    if (releasesBarrier(frame)) {
+      // The run terminated: release its barrier and record it as completed, so a
+      // later frame that merely names it cannot re-arm one. The record holds
+      // whatever id the `completed` arrives with, matching the clearing branch's
+      // id-tolerance.
+      delete activeRuns[runId];
+      completedRuns[runId] = frame.id;
+    } else if (completedRuns[runId] === undefined) {
+      const barrier = Math.max(0, frame.id - 1);
+      activeRuns[runId] = Math.min(activeRuns[runId] ?? barrier, barrier);
+    }
   }
 
-  return { cursor, activeRuns };
+  // Drop any completion the resume floor has already passed: replay resends only
+  // ids strictly above `replaySince`, so a completion at or below the floor can
+  // never produce a stray. This bounds the map — it drains to empty whenever the
+  // runs go idle (`replaySince === cursor` prunes every completion below cursor).
+  const floor = replaySince({ cursor, activeRuns, completedRuns });
+  for (const [completedRunId, completedId] of Object.entries(completedRuns)) {
+    if (completedId < floor) delete completedRuns[completedRunId];
+  }
+
+  if (
+    cursor === state.cursor &&
+    sameBarriers(state.activeRuns, activeRuns) &&
+    sameBarriers(state.completedRuns, completedRuns)
+  ) {
+    return state;
+  }
+  return { cursor, activeRuns, completedRuns };
 }
 
 /**
