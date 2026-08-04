@@ -8,8 +8,8 @@ import {
 import {
   isNonExecutionFailure,
   toolCallLogStatus,
-  type DispatchResult,
-} from "../../../src/modules/dispatch";
+} from "../../../src/modules/tool-runtime/internal/result-routing";
+import type { DispatchResult } from "../../../src/modules/dispatch";
 
 /**
  * ADR-0074 per-run passthrough ceiling (pure half). A runaway pagination loop

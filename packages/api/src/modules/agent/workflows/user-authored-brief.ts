@@ -20,7 +20,7 @@ import { db } from "@alfred/db";
 import { documents } from "@alfred/db/schemas";
 import { and, eq } from "drizzle-orm";
 import { z } from "zod";
-import { toolNamesForIntegrations } from "../../tool-runtime";
+import { executeToolCallRound, toolNamesForIntegrations } from "../../tool-runtime";
 import { compactTranscript, compactWithRetry } from "../compaction";
 import {
   estimateNextTurnInputTokens,
@@ -28,9 +28,7 @@ import {
   shouldSkipCompaction,
 } from "../compaction/tokens";
 import { appendModelResponseMessages } from "../transcript-dedup";
-import { callerLabel, dispatchToolCall } from "../../dispatch";
 import { publishEvent } from "../../../events/publish";
-import { runToolRound } from "./tool-round";
 import {
   NESTED_SEGMENT_INDEX,
   shouldPublishToolStarted,
@@ -39,15 +37,12 @@ import {
   toolCardTerminal,
 } from "./tool-card-events";
 import { toolEventOutcome } from "./tool-event-outcome";
-import { startDispatchBatchSpan, type DispatchBatchSpanCloser } from "../runtime-spans";
 import { writeScratch } from "../../scratchpad";
 import { readIntegrationAvailability } from "../../integrations/availability";
 import { buildConnectedSummaryFromAvailability } from "../connected-summary";
 import { formatDateGrounding, resolveUserTimezone } from "../grounding";
 import { composeAgentInstructions } from "../instructions";
 import {
-  applyInactiveToolBounce,
-  applySystemToolEffect,
   foldToolSurfaceState,
   systemToolKernel,
   toolRuntimeForRun,
@@ -376,26 +371,7 @@ const dispatchToolsStep: Step<BriefRunState> = {
     };
     let transcript = [...ctx.transcript];
 
-    // #406: trace this dispatch round as a `runtime.dispatch.batch` observation.
-    // The brief workflow runs both the boss and every sub-agent, so `caller`
-    // carries the boss/`sub:<id>` distinction the chat path can't — derived via
-    // the dispatcher's `callerLabel` so the batch span and this round's tool
-    // spans tag the caller identically. Ended once at the first terminal (staged
-    // / parked / committed / a thrown fault); the closer owns the fold + is
-    // idempotent.
     const runIdentity = briefToolRunIdentity(state.subAgent);
-    const spanCaller = callerLabel(runIdentity.caller);
-    const batchCallCount = state.pendingToolCalls.length;
-    const batchSpan: DispatchBatchSpanCloser | null =
-      batchCallCount > 0
-        ? startDispatchBatchSpan({
-            runId: ctx.runId,
-            workflow: USER_AUTHORED_BRIEF_WORKFLOW_SLUG,
-            caller: spanCaller,
-            callCount: batchCallCount,
-            startedAt: new Date(),
-          })
-        : null;
 
     // A sub-agent spawned from a chat turn streams its own tool calls back into
     // that turn's bubble, nested under the `spawn_sub_agent` card — otherwise
@@ -404,86 +380,49 @@ const dispatchToolsStep: Step<BriefRunState> = {
     // child whose parent had no chat turn.
     const chatTarget = subAgentToolCardTarget(state.subAgent, ctx.runId);
 
-    const dispatch = async (call: (typeof state.pendingToolCalls)[number]) => {
-      const dispatchArgs = {
+    const round = await executeToolCallRound({
+      calls: state.pendingToolCalls,
+      transcript,
+      activeNames: state.activeTools,
+      run: {
         runId: ctx.runId,
         stepId: "dispatch-tools",
-        toolCallId: call.toolCallId,
-        toolName: call.toolName,
-        input: call.input,
         userId: ctx.userId,
+        workflow: USER_AUTHORED_BRIEF_WORKFLOW_SLUG,
         ...runIdentity,
         scratchpadRunId: state.subAgent?.parentRunId ?? ctx.runId,
         timezone: state.timezone ? parseIanaTimezone(state.timezone) : undefined,
-        activeTools: state.activeTools,
         allowedIntegrations: state.allowedIntegrations,
         allowedTools: state.allowedTools?.filter(isToolName),
         requiredCapabilities: state.requiredCapabilities,
-      } as const;
-      // Same *guard* the chat stream uses — never draw an optimistic card for a
-      // tool off the run's active surface, since it bounces before execute — but
-      // NOT the same position. On the chat surface `started` is published from
-      // the model stream, which does not re-run on resume; here it sits inside
-      // `dispatch`, and `dispatchBatch` re-dispatches the whole batch on every
-      // resume and every stale-lease reclaim. `dispatchToolCall` below is
-      // idempotent, this publish is not, so a replayed `started` for an
-      // already-finished call is expected and the client must absorb it (see
-      // `applyStreamingToolEvent`: terminal wins).
-      if (chatTarget && shouldPublishToolStarted(state.activeTools, call.toolName)) {
-        await publishEvent({
-          userId: ctx.userId,
-          kind: "chat.tool",
-          payload: toolCardStarted(chatTarget, call, NESTED_SEGMENT_INDEX),
-        });
-      }
-      const result = await dispatchToolCall(dispatchArgs);
-      if (result.kind === "inactive_tool") {
-        // Bounce the schema-blind call to the next model turn after exposing the
-        // exact schema; never validate or execute arguments the model guessed.
-        // Traced as a tool_load span (source: inactive_bounce) so lazy
-        // activations are counted whichever path surfaced the tool (#414).
-        applyInactiveToolBounce({
-          state,
-          toolName: result.result.recovery.toolName,
-          runId: ctx.runId,
-          spanCaller,
-        });
-      }
-      return result;
-    };
-
-    // Run the round over the shared loop (single-sourced with the chat turn):
-    // the brief dispatches serially in model order and, on a staged write or a
-    // still-running sub-agent await, leaves the whole batch untouched so it
-    // re-dispatches on resume (executed siblings short-circuit on `(runId,
-    // toolCallId)` idempotency). Its only per-result effect is folding a
-    // `system.load_tool` into the active surface.
-    const round = await runToolRound({
-      calls: state.pendingToolCalls,
-      transcript,
-      batchSpan,
-      ordering: { kind: "serial" },
-      dispatch,
-      onCommit: async (call, result) => {
-        applySystemToolEffect(state, call.toolName, result);
-        if (!chatTarget) return;
-        // Terminal card for the nested trail. `nonExecution` rides along so the
-        // client retracts an optimistic card for a dispatcher bounce instead of
-        // showing internal plumbing as a failed step — derived by the shared
-        // `toolEventOutcome` so this surface cannot drift from the chat turn's.
-        await publishEvent({
-          userId: ctx.userId,
-          kind: "chat.tool",
-          payload: toolCardTerminal(chatTarget, call, toolEventOutcome(call.toolName, result), {
-            segmentIndex: NESTED_SEGMENT_INDEX,
-          }),
-        });
+      },
+      onCallStarted: async (call, activeNames) => {
+        if (chatTarget && shouldPublishToolStarted(activeNames, call.toolName)) {
+          await publishEvent({
+            userId: ctx.userId,
+            kind: "chat.tool",
+            payload: toolCardStarted(chatTarget, call, NESTED_SEGMENT_INDEX),
+          });
+        }
       },
     });
-    if (round.kind === "interrupt") {
-      // ADR-0073: a staged gated write / a parked await leaves `pendingToolCalls`
-      // in place so the batch re-dispatches on resume and reads the real outcome.
+    state.activeTools = round.activeNames;
+    if (round.kind === "waiting") {
       return { kind: "interrupt", state, transcript, wake: round.wake };
+    }
+    for (const completion of round.calls) {
+      if (!chatTarget) continue;
+      // Terminal card for the nested trail. `nonExecution` rides along so the
+      // client retracts an optimistic card for a dispatcher bounce instead of
+      // showing internal plumbing as a failed step — derived by the shared
+      // `toolEventOutcome` so this surface cannot drift from the chat turn's.
+      await publishEvent({
+        userId: ctx.userId,
+        kind: "chat.tool",
+        payload: toolCardTerminal(chatTarget, completion.call, toolEventOutcome(completion), {
+          segmentIndex: NESTED_SEGMENT_INDEX,
+        }),
+      });
     }
     transcript = round.transcript;
     state.pendingToolCalls = [];

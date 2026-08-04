@@ -1,5 +1,7 @@
 /** Server-boot registration for the built-in tool definitions. */
 
+import { registerDispatchToolCallRoundAdapter } from "../dispatch";
+
 import { calendarTools } from "./calendar";
 import { registerToolsRuntimeAdapter } from "./tool-runtime-adapter";
 import { docsTools } from "./docs";
@@ -30,4 +32,5 @@ export function registerBuiltinTools(): void {
   registerTools(mcpTools);
   assertKernelToolsRegistered(systemTools);
   registerToolsRuntimeAdapter();
+  registerDispatchToolCallRoundAdapter();
 }

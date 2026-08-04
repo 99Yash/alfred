@@ -1,7 +1,6 @@
 import assert from "node:assert/strict";
 import { describe, test } from "node:test";
 
-import { isNonExecutionFailure, toolCallLogStatus } from "../../src/modules/dispatch";
 import { sanitizeChatMessageFields } from "../../src/modules/agent/workflows/chat-turn-closure";
 import {
   guardUnreportedToolFailures,
@@ -339,54 +338,6 @@ describe("guardUnreportedToolFailures", () => {
     const { deps } = recorder();
     const result = await guardUnreportedToolFailures(baseCtx(state), state, [], deps);
     assert.equal(result, null);
-  });
-
-  test("marks semantic failures from mutating tools as failed for the guard", () => {
-    assert.equal(
-      toolCallLogStatus("system.create_artifact", {
-        kind: "executed",
-        stagingId: null,
-        toolResult: { ok: false, status: "no_thread" },
-        editedByUser: false,
-      }),
-      "failed",
-    );
-    assert.equal(
-      toolCallLogStatus("system.update_artifact", {
-        kind: "executed",
-        stagingId: null,
-        toolResult: { ok: false, status: "not_found" },
-        editedByUser: false,
-      }),
-      "failed",
-    );
-  });
-
-  test("does not treat read-tool not_found payloads as failed actions", () => {
-    assert.equal(
-      toolCallLogStatus("gmail.read_message", {
-        kind: "executed",
-        stagingId: null,
-        toolResult: { status: "not_found", messageId: "msg_missing" },
-        editedByUser: false,
-      }),
-      "succeeded",
-    );
-  });
-
-  test("classifies every pre-execution dispatcher rejection as non-execution", () => {
-    assert.equal(
-      isNonExecutionFailure({
-        kind: "not_allowed",
-        result: {
-          status: "not_allowed",
-          toolName: "gmail.search",
-          integration: "gmail",
-          message: "not allowed",
-        },
-      }),
-      true,
-    );
   });
 
   test("hides non-execution attempts from persisted tool cards", () => {
