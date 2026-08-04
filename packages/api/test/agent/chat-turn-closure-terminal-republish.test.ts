@@ -30,14 +30,21 @@ import { resetToolFixtures } from "../lib/tool-fixtures";
  * returns zero rows, so the old unconditional early return published the frame
  * NEVER, and the barrier leaked forever.
  *
- * These pin the fix: on a `completed`/`cancelled` retry over an already-terminal
- * row the closure republishes the frame (and nothing else); a `failed` retry
- * keeps the old insert-only early return and republishes nothing.
+ * These pin the fix: on ANY terminal retry over an already-terminal row — the
+ * zero-row branch — the closure republishes the frame and nothing else. The
+ * release is ending-independent, so a `failed` retry republishes it too. That
+ * `failed` case is the reachable one: a `completed` close that faults after
+ * writing its `complete` row is caught in `chatTurnStep` and re-routed through
+ * `finalizeFailedMessage`, so the retry that finds the terminal row arrives as a
+ * `failed` close. Gating the republish on the ending would relocate the barrier
+ * leak to that branch — the exact regression round 2 caught.
  *
- * The seed reproduces the state a thrown first attempt leaves — a `complete` row
- * for `(messageId, runId)` with no `chat.message` frame in the outbox — rather
- * than stubbing the throw, because there is no injection seam for
- * `finalizeRunArtifacts` and the retry sees only that committed state.
+ * The seed reproduces the state that caught-throw leaves — a `complete` row for
+ * `(messageId, runId)` with no `chat.message` frame in the outbox — rather than
+ * stubbing the throw, because there is no injection seam for
+ * `finalizeRunArtifacts`. Calling `finalizeFailedMessage` over that row IS what
+ * `chatTurnStep`'s `catch` (and the executor's `onTerminal("failed")`) do, so the
+ * closure sees the identical committed state the real retry sees.
  *
  * Opt-in: runs only when `DATABASE_URL` points at a reachable migrated Postgres.
  */
@@ -168,21 +175,49 @@ describe(
       );
     });
 
-    test("a failed retry over an already-terminal row republishes nothing", async () => {
-      const { userId, runId, messageId, state } = await seedTerminalRowAttempt("complete");
+    test("a failed retry over an already-completed row STILL republishes the release frame", async () => {
+      // The reachable barrier-leak path: attempt 1 completes, writes the
+      // `complete` row, then faults before the frame; `chatTurnStep`'s catch
+      // re-enters as `finalizeFailedMessage`, which finds the terminal row.
+      const { userId, threadId, runId, messageId, threadRowVersion, state } =
+        await seedTerminalRowAttempt("complete");
 
       await finalizeFailedMessage(userId, runId, state, new Error("late fault"));
 
       assert.deepEqual(
         await readChatMessageEvents(userId),
-        [],
-        "a late fault is insert-only: it keeps the old early return and does not emit completed",
+        [{ runId, threadId, messageId, phase: "completed" }],
+        "the failed retry releases the barrier the faulted completed attempt armed",
       );
       const rows = await db()
         .select({ status: chatMessages.status })
         .from(chatMessages)
         .where(eq(chatMessages.id, messageId));
       assert.equal(rows[0]?.status, "complete", "and never demotes the completed row to failed");
+      assert.equal(
+        await readThreadRowVersion(threadId),
+        threadRowVersion,
+        "and touches nothing else: the thread row is not bumped a second time",
+      );
+    });
+
+    test("a failed retry over an already-failed row republishes the frame and stays failed", async () => {
+      // The other zero-row failed shape: attempt 1 already failed and wrote its
+      // `failed` row (and sent the frame); a re-attempt is harmlessly redundant.
+      const { userId, threadId, runId, messageId, state } = await seedTerminalRowAttempt("failed");
+
+      await finalizeFailedMessage(userId, runId, state, new Error("second fault"));
+
+      assert.deepEqual(
+        await readChatMessageEvents(userId),
+        [{ runId, threadId, messageId, phase: "completed" }],
+        "a terminal chat.message is absorbing, so republishing it is idempotent",
+      );
+      const rows = await db()
+        .select({ status: chatMessages.status })
+        .from(chatMessages)
+        .where(eq(chatMessages.id, messageId));
+      assert.equal(rows[0]?.status, "failed", "and never promotes the failed row to complete");
     });
   },
 );
