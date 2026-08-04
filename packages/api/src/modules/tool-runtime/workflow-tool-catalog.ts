@@ -46,12 +46,12 @@ let workflowToolCatalogSource: WorkflowToolCatalogSource | undefined;
 
 /** Runtime composition registers the tools-backed source before any read. */
 export function registerWorkflowToolCatalogSource(source: WorkflowToolCatalogSource): () => void {
-  if (workflowToolCatalogSource) {
+  if (workflowToolCatalogSource && workflowToolCatalogSource !== source) {
     throw new Error("A workflow tool-catalog source is already registered");
   }
   workflowToolCatalogSource = source;
   return () => {
-    workflowToolCatalogSource = undefined;
+    if (workflowToolCatalogSource === source) workflowToolCatalogSource = undefined;
   };
 }
 
