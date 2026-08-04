@@ -4,12 +4,9 @@ import { describe, test } from "node:test";
 import type { RuntimeSpanEndArgs, RuntimeSpanInput } from "@alfred/ai";
 
 import {
-  RUNTIME_TOOL_LOAD,
   RUNTIME_TOOL_SEARCH,
   _setRuntimeSpanStarterForTests,
-  buildToolLoadSpanInput,
   buildToolSearchSpanInput,
-  startToolLoadSpan,
   startToolSearchSpan,
 } from "../../src/modules/agent/runtime-spans";
 
@@ -93,51 +90,5 @@ describe("runtime.tool_search", () => {
       }),
     );
     assert.equal(ended[0]?.metadata?.latencyHealth, "red");
-  });
-});
-
-describe("runtime.tool_load", () => {
-  const args = {
-    runId: "run_load",
-    caller: "sub:sub_a",
-    toolName: "calendar.list_events" as const,
-    source: "model_load" as const,
-    startedAt: new Date("2026-07-16T00:00:00.000Z"),
-  };
-
-  test("opens with the exact requested tool and model-load source", () => {
-    const input = buildToolLoadSpanInput(args);
-    assert.equal(input.name, RUNTIME_TOOL_LOAD);
-    assert.equal(input.name, "runtime.tool_load");
-    assert.deepEqual(input.metadata, {
-      source: "model_load",
-      caller: "sub:sub_a",
-      toolName: "calendar.list_events",
-    });
-  });
-
-  test("a dispatcher inactive-bounce activation carries the bounce source (#414)", () => {
-    // Both the explicit `system.load_tool` path and the inactive-bounce path emit
-    // this span, so a count of `runtime.tool_load` reflects every lazy activation;
-    // `source` keeps the two separable in dashboards.
-    const input = buildToolLoadSpanInput({ ...args, source: "inactive_bounce" });
-    assert.equal(input.name, RUNTIME_TOOL_LOAD);
-    assert.equal(input.metadata?.source, "inactive_bounce");
-  });
-
-  test("a successful load closes at DEFAULT with loaded=true", () => {
-    const { ended } = capture(() => startToolLoadSpan(args).end({ outcome: "ok", latencyMs: 2 }));
-    assert.deepEqual(ended, [
-      { status: "ok", level: "DEFAULT", metadata: { latencyMs: 2, loaded: true } },
-    ]);
-  });
-
-  test("a failed load is recoverable — WARNING, not ERROR — and distinguishes the reason", () => {
-    for (const outcome of ["unknown_tool", "not_allowed", "not_connected"] as const) {
-      const { ended } = capture(() => startToolLoadSpan(args).end({ outcome, latencyMs: 1 }));
-      assert.deepEqual(ended, [
-        { status: outcome, level: "WARNING", metadata: { latencyMs: 1, loaded: false } },
-      ]);
-    }
   });
 });

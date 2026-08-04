@@ -371,7 +371,6 @@ const dispatchToolsStep: Step<BriefRunState> = {
     };
     let transcript = [...ctx.transcript];
 
-    // #406: trace this dispatch round as a `runtime.dispatch.batch` observation.
     const runIdentity = briefToolRunIdentity(state.subAgent);
 
     // A sub-agent spawned from a chat turn streams its own tool calls back into

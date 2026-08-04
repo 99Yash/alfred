@@ -21,7 +21,7 @@
  */
 
 import { startRuntimeSpan, type RuntimeSpanCloser, type RuntimeSpanInput } from "@alfred/ai";
-import type { ToolName, ToolUnavailabilityCode } from "@alfred/contracts";
+import type { ToolName } from "@alfred/contracts";
 import { classifyLatency } from "./runtime-thresholds";
 
 /**
@@ -295,13 +295,17 @@ export function startQueueLeaseSpan(args: QueueLeaseSpanArgs): QueueLeaseSpanClo
 /* ---------------------------------------------------------------------------
  * Lazy-tool quality spans (#414, PRD #405)
  *
- * The preload span above measures deterministic first-turn selection. These
- * three measure the *rest* of the lazy-tool surface: what the model was shown on
- * a given turn (`runtime.tool_surface` — active/kernel/loaded counts + estimated
- * schema payload), and the escape-hatch discovery calls (`runtime.tool_search` /
- * `runtime.tool_load`). Together they let an operator judge whether lazy loading
- * is shrinking the payload rather than moving latency around, and where discovery
- * metadata is too weak for search to find the right tool.
+ * The preload span above measures deterministic first-turn selection. These two
+ * measure the *rest* of the lazy-tool surface: what the model was shown on a
+ * given turn (`runtime.tool_surface` — active/kernel/loaded counts + estimated
+ * schema payload), and the model-facing catalog search (`runtime.tool_search`).
+ * The third lazy-tool span, `runtime.tool_load`, now lives in `tool-runtime`
+ * (both load paths — explicit `system.load_tool` and dispatcher inactive-bounce
+ * — must emit an identically shaped span, so one owner holds that shape; see
+ * `tool-runtime/internal/runtime-spans.ts`). Together they let an operator judge
+ * whether lazy loading is shrinking the payload rather than moving latency
+ * around, and where discovery metadata is too weak for search to find the right
+ * tool.
  * ------------------------------------------------------------------------- */
 
 /** Stable observation name for the per-turn tool-surface runtime span (PRD #405). */
@@ -456,80 +460,6 @@ export function startToolSearchSpan(args: ToolSearchSpanArgs): ToolSearchSpanClo
           latencyMs,
           latencyHealth: classifyLatency("tool_search", latencyMs),
         },
-      });
-    },
-    error() {
-      if (ended) return;
-      ended = true;
-      span.end({ status: "error", level: "ERROR" });
-    },
-  };
-}
-
-/** Stable observation name for the exact-tool-load runtime span (PRD #405). */
-export const RUNTIME_TOOL_LOAD = "runtime.tool_load";
-
-/** Outcome of an exact tool load — mirrors `resolveExactToolLoad`. */
-type ToolLoadOutcome = "ok" | "unknown_tool" | ToolUnavailabilityCode;
-
-/**
- * How a lazy tool reached the active surface. A `runtime.tool_load` span is
- * emitted for both, so a count of the span reflects every lazy activation — not
- * only the explicit half (#414). `model_load`: the model called
- * `system.load_tool`. `inactive_bounce`: the model called the tool directly, the
- * dispatcher bounced the schema-blind call, and the workflow auto-activated it
- * for the next turn.
- */
-type ToolLoadSource = "model_load" | "inactive_bounce";
-
-export interface ToolLoadSpanArgs {
-  runId: string;
-  /** `boss` or `sub:<id>`. */
-  caller: string;
-  /** Bounded exact-name candidate requested by the model (`loadToolInput` caps it at 120 chars). */
-  toolName: string;
-  /** Which path activated the tool; separable in dashboards without splitting the span name. */
-  source: ToolLoadSource;
-  startedAt: Date;
-}
-
-/** Pure builder for the `runtime.tool_load` opening span. Exported for tests. */
-export function buildToolLoadSpanInput(args: ToolLoadSpanArgs): RuntimeSpanInput {
-  return {
-    runId: args.runId,
-    name: RUNTIME_TOOL_LOAD,
-    startedAt: args.startedAt,
-    metadata: {
-      source: args.source,
-      caller: args.caller,
-      toolName: args.toolName,
-    },
-  };
-}
-
-export interface ToolLoadSpanCloser {
-  /** Close with the load outcome and measured latency. */
-  end(result: { outcome: ToolLoadOutcome; latencyMs: number }): void;
-  error(): void;
-}
-
-/**
- * Open a `runtime.tool_load` span around an exact tool load. A failed load is
- * recoverable (the model can search again), so a non-`ok` outcome closes at
- * WARNING rather than ERROR — visible for discovery tuning without reading as a
- * fault. Idempotent — only the first `end`/`error` closes.
- */
-export function startToolLoadSpan(args: ToolLoadSpanArgs): ToolLoadSpanCloser {
-  const span = runtimeSpanStarter(buildToolLoadSpanInput(args));
-  let ended = false;
-  return {
-    end({ outcome, latencyMs }) {
-      if (ended) return;
-      ended = true;
-      span.end({
-        status: outcome,
-        level: outcome === "ok" ? "DEFAULT" : "WARNING",
-        metadata: { latencyMs, loaded: outcome === "ok" },
       });
     },
     error() {
