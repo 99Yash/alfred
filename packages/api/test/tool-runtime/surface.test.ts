@@ -4,6 +4,7 @@ import { afterEach, beforeEach, test } from "node:test";
 import { z } from "zod";
 
 import {
+  availableToolNamesByIntegration,
   resolveToolSurface,
   restoreToolSurface,
   selectToolPreload,
@@ -114,6 +115,63 @@ test("lists integration tools without requiring a kernel", () => {
   ]);
 
   assert.deepEqual(toolNamesForIntegrations(["gmail", "system"]), ["gmail.search"]);
+});
+
+test("groups available tool names by integration, sorted, honoring the allowlist", () => {
+  registerTools([
+    // Register search before read_message so a lost sort reorders the output.
+    liveTool({
+      integration: "gmail",
+      action: "search",
+      riskTier: "low",
+      description: "Search Gmail.",
+      inputSchema: z.object({ query: z.string() }).strict(),
+      execute: async () => ({}),
+    }),
+    liveTool({
+      integration: "gmail",
+      action: "read_message",
+      riskTier: "low",
+      description: "Read a Gmail message.",
+      inputSchema: z.object({ id: z.string() }).strict(),
+      execute: async () => ({}),
+    }),
+    liveTool({
+      integration: "github",
+      action: "get_issue",
+      riskTier: "low",
+      description: "Get a GitHub issue.",
+      inputSchema: z.object({ number: z.number() }).strict(),
+      execute: async () => ({}),
+    }),
+  ]);
+  const availability = {
+    integrations: new Map([
+      ["gmail", { health: "active" as const, accountLabel: null }],
+      ["github", { health: "active" as const, accountLabel: null }],
+      ["calendar", { health: "needs_reauth" as const, accountLabel: null }],
+    ]),
+    providers: new Map(),
+    passthroughEnabled: new Map(),
+  };
+  const context = { caller: "boss" as const, interaction: "live_chat" as const };
+
+  const grouped = availableToolNamesByIntegration({
+    availability,
+    allowedIntegrations: ["gmail", "github"],
+    context,
+  });
+  assert.deepEqual(grouped.get("gmail"), ["gmail.read_message", "gmail.search"]);
+  assert.deepEqual(grouped.get("github"), ["github.get_issue"]);
+
+  // The allowlist removes GitHub even though its credentials are healthy.
+  const gmailOnly = availableToolNamesByIntegration({
+    availability,
+    allowedIntegrations: ["gmail"],
+    context,
+  });
+  assert.deepEqual(gmailOnly.get("gmail"), ["gmail.read_message", "gmail.search"]);
+  assert.equal(gmailOnly.has("github"), false);
 });
 
 test("selects an exact available preload through the workflow allowlist", async () => {
