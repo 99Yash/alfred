@@ -36,9 +36,16 @@ export interface WorkflowToolFacts {
 export type WorkflowToolCatalog = ReadonlyMap<ToolName, WorkflowToolFacts>;
 
 /**
- * A provided read the tools module installs at boot. `catalog()` returns a fresh
- * snapshot each call, mirroring the live registry the way `createToolCatalog(
- * listRegisteredTools())` did before this seam existed.
+ * Surface:  workflows.
+ * Owns/hides: owns a read-only projection of the tools registry — each tool's
+ *   name, integration, credential slice, and one bound availability verdict.
+ *   Hides `execute`, `inputSchema`, `staging`, and every other RegisteredTool
+ *   internal. `catalog()` returns a fresh snapshot each call.
+ * Why the seam: it inverts workflows -> tools, so a workflow readiness, author,
+ *   or revision read confirms a tool without an import edge to tools.
+ * Wiring: tools/workflow-tool-catalog-source.ts installs; workflows readiness
+ *   (runtime-readiness.ts, authoring.ts, revisions.ts) reads.
+ * See: ADR-0089, and docs/reference/tool-runtime-map.md.
  */
 export interface WorkflowToolCatalogSource {
   catalog(): WorkflowToolCatalog;
