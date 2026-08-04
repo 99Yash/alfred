@@ -47,7 +47,10 @@ export const senderPriors = pgTable(
   (t) => [
     primaryKey({ columns: [t.userId, t.senderKey] }),
     // `NULL` passes a `CHECK`, so the nullable column stays valid when unset.
-    check("sender_priors_last_category_valid", sql`${t.lastCategory} IN (${inList(TRIAGE_CATEGORIES)})`),
+    check(
+      "sender_priors_last_category_valid",
+      sql`${t.lastCategory} IN (${inList(TRIAGE_CATEGORIES)})`,
+    ),
   ],
 );
 

@@ -1,38 +1,10 @@
 import assert from "node:assert/strict";
 import { describe, test } from "node:test";
 
-import { dispatchRoundReissued, type DispatchResult } from "../../src/modules/dispatch";
 import {
   closeLeadInNarration,
   closeNarrationSegment,
 } from "../../src/modules/agent/workflows/chat-turn-state";
-
-// The helpers only read `.kind`, so a minimal typed literal is enough to
-// exercise the reissue-detection branch without a live registry/dispatch.
-const result = (kind: DispatchResult["kind"]): DispatchResult => ({ kind }) as DispatchResult;
-
-describe("dispatchRoundReissued", () => {
-  test("true when the round auto-activated a tool via an inactive-tool bounce", () => {
-    assert.equal(dispatchRoundReissued([result("executed"), result("inactive_tool")]), true);
-  });
-
-  test("false when every call executed", () => {
-    assert.equal(dispatchRoundReissued([result("executed"), result("executed")]), false);
-  });
-
-  test("other non-execution rejections do not mark a reissue turn", () => {
-    // Only `inactive_tool` makes a fresh schema available and asks for a
-    // reissue; the rest self-correct without auto-activating anything.
-    assert.equal(dispatchRoundReissued([result("invalid_input")]), false);
-    assert.equal(dispatchRoundReissued([result("unknown_tool")]), false);
-    assert.equal(dispatchRoundReissued([result("not_allowed")]), false);
-  });
-
-  test("empty or undefined slots are safe", () => {
-    assert.equal(dispatchRoundReissued([]), false);
-    assert.equal(dispatchRoundReissued([undefined, result("executed")]), false);
-  });
-});
 
 describe("closeLeadInNarration", () => {
   test("a normal lead-in moves onto the trail and advances the segment", () => {

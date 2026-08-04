@@ -6,8 +6,8 @@ import {
   isNonExecutionFailure,
   toolCallLogStatus,
   toolResultMessage,
-  type DispatchResult,
-} from "../../../src/modules/dispatch";
+} from "../../../src/modules/tool-runtime/internal/result-routing";
+import type { DispatchResult } from "../../../src/modules/dispatch";
 
 /**
  * The PRD's trickiest seam: a read-gate `rejected` and a `feature_disabled`

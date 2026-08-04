@@ -24,8 +24,8 @@ import { publishEvent } from "../../../events/publish";
 import { logger } from "../../../lib/logger";
 import { buildThreadArtifactsContext } from "../../artifacts/read";
 import { isChatStopRequested } from "../../chat/stop-signal";
-import { dispatchRoundReissued, dispatchToolCall, toolCallWouldGate } from "../../dispatch";
 import { readIntegrationAvailability } from "../../integrations/availability";
+import { executeToolCallRound } from "../../tool-runtime";
 import {
   assembleChatContext,
   CHAT_MAX_OUTPUT_TOKENS,
@@ -41,13 +41,7 @@ import {
   resolveUserTimezone,
 } from "../grounding";
 import { composeAgentInstructions } from "../instructions";
-import { startDispatchBatchSpan, type DispatchBatchSpanCloser } from "../runtime-spans";
-import {
-  applyInactiveToolBounce,
-  applySystemToolEffect,
-  systemToolKernel,
-  toolRuntimeForRun,
-} from "../tool-surface";
+import { systemToolKernel, toolRuntimeForRun } from "../tool-surface";
 import { appendModelResponseMessages } from "../transcript-dedup";
 import type { Step, Workflow } from "../types";
 import {
@@ -74,7 +68,6 @@ import { streamModelTurn } from "./stream-model-turn";
 import { isStreamTimeoutAbort } from "./stream-timeout";
 import { toolCardTerminal } from "./tool-card-events";
 import { toolEventOutcome } from "./tool-event-outcome";
-import { runToolRound } from "./tool-round";
 import { CHAT_TURN_CAP_MAX, openChatTurnRetries, resetChatTurnRetryBudgets } from "./turn-budgets";
 import { createTurnStopController } from "./turn-stop-controller";
 
@@ -687,12 +680,6 @@ const dispatchToolsStep: Step<ChatRunState> = {
     let transcript = [...ctx.transcript];
 
     // #406: trace this dispatch round as a `runtime.dispatch.batch` observation
-    // so orchestration overhead is separable from model + individual tool time.
-    // Ended exactly once at every terminal (staged / parked / committed / a
-    // thrown fault); the closer owns the fold + is idempotent (the `?.` guards
-    // the never-opened case: a stopped turn dispatches nothing).
-    let batchSpan: DispatchBatchSpanCloser | null = null;
-
     try {
       const calls = state.pendingToolCalls;
       if (calls.length > 0) {
@@ -710,165 +697,103 @@ const dispatchToolsStep: Step<ChatRunState> = {
           };
         }
 
-        // Opened after the stop check so a stopped turn (no dispatch) records no
-        // batch span. `caller` is always `boss` on the chat path; sub-agents run
-        // in the brief workflow.
-        batchSpan = startDispatchBatchSpan({
-          runId: ctx.runId,
-          workflow: CHAT_TURN_WORKFLOW_SLUG,
-          caller: "boss",
-          callCount: calls.length,
-          startedAt: new Date(),
-        });
-
-        // Dispatch the batch with HIL-safe parallelism. Autonomy calls (reads,
-        // `system.*`) execute concurrently — that's the latency win, Σ(tool) →
-        // max(tool). Gated writes only *stage* during dispatch (a fast local
-        // insert; the real work runs after approval), so they gain nothing from
-        // parallelism, and staging several at once is wrong: the run parks on a
-        // single `approvalId`, so any approval card past the first would 409 on
-        // `wake_mismatch`, and each gated row fires its own approval email. So
-        // we dispatch gated calls *serially* in transcript order and stop at the
-        // first that stages — surfacing exactly one approval per resume.
-        // `toolCallWouldGate` is the scheduling hint; `dispatchToolCall` stays
-        // the source of truth (it honors the row's stored `requires_approval`).
-        // `dispatchToolCall` is idempotent on `(runId, toolCallId)` — see the
-        // `executed` short-circuit in `dispatch/index.ts` — so on resume the
-        // whole batch re-dispatches harmlessly and only the now-approved write
-        // actually runs.
-        const gateFlags = await Promise.all(
-          calls.map((call) => toolCallWouldGate(ctx.userId, call.toolName)),
-        );
-        const dispatch = async (call: PendingToolCall) => {
-          const dispatchArgs = {
+        const round = await executeToolCallRound<PendingToolCall>({
+          calls,
+          transcript,
+          activeNames: state.activeTools,
+          run: {
             runId: ctx.runId,
             stepId: "dispatch-tools",
-            toolCallId: call.toolCallId,
-            toolName: call.toolName,
-            input: call.input,
             userId: ctx.userId,
+            workflow: CHAT_TURN_WORKFLOW_SLUG,
             caller: "boss",
             runContext: CHAT_TOOL_RUN_CONTEXT,
             threadId: state.threadId,
             messageId: state.messageId,
             scratchpadRunId: ctx.runId,
             timezone: state.timezone ? parseIanaTimezone(state.timezone) : undefined,
-            activeTools: state.activeTools,
             allowedIntegrations: state.allowedIntegrations,
-          } as const;
-          const result = await dispatchToolCall(dispatchArgs);
-          if (result.kind === "inactive_tool") {
-            // Do not validate the model's schema-blind guess. Make the exact
-            // schema visible on the next turn and ask the model to issue a new
-            // call. The auto-activation is traced as a tool_load span (source:
-            // inactive_bounce) so lazy activations are counted whichever path
-            // surfaced the tool (#414).
-            applyInactiveToolBounce({
-              state,
-              toolName: result.result.recovery.toolName,
-              runId: ctx.runId,
-              spanCaller: "boss",
-            });
-          }
-          return result;
-        };
-
-        // Run the round over the shared loop (`toolResultMessage` rendering,
-        // span-close rule, and staged-before-parked interrupt priority live
-        // there, single-sourced with the brief). Chat contributes its
-        // concurrent-autonomy ordering — reads/`system.*` overlap while artifact
-        // mutations stay in model order (shared body state) and gated writes
-        // stage serially — plus the per-committed-result bookkeeping below.
-        const round = await runToolRound<PendingToolCall>({
-          calls,
-          transcript,
-          batchSpan,
-          ordering: {
-            kind: "concurrent-autonomy",
-            gateFlags,
-            serializeInOrder: (call) => ARTIFACT_MUTATION_TOOLS.has(call.toolName),
-          },
-          dispatch,
-          onCommit: async (call, result) => {
-            applySystemToolEffect(state, call.toolName, result);
-
-            if (ARTIFACT_MUTATION_TOOLS.has(call.toolName) && result.kind === "executed") {
-              // The next model step must not see a stale pre-edit body/hash. Re-read
-              // the selected/default artifact after create/update commits.
-              state.artifactsContext = undefined;
-              state.artifactReference = undefined;
-              // Artifact metadata is the one intentionally mutable system block.
-              // Release the durable pin at the same explicit mutation seam.
-              state.systemPromptHash = undefined;
-              if (call.toolName === "system.create_artifact") {
-                const createdFormat = artifactFormatSchema.safeParse(
-                  getPath(result.toolResult, "format"),
-                );
-                if (createdFormat.success) state.artifactDesignMedium = createdFormat.data;
-              }
-            }
-
-            // ADR-0070: the boundary sanitizer's verdict rides the dispatch
-            // envelope; it lands on the durable tool-call log *and* the live
-            // event so a scrubbed result is flagged the same way live and on
-            // reload (otherwise the durable card looks pristine). `nonExecution`
-            // flags a never-executed schema/tool-name rejection so the honesty
-            // guard can tell a self-corrected malformed call apart from a real
-            // failed side effect. Both are derived by the shared helper, which a
-            // spawned sub-agent's nested cards also publish through.
-            const outcome = toolEventOutcome(call.toolName, result);
-            const { status, resultPreview, sanitized, nonExecution } = outcome;
-            // Bind an executed artifact tool's toolCallId to its row id, so a live
-            // artifact stream (keyed by toolCallId — all create_artifact has before
-            // it runs) can adopt the durable synced row once it lands.
-            const artifactId = (() => {
-              if (!ARTIFACT_MUTATION_TOOLS.has(call.toolName) || result.kind !== "executed") {
-                return undefined;
-              }
-              const id = getPath(result.toolResult, "artifactId");
-              return typeof id === "string" && id.length > 0 ? id : undefined;
-            })();
-            state.toolCallsLog.push({
-              toolCallId: call.toolCallId,
-              toolName: call.toolName,
-              status,
-              resultPreview,
-              ...(sanitized ? { sanitized } : {}),
-              ...(nonExecution ? { nonExecution } : {}),
-              segmentIndex: call.segmentIndex,
-            });
-
-            // ADR-0073: a successful `await_sub_agent` already handed the boss the
-            // child's real outcome in-transcript, so the finalization guard must
-            // treat that child as accounted for — otherwise it re-folds it and
-            // injects a false "finished without you awaiting it" note, demoting the
-            // boss's answer and burning another turn. (A still-running await parks
-            // and never reaches this commit pass, so only resolved awaits land here.)
-            if (call.toolName === AWAIT_SUB_AGENT_TOOL && result.kind === "executed") {
-              const childRunId = awaitedChildRunId(call.input);
-              if (childRunId && !state.foldedChildRunIds.includes(childRunId)) {
-                state.foldedChildRunIds = [...state.foldedChildRunIds, childRunId];
-              }
-            }
-            await publishEvent({
-              userId: ctx.userId,
-              kind: "chat.tool",
-              payload: toolCardTerminal(
-                { runId: ctx.runId, threadId: state.threadId, messageId: state.messageId },
-                call,
-                outcome,
-                { segmentIndex: call.segmentIndex, artifactId },
-              ),
-            });
           },
         });
+        state.activeTools = round.activeNames;
 
-        // A gated write staged (HIL) or a sub-agent await parked: the batch is
-        // left untouched (transcript unchanged, `pendingToolCalls` intact) so the
-        // whole batch re-dispatches on resume, where executed siblings
-        // short-circuit on `(runId, toolCallId)` idempotency.
-        if (round.kind === "interrupt") {
+        if (round.kind === "waiting") {
           return interruptChatRun(state, transcript, round.wake);
+        }
+
+        for (const completion of round.calls) {
+          const { call } = completion;
+          if (ARTIFACT_MUTATION_TOOLS.has(call.toolName) && completion.execution === "completed") {
+            // The next model step must not see a stale pre-edit body/hash. Re-read
+            // the selected/default artifact after create/update commits.
+            state.artifactsContext = undefined;
+            state.artifactReference = undefined;
+            // Artifact metadata is the one intentionally mutable system block.
+            // Release the durable pin at the same explicit mutation seam.
+            state.systemPromptHash = undefined;
+            if (call.toolName === "system.create_artifact") {
+              const createdFormat = artifactFormatSchema.safeParse(
+                getPath(completion.result, "format"),
+              );
+              if (createdFormat.success) state.artifactDesignMedium = createdFormat.data;
+            }
+          }
+
+          // ADR-0070: the boundary sanitizer's verdict rides the dispatch
+          // envelope; it lands on the durable tool-call log *and* the live
+          // event so a scrubbed result is flagged the same way live and on
+          // reload (otherwise the durable card looks pristine). `nonExecution`
+          // flags a never-executed schema/tool-name rejection so the honesty
+          // guard can tell a self-corrected malformed call apart from a real
+          // failed side effect. Both are derived by the shared helper, which a
+          // spawned sub-agent's nested cards also publish through.
+          const outcome = toolEventOutcome(completion);
+          const { status, resultPreview, sanitized, nonExecution } = outcome;
+          // Bind an executed artifact tool's toolCallId to its row id, so a live
+          // artifact stream (keyed by toolCallId — all create_artifact has before
+          // it runs) can adopt the durable synced row once it lands.
+          const artifactId = (() => {
+            if (
+              !ARTIFACT_MUTATION_TOOLS.has(call.toolName) ||
+              completion.execution !== "completed"
+            ) {
+              return undefined;
+            }
+            const id = getPath(completion.result, "artifactId");
+            return typeof id === "string" && id.length > 0 ? id : undefined;
+          })();
+          state.toolCallsLog.push({
+            toolCallId: call.toolCallId,
+            toolName: call.toolName,
+            status,
+            resultPreview,
+            ...(sanitized ? { sanitized } : {}),
+            ...(nonExecution ? { nonExecution } : {}),
+            segmentIndex: call.segmentIndex,
+          });
+
+          // ADR-0073: a successful `await_sub_agent` already handed the boss the
+          // child's real outcome in-transcript, so the finalization guard must
+          // treat that child as accounted for — otherwise it re-folds it and
+          // injects a false "finished without you awaiting it" note, demoting the
+          // boss's answer and burning another turn. (A still-running await parks
+          // and never reaches this commit pass, so only resolved awaits land here.)
+          if (call.toolName === AWAIT_SUB_AGENT_TOOL && completion.execution === "completed") {
+            const childRunId = awaitedChildRunId(call.input);
+            if (childRunId && !state.foldedChildRunIds.includes(childRunId)) {
+              state.foldedChildRunIds = [...state.foldedChildRunIds, childRunId];
+            }
+          }
+          await publishEvent({
+            userId: ctx.userId,
+            kind: "chat.tool",
+            payload: toolCardTerminal(
+              { runId: ctx.runId, threadId: state.threadId, messageId: state.messageId },
+              call,
+              outcome,
+              { segmentIndex: call.segmentIndex, artifactId },
+            ),
+          });
         }
 
         transcript = round.transcript;
@@ -876,15 +801,13 @@ const dispatchToolsStep: Step<ChatRunState> = {
         // If this round auto-activated any tool via an inactive-tool bounce
         // (#407), the next chat-turn is an internal reissue — mark it so its
         // lead-in narration ("tools warming up, retrying") is withheld.
-        state.reissuePending = dispatchRoundReissued(round.results);
+        state.reissuePending = round.reissue;
       }
 
       return { kind: "next", state, transcript, nextStep: "chat-turn" };
     } catch (err) {
       // Mirror chatTurnStep: an unexpected fault during dispatch still closes
       // the loop for the client instead of stranding the streaming bubble.
-      // Close the batch span as errored first (no-op if already ended).
-      batchSpan?.end("error");
       await finalizeFailedMessage(ctx.userId, ctx.runId, state, err);
       throw err;
     }
