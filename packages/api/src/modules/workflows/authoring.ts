@@ -17,7 +17,7 @@ import { and, eq, like } from "drizzle-orm";
 import { availableSlug, slugBase } from "../../lib/slug";
 import { workflowScheduleSummary } from "./scheduling";
 import { readFreshIntegrationAvailability } from "../integrations/availability";
-import { createToolCatalog, listRegisteredTools } from "../tools/registry";
+import { workflowToolCatalog, type WorkflowToolCatalog } from "../tool-runtime";
 import { readWorkflowReadinessContext } from "./readiness-context";
 import { resolveWorkflowCapabilities, type WorkflowReadinessProblem } from "./readiness";
 import {
@@ -46,7 +46,7 @@ export async function authorWorkflowDraft(args: {
   // Gather mutable setup before the first write. A transient availability-read
   // failure must not commit a draft and then make a retry create a second one.
   const { availability, gmailEventHealth } = await readWorkflowReadinessContext(args.userId);
-  const toolCatalog = createToolCatalog(listRegisteredTools());
+  const toolCatalog = workflowToolCatalog();
   const resolution = resolveWorkflowCapabilities({
     definition: definitionFromProposal(args.input),
     requested: args.input.capabilities,
@@ -176,7 +176,7 @@ function activationProposalFor(args: {
   definition: AuthorableWorkflowDefinition;
   authoringProposal: WorkflowAuthoringProposal;
   availability: Awaited<ReturnType<typeof readFreshIntegrationAvailability>>;
-  toolCatalog: ReturnType<typeof createToolCatalog>;
+  toolCatalog: WorkflowToolCatalog;
   timezone: IanaTimezone;
 }): ActivateWorkflowInput {
   const timezone =

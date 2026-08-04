@@ -641,13 +641,6 @@ export function listRegisteredTools(): readonly RegisteredTool[] {
   ));
 }
 
-/** One immutable lookup snapshot for an operation that makes tool decisions. */
-export type ToolCatalog = ReadonlyMap<ToolName, RegisteredTool>;
-
-export function createToolCatalog(tools: readonly RegisteredTool[]): ToolCatalog {
-  return new Map(tools.map((tool) => [tool.name, tool]));
-}
-
 /** Stable snapshot of the tools that bootstrap every agent run. */
 export function listKernelTools(): RegisteredTool[] {
   return listRegisteredTools().filter((tool) => tool.availability?.surface === "kernel");
