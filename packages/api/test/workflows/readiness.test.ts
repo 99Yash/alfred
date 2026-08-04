@@ -3,11 +3,12 @@ import { before, describe, test } from "node:test";
 
 import type {
   IntegrationAvailabilitySnapshot,
+  ToolName,
   WorkflowRevisionDefinition,
 } from "@alfred/contracts";
 
 import { registerBuiltinTools } from "../../src/modules/tools/runtime";
-import { createToolCatalog, listRegisteredTools } from "../../src/modules/tools/registry";
+import { workflowToolCatalog, type WorkflowToolFacts } from "../../src/modules/tool-runtime";
 import {
   canonicalizeWorkflowAccounts,
   resolveWorkflowCapabilities,
@@ -28,7 +29,7 @@ function resolveWorkflowReadiness(
   return resolveWorkflowReadinessBase({
     ...args,
     gmailEventHealth: args.gmailEventHealth ?? new Map(),
-    toolCatalog: createToolCatalog(listRegisteredTools()),
+    toolCatalog: workflowToolCatalog(),
   });
 }
 
@@ -103,7 +104,7 @@ describe("workflow readiness", () => {
       definition: definition(),
       requested: [{ tool: "system.current_time" }],
       availability: unavailable,
-      toolCatalog: createToolCatalog(listRegisteredTools()),
+      toolCatalog: workflowToolCatalog(),
       gmailEventHealth: new Map(),
     });
     assert.deepEqual(result.definition.allowedIntegrations, ["system"]);
@@ -117,7 +118,7 @@ describe("workflow readiness", () => {
       definition: definition(),
       requested: [{ tool: "system.current_time", resourceScope: { calendarId: "primary" } }],
       availability: unavailable,
-      toolCatalog: createToolCatalog(listRegisteredTools()),
+      toolCatalog: workflowToolCatalog(),
       gmailEventHealth: new Map(),
       resourceAccessFacts: [
         {
@@ -137,7 +138,7 @@ describe("workflow readiness", () => {
       }),
       requested: [{ tool: "slack.send_message" }],
       availability: unavailable,
-      toolCatalog: createToolCatalog(listRegisteredTools()),
+      toolCatalog: workflowToolCatalog(),
       gmailEventHealth: new Map(),
     });
     assert.deepEqual(result.definition.allowedIntegrations, ["gmail", "slack"]);
@@ -151,7 +152,7 @@ describe("workflow readiness", () => {
       definition: definition(),
       requested: [{ tool: "system.current_time" }],
       availability: unavailable,
-      toolCatalog: createToolCatalog([]),
+      toolCatalog: new Map<ToolName, WorkflowToolFacts>(),
       gmailEventHealth: new Map(),
     });
     assert.deepEqual(result.definition.allowedTools, ["system.current_time"]);
@@ -347,7 +348,7 @@ describe("workflow readiness", () => {
         requiredCapabilities: [{ tool: "gmail.search", accountRef: "selected@example.com" }],
       }),
       availability: gmailAvailability,
-      toolCatalog: createToolCatalog(listRegisteredTools()),
+      toolCatalog: workflowToolCatalog(),
     });
     assert.equal(canonical.requiredCapabilities[0]?.accountRef, "account-1");
   });
@@ -360,7 +361,7 @@ describe("workflow readiness", () => {
         requiredCapabilities: [{ tool: "gmail.search", accountRef: "account-1" }],
       }),
       gmailAvailability,
-      createToolCatalog(listRegisteredTools()),
+      workflowToolCatalog(),
     );
     assert.deepEqual(display.resolvedAccounts, [
       {

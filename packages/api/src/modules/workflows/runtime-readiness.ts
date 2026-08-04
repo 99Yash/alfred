@@ -3,7 +3,7 @@ import { toMessage } from "@alfred/contracts";
 import { db } from "@alfred/db";
 import { agentRuns, workflowRevisions, workflows } from "@alfred/db/schemas";
 import { and, eq } from "drizzle-orm";
-import { createToolCatalog, listRegisteredTools } from "../tools/registry";
+import { workflowToolCatalog } from "../tool-runtime";
 import { readWorkflowReadinessContext } from "./readiness-context";
 import { resolveWorkflowReadiness, type WorkflowReadinessProblem } from "./readiness";
 import { reconcileWorkflowReadiness } from "./revisions";
@@ -71,7 +71,7 @@ export async function checkWorkflowRunReadiness(args: {
     definition,
     availability: context.availability,
     gmailEventHealth: context.gmailEventHealth,
-    toolCatalog: createToolCatalog(listRegisteredTools()),
+    toolCatalog: workflowToolCatalog(),
   });
 
   const disposition = runtimeReadinessDisposition(problems);
