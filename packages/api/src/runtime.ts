@@ -56,6 +56,7 @@ export {
 } from "./modules/agent/compaction";
 export { registerBuiltinTools } from "./modules/tools/runtime";
 export { registerAgentSystemToolAdapter } from "./modules/agent/system-tool-adapter";
+export { registerWorkflowSystemToolAdapter } from "./modules/workflows/system-tool-adapter";
 export { reconcileInflightInvocations } from "./modules/mcp/index";
 export {
   scheduleRepeatableWorkflowsJobs,
