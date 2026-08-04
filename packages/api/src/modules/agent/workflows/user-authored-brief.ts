@@ -53,7 +53,8 @@ import {
   subAgentMetadataSchema,
   SUB_AGENT_WORKFLOW_SLUG,
 } from "../sub-agent-metadata";
-import type { Step, Workflow } from "../types";
+import { isTerminalStatus, type Step, type Workflow } from "../types";
+import { getRun } from "../service";
 import { pendingToolCallSchema } from "./pending-tool-call";
 import { BRIEF_TURN_CAP_MAX, openBriefTurnRetries } from "./turn-budgets";
 import { checkWorkflowRunReadiness } from "../../workflows/runtime-readiness";
@@ -361,6 +362,22 @@ const bossTurnStep: Step<BriefRunState> = {
   },
 };
 
+/**
+ * Whether a parent chat run is still building its turn, so a spawned sub-agent
+ * may (re)publish a `chat.tool` card under it.
+ *
+ * The client arms a replay-recovery barrier on the parent's `runId` and releases
+ * it only on the parent's terminal `chat.message/completed`. Once the parent run
+ * reaches a terminal `agent_runs.status` — or is gone — no further release will
+ * come, so a republished barrier-arming card would leak. Both cases answer
+ * "closed": a terminal run, and a missing one. Exported so the DB-backed test
+ * drives the real reader (`getRun`) rather than a stand-in.
+ */
+export async function parentRunStillOpen(parentRunId: string, userId: string): Promise<boolean> {
+  const status = (await getRun(parentRunId, userId))?.status;
+  return status !== undefined && !isTerminalStatus(status);
+}
+
 const dispatchToolsStep: Step<BriefRunState> = {
   id: "dispatch-tools",
   async run(ctx) {
@@ -378,7 +395,18 @@ const dispatchToolsStep: Step<BriefRunState> = {
     // the parent's trail goes silent for the child's whole lifetime. Null for
     // the boss (it publishes its own cards from the chat workflow) and for any
     // child whose parent had no chat turn.
-    const chatTarget = subAgentToolCardTarget(state.subAgent, ctx.runId);
+    //
+    // 37-MF1: ADR-0073 addresses these cards to the PARENT run's `(runId,
+    // messageId)`; the client arms a replay-recovery barrier on that `runId` and
+    // releases it only on the parent's `chat.message/completed`. A resume or
+    // stale-lease reclaim re-enters this step and republishes the cards. If the
+    // parent turn has already published its terminal `completed`, that republish
+    // arms a barrier the parent will never release again. So gate on the parent
+    // run still being open; the live first publish, parent still running, is
+    // unaffected.
+    const target = subAgentToolCardTarget(state.subAgent, ctx.runId);
+    const chatTarget =
+      target && (await parentRunStillOpen(target.runId, ctx.userId)) ? target : null;
 
     const round = await executeToolCallRound({
       calls: state.pendingToolCalls,

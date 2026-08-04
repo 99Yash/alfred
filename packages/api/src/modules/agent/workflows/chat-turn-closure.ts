@@ -153,10 +153,25 @@ async function closeChatTurn(
       written = await upsertCompletedRow(userId, runId, state, fields, reasoningMs, now);
       break;
   }
-  // Nothing changed: either the row already exists (failed path, insert-only) or
-  // it exists and is not a previous failed attempt (completed path's guarded
-  // upsert). Someone else owns this message's ending.
-  if (written.length === 0) return;
+  // Nothing changed. What that means differs by ending, and so does the fix.
+  //
+  // `failed` is insert-only: a row already exists (a completed reply a late
+  // fault must not demote, or an earlier identical failure), and someone else
+  // owns the ending — return, as before.
+  //
+  // `completed`/`cancelled` use a guarded upsert that only replaces a `failed`
+  // row, so zero rows means the row is ALREADY terminal: a prior attempt of THIS
+  // run wrote it but may have thrown before the publish below (e.g.
+  // `finalizeRunArtifacts` faulted), so the client never got the one frame that
+  // releases its replay-recovery barrier. Republish that frame — idempotent, the
+  // client treats a terminal `chat.message` as absorbing — then return WITHOUT
+  // re-running the thread bump, `finalizeRunArtifacts`, or the followups, which
+  // the first attempt already did and which are not idempotent (followups arm
+  // timers; a double-arm is a real bug).
+  if (written.length === 0) {
+    if (outcome.kind !== "failed") await publishCompletedFrame(userId, runId, state);
+    return;
+  }
 
   await db()
     .update(chatThreads)
@@ -175,11 +190,7 @@ async function closeChatTurn(
     policy.artifacts.from,
   );
 
-  await publishEvent({
-    userId,
-    kind: "chat.message",
-    payload: { runId, threadId: state.threadId, messageId: state.messageId, phase: "completed" },
-  });
+  await publishCompletedFrame(userId, runId, state);
   emitReplicachePokes([userId]);
 
   if (!policy.followups) return;
@@ -187,6 +198,28 @@ async function closeChatTurn(
   // here, and the followups below all assume a live conversation.
   if (await runWasCancelled(runId)) return;
   armTurnFollowups(userId, runId, state);
+}
+
+/**
+ * Publish the terminal `chat.message completed` frame for a turn.
+ *
+ * This frame is the sole release for the client's replay-recovery barrier, which
+ * is armed at `chat.message started`. It is reached from two places: the normal
+ * closure path, after the row and artifacts are written; and the already-terminal
+ * early return above, where a prior attempt wrote the row but may have died before
+ * this frame fired. A terminal `chat.message` is absorbing client-side, so
+ * republishing it is idempotent.
+ */
+async function publishCompletedFrame(
+  userId: string,
+  runId: string,
+  state: ChatRunState,
+): Promise<void> {
+  await publishEvent({
+    userId,
+    kind: "chat.message",
+    payload: { runId, threadId: state.threadId, messageId: state.messageId, phase: "completed" },
+  });
 }
 
 /**
