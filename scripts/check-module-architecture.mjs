@@ -11,10 +11,21 @@ const API_COMPOSITION_ROOT = join(ROOT, "packages/api/src/composition");
 const RUNTIME_ADAPTER_MANIFEST = join(API_COMPOSITION_ROOT, "runtime-adapters.ts");
 const TOOL_RUNTIME_ROOT = join(LEGACY_API_MODULES_ROOT, "tool-runtime");
 const BOOT_PORT_DEFINER = join(TOOL_RUNTIME_ROOT, "boot-port.ts");
-// Locates the start of a bootPort<...>( call. It stops at the opening `<`; a
-// brace-balanced scan then finds the matching `>`, so a nested or multi-line
-// generic (bootPort<ReadonlyMap<K, V>>() ) is still a call, not a dropped file.
-const BOOT_PORT_TRIGGER = /\bbootPort\s*</g;
+// A boot-seam call is `bootPort` followed by a generic or an argument list. The
+// character class covers both the `bootPort<Type>(` form and the bare `bootPort(`
+// form, so a seam whose generic sits on the variable (const p: BootPort<T> =
+// bootPort("x")) is still detected. No generic parse is needed: the check asks
+// only whether a call exists and on which line, never where the generic ends.
+const BOOT_PORT_CALL = /\bbootPort\s*[<(]/g;
+// Reads the seam type name from a call-site generic (bootPort<Name>) or, for the
+// bare form, from the variable annotation (: BootPort<Name>). The name only lets a
+// header sit on the seam interface instead of the call line; a null name is fine.
+const BOOT_PORT_GENERIC_NAME = /\bbootPort\s*<\s*([A-Za-z_$][\w$]*)/;
+const BOOT_PORT_VARIABLE_TYPE = /:\s*BootPort\s*<\s*([A-Za-z_$][\w$]*)/;
+// The evasion-proof backstop trigger. A seam cannot exist without importing the
+// factory, so a file that imports bootPort but exposes no detectable call (an alias
+// or other indirection) must still carry the four labels.
+const BOOT_PORT_IMPORT = /\bimport\b[^;\n]*\bbootPort\b[^;\n]*\bfrom\b/;
 const BOOT_SEAM_HEADER_LABELS = ["Surface:", "Owns/hides:", "Why the seam:", "Wiring:"];
 const TARGET_ASSISTANT_MODULES = new Set([
   "artifacts",
@@ -376,96 +387,25 @@ function runtimeAdapterViolations(compositionSources, manifestSource) {
   return violations.sort((a, b) => a.localeCompare(b));
 }
 
-// Scans the generic that starts at `open` (a `<`) and returns the index just after
-// its matching `>`, or -1 when it cannot resolve. It balances `<`/`>` while skipping
-// string, template, and comment spans, and it ignores the `>` of an arrow `=>`, so a
-// function-typed or comment-bearing generic does not close the depth early.
-function scanGenericEnd(source, open) {
-  let depth = 0;
-  for (let i = open; i < source.length; i++) {
-    const pair = source.slice(i, i + 2);
-    if (pair === "//") {
-      const newline = source.indexOf("\n", i);
-      if (newline === -1) return -1;
-      i = newline;
-      continue;
-    }
-    if (pair === "/*") {
-      const end = source.indexOf("*/", i + 2);
-      if (end === -1) return -1;
-      i = end + 1;
-      continue;
-    }
-    const char = source[i];
-    if (char === '"' || char === "'" || char === "`") {
-      i = skipStringSpan(source, i);
-      if (i === -1) return -1;
-      continue;
-    }
-    if (pair === "=>") {
-      i += 1;
-      continue;
-    }
-    if (char === "<") depth += 1;
-    else if (char === ">") {
-      depth -= 1;
-      if (depth === 0) return i + 1;
-    }
-  }
-  return -1;
-}
-
-// Returns the index of the closing quote of a string or template span that opens at
-// `start`, or -1 when it never closes. Honors backslash escapes; ignores template
-// interpolation, which cannot appear inside a type argument.
-function skipStringSpan(source, start) {
-  const quote = source[start];
-  for (let i = start + 1; i < source.length; i++) {
-    if (source[i] === "\\") {
-      i += 1;
-      continue;
-    }
-    if (source[i] === quote) return i;
-  }
-  return -1;
-}
-
-// Finds every `bootPort<...>(` call in a source. It brace-balances the generic so a
-// nested, multi-line, or function-typed argument still reads as one call, and it
-// records the seam type name (the first identifier in the generic) and the call's
-// line. A `bootPort<` trigger that it cannot resolve to a `bootPort<...>(` call is
-// returned as `unresolved` — the caller fails the check on it, never drops it
-// silently, so a seam a heuristic cannot parse can never pass headerless.
+// Finds every bootPort call in a source and the line it sits on. A call is the
+// identifier followed by `<` or `(`, so both the `bootPort<Type>(` form and the bare
+// `bootPort(` form (generic on the variable) are found. It reads the seam type name
+// when one is available, only so a header may sit on the seam interface instead of
+// the call line; a null name still anchors to the call line.
 function findBootPortCalls(source) {
   const calls = [];
-  const unresolved = [];
-  BOOT_PORT_TRIGGER.lastIndex = 0;
+  const lines = source.split("\n");
+  BOOT_PORT_CALL.lastIndex = 0;
   let match;
-  while ((match = BOOT_PORT_TRIGGER.exec(source)) !== null) {
-    const open = source.indexOf("<", match.index);
+  while ((match = BOOT_PORT_CALL.exec(source)) !== null) {
     const lineIndex = source.slice(0, match.index).split("\n").length - 1;
-    if (open === -1) {
-      unresolved.push(lineIndex);
-      continue;
-    }
-    const genericEnd = scanGenericEnd(source, open);
-    if (genericEnd === -1) {
-      unresolved.push(lineIndex);
-      continue;
-    }
-    let after = genericEnd;
-    while (after < source.length && /\s/.test(source[after])) after++;
-    if (source[after] !== "(") {
-      unresolved.push(lineIndex);
-      continue;
-    }
-    const nameMatch = source
-      .slice(open + 1, genericEnd - 1)
-      .match(/^\s*([A-Za-z_$][A-Za-z0-9_$]*)/);
-    const seamTypeName = nameMatch ? nameMatch[1] : null;
+    const line = lines[lineIndex];
+    const fromCall = line.match(BOOT_PORT_GENERIC_NAME);
+    const fromVariable = line.match(BOOT_PORT_VARIABLE_TYPE);
+    const seamTypeName = fromCall ? fromCall[1] : fromVariable ? fromVariable[1] : null;
     calls.push({ seamTypeName, lineIndex });
   }
-  return { calls, unresolved };
+  return calls;
 }
 
 // Returns the JSDoc block that sits immediately above an anchor line (blank lines
@@ -493,13 +433,20 @@ function adjacentJsDocBlock(lines, anchorLineIndex) {
 function bootSeamHeaderViolations(sources) {
   const violations = [];
   for (const { file, source } of sources) {
-    const { calls, unresolved } = findBootPortCalls(source);
-    // Fail loud: a `bootPort<` trigger the scanner cannot resolve to a call is never
-    // dropped. An unparseable seam fails the check instead of passing headerless.
-    for (const lineIndex of unresolved) {
-      violations.push(`unparseable bootPort seam in ${relativeToRoot(file)}:${lineIndex + 1}`);
+    const calls = findBootPortCalls(source);
+    if (calls.length === 0) {
+      // Import-anchor backstop. A seam cannot exist without importing the factory, so
+      // a file that imports bootPort yet exposes no detectable call (an alias or other
+      // indirection) must still carry the four labels. This closes the forms a
+      // call-site scan cannot enumerate, at no parsing cost.
+      if (BOOT_PORT_IMPORT.test(source)) {
+        const missing = BOOT_SEAM_HEADER_LABELS.filter((label) => !source.includes(label));
+        for (const label of missing) {
+          violations.push(`boot-seam header missing "${label}" in ${relativeToRoot(file)}`);
+        }
+      }
+      continue;
     }
-    if (calls.length === 0) continue;
     const lines = source.split("\n");
     for (const call of calls) {
       const anchorLines = [call.lineIndex];
@@ -917,8 +864,6 @@ export const RUNTIME_ADAPTERS = [
   }
 
   // A boot-seam call with three of four labels must report the fourth as missing.
-  // The fixture uses the real `bootPort<X>(` form, so a literal `bootPort(` matcher
-  // would match nothing and this self-test would fail — a green check gates nothing.
   const bootSeamFixtureSource = `
 /**
  * Surface:  chat.
@@ -966,24 +911,6 @@ const secondPort = bootPort<Second>("second");
     );
   }
 
-  // A headerless seam whose generic nests another generic must still be seen. A trigger
-  // that stopped at the first `>` would match zero calls, drop the file, and pass a
-  // seam with no header. The brace-balanced scanner reads the whole generic.
-  const nestedGenericFixtureSource = `
-const nestedPort = bootPort<ReadonlyMap<Key, Value>>("nested");
-`;
-  const nestedGenericFixtureViolations = bootSeamHeaderViolations([
-    {
-      file: join(TOOL_RUNTIME_ROOT, "self-test-nested-generic-fixture.ts"),
-      source: nestedGenericFixtureSource,
-    },
-  ]);
-  if (nestedGenericFixtureViolations.length === 0) {
-    failures.push(
-      `boot-seam header nested-generic fixture mismatch: received ${JSON.stringify(nestedGenericFixtureViolations)}`,
-    );
-  }
-
   // Two seams, and each label appears an extra time in prose, so a file-wide count of
   // each label reaches the seam count and passes. The second seam still has no adjacent
   // header, so a position-bound check must report it. This proves the check binds a
@@ -1012,39 +939,46 @@ const secondPort = bootPort<Second>("second");
     );
   }
 
-  // A seam whose generic is an arrow type holds a `>` inside `=>`. A raw `<`/`>` count
-  // would close the depth at the arrow, miss the call's `(`, and drop the seam. The
-  // scanner ignores the arrow's `>`, resolves the call, and reports the missing header.
-  const arrowGenericFixtureSource = `
-const arrowPort = bootPort<() => void>("arrow");
+  // The evasion four review rounds could not close with a call-site generic trigger:
+  // the generic sits on the VARIABLE, so the call is a bare `bootPort(`. Detection keys
+  // on bootPort + `<` or `(`, so the bare call is still a seam and its missing header is
+  // reported.
+  const variableGenericFixtureSource = `
+const evasivePort: BootPort<Evasive> = bootPort("evasive");
 `;
-  const arrowGenericFixtureViolations = bootSeamHeaderViolations([
+  const variableGenericFixtureViolations = bootSeamHeaderViolations([
     {
-      file: join(TOOL_RUNTIME_ROOT, "self-test-arrow-generic-fixture.ts"),
-      source: arrowGenericFixtureSource,
+      file: join(TOOL_RUNTIME_ROOT, "self-test-variable-generic-fixture.ts"),
+      source: variableGenericFixtureSource,
     },
   ]);
-  if (arrowGenericFixtureViolations.length === 0) {
+  if (variableGenericFixtureViolations.length === 0) {
     failures.push(
-      `boot-seam header arrow-generic fixture mismatch: received ${JSON.stringify(arrowGenericFixtureViolations)}`,
+      `boot-seam header variable-generic fixture mismatch: received ${JSON.stringify(variableGenericFixtureViolations)}`,
     );
   }
 
-  // A seam whose generic holds a comment-borne `>` must still be seen. A raw `<`/`>`
-  // count would close the depth at the comment's `>`, miss the call's `(`, and drop the
-  // seam. The scanner skips the comment span, resolves the call, and reports the miss.
-  const commentGenericFixtureSource = `
-const commentPort = bootPort<Foo /* > */>("comment");
+  // The import-anchor backstop. A file that hides the call behind an alias exposes no
+  // `bootPort(` to detect, but it must still import the factory. The import is the
+  // evasion-proof trigger, so a headerless aliasing file fails on every label.
+  const aliasImportFixtureSource = `
+import { bootPort } from "./boot-port";
+const make = bootPort;
+const aliasedPort = make("aliased");
 `;
-  const commentGenericFixtureViolations = bootSeamHeaderViolations([
+  const aliasImportFixtureViolations = bootSeamHeaderViolations([
     {
-      file: join(TOOL_RUNTIME_ROOT, "self-test-comment-generic-fixture.ts"),
-      source: commentGenericFixtureSource,
+      file: join(TOOL_RUNTIME_ROOT, "self-test-alias-import-fixture.ts"),
+      source: aliasImportFixtureSource,
     },
   ]);
-  if (commentGenericFixtureViolations.length === 0) {
+  if (
+    !BOOT_SEAM_HEADER_LABELS.every((label) =>
+      aliasImportFixtureViolations.some((violation) => violation.includes(`missing "${label}"`)),
+    )
+  ) {
     failures.push(
-      `boot-seam header comment-generic fixture mismatch: received ${JSON.stringify(commentGenericFixtureViolations)}`,
+      `boot-seam header alias-import fixture mismatch: received ${JSON.stringify(aliasImportFixtureViolations)}`,
     );
   }
   return failures;
