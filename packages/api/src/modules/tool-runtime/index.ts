@@ -1,5 +1,7 @@
 import type { ToolSet } from "@alfred/ai";
 import {
+  activateWorkflowInput,
+  authorWorkflowInput,
   readChatHistoryInput,
   type AgentTranscriptMessage,
   type IanaTimezone,
@@ -151,6 +153,12 @@ export function registerToolCallRoundAdapter(adapter: ToolCallRoundAdapter): () 
 }
 
 type ReadChatHistoryInput = z.infer<typeof readChatHistoryInput>;
+// The workflow-authoring seam carries the exact tool inputs the model produces,
+// not the branded `@alfred/contracts` activation type. The tool schemas coerce
+// JSON array fields, so their inferred shape (for example `allowedTools:
+// string[]`) is what the workflow owner receives and re-validates.
+type AuthorWorkflowToolInput = z.infer<typeof authorWorkflowInput>;
+type ActivateWorkflowToolInput = z.infer<typeof activateWorkflowInput>;
 
 /** Everything `spawnSubAgent` needs beyond the tool input the model supplies. */
 export type SpawnSubAgentRequest = SpawnSubAgentInput & {
@@ -226,6 +234,77 @@ export function readChatHistory(args: {
   return requireSystemToolAgentAdapter().readChatHistory(args);
 }
 
+/**
+ * The seam the workflow-authoring system tools (`system.author_workflow` /
+ * `system.recover_workflow` / `system.activate_workflow`) call. The concrete
+ * adapter lives in the workflows module: it runs workflow authoring, revision,
+ * recovery, and readiness policy, then shapes the exact tool result the model
+ * reads. Every method returns `Promise<unknown>` for the same reason the agent
+ * seam does — so tool-runtime imports no workflow result type and the tools
+ * module never imports workflows (ADR-0089: the runtime composes tools, not the
+ * reverse). Composition installs the concrete adapter at boot; a call before
+ * registration throws, the same failure mode as the other tool-runtime adapters.
+ */
+export interface SystemToolWorkflowAdapter {
+  authorWorkflow(args: {
+    userId: string;
+    runId: string;
+    timezone: IanaTimezone;
+    input: AuthorWorkflowToolInput;
+  }): Promise<unknown>;
+  recoverWorkflow(args: {
+    userId: string;
+    workflowId: string;
+    revisionId: string;
+  }): Promise<unknown>;
+  activateWorkflow(args: {
+    userId: string;
+    input: ActivateWorkflowToolInput;
+    createdByRunId: string;
+  }): Promise<unknown>;
+}
+
+let systemToolWorkflowAdapter: SystemToolWorkflowAdapter | undefined;
+
+/** Runtime composition installs the workflow-behavior handler at boot. */
+export function registerSystemToolWorkflowAdapter(adapter: SystemToolWorkflowAdapter): () => void {
+  if (systemToolWorkflowAdapter && systemToolWorkflowAdapter !== adapter) {
+    throw new Error("A system-tool workflow adapter is already registered");
+  }
+  systemToolWorkflowAdapter = adapter;
+  return () => {
+    if (systemToolWorkflowAdapter === adapter) systemToolWorkflowAdapter = undefined;
+  };
+}
+
+/** Author or revise a workflow draft behind the registered workflow-behavior seam. */
+export function authorWorkflow(args: {
+  userId: string;
+  runId: string;
+  timezone: IanaTimezone;
+  input: AuthorWorkflowToolInput;
+}): Promise<unknown> {
+  return requireSystemToolWorkflowAdapter().authorWorkflow(args);
+}
+
+/** Revalidate a blocked workflow draft after setup behind the registered seam. */
+export function recoverWorkflow(args: {
+  userId: string;
+  workflowId: string;
+  revisionId: string;
+}): Promise<unknown> {
+  return requireSystemToolWorkflowAdapter().recoverWorkflow(args);
+}
+
+/** Publish an approved workflow revision behind the registered seam. */
+export function activateWorkflow(args: {
+  userId: string;
+  input: ActivateWorkflowToolInput;
+  createdByRunId: string;
+}): Promise<unknown> {
+  return requireSystemToolWorkflowAdapter().activateWorkflow(args);
+}
+
 /** Restore one explicit persisted-surface shape against today's tool catalog. */
 export function restoreToolSurface(source: ToolSurfaceSource): ToolName[] {
   return requireToolRuntimeAdapter().restore(source);
@@ -298,4 +377,9 @@ function requireToolCallRoundAdapter(): ToolCallRoundAdapter {
 function requireSystemToolAgentAdapter(): SystemToolAgentAdapter {
   if (!systemToolAgentAdapter) throw new Error("No system-tool agent adapter is registered");
   return systemToolAgentAdapter;
+}
+
+function requireSystemToolWorkflowAdapter(): SystemToolWorkflowAdapter {
+  if (!systemToolWorkflowAdapter) throw new Error("No system-tool workflow adapter is registered");
+  return systemToolWorkflowAdapter;
 }

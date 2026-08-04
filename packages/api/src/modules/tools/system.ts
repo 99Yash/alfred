@@ -36,9 +36,12 @@ import {
 import type { ToolExecuteContext } from "./registry";
 import { readUserContext } from "../memory/user-context";
 import {
+  activateWorkflow,
+  authorWorkflow,
   awaitSubAgentInputSchema,
   readChatHistory,
   readChildRunOutcome,
+  recoverWorkflow,
   spawnSubAgent,
   spawnSubAgentInputSchema,
   startToolLoadSpan,
@@ -60,26 +63,6 @@ import { liveTool, type RegisteredTool } from "./registry";
 import { parseScratchToolKey } from "./scratch-key";
 import { runWebSearch } from "./web-search";
 import { resolveExactToolLoad, searchAvailableTools } from "./discovery";
-import { authorWorkflowDraft } from "../workflows/authoring";
-import { activateWorkflowDefinition, recoverWorkflowDraft } from "../workflows/revisions";
-import { workflowRecoveryNavigation } from "../workflows/recovery-navigation";
-import type { WorkflowReadinessProblem } from "../workflows/readiness";
-
-function blockedWorkflowRecoveryResult(args: {
-  workflowId: string;
-  revisionId: string;
-  readiness: readonly WorkflowReadinessProblem[];
-}) {
-  const recovery = workflowRecoveryNavigation(args);
-  return {
-    ok: true as const,
-    status: "blocked" as const,
-    workflowId: args.workflowId,
-    revisionId: args.revisionId,
-    readinessBlockers: args.readiness,
-    ...(recovery ? { recovery } : {}),
-  };
-}
 
 /**
  * Resolve the provenance an artifact tool needs from the call context. Returns
@@ -252,37 +235,13 @@ export const systemTools: readonly RegisteredTool[] = [
       relatedTools: ["system.activate_workflow"],
     },
     inputSchema: authorWorkflowInput,
-    execute: async (input, ctx) => {
-      const result = await authorWorkflowDraft({
+    execute: async (input, ctx) =>
+      authorWorkflow({
         userId: ctx.userId,
         runId: ctx.runId,
         timezone: ctx.timezone,
         input,
-      });
-      if (!result.ok) return { ok: false, status: result.failure.kind, failure: result.failure };
-      if (result.readiness.length > 0 || !result.activationProposal) {
-        return {
-          ...blockedWorkflowRecoveryResult({
-            workflowId: result.workflow.id,
-            revisionId: result.revision.id,
-            readiness: result.readiness,
-          }),
-          rowVersion: result.workflow.rowVersion,
-          revisionNumber: result.revision.revisionNumber,
-          created: result.created,
-        };
-      }
-      return {
-        ok: true,
-        status: "ready_to_activate",
-        workflowId: result.workflow.id,
-        revisionId: result.revision.id,
-        revisionNumber: result.revision.revisionNumber,
-        contentHash: result.revision.contentHash,
-        created: result.created,
-        activationProposal: result.activationProposal,
-      };
-    },
+      }),
   }),
   liveTool({
     integration: "system",
@@ -301,28 +260,12 @@ export const systemTools: readonly RegisteredTool[] = [
       relatedTools: ["system.activate_workflow"],
     },
     inputSchema: recoverWorkflowInput,
-    execute: async (input, ctx) => {
-      const result = await recoverWorkflowDraft({
+    execute: async (input, ctx) =>
+      recoverWorkflow({
         userId: ctx.userId,
         workflowId: input.workflowId,
         revisionId: input.revisionId,
-      });
-      if (!result.ok) return { ok: false, status: result.failure.kind, failure: result.failure };
-      if (!result.activationProposal) {
-        return blockedWorkflowRecoveryResult({
-          workflowId: result.workflow.id,
-          revisionId: result.revision.id,
-          readiness: result.readiness,
-        });
-      }
-      return {
-        ok: true,
-        status: "ready_to_activate",
-        workflowId: result.workflow.id,
-        revisionId: result.revision.id,
-        activationProposal: result.activationProposal,
-      };
-    },
+      }),
   }),
   liveTool({
     integration: "system",
@@ -340,24 +283,12 @@ export const systemTools: readonly RegisteredTool[] = [
       relatedTools: ["system.author_workflow"],
     },
     inputSchema: activateWorkflowInput,
-    execute: async (input, ctx) => {
-      const result = await activateWorkflowDefinition({
+    execute: async (input, ctx) =>
+      activateWorkflow({
         userId: ctx.userId,
         input,
         createdByRunId: ctx.runId,
-      });
-      if (!result.ok) return { ok: false, status: result.failure.kind, failure: result.failure };
-      return {
-        ok: true,
-        status: "activated",
-        workflowId: result.workflow.id,
-        revisionId: result.revision.id,
-        revisionNumber: result.revision.revisionNumber,
-        contentHash: result.revision.contentHash,
-        nextRunAt: result.workflow.nextRunAt?.toISOString() ?? null,
-        revisedFromApprovalEdit: result.revised,
-      };
-    },
+      }),
   }),
   liveTool({
     integration: "system",
