@@ -11,4 +11,3 @@ export const pendingToolCallSchema = z.object({
   toolName: z.string().min(1),
   input: z.unknown(),
 });
-export type PendingToolCall = z.infer<typeof pendingToolCallSchema>;

@@ -122,6 +122,9 @@ export interface MeInboxItem {
  * across messages (Gmail thread subjects are stable up to "Re:" prefixes,
  * and email_triage is keyed on the thread). Per-message identifiers
  * (sender, body, attachments, html) live on `MeInboxMessage`.
+ *
+ * @public Response contract — the web reader consumes it through Eden's
+ * `typeof app` inference, not a named import, so knip can't see the use.
  */
 export interface MeInboxDetail {
   threadId: string | null;
@@ -131,6 +134,7 @@ export interface MeInboxDetail {
   messages: ReadonlyArray<MeInboxMessage>;
 }
 
+/** @public Nested in {@link MeInboxDetail}; see its note on Eden inference. */
 export interface MeInboxMessage {
   documentId: string;
   sender: string | null;
@@ -156,6 +160,7 @@ export interface MeInboxMessage {
   attachments: ReadonlyArray<MeInboxAttachment>;
 }
 
+/** @public Nested in {@link MeInboxMessage}; see its note on Eden inference. */
 export interface MeInboxAttachment {
   partId: string | null;
   attachmentId: string;
@@ -590,13 +595,14 @@ export const meRoutes = new Elysia({ prefix: "/api/me", normalize: "typebox" })
           // with a delete — defensive).
           const selectedRow =
             threadRows.find((r) => r.documentId === params.documentId) ?? threadRows[0];
-          return {
+          const detail: MeInboxDetail = {
             threadId: selected.threadId ?? null,
             subject: selectedRow?.subject ?? selected.subject ?? null,
             category: selectedRow?.category ?? null,
             selectedDocumentId: params.documentId,
             messages,
           };
+          return detail;
         },
         { params: t.Object({ documentId: t.String() }) },
       )

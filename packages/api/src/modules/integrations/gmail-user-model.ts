@@ -13,7 +13,7 @@ export const gmailObservationCaptureRequestSchema = z
   })
   .strict();
 
-export type GmailObservationCaptureRequest = z.infer<typeof gmailObservationCaptureRequestSchema>;
+type GmailObservationCaptureRequest = z.infer<typeof gmailObservationCaptureRequestSchema>;
 
 export const gmailObservationCaptureResultSchema = z
   .object({ status: z.enum(["captured", "failed"]) })
@@ -21,13 +21,13 @@ export const gmailObservationCaptureResultSchema = z
 
 export type GmailObservationCaptureResult = z.infer<typeof gmailObservationCaptureResultSchema>;
 
-export const gmailKindRefoldRequestSchema = z
+const gmailKindRefoldRequestSchema = z
   .object({
     userId: identifierSchema,
   })
   .strict();
 
-export type GmailKindRefoldRequest = z.infer<typeof gmailKindRefoldRequestSchema>;
+type GmailKindRefoldRequest = z.infer<typeof gmailKindRefoldRequestSchema>;
 
 export const gmailKindRefoldResultSchema = z.discriminatedUnion("status", [
   z
@@ -56,9 +56,9 @@ export const gmailKindRefoldResultSchema = z.discriminatedUnion("status", [
 
 export type GmailKindRefoldResult = z.infer<typeof gmailKindRefoldResultSchema>;
 
-export const gmailKindRefoldSweepRequestSchema = z.object({}).strict();
+const gmailKindRefoldSweepRequestSchema = z.object({}).strict();
 
-export type GmailKindRefoldSweepRequest = z.infer<typeof gmailKindRefoldSweepRequestSchema>;
+type GmailKindRefoldSweepRequest = z.infer<typeof gmailKindRefoldSweepRequestSchema>;
 
 export const gmailKindRefoldSweepResultSchema = z.object({ enqueued: countSchema }).strict();
 

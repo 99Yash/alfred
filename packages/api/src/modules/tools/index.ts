@@ -5,15 +5,8 @@ export {
   registerTool,
   registerTools,
   getTool,
-  listKernelTools,
   listRegisteredTools,
   listToolsForIntegration,
-  availableToolNames,
-  evaluateToolAvailability,
-  evaluateToolRunContext,
-  evaluateToolCatalog,
-  readsAvailabilitySnapshot,
-  resolveToolAvailability,
   riskTierCountsForIntegration,
   clearToolRegistryForTests,
   type RiskTierCounts,
@@ -21,10 +14,6 @@ export {
   type LiveToolArgs,
   type ToolExecuteContext,
   type ToolExecuteContextFields,
-  type ToolAvailabilityResult,
-  type ToolUnavailabilityCode,
 } from "./registry";
-export type { ToolRunContext } from "@alfred/contracts";
-export { latestUserPrompt, preloadToolsForPrompt } from "./discovery";
 export { toolExecuteContext } from "./context";
 export { toolTiersRoutes } from "./tool-tiers-routes";

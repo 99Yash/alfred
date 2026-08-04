@@ -39,8 +39,8 @@ const pendingUploadResultSchema = z.union([
   pendingUploadCleanupResultSchema,
 ]);
 
-export type ChatMediaEnrichmentRequest = z.infer<typeof enrichmentRequestSchema>;
-export type ChatMediaPrefixCleanupRequest = z.infer<typeof prefixCleanupRequestSchema>;
+type ChatMediaEnrichmentRequest = z.infer<typeof enrichmentRequestSchema>;
+type ChatMediaPrefixCleanupRequest = z.infer<typeof prefixCleanupRequestSchema>;
 export type ChatMediaPendingUploadCleanupRequest = z.infer<
   typeof pendingUploadCleanupRequestSchema
 >;
