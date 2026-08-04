@@ -42,7 +42,8 @@ import {
 import type { ToolExecuteContext } from "./registry";
 import { readUserContext } from "../memory/user-context";
 import { readChatHistory } from "../agent/compaction";
-import { startToolLoadSpan, startToolSearchSpan } from "../agent/runtime-spans";
+import { startToolSearchSpan } from "../agent/runtime-spans";
+import { startToolLoadSpan } from "../tool-runtime";
 import { callerLabel } from "../dispatch";
 import { inZone } from "../timezone";
 import {

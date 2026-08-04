@@ -1,5 +1,5 @@
 import { startRuntimeSpan, type RuntimeSpanCloser, type RuntimeSpanInput } from "@alfred/ai";
-import type { ToolName } from "@alfred/contracts";
+import type { ToolName, ToolUnavailabilityCode } from "@alfred/contracts";
 
 import type { ToolCallRun } from "../index";
 import type { ToolCallDispatchResult } from "./adapter";
@@ -45,17 +45,102 @@ export function startToolCallBatchSpan(run: ToolCallRun, callCount: number): Too
   };
 }
 
+/**
+ * Record a lazy tool activation that the dispatcher forced through an
+ * inactive-bounce. It closes the load span immediately: the tool is already
+ * resolved by the time the dispatcher bounces the schema-blind call, so the load
+ * itself has no measurable latency (`latencyMs: 0`, `loaded: true`). It shares
+ * `startToolLoadSpan` with the explicit `system.load_tool` path so both load
+ * sources emit an identically shaped span and one count covers every lazy
+ * activation (#414).
+ */
 export function recordInactiveToolActivation(run: ToolCallRun, toolName: ToolName): void {
-  runtimeSpanStarter({
+  startToolLoadSpan({
     runId: run.runId,
-    name: "runtime.tool_load",
+    caller: run.caller === "boss" ? "boss" : `sub:${run.caller.subId}`,
+    toolName,
+    source: "inactive_bounce",
     startedAt: new Date(),
+  }).end({ outcome: "ok", latencyMs: 0 });
+}
+
+/** Stable observation name for the exact-tool-load runtime span (PRD #405). */
+export const RUNTIME_TOOL_LOAD = "runtime.tool_load";
+
+/** Outcome of an exact tool load — mirrors `resolveExactToolLoad`. */
+type ToolLoadOutcome = "ok" | "unknown_tool" | ToolUnavailabilityCode;
+
+/**
+ * How a lazy tool reached the active surface. A `runtime.tool_load` span is
+ * emitted for both, so a count of the span reflects every lazy activation — not
+ * only the explicit half (#414). `model_load`: the model called
+ * `system.load_tool`. `inactive_bounce`: the model called the tool directly, the
+ * dispatcher bounced the schema-blind call, and the workflow auto-activated it
+ * for the next turn.
+ */
+type ToolLoadSource = "model_load" | "inactive_bounce";
+
+export interface ToolLoadSpanArgs {
+  runId: string;
+  /** `boss` or `sub:<id>`. */
+  caller: string;
+  /** Bounded exact-name candidate requested by the model (`loadToolInput` caps it at 120 chars). */
+  toolName: string;
+  /** Which path activated the tool; separable in dashboards without splitting the span name. */
+  source: ToolLoadSource;
+  startedAt: Date;
+}
+
+/** Pure builder for the `runtime.tool_load` opening span. Exported for tests. */
+export function buildToolLoadSpanInput(args: ToolLoadSpanArgs): RuntimeSpanInput {
+  return {
+    runId: args.runId,
+    name: RUNTIME_TOOL_LOAD,
+    startedAt: args.startedAt,
     metadata: {
-      source: "inactive_bounce",
-      caller: run.caller === "boss" ? "boss" : `sub:${run.caller.subId}`,
-      toolName,
+      source: args.source,
+      caller: args.caller,
+      toolName: args.toolName,
     },
-  }).end({ status: "ok", level: "DEFAULT", metadata: { latencyMs: 0, loaded: true } });
+  };
+}
+
+export interface ToolLoadSpanCloser {
+  /** Close with the load outcome and measured latency. */
+  end(result: { outcome: ToolLoadOutcome; latencyMs: number }): void;
+  error(): void;
+}
+
+/**
+ * Open a `runtime.tool_load` span around an exact tool load. A failed load is
+ * recoverable (the model can search again), so a non-`ok` outcome closes at
+ * WARNING rather than ERROR — visible for discovery tuning without reading as a
+ * fault. Idempotent — only the first `end`/`error` closes.
+ *
+ * This is the single owner of the `runtime.tool_load` span shape. Both load
+ * paths route through it: the explicit `system.load_tool` tool (`tools/system.ts`,
+ * via the `tool-runtime` public re-export) and the dispatcher inactive-bounce
+ * (`recordInactiveToolActivation` above). Neither may hand-copy the shape.
+ */
+export function startToolLoadSpan(args: ToolLoadSpanArgs): ToolLoadSpanCloser {
+  const span = runtimeSpanStarter(buildToolLoadSpanInput(args));
+  let ended = false;
+  return {
+    end({ outcome, latencyMs }) {
+      if (ended) return;
+      ended = true;
+      span.end({
+        status: outcome,
+        level: outcome === "ok" ? "DEFAULT" : "WARNING",
+        metadata: { latencyMs, loaded: outcome === "ok" },
+      });
+    },
+    error() {
+      if (ended) return;
+      ended = true;
+      span.end({ status: "error", level: "ERROR" });
+    },
+  };
 }
 
 export function _setToolRuntimeSpanStarterForTests(

@@ -11,6 +11,7 @@ import type {
 import type { ToolCallRoundAdapter } from "./internal/adapter";
 import { runToolCallRound } from "./internal/tool-call-round";
 export { isMutatingToolName } from "./internal/result-routing";
+export { startToolLoadSpan } from "./internal/runtime-spans";
 
 export type ToolSurfaceSource =
   | { kind: "kernel" }

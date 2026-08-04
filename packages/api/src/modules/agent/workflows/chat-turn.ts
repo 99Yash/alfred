@@ -679,7 +679,6 @@ const dispatchToolsStep: Step<ChatRunState> = {
     };
     let transcript = [...ctx.transcript];
 
-    // #406: trace this dispatch round as a `runtime.dispatch.batch` observation
     try {
       const calls = state.pendingToolCalls;
       if (calls.length > 0) {
