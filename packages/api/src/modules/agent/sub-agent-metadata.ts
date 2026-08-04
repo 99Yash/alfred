@@ -1,5 +1,6 @@
 import { getPath } from "@alfred/contracts";
 import { z } from "zod";
+import { subAgentIdSchema } from "../tool-runtime";
 
 /**
  * The workflow every sub-agent run executes, regardless of which workflow
@@ -12,12 +13,6 @@ import { z } from "zod";
  * cycle through the tool registry).
  */
 export const SUB_AGENT_WORKFLOW_SLUG = "__user-authored-brief__";
-
-export const subAgentIdSchema = z
-  .string()
-  .min(1)
-  .max(64)
-  .regex(/^[A-Za-z0-9_-]+$/, "subId may only contain letters, numbers, underscores, and dashes");
 
 /**
  * The chat turn a sub-agent was spawned from, when there was one. Lets the
