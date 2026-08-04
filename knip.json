@@ -2,6 +2,19 @@
   "$schema": "https://unpkg.com/knip@6/schema.json",
   // Parsed as JSONC — comments are safe here (`pnpm format` does not touch this file).
   // Every `ignore*` entry below is a knip blind spot, not dead code. Verify before removing.
+  //
+  // Every duplicate export in this repo is intentional: react-email templates need a
+  // `default` export for `@react-email/preview-server` alongside the named component
+  // that `packages/mailer/src/index.ts` renders, and `observationPayloadSchema` /
+  // `DEFAULT_GOOGLE_SCOPES` are deliberate semantic aliases. So the `duplicates` rule
+  // only produces false positives here.
+  "rules": {
+    "duplicates": "off"
+  },
+  // An export tagged `@public` is intentional API that knip's static graph can't
+  // see reaching — an Elysia route response type consumed only through Eden's
+  // `typeof app` inference, for example. Tag such an export, don't un-export it.
+  "tags": ["-public"],
   "ignore": [
     // Scratch/spike surfaces, kept deliberately unwired to the app.
     "scripts/spikes/**"
@@ -55,6 +68,10 @@
       "entry": ["test/**/*.{test,type-test}.ts"]
     },
     "packages/mailer": {
+      // Each email is a preview-server entry: `@react-email/preview-server` renders the
+      // file's `default` export, which no other module imports. Listing the emails as
+      // entries stops knip from reporting those default exports as dead.
+      "entry": ["src/emails/*.tsx"],
       "ignoreDependencies": ["@react-email/preview-server"]
     }
   }

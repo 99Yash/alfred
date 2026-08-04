@@ -100,6 +100,10 @@ teaching/
 # jscpd copy-paste detector output
 .jscpd/
 
+# Agent worktree copies mirror the whole repo. They are transient and untracked;
+# ignoring them keeps `git status`, `knip`, and greps from double-counting the tree.
+.agents/worktrees/
+
 # Claude Code workspace: local by default, so personal skills/settings stay out.
 # The un-ignored paths are the shareable machinery and ARE tracked — a new shared
 # hook or skill needs its own `!` line here, or `git status` will never show it.

@@ -18,11 +18,8 @@ import { EMAIL_LINK_STYLE, EMAIL_P_STYLE, EMAIL_WRAPPER_STYLE } from "./email-st
 // panels builder and the email HTML renderer stay server-side below.
 export {
   type BriefingReference,
-  type BriefingReferenceOption,
   type BriefingSegment,
   listBriefingReferenceOptions,
-  type ParsedBriefingReference,
-  parseBriefingReference,
   referencesFromSections,
   resolveBriefingReferences,
   type ResolveBriefingReferencesResult,

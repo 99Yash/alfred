@@ -20,7 +20,6 @@ export type {
   ActivateWorkflowArgs,
   CreateWorkflowDraftArgs,
   InactiveWorkflowStatus,
-  RecoveredWorkflowDraftOutcome,
   ReviseWorkflowArgs,
   WorkflowDefinitionDraft,
   WorkflowDefinitionPatch,
@@ -32,7 +31,7 @@ export type {
   WorkflowServiceResult,
 } from "./revisions";
 export { workflowRoutes } from "./routes";
-export { acceptEvent, type AcceptEventResult } from "./events";
+export { acceptEvent } from "./events";
 export { seedBuiltinWorkflowsForAllUsers, seedBuiltinWorkflowsForUser } from "./seeder";
 export { dispatchDueCronWorkflows } from "./tick";
 export type { TickResult } from "./tick";

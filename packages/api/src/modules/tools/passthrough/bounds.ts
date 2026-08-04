@@ -13,5 +13,4 @@ export {
   boundPassthroughBody,
   PASSTHROUGH_MAX_ARRAY_ITEMS,
   PASSTHROUGH_MAX_BODY_BYTES,
-  type BoundedPassthroughBody,
 } from "@alfred/contracts";

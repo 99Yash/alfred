@@ -22,19 +22,15 @@ export const googleCredentialUpsertRequestSchema = z
   })
   .strict();
 
-export type GoogleCredentialUpsertRequest = z.infer<typeof googleCredentialUpsertRequestSchema>;
-
 const googleCredentialUpsertHandlerRequestSchema = googleCredentialUpsertRequestSchema
   .extend({ changedAt: z.date() })
   .strict();
 
-export type GoogleCredentialUpsertHandlerRequest = z.infer<
+type GoogleCredentialUpsertHandlerRequest = z.infer<
   typeof googleCredentialUpsertHandlerRequestSchema
 >;
 
-export const googleCredentialUpsertResultSchema = z
-  .object({ credentialId: identifierSchema })
-  .strict();
+const googleCredentialUpsertResultSchema = z.object({ credentialId: identifierSchema }).strict();
 
 export type GoogleCredentialUpsertResult = z.infer<typeof googleCredentialUpsertResultSchema>;
 
@@ -53,11 +49,11 @@ const googleCredentialDisconnectHandlerRequestSchema = googleCredentialDisconnec
   .extend({ disconnectedAt: z.date() })
   .strict();
 
-export type GoogleCredentialDisconnectHandlerRequest = z.infer<
+type GoogleCredentialDisconnectHandlerRequest = z.infer<
   typeof googleCredentialDisconnectHandlerRequestSchema
 >;
 
-export const googleCredentialDisconnectResultSchema = z
+const googleCredentialDisconnectResultSchema = z
   .object({
     credentialId: identifierSchema,
     status: z.enum(["deleted", "already_absent"]),
