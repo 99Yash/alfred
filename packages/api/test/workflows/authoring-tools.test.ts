@@ -15,6 +15,7 @@ import { asc, eq } from "drizzle-orm";
 
 import { systemTools } from "../../src/modules/tools/system";
 import { registerBuiltinTools } from "../../src/modules/tools/runtime";
+import { registerWorkflowSystemToolAdapter } from "../../src/modules/workflows/system-tool-adapter";
 import { toolExecuteContext } from "../../src/modules/tools/context";
 import { definitionFromProposal } from "../../src/modules/workflows/authoring";
 import { refreshWorkflowActivationProposal } from "../../src/modules/workflows/revisions";
@@ -33,7 +34,12 @@ const authorTool = systemTools.find((tool) => tool.name === "system.author_workf
 const recoverTool = systemTools.find((tool) => tool.name === "system.recover_workflow");
 const activateTool = systemTools.find((tool) => tool.name === "system.activate_workflow");
 
-before(() => registerBuiltinTools());
+before(() => {
+  registerBuiltinTools();
+  // The workflow tools route through the tool-runtime seam; install the
+  // workflows-owned handler so `execute` resolves instead of the boot-order throw.
+  registerWorkflowSystemToolAdapter();
+});
 
 describe("workflow authoring tool contracts (#556)", () => {
   test("only chat bosses can draft, recover, or activate, and activation keeps the high-risk floor", () => {

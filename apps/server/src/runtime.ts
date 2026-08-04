@@ -20,6 +20,7 @@ import {
   registerAgentSystemToolAdapter,
   registerBuiltinTools,
   registerOnUserCreated,
+  registerWorkflowSystemToolAdapter,
   registerRuntimeAdapters,
   scheduleRepeatableBriefingJobs,
   scheduleRepeatableIngestionJobs,
@@ -110,6 +111,12 @@ export async function startRuntime(): Promise<void> {
   // module holds no agent import (ADR-0089). Install the agent-side handler here,
   // after the tools register, so a first system-tool call finds it.
   registerAgentSystemToolAdapter();
+  // The three workflow-authoring system tools reach workflow authoring,
+  // revision, recovery, and readiness behind a registered tool-runtime seam, so
+  // the tools module holds no workflows import (ADR-0089). Install the
+  // workflow-side handler here, after the tools register, so a first
+  // system-tool call finds it.
+  registerWorkflowSystemToolAdapter();
   registerRuntimeAdapters();
 
   registerOnUserCreated(async (user) => {
