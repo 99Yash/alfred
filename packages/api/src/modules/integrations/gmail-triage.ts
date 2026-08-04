@@ -14,7 +14,7 @@ export const gmailPostInsertTriageRequestSchema = z
   })
   .strict();
 
-export type GmailPostInsertTriageRequest = z.infer<typeof gmailPostInsertTriageRequestSchema>;
+type GmailPostInsertTriageRequest = z.infer<typeof gmailPostInsertTriageRequestSchema>;
 
 const liveInboundGmailDocumentSchema = z
   .object({
@@ -38,7 +38,7 @@ export const gmailTriageRelabelRequestSchema = z
   })
   .strict();
 
-export type GmailTriageRelabelRequest = z.infer<typeof gmailTriageRelabelRequestSchema>;
+type GmailTriageRelabelRequest = z.infer<typeof gmailTriageRelabelRequestSchema>;
 
 export const gmailTriageRelabelResultSchema = z.discriminatedUnion("applied", [
   z

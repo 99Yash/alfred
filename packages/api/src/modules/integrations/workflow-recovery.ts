@@ -12,7 +12,7 @@ export const workflowRecoveryRequestSchema = workflowRecoveryStateSchema
   .extend({ userId: z.string().min(1).max(200) })
   .strict();
 
-export type WorkflowRecoveryRequest = z.infer<typeof workflowRecoveryRequestSchema>;
+type WorkflowRecoveryRequest = z.infer<typeof workflowRecoveryRequestSchema>;
 
 export const workflowRecoveryResultSchema = z.discriminatedUnion("status", [
   z
