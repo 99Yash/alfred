@@ -3,8 +3,9 @@ import { describe, test } from "node:test";
 
 import {
   RUNTIME_LATENCY_THRESHOLDS,
+  boundedNameList,
   classifyLatency,
-} from "../../src/modules/agent/runtime-thresholds";
+} from "../src/metering/runtime-span-metadata";
 
 describe("classifyLatency", () => {
   test("pins the PRD default debug bands", () => {
@@ -25,5 +26,26 @@ describe("classifyLatency", () => {
     assert.equal(classifyLatency("schema_rebuild", 51), "yellow");
     assert.equal(classifyLatency("schema_rebuild", 200), "yellow");
     assert.equal(classifyLatency("schema_rebuild", 201), "red");
+  });
+});
+
+describe("boundedNameList", () => {
+  test("returns null for an empty list so a no-names span reads as absent", () => {
+    assert.equal(boundedNameList([]), null);
+  });
+
+  test("joins a short list verbatim", () => {
+    assert.equal(
+      boundedNameList(["gmail.search", "calendar.list_events"]),
+      "gmail.search,calendar.list_events",
+    );
+  });
+
+  test("caps a long list at 800 chars with an ellipsis", () => {
+    const names = Array.from({ length: 200 }, (_, index) => `integration.action_${index}`);
+    const result = boundedNameList(names);
+    assert.ok(result);
+    assert.equal(result.length, 800);
+    assert.ok(result.endsWith("..."));
   });
 });

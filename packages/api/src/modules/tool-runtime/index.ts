@@ -1,18 +1,27 @@
 import type { ToolSet } from "@alfred/ai";
-import type {
-  AgentTranscriptMessage,
-  IanaTimezone,
-  IntegrationAvailabilitySnapshot,
-  ToolName,
-  ToolRunContext,
-  WakeCondition,
-  WorkflowRequiredCapability,
+import {
+  readChatHistoryInput,
+  type AgentTranscriptMessage,
+  type IanaTimezone,
+  type IntegrationAvailabilitySnapshot,
+  type ToolName,
+  type ToolRunContext,
+  type WakeCondition,
+  type WorkflowRequiredCapability,
 } from "@alfred/contracts";
+import type { z } from "zod";
 import type { ToolCallRoundAdapter } from "./internal/adapter";
 import { runToolCallRound } from "./internal/tool-call-round";
+import type { SpawnSubAgentInput } from "./sub-agent-contract";
 export { isMutatingToolName } from "./internal/result-routing";
 export { joinToolInput } from "./join-contract";
-export { startToolLoadSpan } from "./internal/runtime-spans";
+export {
+  awaitSubAgentInputSchema,
+  spawnSubAgentInputSchema,
+  subAgentIdSchema,
+  type SpawnSubAgentInput,
+} from "./sub-agent-contract";
+export { startToolLoadSpan, startToolSearchSpan } from "./internal/runtime-spans";
 
 export type ToolSurfaceSource =
   | { kind: "kernel" }
@@ -141,6 +150,82 @@ export function registerToolCallRoundAdapter(adapter: ToolCallRoundAdapter): () 
   };
 }
 
+type ReadChatHistoryInput = z.infer<typeof readChatHistoryInput>;
+
+/** Everything `spawnSubAgent` needs beyond the tool input the model supplies. */
+export type SpawnSubAgentRequest = SpawnSubAgentInput & {
+  parentRunId: string;
+  userId: string;
+  parentToolCallId: string;
+  /**
+   * The parent's chat turn, when it has one — the child streams its trail
+   * there. Kept structural (not the agent's `SubAgentChatOrigin`) so this seam
+   * adds no `tool-runtime -> agent` edge.
+   */
+  chat?: { threadId: string; messageId: string } | undefined;
+};
+
+/**
+ * The agent-owned behaviors the system tools reach through a registered
+ * handler, instead of importing the agent module. The two sub-agent operations
+ * and chat-history retrieval read and write agent-owned state (`agentRuns`,
+ * chat messages), so the tools layer — a lower layer than the agent runtime —
+ * calls them behind this seam. Each returns `unknown`: the system tools return
+ * every result straight through, and `ChildRunOutcome` / chat-history shapes
+ * stay agent-owned. Composition installs the concrete adapter at boot; a call
+ * before registration throws, the same failure mode as the other tool-runtime
+ * adapters.
+ */
+export interface SystemToolAgentAdapter {
+  spawnSubAgent(args: SpawnSubAgentRequest): Promise<unknown>;
+  readChildRunOutcome(args: {
+    parentRunId: string;
+    userId: string;
+    childRunId: string;
+  }): Promise<unknown>;
+  readChatHistory(args: {
+    userId: string;
+    threadId: string;
+    input: ReadChatHistoryInput;
+  }): Promise<unknown>;
+}
+
+let systemToolAgentAdapter: SystemToolAgentAdapter | undefined;
+
+/** Runtime composition installs the agent-behavior handler at boot. */
+export function registerSystemToolAgentAdapter(adapter: SystemToolAgentAdapter): () => void {
+  if (systemToolAgentAdapter && systemToolAgentAdapter !== adapter) {
+    throw new Error("A system-tool agent adapter is already registered");
+  }
+  systemToolAgentAdapter = adapter;
+  return () => {
+    if (systemToolAgentAdapter === adapter) systemToolAgentAdapter = undefined;
+  };
+}
+
+/** Spawn one focused sub-agent run behind the registered agent-behavior seam. */
+export function spawnSubAgent(args: SpawnSubAgentRequest): Promise<unknown> {
+  return requireSystemToolAgentAdapter().spawnSubAgent(args);
+}
+
+/** Read a spawned child run's real outcome for a joining parent. */
+export function readChildRunOutcome(args: {
+  parentRunId: string;
+  userId: string;
+  childRunId: string;
+}): Promise<unknown> {
+  return requireSystemToolAgentAdapter().readChildRunOutcome(args);
+}
+
+/** Read bounded raw evidence from the current chat thread. */
+export function readChatHistory(args: {
+  userId: string;
+  threadId: string;
+  input: ReadChatHistoryInput;
+}): Promise<unknown> {
+  return requireSystemToolAgentAdapter().readChatHistory(args);
+}
+
 /** Restore one explicit persisted-surface shape against today's tool catalog. */
 export function restoreToolSurface(source: ToolSurfaceSource): ToolName[] {
   return requireToolRuntimeAdapter().restore(source);
@@ -208,4 +293,9 @@ function requireToolRuntimeAdapter(): ToolRuntimeAdapter {
 function requireToolCallRoundAdapter(): ToolCallRoundAdapter {
   if (!toolCallRoundAdapter) throw new Error("No tool call-round adapter is registered");
   return toolCallRoundAdapter;
+}
+
+function requireSystemToolAgentAdapter(): SystemToolAgentAdapter {
+  if (!systemToolAgentAdapter) throw new Error("No system-tool agent adapter is registered");
+  return systemToolAgentAdapter;
 }

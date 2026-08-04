@@ -7,11 +7,14 @@ import type { ToolCallRun } from "../../src/modules/tool-runtime";
 import type { ToolCallDispatchResult } from "../../src/modules/tool-runtime/internal/adapter";
 import {
   RUNTIME_TOOL_LOAD,
+  RUNTIME_TOOL_SEARCH,
   _setToolRuntimeSpanStarterForTests,
   buildToolLoadSpanInput,
+  buildToolSearchSpanInput,
   recordInactiveToolActivation,
   startToolCallBatchSpan,
   startToolLoadSpan,
+  startToolSearchSpan,
 } from "../../src/modules/tool-runtime/internal/runtime-spans";
 
 // The batch summary only reads `.kind`, so a minimal typed literal is enough to
@@ -201,5 +204,82 @@ describe("runtime.tool_load (single owner for both load paths)", () => {
     assert.deepEqual(ended, [
       { status: "ok", level: "DEFAULT", metadata: { latencyMs: 0, loaded: true } },
     ]);
+  });
+});
+
+describe("runtime.tool_search", () => {
+  const args = {
+    runId: "run_search",
+    caller: "boss",
+    queryChars: 17,
+    startedAt: new Date("2026-07-16T00:00:00.000Z"),
+  };
+
+  test("opens with query length, never the raw query", () => {
+    const input = buildToolSearchSpanInput(args);
+    assert.equal(input.name, RUNTIME_TOOL_SEARCH);
+    assert.equal(input.name, "runtime.tool_search");
+    assert.deepEqual(input.metadata, {
+      source: "model_search",
+      caller: "boss",
+      queryChars: 17,
+    });
+    assert.equal(input.input, undefined);
+  });
+
+  test("a hit records the candidate names, count, and a healthy latency band", () => {
+    const { ended } = capture(() =>
+      startToolSearchSpan(args).end({
+        candidateNames: ["calendar.list_events", "calendar.get_event", "gmail.search"],
+        latencyMs: 12,
+      }),
+    );
+    assert.deepEqual(ended, [
+      {
+        status: "hit",
+        metadata: {
+          candidateCount: 3,
+          candidateTools: "calendar.list_events,calendar.get_event,gmail.search",
+          latencyMs: 12,
+          latencyHealth: "ok",
+        },
+      },
+    ]);
+  });
+
+  test("zero candidates is a miss, not an error (a discovery-metadata gap)", () => {
+    const { ended } = capture(() =>
+      startToolSearchSpan(args).end({ candidateNames: [], latencyMs: 40 }),
+    );
+    assert.deepEqual(ended, [
+      {
+        status: "miss",
+        metadata: {
+          candidateCount: 0,
+          candidateTools: null,
+          latencyMs: 40,
+          latencyHealth: "yellow",
+        },
+      },
+    ]);
+  });
+
+  test("a slow search degrades the latency band to red", () => {
+    const { ended } = capture(() =>
+      startToolSearchSpan(args).end({
+        candidateNames: ["calendar.list_events", "gmail.search"],
+        latencyMs: 150,
+      }),
+    );
+    assert.equal(ended[0]?.metadata?.latencyHealth, "red");
+  });
+
+  test("the error path closes at ERROR and only the first close wins", () => {
+    const { ended } = capture(() => {
+      const span = startToolSearchSpan(args);
+      span.error();
+      span.end({ candidateNames: ["gmail.search"], latencyMs: 3 });
+    });
+    assert.deepEqual(ended, [{ status: "error", level: "ERROR" }]);
   });
 });

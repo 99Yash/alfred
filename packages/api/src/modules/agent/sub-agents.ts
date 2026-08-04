@@ -1,40 +1,16 @@
-import { coerceJsonArrayFields, LOADABLE_INTEGRATION_SLUGS } from "@alfred/contracts";
 import { db } from "@alfred/db";
 import { agentRuns } from "@alfred/db/schemas";
 import { and, eq, sql } from "drizzle-orm";
-import { z } from "zod";
 import { createRun } from "./service";
 import { isUniqueViolation } from "../../lib/pg-errors";
 import { enqueueRun } from "./queue";
 import { AWAIT_SUB_AGENT_CEILING_MS } from "./sub-agent-join-wake-queue";
-import { joinToolInput } from "../tool-runtime";
+import { type SpawnSubAgentInput } from "../tool-runtime";
 import {
   readSubAgentMetadata,
-  subAgentIdSchema,
   SUB_AGENT_WORKFLOW_SLUG,
   type SubAgentChatOrigin,
 } from "./sub-agent-metadata";
-
-export const spawnSubAgentInputSchema = coerceJsonArrayFields(
-  ["allowedIntegrations"],
-  z
-    .object({
-      subId: subAgentIdSchema,
-      brief: z.string().min(1).max(8_000),
-      allowedIntegrations: z.array(z.enum(LOADABLE_INTEGRATION_SLUGS)).default([]),
-    })
-    .strict(),
-);
-
-export type SpawnSubAgentInput = z.infer<typeof spawnSubAgentInputSchema>;
-
-/**
- * Derived from tool-runtime's `joinToolInput` rather than restating it: the
- * dispatcher's `staging: "join"` arm resolves the child run from that field
- * WITHOUT going through this tool's `execute`, so the two must not be able to
- * drift. `.strict()` is the local addition — the join contract is a floor.
- */
-export const awaitSubAgentInputSchema = joinToolInput.strict();
 
 export interface ChildRunOutcome {
   ok: boolean;
