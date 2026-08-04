@@ -12,6 +12,7 @@ import {
   type WorkflowRequiredCapability,
 } from "@alfred/contracts";
 import type { z } from "zod";
+import { bootPort } from "./boot-port";
 import type { ToolCallRoundAdapter } from "./internal/adapter";
 import { runToolCallRound } from "./internal/tool-call-round";
 import type { SpawnSubAgentInput } from "./sub-agent-contract";
@@ -23,6 +24,7 @@ export {
   subAgentIdSchema,
   type SpawnSubAgentInput,
 } from "./sub-agent-contract";
+export { bootPort, type BootPort } from "./boot-port";
 export { startToolLoadSpan, startToolSearchSpan } from "./internal/runtime-spans";
 export {
   registerWorkflowToolCatalogSource,
@@ -134,29 +136,17 @@ export interface ToolRuntimeAdapter {
   }): Promise<SelectedToolPreload>;
 }
 
-let toolRuntimeAdapter: ToolRuntimeAdapter | undefined;
-let toolCallRoundAdapter: ToolCallRoundAdapter | undefined;
+const toolRuntimeAdapterPort = bootPort<ToolRuntimeAdapter>("tool runtime adapter");
+const toolCallRoundAdapterPort = bootPort<ToolCallRoundAdapter>("tool call-round adapter");
 
 /** Runtime composition registers the current tools implementation before workers start. */
 export function registerToolRuntimeAdapter(adapter: ToolRuntimeAdapter): () => void {
-  if (toolRuntimeAdapter && toolRuntimeAdapter !== adapter) {
-    throw new Error("A tool runtime adapter is already registered");
-  }
-  toolRuntimeAdapter = adapter;
-  return () => {
-    if (toolRuntimeAdapter === adapter) toolRuntimeAdapter = undefined;
-  };
+  return toolRuntimeAdapterPort.install(adapter);
 }
 
 /** Runtime composition installs the guarded dispatcher behind the call-round seam. */
 export function registerToolCallRoundAdapter(adapter: ToolCallRoundAdapter): () => void {
-  if (toolCallRoundAdapter && toolCallRoundAdapter !== adapter) {
-    throw new Error("A tool call-round adapter is already registered");
-  }
-  toolCallRoundAdapter = adapter;
-  return () => {
-    if (toolCallRoundAdapter === adapter) toolCallRoundAdapter = undefined;
-  };
+  return toolCallRoundAdapterPort.install(adapter);
 }
 
 type ReadChatHistoryInput = z.infer<typeof readChatHistoryInput>;
@@ -205,17 +195,11 @@ export interface SystemToolAgentAdapter {
   }): Promise<unknown>;
 }
 
-let systemToolAgentAdapter: SystemToolAgentAdapter | undefined;
+const systemToolAgentAdapterPort = bootPort<SystemToolAgentAdapter>("system-tool agent adapter");
 
 /** Runtime composition installs the agent-behavior handler at boot. */
 export function registerSystemToolAgentAdapter(adapter: SystemToolAgentAdapter): () => void {
-  if (systemToolAgentAdapter && systemToolAgentAdapter !== adapter) {
-    throw new Error("A system-tool agent adapter is already registered");
-  }
-  systemToolAgentAdapter = adapter;
-  return () => {
-    if (systemToolAgentAdapter === adapter) systemToolAgentAdapter = undefined;
-  };
+  return systemToolAgentAdapterPort.install(adapter);
 }
 
 /** Spawn one focused sub-agent run behind the registered agent-behavior seam. */
@@ -271,17 +255,13 @@ export interface SystemToolWorkflowAdapter {
   }): Promise<unknown>;
 }
 
-let systemToolWorkflowAdapter: SystemToolWorkflowAdapter | undefined;
+const systemToolWorkflowAdapterPort = bootPort<SystemToolWorkflowAdapter>(
+  "system-tool workflow adapter",
+);
 
 /** Runtime composition installs the workflow-behavior handler at boot. */
 export function registerSystemToolWorkflowAdapter(adapter: SystemToolWorkflowAdapter): () => void {
-  if (systemToolWorkflowAdapter && systemToolWorkflowAdapter !== adapter) {
-    throw new Error("A system-tool workflow adapter is already registered");
-  }
-  systemToolWorkflowAdapter = adapter;
-  return () => {
-    if (systemToolWorkflowAdapter === adapter) systemToolWorkflowAdapter = undefined;
-  };
+  return systemToolWorkflowAdapterPort.install(adapter);
 }
 
 /** Author or revise a workflow draft behind the registered workflow-behavior seam. */
@@ -372,21 +352,17 @@ export function executeToolCallRound<Call extends ProposedToolCall>(input: {
 }
 
 function requireToolRuntimeAdapter(): ToolRuntimeAdapter {
-  if (!toolRuntimeAdapter) throw new Error("No tool runtime adapter is registered");
-  return toolRuntimeAdapter;
+  return toolRuntimeAdapterPort.read();
 }
 
 function requireToolCallRoundAdapter(): ToolCallRoundAdapter {
-  if (!toolCallRoundAdapter) throw new Error("No tool call-round adapter is registered");
-  return toolCallRoundAdapter;
+  return toolCallRoundAdapterPort.read();
 }
 
 function requireSystemToolAgentAdapter(): SystemToolAgentAdapter {
-  if (!systemToolAgentAdapter) throw new Error("No system-tool agent adapter is registered");
-  return systemToolAgentAdapter;
+  return systemToolAgentAdapterPort.read();
 }
 
 function requireSystemToolWorkflowAdapter(): SystemToolWorkflowAdapter {
-  if (!systemToolWorkflowAdapter) throw new Error("No system-tool workflow adapter is registered");
-  return systemToolWorkflowAdapter;
+  return systemToolWorkflowAdapterPort.read();
 }
