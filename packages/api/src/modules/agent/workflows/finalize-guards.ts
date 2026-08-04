@@ -5,7 +5,7 @@ import {
   type AgentTranscriptMessage,
 } from "@alfred/contracts";
 import { publishEvent } from "../../../events/publish";
-import { isMutatingToolName } from "../../dispatch";
+import { isMutatingToolName } from "../../tool-runtime";
 import { joinChildRun, type JoinChildRunDeps, type ParkSignal } from "../sub-agent-join";
 import { scheduleSubAgentJoinWakeJob } from "../sub-agent-join-wake-queue";
 import {

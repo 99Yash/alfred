@@ -11,11 +11,7 @@
  * failure, and a surface that forgets it leaks dispatcher plumbing into chat.
  */
 
-import {
-  isNonExecutionFailure,
-  toolCallLogStatus,
-  type TerminalDispatchResult,
-} from "../../dispatch";
+import type { CompletedToolCall } from "../../tool-runtime";
 import { preview } from "./tool-preview";
 
 export interface ToolEventOutcome {
@@ -27,23 +23,13 @@ export interface ToolEventOutcome {
   nonExecution?: true | undefined;
 }
 
-export function toolEventOutcome(
-  toolName: string,
-  result: TerminalDispatchResult,
-): ToolEventOutcome {
-  const status = toolCallLogStatus(toolName, result);
-  const resultPreview =
-    result.kind === "executed"
-      ? preview(result.toolResult)
-      : result.kind === "failed"
-        ? preview(result.error)
-        : preview(result.result);
+export function toolEventOutcome(completion: CompletedToolCall): ToolEventOutcome {
   return {
-    status,
-    resultPreview,
-    sanitized: result.kind === "executed" && result.sanitized ? true : undefined,
+    status: completion.status,
+    resultPreview: preview(completion.result),
+    sanitized: completion.sanitized ? true : undefined,
     // Only a `failed` status can be a non-execution bounce; an executed call
     // reached the side-effect path by definition.
-    nonExecution: status === "failed" && isNonExecutionFailure(result) ? true : undefined,
+    nonExecution: completion.nonExecution ? true : undefined,
   };
 }

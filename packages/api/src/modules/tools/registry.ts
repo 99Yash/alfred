@@ -239,6 +239,8 @@ export interface LiveToolArgs<
   resolveRiskTier?: (input: z.infer<S>, ctx: ToolExecuteContext) => Promise<ToolRiskTier>;
   /** How the dispatch floor routes this call. Omitted means `"staged"`. */
   staging?: ToolStagingPolicy;
+  /** Calls in the same live-chat lane execute in model order. */
+  executionLane?: "artifact_mutation";
   /**
    * REQUIRED to declare `staging: "fast_path"` on a non-`system` tool, and
    * illegal otherwise. Holds the reason waiving the per-user ADR-0034 policy gate
@@ -292,6 +294,8 @@ export interface RegisteredTool {
   resolveRiskTier?: (input: unknown, ctx: ToolExecuteContext) => Promise<ToolRiskTier>;
   /** See {@link ToolStagingPolicy}. Resolved from the optional declaration. */
   staging: ToolStagingPolicy;
+  /** Shared-state lane that tool-runtime serializes during a live chat round. */
+  executionLane?: "artifact_mutation" | undefined;
   /** See {@link LiveToolArgs.policyGateWaiver}. */
   policyGateWaiver?: string | undefined;
   description: string;
@@ -478,6 +482,7 @@ export function liveTool<
     action: args.action,
     riskTier: args.riskTier,
     staging: args.staging ?? "staged",
+    executionLane: args.executionLane,
     policyGateWaiver: args.policyGateWaiver,
     description: args.description,
     // Every tool carries a derived discovery baseline (#413) so it is findable

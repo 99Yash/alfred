@@ -5,7 +5,6 @@ import { buildChatSystemPrompt } from "../../src/modules/agent/workflows/chat-tu
 import { toolNamesForIntegrations } from "../../src/modules/tool-runtime";
 import {
   applyExactToolLoad,
-  applySystemToolEffect,
   buildSdkToolSet,
   migrateActiveTools,
   systemToolKernel,
@@ -276,43 +275,5 @@ describe("applyExactToolLoad", () => {
     ]);
     assert.deepEqual(applyExactToolLoad(base, "nope"), ["gmail.search"]);
     assert.deepEqual(applyExactToolLoad(base, null), ["gmail.search"]);
-  });
-});
-
-describe("applySystemToolEffect", () => {
-  test("a successful load_tool folds the new tool into the active set", () => {
-    const state: { activeTools: ToolName[] } = { activeTools: ["gmail.search"] };
-    applySystemToolEffect(state, "system.load_tool", {
-      kind: "executed",
-      toolResult: { ok: true, name: "calendar.list_events" },
-    });
-    assert.ok(state.activeTools.includes("calendar.list_events"));
-  });
-
-  test("a load_tool naming a retired tool leaves the active set unchanged", () => {
-    const state: { activeTools: ToolName[] } = { activeTools: ["gmail.search"] };
-    applySystemToolEffect(state, "system.load_tool", {
-      kind: "executed",
-      toolResult: { ok: true, name: RETIRED_TOOL },
-    });
-    assert.deepEqual(state.activeTools, ["gmail.search"]);
-  });
-
-  test("a non-load system tool is inert", () => {
-    const state: { activeTools: ToolName[] } = { activeTools: ["gmail.search"] };
-    applySystemToolEffect(state, "system.current_time", {
-      kind: "executed",
-      toolResult: { some: "snapshot" },
-    });
-    assert.deepEqual(state.activeTools, ["gmail.search"]);
-  });
-
-  test("a non-executed load_tool result is inert", () => {
-    const state: { activeTools: ToolName[] } = { activeTools: ["gmail.search"] };
-    applySystemToolEffect(state, "system.load_tool", {
-      kind: "staged",
-      toolResult: { ok: true, name: "calendar.list_events" },
-    });
-    assert.deepEqual(state.activeTools, ["gmail.search"]);
   });
 });
