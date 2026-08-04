@@ -58,7 +58,11 @@ import {
   type ToolSpanInput,
 } from "@alfred/ai";
 import { stagingStore, type StagingCommit, type StagingRow } from "./staging-store";
-import { registerToolCallRoundAdapter, type ToolCallDispatchArgs } from "../tool-runtime";
+import {
+  joinToolInput,
+  registerToolCallRoundAdapter,
+  type ToolCallDispatchArgs,
+} from "../tool-runtime";
 import {
   APP_ERROR_REGISTRY,
   isAppErrorCode,
@@ -83,7 +87,6 @@ import {
 import { toolExecuteContext } from "../tools/context";
 import {
   getTool,
-  joinToolInput,
   resolveToolAvailability,
   type RegisteredTool,
   type ToolExecuteContext,
