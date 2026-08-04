@@ -11,6 +11,7 @@ import type {
 import type { ToolCallRoundAdapter } from "./internal/adapter";
 import { runToolCallRound } from "./internal/tool-call-round";
 export { isMutatingToolName } from "./internal/result-routing";
+export { joinToolInput } from "./join-contract";
 export { startToolLoadSpan } from "./internal/runtime-spans";
 
 export type ToolSurfaceSource =
@@ -100,6 +101,11 @@ export interface ToolRuntimeAdapter {
     context: ToolRunContext;
   }): ResolvedToolSurface;
   namesForIntegrations(integrations: readonly string[]): ToolName[];
+  availableToolNamesByIntegration(input: {
+    availability: IntegrationAvailabilitySnapshot;
+    allowedIntegrations: readonly string[];
+    context: ToolRunContext;
+  }): Map<string, ToolName[]>;
   selectPreload(input: {
     userId: string;
     transcript: readonly { role: string; content: unknown }[];
@@ -153,6 +159,21 @@ export function resolveToolSurface(input: {
 
 export function toolNamesForIntegrations(integrations: readonly string[]): ToolName[] {
   return requireToolRuntimeAdapter().namesForIntegrations(integrations);
+}
+
+/**
+ * Project the exact executable tool names, grouped by integration slug, under a
+ * run's availability, allowlist, and caller/interaction context. The connected
+ * summary reads this to ground the boss in the live `integration.action` names;
+ * registry entries, availability calculation, and the no-database fast path stay
+ * behind this seam. Names are sorted within each integration for stable output.
+ */
+export function availableToolNamesByIntegration(input: {
+  availability: IntegrationAvailabilitySnapshot;
+  allowedIntegrations: readonly string[];
+  context: ToolRunContext;
+}): Map<string, ToolName[]> {
+  return requireToolRuntimeAdapter().availableToolNamesByIntegration(input);
 }
 
 export function selectToolPreload(input: {

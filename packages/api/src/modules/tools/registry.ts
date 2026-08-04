@@ -37,6 +37,7 @@ import {
 // tool declaration imports. Building a context lives in `./context`.
 import type { Integrations } from "@alfred/integrations";
 import { z } from "zod";
+import { joinToolInput } from "../tool-runtime";
 import { deriveToolDiscovery, type ResolvedDiscovery } from "./metadata-defaults";
 
 export interface ToolDiscoveryMetadata {
@@ -108,17 +109,10 @@ interface ToolAvailabilityMetadata {
  */
 type ToolStagingPolicy = "staged" | "fast_path" | "join";
 
-/**
- * The input every `staging: "join"` tool must accept, because the dispatcher's
- * join arm reads `childRunId` off the call to resolve which child run to park on
- * — it does not go through the tool's own `execute`. Declared here, next to the
- * policy that selects the arm, so the arm can PARSE what it needs instead of
- * casting a name-matched input, and so {@link registerTool} can reject a
- * mis-declared join tool at boot rather than at first dispatch (where the cast
- * would have yielded `undefined` typed as `string` and queried for a run that
- * cannot exist). `awaitSubAgentInputSchema` derives from this.
- */
-export const joinToolInput = z.object({ childRunId: z.string().min(1) });
+// The join contract (`joinToolInput`, imported above from tool-runtime) is the
+// shape every `staging: "join"` tool must accept. `registerTool` proves at boot
+// that each join tool accepts `{ childRunId: string }`, so a mis-declared join
+// tool fails at boot rather than at first dispatch.
 
 export interface ToolExecuteContext {
   runId: string;
