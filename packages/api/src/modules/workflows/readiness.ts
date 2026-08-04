@@ -11,17 +11,14 @@ import {
   type ToolName,
   type WorkflowAccountDisplay,
   type WorkflowCapabilityDisplay,
+  type ToolUnavailabilityCode,
   type WorkflowRecoveryAction,
   type WorkflowRequestedCapability,
   type WorkflowRequiredCapability,
   type WorkflowRevisionDefinition,
 } from "@alfred/contracts";
 import { GMAIL_READONLY_SCOPE } from "@alfred/integrations/google";
-import {
-  evaluateToolAvailability,
-  type ToolCatalog,
-  type ToolUnavailabilityCode,
-} from "../tools/registry";
+import type { WorkflowToolCatalog, WorkflowToolFacts } from "../tool-runtime";
 import type { GmailEventHealth } from "./gmail-event-readiness";
 
 type WorkflowReadinessProblemCode =
@@ -73,7 +70,7 @@ function matchesAccountRef(row: ProviderAvailability, accountRef: string): boole
 function eligibleRows(
   availability: IntegrationAvailabilitySnapshot,
   capability: WorkflowRequiredCapability,
-  toolCatalog: ToolCatalog,
+  toolCatalog: WorkflowToolCatalog,
 ): ProviderAvailability[] {
   const credential = toolCatalog.get(capability.tool)?.availability?.credential;
   if (!credential) return [];
@@ -89,7 +86,7 @@ function eligibleRows(
 export function canonicalizeWorkflowAccounts<T extends WorkflowReadinessDefinition>(args: {
   definition: T;
   availability: IntegrationAvailabilitySnapshot;
-  toolCatalog: ToolCatalog;
+  toolCatalog: WorkflowToolCatalog;
 }): T {
   const capabilities = args.definition.requiredCapabilities.map((capability) => {
     const rows = eligibleRows(args.availability, capability, args.toolCatalog);
@@ -137,7 +134,7 @@ export function canonicalizeWorkflowAccounts<T extends WorkflowReadinessDefiniti
 export function resolveWorkflowApprovalDisplay(
   definition: WorkflowRevisionDefinition,
   availability: IntegrationAvailabilitySnapshot,
-  toolCatalog: ToolCatalog,
+  toolCatalog: WorkflowToolCatalog,
 ): {
   resolvedAccounts: WorkflowAccountDisplay[];
   resolvedCapabilities: WorkflowCapabilityDisplay[];
@@ -204,7 +201,7 @@ export function resolveWorkflowReadiness(args: {
   availability: IntegrationAvailabilitySnapshot;
   requestedCapabilities?: readonly WorkflowRequestedCapability[];
   gmailEventHealth: ReadonlyMap<string, GmailEventHealth>;
-  toolCatalog: ToolCatalog;
+  toolCatalog: WorkflowToolCatalog;
   resourceAccessFacts?: readonly WorkflowResourceAccessFact[];
   now?: Date;
 }): WorkflowReadinessProblem[] {
@@ -247,9 +244,10 @@ export function resolveWorkflowReadiness(args: {
       });
       continue;
     }
-    const availability = evaluateToolAvailability(args.availability, tool, allowed, {
-      caller: "boss",
-      interaction: "background",
+    const availability = tool.evaluateAvailability({
+      availability: args.availability,
+      allowed,
+      context: { caller: "boss", interaction: "background" },
     });
     if (!availability.available) {
       problems.push({
@@ -424,7 +422,7 @@ export function resolveWorkflowCapabilities<TDefinition extends WorkflowRevision
   definition: TDefinition;
   requested: readonly WorkflowRequestedCapability[];
   availability: IntegrationAvailabilitySnapshot;
-  toolCatalog: ToolCatalog;
+  toolCatalog: WorkflowToolCatalog;
   gmailEventHealth: ReadonlyMap<string, GmailEventHealth>;
   resourceAccessFacts?: readonly WorkflowResourceAccessFact[];
   now?: Date;
@@ -475,7 +473,7 @@ export function resolveWorkflowCapabilities<TDefinition extends WorkflowRevision
 
 function recoveryForToolProblem(
   code: ToolUnavailabilityCode,
-  tool: NonNullable<ReturnType<ToolCatalog["get"]>>,
+  tool: WorkflowToolFacts,
   accountRef: string | undefined,
 ): { recoveryAction?: WorkflowRecoveryAction } {
   if (code === "not_connected") {
