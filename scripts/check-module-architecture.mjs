@@ -14,7 +14,7 @@ const BOOT_PORT_DEFINER = join(TOOL_RUNTIME_ROOT, "boot-port.ts");
 // Every boot-seam call passes a generic argument (`bootPort<Type>(`), so a literal
 // `bootPort(` matches no call site. This pattern allows the generic; import and
 // re-export lines lack the `<`, so they never match.
-const BOOT_PORT_CALL_PATTERN = /\bbootPort\s*<[^\n>]*>\s*\(/;
+const BOOT_PORT_CALL_PATTERN = /\bbootPort\s*<[^\n>]*>\s*\(/g;
 const BOOT_SEAM_HEADER_LABELS = ["Surface:", "Owns/hides:", "Why the seam:", "Wiring:"];
 const TARGET_ASSISTANT_MODULES = new Set([
   "artifacts",
@@ -379,10 +379,18 @@ function runtimeAdapterViolations(compositionSources, manifestSource) {
 function bootSeamHeaderViolations(sources) {
   const violations = [];
   for (const { file, source } of sources) {
-    if (!BOOT_PORT_CALL_PATTERN.test(source)) continue;
+    // One file can host many seams (index.ts holds four). Each seam needs its own
+    // header, so require each label at least once per bootPort<T>( call. A per-file
+    // includes() would pass a headerless seam whenever any sibling seam carries the
+    // label — a green check that gates nothing on the module's main growth path.
+    const seamCount = (source.match(BOOT_PORT_CALL_PATTERN) ?? []).length;
+    if (seamCount === 0) continue;
     for (const label of BOOT_SEAM_HEADER_LABELS) {
-      if (!source.includes(label)) {
-        violations.push(`boot-seam header missing "${label}" in ${relativeToRoot(file)}`);
+      const labelCount = source.split(label).length - 1;
+      if (labelCount < seamCount) {
+        violations.push(
+          `boot-seam header missing "${label}" in ${relativeToRoot(file)} (${labelCount} of ${seamCount} seams labeled)`,
+        );
       }
     }
   }
@@ -787,6 +795,36 @@ const examplePort = bootPort<Example>("example");
   if (!bootSeamFixtureViolations.some((violation) => violation.includes('missing "Wiring:"'))) {
     failures.push(
       `boot-seam header fixture mismatch: received ${JSON.stringify(bootSeamFixtureViolations)}`,
+    );
+  }
+
+  // Two seams in one file: the first carries a full header, the second none. A per-file
+  // includes() check would pass this (every label appears once, for the first seam), so
+  // the fixture proves the check counts labels per seam.
+  const twoSeamFixtureSource = `
+/**
+ * Surface:  chat.
+ * Owns/hides: the first fixture seam; keeps its slot private.
+ * Why the seam: it inverts an import edge for the test.
+ * Wiring:   the test installs it; the test reads it.
+ */
+const firstPort = bootPort<First>("first");
+
+const secondPort = bootPort<Second>("second");
+`;
+  const twoSeamFixtureViolations = bootSeamHeaderViolations([
+    {
+      file: join(TOOL_RUNTIME_ROOT, "self-test-two-seam-fixture.ts"),
+      source: twoSeamFixtureSource,
+    },
+  ]);
+  if (
+    !BOOT_SEAM_HEADER_LABELS.every((label) =>
+      twoSeamFixtureViolations.some((violation) => violation.includes(`missing "${label}"`)),
+    )
+  ) {
+    failures.push(
+      `boot-seam header two-seam fixture mismatch: received ${JSON.stringify(twoSeamFixtureViolations)}`,
     );
   }
   return failures;
