@@ -376,38 +376,96 @@ function runtimeAdapterViolations(compositionSources, manifestSource) {
   return violations.sort((a, b) => a.localeCompare(b));
 }
 
-// Finds every `bootPort<...>(` call in a source. It brace-balances the generic
-// so a nested or multi-line type argument still reads as one call, and it records
-// the seam type name (the first identifier in the generic) and the call's line.
+// Scans the generic that starts at `open` (a `<`) and returns the index just after
+// its matching `>`, or -1 when it cannot resolve. It balances `<`/`>` while skipping
+// string, template, and comment spans, and it ignores the `>` of an arrow `=>`, so a
+// function-typed or comment-bearing generic does not close the depth early.
+function scanGenericEnd(source, open) {
+  let depth = 0;
+  for (let i = open; i < source.length; i++) {
+    const pair = source.slice(i, i + 2);
+    if (pair === "//") {
+      const newline = source.indexOf("\n", i);
+      if (newline === -1) return -1;
+      i = newline;
+      continue;
+    }
+    if (pair === "/*") {
+      const end = source.indexOf("*/", i + 2);
+      if (end === -1) return -1;
+      i = end + 1;
+      continue;
+    }
+    const char = source[i];
+    if (char === '"' || char === "'" || char === "`") {
+      i = skipStringSpan(source, i);
+      if (i === -1) return -1;
+      continue;
+    }
+    if (pair === "=>") {
+      i += 1;
+      continue;
+    }
+    if (char === "<") depth += 1;
+    else if (char === ">") {
+      depth -= 1;
+      if (depth === 0) return i + 1;
+    }
+  }
+  return -1;
+}
+
+// Returns the index of the closing quote of a string or template span that opens at
+// `start`, or -1 when it never closes. Honors backslash escapes; ignores template
+// interpolation, which cannot appear inside a type argument.
+function skipStringSpan(source, start) {
+  const quote = source[start];
+  for (let i = start + 1; i < source.length; i++) {
+    if (source[i] === "\\") {
+      i += 1;
+      continue;
+    }
+    if (source[i] === quote) return i;
+  }
+  return -1;
+}
+
+// Finds every `bootPort<...>(` call in a source. It brace-balances the generic so a
+// nested, multi-line, or function-typed argument still reads as one call, and it
+// records the seam type name (the first identifier in the generic) and the call's
+// line. A `bootPort<` trigger that it cannot resolve to a `bootPort<...>(` call is
+// returned as `unresolved` — the caller fails the check on it, never drops it
+// silently, so a seam a heuristic cannot parse can never pass headerless.
 function findBootPortCalls(source) {
   const calls = [];
+  const unresolved = [];
   BOOT_PORT_TRIGGER.lastIndex = 0;
   let match;
   while ((match = BOOT_PORT_TRIGGER.exec(source)) !== null) {
     const open = source.indexOf("<", match.index);
-    if (open === -1) continue;
-    let depth = 0;
-    let close = -1;
-    for (let i = open; i < source.length; i++) {
-      if (source[i] === "<") depth++;
-      else if (source[i] === ">") {
-        depth--;
-        if (depth === 0) {
-          close = i;
-          break;
-        }
-      }
-    }
-    if (close === -1) continue;
-    let after = close + 1;
-    while (after < source.length && /\s/.test(source[after])) after++;
-    if (source[after] !== "(") continue;
-    const nameMatch = source.slice(open + 1, close).match(/^\s*([A-Za-z_$][A-Za-z0-9_$]*)/);
-    const seamTypeName = nameMatch ? nameMatch[1] : null;
     const lineIndex = source.slice(0, match.index).split("\n").length - 1;
+    if (open === -1) {
+      unresolved.push(lineIndex);
+      continue;
+    }
+    const genericEnd = scanGenericEnd(source, open);
+    if (genericEnd === -1) {
+      unresolved.push(lineIndex);
+      continue;
+    }
+    let after = genericEnd;
+    while (after < source.length && /\s/.test(source[after])) after++;
+    if (source[after] !== "(") {
+      unresolved.push(lineIndex);
+      continue;
+    }
+    const nameMatch = source
+      .slice(open + 1, genericEnd - 1)
+      .match(/^\s*([A-Za-z_$][A-Za-z0-9_$]*)/);
+    const seamTypeName = nameMatch ? nameMatch[1] : null;
     calls.push({ seamTypeName, lineIndex });
   }
-  return calls;
+  return { calls, unresolved };
 }
 
 // Returns the JSDoc block that sits immediately above an anchor line (blank lines
@@ -435,7 +493,12 @@ function adjacentJsDocBlock(lines, anchorLineIndex) {
 function bootSeamHeaderViolations(sources) {
   const violations = [];
   for (const { file, source } of sources) {
-    const calls = findBootPortCalls(source);
+    const { calls, unresolved } = findBootPortCalls(source);
+    // Fail loud: a `bootPort<` trigger the scanner cannot resolve to a call is never
+    // dropped. An unparseable seam fails the check instead of passing headerless.
+    for (const lineIndex of unresolved) {
+      violations.push(`unparseable bootPort seam in ${relativeToRoot(file)}:${lineIndex + 1}`);
+    }
     if (calls.length === 0) continue;
     const lines = source.split("\n");
     for (const call of calls) {
@@ -946,6 +1009,42 @@ const secondPort = bootPort<Second>("second");
   if (!repeatedLabelFixtureViolations.some((violation) => violation.includes("for Second"))) {
     failures.push(
       `boot-seam header repeated-label fixture mismatch: received ${JSON.stringify(repeatedLabelFixtureViolations)}`,
+    );
+  }
+
+  // A seam whose generic is an arrow type holds a `>` inside `=>`. A raw `<`/`>` count
+  // would close the depth at the arrow, miss the call's `(`, and drop the seam. The
+  // scanner ignores the arrow's `>`, resolves the call, and reports the missing header.
+  const arrowGenericFixtureSource = `
+const arrowPort = bootPort<() => void>("arrow");
+`;
+  const arrowGenericFixtureViolations = bootSeamHeaderViolations([
+    {
+      file: join(TOOL_RUNTIME_ROOT, "self-test-arrow-generic-fixture.ts"),
+      source: arrowGenericFixtureSource,
+    },
+  ]);
+  if (arrowGenericFixtureViolations.length === 0) {
+    failures.push(
+      `boot-seam header arrow-generic fixture mismatch: received ${JSON.stringify(arrowGenericFixtureViolations)}`,
+    );
+  }
+
+  // A seam whose generic holds a comment-borne `>` must still be seen. A raw `<`/`>`
+  // count would close the depth at the comment's `>`, miss the call's `(`, and drop the
+  // seam. The scanner skips the comment span, resolves the call, and reports the miss.
+  const commentGenericFixtureSource = `
+const commentPort = bootPort<Foo /* > */>("comment");
+`;
+  const commentGenericFixtureViolations = bootSeamHeaderViolations([
+    {
+      file: join(TOOL_RUNTIME_ROOT, "self-test-comment-generic-fixture.ts"),
+      source: commentGenericFixtureSource,
+    },
+  ]);
+  if (commentGenericFixtureViolations.length === 0) {
+    failures.push(
+      `boot-seam header comment-generic fixture mismatch: received ${JSON.stringify(commentGenericFixtureViolations)}`,
     );
   }
   return failures;
