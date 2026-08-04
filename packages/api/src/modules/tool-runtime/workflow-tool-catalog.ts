@@ -6,6 +6,8 @@ import type {
   ToolRunContext,
 } from "@alfred/contracts";
 
+import { bootPort } from "./boot-port";
+
 /**
  * The exact tool facts a workflow readiness, authoring, or revision read needs,
  * and nothing more. It is a projection of the tools registry: `workflows` sees
@@ -42,24 +44,17 @@ export interface WorkflowToolCatalogSource {
   catalog(): WorkflowToolCatalog;
 }
 
-let workflowToolCatalogSource: WorkflowToolCatalogSource | undefined;
+const workflowToolCatalogSourcePort = bootPort<WorkflowToolCatalogSource>(
+  "workflow tool-catalog source",
+);
 
 /** Runtime composition registers the tools-backed source before any read. */
 export function registerWorkflowToolCatalogSource(source: WorkflowToolCatalogSource): () => void {
-  if (workflowToolCatalogSource && workflowToolCatalogSource !== source) {
-    throw new Error("A workflow tool-catalog source is already registered");
-  }
-  workflowToolCatalogSource = source;
-  return () => {
-    if (workflowToolCatalogSource === source) workflowToolCatalogSource = undefined;
-  };
+  return workflowToolCatalogSourcePort.install(source);
 }
 
 function requireWorkflowToolCatalogSource(): WorkflowToolCatalogSource {
-  if (!workflowToolCatalogSource) {
-    throw new Error("No workflow tool-catalog source is registered");
-  }
-  return workflowToolCatalogSource;
+  return workflowToolCatalogSourcePort.read();
 }
 
 /** A fresh projection of the currently registered tools, for a workflow read. */
