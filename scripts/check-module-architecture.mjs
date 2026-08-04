@@ -11,10 +11,10 @@ const API_COMPOSITION_ROOT = join(ROOT, "packages/api/src/composition");
 const RUNTIME_ADAPTER_MANIFEST = join(API_COMPOSITION_ROOT, "runtime-adapters.ts");
 const TOOL_RUNTIME_ROOT = join(LEGACY_API_MODULES_ROOT, "tool-runtime");
 const BOOT_PORT_DEFINER = join(TOOL_RUNTIME_ROOT, "boot-port.ts");
-// Every boot-seam call passes a generic argument (`bootPort<Type>(`), so a literal
-// `bootPort(` matches no call site. This pattern allows the generic; import and
-// re-export lines lack the `<`, so they never match.
-const BOOT_PORT_CALL_PATTERN = /\bbootPort\s*<[^\n>]*>\s*\(/g;
+// Locates the start of a bootPort<...>( call. It stops at the opening `<`; a
+// brace-balanced scan then finds the matching `>`, so a nested or multi-line
+// generic (bootPort<ReadonlyMap<K, V>>() ) is still a call, not a dropped file.
+const BOOT_PORT_TRIGGER = /\bbootPort\s*</g;
 const BOOT_SEAM_HEADER_LABELS = ["Surface:", "Owns/hides:", "Why the seam:", "Wiring:"];
 const TARGET_ASSISTANT_MODULES = new Set([
   "artifacts",
@@ -376,21 +376,96 @@ function runtimeAdapterViolations(compositionSources, manifestSource) {
   return violations.sort((a, b) => a.localeCompare(b));
 }
 
+// Finds every `bootPort<...>(` call in a source. It brace-balances the generic
+// so a nested or multi-line type argument still reads as one call, and it records
+// the seam type name (the first identifier in the generic) and the call's line.
+function findBootPortCalls(source) {
+  const calls = [];
+  BOOT_PORT_TRIGGER.lastIndex = 0;
+  let match;
+  while ((match = BOOT_PORT_TRIGGER.exec(source)) !== null) {
+    const open = source.indexOf("<", match.index);
+    if (open === -1) continue;
+    let depth = 0;
+    let close = -1;
+    for (let i = open; i < source.length; i++) {
+      if (source[i] === "<") depth++;
+      else if (source[i] === ">") {
+        depth--;
+        if (depth === 0) {
+          close = i;
+          break;
+        }
+      }
+    }
+    if (close === -1) continue;
+    let after = close + 1;
+    while (after < source.length && /\s/.test(source[after])) after++;
+    if (source[after] !== "(") continue;
+    const nameMatch = source.slice(open + 1, close).match(/^\s*([A-Za-z_$][A-Za-z0-9_$]*)/);
+    const seamTypeName = nameMatch ? nameMatch[1] : null;
+    const lineIndex = source.slice(0, match.index).split("\n").length - 1;
+    calls.push({ seamTypeName, lineIndex });
+  }
+  return calls;
+}
+
+// Returns the JSDoc block that sits immediately above an anchor line (blank lines
+// skipped), or null when no block touches the anchor. A header only counts for a
+// seam when it is adjacent to that seam's anchor, so a label repeated far away in
+// prose cannot stand in for a real header.
+function adjacentJsDocBlock(lines, anchorLineIndex) {
+  let k = anchorLineIndex - 1;
+  while (k >= 0 && lines[k].trim() === "") k--;
+  if (k < 0 || !lines[k].includes("*/")) return null;
+  const blockLines = [];
+  for (; k >= 0; k--) {
+    blockLines.unshift(lines[k]);
+    if (lines[k].includes("/**")) return blockLines.join("\n");
+  }
+  return null;
+}
+
+// A boot-seam header must be bound to its seam by position, not counted file-wide.
+// A file can host many seams (index.ts holds four); each needs its own four-field
+// header. The header sits on the seam's interface (or, when the interface lives in
+// another module, on the bootPort call), so each seam's anchor is its interface
+// declaration or its call line. A seam whose adjacent header omits any of the four
+// labels fails the check.
 function bootSeamHeaderViolations(sources) {
   const violations = [];
   for (const { file, source } of sources) {
-    // One file can host many seams (index.ts holds four). Each seam needs its own
-    // header, so require each label at least once per bootPort<T>( call. A per-file
-    // includes() would pass a headerless seam whenever any sibling seam carries the
-    // label — a green check that gates nothing on the module's main growth path.
-    const seamCount = (source.match(BOOT_PORT_CALL_PATTERN) ?? []).length;
-    if (seamCount === 0) continue;
-    for (const label of BOOT_SEAM_HEADER_LABELS) {
-      const labelCount = source.split(label).length - 1;
-      if (labelCount < seamCount) {
-        violations.push(
-          `boot-seam header missing "${label}" in ${relativeToRoot(file)} (${labelCount} of ${seamCount} seams labeled)`,
+    const calls = findBootPortCalls(source);
+    if (calls.length === 0) continue;
+    const lines = source.split("\n");
+    for (const call of calls) {
+      const anchorLines = [call.lineIndex];
+      if (call.seamTypeName) {
+        // A validated identifier holds no regex metacharacters, so it is safe here.
+        const interfacePattern = new RegExp(
+          `^\\s*(export\\s+)?interface\\s+${call.seamTypeName}\\b`,
         );
+        for (let i = 0; i < lines.length; i++) {
+          if (interfacePattern.test(lines[i])) anchorLines.push(i);
+        }
+      }
+      // One block must carry all four labels. The union of two partial blocks does
+      // not count, so pick the single adjacent block with the most labels and report
+      // what it still misses.
+      let bestLabels = [];
+      for (const anchorLine of anchorLines) {
+        const block = adjacentJsDocBlock(lines, anchorLine);
+        if (block === null) continue;
+        const present = BOOT_SEAM_HEADER_LABELS.filter((label) => block.includes(label));
+        if (present.length > bestLabels.length) bestLabels = present;
+      }
+      const seam = call.seamTypeName ?? "anonymous seam";
+      for (const label of BOOT_SEAM_HEADER_LABELS) {
+        if (!bestLabels.includes(label)) {
+          violations.push(
+            `boot-seam header missing "${label}" for ${seam} in ${relativeToRoot(file)}`,
+          );
+        }
       }
     }
   }
@@ -825,6 +900,52 @@ const secondPort = bootPort<Second>("second");
   ) {
     failures.push(
       `boot-seam header two-seam fixture mismatch: received ${JSON.stringify(twoSeamFixtureViolations)}`,
+    );
+  }
+
+  // A headerless seam whose generic nests another generic must still be seen. A trigger
+  // that stopped at the first `>` would match zero calls, drop the file, and pass a
+  // seam with no header. The brace-balanced scanner reads the whole generic.
+  const nestedGenericFixtureSource = `
+const nestedPort = bootPort<ReadonlyMap<Key, Value>>("nested");
+`;
+  const nestedGenericFixtureViolations = bootSeamHeaderViolations([
+    {
+      file: join(TOOL_RUNTIME_ROOT, "self-test-nested-generic-fixture.ts"),
+      source: nestedGenericFixtureSource,
+    },
+  ]);
+  if (nestedGenericFixtureViolations.length === 0) {
+    failures.push(
+      `boot-seam header nested-generic fixture mismatch: received ${JSON.stringify(nestedGenericFixtureViolations)}`,
+    );
+  }
+
+  // Two seams, and each label appears an extra time in prose, so a file-wide count of
+  // each label reaches the seam count and passes. The second seam still has no adjacent
+  // header, so a position-bound check must report it. This proves the check binds a
+  // header to its seam, not to the file.
+  const repeatedLabelFixtureSource = `
+/**
+ * Surface:  chat.
+ * Owns/hides: the first fixture seam; keeps its slot private.
+ * Why the seam: it inverts an import edge for the test.
+ * Wiring:   the test installs it; the test reads it.
+ */
+const firstPort = bootPort<First>("first");
+
+// Surface: Owns/hides: Why the seam: Wiring: appear again here in prose only.
+const secondPort = bootPort<Second>("second");
+`;
+  const repeatedLabelFixtureViolations = bootSeamHeaderViolations([
+    {
+      file: join(TOOL_RUNTIME_ROOT, "self-test-repeated-label-fixture.ts"),
+      source: repeatedLabelFixtureSource,
+    },
+  ]);
+  if (!repeatedLabelFixtureViolations.some((violation) => violation.includes("for Second"))) {
+    failures.push(
+      `boot-seam header repeated-label fixture mismatch: received ${JSON.stringify(repeatedLabelFixtureViolations)}`,
     );
   }
   return failures;
