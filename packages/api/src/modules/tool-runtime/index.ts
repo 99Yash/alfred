@@ -114,6 +114,17 @@ export type ToolCallRoundOutcome<Call extends ProposedToolCall = ProposedToolCal
       reissue: boolean;
     };
 
+/**
+ * Surface:  chat.
+ * Owns/hides: owns the executable tool surface — surface restore, surface
+ *   resolve, integration-name projection, and preload selection. Hides the tools
+ *   registry and its credential gates.
+ * Why the seam: it inverts tool-runtime -> tools, so the runtime forwards to the
+ *   installed tools implementation and never imports the registry.
+ * Wiring: tools/tool-runtime-adapter.ts installs; the tool-runtime forwarders
+ *   (resolveToolSurface, restoreToolSurface, selectToolPreload) read.
+ * See: ADR-0089, and docs/reference/tool-runtime-map.md.
+ */
 export interface ToolRuntimeAdapter {
   restore(source: ToolSurfaceSource): ToolName[];
   resolve(input: {
@@ -137,6 +148,17 @@ export interface ToolRuntimeAdapter {
 }
 
 const toolRuntimeAdapterPort = bootPort<ToolRuntimeAdapter>("tool runtime adapter");
+
+/**
+ * Surface:  chat.
+ * Owns/hides: the ToolCallRoundAdapter interface lives in ./internal/adapter;
+ *   this seam owns the guarded dispatch of one tool-call round. Hides the
+ *   dispatch module.
+ * Why the seam: it inverts tool-runtime -> dispatch, so the call-round runs the
+ *   guarded dispatcher without an import edge to dispatch.
+ * Wiring: dispatch/index.ts installs; executeToolCallRound (this file) reads.
+ * See: ADR-0089, and docs/reference/tool-runtime-map.md.
+ */
 const toolCallRoundAdapterPort = bootPort<ToolCallRoundAdapter>("tool call-round adapter");
 
 /** Runtime composition registers the current tools implementation before workers start. */
@@ -171,15 +193,15 @@ export type SpawnSubAgentRequest = SpawnSubAgentInput & {
 };
 
 /**
- * The agent-owned behaviors the system tools reach through a registered
- * handler, instead of importing the agent module. The two sub-agent operations
- * and chat-history retrieval read and write agent-owned state (`agentRuns`,
- * chat messages), so the tools layer — a lower layer than the agent runtime —
- * calls them behind this seam. Each returns `unknown`: the system tools return
- * every result straight through, and `ChildRunOutcome` / chat-history shapes
- * stay agent-owned. Composition installs the concrete adapter at boot; a call
- * before registration throws, the same failure mode as the other tool-runtime
- * adapters.
+ * Surface:  chat.
+ * Owns/hides: owns the agent-behavior door the system tools reach — spawn a
+ *   sub-agent, read a child run outcome, read chat history. Hides the agent
+ *   runtime and its state (`agentRuns`, chat messages). Each method returns
+ *   `unknown`, so no agent result type crosses the seam.
+ * Why the seam: it inverts tools -> agent, so the tools layer never imports the
+ *   agent runtime.
+ * Wiring: agent/system-tool-adapter.ts installs; tools/system.ts reads.
+ * See: ADR-0089, and docs/reference/tool-runtime-map.md.
  */
 export interface SystemToolAgentAdapter {
   spawnSubAgent(args: SpawnSubAgentRequest): Promise<unknown>;
@@ -226,15 +248,17 @@ export function readChatHistory(args: {
 }
 
 /**
- * The seam the workflow-authoring system tools (`system.author_workflow` /
- * `system.recover_workflow` / `system.activate_workflow`) call. The concrete
- * adapter lives in the workflows module: it runs workflow authoring, revision,
- * recovery, and readiness policy, then shapes the exact tool result the model
- * reads. Every method returns `Promise<unknown>` for the same reason the agent
- * seam does — so tool-runtime imports no workflow result type and the tools
- * module never imports workflows (ADR-0089: the runtime composes tools, not the
- * reverse). Composition installs the concrete adapter at boot; a call before
- * registration throws, the same failure mode as the other tool-runtime adapters.
+ * Surface:  chat.
+ * Owns/hides: owns the workflow-behavior door the system tools reach
+ *   (`system.author_workflow` / `system.recover_workflow` /
+ *   `system.activate_workflow`) — author, recover, and activate a workflow, then
+ *   shape the tool result. Hides workflow authoring, revision, recovery, and
+ *   readiness policy. Each method returns `unknown`, so no workflow result type
+ *   crosses the seam.
+ * Why the seam: it inverts tools -> workflows, so the tools module never imports
+ *   workflows.
+ * Wiring: workflows/system-tool-adapter.ts installs; tools/system.ts reads.
+ * See: ADR-0089, and docs/reference/tool-runtime-map.md.
  */
 export interface SystemToolWorkflowAdapter {
   authorWorkflow(args: {
