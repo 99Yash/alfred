@@ -49,6 +49,20 @@ const WEB_ROUTES_ROOT = join(ROOT, "apps/web/src/routes");
 const GRAPH_FLAG = "--print-graph";
 const BASELINE_FLAG = "--print-baseline";
 
+// The durable-execution module. Its directory is still named `agent`; Phase 6
+// renames it to `execution`, at which point this constant follows the rename
+// (the graph node is the raw directory name — see `moduleForPath`).
+const EXECUTION_MODULE = "agent";
+// Product modules the durable-execution core must not import (ADR-0089). This is
+// an ABSOLUTE forbidden set: it is checked against the live module graph, not
+// the grandfathered baseline SCC, so a re-introduced product import fails even
+// while `agent` still shares a baseline cycle with other product modules. The
+// set only ever grows — each edge-removal PR that lands its module here:
+//   `triage`    — item 06 (this rule's first entry)
+//   `chat`      — item 03 (chat → conversations migration)
+//   `workflows` — item 10 (homes the last brief recipe out of agent/)
+const EXECUTION_FORBIDDEN_PRODUCT_MODULES = new Set(["triage"]);
+
 function normalizePath(path) {
   return path.split(sep).join("/");
 }
@@ -827,6 +841,24 @@ const text = 'import "ignored-string"';
     failures.push(`SCC fixture mismatch: received ${JSON.stringify(components)}`);
   }
 
+  // Execution forbidden-import gate (item 06): the rule must FIRE on a live
+  // `agent -> triage` edge and stay SILENT on a non-product edge like
+  // `agent -> integrations`, independent of any baseline.
+  const forbiddenFired = executionForbiddenImportViolations([{ from: "agent", to: "triage" }]);
+  if (!forbiddenFired.some((violation) => violation.includes("agent -> triage"))) {
+    failures.push(
+      `execution forbidden-import fixture mismatch: expected an agent -> triage violation, received ${JSON.stringify(forbiddenFired)}`,
+    );
+  }
+  const forbiddenSilent = executionForbiddenImportViolations([
+    { from: "agent", to: "integrations" },
+  ]);
+  if (forbiddenSilent.length > 0) {
+    failures.push(
+      `execution forbidden-import fixture mismatch: expected no violation for agent -> integrations, received ${JSON.stringify(forbiddenSilent)}`,
+    );
+  }
+
   const lifecycleSource = `
 export function registerExample(): void {}
 export function unregisterExample(): void {}
@@ -995,6 +1027,24 @@ function formatGraph(architecture) {
   );
 }
 
+/**
+ * Absolute forbidden-import gate for the durable-execution module (item 06). For
+ * every live `agent -> P` module edge where P is in
+ * {@link EXECUTION_FORBIDDEN_PRODUCT_MODULES}, report a violation. Consulted
+ * against the *current* module graph (`moduleEdges`), never the baseline, so a
+ * grandfathered baseline SCC edge cannot launder a re-introduced product import.
+ * Pure over the edge list so the self-test can exercise it on synthetic edges.
+ */
+function executionForbiddenImportViolations(moduleEdges) {
+  const violations = [];
+  for (const edge of moduleEdges) {
+    if (edge.from === EXECUTION_MODULE && EXECUTION_FORBIDDEN_PRODUCT_MODULES.has(edge.to)) {
+      violations.push(`execution imports forbidden product module: ${edge.from} -> ${edge.to}`);
+    }
+  }
+  return violations;
+}
+
 function checkArchitecture(architecture, baseline) {
   const violations = [];
   const baselinePackageEdges = new Set(baseline.packageGraph.edges);
@@ -1007,6 +1057,7 @@ function checkArchitecture(architecture, baseline) {
     const [from, to] = key.split(" -> ");
     return { from, to };
   });
+  violations.push(...executionForbiddenImportViolations(currentModuleEdges));
   const packageCycles = cyclicEdgeKeys(
     currentPackageEdges,
     stronglyConnectedComponents(
