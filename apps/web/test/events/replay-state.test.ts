@@ -109,6 +109,16 @@ const chatDelta = (
   payload: { ...CHAT_DELTA, ...payload },
 });
 
+const artifactDelta = (
+  id: number,
+  payload: Partial<EventPayload<"artifact.delta">> = {},
+): EventStreamFrame => ({
+  id,
+  createdAt: "",
+  kind: "artifact.delta",
+  payload: { ...ARTIFACT_DELTA, ...payload },
+});
+
 const inboxUpdated = (id: number): EventStreamFrame => ({
   id,
   createdAt: "",
@@ -179,6 +189,31 @@ describe("event replay state", () => {
         frame.kind,
       );
     }
+  });
+
+  // Gap characterization, NOT desired behaviour — see the `artifact.delta` reason
+  // in `SPEAKS_FOR_NO_RUN` and campaign item 41. A client that first observes a run
+  // mid-flight through `artifact.delta` alone (a fresh tab, or a reconnect whose
+  // resume floor already exceeds the run's `started` id) arms no barrier: the cursor
+  // floats past the deltas and a reload re-loses them. The contrast pins that this is
+  // `artifact.delta`-only — `chat.delta` self-arms and floors `since` below its own
+  // id, so a reload replays it. Both start states and both ids are identical, so the
+  // frame kind is the only difference. Fixed server-side by item 41's follow-up; the
+  // window self-heals through the durable `artifacts` row meanwhile.
+  test("a mid-join artifact.delta floats the cursor past itself; a chat.delta does not", () => {
+    const start: ReplayState = { cursor: 104, activeRuns: {}, completedRuns: {} };
+
+    // artifact.delta arms nothing, so the resume floor advances to the delta's id
+    // and a reload resends only ids strictly above it — these deltas are lost.
+    const afterArtifact = advanceReplayState(start, artifactDelta(105));
+    assert.deepEqual(afterArtifact.activeRuns, {});
+    assert.equal(replaySince(afterArtifact), 105);
+
+    // chat.delta arms this run's barrier at `id - 1`, so the resume floor sits below
+    // the delta and a reload replays it back.
+    const afterChat = advanceReplayState(start, chatDelta(105));
+    assert.deepEqual(afterChat.activeRuns, { [CHAT_DELTA.runId]: 104 });
+    assert.equal(replaySince(afterChat), 104);
   });
 
   test("the cursor advances while an active run keeps its earlier barrier", () => {
