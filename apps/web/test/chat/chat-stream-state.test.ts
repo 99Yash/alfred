@@ -247,6 +247,76 @@ describe("applyChatFrame — mounting (ADR-0073: address, never create)", () => 
   });
 });
 
+describe("applyChatFrame — mount recency (a replayed older turn cannot blank a live one)", () => {
+  // Override a builder's auto-assigned id so a frame's outbox serial is explicit.
+  // A `Last-Event-ID` reconnect replays an older turn's frames with their
+  // *original* ids, so an old frame can arrive with a low id while a newer turn
+  // (higher id) is live — the case the auto-incrementing `nextId` never produces.
+  const atId = (frame: EventStreamFrame, id: number): EventStreamFrame => ({ ...frame, id });
+
+  test("an older `started` for a different turn does not blank the live turn", () => {
+    const cell = cellOf();
+    // Turn 2 is live, mounted by a frame with the higher outbox id.
+    applyChatFrame(cell, atId(started(TURN_2), 100), 1_000);
+    // A replayed `started` for the older turn 1 arrives with its lower id.
+    assert.equal(applyChatFrame(cell, atId(started(TURN), 50), 1_000), false);
+    assert.equal(refOf(cell).messageId, "msg_2");
+    // Turn 2's identity and deltaSeq are untouched: its next delta still appends.
+    assert.equal(applyChatFrame(cell, delta(1, "Hello", { turn: TURN_2 }), 1_000), true);
+    assert.equal(applyChatFrame(cell, delta(2, " world", { turn: TURN_2 }), 1_000), true);
+    assert.equal(drain(cell).snapshot.text, "Hello world");
+  });
+
+  test("an older `delta`/`reasoning`/`tool` for a different turn is refused at the shared seam", () => {
+    // The case that proves the guard lives in `ensureStreamRef`, not just the
+    // `started` arm: a refused older `started` leaves the live ref up, and the
+    // *next* replayed old frame would mount through the shared seam and blank it.
+    const cell = cellOf();
+    applyChatFrame(cell, atId(started(TURN_2), 100), 1_000);
+    applyChatFrame(cell, delta(1, "Live", { turn: TURN_2 }), 1_000);
+
+    assert.equal(applyChatFrame(cell, atId(delta(9, "stale", { turn: TURN }), 50), 1_000), false);
+    assert.equal(applyChatFrame(cell, atId(reasoning(9, "stale", TURN), 51), 1_000), false);
+    assert.equal(applyChatFrame(cell, atId(tool({ turn: TURN }), 52), 1_000), false);
+
+    // Turn 2 survives and turn 1's stale text never renders.
+    assert.equal(refOf(cell).messageId, "msg_2");
+    assert.equal(drain(cell).snapshot.text, "Live");
+  });
+
+  test("a genuinely newer `started` for a different turn mounts fresh", () => {
+    const cell = cellOf();
+    applyChatFrame(cell, atId(started(TURN), 50), 1_000);
+    applyChatFrame(cell, delta(3, "first turn", { turn: TURN }), 1_000);
+
+    assert.equal(applyChatFrame(cell, atId(started(TURN_2), 100), 1_000), true);
+    assert.equal(refOf(cell).messageId, "msg_2");
+    assert.equal(refOf(cell).deltaSeq, 0);
+    assert.equal(refOf(cell).segments.size, 0);
+  });
+
+  test("a retry (same messageId, new runId, higher id) mounts and is not refused", () => {
+    const cell = cellOf();
+    applyChatFrame(cell, atId(started(TURN), 50), 1_000);
+    applyChatFrame(cell, delta(3, "first attempt"), 1_000);
+
+    // One field from `TURN` by spread, not by a hand-copied `messageId` literal:
+    // edit `TURN` and this stays a same-message/new-run retry.
+    const retry = { ...TURN, runId: "run_2" };
+    assert.equal(applyChatFrame(cell, atId(started(retry), 100), 1_000), true);
+    assert.equal(refOf(cell).runId, "run_2");
+    assert.equal(refOf(cell).messageId, TURN.messageId);
+    assert.equal(refOf(cell).deltaSeq, 0);
+  });
+
+  test("the first mount is unaffected — the recency branch is guarded by an existing ref", () => {
+    const cell = cellOf();
+    // No live ref, so a low id cannot be refused against a missing `mountId`.
+    assert.equal(applyChatFrame(cell, atId(started(TURN), 1), 1_000), true);
+    assert.equal(refOf(cell).messageId, "msg_1");
+  });
+});
+
 describe("applyChatFrame — absorption (a terminal is absorbing)", () => {
   const withTrail = () => {
     const cell = cellOf();
