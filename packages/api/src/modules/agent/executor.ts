@@ -245,6 +245,43 @@ async function commitGuardedRunUpdate(
   await tx.update(agentRuns).set(set).where(eq(agentRuns.id, run.id));
 }
 
+/**
+ * THE single builder for the executor's `agent.run`/`failed` frame. Every
+ * terminal-fail site — `commitStepFailure`, `markRunFailed`, and the lease
+ * backstop — mints the identical `{ runId, phase: "failed", step, attempt,
+ * error }` payload through here, so a fourth writer cannot drift the shape
+ * (ADR-0073:19, mirroring `tool-card-events.ts` as the sole `chat.tool`
+ * builder; ADR-0073:23, every terminal path publishes one `agent.run` frame).
+ *
+ * `tx` is required, not optional: the frame MUST commit with the caller's
+ * status write so a cancel that supersedes the write rolls the frame back too —
+ * no `failed` frame leaks over `cancelled` (#530).
+ *
+ * `error` is ALREADY sanitized and bounded by the caller. This helper does NOT
+ * sanitize: sanitize-once keeps the safe string coupled to each site's DB write
+ * (`commitStepFailure` / `markRunFailed` reuse their `safeError`), and the lease
+ * backstop's `backstopError` is a synthetic clean string that ADR-0070 forbids
+ * re-stripping. Folding the sanitize or the DB write here would corrupt the
+ * backstop path — the helper owns the frame publish only.
+ */
+async function publishRunFailed(
+  tx: DbTransaction,
+  fields: { userId: string; runId: string; step: string; attempt: number; error: string },
+): Promise<void> {
+  await publishEvent({
+    tx,
+    userId: fields.userId,
+    kind: "agent.run",
+    payload: {
+      runId: fields.runId,
+      phase: "failed",
+      step: fields.step,
+      attempt: fields.attempt,
+      error: fields.error,
+    },
+  });
+}
+
 export type RunOutcome =
   | { kind: "advanced"; runId: string; nextStep: string }
   | { kind: "completed"; runId: string }
@@ -584,17 +621,12 @@ export async function leaseRun(runId: string): Promise<LeaseResult> {
             updatedAt: now,
           })
           .where(eq(agentRuns.id, row.id));
-        await publishEvent({
-          tx,
+        await publishRunFailed(tx, {
           userId: row.userId,
-          kind: "agent.run",
-          payload: {
-            runId: row.id,
-            phase: "failed",
-            step: row.currentStep,
-            attempt: row.attempt,
-            error: backstopError,
-          },
+          runId: row.id,
+          step: row.currentStep,
+          attempt: row.attempt,
+          error: backstopError,
         });
         // Do not re-lease — the run is now terminal. Hand the caller the run
         // row + clean message so it can drive workflow-level failure closure.
@@ -1039,11 +1071,12 @@ async function commitStepFailure(
         updatedAt: now,
       });
 
-      await publishEvent({
-        tx,
+      await publishRunFailed(tx, {
         userId: run.userId,
-        kind: "agent.run",
-        payload: { runId: run.id, phase: "failed", step: stepId, attempt, error: safeError },
+        runId: run.id,
+        step: stepId,
+        attempt,
+        error: safeError,
       });
     });
   } catch (err) {
@@ -1098,16 +1131,17 @@ export async function markRunFailed(
 
       // ADR-0073:23 — every terminal path publishes `agent.run`. This one is
       // the resolve-failure path (no `agent_steps` row, so no step-body writer
-      // publishes it). Inside the tx AFTER the guard, so a cancel that
-      // supersedes the write rolls this frame back too — the cancel path then
-      // owns the terminal frame and no `failed` frame leaks over `cancelled`.
-      // Releases the client's `approval.requested`-armed replay barrier for a
-      // non-chat run (`replay-state.ts` `releasedRunId`).
-      await publishEvent({
-        tx,
+      // publishes it). `publishRunFailed` puts the frame inside the tx AFTER the
+      // guard, so a cancel that supersedes the write rolls this frame back too —
+      // the cancel path then owns the terminal frame and no `failed` frame leaks
+      // over `cancelled`. Releases the client's `approval.requested`-armed replay
+      // barrier for a non-chat run (`replay-state.ts` `releasedRunId`).
+      await publishRunFailed(tx, {
         userId: run.userId,
-        kind: "agent.run",
-        payload: { runId: run.id, phase: "failed", step: stepId, attempt, error: safeError },
+        runId: run.id,
+        step: stepId,
+        attempt,
+        error: safeError,
       });
     });
   } catch (err) {
