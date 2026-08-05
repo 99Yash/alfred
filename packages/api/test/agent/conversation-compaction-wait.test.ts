@@ -8,7 +8,7 @@ import {
   waitForActiveConversationCompaction,
   type ConversationSummary,
   type LoadedChatThreadContext,
-} from "../../src/modules/agent/compaction";
+} from "../../src/modules/conversations/compaction";
 
 const at = new Date("2026-07-12T00:00:00.000Z");
 const summary: ConversationSummary = {

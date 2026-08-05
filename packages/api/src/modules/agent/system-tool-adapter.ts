@@ -1,5 +1,5 @@
 import { registerSystemToolAgentAdapter, type SystemToolAgentAdapter } from "../tool-runtime";
-import { readChatHistory } from "./compaction";
+import { readChatHistory } from "./chat-history-retrieval";
 import { readChildRunOutcome, spawnSubAgent } from "./sub-agents";
 
 /**

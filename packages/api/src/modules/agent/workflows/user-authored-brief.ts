@@ -21,12 +21,12 @@ import { documents } from "@alfred/db/schemas";
 import { and, eq } from "drizzle-orm";
 import { z } from "zod";
 import { executeToolCallRound, toolNamesForIntegrations } from "../../tool-runtime";
-import { compactTranscript, compactWithRetry } from "../compaction";
+import { compactTranscript, compactWithRetry } from "../run-compaction";
 import {
   estimateNextTurnInputTokens,
   estimateTranscriptTokens,
   shouldSkipCompaction,
-} from "../compaction/tokens";
+} from "../run-compaction/tokens";
 import { appendModelResponseMessages } from "../transcript-dedup";
 import { publishEvent } from "../../../events/publish";
 import {

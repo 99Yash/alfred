@@ -1,8 +1,8 @@
 import assert from "node:assert/strict";
 import { describe, test } from "node:test";
 
-import type { CompactTranscriptResult } from "../../src/modules/agent/compaction/compactor";
-import { compactWithRetry } from "../../src/modules/agent/compaction/compact-with-retry";
+import type { CompactTranscriptResult } from "../../src/modules/agent/run-compaction/compactor";
+import { compactWithRetry } from "../../src/modules/agent/run-compaction/compact-with-retry";
 
 /**
  * A compactor call is full-price, so the retry loop's cost bound is a behavior

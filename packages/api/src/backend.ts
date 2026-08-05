@@ -36,16 +36,18 @@ export {
 export {
   assertHandoffSections,
   compactTranscript,
-  scheduleConversationCompactionIfNeeded,
-  backgroundCompactionThresholdTokens,
-  CHAT_MAX_OUTPUT_TOKENS,
   COMPACTOR_SYSTEM_PROMPT,
   extractHandoffSection,
   HANDOFF_SECTIONS,
   type CompactTranscriptArgs,
   type CompactTranscriptResult,
   type HandoffSection,
-} from "./modules/agent/compaction/index";
+} from "./modules/agent/run-compaction/index";
+export {
+  backgroundCompactionThresholdTokens,
+  CHAT_MAX_OUTPUT_TOKENS,
+  scheduleConversationCompactionIfNeeded,
+} from "./modules/conversations";
 
 export { getIngestionQueue, type IngestionJobData } from "./modules/integrations/index";
 export * from "./modules/integrations/object-state/index";
@@ -109,6 +111,8 @@ export {
 } from "./modules/memory/queue";
 
 export * from "./modules/chat-memory/extractor";
+// The idle-capture trigger moved to `conversations/idle-capture-queue.ts`; these
+// public names are unchanged so `apps/server` and the backfill stay unchanged.
 export {
   CHAT_MEMORY_CAPTURE_WORKFLOW_SLUG,
   CHAT_MEMORY_IDLE_MS,
@@ -119,7 +123,7 @@ export {
   getChatMemoryQueue,
   scheduleThreadIdleExtraction,
   type ChatMemoryJobData,
-} from "./modules/chat-memory/queue";
+} from "./modules/conversations";
 
 export * from "./modules/drift-audit/index";
 export * from "./modules/triage/index";

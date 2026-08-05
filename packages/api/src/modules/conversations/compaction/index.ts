@@ -1,35 +1,19 @@
 /**
- * Agent context compaction has two related but distinct mechanisms:
+ * Chat compaction and context assembly, owned by `conversations`. This is the
+ * persisted, rolling `<conversation_summary>` mechanism — guarded by a compound
+ * watermark and CAS — plus the pre-call context assembly and the background
+ * compaction queue/scheduler/wait it drives. It is distinct from the generic
+ * run compaction in `agent/run-compaction`; the two share only token math, which
+ * these files reach through the `agent` public seam.
  *
- * - Run compaction (ADR-0035) produces an in-band `<run_summary>` for the
- *   boss-only `compact-transcript` workflow step.
- * - Chat compaction produces a structured, persisted, rolling
- *   `<conversation_summary>` guarded by a compound watermark and CAS.
- *
- * They intentionally share token/window math, but not summary contracts,
- * persistence, or lifecycle policy. Exports are grouped by mechanism below.
+ * The chat recipe (`../chat-turn.ts`, `../chat-turn-closure.ts`) reaches chat
+ * context through this internal barrel, not through `../../agent`.
  */
-// Run transcript compaction.
-export {
-  compactTranscript,
-  type CompactTranscriptArgs,
-  type CompactTranscriptResult,
-} from "./compactor";
-export { compactWithRetry } from "./compact-with-retry";
-export {
-  assertHandoffSections,
-  extractHandoffSection,
-  HANDOFF_SECTIONS,
-  type HandoffSection,
-} from "./handoff";
-export { COMPACTOR_SYSTEM_PROMPT } from "./prompt";
-export { estimateTranscriptTokens } from "./tokens";
-
-// Persisted chat compaction.
 export { type ConversationSummary } from "./conversation-summary";
 export {
   loadChatThreadContext,
   persistConversationSummary,
+  type ChatSummaryWatermark,
   type LoadedChatThreadContext,
   type PersistConversationSummaryArgs,
 } from "./chat-context-store";
@@ -73,7 +57,6 @@ export {
   scheduleConversationCompactionIfNeeded,
   BACKGROUND_COMPACTION_ABSOLUTE_CAP_TOKENS,
 } from "./conversation-compaction-scheduler";
-export { readChatHistory, CHAT_HISTORY_EXCERPT_CHARS } from "./chat-history-retrieval";
 // Pre-call context guard: compaction owns its recipe, not just its ingredients.
 export {
   buildCompactedChatTranscriptPair,
