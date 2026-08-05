@@ -7,6 +7,7 @@ import { agentRuns, chatMessages, chatThreads, eventsOutbox, user } from "@alfre
 import { and, eq, inArray, like } from "drizzle-orm";
 
 import { closeRedis } from "../../src/queue/connection";
+import { subscribeUserPokes } from "../../src/events/replicache-events";
 import {
   finalizeAssistantMessage,
   finalizeFailedMessage,
@@ -49,6 +50,19 @@ import { resetToolFixtures } from "../lib/tool-fixtures";
  * Opt-in: runs only when `DATABASE_URL` points at a reachable migrated Postgres.
  */
 const SKIP = process.env.DATABASE_URL ? false : "DATABASE_URL not set — skipping DB-backed test";
+
+/**
+ * The Replicache poke is delivered over the in-process emitter only when there
+ * is no Redis publisher (`replicache-events.ts` publishes to Redis when
+ * `REDIS_URL` is set and never touches the local emitter). So a test that
+ * observes a poke through `subscribeUserPokes` requires `REDIS_URL` unset —
+ * same gate `test/skills/freshness.test.ts` uses for its poke assertions.
+ */
+const POKE_SKIP = process.env.DATABASE_URL
+  ? process.env.REDIS_URL
+    ? "REDIS_URL set — local poke assertions require the in-process bridge"
+    : false
+  : "DATABASE_URL not set — skipping DB-backed test";
 
 const ID_PREFIX = "test-closure-republish-";
 const createdUserIds: string[] = [];
@@ -218,6 +232,47 @@ describe(
         .from(chatMessages)
         .where(eq(chatMessages.id, messageId));
       assert.equal(rows[0]?.status, "failed", "and never promotes the failed row to complete");
+    });
+
+    // The release frame and the Replicache poke are one indivisible client-release
+    // now that the poke lives inside `publishCompletedFrame`. The zero-row republish
+    // reaches that call, so it must poke too — the parity gap campaign item 53 filed.
+    // Before the fix the reachable `failed`-over-`complete` retry published the frame
+    // and poked nothing, because the first attempt threw one line before BOTH the
+    // frame and the poke, so no poke ever fired for that turn.
+    test(
+      "the failed retry over a completed row also pokes Replicache",
+      { skip: POKE_SKIP },
+      async () => {
+        const { userId, runId, state } = await seedTerminalRowAttempt("complete");
+        const pokes: string[] = [];
+        const unsubscribe = subscribeUserPokes(userId, (poke) => pokes.push(poke.assetId));
+
+        await finalizeFailedMessage(userId, runId, state, new Error("late fault"));
+
+        unsubscribe();
+        assert.deepEqual(
+          pokes,
+          [""],
+          "the republish path pokes exactly once for the user (empty asset id = user-scoped)",
+        );
+      },
+    );
+
+    // Differential guard that the fold is behaviour-neutral for the row-writing
+    // path: the poke moved from a standalone statement INTO `publishCompletedFrame`,
+    // so a normal close must still poke exactly once, not zero and not twice.
+    test("a normal close pokes Replicache exactly once", { skip: POKE_SKIP }, async () => {
+      // A prior `failed` row lets the guarded upsert replace it and return one row,
+      // so the close takes the full row-writing path rather than the zero-row branch.
+      const { userId, runId, state } = await seedTerminalRowAttempt("failed");
+      const pokes: string[] = [];
+      const unsubscribe = subscribeUserPokes(userId, (poke) => pokes.push(poke.assetId));
+
+      await finalizeAssistantMessage(userId, runId, state);
+
+      unsubscribe();
+      assert.deepEqual(pokes, [""], "the row-writing path pokes exactly once, not twice");
     });
   },
 );
