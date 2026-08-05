@@ -74,12 +74,53 @@ describe("sub-agent tool cards", () => {
     parentToolCallId: "call_spawn",
     chat: { threadId: "thread_1", messageId: "msg_1" },
   };
-  const target = subAgentToolCardTarget(child, "run_child")!;
 
-  test("the event is addressed to the PARENT run, never the child", () => {
+  // A liveness predicate that records whether it was consulted, so a test can
+  // prove the door asks the parent-open question — and skips it when there is no
+  // chat turn to publish to.
+  function openStub(answer: boolean) {
+    let asked = 0;
+    return {
+      isParentOpen: async () => {
+        asked += 1;
+        return answer;
+      },
+      wasAsked: () => asked > 0,
+    };
+  }
+
+  // The door only mints a target for a live parent; every card test needs one.
+  async function liveTarget() {
+    const target = await subAgentToolCardTarget(
+      child,
+      "run_child",
+      "user_1",
+      openStub(true).isParentOpen,
+    );
+    assert.ok(target, "a live parent yields a target");
+    return target;
+  }
+
+  test("the door refuses to mint a target when the injected predicate says closed", async () => {
+    // This is the gate item 38 introduced, now folded INTO the door: a terminal
+    // parent's barrier never releases, so no card may be republished under it.
+    const shut = openStub(false);
+    assert.equal(
+      await subAgentToolCardTarget(child, "run_child", "user_1", shut.isParentOpen),
+      null,
+    );
+    assert.equal(
+      shut.wasAsked(),
+      true,
+      "the closed answer came from the predicate, not a short-circuit",
+    );
+  });
+
+  test("the event is addressed to the PARENT run, never the child", async () => {
     // The client keys its in-flight turn on (messageId, runId). A child runId
     // here would read as a new turn and blank the bubble mid-stream, so this is
     // the one field worth pinning.
+    const target = await liveTarget();
     assert.equal(target.runId, "run_parent");
     assert.notEqual(target.runId, "run_child");
     assert.deepEqual(target.subAgent, {
@@ -89,13 +130,26 @@ describe("sub-agent tool cards", () => {
     });
   });
 
-  test("no target for the boss, or for a child of a background parent", () => {
-    assert.equal(subAgentToolCardTarget(null, "run_child"), null);
+  test("no target for the boss, or for a child of a background parent — and no liveness read for either", async () => {
+    // Neither case has a chat turn to publish to, so the door short-circuits
+    // BEFORE the DB read: there is no parent barrier to reason about.
+    const bossStub = openStub(true);
+    assert.equal(
+      await subAgentToolCardTarget(null, "run_child", "user_1", bossStub.isParentOpen),
+      null,
+    );
     const { chat: _chat, ...noChat } = child;
-    assert.equal(subAgentToolCardTarget(noChat, "run_child"), null);
+    const bgStub = openStub(true);
+    assert.equal(
+      await subAgentToolCardTarget(noChat, "run_child", "user_1", bgStub.isParentOpen),
+      null,
+    );
+    assert.equal(bossStub.wasAsked(), false);
+    assert.equal(bgStub.wasAsked(), false);
   });
 
-  test("both payloads satisfy the wire schema and keep parent addressing", () => {
+  test("both payloads satisfy the wire schema and keep parent addressing", async () => {
+    const target = await liveTarget();
     const started = toolCardStarted(
       target,
       {
@@ -125,7 +179,8 @@ describe("sub-agent tool cards", () => {
     assert.equal(terminal.status, "succeeded");
   });
 
-  test("a bounced call carries nonExecution so the client retracts the nested card", () => {
+  test("a bounced call carries nonExecution so the client retracts the nested card", async () => {
+    const target = await liveTarget();
     const terminal = toolCardTerminal(
       target,
       { toolCallId: "call_2", toolName: "github.search" },
