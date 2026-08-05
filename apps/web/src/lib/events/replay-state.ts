@@ -187,10 +187,15 @@ const SPEAKS_FOR_NO_RUN = {
   "agent.progress": "Step telemetry with no client state that survives a reload.",
   "tool.call": "Workflow tool telemetry; the chat trail's cards arrive as `chat.tool`.",
   "artifact.delta":
-    "Carries the chat run's own `runId`, and that run armed a barrier at `chat.message` / " +
-    '`phase: "started"` before its first delta. Replay is kind-agnostic (one global id range, ' +
-    "`modules/events/replay.ts`), so the chat barrier already spans the deltas and excluding " +
-    "this kind costs the artifact stream nothing.",
+    "Carries the chat run's own `runId`, and replay is kind-agnostic (one global id range, " +
+    "`modules/events/replay.ts`), so a client that armed this run's barrier at `chat.message` / " +
+    '`phase: "started"` has that barrier span the deltas and gets them back on reload. But the ' +
+    "barrier only exists for a client that saw `started`. A client that first observes the run " +
+    "through `artifact.delta` alone — a fresh tab, or a reconnect whose resume floor already " +
+    "sits above the run's `started` id — arms no barrier, floats the cursor past these deltas, " +
+    "and re-loses them on the next reload. That window self-heals: the durable `artifacts` row " +
+    "supersedes the live stream once the tool resolves. See `test/events/replay-state.test.ts` " +
+    "(the mid-join gap) and campaign item 41's follow-up for the server-side recovery.",
   "inbox.updated": "Carries no `runId`.",
   "memory.fact_learned": "Carries no `runId`.",
 } satisfies Partial<Record<EventStreamFrame["kind"], string>>;
