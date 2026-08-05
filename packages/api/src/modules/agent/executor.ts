@@ -1,5 +1,6 @@
 import type { AgentTranscriptMessage } from "@alfred/contracts";
 import {
+  AGENT_RUN_ERROR_MAX,
   AGENT_STEP_PROGRESS_STATUSES,
   sanitizeErrorMessage,
   sanitizeToolResult,
@@ -1005,10 +1006,13 @@ async function commitStepFailure(
   attempt: number,
   error: string,
 ): Promise<RunOutcome> {
-  // ADR-0070 §1.3: the throw-poison class. A tool/step that throws a NUL-byte
-  // message would re-throw on the jsonb error write here, escaping the catch
-  // and leaving the run `running` → the reclaim loop. Strip before persisting.
-  const safeError = sanitizeErrorMessage(error);
+  // ADR-0070 §1.3 + §8: the throw-poison class AND the length class. A tool/step
+  // that throws a NUL-byte message would re-throw on the jsonb error write here,
+  // and a message over `AGENT_RUN_ERROR_MAX` would make the `agent.run` frame's
+  // `safeParse` throw — either escapes the catch, rolls the `failed` write back,
+  // and leaves the run `running` → the reclaim loop. Strip AND bound once, so the
+  // persisted `error.message` and the frame `error` carry the identical string.
+  const safeError = sanitizeErrorMessage(error, AGENT_RUN_ERROR_MAX);
   try {
     await db().transaction(async (tx) => {
       const now = new Date();
@@ -1078,9 +1082,12 @@ export async function markRunFailed(
   attempt: number,
   error: string,
 ): Promise<SupersedeCause | null> {
-  // ADR-0070 §8: strip the throw-poison class ONCE, so the persisted
-  // `error.message` and the release frame's `error` carry the identical string.
-  const safeError = sanitizeErrorMessage(error);
+  // ADR-0070 §8: strip the throw-poison class AND bound to `AGENT_RUN_ERROR_MAX`
+  // ONCE, so the persisted `error.message` and the release frame's `error` carry
+  // the identical string. Without the bound an over-cap message makes the frame
+  // `safeParse` throw, rolls this guarded `failed` write back, and re-enters the
+  // reclaim loop.
+  const safeError = sanitizeErrorMessage(error, AGENT_RUN_ERROR_MAX);
   try {
     await db().transaction(async (tx) => {
       await commitGuardedRunUpdate(tx, run, stepId, attempt, {

@@ -75,3 +75,30 @@ test("sanitizeToolResult passes non-string scalars through and allocates nothing
 test("sanitizeErrorMessage strips poison from a message string", () => {
   assert.equal(sanitizeErrorMessage(`pg error${NUL} 0x00 here`), "pg error 0x00 here");
 });
+
+test("sanitizeErrorMessage bounds the result to `max` code units", () => {
+  const out = sanitizeErrorMessage("x".repeat(5000), 4000);
+  assert.equal(out.length, 4000, "truncated to max");
+});
+
+test("sanitizeErrorMessage leaves a shorter-than-max message untouched", () => {
+  assert.equal(sanitizeErrorMessage("short message", 4000), "short message");
+});
+
+test("sanitizeErrorMessage omitting max preserves the full length (today's behavior)", () => {
+  const long = "y".repeat(5000);
+  assert.equal(sanitizeErrorMessage(long).length, 5000, "no truncation without max");
+});
+
+test("sanitizeErrorMessage truncation is surrogate-safe at the boundary", () => {
+  const max = 4000;
+  // Build a string whose astral pair (😀 = one high + one low surrogate) straddles
+  // `max`: the first half of the pair sits at index max-1, the second at max, so a
+  // naive slice(0, max) would orphan the high surrogate into lone poison.
+  const message = "a".repeat(max - 1) + "😀";
+  const out = sanitizeErrorMessage(message, max);
+  assert.ok(out.length <= max, "result is within the bound");
+  // The re-strip after slice removes any orphaned half, so the result round-trips
+  // clean through the poison regex (a lone surrogate would be stripped again).
+  assert.equal(sanitizeErrorMessage(out), out, "no lone surrogate survives the truncation");
+});

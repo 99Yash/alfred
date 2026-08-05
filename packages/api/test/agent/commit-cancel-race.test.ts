@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { randomUUID } from "node:crypto";
 import { after, before, beforeEach, describe, test } from "node:test";
 
-import { getStringPath } from "@alfred/contracts";
+import { AGENT_RUN_ERROR_MAX, getStringPath } from "@alfred/contracts";
 import { closeConnections, db } from "@alfred/db";
 import { actionStagings, agentRuns, agentSteps, eventsOutbox, user } from "@alfred/db/schemas";
 import { and, eq, inArray, like } from "drizzle-orm";
@@ -529,6 +529,43 @@ describe("mid-flight cancel race (#530, DB-backed)", { skip: SKIP }, () => {
       (await readFailedRunFrames(userId, runId)).length,
       1,
       "exactly one terminal agent.run/failed frame for the run",
+    );
+  });
+
+  test("markRunFailed bounds an over-4000-char error so the terminal write commits", async () => {
+    const { userId, runId } = await seedRun({
+      workflowSlug: CANCEL_CLOSURE_SLUG,
+      status: "running",
+      attempt: 1,
+    });
+
+    // A resolve-failure message longer than the `agent.run` frame's `error` cap.
+    // On `main` this makes `publishEvent`'s `safeParse` throw INSIDE the guarded
+    // tx, rolling the `failed` write back so the run stays `running` and
+    // re-enters the reclaim loop. The bound at the sanitize sink is what lets the
+    // terminal write commit.
+    const cause = await markRunFailed(
+      runRow(userId, runId, CANCEL_CLOSURE_SLUG, 1),
+      STEP,
+      1,
+      "z".repeat(AGENT_RUN_ERROR_MAX + 500),
+    );
+
+    assert.equal(cause, null, "not superseded");
+    const run = await readRun(runId);
+    assert.equal(run?.status, "failed", "reaches terminal failed, not stuck running");
+
+    const frames = await readFailedRunFrames(userId, runId);
+    assert.equal(frames.length, 1, "exactly one terminal agent.run/failed frame");
+
+    const frameError = getStringPath(frames[0], "error");
+    const persisted = getStringPath(run?.error, "message");
+    assert.ok(frameError !== undefined, "the frame carries the bounded error");
+    assert.ok(frameError.length <= AGENT_RUN_ERROR_MAX, "frame error is within the cap");
+    assert.equal(
+      frameError,
+      persisted,
+      "the frame error and the persisted error.message are the identical bounded string",
     );
   });
 
