@@ -1,7 +1,7 @@
 # Agent-friendly module structure
 
-> **Status:** active migration plan. Phases 0 and 1 are complete. Phase 2 is
-> next.
+> **Status:** active migration plan. Phases 0–2 are complete; Phase 3 is in
+> progress. See [`## Migration status`](#migration-status) for the current detail.
 >
 > **Basis:** the repository state on 2026-08-01. Git history has been rewritten
 > and is not evidence for how the repository evolved.
