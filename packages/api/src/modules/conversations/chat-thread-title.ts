@@ -3,7 +3,7 @@ import { toMessage } from "@alfred/contracts";
 import { db } from "@alfred/db";
 import { chatAttachments, chatMessages, chatThreads } from "@alfred/db/schemas";
 import { and, asc, eq, ne, sql } from "drizzle-orm";
-import { emitReplicachePokes } from "../../../events/replicache-events";
+import { emitReplicachePokes } from "../../events/replicache-events";
 
 const TITLE_TIMEOUT_MS = 15_000;
 

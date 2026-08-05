@@ -1,6 +1,5 @@
 import type { AgentTranscriptMessage } from "@alfred/contracts";
 import type { StepResult } from "../types";
-import type { ChatRunState } from "./chat-turn-state";
 
 /**
  * Every bound on how much work one agent turn-loop may do, in one place.
@@ -118,18 +117,15 @@ function planTurnRetry<S>(
   };
 }
 
-const CHAT_EMPTY_COMPLETION_BUDGET: TurnRetryBudget<ChatRunState> = {
-  max: EMPTY_COMPLETION_MAX_RETRIES,
-  read: (state) => state.emptyCompletionRetries,
-  bump: (state) => ({ ...state, emptyCompletionRetries: state.emptyCompletionRetries + 1 }),
-  nextStep: "chat-turn",
-};
-
-const CHAT_STREAM_TIMEOUT_BUDGET: TurnRetryBudget<ChatRunState> = {
-  max: STREAM_TIMEOUT_MAX_RETRIES,
-  read: (state) => state.streamTimeoutRetries,
-  bump: (state) => ({ ...state, streamTimeoutRetries: state.streamTimeoutRetries + 1 }),
-  nextStep: "chat-turn",
+/**
+ * The two consecutive-failure counters a chat turn budgets. Named as a type so
+ * this module — which stays in `agent` — does not import the concrete
+ * `ChatRunState` that moved to `conversations`. The chat planners are generic
+ * over it, exactly like {@link openBriefTurnRetries} is over its own counter.
+ */
+type ChatRetryState = {
+  emptyCompletionRetries: number;
+  streamTimeoutRetries: number;
 };
 
 /**
@@ -142,7 +138,7 @@ const CHAT_STREAM_TIMEOUT_BUDGET: TurnRetryBudget<ChatRunState> = {
  * of them and not the other; here a new budget zeroes its counter once, next to
  * the descriptor that reads and bumps it.
  */
-export function resetChatTurnRetryBudgets(state: ChatRunState): void {
+export function resetChatTurnRetryBudgets<S extends ChatRetryState>(state: S): void {
   state.emptyCompletionRetries = 0;
   state.streamTimeoutRetries = 0;
 }
@@ -150,14 +146,14 @@ export function resetChatTurnRetryBudgets(state: ChatRunState): void {
 /** Every bounded retry a chat turn can plan, bound to one pre-turn transcript. */
 export interface ChatTurnRetries {
   /** Regenerate a turn that came back empty. */
-  readonly afterEmptyCompletion: (state: ChatRunState) => PlannedTurnRetry<ChatRunState> | null;
+  readonly afterEmptyCompletion: <S extends ChatRetryState>(state: S) => PlannedTurnRetry<S> | null;
   /**
    * Regenerate a turn the streaming circuit-breaker aborted. The bound
    * transcript already holds every tool result gathered this run, so the retry
    * re-issues just the model call that ran long — exactly like the manual
    * resend that recovers today.
    */
-  readonly afterStreamTimeout: (state: ChatRunState) => PlannedTurnRetry<ChatRunState> | null;
+  readonly afterStreamTimeout: <S extends ChatRetryState>(state: S) => PlannedTurnRetry<S> | null;
 }
 
 /**
@@ -173,9 +169,27 @@ export interface ChatTurnRetries {
 export function openChatTurnRetries(preTurnTranscript: AgentTranscriptMessage[]): ChatTurnRetries {
   return {
     afterEmptyCompletion: (state) =>
-      planTurnRetry(CHAT_EMPTY_COMPLETION_BUDGET, state, preTurnTranscript),
+      planTurnRetry(
+        {
+          max: EMPTY_COMPLETION_MAX_RETRIES,
+          read: (s) => s.emptyCompletionRetries,
+          bump: (s) => ({ ...s, emptyCompletionRetries: s.emptyCompletionRetries + 1 }),
+          nextStep: "chat-turn",
+        },
+        state,
+        preTurnTranscript,
+      ),
     afterStreamTimeout: (state) =>
-      planTurnRetry(CHAT_STREAM_TIMEOUT_BUDGET, state, preTurnTranscript),
+      planTurnRetry(
+        {
+          max: STREAM_TIMEOUT_MAX_RETRIES,
+          read: (s) => s.streamTimeoutRetries,
+          bump: (s) => ({ ...s, streamTimeoutRetries: s.streamTimeoutRetries + 1 }),
+          nextStep: "chat-turn",
+        },
+        state,
+        preTurnTranscript,
+      ),
   };
 }
 

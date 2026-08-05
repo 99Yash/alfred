@@ -1,5 +1,5 @@
 import { toMessage } from "@alfred/contracts";
-import { isChatStopRequested } from "../../chat/stop-signal";
+import { isChatStopRequested } from "./stop-signal";
 
 /** Poll the user-stop flag at most this often (ms). */
 const STOP_CHECK_MS = 400;

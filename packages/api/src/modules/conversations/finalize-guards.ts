@@ -4,20 +4,23 @@ import {
   withDefaults,
   type AgentTranscriptMessage,
 } from "@alfred/contracts";
-import { publishEvent } from "../../../events/publish";
-import { isMutatingToolName } from "../../tool-runtime";
-import { joinChildRun, type JoinChildRunDeps, type ParkSignal } from "../sub-agent-join";
-import { scheduleSubAgentJoinWakeJob } from "../sub-agent-join-wake-queue";
+import { publishEvent } from "../../events/publish";
+import { isMutatingToolName } from "../tool-runtime";
 import {
   isTerminalChildStatus,
+  joinChildRun,
   listSpawnedChildRuns,
+  PREVIEW_CHARS,
   readChildRunOutcome,
+  resetChatTurnRetryBudgets,
+  scheduleSubAgentJoinWakeJob,
   type ChildRunOutcome,
-} from "../sub-agents";
-import type { StepContext, StepResult } from "../types";
+  type JoinChildRunDeps,
+  type ParkSignal,
+  type StepContext,
+  type StepResult,
+} from "../agent";
 import { closeNarrationSegment, interruptChatRun, type ChatRunState } from "./chat-turn-state";
-import { PREVIEW_CHARS } from "./tool-preview";
-import { resetChatTurnRetryBudgets } from "./turn-budgets";
 
 /**
  * The chat turn's finalize boundary: everything that has to happen between "the
