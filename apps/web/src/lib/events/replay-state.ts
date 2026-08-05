@@ -351,6 +351,21 @@ function isTerminalChatPhase(phase: ChatMessagePhase): boolean {
  * `started`, `step_started`, `step_completed`, `interrupted`, `resumed` — none
  * of which ends a run. `interrupted` sits on status `waiting`; the rest sit on a
  * run that continues.
+ *
+ * This rule rests on two assumptions the compiler does NOT check:
+ * (a) *Arm placement is a human choice, not a type.* The exhaustive `switch`
+ * forces every phase to be classified (`TS2366`), but it does not force a
+ * status-named phase into the deriving first arm — `case "completed": return
+ * false` compiles. Only the per-phase test in `replay-state.test.ts` catches a
+ * misplaced arm (**tier 4**).
+ * (b) *`phase`-name == `status`-name holds by server construction only.* The
+ * `agent.run` phase enum and the run-status enum are two independent enums that
+ * share five names by convention; no code, type, or test pins the
+ * correspondence. Item 56's server pairing test
+ * (`packages/api/test/agent/terminal-agent-run-pairing.test.ts`) pins one
+ * direction of it — a terminal run status ⟹ a terminal `agent.run` frame — which
+ * is why the barrier release below can trust a terminal phase to mean the run
+ * ended.
  */
 function isTerminalRunPhase(phase: AgentRunPhase): boolean {
   switch (phase) {
