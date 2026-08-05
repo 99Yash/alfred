@@ -248,6 +248,23 @@ async function readFailedRunFrames(userId: string, runId: string): Promise<unkno
     .filter((p) => getStringPath(p, "runId") === runId && getStringPath(p, "phase") === "failed");
 }
 
+/**
+ * The `error` string carried by this run's `agent.run`/`cancelled` frame, if
+ * any. `cancelRunInTx` mints it through `boundAgentRunError`, so it is bounded
+ * to `AGENT_RUN_ERROR_MAX` even when the caller's `reason` is longer — otherwise
+ * `publishEvent`'s `safeParse` would throw on the over-cap string.
+ */
+async function readCancelledFrameError(userId: string, runId: string): Promise<string | undefined> {
+  const rows = await db()
+    .select({ payload: eventsOutbox.payload })
+    .from(eventsOutbox)
+    .where(and(eq(eventsOutbox.userId, userId), eq(eventsOutbox.kind, "agent.run")));
+  const frame = rows
+    .map((r) => r.payload)
+    .find((p) => getStringPath(p, "runId") === runId && getStringPath(p, "phase") === "cancelled");
+  return frame === undefined ? undefined : getStringPath(frame, "error");
+}
+
 async function readStagingStatuses(runId: string): Promise<string[]> {
   const rows = await db()
     .select({ status: actionStagings.status })
@@ -450,6 +467,29 @@ describe("mid-flight cancel race (#530, DB-backed)", { skip: SKIP }, () => {
     assert.equal(await cancelRun({ runId, reason: "cancelled_by_user" }), "cancelled");
 
     assert.deepEqual(terminalCalls, [{ runId, outcome: "cancelled", reason: "cancelled_by_user" }]);
+  });
+
+  test("a cancel reason over the cap publishes a bounded frame, not a safeParse throw", async () => {
+    // The live instance item 66 closes: `cancelRunInTx` publishes the reason on
+    // the length-capped `agent.run` frame. An over-cap reason used to make
+    // `publishEvent`'s `safeParse` throw inside the tx; `boundAgentRunError`
+    // bounds it. Reason is `CancelRunArgs.reason: string` with no cap of its own.
+    const { userId, runId } = await seedRun({
+      workflowSlug: CANCEL_CLOSURE_SLUG,
+      status: "running",
+      attempt: 3,
+    });
+    const longReason = "x".repeat(AGENT_RUN_ERROR_MAX + 500);
+
+    // Would reject (throw) on the over-cap payload without the publisher clamp.
+    assert.equal(await cancelRun({ runId, reason: longReason }), "cancelled");
+
+    const frameError = await readCancelledFrameError(userId, runId);
+    assert.ok(frameError !== undefined, "the cancelled frame was published");
+    assert.ok(
+      frameError.length <= AGENT_RUN_ERROR_MAX,
+      `frame error bounded to the cap (was ${frameError.length})`,
+    );
   });
 
   test("cancelling an already-terminal run does not re-close the turn", async () => {

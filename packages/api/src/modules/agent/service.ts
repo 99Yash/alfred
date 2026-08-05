@@ -3,6 +3,7 @@ import { db, rowsFromExecute } from "@alfred/db";
 import { actionStagings, agentRuns, agentSteps, workflows } from "@alfred/db/schemas";
 import {
   agentRunTriggerSchema,
+  boundAgentRunError,
   runStatusSchema,
   wakeConditionSchema,
   type AgentRunTrigger,
@@ -748,7 +749,7 @@ export async function cancelRunInTx(tx: AgentTx, args: CancelRunArgs): Promise<C
       phase: "cancelled",
       step: row.currentStep,
       attempt: row.attempt,
-      error: args.reason,
+      error: boundAgentRunError(args.reason),
     },
   });
   const rejectedStagingIds = rejectedStagings.map((r: { id: string }) => r.id);

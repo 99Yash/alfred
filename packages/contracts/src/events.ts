@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { sanitizeErrorMessage } from "./sanitize";
 
 export const CHAT_DELTA_MAX = 16_000;
 
@@ -41,17 +42,40 @@ export const approvalRequestedSchema = z.object({
 });
 
 /**
- * Cap for the `error` string an `agent.run` frame carries. Exported because the
- * *publisher* has to clamp to it: the string comes from a step-body or
- * resolve-failure throw of any length, and `publishEvent` throws on a payload
- * the schema rejects — inside an awaited commit hook that rolls back the
- * terminal `failed` write and re-enters the reclaim loop. `sanitizeErrorMessage`
- * takes this as its `max` at the two terminal-fail sinks (`commitStepFailure`,
- * `markRunFailed` in `@alfred/api`), so the persisted `error.message` and the
- * frame's `error` are the identical bounded string (ADR-0070 §8). Mirrors
- * `CHAT_TOOL_NAME_MAX`.
+ * Cap for the `error` string an `agent.run` frame carries. The *publisher* has
+ * to clamp to it: the string comes from a step-body or resolve-failure throw of
+ * any length, and `publishEvent` throws on a payload the schema rejects — inside
+ * an awaited commit hook that rolls back the terminal `failed` write and
+ * re-enters the reclaim loop. The bound is no longer a constant a caller must
+ * remember to apply: {@link boundAgentRunError} is the sole minter of the
+ * branded {@link AgentRunError} the frame's `error` field now demands, so a raw
+ * `string` at any publisher is a type error, not a runtime `safeParse` throw.
+ * The minter also feeds the persisted `error.message` twin, so both carry the
+ * identical bounded string (ADR-0070 §8). Mirrors `CHAT_TOOL_NAME_MAX`.
  */
 export const AGENT_RUN_ERROR_MAX = 4_000;
+
+/**
+ * The `error` field of an `agent.run` frame. Branded so a plain `string` is not
+ * assignable: the only door to the brand is {@link boundAgentRunError}, which
+ * runs the ADR-0070 null-byte strip and the {@link AGENT_RUN_ERROR_MAX} bound.
+ * The brand is type-only — `safeParse` still enforces `.max()` and returns the
+ * string unchanged, and a branded string is assignable to `string`, so no
+ * consumer or persisted read changes.
+ */
+export const agentRunErrorSchema = z.string().max(AGENT_RUN_ERROR_MAX).brand<"AgentRunError">();
+export type AgentRunError = z.infer<typeof agentRunErrorSchema>;
+
+/**
+ * The sole minter of {@link AgentRunError}. Strips ADR-0070 poison and bounds to
+ * {@link AGENT_RUN_ERROR_MAX} in one call, so the branded result is
+ * stripped-and-≤cap by construction — the cast is the standard branded-minter
+ * idiom (mirrors `parseIanaTimezone`). A publisher mints its `error` here; a
+ * plain string cannot reach the payload.
+ */
+export function boundAgentRunError(raw: string): AgentRunError {
+  return sanitizeErrorMessage(raw, AGENT_RUN_ERROR_MAX) as AgentRunError;
+}
 
 export const agentRunSchema = z.object({
   runId: z.string().min(1).max(120),
@@ -71,7 +95,7 @@ export const agentRunSchema = z.object({
   attempt: z.number().int().nonnegative().optional(),
   workflowSlug: z.string().min(1).max(120).optional(),
   wake: z.unknown().optional(),
-  error: z.string().max(AGENT_RUN_ERROR_MAX).optional(),
+  error: agentRunErrorSchema.optional(),
   retryAt: z.string().optional(),
 });
 
