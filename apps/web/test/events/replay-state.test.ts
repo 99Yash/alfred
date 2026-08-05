@@ -10,7 +10,7 @@ import {
   type ReplayState,
 } from "../../src/lib/events/replay-state";
 
-const emptyState = (): ReplayState => ({ cursor: 0, activeRuns: {} });
+const emptyState = (): ReplayState => ({ cursor: 0, activeRuns: {}, completedRuns: {} });
 
 // One base payload per kind, spread with only the field a test is actually
 // about. Hand-copied per-frame literals let one test's premise drift from its
@@ -152,7 +152,7 @@ describe("event replay state", () => {
   test("a delta establishes a recovery barrier even when started was missed", () => {
     const state = advanceReplayState(emptyState(), chatDelta(42));
 
-    assert.deepEqual(state, { cursor: 42, activeRuns: { "run-1": 41 } });
+    assert.deepEqual(state, { cursor: 42, activeRuns: { "run-1": 41 }, completedRuns: {} });
     assert.equal(replaySince(state), 41);
   });
 
@@ -165,7 +165,7 @@ describe("event replay state", () => {
     for (const frame of excludedFrames(42)) {
       assert.deepEqual(
         advanceReplayState(emptyState(), frame),
-        { cursor: 42, activeRuns: {} },
+        { cursor: 42, activeRuns: {}, completedRuns: {} },
         frame.kind,
       );
     }
@@ -175,7 +175,7 @@ describe("event replay state", () => {
     for (const { frame, runId } of barrierFrames(42)) {
       assert.deepEqual(
         advanceReplayState(emptyState(), frame),
-        { cursor: 42, activeRuns: { [runId]: 41 } },
+        { cursor: 42, activeRuns: { [runId]: 41 }, completedRuns: {} },
         frame.kind,
       );
     }
@@ -203,13 +203,20 @@ describe("event replay state", () => {
     const state: ReplayState = {
       cursor: 80,
       activeRuns: { "run-1": 41, "run-2": 60 },
+      completedRuns: {},
     };
     const completed = advanceReplayState(
       state,
       chatMessage(81, { runId: "run-1", phase: "completed" }),
     );
 
-    assert.deepEqual(completed, { cursor: 81, activeRuns: { "run-2": 60 } });
+    // run-1's completion at 81 sits above the floor run-2 (60) holds, so it is
+    // remembered against a later stray. run-2 is untouched.
+    assert.deepEqual(completed, {
+      cursor: 81,
+      activeRuns: { "run-2": 60 },
+      completedRuns: { "run-1": 81 },
+    });
     assert.equal(replaySince(completed), 60);
 
     const idle = advanceReplayState(
@@ -225,10 +232,13 @@ describe("event replay state", () => {
   // falls through to the arming branch, the barrier is re-armed and persisted to
   // localStorage and every later page load replays from an id that never advances.
   test("a completion replayed behind the cursor still releases its run", () => {
-    const state: ReplayState = { cursor: 500, activeRuns: { "run-1": 41 } };
+    const state: ReplayState = { cursor: 500, activeRuns: { "run-1": 41 }, completedRuns: {} };
     const replayed = advanceReplayState(state, chatMessage(42, { phase: "completed" }));
 
-    assert.deepEqual(replayed, { cursor: 500, activeRuns: {} });
+    // The completion at 42 is below the floor (500), so the prune drops its
+    // terminal record: replay never resends an id at or below the cursor, so no
+    // stray for this run can arrive to be rejected.
+    assert.deepEqual(replayed, { cursor: 500, activeRuns: {}, completedRuns: {} });
     assert.equal(replaySince(replayed), 500);
   });
 
@@ -264,6 +274,116 @@ describe("event replay state", () => {
     secondTab.noteFrame(inboxUpdated(75));
 
     assert.equal(stored.cursor, 100);
+  });
+
+  // The probe from item 31 review r1 must-fix 3: a recoverable frame that merely
+  // *names* a run whose `completed` was already applied must not re-arm that run's
+  // barrier. The clearing branch is id-tolerant (a completion releases under any
+  // arrival order); the arming branch must refuse a run recorded as terminal, or
+  // `since` freezes at the stray's barrier forever because a run publishes
+  // `completed` at most once.
+  test("a frame after a run's completion does not re-arm its barrier", () => {
+    const started = advanceReplayState(emptyState(), chatMessage(10, { phase: "started" }));
+    const delta = advanceReplayState(started, chatDelta(11, { seq: 0 }));
+    const completed = advanceReplayState(delta, chatMessage(30, { phase: "completed" }));
+    assert.deepEqual(completed.activeRuns, {});
+
+    const stray = advanceReplayState(completed, chatDelta(31, { seq: 1 }));
+
+    assert.deepEqual(stray.activeRuns, {});
+    assert.equal(replaySince(stray), stray.cursor);
+    assert.equal(replaySince(stray), 31);
+  });
+
+  // Sub-agent `chat.tool` frames carry the *parent's* `runId`, and `dispatchBatch`
+  // republishes non-terminal frames on every resume and stale-lease reclaim, so a
+  // `chat.tool` naming an already-completed parent run is an ordinary occurrence.
+  test("a chat.tool naming an already-completed parent run does not re-arm it", () => {
+    const started = advanceReplayState(emptyState(), chatMessage(10, { phase: "started" }));
+    const completed = advanceReplayState(started, chatMessage(20, { phase: "completed" }));
+    assert.deepEqual(completed.activeRuns, {});
+
+    const republished = advanceReplayState(completed, {
+      id: 21,
+      createdAt: "",
+      kind: "chat.tool",
+      payload: CHAT_TOOL,
+    });
+
+    assert.deepEqual(republished.activeRuns, {});
+    assert.equal(replaySince(republished), 21);
+  });
+
+  // The prune floor is `completedRuns[id] < replaySince(next)`, strictly below.
+  // A run that completes *above* the floor another active run holds must stay
+  // remembered so its own strays are still rejected; a completion at or below the
+  // floor is dropped. An off-by-one here is silent, so assert both directions.
+  test("a completion above the active floor is remembered; one below it is dropped", () => {
+    const state: ReplayState = {
+      cursor: 80,
+      activeRuns: { "run-low": 5, "run-1": 41 },
+      completedRuns: {},
+    };
+    const completed = advanceReplayState(
+      state,
+      chatMessage(81, { runId: "run-1", phase: "completed" }),
+    );
+
+    // `run-low` holds the floor at 5; run-1's completion at 81 sits above it.
+    assert.equal(replaySince(completed), 5);
+    assert.equal(completed.completedRuns["run-1"], 81);
+
+    // A stale completion behind the floor is dropped by the prune.
+    const stale: ReplayState = {
+      cursor: 80,
+      activeRuns: { "run-low": 5 },
+      completedRuns: {},
+    };
+    const belowFloor = advanceReplayState(
+      stale,
+      chatMessage(3, { runId: "run-old", phase: "completed" }),
+    );
+    assert.equal(replaySince(belowFloor), 5);
+    assert.equal(belowFloor.completedRuns["run-old"], undefined);
+  });
+
+  test("completedRuns drains to empty once the runs go idle", () => {
+    const started = advanceReplayState(emptyState(), chatMessage(10, { phase: "started" }));
+    const completed = advanceReplayState(started, chatMessage(30, { phase: "completed" }));
+    assert.equal(completed.completedRuns["run-1"], 30);
+
+    const idle = advanceReplayState(completed, inboxUpdated(900));
+    assert.equal(idle.cursor, 900);
+    assert.deepEqual(idle.completedRuns, {});
+  });
+
+  // A `completed` for a run this tab never armed leaves `activeRuns` unchanged
+  // (the delete is a no-op) but writes a `completedRuns` entry. The write gate
+  // must persist that record even though the barrier set did not change, or a
+  // fresh tab reloads without the terminal memory and a later stray re-arms.
+  test("persists a completed run recorded while another run stays active", () => {
+    let stored: ReplayState = {
+      cursor: 80,
+      activeRuns: { "run-2": 60 },
+      completedRuns: {},
+    };
+    let writes = 0;
+    const replay = createReplayStateController({
+      read: () => stored,
+      write: (state) => {
+        stored = state;
+        writes += 1;
+      },
+    });
+
+    // run-1 was never armed here; its completion at 81 sits above the floor
+    // run-2 holds (60), so it is recorded. activeRuns still holds run-2, so the
+    // write is gated on the completedRuns change alone.
+    replay.noteFrame(chatMessage(81, { runId: "run-1", phase: "completed" }));
+
+    assert.equal(writes, 1);
+    assert.equal(stored.completedRuns["run-1"], 81);
+    assert.deepEqual(stored.activeRuns, { "run-2": 60 });
   });
 
   test("does not write localStorage for every delta while a barrier is active", () => {
