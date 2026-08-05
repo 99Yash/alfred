@@ -57,6 +57,42 @@ These figures are navigation signals. A large file or an import edge is not a
 defect by itself. The load-bearing problem is that a caller can reach many
 implementation details and several domain decisions have no single owner.
 
+## Migration status
+
+Updated 2026-08-05. This section records progress against the migration sequence
+below. The `## Current evidence` figures above are the start-state snapshot and are
+not updated as phases land.
+
+- **Phase 0 — record and enforce the map.** Done. `scripts/check-module-architecture.mjs`
+  and `scripts/module-architecture-baseline.json` are in place and run in `pnpm check`.
+- **Phase 1 — give events one owner.** Done (PRs #622–#632).
+- **Phase 2 — deepen the tool runtime.** Done. The `agent↔tools`, `agent↔dispatch`,
+  `dispatch↔tools`, and `tools↔workflows` cycles are removed (PRs #633, #635, #636,
+  #639, #640, #641; boot-seam unification #643).
+- **Phase 3 — isolate durable execution.** Core slices landed; two recipe-homing
+  follow-ups and one barrel-removal remain.
+  - 01 · reduce `agent` to the generic execution state machine (`startRun`,
+    `registerRecipe`; queue handle closed) — PR #662, merged.
+  - 02 · move the chat recipe into a new `conversations` module — PR #663, merged.
+  - 03 · move chat context assembly, summaries, and compaction to `conversations` —
+    PR #664, merged.
+  - 04 · move product recipes into their owning modules — PR #665, merged.
+  - 05 · replace `createRun`+`enqueueRun` pairs with `startRun` — PR #666, merged.
+  - 06 · generic execution contract test + prove `execution` imports no product
+    module — in progress.
+  - 07 · break `memory → cold-start`, then home the `cold-start-research` recipe —
+    not started (deferred by 04).
+  - 08 · break `skills ↔ skill-documentation`, then home the `learn-skill` recipe —
+    not started (deferred by 04).
+  - 09 · remove the public `createRun`/`enqueueRun` exports after 07 and 08 migrate
+    their callers — not started (deferred by 05; needs 07, 08).
+- **Phases 4–7 — knowledge/settings, connections, package extraction, public
+  surfaces.** Not started.
+
+The target package trees `@alfred/assistant` and `@alfred/http` do not exist yet; per
+the sequence below, they are created in Phase 6, after the in-place cycle-breaking
+phases make the dependency direction possible.
+
 ## Design rules
 
 1. **One module owns one coherent set of decisions.** Code that changes for the
