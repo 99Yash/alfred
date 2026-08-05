@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import { randomUUID } from "node:crypto";
 import { after, before, beforeEach, describe, test } from "node:test";
 
+import { getStringPath } from "@alfred/contracts";
 import { closeConnections, db } from "@alfred/db";
 import { actionStagings, agentRuns, agentSteps, eventsOutbox, user } from "@alfred/db/schemas";
 import { and, eq, inArray, like } from "drizzle-orm";
@@ -229,6 +230,22 @@ async function countApprovalRequests(userId: string): Promise<number> {
     .from(eventsOutbox)
     .where(and(eq(eventsOutbox.userId, userId), eq(eventsOutbox.kind, "approval.requested")));
   return rows.length;
+}
+
+/**
+ * The terminal `agent.run`/`failed` frames this run emitted. `markRunFailed`
+ * releases the client's replay barrier by publishing one such frame in the same
+ * tx as the `failed` status write, so a superseded (rolled-back) write must
+ * leave zero.
+ */
+async function readFailedRunFrames(userId: string, runId: string): Promise<unknown[]> {
+  const rows = await db()
+    .select({ payload: eventsOutbox.payload })
+    .from(eventsOutbox)
+    .where(and(eq(eventsOutbox.userId, userId), eq(eventsOutbox.kind, "agent.run")));
+  return rows
+    .map((r) => r.payload)
+    .filter((p) => getStringPath(p, "runId") === runId && getStringPath(p, "phase") === "failed");
 }
 
 async function readStagingStatuses(runId: string): Promise<string[]> {
@@ -480,6 +497,14 @@ describe("mid-flight cancel race (#530, DB-backed)", { skip: SKIP }, () => {
     assert.deepEqual(run?.error, cancelled?.error, "the cancel's reason payload is intact");
     assert.deepEqual(run?.endedAt, cancelled?.endedAt, "and so is its endedAt");
     assert.deepEqual(terminalCalls, [], "and no failure closure ran on a cancelled turn");
+    // The release frame rides the same tx as the guarded `failed` write, so the
+    // supersede rollback drops it — a leaked `failed` frame over a `cancelled`
+    // run is the #530 class the guard exists to prevent.
+    assert.deepEqual(
+      await readFailedRunFrames(userId, runId),
+      [],
+      "no agent.run/failed frame leaked over the cancelled run",
+    );
   });
 
   test("markRunFailed still lands on a run this worker owns", async () => {
@@ -498,6 +523,13 @@ describe("mid-flight cancel race (#530, DB-backed)", { skip: SKIP }, () => {
 
     assert.equal(cause, null, "not superseded");
     assert.equal((await readRun(runId))?.status, "failed");
+    // The terminal `agent.run`/`failed` frame that releases the client's
+    // replay barrier — published in the same tx as the `failed` status write.
+    assert.equal(
+      (await readFailedRunFrames(userId, runId)).length,
+      1,
+      "exactly one terminal agent.run/failed frame for the run",
+    );
   });
 
   // ---- D3: a compound supersede reports the actionable cause ---------------
