@@ -376,8 +376,17 @@ describe("workflow revision invariants (#555)", { skip: SKIP }, () => {
       .update(workflows)
       .set({ nextRunAt: scheduledFor })
       .where(eq(workflows.id, created.workflow.id));
+    // Faithfully replicate `startRunInTx`: commit the CAS claim + run row in
+    // one transaction, then simulate a Redis outage on the post-commit
+    // enqueue. The row must survive as `pending` for the resume sweep.
     const tick = await dispatchDueCronWorkflows(new Date(), {
-      enqueueRun: async () => {
+      startRunInTx: async (spec) => {
+        const created = await db().transaction(async (tx) => {
+          const args = await spec.claim(tx);
+          if (!args) return null;
+          return createRun(args, tx);
+        });
+        if (!created) return null;
         throw new Error("simulated Redis outage after commit");
       },
     });

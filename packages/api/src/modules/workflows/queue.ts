@@ -7,8 +7,9 @@ import { dispatchDueCronWorkflows } from "./tick";
  *
  * Mirrors `briefing-cron` in shape but its only responsibility is to
  * drive the per-minute `workflows.tick` repeatable. The tick query is a
- * partial-index scan on `workflows.next_run_at`; per-row work is
- * `createRun({ trigger: cron, ... }) → enqueueRun({ jobId })`.
+ * partial-index scan on `workflows.next_run_at`; per-row work is one
+ * `startRunInTx({ claim, enqueue: { jobId } })` (CAS-claim + create in one
+ * transaction, enqueue after commit).
  *
  * Distinct from the per-feature `briefing-cron` and `memory-cron` queues
  * to keep the operational lanes obvious: one queue per dispatch

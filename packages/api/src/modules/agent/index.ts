@@ -10,6 +10,7 @@ import {
   signalRun,
   signalRunInTx,
   startRun,
+  startRunInTx,
   type SignalArgs,
 } from "./service";
 import { isUniqueViolation } from "../../lib/pg-errors";
@@ -26,6 +27,7 @@ export {
   registerRecipe,
   createRun,
   startRun,
+  startRunInTx,
   getRun,
   signalRun,
   signalRunInTx,
@@ -37,6 +39,12 @@ export {
   stopSubAgentJoinWakeWorker,
   verifyMeteringModels,
 };
+// The execution-domain verb for "hand an already-persisted run to the worker":
+// re-delivery (approvals), a best-effort kick after a committed larger write
+// (chat-turn), or after an interleaved domain write (skills). Same function as
+// the raw `enqueueRun` queue primitive; the distinct public name lets product
+// modules express intent instead of importing the queue primitive directly.
+export { enqueueRun as deliverRun } from "./queue";
 export { closeAgentQueue, closeSubAgentJoinWakeQueue };
 export type {
   RunStatus,
