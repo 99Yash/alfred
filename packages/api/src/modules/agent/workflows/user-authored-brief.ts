@@ -392,21 +392,19 @@ const dispatchToolsStep: Step<BriefRunState> = {
 
     // A sub-agent spawned from a chat turn streams its own tool calls back into
     // that turn's bubble, nested under the `spawn_sub_agent` card — otherwise
-    // the parent's trail goes silent for the child's whole lifetime. Null for
-    // the boss (it publishes its own cards from the chat workflow) and for any
-    // child whose parent had no chat turn.
-    //
-    // 37-MF1: ADR-0073 addresses these cards to the PARENT run's `(runId,
-    // messageId)`; the client arms a replay-recovery barrier on that `runId` and
-    // releases it only on the parent's `chat.message/completed`. A resume or
-    // stale-lease reclaim re-enters this step and republishes the cards. If the
-    // parent turn has already published its terminal `completed`, that republish
-    // arms a barrier the parent will never release again. So gate on the parent
-    // run still being open; the live first publish, parent still running, is
-    // unaffected.
-    const target = subAgentToolCardTarget(state.subAgent, ctx.runId);
-    const chatTarget =
-      target && (await parentRunStillOpen(target.runId, ctx.userId)) ? target : null;
+    // the parent's trail goes silent for the child's whole lifetime. ADR-0073
+    // addresses these cards to the PARENT run's `(runId, messageId)`. The door
+    // returns null (no card is published) for the boss, for a child whose parent
+    // had no chat turn, AND — the 37-MF1 gate, now folded into the door — for an
+    // already-terminal parent whose replay barrier `parentRunStillOpen` reports
+    // closed. See {@link subAgentToolCardTarget} for why an ungated target is
+    // unconstructible.
+    const chatTarget = await subAgentToolCardTarget(
+      state.subAgent,
+      ctx.runId,
+      ctx.userId,
+      parentRunStillOpen,
+    );
 
     const round = await executeToolCallRound({
       calls: state.pendingToolCalls,
