@@ -7,7 +7,7 @@ import type { Workflow } from "./types";
  */
 const registry = new Map<string, Workflow<unknown>>();
 
-export function registerWorkflow<S>(workflow: Workflow<S>): void {
+export function registerRecipe<S>(workflow: Workflow<S>): void {
   if (registry.has(workflow.slug)) {
     throw new Error(`[agent] workflow already registered: ${workflow.slug}`);
   }

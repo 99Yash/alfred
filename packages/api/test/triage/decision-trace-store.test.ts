@@ -8,7 +8,7 @@ import { databaseEnv } from "@alfred/env/database";
 import { and, eq, inArray, like } from "drizzle-orm";
 
 import { runOnce } from "../../src/modules/agent/executor";
-import { _resetRegistryForTests, registerWorkflow } from "../../src/modules/agent/registry";
+import { _resetRegistryForTests, registerRecipe } from "../../src/modules/agent/registry";
 import type { StepResult, Workflow } from "../../src/modules/agent/types";
 import { upsertTriage, type SenderExtractionEvent } from "../../src/modules/triage";
 
@@ -215,7 +215,7 @@ describe("triage decision trace persistence (DB-backed)", { skip: SKIP }, () => 
   test("row-atomic upsert trace plus ctx.trace leaves exactly one keyed trace", async () => {
     const userId = await seedUser();
     const workflowSlug = `${ID_PREFIX}success-${randomUUID().slice(0, 8)}`;
-    registerWorkflow(decisionTraceWorkflow(workflowSlug));
+    registerRecipe(decisionTraceWorkflow(workflowSlug));
     const state: TestState = {
       sourceThreadId: `thread_${randomUUID()}`,
       documentId: `doc_${randomUUID()}`,
@@ -242,7 +242,7 @@ describe("triage decision trace persistence (DB-backed)", { skip: SKIP }, () => 
   test("a step failure after upsert keeps the canonical row and its trace together", async () => {
     const userId = await seedUser();
     const workflowSlug = `${ID_PREFIX}failure-${randomUUID().slice(0, 8)}`;
-    registerWorkflow(decisionTraceWorkflow(workflowSlug));
+    registerRecipe(decisionTraceWorkflow(workflowSlug));
     const state: TestState = {
       sourceThreadId: `thread_${randomUUID()}`,
       documentId: `doc_${randomUUID()}`,

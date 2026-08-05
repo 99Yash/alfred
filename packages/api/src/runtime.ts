@@ -6,7 +6,7 @@ export { initReplicachePokeBridge, closeReplicachePokeBridge } from "./events/re
 export {
   closeAgentQueue,
   closeSubAgentJoinWakeQueue,
-  registerWorkflow,
+  registerRecipe,
   startAgentWorker,
   startSubAgentJoinWakeWorker,
   stopAgentWorker,

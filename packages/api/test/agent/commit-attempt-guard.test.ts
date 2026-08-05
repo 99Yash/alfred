@@ -10,7 +10,7 @@ import { commitStepSuccess, runOnce } from "../../src/modules/agent/executor";
 import {
   _resetRegistryForTests,
   getWorkflow,
-  registerWorkflow,
+  registerRecipe,
 } from "../../src/modules/agent/registry";
 import { heartbeatRun } from "../../src/modules/agent/service";
 import type { StepResult, Workflow } from "../../src/modules/agent/types";
@@ -147,7 +147,7 @@ describe("commit attempt-guard (DB-backed)", { skip: SKIP }, () => {
     await db()
       .delete(user)
       .where(like(user.id, `${ID_PREFIX}%`));
-    if (!getWorkflow(THROW_SLUG)) registerWorkflow(supersededFailureWorkflow);
+    if (!getWorkflow(THROW_SLUG)) registerRecipe(supersededFailureWorkflow);
   });
   after(async () => {
     if (createdUserIds.length > 0) {

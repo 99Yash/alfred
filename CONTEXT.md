@@ -26,7 +26,7 @@ These three bias every subsystem below. Read them first.
 
 **Workflow (row).** A row in the `workflows` table. Holds trigger spec, brief, optional steps DAG, status, allowed-integrations, HIL gates. Source of truth for the _settings UI_ and the _trigger dispatcher_ — not for execution shape.
 
-**Workflow (code).** A `Workflow<S>` object passed to `registerWorkflow()` at server boot. Source of truth for _execution_ (steps, initialState, dedupKey). Built-ins live as both a row AND a code object; user-authored live as a row only — registry misses route through a single shared `userAuthoredBriefWorkflow` sentinel only after the checked run resolver verifies `workflows (userId, slug)` exists and `is_builtin=false`. The requested slug, not the sentinel slug, stays the join key on `agent_runs.workflow_slug`; execution shape is shared.
+**Workflow (code).** A `Workflow<S>` object passed to `registerRecipe()` at server boot. Source of truth for _execution_ (steps, initialState, dedupKey). Built-ins live as both a row AND a code object; user-authored live as a row only — registry misses route through a single shared `userAuthoredBriefWorkflow` sentinel only after the checked run resolver verifies `workflows (userId, slug)` exists and `is_builtin=false`. The requested slug, not the sentinel slug, stays the join key on `agent_runs.workflow_slug`; execution shape is shared.
 
 **Run.** One execution of a workflow. Stored as one row in `agent_runs`. Joins back to the workflow via `agent_runs.workflow_slug`. There is no separate `workflow_runs` table — `agent_runs` covers status, timing, cost attribution.
 
