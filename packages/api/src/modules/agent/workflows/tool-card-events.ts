@@ -7,12 +7,19 @@
  * every new field on `chatToolSchema` a coordination problem across N call
  * sites, and left two invariants stated only in prose:
  *
- *  1. **Whose run the event claims.** The client keys its in-flight turn on
- *     `(messageId, runId)`, so an event carrying the CHILD's runId reads as a
- *     brand-new turn. Every top-level field must be the parent's; the child's
- *     own identity belongs in `subAgent`. A caller cannot get this wrong here
- *     because the only way to obtain a child's target is
- *     {@link subAgentToolCardTarget}, which reads `parentRunId`.
+ *  1. **Whose run the event claims, and whether that run is still live.** The
+ *     client keys its in-flight turn on `(messageId, runId)`, so an event
+ *     carrying the CHILD's runId reads as a brand-new turn. Every top-level
+ *     field must be the parent's; the child's own identity belongs in
+ *     `subAgent`. And the client arms a replay-recovery barrier on the parent's
+ *     `runId`, released only on the parent's terminal `chat.message/completed`,
+ *     so a card republished under an ALREADY-terminal parent (on a resume or a
+ *     stale-lease reclaim) arms a barrier nothing will release. A caller cannot
+ *     get either wrong here: the only way to obtain a child's target is
+ *     {@link subAgentToolCardTarget}, which reads `parentRunId` and refuses to
+ *     mint a target unless the parent run is still open — an ungated sub-agent
+ *     target is unconstructible (it carries a module-private brand the door is
+ *     the sole mint of).
  *  2. **The identity strings are provider-supplied.** `toolName` and
  *     `toolCallId` come off the model stream, `chatToolSchema` bounds them, and
  *     `publishEvent` THROWS on a rejected payload. A model-invented 121-char
@@ -33,28 +40,71 @@ import { preview } from "./tool-preview";
 import type { ToolEventOutcome } from "./tool-event-outcome";
 
 /**
- * The chat turn a card belongs to. `runId` / `threadId` / `messageId` are always
- * the turn's own — which for a spawned sub-agent means the PARENT's (see the
- * module note). `subAgent` present marks the card as a child's nested step.
+ * A brand no other module can name, minted only inside {@link subAgentToolCardTarget}
+ * after it has confirmed the parent run is still open. It never reaches the wire
+ * payload — the builders below assemble a fresh literal and never spread a target.
  */
-export interface ToolCardTarget {
-  /** The run that owns the *turn* — the parent's when `subAgent` is set. */
+const PROVEN_LIVE = Symbol("liveParentRun");
+type ProvenLive = { readonly [PROVEN_LIVE]: true };
+
+/** The three address fields every card carries — the turn's own `runId`. */
+interface ToolCardAddress {
+  /** The run that owns the *turn* — the parent's for a sub-agent card. */
   runId: string;
   threadId: string;
   messageId: string;
-  subAgent?: NonNullable<EventPayload<"chat.tool">["subAgent"]> | undefined;
 }
 
 /**
- * The publish target for a sub-agent run, or null when there is nothing to
- * publish to: the run is the boss itself (it publishes its own cards from the
- * chat workflow), or it is a child of a background parent with no chat turn.
+ * The boss's own card. Its run owns the live turn it is building, so there is no
+ * liveness question and no `subAgent` nesting. A boss literal is written inline
+ * at the chat-turn and stream-model-turn call sites.
  */
-export function subAgentToolCardTarget(
+export interface BossToolCardTarget extends ToolCardAddress {
+  subAgent?: undefined;
+}
+
+/**
+ * A sub-agent's nested card, PROVEN to address a still-open parent run. The
+ * `PROVEN_LIVE` brand is minted only by {@link subAgentToolCardTarget}, so a
+ * hand-built sub-agent target that skipped the liveness read cannot be
+ * constructed outside this module.
+ */
+export type LiveSubAgentToolCardTarget = ToolCardAddress & {
+  subAgent: NonNullable<EventPayload<"chat.tool">["subAgent"]>;
+} & ProvenLive;
+
+/**
+ * The chat turn a card belongs to. `runId` / `threadId` / `messageId` are always
+ * the turn's own — which for a spawned sub-agent means the PARENT's (see the
+ * module note). A present `subAgent` marks the card as a child's nested step, and
+ * that arm is proven-live by construction.
+ */
+export type ToolCardTarget = BossToolCardTarget | LiveSubAgentToolCardTarget;
+
+/**
+ * The sole door that mints a sub-agent publish target. Returns null when there is
+ * nothing to publish to — the run is the boss itself (it publishes its own cards
+ * from the chat workflow), or it is a child of a background parent with no chat
+ * turn — OR when the parent run is no longer open.
+ *
+ * The parent-liveness read is folded IN here, not left to the call site, so an
+ * ungated sub-agent target is unconstructible: the client arms a replay-recovery
+ * barrier on the parent's `runId` and releases it only on the parent's terminal
+ * `chat.message/completed`, so a card republished under an already-terminal
+ * parent (on a resume or stale-lease reclaim) would arm a barrier nothing
+ * releases. `isParentOpen` is injected — the DB reader lives with `getRun` in the
+ * brief workflow, which keeps this module a pure payload builder — and is asked
+ * only after a chat turn to publish to is confirmed.
+ */
+export async function subAgentToolCardTarget(
   subAgent: SubAgentMetadata | null,
   childRunId: string,
-): ToolCardTarget | null {
+  userId: string,
+  isParentOpen: (parentRunId: string, userId: string) => Promise<boolean>,
+): Promise<LiveSubAgentToolCardTarget | null> {
   if (!subAgent?.chat) return null;
+  if (!(await isParentOpen(subAgent.parentRunId, userId))) return null;
   return {
     runId: subAgent.parentRunId,
     threadId: subAgent.chat.threadId,
@@ -64,6 +114,7 @@ export function subAgentToolCardTarget(
       subId: subAgent.subId,
       childRunId,
     },
+    [PROVEN_LIVE]: true,
   };
 }
 
