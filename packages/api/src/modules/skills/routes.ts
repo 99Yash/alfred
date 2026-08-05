@@ -6,7 +6,7 @@ import { Elysia, t } from "elysia";
 import { randomUUID } from "node:crypto";
 import { emitReplicachePokes } from "../../events/replicache-events";
 import { authMacro } from "../../middleware/auth";
-import { createRun, enqueueRun } from "../agent";
+import { createRun, deliverRun } from "../agent";
 import { isUniqueViolation } from "../../lib/pg-errors";
 import { recordSkillRun } from "./revisions";
 import { slugifyForUser } from "./slug";
@@ -84,7 +84,7 @@ export const skillsRoutes = new Elysia({ prefix: "/api/skills", normalize: "type
             kind: "learn",
             agentRunId: created.runId,
           });
-          await enqueueRun(created.runId);
+          await deliverRun(created.runId);
 
           return { skillId: skill.id, slug: skill.slug, runId: created.runId };
         },
@@ -127,7 +127,7 @@ export const skillsRoutes = new Elysia({ prefix: "/api/skills", normalize: "type
               kind: "learn",
               agentRunId: created.runId,
             });
-            await enqueueRun(created.runId);
+            await deliverRun(created.runId);
             return { runId: created.runId };
           } catch (err) {
             if (isUniqueViolation(err)) {

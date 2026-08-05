@@ -4,7 +4,7 @@ import { and, eq, sql } from "drizzle-orm";
 import { Elysia, t } from "elysia";
 import { emitReplicachePokes } from "../../events/replicache-events";
 import { authMacro } from "../../middleware/auth";
-import { enqueueRun, signalRunInTx, type CancelOutcome, type SignalOutcome } from "../agent";
+import { deliverRun, signalRunInTx, type CancelOutcome, type SignalOutcome } from "../agent";
 import { cancelRunInTx } from "../agent/service";
 import { removeApprovalExpiryJob, scheduleApprovalExpiryJob } from "./expiry-queue";
 import { removeApprovalNotificationJob } from "./notification-queue";
@@ -254,7 +254,7 @@ export const approvalsRoutes = new Elysia({ prefix: "/api/approvals", normalize:
         let enqueued = false;
         if (outcome.shouldEnqueue) {
           try {
-            await enqueueRun(outcome.runId);
+            await deliverRun(outcome.runId);
             enqueued = true;
           } catch (err) {
             console.warn(
