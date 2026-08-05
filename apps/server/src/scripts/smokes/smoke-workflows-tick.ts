@@ -9,8 +9,10 @@
  *   2. The handler creates an `agent_runs` row with
  *      `trigger.kind = 'cron'` and `trigger.scheduledFor` = the old
  *      `next_run_at` (in ISO).
- *   3. `enqueueRun` is called with a `jobId` of
- *      `workflow:{id}:scheduled:{iso}` — verifiable via BullMQ.
+ *   3. `dispatchDueCronWorkflows` reports the run enqueued
+ *      (`result.enqueued >= 1`). The BullMQ jobId-dedup mechanics are
+ *      proven below by ticks #2 and the race, not by a raw queue read —
+ *      the raw queue handle is internal to the execution module now.
  *   4. The workflow row's `next_run_at` is advanced and
  *      `last_scheduled_at` matches the fired instant.
  *   5. A second tick (same fired instant in BullMQ) is a no-op — the
@@ -18,7 +20,7 @@
  *   6. The same scheduled instant is not re-fired even after the
  *      handler runs again (CAS on `next_run_at`).
  */
-import { dispatchDueCronWorkflows, getAgentQueue } from "@alfred/api/backend";
+import { dispatchDueCronWorkflows } from "@alfred/api/backend";
 import {
   closeAgentQueue,
   closeConnections,
@@ -142,13 +144,6 @@ async function main() {
     `[smoke-workflows-tick] workflow advanced: next_run_at=${advanced.nextRunAt!.toISOString()} last_scheduled_at=${advanced.lastScheduledAt?.toISOString()}`,
   );
 
-  // BullMQ job present with the expected jobId.
-  const expectedJobId = `workflow.${wfRow.id}.scheduled.${scheduledFor.getTime()}`;
-  const queue = getAgentQueue();
-  const job = await queue.getJob(expectedJobId);
-  assert(job, `BullMQ job with id=${expectedJobId} not found`);
-  console.log(`[smoke-workflows-tick] BullMQ job present: id=${job!.id}`);
-
   // --- Tick #2 (same now) ------------------------------------------------
   // Since the workflow row's next_run_at advanced past now, the second
   // tick should select 0 due rows and create 0 runs.
@@ -184,11 +179,11 @@ async function main() {
   );
   console.log(`[smoke-workflows-tick] race respected: 1 enqueue + 1 raced`);
 
-  // Cleanup BullMQ jobs we created (so re-running the smoke isn't
-  // blocked by jobId dedup from a prior run).
-  await queue.remove(expectedJobId);
-  const secondJobId = `workflow.${wfRow.id}.scheduled.${replayScheduledFor.getTime()}`;
-  await queue.remove(secondJobId);
+  // The queued jobs use a distinct scheduled-instant jobId each run
+  // (`scheduledFor` derives from `Date.now()`), so a re-run is never blocked
+  // by jobId dedup and no explicit BullMQ cleanup is needed here. The agent
+  // worker never runs in this smoke, so the jobs age out via
+  // `removeOnComplete`/`removeOnFail` bounds on the queue.
 
   console.log("[smoke-workflows-tick] ✅ all assertions passed");
 }

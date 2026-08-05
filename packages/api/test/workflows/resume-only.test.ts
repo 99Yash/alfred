@@ -9,7 +9,7 @@ import { serverEnv } from "@alfred/env/server";
 import { IDB_KEY } from "@alfred/sync";
 import { inArray } from "drizzle-orm";
 
-import { _resetRegistryForTests, registerWorkflow } from "../../src/modules/agent/registry";
+import { _resetRegistryForTests, registerRecipe } from "../../src/modules/agent/registry";
 import { createRun } from "../../src/modules/agent/service";
 import { resolveWorkflowForRun } from "../../src/modules/agent/resolve-workflow";
 import type { AgentDbExecutor, Workflow } from "../../src/modules/agent/types";
@@ -39,7 +39,7 @@ function resumeOnlyWorkflow(): Workflow<unknown> {
 describe("resume-only workflow run behavior", () => {
   beforeEach(() => {
     _resetRegistryForTests();
-    registerWorkflow(resumeOnlyWorkflow());
+    registerRecipe(resumeOnlyWorkflow());
   });
 
   afterEach(() => {
@@ -75,7 +75,7 @@ describe("resume-only workflow run behavior", () => {
       return {};
     };
     _resetRegistryForTests();
-    registerWorkflow(workflow);
+    registerRecipe(workflow);
 
     const rejectDatabaseAccess = new Proxy(
       {},
@@ -149,7 +149,7 @@ describe(
   () => {
     beforeEach(() => {
       _resetRegistryForTests();
-      registerWorkflow(resumeOnlyWorkflow());
+      registerRecipe(resumeOnlyWorkflow());
     });
 
     afterEach(() => {
