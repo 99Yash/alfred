@@ -126,6 +126,27 @@ const inboxUpdated = (id: number): EventStreamFrame => ({
   payload: INBOX_UPDATED,
 });
 
+const approvalRequested = (
+  id: number,
+  payload: Partial<EventPayload<"approval.requested">> = {},
+): EventStreamFrame => ({
+  id,
+  createdAt: "",
+  kind: "approval.requested",
+  payload: { ...APPROVAL_REQUESTED, ...payload },
+});
+
+const agentRun = (
+  id: number,
+  phase: EventPayload<"agent.run">["phase"],
+  payload: Partial<EventPayload<"agent.run">> = {},
+): EventStreamFrame => ({
+  id,
+  createdAt: "",
+  kind: "agent.run",
+  payload: { ...AGENT_RUN, ...payload, phase },
+});
+
 const excludedFrames = (id: number): readonly EventStreamFrame[] => [
   { id, createdAt: "", kind: "agent.run", payload: AGENT_RUN },
   { id, createdAt: "", kind: "agent.progress", payload: AGENT_PROGRESS },
@@ -441,5 +462,114 @@ describe("event replay state", () => {
     replay.noteFrame(chatMessage(30, { phase: "completed" }));
     assert.equal(writes, 2);
     assert.equal(stored.cursor, 30);
+  });
+
+  // Regression for campaign item 49. A non-chat run (sub-agent or user-authored
+  // workflow) arms a barrier on `approval.requested`, then ends with `agent.run` /
+  // `completed` — it never publishes `chat.message`. Before item 49 only
+  // `chat.message` / `completed` released, so the barrier leaked forever, freezing
+  // `since` below the cursor on every reload. The barrier must release on the run's
+  // `agent.run` terminal. Disable the new `agent.run` arm of `releasedRunId` and this
+  // test dies while the arming-side tests stay green (differential).
+  test("an agent.run/completed releases a barrier its approval.requested armed", () => {
+    const runId = APPROVAL_REQUESTED.runId;
+    const armed = advanceReplayState(emptyState(), approvalRequested(70, { runId }));
+    assert.deepEqual(armed.activeRuns, { [runId]: 69 });
+
+    const released = advanceReplayState(armed, agentRun(80, "completed", { runId }));
+
+    assert.deepEqual(released.activeRuns, {});
+    assert.equal(released.completedRuns[runId], 80);
+    assert.equal(replaySince(released), released.cursor);
+    assert.equal(replaySince(released), 80);
+  });
+
+  // `blocked` is terminal in `RUN_STATUS_KIND` (it sets `endedAt`), so a run that
+  // ends blocked must release its barrier alongside `failed` and `cancelled`.
+  test("agent.run/failed, cancelled and blocked also release the barrier", () => {
+    for (const phase of ["failed", "cancelled", "blocked"] as const) {
+      const runId = APPROVAL_REQUESTED.runId;
+      const armed = advanceReplayState(emptyState(), approvalRequested(70, { runId }));
+      assert.deepEqual(armed.activeRuns, { [runId]: 69 }, phase);
+
+      const released = advanceReplayState(armed, agentRun(80, phase, { runId }));
+
+      assert.deepEqual(released.activeRuns, {}, phase);
+      assert.equal(released.completedRuns[runId], 80, phase);
+      assert.equal(replaySince(released), 80, phase);
+    }
+  });
+
+  // The seven non-terminal `agent.run` phases continue the run, so they must leave a
+  // barrier the run armed in place. A stray release here would resume from the newest
+  // id and lose the in-flight run's replay.
+  test("a non-terminal agent.run phase does not release the barrier", () => {
+    for (const phase of [
+      "started",
+      "step_started",
+      "step_completed",
+      "interrupted",
+      "resumed",
+      "deferred",
+    ] as const) {
+      const runId = APPROVAL_REQUESTED.runId;
+      const armed = advanceReplayState(emptyState(), approvalRequested(70, { runId }));
+      const later = advanceReplayState(armed, agentRun(80, phase, { runId }));
+
+      assert.deepEqual(later.activeRuns, { [runId]: 69 }, phase);
+      assert.equal(replaySince(later), 69, phase);
+    }
+  });
+
+  // Item 37 interaction: once a run's terminal frame is recorded in `completedRuns`,
+  // a later frame that merely names it re-arms nothing — the same guard that protects
+  // a chat run now protects a non-chat run released by `agent.run`.
+  test("an approval.requested after an agent.run terminal does not re-arm the run", () => {
+    const runId = APPROVAL_REQUESTED.runId;
+    const armed = advanceReplayState(emptyState(), approvalRequested(70, { runId }));
+    const released = advanceReplayState(armed, agentRun(80, "completed", { runId }));
+    assert.deepEqual(released.activeRuns, {});
+
+    const stray = advanceReplayState(released, approvalRequested(81, { runId }));
+
+    assert.deepEqual(stray.activeRuns, {});
+    assert.equal(replaySince(stray), stray.cursor);
+    assert.equal(replaySince(stray), 81);
+  });
+
+  // The arming side is untouched: an `agent.run` frame on its own arms nothing at any
+  // phase, terminal or not, because `agent.run` stays in `SPEAKS_FOR_NO_RUN`. Widening
+  // release must not widen arming.
+  test("an agent.run frame on its own never arms a barrier", () => {
+    for (const phase of [
+      "started",
+      "step_completed",
+      "completed",
+      "failed",
+      "cancelled",
+    ] as const) {
+      const state = advanceReplayState(emptyState(), agentRun(42, phase));
+
+      assert.deepEqual(state.activeRuns, {}, phase);
+      assert.equal(replaySince(state), 42, phase);
+    }
+  });
+
+  // A chat run is unchanged: `chat.message` / `completed` still releases, and the
+  // executor's following `agent.run` / `completed` for the same run is a redundant
+  // no-op release (the barrier is already gone, the run already recorded).
+  test("a chat run releases on chat.message; a trailing agent.run terminal is a no-op", () => {
+    const started = advanceReplayState(emptyState(), chatMessage(10, { phase: "started" }));
+    const completed = advanceReplayState(started, chatMessage(30, { phase: "completed" }));
+    assert.deepEqual(completed.activeRuns, {});
+    assert.equal(completed.completedRuns[CHAT_MESSAGE.runId], 30);
+
+    const trailing = advanceReplayState(
+      completed,
+      agentRun(31, "completed", { runId: CHAT_MESSAGE.runId }),
+    );
+
+    assert.deepEqual(trailing.activeRuns, {});
+    assert.equal(replaySince(trailing), 31);
   });
 });
