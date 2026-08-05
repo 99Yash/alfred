@@ -141,6 +141,7 @@ export const events = new Elysia({ prefix: "/api/events", normalize: "typebox" }
               "/_demo",
               async ({ user, body }) => {
                 await publishEvent({
+                  untransacted: true,
                   userId: user.id,
                   kind: "agent.progress",
                   payload: {

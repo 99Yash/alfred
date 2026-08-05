@@ -115,6 +115,7 @@ export async function streamModelTurn(args: {
     for (const chunk of splitEventText(text)) {
       state.deltaSeq += 1;
       await publish({
+        untransacted: true,
         userId: ctx.userId,
         kind: "chat.delta",
         payload: {
@@ -166,6 +167,7 @@ export async function streamModelTurn(args: {
     for (const chunk of splitEventText(text)) {
       state.reasoningSeq += 1;
       await publish({
+        untransacted: true,
         userId: ctx.userId,
         kind: "chat.reasoning",
         payload: {
@@ -225,6 +227,7 @@ export async function streamModelTurn(args: {
       const includeTitle = i === 0 && !s.titleSent && title !== undefined;
       if (includeTitle) s.titleSent = true;
       await publish({
+        untransacted: true,
         userId: ctx.userId,
         kind: "artifact.delta",
         payload: {
@@ -305,6 +308,7 @@ export async function streamModelTurn(args: {
         }
         if (shouldPublishToolStarted(state.activeTools, part.toolName)) {
           await publish({
+            untransacted: true,
             userId: ctx.userId,
             kind: "chat.tool",
             payload: toolCardStarted(

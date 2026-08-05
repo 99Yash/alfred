@@ -1024,7 +1024,7 @@ async function publishInboxUpdate(
     // don't act on it), so clamp instead of letting validation throw
     // and lose the refresh signal entirely.
     const payload = { reason, count: Math.min(count, 10_000) } as const;
-    await publishEvent({ userId, kind: "inbox.updated", payload });
+    await publishEvent({ untransacted: true, userId, kind: "inbox.updated", payload });
   } catch (err) {
     console.warn(
       `[ingestion:worker] publishInboxUpdate failed user=${userId} reason=${reason}:`,

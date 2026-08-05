@@ -425,6 +425,7 @@ const dispatchToolsStep: Step<BriefRunState> = {
       onCallStarted: async (call, activeNames) => {
         if (chatTarget && shouldPublishToolStarted(activeNames, call.toolName)) {
           await publishEvent({
+            untransacted: true,
             userId: ctx.userId,
             kind: "chat.tool",
             payload: toolCardStarted(chatTarget, call, NESTED_SEGMENT_INDEX),
@@ -443,6 +444,7 @@ const dispatchToolsStep: Step<BriefRunState> = {
       // showing internal plumbing as a failed step — derived by the shared
       // `toolEventOutcome` so this surface cannot drift from the chat turn's.
       await publishEvent({
+        untransacted: true,
         userId: ctx.userId,
         kind: "chat.tool",
         payload: toolCardTerminal(chatTarget, completion.call, toolEventOutcome(completion), {

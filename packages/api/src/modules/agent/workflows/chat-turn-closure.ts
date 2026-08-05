@@ -249,6 +249,7 @@ async function publishCompletedFrame(
   state: ChatRunState,
 ): Promise<void> {
   await publishEvent({
+    untransacted: true,
     userId,
     kind: "chat.message",
     payload: { runId, threadId: state.threadId, messageId: state.messageId, phase: "completed" },
