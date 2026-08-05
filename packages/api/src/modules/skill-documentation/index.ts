@@ -29,3 +29,6 @@ export type { ComposeArgs, ComposedDocumentation } from "./compose";
 
 export { composeSkillDocumentationEmail } from "./email";
 export type { SkillDocumentationEmailArgs } from "./email";
+
+// Async phase-2 documentation recipe; registered by the composition root.
+export { skillDocumentationWorkflow } from "./skill-documentation";

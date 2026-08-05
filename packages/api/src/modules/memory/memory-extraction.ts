@@ -1,11 +1,7 @@
-import {
-  factProposalSchema,
-  runMemoryFinalize,
-  runMemoryPickDocuments,
-  runMemoryProcess,
-  type Workflow,
-} from "@alfred/api/backend";
 import { z } from "zod";
+import { type Workflow } from "../agent";
+import { factProposalSchema } from "./extraction";
+import { runMemoryFinalize, runMemoryPickDocuments, runMemoryProcess } from "./workflow-operations";
 
 const stateSchema = z.object({
   mode: z.enum(["auto", "manual"]),

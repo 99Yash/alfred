@@ -109,3 +109,8 @@ export {
   runDailyBriefingSend,
   type DailyBriefingOperationState,
 } from "./workflow-operations";
+
+// Product recipes owned by the briefing module. The composition root
+// (`apps/server/src/builtins/index.ts`) registers these with execution.
+export { dailyBriefingWorkflow } from "./daily-briefing";
+export { morningBriefingWorkflow } from "./legacy-morning-briefing";
