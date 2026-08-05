@@ -479,6 +479,7 @@ export async function runEmailTriageClassify<State extends EmailTriageOperationS
   if (written) {
     try {
       await publishEvent({
+        untransacted: true,
         userId: ctx.userId,
         kind: "inbox.updated",
         payload: { reason: "triaged", count: 1 },
