@@ -1078,13 +1078,29 @@ export async function markRunFailed(
   attempt: number,
   error: string,
 ): Promise<SupersedeCause | null> {
+  // ADR-0070 §8: strip the throw-poison class ONCE, so the persisted
+  // `error.message` and the release frame's `error` carry the identical string.
+  const safeError = sanitizeErrorMessage(error);
   try {
     await db().transaction(async (tx) => {
       await commitGuardedRunUpdate(tx, run, stepId, attempt, {
         status: "failed",
-        // ADR-0070 §1.3: throw-poison class — strip before the jsonb write.
-        error: { message: sanitizeErrorMessage(error) },
+        error: { message: safeError },
         endedAt: new Date(),
+      });
+
+      // ADR-0073:23 — every terminal path publishes `agent.run`. This one is
+      // the resolve-failure path (no `agent_steps` row, so no step-body writer
+      // publishes it). Inside the tx AFTER the guard, so a cancel that
+      // supersedes the write rolls this frame back too — the cancel path then
+      // owns the terminal frame and no `failed` frame leaks over `cancelled`.
+      // Releases the client's `approval.requested`-armed replay barrier for a
+      // non-chat run (`replay-state.ts` `releasedRunId`).
+      await publishEvent({
+        tx,
+        userId: run.userId,
+        kind: "agent.run",
+        payload: { runId: run.id, phase: "failed", step: stepId, attempt, error: safeError },
       });
     });
   } catch (err) {
