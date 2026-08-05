@@ -1,5 +1,7 @@
 import { z } from "zod";
 
+import { isTerminalStatus } from "@alfred/contracts/agent";
+
 import type { EventStreamFrame } from "./frame";
 
 export const replayStateSchema = z
@@ -333,29 +335,39 @@ function isTerminalChatPhase(phase: ChatMessagePhase): boolean {
 
 /**
  * Whether an `agent.run` phase ends its run. No `default`: a new `agent.run`
- * phase fails with TS2366 until it is classified (**tier 1**). The terminal set
- * `completed` / `failed` / `cancelled` / `blocked` matches the server's terminal
- * run statuses (`RUN_STATUS_KIND` in `packages/contracts/src/agent.ts`, where
- * each sets `endedAt`); `blocked` is terminal there too, so a run that ends
- * blocked releases its barrier. `deferred` (status `deferred`) and `interrupted`
- * (status `waiting`) are parks, not ends — they keep the barrier, which only a
- * later terminal frame or a `chat.message` / `completed` releases. `resumed`,
- * `started`, `step_started` and `step_completed` all sit on a run that
- * continues.
+ * phase fails with TS2366 until it is classified (**tier 1**).
+ *
+ * Terminal membership is *derived*, not restated. The first arm holds the
+ * phases that name a run status (`completed` / `failed` / `cancelled` /
+ * `blocked` / `deferred`), and `RUN_STATUS_KIND` (`packages/contracts/src/agent.ts`,
+ * read through `isTerminalStatus`) decides each one — so a server that
+ * re-classifies a terminal run status cannot leave this rule disagreeing with
+ * it. A phase whose name is not a run status is a `TS2345` in that arm, so the
+ * arm holds only status-named phases. `deferred` is a *live* status there, so
+ * it returns `false`: it is a park, not an end, and keeps the barrier until a
+ * later terminal frame or a `chat.message` / `completed` releases it.
+ *
+ * The second arm holds the intra-run progress phases with no run-status twin —
+ * `started`, `step_started`, `step_completed`, `interrupted`, `resumed` — none
+ * of which ends a run. `interrupted` sits on status `waiting`; the rest sit on a
+ * run that continues.
  */
 function isTerminalRunPhase(phase: AgentRunPhase): boolean {
   switch (phase) {
+    // Phases that name a run status: RUN_STATUS_KIND decides terminality, so a
+    // server re-classification cannot desync this rule.
     case "completed":
     case "failed":
     case "cancelled":
     case "blocked":
-      return true;
+    case "deferred":
+      return isTerminalStatus(phase);
+    // Intra-run progress phases with no run-status counterpart — never terminal.
     case "started":
     case "step_started":
     case "step_completed":
     case "interrupted":
     case "resumed":
-    case "deferred":
       return false;
   }
 }
