@@ -1,12 +1,11 @@
+import { z } from "zod";
+import { type Workflow } from "../agent";
+import { DAILY_BRIEFING_WORKFLOW_SLUG, dailyBriefingWorkflowInputSchema } from "./workflow-input";
 import {
-  DAILY_BRIEFING_WORKFLOW_SLUG,
-  dailyBriefingWorkflowInputSchema,
   runDailyBriefingCompose,
   runDailyBriefingGather,
   runDailyBriefingSend,
-  type Workflow,
-} from "@alfred/api/backend";
-import { z } from "zod";
+} from "./workflow-operations";
 
 const stateSchema = z.object({
   slot: z.enum(["morning", "evening"]),

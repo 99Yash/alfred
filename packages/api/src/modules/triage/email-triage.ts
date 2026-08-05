@@ -1,13 +1,9 @@
-import {
-  runEmailTriageApplyLabel,
-  runEmailTriageClassify,
-  triageWorkflowInputSchema,
-  TRIAGE_WORKFLOW_SLUG,
-  type Workflow,
-} from "@alfred/api/backend";
 import { senderContextSchema } from "@alfred/contracts";
 import { TRIAGE_CATEGORIES } from "@alfred/integrations/google";
 import { z } from "zod";
+import { type Workflow } from "../agent";
+import { TRIAGE_WORKFLOW_SLUG, triageWorkflowInputSchema } from "./workflow-input";
+import { runEmailTriageApplyLabel, runEmailTriageClassify } from "./workflow-operations";
 
 const stateSchema = z.object({
   documentId: z.string(),
