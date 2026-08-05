@@ -1,6 +1,6 @@
 import { runStatusSchema, sanitizeToolResult } from "@alfred/contracts";
 import { db } from "@alfred/db";
-import { agentRuns, chatMessages, chatThreads } from "@alfred/db/schemas";
+import { agentRuns, chatMessages, chatThreads, type ChatMessageStatus } from "@alfred/db/schemas";
 import { and, eq, sql } from "drizzle-orm";
 import { publishEvent } from "../../../events/publish";
 import { emitReplicachePokes } from "../../../events/replicache-events";
@@ -167,10 +167,35 @@ async function closeChatTurn(
   // absorbing client-side, so republishing it never demotes a completed reply and
   // is harmlessly redundant when the first attempt already sent it.
   //
-  // Return WITHOUT re-running the thread bump, `finalizeRunArtifacts`, or the
-  // followups: the first attempt already did them and they are not idempotent
-  // (followups arm timers; a double-arm is a real bug).
+  // Re-close the run's artifacts here too, but NOT the thread bump or the
+  // followups. `finalizeRunArtifacts` is ONE atomic UPDATE filtered on
+  // `status IN (generating)`, so re-running it is idempotent — a no-op on any
+  // artifact the first attempt already flipped out of `generating`, and it can
+  // never leave a partial write. The first attempt may have faulted at or before
+  // it (a `completed` close that throws inside `finalizeRunArtifacts` re-enters
+  // here as a `failed` close), so an artifact it authored can still be stuck
+  // `generating`; without this it strands there forever, since no reaper sweeps
+  // `artifacts.status`. The thread bump (a row-version increment) and the
+  // followups (which arm timers) are NOT idempotent — a double-arm is a real
+  // bug — so they stay skipped, first-writer-wins.
+  //
+  // Derive the artifact terminal status from the PERSISTED `chat_messages` row,
+  // not this retry's `outcome.kind`: the reachable case re-enters as a `failed`
+  // close over an already-`complete` row, so keying off the retry's kind would
+  // flip a completed turn's artifacts to `error`. When the row is gone (a
+  // concurrent thread cascade-delete between the insert-conflict and this read),
+  // skip the finalize — the artifacts cascade-delete with it.
   if (written.length === 0) {
+    const status = await readMessageStatus(userId, state.messageId);
+    if (status !== undefined) {
+      await finalizeRunArtifacts(
+        userId,
+        runId,
+        state.messageId,
+        status === "complete" ? "complete" : "error",
+        ["generating"],
+      );
+    }
     await publishCompletedFrame(userId, runId, state);
     return;
   }
@@ -445,6 +470,26 @@ async function runWasCancelled(runId: string): Promise<boolean> {
     .limit(1);
   const status = runStatusSchema.safeParse(rows[0]?.status);
   return status.success && status.data === "cancelled";
+}
+
+/**
+ * The persisted terminal status of an assistant message, or `undefined` when no
+ * row exists. The zero-row closure branch reads this to close the run's
+ * artifacts into the same terminal status the durable row carries — a
+ * `completed` close that faults re-enters as a `failed` close, so the retry's
+ * `outcome.kind` is the wrong source. The `status` column is `$type`-tagged
+ * {@link ChatMessageStatus}, so the read is already typed.
+ */
+async function readMessageStatus(
+  userId: string,
+  messageId: string,
+): Promise<ChatMessageStatus | undefined> {
+  const rows = await db()
+    .select({ status: chatMessages.status })
+    .from(chatMessages)
+    .where(and(eq(chatMessages.id, messageId), eq(chatMessages.userId, userId)))
+    .limit(1);
+  return rows[0]?.status;
 }
 
 interface SanitizedChatMessageFields {
