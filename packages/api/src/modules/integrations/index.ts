@@ -12,8 +12,10 @@ export {
   stopIngestionWorker,
   closeIngestionQueue,
   enqueueGmailKindRefold,
+  enqueuePendingUploadCleanup,
   getIngestionQueue,
 } from "./queue";
+export { readIntegrationAvailability } from "./availability";
 export type { IngestionJobData } from "./queue";
 export {
   consumeOAuthNonce,

@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { afterEach, describe, mock, test } from "node:test";
 
-import { createTurnStopController } from "../../src/modules/agent/workflows/turn-stop-controller";
+import { createTurnStopController } from "../../src/modules/conversations/turn-stop-controller";
 
 /**
  * Unit tests for the chat turn's user-stop controller (extracted from

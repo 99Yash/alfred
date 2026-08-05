@@ -2,9 +2,8 @@ import type { AlfredAgent } from "@alfred/ai";
 import { isRecord, type ToolName } from "@alfred/contracts";
 import { CHAT_DELTA_MAX } from "@alfred/contracts/events";
 import { parsePartialJson } from "ai";
-import { publishEvent } from "../../../events/publish";
-import { createVoiceStreamSanitizer } from "../voice-sanitize";
-import { shouldPublishToolStarted, toolCardStarted } from "./tool-card-events";
+import { publishEvent } from "../../events/publish";
+import { createVoiceStreamSanitizer, shouldPublishToolStarted, toolCardStarted } from "../agent";
 import type { TurnStopController } from "./turn-stop-controller";
 
 /** Flush coalesced text/reasoning/artifact deltas at least this often (ms) and at this size (chars). */
