@@ -127,6 +127,7 @@ async function closePrematureAnswerSegment(
   if (!closed) return false;
   state.deltaSeq += 1;
   await publish({
+    untransacted: true,
     userId: ctx.userId,
     kind: "chat.delta",
     payload: {

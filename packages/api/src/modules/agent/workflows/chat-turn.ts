@@ -221,6 +221,7 @@ async function publishChatCompactionPhase(args: {
 }): Promise<void> {
   try {
     await publishEvent({
+      untransacted: true,
       userId: args.userId,
       kind: "chat.message",
       payload: {
@@ -273,6 +274,7 @@ const chatTurnStep: Step<ChatRunState> = {
       if (!state.startedAt) {
         state.startedAt = new Date().toISOString();
         await publishEvent({
+          untransacted: true,
           userId: ctx.userId,
           kind: "chat.message",
           payload: {
@@ -784,6 +786,7 @@ const dispatchToolsStep: Step<ChatRunState> = {
             }
           }
           await publishEvent({
+            untransacted: true,
             userId: ctx.userId,
             kind: "chat.tool",
             payload: toolCardTerminal(
