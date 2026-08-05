@@ -11,8 +11,8 @@ import { and, asc, eq } from "drizzle-orm";
 import { assessChatRequestPressure, CHAT_MAX_OUTPUT_TOKENS } from "./chat-request-pressure";
 import { conversationSummaryMessage } from "./chat-context-assembly";
 import { loadChatThreadContext, type ChatSummaryWatermark } from "./chat-context-store";
-import { compactWithRetry } from "./compact-with-retry";
-import { compactTranscript } from "./compactor";
+import { compactWithRetry } from "../../agent";
+import { compactTranscript } from "../../agent";
 import { compactConversationSynchronously } from "./synchronous-conversation-compaction";
 import { waitForActiveConversationCompaction } from "./conversation-compaction-wait";
 

@@ -1,7 +1,7 @@
 import { db } from "@alfred/db";
 import { chatThreadContext, type ChatThreadContext } from "@alfred/db/schemas";
 import { and, eq, isNull, sql } from "drizzle-orm";
-import type { AgentDbExecutor } from "../types";
+import type { AgentDbExecutor } from "../../agent";
 import {
   parsePersistedConversationSummary,
   validateConversationSummary,
