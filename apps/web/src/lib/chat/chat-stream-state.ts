@@ -113,6 +113,15 @@ interface SubAgentTrailRef extends Omit<SubAgentTrail, "tools"> {
 interface StreamRef {
   messageId: string;
   runId: string;
+  /**
+   * The outbox serial of the frame that mounted this turn — write-once at mount.
+   * `ensureStreamRef` refuses to replace this ref with a *different* turn whose
+   * frame carries a lower id, so a `Last-Event-ID` reconnect that replays an
+   * older turn's frames (in their original id order) cannot blank a turn still
+   * streaming. It is a plain number; nothing type-level stops a caller passing a
+   * stale id, so the seam test is the enforcement.
+   */
+  mountId: number;
   /** Received text per narration segment (full, pre-easing). */
   segments: Map<number, string>;
   /** Highest segment index seen — the current/answer segment. */
@@ -233,20 +242,39 @@ export function applyStreamingToolEvent(
 }
 
 /**
- * Return the in-flight stream state for `messageId`, creating it if needed.
+ * Return the in-flight stream state for `messageId`, mounting it if needed, or
+ * `null` when the mount is refused.
+ *
  * The `chat.message` "started" event normally mounts this, but on a fresh
  * thread the navigation `/chat` → `/chat/<id>` reopens the SSE stream and
  * "started" can fire in that gap (the bus has no replay). Initializing from
  * the first event of any kind — reasoning, delta, or tool — keeps the turn
  * from rendering blank when "started" is missed. A different `messageId`
- * or `runId` means a new turn, so we reset.
+ * or `runId` means a new turn, so we mount fresh.
+ *
+ * `frameId` is the outbox serial of the frame asking to mount. A mount that
+ * *replaces* a live ref is refused when the frame names a **different** turn and
+ * carries an id *below* the live ref's `mountId`: a `Last-Event-ID` reconnect
+ * replays an older turn's frames in their original id order, and without this a
+ * replayed older `started` (or its trailing `delta`) would blank a turn still
+ * streaming. A refusal returns `null`; the caller must read that as "drop this
+ * frame," **not** "use the live ref," since applying an old frame's payload to
+ * the live ref would corrupt it. A same-turn frame reuses the ref regardless of
+ * id, so a replayed frame for the live turn is not a mount at all.
  */
-function ensureStreamRef(cell: ChatStreamCell, messageId: string, runId: string): StreamRef {
+function ensureStreamRef(
+  cell: ChatStreamCell,
+  frameId: number,
+  messageId: string,
+  runId: string,
+): StreamRef | null {
   const existing = cell.current;
   if (existing && existing.messageId === messageId && existing.runId === runId) return existing;
+  if (existing && frameId < existing.mountId) return null;
   const fresh: StreamRef = {
     messageId,
     runId,
+    mountId: frameId,
     segments: new Map(),
     currentSegment: 0,
     shown: 0,
@@ -322,13 +350,12 @@ export function applyChatFrame(
     // to spell it out, because `compaction_*`/`completed` may not mount and so
     // have no `ensureStreamRef` return value to test the flag on.
     //
-    // `r` is the ref as of frame arrival. The `started` arm below mounts through
-    // `ensureStreamRef` and does not refresh `r`, so anything added after that
-    // call — a recency check on the mount, say — must read `cell.current`, not
-    // `r`, which by then describes the outgoing turn.
+    // The recency rule that keeps a replayed *older* turn from blanking a live
+    // one lives inside `ensureStreamRef` (a cross-identity mount below the live
+    // ref's `mountId` returns `null`), so this arm neither reads nor restates it.
     if (r !== null && r.stopped && r.messageId === p.messageId && r.runId === p.runId) return false;
     if (p.phase === "started") {
-      ensureStreamRef(cell, p.messageId, p.runId);
+      if (ensureStreamRef(cell, frame.id, p.messageId, p.runId) === null) return false;
       markChatTimingByAssistant(p.messageId, "stream_started_event", undefined, {
         threadId: cell.threadId,
         runId: p.runId,
@@ -364,8 +391,8 @@ export function applyChatFrame(
     // Mount before the stop check so it applies to the ref this frame names:
     // a late frame for a stopped run is dropped, a frame for a new
     // (messageId, runId) is a new turn and mounts fresh.
-    const r = ensureStreamRef(cell, p.messageId, p.runId);
-    if (r.stopped) return false;
+    const r = ensureStreamRef(cell, frame.id, p.messageId, p.runId);
+    if (r === null || r.stopped) return false;
     if (p.seq <= r.reasoningSeq) return false;
     r.reasoningSeq = p.seq;
     if (r.reasoningStartTs === null) r.reasoningStartTs = now;
@@ -387,8 +414,8 @@ export function applyChatFrame(
 
   if (frame.kind === "chat.delta") {
     const p = frame.payload;
-    const r = ensureStreamRef(cell, p.messageId, p.runId);
-    if (r.stopped) return false;
+    const r = ensureStreamRef(cell, frame.id, p.messageId, p.runId);
+    if (r === null || r.stopped) return false;
     if (p.seq <= r.deltaSeq) return false;
     r.deltaSeq = p.seq;
     // First reply token: thinking for the answer is over — freeze its duration.
@@ -453,8 +480,8 @@ export function applyChatFrame(
       current.subAgentRuns.set(childRunId, parentToolCallId);
       return true;
     }
-    const r = ensureStreamRef(cell, p.messageId, p.runId);
-    if (r.stopped) return false;
+    const r = ensureStreamRef(cell, frame.id, p.messageId, p.runId);
+    if (r === null || r.stopped) return false;
     applyStreamingToolEvent(r.tools, p, now);
     // A retraction changed the trail, so the view still has to re-project —
     // it just has no timing mark to record.
