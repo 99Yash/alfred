@@ -9,7 +9,7 @@ import { events } from "./modules/events/index";
 import { replicache } from "./modules/replicache/index";
 import { agent } from "./modules/agent/index";
 import { approvalsRoutes } from "./modules/approvals/index";
-import { chatRoutes } from "./modules/chat/index";
+import { chatRoutes } from "./modules/conversations/index";
 import { integrations } from "./modules/integrations/index";
 import { meRoutes } from "./modules/me/index";
 import { mcpIntegrationRoutes } from "./modules/mcp/index";

@@ -12,11 +12,11 @@ import { updateArtifactInput } from "@alfred/contracts";
 import { z } from "zod";
 import { formatRuntimeTimeGrounding } from "../../src/modules/agent/grounding";
 import { withEphemeralReference } from "../../src/modules/agent/compaction";
-import { buildChatSystemPrompt } from "../../src/modules/agent/workflows/chat-turn";
+import { buildChatSystemPrompt } from "../../src/modules/conversations/chat-turn";
 import {
   assertStableChatSystem,
   type ChatRunState,
-} from "../../src/modules/agent/workflows/chat-turn-state";
+} from "../../src/modules/conversations/chat-turn-state";
 import {
   artifactContentHash,
   artifactReplacementMatchesBase,

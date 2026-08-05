@@ -5,9 +5,12 @@ import {
   type AgentTranscriptMessage,
 } from "@alfred/contracts";
 import { z } from "zod";
-import { foldToolSurfaceState, toolSurfaceStateFields } from "../tool-surface";
-import type { StepResult } from "../types";
-import { pendingToolCallSchema as basePendingToolCallSchema } from "./pending-tool-call";
+import {
+  foldToolSurfaceState,
+  pendingToolCallSchema as basePendingToolCallSchema,
+  toolSurfaceStateFields,
+  type StepResult,
+} from "../agent";
 
 /**
  * Durable state for the interactive chat turn, plus the handful of pure

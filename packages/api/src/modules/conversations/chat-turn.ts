@@ -20,30 +20,34 @@ import {
 import { db } from "@alfred/db";
 import { chatMessages } from "@alfred/db/schemas";
 import { and, asc, eq } from "drizzle-orm";
-import { publishEvent } from "../../../events/publish";
-import { logger } from "../../../lib/logger";
-import { buildThreadArtifactsContext } from "../../artifacts/read";
-import { isChatStopRequested } from "../../chat/stop-signal";
-import { readIntegrationAvailability } from "../../integrations/availability";
-import { executeToolCallRound } from "../../tool-runtime";
+import { publishEvent } from "../../events/publish";
+import { logger } from "../../lib/logger";
+import { buildThreadArtifactsContext } from "../artifacts";
+import { readIntegrationAvailability } from "../integrations";
+import { executeToolCallRound } from "../tool-runtime";
 import {
+  appendModelResponseMessages,
   assembleChatContext,
+  buildConnectedSummaryFromAvailability,
   CHAT_MAX_OUTPUT_TOKENS,
+  CHAT_TURN_CAP_MAX,
+  composeAgentInstructions,
   estimateChatRequestTokens,
+  formatRuntimeTimeGrounding,
   guardTurnContext,
   loadChatThreadContext,
-  withEphemeralReference,
-} from "../compaction";
-import { buildConnectedSummaryFromAvailability } from "../connected-summary";
-import {
-  formatRuntimeTimeGrounding,
+  openChatTurnRetries,
+  resetChatTurnRetryBudgets,
   resolveRuntimeGroundingAnchor,
   resolveUserTimezone,
-} from "../grounding";
-import { composeAgentInstructions } from "../instructions";
-import { systemToolKernel, toolRuntimeForRun } from "../tool-surface";
-import { appendModelResponseMessages } from "../transcript-dedup";
-import type { Step, Workflow } from "../types";
+  systemToolKernel,
+  toolCardTerminal,
+  toolEventOutcome,
+  toolRuntimeForRun,
+  withEphemeralReference,
+  type Step,
+  type Workflow,
+} from "../agent";
 import {
   buildStoredContentParts,
   hydrateTranscriptForModel,
@@ -64,11 +68,9 @@ import {
   type PendingToolCall,
 } from "./chat-turn-state";
 import { awaitedChildRunId, crossFinalizeBoundary } from "./finalize-guards";
+import { isChatStopRequested } from "./stop-signal";
 import { streamModelTurn } from "./stream-model-turn";
 import { isStreamTimeoutAbort } from "./stream-timeout";
-import { toolCardTerminal } from "./tool-card-events";
-import { toolEventOutcome } from "./tool-event-outcome";
-import { CHAT_TURN_CAP_MAX, openChatTurnRetries, resetChatTurnRetryBudgets } from "./turn-budgets";
 import { createTurnStopController } from "./turn-stop-controller";
 
 /**
