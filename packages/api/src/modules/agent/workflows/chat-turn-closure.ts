@@ -193,7 +193,6 @@ async function closeChatTurn(
   );
 
   await publishCompletedFrame(userId, runId, state);
-  emitReplicachePokes([userId]);
 
   if (!policy.followups) return;
   // Re-checked after the write: a cancel can land between the pre-check and
@@ -203,14 +202,21 @@ async function closeChatTurn(
 }
 
 /**
- * Publish the terminal `chat.message completed` frame for a turn.
+ * Release the client for a terminal turn: publish the `chat.message completed`
+ * frame AND poke Replicache. These two effects are one indivisible client-release,
+ * not two adjacent statements a path can omit.
  *
- * This frame is the sole release for the client's replay-recovery barrier, which
- * is armed at `chat.message started`. It is reached from two places: the normal
- * closure path, after the row and artifacts are written; and the already-terminal
- * early return above, where a prior attempt wrote the row but may have died before
- * this frame fired. A terminal `chat.message` is absorbing client-side, so
- * republishing it is idempotent.
+ * The frame is the sole release for the client's replay-recovery barrier, which
+ * is armed at `chat.message started`; it reconciles the live streaming bubble over
+ * SSE. The poke tells the Replicache-backed views (the message list, the thread
+ * row) to pull the durable row this turn just committed. Both are reached from two
+ * places: the normal closure path, after the row and artifacts are written; and
+ * the already-terminal zero-row branch above, where a prior attempt wrote the row
+ * but may have died before either effect fired. A terminal `chat.message` is
+ * absorbing client-side and the poke is idempotent, so republishing both over an
+ * already-released turn is harmlessly redundant. Folding the poke in here is why
+ * the zero-row republish can no longer release the barrier while leaving the
+ * Replicache views un-poked.
  */
 async function publishCompletedFrame(
   userId: string,
@@ -222,6 +228,7 @@ async function publishCompletedFrame(
     kind: "chat.message",
     payload: { runId, threadId: state.threadId, messageId: state.messageId, phase: "completed" },
   });
+  emitReplicachePokes([userId]);
 }
 
 /**
