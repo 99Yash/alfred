@@ -28,7 +28,11 @@ export {
   summarizeToolSurfaceUsage,
   type ToolSurfaceUsage,
 } from "./modules/agent/tool-surface-usage";
-export { chatTurnWorkflow, CHAT_TURN_WORKFLOW_SLUG } from "./modules/conversations";
+export {
+  chatMemoryCaptureWorkflow,
+  chatTurnWorkflow,
+  CHAT_TURN_WORKFLOW_SLUG,
+} from "./modules/conversations";
 export {
   userAuthoredBriefWorkflow,
   USER_AUTHORED_BRIEF_WORKFLOW_SLUG,
@@ -109,6 +113,7 @@ export {
   getMemoryQueue,
   type MemoryJobData,
 } from "./modules/memory/queue";
+export { memoryExtractionWorkflow } from "./modules/memory/index";
 
 export * from "./modules/chat-memory/extractor";
 // The idle-capture trigger moved to `conversations/idle-capture-queue.ts`; these
@@ -168,6 +173,8 @@ export {
   referencesFromSections,
   renderBriefingEmailHtml,
   resolveBriefingPreferences,
+  dailyBriefingWorkflow,
+  morningBriefingWorkflow,
   runDailyBriefingCompose,
   runDailyBriefingGather,
   runDailyBriefingSend,

@@ -1,14 +1,22 @@
-import { chatTurnWorkflow, userAuthoredBriefWorkflow } from "@alfred/api/backend";
+import {
+  chatMemoryCaptureWorkflow,
+  chatTurnWorkflow,
+  dailyBriefingWorkflow,
+  emailTriageWorkflow,
+  memoryExtractionWorkflow,
+  morningBriefingWorkflow,
+  skillDocumentationWorkflow,
+  userAuthoredBriefWorkflow,
+} from "@alfred/api/backend";
 import { registerRecipe } from "@alfred/api/runtime";
-import { chatMemoryCaptureWorkflow } from "./workflows/chat-memory-capture";
+import { echoWithApprovalWorkflow } from "../scripts/smokes/echo-with-approval";
+// Transitional recipes still living in the composition root. `cold-start-research`
+// cannot move into `cold-start` until item 07 breaks the `memory -> cold-start`
+// edge; `learn-skill` cannot move into `skills` until item 08 breaks the
+// `skills <-> skill-documentation` cycle. Both stay registered here with
+// byte-identical behavior (plan Design rules 10, a named transitional door).
 import { coldStartResearchWorkflow } from "./workflows/cold-start-research";
-import { dailyBriefingWorkflow } from "./workflows/daily-briefing";
-import { echoWithApprovalWorkflow } from "./workflows/echo-with-approval";
-import { emailTriageWorkflow } from "./workflows/email-triage";
 import { learnSkillWorkflow } from "./workflows/learn-skill";
-import { morningBriefingWorkflow } from "./workflows/legacy/morning-briefing";
-import { memoryExtractionWorkflow } from "./workflows/memory-extraction";
-import { skillDocumentationWorkflow } from "./workflows/skill-documentation";
 
 /**
  * Boot-time registration of every built-in workflow. Add new workflows

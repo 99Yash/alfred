@@ -27,12 +27,11 @@ import { isUniqueViolation } from "../../lib/pg-errors";
 export const CHAT_MEMORY_QUEUE_NAME = "chat-memory";
 
 /**
- * Slug of the agent workflow the debounce fans out into (defined in
- * `apps/server/src/builtins/workflows/chat-memory-capture.ts`). Internal
+ * Slug of the agent workflow the debounce fans out into (the
+ * `chatMemoryCaptureWorkflow` recipe in `./chat-memory-capture.ts`). Internal
  * (`__`-prefixed, like `__chat-turn__`) so the workflow seeder skips it: it is a
  * debounce-driven pipeline, not a user-toggleable workflow, and the worker
- * calls `createRun` on it directly. Lives here (packages/api) rather than beside
- * the workflow because the queue can't import from `apps/server`.
+ * calls `createRun` on it directly.
  */
 export const CHAT_MEMORY_CAPTURE_WORKFLOW_SLUG = "__chat-memory-capture__";
 

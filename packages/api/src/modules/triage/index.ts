@@ -109,3 +109,6 @@ export {
   runEmailTriageClassify,
   type EmailTriageOperationState,
 } from "./workflow-operations";
+
+// Product recipe owned by the triage module; registered by the composition root.
+export { emailTriageWorkflow } from "./email-triage";
