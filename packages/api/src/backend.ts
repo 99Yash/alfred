@@ -2,7 +2,15 @@ export { publishEvent } from "./events/publish";
 export { emitReplicachePokes } from "./events/replicache-events";
 export type { EventFrame, EventKind, EventPayload } from "./events/types";
 
-export { cancelRun, createRun, enqueueRun, signalRun, startRun } from "./modules/agent/index";
+export {
+  cancelRun,
+  createRun,
+  deliverRun,
+  enqueueRun,
+  signalRun,
+  startRun,
+  startRunInTx,
+} from "./modules/agent/index";
 export { isUniqueViolation, uniqueViolationConstraint } from "./lib/pg-errors";
 export type {
   RunStatus,

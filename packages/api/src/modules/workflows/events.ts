@@ -3,8 +3,7 @@ import { db } from "@alfred/db";
 import { isDuplicateRunIndex, workflows } from "@alfred/db/schemas";
 import { and, eq, or, sql } from "drizzle-orm";
 import { uniqueViolationConstraint } from "../../lib/pg-errors";
-import { enqueueRun } from "../agent/queue";
-import { createRun } from "../agent/service";
+import { startRun } from "../agent/service";
 
 import { domainEventSchema, gmailMessagePayloadSchema, type DomainEvent } from "../triggers";
 
@@ -89,10 +88,12 @@ export async function acceptEvent(input: DomainEvent): Promise<AcceptEventResult
         }
         const workflowRevisionId = row.isBuiltin ? null : row.publishedRevisionId;
 
-        let runId: string;
         let created: boolean;
         try {
-          ({ runId, created } = await createRun({
+          // `startRun` persists the occurrence and delivers it in one call. The
+          // duplicate-run throw comes from the persist before any deliver, so
+          // the dedup catch below still short-circuits on a raced insert.
+          ({ created } = await startRun({
             userId: args.userId,
             workflowSlug: row.slug,
             workflowRevisionId,
@@ -140,7 +141,6 @@ export async function acceptEvent(input: DomainEvent): Promise<AcceptEventResult
           result.skippedDuplicate++;
           return;
         }
-        await enqueueRun(runId);
         if (created) result.created++;
         else result.skippedDuplicate++;
       } catch (err) {

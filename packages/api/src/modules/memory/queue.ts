@@ -4,7 +4,7 @@ import { Queue, Worker, type Job } from "bullmq";
 import { randomUUID } from "node:crypto";
 import { db } from "@alfred/db";
 import { createRedisConnection } from "../../queue/connection";
-import { createRun, enqueueRun } from "../agent/index";
+import { startRun } from "../agent/index";
 import { runDriftHealthCheck } from "../drift-audit/index";
 import { embedMemoryChunk, findPendingEmbedChunks, recordMemoryEmbedFailure } from "./chunks";
 import { toMessage } from "@alfred/contracts";
@@ -242,7 +242,7 @@ export async function enqueueExtractionForUser(
               },
             }
           : { trigger };
-  const { runId } = await createRun({
+  const { runId } = await startRun({
     userId,
     workflowSlug: "memory-extraction",
     brief: "daily fact extraction over recently-ingested documents",
@@ -254,6 +254,5 @@ export async function enqueueExtractionForUser(
     },
     ...occurrence,
   });
-  await enqueueRun(runId);
   return { runId };
 }

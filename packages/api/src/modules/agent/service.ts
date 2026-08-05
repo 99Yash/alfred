@@ -288,6 +288,31 @@ export async function startRun(
   return result;
 }
 
+/**
+ * Persist a run inside a caller-owned transaction and deliver it to the worker
+ * after that transaction commits — one named operation for the occurrence-claim
+ * path (`workflows/tick.ts`, ADR-0027). `claim` runs the caller's CAS and other
+ * durable writes on the transaction executor and returns the run args, or `null`
+ * when it lost the race (no run, no enqueue). `createRun` runs on that same
+ * executor, so the claim and the run row are atomic. The enqueue fires only
+ * after the transaction commits: enqueueing a run whose row is not yet committed
+ * would let the worker lease a row it cannot see. The queue handle never leaves
+ * execution, so a caller cannot split, re-order, or drop the deliver.
+ */
+export async function startRunInTx(spec: {
+  claim: (tx: AgentDbExecutor) => Promise<CreateRunArgs | null>;
+  enqueue?: { delayMs?: number; jobId?: string };
+}): Promise<CreateRunResult | null> {
+  const created = await db().transaction(async (tx) => {
+    const args = await spec.claim(tx);
+    if (!args) return null;
+    return createRun(args, tx);
+  });
+  if (!created) return null;
+  await enqueueRun(created.runId, spec.enqueue);
+  return created;
+}
+
 /** Create a new user-authored occurrence linked to a prior run. */
 export async function replayRun(args: ReplayRunArgs): Promise<CreateRunResult> {
   const [original] = await db()

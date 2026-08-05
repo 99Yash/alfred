@@ -3,7 +3,7 @@ import { db } from "@alfred/db";
 import { user as userTable } from "@alfred/db/schemas";
 import { Queue, Worker, type Job } from "bullmq";
 import { createRedisConnection } from "../../queue/connection";
-import { createRun, enqueueRun } from "../agent/index";
+import { startRun } from "../agent/index";
 import { resolveFeatureFlags } from "../features/flags";
 import { inZone } from "../timezone";
 import { resolveBriefingPreferences } from "./preferences";
@@ -216,7 +216,7 @@ export async function enqueueBriefingRun(args: EnqueueBriefingRunArgs): Promise<
             requestId: `${args.briefingDate}:${slot}:${args.reason}`,
           },
         };
-  const { runId } = await createRun({
+  const { runId } = await startRun({
     userId: args.userId,
     workflowSlug: DAILY_BRIEFING_WORKFLOW_SLUG,
     brief: `${slot} briefing for ${args.briefingDate} (${args.reason})`,
@@ -231,6 +231,5 @@ export async function enqueueBriefingRun(args: EnqueueBriefingRunArgs): Promise<
     // rather than at a central dispatcher.
     ...occurrence,
   });
-  await enqueueRun(runId);
   return { runId };
 }
