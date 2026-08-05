@@ -1,7 +1,7 @@
-import type { AgentTranscriptMessage } from "@alfred/contracts";
+import type { AgentRunError, AgentTranscriptMessage } from "@alfred/contracts";
 import {
-  AGENT_RUN_ERROR_MAX,
   AGENT_STEP_PROGRESS_STATUSES,
+  boundAgentRunError,
   sanitizeErrorMessage,
   sanitizeToolResult,
   toMessage,
@@ -257,7 +257,9 @@ async function commitGuardedRunUpdate(
  * status write so a cancel that supersedes the write rolls the frame back too —
  * no `failed` frame leaks over `cancelled` (#530).
  *
- * `error` is ALREADY sanitized and bounded by the caller. This helper does NOT
+ * `error` is an `AgentRunError` — a branded string the caller minted through
+ * `boundAgentRunError`, so it is ALREADY stripped and bounded by construction
+ * (the type states what item 61's prose used to). This helper does NOT
  * sanitize: sanitize-once keeps the safe string coupled to each site's DB write
  * (`commitStepFailure` / `markRunFailed` reuse their `safeError`), and the lease
  * backstop's `backstopError` is a synthetic clean string that ADR-0070 forbids
@@ -266,7 +268,7 @@ async function commitGuardedRunUpdate(
  */
 async function publishRunFailed(
   tx: DbTransaction,
-  fields: { userId: string; runId: string; step: string; attempt: number; error: string },
+  fields: { userId: string; runId: string; step: string; attempt: number; error: AgentRunError },
 ): Promise<void> {
   await publishEvent({
     tx,
@@ -577,7 +579,9 @@ export async function leaseRun(runId: string): Promise<LeaseResult> {
       const priorReclaims = rowsFromExecute<{ reclaims: number }>(countResult)[0]?.reclaims ?? 0;
       if (priorReclaims + 1 >= BACKSTOP_RECLAIM_LIMIT) {
         const now = new Date();
-        const backstopError = `step ${row.currentStep} not progressing: reclaimed ${priorReclaims + 1} times`;
+        const backstopError = boundAgentRunError(
+          `step ${row.currentStep} not progressing: reclaimed ${priorReclaims + 1} times`,
+        );
         // Mark the orphan step failed for audit, with the same structured
         // marker so the history reads consistently.
         await tx
@@ -954,7 +958,7 @@ async function commitStepSuccessTx(
           step: stepId,
           attempt,
           workflowSlug: run.workflowSlug,
-          error: "Workflow blocked: action is required.",
+          error: boundAgentRunError("Workflow blocked: action is required."),
         },
       });
       return { kind: "blocked", runId: run.id };
@@ -1042,11 +1046,12 @@ async function commitStepFailure(
 ): Promise<RunOutcome> {
   // ADR-0070 §1.3 + §8: the throw-poison class AND the length class. A tool/step
   // that throws a NUL-byte message would re-throw on the jsonb error write here,
-  // and a message over `AGENT_RUN_ERROR_MAX` would make the `agent.run` frame's
-  // `safeParse` throw — either escapes the catch, rolls the `failed` write back,
-  // and leaves the run `running` → the reclaim loop. Strip AND bound once, so the
-  // persisted `error.message` and the frame `error` carry the identical string.
-  const safeError = sanitizeErrorMessage(error, AGENT_RUN_ERROR_MAX);
+  // and an over-cap message would make the `agent.run` frame's `safeParse` throw —
+  // either escapes the catch, rolls the `failed` write back, and leaves the run
+  // `running` → the reclaim loop. `boundAgentRunError` strips AND bounds once, and
+  // its branded result is the frame's `error` type, so the persisted
+  // `error.message` and the frame `error` carry the identical string.
+  const safeError = boundAgentRunError(error);
   try {
     await db().transaction(async (tx) => {
       const now = new Date();
@@ -1117,12 +1122,12 @@ export async function markRunFailed(
   attempt: number,
   error: string,
 ): Promise<SupersedeCause | null> {
-  // ADR-0070 §8: strip the throw-poison class AND bound to `AGENT_RUN_ERROR_MAX`
+  // ADR-0070 §8: `boundAgentRunError` strips the throw-poison class AND bounds
   // ONCE, so the persisted `error.message` and the release frame's `error` carry
   // the identical string. Without the bound an over-cap message makes the frame
   // `safeParse` throw, rolls this guarded `failed` write back, and re-enters the
   // reclaim loop.
-  const safeError = sanitizeErrorMessage(error, AGENT_RUN_ERROR_MAX);
+  const safeError = boundAgentRunError(error);
   try {
     await db().transaction(async (tx) => {
       await commitGuardedRunUpdate(tx, run, stepId, attempt, {
