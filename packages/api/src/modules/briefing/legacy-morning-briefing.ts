@@ -1,32 +1,31 @@
 import {
-  LEGACY_MORNING_BRIEFING_WORKFLOW_SLUG,
-  beginBriefing,
-  legacyMorningBriefingWorkflowInputSchema,
-  composeBriefing,
-  gatherBriefingWithSuppressionAudit,
-  inZone,
-  markBriefingComposed,
-  markBriefingComposing,
-  markBriefingFailed,
-  markBriefingGathering,
-  markBriefingSent,
-  markBriefingSuppressed,
-  notify,
-  renderBriefingEmailHtml,
-  resolveBriefingPreferences,
-  resolveBriefingReferences,
-  parseLocalDateKey,
-  type BriefingInstructionSuppression,
-  type BriefingRow,
-  type Workflow,
-} from "@alfred/api/backend";
-import {
   briefingGatherSchema,
   parseIanaTimezone,
   type BriefingGather,
   type IanaTimezone,
 } from "@alfred/contracts";
 import { z } from "zod";
+import { type Workflow } from "../agent";
+import { notify } from "../notifications/index";
+import { inZone, parseLocalDateKey } from "../timezone";
+import { composeBriefing } from "./compose";
+import { gatherBriefingWithSuppressionAudit, type BriefingInstructionSuppression } from "./gather";
+import { resolveBriefingPreferences } from "./preferences";
+import { renderBriefingEmailHtml, resolveBriefingReferences } from "./references";
+import {
+  beginBriefing,
+  markBriefingComposed,
+  markBriefingComposing,
+  markBriefingFailed,
+  markBriefingGathering,
+  markBriefingSent,
+  markBriefingSuppressed,
+  type BriefingRow,
+} from "./store";
+import {
+  LEGACY_MORNING_BRIEFING_WORKFLOW_SLUG,
+  legacyMorningBriefingWorkflowInputSchema,
+} from "./workflow-input";
 
 /**
  * Legacy morning briefing compatibility workflow.

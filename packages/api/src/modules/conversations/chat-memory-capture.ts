@@ -1,15 +1,15 @@
-import {
-  buildThreadTranscript,
-  CHAT_MEMORY_CAPTURE_WORKFLOW_SLUG,
-  extractPropositionsFromThread,
-  type ThreadTurn,
-  type Workflow,
-} from "@alfred/api/backend";
 import { chatPropositionSchema, isNonEmptyString, toMessage } from "@alfred/contracts";
 import { db } from "@alfred/db";
 import { chatMessages, chatThreads } from "@alfred/db/schemas";
 import { and, asc, eq, lt, lte, or } from "drizzle-orm";
 import { z } from "zod";
+import { type Workflow } from "../agent";
+import {
+  buildThreadTranscript,
+  extractPropositionsFromThread,
+  type ThreadTurn,
+} from "../chat-memory";
+import { CHAT_MEMORY_CAPTURE_WORKFLOW_SLUG } from "./idle-capture-queue";
 
 /**
  * End-of-thread chat → memory capture (chat-memory-capture-v1.md, #398;

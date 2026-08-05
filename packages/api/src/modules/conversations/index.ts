@@ -31,3 +31,6 @@ export {
   stopChatMemoryWorker,
   type ChatMemoryJobData,
 } from "./idle-capture-queue";
+
+// End-of-thread chat -> memory capture recipe; registered by the composition root.
+export { chatMemoryCaptureWorkflow } from "./chat-memory-capture";
