@@ -17,7 +17,7 @@ import { closeRedis } from "../../src/queue/connection";
 import {
   _resetRegistryForTests,
   getWorkflow,
-  registerWorkflow,
+  registerRecipe,
 } from "../../src/modules/agent/registry";
 import { cancelRun } from "../../src/modules/agent/service";
 import {
@@ -165,7 +165,7 @@ describe("chat-turn cancel closure (#530/#531 D2, DB-backed)", { skip: SKIP }, (
     // The production workflow, not a stand-in: closure resolves the hook off the
     // run's `workflow_slug` through the registry, and the whole point here is
     // that chat-turn's own `onTerminal` cancel branch does the work.
-    if (!getWorkflow(CHAT_TURN_WORKFLOW_SLUG)) registerWorkflow(chatTurnWorkflow);
+    if (!getWorkflow(CHAT_TURN_WORKFLOW_SLUG)) registerRecipe(chatTurnWorkflow);
   });
   after(async () => {
     if (createdUserIds.length > 0) {

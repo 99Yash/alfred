@@ -10,7 +10,7 @@ import { leaseRun } from "../../src/modules/agent/executor";
 import {
   _resetRegistryForTests,
   getWorkflow,
-  registerWorkflow,
+  registerRecipe,
 } from "../../src/modules/agent/registry";
 import {
   findResumableRunIds,
@@ -78,7 +78,7 @@ const ago = (ms: number): Date => new Date(Date.now() - ms);
 
 describe("per-step stale-lease resolution (pure)", () => {
   before(() => {
-    if (!getWorkflow(SLUG)) registerWorkflow(windowWorkflow);
+    if (!getWorkflow(SLUG)) registerRecipe(windowWorkflow);
   });
   after(() => {
     _resetRegistryForTests();
@@ -162,7 +162,7 @@ describe("per-step stale-lease window honored by lease + sweep (DB-backed)", { s
     await db()
       .delete(user)
       .where(like(user.id, `${ID_PREFIX}%`));
-    if (!getWorkflow(SLUG)) registerWorkflow(windowWorkflow);
+    if (!getWorkflow(SLUG)) registerRecipe(windowWorkflow);
   });
 
   after(async () => {

@@ -1,7 +1,7 @@
 import { Elysia, t } from "elysia";
 import { authMacro } from "../../middleware/auth";
-import { closeAgentQueue, enqueueRun, getAgentQueue } from "./queue";
-import { isInternalWorkflowSlug, listPublicWorkflows, registerWorkflow } from "./registry";
+import { closeAgentQueue, enqueueRun } from "./queue";
+import { isInternalWorkflowSlug, listPublicWorkflows, registerRecipe } from "./registry";
 import {
   cancelRun,
   createRun,
@@ -9,6 +9,7 @@ import {
   replayRun,
   signalRun,
   signalRunInTx,
+  startRun,
   type SignalArgs,
 } from "./service";
 import { isUniqueViolation } from "../../lib/pg-errors";
@@ -22,14 +23,14 @@ import { startAgentWorker, stopAgentWorker } from "./worker";
 import { Errors, toMessage } from "@alfred/contracts";
 
 export {
-  registerWorkflow,
+  registerRecipe,
   createRun,
+  startRun,
   getRun,
   signalRun,
   signalRunInTx,
   cancelRun,
   enqueueRun,
-  getAgentQueue,
   startAgentWorker,
   stopAgentWorker,
   startSubAgentJoinWakeWorker,
@@ -68,7 +69,7 @@ export const agent = new Elysia({ prefix: "/api/agent", normalize: "typebox" })
             throw Errors.NotFoundError("Workflow not found");
           }
           try {
-            const { runId } = await createRun({
+            const { runId } = await startRun({
               userId: user.id,
               workflowSlug: body.workflowSlug,
               brief: body.brief,
@@ -83,7 +84,6 @@ export const agent = new Elysia({ prefix: "/api/agent", normalize: "typebox" })
                 requestId: body.requestId,
               },
             });
-            await enqueueRun(runId);
             return { runId };
           } catch (err) {
             // Workflows that declare a `dedupKey` use a partial unique

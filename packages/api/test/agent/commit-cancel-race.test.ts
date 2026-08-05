@@ -12,7 +12,7 @@ import { commitStepSuccess, markRunFailed, runOnce } from "../../src/modules/age
 import {
   _resetRegistryForTests,
   getWorkflow,
-  registerWorkflow,
+  registerRecipe,
 } from "../../src/modules/agent/registry";
 import { cancelRun } from "../../src/modules/agent/service";
 import type { StepResult, Workflow } from "../../src/modules/agent/types";
@@ -278,9 +278,9 @@ describe("mid-flight cancel race (#530, DB-backed)", { skip: SKIP }, () => {
     await db()
       .delete(user)
       .where(like(user.id, `${ID_PREFIX}%`));
-    if (!getWorkflow(CANCEL_ADVANCE_SLUG)) registerWorkflow(cancelThenAdvanceWorkflow);
-    if (!getWorkflow(CANCEL_THROW_SLUG)) registerWorkflow(cancelThenThrowWorkflow);
-    if (!getWorkflow(CANCEL_CLOSURE_SLUG)) registerWorkflow(cancelClosureWorkflow);
+    if (!getWorkflow(CANCEL_ADVANCE_SLUG)) registerRecipe(cancelThenAdvanceWorkflow);
+    if (!getWorkflow(CANCEL_THROW_SLUG)) registerRecipe(cancelThenThrowWorkflow);
+    if (!getWorkflow(CANCEL_CLOSURE_SLUG)) registerRecipe(cancelClosureWorkflow);
   });
   beforeEach(() => {
     terminalCalls.length = 0;
