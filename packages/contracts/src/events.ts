@@ -40,6 +40,19 @@ export const approvalRequestedSchema = z.object({
   prompt: z.string().min(1).max(4_000),
 });
 
+/**
+ * Cap for the `error` string an `agent.run` frame carries. Exported because the
+ * *publisher* has to clamp to it: the string comes from a step-body or
+ * resolve-failure throw of any length, and `publishEvent` throws on a payload
+ * the schema rejects — inside an awaited commit hook that rolls back the
+ * terminal `failed` write and re-enters the reclaim loop. `sanitizeErrorMessage`
+ * takes this as its `max` at the two terminal-fail sinks (`commitStepFailure`,
+ * `markRunFailed` in `@alfred/api`), so the persisted `error.message` and the
+ * frame's `error` are the identical bounded string (ADR-0070 §8). Mirrors
+ * `CHAT_TOOL_NAME_MAX`.
+ */
+export const AGENT_RUN_ERROR_MAX = 4_000;
+
 export const agentRunSchema = z.object({
   runId: z.string().min(1).max(120),
   phase: z.enum([
@@ -58,7 +71,7 @@ export const agentRunSchema = z.object({
   attempt: z.number().int().nonnegative().optional(),
   workflowSlug: z.string().min(1).max(120).optional(),
   wake: z.unknown().optional(),
-  error: z.string().max(4_000).optional(),
+  error: z.string().max(AGENT_RUN_ERROR_MAX).optional(),
   retryAt: z.string().optional(),
 });
 

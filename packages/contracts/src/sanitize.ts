@@ -132,7 +132,20 @@ export function sanitizeToolResult(value: unknown): SanitizeResult {
  * poison from a plain string, discarding the count. Used where the value is
  * known to be a message/text string and no flag is needed
  * (`commitStepFailure`, `markRunFailed`, `finalizeFailedMessage` content).
+ *
+ * Pass `max` to also bound the result to at most `max` code units. A sink that
+ * both persists the message (jsonb `error.message`, no length limit) and
+ * publishes it on a length-capped frame (`agentRunSchema.error`, {@link
+ * AGENT_RUN_ERROR_MAX} in `./events`) uses this so the two carry the identical
+ * bounded string; without it an over-cap message makes the frame `safeParse`
+ * throw and roll the terminal write back (ADR-0070 §8). The truncation is
+ * **surrogate-safe**: `slice(0, max)` at an arbitrary UTF-16 index can split a
+ * well-formed surrogate pair into a lone half — the exact poison
+ * {@link stripString} removes — so the slice is stripped again. The result is
+ * poison-free AND ≤ `max`. Omitting `max` is today's behavior byte-for-byte.
  */
-export function sanitizeErrorMessage(message: string): string {
-  return stripString(message).value;
+export function sanitizeErrorMessage(message: string, max?: number): string {
+  const stripped = stripString(message).value;
+  if (max === undefined || stripped.length <= max) return stripped;
+  return stripString(stripped.slice(0, max)).value;
 }
