@@ -1,5 +1,5 @@
 import { chatTurnWorkflow, userAuthoredBriefWorkflow } from "@alfred/api/backend";
-import { registerWorkflow } from "@alfred/api/runtime";
+import { registerRecipe } from "@alfred/api/runtime";
 import { chatMemoryCaptureWorkflow } from "./workflows/chat-memory-capture";
 import { coldStartResearchWorkflow } from "./workflows/cold-start-research";
 import { dailyBriefingWorkflow } from "./workflows/daily-briefing";
@@ -16,20 +16,20 @@ import { skillDocumentationWorkflow } from "./workflows/skill-documentation";
  * before the worker starts pulling jobs.
  */
 export function registerBuiltinWorkflows(): void {
-  registerWorkflow(echoWithApprovalWorkflow);
-  registerWorkflow(memoryExtractionWorkflow);
-  registerWorkflow(chatMemoryCaptureWorkflow);
-  registerWorkflow(emailTriageWorkflow);
+  registerRecipe(echoWithApprovalWorkflow);
+  registerRecipe(memoryExtractionWorkflow);
+  registerRecipe(chatMemoryCaptureWorkflow);
+  registerRecipe(emailTriageWorkflow);
   // Resume compatibility only: hidden from catalogs/seeding and unavailable
   // for new runs, but required by persisted nonterminal agent checkpoints.
-  registerWorkflow(morningBriefingWorkflow);
-  registerWorkflow(dailyBriefingWorkflow);
-  registerWorkflow(coldStartResearchWorkflow);
-  registerWorkflow(learnSkillWorkflow);
-  registerWorkflow(skillDocumentationWorkflow);
-  registerWorkflow(chatTurnWorkflow);
+  registerRecipe(morningBriefingWorkflow);
+  registerRecipe(dailyBriefingWorkflow);
+  registerRecipe(coldStartResearchWorkflow);
+  registerRecipe(learnSkillWorkflow);
+  registerRecipe(skillDocumentationWorkflow);
+  registerRecipe(chatTurnWorkflow);
   // The sub-agent / focused-brief executor. Sub-agents spawned from any parent
   // (including the thread-coupled chat-turn) run on this slug, so it must be
   // resolvable by the registry — not only via the authored-workflow DB path.
-  registerWorkflow(userAuthoredBriefWorkflow);
+  registerRecipe(userAuthoredBriefWorkflow);
 }

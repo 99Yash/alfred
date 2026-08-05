@@ -11,7 +11,7 @@ import { commitStepSuccess, markRunFailed, runOnce } from "../../src/modules/age
 import {
   _resetRegistryForTests,
   getWorkflow,
-  registerWorkflow,
+  registerRecipe,
 } from "../../src/modules/agent/registry";
 import type { StepResult, Workflow } from "../../src/modules/agent/types";
 
@@ -163,7 +163,7 @@ describe("terminal run ⟹ terminal agent.run frame (item 56, DB-backed)", { ski
     await db()
       .delete(user)
       .where(like(user.id, `${ID_PREFIX}%`));
-    if (!getWorkflow(THROW_SLUG)) registerWorkflow(throwWorkflow);
+    if (!getWorkflow(THROW_SLUG)) registerRecipe(throwWorkflow);
   });
   after(async () => {
     if (createdUserIds.length > 0) {

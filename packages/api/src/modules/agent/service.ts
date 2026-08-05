@@ -267,6 +267,27 @@ export async function createRun(
   return { runId: row.id, created: true };
 }
 
+/**
+ * Persist a run row and place it on the agent queue in one call — the
+ * ordinary-caller entry point of the execution state machine. It folds the
+ * `createRun` (persist a `pending` row) and `enqueueRun` (hand the run to the
+ * worker) pair behind one name so a caller cannot persist a run and forget to
+ * enqueue it, or enqueue in the wrong order. Callers that need BullMQ dedup or a
+ * delayed start (the cron and event dispatchers) pass `enqueueOpts`.
+ *
+ * The run is always enqueued, even when `createRun` returned an existing row for
+ * a deduped occurrence: re-enqueueing an already-queued or in-flight run is safe
+ * because lease arbitration is at the DB layer (FOR UPDATE SKIP LOCKED).
+ */
+export async function startRun(
+  args: CreateRunArgs,
+  enqueueOpts?: { delayMs?: number; jobId?: string },
+): Promise<CreateRunResult> {
+  const result = await createRun(args);
+  await enqueueRun(result.runId, enqueueOpts);
+  return result;
+}
+
 /** Create a new user-authored occurrence linked to a prior run. */
 export async function replayRun(args: ReplayRunArgs): Promise<CreateRunResult> {
   const [original] = await db()

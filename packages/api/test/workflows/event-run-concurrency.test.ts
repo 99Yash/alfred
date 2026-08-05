@@ -18,7 +18,7 @@ import { coldStartResearchWorkflow } from "../../../../apps/server/src/builtins/
 import {
   _resetRegistryForTests,
   getWorkflow,
-  registerWorkflow,
+  registerRecipe,
 } from "../../src/modules/agent/registry";
 import { createRun } from "../../src/modules/agent/service";
 import type { StepResult, Workflow } from "../../src/modules/agent/types";
@@ -242,9 +242,9 @@ async function countActiveRuns(userId: string, workflowSlug: string): Promise<nu
 
 describe("event-dispatch duplicate-run guard (#531)", { skip: SKIP }, () => {
   before(() => {
-    if (!getWorkflow(EVENT_WORKFLOW_SLUG)) registerWorkflow(eventWorkflow);
-    if (!getWorkflow(SINGLETON_WORKFLOW_SLUG)) registerWorkflow(singletonEventWorkflow);
-    if (!getWorkflow(COLD_START_WORKFLOW_SLUG)) registerWorkflow(coldStartResearchWorkflow);
+    if (!getWorkflow(EVENT_WORKFLOW_SLUG)) registerRecipe(eventWorkflow);
+    if (!getWorkflow(SINGLETON_WORKFLOW_SLUG)) registerRecipe(singletonEventWorkflow);
+    if (!getWorkflow(COLD_START_WORKFLOW_SLUG)) registerRecipe(coldStartResearchWorkflow);
     registerTriggerConsumers();
   });
   after(async () => {

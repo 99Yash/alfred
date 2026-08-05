@@ -5,7 +5,7 @@ import {
   _resetRegistryForTests,
   getWorkflow,
   listPublicWorkflows,
-  registerWorkflow,
+  registerRecipe,
 } from "../../src/modules/agent/registry";
 import type { Workflow } from "../../src/modules/agent/types";
 import { getBuiltinWorkflowSeedPlan } from "../../src/modules/workflows/seeder";
@@ -37,9 +37,9 @@ describe("built-in workflow catalog and seed filtering", () => {
   });
 
   test("resume-only workflows stay registered but are absent from the public catalog", () => {
-    registerWorkflow(workflow("daily-briefing"));
-    registerWorkflow(workflow("morning-briefing", { resumeOnly: true }));
-    registerWorkflow(workflow("__internal"));
+    registerRecipe(workflow("daily-briefing"));
+    registerRecipe(workflow("morning-briefing", { resumeOnly: true }));
+    registerRecipe(workflow("__internal"));
 
     assert.equal(getWorkflow("morning-briefing")?.resumeOnly, true);
     assert.deepEqual(
@@ -49,8 +49,8 @@ describe("built-in workflow catalog and seed filtering", () => {
   });
 
   test("the seeder plans active definitions and retires resume-only rows", () => {
-    registerWorkflow(workflow("daily-briefing"));
-    registerWorkflow(workflow("morning-briefing", { resumeOnly: true }));
+    registerRecipe(workflow("daily-briefing"));
+    registerRecipe(workflow("morning-briefing", { resumeOnly: true }));
 
     const plan = getBuiltinWorkflowSeedPlan();
 

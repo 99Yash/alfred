@@ -11,7 +11,7 @@ import { runOnce } from "../../src/modules/agent/executor";
 import {
   _resetRegistryForTests,
   getWorkflow,
-  registerWorkflow,
+  registerRecipe,
 } from "../../src/modules/agent/registry";
 import type { StepResult, Workflow } from "../../src/modules/agent/types";
 import type { SenderExtractionEvent } from "../../src/modules/triage";
@@ -180,7 +180,7 @@ describe("commit sanitizes executor jsonb sinks (DB-backed)", { skip: SKIP }, ()
     await db()
       .delete(user)
       .where(like(user.id, `${ID_PREFIX}%`));
-    if (!getWorkflow(SLUG)) registerWorkflow(poisonWorkflow);
+    if (!getWorkflow(SLUG)) registerRecipe(poisonWorkflow);
   });
 
   after(async () => {
