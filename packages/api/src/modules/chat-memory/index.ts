@@ -8,4 +8,9 @@
  */
 
 export * from "./extractor";
-export { startChatMemoryWorker, stopChatMemoryWorker, closeChatMemoryQueue } from "./queue";
+export {
+  scheduleThreadIdleExtraction,
+  startChatMemoryWorker,
+  stopChatMemoryWorker,
+  closeChatMemoryQueue,
+} from "./queue";

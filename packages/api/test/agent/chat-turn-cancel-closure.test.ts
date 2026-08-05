@@ -23,7 +23,7 @@ import { cancelRun } from "../../src/modules/agent/service";
 import {
   CHAT_TURN_WORKFLOW_SLUG,
   chatTurnWorkflow,
-} from "../../src/modules/agent/workflows/chat-turn";
+} from "../../src/modules/conversations/chat-turn";
 import { resetToolFixtures } from "../lib/tool-fixtures";
 
 /**

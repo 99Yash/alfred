@@ -4,7 +4,7 @@ import { afterEach, beforeEach, describe, test } from "node:test";
 import { z } from "zod";
 
 import { activateTool, migrateActiveTools } from "../../src/modules/agent/tool-surface";
-import { chatTurnWorkflow } from "../../src/modules/agent/workflows/chat-turn";
+import { chatTurnWorkflow } from "../../src/modules/conversations/chat-turn";
 import { userAuthoredBriefWorkflow } from "../../src/modules/agent/workflows/user-authored-brief";
 import { _setDispatchTraceSinksForTests, dispatchToolCall } from "../../src/modules/dispatch";
 import { liveTool, registerTool } from "../../src/modules/tools/registry";

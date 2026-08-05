@@ -8,8 +8,8 @@ import { sanitizeVoice } from "../../src/modules/agent/voice-sanitize";
 import {
   streamModelTurn,
   type StreamTurnState,
-} from "../../src/modules/agent/workflows/stream-model-turn";
-import type { TurnStopController } from "../../src/modules/agent/workflows/turn-stop-controller";
+} from "../../src/modules/conversations/stream-model-turn";
+import type { TurnStopController } from "../../src/modules/conversations/turn-stop-controller";
 
 /**
  * Unit tests for the extracted live-stream drain. Exercises the four stream

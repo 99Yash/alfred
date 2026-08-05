@@ -49,6 +49,60 @@ export type {
 } from "./types";
 export type { CancelOutcome, SignalOutcome } from "./service";
 
+// Agent-runtime primitives the `conversations` chat recipe reaches through this
+// public seam. The recipe lives in `conversations`; execution never imports it,
+// so it consumes these context/turn/sub-agent helpers here rather than through
+// private module paths. `compaction`, `grounding`, `instructions`,
+// `connected-summary`, and `transcript-dedup` are context assembly — item 03
+// moves that ownership to `conversations` and removes their exposure here.
+export {
+  assembleChatContext,
+  CHAT_MAX_OUTPUT_TOKENS,
+  estimateChatRequestTokens,
+  guardTurnContext,
+  loadChatThreadContext,
+  scheduleConversationCompactionIfNeeded,
+  withEphemeralReference,
+} from "./compaction";
+export { buildConnectedSummaryFromAvailability } from "./connected-summary";
+export {
+  formatRuntimeTimeGrounding,
+  resolveRuntimeGroundingAnchor,
+  resolveUserTimezone,
+} from "./grounding";
+export { composeAgentInstructions } from "./instructions";
+export {
+  foldToolSurfaceState,
+  systemToolKernel,
+  toolRuntimeForRun,
+  toolSurfaceStateFields,
+} from "./tool-surface";
+export { appendModelResponseMessages } from "./transcript-dedup";
+export { aggregateRunUsage } from "./usage-fold";
+export { createVoiceStreamSanitizer, sanitizeVoice } from "./voice-sanitize";
+export {
+  shouldPublishToolStarted,
+  toolCardStarted,
+  toolCardTerminal,
+} from "./workflows/tool-card-events";
+export { toolEventOutcome } from "./workflows/tool-event-outcome";
+export { pendingToolCallSchema } from "./workflows/pending-tool-call";
+export {
+  CHAT_TURN_CAP_MAX,
+  openChatTurnRetries,
+  resetChatTurnRetryBudgets,
+} from "./workflows/turn-budgets";
+export { PREVIEW_CHARS } from "./workflows/tool-preview";
+export { joinChildRun, type JoinChildRunDeps, type ParkSignal } from "./sub-agent-join";
+export { scheduleSubAgentJoinWakeJob } from "./sub-agent-join-wake-queue";
+export {
+  isTerminalChildStatus,
+  listSpawnedChildRuns,
+  readChildRunOutcome,
+  type ChildRunOutcome,
+} from "./sub-agents";
+export type { AgentDbExecutor } from "./types";
+
 export const agent = new Elysia({ prefix: "/api/agent", normalize: "typebox" })
   .use(authMacro)
   .guard({ auth: true }, (app) =>
