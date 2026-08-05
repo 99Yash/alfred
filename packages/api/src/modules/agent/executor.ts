@@ -429,6 +429,7 @@ export async function runOnce(runId: string, opts: RunOnceOptions = {}): Promise
   opts.onLeased?.({ runId: run.id, stepId, attempt });
 
   await publishEvent({
+    untransacted: true,
     userId: run.userId,
     kind: "agent.run",
     payload: { runId: run.id, phase: "step_started", step: stepId, attempt },
@@ -451,6 +452,7 @@ export async function runOnce(runId: string, opts: RunOnceOptions = {}): Promise
     },
     async log(message) {
       await publishEvent({
+        untransacted: true,
         userId: run.userId,
         kind: "agent.progress",
         payload: { runId: run.id, step: stepId, message },
