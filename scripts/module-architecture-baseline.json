@@ -149,10 +149,6 @@
       "removalPhase": "Phases 1-6",
       "reason": "Existing API modules import another module's implementation. Each migration slice must remove entries and cannot add replacements.",
       "imports": [
-        "packages/api/src/modules/agent/compaction/chat-history-retrieval.ts:../../chat/attachment-enrichment",
-        "packages/api/src/modules/agent/compaction/conversation-compaction-scheduler.ts:../../chat/attachment-enrichment",
-        "packages/api/src/modules/agent/compaction/conversation-compaction-scheduler.ts:../../integrations/queue",
-        "packages/api/src/modules/agent/compaction/conversation-summary-evidence.ts:../../chat/attachment-enrichment",
         "packages/api/src/modules/agent/service.ts:../approvals/expiry-queue",
         "packages/api/src/modules/agent/service.ts:../approvals/notification-queue",
         "packages/api/src/modules/agent/service.ts:../workflows/occurrence",

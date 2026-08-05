@@ -27,15 +27,10 @@ import { readIntegrationAvailability } from "../integrations";
 import { executeToolCallRound } from "../tool-runtime";
 import {
   appendModelResponseMessages,
-  assembleChatContext,
   buildConnectedSummaryFromAvailability,
-  CHAT_MAX_OUTPUT_TOKENS,
   CHAT_TURN_CAP_MAX,
   composeAgentInstructions,
-  estimateChatRequestTokens,
   formatRuntimeTimeGrounding,
-  guardTurnContext,
-  loadChatThreadContext,
   openChatTurnRetries,
   resetChatTurnRetryBudgets,
   resolveRuntimeGroundingAnchor,
@@ -44,10 +39,17 @@ import {
   toolCardTerminal,
   toolEventOutcome,
   toolRuntimeForRun,
-  withEphemeralReference,
   type Step,
   type Workflow,
 } from "../agent";
+import {
+  assembleChatContext,
+  CHAT_MAX_OUTPUT_TOKENS,
+  estimateChatRequestTokens,
+  guardTurnContext,
+  loadChatThreadContext,
+  withEphemeralReference,
+} from "./compaction";
 import {
   buildStoredContentParts,
   hydrateTranscriptForModel,

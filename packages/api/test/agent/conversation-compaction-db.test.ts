@@ -18,7 +18,7 @@ import { persistChatAttachmentRepresentation } from "../../src/modules/chat/atta
 import {
   loadConversationSummaryEvidence,
   persistConversationSummary,
-} from "../../src/modules/agent/compaction";
+} from "../../src/modules/conversations/compaction";
 
 const SKIP = (() => {
   try {

@@ -11,6 +11,7 @@ export {
   startIngestionWorker,
   stopIngestionWorker,
   closeIngestionQueue,
+  enqueueChatAttachmentEnrichment,
   enqueueGmailKindRefold,
   enqueuePendingUploadCleanup,
   getIngestionQueue,

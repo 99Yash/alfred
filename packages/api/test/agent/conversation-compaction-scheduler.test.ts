@@ -4,7 +4,7 @@ import { describe, test } from "node:test";
 import {
   backgroundCompactionThresholdTokens,
   BACKGROUND_COMPACTION_ABSOLUTE_CAP_TOKENS,
-} from "../../src/modules/agent/compaction";
+} from "../../src/modules/conversations/compaction";
 
 describe("background conversation compaction threshold", () => {
   test("uses 60% of ordinary effective windows", () => {

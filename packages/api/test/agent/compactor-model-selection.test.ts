@@ -6,7 +6,7 @@ import { route } from "@alfred/ai";
 import {
   chooseCompactorModel,
   compactorRequestOverheadTokens,
-} from "../../src/modules/agent/compaction/compactor";
+} from "../../src/modules/agent/run-compaction/compactor";
 
 /**
  * #371: `chooseCompactorModel` picks the compaction model by asking "does the

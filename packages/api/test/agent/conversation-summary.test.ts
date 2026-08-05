@@ -6,7 +6,7 @@ import {
   parsePersistedConversationSummary,
   validateConversationSummary,
   type EligibleConversationSummarySources,
-} from "../../src/modules/agent/compaction/conversation-summary";
+} from "../../src/modules/conversations/compaction/conversation-summary";
 
 const eligible: EligibleConversationSummarySources = {
   messageIds: new Set(["msg_1", "msg_2"]),
