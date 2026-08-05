@@ -115,8 +115,10 @@ function floorTraceFields(floors: FloorAudits | null): FloorTraceFields {
  * Lives in `@alfred/api` (not `@alfred/contracts`) because every field type it
  * composes — `Observations`, `ClassifyAudit`, `SenderContextResult` — is a
  * triage-internal type defined alongside it here; moving it up would drag that
- * whole leaf tree with it. The decision-trace registry (`modules/agent`) imports
- * this type to give `triage.classification` traces their precise shape.
+ * whole leaf tree with it. triage declares its own `"triage.classification"`
+ * decision-trace kind against execution's open registry at the bottom of this
+ * file, so execution never imports this triage-internal type (item 06 removed
+ * that last `agent -> triage` edge).
  *
  * Its floor half is NOT declared here: those fields come from
  * {@link FLOOR_TRACE_PROJECTIONS}, so the floor sequence and the persisted record
@@ -229,4 +231,18 @@ export function senderExtractionEvent(args: {
     todoOutcome: args.classification.todoDecision?.outcome ?? null,
     todoNote: args.classification.todoDecision?.note ?? null,
   };
+}
+
+// Register triage's decision-trace kind against execution's open registry
+// (`modules/agent/decision-traces.ts`) from inside the triage boundary. This
+// keeps `ctx.trace("triage.classification", …)` tier-1 — a record whose shape
+// does not match {@link SenderExtractionEvent} still fails to compile — while
+// leaving execution with no static reference to any triage type (the edge item
+// 06 removed). Module augmentation, not an `import`, so it adds no module graph
+// edge; it applies program-wide because this file is part of the compilation
+// and is already imported by the sole producer (`triage/workflow-operations.ts`).
+declare module "../agent/decision-traces" {
+  interface DecisionTraceRegistry {
+    "triage.classification": SenderExtractionEvent;
+  }
 }

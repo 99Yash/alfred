@@ -1,5 +1,4 @@
 import { sanitizeErrorMessage } from "@alfred/contracts";
-import type { SenderExtractionEvent } from "../triage";
 
 const DEFAULT_DECISION_TRACE_KEY = "default";
 const MAX_DECISION_TRACE_KEY_LENGTH = 200;
@@ -23,16 +22,29 @@ export function normalizeDecisionTraceKey(decisionKey?: string): string {
  *
  * The executor and the `agent_decision_traces` table are kind-agnostic: they
  * persist `(kind, decisionKey, record-as-jsonb)` without inspecting the
- * payload. To add a producer, add an entry here and call `ctx.trace` from the
- * step. If a domain row must commit atomically with its trace, the domain store
- * may write the same keyed trace before the executor's idempotent insert.
+ * payload. If a domain row must commit atomically with its trace, the domain
+ * store may write the same keyed trace before the executor's idempotent insert.
  *
- * triage is the first producer (ADR-0051 sender-extraction event); briefing /
- * memory-extraction / cold-start adopt incrementally by adding entries.
+ * This interface is deliberately EMPTY here and OPEN for augmentation: a
+ * producer module declares its own kind + payload from inside its own boundary
+ *
+ *     // in the producing module (e.g. triage), NOT here:
+ *     declare module "../agent/decision-traces" {
+ *       interface DecisionTraceRegistry {
+ *         "my.kind": MyPayload;
+ *       }
+ *     }
+ *
+ * so execution owns the trace *seam* without importing any product payload type
+ * (that import was the last `agent -> triage` module edge; item 06 removed it).
+ * triage is the first producer (ADR-0051 sender-extraction event, declared in
+ * `triage/sender-extraction-event.ts`); briefing / memory-extraction /
+ * cold-start adopt the same way. NEVER give this an index signature or widen an
+ * entry to `unknown`: that silently disables every producer's `ctx.trace`
+ * payload check, which is the whole point of the map.
  */
-interface DecisionTraceRegistry {
-  "triage.classification": SenderExtractionEvent;
-}
+// oxlint-disable-next-line no-empty-interface no-empty-object-type
+export interface DecisionTraceRegistry {}
 
 export type DecisionTraceKind = keyof DecisionTraceRegistry;
 export type DecisionTraceFor<K extends DecisionTraceKind> = DecisionTraceRegistry[K];
