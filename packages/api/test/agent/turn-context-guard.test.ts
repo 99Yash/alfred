@@ -10,7 +10,7 @@ import {
   oversizedUserMessageSummaryMessage,
   storedCompactionPrefix,
   withEphemeralReference,
-} from "../../src/modules/agent/compaction/turn-context-guard";
+} from "../../src/modules/conversations/compaction/turn-context-guard";
 
 /**
  * Unit tests for the extracted turn context guard. Two seams are covered here

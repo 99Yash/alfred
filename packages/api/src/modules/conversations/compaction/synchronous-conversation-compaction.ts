@@ -23,7 +23,7 @@ import {
   compareChatMessageWatermarks,
   nullableChatMessageWatermark,
 } from "./chat-message-watermark";
-import { estimateTranscriptTokens } from "./tokens";
+import { estimateTranscriptTokens } from "../../agent";
 
 export interface SynchronousConversationCompactionArgs {
   userId: string;

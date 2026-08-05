@@ -9,8 +9,8 @@ import {
   estimateAttachmentEnrichmentCostMicrousd,
   selectAttachmentsWithinEnrichmentBudget,
   shouldStartMediaEnrichment,
-} from "../../chat/attachment-enrichment";
-import { enqueueChatAttachmentEnrichment } from "../../integrations/queue";
+} from "../../chat";
+import { enqueueChatAttachmentEnrichment } from "../../integrations";
 import { enqueueConversationCompaction } from "./conversation-compaction-queue";
 import {
   afterChatMessageWatermark,
@@ -23,7 +23,7 @@ import {
   type ChatSummaryWatermark,
 } from "./chat-context-store";
 import { CHAT_MAX_OUTPUT_TOKENS } from "./chat-request-pressure";
-import { estimateSerializedTokens } from "./tokens";
+import { estimateSerializedTokens } from "../../agent";
 
 const BACKGROUND_COMPACTION_RATIO = 0.6;
 export const BACKGROUND_COMPACTION_ABSOLUTE_CAP_TOKENS = 200_000;

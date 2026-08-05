@@ -51,19 +51,23 @@ export type { CancelOutcome, SignalOutcome } from "./service";
 
 // Agent-runtime primitives the `conversations` chat recipe reaches through this
 // public seam. The recipe lives in `conversations`; execution never imports it,
-// so it consumes these context/turn/sub-agent helpers here rather than through
-// private module paths. `compaction`, `grounding`, `instructions`,
-// `connected-summary`, and `transcript-dedup` are context assembly — item 03
-// moves that ownership to `conversations` and removes their exposure here.
+// so it consumes these turn/sub-agent/context helpers here rather than through
+// private module paths.
+//
+// `run-compaction` exposes the generic `<run_summary>` token/window math the
+// chat compaction files in `conversations/compaction` still share (ADR-0035);
+// `grounding`, `instructions`, `connected-summary`, and `transcript-dedup` are
+// permanent shared agent-runtime services — the sub-agent executor
+// (`workflows/user-authored-brief.ts`) consumes them too, so they stay in
+// `agent`. Chat context assembly, chat summaries, and chat compaction now live
+// in `conversations/compaction` and are no longer reachable here.
 export {
-  assembleChatContext,
-  CHAT_MAX_OUTPUT_TOKENS,
-  estimateChatRequestTokens,
-  guardTurnContext,
-  loadChatThreadContext,
-  scheduleConversationCompactionIfNeeded,
-  withEphemeralReference,
-} from "./compaction";
+  CHARS_PER_TOKEN,
+  compactTranscript,
+  compactWithRetry,
+  estimateSerializedTokens,
+  estimateTranscriptTokens,
+} from "./run-compaction";
 export { buildConnectedSummaryFromAvailability } from "./connected-summary";
 export {
   formatRuntimeTimeGrounding,

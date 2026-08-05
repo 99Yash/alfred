@@ -46,14 +46,12 @@ export {
 } from "./modules/memory/index";
 export {
   closeChatMemoryQueue,
-  startChatMemoryWorker,
-  stopChatMemoryWorker,
-} from "./modules/chat-memory/index";
-export {
   closeConversationCompactionQueue,
+  startChatMemoryWorker,
   startConversationCompactionWorker,
+  stopChatMemoryWorker,
   stopConversationCompactionWorker,
-} from "./modules/agent/compaction";
+} from "./modules/conversations";
 export { registerBuiltinTools } from "./modules/tools/runtime";
 export { registerAgentSystemToolAdapter } from "./modules/agent/system-tool-adapter";
 export { registerWorkflowSystemToolAdapter } from "./modules/workflows/system-tool-adapter";

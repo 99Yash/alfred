@@ -6,11 +6,11 @@ import type { ChatThreadContext } from "@alfred/db/schemas";
 import {
   compactConversationSynchronously,
   conversationSummaryMessage,
-  estimateTranscriptTokens,
   type ConversationSummary,
   type LoadedChatThreadContext,
   type PersistConversationSummaryArgs,
-} from "../../src/modules/agent/compaction";
+} from "../../src/modules/conversations/compaction";
+import { estimateTranscriptTokens } from "../../src/modules/agent/run-compaction";
 
 const at = new Date("2026-07-12T00:00:00.000Z");
 const watermark = { createdAt: at, messageId: "msg_2" };
