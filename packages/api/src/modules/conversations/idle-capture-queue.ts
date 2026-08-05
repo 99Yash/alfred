@@ -3,7 +3,7 @@ import { toMessage } from "@alfred/contracts";
 import { Queue, Worker, type Job } from "bullmq";
 import { z } from "zod";
 import { createRedisConnection, isQueueEnabled } from "../../queue/connection";
-import { createRun, enqueueRun } from "../agent/index";
+import { startRun } from "../agent/index";
 import { isUniqueViolation } from "../../lib/pg-errors";
 
 /**
@@ -31,7 +31,7 @@ export const CHAT_MEMORY_QUEUE_NAME = "chat-memory";
  * `chatMemoryCaptureWorkflow` recipe in `./chat-memory-capture.ts`). Internal
  * (`__`-prefixed, like `__chat-turn__`) so the workflow seeder skips it: it is a
  * debounce-driven pipeline, not a user-toggleable workflow, and the worker
- * calls `createRun` on it directly.
+ * calls `startRun` on it directly.
  */
 export const CHAT_MEMORY_CAPTURE_WORKFLOW_SLUG = "__chat-memory-capture__";
 
@@ -200,7 +200,7 @@ async function processChatMemoryJob(job: Job<ChatMemoryJobData>): Promise<unknow
   const data = chatMemoryJobDataSchema.parse(job.data);
   let runId: string;
   try {
-    const created = await createRun({
+    const started = await startRun({
       userId: data.userId,
       workflowSlug: CHAT_MEMORY_CAPTURE_WORKFLOW_SLUG,
       brief: "end-of-thread memory capture over an idle chat thread",
@@ -219,7 +219,7 @@ async function processChatMemoryJob(job: Job<ChatMemoryJobData>): Promise<unknow
         reason: "idle-debounce",
       },
     });
-    runId = created.runId;
+    runId = started.runId;
   } catch (err) {
     if (isUniqueViolation(err)) {
       console.log(
@@ -229,7 +229,6 @@ async function processChatMemoryJob(job: Job<ChatMemoryJobData>): Promise<unknow
     }
     throw err;
   }
-  await enqueueRun(runId);
   console.log(`[chat-memory:worker] chat-memory.extract thread=${data.threadId} runId=${runId}`);
   return { runId };
 }

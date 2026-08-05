@@ -2,8 +2,7 @@ import { db } from "@alfred/db";
 import { workflows } from "@alfred/db/schemas";
 import { workflowTriggerSchema, type WorkflowTrigger } from "@alfred/contracts";
 import { and, eq, sql } from "drizzle-orm";
-import { createRun } from "../agent/service";
-import { enqueueRun } from "../agent/queue";
+import { startRunInTx } from "../agent/service";
 import { computeNextRunAt, resolveWorkflowTimezone } from "./scheduling";
 import { toMessage } from "@alfred/contracts";
 
@@ -33,8 +32,7 @@ export interface TickResult {
 }
 
 export interface TickDependencies {
-  createRun?: typeof createRun;
-  enqueueRun?: typeof enqueueRun;
+  startRunInTx?: typeof startRunInTx;
 }
 
 interface DueRow {
@@ -171,30 +169,11 @@ async function dispatchOne(
     revisionId: row.isBuiltin ? null : row.publishedRevisionId,
     scheduledFor: scheduledForIso,
   } as const;
-  const claimed = await db().transaction(async (tx) => {
-    const updated = await tx
-      .update(workflows)
-      .set({ nextRunAt: newNext, lastScheduledAt: scheduledFor })
-      .where(and(eq(workflows.id, row.id), eq(workflows.nextRunAt, scheduledFor)))
-      .returning({ id: workflows.id });
-    if (updated.length === 0) return null;
-
-    return (dependencies.createRun ?? createRun)(
-      {
-        userId: row.userId,
-        workflowSlug: row.slug,
-        workflowRevisionId: row.isBuiltin ? null : row.publishedRevisionId,
-        brief: row.brief ?? undefined,
-        occurrence,
-        trigger: { kind: "cron", scheduledFor: scheduledForIso },
-      },
-      tx,
-    );
-  });
-
-  if (!claimed) return "raced";
-  const { runId } = claimed;
-
+  // The CAS claim, the run row, and the enqueue are one operation. `claim`
+  // runs the CAS on the transaction executor; a racing worker updates zero
+  // rows and returns `null` (no run, no enqueue). `startRunInTx` creates the
+  // run on that same transaction and enqueues only after commit.
+  //
   // jobId dedup defends against a tick retry (BullMQ attempts) firing a
   // second job for the same scheduled instant. Different `scheduledFor`
   // values produce different jobIds, so the *next* fire isn't blocked.
@@ -204,9 +183,28 @@ async function dispatchOne(
   // bullmq/.../job.js). We use `.` separators and the millisecond
   // timestamp (sub-second uniqueness we never schedule at, but still
   // colon-free + numerically sortable).
-  await (dependencies.enqueueRun ?? enqueueRun)(runId, {
-    jobId: `workflow.${row.id}.scheduled.${scheduledFor.getTime()}`,
+  const claimed = await (dependencies.startRunInTx ?? startRunInTx)({
+    claim: async (tx) => {
+      const updated = await tx
+        .update(workflows)
+        .set({ nextRunAt: newNext, lastScheduledAt: scheduledFor })
+        .where(and(eq(workflows.id, row.id), eq(workflows.nextRunAt, scheduledFor)))
+        .returning({ id: workflows.id });
+      if (updated.length === 0) return null;
+
+      return {
+        userId: row.userId,
+        workflowSlug: row.slug,
+        workflowRevisionId: row.isBuiltin ? null : row.publishedRevisionId,
+        brief: row.brief ?? undefined,
+        occurrence,
+        trigger: { kind: "cron", scheduledFor: scheduledForIso },
+      };
+    },
+    enqueue: { jobId: `workflow.${row.id}.scheduled.${scheduledFor.getTime()}` },
   });
+
+  if (!claimed) return "raced";
 
   return "enqueued";
 }

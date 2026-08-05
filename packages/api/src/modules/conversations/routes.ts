@@ -28,7 +28,7 @@ import { Elysia, t } from "elysia";
 import { emitReplicachePokes } from "../../events/replicache-events";
 import { authMacro } from "../../middleware/auth";
 import { createCacheRedisConnection } from "../../queue/connection";
-import { createRun, enqueueRun, getRun } from "../agent";
+import { createRun, deliverRun, getRun } from "../agent";
 import { uniqueViolationConstraint } from "../../lib/pg-errors";
 import { enqueuePendingUploadCleanup } from "../integrations";
 import {
@@ -348,7 +348,7 @@ async function schedulePendingUploadCleanup(userId: string, storageKey: string):
 async function enqueueChatTurnRunBestEffort(runId: string | null | undefined): Promise<void> {
   if (!runId) return;
   try {
-    await enqueueRun(runId);
+    await deliverRun(runId);
   } catch (err) {
     // `createRun` persisted a pending row; the agent worker's resume sweep
     // re-enqueues pending/runnable rows, so do not tell the client the send
