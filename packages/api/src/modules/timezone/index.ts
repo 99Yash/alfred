@@ -13,4 +13,8 @@ export {
   type ZoneClock,
 } from "./local-time";
 
-export { DEFAULT_USER_TIMEZONE, firstValidTimezone } from "./user-timezone";
+export {
+  DEFAULT_USER_TIMEZONE,
+  firstValidTimezone,
+  TIMEZONE_PREFERENCE_KEYS,
+} from "./user-timezone";
