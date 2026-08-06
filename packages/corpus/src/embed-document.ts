@@ -58,15 +58,16 @@ async function markDocumentEmbedTerminal(documentId: string, reason: string): Pr
  * Failures here don't roll back the parent `documents` row — the doc is
  * still useful as a SQL-searchable artifact even if embedding failed.
  * Callers can use `findUnembeddedDocumentIds` to find docs that need a
- * (re-)embedding pass and call `embedDocument` for each.
+ * (re-)embedding pass and call `indexDocument` for each (`retryPending`
+ * folds that sweep).
  */
-export interface EmbedDocumentArgs {
+export interface IndexDocumentArgs {
   documentId: string;
   /** Voyage idempotency key forwarded for cost-attribution greppability. */
   idempotencyKey?: string;
 }
 
-export interface EmbedDocumentResult {
+export interface IndexDocumentResult {
   documentId: string;
   chunksWritten: number;
   chunksSkipped: number;
@@ -74,7 +75,7 @@ export interface EmbedDocumentResult {
   empty: boolean;
 }
 
-export async function embedDocument(args: EmbedDocumentArgs): Promise<EmbedDocumentResult> {
+export async function indexDocument(args: IndexDocumentArgs): Promise<IndexDocumentResult> {
   const docRows = await db().select().from(documents).where(eq(documents.id, args.documentId));
   const doc = docRows[0];
   if (!doc) throw new Error(`[embed-document] not found: ${args.documentId}`);

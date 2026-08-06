@@ -159,15 +159,15 @@ importers:
       '@alfred/contracts':
         specifier: workspace:*
         version: link:../../packages/contracts
+      '@alfred/corpus':
+        specifier: workspace:*
+        version: link:../../packages/corpus
       '@alfred/db':
         specifier: workspace:*
         version: link:../../packages/db
       '@alfred/env':
         specifier: workspace:*
         version: link:../../packages/env
-      '@alfred/ingestion':
-        specifier: workspace:*
-        version: link:../../packages/ingestion
       '@alfred/integrations':
         specifier: workspace:*
         version: link:../../packages/integrations
@@ -474,15 +474,15 @@ importers:
       '@alfred/contracts':
         specifier: workspace:*
         version: link:../contracts
+      '@alfred/corpus':
+        specifier: workspace:*
+        version: link:../corpus
       '@alfred/db':
         specifier: workspace:*
         version: link:../db
       '@alfred/env':
         specifier: workspace:*
         version: link:../env
-      '@alfred/ingestion':
-        specifier: workspace:*
-        version: link:../ingestion
       '@alfred/integrations':
         specifier: workspace:*
         version: link:../integrations
@@ -634,6 +634,25 @@ importers:
         specifier: workspace:*
         version: link:../config
 
+  packages/corpus:
+    dependencies:
+      '@alfred/ai':
+        specifier: workspace:*
+        version: link:../ai
+      '@alfred/db':
+        specifier: workspace:*
+        version: link:../db
+      drizzle-orm:
+        specifier: ^0.45.2
+        version: 0.45.2(@opentelemetry/api@1.9.1)(@types/pg@8.20.0)(kysely@0.29.4)(pg@8.20.0)
+      typescript:
+        specifier: 'catalog:'
+        version: 7.0.2
+    devDependencies:
+      '@alfred/config':
+        specifier: workspace:*
+        version: link:../config
+
   packages/db:
     dependencies:
       '@alfred/contracts':
@@ -690,39 +709,20 @@ importers:
         specifier: workspace:*
         version: link:../config
 
-  packages/ingestion:
-    dependencies:
-      '@alfred/ai':
-        specifier: workspace:*
-        version: link:../ai
-      '@alfred/db':
-        specifier: workspace:*
-        version: link:../db
-      drizzle-orm:
-        specifier: ^0.45.2
-        version: 0.45.2(@opentelemetry/api@1.9.1)(@types/pg@8.20.0)(kysely@0.29.4)(pg@8.20.0)
-      typescript:
-        specifier: 'catalog:'
-        version: 7.0.2
-    devDependencies:
-      '@alfred/config':
-        specifier: workspace:*
-        version: link:../config
-
   packages/integrations:
     dependencies:
       '@alfred/contracts':
         specifier: workspace:*
         version: link:../contracts
+      '@alfred/corpus':
+        specifier: workspace:*
+        version: link:../corpus
       '@alfred/db':
         specifier: workspace:*
         version: link:../db
       '@alfred/env':
         specifier: workspace:*
         version: link:../env
-      '@alfred/ingestion':
-        specifier: workspace:*
-        version: link:../ingestion
       drizzle-orm:
         specifier: ^0.45.2
         version: 0.45.2(@opentelemetry/api@1.9.1)(@types/pg@8.20.0)(kysely@0.29.4)(pg@8.20.0)
@@ -5419,6 +5419,7 @@ packages:
   cron-parser@4.9.0:
     resolution: {integrity: sha512-p0SaNjrHOnQeR8/VnfGbmg9te2kfyYSQ7Sc/j/6DtPL3JQvKxmjO9TSjNFpujqV3vEYYBvNNvXSxzyksBWAx1Q==}
     engines: {node: '>=12.0.0'}
+    deprecated: v4 is no longer maintained, upgrade to v5
 
   cron-parser@5.5.0:
     resolution: {integrity: sha512-oML4lKUXxizYswqmxuOCpgFS8BNUJpIu6k/2HVHyaL8Ynnf3wdf9tkns0yRdJLSIjkJ+b0DXHMZEHGpMwjnPww==}
