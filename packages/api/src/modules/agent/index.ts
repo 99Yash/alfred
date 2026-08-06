@@ -108,6 +108,10 @@ export {
   resetChatTurnRetryBudgets,
 } from "./workflows/turn-budgets";
 export { PREVIEW_CHARS } from "./workflows/tool-preview";
+export {
+  registerWorkflowReadinessCheck,
+  type WorkflowReadinessVerdict,
+} from "./workflows/readiness-port";
 export { joinChildRun, type JoinChildRunDeps, type ParkSignal } from "./sub-agent-join";
 export { scheduleSubAgentJoinWakeJob } from "./sub-agent-join-wake-queue";
 export {
