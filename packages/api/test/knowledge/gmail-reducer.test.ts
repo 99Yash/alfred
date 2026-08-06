@@ -9,7 +9,7 @@ import {
 import {
   reduceGmailDocument,
   type GmailDocumentForReduction,
-} from "../../src/modules/user-model/gmail-reducer";
+} from "../../src/modules/knowledge/gmail-reducer";
 
 const AUTHORED_AT = new Date("2026-06-30T08:00:00.000Z");
 

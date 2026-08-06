@@ -1,8 +1,16 @@
 /**
- * Multi-source user-model substrate — write boundary + read surface (ADR-0067, #218).
+ * `knowledge` — the single door to Alfred's knowledge substrate.
  *
- * P0 shipped the schema + contracts (no writers). This module is the P1
- * foundation: the ONLY sanctioned way to write to / read from the substrate.
+ * Phase 4 consolidates observations, projections, facts, entities,
+ * significance, standing instructions, and recall behind ONE module. This
+ * slice (item 06) establishes the module and its OBSERVE side by folding in the
+ * two edge-clean sources: the multi-source user-model write gate / read surface
+ * and the chat-thread proposition extractor. Item 07 folds `memory` in and
+ * APPENDS the `recall` / `contextFor` / `applyCorrection` surface below the
+ * observe grouping — keep this index additive, never a runtime namespace.
+ *
+ * ── observe (multi-source user-model substrate, ADR-0067, #218) ──────────────
+ * The ONLY sanctioned way to write to / read from the substrate:
  *
  *   - `insertObservation` — the HARD write gate (validated append + head upsert).
  *   - `ensureEntityNode` / `recordEntityIdentity` — the stable-layer write API.
@@ -12,7 +20,11 @@
  *   - `userModelReader` — the active-projection read surface; consumers read this,
  *     never raw `WHERE projection_version = active`.
  *
- * Reducers, the fold, and consumer cutover (briefing/triage/todos) build on these.
+ * ── observe (chat → memory extraction, chat-memory-capture-v1.md, #397) ──────
+ * The cheap-model EXTRACTOR (`./extractor`) that distills a finished thread into
+ * crisp, tagged propositions. No durable writes happen here — the observation
+ * write path lands in #399; the idle end-of-thread TRIGGER lives next to the
+ * compaction it drives in `conversations/idle-capture-queue.ts`.
  */
 export { requireEntityIdNamespace } from "./namespace";
 export {
@@ -53,3 +65,4 @@ export {
 } from "./projection";
 export { userModelReader, type ActiveEntityProfile } from "./reader";
 export { refoldActiveGmailKindProjection } from "./refold";
+export * from "./extractor";
