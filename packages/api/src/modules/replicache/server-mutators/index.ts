@@ -9,7 +9,6 @@ import {
   userActionPolicies,
   userFacts,
   type UserFact,
-  userPreferences,
   workflows,
 } from "@alfred/db/schemas";
 import type {
@@ -44,6 +43,7 @@ import type {
 import { and, eq, gt, inArray, isNull, lte, or, sql } from "drizzle-orm";
 import { DEFAULT_APPROVAL_NOTIFY_DELAY_MS } from "../../action-policies";
 import { isSingleValuedKey, valueSignature } from "../../knowledge";
+import { deletePreferenceRow, upsertPreference } from "../../settings";
 import {
   reviseWorkflowFromPatch,
   setWorkflowStatus,
@@ -389,29 +389,23 @@ export const serverMutators = {
    * Upsert a preference. Last-write-wins per `(user_id, key)`; bumps
    * `row_version` so the next pull patches the client.
    *
-   * Inlined against `tx` rather than calling `setPreference()` so the
-   * write commits inside the push handler's outer transaction.
+   * Routed through `settings.upsertPreference` against `tx` rather than the
+   * `setPreference()` gateway (which opens its own `db()` handle) so the write
+   * commits inside the push handler's outer transaction. Awaited bare — no
+   * `RETURNING` — so the emitted SQL is identical to the former inline.
    */
   async prefSet(tx: DbTx, args: PrefSetArgs, ctx: ServerMutatorCtx): Promise<void> {
-    const source = args.source ?? { kind: "user" };
-    await tx
-      .insert(userPreferences)
-      .values({ userId: ctx.userId, key: args.key, value: args.value, source })
-      .onConflictDoUpdate({
-        target: [userPreferences.userId, userPreferences.key],
-        set: {
-          value: args.value,
-          source,
-          rowVersion: sql`${userPreferences.rowVersion} + 1`,
-        },
-      });
+    await upsertPreference(tx, {
+      userId: ctx.userId,
+      key: args.key,
+      value: args.value,
+      source: args.source,
+    });
   },
 
   /** Delete a preference. No-op if missing. */
   async prefDelete(tx: DbTx, args: PrefDeleteArgs, ctx: ServerMutatorCtx): Promise<void> {
-    await tx
-      .delete(userPreferences)
-      .where(and(eq(userPreferences.userId, ctx.userId), eq(userPreferences.key, args.key)));
+    await deletePreferenceRow(tx, ctx.userId, args.key);
   },
 
   async policySetIntegrationMode(
