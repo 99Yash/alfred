@@ -45,7 +45,8 @@ import { createCacheRedisConnection } from "../../queue/connection";
 import { resolveBriefingPreferences } from "../briefing/preferences";
 import { enqueueBriefingRun } from "../briefing/queue";
 import { notSentGmailDocumentWhere } from "../triage/sent-mail";
-import { inZone, resolveUserTimezone } from "../timezone";
+import { resolveTimezone } from "../settings";
+import { inZone } from "../timezone";
 import { sanitizeEmailHtml } from "./email-html";
 import { getUsageActivity, getUsageBreakdown, getUsageSummary } from "./usage-service";
 
@@ -790,7 +791,7 @@ export const meRoutes = new Elysia({ prefix: "/api/me", normalize: "typebox" })
           // `user_preferences.timezone`, falling back to UTC) — the rail
           // is a personal "today's meetings" surface, so server-local
           // would be wrong for any user not co-located with the host.
-          const { start, end } = inZone(await resolveUserTimezone(u.id)).dayBounds();
+          const { start, end } = inZone(await resolveTimezone(u.id)).dayBounds();
 
           const accessToken = await getFreshAccessToken(row.id);
           const { events } = await listEvents({
@@ -833,7 +834,7 @@ export const meRoutes = new Elysia({ prefix: "/api/me", normalize: "typebox" })
           // "Today" panel, so an older briefing must read as empty rather than
           // pin the chip to a stale day. Among today's slots (morning fires
           // first, evening supersedes it), the most recent composed run wins.
-          const today = inZone(await resolveUserTimezone(u.id)).day();
+          const today = inZone(await resolveTimezone(u.id)).day();
           const rows = await db()
             .select({
               id: briefings.id,

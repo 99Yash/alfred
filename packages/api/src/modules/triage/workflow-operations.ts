@@ -1,9 +1,8 @@
 import { publishEvent } from "../../events/publish";
-import { resolveFeatureFlags } from "../settings";
+import { resolveFeatureFlags, resolveTimezone } from "../settings";
 import { getSenderSignificance } from "../memory/significance";
 import { findActiveSenderSuppression } from "../memory/standing-instructions";
 import { suggestTodo } from "../todos/suggest";
-import { resolveUserTimezone } from "../timezone";
 import {
   classifyEmail,
   DEFAULT_TRIAGE_CATEGORY,
@@ -271,14 +270,14 @@ export async function runEmailTriageClassify<State extends EmailTriageOperationS
     // email in Asia/Kolkata a day early, on the one field whose whole point is
     // that it stays true for days.
     //
-    // Resolved HERE, not per email: `resolveUserTimezone` is two uncached
+    // Resolved HERE, not per email: `resolveTimezone` is two uncached
     // preference `SELECT`s and this step runs once per email, while the anchor
     // matters only when the classifier actually proposed a todo — which is also
     // `resolveTodoSuggestion`'s own first gate. Most emails propose none, so
     // eagerly resolving it cost 2N round-trips a batch for a value nothing read.
     const assistDateAnchor: AssistDateAnchor | null =
       authoredAt && classification.todoSuggestion
-        ? { sentAt: authoredAt, timezone: await resolveUserTimezone(ctx.userId) }
+        ? { sentAt: authoredAt, timezone: await resolveTimezone(ctx.userId) }
         : null;
     const nextTodoSuggestion = resolveTodoSuggestion(classification, assistDateAnchor);
     let nextStandingSuppression: Awaited<ReturnType<typeof findActiveSenderSuppression>> = null;
