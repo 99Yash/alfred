@@ -11,8 +11,7 @@ import {
 describe("resolveBriefingPreferenceValues", () => {
   test("prefers canonical timezone over the legacy briefing fallback", () => {
     const prefs = resolveBriefingPreferenceValues({
-      timezone: "America/New_York",
-      legacyTimezone: "Asia/Kolkata",
+      timezoneValues: ["America/New_York", "Asia/Kolkata"],
       deliveryHour: undefined,
       eveningHour: undefined,
     });
@@ -24,8 +23,7 @@ describe("resolveBriefingPreferenceValues", () => {
   test("falls back to briefing.timezone when canonical timezone is missing or invalid", () => {
     assert.equal(
       resolveBriefingPreferenceValues({
-        timezone: undefined,
-        legacyTimezone: "Asia/Kolkata",
+        timezoneValues: [undefined, "Asia/Kolkata"],
         deliveryHour: undefined,
         eveningHour: undefined,
       }).timezone,
@@ -33,8 +31,7 @@ describe("resolveBriefingPreferenceValues", () => {
     );
     assert.equal(
       resolveBriefingPreferenceValues({
-        timezone: "Not/AZone",
-        legacyTimezone: "Asia/Kolkata",
+        timezoneValues: ["Not/AZone", "Asia/Kolkata"],
         deliveryHour: undefined,
         eveningHour: undefined,
       }).timezone,
@@ -44,8 +41,7 @@ describe("resolveBriefingPreferenceValues", () => {
 
   test("uses documented defaults when no valid timezone or hour preference exists", () => {
     const prefs = resolveBriefingPreferenceValues({
-      timezone: "",
-      legacyTimezone: null,
+      timezoneValues: ["", null],
       deliveryHour: "99",
       eveningHour: {},
     });
@@ -58,8 +54,7 @@ describe("resolveBriefingPreferenceValues", () => {
 
   test("parses stringified delivery hours as user overrides", () => {
     const prefs = resolveBriefingPreferenceValues({
-      timezone: undefined,
-      legacyTimezone: undefined,
+      timezoneValues: [undefined, undefined],
       deliveryHour: "8",
       eveningHour: 19,
     });
