@@ -35,7 +35,7 @@ import {
   type ObjectState,
   objectStateStore,
 } from "../integrations/object-state";
-import { getPreference } from "../memory/preferences";
+import { getPreference } from "../settings";
 import {
   findSenderSuppression,
   listActiveSuppressionInstructions,

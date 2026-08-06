@@ -1,5 +1,5 @@
 import { assertIanaTimezone, isIanaTimezone, type IanaTimezone } from "@alfred/contracts";
-import { getPreference } from "../memory/preferences";
+import { getPreference } from "../settings";
 
 /**
  * Validated at module load rather than cast. `"UTC"` is a real alias that

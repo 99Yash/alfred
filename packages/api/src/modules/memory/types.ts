@@ -1,25 +1,17 @@
-import { jsonRecordSchema, memorySourceSchema, type MemorySource } from "@alfred/contracts";
+import { jsonRecordSchema, memorySourceSchema } from "@alfred/contracts";
 import { z } from "zod";
 
 /**
  * Where a fact / preference / chunk came from. Provenance discipline
  * (ADR-0019): every inferred row cites a specific origin so the user
  * can ask "why do you think that?" and get a non-hallucinated answer.
+ *
+ * `parseMemorySourceOrDefault` is the shared parse door — it lives in
+ * `@alfred/contracts` beside `memorySourceSchema`; re-exported here so
+ * `facts.ts` / `chunks.ts` keep importing it from `./types`.
  */
 export type { MemorySource } from "@alfred/contracts";
-
-export function parseMemorySourceOrDefault(
-  value: unknown,
-  fallback: MemorySource,
-  context: string,
-): MemorySource {
-  const parsed = memorySourceSchema.safeParse(value);
-  if (parsed.success) return parsed.data;
-  console.warn(
-    `[memory] using fallback source for ${context}: ${parsed.error.issues.map((i) => i.message).join("; ")}`,
-  );
-  return fallback;
-}
+export { parseMemorySourceOrDefault } from "@alfred/contracts";
 
 export const FACT_STATUSES = ["proposed", "confirmed", "rejected", "edited", "superseded"] as const;
 export const factStatusSchema = z.enum(FACT_STATUSES);
