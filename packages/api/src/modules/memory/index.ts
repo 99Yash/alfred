@@ -35,5 +35,6 @@ export * from "./extraction";
 export { startMemoryWorker, stopMemoryWorker, closeMemoryQueue } from "./queue";
 export { scheduleRepeatableMemoryJobs } from "./repeatable";
 
-// Product recipe owned by the memory module; registered by the composition root.
-export { memoryExtractionWorkflow } from "./memory-extraction";
+// Product recipe owned by the memory module; the composition root builds it with
+// the injected Gmail sender adapter (ADR-0089) and registers the result.
+export { buildMemoryExtractionWorkflow } from "./memory-extraction";

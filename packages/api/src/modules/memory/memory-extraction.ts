@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { type GmailSenderParser } from "@alfred/contracts";
 import { type Workflow } from "../agent";
 import { factProposalSchema } from "./extraction";
 import { runMemoryFinalize, runMemoryPickDocuments, runMemoryProcess } from "./workflow-operations";
@@ -23,31 +24,43 @@ const inputSchema = z.object({
   maxDocs: z.number().int().positive().max(100).default(20),
 });
 
-export const memoryExtractionWorkflow: Workflow<State> = {
-  slug: "memory-extraction",
-  name: "Memory extraction",
-  description: "Daily extraction of structured facts from recently-ingested documents (ADR-0019).",
-  trigger: { kind: "cron", schedule: "0 3 * * *" },
-  initialStep: "pick-documents",
-  stateSchema,
-  closure: { kind: "none" },
-  initialState(input) {
-    const parsed = inputSchema.parse(input.input ?? {});
-    return {
-      mode: parsed.mode,
-      manualProposals: parsed.manualProposals,
-      sinceDays: parsed.sinceDays,
-      maxDocs: parsed.maxDocs,
-      documentIds: [],
-      startedAt: new Date().toISOString(),
-      processed: 0,
-      proposed: 0,
-      blocked: 0,
-    };
-  },
-  steps: {
-    "pick-documents": { id: "pick-documents", run: runMemoryPickDocuments },
-    process: { id: "process", run: runMemoryProcess },
-    finalize: { id: "finalize", run: runMemoryFinalize },
-  },
-};
+/**
+ * Build the daily memory-extraction recipe with an injected Gmail sender parser
+ * (ADR-0089). The `process` step closes over `sender` and threads it into
+ * `runMemoryProcess(sender, ctx)`, so memory never imports triage's parsers; the
+ * executor still sees an unchanged `run(ctx)`, so no executor or state-schema
+ * change and no re-serialization of persisted runs. Recipe identity — slug,
+ * ordered step ids, entry step, trigger — is byte-identical regardless of the
+ * injected `sender`. The composition root injects `gmailSenderAdapter`.
+ */
+export function buildMemoryExtractionWorkflow(sender: GmailSenderParser): Workflow<State> {
+  return {
+    slug: "memory-extraction",
+    name: "Memory extraction",
+    description:
+      "Daily extraction of structured facts from recently-ingested documents (ADR-0019).",
+    trigger: { kind: "cron", schedule: "0 3 * * *" },
+    initialStep: "pick-documents",
+    stateSchema,
+    closure: { kind: "none" },
+    initialState(input) {
+      const parsed = inputSchema.parse(input.input ?? {});
+      return {
+        mode: parsed.mode,
+        manualProposals: parsed.manualProposals,
+        sinceDays: parsed.sinceDays,
+        maxDocs: parsed.maxDocs,
+        documentIds: [],
+        startedAt: new Date().toISOString(),
+        processed: 0,
+        proposed: 0,
+        blocked: 0,
+      };
+    },
+    steps: {
+      "pick-documents": { id: "pick-documents", run: runMemoryPickDocuments },
+      process: { id: "process", run: (ctx) => runMemoryProcess(sender, ctx) },
+      finalize: { id: "finalize", run: runMemoryFinalize },
+    },
+  };
+}

@@ -112,7 +112,7 @@ export {
   getMemoryQueue,
   type MemoryJobData,
 } from "./modules/memory/queue";
-export { memoryExtractionWorkflow } from "./modules/memory/index";
+export { buildMemoryExtractionWorkflow } from "./modules/memory/index";
 
 export * from "./modules/settings";
 
