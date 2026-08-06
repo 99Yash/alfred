@@ -4,6 +4,7 @@ import {
   coldStartResearchWorkflow,
   dailyBriefingWorkflow,
   emailTriageWorkflow,
+  learnSkillWorkflow,
   memoryExtractionWorkflow,
   morningBriefingWorkflow,
   skillDocumentationWorkflow,
@@ -11,11 +12,6 @@ import {
 } from "@alfred/api/backend";
 import { registerRecipe } from "@alfred/api/runtime";
 import { echoWithApprovalWorkflow } from "../scripts/smokes/echo-with-approval";
-// Transitional recipe still living in the composition root: `learn-skill`
-// cannot move into `skills` until item 08 breaks the
-// `skills <-> skill-documentation` cycle. It stays registered here with
-// byte-identical behavior (plan Design rules 10, a named transitional door).
-import { learnSkillWorkflow } from "./workflows/learn-skill";
 
 /**
  * Boot-time registration of every built-in workflow. Add new workflows

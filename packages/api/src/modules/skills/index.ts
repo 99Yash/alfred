@@ -8,12 +8,11 @@
  *                       connected integrations + existing skill slugs
  *   - `distill`         cheap-tier extractor (one structured-output call
  *                       producing body + name + fact proposals)
- *   - `revisions`       transactional commit of skill_revisions +
- *                       skills.current_revision_id + skill_runs lifecycle
+ *   - `learn-skill`     the sync phase-1 recipe that orchestrates the above
  *
- * The workflow itself lives in apps/server/src/builtins/workflows/
- * learn-skill.ts and only orchestrates these helpers. The async deep-
- * documentation phase (`skill-documentation`) lands alongside in 12c.
+ * Run + revision persistence lives one level DOWN in the `skill-revisions`
+ * leaf, which both this module and `skill-documentation` (async phase 2)
+ * import into — keeping the two authoring phases acyclic.
  */
 
 export {
@@ -32,13 +31,7 @@ export type { SkillLearnContext } from "./context";
 export { distillResultSchema, distillSkill, skillProposalSchema } from "./distill";
 export type { DistillResult, DistillSkillArgs, DistillSkillResult, SkillProposal } from "./distill";
 
-export { commitSkillRevision, finalizeSkillRun, recordSkillRun } from "./revisions";
-export type {
-  CommitRevisionArgs,
-  CommitRevisionResult,
-  FinalizeSkillRunArgs,
-  RecordSkillRunArgs,
-} from "./revisions";
+export { learnSkillWorkflow } from "./learn-skill";
 
 export { slugifyForUser } from "./slug";
 export { skillsRoutes } from "./routes";
