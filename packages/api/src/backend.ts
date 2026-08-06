@@ -138,7 +138,6 @@ export {
   type SuggestTodoInput,
   type SuggestTodoResult,
 } from "./modules/todos/suggest";
-export { getFeatureFlag, resolveFeatureFlags, type FeatureFlags } from "./modules/features/flags";
 export * from "./modules/mcp/index";
 
 export {
