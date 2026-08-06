@@ -19,6 +19,11 @@ const SKIP = process.env.DATABASE_URL
     : false
   : "DATABASE_URL not set - skipping DB-backed test";
 
+// The prefix-only throw path needs a DB row absence, not the in-process poke
+// bridge, so it runs whether or not REDIS_URL is set — a strictly weaker gate
+// than SKIP above.
+const SKIP_DB = process.env.DATABASE_URL ? false : "DATABASE_URL not set - skipping DB-backed test";
+
 const createdUserIds: string[] = [];
 
 async function seedSkill(): Promise<{ userId: string; skillId: string }> {
@@ -40,7 +45,6 @@ describe("skill Replicache freshness (DB-backed)", { skip: SKIP }, () => {
     if (createdUserIds.length > 0) {
       await db().delete(user).where(inArray(user.id, createdUserIds));
     }
-    await closeConnections();
   });
 
   test("revision commit pokes once after the idempotent write", async () => {
@@ -88,4 +92,35 @@ describe("skill Replicache freshness (DB-backed)", { skip: SKIP }, () => {
       .where(eq(skillRuns.agentRunId, agentRunId));
     assert.deepEqual(run, { status: "failed", rowVersion: 1 });
   });
+});
+
+describe("skill-revisions persistence error prefix (DB-backed)", { skip: SKIP_DB }, () => {
+  // `skill-revisions` is a phase-neutral persistence leaf called by both the
+  // `distilled` (learn-skill) and `documented` (skill-documentation) consumers.
+  // Its thrown errors must name the module owner, never one consumer, so a
+  // `documented` failure is not mis-triaged to the learn phase.
+  test("skill-not-found throw names the module owner, not a consumer phase", async () => {
+    await assert.rejects(
+      commitSkillRevision({
+        userId: `test-skill-fresh-${randomUUID()}`,
+        skillId: randomUUID(),
+        kind: "documented",
+        body: "# never committed",
+        createdByRunId: `run_${randomUUID()}`,
+      }),
+      (err: unknown) => {
+        assert.ok(err instanceof Error);
+        assert.match(err.message, /^\[skill-revisions\] /);
+        assert.doesNotMatch(err.message, /learn-skill/);
+        return true;
+      },
+    );
+  });
+});
+
+// Both suites share the lazily-created singleton `db()` pool. `closeConnections`
+// is not idempotent (`pool.end()` twice throws), so close it exactly once here,
+// after every suite in the process has run, rather than per-suite.
+after(async () => {
+  await closeConnections();
 });
