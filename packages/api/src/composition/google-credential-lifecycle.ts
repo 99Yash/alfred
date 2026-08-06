@@ -12,7 +12,7 @@ import {
   recordOrgAffiliationOnDisconnect,
   retryOnObservationChainConflict,
   type CredentialForAffiliation,
-} from "../modules/user-model";
+} from "../modules/knowledge";
 
 type DeletedGoogleCredential = CredentialForAffiliation & { id: string };
 
