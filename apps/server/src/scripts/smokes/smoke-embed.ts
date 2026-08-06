@@ -7,14 +7,14 @@
  * makes only **two** Voyage calls (one document embed + one query
  * embed). That's enough to prove every link in the chain:
  *
- *   chunkText → embedDocument → chunks rows with 1024-dim vectors →
- *   metered() row in api_call_log with non-zero cost → semanticSearch
+ *   indexDocument → chunks rows with 1024-dim vectors →
+ *   metered() row in api_call_log with non-zero cost → search
  *   joins back to documents and returns top-K.
  */
 import { closeConnections, warmPool } from "@alfred/api/runtime";
 import { db } from "@alfred/db";
 import { apiCallLog, chunks, documents, user as userTable } from "@alfred/db/schemas";
-import { embedDocument, semanticSearch } from "@alfred/ingestion";
+import { indexDocument, search } from "@alfred/corpus";
 import { and, desc, eq } from "drizzle-orm";
 import { createHash } from "node:crypto";
 
@@ -84,7 +84,7 @@ async function main() {
   await db().delete(chunks).where(eq(chunks.documentId, docId));
 
   // ---- One embed call: index the doc -------------------------------------
-  const embedResult = await embedDocument({
+  const embedResult = await indexDocument({
     documentId: docId,
     idempotencyKey: "m7b-smoke",
   });
@@ -110,14 +110,14 @@ async function main() {
   console.log(`[smoke-embed] chunk embedding: 1024-dim ✓ (sample[0]=${embedding[0]?.toFixed(4)})`);
 
   // Re-embed must be a no-op (content_hash unchanged → no Voyage call).
-  const reembed = await embedDocument({ documentId: docId });
+  const reembed = await indexDocument({ documentId: docId });
   if (reembed.chunksWritten !== 0) {
     throw new Error(`re-embed wrote ${reembed.chunksWritten} chunks (expected 0)`);
   }
   console.log("[smoke-embed] re-embed is a no-op ✓");
 
   // ---- One embed call: query --------------------------------------------
-  const hits = await semanticSearch({
+  const hits = await search({
     query: "what's our quarterly revenue and cash runway?",
     userId,
     source: SMOKE_DOC.source,

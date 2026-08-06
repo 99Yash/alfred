@@ -33,7 +33,7 @@ import {
   isSupportedPassthroughSlug,
 } from "@alfred/contracts";
 // Type-only, deliberately: importing the `integrations` VALUE here would pull
-// `@alfred/db` and `@alfred/ingestion` into the import graph of the module every
+// `@alfred/db` and `@alfred/corpus` into the import graph of the module every
 // tool declaration imports. Building a context lives in `./context`.
 import type { Integrations } from "@alfred/integrations";
 import { z } from "zod";

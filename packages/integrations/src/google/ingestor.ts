@@ -2,7 +2,7 @@ import { isRecord, mapConcurrent, parseEmailAddress, toMessage } from "@alfred/c
 import { db } from "@alfred/db";
 import { documents, ingestionState, integrationCredentials } from "@alfred/db/schemas";
 import { gmailMailboxWritesEnabled, serverEnv } from "@alfred/env/server";
-import { embedDocument } from "@alfred/ingestion";
+import { indexDocument } from "@alfred/corpus";
 import { and, eq, inArray, sql } from "drizzle-orm";
 import { createHash } from "node:crypto";
 import { getFreshAccessToken } from "./credentials";
@@ -131,7 +131,7 @@ export async function ingestRecentGmail(args: IngestRecentArgs): Promise<IngestR
         // useful for SQL search; m7c's poll will retry the embed via
         // findUnembeddedDocumentIds.
         try {
-          const embedResult = await embedDocument({ documentId: result.documentId });
+          const embedResult = await indexDocument({ documentId: result.documentId });
           chunksWritten += embedResult.chunksWritten;
         } catch (err) {
           embedFailures++;
@@ -622,7 +622,7 @@ export async function pollGmailHistory(args: PollHistoryArgs): Promise<PollHisto
         else triageDocumentIds.push(result.documentId);
         if (message.threadId) touchedThreadIds.add(message.threadId);
         try {
-          const embed = await embedDocument({ documentId: result.documentId });
+          const embed = await indexDocument({ documentId: result.documentId });
           chunksWritten += embed.chunksWritten;
         } catch (err) {
           embedFailures++;
@@ -732,7 +732,7 @@ export interface PollRecentResult {
  *    only forward — never rolls it back. `pollGmailHistory` (poll-
  *    fallback) reads the same cursor and stays consistent.
  *  - **Does not embed.** The caller (`queue.ts`) enqueues triage on the
- *    inserted ids first, then runs `embedDocument` best-effort; this
+ *    inserted ids first, then runs `indexDocument` best-effort; this
  *    keeps Voyage latency off the user-visible tag-latency path.
  *
  * `history.list` remains the right shape for catch-up after extended

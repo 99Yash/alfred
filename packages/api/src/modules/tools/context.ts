@@ -3,7 +3,7 @@
  * `./registry` so the registry stays a leaf. Declaring the tool *shape* needs
  * only the `Integrations` TYPE (erased at compile time); building a context needs
  * the `integrations` VALUE, which pulls `@alfred/db` (drizzle + pg) and
- * `@alfred/ingestion` into whatever imports it. Every tool module imports the
+ * `@alfred/corpus` into whatever imports it. Every tool module imports the
  * registry to declare itself; only the dispatcher builds a context.
  */
 

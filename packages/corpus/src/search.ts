@@ -45,7 +45,7 @@ export interface SearchHit {
   authoredAt: Date | null;
 }
 
-export async function semanticSearch(args: SearchArgs): Promise<SearchHit[]> {
+export async function search(args: SearchArgs): Promise<SearchHit[]> {
   const limit = args.limit ?? 10;
   const queryVec =
     args.queryEmbedding ??
