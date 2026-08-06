@@ -13,7 +13,7 @@ import {
   type GmailUserModelHandler,
 } from "../../src/modules/integrations/gmail-user-model";
 import { createGmailUserModelHandler } from "../../src/composition/gmail-user-model";
-import type { GmailDocumentForReduction } from "../../src/modules/user-model";
+import type { GmailDocumentForReduction } from "../../src/modules/knowledge";
 import {
   runGmailKindRefoldJob,
   runGmailObservationCapture,

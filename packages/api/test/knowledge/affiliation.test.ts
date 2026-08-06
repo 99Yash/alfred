@@ -18,7 +18,7 @@ import {
   recordOrgAffiliationOnCredentialUpsert,
   recordOrgAffiliationOnDisconnect,
   type CredentialForAffiliation,
-} from "../../src/modules/user-model/affiliation";
+} from "../../src/modules/knowledge/affiliation";
 
 /**
  * Pure-builder tests for the connect-time `user_org_affiliation` emitter (ADR-0080

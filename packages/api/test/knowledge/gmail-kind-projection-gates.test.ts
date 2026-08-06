@@ -13,7 +13,7 @@ import {
   projectGmailKindProfiles,
   startProjectionRun,
   userModelReader,
-} from "../../src/modules/user-model";
+} from "../../src/modules/knowledge";
 import { resolveSenderKind } from "../../src/modules/triage";
 
 /**

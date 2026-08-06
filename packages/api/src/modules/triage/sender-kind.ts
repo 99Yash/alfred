@@ -6,8 +6,8 @@ import {
   type EntityNodeKind,
 } from "@alfred/contracts";
 import { getPreference } from "../settings";
-import type { ActiveEntityProfile } from "../user-model";
-import { userModelReader } from "../user-model";
+import type { ActiveEntityProfile } from "../knowledge";
+import { userModelReader } from "../knowledge";
 
 export const TRIAGE_SENDER_KIND_CONFIDENCE_THRESHOLD = 0.8;
 export const TRIAGE_SENDER_KIND_FEATURE_KEY = "feature.internal.triage_sender_kind_projection";
