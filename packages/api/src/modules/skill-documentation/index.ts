@@ -3,7 +3,7 @@
  *
  * Module shape mirrors `cold-start/` and `skills/`:
  *   - `workflow-input`  slug + zod schema + per-skill dedup key
- *   - `context`         hybrid search (semanticSearch + recallMemory) +
+ *   - `context`         hybrid search (search + recallMemory) +
  *                       active-fact pull, keyed on the v1 body
  *   - `compose`         boss-tier `meteredGenerateText` producing the v2
  *                       body that integrates retrieved evidence

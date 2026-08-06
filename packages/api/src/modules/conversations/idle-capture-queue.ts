@@ -15,7 +15,7 @@ import { isUniqueViolation } from "../../lib/pg-errors";
  * whole conversation (and any correction arc) has settled before extraction
  * reads it. On fire, the worker fans out into a `chat-memory-capture` agent run
  * exactly the way the daily memory-cron fans into `memory-extraction`
- * (`../memory/queue.ts`) — reusing the agent executor rather than doing the
+ * (`../knowledge/queue.ts`) — reusing the agent executor rather than doing the
  * work inline.
  *
  * Its own lane (not the daily memory-cron queue): the access pattern is many

@@ -46,7 +46,7 @@ candidate `gate` rule — see [Closing the loop](#closing-the-loop).
 | enforce Alfred's prose voice (no em-dashes, plain words) | `sanitizeVoice` / `createVoiceStreamSanitizer` | `@alfred/api` agent voice-sanitize | manual string replaces |
 | read an environment variable | `serverEnv()` | `@alfred/env/server` | `process.env.*` — **repo invariant** |
 | validate a timezone string | `isIanaTimezone(value)` | `@alfred/contracts` | `function isValidTimezone` / a raw `Intl.DateTimeFormat` trial — **drift check bans it** |
-| any calendar-day, wall-clock, or UTC-offset reading | the `@alfred/api` timezone module — `resolveUserTimezone` for the zone, then `inZone(tz).day()` / `.hour()` / `.dayBounds()` / `.startOf(key)` / `.clock()` / `.format(at)`, and `addDays` / `weekdayIndex` / `formatDay` on the key ([full list](#timezone--alfredapi-srcmodulestimezone)) | `@alfred/api` timezone module | `Intl` glue per call site; day math in milliseconds; reading `getUTCDate()` off a user's instant; passing a bare `string` where `IanaTimezone` / `LocalDateKey` is expected |
+| any calendar-day, wall-clock, or UTC-offset reading | `settings.resolveTimezone` for the zone, then the `@alfred/api` timezone module — `inZone(tz).day()` / `.hour()` / `.dayBounds()` / `.startOf(key)` / `.clock()` / `.format(at)`, and `addDays` / `weekdayIndex` / `formatDay` on the key ([full list](#timezone--alfredapi-srcmodulestimezone)) | `@alfred/api` timezone module | `Intl` glue per call site; day math in milliseconds; reading `getUTCDate()` off a user's instant; passing a bare `string` where `IanaTimezone` / `LocalDateKey` is expected |
 | get a language-model handle and reasoning policy | `route` | `@alfred/ai` | constructing a provider client |
 | run a query and read typed rows | `rowsFromExecute` + named Drizzle row types | `@alfred/db` | `(res as Row[])` |
 | restrict a query or partial index to live `agent_runs` | `runIsNotTerminal(t.status)` | `@alfred/db` schemas | `status NOT IN ('completed', 'failed', 'cancelled')` written out per site |
@@ -125,7 +125,7 @@ a `LocalDateKey`. Before the brands, `localStartOfDay(timezone, key)` compiled.
   wrong weekday. Never compare a *rendered* weekday name to `"Saturday"`; that
   made a formatter's locale choice load-bearing for a briefing decision in
   another file.
-- **Which zone** (`IanaTimezone`): `resolveUserTimezone`, `firstValidTimezone`,
+- **Which zone** (`IanaTimezone`): `settings.resolveTimezone`, `firstValidTimezone`,
   `DEFAULT_USER_TIMEZONE`. At a boundary, `parseIanaTimezone` /
   `ianaTimezoneSchema` / `isIanaTimezone` (`@alfred/contracts`).
 - **A day key from outside** enters through `parseLocalDateKey` (throws) or
