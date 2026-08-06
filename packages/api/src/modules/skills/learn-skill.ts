@@ -1,24 +1,18 @@
+import { toMessage } from "@alfred/contracts";
+import { z } from "zod";
+import { isUniqueViolation } from "../../lib/pg-errors";
+import { createRun, enqueueRun, type Workflow } from "../agent";
+import { proposeFact } from "../memory";
+import { SKILL_DOCUMENTATION_WORKFLOW_SLUG } from "../skill-documentation";
+import { commitSkillRevision, finalizeSkillRun, recordSkillRun } from "../skill-revisions";
+import { collectSkillLearnContext, type SkillLearnContext } from "./context";
+import { distillSkill, type SkillProposal } from "./distill";
+import { type ParsedMention } from "./mentions";
 import {
-  collectSkillLearnContext,
-  commitSkillRevision,
-  createRun,
-  distillSkill,
-  enqueueRun,
-  finalizeSkillRun,
-  isUniqueViolation,
   LEARN_SKILL_WORKFLOW_SLUG,
   learnSkillDedupKey,
   learnSkillWorkflowInputSchema,
-  proposeFact,
-  recordSkillRun,
-  SKILL_DOCUMENTATION_WORKFLOW_SLUG,
-  type ParsedMention,
-  type SkillLearnContext,
-  type SkillProposal,
-  type Workflow,
-} from "@alfred/api/backend";
-import { z } from "zod";
-import { toMessage } from "@alfred/contracts";
+} from "./workflow-input";
 
 /**
  * `learn-skill` — sync phase 1 of dimension's two-phase Learn (ADR-0017).
