@@ -13,7 +13,7 @@ import {
 } from "@alfred/db/schemas";
 import { databaseEnv } from "@alfred/env/database";
 import { and, eq, inArray, sql } from "drizzle-orm";
-import { coldStartResearchWorkflow } from "../../../../apps/server/src/builtins/workflows/cold-start-research";
+import { coldStartResearchWorkflow } from "../../src/backend";
 
 import {
   _resetRegistryForTests,

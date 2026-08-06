@@ -1,6 +1,6 @@
 import { db } from "@alfred/db";
 import { integrationCredentials, user } from "@alfred/db/schemas";
-import { FREE_MAIL_DOMAINS, isFreeMail } from "@alfred/contracts";
+import { FREE_MAIL_DOMAINS } from "@alfred/contracts";
 import { and, asc, eq } from "drizzle-orm";
 
 /**
@@ -48,18 +48,6 @@ function parseDomain(email: string): string | null {
   const at = email.lastIndexOf("@");
   if (at < 0 || at === email.length - 1) return null;
   return email.slice(at + 1).toLowerCase();
-}
-
-/**
- * Is `domain` a free/consumer mailbox (gmail.com, icloud.com, …) rather than
- * an organization domain? Used by passive team-graph capture (ADR-0059 P4a) to
- * avoid minting a bogus `organization` entity per personal mailbox — a consumer
- * domain is not the contact's employer. Delegates to the canonical
- * {@link isFreeMail} classifier so it stays in lockstep with the identity
- * projection's domain classification.
- */
-export function isConsumerEmailDomain(domain: string | null | undefined): boolean {
-  return isFreeMail(domain);
 }
 
 /**
