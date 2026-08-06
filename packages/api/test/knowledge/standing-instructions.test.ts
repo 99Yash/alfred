@@ -12,7 +12,7 @@ import {
   findSenderSuppression,
   normalizeSenderEmail,
   type ActiveSuppressionInstruction,
-} from "../../src/modules/memory/standing-instructions";
+} from "../../src/modules/knowledge";
 
 function instruction(overrides: Partial<StandingInstructionValue> = {}): StandingInstructionValue {
   return standingInstructionValueSchema.parse({

@@ -6,7 +6,7 @@ import { closeConnections, db } from "@alfred/db";
 import { entities, user, userFacts } from "@alfred/db/schemas";
 import { inArray, like } from "drizzle-orm";
 
-import { readUserContext } from "../../src/modules/memory/user-context";
+import { readUserContext } from "../../src/modules/knowledge";
 
 /**
  * DB-backed integration test for `readUserContext`'s bounded-slice behaviors:

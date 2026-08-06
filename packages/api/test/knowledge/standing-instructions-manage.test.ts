@@ -21,7 +21,7 @@ import {
   forgetStandingInstruction,
   listStandingInstructions,
   rememberSenderSuppression,
-} from "../../src/modules/memory/standing-instructions";
+} from "../../src/modules/knowledge";
 import { closeRedis } from "../../src/queue/connection";
 
 function hasDatabaseUrl(): boolean {

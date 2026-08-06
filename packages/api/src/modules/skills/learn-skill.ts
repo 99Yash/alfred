@@ -2,7 +2,7 @@ import { toMessage } from "@alfred/contracts";
 import { z } from "zod";
 import { isUniqueViolation } from "../../lib/pg-errors";
 import { startRun, type Workflow } from "../agent";
-import { proposeFact } from "../memory";
+import { proposeFact } from "../knowledge";
 import { SKILL_DOCUMENTATION_WORKFLOW_SLUG } from "../skill-documentation";
 import { commitSkillRevision, finalizeSkillRun, recordSkillRun } from "../skill-revisions";
 import { collectSkillLearnContext, type SkillLearnContext } from "./context";

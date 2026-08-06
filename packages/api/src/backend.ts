@@ -86,33 +86,33 @@ export {
   type RecordOrgAffiliationResult,
 } from "./modules/knowledge";
 
-export * from "./modules/memory/types";
-export * from "./modules/memory/signature";
-export * from "./modules/memory/facts";
-export * from "./modules/memory/fact-policy";
-export * from "./modules/memory/self-identity";
-export * from "./modules/memory/user-context";
-export * from "./modules/memory/standing-instructions";
-export * from "./modules/memory/chunks";
-export * from "./modules/memory/entities";
-export * from "./modules/memory/entity-metadata";
-export * from "./modules/memory/significance";
-export * from "./modules/memory/team-graph";
-export * from "./modules/memory/style-profiles";
-export * from "./modules/memory/rejected";
-export * from "./modules/memory/extraction";
+export * from "./modules/knowledge/types";
+export * from "./modules/knowledge/signature";
+export * from "./modules/knowledge/facts";
+export * from "./modules/knowledge/fact-policy";
+export * from "./modules/knowledge/self-identity";
+export * from "./modules/knowledge/user-context";
+export * from "./modules/knowledge/standing-instructions";
+export * from "./modules/knowledge/chunks";
+export * from "./modules/knowledge/entity-graph";
+export * from "./modules/knowledge/entity-metadata";
+export * from "./modules/knowledge/significance";
+export * from "./modules/knowledge/team-graph";
+export * from "./modules/knowledge/style-profiles";
+export * from "./modules/knowledge/rejected";
+export * from "./modules/knowledge/extraction";
 export {
   runMemoryFinalize,
   runMemoryPickDocuments,
   runMemoryProcess,
   type MemoryExtractionOperationState,
-} from "./modules/memory/workflow-operations";
+} from "./modules/knowledge/workflow-operations";
 export {
   enqueueExtractionForUser,
   getMemoryQueue,
   type MemoryJobData,
-} from "./modules/memory/queue";
-export { buildMemoryExtractionWorkflow } from "./modules/memory/index";
+} from "./modules/knowledge/queue";
+export { buildMemoryExtractionWorkflow } from "./modules/knowledge/index";
 
 export * from "./modules/settings";
 

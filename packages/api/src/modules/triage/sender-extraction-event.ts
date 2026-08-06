@@ -9,7 +9,7 @@ import type { FloorAudits } from "./floors";
 import type { Observations } from "./observations";
 import type { SenderContextResult } from "./sender-context";
 import type { TriageSenderKindSignal } from "./sender-kind";
-import type { SenderSuppressionMatch } from "../memory/standing-instructions";
+import type { SenderSuppressionMatch } from "../knowledge";
 
 /**
  * How one floor's audit lands on the flat trace record, registered under that

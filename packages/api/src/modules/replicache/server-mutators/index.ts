@@ -43,8 +43,7 @@ import type {
 } from "@alfred/sync";
 import { and, eq, gt, inArray, isNull, lte, or, sql } from "drizzle-orm";
 import { DEFAULT_APPROVAL_NOTIFY_DELAY_MS } from "../../action-policies";
-import { isSingleValuedKey } from "../../memory/fact-policy";
-import { valueSignature } from "../../memory/signature";
+import { isSingleValuedKey, valueSignature } from "../../knowledge";
 import {
   reviseWorkflowFromPatch,
   setWorkflowStatus,

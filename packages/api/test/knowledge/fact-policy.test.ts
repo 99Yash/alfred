@@ -13,7 +13,7 @@ import {
   validateFactValueForKey,
   type AuthorshipDocument,
   type SelfIdentity,
-} from "../../src/modules/memory/fact-policy";
+} from "../../src/modules/knowledge";
 import { gmailSenderAdapter } from "../../src/modules/triage/gmail-sender-adapter";
 
 describe("classifyDocumentFactKey (#330 — document write tiers)", () => {

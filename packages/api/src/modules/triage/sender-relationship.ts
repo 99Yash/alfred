@@ -30,7 +30,7 @@ import { bucketSignificance, type SignificanceBand } from "@alfred/contracts";
 import { db } from "@alfred/db";
 import { userFacts } from "@alfred/db/schemas";
 import { and, eq, inArray } from "drizzle-orm";
-import { findPersonMetadataByAddress } from "../memory/significance";
+import { findPersonMetadataByAddress } from "../knowledge";
 
 /**
  * The buckets the cold-contact test reads: the significance band, or `unscored`
