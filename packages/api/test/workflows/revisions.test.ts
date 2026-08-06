@@ -20,6 +20,10 @@ import { runOnce } from "../../src/modules/agent/executor";
 import { createRun, findResumableRunIds, replayRun } from "../../src/modules/agent/service";
 import { ENTITY_FETCHERS } from "../../src/modules/replicache/entities";
 import { registerBuiltinTools } from "../../src/modules/tools/runtime";
+import {
+  registerWorkflowReadiness,
+  unregisterWorkflowReadiness,
+} from "../../src/composition/workflow-readiness";
 import { dispatchDueCronWorkflows } from "../../src/modules/workflows/tick";
 import {
   activateWorkflow,
@@ -64,9 +68,16 @@ async function seedUser(): Promise<string> {
 }
 
 describe("workflow revision invariants (#555)", { skip: SKIP }, () => {
-  before(() => registerBuiltinTools());
+  before(() => {
+    registerBuiltinTools();
+    // The sentinel's check-readiness step calls the registered readiness port
+    // (item 10); wire it the way runtime composition does, else runOnce throws
+    // "[agent] no workflow readiness check is registered".
+    registerWorkflowReadiness();
+  });
 
   after(async () => {
+    unregisterWorkflowReadiness();
     for (const userId of createdUserIds) {
       await db().delete(user).where(eq(user.id, userId));
     }

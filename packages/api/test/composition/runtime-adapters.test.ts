@@ -32,6 +32,7 @@ describe("runtime adapter lifecycle", () => {
         "google-credential-lifecycle",
         "trigger-consumers",
         "workflow-recovery",
+        "workflow-readiness",
       ],
     );
     assert.deepEqual(
@@ -45,13 +46,14 @@ describe("runtime adapter lifecycle", () => {
         "gmail-user-model",
         "google-credential-lifecycle",
         "workflow-recovery",
+        "workflow-readiness",
       ],
     );
     assert.deepEqual(
       RUNTIME_ADAPTERS.filter(({ retainIfIngestionWorkerActive }) =>
         Boolean(retainIfIngestionWorkerActive),
       ).map(({ name }) => name),
-      ["chat-media", "gmail-triage", "gmail-user-model", "trigger-consumers"],
+      ["chat-media", "gmail-triage", "gmail-user-model", "trigger-consumers", "workflow-readiness"],
     );
   });
 
