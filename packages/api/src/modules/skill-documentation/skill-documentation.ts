@@ -1,7 +1,7 @@
 import { z } from "zod";
 import { type Workflow } from "../agent";
 import { notify } from "../notifications/index";
-import { commitSkillRevision, finalizeSkillRun, recordSkillRun } from "../skills";
+import { commitSkillRevision, finalizeSkillRun, recordSkillRun } from "../skill-revisions";
 import { composeSkillDocumentation } from "./compose";
 import { collectSkillDocumentationContext, type SkillDocumentationContext } from "./context";
 import { composeSkillDocumentationEmail } from "./email";
