@@ -1,4 +1,5 @@
 import { canonicalizeFactKey, type IntegrationRules } from "@alfred/contracts";
+import type { DbTransaction } from "@alfred/db";
 import {
   chatMessages,
   chatThreads,
@@ -65,9 +66,13 @@ export interface ServerMutatorCtx {
   userId: string;
 }
 
-// Typed loosely so it accepts either the pool or a Drizzle tx handle.
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-type DbTx = any;
+// The push handler runs every mutator inside its outer transaction's savepoint,
+// so a mutator's executor is always a `DbTransaction`, never a pooled `db()`
+// handle. Typing it as such makes handing a pool to a mutator (re-forking the
+// transaction, breaking atomicity) a compile error at the call site. A body that
+// re-imports `db()` itself stays a code-review concern — the type only guards the
+// executor that is passed in.
+type DbTx = DbTransaction;
 
 /**
  * Shape every server mutator must conform to. `args: never` lets each concrete

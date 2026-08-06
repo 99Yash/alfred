@@ -1,4 +1,4 @@
-import { db } from "@alfred/db";
+import { db, type DbTransaction } from "@alfred/db";
 import { replicacheClient, replicacheClientGroup } from "@alfred/db/schemas";
 import { mutatorArgsSchemas, type MutatorName } from "@alfred/sync";
 import { eq, sql } from "drizzle-orm";
@@ -47,8 +47,11 @@ const RELABEL_MUTATORS: ReadonlySet<MutatorName> = new Set(["triageTagOverride"]
  */
 const STORAGE_CLEANUP_MUTATORS: ReadonlySet<MutatorName> = new Set(["chatThreadDelete"]);
 
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-type DbTx = any;
+// The push handler owns the outer transaction; `advanceLMID`/`getLMID` and the
+// per-mutation savepoint (`subTx`) all run against a `DbTransaction`, never a
+// pooled `db()` handle. Typing the alias as such keeps the mutator runner call
+// site (below) from being handed a pool.
+type DbTx = DbTransaction;
 type ServerMutatorResult = void | { applied?: boolean };
 
 function didMutatorApply(result: ServerMutatorResult | undefined): boolean {
