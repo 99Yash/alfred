@@ -5,8 +5,6 @@
  * cover the user_facts lifecycle. `recallActiveByKey` / `recallLatestByKey`
  * are the read paths agents use to fetch "what does alfred know about X".
  *
- * `setPreference` / `getPreference` cover user-driven settings.
- *
  * `writeMemoryChunk` / `recallMemory` cover semantic recall over alfred's
  * interpretation layer (summaries, research notes) — distinct from the
  * `chunks` table which slices ingested integration content.
@@ -24,7 +22,6 @@ export * from "./signature";
 export * from "./facts";
 export * from "./fact-policy";
 export * from "./self-identity";
-export * from "./preferences";
 export * from "./user-context";
 export * from "./standing-instructions";
 export * from "./chunks";
