@@ -53,10 +53,10 @@ import {
   editStandingInstruction,
   forgetStandingInstruction,
   listStandingInstructions,
-  rememberSenderSuppression,
 } from "../memory/standing-instructions";
 import { promoteScratch, readScratch, writeScratch } from "../scratchpad";
 import { resolveTodosForGmailSender } from "../todos/resolve";
+import { rememberSenderSuppressionAndDismissTodos } from "./remember-suppression";
 import { suggestTodo } from "../todos/suggest";
 import { redactCredentialUrl, runFetchUrl } from "./fetch-url";
 import { liveTool, type RegisteredTool } from "./registry";
@@ -496,7 +496,7 @@ export const systemTools: readonly RegisteredTool[] = [
       "Persist a resolved sender-level suppression standing instruction. Only persists when the sender email is resolved; otherwise returns a clarification request.",
     inputSchema: rememberInput,
     execute: async (input, ctx) => {
-      return await rememberSenderSuppression({
+      return await rememberSenderSuppressionAndDismissTodos({
         userId: ctx.userId,
         senderEmail: input.senderEmail,
         senderLabel: input.senderLabel,
