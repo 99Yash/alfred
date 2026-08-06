@@ -1,0 +1,23 @@
+{
+  // Scoped typecheck project for compile-only type fixtures under `test/type`.
+  // `check-types` runs this as a SECOND `tsc` pass (after the composite
+  // `tsc -b`), because the composite build emits declarations only for `src`
+  // and never sees `test/**`. We re-include `src` so producer module
+  // augmentations (e.g. triage's `declare module "../agent/decision-traces"`)
+  // are guaranteed active in the program, then add `test/type` on top.
+  //
+  // The base `tsconfig.json` is `composite: true`; a `tsc -p` invocation with
+  // `noEmit` errors unless `composite`/`declaration` are overridden off here.
+  // Nothing under `test/type` is emitted or built — this project only
+  // type-checks.
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "noEmit": true,
+    "rootDir": ".",
+    "composite": false,
+    "declaration": false,
+    "declarationMap": false,
+    "sourceMap": false
+  },
+  "include": ["src", "test/type"]
+}
