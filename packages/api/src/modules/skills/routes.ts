@@ -8,7 +8,7 @@ import { emitReplicachePokes } from "../../events/replicache-events";
 import { authMacro } from "../../middleware/auth";
 import { createRun, deliverRun } from "../agent";
 import { isUniqueViolation } from "../../lib/pg-errors";
-import { recordSkillRun } from "./revisions";
+import { recordSkillRun } from "../skill-revisions";
 import { slugifyForUser } from "./slug";
 import {
   LEARN_SKILL_WORKFLOW_SLUG,

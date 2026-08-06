@@ -5,6 +5,7 @@ import {
   chatMemoryCaptureWorkflow,
   dailyBriefingWorkflow,
   emailTriageWorkflow,
+  learnSkillWorkflow,
   memoryExtractionWorkflow,
   morningBriefingWorkflow,
   skillDocumentationWorkflow,
@@ -78,6 +79,13 @@ describe("moved product recipes keep their identity at the backend seam", () => 
       slug: "skill-documentation",
       initialStep: "gather-context",
       steps: ["gather-context", "compose", "persist-revision", "notify"],
+    },
+    {
+      name: "learnSkillWorkflow",
+      recipe: learnSkillWorkflow as Workflow<unknown>,
+      slug: "learn-skill",
+      initialStep: "gather",
+      steps: ["gather", "distill", "persist"],
     },
   ];
 
