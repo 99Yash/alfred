@@ -84,7 +84,7 @@ export {
   type ProjectGmailKindProfilesResult,
   type RecordOrgAffiliationOnCredentialUpsertResult,
   type RecordOrgAffiliationResult,
-} from "./modules/user-model/index";
+} from "./modules/knowledge";
 
 export * from "./modules/memory/types";
 export * from "./modules/memory/signature";
@@ -116,7 +116,7 @@ export { buildMemoryExtractionWorkflow } from "./modules/memory/index";
 
 export * from "./modules/settings";
 
-export * from "./modules/chat-memory/extractor";
+export * from "./modules/knowledge/extractor";
 // The idle-capture trigger moved to `conversations/idle-capture-queue.ts`; these
 // public names are unchanged so `apps/server` and the backfill stay unchanged.
 export {

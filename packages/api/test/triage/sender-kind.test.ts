@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { describe, test } from "node:test";
 
-import type { ActiveEntityProfile } from "../../src/modules/user-model";
+import type { ActiveEntityProfile } from "../../src/modules/knowledge";
 import { senderExtractionEvent, senderKindSignalFromProfile } from "../../src/modules/triage";
 import type { TriageClassification } from "../../src/modules/triage/classify";
 import { applyFloors, type FloorContext, type FloorOutcome } from "../../src/modules/triage/floors";
