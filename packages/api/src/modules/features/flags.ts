@@ -1,5 +1,5 @@
 import { FEATURE_FLAG_KEYS, type FeatureFlagKey } from "@alfred/contracts";
-import { getPreference } from "../memory/preferences";
+import { getPreference } from "../settings";
 
 /**
  * Feature toggles for background agents — the Settings → Features control
