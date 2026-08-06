@@ -15,8 +15,9 @@ import { firstValidTimezone } from "../timezone";
  * Timezone resolution (#229): the canonical zone key is `timezone` — it grounds
  * chat/boss date reasoning AND briefing delivery, so the two can never diverge.
  * The legacy `briefing.timezone` key is read as a fallback for rows written
- * before the unification. The precedence is `resolveUserTimezone`'s, because
- * this calls it (via {@link firstValidTimezone}) rather than restating it:
+ * before the unification. The precedence is `settings.resolveTimezone`'s,
+ * because this shares its {@link firstValidTimezone} primitive rather than
+ * restating it:
  *
  *   1. `timezone` (canonical — what the settings picker + onboarding now write).
  *   2. `briefing.timezone` (legacy fallback).
@@ -52,7 +53,7 @@ export async function resolveBriefingPreferences(userId: string): Promise<Briefi
     // #229: `timezone` is the canonical zone (also grounds chat/boss); the
     // briefing picker now writes it. `briefing.timezone` stays a fallback for
     // rows written before the unification — same precedence as
-    // `resolveUserTimezone`, so delivery time and date reasoning never diverge.
+    // `settings.resolveTimezone`, so delivery time and date reasoning never diverge.
     getPreference(userId, "timezone"),
     getPreference(userId, "briefing.timezone"),
     getPreference(userId, "briefing.delivery_hour"),

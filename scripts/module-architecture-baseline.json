@@ -95,7 +95,6 @@
       "replicache -> workflows",
       "skill-documentation -> memory",
       "skills -> agent",
-      "timezone -> memory",
       "todos -> memory",
       "tools -> artifacts",
       "tools -> dispatch",

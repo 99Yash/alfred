@@ -5,7 +5,8 @@ import { documents, driftMetrics, emailTriage, todos } from "@alfred/db/schemas"
 import { selfSenderEmail } from "@alfred/integrations/google";
 import { and, eq, inArray, sql } from "drizzle-orm";
 import { notify, type NotifyArgs, type NotifyResult } from "../notifications/notify";
-import { DEFAULT_USER_TIMEZONE, inZone, resolveUserTimezone } from "../timezone";
+import { resolveTimezone } from "../settings";
+import { DEFAULT_USER_TIMEZONE, inZone } from "../timezone";
 
 /**
  * Drift / invariant health metrics (PR-B of #219).
@@ -250,7 +251,7 @@ export async function runDriftHealthCheck(
   const breached = results.filter((r) => r.breached);
   const timezone =
     breached.length > 0
-      ? (options.timezone ?? (await resolveUserTimezone(userId)))
+      ? (options.timezone ?? (await resolveTimezone(userId)))
       : DEFAULT_USER_TIMEZONE;
   const today = inZone(timezone).day(now);
   const notifyFn = options.notifyFn ?? notify;

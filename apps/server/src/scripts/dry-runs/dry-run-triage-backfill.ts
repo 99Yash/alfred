@@ -23,8 +23,8 @@ import {
   resolveSenderKind,
   resolveSenderRelationship,
   loadTriageContext,
+  resolveTimezone,
   resolveTodoSuggestion,
-  resolveUserTimezone,
   senderKeyFor,
   todoSuppressionReason,
 } from "@alfred/api/backend";
@@ -189,7 +189,7 @@ async function main() {
     const resolved = resolveTodoSuggestion(
       classification,
       ctxData.document.authoredAt
-        ? { sentAt: ctxData.document.authoredAt, timezone: await resolveUserTimezone(t.userId) }
+        ? { sentAt: ctxData.document.authoredAt, timezone: await resolveTimezone(t.userId) }
         : null,
     );
     const suppression = resolved
