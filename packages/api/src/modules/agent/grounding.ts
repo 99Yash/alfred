@@ -1,13 +1,5 @@
 import type { IanaTimezone } from "@alfred/contracts";
-import { formatDay, inZone, resolveUserTimezone } from "../timezone";
-
-/**
- * The user's operational timezone — the same resolver `calendar.list_events`
- * and GitHub relative windows use. Grounding the agent's "today" with this
- * value keeps the date the model reasons about in lockstep with the date tools
- * actually query. Falls back to UTC.
- */
-export { resolveUserTimezone };
+import { formatDay, inZone } from "../timezone";
 
 /**
  * One-line date grounding for a system prompt, e.g.

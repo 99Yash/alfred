@@ -24,6 +24,7 @@ import { publishEvent } from "../../events/publish";
 import { logger } from "../../lib/logger";
 import { buildThreadArtifactsContext } from "../artifacts";
 import { readIntegrationAvailability } from "../integrations";
+import { resolveTimezone } from "../settings";
 import { executeToolCallRound } from "../tool-runtime";
 import {
   appendModelResponseMessages,
@@ -34,7 +35,6 @@ import {
   openChatTurnRetries,
   resetChatTurnRetryBudgets,
   resolveRuntimeGroundingAnchor,
-  resolveUserTimezone,
   systemToolKernel,
   toolCardTerminal,
   toolEventOutcome,
@@ -293,7 +293,7 @@ const chatTurnStep: Step<ChatRunState> = {
       const { transcript: hydratedTranscript } = await hydrateTranscriptForModel(transcript);
 
       if (state.timezone === undefined) {
-        state.timezone = await resolveUserTimezone(ctx.userId);
+        state.timezone = await resolveTimezone(ctx.userId);
       }
       // Persisted state carries the zone as a plain string, so re-establish it as
       // a zone once per step rather than at each reading below.

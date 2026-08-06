@@ -80,11 +80,7 @@ export {
   estimateTranscriptTokens,
 } from "./run-compaction";
 export { buildConnectedSummaryFromAvailability } from "./connected-summary";
-export {
-  formatRuntimeTimeGrounding,
-  resolveRuntimeGroundingAnchor,
-  resolveUserTimezone,
-} from "./grounding";
+export { formatRuntimeTimeGrounding, resolveRuntimeGroundingAnchor } from "./grounding";
 export { composeAgentInstructions } from "./instructions";
 export {
   foldToolSurfaceState,
