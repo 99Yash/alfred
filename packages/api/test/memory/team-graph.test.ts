@@ -2,46 +2,25 @@ import assert from "node:assert/strict";
 import { describe, test } from "node:test";
 
 import { computeSignificance } from "../../src/modules/memory/significance";
-import {
-  accumulateDoc,
-  splitAddressList,
-  type ContactAggregate,
-} from "../../src/modules/memory/team-graph";
+import { accumulateDoc, type ContactAggregate } from "../../src/modules/memory/team-graph";
+import { gmailSenderAdapter } from "../../src/modules/triage/gmail-sender-adapter";
 
 const NOW = new Date("2026-06-16T12:00:00.000Z");
 // Person classification needs a display name with a space OR a separator in the
 // local part (sender-context.ts), so the fixtures use realistic person headers.
 const SELF = "me.user@acme.com";
 
-describe("splitAddressList", () => {
-  test("splits a plain comma-separated list", () => {
-    assert.deepEqual(splitAddressList("a@x.com, b@y.com,c@z.com"), [
-      "a@x.com",
-      "b@y.com",
-      "c@z.com",
-    ]);
-  });
-
-  test("does not split on a comma inside a quoted display name", () => {
-    assert.deepEqual(splitAddressList('"Doe, Jane" <jane@x.com>, bob@y.com'), [
-      '"Doe, Jane" <jane@x.com>',
-      "bob@y.com",
-    ]);
-  });
-
-  test("does not split on a comma inside angle brackets", () => {
-    // pathological but real: some clients emit group syntax
-    assert.deepEqual(splitAddressList("Team <team@x.com>, Ann <ann@y.com>"), [
-      "Team <team@x.com>",
-      "Ann <ann@y.com>",
-    ]);
-  });
-
-  test("empty / null → []", () => {
-    assert.deepEqual(splitAddressList(null), []);
-    assert.deepEqual(splitAddressList("   "), []);
-  });
-});
+// accumulateDoc now consumes a parsed GmailCorrespondentsObservation (ADR-0089).
+// Build it from raw metadata via the triage adapter — the address-splitting and
+// human-rescue live there now, their outcome is still exercised through here.
+function acc(
+  contacts: Map<string, ContactAggregate>,
+  meta: Record<string, unknown>,
+  authoredAt: Date | null,
+  self: string,
+): void {
+  accumulateDoc(contacts, gmailSenderAdapter.correspondents(meta), authoredAt, self);
+}
 
 describe("accumulateDoc", () => {
   const t1 = new Date("2026-06-10T00:00:00.000Z");
@@ -49,7 +28,7 @@ describe("accumulateDoc", () => {
 
   test("a received message counts the sender inbound and others co-recipient; self is skipped", () => {
     const c = new Map<string, ContactAggregate>();
-    accumulateDoc(
+    acc(
       c,
       {
         from: "Alice Smith <alice.smith@acme.com>",
@@ -66,7 +45,7 @@ describe("accumulateDoc", () => {
 
   test("a sent message counts every recipient outbound", () => {
     const c = new Map<string, ContactAggregate>();
-    accumulateDoc(
+    acc(
       c,
       {
         from: "me.user@acme.com",
@@ -82,8 +61,8 @@ describe("accumulateDoc", () => {
 
   test("accumulating two docs sums counts and tracks first/last seen", () => {
     const c = new Map<string, ContactAggregate>();
-    accumulateDoc(c, { from: "Alice Smith <alice.smith@acme.com>", isSent: false }, t1, SELF);
-    accumulateDoc(
+    acc(c, { from: "Alice Smith <alice.smith@acme.com>", isSent: false }, t1, SELF);
+    acc(
       c,
       { from: "me.user@acme.com", to: "Alice Smith <alice.smith@acme.com>", isSent: true },
       t2,
@@ -98,8 +77,8 @@ describe("accumulateDoc", () => {
 
   test("a noreply/service envelope is not captured as a person", () => {
     const c = new Map<string, ContactAggregate>();
-    accumulateDoc(c, { from: "noreply@github.com", isSent: false }, t1, SELF);
-    accumulateDoc(c, { from: "notifications@slack.com", isSent: false }, t1, SELF);
+    acc(c, { from: "noreply@github.com", isSent: false }, t1, SELF);
+    acc(c, { from: "notifications@slack.com", isSent: false }, t1, SELF);
     assert.equal(c.size, 0);
   });
 
@@ -108,9 +87,9 @@ describe("accumulateDoc", () => {
     // `service`; a real colleague at one of them must still become a contact.
     const c = new Map<string, ContactAggregate>();
     // first.last local part on a service domain
-    accumulateDoc(c, { from: "jane.doe@google.com", isSent: false }, t1, SELF);
+    acc(c, { from: "jane.doe@google.com", isSent: false }, t1, SELF);
     // person-like display name with a single-token local on a service domain
-    accumulateDoc(c, { from: "Karthik Rao <karthik@github.com>", isSent: false }, t1, SELF);
+    acc(c, { from: "Karthik Rao <karthik@github.com>", isSent: false }, t1, SELF);
     assert.equal(c.get("jane.doe@google.com")?.inbound, 1);
     assert.equal(c.get("karthik@github.com")?.inbound, 1);
   });

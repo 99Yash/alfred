@@ -31,6 +31,7 @@ export * from "./weather";
 export * from "./metering";
 export * from "./usage";
 export * from "./memory";
+export * from "./sender-observation";
 export * from "./event-triggers";
 export * from "./todos";
 export * from "./loop-key";

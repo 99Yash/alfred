@@ -14,6 +14,7 @@ import {
   type AuthorshipDocument,
   type SelfIdentity,
 } from "../../src/modules/memory/fact-policy";
+import { gmailSenderAdapter } from "../../src/modules/triage/gmail-sender-adapter";
 
 describe("classifyDocumentFactKey (#330 — document write tiers)", () => {
   test("relationship:<email> is Tier A (authorship-free)", () => {
@@ -205,7 +206,14 @@ describe("authoredByUser (#330 — conservative, evidence-returning)", () => {
     metadata: Record<string, unknown>,
     accountId: string | null,
   ): AuthorshipDocument {
-    return { source: "gmail", metadata, accountId };
+    // Inject the authorship observation the triage adapter parses from the same
+    // raw metadata (ADR-0089) — verdicts stay identical to the pre-move parse.
+    return {
+      source: "gmail",
+      metadata,
+      accountId,
+      sender: gmailSenderAdapter.authorship(metadata),
+    };
   }
 
   test("gmail SENT label is authorship by the connected mailbox", () => {
@@ -248,21 +256,21 @@ describe("authoredByUser (#330 — conservative, evidence-returning)", () => {
 
   test("github author id/login matches self", () => {
     const byId = authoredByUser(
-      { source: "github", metadata: { authorId: "583231" }, accountId: null },
+      { source: "github", metadata: { authorId: "583231" }, accountId: null, sender: null },
       self,
     );
     assert.equal(byId.authoredByUser, true);
     assert.equal(byId.authoredByUser && byId.proof.method, "author_id");
 
     const byLogin = authoredByUser(
-      { source: "github", metadata: { authorLogin: "99yash" }, accountId: null },
+      { source: "github", metadata: { authorLogin: "99yash" }, accountId: null, sender: null },
       self,
     );
     assert.equal(byLogin.authoredByUser, true);
     assert.equal(byLogin.authoredByUser && byLogin.proof.method, "author_login");
 
     const other = authoredByUser(
-      { source: "github", metadata: { authorLogin: "mattpocock" }, accountId: null },
+      { source: "github", metadata: { authorLogin: "mattpocock" }, accountId: null, sender: null },
       self,
     );
     assert.equal(other.authoredByUser, false);
@@ -271,7 +279,7 @@ describe("authoredByUser (#330 — conservative, evidence-returning)", () => {
 
   test("slack matches on stable user id or verified email", () => {
     const r = authoredByUser(
-      { source: "slack", metadata: { authorUserId: "U07SELF" }, accountId: null },
+      { source: "slack", metadata: { authorUserId: "U07SELF" }, accountId: null, sender: null },
       self,
     );
     assert.equal(r.authoredByUser, true);
@@ -280,7 +288,7 @@ describe("authoredByUser (#330 — conservative, evidence-returning)", () => {
 
   test("github with no self identity fails missing_self_identity (default deny)", () => {
     const r = authoredByUser(
-      { source: "github", metadata: { authorLogin: "anyone" }, accountId: null },
+      { source: "github", metadata: { authorLogin: "anyone" }, accountId: null, sender: null },
       { emails: ["yash@oliv.ai"] },
     );
     assert.equal(r.authoredByUser, false);
@@ -289,7 +297,7 @@ describe("authoredByUser (#330 — conservative, evidence-returning)", () => {
 
   test("gcal / notion / imessage / uploads / unknown are unsupported_source", () => {
     for (const source of ["gcal", "google_calendar", "notion", "imessage", "upload", "weird"]) {
-      const r = authoredByUser({ source, metadata: {}, accountId: null }, self);
+      const r = authoredByUser({ source, metadata: {}, accountId: null, sender: null }, self);
       assert.equal(r.authoredByUser, false, `${source} should not be authored`);
       assert.equal(!r.authoredByUser && r.reason, "unsupported_source");
     }
@@ -305,6 +313,7 @@ describe("gateDocumentFact", () => {
     source: "gmail",
     metadata: { isSent: true },
     accountId: "acc_work",
+    sender: gmailSenderAdapter.authorship({ isSent: true }),
   };
 
   test("rejects invalid Tier-B value shapes at the workflow/purge gate", () => {

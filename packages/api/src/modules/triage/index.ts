@@ -93,6 +93,10 @@ export type {
   SenderPriorWriteKeyArgs,
 } from "./sender-priors";
 export { isSentGmailMetadata, gmailSentSql, notSentGmailDocumentWhere } from "./sent-mail";
+// The Gmail sender parser adapter memory depends on (ADR-0089). The relocated
+// header splitter (`splitAddressList`) stays a file-level export for its unit
+// test; it is intentionally NOT re-exported here (module-internal to triage).
+export { gmailSenderAdapter } from "./gmail-sender-adapter";
 export { assembleObservations, extractGmailSignals, extractContentFlags } from "./observations";
 export type {
   Observations,
