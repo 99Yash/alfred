@@ -1,4 +1,4 @@
-import { sha256Canonical } from "../../lib/hash";
+import { sha256Canonical } from "./hash";
 
 export type WorkflowOccurrenceIdentity =
   | {
