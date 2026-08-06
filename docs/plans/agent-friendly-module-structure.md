@@ -1,7 +1,8 @@
 # Agent-friendly module structure
 
-> **Status:** active migration plan. Phases 0–2 are complete; Phase 3 is in
-> progress. See [`## Migration status`](#migration-status) for the current detail.
+> **Status:** active migration plan. Phases 0–3 are complete (Phase 3's nine slices
+> merged; two residual execution edges tracked). See [`## Migration status`](#migration-status)
+> for the current detail.
 >
 > **Basis:** the repository state on 2026-08-01. Git history has been rewritten
 > and is not evidence for how the repository evolved.
@@ -59,7 +60,7 @@ implementation details and several domain decisions have no single owner.
 
 ## Migration status
 
-Updated 2026-08-05. This section records progress against the migration sequence
+Updated 2026-08-06. This section records progress against the migration sequence
 below. The `## Current evidence` figures above are the start-state snapshot and are
 not updated as phases land.
 
@@ -69,8 +70,10 @@ not updated as phases land.
 - **Phase 2 — deepen the tool runtime.** Done. The `agent↔tools`, `agent↔dispatch`,
   `dispatch↔tools`, and `tools↔workflows` cycles are removed (PRs #633, #635, #636,
   #639, #640, #641; boot-seam unification #643).
-- **Phase 3 — isolate durable execution.** Core slices landed; two recipe-homing
-  follow-ups and one barrel-removal remain.
+- **Phase 3 — isolate durable execution.** All nine slices merged (PRs #662–#671). The
+  generic execution contract test and the forbidden-product-import gate are in place; the
+  gate currently locks `triage`. Two pre-existing execution→product edges remain before the
+  gate can lock the rest — both tracked, neither a regression.
   - 01 · reduce `agent` to the generic execution state machine (`startRun`,
     `registerRecipe`; queue handle closed) — PR #662, merged.
   - 02 · move the chat recipe into a new `conversations` module — PR #663, merged.
@@ -78,14 +81,19 @@ not updated as phases land.
     PR #664, merged.
   - 04 · move product recipes into their owning modules — PR #665, merged.
   - 05 · replace `createRun`+`enqueueRun` pairs with `startRun` — PR #666, merged.
-  - 06 · generic execution contract test + prove `execution` imports no product
-    module — in progress.
-  - 07 · break `memory → cold-start`, then home the `cold-start-research` recipe —
-    not started (deferred by 04).
-  - 08 · break `skills ↔ skill-documentation`, then home the `learn-skill` recipe —
-    not started (deferred by 04).
-  - 09 · remove the public `createRun`/`enqueueRun` exports after 07 and 08 migrate
-    their callers — not started (deferred by 05; needs 07, 08).
+  - 06 · generic execution contract test; remove and lock `agent → triage`; relocate the
+    `workflow-occurrence` leaf; add the forbidden-import gate — PR #668, merged.
+  - 07 · break `memory → cold-start`, home the `cold-start-research` recipe — PR #669, merged.
+  - 08 · break `skills ↔ skill-documentation`, home the `learn-skill` recipe — PR #670, merged.
+  - 09 · remove the public `createRun`/`enqueueRun` exports — PR #671, merged.
+  - Gate hardening: a liveness-safe forbidden-import check (PR #672) and a negative-type
+    fixture guarding the augmentable trace registry (PR #673) — both merged.
+  - Residual `agent → chat`: moves with the chat→conversations work; the gate locks `chat`
+    when it lands.
+  - Residual `agent → workflows`: one `checkWorkflowRunReadiness` import from the run
+    sentinel. Homing the sentinel into a product module was rejected — it is core execution
+    machinery (ADR-0040/0073), not a recipe — so the remaining task is a narrow edge-break
+    (relocate the readiness leaf, or invert the call), after which the gate locks `workflows`.
 - **Phases 4–7 — knowledge/settings, connections, package extraction, public
   surfaces.** Not started.
 
