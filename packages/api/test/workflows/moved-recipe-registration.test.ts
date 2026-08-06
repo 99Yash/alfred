@@ -3,6 +3,7 @@ import { describe, test } from "node:test";
 
 import {
   chatMemoryCaptureWorkflow,
+  coldStartResearchWorkflow,
   dailyBriefingWorkflow,
   emailTriageWorkflow,
   learnSkillWorkflow,
@@ -86,6 +87,20 @@ describe("moved product recipes keep their identity at the backend seam", () => 
       slug: "learn-skill",
       initialStep: "gather",
       steps: ["gather", "distill", "persist"],
+    },
+    {
+      name: "coldStartResearchWorkflow",
+      recipe: coldStartResearchWorkflow as Workflow<unknown>,
+      slug: "cold-start-research",
+      initialStep: "gather-signals",
+      steps: [
+        "gather-signals",
+        "seed",
+        "research-aspects",
+        "synthesis",
+        "extract-facts",
+        "persist",
+      ],
     },
   ];
 

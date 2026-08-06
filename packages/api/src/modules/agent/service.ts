@@ -33,7 +33,10 @@ import {
   type WorkflowInput,
 } from "./types";
 import { userAuthoredBriefWorkflow } from "./workflows/user-authored-brief";
-import { workflowOccurrenceKey, type WorkflowOccurrenceIdentity } from "../workflows/occurrence";
+import {
+  workflowOccurrenceKey,
+  type WorkflowOccurrenceIdentity,
+} from "../../lib/workflow-occurrence";
 
 /**
  * After this much silence on `last_checkpoint_at`, a `running` row is
