@@ -13,3 +13,4 @@
  */
 
 export * from "./preferences";
+export * from "./flags";
