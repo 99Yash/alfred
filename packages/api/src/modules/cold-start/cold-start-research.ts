@@ -1,22 +1,16 @@
+import { z } from "zod";
+import { type Workflow } from "../agent";
+import { proposeFact, writeMemoryChunk } from "../memory";
+import { researchAspects, type AspectFinding } from "./aspects";
+import { extractColdStartFacts, type ColdStartProposal } from "./extract";
+import { resolveIdentity, type IdentityAnchor } from "./seed";
+import { collectColdStartSignals, type ColdStartSignals } from "./signals";
+import { synthesizeColdStart, type ResearchResult } from "./synthesis";
 import {
   COLD_START_DEDUP_KEY,
   COLD_START_WORKFLOW_SLUG,
   coldStartWorkflowInputSchema,
-  collectColdStartSignals,
-  extractColdStartFacts,
-  proposeFact,
-  researchAspects,
-  resolveIdentity,
-  synthesizeColdStart,
-  writeMemoryChunk,
-  type AspectFinding,
-  type ColdStartProposal,
-  type ColdStartSignals,
-  type IdentityAnchor,
-  type ResearchResult,
-  type Workflow,
-} from "@alfred/api/backend";
-import { z } from "zod";
+} from "./workflow-input";
 
 /**
  * Cold-start research workflow (ADR-0011 + ADR-0022, v2 amendment).
