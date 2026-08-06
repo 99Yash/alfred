@@ -1,7 +1,16 @@
 import assert from "node:assert/strict";
 import { describe, test } from "node:test";
 
-import { firstValidTimezone } from "../src/modules/timezone/user-timezone";
+import {
+  firstValidTimezone,
+  TIMEZONE_PREFERENCE_KEYS,
+} from "../src/modules/timezone/user-timezone";
+
+describe("TIMEZONE_PREFERENCE_KEYS", () => {
+  test("owns the ADR-0082 canonical-first key-set and order (canonical, then legacy)", () => {
+    assert.deepEqual(TIMEZONE_PREFERENCE_KEYS, ["timezone", "briefing.timezone"]);
+  });
+});
 
 describe("firstValidTimezone", () => {
   test("prefers the canonical timezone key over the briefing fallback", () => {

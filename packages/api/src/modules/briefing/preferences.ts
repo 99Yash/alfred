@@ -5,7 +5,7 @@ import {
   DEFAULT_BRIEFING_TIMEZONE,
 } from "@alfred/contracts/briefing-constants";
 import { getPreference } from "../settings";
-import { firstValidTimezone } from "../timezone";
+import { firstValidTimezone, TIMEZONE_PREFERENCE_KEYS } from "../timezone";
 
 /**
  * Briefing time-of-day preferences live under `user_preferences` keys
@@ -15,14 +15,12 @@ import { firstValidTimezone } from "../timezone";
  * Timezone resolution (#229): the canonical zone key is `timezone` — it grounds
  * chat/boss date reasoning AND briefing delivery, so the two can never diverge.
  * The legacy `briefing.timezone` key is read as a fallback for rows written
- * before the unification. The precedence is `settings.resolveTimezone`'s,
- * because this shares its {@link firstValidTimezone} primitive rather than
- * restating it:
- *
- *   1. `timezone` (canonical — what the settings picker + onboarding now write).
- *   2. `briefing.timezone` (legacy fallback).
- *   3. `DEFAULT_USER_TIMEZONE` (UTC) — so a user with no pref row still gets
- *      daily emails at a predictable time.
+ * before the unification. The key-set and its canonical order live once in
+ * {@link TIMEZONE_PREFERENCE_KEYS}; this maps that const through the same
+ * {@link firstValidTimezone} primitive `settings.resolveTimezone` uses, rather
+ * than restating either. After the const (`timezone`, then `briefing.timezone`)
+ * comes `DEFAULT_USER_TIMEZONE` (UTC) — so a user with no pref row still gets
+ * daily emails at a predictable time.
  *
  * The browser's `Intl.DateTimeFormat().resolvedOptions().timeZone` is captured
  * at onboarding and persisted to `timezone`, so a user who never opens settings
@@ -42,27 +40,27 @@ export interface BriefingPreferences {
 }
 
 interface BriefingPreferenceValues {
-  timezone: unknown;
-  legacyTimezone: unknown;
+  /** Zone values in `TIMEZONE_PREFERENCE_KEYS` order (canonical-first). */
+  timezoneValues: readonly unknown[];
   deliveryHour: unknown;
   eveningHour: unknown;
 }
 
 export async function resolveBriefingPreferences(userId: string): Promise<BriefingPreferences> {
-  const [generalTzRow, briefingTzRow, hourRow, eveRow] = await Promise.all([
-    // #229: `timezone` is the canonical zone (also grounds chat/boss); the
-    // briefing picker now writes it. `briefing.timezone` stays a fallback for
-    // rows written before the unification — same precedence as
-    // `settings.resolveTimezone`, so delivery time and date reasoning never diverge.
-    getPreference(userId, "timezone"),
-    getPreference(userId, "briefing.timezone"),
+  // #229: the zone keys and their canonical order come from
+  // `TIMEZONE_PREFERENCE_KEYS` (canonical `timezone`, then legacy
+  // `briefing.timezone`) — the same const `settings.resolveTimezone` maps, so
+  // delivery time and date reasoning never diverge. All four `getPreference`
+  // calls fire synchronously before the first `await` (the `.map` and the two
+  // sibling calls execute eagerly), so this stays a single round-trip.
+  const [tzRows, hourRow, eveRow] = await Promise.all([
+    Promise.all(TIMEZONE_PREFERENCE_KEYS.map((key) => getPreference(userId, key))),
     getPreference(userId, "briefing.delivery_hour"),
     getPreference(userId, "briefing.evening_hour"),
   ]);
 
   return resolveBriefingPreferenceValues({
-    timezone: generalTzRow?.value,
-    legacyTimezone: briefingTzRow?.value,
+    timezoneValues: tzRows.map((row) => row?.value),
     deliveryHour: hourRow?.value,
     eveningHour: eveRow?.value,
   });
@@ -71,12 +69,11 @@ export async function resolveBriefingPreferences(userId: string): Promise<Briefi
 export function resolveBriefingPreferenceValues(
   values: BriefingPreferenceValues,
 ): BriefingPreferences {
-  const timezone = firstValidTimezone([values.timezone, values.legacyTimezone]);
+  const timezone = firstValidTimezone(values.timezoneValues);
   const deliveryHour = parseDeliveryHour(values.deliveryHour) ?? DEFAULT_BRIEFING_DELIVERY_HOUR;
   const eveningHour = parseDeliveryHour(values.eveningHour) ?? DEFAULT_BRIEFING_EVENING_HOUR;
   const hasUserOverride =
-    isValidTimezone(values.timezone) ||
-    isValidTimezone(values.legacyTimezone) ||
+    values.timezoneValues.some((value) => isValidTimezone(value)) ||
     parseDeliveryHour(values.deliveryHour) !== null ||
     parseDeliveryHour(values.eveningHour) !== null;
 
