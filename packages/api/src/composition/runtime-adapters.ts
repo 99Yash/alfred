@@ -6,6 +6,7 @@ import {
   unregisterGoogleCredentialLifecycle,
 } from "./google-credential-lifecycle";
 import { registerTriggerConsumers, unregisterTriggerConsumers } from "./trigger-consumers";
+import { registerWorkflowReadiness, unregisterWorkflowReadiness } from "./workflow-readiness";
 import { registerWorkflowRecovery, unregisterWorkflowRecovery } from "./workflow-recovery";
 
 export interface RuntimeAdapterDefinition {
@@ -84,6 +85,13 @@ export const RUNTIME_ADAPTERS = [
     unregister: unregisterWorkflowRecovery,
     retainIfIngestionWorkerActive: false,
     shutdownOrder: 5,
+  },
+  {
+    name: "workflow-readiness",
+    register: registerWorkflowReadiness,
+    unregister: unregisterWorkflowReadiness,
+    retainIfIngestionWorkerActive: true,
+    shutdownOrder: 6,
   },
 ] as const satisfies readonly RuntimeAdapterDefinition[];
 
