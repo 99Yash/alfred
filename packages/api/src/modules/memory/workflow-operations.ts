@@ -6,7 +6,7 @@ import { loadSelfIdentity } from "./self-identity";
 import { runSignificancePass } from "./significance";
 import { accumulateDoc, applyCorrespondenceIncrements, type ContactAggregate } from "./team-graph";
 import type { StepContext, StepResult } from "../agent/index";
-import { isRecord, toMessage } from "@alfred/contracts";
+import { isRecord, toMessage, type GmailSenderParser } from "@alfred/contracts";
 import { db } from "@alfred/db";
 import { documents, memoryExtractionStatus, user, userFacts } from "@alfred/db/schemas";
 import { and, desc, eq, gte, inArray, isNotNull, sql } from "drizzle-orm";
@@ -40,7 +40,7 @@ import { and, desc, eq, gte, inArray, isNotNull, sql } from "drizzle-orm";
 
 export interface MemoryExtractionOperationState {
   mode: "auto" | "manual";
-  manualProposals?: Record<string, FactProposal[]>;
+  manualProposals?: Record<string, FactProposal[]> | undefined;
   sinceDays: number;
   maxDocs: number;
   documentIds: string[];
@@ -89,6 +89,7 @@ export async function runMemoryPickDocuments<State extends MemoryExtractionOpera
 }
 
 export async function runMemoryProcess<State extends MemoryExtractionOperationState>(
+  sender: GmailSenderParser,
   ctx: StepContext<State>,
 ): Promise<StepResult<State>> {
   let processed = 0;
@@ -182,7 +183,14 @@ export async function runMemoryProcess<State extends MemoryExtractionOperationSt
       if (ctx.state.mode === "auto") {
         const gate = gateDocumentFact({
           proposal: { key: p.key, value: p.value },
-          document: { source: doc.source, metadata: doc.metadata, accountId: doc.accountId },
+          document: {
+            source: doc.source,
+            metadata: doc.metadata,
+            accountId: doc.accountId,
+            // The From/SENT parse happens in the injected triage adapter
+            // (ADR-0089); non-gmail docs carry no sender observation.
+            sender: doc.source === "gmail" ? sender.authorship(doc.metadata) : null,
+          },
           selfIdentity,
         });
         if (!gate.ok) {
@@ -252,7 +260,12 @@ export async function runMemoryProcess<State extends MemoryExtractionOperationSt
       doc.source === "gmail" &&
       isRecord(doc.metadata)
     ) {
-      accumulateDoc(captureContacts, doc.metadata, doc.authoredAt ?? null, selfEmail);
+      accumulateDoc(
+        captureContacts,
+        sender.correspondents(doc.metadata),
+        doc.authoredAt ?? null,
+        selfEmail,
+      );
       capturedThisRun.push(doc.id);
     }
 

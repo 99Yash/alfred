@@ -30,10 +30,9 @@ import {
   PREF_FACT_PREFIX,
   RELATIONSHIP_FACT_PREFIX,
   type FactKey,
+  type GmailAuthorshipObservation,
 } from "@alfred/contracts";
 import type { Document } from "@alfred/db/schemas";
-import { extractSenderContext } from "../triage/sender-context";
-import { isSentGmailMetadata } from "../triage/sent-mail";
 
 // ---------------------------------------------------------------------------
 // document write tiers
@@ -275,10 +274,22 @@ export type Authorship =
  * The document context `authoredByUser` reads. The first branch is derived from
  * the `documents` row so it cannot drift from the schema. The `unknown` branch
  * is the explicit missing-document sentinel used by the cleanup backfill.
+ *
+ * `sender` is the already-parsed Gmail authorship observation the caller injects
+ * (ADR-0089) — memory no longer parses `From:`/SENT itself. Required so the
+ * compiler pins that every gmail caller supplies it; `null` for non-gmail docs
+ * (github/slack read `metadata` directly) and where no Gmail metadata exists.
  */
 export type AuthorshipDocument =
-  | Pick<Document, "source" | "metadata" | "accountId">
-  | { source: "unknown"; metadata: unknown; accountId: null };
+  | (Pick<Document, "source" | "metadata" | "accountId"> & {
+      sender: GmailAuthorshipObservation | null;
+    })
+  | {
+      source: "unknown";
+      metadata: unknown;
+      accountId: null;
+      sender: GmailAuthorshipObservation | null;
+    };
 
 /**
  * Everything `authoredByUser` needs to recognize "the user" across providers.
@@ -326,22 +337,19 @@ function toAuthorshipSource(source: string): AuthorshipSource {
   }
 }
 
-/** Parse the lowercased `local@domain` from a raw `From:` header, or null. */
-function parseFromEmail(fromHeader: string): string | null {
-  return extractSenderContext({ fromHeader, subject: null, body: "" }).senderAddress;
-}
-
 function authoredByGmail(
-  metadata: unknown,
+  sender: GmailAuthorshipObservation | null,
   accountId: string | null,
   self: SelfIdentity,
 ): Authorship {
   const accountEmail =
     (accountId && self.gmailAccountEmailById?.[accountId]?.toLowerCase()) || null;
 
-  const isSent = isSentGmailMetadata(isRecord(metadata) ? metadata : null);
-  const fromRaw = isRecord(metadata) && typeof metadata.from === "string" ? metadata.from : null;
-  const fromEmail = fromRaw ? parseFromEmail(fromRaw) : null;
+  // The `From:`/SENT parse happens in the injected triage adapter (ADR-0089);
+  // memory only reads the normalized observation. A missing observation
+  // (defensive) reads as not-sent with no author — the conservative default.
+  const isSent = sender?.isSent ?? false;
+  const fromEmail = sender?.fromEmail ?? null;
 
   // Gmail's SENT label is set by the connected mailbox itself — sufficient proof
   // even when the `From` is absent (`from_connected_account` needs the equality).
@@ -530,7 +538,7 @@ export function authoredByUser(doc: AuthorshipDocument, self: SelfIdentity): Aut
   const source = toAuthorshipSource(doc.source);
   switch (source) {
     case "gmail":
-      return authoredByGmail(doc.metadata, doc.accountId, self);
+      return authoredByGmail(doc.sender, doc.accountId, self);
     case "github":
       return authoredByGithub(doc.metadata, self);
     case "slack":

@@ -7,6 +7,7 @@ import {
   type SelfIdentity,
 } from "../../src/modules/memory/fact-policy";
 import { accumulateDoc, type ContactAggregate } from "../../src/modules/memory/team-graph";
+import { gmailSenderAdapter } from "../../src/modules/triage/gmail-sender-adapter";
 
 /**
  * Characterization pin for campaign knowledge-settings-phase4 item 04
@@ -25,9 +26,11 @@ import { accumulateDoc, type ContactAggregate } from "../../src/modules/memory/t
  *
  * These tests pin the OBSERVABLE outcome of that parsing through memory's own
  * public seams (`authoredByUser`, `accumulateDoc`) — the authorship verdict, the
- * normalized address, and team-graph inclusion/exclusion — so the refactor that
- * moves the parse to a boundary and feeds memory a normalized observation must
- * keep every verdict below identical. Characterization only: today's behavior,
+ * normalized address, and team-graph inclusion/exclusion. Post-refactor
+ * (ADR-0089) the parse lives in `triage/gmail-sender-adapter.ts`; these tests
+ * now build the injected observation with `gmailSenderAdapter` from the SAME raw
+ * metadata and feed it into memory's seams, so every verdict below stays
+ * byte-identical to before the move. Characterization only: today's behavior,
  * quirks included. The quirks are called out so a "cleanup" during the move does
  * not silently change them.
  */
@@ -41,7 +44,14 @@ function gmailDoc(
   metadata: Record<string, unknown> | null,
   accountId: string | null,
 ): AuthorshipDocument {
-  return { source: "gmail", metadata, accountId } as AuthorshipDocument;
+  // Build the injected authorship observation from the SAME raw metadata the
+  // triage adapter would parse in production — the whole point of the seam.
+  return {
+    source: "gmail",
+    metadata,
+    accountId,
+    sender: gmailSenderAdapter.authorship(metadata),
+  } as AuthorshipDocument;
 }
 
 describe("[campaign-04 seam] authoredByGmail — SENT-flag authorship via isSentGmailMetadata", () => {
@@ -149,21 +159,37 @@ describe("[campaign-04 seam] accumulateDoc — team-graph human rescue via isHum
   const t1 = new Date("2026-06-10T00:00:00.000Z");
   const SELF = "me.user@acme.com";
 
+  // Feed accumulateDoc the observation the triage adapter parses from raw
+  // metadata — the human-rescue now lives in the adapter, its outcome is pinned
+  // here through the same seam.
   function keysFor(meta: Record<string, unknown>): string[] {
     const c = new Map<string, ContactAggregate>();
-    accumulateDoc(c, meta, t1, SELF);
+    accumulateDoc(c, gmailSenderAdapter.correspondents(meta), t1, SELF);
     return [...c.keys()];
   }
 
   test("rescues a first.last local part on a service domain (google.com)", () => {
     const c = new Map<string, ContactAggregate>();
-    accumulateDoc(c, { from: "jane.doe@google.com", isSent: false }, t1, SELF);
+    accumulateDoc(
+      c,
+      gmailSenderAdapter.correspondents({ from: "jane.doe@google.com", isSent: false }),
+      t1,
+      SELF,
+    );
     assert.equal(c.get("jane.doe@google.com")?.inbound, 1);
   });
 
   test("rescues a single-token local on a service domain when the display name looks human", () => {
     const c = new Map<string, ContactAggregate>();
-    accumulateDoc(c, { from: "Karthik Rao <karthik@github.com>", isSent: false }, t1, SELF);
+    accumulateDoc(
+      c,
+      gmailSenderAdapter.correspondents({
+        from: "Karthik Rao <karthik@github.com>",
+        isSent: false,
+      }),
+      t1,
+      SELF,
+    );
     assert.equal(c.get("karthik@github.com")?.inbound, 1);
   });
 
@@ -193,7 +219,15 @@ describe("[campaign-04 seam] accumulateDoc — team-graph human rescue via isHum
     // still treated as inbound: the From is counted as the correspondent, not
     // skipped as an outbound-from-self.
     const c = new Map<string, ContactAggregate>();
-    accumulateDoc(c, { from: "Alice Smith <alice.smith@acme.com>", labelIds: ["SENT"] }, t1, SELF);
+    accumulateDoc(
+      c,
+      gmailSenderAdapter.correspondents({
+        from: "Alice Smith <alice.smith@acme.com>",
+        labelIds: ["SENT"],
+      }),
+      t1,
+      SELF,
+    );
     assert.equal(c.get("alice.smith@acme.com")?.inbound, 1);
     assert.equal(c.get("alice.smith@acme.com")?.outbound, 0);
   });

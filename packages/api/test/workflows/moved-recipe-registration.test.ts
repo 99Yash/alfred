@@ -4,15 +4,20 @@ import { describe, test } from "node:test";
 import type { WorkflowTrigger } from "@alfred/contracts";
 
 import {
+  buildMemoryExtractionWorkflow,
   chatMemoryCaptureWorkflow,
   coldStartResearchWorkflow,
   dailyBriefingWorkflow,
   emailTriageWorkflow,
+  gmailSenderAdapter,
   learnSkillWorkflow,
-  memoryExtractionWorkflow,
   morningBriefingWorkflow,
   skillDocumentationWorkflow,
 } from "../../src/backend";
+
+// The recipe is built with the injected Gmail sender adapter (ADR-0089); its
+// identity (slug/steps/entry/trigger/dedup) is independent of the injection.
+const memoryExtractionWorkflow = buildMemoryExtractionWorkflow(gmailSenderAdapter);
 import type { Workflow, WorkflowInput } from "../../src/modules/agent/types";
 
 /**
