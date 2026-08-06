@@ -1,5 +1,5 @@
 import { FEATURE_FLAG_KEYS, type FeatureFlagKey } from "@alfred/contracts";
-import { getPreference } from "../settings";
+import { getPreference } from "./preferences";
 
 /**
  * Feature toggles for background agents — the Settings → Features control
@@ -43,8 +43,9 @@ function flagOn(value: unknown): boolean {
   return true;
 }
 
-/** Single flag; defaults to ON when the pref row is absent. */
-export async function getFeatureFlag(userId: string, key: FeatureFlagKey): Promise<boolean> {
+/** Single flag; defaults to ON when the pref row is absent. Module-private —
+ * only `resolveFeatureFlags` calls it, so it stays off the settings interface. */
+async function getFeatureFlag(userId: string, key: FeatureFlagKey): Promise<boolean> {
   const row = await getPreference(userId, key);
   return row ? flagOn(row.value) : true;
 }

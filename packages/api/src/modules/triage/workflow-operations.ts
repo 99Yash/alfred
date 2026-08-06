@@ -1,5 +1,5 @@
 import { publishEvent } from "../../events/publish";
-import { resolveFeatureFlags } from "../features/flags";
+import { resolveFeatureFlags } from "../settings";
 import { getSenderSignificance } from "../memory/significance";
 import { findActiveSenderSuppression } from "../memory/standing-instructions";
 import { suggestTodo } from "../todos/suggest";
