@@ -923,6 +923,25 @@ const text = 'import "ignored-string"';
       `execution gate liveness wiring self-test mismatch: expected checkArchitecture to report an unknown-module violation when the live graph omits "${EXECUTION_MODULE}", received ${JSON.stringify(livenessWiringDrive)}`,
     );
   }
+  // (iii) A node set that lists EXECUTION_MODULE but omits the forbidden entry
+  // isolates the forbidden-set liveness branch: branch A stays silent (the module
+  // is live), so only branch B can produce the "forbidden set references unknown
+  // module" violation. This guards the per-entry loop (the "traige" typo defense)
+  // on its own — without it the loop is silently deletable, since drive (ii) and
+  // the real check both stay green when it is removed.
+  const forbiddenSetLivenessDrive = checkArchitecture(
+    syntheticArchitecture({ moduleNodes: [EXECUTION_MODULE] }),
+    syntheticBaseline(),
+  );
+  if (
+    !forbiddenSetLivenessDrive.some((violation) =>
+      violation.includes("execution gate forbidden set references unknown module"),
+    )
+  ) {
+    failures.push(
+      `execution gate forbidden-set liveness self-test mismatch: expected checkArchitecture to report a forbidden-set unknown-module violation when the live graph lists "${EXECUTION_MODULE}" but omits a forbidden entry, received ${JSON.stringify(forbiddenSetLivenessDrive)}`,
+    );
+  }
 
   const lifecycleSource = `
 export function registerExample(): void {}
