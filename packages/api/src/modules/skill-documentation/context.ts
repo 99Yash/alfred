@@ -1,7 +1,7 @@
 import { embed } from "@alfred/ai/embeddings";
 import { db } from "@alfred/db";
 import { skillRevisions, skills, user, userFacts } from "@alfred/db/schemas";
-import { semanticSearch, type SearchHit } from "@alfred/ingestion";
+import { search, type SearchHit } from "@alfred/corpus";
 import { and, desc, eq } from "drizzle-orm";
 import { recallMemory, type RecallMemoryHit } from "../memory/chunks";
 
@@ -12,7 +12,7 @@ import { recallMemory, type RecallMemoryHit } from "../memory/chunks";
  *   - the user's identity (for the email greeting + grounding),
  *   - all confirmed `user_facts` (the same set the distill saw, but
  *     post-Learn so newly auto-confirmed proposals are now in scope),
- *   - top-K integration-corpus hits (`semanticSearch` over chunks ⨝
+ *   - top-K integration-corpus hits (`search` over chunks ⨝
  *     documents) keyed on the v1 body as the query,
  *   - top-K memory-layer hits (`recallMemory` over `memory_chunks`)
  *     keyed on the same query.
@@ -109,7 +109,7 @@ export async function collectSkillDocumentationContext(args: {
     idempotencyKey: `skill-doc-context:${userId}:${skillRow.id}:${skillRow.currentRevisionId}`,
   });
   const [documentHits, memoryHits] = await Promise.all([
-    semanticSearch({
+    search({
       query: revRow.body,
       userId,
       limit: CHUNK_HIT_LIMIT,

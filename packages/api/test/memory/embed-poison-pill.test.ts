@@ -5,7 +5,7 @@ import { after, before, describe, test } from "node:test";
 import { HttpError } from "@alfred/contracts";
 import { closeConnections, db } from "@alfred/db";
 import { documents, memoryChunks, user } from "@alfred/db/schemas";
-import { recordDocumentEmbedFailure, findUnembeddedDocumentIds } from "@alfred/ingestion";
+import { recordDocumentEmbedFailure, findUnembeddedDocumentIds } from "@alfred/corpus";
 import { eq, inArray, like } from "drizzle-orm";
 
 import {

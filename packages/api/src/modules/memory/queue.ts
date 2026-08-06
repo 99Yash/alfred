@@ -145,7 +145,7 @@ async function processMemoryJob(job: Job<MemoryJobData>): Promise<unknown> {
           // failure (which would increment `embedAttempts` and eventually
           // dead-letter a perfectly embeddable chunk). Leave the row a candidate
           // (embedding still NULL) so the next sweep retries. Mirrors the
-          // documents path in `@alfred/ingestion`.
+          // documents path in `@alfred/corpus`.
           console.warn(
             `[memory:worker] memory.embed_sweep write failed for ${c.id}:`,
             toMessage(err),
