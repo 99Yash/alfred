@@ -1,6 +1,7 @@
 import {
   chatMemoryCaptureWorkflow,
   chatTurnWorkflow,
+  coldStartResearchWorkflow,
   dailyBriefingWorkflow,
   emailTriageWorkflow,
   learnSkillWorkflow,
@@ -11,11 +12,6 @@ import {
 } from "@alfred/api/backend";
 import { registerRecipe } from "@alfred/api/runtime";
 import { echoWithApprovalWorkflow } from "../scripts/smokes/echo-with-approval";
-// Transitional recipe still living in the composition root. `cold-start-research`
-// cannot move into `cold-start` until item 07 breaks the `memory -> cold-start`
-// edge. It stays registered here with byte-identical behavior (plan Design
-// rule 10, a named transitional door).
-import { coldStartResearchWorkflow } from "./workflows/cold-start-research";
 
 /**
  * Boot-time registration of every built-in workflow. Add new workflows
