@@ -13,8 +13,9 @@
  * The `synthesis` output keeps the old `ResearchResult` shape, so the
  * `extract` → persist tail (ADR-0019's two-stage extract) is unchanged.
  *
- * The workflow itself lives in apps/server/builtins/workflows/
- * cold-start-research.ts and only orchestrates these helpers.
+ * The workflow itself (`cold-start-research.ts`) lives here in the module
+ * and only orchestrates these helpers; the composition root registers it
+ * through `@alfred/api/backend`.
  */
 
 export { collectColdStartSignals } from "./signals";
@@ -42,3 +43,5 @@ export {
   coldStartWorkflowInputSchema,
 } from "./workflow-input";
 export type { ColdStartWorkflowInput } from "./workflow-input";
+
+export { coldStartResearchWorkflow } from "./cold-start-research";
