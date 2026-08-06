@@ -26,11 +26,10 @@
  * cold-vs-warm distinction is then made by the *significance* signal
  * (reciprocity + frequency), not by excluding the entity.
  */
-import { isRecord } from "@alfred/contracts";
+import { isFreeMail, isRecord } from "@alfred/contracts";
 import { db } from "@alfred/db";
 import { documents } from "@alfred/db/schemas";
 import { and, desc, eq } from "drizzle-orm";
-import { isConsumerEmailDomain } from "../cold-start/signals";
 import { extractSenderContext, isHumanLikeSender } from "../triage/sender-context";
 import { upsertEntity, upsertPersonByAlias, linkEntities, type DbExecutor } from "./entities";
 import { type CorrespondenceStats, parsePersonEntityMetadata } from "./entity-metadata";
@@ -246,7 +245,7 @@ export interface ApplyIncrementsResult {
 function collectOrgDomains(contacts: Map<string, ContactAggregate>): Set<string> {
   const orgDomains = new Set<string>();
   for (const agg of contacts.values()) {
-    if (agg.domain && !isConsumerEmailDomain(agg.domain)) orgDomains.add(agg.domain);
+    if (agg.domain && !isFreeMail(agg.domain)) orgDomains.add(agg.domain);
   }
   return orgDomains;
 }

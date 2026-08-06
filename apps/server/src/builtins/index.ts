@@ -1,6 +1,7 @@
 import {
   chatMemoryCaptureWorkflow,
   chatTurnWorkflow,
+  coldStartResearchWorkflow,
   dailyBriefingWorkflow,
   emailTriageWorkflow,
   memoryExtractionWorkflow,
@@ -10,12 +11,10 @@ import {
 } from "@alfred/api/backend";
 import { registerRecipe } from "@alfred/api/runtime";
 import { echoWithApprovalWorkflow } from "../scripts/smokes/echo-with-approval";
-// Transitional recipes still living in the composition root. `cold-start-research`
-// cannot move into `cold-start` until item 07 breaks the `memory -> cold-start`
-// edge; `learn-skill` cannot move into `skills` until item 08 breaks the
-// `skills <-> skill-documentation` cycle. Both stay registered here with
+// Transitional recipe still living in the composition root: `learn-skill`
+// cannot move into `skills` until item 08 breaks the
+// `skills <-> skill-documentation` cycle. It stays registered here with
 // byte-identical behavior (plan Design rules 10, a named transitional door).
-import { coldStartResearchWorkflow } from "./workflows/cold-start-research";
 import { learnSkillWorkflow } from "./workflows/learn-skill";
 
 /**
