@@ -208,7 +208,7 @@ export interface RecallMemoryHit {
 }
 
 /**
- * Semantic recall over `memory_chunks`. Same shape as `semanticSearch`
+ * Semantic recall over `memory_chunks`. Same shape as `search`
  * over the integration corpus, but the indexed surface here is alfred's
  * *interpretation* layer — distilled summaries, not raw provider data.
  *

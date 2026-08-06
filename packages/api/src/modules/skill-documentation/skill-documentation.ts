@@ -19,7 +19,7 @@ import {
  * Steps:
  *   1. gather-context  — pull the skill row + v1 body + active facts +
  *                        top-K hits from `documents`/`chunks`
- *                        (semanticSearch) and `memory_chunks`
+ *                        (search) and `memory_chunks`
  *                        (recallMemory). Both queries use the v1 body
  *                        verbatim — distill already produced the
  *                        canonical statement of the skill's intent.
