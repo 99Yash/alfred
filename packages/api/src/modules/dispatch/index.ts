@@ -93,7 +93,7 @@ import {
   type ToolUnavailabilityCode,
 } from "../tools/registry";
 import { readIntegrationAvailability } from "../integrations/availability";
-import { resolveUserTimezone } from "../timezone";
+import { resolveTimezone } from "../settings";
 
 export type DispatchArgs = ToolCallDispatchArgs;
 type DispatchToolCallRoundAdapter = Parameters<typeof registerToolCallRoundAdapter>[0];
@@ -442,7 +442,7 @@ export async function dispatchToolCall(args: DispatchArgs): Promise<DispatchResu
     stepId: args.stepId,
     toolCallId: args.toolCallId,
     userId: args.userId,
-    timezone: args.timezone ?? (await resolveUserTimezone(args.userId)),
+    timezone: args.timezone ?? (await resolveTimezone(args.userId)),
     caller,
     runContext: args.runContext,
     threadId: args.threadId,

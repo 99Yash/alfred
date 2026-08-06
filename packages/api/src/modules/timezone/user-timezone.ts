@@ -1,5 +1,12 @@
 import { assertIanaTimezone, isIanaTimezone, type IanaTimezone } from "@alfred/contracts";
-import { getPreference } from "../settings";
+
+/**
+ * Pure zone helpers — a default zone and the canonical-first precedence
+ * primitive. This file reads no preference and no database; it imports only
+ * `@alfred/contracts`, so the `time` (`timezone`) module stays deterministic and
+ * testable without a database. The user-preference-reading resolver lives in
+ * `settings.resolveTimezone`.
+ */
 
 /**
  * Validated at module load rather than cast. `"UTC"` is a real alias that
@@ -19,19 +26,4 @@ export function firstValidTimezone(values: readonly unknown[]): IanaTimezone {
     if (isIanaTimezone(value)) return value;
   }
   return DEFAULT_USER_TIMEZONE;
-}
-
-/**
- * The user's operational zone, from their preferences.
- *
- * Two uncached `SELECT`s, so this is not free — callers on a per-item hot path
- * (triage classifies one email per step) must resolve it only when the value is
- * actually needed, rather than eagerly per item.
- */
-export async function resolveUserTimezone(userId: string): Promise<IanaTimezone> {
-  const [general, briefing] = await Promise.all([
-    getPreference(userId, "timezone"),
-    getPreference(userId, "briefing.timezone"),
-  ]);
-  return firstValidTimezone([general?.value, briefing?.value]);
 }

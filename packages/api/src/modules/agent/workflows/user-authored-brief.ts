@@ -40,8 +40,9 @@ import { toolEventOutcome } from "./tool-event-outcome";
 import { writeScratch } from "../../scratchpad";
 import { readIntegrationAvailability } from "../../integrations/availability";
 import { buildConnectedSummaryFromAvailability } from "../connected-summary";
-import { formatDateGrounding, resolveUserTimezone } from "../grounding";
+import { formatDateGrounding } from "../grounding";
 import { composeAgentInstructions } from "../instructions";
+import { resolveTimezone } from "../../settings";
 import {
   foldToolSurfaceState,
   systemToolKernel,
@@ -229,7 +230,7 @@ const bossTurnStep: Step<BriefRunState> = {
     const transcript = [...ctx.transcript];
     const subAgent = state.subAgent;
     if (state.timezone === undefined) {
-      state.timezone = await resolveUserTimezone(ctx.userId);
+      state.timezone = await resolveTimezone(ctx.userId);
     }
     // Persisted state carries the zone as a plain string; re-establish the type.
     const grounding = formatDateGrounding(parseIanaTimezone(state.timezone));

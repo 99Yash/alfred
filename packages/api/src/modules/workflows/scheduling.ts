@@ -1,7 +1,7 @@
 import { parseIanaTimezone, type IanaTimezone, type WorkflowTrigger } from "@alfred/contracts";
 import { CronExpressionParser } from "cron-parser";
 import { isValidTimezone } from "../briefing/preferences";
-import { resolveUserTimezone } from "../timezone";
+import { resolveTimezone } from "../settings";
 
 /**
  * Workflow scheduling helpers (ADR-0027).
@@ -60,7 +60,7 @@ export async function resolveWorkflowTimezone(
   if (trigger.kind === "cron" && trigger.timezone && isValidTimezone(trigger.timezone)) {
     return parseIanaTimezone(trigger.timezone);
   }
-  return resolveUserTimezone(userId);
+  return resolveTimezone(userId);
 }
 
 /**
