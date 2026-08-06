@@ -42,7 +42,7 @@ export async function commitSkillRevision(args: CommitRevisionArgs): Promise<Com
       .limit(1);
 
     if (!skill) {
-      throw new Error(`[learn-skill] skill not found or not owned by user: ${args.skillId}`);
+      throw new Error(`[skill-revisions] skill not found or not owned by user: ${args.skillId}`);
     }
 
     const createdByRunId = args.createdByRunId ?? null;
@@ -89,7 +89,7 @@ export async function commitSkillRevision(args: CommitRevisionArgs): Promise<Com
         .limit(1);
       if (!existing) {
         throw new Error(
-          `[learn-skill] revision insert conflicted but no row found for run ${createdByRunId}`,
+          `[skill-revisions] revision insert conflicted but no row found for run ${createdByRunId}`,
         );
       }
       return { revisionId: existing.id, skillStatus: skill.status, created: false };
@@ -160,7 +160,7 @@ export async function recordSkillRun(args: RecordSkillRunArgs): Promise<{ id: st
     .where(eq(skillRuns.agentRunId, args.agentRunId))
     .limit(1);
   if (!existing) {
-    throw new Error(`[learn-skill] skill_runs upsert conflicted but no row found on lookup`);
+    throw new Error(`[skill-revisions] skill_runs upsert conflicted but no row found on lookup`);
   }
   return existing;
 }
