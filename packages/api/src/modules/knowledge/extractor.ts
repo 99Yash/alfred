@@ -12,7 +12,7 @@ import type { ChatMessageRole } from "@alfred/db/schemas";
  *
  * A pure cheap-model pass over a FINISHED chat transcript that distills CRISP,
  * nameable propositions (D6) tagged with the D4 epistemic axes. It mirrors the
- * document extractor (`../memory/extraction.ts`): the LLM call is kept separate
+ * document extractor (`./extraction.ts`): the LLM call is kept separate
  * from persistence so the workflow owns writes (and #399 can wire the output
  * into `insertObservation` without touching this file), and so both the
  * transcript-building and the parse are unit-testable without the AI SDK.
