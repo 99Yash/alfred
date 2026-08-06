@@ -91,7 +91,6 @@ export * from "./modules/memory/signature";
 export * from "./modules/memory/facts";
 export * from "./modules/memory/fact-policy";
 export * from "./modules/memory/self-identity";
-export * from "./modules/memory/preferences";
 export * from "./modules/memory/user-context";
 export * from "./modules/memory/standing-instructions";
 export * from "./modules/memory/chunks";
@@ -114,6 +113,8 @@ export {
   type MemoryJobData,
 } from "./modules/memory/queue";
 export { memoryExtractionWorkflow } from "./modules/memory/index";
+
+export * from "./modules/settings";
 
 export * from "./modules/chat-memory/extractor";
 // The idle-capture trigger moved to `conversations/idle-capture-queue.ts`; these

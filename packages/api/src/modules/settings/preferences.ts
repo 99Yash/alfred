@@ -5,9 +5,13 @@ import {
   type NewUserPreference,
   type UserPreference,
 } from "@alfred/db/schemas";
+import {
+  type MemorySource,
+  memorySourceSchema,
+  parseMemorySourceOrDefault,
+} from "@alfred/contracts";
 import { and, asc, eq, sql } from "drizzle-orm";
 import { z } from "zod";
-import { type MemorySource, memorySourceSchema, parseMemorySourceOrDefault } from "./types";
 
 export const setPreferenceArgsSchema = userPreferenceInsertSchema
   .pick({ userId: true, key: true, value: true, source: true })
@@ -60,7 +64,7 @@ export async function setPreference(args: SetPreferenceArgs): Promise<Preference
       },
     })
     .returning();
-  if (!row) throw new Error("[memory.preferences] setPreference returned no row");
+  if (!row) throw new Error("[settings.preferences] setPreference returned no row");
   return rowToPref(row);
 }
 
