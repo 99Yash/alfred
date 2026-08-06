@@ -1,4 +1,4 @@
-import { db } from "@alfred/db";
+import { db, type DbRoot, type DbTransaction } from "@alfred/db";
 import {
   userPreferenceInsertSchema,
   userPreferences,
@@ -41,29 +41,58 @@ function rowToPref(r: UserPreference): PreferenceRow {
 }
 
 /**
- * Upsert a preference row. Bumps `row_version` on every set so
- * Replicache patches reflect changes.
+ * A pooled handle (`db()`) OR a Replicache push `tx` — both satisfy the
+ * `user_preferences` write. The same `DbRoot | DbTransaction` executor seam
+ * already used in `agent/types.ts`, `workflows/revisions.ts`, and
+ * `conversations/routes.ts`.
+ */
+export type PreferenceWriteExecutor = DbRoot | DbTransaction;
+
+/**
+ * THE `user_preferences` upsert — the sole author of the value map, conflict
+ * target, update set, and default-`source` rule. Runs against any executor: the
+ * pooled `db()` handle (the `setPreference` gateway) or a Replicache push `tx`
+ * (the `prefSet` mutator, so the write commits inside the push transaction).
+ *
+ * Returns the builder **un-awaited** so each caller picks its own tail:
+ * `setPreference` appends `.returning()` for its atomic row; the `prefSet`
+ * mutator awaits it bare (no `RETURNING`, byte-identical to its former inline).
  *
  * Why not append-only like `user_facts`: preferences are explicit user
  * settings (no provenance chain to preserve, no inferred-vs-confirmed
  * lifecycle). Last-write-wins is the right model.
  */
-export async function setPreference(args: SetPreferenceArgs): Promise<PreferenceRow> {
-  const parsed = setPreferenceArgsSchema.parse(args);
-  const source: MemorySource = parsed.source ?? { kind: "user" };
-
-  const [row] = await db()
+export function upsertPreference(exec: PreferenceWriteExecutor, args: SetPreferenceArgs) {
+  const source: MemorySource = args.source ?? { kind: "user" };
+  return exec
     .insert(userPreferences)
-    .values({ userId: parsed.userId, key: parsed.key, value: parsed.value, source })
+    .values({ userId: args.userId, key: args.key, value: args.value, source })
     .onConflictDoUpdate({
       target: [userPreferences.userId, userPreferences.key],
       set: {
-        value: parsed.value,
+        value: args.value,
         source,
         rowVersion: sql`${userPreferences.rowVersion} + 1`,
       },
-    })
-    .returning();
+    });
+}
+
+/**
+ * THE `user_preferences` delete — the sole author of the `(userId, key)` match
+ * predicate. Returns the builder un-awaited (same tail-choice contract as
+ * {@link upsertPreference}): `deletePreference` appends `.returning({ id })`;
+ * the `prefDelete` mutator awaits it bare.
+ */
+export function deletePreferenceRow(exec: PreferenceWriteExecutor, userId: string, key: string) {
+  return exec
+    .delete(userPreferences)
+    .where(and(eq(userPreferences.userId, userId), eq(userPreferences.key, key)));
+}
+
+/** Upsert a preference through the pooled handle; returns the parsed row. */
+export async function setPreference(args: SetPreferenceArgs): Promise<PreferenceRow> {
+  const parsed = setPreferenceArgsSchema.parse(args);
+  const [row] = await upsertPreference(db(), parsed).returning();
   if (!row) throw new Error("[settings.preferences] setPreference returned no row");
   return rowToPref(row);
 }
@@ -90,9 +119,8 @@ export async function getPreferences(userId: string): Promise<PreferenceRow[]> {
 
 /** Delete a preference (revert to default). */
 export async function deletePreference(userId: string, key: string): Promise<boolean> {
-  const result = await db()
-    .delete(userPreferences)
-    .where(and(eq(userPreferences.userId, userId), eq(userPreferences.key, key)))
-    .returning({ id: userPreferences.id });
+  const result = await deletePreferenceRow(db(), userId, key).returning({
+    id: userPreferences.id,
+  });
   return result.length > 0;
 }
