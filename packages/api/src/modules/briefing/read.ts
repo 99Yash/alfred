@@ -19,11 +19,11 @@ import type {
 import { db } from "@alfred/db";
 import { briefings, documents, emailTriage, type Briefing } from "@alfred/db/schemas";
 import { and, desc, eq, gt, inArray, isNotNull, sql } from "drizzle-orm";
-import { getSenderSignificanceBatch } from "../memory/significance";
 import {
   findSenderSuppression,
+  getSenderSignificanceBatch,
   listActiveSuppressionInstructions,
-} from "../memory/standing-instructions";
+} from "../knowledge";
 import { inZone } from "../timezone";
 
 /**

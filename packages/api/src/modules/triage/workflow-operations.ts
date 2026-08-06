@@ -1,7 +1,6 @@
 import { publishEvent } from "../../events/publish";
 import { resolveFeatureFlags, resolveTimezone } from "../settings";
-import { getSenderSignificance } from "../memory/significance";
-import { findActiveSenderSuppression } from "../memory/standing-instructions";
+import { findActiveSenderSuppression, getSenderSignificance } from "../knowledge";
 import { suggestTodo } from "../todos/suggest";
 import {
   classifyEmail,

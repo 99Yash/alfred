@@ -2,7 +2,7 @@ import {
   rememberSenderSuppression,
   type RememberSenderSuppressionArgs,
   type RememberSenderSuppressionResult,
-} from "../memory";
+} from "../knowledge";
 import {
   resolveTodosForGmailSender,
   type ResolveTodosForGmailSenderResult,
