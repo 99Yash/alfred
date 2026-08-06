@@ -21,6 +21,17 @@ export const DEFAULT_USER_TIMEZONE: IanaTimezone = ((): IanaTimezone => {
   return value;
 })();
 
+/**
+ * ADR-0082 canonical-first zone precedence: the key-set and its order in one
+ * place. Both preference-reading zone resolvers — `settings.resolveTimezone`
+ * and `briefing.resolveBriefingPreferences` — build their {@link
+ * firstValidTimezone} input by mapping this tuple in order, so a user's
+ * date-reasoning zone and their briefing-delivery zone can never diverge (the
+ * #229 guarantee). The canonical `timezone` key wins; the legacy
+ * `briefing.timezone` is the fallback for rows written before the unification.
+ */
+export const TIMEZONE_PREFERENCE_KEYS = ["timezone", "briefing.timezone"] as const;
+
 export function firstValidTimezone(values: readonly unknown[]): IanaTimezone {
   for (const value of values) {
     if (isIanaTimezone(value)) return value;
