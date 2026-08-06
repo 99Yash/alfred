@@ -28,7 +28,7 @@
  *      emitted any proposals — single-string keys per the distill schema).
  */
 import { randomUUID } from "node:crypto";
-import { createRun, enqueueRun, LEARN_SKILL_WORKFLOW_SLUG } from "@alfred/api/backend";
+import { LEARN_SKILL_WORKFLOW_SLUG, startRun } from "@alfred/api/backend";
 import { closeAgentQueue, warmPool } from "@alfred/api/runtime";
 import { db } from "@alfred/db";
 import {
@@ -152,14 +152,13 @@ async function main() {
     );
   }
 
-  const { runId } = await createRun({
+  const { runId } = await startRun({
     userId: u.id,
     workflowSlug: LEARN_SKILL_WORKFLOW_SLUG,
     input: { skillId, prompt: SAMPLE_PROMPT, reason: "manual" },
     trigger: { kind: "manual" },
     occurrence: { kind: "manual", requestId: randomUUID() },
   });
-  await enqueueRun(runId);
   console.log(`[smoke-learn-skill] run enqueued: ${runId}`);
 
   const run = await pollRun(runId, "learn-skill run");

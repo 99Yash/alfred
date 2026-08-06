@@ -29,12 +29,7 @@
  *   node dist/scripts/backfills/backfill-triage-committed.js --commit
  */
 import { randomUUID } from "node:crypto";
-import {
-  createRun,
-  emitReplicachePokes,
-  enqueueRun,
-  TRIAGE_WORKFLOW_SLUG,
-} from "@alfred/api/backend";
+import { emitReplicachePokes, startRun, TRIAGE_WORKFLOW_SLUG } from "@alfred/api/backend";
 import { closeAgentQueue, warmPool } from "@alfred/api/runtime";
 import { db, rowsFromExecute } from "@alfred/db";
 import { documents, todos, user as userTable } from "@alfred/db/schemas";
@@ -205,7 +200,7 @@ async function processUser(u: TargetUser): Promise<void> {
   let enqueued = 0;
   for (const documentId of docIds) {
     try {
-      const { runId } = await createRun({
+      await startRun({
         userId: u.userId,
         workflowSlug: TRIAGE_WORKFLOW_SLUG,
         // `force`: bypass the already-tagged skip guard so threads still on the
@@ -217,7 +212,6 @@ async function processUser(u: TargetUser): Promise<void> {
         trigger: { kind: "manual" },
         occurrence: { kind: "manual", requestId: randomUUID() },
       });
-      await enqueueRun(runId);
       enqueued++;
     } catch (err) {
       console.log(`  ! enqueue failed for doc=${documentId}: ${toMessage(err)}`);

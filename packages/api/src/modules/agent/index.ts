@@ -4,8 +4,9 @@ import { closeAgentQueue, enqueueRun } from "./queue";
 import { isInternalWorkflowSlug, listPublicWorkflows, registerRecipe } from "./registry";
 import {
   cancelRun,
-  createRun,
   getRun,
+  persistChatTurnRunInTx,
+  redeliverRun,
   replayRun,
   signalRun,
   signalRunInTx,
@@ -25,26 +26,28 @@ import { Errors, toMessage } from "@alfred/contracts";
 
 export {
   registerRecipe,
-  createRun,
   startRun,
   startRunInTx,
   getRun,
   signalRun,
   signalRunInTx,
   cancelRun,
-  enqueueRun,
   startAgentWorker,
   stopAgentWorker,
   startSubAgentJoinWakeWorker,
   stopSubAgentJoinWakeWorker,
   verifyMeteringModels,
 };
-// The execution-domain verb for "hand an already-persisted run to the worker":
-// re-delivery (approvals), a best-effort kick after a committed larger write
-// (chat-turn), or after an interleaved domain write (skills). Same function as
-// the raw `enqueueRun` queue primitive; the distinct public name lets product
-// modules express intent instead of importing the queue primitive directly.
-export { enqueueRun as deliverRun } from "./queue";
+// Execution's public run-start surface is `startRun` / `startRunInTx` (folded
+// persist+deliver) plus two narrow ops for the callers that legitimately hold a
+// run apart from its delivery: `redeliverRun(runId)` hands an already-persisted
+// run to the worker (approvals re-delivery, the chat-turn post-commit kick, ops
+// re-kicks), and `persistChatTurnRunInTx(tx, args)` persists a chat-turn run on
+// the caller's transaction inside a savepoint. The raw `createRun` / `enqueueRun`
+// pair (and its former `deliverRun` alias) is no longer re-exported here, so no
+// caller outside `agent/` can split persistence from delivery or reach the queue
+// handle; both stay module-private for in-module callers and white-box tests.
+export { persistChatTurnRunInTx, redeliverRun };
 export { closeAgentQueue, closeSubAgentJoinWakeQueue };
 export type {
   RunStatus,

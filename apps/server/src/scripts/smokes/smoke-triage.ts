@@ -25,7 +25,7 @@
  *      ends up with one alfred label across the whole thread.
  */
 import { randomUUID } from "node:crypto";
-import { createRun, enqueueRun, getTriage, TRIAGE_WORKFLOW_SLUG } from "@alfred/api/backend";
+import { getTriage, startRun, TRIAGE_WORKFLOW_SLUG } from "@alfred/api/backend";
 import { closeAgentQueue, warmPool } from "@alfred/api/runtime";
 import { db } from "@alfred/db";
 import { agentRuns, documents, emailTriage, integrationCredentials } from "@alfred/db/schemas";
@@ -145,7 +145,7 @@ async function main() {
   console.log(`[smoke-triage] gmail labels before: ${labelsBefore.join(", ") || "(none)"}`);
 
   // ---- Phase 3: enqueue triage run ----------------------------------------
-  const { runId: runId1 } = await createRun({
+  const { runId: runId1 } = await startRun({
     userId: cred.userId,
     workflowSlug: TRIAGE_WORKFLOW_SLUG,
     input: { documentId: doc.id, reason: "manual" },
@@ -153,7 +153,6 @@ async function main() {
     trigger: { kind: "manual" },
     occurrence: { kind: "manual", requestId: randomUUID() },
   });
-  await enqueueRun(runId1);
   console.log(`[smoke-triage] run 1 enqueued: ${runId1}`);
 
   const run1 = await pollRun(runId1, "run 1");
@@ -210,7 +209,7 @@ async function main() {
   );
 
   // ---- Phase 5: re-run triage; still exactly one alfred label, one row ----
-  const { runId: runId2 } = await createRun({
+  const { runId: runId2 } = await startRun({
     userId: cred.userId,
     workflowSlug: TRIAGE_WORKFLOW_SLUG,
     input: { documentId: doc.id, reason: "manual" },
@@ -218,7 +217,6 @@ async function main() {
     trigger: { kind: "manual" },
     occurrence: { kind: "manual", requestId: randomUUID() },
   });
-  await enqueueRun(runId2);
   console.log(`[smoke-triage] run 2 enqueued: ${runId2}`);
 
   const run2 = await pollRun(runId2, "run 2");
@@ -319,7 +317,7 @@ async function main() {
       }
 
       // Re-triage the latest message — should strip every older sibling.
-      const { runId: latestRunId } = await createRun({
+      const { runId: latestRunId } = await startRun({
         userId: cred.userId,
         workflowSlug: TRIAGE_WORKFLOW_SLUG,
         input: { documentId: latest.id, reason: "manual" },
@@ -327,7 +325,6 @@ async function main() {
         trigger: { kind: "manual" },
         occurrence: { kind: "manual", requestId: randomUUID() },
       });
-      await enqueueRun(latestRunId);
       const latestRun = await pollRun(latestRunId, "strip-siblings");
       assert(latestRun.status === "completed", `strip-siblings status=${latestRun.status}`);
       const latestOut = latestRun.output as { strippedSiblings: number };

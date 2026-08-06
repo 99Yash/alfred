@@ -25,7 +25,7 @@
  *   COLD_START_EMAILS="a@x.com,b@y.com" node dist/scripts/ops/trigger-cold-start-committed.js --commit
  */
 import { randomUUID } from "node:crypto";
-import { COLD_START_WORKFLOW_SLUG, createRun, enqueueRun } from "@alfred/api/backend";
+import { COLD_START_WORKFLOW_SLUG, startRun } from "@alfred/api/backend";
 import { closeAgentQueue, warmPool } from "@alfred/api/runtime";
 import { db } from "@alfred/db";
 import { agentRuns, user as userTable } from "@alfred/db/schemas";
@@ -81,7 +81,7 @@ async function processUser(u: { userId: string; email: string }): Promise<void> 
     console.log(`  cancelled ${stomped.length} active prior run(s)`);
   }
 
-  const { runId } = await createRun({
+  const { runId } = await startRun({
     userId: u.userId,
     workflowSlug: COLD_START_WORKFLOW_SLUG,
     input: { reason: "manual" },
@@ -89,7 +89,6 @@ async function processUser(u: { userId: string; email: string }): Promise<void> 
     trigger: { kind: "manual" },
     occurrence: { kind: "manual", requestId: randomUUID() },
   });
-  await enqueueRun(runId);
   console.log(`  enqueued cold-start run ${runId} (worker executes it)`);
 }
 
