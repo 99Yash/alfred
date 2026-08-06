@@ -4,7 +4,7 @@ import { documents, todos } from "@alfred/db/schemas";
 import { and, eq, inArray, sql } from "drizzle-orm";
 import { z } from "zod";
 import { emitReplicachePokes } from "../../events/replicache-events";
-import { normalizeSenderEmail } from "../memory/sender-email";
+import { normalizeSenderEmail } from "../knowledge";
 
 const resolveTodosForGmailSenderArgsSchema = z.object({
   userId: z.string().min(1),

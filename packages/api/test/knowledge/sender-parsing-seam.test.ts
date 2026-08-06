@@ -2,11 +2,12 @@ import assert from "node:assert/strict";
 import { describe, test } from "node:test";
 
 import {
+  accumulateDoc,
   authoredByUser,
   type AuthorshipDocument,
+  type ContactAggregate,
   type SelfIdentity,
-} from "../../src/modules/memory/fact-policy";
-import { accumulateDoc, type ContactAggregate } from "../../src/modules/memory/team-graph";
+} from "../../src/modules/knowledge";
 import { gmailSenderAdapter } from "../../src/modules/triage/gmail-sender-adapter";
 
 /**

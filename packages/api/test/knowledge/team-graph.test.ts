@@ -1,8 +1,11 @@
 import assert from "node:assert/strict";
 import { describe, test } from "node:test";
 
-import { computeSignificance } from "../../src/modules/memory/significance";
-import { accumulateDoc, type ContactAggregate } from "../../src/modules/memory/team-graph";
+import {
+  accumulateDoc,
+  computeSignificance,
+  type ContactAggregate,
+} from "../../src/modules/knowledge";
 import { gmailSenderAdapter } from "../../src/modules/triage/gmail-sender-adapter";
 
 const NOW = new Date("2026-06-16T12:00:00.000Z");

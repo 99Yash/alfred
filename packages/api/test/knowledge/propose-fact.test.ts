@@ -6,7 +6,7 @@ import { closeConnections, db } from "@alfred/db";
 import { user, userFacts } from "@alfred/db/schemas";
 import { and, eq, inArray } from "drizzle-orm";
 
-import { confirmFact, proposeFact, recallActiveByKey } from "../../src/modules/memory/facts";
+import { confirmFact, proposeFact, recallActiveByKey } from "../../src/modules/knowledge";
 import { closeRedis } from "../../src/queue/connection";
 
 /**

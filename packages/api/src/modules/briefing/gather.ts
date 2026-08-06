@@ -36,10 +36,7 @@ import {
   objectStateStore,
 } from "../integrations/object-state";
 import { getPreference } from "../settings";
-import {
-  findSenderSuppression,
-  listActiveSuppressionInstructions,
-} from "../memory/standing-instructions";
+import { findSenderSuppression, listActiveSuppressionInstructions } from "../knowledge";
 import { addDays, formatDay, inZone, weekdayIndex, type LocalDateKey } from "../timezone";
 import { scorePriorityEmailDemand } from "./read";
 import { shortenFrom } from "./sender";

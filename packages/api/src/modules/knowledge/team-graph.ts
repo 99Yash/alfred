@@ -37,7 +37,7 @@ import {
 import { db } from "@alfred/db";
 import { documents } from "@alfred/db/schemas";
 import { and, desc, eq } from "drizzle-orm";
-import { upsertEntity, upsertPersonByAlias, linkEntities, type DbExecutor } from "./entities";
+import { upsertEntity, upsertPersonByAlias, linkEntities, type DbExecutor } from "./entity-graph";
 import { type CorrespondenceStats, parsePersonEntityMetadata } from "./entity-metadata";
 import { computeSignificance, loadUserDomains, runSignificancePass } from "./significance";
 

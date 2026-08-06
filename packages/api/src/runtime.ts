@@ -43,7 +43,7 @@ export {
   scheduleRepeatableMemoryJobs,
   startMemoryWorker,
   stopMemoryWorker,
-} from "./modules/memory/index";
+} from "./modules/knowledge";
 export {
   closeChatMemoryQueue,
   closeConversationCompactionQueue,

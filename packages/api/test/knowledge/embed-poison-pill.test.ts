@@ -12,7 +12,7 @@ import {
   findPendingEmbedChunks,
   pendingEmbedChunkIds,
   recordMemoryEmbedFailure,
-} from "../../src/modules/memory/chunks";
+} from "../../src/modules/knowledge";
 
 /**
  * DB-backed test for the embedding poison-pill guard on both `memory_chunks`
