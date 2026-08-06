@@ -57,7 +57,7 @@ import { isTerminalStatus, type Step, type Workflow } from "../types";
 import { getRun } from "../service";
 import { pendingToolCallSchema } from "./pending-tool-call";
 import { BRIEF_TURN_CAP_MAX, openBriefTurnRetries } from "./turn-budgets";
-import { checkWorkflowRunReadiness } from "../../workflows/runtime-readiness";
+import { checkWorkflowReadiness } from "./readiness-port";
 
 // This workflow is the one sub-agents run on (see SUB_AGENT_WORKFLOW_SLUG);
 // keep the slug single-sourced so the two never drift.
@@ -642,7 +642,7 @@ export const userAuthoredBriefWorkflow: Workflow<BriefRunState> = {
     [CHECK_READINESS_STEP_ID]: {
       id: CHECK_READINESS_STEP_ID,
       async run(ctx) {
-        const verdict = await checkWorkflowRunReadiness({ runId: ctx.runId, userId: ctx.userId });
+        const verdict = await checkWorkflowReadiness({ runId: ctx.runId, userId: ctx.userId });
         if (verdict.kind === "ready") {
           return {
             kind: "next",

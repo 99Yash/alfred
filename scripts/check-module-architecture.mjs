@@ -61,7 +61,7 @@ const EXECUTION_MODULE = "agent";
 //   `triage`    — item 06 (this rule's first entry)
 //   `chat`      — item 03 (chat → conversations migration)
 //   `workflows` — item 10 (homes the last brief recipe out of agent/)
-const EXECUTION_FORBIDDEN_PRODUCT_MODULES = new Set(["triage"]);
+const EXECUTION_FORBIDDEN_PRODUCT_MODULES = new Set(["triage", "workflows"]);
 
 function normalizePath(path) {
   return path.split(sep).join("/");
@@ -853,6 +853,17 @@ const text = 'import "ignored-string"';
   if (!forbiddenFired.some((violation) => violation.includes("agent -> triage"))) {
     failures.push(
       `execution forbidden-import fixture mismatch: expected an agent -> triage violation, received ${JSON.stringify(forbiddenFired)}`,
+    );
+  }
+  // Each locked module carries its own live fixture (item 11): `workflows` is
+  // the last product edge the execution core shed (item 10), so prove the gate
+  // fires for `agent -> workflows` too, not just `agent -> triage`.
+  const forbiddenFiredWorkflows = executionForbiddenImportViolations([
+    { from: "agent", to: "workflows" },
+  ]);
+  if (!forbiddenFiredWorkflows.some((violation) => violation.includes("agent -> workflows"))) {
+    failures.push(
+      `execution forbidden-import fixture mismatch: expected an agent -> workflows violation, received ${JSON.stringify(forbiddenFiredWorkflows)}`,
     );
   }
   const forbiddenSilent = executionForbiddenImportViolations([
