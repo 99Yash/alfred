@@ -26,12 +26,11 @@
  */
 import { randomUUID } from "node:crypto";
 import {
-  createRun,
-  enqueueRun,
   LEARN_SKILL_WORKFLOW_SLUG,
   learnSkillDedupKey,
   SKILL_DOCUMENTATION_WORKFLOW_SLUG,
   skillDocumentationDedupKey,
+  startRun,
 } from "@alfred/api/backend";
 import { closeAgentQueue, warmPool } from "@alfred/api/runtime";
 import { toRecord } from "@alfred/contracts";
@@ -148,14 +147,13 @@ async function main() {
   }
 
   // Drive learn-skill (this also kicks off skill-documentation).
-  const learn = await createRun({
+  const learn = await startRun({
     userId: u.id,
     workflowSlug: LEARN_SKILL_WORKFLOW_SLUG,
     input: { skillId, prompt: SAMPLE_PROMPT, reason: "manual" },
     trigger: { kind: "manual" },
     occurrence: { kind: "manual", requestId: randomUUID() },
   });
-  await enqueueRun(learn.runId);
   console.log(`[smoke-skill-doc] learn enqueued: ${learn.runId}`);
 
   const learnRun = await pollRun(learn.runId, "learn-skill", LEARN_TIMEOUT_MS);

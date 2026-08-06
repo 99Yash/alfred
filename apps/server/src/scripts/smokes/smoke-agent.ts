@@ -8,7 +8,7 @@
  * progress, signals the HIL approval, and asserts the final output.
  */
 import { randomUUID } from "node:crypto";
-import { createRun, enqueueRun, signalRun } from "@alfred/api/backend";
+import { redeliverRun, signalRun, startRun } from "@alfred/api/backend";
 import { closeAgentQueue, warmPool } from "@alfred/api/runtime";
 import { db } from "@alfred/db";
 import { agentRuns, agentSteps, user as userTable } from "@alfred/db/schemas";
@@ -57,7 +57,7 @@ async function main() {
   const userId = await findOrCreateSmokeUser();
   console.log(`[smoke] userId=${userId}`);
 
-  const { runId } = await createRun({
+  const { runId } = await startRun({
     userId,
     workflowSlug: "echo-with-approval",
     brief: "smoke test",
@@ -67,7 +67,6 @@ async function main() {
   });
   console.log(`[smoke] created runId=${runId}`);
 
-  await enqueueRun(runId);
   console.log("[smoke] enqueued; waiting for HIL interrupt…");
 
   const parked = await pollUntil(runId, (s) => s === "waiting" || isTerminal(s), "waiting");
@@ -84,7 +83,7 @@ async function main() {
     match: { kind: "hil", approvalId: wake.approvalId },
   });
   if (!woken) throw new Error("signal failed to wake the run");
-  await enqueueRun(runId);
+  await redeliverRun(runId);
   console.log("[smoke] approval signaled; waiting for completion…");
 
   const done = await pollUntil(runId, isTerminal, "completion");

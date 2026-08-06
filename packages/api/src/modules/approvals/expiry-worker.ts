@@ -23,7 +23,7 @@ import { and, eq, sql } from "drizzle-orm";
 import { DelayedError, Worker, type Job } from "bullmq";
 import { emitReplicachePokes } from "../../events/replicache-events";
 import { createRedisConnection } from "../../queue/connection";
-import { deliverRun, signalRunInTx } from "../agent";
+import { redeliverRun, signalRunInTx } from "../agent";
 import { startApprovalWaitSpan } from "../agent/runtime-spans";
 import {
   APPROVAL_EXPIRY_QUEUE_NAME,
@@ -192,7 +192,7 @@ export async function expireStaging(args: {
   let enqueued = false;
   if (outcome.shouldEnqueue) {
     try {
-      await deliverRun(outcome.runId);
+      await redeliverRun(outcome.runId);
       enqueued = true;
     } catch (err) {
       console.warn(

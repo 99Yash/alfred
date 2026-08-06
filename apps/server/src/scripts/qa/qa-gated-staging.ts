@@ -14,7 +14,7 @@
  */
 
 import { randomUUID } from "node:crypto";
-import { createRun, enqueueRun } from "@alfred/api/backend";
+import { startRun } from "@alfred/api/backend";
 import { closeAgentQueue, warmPool } from "@alfred/api/runtime";
 import { db } from "@alfred/db";
 import {
@@ -88,13 +88,12 @@ async function main(): Promise<void> {
       isBuiltin: false,
     });
 
-  const { runId } = await createRun({
+  const { runId } = await startRun({
     userId: target.id,
     workflowSlug: WORKFLOW_SLUG,
     trigger: { kind: "manual" },
     occurrence: { kind: "manual", requestId: randomUUID() },
   });
-  await enqueueRun(runId);
   console.log(`[qa-gated-staging] run enqueued: ${runId}`);
 
   const deadline = Date.now() + POLL_TIMEOUT_MS;
