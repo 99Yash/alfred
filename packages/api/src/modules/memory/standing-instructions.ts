@@ -15,10 +15,6 @@ import { and, desc, eq, gt, isNull, lte, or, sql } from "drizzle-orm";
 import { z } from "zod";
 import { emitReplicachePokes } from "../../events/replicache-events";
 import { insertObservation } from "../user-model/observations";
-import {
-  resolveTodosForGmailSender,
-  type ResolveTodosForGmailSenderResult,
-} from "../todos/resolve";
 import { normalizeSenderEmail } from "./sender-email";
 import { valueSignature } from "./signature";
 import { memorySourceSchema, type MemorySource } from "./types";
@@ -61,7 +57,6 @@ export type RememberSenderSuppressionResult =
       status: "remembered" | "already_exists";
       factId: string;
       instruction: StandingInstructionValue;
-      resolvedTodos: ResolveTodosForGmailSenderResult;
     }
   | {
       ok: false;
@@ -110,18 +105,11 @@ export async function rememberSenderSuppression(
     existing &&
     SUPPRESSION_EFFECTS.every((effect) => hasSuppressionEffect(existing.value, effect))
   ) {
-    const resolvedTodos = await resolveTodosForGmailSender({
-      userId: parsed.userId,
-      senderEmail: existing.value.target.email,
-      accountId: existing.value.target.accountId,
-      reason: "standing_instruction_sender_suppression",
-    });
     return {
       ok: true,
       status: "already_exists",
       factId: existing.factId,
       instruction: existing.value,
-      resolvedTodos,
     };
   }
 
@@ -155,19 +143,12 @@ export async function rememberSenderSuppression(
 
   if (!row) throw new Error("[memory.standing-instructions] insert returned no row");
   emitReplicachePokes([parsed.userId]);
-  const resolvedTodos = await resolveTodosForGmailSender({
-    userId: parsed.userId,
-    senderEmail: instruction.target.email,
-    accountId: instruction.target.accountId,
-    reason: "standing_instruction_sender_suppression",
-  });
 
   return {
     ok: true,
     status: "remembered",
     factId: row.id,
     instruction,
-    resolvedTodos,
   };
 }
 
