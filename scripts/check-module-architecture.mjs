@@ -773,6 +773,11 @@ function collectArchitecture() {
     },
     forbiddenBackendImports,
     moduleGraph: graphFromEdges(moduleNodes, moduleEdges),
+    // The directory-derived live module nodes, surfaced so the execution-gate
+    // liveness check (item 11) reads the true node set. It cannot use the
+    // edge-derived nodes from `moduleGraph`, which omit any zero-edge module —
+    // and a post-rename `agent` is exactly that zero-edge case the gate defends.
+    moduleNodes: uniqueSorted(moduleNodes),
     packageGraph: graphFromEdges(
       entries.map((entry) => entry.name),
       packageEdges,
@@ -856,6 +861,66 @@ const text = 'import "ignored-string"';
   if (forbiddenSilent.length > 0) {
     failures.push(
       `execution forbidden-import fixture mismatch: expected no violation for agent -> integrations, received ${JSON.stringify(forbiddenSilent)}`,
+    );
+  }
+
+  // Wiring self-test (item 11): the fixtures above prove the pure predicates, not
+  // that they are wired into `checkArchitecture`. Drive synthetic graphs through
+  // `checkArchitecture` ITSELF so a deleted `violations.push(...)` line turns this
+  // red — the live graph has no forbidden edge, and post-rename no missing node,
+  // to catch either regression on its own. The drives also run the real
+  // composition/tool-runtime FS checks (clean today), so assert only with
+  // `.some(...includes...)` — never exact-equality — to stay non-brittle.
+  const syntheticBaseline = () => ({
+    packageGraph: { edges: [] },
+    assistantModuleGraph: { edges: [] },
+    legacyExceptions: {
+      privateModuleImports: { imports: [] },
+      webFeatureImports: { imports: [] },
+    },
+  });
+  const syntheticArchitecture = (overrides) => ({
+    packageGraph: { edges: [] },
+    moduleGraph: { edges: [] },
+    moduleNodes: [],
+    exceptions: { privateModuleImports: [], webFeatureImports: [] },
+    forbiddenBackendImports: [],
+    productionPreviewImports: [],
+    ...overrides,
+  });
+  // (i) A live `agent -> triage` edge with a self-consistent node set must make
+  // `checkArchitecture` report the forbidden product import — guards the wiring
+  // of the forbidden-import push.
+  const forbiddenWiringDrive = checkArchitecture(
+    syntheticArchitecture({
+      moduleGraph: { edges: ["agent -> triage"] },
+      moduleNodes: ["agent", "triage"],
+    }),
+    syntheticBaseline(),
+  );
+  if (
+    !forbiddenWiringDrive.some((violation) =>
+      violation.includes("execution imports forbidden product module"),
+    )
+  ) {
+    failures.push(
+      `execution forbidden-import wiring self-test mismatch: expected checkArchitecture to report a forbidden product import for agent -> triage, received ${JSON.stringify(forbiddenWiringDrive)}`,
+    );
+  }
+  // (ii) A node set that omits EXECUTION_MODULE and the forbidden entry must make
+  // `checkArchitecture` report the "unknown module" liveness violation — guards
+  // the wiring of the liveness push (the Phase-6 rename / typo defense).
+  const livenessWiringDrive = checkArchitecture(
+    syntheticArchitecture({ moduleNodes: ["chat"] }),
+    syntheticBaseline(),
+  );
+  if (
+    !livenessWiringDrive.some((violation) =>
+      violation.includes("execution gate references unknown module"),
+    )
+  ) {
+    failures.push(
+      `execution gate liveness wiring self-test mismatch: expected checkArchitecture to report an unknown-module violation when the live graph omits "${EXECUTION_MODULE}", received ${JSON.stringify(livenessWiringDrive)}`,
     );
   }
 
@@ -1045,6 +1110,35 @@ function executionForbiddenImportViolations(moduleEdges) {
   return violations;
 }
 
+/**
+ * Liveness gate for the execution forbidden-import rule (item 11). The forbidden
+ * gate scans for `EXECUTION_MODULE -> P` edges; if `EXECUTION_MODULE` (or any
+ * entry of {@link EXECUTION_FORBIDDEN_PRODUCT_MODULES}) does not name a *live*
+ * module node, it silently enforces nothing — a Phase-6 rename (`agent ->
+ * execution`) or a typo (`"traige"`) would turn the whole gate into a vacuous
+ * pass. This closure fails loudly instead: given the live module-node set, it
+ * reports every constant that no longer resolves to a real module directory, so
+ * the fix (update the constant) is named in the message. Pure over the node
+ * list so the self-test can drive it on a synthetic graph.
+ */
+function executionGateLivenessViolations(moduleNodes) {
+  const liveModules = new Set(moduleNodes);
+  const violations = [];
+  if (!liveModules.has(EXECUTION_MODULE)) {
+    violations.push(
+      `execution gate references unknown module "${EXECUTION_MODULE}" — was the module renamed? update EXECUTION_MODULE`,
+    );
+  }
+  for (const forbidden of EXECUTION_FORBIDDEN_PRODUCT_MODULES) {
+    if (!liveModules.has(forbidden)) {
+      violations.push(
+        `execution gate forbidden set references unknown module "${forbidden}" — typo or renamed/removed? update EXECUTION_FORBIDDEN_PRODUCT_MODULES`,
+      );
+    }
+  }
+  return violations;
+}
+
 function checkArchitecture(architecture, baseline) {
   const violations = [];
   const baselinePackageEdges = new Set(baseline.packageGraph.edges);
@@ -1058,6 +1152,7 @@ function checkArchitecture(architecture, baseline) {
     return { from, to };
   });
   violations.push(...executionForbiddenImportViolations(currentModuleEdges));
+  violations.push(...executionGateLivenessViolations(architecture.moduleNodes));
   const packageCycles = cyclicEdgeKeys(
     currentPackageEdges,
     stronglyConnectedComponents(
