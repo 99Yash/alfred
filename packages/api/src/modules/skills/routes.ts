@@ -6,7 +6,7 @@ import { Elysia, t } from "elysia";
 import { randomUUID } from "node:crypto";
 import { emitReplicachePokes } from "../../events/replicache-events";
 import { authMacro } from "../../middleware/auth";
-import { createRun, deliverRun } from "../agent";
+import { startRun } from "../agent";
 import { isUniqueViolation } from "../../lib/pg-errors";
 import { recordSkillRun } from "../skill-revisions";
 import { slugifyForUser } from "./slug";
@@ -68,7 +68,7 @@ export const skillsRoutes = new Elysia({ prefix: "/api/skills", normalize: "type
             prompt: trimmedPrompt,
             reason: "manual",
           };
-          const created = await createRun({
+          const created = await startRun({
             userId: user.id,
             workflowSlug: LEARN_SKILL_WORKFLOW_SLUG,
             input,
@@ -78,13 +78,16 @@ export const skillsRoutes = new Elysia({ prefix: "/api/skills", normalize: "type
               requestId: `initial:${skill.id}`,
             },
           });
+          // Record the learn run up-front so the skill-detail UI can render
+          // "in progress" immediately. `gather` re-records idempotently on
+          // agent_run_id, so `startRun` enqueueing before this write commits is
+          // safe — the workflow writes (never reads) this linkage first thing.
           await recordSkillRun({
             userId: user.id,
             skillId: skill.id,
             kind: "learn",
             agentRunId: created.runId,
           });
-          await deliverRun(created.runId);
 
           return { skillId: skill.id, slug: skill.slug, runId: created.runId };
         },
@@ -111,7 +114,7 @@ export const skillsRoutes = new Elysia({ prefix: "/api/skills", normalize: "type
             reason: "regen",
           };
           try {
-            const created = await createRun({
+            const created = await startRun({
               userId: user.id,
               workflowSlug: LEARN_SKILL_WORKFLOW_SLUG,
               input,
@@ -121,13 +124,14 @@ export const skillsRoutes = new Elysia({ prefix: "/api/skills", normalize: "type
                 requestId: randomUUID(),
               },
             });
+            // Up-front UI-progress record; the `gather` step re-records
+            // idempotently, so enqueue-before-commit here is safe.
             await recordSkillRun({
               userId: user.id,
               skillId: params.id,
               kind: "learn",
               agentRunId: created.runId,
             });
-            await deliverRun(created.runId);
             return { runId: created.runId };
           } catch (err) {
             if (isUniqueViolation(err)) {

@@ -32,7 +32,7 @@
  */
 
 import { randomUUID } from "node:crypto";
-import { createRun, enqueueRun, signalRun } from "@alfred/api/backend";
+import { redeliverRun, signalRun, startRun } from "@alfred/api/backend";
 import { closeAgentQueue, warmPool } from "@alfred/api/runtime";
 import { getStringPath, toRecord } from "@alfred/contracts";
 import { db } from "@alfred/db";
@@ -160,7 +160,7 @@ async function autoApprove(staging: PendingStaging): Promise<void> {
     runId: staging.runId,
     match: { kind: "hil", approvalId: staging.id, approvalKind: "action_staging" },
   });
-  await enqueueRun(staging.runId);
+  await redeliverRun(staging.runId);
   console.log(`[smoke-brief-execution]   auto-approved ${staging.toolName} (${staging.id})`);
 }
 
@@ -259,13 +259,12 @@ async function main(): Promise<void> {
   await resetSmokeRows(target.id);
   await createSmokeWorkflow(target.id);
 
-  const { runId } = await createRun({
+  const { runId } = await startRun({
     userId: target.id,
     workflowSlug: WORKFLOW_SLUG,
     trigger: { kind: "manual" },
     occurrence: { kind: "manual", requestId: randomUUID() },
   });
-  await enqueueRun(runId);
   console.log(`[smoke-brief-execution] run enqueued: ${runId}`);
 
   const final = await pollAndAutoApprove(runId);

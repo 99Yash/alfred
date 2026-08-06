@@ -10,7 +10,7 @@
  */
 
 import { randomUUID } from "node:crypto";
-import { createRun, dispatchToolCall, readScratch } from "@alfred/api/backend";
+import { dispatchToolCall, readScratch, startRun } from "@alfred/api/backend";
 import {
   closeAgentQueue,
   closeConnections,
@@ -80,7 +80,12 @@ async function main(): Promise<void> {
   await resetSmokeRows(userId);
   await createSmokeWorkflow(userId);
 
-  const parent = await createRun({
+  // `startRun` also enqueues the parent; this smoke drives the parent manually
+  // via `dispatchToolCall` and never polls it, so the extra queued job is inert.
+  // There is no module-private create-without-enqueue door on the public facade
+  // (that door is exactly what item 09 closes), and the agent service subfile is
+  // not on `@alfred/api`'s exports map, so `startRun` is the migration here.
+  const parent = await startRun({
     userId,
     workflowSlug: WORKFLOW_SLUG,
     trigger: { kind: "manual" },

@@ -1,7 +1,7 @@
 import { toMessage } from "@alfred/contracts";
 import { z } from "zod";
 import { isUniqueViolation } from "../../lib/pg-errors";
-import { createRun, enqueueRun, type Workflow } from "../agent";
+import { startRun, type Workflow } from "../agent";
 import { proposeFact } from "../memory";
 import { SKILL_DOCUMENTATION_WORKFLOW_SLUG } from "../skill-documentation";
 import { commitSkillRevision, finalizeSkillRun, recordSkillRun } from "../skill-revisions";
@@ -263,7 +263,7 @@ export const learnSkillWorkflow: Workflow<State> = {
         let docRunId: string | null = null;
         let docEnqueueStatus: "enqueued" | "deduplicated" | "failed" = "enqueued";
         try {
-          const created = await createRun({
+          const created = await startRun({
             userId: ctx.userId,
             workflowSlug: SKILL_DOCUMENTATION_WORKFLOW_SLUG,
             input: {
@@ -290,7 +290,6 @@ export const learnSkillWorkflow: Workflow<State> = {
               eventId: `learn-skill:${ctx.runId}`,
             },
           });
-          await enqueueRun(created.runId);
           docRunId = created.runId;
         } catch (err) {
           if (isUniqueViolation(err)) {

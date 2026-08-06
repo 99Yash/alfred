@@ -33,7 +33,7 @@
  *   - Quality of the research output (qualitative, requires human review).
  */
 import { randomUUID } from "node:crypto";
-import { COLD_START_WORKFLOW_SLUG, createRun, enqueueRun } from "@alfred/api/backend";
+import { COLD_START_WORKFLOW_SLUG, startRun } from "@alfred/api/backend";
 import { closeAgentQueue, warmPool } from "@alfred/api/runtime";
 import { db } from "@alfred/db";
 import { agentRuns, memoryChunks, user as userTable, userFacts } from "@alfred/db/schemas";
@@ -147,14 +147,13 @@ async function main() {
     );
   }
 
-  const { runId } = await createRun({
+  const { runId } = await startRun({
     userId: u.id,
     workflowSlug: COLD_START_WORKFLOW_SLUG,
     input: { reason: "manual" },
     trigger: { kind: "manual" },
     occurrence: { kind: "manual", requestId: randomUUID() },
   });
-  await enqueueRun(runId);
   console.log(`[smoke-cold-start] run enqueued: ${runId}`);
 
   const run = await pollRun(runId, "cold-start run");
