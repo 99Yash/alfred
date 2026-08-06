@@ -1,7 +1,6 @@
 import assert from "node:assert/strict";
 import { describe, test } from "node:test";
-import { proposeFactArgsSchema } from "../../src/modules/memory/facts";
-import { upsertStyleProfileArgsSchema } from "../../src/modules/memory/style-profiles";
+import { proposeFactArgsSchema, upsertStyleProfileArgsSchema } from "../../src/modules/knowledge";
 
 describe("derived memory persistence schemas", () => {
   test("proposeFact derives insert optionality and preserves boundary transforms", () => {

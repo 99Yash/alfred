@@ -3,7 +3,7 @@ import { db } from "@alfred/db";
 import { skillRevisions, skills, user, userFacts } from "@alfred/db/schemas";
 import { search, type SearchHit } from "@alfred/corpus";
 import { and, desc, eq } from "drizzle-orm";
-import { recallMemory, type RecallMemoryHit } from "../memory/chunks";
+import { recallMemory, type RecallMemoryHit } from "../knowledge";
 
 /**
  * Gather everything the doc-compose step needs to write a richer body:

@@ -34,7 +34,12 @@ import {
   type ArtifactWriteContext,
 } from "../artifacts/write";
 import type { ToolExecuteContext } from "./registry";
-import { readUserContext } from "../memory/user-context";
+import {
+  editStandingInstruction,
+  forgetStandingInstruction,
+  listStandingInstructions,
+  readUserContext,
+} from "../knowledge";
 import {
   activateWorkflow,
   authorWorkflow,
@@ -49,11 +54,6 @@ import {
 } from "../tool-runtime";
 import { callerLabel } from "../dispatch";
 import { inZone } from "../timezone";
-import {
-  editStandingInstruction,
-  forgetStandingInstruction,
-  listStandingInstructions,
-} from "../memory/standing-instructions";
 import { promoteScratch, readScratch, writeScratch } from "../scratchpad";
 import { resolveTodosForGmailSender } from "../todos/resolve";
 import { rememberSenderSuppressionAndDismissTodos } from "./remember-suppression";
