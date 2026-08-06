@@ -36,11 +36,10 @@
  */
 import { randomUUID } from "node:crypto";
 import {
-  createRun,
   DAILY_BRIEFING_WORKFLOW_SLUG,
-  enqueueRun,
   inZone,
   resolveBriefingPreferences,
+  startRun,
 } from "@alfred/api/backend";
 import { closeAgentQueue, closeBriefingQueue, warmPool } from "@alfred/api/runtime";
 import { db } from "@alfred/db";
@@ -139,7 +138,7 @@ async function main() {
       `eveningHour=${prefs.eveningHour} date=${briefingDate}`,
   );
 
-  const { runId } = await createRun({
+  const { runId } = await startRun({
     userId: u.id,
     workflowSlug: DAILY_BRIEFING_WORKFLOW_SLUG,
     brief: `${cli.slot} briefing for ${briefingDate} (smoke${cli.noSend ? ", dryRun" : ""})`,
@@ -152,7 +151,6 @@ async function main() {
     trigger: { kind: "manual" },
     occurrence: { kind: "manual", requestId: randomUUID() },
   });
-  await enqueueRun(runId);
   console.log(`[smoke-daily-briefing] run enqueued: ${runId}`);
 
   const run = await pollRun(runId, "compose");

@@ -5,7 +5,7 @@
  *
  *   $ pnpm tsx --env-file=.env src/scripts/smokes/smoke-agent-resume.ts <runId>
  */
-import { enqueueRun, signalRun } from "@alfred/api/backend";
+import { redeliverRun, signalRun } from "@alfred/api/backend";
 import { closeAgentQueue, warmPool } from "@alfred/api/runtime";
 import { db } from "@alfred/db";
 import { agentRuns } from "@alfred/db/schemas";
@@ -36,7 +36,7 @@ async function main() {
     match: { kind: "hil", approvalId: wake.approvalId },
   });
   if (!woken) throw new Error("signal failed");
-  await enqueueRun(runId);
+  await redeliverRun(runId);
   console.log("[resume] signaled; polling for completion…");
 
   const deadline = Date.now() + 30_000;
