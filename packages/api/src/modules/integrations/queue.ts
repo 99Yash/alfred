@@ -8,7 +8,7 @@ import {
   pollGmailHistory,
   pollGmailRecent,
 } from "@alfred/integrations/google";
-import { findUnembeddedDocumentIds, embedDocument } from "@alfred/ingestion";
+import { indexDocument, retryPending } from "@alfred/corpus";
 import { gmailMailboxWritesEnabled, serverEnv } from "@alfred/env/server";
 import { db } from "@alfred/db";
 import { documents, emailTriage } from "@alfred/db/schemas";
@@ -619,23 +619,14 @@ async function processIngestionJobData(data: IngestionJobData): Promise<unknown>
     }
     case "gmail.embed_sweep": {
       // Pick up documents whose embed step failed during ingest. Bounded
-      // batch — anything left over comes back next tick.
-      const ids = await findUnembeddedDocumentIds({ source: "gmail", limit: 50 });
-      let succeeded = 0;
-      let failed = 0;
-      for (const id of ids) {
-        try {
-          const r = await embedDocument({ documentId: id });
-          if (!r.empty) succeeded++;
-        } catch (err) {
-          failed++;
-          console.warn(`[ingestion:worker] gmail.embed_sweep failed for ${id}:`, toMessage(err));
-        }
-      }
+      // batch — anything left over comes back next tick. The sweep loop is
+      // owned by @alfred/corpus (`retryPending`); this case only schedules it
+      // and reports the summary count.
+      const r = await retryPending({ source: "gmail", limit: 50 });
       console.log(
-        `[ingestion:worker] gmail.embed_sweep candidates=${ids.length} succeeded=${succeeded} failed=${failed}`,
+        `[ingestion:worker] gmail.embed_sweep candidates=${r.candidates} succeeded=${r.succeeded} failed=${r.failed}`,
       );
-      return { candidates: ids.length, succeeded, failed };
+      return r;
     }
     case "user_model.gmail_kind_refold": {
       return runGmailKindRefoldJob(data.userId);
@@ -1042,7 +1033,7 @@ async function publishInboxUpdate(
 async function embedRealtimeInserts(documentIds: string[]): Promise<void> {
   await mapConcurrent(documentIds, REALTIME_EMBED_CONCURRENCY, async (documentId) => {
     try {
-      await embedDocument({ documentId });
+      await indexDocument({ documentId });
     } catch (err) {
       console.warn(
         `[ingestion:worker] gmail.poll_recent embed failed for doc=${documentId}:`,
