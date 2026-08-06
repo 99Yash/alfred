@@ -48,6 +48,7 @@
  */
 import {
   gateDocumentFact,
+  gmailSenderAdapter,
   isSingleValuedKey,
   loadSelfIdentity,
   rejectFact,
@@ -206,8 +207,15 @@ async function processUser(u: { userId: string; email: string }): Promise<void> 
     // the gate an `unknown` source so relationships (Tier A) survive but
     // identity claims fail authorship.
     const gateDoc = doc
-      ? { source: doc.source, metadata: doc.metadata, accountId: doc.accountId }
-      : { source: "unknown" as const, metadata: {}, accountId: null };
+      ? {
+          source: doc.source,
+          metadata: doc.metadata,
+          accountId: doc.accountId,
+          // Parse From/SENT in the injected triage adapter (ADR-0089); non-gmail
+          // docs carry no sender observation.
+          sender: doc.source === "gmail" ? gmailSenderAdapter.authorship(doc.metadata) : null,
+        }
+      : { source: "unknown" as const, metadata: {}, accountId: null, sender: null };
     const gate = gateDocumentFact({
       proposal: { key: r.key, value: r.value },
       document: gateDoc,

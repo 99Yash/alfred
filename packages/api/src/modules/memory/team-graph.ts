@@ -20,17 +20,23 @@
  * `documents` (no `gcal` persist path), so attendee edges are deferred to when
  * that lands — an honest limit, not a silent gap.
  *
- * Person inclusion keys off `extractSenderContext`'s header classification
- * (`fromKind === 'person'`): real humans — including cold one-way senders — are
- * captured; `noreply`/notification/role/service envelopes are excluded. The
- * cold-vs-warm distinction is then made by the *significance* signal
- * (reciprocity + frequency), not by excluding the entity.
+ * Person inclusion is decided upstream in the injected Gmail sender adapter
+ * (ADR-0089): it keys off triage's header classification (`fromKind ===
+ * 'person'`) plus the human-rescue, so real humans — including cold one-way
+ * senders — arrive here as `PersonToken`s while `noreply`/notification/role/
+ * service envelopes are already dropped. This module only aggregates the
+ * observation; the cold-vs-warm distinction is then made by the *significance*
+ * signal (reciprocity + frequency), not by excluding the entity.
  */
-import { isFreeMail, isRecord } from "@alfred/contracts";
+import {
+  isFreeMail,
+  isRecord,
+  type GmailCorrespondentsObservation,
+  type PersonToken,
+} from "@alfred/contracts";
 import { db } from "@alfred/db";
 import { documents } from "@alfred/db/schemas";
 import { and, desc, eq } from "drizzle-orm";
-import { extractSenderContext, isHumanLikeSender } from "../triage/sender-context";
 import { upsertEntity, upsertPersonByAlias, linkEntities, type DbExecutor } from "./entities";
 import { type CorrespondenceStats, parsePersonEntityMetadata } from "./entity-metadata";
 import { computeSignificance, loadUserDomains, runSignificancePass } from "./significance";
@@ -48,90 +54,9 @@ export interface ContactAggregate {
   lastSeenAt: Date | null;
 }
 
-function metaStr(meta: Record<string, unknown>, key: string): string | null {
-  const v = meta[key];
-  return typeof v === "string" && v.trim() ? v : null;
-}
-
-/**
- * Split a `To:`/`Cc:` header into individual address tokens. Commas inside a
- * quoted display name (`"Doe, Jane" <j@x.com>`) or inside angle brackets are
- * not separators, so a naive `split(',')` corrupts those — track quote/angle
- * depth instead.
- */
-export function splitAddressList(raw: string | null): string[] {
-  if (!raw) return [];
-  const out: string[] = [];
-  let buf = "";
-  let inQuote = false;
-  let inAngle = false;
-  for (const ch of raw) {
-    if (ch === '"') inQuote = !inQuote;
-    else if (ch === "<") inAngle = true;
-    else if (ch === ">") inAngle = false;
-    if (ch === "," && !inQuote && !inAngle) {
-      const t = buf.trim();
-      if (t) out.push(t);
-      buf = "";
-      continue;
-    }
-    buf += ch;
-  }
-  const last = buf.trim();
-  if (last) out.push(last);
-  return out;
-}
-
-const ANGLE_NAME_RE = /^(.*?)<[^>]+>\s*$/;
-
-/** Extract just the display-name part of a `Name <addr>` token (null if bare address). */
-function parseDisplayName(token: string): string | null {
-  const m = token.trim().match(ANGLE_NAME_RE);
-  if (!m || m[1] === undefined) return null;
-  const name = m[1]
-    .trim()
-    .replace(/^"+|"+$/g, "")
-    .trim();
-  return name || null;
-}
-
-interface ParsedPerson {
-  address: string;
-  domain: string | null;
-  displayName: string | null;
-}
-
-/**
- * Parse one header token into a *person* contact, reusing triage's curated
- * sender classification so `noreply`/role/service envelopes are dropped here
- * (returns `null`). Address/domain come from `extractSenderContext` (the
- * authoritative normalizer); only the display name is parsed locally.
- *
- * Triage classifies whole service domains (`google.com`, `github.com`, …) as
- * `service`, which would silently drop a real colleague at one of them. The
- * graph wants the human, so a non-`person` sender is rescued when it passes the
- * `isHumanLikeSender` reality check (person-like name or `first.last` local, and
- * not an automated envelope) — see that helper for why triage itself is left
- * untouched.
- */
-function parsePersonToken(token: string): ParsedPerson | null {
-  const sc = extractSenderContext({ fromHeader: token, subject: null, body: "" });
-  if (!sc.senderAddress) return null;
-  const displayName = parseDisplayName(token);
-  if (sc.context.fromKind !== "person") {
-    const localPart = sc.senderAddress.slice(0, sc.senderAddress.indexOf("@"));
-    if (!isHumanLikeSender(localPart, displayName)) return null;
-  }
-  return {
-    address: sc.senderAddress,
-    domain: sc.senderDomain,
-    displayName,
-  };
-}
-
 function touch(
   map: Map<string, ContactAggregate>,
-  person: ParsedPerson,
+  person: PersonToken,
   field: "inbound" | "outbound" | "coRecipient",
   authoredAt: Date | null,
 ): void {
@@ -176,34 +101,33 @@ function toStats(agg: ContactAggregate): CorrespondenceStats {
 /**
  * Accumulate ONE document's header contributions into a contacts map. The pure
  * per-doc core shared by the from-scratch backfill scan and the daily
- * incremental capture (ADR-0059 P4a). `self` is the user's own lowercased
- * address — skipped so the user never becomes their own contact.
+ * incremental capture (ADR-0059 P4a). Consumes an already-parsed
+ * `GmailCorrespondentsObservation` (ADR-0089) — the `From:`/`To:`/`Cc:` parse
+ * and the human-rescue happen in the injected triage adapter, not here. `self`
+ * is the user's own lowercased address — skipped so the user never becomes
+ * their own contact.
+ *
+ * `observation.isSent` is `meta.isSent === true` only (labelIds ignored) — the
+ * deliberate divergence from fact-policy's authorship signal.
  */
 export function accumulateDoc(
   contacts: Map<string, ContactAggregate>,
-  meta: Record<string, unknown>,
+  observation: GmailCorrespondentsObservation,
   authoredAt: Date | null,
   self: string,
 ): void {
-  const isSent = meta.isSent === true;
-  const fromPerson = parsePersonToken(metaStr(meta, "from") ?? "");
-  const recipientTokens = [
-    ...splitAddressList(metaStr(meta, "to")),
-    ...splitAddressList(metaStr(meta, "cc")),
-  ];
+  const { isSent, from, recipients } = observation;
 
   if (isSent) {
-    for (const token of recipientTokens) {
-      const p = parsePersonToken(token);
-      if (p && p.address !== self) touch(contacts, p, "outbound", authoredAt);
+    for (const p of recipients) {
+      if (p.address !== self) touch(contacts, p, "outbound", authoredAt);
     }
   } else {
-    if (fromPerson && fromPerson.address !== self) {
-      touch(contacts, fromPerson, "inbound", authoredAt);
+    if (from && from.address !== self) {
+      touch(contacts, from, "inbound", authoredAt);
     }
-    for (const token of recipientTokens) {
-      const p = parsePersonToken(token);
-      if (p && p.address !== self) touch(contacts, p, "coRecipient", authoredAt);
+    for (const p of recipients) {
+      if (p.address !== self) touch(contacts, p, "coRecipient", authoredAt);
     }
   }
 }
@@ -395,6 +319,7 @@ export interface BackfillTeamGraphResult {
 export async function aggregateCorrespondence(
   userId: string,
   userEmail: string,
+  parse: (metadata: unknown) => GmailCorrespondentsObservation,
   maxDocs = 5000,
 ): Promise<{ contacts: Map<string, ContactAggregate>; docsScanned: number }> {
   const self = userEmail.trim().toLowerCase();
@@ -412,7 +337,7 @@ export async function aggregateCorrespondence(
 
   for (const row of rows) {
     if (!isRecord(row.metadata)) continue;
-    accumulateDoc(contacts, row.metadata, row.authoredAt ?? null, self);
+    accumulateDoc(contacts, parse(row.metadata), row.authoredAt ?? null, self);
   }
 
   return { contacts, docsScanned: rows.length };
@@ -429,6 +354,7 @@ export async function aggregateCorrespondence(
 export async function backfillTeamGraph(
   userId: string,
   userEmail: string,
+  parse: (metadata: unknown) => GmailCorrespondentsObservation,
   opts: BackfillTeamGraphOpts = {},
 ): Promise<BackfillTeamGraphResult> {
   const commit = opts.commit ?? false;
@@ -438,6 +364,7 @@ export async function backfillTeamGraph(
   const { contacts, docsScanned } = await aggregateCorrespondence(
     userId,
     userEmail,
+    parse,
     opts.maxDocs ?? 5000,
   );
 

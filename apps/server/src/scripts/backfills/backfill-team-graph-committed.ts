@@ -21,7 +21,7 @@
  *   # override target(s) / scan depth:
  *   TEAM_GRAPH_EMAILS="a@x.com" TEAM_GRAPH_MAX_DOCS=2000 node dist/scripts/backfills/backfill-team-graph-committed.js --commit
  */
-import { backfillTeamGraph } from "@alfred/api/backend";
+import { backfillTeamGraph, gmailSenderAdapter } from "@alfred/api/backend";
 import { warmPool } from "@alfred/api/runtime";
 import { closeScriptResources } from "../script-runtime";
 import { db } from "@alfred/db";
@@ -40,7 +40,7 @@ const COMMIT = process.argv.includes("--commit");
 
 async function processUser(u: { userId: string; email: string }): Promise<void> {
   console.log(`\n=== ${u.email} (user=${u.userId}) ===`);
-  const result = await backfillTeamGraph(u.userId, u.email, {
+  const result = await backfillTeamGraph(u.userId, u.email, gmailSenderAdapter.correspondents, {
     commit: COMMIT,
     maxDocs: Number.isFinite(MAX_DOCS) ? MAX_DOCS : 5000,
   });

@@ -1,11 +1,12 @@
 import {
+  buildMemoryExtractionWorkflow,
   chatMemoryCaptureWorkflow,
   chatTurnWorkflow,
   coldStartResearchWorkflow,
   dailyBriefingWorkflow,
   emailTriageWorkflow,
+  gmailSenderAdapter,
   learnSkillWorkflow,
-  memoryExtractionWorkflow,
   morningBriefingWorkflow,
   skillDocumentationWorkflow,
   userAuthoredBriefWorkflow,
@@ -20,7 +21,9 @@ import { echoWithApprovalWorkflow } from "../scripts/smokes/echo-with-approval";
  */
 export function registerBuiltinWorkflows(): void {
   registerRecipe(echoWithApprovalWorkflow);
-  registerRecipe(memoryExtractionWorkflow);
+  // Inject the triage-owned Gmail sender adapter (ADR-0089) so memory never
+  // imports triage's From/SENT parsers.
+  registerRecipe(buildMemoryExtractionWorkflow(gmailSenderAdapter));
   registerRecipe(chatMemoryCaptureWorkflow);
   registerRecipe(emailTriageWorkflow);
   // Resume compatibility only: hidden from catalogs/seeding and unavailable
