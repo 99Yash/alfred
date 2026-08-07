@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { describe, test } from "node:test";
 
-import { createVoiceStreamSanitizer, sanitizeVoice } from "../../src/modules/agent/voice-sanitize";
+import { createVoiceStreamSanitizer, sanitizeVoice } from "../../src/voice/voice-sanitize";
 
 /** Run a set of raw deltas through the streaming sanitizer and concat the result. */
 function stream(chunks: string[]): string {

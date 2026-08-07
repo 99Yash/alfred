@@ -4,7 +4,7 @@ import { generateText } from "ai";
 import { config as loadEnv } from "dotenv";
 import { evalite } from "evalite";
 import { formatDateGrounding } from "../src/modules/agent/grounding";
-import { detectAiTells, summarizeTells } from "../src/modules/agent/voice-detector";
+import { detectAiTells, summarizeTells } from "@alfred/ai/voice";
 import { buildChatSystemPrompt } from "../src/modules/agent/workflows/chat-turn";
 import { llmJudgeScorer } from "./lib/llm-judge";
 

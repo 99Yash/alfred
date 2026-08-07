@@ -3,7 +3,8 @@
   "type": "module",
   "exports": {
     ".": "./src/index.ts",
-    "./embeddings": "./src/embeddings.ts"
+    "./embeddings": "./src/embeddings.ts",
+    "./voice": "./src/voice/index.ts"
   },
   "scripts": {
     "build": "node ../../scripts/clean-package-dist.mjs && tsc -b --emitDeclarationOnly --force",
