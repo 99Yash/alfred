@@ -3,10 +3,7 @@ import {
   type RememberSenderSuppressionArgs,
   type RememberSenderSuppressionResult,
 } from "../knowledge";
-import {
-  resolveTodosForGmailSender,
-  type ResolveTodosForGmailSenderResult,
-} from "../todos/resolve";
+import { resolveTodosForGmailSender, type ResolveTodosForGmailSenderResult } from "../todos";
 
 /**
  * Reason stamped on todos dismissed as a reaction to a sender suppression.
