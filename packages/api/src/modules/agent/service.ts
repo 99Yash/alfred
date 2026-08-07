@@ -12,11 +12,10 @@ import { and, desc, eq, sql } from "drizzle-orm";
 import { publishEvent } from "../../events/publish";
 import { emitReplicachePokes } from "../../events/replicache-events";
 // Cancel's post-commit obligations include tearing down the queued jobs of the
-// stagings it bulk-rejected. Both queue modules are leaves (nothing under
-// `../approvals` reaches back into `../agent`), so owning the teardown here
-// rather than describing it to callers adds no cycle.
-import { removeApprovalExpiryJob } from "../approvals/expiry-queue";
-import { removeApprovalNotificationJob } from "../approvals/notification-queue";
+// stagings it bulk-rejected. The scheduling helpers live in `tool-runtime` (a
+// sink), so owning the teardown here rather than describing it to callers adds
+// no cycle.
+import { removeApprovalExpiryJob, removeApprovalNotificationJob } from "../tool-runtime";
 import { snapshotScratchToPostgres } from "../scratchpad";
 import { enqueueRun } from "./queue";
 import { getWorkflow, listWorkflows } from "./registry";

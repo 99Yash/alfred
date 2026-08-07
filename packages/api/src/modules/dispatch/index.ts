@@ -76,8 +76,7 @@ import { normalizeToolInputKeys } from "./normalize-keys";
 import { emitReplicachePokes } from "../../events/replicache-events";
 import { resolveApprovalNotifyDelayMs, resolvePolicyMode } from "../action-policies/resolve";
 import { joinChildRun } from "../agent/sub-agent-join";
-import { scheduleApprovalExpiryJob } from "../approvals/expiry-queue";
-import { scheduleApprovalNotificationJob } from "../approvals/notification-queue";
+import { scheduleApprovalExpiryJob, scheduleApprovalNotificationJob } from "../tool-runtime";
 import { parseScratchToolKey, type ScratchToolKey } from "../tools/scratch-key";
 import {
   countRunPassthroughCalls,
