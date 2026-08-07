@@ -1,8 +1,15 @@
 import assert from "node:assert/strict";
 import { describe, test } from "node:test";
 import { gmailIngestedTriggerConsumers } from "../../src/composition/gmail-ingested-consumers";
-import { registerGmailTriageHandler } from "../../src/modules/integrations/gmail-triage";
-import type { DomainEvent } from "../../src/modules/triggers";
+import {
+  NoGmailTriageHandlerRegisteredError,
+  registerGmailTriageHandler,
+} from "../../src/modules/integrations/gmail-triage";
+import {
+  publishDomainEvent,
+  registerTriggerConsumer,
+  type DomainEvent,
+} from "../../src/modules/triggers";
 
 function emptyBatch(): DomainEvent {
   return {
@@ -36,6 +43,16 @@ function consumerNamed(name: string) {
   return consumer;
 }
 
+/** Wire the four batch-fact consumers into the live seam and hand back teardown. */
+function registerAllConsumers(): () => void {
+  const unregisters = gmailIngestedTriggerConsumers().map((consumer) =>
+    registerTriggerConsumer(consumer),
+  );
+  return () => {
+    for (const unregister of unregisters) unregister();
+  };
+}
+
 describe("gmail documents_ingested consumers", () => {
   test("registers exactly the four batch-fact consumers", () => {
     assert.deepEqual(
@@ -49,6 +66,53 @@ describe("gmail documents_ingested consumers", () => {
         "gmail-user-model-capture",
       ],
     );
+  });
+
+  test("every consumer registers as best-effort so the seam owns the swallow", () => {
+    for (const consumer of gmailIngestedTriggerConsumers()) {
+      assert.equal(consumer.mode, "best-effort", `${consumer.name} must be best-effort`);
+    }
+  });
+
+  test("a throwing reaction is swallowed by the seam, not the body", async () => {
+    // A triage handler that throws a plain (non-boot) error makes the triage
+    // consumer's accept reject. Because it registers best-effort, the seam
+    // swallows that rejection and the publish resolves — no body-level try/catch.
+    const originalWarn = console.warn;
+    console.warn = () => {};
+    const unregisterHandler = registerGmailTriageHandler({
+      async postInsert() {
+        throw new Error("triage repair unavailable");
+      },
+      async relabel() {
+        return { applied: false, reason: "document-not-found" };
+      },
+    });
+    const unregisterConsumers = registerAllConsumers();
+    try {
+      await assert.doesNotReject(() => publishDomainEvent(emptyBatch()));
+    } finally {
+      unregisterConsumers();
+      unregisterHandler();
+      console.warn = originalWarn;
+    }
+  });
+
+  test("a boot-wiring failure still rejects the publish even from a best-effort consumer", async () => {
+    // With no triage handler registered, the triage seam throws
+    // NoGmailTriageHandlerRegisteredError (a TriggerConsumerBootError). The seam
+    // must NOT swallow it — a broken boot path has to fail the job and retry.
+    const unregisterConsumers = registerAllConsumers();
+    try {
+      await assert.rejects(
+        publishDomainEvent(emptyBatch()),
+        (error: unknown) =>
+          error instanceof AggregateError &&
+          error.errors.some((cause) => cause instanceof NoGmailTriageHandlerRegisteredError),
+      );
+    } finally {
+      unregisterConsumers();
+    }
   });
 
   test("every consumer ignores a non-batch event without touching a side effect", async () => {
