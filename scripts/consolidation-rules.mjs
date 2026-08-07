@@ -113,6 +113,24 @@ export const RULES = [
     owners: ["packages/contracts/src/api-errors.ts"],
     fix: "Throw an Errors.* factory from @alfred/contracts — `throw Errors.NotFoundError(\"…\")`. It owns the code-to-status pairing. Catch with isApiError(err, \"NOT_FOUND\") rather than a per-kind class.",
   },
+  {
+    id: "boot-error-plain-extends",
+    // A handler-registry "not registered" boot error named `No…RegisteredError`
+    // must extend TriggerConsumerBootError, not plain Error. The publish seam
+    // (triggers/internal/consumer-registry.ts) swallows a `best-effort`
+    // consumer's rejection UNLESS it is a TriggerConsumerBootError — so a boot
+    // error that forgot the base is silently downgraded to a no-op'd wiring
+    // failure, the exact "a wiring failure no-ops instead of failing the job"
+    // bug the best-effort seam exists to prevent. Membership was Tier-5
+    // (convention only); this gates the `No…RegisteredError` naming convention +
+    // the default `extends Error` form. Safe against the members:
+    // `extends TriggerConsumerBootError` has a non-`Error` token after
+    // `extends `, and the base class is named `TriggerConsumerBootError`, not
+    // `No…RegisteredError`, so it never self-matches.
+    re: /class\s+No\w*RegisteredError\s+extends\s+Error\b/,
+    severity: "gate",
+    fix: 'A handler-registry boot error must `extends TriggerConsumerBootError` (import it from the triggers barrel, `from "../triggers"`), not plain Error — the publish seam only exempts a TriggerConsumerBootError from the best-effort swallow, so a plain-Error boot failure is silently no-op\'d instead of failing the job. If this No…RegisteredError is a runtime not-found rather than a registry-wiring boot error, append `// drift-ok: <reason>`.',
+  },
 
   // ---- hints: canonical helper exists, legacy call sites remain -------------
   {
