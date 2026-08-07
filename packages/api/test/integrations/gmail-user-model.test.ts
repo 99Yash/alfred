@@ -15,7 +15,6 @@ import {
 import { createGmailUserModelHandler } from "../../src/composition/gmail-user-model";
 import type { GmailDocumentForReduction } from "../../src/modules/knowledge";
 import { runGmailKindRefoldJob } from "../../src/modules/integrations/queue";
-import { runGmailObservationCapture } from "../../src/composition/gmail-ingested-consumers";
 
 const captureRequest = {
   userId: "user-1",
@@ -352,15 +351,13 @@ describe("Gmail user-model composition seam", () => {
     }
   });
 
-  test("keeps queue capture best-effort and refold results and failures retryable", async () => {
+  test("propagates capture boot errors and failures; keeps refold results and failures retryable", async () => {
+    // A missing handler is a boot-wiring failure the integration seam must surface.
     await assert.rejects(
-      () => runGmailObservationCapture("user-1", ["document-1"]),
+      () => captureGmailObservations({ userId: "user-1", documentIds: ["document-1"] }),
       NoGmailUserModelHandlerRegisteredError,
     );
 
-    const warnings: unknown[][] = [];
-    const originalWarn = console.warn;
-    console.warn = (...args: unknown[]) => warnings.push(args);
     const captureFailure = new Error("capture unavailable");
     const refoldFailure = new Error("refold unavailable");
     let shouldFailRefold = false;
@@ -383,9 +380,13 @@ describe("Gmail user-model composition seam", () => {
     });
 
     try {
-      await assert.doesNotReject(() => runGmailObservationCapture("user-1", ["document-1"]));
-      assert.match(String(warnings[0]?.[0]), /observation capture failed user=user-1/);
-      assert.equal(warnings[0]?.[1], "capture unavailable");
+      // The integration seam no longer swallows a capture failure — the
+      // best-effort swallow now lives at the trigger seam (see the
+      // gmail-ingested consumers test), so a raw capture error propagates here.
+      await assert.rejects(
+        () => captureGmailObservations({ userId: "user-1", documentIds: ["document-1"] }),
+        captureFailure,
+      );
       assert.deepEqual(await runGmailKindRefoldJob("user-1"), {
         status: "activated",
         projectionVersion: 2,
@@ -397,7 +398,6 @@ describe("Gmail user-model composition seam", () => {
       await assert.rejects(() => runGmailKindRefoldJob("user-1"), refoldFailure);
     } finally {
       unregister();
-      console.warn = originalWarn;
     }
   });
 });
