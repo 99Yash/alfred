@@ -4,7 +4,7 @@ import { db } from "@alfred/db";
 import { documents, driftMetrics, emailTriage, todos } from "@alfred/db/schemas";
 import { selfSenderEmail } from "@alfred/integrations/google";
 import { and, eq, inArray, sql } from "drizzle-orm";
-import { notify, type NotifyArgs, type NotifyResult } from "../notifications/notify";
+import { send, type SendArgs, type SendResult } from "../delivery";
 import { resolveTimezone } from "../settings";
 import { DEFAULT_USER_TIMEZONE, inZone } from "../timezone";
 
@@ -179,7 +179,7 @@ export interface DriftHealthCheckResult {
 }
 
 type MetricEvaluator = (userId: string) => Promise<MetricResult | null>;
-type NotifyFn = (args: NotifyArgs) => Promise<NotifyResult>;
+type NotifyFn = (args: SendArgs) => Promise<SendResult>;
 
 export interface RunDriftHealthCheckOptions {
   /** Test seam; production uses wall-clock now. */
@@ -254,7 +254,7 @@ export async function runDriftHealthCheck(
       ? (options.timezone ?? (await resolveTimezone(userId)))
       : DEFAULT_USER_TIMEZONE;
   const today = inZone(timezone).day(now);
-  const notifyFn = options.notifyFn ?? notify;
+  const notifyFn = options.notifyFn ?? send;
   let alertsSent = 0;
   const alertFailures: string[] = [];
   for (const result of breached) {
