@@ -86,21 +86,13 @@ export {
   type RecordOrgAffiliationResult,
 } from "./modules/knowledge";
 
-export * from "./modules/knowledge/types";
-export * from "./modules/knowledge/signature";
-export * from "./modules/knowledge/facts";
-export * from "./modules/knowledge/fact-policy";
-export * from "./modules/knowledge/self-identity";
-export * from "./modules/knowledge/user-context";
-export * from "./modules/knowledge/standing-instructions";
-export * from "./modules/knowledge/chunks";
-export * from "./modules/knowledge/entity-graph";
-export * from "./modules/knowledge/entity-metadata";
-export * from "./modules/knowledge/significance";
-export * from "./modules/knowledge/team-graph";
-export * from "./modules/knowledge/style-profiles";
-export * from "./modules/knowledge/rejected";
-export * from "./modules/knowledge/extraction";
+// The knowledge substrate reaches `@alfred/api/backend` through its ONE curated
+// barrel (item 15) — the sanctioned observe / recall / contextFor /
+// applyCorrection contract plus the genuinely cross-module helpers, nothing
+// more. The named observe block above retains precedence over any collision this
+// `export *` could introduce. Privileged tooling internals (backfills / smokes)
+// resolve through the explicit `@alfred/api/modules/knowledge/internal` subpath.
+export * from "./modules/knowledge";
 export {
   runMemoryFinalize,
   runMemoryPickDocuments,
@@ -116,7 +108,6 @@ export { buildMemoryExtractionWorkflow } from "./modules/knowledge/index";
 
 export * from "./modules/settings";
 
-export * from "./modules/knowledge/extractor";
 // The idle-capture trigger moved to `conversations/idle-capture-queue.ts`; these
 // public names are unchanged so `apps/server` and the backfill stay unchanged.
 export {

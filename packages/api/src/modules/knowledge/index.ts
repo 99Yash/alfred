@@ -89,13 +89,14 @@ export * from "./extractor";
  * extraction) left the barrel entirely — their symbols stay `export`ed from
  * their own file for intra-`knowledge` direct import, so nothing inside the
  * module breaks, but no new sibling caller can reach them through `../knowledge`.
- * This is honestly Tier 3, not a compile wall: `backend.ts:89-103,119` still
- * re-exports the same files by path onto `@alfred/api/backend`, so the residual
- * `@alfred/api/backend` leak is unchanged here (a distinct, harder axis — its
- * `apps/server` operational-script consumers have no deep-import door — deferred
- * to a follow-up backend-narrowing item). What this buys is Tier-2 for the
- * sibling-`api` boundary specifically: a new `packages/api/src/modules/*` file
- * can no longer reach a dropped internal through `../knowledge`.
+ * Item 16 then closed the twin leak: `backend.ts` re-exports this curated
+ * barrel with a single `export * from "./modules/knowledge"` instead of the old
+ * by-path `export *` block, so the only door to a privileged tooling internal is
+ * the explicit `@alfred/api/modules/knowledge/internal` subpath (nine named
+ * re-exports for `apps/server` backfills/smokes). Both boundaries are now Tier-2:
+ * a new `packages/api/src/modules/*` file cannot reach a dropped internal through
+ * `../knowledge`, and no unlisted knowledge internal is reachable through
+ * `@alfred/api/backend` either.
  *
  * `./types` stays `export *` — pure enums / schemas / contract re-exports, no
  * behavior-bearing symbol, so curating it buys no encapsulation.

@@ -25,12 +25,9 @@ import {
   AUTO_CONFIRM_THRESHOLD,
   confirmFact,
   editFact,
-  embedMemoryChunk,
-  findPendingEmbedChunks,
   getPreference,
   getPreferences,
   getSupersessionChain,
-  isRejected,
   listFactsByStatus,
   proposeFact,
   recallActiveByKey,
@@ -41,6 +38,11 @@ import {
   supersedeFact,
   writeMemoryChunk,
 } from "@alfred/api/backend";
+import {
+  embedMemoryChunk,
+  findPendingEmbedChunks,
+  isRejected,
+} from "@alfred/api/modules/knowledge/internal";
 import { closeAgentQueue, warmPool } from "@alfred/api/runtime";
 import { embed } from "@alfred/ai/embeddings";
 import { db } from "@alfred/db";
