@@ -13,6 +13,10 @@
           {
             "group": ["@alfred/api/modules/knowledge/internal"],
             "message": "The knowledge internal tooling door is restricted to apps/server/src/scripts/** (see knowledge/internal.ts). Import the sanctioned contract from @alfred/api/backend instead."
+          },
+          {
+            "group": ["@alfred/integrations/google/internal"],
+            "message": "The raw Gmail watch primitive is restricted to its two allowlisted friend files (see google/internal.ts). Install a watch through the api wrapper installGmailWatchAndSeedCursor, which also seeds the ingestion_state cursor; a raw installGmailWatch leaves the credential cursorless."
           }
         ]
       }
@@ -58,6 +62,15 @@
   "overrides": [
     {
       "files": ["apps/server/src/scripts/**"],
+      "rules": {
+        "no-restricted-imports": "off"
+      }
+    },
+    {
+      "files": [
+        "packages/api/src/modules/integrations/gmail-ingest.ts",
+        "packages/api/test/integrations/gmail-watch-gate.test.ts"
+      ],
       "rules": {
         "no-restricted-imports": "off"
       }
