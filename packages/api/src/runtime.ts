@@ -53,6 +53,7 @@ export {
   stopConversationCompactionWorker,
 } from "./modules/conversations";
 export { registerBuiltinTools } from "./modules/tools/runtime";
+export { registerDispatchToolCallRoundAdapter } from "./modules/dispatch";
 export { registerAgentSystemToolAdapter } from "./modules/agent/system-tool-adapter";
 export { registerWorkflowSystemToolAdapter } from "./modules/workflows/system-tool-adapter";
 export { reconcileInflightInvocations } from "./modules/connections/mcp/index";

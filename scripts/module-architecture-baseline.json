@@ -110,7 +110,6 @@
       "todos -> knowledge",
       "tools -> artifacts",
       "tools -> connections",
-      "tools -> dispatch",
       "tools -> knowledge",
       "tools -> scratchpad",
       "tools -> timezone",
@@ -130,10 +129,7 @@
       "workflows -> tool-runtime",
       "workflows -> triggers"
     ],
-    "sccs": [
-      ["agent", "approvals", "workflows"],
-      ["dispatch", "tools"]
-    ]
+    "sccs": [["agent", "approvals", "workflows"]]
   },
   "legacyExceptions": {
     "privateModuleImports": {

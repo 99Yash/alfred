@@ -59,6 +59,7 @@ import {
 } from "@alfred/ai";
 import { stagingStore, type StagingCommit, type StagingRow } from "./staging-store";
 import {
+  callerLabel,
   joinToolInput,
   registerToolCallRoundAdapter,
   type ToolCallDispatchArgs,
@@ -106,18 +107,6 @@ let toolSpanStarter: (args: ToolSpanInput) => ToolSpanCloser = startToolSpan;
 
 /** Zod-issue shape we read for the rejection signature (loose by design). */
 type RejectionIssue = { code?: string; path?: readonly PropertyKey[] };
-
-/**
- * Caller label for trace metadata: `boss` or `sub:<id>`. The single source for
- * this format — execute spans, reject spans, sub-agent-await spans, and the
- * workflow's `runtime.dispatch.batch` span all derive their caller through here,
- * so a run's spans tag the same caller identically and the format lives in one
- * place if it ever changes.
- */
-export function callerLabel(caller: DispatchArgs["caller"]): string {
-  if (caller === undefined || caller === "boss") return "boss";
-  return `sub:${caller.subId}`;
-}
 
 /**
  * PII-free fingerprint of a dispatch rejection (#345). For a Zod miss it folds
