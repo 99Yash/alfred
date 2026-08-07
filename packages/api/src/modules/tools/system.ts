@@ -44,6 +44,7 @@ import {
   activateWorkflow,
   authorWorkflow,
   awaitSubAgentInputSchema,
+  callerLabel,
   readChatHistory,
   readChildRunOutcome,
   recoverWorkflow,
@@ -52,7 +53,6 @@ import {
   startToolLoadSpan,
   startToolSearchSpan,
 } from "../tool-runtime";
-import { callerLabel } from "../dispatch";
 import { inZone } from "../timezone";
 import { promoteScratch, readScratch, writeScratch } from "../scratchpad";
 import { resolveTodosForGmailSender } from "../todos/resolve";
