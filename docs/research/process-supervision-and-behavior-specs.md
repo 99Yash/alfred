@@ -566,7 +566,7 @@ over-approximation rather than a real claim-versus-reality check.
 `sanitizeVoice` is the same pattern on the prose channel: the prompt asks for
 the voice, and the sanitizer enforces it. It covers dashes only.
 
-`detectAiTells` ([voice-detector.ts](../../packages/api/src/modules/agent/voice-detector.ts))
+`detectAiTells` ([voice-detector.ts](../../packages/ai/src/voice/voice-detector.ts))
 is a third instance and the closest existing thing to a behavior predicate: 12
 pure rule families over prose, zero dependencies, no model. It runs **only in
 the eval lane**, never at runtime. Its header states the boundary this note
