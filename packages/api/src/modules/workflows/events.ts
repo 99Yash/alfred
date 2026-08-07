@@ -25,8 +25,14 @@ export async function acceptEvent(input: DomainEvent): Promise<AcceptEventResult
   // Keep validation at this public automation seam as well as at publication,
   // so a direct caller cannot bypass the owning domain-event contract.
   const args = domainEventSchema.parse(input);
+  // Only `message_received` carries the message-shaped payload. The batch
+  // `documents_ingested` fact has a different (non-message) payload and no
+  // workflow trigger, so parsing it with the strict message schema would throw
+  // and — via publishToConsumers' AggregateError — fail the ingestion job.
   const gmailPayload =
-    args.source === "gmail" ? gmailMessagePayloadSchema.parse(args.payload ?? {}) : undefined;
+    args.source === "gmail" && args.type === "message_received"
+      ? gmailMessagePayloadSchema.parse(args.payload ?? {})
+      : undefined;
   const reason = gmailPayload?.reason;
   const documentId = gmailPayload?.documentId;
   // Threaded into the run input so a re-key on an already-classified doc (the

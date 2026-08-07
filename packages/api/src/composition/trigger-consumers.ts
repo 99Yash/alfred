@@ -1,18 +1,19 @@
 import { registerTriggerConsumer } from "../modules/triggers";
 import { acceptEvent } from "../modules/workflows";
+import { gmailIngestedTriggerConsumers } from "./gmail-ingested-consumers";
 
-let unregisterWorkflowConsumer: (() => void) | undefined;
+let unregisterConsumers: (() => void)[] | undefined;
 
 /** Connect product trigger consumers without making producers import them. */
 export function registerTriggerConsumers(): void {
-  if (unregisterWorkflowConsumer) return;
-  unregisterWorkflowConsumer = registerTriggerConsumer({
-    name: "workflow-event-trigger",
-    accept: acceptEvent,
-  });
+  if (unregisterConsumers) return;
+  unregisterConsumers = [
+    registerTriggerConsumer({ name: "workflow-event-trigger", accept: acceptEvent }),
+    ...gmailIngestedTriggerConsumers().map((consumer) => registerTriggerConsumer(consumer)),
+  ];
 }
 
 export function unregisterTriggerConsumers(): void {
-  unregisterWorkflowConsumer?.();
-  unregisterWorkflowConsumer = undefined;
+  for (const unregister of unregisterConsumers ?? []) unregister();
+  unregisterConsumers = undefined;
 }
