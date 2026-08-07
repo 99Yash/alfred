@@ -714,9 +714,6 @@ importers:
       '@alfred/contracts':
         specifier: workspace:*
         version: link:../contracts
-      '@alfred/corpus':
-        specifier: workspace:*
-        version: link:../corpus
       '@alfred/db':
         specifier: workspace:*
         version: link:../db

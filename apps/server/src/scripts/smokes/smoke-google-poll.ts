@@ -23,7 +23,10 @@ import { closeConnections, warmPool } from "@alfred/api/runtime";
 import { db } from "@alfred/db";
 import { ingestionState, integrationCredentials } from "@alfred/db/schemas";
 import { findUnembeddedDocumentIds } from "@alfred/corpus";
-import { findCredentialsNeedingPoll, pollGmailHistory } from "@alfred/integrations/google";
+import {
+  findCredentialsNeedingPoll,
+  pollGmailHistory,
+} from "@alfred/api/modules/integrations/gmail-ingest";
 import { and, eq } from "drizzle-orm";
 
 async function main() {

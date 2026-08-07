@@ -17,7 +17,6 @@
   },
   "dependencies": {
     "@alfred/contracts": "workspace:*",
-    "@alfred/corpus": "workspace:*",
     "@alfred/db": "workspace:*",
     "@alfred/env": "workspace:*",
     "drizzle-orm": "^0.45.2",
