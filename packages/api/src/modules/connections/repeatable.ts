@@ -1,4 +1,4 @@
-import { getIngestionQueue, type IngestionJobData } from "./queue";
+import { getIngestionQueue, type IngestionJobData } from "../integrations";
 
 /**
  * Boot-time registration for the m7c repeatable jobs:

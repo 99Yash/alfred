@@ -38,7 +38,7 @@ import {
 } from "./tool-card-events";
 import { toolEventOutcome } from "./tool-event-outcome";
 import { writeScratch } from "../../scratchpad";
-import { readIntegrationAvailability } from "../../integrations/availability";
+import { readIntegrationAvailability } from "../../connections";
 import { buildConnectedSummaryFromAvailability } from "../connected-summary";
 import { formatDateGrounding } from "../grounding";
 import { composeAgentInstructions } from "../instructions";

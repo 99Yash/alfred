@@ -92,7 +92,7 @@ import {
   type ToolExecuteContext,
   type ToolUnavailabilityCode,
 } from "../tools/registry";
-import { readIntegrationAvailability } from "../integrations/availability";
+import { readIntegrationAvailability } from "../connections";
 import { resolveTimezone } from "../settings";
 
 export type DispatchArgs = ToolCallDispatchArgs;

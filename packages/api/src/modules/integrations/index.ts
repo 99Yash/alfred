@@ -1,12 +1,3 @@
-import { Elysia } from "elysia";
-import { githubIntegrationRoutes } from "./github-routes";
-import { githubWebhookRoutes } from "./github-webhook";
-import { gmailWebhookRoutes } from "./gmail-webhook";
-import { googleIntegrationRoutes } from "./google-routes";
-import { notionIntegrationRoutes } from "./notion-routes";
-import { railwayIntegrationRoutes } from "./railway-routes";
-import { vercelIntegrationRoutes } from "./vercel-routes";
-
 export {
   startIngestionWorker,
   stopIngestionWorker,
@@ -16,15 +7,14 @@ export {
   enqueuePendingUploadCleanup,
   getIngestionQueue,
 } from "./queue";
-export { readIntegrationAvailability } from "./availability";
 export type { IngestionJobData } from "./queue";
+export { installGmailWatchAndSeedCursor } from "./gmail-ingest";
 export {
-  consumeOAuthNonce,
-  rememberOAuthNonce,
-  signOAuthState,
-  verifyOAuthState,
-} from "./oauth-state";
-export { scheduleRepeatableIngestionJobs } from "./repeatable";
+  assertGmailPushOidcConfigured,
+  isGmailPushOidcConfigError,
+  pubSubOidcConfigFromEnv,
+  type PubSubOidcConfig,
+} from "./gmail-push-config";
 export {
   registerChatMediaHandler,
   type ChatMediaHandler,
@@ -36,21 +26,13 @@ export {
   type GmailUserModelHandler,
 } from "./gmail-user-model";
 export {
-  registerGoogleCredentialLifecycleHandler,
-  type GoogleCredentialLifecycleHandler,
-} from "./google-credential-lifecycle";
-export {
   registerGmailTriageHandler,
   type GmailTriageHandler,
   type GmailTriageRelabelResult,
 } from "./gmail-triage";
-export { registerWorkflowRecoveryHandler, type WorkflowRecoveryResult } from "./workflow-recovery";
-
-export const integrations = new Elysia({ name: "integrations", normalize: "typebox" })
-  .use(googleIntegrationRoutes)
-  .use(githubIntegrationRoutes)
-  .use(notionIntegrationRoutes)
-  .use(railwayIntegrationRoutes)
-  .use(vercelIntegrationRoutes)
-  .use(gmailWebhookRoutes)
-  .use(githubWebhookRoutes);
+export {
+  registerWorkflowRecoveryHandler,
+  resolveWorkflowRecoveryTarget,
+  workflowRecoveryStateSchema,
+  type WorkflowRecoveryResult,
+} from "./workflow-recovery";

@@ -7,7 +7,7 @@ import { assertGmailPushOidcConfigured } from "../../src/modules/integrations/gm
 import {
   makeGmailWebhookRoutes,
   verifyPubSubOidcForGmailWebhook,
-} from "../../src/modules/integrations/gmail-webhook";
+} from "../../src/modules/connections/gmail-webhook";
 
 function gmailEnvelope(emailAddress: string) {
   return {

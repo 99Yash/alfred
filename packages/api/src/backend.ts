@@ -54,7 +54,7 @@ export {
 } from "./modules/conversations";
 
 export { getIngestionQueue, type IngestionJobData } from "./modules/integrations/index";
-export * from "./modules/integrations/object-state/index";
+export * from "./modules/connections/object-state/index";
 
 export {
   activateProjectionVersion,
