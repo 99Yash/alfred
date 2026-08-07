@@ -22,6 +22,13 @@ import { gmailMailboxWritesEnabled } from "@alfred/env/server";
  *    `installGmailWatch` returns the baseline historyId and the consumer's
  *    `installGmailWatchAndSeedCursor` wrapper seeds the cursor row.
  *
+ * `installGmailWatch` is package-internal: it is NOT on the public
+ * `@alfred/integrations/google` barrel, only on the `./internal` friend subpath
+ * (`google/internal.ts`, oxlint-gated to two allowlisted files). App code
+ * installs a watch through the api wrapper `installGmailWatchAndSeedCursor`,
+ * which is the only door that also seeds the `ingestion_state` cursor — a raw
+ * call leaves the credential cursorless.
+ *
  * Rationale for not adding a dedicated `gmail_watches` table: at most one
  * watch per credential, and watch state is irrelevant outside this
  * provider — the jsonb shape keeps the schema diff to zero.
@@ -65,6 +72,12 @@ const DEFAULT_DEPS: GmailWatchDeps = {
  * replaces the existing channel, so a renewal is just another call. We
  * always re-run startWatch and overwrite the stored state — Gmail's
  * historyId from the latest call is the correct baseline.
+ *
+ * PACKAGE-INTERNAL: reachable only via `@alfred/integrations/google/internal`
+ * (the oxlint-gated friend door), never the public `./google` barrel. This is
+ * the RAW primitive — it does NOT seed the `ingestion_state` cursor. App code
+ * must go through the api wrapper `installGmailWatchAndSeedCursor`; a direct raw
+ * call leaves the credential cursorless (the item-01 round-0 bug).
  */
 export async function installGmailWatch(
   args: {

@@ -7,7 +7,6 @@ import {
   extractMessageContent,
   getFreshAccessToken,
   getMessage,
-  installGmailWatch,
   isHistoryGoneError,
   isSelfAuthored,
   labelSelfAuthoredMail,
@@ -17,6 +16,7 @@ import {
   type GmailMessage,
   type GmailWatchState,
 } from "@alfred/integrations/google";
+import { installGmailWatch } from "@alfred/integrations/google/internal";
 import { and, eq, inArray, sql } from "drizzle-orm";
 import { createHash } from "node:crypto";
 
