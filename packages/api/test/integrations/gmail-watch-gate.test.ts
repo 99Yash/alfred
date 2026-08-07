@@ -1,11 +1,8 @@
 import assert from "node:assert/strict";
 import { describe, test } from "node:test";
 
-import {
-  installGmailWatch,
-  stopGmailWatchWithAccessToken,
-  uninstallGmailWatch,
-} from "@alfred/integrations/google";
+import { stopGmailWatchWithAccessToken, uninstallGmailWatch } from "@alfred/integrations/google";
+import { installGmailWatch } from "@alfred/integrations/google/internal";
 
 describe("Gmail watch mailbox-write gate (#278)", () => {
   test("install returns before token fetch, Gmail watch, or DB writes when disabled", async () => {

@@ -149,7 +149,6 @@ export {
   findCredentialByEmail,
   findExpiringGmailWatches,
   getGmailWatchState,
-  installGmailWatch,
   stopGmailWatchWithAccessToken,
   uninstallGmailWatch,
 } from "./watch";
