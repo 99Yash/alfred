@@ -6,15 +6,18 @@ import { emitReplicachePokes } from "../../events/replicache-events";
 import { authMacro } from "../../middleware/auth";
 import { redeliverRun, signalRunInTx, type CancelOutcome, type SignalOutcome } from "../agent";
 import { cancelRunInTx } from "../agent/service";
-import { removeApprovalExpiryJob, scheduleApprovalExpiryJob } from "./expiry-queue";
-import { removeApprovalNotificationJob } from "./notification-queue";
+import {
+  removeApprovalExpiryJob,
+  removeApprovalNotificationJob,
+  scheduleApprovalExpiryJob,
+} from "../tool-runtime";
 import { startApprovalWaitSpan, type ApprovalWaitOutcome } from "../agent/runtime-spans";
 import { Errors, toMessage } from "@alfred/contracts";
 import {
   prepareWorkflowApprovalEdit,
   restageWorkflowApproval,
   type WorkflowApprovalEditPreparation,
-} from "./workflow-activation";
+} from "../workflows";
 
 type Decision = "approve" | "reject" | "cancel_run";
 

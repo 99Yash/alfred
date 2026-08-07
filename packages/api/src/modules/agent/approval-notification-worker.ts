@@ -1,85 +1,33 @@
-import { humanizeSlug, humanizeToolName, isRecord, toMessage } from "@alfred/contracts";
+/**
+ * Approval notification worker (m13 Phase 5e / ADR-0034) — worker side.
+ *
+ * When a debounced `staging-notify:<id>` job fires, re-read the row; if it is
+ * still `pending` and not yet notified, render the approval email and hand it to
+ * `delivery.send`, then stamp `notified_at` and poke Replicache. A failed send
+ * throws so BullMQ retries and the row stays `pending`.
+ *
+ * Lives in `agent/` (execution) because it imports `../delivery` (the sender);
+ * the scheduling helpers stay in `tool-runtime` (a sink), so the dispatcher can
+ * schedule the notification without forming an import cycle.
+ */
+
+import { humanizeSlug, humanizeToolName, isRecord } from "@alfred/contracts";
 import { db } from "@alfred/db";
 import { actionStagings, agentRuns } from "@alfred/db/schemas";
 import { serverEnv } from "@alfred/env/server";
 import { renderApprovalEmail, type ApprovalEmailField } from "@alfred/mailer";
 import { and, eq, sql } from "drizzle-orm";
-import { Queue, Worker, type Job } from "bullmq";
-import { z } from "zod";
+import { Worker, type Job } from "bullmq";
 import { emitReplicachePokes } from "../../events/replicache-events";
-import { createRedisConnection, isQueueEnabled } from "../../queue/connection";
+import { createRedisConnection } from "../../queue/connection";
 import { send } from "../delivery";
+import {
+  APPROVAL_NOTIFICATION_QUEUE_NAME,
+  approvalNotificationJobDataSchema,
+  type ApprovalNotificationJobData,
+} from "../tool-runtime";
 
-const APPROVAL_NOTIFICATION_QUEUE_NAME = "staging-notify";
-
-const approvalNotificationJobDataSchema = z.object({
-  stagingId: z.string().min(1),
-  userId: z.string().min(1),
-});
-export type ApprovalNotificationJobData = z.infer<typeof approvalNotificationJobDataSchema>;
-
-let _queue: Queue<ApprovalNotificationJobData> | undefined;
 let _worker: Worker<ApprovalNotificationJobData> | undefined;
-
-export function approvalNotificationJobId(stagingId: string): string {
-  // BullMQ custom job ids cannot contain `:`, so this mirrors the
-  // plan's `staging-notify:<id>` logical id with a dot separator.
-  return `staging-notify.${stagingId}`;
-}
-
-export function getApprovalNotificationQueue(): Queue<ApprovalNotificationJobData> {
-  if (_queue) return _queue;
-  _queue = new Queue<ApprovalNotificationJobData>(APPROVAL_NOTIFICATION_QUEUE_NAME, {
-    connection: createRedisConnection(),
-    defaultJobOptions: {
-      attempts: 3,
-      backoff: { type: "exponential", delay: 2_000 },
-      removeOnComplete: { count: 100, age: 60 * 60 },
-      removeOnFail: { count: 200, age: 24 * 60 * 60 },
-    },
-  });
-  return _queue;
-}
-
-export async function scheduleApprovalNotificationJob(args: {
-  stagingId: string;
-  userId: string;
-  delayMs: number;
-}): Promise<"scheduled" | "disabled" | "failed"> {
-  if (!isQueueEnabled()) return "disabled";
-  try {
-    await getApprovalNotificationQueue().add(
-      "approval.notify",
-      { stagingId: args.stagingId, userId: args.userId },
-      {
-        delay: Math.max(0, args.delayMs),
-        jobId: approvalNotificationJobId(args.stagingId),
-      },
-    );
-    return "scheduled";
-  } catch (err) {
-    console.warn(
-      "[approvals] failed to schedule approval notification",
-      args.stagingId,
-      toMessage(err),
-    );
-    return "failed";
-  }
-}
-
-export async function removeApprovalNotificationJob(stagingId: string): Promise<void> {
-  if (!isQueueEnabled()) return;
-  try {
-    const job = await getApprovalNotificationQueue().getJob(approvalNotificationJobId(stagingId));
-    await job?.remove();
-  } catch (err) {
-    console.warn(
-      "[approvals] failed to remove queued approval notification",
-      stagingId,
-      toMessage(err),
-    );
-  }
-}
 
 export interface StartApprovalNotificationWorkerOpts {
   concurrency?: number;
@@ -106,12 +54,6 @@ export async function stopApprovalNotificationWorker(): Promise<void> {
   if (!_worker) return;
   await _worker.close();
   _worker = undefined;
-}
-
-export async function closeApprovalNotificationQueue(): Promise<void> {
-  if (!_queue) return;
-  await _queue.close();
-  _queue = undefined;
 }
 
 async function processApprovalNotificationJob(

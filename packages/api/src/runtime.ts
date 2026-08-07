@@ -16,11 +16,13 @@ export {
 export {
   closeApprovalExpiryQueue,
   closeApprovalNotificationQueue,
+} from "./modules/tool-runtime/index";
+export {
   startApprovalExpiryWorker,
   startApprovalNotificationWorker,
   stopApprovalExpiryWorker,
   stopApprovalNotificationWorker,
-} from "./modules/approvals/index";
+} from "./modules/agent/index";
 export {
   ensureDefaultActionPolicyForUser,
   startPolicyBustSubscriber,
