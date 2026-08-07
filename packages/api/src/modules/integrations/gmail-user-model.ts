@@ -1,5 +1,6 @@
 import { gmailKindRefoldSkippedReasonSchema } from "@alfred/contracts";
 import { z } from "zod";
+import { TriggerConsumerBootError } from "../triggers";
 
 // Defensive process-local limits; normal Gmail identifiers and ingestion batches are far smaller.
 const identifierSchema = z.string().min(1).max(500);
@@ -70,7 +71,7 @@ export interface GmailUserModelHandler {
   sweep(request: GmailKindRefoldSweepRequest): Promise<GmailKindRefoldSweepResult>;
 }
 
-export class NoGmailUserModelHandlerRegisteredError extends Error {
+export class NoGmailUserModelHandlerRegisteredError extends TriggerConsumerBootError {
   constructor() {
     super("[integrations] no Gmail user-model handler is registered");
     this.name = "NoGmailUserModelHandlerRegisteredError";

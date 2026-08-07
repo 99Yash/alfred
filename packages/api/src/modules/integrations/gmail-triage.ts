@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { TriggerConsumerBootError } from "../triggers";
 
 // Defensive process-local limits; normal Gmail identifiers and ingestion batches are far smaller.
 const identifierSchema = z.string().min(1).max(500);
@@ -69,7 +70,7 @@ export interface GmailTriageHandler {
   relabel(request: GmailTriageRelabelRequest): Promise<GmailTriageRelabelResult>;
 }
 
-export class NoGmailTriageHandlerRegisteredError extends Error {
+export class NoGmailTriageHandlerRegisteredError extends TriggerConsumerBootError {
   constructor() {
     super("[integrations] no Gmail triage handler is registered");
     this.name = "NoGmailTriageHandlerRegisteredError";
