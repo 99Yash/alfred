@@ -1,6 +1,6 @@
 import { parseIanaTimezone, type IanaTimezone, type WorkflowTrigger } from "@alfred/contracts";
 import { CronExpressionParser } from "cron-parser";
-import { isValidTimezone } from "../briefing/preferences";
+import { isValidTimezone } from "../timezone";
 import { resolveTimezone } from "../settings";
 
 /**

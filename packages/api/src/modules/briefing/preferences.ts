@@ -1,11 +1,11 @@
-import { isIanaTimezone, type IanaTimezone } from "@alfred/contracts";
+import { type IanaTimezone } from "@alfred/contracts";
 import {
   DEFAULT_BRIEFING_DELIVERY_HOUR,
   DEFAULT_BRIEFING_EVENING_HOUR,
   DEFAULT_BRIEFING_TIMEZONE,
 } from "@alfred/contracts/briefing-constants";
 import { getPreference } from "../settings";
-import { firstValidTimezone, TIMEZONE_PREFERENCE_KEYS } from "../timezone";
+import { firstValidTimezone, isValidTimezone, TIMEZONE_PREFERENCE_KEYS } from "../timezone";
 
 /**
  * Briefing time-of-day preferences live under `user_preferences` keys
@@ -87,12 +87,3 @@ function parseDeliveryHour(value: unknown): number | null {
   if (n < 0 || n > 23) return null;
   return n;
 }
-
-/**
- * Local alias of the canonical timezone validator. The implementation lives
- * once in `@alfred/contracts` ({@link isIanaTimezone}) — memoized and
- * alias-aware (accepts "UTC"/"Etc/UTC", which a bare `Intl.DateTimeFormat`
- * trial passes but `supportedValuesOf` alone would reject). Kept under this
- * name so the briefing/workflow call sites read in domain terms.
- */
-export const isValidTimezone = isIanaTimezone;
