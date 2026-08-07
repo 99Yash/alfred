@@ -1,7 +1,7 @@
 import { publishEvent } from "../../events/publish";
 import { resolveFeatureFlags, resolveTimezone } from "../settings";
 import { findActiveSenderSuppression, getSenderSignificance } from "../knowledge";
-import { suggestTodo } from "../todos/suggest";
+import { suggestTodo } from "../todos";
 import {
   classifyEmail,
   DEFAULT_TRIAGE_CATEGORY,

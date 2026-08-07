@@ -161,3 +161,18 @@ export { scheduleRepeatableMemoryJobs } from "./repeatable";
 // Product recipe owned by the knowledge module; the composition root builds it
 // with the injected Gmail sender adapter (ADR-0089) and registers the result.
 export { buildMemoryExtractionWorkflow } from "./memory-extraction";
+
+/**
+ * ── memory acquisition sub-areas folded into knowledge (item 07) ─────────────
+ *
+ * `cold-start/` and `drift-audit/` were standalone modules; both are knowledge
+ * activities (turning web findings into user_facts/memory chunks; auditing the
+ * user-model substrate for drift) so they fold in here. Their whole former index
+ * surface is re-exported wholesale so `@alfred/api/backend` — which used to carry
+ * a `export *` from each module directly — surfaces the exact same symbols now
+ * through the single `knowledge` barrel. `web-search` (the grounded-Gemini live
+ * search) moves in alongside its now-primary consumer, cold-start research.
+ */
+export * from "./cold-start";
+export * from "./drift-audit";
+export { runWebSearch, type WebSearchArgs, type WebSearchResult } from "./web-search";

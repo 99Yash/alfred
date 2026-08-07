@@ -122,13 +122,8 @@ export {
   type ChatMemoryJobData,
 } from "./modules/conversations";
 
-export * from "./modules/drift-audit/index";
 export * from "./modules/triage/index";
-export {
-  suggestTodo,
-  type SuggestTodoInput,
-  type SuggestTodoResult,
-} from "./modules/todos/suggest";
+export { suggestTodo, type SuggestTodoInput, type SuggestTodoResult } from "./modules/todos";
 export * from "./modules/connections/mcp/index";
 
 export {
@@ -204,7 +199,6 @@ export {
   type SuppressedCategory,
 } from "./modules/briefing/index";
 
-export * from "./modules/cold-start/index";
 export * from "./modules/delivery/index";
 export * from "./modules/timezone/index";
 export {
