@@ -8,7 +8,7 @@ import { Queue, Worker, type Job } from "bullmq";
 import { z } from "zod";
 import { emitReplicachePokes } from "../../events/replicache-events";
 import { createRedisConnection, isQueueEnabled } from "../../queue/connection";
-import { notify } from "../notifications";
+import { send } from "../delivery";
 
 const APPROVAL_NOTIFICATION_QUEUE_NAME = "staging-notify";
 
@@ -155,7 +155,7 @@ async function processApprovalNotificationJob(
     approvalUrl,
   });
 
-  const result = await notify({
+  const result = await send({
     userId: row.userId,
     kind: "approval",
     idempotencyKey: `approval:${stagingId}`,

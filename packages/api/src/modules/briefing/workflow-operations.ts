@@ -11,7 +11,7 @@ import {
   markBriefingSent,
   markBriefingSuppressed,
 } from "./store";
-import { notify } from "../notifications/index";
+import { send } from "../delivery";
 import type { StepContext, StepResult } from "../agent/index";
 import { parseIanaTimezone, type BriefingGather } from "@alfred/contracts";
 import { db } from "@alfred/db";
@@ -382,7 +382,7 @@ export async function runDailyBriefingSend<State extends DailyBriefingOperationS
     ctaLabel: "View full briefing",
   });
 
-  const result = await notify({
+  const result = await send({
     userId: ctx.userId,
     kind: ctx.state.slot === "morning" ? "briefing" : "evening_recap",
     idempotencyKey,
