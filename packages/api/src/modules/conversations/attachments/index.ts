@@ -23,9 +23,9 @@ export {
   writeObject,
 } from "./storage";
 export { lockChatStorageKeys } from "./storage-coordination";
-// Media attachment enrichment cost/representation helpers. `agent`
-// (`chat-history-retrieval`) and `conversations` (`compaction`) read these
-// through this seam; the enrichment implementation stays private in `chat`.
+// Media attachment enrichment cost/representation helpers. `conversations`
+// (`chat-history-retrieval` and `compaction`) read these through this seam;
+// the enrichment implementation stays private to this `attachments` folder.
 export {
   CHAT_ATTACHMENT_REPRESENTATION_VERSION,
   chatAttachmentRepresentationSchema,
