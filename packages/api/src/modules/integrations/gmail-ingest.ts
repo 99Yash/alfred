@@ -69,6 +69,13 @@ export interface IngestRecentResult {
   /** Document ids that were freshly inserted this run (skipped/conflict rows excluded). */
   insertedDocumentIds: string[];
   /**
+   * Freshly-inserted docs the caller still needs to embed. This is the owner of
+   * the embed-policy fact: `[]` here because this bulk path embeds every insert
+   * inline (see the `indexDocument` call in the loop), so nothing is left for the
+   * corpus consumer.
+   */
+  unembeddedDocumentIds: string[];
+  /**
    * Subset of `insertedDocumentIds` eligible for triage — sent mail excluded
    * (ADR-0051 #7: sent docs are ingested + embedded but never triaged/labeled).
    * Embed/index over `insertedDocumentIds`; fan triage over this.
@@ -185,6 +192,8 @@ export async function ingestRecentGmail(args: IngestRecentArgs): Promise<IngestR
     embedFailures,
     highWaterHistoryId,
     insertedDocumentIds,
+    // Inline embed above already covered every insert — nothing deferred.
+    unembeddedDocumentIds: [],
     triageDocumentIds,
     sentDocumentIds,
     touchedThreadIds: Array.from(touchedThreadIds),
@@ -539,6 +548,12 @@ export interface PollHistoryResult {
   fullResync: boolean;
   /** Document ids that were freshly inserted this run. */
   insertedDocumentIds: string[];
+  /**
+   * Freshly-inserted docs the caller still needs to embed. `[]` on the main
+   * history-poll path (it embeds inline); the cursorless / history-gone
+   * fallbacks delegate to `ingestRecentGmail` and forward its value.
+   */
+  unembeddedDocumentIds: string[];
   /** Non-sent subset of `insertedDocumentIds` — the ids the caller fans triage runs over. */
   triageDocumentIds: string[];
   /**
@@ -591,6 +606,8 @@ export async function pollGmailHistory(args: PollHistoryArgs): Promise<PollHisto
       cursorAfter: recent.highWaterHistoryId,
       fullResync: true,
       insertedDocumentIds: recent.insertedDocumentIds,
+      // Fallback delegates to ingestRecentGmail, its true owner — forward, don't re-derive.
+      unembeddedDocumentIds: recent.unembeddedDocumentIds,
       triageDocumentIds: recent.triageDocumentIds,
       sentDocumentIds: recent.sentDocumentIds,
       touchedThreadIds: recent.touchedThreadIds,
@@ -650,6 +667,8 @@ export async function pollGmailHistory(args: PollHistoryArgs): Promise<PollHisto
         cursorAfter: recent.highWaterHistoryId,
         fullResync: true,
         insertedDocumentIds: recent.insertedDocumentIds,
+        // Fallback delegates to ingestRecentGmail, its true owner — forward, don't re-derive.
+        unembeddedDocumentIds: recent.unembeddedDocumentIds,
         triageDocumentIds: recent.triageDocumentIds,
         sentDocumentIds: recent.sentDocumentIds,
         touchedThreadIds: recent.touchedThreadIds,
@@ -724,6 +743,8 @@ export async function pollGmailHistory(args: PollHistoryArgs): Promise<PollHisto
     cursorAfter: latestHistoryId,
     fullResync: false,
     insertedDocumentIds,
+    // Main history-poll path embeds inline — nothing deferred.
+    unembeddedDocumentIds: [],
     triageDocumentIds,
     sentDocumentIds,
     touchedThreadIds: Array.from(touchedThreadIds),
@@ -762,6 +783,13 @@ export interface PollRecentResult {
   cursorBefore: string | null;
   cursorAfter: string | null;
   insertedDocumentIds: string[];
+  /**
+   * Freshly-inserted docs the caller still needs to embed. This realtime path
+   * is the ONLY deferred-embed path (it returns before embedding to keep Voyage
+   * latency off the tag-latency budget — ADR-0037), so this equals exactly the
+   * freshly-inserted ids: `insertedDocumentIds`, never the observed-SENT rows.
+   */
+  unembeddedDocumentIds: string[];
   /** Non-sent subset of `insertedDocumentIds` — the ids the caller fans triage runs over. */
   triageDocumentIds: string[];
   /**
@@ -908,6 +936,8 @@ export async function pollGmailRecent(args: PollRecentArgs): Promise<PollRecentR
     cursorBefore,
     cursorAfter: highWaterHistoryId,
     insertedDocumentIds,
+    // Deferred embed: hand the corpus consumer exactly the freshly-inserted ids.
+    unembeddedDocumentIds: insertedDocumentIds,
     triageDocumentIds,
     sentDocumentIds,
     touchedThreadIds: Array.from(touchedThreadIds),
