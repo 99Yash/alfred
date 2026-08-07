@@ -45,6 +45,8 @@ type GmailInsertJobKind = GmailDocumentsIngestedPayload["jobKind"];
 interface GmailInsertResult {
   userId: string;
   insertedDocumentIds: string[];
+  /** Freshly-inserted docs the ingestor did NOT embed inline — the ingestor owns this fact. */
+  unembeddedDocumentIds: readonly string[];
   triageDocumentIds: string[];
   sentDocumentIds: string[];
   touchedThreadIds: string[];
@@ -70,17 +72,16 @@ export function hasGmailPostInsertSideEffects(args: {
  * post-insert — subscribe through composition (`gmail-ingested-consumers.ts`)
  * and each owns its own policy over these document sets.
  *
- * `unembeddedDocumentIds` is the docs still needing an embed: the realtime
- * inserts on `poll_recent`, and `[]` on the bulk/catch-up paths, which embed
- * inline inside the ingestor. This keeps the corpus consumer a single-embed
- * reaction without leaking a path flag.
+ * `result.unembeddedDocumentIds` (the docs the corpus consumer must embed) is
+ * decided by the ingestor at the point where the inline embed happens or is
+ * deferred, so this publisher forwards it uniformly and holds no embed-policy
+ * knowledge of its own.
  */
 async function publishGmailDocumentsIngested(args: {
   credentialId: string;
   jobKind: GmailInsertJobKind;
   triageInsertedDocs?: boolean | undefined;
   fullResync?: boolean | undefined;
-  unembeddedDocumentIds: readonly string[];
   result: GmailInsertResult;
 }): Promise<void> {
   await publishDomainEvent({
@@ -99,7 +100,7 @@ async function publishGmailDocumentsIngested(args: {
       triageDocumentIds: args.result.triageDocumentIds,
       sentDocumentIds: args.result.sentDocumentIds,
       touchedThreadIds: args.result.touchedThreadIds,
-      unembeddedDocumentIds: [...args.unembeddedDocumentIds],
+      unembeddedDocumentIds: [...args.result.unembeddedDocumentIds],
     },
   });
 }
@@ -358,13 +359,11 @@ async function processIngestionJobData(data: IngestionJobData): Promise<unknown>
       );
       if (hasGmailPostInsertSideEffects(result)) {
         // Publish the batch fact; the composition-registered consumers react.
-        // Bulk seeds embed inline in the ingestor (sent mail included), so no
-        // docs are left for the corpus consumer to embed here.
+        // The ingestor set `result.unembeddedDocumentIds`; this publisher forwards it.
         await publishGmailDocumentsIngested({
           credentialId: data.credentialId,
           jobKind: data.kind,
           triageInsertedDocs: data.triageInsertedDocs,
-          unembeddedDocumentIds: [],
           result,
         });
       }
@@ -384,14 +383,9 @@ async function processIngestionJobData(data: IngestionJobData): Promise<unknown>
           `ignored=${result.ignored} errors=${result.errors} cursor=${result.cursorBefore ?? "?"}->${result.cursorAfter ?? "?"}`,
       );
       if (hasGmailPostInsertSideEffects(result)) {
-        // Realtime is the only path with a deferred embed: the ingestor returns
-        // before embedding to keep Voyage latency off the tag-latency budget
-        // (ADR-0037), so the corpus consumer embeds ALL inserts (sent mail is
-        // embedded for chat recall but never triaged — ADR-0051 #7).
         await publishGmailDocumentsIngested({
           credentialId: data.credentialId,
           jobKind: data.kind,
-          unembeddedDocumentIds: result.insertedDocumentIds,
           result,
         });
       }
@@ -406,16 +400,14 @@ async function processIngestionJobData(data: IngestionJobData): Promise<unknown>
           `cursor=${result.cursorBefore ?? "?"}->${result.cursorAfter ?? "?"}`,
       );
       // Catch-up path (ADR-0037): the realtime `gmail.poll_recent` job covers
-      // the steady state; anything it misses shows up here. This path embeds
-      // inline in the ingestor, so no docs are left for the corpus consumer.
-      // The batch fact carries `fullResync` so the triage consumer skips
-      // back-catalog triage while still running bounded thread repairs.
+      // the steady state; anything it misses shows up here. The batch fact
+      // carries `fullResync` so the triage consumer skips back-catalog triage
+      // while still running bounded thread repairs.
       if (hasGmailPostInsertSideEffects(result)) {
         await publishGmailDocumentsIngested({
           credentialId: data.credentialId,
           jobKind: data.kind,
           fullResync: result.fullResync,
-          unembeddedDocumentIds: [],
           result,
         });
       }
