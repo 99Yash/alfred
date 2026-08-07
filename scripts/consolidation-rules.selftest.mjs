@@ -11,7 +11,7 @@
 // Only add a fixture when the answer is load-bearing: a false positive would
 // block a build and a false negative would let a real bug through.
 
-import { matchChains } from "./consolidation-rules.mjs";
+import { matchChains, matchLine } from "./consolidation-rules.mjs";
 
 /** A source file the rule is not exempt in. */
 const FILE = "packages/api/src/modules/agent/executor.ts";
@@ -123,6 +123,38 @@ async function markRunFailed(runId: string, error: string): Promise<void> {
   },
 ];
 
+// Line-scope fixtures. `boot-error-plain-extends` is a per-line rule, so it is
+// invisible to `matchChains` (which only runs `scope: "chain"` rules) — the
+// self-test would silently never watch it fire. `selfTestFailures` runs these
+// through `matchLine`, the same door `pnpm check` uses for line rules.
+
+/** A source file the line rules are not exempt in. */
+const LINE_FILE = "packages/api/src/modules/integrations/chat-media.ts";
+
+/** @type {{name: string, caught: boolean, code: string}[]} */
+const LINE_CASES = [
+  {
+    name: "boot-error-plain-extends — a No…RegisteredError left on plain Error",
+    caught: true,
+    code: `export class NoFooHandlerRegisteredError extends Error {`,
+  },
+  {
+    name: "already a TriggerConsumerBootError member — the intended form",
+    caught: false,
+    code: `export class NoFooHandlerRegisteredError extends TriggerConsumerBootError {`,
+  },
+  {
+    name: "the base class itself never self-matches",
+    caught: false,
+    code: `export abstract class TriggerConsumerBootError extends Error {`,
+  },
+  {
+    name: "an unrelated *NotFound* error extending Error is not a registry boot error",
+    caught: false,
+    code: `export class GoogleCredentialNotFoundError extends Error {`,
+  },
+];
+
 /** @returns {string[]} One message per failed fixture; empty when all pass. */
 export function selfTestFailures() {
   const failures = [];
@@ -133,6 +165,16 @@ export function selfTestFailures() {
         caught
           ? `missed a case it must catch: ${name}`
           : `flagged a case it must ignore: ${name} (matched line ${hits[0].line})`,
+      );
+    }
+  }
+  for (const { name, caught, code } of LINE_CASES) {
+    const hits = code.split("\n").flatMap((line) => matchLine(line, LINE_FILE, "gate"));
+    if (hits.length > 0 !== caught) {
+      failures.push(
+        caught
+          ? `missed a case it must catch: ${name}`
+          : `flagged a case it must ignore: ${name} (${hits[0].id})`,
       );
     }
   }

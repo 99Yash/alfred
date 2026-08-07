@@ -12,6 +12,7 @@ import {
   type ChatMediaHandler,
 } from "../../src/modules/integrations/chat-media";
 import { enqueueChatAttachmentEnrichmentWith } from "../../src/modules/integrations/queue";
+import { TriggerConsumerBootError } from "../../src/modules/triggers";
 
 const enrichmentRequest = {
   userId: "user-1",
@@ -124,6 +125,14 @@ describe("chat media composition seam", () => {
       () => enrichChatMedia(enrichmentRequest),
       NoChatMediaHandlerRegisteredError,
     );
+  });
+
+  // Backstop for the boot-error-plain-extends gate: if the seam ever reaches this
+  // registry's not-registered error from a best-effort consumer, membership in
+  // TriggerConsumerBootError is what makes it reject the publish rather than be
+  // swallowed. Catches a revert to `extends Error` even if the static gate were removed.
+  test("its not-registered error is a TriggerConsumerBootError", () => {
+    assert.ok(new NoChatMediaHandlerRegisteredError() instanceof TriggerConsumerBootError);
   });
 
   test("queue transport cannot bypass claim and records enqueue failure", async () => {
