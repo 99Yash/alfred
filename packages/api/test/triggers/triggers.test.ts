@@ -94,6 +94,55 @@ describe("triggers", () => {
     }
   });
 
+  test("validates the gmail.documents_ingested batch payload by type", () => {
+    const batch = {
+      userId: "user-1",
+      source: "gmail" as const,
+      type: "documents_ingested" as const,
+      eventId: "batch-1",
+      payload: {
+        credentialId: "credential-1",
+        jobKind: "gmail.poll_recent",
+        insertedDocumentIds: ["doc-1"],
+        triageDocumentIds: ["doc-1"],
+        sentDocumentIds: [],
+        touchedThreadIds: ["thread-1"],
+        unembeddedDocumentIds: ["doc-1"],
+      },
+    };
+
+    assert.equal(domainEventSchema.safeParse(batch).success, true);
+    // Strict: an unknown key is rejected at the publish boundary.
+    assert.equal(
+      domainEventSchema.safeParse({ ...batch, payload: { ...batch.payload, extra: true } }).success,
+      false,
+    );
+    // A missing required array is rejected.
+    const { unembeddedDocumentIds: _omit, ...withoutUnembedded } = batch.payload;
+    assert.equal(
+      domainEventSchema.safeParse({ ...batch, payload: withoutUnembedded }).success,
+      false,
+    );
+    // An unknown jobKind is rejected.
+    assert.equal(
+      domainEventSchema.safeParse({
+        ...batch,
+        payload: { ...batch.payload, jobKind: "gmail.made_up" },
+      }).success,
+      false,
+    );
+    // The schema is chosen by `type`: the message payload does not satisfy the
+    // batch type, and the batch payload does not satisfy `message_received`.
+    assert.equal(
+      domainEventSchema.safeParse({ ...batch, payload: { documentId: "doc-1" } }).success,
+      false,
+    );
+    assert.equal(
+      domainEventSchema.safeParse({ ...event, type: "documents_ingested" }).success,
+      false,
+    );
+  });
+
   test("counts a consumer that returns a domain failure as accepted", async () => {
     const unregister = registerTriggerConsumer({
       name: "triggers-test-domain-failure",

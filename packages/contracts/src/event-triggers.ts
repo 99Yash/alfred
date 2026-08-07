@@ -3,7 +3,7 @@ import { enumGuard } from "./guards";
 export const EVENT_SOURCES = ["gmail", "google.oauth.callback", "learn-skill"] as const;
 export type EventSource = (typeof EVENT_SOURCES)[number];
 
-export const GMAIL_EVENT_TYPES = ["message_received"] as const;
+export const GMAIL_EVENT_TYPES = ["message_received", "documents_ingested"] as const;
 export const GOOGLE_OAUTH_CALLBACK_EVENT_TYPES = ["completed"] as const;
 export const LEARN_SKILL_EVENT_TYPES = ["completed"] as const;
 
