@@ -8,11 +8,13 @@ import { documents, memoryChunks, user } from "@alfred/db/schemas";
 import { recordDocumentEmbedFailure, findUnembeddedDocumentIds } from "@alfred/corpus";
 import { eq, inArray, like } from "drizzle-orm";
 
+// Internal-by-intent chunk-embed helpers dropped from the `knowledge` barrel
+// (item 15) — read from their owning file directly.
 import {
   findPendingEmbedChunks,
   pendingEmbedChunkIds,
   recordMemoryEmbedFailure,
-} from "../../src/modules/knowledge";
+} from "../../src/modules/knowledge/chunks";
 
 /**
  * DB-backed test for the embedding poison-pill guard on both `memory_chunks`
