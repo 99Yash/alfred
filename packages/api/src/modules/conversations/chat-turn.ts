@@ -6,6 +6,7 @@ import {
   type ChatModelTier,
   type ModelMessage,
 } from "@alfred/ai";
+import { composeAgentInstructions } from "@alfred/ai/voice";
 import { ARTIFACT_DESIGN_PROMPT, ARTIFACT_DOCUMENT_DESIGN_PROMPT } from "@alfred/artifacts-design";
 import {
   artifactFormatSchema,
@@ -30,7 +31,6 @@ import {
   appendModelResponseMessages,
   buildConnectedSummaryFromAvailability,
   CHAT_TURN_CAP_MAX,
-  composeAgentInstructions,
   formatRuntimeTimeGrounding,
   openChatTurnRetries,
   resetChatTurnRetryBudgets,

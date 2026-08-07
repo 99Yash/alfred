@@ -41,7 +41,7 @@ import { writeScratch } from "../../scratchpad";
 import { readIntegrationAvailability } from "../../connections";
 import { buildConnectedSummaryFromAvailability } from "../connected-summary";
 import { formatDateGrounding } from "../grounding";
-import { composeAgentInstructions } from "../instructions";
+import { composeAgentInstructions } from "@alfred/ai/voice";
 import { resolveTimezone } from "../../settings";
 import {
   foldToolSurfaceState,

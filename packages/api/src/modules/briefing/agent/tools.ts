@@ -7,7 +7,7 @@ import {
   type EmailReadResult,
   type PriorBriefingSummary,
 } from "../read";
-import { sanitizeVoice } from "../../agent/voice-sanitize";
+import { sanitizeVoice } from "@alfred/ai/voice";
 import { tool, type ToolSet } from "@alfred/ai";
 import type { CalendarContribution, DayShape, IanaTimezone } from "@alfred/contracts";
 import type { LocalDateKey } from "../../timezone";

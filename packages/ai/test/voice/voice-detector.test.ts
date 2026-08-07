@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { describe, test } from "node:test";
 
-import { detectAiTells, summarizeTells } from "../../src/modules/agent/voice-detector";
+import { detectAiTells, summarizeTells } from "../../src/voice/voice-detector";
 
 /**
  * Locks the machine-checkable slice of DEFAULT_VOICE_PROMPT: every rule must

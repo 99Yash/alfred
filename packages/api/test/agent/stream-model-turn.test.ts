@@ -4,7 +4,7 @@ import { describe, test } from "node:test";
 import type { ToolName } from "@alfred/contracts";
 
 import type { publishEvent } from "../../src/events/publish";
-import { sanitizeVoice } from "../../src/modules/agent/voice-sanitize";
+import { sanitizeVoice } from "@alfred/ai/voice";
 import {
   streamModelTurn,
   type StreamTurnState,
