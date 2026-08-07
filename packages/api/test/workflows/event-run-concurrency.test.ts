@@ -309,8 +309,12 @@ describe("event-dispatch duplicate-run guard (#531)", { skip: SKIP }, () => {
 
     const [a, b] = await Promise.all([dispatch(), dispatch()]);
 
-    assert.deepEqual(a, { acceptedConsumers: 1 });
-    assert.deepEqual(b, { acceptedConsumers: 1 });
+    // Composition registers five consumers: `workflow-event-trigger` plus the
+    // four `gmail.documents_ingested` batch consumers, which no-op on this
+    // `message_received` event but still accept it. The duplicate-run guard is
+    // the run count below, not the consumer count.
+    assert.deepEqual(a, { acceptedConsumers: 5 });
+    assert.deepEqual(b, { acceptedConsumers: 5 });
     assert.equal(await countActiveEventRuns(userId, eventId), 1);
   });
 

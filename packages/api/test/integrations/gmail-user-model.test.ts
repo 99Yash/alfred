@@ -14,10 +14,8 @@ import {
 } from "../../src/modules/integrations/gmail-user-model";
 import { createGmailUserModelHandler } from "../../src/composition/gmail-user-model";
 import type { GmailDocumentForReduction } from "../../src/modules/knowledge";
-import {
-  runGmailKindRefoldJob,
-  runGmailObservationCapture,
-} from "../../src/modules/integrations/queue";
+import { runGmailKindRefoldJob } from "../../src/modules/integrations/queue";
+import { runGmailObservationCapture } from "../../src/composition/gmail-ingested-consumers";
 
 const captureRequest = {
   userId: "user-1",
