@@ -1,6 +1,6 @@
 import { tool, type ToolSet } from "@alfred/ai";
 import { z } from "zod";
-import { runWebSearch } from "../tools/web-search";
+import { runWebSearch } from "../web-search";
 
 /**
  * A local `web_search` tool for cold-start's bounded agent loops (seed +
