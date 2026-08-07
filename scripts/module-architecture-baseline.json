@@ -159,7 +159,6 @@
         "packages/api/src/modules/me/routes.ts:../briefing/preferences",
         "packages/api/src/modules/me/routes.ts:../briefing/queue",
         "packages/api/src/modules/me/routes.ts:../triage/sent-mail",
-        "packages/api/src/modules/replicache/entities.ts:../agent/registry",
         "packages/api/src/modules/replicache/push.ts:../integrations/queue",
         "packages/api/src/modules/replicache/push.ts:../triage/tags",
         "packages/api/src/modules/tools/drive.ts:../artifacts/external-file",
@@ -167,13 +166,9 @@
         "packages/api/src/modules/tools/system.ts:../artifacts/write",
         "packages/api/src/modules/tools/system.ts:../todos/resolve",
         "packages/api/src/modules/tools/system.ts:../todos/suggest",
-        "packages/api/src/modules/triage/store.ts:../agent/decision-traces",
         "packages/api/src/modules/triage/tags.ts:../integrations/queue",
         "packages/api/src/modules/triage/workflow-operations.ts:../todos/suggest",
-        "packages/api/src/modules/workflows/events.ts:../agent/service",
-        "packages/api/src/modules/workflows/gmail-event-readiness.ts:../integrations/gmail-push-config",
-        "packages/api/src/modules/workflows/seeder.ts:../agent/registry",
-        "packages/api/src/modules/workflows/tick.ts:../agent/service"
+        "packages/api/src/modules/workflows/gmail-event-readiness.ts:../integrations/gmail-push-config"
       ]
     },
     "webFeatureImports": {

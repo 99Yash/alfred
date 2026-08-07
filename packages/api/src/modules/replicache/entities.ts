@@ -94,7 +94,7 @@ import {
   or,
 } from "drizzle-orm";
 import { ZodError } from "zod";
-import { isInternalWorkflowSlug } from "../agent/registry";
+import { isInternalWorkflowSlug } from "../agent";
 import { isUninformativeRelationshipFact } from "../knowledge";
 
 /**
