@@ -1,23 +1,33 @@
-import { isRecord, mapConcurrent, parseEmailAddress, toMessage } from "@alfred/contracts";
+import { isRecord, mapConcurrent, toMessage } from "@alfred/contracts";
+import { indexDocument } from "@alfred/corpus";
 import { db } from "@alfred/db";
 import { documents, ingestionState, integrationCredentials } from "@alfred/db/schemas";
-import { gmailMailboxWritesEnabled, serverEnv } from "@alfred/env/server";
-import { indexDocument } from "@alfred/corpus";
-import { and, eq, inArray, sql } from "drizzle-orm";
-import { createHash } from "node:crypto";
-import { getFreshAccessToken } from "./credentials";
+import { gmailMailboxWritesEnabled } from "@alfred/env/server";
 import {
   extractMessageContent,
+  getFreshAccessToken,
   getMessage,
+  installGmailWatch,
   isHistoryGoneError,
+  isSelfAuthored,
+  labelSelfAuthoredMail,
   listHistory,
   listMessages,
   type GmailHistoryEntry,
   type GmailMessage,
-} from "./gmail";
-import { labelSelfAuthoredMail } from "./labels";
+  type GmailWatchState,
+} from "@alfred/integrations/google";
+import { and, eq, inArray, sql } from "drizzle-orm";
+import { createHash } from "node:crypto";
 
 /**
+ * Gmail ingestion orchestration. Relocated out of `@alfred/integrations`
+ * (`google/ingestor.ts`) so the provider package stays provider-only: it now
+ * exposes only fetch/normalize/OAuth/watch/label primitives, and this api-layer
+ * consumer owns the ingestion-domain writes — the `documents` + `ingestion_state`
+ * rows and the `@alfred/corpus` index. Behavior is byte-identical to the former
+ * provider-resident code; only the home changed.
+ *
  * One-shot ingestion of recent Gmail messages for a credential.
  *
  * m7a deliberately skips chunking and embedding — we just want to prove
@@ -223,35 +233,9 @@ type PersistMessageResult =
   // becomes a `documents` row, so there is nothing to embed, triage, or address
   // downstream (issue #211). Distinct from `skipped` (a dedupe no-op) in intent,
   // but callers handle it identically: the non-`inserted` branch counts it and
-  // does nothing else.
+  // does nothing else. The `isSelfAuthored` guard is a pure identity helper that
+  // stays in the provider package (`@alfred/integrations/google`).
   | { outcome: "ignored" };
-
-/**
- * Alfred's own send identity, parsed from `RESEND_FROM_EMAIL` (e.g.
- * `"Alfred <hey@alfred.beauty>"`) — the single source of truth shared with
- * `@alfred/mailer`. Lazily resolved + cached for the process.
- */
-let _selfSenderEmail: string | null | undefined;
-export function selfSenderEmail(): string | null {
-  if (_selfSenderEmail === undefined) {
-    _selfSenderEmail = parseEmailAddress(serverEnv().RESEND_FROM_EMAIL);
-  }
-  return _selfSenderEmail;
-}
-
-/**
- * True when a message was sent by Alfred itself (briefing / approval mail,
- * `From` = `RESEND_FROM_EMAIL`). Alfred's outbound re-enters the connected
- * inbox as ordinary *inbound* mail — it carries no Gmail `SENT` label, so the
- * `isSent` guard never catches it. Left un-filtered it gets ingested, triaged
- * into the demanding lanes, and re-fed into the next briefing: a self-
- * amplifying loop (issue #211). Self-mail carries no signal Alfred didn't
- * itself author, so we drop it before it becomes a `documents` row.
- */
-export function isSelfAuthored(from: string | null): boolean {
-  const self = selfSenderEmail();
-  return self !== null && parseEmailAddress(from) === self;
-}
 
 async function persistMessage(
   cred: CredentialContext,
@@ -441,6 +425,81 @@ async function upsertIngestionState(args: UpsertIngestionStateArgs): Promise<voi
         updatedAt: now,
       },
     });
+}
+
+/**
+ * Seed the rolling Gmail history cursor for a credential when no cursor row
+ * exists yet. Relocated from the provider package's `watch.ts` so the provider
+ * no longer writes `ingestion_state`: `installGmailWatch` returns its watch
+ * state and this consumer seeds the cursor. A renewal must NOT reset an existing
+ * cursor — that would skip everything between the last poll and now — so the
+ * seed is guarded by an existence check plus `onConflictDoNothing`.
+ */
+export async function seedGmailHistoryCursorIfAbsent(args: {
+  credentialId: string;
+  historyId: string;
+}): Promise<void> {
+  const existing = await db()
+    .select({ id: ingestionState.id })
+    .from(ingestionState)
+    .where(
+      and(
+        eq(ingestionState.credentialId, args.credentialId),
+        eq(ingestionState.stream, "messages"),
+      ),
+    );
+  if (existing[0]) return;
+
+  // No prior cursor → seed one. Look up userId from the credential row;
+  // we need it for the not-null FK.
+  const credRow = (
+    await db()
+      .select({ userId: integrationCredentials.userId })
+      .from(integrationCredentials)
+      .where(eq(integrationCredentials.id, args.credentialId))
+  )[0];
+  if (!credRow) {
+    throw new Error(`[gmail.ingest] credential vanished mid-install: ${args.credentialId}`);
+  }
+  await db()
+    .insert(ingestionState)
+    .values({
+      credentialId: args.credentialId,
+      userId: credRow.userId,
+      provider: "google",
+      stream: "messages",
+      state: { historyId: args.historyId },
+      lastSyncAt: null,
+      lastFullSyncAt: null,
+    })
+    .onConflictDoNothing({
+      target: [ingestionState.credentialId, ingestionState.stream],
+    });
+}
+
+/**
+ * Install (or renew) a Gmail watch channel, then seed the rolling history
+ * cursor when the channel actually installed. The single app entry point for
+ * watch installation: the provider `installGmailWatch` no longer seeds the
+ * cursor (it is a provider-only package now), so every install site MUST route
+ * through this wrapper — otherwise a freshly-watched credential gets no cursor
+ * and `pollGmailHistory` falls into a perpetual full re-sync. A `null` state
+ * (mailbox writes disabled, #278) means no watch was registered, so there is
+ * nothing to seed.
+ */
+export async function installGmailWatchAndSeedCursor(args: {
+  credentialId: string;
+  topicName: string;
+  labelIds?: string[] | undefined;
+}): Promise<GmailWatchState | null> {
+  const state = await installGmailWatch(args);
+  if (state) {
+    await seedGmailHistoryCursorIfAbsent({
+      credentialId: args.credentialId,
+      historyId: state.baselineHistoryId,
+    });
+  }
+  return state;
 }
 
 // ---------------------------------------------------------------------------
@@ -951,25 +1010,4 @@ export async function findCredentialsNeedingPoll(
     .filter((r) => r.status === "active")
     .filter((r) => !r.lastSyncAt || r.lastSyncAt < before)
     .map((r) => ({ credentialId: r.credentialId, userId: r.userId }));
-}
-
-/** Re-export so callers can find existing credentials before kicking off an ingest. */
-export async function listGoogleCredentials(userId: string): Promise<CredentialContext[]> {
-  const { integrationCredentials } = await import("@alfred/db/schemas");
-  const rows = await db()
-    .select({
-      id: integrationCredentials.id,
-      userId: integrationCredentials.userId,
-      accountId: integrationCredentials.accountId,
-      provider: integrationCredentials.provider,
-    })
-    .from(integrationCredentials)
-    .where(
-      and(eq(integrationCredentials.userId, userId), eq(integrationCredentials.provider, "google")),
-    );
-  return rows.map((r) => ({
-    credentialId: r.id,
-    userId: r.userId,
-    accountId: r.accountId,
-  }));
 }

@@ -5,6 +5,7 @@
     ".": "./src/index.ts",
     "./backend": "./src/backend.ts",
     "./runtime": "./src/runtime.ts",
+    "./modules/integrations/gmail-ingest": "./src/modules/integrations/gmail-ingest.ts",
     "./modules/triage/classify": "./src/modules/triage/classify.ts",
     "./modules/triage/gmail-reconcile": "./src/modules/triage/gmail-reconcile.ts",
     "./modules/triage/observations": "./src/modules/triage/observations.ts",

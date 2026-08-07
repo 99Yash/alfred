@@ -8,7 +8,6 @@ import {
   getGmailWatchState,
   GOOGLE_FEATURE_SCOPES,
   type GoogleFeature,
-  installGmailWatch,
   scopesForFeatures,
   uninstallGmailWatch,
 } from "@alfred/integrations/google";
@@ -18,6 +17,7 @@ import { and, eq } from "drizzle-orm";
 import { authMacro } from "../../middleware/auth";
 import { publishDomainEvent } from "../triggers";
 import { getIngestionQueue } from "./queue";
+import { installGmailWatchAndSeedCursor } from "./gmail-ingest";
 import {
   disconnectGoogleCredentialConnection,
   GoogleCredentialNotFoundError,
@@ -243,7 +243,10 @@ export const googleIntegrationRoutes = new Elysia({
             }
             throw err;
           }
-          const state = await installGmailWatch({ credentialId: params.id, topicName: topic });
+          const state = await installGmailWatchAndSeedCursor({
+            credentialId: params.id,
+            topicName: topic,
+          });
           if (!state) {
             // #278: non-prod mailbox-write gate is off — be explicit rather than
             // returning a null watch the client would read as "installed".

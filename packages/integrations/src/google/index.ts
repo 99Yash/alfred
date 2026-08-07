@@ -65,23 +65,6 @@ export {
   stopWatch,
 } from "./gmail";
 export type {
-  IngestRecentArgs,
-  IngestRecentResult,
-  PollHistoryArgs,
-  PollHistoryResult,
-  PollRecentArgs,
-  PollRecentResult,
-} from "./ingestor";
-export {
-  findCredentialsNeedingPoll,
-  ingestRecentGmail,
-  isSelfAuthored,
-  listGoogleCredentials,
-  pollGmailHistory,
-  pollGmailRecent,
-  selfSenderEmail,
-} from "./ingestor";
-export type {
   AlfredLabelMap,
   ApplyTriageLabelArgs,
   ApplyTriageLabelResult,
@@ -129,6 +112,7 @@ export {
 } from "./oauth";
 export { GOOGLE_PASSTHROUGH_BASE_URLS, googlePassthroughProfile } from "./passthrough";
 export { featuresFromGrantedScopes, MissingScopesError, requireScopes } from "./scopes";
+export { isSelfAuthored, selfSenderEmail } from "./self-mail";
 export type {
   AppendValuesArgs,
   AppendValuesResult,
