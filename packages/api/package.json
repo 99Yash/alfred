@@ -10,6 +10,7 @@
     "./modules/triage/observations": "./src/modules/triage/observations.ts",
     "./modules/triage/sender-context": "./src/modules/triage/sender-context.ts",
     "./modules/triage/sent-mail": "./src/modules/triage/sent-mail.ts",
+    "./modules/knowledge/internal": "./src/modules/knowledge/internal.ts",
     "./modules/triage/store": "./src/modules/triage/store.ts",
     "./queue/connection": "./src/queue/connection.ts"
   },
