@@ -1,6 +1,6 @@
 import { z } from "zod";
 import { type Workflow } from "../agent";
-import { notify } from "../notifications/index";
+import { send } from "../delivery";
 import { commitSkillRevision, finalizeSkillRun, recordSkillRun } from "../skill-revisions";
 import { composeSkillDocumentation } from "./compose";
 import { collectSkillDocumentationContext, type SkillDocumentationContext } from "./context";
@@ -249,7 +249,7 @@ export const skillDocumentationWorkflow: Workflow<State> = {
           documentedBody: ctx.state.documented.body,
         });
 
-        const result = await notify({
+        const result = await send({
           userId: ctx.userId,
           kind: "skill_documented",
           // Per-revision idempotency: a worker retry of this step is a

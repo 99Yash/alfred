@@ -6,7 +6,7 @@ import {
 } from "@alfred/contracts";
 import { z } from "zod";
 import { type Workflow } from "../agent";
-import { notify } from "../notifications/index";
+import { send } from "../delivery";
 import { inZone, parseLocalDateKey } from "../timezone";
 import { composeBriefing } from "./compose";
 import { gatherBriefingWithSuppressionAudit, type BriefingInstructionSuppression } from "./gather";
@@ -302,7 +302,7 @@ export const morningBriefingWorkflow: Workflow<State> = {
         const resolved = resolveBriefingReferences(state.composed.breakingSummary, state.gather);
         const rendered = renderBriefingEmailHtml({ segments: resolved.segments });
         const idempotencyKey = `briefing:${ctx.userId}:${state.briefingDate}:${state.slot}`;
-        const result = await notify({
+        const result = await send({
           userId: ctx.userId,
           kind: state.slot === "morning" ? "briefing" : "evening_recap",
           idempotencyKey,
