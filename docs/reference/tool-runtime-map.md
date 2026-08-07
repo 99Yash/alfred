@@ -32,15 +32,16 @@ Each seam is a `bootPort<T>` slot. The composition root installs one concrete
 value at boot, and a peer reads it. The `boot-port.ts` file defines the factory;
 it is not itself a seam.
 
-| Seam interface              | Surface   | Install → read                                        |
-| --------------------------- | --------- | ----------------------------------------------------- |
-| `ToolRuntimeAdapter`        | chat      | tools installs → the runtime forwarders read          |
-| `ToolCallRoundAdapter`      | chat      | dispatch installs → `executeToolCallRound` reads      |
-| `SystemToolAgentAdapter`    | chat      | agent installs → the system tools read                |
-| `SystemToolWorkflowAdapter` | chat      | workflows installs → the system tools read            |
-| `WorkflowToolCatalogSource` | workflows | tools installs → `workflowToolCatalog` reads          |
+| Seam interface                 | Surface   | Install → read                                        |
+| ------------------------------ | --------- | ----------------------------------------------------- |
+| `ToolRuntimeAdapter`           | chat      | tools installs → the runtime forwarders read          |
+| `ToolCallRoundAdapter`         | chat      | dispatch installs → `executeToolCallRound` reads      |
+| `SystemToolAgentAdapter`       | chat      | agent installs → the system tools read                |
+| `SystemToolChatHistoryAdapter` | chat      | conversations installs → the system tools read        |
+| `SystemToolWorkflowAdapter`    | chat      | workflows installs → the system tools read            |
+| `WorkflowToolCatalogSource`    | workflows | tools installs → `workflowToolCatalog` reads          |
 
-The first four seams live in `tool-runtime/index.ts`. The fifth lives in
+The first five seams live in `tool-runtime/index.ts`. The sixth lives in
 `tool-runtime/workflow-tool-catalog.ts`. Each seam carries a fixed four-field
 header (`Surface:`, `Owns/hides:`, `Why the seam:`, `Wiring:`), and
 `scripts/check-module-architecture.mjs` fails when a `bootPort` file lacks it.
@@ -54,6 +55,7 @@ acyclic:
 - `ToolRuntimeAdapter` inverts `tool-runtime -> tools`.
 - `ToolCallRoundAdapter` inverts `tool-runtime -> dispatch`.
 - `SystemToolAgentAdapter` inverts `tools -> agent`.
+- `SystemToolChatHistoryAdapter` inverts `tools -> conversations`.
 - `SystemToolWorkflowAdapter` inverts `tools -> workflows`.
 - `WorkflowToolCatalogSource` inverts `workflows -> tools`.
 

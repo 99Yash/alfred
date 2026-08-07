@@ -17,6 +17,7 @@ import {
   closeRedis,
   registerAgentSystemToolAdapter,
   registerBuiltinTools,
+  registerConversationsSystemToolAdapter,
   warmPool,
 } from "@alfred/api/runtime";
 import { isRecord } from "@alfred/contracts";
@@ -75,6 +76,10 @@ async function main(): Promise<void> {
   // `system.spawn_sub_agent` runs through the tool-runtime seam, so the smoke
   // must install the agent-side handler just like the server bootstrap does.
   registerAgentSystemToolAdapter();
+  // A spawned sub-agent may reach `system.read_chat_history`, now behind its own
+  // seam installed by conversations; install it too so the smoke matches the
+  // server bootstrap and the call does not hit the boot-order throw.
+  registerConversationsSystemToolAdapter();
 
   const userId = await findOrCreateSmokeUser();
   await resetSmokeRows(userId);

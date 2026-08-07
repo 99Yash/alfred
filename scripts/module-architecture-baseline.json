@@ -44,7 +44,6 @@
   },
   "assistantModuleGraph": {
     "edges": [
-      "agent -> chat",
       "agent -> connections",
       "agent -> delivery",
       "agent -> scratchpad",
@@ -64,7 +63,6 @@
       "connections -> triggers",
       "conversations -> agent",
       "conversations -> artifacts",
-      "conversations -> chat",
       "conversations -> connections",
       "conversations -> integrations",
       "conversations -> knowledge",

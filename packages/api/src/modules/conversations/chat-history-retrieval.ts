@@ -7,7 +7,7 @@ import type { z } from "zod";
 import {
   CHAT_ATTACHMENT_REPRESENTATION_VERSION,
   chatAttachmentRepresentationSchema,
-} from "../chat";
+} from "./attachments";
 
 const CHAT_HISTORY_RESULT_LIMIT = 10;
 export const CHAT_HISTORY_EXCERPT_CHARS = 4_000;

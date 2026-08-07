@@ -8,7 +8,7 @@ import {
 import { db } from "@alfred/db";
 import { chatAttachments, chatMessages } from "@alfred/db/schemas";
 import { and, asc, eq, inArray, like, or, sql } from "drizzle-orm";
-import { readObject, sniffPassThroughImageMime } from "../chat";
+import { readObject, sniffPassThroughImageMime } from "./attachments";
 import type { AgentDbExecutor } from "../agent";
 
 /**
