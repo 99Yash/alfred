@@ -6,7 +6,7 @@ import { and, eq } from "drizzle-orm";
 import {
   registerGoogleCredentialLifecycleHandler,
   type GoogleCredentialLifecycleHandler,
-} from "../modules/integrations";
+} from "../modules/connections";
 import {
   recordOrgAffiliationOnCredentialUpsert,
   recordOrgAffiliationOnDisconnect,

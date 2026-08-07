@@ -23,7 +23,7 @@ import { and, asc, eq } from "drizzle-orm";
 import { publishEvent } from "../../events/publish";
 import { logger } from "../../lib/logger";
 import { buildThreadArtifactsContext } from "../artifacts";
-import { readIntegrationAvailability } from "../integrations";
+import { readIntegrationAvailability } from "../connections";
 import { resolveTimezone } from "../settings";
 import { executeToolCallRound } from "../tool-runtime";
 import {

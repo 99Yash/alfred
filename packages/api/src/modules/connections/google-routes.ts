@@ -16,8 +16,13 @@ import { Elysia, t } from "elysia";
 import { and, eq } from "drizzle-orm";
 import { authMacro } from "../../middleware/auth";
 import { publishDomainEvent } from "../triggers";
-import { getIngestionQueue } from "./queue";
-import { installGmailWatchAndSeedCursor } from "./gmail-ingest";
+import {
+  assertGmailPushOidcConfigured,
+  getIngestionQueue,
+  installGmailWatchAndSeedCursor,
+  isGmailPushOidcConfigError,
+  resolveWorkflowRecoveryTarget,
+} from "../integrations";
 import {
   disconnectGoogleCredentialConnection,
   GoogleCredentialNotFoundError,
@@ -29,8 +34,6 @@ import {
   signOAuthState,
   verifyOAuthState,
 } from "./oauth-state";
-import { assertGmailPushOidcConfigured, isGmailPushOidcConfigError } from "./gmail-push-config";
-import { resolveWorkflowRecoveryTarget } from "./workflow-recovery";
 
 /**
  * Google integration routes.
