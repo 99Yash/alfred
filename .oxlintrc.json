@@ -5,7 +5,18 @@
   "rules": {
     "tailwindcss/enforce-sort-order": ["warn", { "entryPoint": "apps/web/src/index.css" }],
     "tailwindcss/enforce-shorthand": "warn",
-    "tailwindcss/no-deprecated-classes": ["warn", { "entryPoint": "apps/web/src/index.css" }]
+    "tailwindcss/no-deprecated-classes": ["warn", { "entryPoint": "apps/web/src/index.css" }],
+    "no-restricted-imports": [
+      "error",
+      {
+        "patterns": [
+          {
+            "group": ["@alfred/api/modules/knowledge/internal"],
+            "message": "The knowledge internal tooling door is restricted to apps/server/src/scripts/** (see knowledge/internal.ts). Import the sanctioned contract from @alfred/api/backend instead."
+          }
+        ]
+      }
+    ]
   },
   "settings": {
     "tailwindcss": {
@@ -43,5 +54,13 @@
     "builtin": true
   },
   "globals": {},
-  "ignorePatterns": []
+  "ignorePatterns": [],
+  "overrides": [
+    {
+      "files": ["apps/server/src/scripts/**"],
+      "rules": {
+        "no-restricted-imports": "off"
+      }
+    }
+  ]
 }
