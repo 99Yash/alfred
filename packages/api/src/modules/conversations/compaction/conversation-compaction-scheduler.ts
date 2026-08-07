@@ -9,7 +9,7 @@ import {
   estimateAttachmentEnrichmentCostMicrousd,
   selectAttachmentsWithinEnrichmentBudget,
   shouldStartMediaEnrichment,
-} from "../../chat";
+} from "../attachments";
 import { enqueueChatAttachmentEnrichment } from "../../integrations";
 import { enqueueConversationCompaction } from "./conversation-compaction-queue";
 import {

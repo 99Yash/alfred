@@ -232,9 +232,9 @@ export type SpawnSubAgentRequest = SpawnSubAgentInput & {
 /**
  * Surface:  chat.
  * Owns/hides: owns the agent-behavior door the system tools reach — spawn a
- *   sub-agent, read a child run outcome, read chat history. Hides the agent
- *   runtime and its state (`agentRuns`, chat messages). Each method returns
- *   `unknown`, so no agent result type crosses the seam.
+ *   sub-agent, read a child run outcome. Hides the agent runtime and its state
+ *   (`agentRuns`). Each method returns `unknown`, so no agent result type crosses
+ *   the seam.
  * Why the seam: it inverts tools -> agent, so the tools layer never imports the
  *   agent runtime.
  * Wiring: agent/system-tool-adapter.ts installs; tools/system.ts reads.
@@ -247,11 +247,6 @@ export interface SystemToolAgentAdapter {
     userId: string;
     childRunId: string;
   }): Promise<unknown>;
-  readChatHistory(args: {
-    userId: string;
-    threadId: string;
-    input: ReadChatHistoryInput;
-  }): Promise<unknown>;
 }
 
 const systemToolAgentAdapterPort = bootPort<SystemToolAgentAdapter>("system-tool agent adapter");
@@ -259,6 +254,38 @@ const systemToolAgentAdapterPort = bootPort<SystemToolAgentAdapter>("system-tool
 /** Runtime composition installs the agent-behavior handler at boot. */
 export function registerSystemToolAgentAdapter(adapter: SystemToolAgentAdapter): () => void {
   return systemToolAgentAdapterPort.install(adapter);
+}
+
+/**
+ * Surface:  chat.
+ * Owns/hides: owns the chat-history door the `system.read_chat_history` tool
+ *   reaches — read bounded raw evidence from the current chat thread. Hides the
+ *   `conversations` retrieval implementation and its chat-message/attachment
+ *   state. The method returns `unknown`, so no conversations result type crosses
+ *   the seam.
+ * Why the seam: it inverts tools -> conversations, so the tools layer never
+ *   imports a product recipe. `conversations` installs its own half over the
+ *   existing `conversations -> tool-runtime` edge, so no new module edge is added.
+ * Wiring: conversations/system-tool-adapter.ts installs; tools/system.ts reads.
+ * See: ADR-0089, and docs/reference/tool-runtime-map.md.
+ */
+export interface SystemToolChatHistoryAdapter {
+  readChatHistory(args: {
+    userId: string;
+    threadId: string;
+    input: ReadChatHistoryInput;
+  }): Promise<unknown>;
+}
+
+const systemToolChatHistoryAdapterPort = bootPort<SystemToolChatHistoryAdapter>(
+  "system-tool chat-history adapter",
+);
+
+/** Runtime composition installs the chat-history handler at boot. */
+export function registerSystemToolChatHistoryAdapter(
+  adapter: SystemToolChatHistoryAdapter,
+): () => void {
+  return systemToolChatHistoryAdapterPort.install(adapter);
 }
 
 /** Spawn one focused sub-agent run behind the registered agent-behavior seam. */
@@ -281,7 +308,7 @@ export function readChatHistory(args: {
   threadId: string;
   input: ReadChatHistoryInput;
 }): Promise<unknown> {
-  return requireSystemToolAgentAdapter().readChatHistory(args);
+  return requireSystemToolChatHistoryAdapter().readChatHistory(args);
 }
 
 /**
@@ -422,6 +449,10 @@ function requireToolCallRoundAdapter(): ToolCallRoundAdapter {
 
 function requireSystemToolAgentAdapter(): SystemToolAgentAdapter {
   return systemToolAgentAdapterPort.read();
+}
+
+function requireSystemToolChatHistoryAdapter(): SystemToolChatHistoryAdapter {
+  return systemToolChatHistoryAdapterPort.read();
 }
 
 function requireSystemToolWorkflowAdapter(): SystemToolWorkflowAdapter {
