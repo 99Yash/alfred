@@ -45,7 +45,7 @@ import {
   toAttachmentRow,
   writeObject,
   type AttachmentInput,
-} from "../chat";
+} from "./attachments";
 import { CHAT_TURN_WORKFLOW_SLUG } from "./chat-turn";
 import { requestChatStop } from "./stop-signal";
 

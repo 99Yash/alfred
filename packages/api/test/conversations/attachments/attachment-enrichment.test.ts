@@ -9,7 +9,7 @@ import {
   mediaModalityForMime,
   selectAttachmentsWithinEnrichmentBudget,
   shouldStartMediaEnrichment,
-} from "../../src/modules/chat/attachment-enrichment";
+} from "../../../src/modules/conversations/attachments/attachment-enrichment";
 
 describe("chat attachment enrichment", () => {
   test("validates one versioned representation with attachment and message provenance", () => {
