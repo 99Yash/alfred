@@ -115,7 +115,7 @@ class MemoryStore implements McpOAuthCredentialStore {
   }
 }
 
-function provider(store: MemoryStore) {
+function provider(store: MemoryStore, vault = createCredentialVault(randomBytes(32))) {
   return new McpOAuthProvider({
     connectionId: "conn_test",
     userId: "user_test",
@@ -127,7 +127,7 @@ function provider(store: MemoryStore) {
       client_name: "Alfred",
     },
     store,
-    vault: createCredentialVault(randomBytes(32)),
+    vault,
   });
 }
 
@@ -366,5 +366,105 @@ describe("MCP OAuth provider", () => {
       }),
       (error: unknown) => error instanceof DOMException && error.name === "TimeoutError",
     );
+  });
+});
+
+/**
+ * The at-rest column shape of an MCP credential, asserted straight out of the
+ * store the provider writes to. The round-trip tests above open again through
+ * `open()`, which fails closed on plaintext — so a lone seal→identity mutation
+ * is already caught. These assert the stored *value* is an envelope so that a
+ * coordinated seal-and-open removal (write raw, read raw) cannot pass while
+ * leaving `mcp_oauth_credentials.{client_secret,access_token,refresh_token,
+ * id_token}` and `mcp_oauth_authorization_attempts.code_verifier` in plaintext.
+ * Tier 2: the MemoryStore stands in for Postgres, so this proves the provider
+ * hands the store an envelope, not that the real row is sealed end-to-end.
+ */
+describe("MCP OAuth credentials are sealed at rest", () => {
+  const ISSUER = "https://auth.example.test/";
+
+  test("saveTokens seals every secret column while metadata passes through raw", async () => {
+    const store = new MemoryStore();
+    const vault = createCredentialVault(randomBytes(32));
+    const oauth = provider(store, vault);
+    await oauth.saveDiscoveryState(DISCOVERY);
+    await oauth.saveTokens(
+      {
+        access_token: "access-plain",
+        refresh_token: "refresh-plain",
+        id_token: "id-plain",
+        token_type: "Bearer",
+        expires_in: 3600,
+        scope: "read write",
+        issuer: ISSUER,
+      },
+      { issuer: ISSUER },
+    );
+
+    assert.ok(store.row);
+    const row = store.row;
+    for (const [column, plaintext] of [
+      ["accessToken", "access-plain"],
+      ["refreshToken", "refresh-plain"],
+      ["idToken", "id-plain"],
+    ] as const) {
+      const stored = row[column];
+      assert.ok(vault.isSealed(stored), `${column} reached the store unsealed`);
+      assert.notEqual(stored, plaintext);
+      assert.equal(vault.open(stored), plaintext);
+    }
+    // Non-secret metadata is stored raw, unchanged.
+    assert.equal(row.tokenType, "Bearer");
+    assert.equal(row.expiresIn, 3600);
+    assert.equal(row.scope, "read write");
+
+    // The owning read path still returns the original plaintext.
+    const tokens = await oauth.tokens({ issuer: ISSUER });
+    assert.equal(tokens?.access_token, "access-plain");
+    assert.equal(tokens?.refresh_token, "refresh-plain");
+    assert.equal(tokens?.id_token, "id-plain");
+  });
+
+  test("saveClientInformation seals the client secret while the public read returns it", async () => {
+    const store = new MemoryStore();
+    const vault = createCredentialVault(randomBytes(32));
+    const oauth = provider(store, vault);
+    await oauth.saveDiscoveryState(DISCOVERY);
+    await oauth.saveClientInformation(
+      { client_id: "client-id", client_secret: "super-secret", issuer: ISSUER },
+      { issuer: ISSUER },
+    );
+
+    assert.ok(store.row);
+    const stored = store.row.clientSecret;
+    assert.ok(vault.isSealed(stored), "client_secret reached the store unsealed");
+    assert.notEqual(stored, "super-secret");
+    assert.equal(vault.open(stored), "super-secret");
+
+    const info = await oauth.clientInformation({ issuer: ISSUER });
+    assert.equal(info?.client_secret, "super-secret");
+  });
+
+  test("saveCodeVerifier seals the PKCE verifier while the public read returns it", async () => {
+    const store = new MemoryStore();
+    const vault = createCredentialVault(randomBytes(32));
+    const oauth = provider(store, vault);
+    const callbackState = "pkce-state";
+    await store.createAttempt({
+      connectionId: "conn_test",
+      userId: "user_test",
+      stateHash: hashState(callbackState),
+    });
+    assert.equal(await oauth.matchesState(callbackState), true);
+    await oauth.saveCodeVerifier("pkce-verifier");
+
+    const attempt = store.attempts.get(hashState(callbackState));
+    assert.ok(attempt);
+    const stored = attempt.codeVerifier;
+    assert.ok(vault.isSealed(stored), "code_verifier reached the store unsealed");
+    assert.notEqual(stored, "pkce-verifier");
+    assert.equal(vault.open(stored), "pkce-verifier");
+
+    assert.equal(await oauth.codeVerifier(), "pkce-verifier");
   });
 });
