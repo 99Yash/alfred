@@ -4,7 +4,7 @@ import { user, userPreferences } from "@alfred/db/schemas";
 import { eq, sql } from "drizzle-orm";
 import { Elysia, t } from "elysia";
 import { authMacro } from "../../middleware/auth";
-import { isValidTimezone } from "../briefing/preferences";
+import { isValidTimezone } from "../timezone";
 
 /**
  * Onboarding state routes.

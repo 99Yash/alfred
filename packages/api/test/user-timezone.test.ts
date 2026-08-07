@@ -5,6 +5,10 @@ import {
   firstValidTimezone,
   TIMEZONE_PREFERENCE_KEYS,
 } from "../src/modules/timezone/user-timezone";
+// Reached through the module index — the pure `timezone` module now owns the
+// IANA-zone validity check, so cross-module callers no longer route it through
+// `briefing`.
+import { isValidTimezone } from "../src/modules/timezone";
 
 describe("TIMEZONE_PREFERENCE_KEYS", () => {
   test("owns the ADR-0082 canonical-first key-set and order (canonical, then legacy)", () => {
@@ -24,5 +28,25 @@ describe("firstValidTimezone", () => {
 
   test("falls back to UTC when neither preference contains a valid IANA timezone", () => {
     assert.equal(firstValidTimezone([null, ""]), "UTC");
+  });
+});
+
+describe("isValidTimezone (via the timezone index)", () => {
+  test("accepts a real IANA zone", () => {
+    assert.equal(isValidTimezone("America/New_York"), true);
+  });
+
+  test("accepts the UTC alias that supportedValuesOf alone omits", () => {
+    assert.equal(isValidTimezone("UTC"), true);
+    assert.equal(isValidTimezone("Etc/UTC"), true);
+  });
+
+  test("rejects a garbage string", () => {
+    assert.equal(isValidTimezone("Not/AZone"), false);
+  });
+
+  test("rejects a non-string", () => {
+    assert.equal(isValidTimezone(42), false);
+    assert.equal(isValidTimezone(null), false);
   });
 });

@@ -38,3 +38,13 @@ export function firstValidTimezone(values: readonly unknown[]): IanaTimezone {
   }
   return DEFAULT_USER_TIMEZONE;
 }
+
+/**
+ * Domain-named alias of the canonical timezone validator. The implementation
+ * lives once in `@alfred/contracts` ({@link isIanaTimezone}) — memoized and
+ * alias-aware (accepts "UTC"/"Etc/UTC", which a bare `Intl.DateTimeFormat`
+ * trial passes but `supportedValuesOf` alone would reject). Kept under this
+ * name so the briefing/workflow/onboarding call sites read in domain terms.
+ * Pure like the rest of this file: no preference read, no database.
+ */
+export const isValidTimezone = isIanaTimezone;
