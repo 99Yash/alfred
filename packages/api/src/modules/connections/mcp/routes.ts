@@ -2,8 +2,8 @@ import { Errors } from "@alfred/contracts";
 import { serverEnv } from "@alfred/env/server";
 import { Elysia, t } from "elysia";
 import { z } from "zod";
-import { authMacro } from "../../middleware/auth";
-import { consumeOAuthNonce, verifyOAuthState } from "../connections";
+import { authMacro } from "../../../middleware/auth";
+import { consumeOAuthNonce, verifyOAuthState } from "../oauth-state";
 import { boundedMcpErrorText } from "./errors";
 import { MCP_OAUTH_PENDING_ISSUER } from "./manager";
 import {

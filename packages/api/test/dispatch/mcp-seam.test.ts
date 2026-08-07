@@ -15,13 +15,13 @@ import {
   type McpBrokerOutcome,
   type McpCallEnvelope,
   type McpExecutionBroker,
-} from "../../src/modules/mcp";
-import { computeDescriptorHashes } from "../../src/modules/mcp/hash";
+} from "../../src/modules/connections/mcp";
+import { computeDescriptorHashes } from "../../src/modules/connections/mcp/hash";
 import {
   insertConnection,
   publishCatalogRevision,
   upsertToolPolicy,
-} from "../../src/modules/mcp/persistence";
+} from "../../src/modules/connections/mcp/persistence";
 import { clearToolRegistryForTests, registerTools } from "../../src/modules/tools/registry";
 import { mcpTools } from "../../src/modules/tools/mcp";
 import { closeRedis } from "../../src/queue/connection";

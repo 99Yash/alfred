@@ -12,11 +12,11 @@ import {
   type McpProtocolClient,
   type McpProtocolPage,
   type McpTraceContext,
-} from "../../src/modules/mcp";
+} from "../../src/modules/connections/mcp";
 import {
   McpConnectionManager,
   type McpConnectionManagerPersistence,
-} from "../../src/modules/mcp/manager";
+} from "../../src/modules/connections/mcp/manager";
 
 class FakeProtocol implements McpProtocolClient {
   tools: Tool[] = [tool("tool_a")];

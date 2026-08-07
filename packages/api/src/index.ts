@@ -12,7 +12,7 @@ import { approvalsRoutes } from "./modules/approvals/index";
 import { chatRoutes } from "./modules/conversations/index";
 import { connections } from "./modules/connections/index";
 import { meRoutes } from "./modules/me/index";
-import { mcpIntegrationRoutes } from "./modules/mcp/index";
+import { mcpIntegrationRoutes } from "./modules/connections/mcp/index";
 import { onboardingRoutes } from "./modules/onboarding/index";
 import { skillsRoutes } from "./modules/skills/index";
 import { workflowRoutes } from "./modules/workflows/index";

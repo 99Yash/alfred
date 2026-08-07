@@ -11,8 +11,11 @@ import {
   insertConnection,
   publishCatalogRevision,
   upsertToolPolicy,
-} from "../../src/modules/mcp/persistence";
-import { MCP_CALL_RISK_FLOOR, resolveMcpCallRiskTier } from "../../src/modules/mcp/risk";
+} from "../../src/modules/connections/mcp/persistence";
+import {
+  MCP_CALL_RISK_FLOOR,
+  resolveMcpCallRiskTier,
+} from "../../src/modules/connections/mcp/risk";
 
 /**
  * DB-backed tests for the `mcp.call` gate-side effective-risk resolver (#541
