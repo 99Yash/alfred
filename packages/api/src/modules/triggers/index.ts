@@ -29,11 +29,54 @@ export type GmailMessageEventReason = NonNullable<
   z.infer<typeof gmailMessagePayloadSchema>["reason"]
 >;
 
-const payloadSchemaBySource: Record<EventSource, z.ZodType<unknown>> = {
-  gmail: gmailMessagePayloadSchema,
-  "google.oauth.callback": jsonObjectSchema,
-  "learn-skill": jsonObjectSchema,
-};
+/** The three Gmail insert job kinds that can raise `gmail.documents_ingested`. */
+export const GMAIL_INSERT_JOB_KINDS = [
+  "gmail.ingest_recent",
+  "gmail.poll_recent",
+  "gmail.poll_history",
+] as const;
+
+// Defensive process-local bounds; a real ingest batch is far smaller.
+const ingestedIdListSchema = z.array(z.string().min(1).max(500)).max(10_000);
+
+/**
+ * The batch fact `queue.ts` publishes after a Gmail insert job: the raw document
+ * sets, with no pre-computed side-effect plan. Each consumer (corpus embed,
+ * user-model capture, inbox rail, triage post-insert) owns its own policy over
+ * these fields. `unembeddedDocumentIds` is the docs still needing an embed — the
+ * realtime inserts on `poll_recent`, and `[]` on the bulk/catch-up paths, which
+ * embed inline in the ingestor — so the corpus consumer never double-embeds.
+ */
+export const gmailDocumentsIngestedPayloadSchema = z
+  .object({
+    credentialId: z.string().min(1).max(500),
+    jobKind: z.enum(GMAIL_INSERT_JOB_KINDS),
+    triageInsertedDocs: z.boolean().optional(),
+    fullResync: z.boolean().optional(),
+    insertedDocumentIds: ingestedIdListSchema,
+    triageDocumentIds: ingestedIdListSchema,
+    sentDocumentIds: ingestedIdListSchema,
+    touchedThreadIds: ingestedIdListSchema,
+    unembeddedDocumentIds: ingestedIdListSchema,
+  })
+  .strict();
+
+export type GmailDocumentsIngestedPayload = z.infer<typeof gmailDocumentsIngestedPayloadSchema>;
+
+/**
+ * The strict payload rule for one `source`/`type` pair. Gmail owns two distinct
+ * facts — the per-received-doc `message_received` and the batch
+ * `documents_ingested` — so its schema is chosen by `type`. Every other source
+ * validates its payload as an opaque JSON object.
+ */
+function payloadSchemaFor(source: EventSource, type: EventType): z.ZodType<unknown> {
+  if (source === "gmail") {
+    return type === "documents_ingested"
+      ? gmailDocumentsIngestedPayloadSchema
+      : gmailMessagePayloadSchema;
+  }
+  return jsonObjectSchema;
+}
 
 /**
  * The legal source/type taxonomy stays owned by `@alfred/contracts` because it
@@ -64,7 +107,7 @@ export const domainEventSchema = z
     }
 
     if (event.payload === undefined) return;
-    const parsedPayload = payloadSchemaBySource[event.source].safeParse(event.payload);
+    const parsedPayload = payloadSchemaFor(event.source, event.type).safeParse(event.payload);
     if (parsedPayload.success) return;
     for (const issue of parsedPayload.error.issues) {
       context.addIssue({

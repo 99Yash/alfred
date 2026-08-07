@@ -11,7 +11,7 @@ import {
   runGmailTriageRelabel,
   type GmailTriageHandler,
 } from "../../src/modules/integrations/gmail-triage";
-import { pairReplyReevalTargets } from "../../src/modules/integrations/queue";
+import { pairReplyReevalTargets } from "../../src/composition/gmail-ingested-consumers";
 import { createGmailTriageHandler } from "../../src/composition/gmail-triage";
 
 const postInsertRequest = {
