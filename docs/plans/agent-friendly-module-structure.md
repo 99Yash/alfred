@@ -1,7 +1,7 @@
 # Agent-friendly module structure
 
-> **Status:** active migration plan. Phases 0–3 are complete (Phase 3's nine slices
-> merged; two residual execution edges tracked). See [`## Migration status`](#migration-status)
+> **Status:** active migration plan. Phases 0–5 are complete (Phase 3 has two residual
+> execution edges tracked). Phases 6–7 remain. See [`## Migration status`](#migration-status)
 > for the current detail.
 >
 > **Basis:** the repository state on 2026-08-01. Git history has been rewritten
@@ -60,7 +60,7 @@ implementation details and several domain decisions have no single owner.
 
 ## Migration status
 
-Updated 2026-08-06. This section records progress against the migration sequence
+Updated 2026-08-07. This section records progress against the migration sequence
 below. The `## Current evidence` figures above are the start-state snapshot and are
 not updated as phases land.
 
@@ -94,8 +94,22 @@ not updated as phases land.
     sentinel. Homing the sentinel into a product module was rejected — it is core execution
     machinery (ADR-0040/0073), not a recipe — so the remaining task is a narrow edge-break
     (relocate the readiness leaf, or invert the call), after which the gate locks `workflows`.
-- **Phases 4–7 — knowledge/settings, connections, package extraction, public
-  surfaces.** Not started.
+- **Phase 4 — consolidate knowledge and settings.** Done (campaign PRs #684–#692).
+  `memory` split into `knowledge` + `settings`; the `memory ↔ triage`, `memory ↔ todos`,
+  and `timezone → memory` edges are gone and the renamed-module edges hold under `pnpm check`.
+- **Phase 5 — separate connections from provider adapters.** Done. Both done-when clauses
+  hold: `@alfred/integrations` imports no domain module, and the new `connections` module
+  (OAuth routes, credential lifecycle, availability, webhooks, watches, MCP state) imports no
+  event consumer. Structural slices — provider-only integrations (#694), Gmail fan-out to a
+  `gmail.documents_ingested` domain event with composition-registered consumers (#696), the
+  `connections` module (#697), and the whole-`mcp` fold into `connections/mcp` (#698).
+  Discretionary refinements from the slice reviews — ingestor owns `unembeddedDocumentIds`
+  (#699), a `best-effort | propagate` discriminant on the `TriggerConsumer` seam (#700),
+  restored `EventSource` payload-schema exhaustiveness (#701), raw `installGmailWatch` demoted
+  to a package-internal `/internal` door (#702), and a `pnpm check` gate forcing
+  `TriggerConsumerBootError` membership (#703). Forced deviation: `gmail-push-config.ts` stays
+  in `integrations` — moving it forms an `integrations ↔ connections` cycle.
+- **Phases 6–7 — package extraction, public surfaces.** Not started.
 
 The target package trees `@alfred/assistant` and `@alfred/http` do not exist yet; per
 the sequence below, they are created in Phase 6, after the in-place cycle-breaking
