@@ -27,7 +27,6 @@
       "@alfred/integrations -> @alfred/contracts",
       "@alfred/integrations -> @alfred/db",
       "@alfred/integrations -> @alfred/env",
-      "@alfred/integrations -> @alfred/corpus",
       "@alfred/sync -> @alfred/contracts",
       "server -> @alfred/ai",
       "server -> @alfred/api",
