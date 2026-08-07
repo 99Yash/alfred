@@ -47,14 +47,16 @@
  *   node dist/scripts/backfills/backfill-purge-document-facts-committed.js --emails=yashgouravkar@gmail.com --commit
  */
 import {
-  gateDocumentFact,
   gmailSenderAdapter,
   isSingleValuedKey,
-  loadSelfIdentity,
   rejectFact,
   valueSignature,
-  type SelfIdentity,
 } from "@alfred/api/backend";
+import {
+  gateDocumentFact,
+  loadSelfIdentity,
+  type SelfIdentity,
+} from "@alfred/api/modules/knowledge/internal";
 import { warmPool } from "@alfred/api/runtime";
 import { closeScriptResources } from "../script-runtime";
 import { canonicalizeFactKey, toMessage } from "@alfred/contracts";
