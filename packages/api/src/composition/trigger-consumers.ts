@@ -8,7 +8,11 @@ let unregisterConsumers: (() => void)[] | undefined;
 export function registerTriggerConsumers(): void {
   if (unregisterConsumers) return;
   unregisterConsumers = [
-    registerTriggerConsumer({ name: "workflow-event-trigger", accept: acceptEvent }),
+    registerTriggerConsumer({
+      name: "workflow-event-trigger",
+      mode: "propagate",
+      accept: acceptEvent,
+    }),
     ...gmailIngestedTriggerConsumers().map((consumer) => registerTriggerConsumer(consumer)),
   ];
 }

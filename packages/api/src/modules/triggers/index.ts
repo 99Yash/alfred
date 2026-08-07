@@ -8,7 +8,10 @@ import {
 } from "@alfred/contracts";
 import { z } from "zod";
 import { publishToConsumers, registerConsumer } from "./internal/consumer-registry";
-export { NoTriggerConsumersRegisteredError } from "./internal/consumer-registry";
+export {
+  NoTriggerConsumersRegisteredError,
+  TriggerConsumerBootError,
+} from "./internal/consumer-registry";
 
 const domainEventIdentityShape = {
   userId: z.string().min(1).max(200),
@@ -124,8 +127,26 @@ export interface PublishedEvent {
   acceptedConsumers: number;
 }
 
+/**
+ * How the seam treats a consumer's own `accept` failure.
+ *
+ * - `best-effort`: the reaction is a side effect that must never fail the
+ *   publish — its non-boot rejection is logged and swallowed at the seam. The
+ *   producer (e.g. a completed ingestion write) cannot be rolled back by a
+ *   reaction that failed.
+ * - `propagate`: the consumer's rejection is a first-class failure and rejects
+ *   the publish exactly as an unhandled consumer error always has.
+ *
+ * A `TriggerConsumerBootError` is exempt from the `best-effort` swallow — a
+ * broken boot path still fails the publish so it surfaces on retry.
+ */
+export type TriggerConsumerMode = "best-effort" | "propagate";
+
 export interface TriggerConsumer {
   name: string;
+  /** Required so a new consumer cannot compile without choosing how the seam
+   *  treats its failures — the swallow rule lives here as data, not as prose. */
+  mode: TriggerConsumerMode;
   accept(event: DomainEvent): Promise<unknown>;
 }
 
