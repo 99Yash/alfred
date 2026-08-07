@@ -19,6 +19,7 @@ import {
   reconcileInflightInvocations,
   registerAgentSystemToolAdapter,
   registerBuiltinTools,
+  registerDispatchToolCallRoundAdapter,
   registerOnUserCreated,
   registerWorkflowSystemToolAdapter,
   registerRuntimeAdapters,
@@ -106,6 +107,11 @@ export async function startRuntime(): Promise<void> {
   // their workflow or tool names.
   registerBuiltinWorkflows();
   registerBuiltinTools();
+  // Dispatch implements tool-runtime's tool-call-round seam. It is installed at
+  // the composition root (not inside registerBuiltinTools) so the tools module
+  // holds no dispatch import (ADR-0089); a first executeToolCallRound throws
+  // "tool call-round adapter not installed" if this is missing.
+  registerDispatchToolCallRoundAdapter();
   // The system tools reach three agent behaviors (sub-agent spawn/join and
   // chat-history retrieval) through a registered tool-runtime seam, so the tools
   // module holds no agent import (ADR-0089). Install the agent-side handler here,
