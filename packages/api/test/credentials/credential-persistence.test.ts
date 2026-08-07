@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { randomUUID } from "node:crypto";
 import { after, describe, test } from "node:test";
 
-import { closeConnections, db } from "@alfred/db";
+import { closeConnections, db, rowsFromExecute } from "@alfred/db";
 import {
   createCredentialVault,
   credentialVault,
@@ -21,7 +21,7 @@ import {
   upsertCredential,
 } from "@alfred/integrations/google";
 import { getActiveBearerCredential, upsertBearerCredential } from "@alfred/integrations/shared";
-import { eq } from "drizzle-orm";
+import { eq, sql } from "drizzle-orm";
 
 /**
  * The invariant of #453, asserted against a real database: after any allowed
@@ -90,6 +90,23 @@ after(async () => {
 });
 
 describe("credential persistence is sealed at rest (DB-backed)", { skip: SKIP }, () => {
+  // Prove the pool actually reached the database `DATABASE_URL` names, so a
+  // green DB-backed run cannot be one that silently skipped or connected to the
+  // wrong database. The campaign's isolated `alfred_c2` is confirmed at phase
+  // time by pointing `DATABASE_URL` at it; asserting a fixed name here would
+  // instead break CI (`alfred_ci`) and every contributor running against
+  // `alfred`.
+  test("the DB-backed suite connected to the database DATABASE_URL names", async () => {
+    ensureCredentialTestEnv();
+    const databaseUrl = process.env.DATABASE_URL;
+    assert.ok(databaseUrl, "DATABASE_URL must be set for the DB-backed suite");
+    const configured = new URL(databaseUrl).pathname.replace(/^\//, "");
+    const rows = rowsFromExecute<{ current_database: string }>(
+      await db().execute(sql`select current_database()`),
+    );
+    assert.equal(rows[0]?.current_database, configured);
+  });
+
   test("google: connect, read, and refresh all keep the column sealed", async () => {
     ensureCredentialTestEnv();
     const vault = credentialVault();
