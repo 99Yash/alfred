@@ -116,6 +116,22 @@ export {
 } from "./workflows/readiness-port";
 export { joinChildRun, type JoinChildRunDeps, type ParkSignal } from "./sub-agent-join";
 export { scheduleSubAgentJoinWakeJob } from "./sub-agent-join-wake-queue";
+// Action-staging approval WORKERS (ADR-0034). Both wake/notify sides live in
+// execution: the expiry worker drives the run-wake primitive (`signalRunInTx` /
+// `redeliverRun`) and the notification worker sends through `../delivery`. The
+// scheduling surface stays in `tool-runtime` (a sink).
+export {
+  expireStaging,
+  startApprovalExpiryWorker,
+  stopApprovalExpiryWorker,
+  type ExpireStagingResult,
+  type StartApprovalExpiryWorkerOpts,
+} from "./approval-expiry-worker";
+export {
+  startApprovalNotificationWorker,
+  stopApprovalNotificationWorker,
+  type StartApprovalNotificationWorkerOpts,
+} from "./approval-notification-worker";
 export {
   isTerminalChildStatus,
   listSpawnedChildRuns,

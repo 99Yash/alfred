@@ -304,7 +304,6 @@ export {
 export {
   approvalExpiryJobId,
   approvalNotificationJobId,
-  expireStaging,
   getApprovalExpiryQueue,
   getApprovalNotificationQueue,
   removeApprovalNotificationJob,
@@ -313,8 +312,11 @@ export {
   scheduleApprovalNotificationJob,
   type ApprovalExpiryJobData,
   type ApprovalNotificationJobData,
+} from "./modules/tool-runtime/index";
+export {
+  expireStaging,
   type ExpireStagingResult,
   type StartApprovalExpiryWorkerOpts,
   type StartApprovalNotificationWorkerOpts,
-} from "./modules/approvals/index";
+} from "./modules/agent/index";
 export type { MeInboxItem, MeLatestBriefing } from "./modules/me/index";

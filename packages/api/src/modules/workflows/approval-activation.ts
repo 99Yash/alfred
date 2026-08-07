@@ -7,10 +7,7 @@ import {
 import { db, type DbTransaction } from "@alfred/db";
 import { actionStagings } from "@alfred/db/schemas";
 import { and, eq, sql } from "drizzle-orm";
-import {
-  refreshWorkflowActivationProposal,
-  type WorkflowServiceFailure,
-} from "../workflows/revisions";
+import { refreshWorkflowActivationProposal, type WorkflowServiceFailure } from "./revisions";
 
 export type WorkflowApprovalEditPreparation =
   | { kind: "not_workflow" }
