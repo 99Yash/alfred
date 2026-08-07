@@ -1,8 +1,9 @@
-// Public seam for the `chat` module. The chat HTTP routes and turn admission
-// now live in `conversations`; what remains here is attachment storage and the
-// storage-backed helpers the `conversations` recipe and routes consume. The
-// `conversations` module imports these through this seam, never the reverse —
-// `chat` imports nothing from `conversations`, so it stays a leaf.
+// Internal barrel for `conversations` attachment storage. The chat HTTP routes,
+// turn admission, compaction, and history retrieval all live in `conversations`;
+// this folder holds the attachment storage, enrichment, and storage-coordination
+// helpers those consume. It is an internal-only barrel — nothing outside
+// `conversations` imports it, and it imports nothing from its siblings, so it
+// stays a leaf inside the module.
 export {
   assertAttachmentBatchAllowed,
   assertPassThroughImageBytes,

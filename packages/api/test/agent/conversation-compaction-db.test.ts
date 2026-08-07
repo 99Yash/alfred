@@ -14,7 +14,7 @@ import {
 import { databaseEnv } from "@alfred/env/database";
 import { eq, inArray, sql } from "drizzle-orm";
 
-import { persistChatAttachmentRepresentation } from "../../src/modules/chat/attachment-enrichment";
+import { persistChatAttachmentRepresentation } from "../../src/modules/conversations/attachments/attachment-enrichment";
 import {
   loadConversationSummaryEvidence,
   persistConversationSummary,

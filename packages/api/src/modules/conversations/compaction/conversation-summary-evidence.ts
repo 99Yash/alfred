@@ -10,7 +10,7 @@ import { and, asc, eq, inArray } from "drizzle-orm";
 import {
   CHAT_ATTACHMENT_REPRESENTATION_VERSION,
   chatAttachmentRepresentationSchema,
-} from "../../chat";
+} from "../attachments";
 
 import type { AgentDbExecutor } from "../../agent";
 import { afterChatMessageWatermark, throughChatMessageWatermark } from "./chat-message-watermark";
