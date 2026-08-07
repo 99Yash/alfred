@@ -11,6 +11,7 @@ import {
   registerGoogleCredentialLifecycleHandler,
   upsertGoogleCredentialConnection,
 } from "../../src/modules/connections/google-credential-lifecycle";
+import { TriggerConsumerBootError } from "../../src/modules/triggers";
 
 const fakeTransaction = {} as DbTransaction;
 const changedAt = new Date("2026-08-02T09:00:00.000Z");
@@ -54,6 +55,16 @@ describe("Google credential lifecycle composition seam", () => {
     await assert.rejects(
       () => upsertGoogleCredentialConnection(upsertRequest),
       NoGoogleCredentialLifecycleHandlerRegisteredError,
+    );
+  });
+
+  // Backstop for the boot-error-plain-extends gate: if the seam ever reaches this
+  // registry's not-registered error from a best-effort consumer, membership in
+  // TriggerConsumerBootError is what makes it reject the publish rather than be
+  // swallowed. Catches a revert to `extends Error` even if the static gate were removed.
+  test("its not-registered error is a TriggerConsumerBootError", () => {
+    assert.ok(
+      new NoGoogleCredentialLifecycleHandlerRegisteredError() instanceof TriggerConsumerBootError,
     );
   });
 

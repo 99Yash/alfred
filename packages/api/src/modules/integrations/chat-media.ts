@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { TriggerConsumerBootError } from "../triggers";
 
 const identifierSchema = z.string().min(1).max(500);
 const storageKeySchema = z.string().min(1).max(2_000);
@@ -59,7 +60,7 @@ export interface ChatMediaHandler {
   ): Promise<ChatMediaPendingUploadCleanupResult>;
 }
 
-export class NoChatMediaHandlerRegisteredError extends Error {
+export class NoChatMediaHandlerRegisteredError extends TriggerConsumerBootError {
   constructor() {
     super("[integrations] no chat media handler is registered");
     this.name = "NoChatMediaHandlerRegisteredError";
