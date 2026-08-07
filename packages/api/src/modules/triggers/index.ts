@@ -69,16 +69,26 @@ export type GmailDocumentsIngestedPayload = z.infer<typeof gmailDocumentsIngeste
 /**
  * The strict payload rule for one `source`/`type` pair. Gmail owns two distinct
  * facts — the per-received-doc `message_received` and the batch
- * `documents_ingested` — so its schema is chosen by `type`. Every other source
- * validates its payload as an opaque JSON object.
+ * `documents_ingested` — so its schema is chosen by `type`. The other two
+ * sources are enumerated, not defaulted: each validates its payload as an opaque
+ * JSON object by its own explicit case, and the closing `never` assertion makes
+ * a future `EventSource` fail to compile until it declares a payload rule rather
+ * than silently falling through to the permissive default.
  */
 function payloadSchemaFor(source: EventSource, type: EventType): z.ZodType<unknown> {
-  if (source === "gmail") {
-    return type === "documents_ingested"
-      ? gmailDocumentsIngestedPayloadSchema
-      : gmailMessagePayloadSchema;
+  switch (source) {
+    case "gmail":
+      return type === "documents_ingested"
+        ? gmailDocumentsIngestedPayloadSchema
+        : gmailMessagePayloadSchema;
+    case "google.oauth.callback":
+    case "learn-skill":
+      return jsonObjectSchema;
+    default: {
+      const _exhaustive: never = source;
+      return _exhaustive;
+    }
   }
-  return jsonObjectSchema;
 }
 
 /**
