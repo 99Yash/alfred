@@ -38,6 +38,14 @@ export {
   stopSubAgentJoinWakeWorker,
   verifyMeteringModels,
 };
+// Recipe-registry queries and the decision-trace key normalizer are execution's
+// to own; cross-module callers (workflow seeder, Replicache entity projection,
+// triage's atomic trace write) reach them through this index, not through
+// `agent/registry` or `agent/decision-traces` directly. `normalizeDecisionTraceKey`
+// is exposed as a read-only key helper, not a trace write — the transaction owner
+// (executor or triage) still writes its own row (ADR-0040).
+export { isInternalWorkflowSlug, listPublicWorkflows, listResumeOnlyWorkflows } from "./registry";
+export { normalizeDecisionTraceKey } from "./decision-traces";
 // Execution's public run-start surface is `startRun` / `startRunInTx` (folded
 // persist+deliver) plus two narrow ops for the callers that legitimately hold a
 // run apart from its delivery: `redeliverRun(runId)` hands an already-persisted
