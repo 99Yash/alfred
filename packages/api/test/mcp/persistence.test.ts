@@ -23,7 +23,7 @@ import {
   updateConnection,
   updateInvocation,
   upsertToolPolicy,
-} from "../../src/modules/mcp/persistence";
+} from "../../src/modules/connections/mcp/persistence";
 
 /**
  * DB-backed tests for the MCP persistence layer (PRD #540). They exercise the
