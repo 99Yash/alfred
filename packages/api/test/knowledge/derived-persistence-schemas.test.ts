@@ -1,6 +1,9 @@
 import assert from "node:assert/strict";
 import { describe, test } from "node:test";
-import { proposeFactArgsSchema, upsertStyleProfileArgsSchema } from "../../src/modules/knowledge";
+import { proposeFactArgsSchema } from "../../src/modules/knowledge";
+// `upsertStyleProfileArgsSchema` is internal-by-intent (dropped from the barrel,
+// item 15) — read from its owning file directly.
+import { upsertStyleProfileArgsSchema } from "../../src/modules/knowledge/style-profiles";
 
 describe("derived memory persistence schemas", () => {
   test("proposeFact derives insert optionality and preserves boundary transforms", () => {
