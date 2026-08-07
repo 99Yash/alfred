@@ -4,10 +4,10 @@ import { Elysia, t } from "elysia";
 import { createRemoteJWKSet, jwtVerify, type JWTPayload } from "jose";
 import {
   assertGmailPushOidcConfigured,
+  getIngestionQueue,
   pubSubOidcConfigFromEnv,
   type PubSubOidcConfig,
-} from "./gmail-push-config";
-import { getIngestionQueue } from "./queue";
+} from "../integrations";
 
 /**
  * Gmail push receiver.

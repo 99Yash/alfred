@@ -5,7 +5,7 @@ import {
   type ToolRunContext,
   type ToolRiskTier,
 } from "@alfred/contracts";
-import { readIntegrationAvailability } from "../integrations/availability";
+import { readIntegrationAvailability } from "../connections";
 import { singularizePhrase } from "./metadata-defaults";
 import {
   evaluateToolAvailability,

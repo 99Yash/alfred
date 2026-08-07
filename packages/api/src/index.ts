@@ -10,7 +10,7 @@ import { replicache } from "./modules/replicache/index";
 import { agent } from "./modules/agent/index";
 import { approvalsRoutes } from "./modules/approvals/index";
 import { chatRoutes } from "./modules/conversations/index";
-import { integrations } from "./modules/integrations/index";
+import { connections } from "./modules/connections/index";
 import { meRoutes } from "./modules/me/index";
 import { mcpIntegrationRoutes } from "./modules/mcp/index";
 import { onboardingRoutes } from "./modules/onboarding/index";
@@ -35,7 +35,7 @@ export const app = new Elysia({ name: "api", normalize: "typebox" })
   .use(agent)
   .use(approvalsRoutes)
   .use(chatRoutes)
-  .use(integrations)
+  .use(connections)
   .use(mcpIntegrationRoutes)
   .use(toolTiersRoutes)
   .use(meRoutes)
