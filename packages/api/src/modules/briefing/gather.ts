@@ -34,7 +34,7 @@ import {
   isGithubNotificationSender,
   type ObjectState,
   objectStateStore,
-} from "../integrations/object-state";
+} from "../connections";
 import { getPreference } from "../settings";
 import { findSenderSuppression, listActiveSuppressionInstructions } from "../knowledge";
 import { addDays, formatDay, inZone, weekdayIndex, type LocalDateKey } from "../timezone";

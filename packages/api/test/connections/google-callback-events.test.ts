@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 
-import { publishGoogleCallbackCompleted } from "../../src/modules/integrations/google-routes";
+import { publishGoogleCallbackCompleted } from "../../src/modules/connections/google-routes";
 
 test("publishes the completed Google callback through the domain event interface", async () => {
   const events: unknown[] = [];

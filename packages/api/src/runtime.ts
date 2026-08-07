@@ -34,10 +34,10 @@ export {
 } from "./modules/briefing/index";
 export {
   closeIngestionQueue,
-  scheduleRepeatableIngestionJobs,
   startIngestionWorker,
   stopIngestionWorker,
 } from "./modules/integrations/index";
+export { scheduleRepeatableIngestionJobs } from "./modules/connections/index";
 export {
   closeMemoryQueue,
   scheduleRepeatableMemoryJobs,

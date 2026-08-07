@@ -10,7 +10,7 @@ import {
   NoGoogleCredentialLifecycleHandlerRegisteredError,
   registerGoogleCredentialLifecycleHandler,
   upsertGoogleCredentialConnection,
-} from "../../src/modules/integrations/google-credential-lifecycle";
+} from "../../src/modules/connections/google-credential-lifecycle";
 
 const fakeTransaction = {} as DbTransaction;
 const changedAt = new Date("2026-08-02T09:00:00.000Z");
