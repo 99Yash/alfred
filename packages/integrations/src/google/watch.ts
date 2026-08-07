@@ -1,5 +1,5 @@
 import { db } from "@alfred/db";
-import { ingestionState, integrationCredentials } from "@alfred/db/schemas";
+import { integrationCredentials } from "@alfred/db/schemas";
 import { and, eq, sql } from "drizzle-orm";
 import { getFreshAccessToken } from "./credentials";
 import { startWatch, stopWatch } from "./gmail";
@@ -7,16 +7,20 @@ import { toMessage, withDefaults } from "@alfred/contracts";
 import { gmailMailboxWritesEnabled } from "@alfred/env/server";
 
 /**
- * Push-channel lifecycle for Gmail. The actual delta sync is in
- * `ingestor.ts`; this module is just the watch + cursor bookkeeping.
+ * Push-channel lifecycle for Gmail. The delta sync and the rolling
+ * `ingestion_state` cursor now live in the api-layer consumer
+ * (`@alfred/api` `modules/integrations/gmail-ingest.ts`); this provider
+ * module is just the watch channel bookkeeping.
  *
  * State is split across two tables:
  *  - `integration_credentials.metadata.watch`: channel-level bookkeeping
  *    (Pub/Sub topic + expiration + the historyId Gmail returned at watch
- *    time, kept as the cold-start baseline).
+ *    time, kept as the cold-start baseline) — owned here.
  *  - `ingestion_state.state.historyId`: rolling cursor — advanced by
- *    every successful poll/webhook delta. The watch baseline only seeds
- *    this row on first connect.
+ *    every successful poll/webhook delta and seeded on first connect. This
+ *    table is owned by the api consumer, NOT this provider package;
+ *    `installGmailWatch` returns the baseline historyId and the consumer's
+ *    `installGmailWatchAndSeedCursor` wrapper seeds the cursor row.
  *
  * Rationale for not adding a dedicated `gmail_watches` table: at most one
  * watch per credential, and watch state is irrelevant outside this
@@ -105,14 +109,10 @@ export async function installGmailWatch(
     })
     .where(eq(integrationCredentials.id, args.credentialId));
 
-  // Seed the rolling cursor only when no prior cursor exists — a renewal
-  // must not reset the cursor or we'd skip everything between the last
-  // poll and now.
-  await seedHistoryCursorIfAbsent({
-    credentialId: args.credentialId,
-    historyId: watch.historyId,
-  });
-
+  // The rolling `ingestion_state` cursor is seeded by the api-layer consumer
+  // (`installGmailWatchAndSeedCursor`), not here — this provider package no
+  // longer writes ingestion-domain tables. `state.baselineHistoryId` carries the
+  // historyId the caller needs to seed from.
   return state;
 }
 
@@ -241,46 +241,4 @@ export async function findExpiringGmailWatches(
     out.push({ id: row.id, userId: row.userId, expiresAt, topic: watch.topic });
   }
   return out;
-}
-
-async function seedHistoryCursorIfAbsent(args: {
-  credentialId: string;
-  historyId: string;
-}): Promise<void> {
-  const existing = await db()
-    .select({ id: ingestionState.id })
-    .from(ingestionState)
-    .where(
-      and(
-        eq(ingestionState.credentialId, args.credentialId),
-        eq(ingestionState.stream, "messages"),
-      ),
-    );
-  if (existing[0]) return;
-
-  // No prior cursor → seed one. Look up userId from the credential row;
-  // we need it for the not-null FK.
-  const credRow = (
-    await db()
-      .select({ userId: integrationCredentials.userId })
-      .from(integrationCredentials)
-      .where(eq(integrationCredentials.id, args.credentialId))
-  )[0];
-  if (!credRow) {
-    throw new Error(`[gmail.watch] credential vanished mid-install: ${args.credentialId}`);
-  }
-  await db()
-    .insert(ingestionState)
-    .values({
-      credentialId: args.credentialId,
-      userId: credRow.userId,
-      provider: "google",
-      stream: "messages",
-      state: { historyId: args.historyId },
-      lastSyncAt: null,
-      lastFullSyncAt: null,
-    })
-    .onConflictDoNothing({
-      target: [ingestionState.credentialId, ingestionState.stream],
-    });
 }

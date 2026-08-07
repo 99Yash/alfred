@@ -1,13 +1,13 @@
 import { Queue, Worker, type Job } from "bullmq";
 import { mapConcurrent, runTaskGroup, toMessage } from "@alfred/contracts";
+import { findExpiringGmailWatches } from "@alfred/integrations/google";
 import {
   findCredentialsNeedingPoll,
-  findExpiringGmailWatches,
   ingestRecentGmail,
-  installGmailWatch,
+  installGmailWatchAndSeedCursor,
   pollGmailHistory,
   pollGmailRecent,
-} from "@alfred/integrations/google";
+} from "./gmail-ingest";
 import { indexDocument, retryPending } from "@alfred/corpus";
 import { gmailMailboxWritesEnabled, serverEnv } from "@alfred/env/server";
 import { db } from "@alfred/db";
@@ -552,7 +552,10 @@ async function processIngestionJobData(data: IngestionJobData): Promise<unknown>
         return { installed: false, reason: "no-topic" };
       }
       assertGmailPushOidcConfigured();
-      const state = await installGmailWatch({ credentialId: data.credentialId, topicName: topic });
+      const state = await installGmailWatchAndSeedCursor({
+        credentialId: data.credentialId,
+        topicName: topic,
+      });
       if (!state) return { installed: false, reason: "writes-disabled" };
       console.log(
         `[ingestion:worker] gmail.watch_install credential=${data.credentialId} ` +
@@ -585,7 +588,7 @@ async function processIngestionJobData(data: IngestionJobData): Promise<unknown>
       let failed = 0;
       for (const c of candidates) {
         try {
-          await installGmailWatch({ credentialId: c.id, topicName: topic });
+          await installGmailWatchAndSeedCursor({ credentialId: c.id, topicName: topic });
           renewed++;
         } catch (err) {
           failed++;
