@@ -70,11 +70,10 @@ export * from "./extractor";
 /**
  * ── recall · contextFor · applyCorrection (folded from `memory`, item 07) ────
  *
- * Item 07 folds the former `memory` module in, completing the knowledge domain
+ * Item 07 folded the former `memory` module in, completing the knowledge domain
  * behind ONE interface. The groupings below are DOCUMENTARY (Tier 3) — nothing
- * at compile time forbids a "recall" export from writing. The fold is a
- * behavior-neutral relocation: every symbol re-exported here is byte-identical
- * to its former `../memory/*` home.
+ * at compile time forbids a "recall" export from writing. Every symbol
+ * re-exported here is byte-identical to its former `../memory/*` home.
  *
  *   - recall           — `recallActiveByKey` / `recallLatestByKey` /
  *                        `listFactsByStatus` / `getSupersessionChain` (facts),
@@ -83,30 +82,76 @@ export * from "./extractor";
  *   - applyCorrection  — `proposeFact` / `confirmFact` / `supersedeFact` /
  *                        `rejectFact` / `editFact` (facts).
  *
- * INTERNAL-by-intent, still barrel-exported (honest Tier 3, NOT enforced):
- * significance, standing-instructions, fact-policy, entity graph, signature,
- * self-identity, style-profiles, entity-metadata, rejected, extraction. Live
- * cross-module consumers (briefing/triage/replicache/tools) read these today,
- * so narrowing them behind observe/recall/contextFor/applyCorrection is a
- * deferred follow-up, not this relocation. NOTE: the pure `rememberSenderSuppression`
- * write is a public door here — prefer the `tools` suppression coordinator, which
- * also dismisses the matching todos.
+ * Item 15 CURATED this barrel: each behavior-bearing internal file is now an
+ * explicit `export { … }` of only the symbols a sibling-`api` module imports
+ * through `../knowledge`, not a wholesale `export *`. Six whole files
+ * (self-identity, entity-graph, team-graph, style-profiles, rejected,
+ * extraction) left the barrel entirely — their symbols stay `export`ed from
+ * their own file for intra-`knowledge` direct import, so nothing inside the
+ * module breaks, but no new sibling caller can reach them through `../knowledge`.
+ * This is honestly Tier 3, not a compile wall: `backend.ts:89-103,119` still
+ * re-exports the same files by path onto `@alfred/api/backend`, so the residual
+ * `@alfred/api/backend` leak is unchanged here (a distinct, harder axis — its
+ * `apps/server` operational-script consumers have no deep-import door — deferred
+ * to a follow-up backend-narrowing item). What this buys is Tier-2 for the
+ * sibling-`api` boundary specifically: a new `packages/api/src/modules/*` file
+ * can no longer reach a dropped internal through `../knowledge`.
+ *
+ * `./types` stays `export *` — pure enums / schemas / contract re-exports, no
+ * behavior-bearing symbol, so curating it buys no encapsulation.
  */
 export * from "./types";
-export * from "./signature";
-export * from "./facts";
-export * from "./fact-policy";
-export * from "./self-identity";
-export * from "./user-context";
-export * from "./standing-instructions";
-export * from "./chunks";
-export * from "./entity-graph";
-export * from "./entity-metadata";
-export * from "./significance";
-export * from "./team-graph";
-export * from "./style-profiles";
-export * from "./rejected";
-export * from "./extraction";
+
+// recall + applyCorrection (facts) — both sanctioned groupings share this file.
+export {
+  // recall
+  recallActiveByKey,
+  recallLatestByKey,
+  listFactsByStatus,
+  getSupersessionChain,
+  // applyCorrection
+  proposeFact,
+  confirmFact,
+  supersedeFact,
+  rejectFact,
+  editFact,
+  proposeFactArgsSchema,
+  type FactRow,
+  type ProposeFactArgs,
+} from "./facts";
+// recall (chunks) + the cold-start write door.
+export { recallMemory, writeMemoryChunk, type RecallMemoryHit } from "./chunks";
+// contextFor.
+export { readUserContext, type UserContext } from "./user-context";
+
+// Cross-module helpers reached through this barrel by a non-test sibling-`api`
+// module (replicache / triage / briefing / tools / todos). Not part of the
+// sanctioned observe/recall/contextFor/applyCorrection set, but genuinely
+// cross-module — curated here rather than left as a wholesale `export *`.
+export { valueSignature } from "./signature";
+export { isSingleValuedKey, isUninformativeRelationshipFact } from "./fact-policy";
+export {
+  getSenderSignificance,
+  getSenderSignificanceBatch,
+  findPersonMetadataByAddress,
+  type SenderSignificance,
+} from "./significance";
+export { type Significance } from "./entity-metadata";
+export {
+  editStandingInstruction,
+  forgetStandingInstruction,
+  listStandingInstructions,
+  listActiveSuppressionInstructions,
+  findSenderSuppression,
+  findActiveSenderSuppression,
+  normalizeSenderEmail,
+  // NOTE: the pure `rememberSenderSuppression` write is a public door — prefer
+  // the `tools` suppression coordinator, which also dismisses the matching todos.
+  rememberSenderSuppression,
+  type RememberSenderSuppressionArgs,
+  type RememberSenderSuppressionResult,
+  type SenderSuppressionMatch,
+} from "./standing-instructions";
 
 // Worker lifecycle — names preserved so `runtime.ts` re-exports resolve unchanged.
 export { startMemoryWorker, stopMemoryWorker, closeMemoryQueue } from "./queue";

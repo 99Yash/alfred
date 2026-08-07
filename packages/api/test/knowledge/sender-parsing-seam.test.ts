@@ -1,13 +1,14 @@
 import assert from "node:assert/strict";
 import { describe, test } from "node:test";
 
+// Internal-by-intent helpers dropped from the `knowledge` barrel (item 15) —
+// contract tests read them from their owning file directly.
 import {
-  accumulateDoc,
   authoredByUser,
   type AuthorshipDocument,
-  type ContactAggregate,
   type SelfIdentity,
-} from "../../src/modules/knowledge";
+} from "../../src/modules/knowledge/fact-policy";
+import { accumulateDoc, type ContactAggregate } from "../../src/modules/knowledge/team-graph";
 import { gmailSenderAdapter } from "../../src/modules/triage/gmail-sender-adapter";
 
 /**
