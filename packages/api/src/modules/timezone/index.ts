@@ -16,5 +16,6 @@ export {
 export {
   DEFAULT_USER_TIMEZONE,
   firstValidTimezone,
+  isValidTimezone,
   TIMEZONE_PREFERENCE_KEYS,
 } from "./user-timezone";

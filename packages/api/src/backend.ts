@@ -149,7 +149,6 @@ export {
   gatherDayShape,
   getBriefingQueue,
   isQuietMorning,
-  isValidTimezone,
   listEmailsSinceWatermark,
   listPriorBriefings,
   markBriefingComposed,

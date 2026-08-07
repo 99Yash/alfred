@@ -90,7 +90,7 @@
       "me -> settings",
       "me -> timezone",
       "me -> triage",
-      "onboarding -> briefing",
+      "onboarding -> timezone",
       "replicache -> action-policies",
       "replicache -> agent",
       "replicache -> integrations",
@@ -123,15 +123,15 @@
       "triage -> timezone",
       "triage -> todos",
       "workflows -> agent",
-      "workflows -> briefing",
       "workflows -> connections",
       "workflows -> integrations",
       "workflows -> settings",
+      "workflows -> timezone",
       "workflows -> tool-runtime",
       "workflows -> triggers"
     ],
     "sccs": [
-      ["agent", "approvals", "briefing", "knowledge", "workflows"],
+      ["agent", "approvals", "workflows"],
       ["dispatch", "tools"]
     ]
   },
@@ -163,7 +163,6 @@
         "packages/api/src/modules/me/routes.ts:../briefing/preferences",
         "packages/api/src/modules/me/routes.ts:../briefing/queue",
         "packages/api/src/modules/me/routes.ts:../triage/sent-mail",
-        "packages/api/src/modules/onboarding/routes.ts:../briefing/preferences",
         "packages/api/src/modules/replicache/entities.ts:../agent/registry",
         "packages/api/src/modules/replicache/push.ts:../integrations/queue",
         "packages/api/src/modules/replicache/push.ts:../triage/tags",
@@ -177,7 +176,6 @@
         "packages/api/src/modules/triage/workflow-operations.ts:../todos/suggest",
         "packages/api/src/modules/workflows/events.ts:../agent/service",
         "packages/api/src/modules/workflows/gmail-event-readiness.ts:../integrations/gmail-push-config",
-        "packages/api/src/modules/workflows/scheduling.ts:../briefing/preferences",
         "packages/api/src/modules/workflows/seeder.ts:../agent/registry",
         "packages/api/src/modules/workflows/tick.ts:../agent/service"
       ]
