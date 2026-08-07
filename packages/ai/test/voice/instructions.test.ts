@@ -3,11 +3,8 @@ import { readFileSync, readdirSync, statSync } from "node:fs";
 import { describe, it } from "node:test";
 import { fileURLToPath } from "node:url";
 
-import {
-  AGENT_OUTPUT_PURPOSES,
-  composeAgentInstructions,
-} from "../../src/modules/agent/instructions";
-import { DEFAULT_VOICE_PROMPT } from "../../src/modules/agent/voice";
+import { AGENT_OUTPUT_PURPOSES, composeAgentInstructions } from "../../src/voice/instructions";
+import { DEFAULT_VOICE_PROMPT } from "../../src/voice/prompt";
 
 describe("composeAgentInstructions", () => {
   it("applies Alfred's voice by default and keeps dynamic grounding last", () => {
@@ -78,6 +75,6 @@ describe("composeAgentInstructions", () => {
     }
 
     visit(srcRoot);
-    assert.deepEqual(imports, ["modules/agent/instructions.ts"]);
+    assert.deepEqual(imports, ["voice/instructions.ts"]);
   });
 });

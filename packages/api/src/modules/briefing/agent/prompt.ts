@@ -11,7 +11,7 @@
  * cache breakpoint).
  */
 
-import { composeAgentInstructions } from "../../agent/instructions";
+import { composeAgentInstructions } from "@alfred/ai/voice";
 
 const BASE_PROMPT = `You are Alfred, a personal assistant writing the user's daily briefing.
 

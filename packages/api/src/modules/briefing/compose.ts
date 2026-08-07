@@ -12,8 +12,7 @@ import {
 } from "@alfred/contracts";
 import type { ComposedEmail } from "@alfred/mailer";
 
-import { composeAgentInstructions } from "../agent/instructions";
-import { sanitizeVoice } from "../agent/voice-sanitize";
+import { composeAgentInstructions, sanitizeVoice } from "@alfred/ai/voice";
 import type { LocalDateKey } from "../timezone";
 import type { BriefingDigest, BriefingItem, PriorityCategory } from "./gather";
 import {

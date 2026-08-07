@@ -81,7 +81,6 @@ export {
 } from "./run-compaction";
 export { buildConnectedSummaryFromAvailability } from "./connected-summary";
 export { formatRuntimeTimeGrounding, resolveRuntimeGroundingAnchor } from "./grounding";
-export { composeAgentInstructions } from "./instructions";
 export {
   foldToolSurfaceState,
   systemToolKernel,
@@ -90,7 +89,6 @@ export {
 } from "./tool-surface";
 export { appendModelResponseMessages } from "./transcript-dedup";
 export { aggregateRunUsage } from "./usage-fold";
-export { createVoiceStreamSanitizer, sanitizeVoice } from "./voice-sanitize";
 export {
   shouldPublishToolStarted,
   toolCardStarted,

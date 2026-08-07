@@ -43,7 +43,7 @@ candidate `gate` rule — see [Closing the loop](#closing-the-loop).
 | normalize / extract an email address | `parseEmailAddress(value)` | `@alfred/contracts` | manual `<...>` / lowercase parsing |
 | fold a key to a canonical form | `canonicalParamKey(key)` | `@alfred/contracts` | `.toLowerCase().replace(/[_-]/g, "")` — **drift check bans the raw idiom** |
 | strip tool-result / error noise before it hits a model | `sanitizeToolResult` / `sanitizeErrorMessage` | `@alfred/contracts` | inline trimming |
-| enforce Alfred's prose voice (no em-dashes, plain words) | `sanitizeVoice` / `createVoiceStreamSanitizer` | `@alfred/api` agent voice-sanitize | manual string replaces |
+| enforce Alfred's prose voice (no em-dashes, plain words) | `sanitizeVoice` / `createVoiceStreamSanitizer` | `@alfred/ai/voice` | manual string replaces |
 | read an environment variable | `serverEnv()` | `@alfred/env/server` | `process.env.*` — **repo invariant** |
 | validate a timezone string | `isIanaTimezone(value)` | `@alfred/contracts` | `function isValidTimezone` / a raw `Intl.DateTimeFormat` trial — **drift check bans it** |
 | any calendar-day, wall-clock, or UTC-offset reading | `settings.resolveTimezone` for the zone, then the `@alfred/api` timezone module — `inZone(tz).day()` / `.hour()` / `.dayBounds()` / `.startOf(key)` / `.clock()` / `.format(at)`, and `addDays` / `weekdayIndex` / `formatDay` on the key ([full list](#timezone--alfredapi-srcmodulestimezone)) | `@alfred/api` timezone module | `Intl` glue per call site; day math in milliseconds; reading `getUTCDate()` off a user's instant; passing a bare `string` where `IanaTimezone` / `LocalDateKey` is expected |
