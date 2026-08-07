@@ -8,11 +8,10 @@ import {
   type StandingInstructionValue,
 } from "@alfred/contracts";
 
-import {
-  findSenderSuppression,
-  normalizeSenderEmail,
-  type ActiveSuppressionInstruction,
-} from "../../src/modules/knowledge";
+import { findSenderSuppression, normalizeSenderEmail } from "../../src/modules/knowledge";
+// `ActiveSuppressionInstruction` is internal-by-intent (dropped from the barrel,
+// item 15) — read from its owning file directly.
+import { type ActiveSuppressionInstruction } from "../../src/modules/knowledge/standing-instructions";
 
 function instruction(overrides: Partial<StandingInstructionValue> = {}): StandingInstructionValue {
   return standingInstructionValueSchema.parse({
