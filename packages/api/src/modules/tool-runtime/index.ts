@@ -84,6 +84,18 @@ type ToolCallActor =
       runContext: ToolRunContext & { caller: "sub_agent" };
     };
 
+/**
+ * Caller label for trace metadata: `boss` or `sub:<id>`. The single source for
+ * this format — execute spans, reject spans, sub-agent-await spans, and the
+ * workflow's `runtime.dispatch.batch` span all derive their caller through here,
+ * so a run's spans tag the same caller identically and the format lives in one
+ * place if it ever changes.
+ */
+export function callerLabel(caller: ToolCallActor["caller"] | undefined): string {
+  if (caller === undefined || caller === "boss") return "boss";
+  return `sub:${caller.subId}`;
+}
+
 /** Stable run facts shared by every proposed call in one tool round. */
 export type ToolCallRun = ToolCallRunBase & ToolCallActor;
 
