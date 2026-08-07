@@ -5,6 +5,7 @@ import { gmailMailboxWritesEnabled } from "@alfred/env/server";
 import { getFreshAccessToken, stopGmailWatchWithAccessToken } from "@alfred/integrations/google";
 import { and, eq } from "drizzle-orm";
 import { z } from "zod";
+import { TriggerConsumerBootError } from "../triggers";
 
 const identifierSchema = z.string().min(1).max(500);
 
@@ -71,7 +72,7 @@ export interface GoogleCredentialLifecycleHandler {
   ): Promise<{ status: GoogleCredentialDisconnectResult["status"] }>;
 }
 
-export class NoGoogleCredentialLifecycleHandlerRegisteredError extends Error {
+export class NoGoogleCredentialLifecycleHandlerRegisteredError extends TriggerConsumerBootError {
   constructor() {
     super("[integrations] no Google credential lifecycle handler is registered");
     this.name = "NoGoogleCredentialLifecycleHandlerRegisteredError";
