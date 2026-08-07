@@ -30,6 +30,11 @@ export type {
   WorkflowServiceFailure,
   WorkflowServiceResult,
 } from "./revisions";
+export {
+  prepareWorkflowApprovalEdit,
+  restageWorkflowApproval,
+  type WorkflowApprovalEditPreparation,
+} from "./approval-activation";
 export { workflowRoutes } from "./routes";
 export { acceptEvent } from "./events";
 export { seedBuiltinWorkflowsForAllUsers, seedBuiltinWorkflowsForUser } from "./seeder";

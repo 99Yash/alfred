@@ -11,10 +11,10 @@
  *     `case 'expired'` synthesizes the structured auto-expired rejection
  *     back to the boss — which can then re-plan or finish.
  *
- * Lives apart from `expiry-queue.ts` because it imports `../agent`
- * (`signalRunInTx` / `enqueueRun`), which sits above the dispatcher in
- * the import graph; keeping the scheduling helpers agent-free lets the
- * dispatcher schedule expiry without forming an import cycle.
+ * Lives in `agent/` (execution) because it drives the run-wake primitive
+ * (`signalRunInTx` / `redeliverRun`); the scheduling helpers stay in
+ * `tool-runtime` (a sink), so the dispatcher can schedule expiry without
+ * forming an import cycle.
  */
 
 import { db } from "@alfred/db";
@@ -23,14 +23,14 @@ import { and, eq, sql } from "drizzle-orm";
 import { DelayedError, Worker, type Job } from "bullmq";
 import { emitReplicachePokes } from "../../events/replicache-events";
 import { createRedisConnection } from "../../queue/connection";
-import { redeliverRun, signalRunInTx } from "../agent";
-import { startApprovalWaitSpan } from "../agent/runtime-spans";
+import { redeliverRun, signalRunInTx } from "./service";
+import { startApprovalWaitSpan } from "./runtime-spans";
 import {
   APPROVAL_EXPIRY_QUEUE_NAME,
   approvalExpiryJobDataSchema,
+  removeApprovalNotificationJob,
   type ApprovalExpiryJobData,
-} from "./expiry-queue";
-import { removeApprovalNotificationJob } from "./notification-queue";
+} from "../tool-runtime";
 import { toMessage } from "@alfred/contracts";
 
 let _worker: Worker<ApprovalExpiryJobData> | undefined;

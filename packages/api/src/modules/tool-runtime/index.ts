@@ -33,6 +33,31 @@ export {
   type WorkflowToolCatalogSource,
   type WorkflowToolFacts,
 } from "./workflow-tool-catalog";
+// Action-staging approval SCHEDULING surface (ADR-0034). The delayed-job
+// wrappers stay here because they import only queue/connection + contracts,
+// keeping tool-runtime a 0-outgoing-edge sink; the dispatcher and the decision
+// API schedule/remove through this door. The worker side (wake/notify) lives in
+// `agent/` (execution), which drives the run-wake primitive + `delivery.send`.
+export {
+  APPROVAL_EXPIRY_QUEUE_NAME,
+  approvalExpiryJobId,
+  approvalExpiryJobDataSchema,
+  getApprovalExpiryQueue,
+  scheduleApprovalExpiryJob,
+  removeApprovalExpiryJob,
+  closeApprovalExpiryQueue,
+  type ApprovalExpiryJobData,
+} from "./approval-expiry-queue";
+export {
+  APPROVAL_NOTIFICATION_QUEUE_NAME,
+  approvalNotificationJobId,
+  approvalNotificationJobDataSchema,
+  getApprovalNotificationQueue,
+  scheduleApprovalNotificationJob,
+  removeApprovalNotificationJob,
+  closeApprovalNotificationQueue,
+  type ApprovalNotificationJobData,
+} from "./approval-notification-queue";
 
 export type ToolSurfaceSource =
   | { kind: "kernel" }

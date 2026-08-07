@@ -44,15 +44,15 @@
   },
   "assistantModuleGraph": {
     "edges": [
-      "agent -> approvals",
       "agent -> chat",
       "agent -> connections",
+      "agent -> delivery",
       "agent -> scratchpad",
       "agent -> settings",
       "agent -> timezone",
       "agent -> tool-runtime",
       "approvals -> agent",
-      "approvals -> delivery",
+      "approvals -> tool-runtime",
       "approvals -> workflows",
       "briefing -> agent",
       "briefing -> connections",
@@ -75,7 +75,6 @@
       "conversations -> tool-runtime",
       "dispatch -> action-policies",
       "dispatch -> agent",
-      "dispatch -> approvals",
       "dispatch -> connections",
       "dispatch -> settings",
       "dispatch -> tool-runtime",
@@ -129,7 +128,7 @@
       "workflows -> tool-runtime",
       "workflows -> triggers"
     ],
-    "sccs": [["agent", "approvals", "workflows"]]
+    "sccs": []
   },
   "legacyExceptions": {
     "privateModuleImports": {
@@ -137,17 +136,11 @@
       "removalPhase": "Phases 1-6",
       "reason": "Existing API modules import another module's implementation. Each migration slice must remove entries and cannot add replacements.",
       "imports": [
-        "packages/api/src/modules/agent/service.ts:../approvals/expiry-queue",
-        "packages/api/src/modules/agent/service.ts:../approvals/notification-queue",
-        "packages/api/src/modules/approvals/expiry-worker.ts:../agent/runtime-spans",
         "packages/api/src/modules/approvals/routes.ts:../agent/runtime-spans",
         "packages/api/src/modules/approvals/routes.ts:../agent/service",
-        "packages/api/src/modules/approvals/workflow-activation.ts:../workflows/revisions",
         "packages/api/src/modules/cold-start/web-tool.ts:../tools/web-search",
         "packages/api/src/modules/dispatch/index.ts:../action-policies/resolve",
         "packages/api/src/modules/dispatch/index.ts:../agent/sub-agent-join",
-        "packages/api/src/modules/dispatch/index.ts:../approvals/expiry-queue",
-        "packages/api/src/modules/dispatch/index.ts:../approvals/notification-queue",
         "packages/api/src/modules/dispatch/index.ts:../tools/context",
         "packages/api/src/modules/dispatch/index.ts:../tools/passthrough",
         "packages/api/src/modules/dispatch/index.ts:../tools/registry",
