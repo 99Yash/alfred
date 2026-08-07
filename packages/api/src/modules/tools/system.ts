@@ -32,13 +32,14 @@ import {
   createArtifact,
   updateArtifact,
   type ArtifactWriteContext,
-} from "../artifacts/write";
+} from "../artifacts";
 import type { ToolExecuteContext } from "./registry";
 import {
   editStandingInstruction,
   forgetStandingInstruction,
   listStandingInstructions,
   readUserContext,
+  runWebSearch,
 } from "../knowledge";
 import {
   activateWorkflow,
@@ -55,13 +56,11 @@ import {
 } from "../tool-runtime";
 import { inZone } from "../timezone";
 import { promoteScratch, readScratch, writeScratch } from "../scratchpad";
-import { resolveTodosForGmailSender } from "../todos/resolve";
+import { resolveTodosForGmailSender, suggestTodo } from "../todos";
 import { rememberSenderSuppressionAndDismissTodos } from "./remember-suppression";
-import { suggestTodo } from "../todos/suggest";
 import { redactCredentialUrl, runFetchUrl } from "./fetch-url";
 import { liveTool, type RegisteredTool } from "./registry";
 import { parseScratchToolKey } from "./scratch-key";
-import { runWebSearch } from "./web-search";
 import { resolveExactToolLoad, searchAvailableTools } from "./discovery";
 
 /**
