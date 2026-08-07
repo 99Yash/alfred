@@ -27,7 +27,7 @@ import {
 import { and, eq, gt, lt } from "drizzle-orm";
 import { createHash, randomBytes } from "node:crypto";
 import { z } from "zod";
-import { rememberOAuthNonce, signOAuthState } from "../connections";
+import { rememberOAuthNonce, signOAuthState } from "../oauth-state";
 
 const oauthMetadataSchema = z.looseObject({
   issuer: z.string().url(),

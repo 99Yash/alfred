@@ -129,7 +129,7 @@ export {
   type SuggestTodoInput,
   type SuggestTodoResult,
 } from "./modules/todos/suggest";
-export * from "./modules/mcp/index";
+export * from "./modules/connections/mcp/index";
 
 export {
   beginBriefing,

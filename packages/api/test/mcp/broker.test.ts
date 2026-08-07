@@ -14,16 +14,16 @@ import {
   type McpProtocolCallResult,
   type McpProtocolClient,
   type McpProtocolPage,
-} from "../../src/modules/mcp";
-import { McpExecutionBroker } from "../../src/modules/mcp/broker";
-import { McpClientError } from "../../src/modules/mcp/errors";
-import { canonicalArgsHash, descriptorHash } from "../../src/modules/mcp/hash";
-import { McpConnectionManager } from "../../src/modules/mcp/manager";
+} from "../../src/modules/connections/mcp";
+import { McpExecutionBroker } from "../../src/modules/connections/mcp/broker";
+import { McpClientError } from "../../src/modules/connections/mcp/errors";
+import { canonicalArgsHash, descriptorHash } from "../../src/modules/connections/mcp/hash";
+import { McpConnectionManager } from "../../src/modules/connections/mcp/manager";
 import {
   createSuccessorInvocation,
   insertConnection,
   upsertToolPolicy,
-} from "../../src/modules/mcp/persistence";
+} from "../../src/modules/connections/mcp/persistence";
 
 /**
  * DB-backed offline tests for the execution broker (PRD #540). A real

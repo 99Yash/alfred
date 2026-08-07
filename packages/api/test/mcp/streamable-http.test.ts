@@ -5,7 +5,7 @@ import { toNodeHandler } from "@modelcontextprotocol/node";
 import { createMcpHandler, McpServer } from "@modelcontextprotocol/server";
 import { isRecord } from "@alfred/contracts";
 import { z } from "zod";
-import { McpRawClient } from "../../src/modules/mcp";
+import { McpRawClient } from "../../src/modules/connections/mcp";
 
 let endpoint: URL;
 let closeServer: (() => Promise<void>) | null = null;
