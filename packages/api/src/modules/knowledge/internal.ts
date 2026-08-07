@@ -15,6 +15,11 @@
  * through here — a future tooling symbol needs its own line added below. Honors
  * ADR-0089 ("one supported interface per module"): one named door, not a
  * wildcard leak of five internal files.
+ *
+ * The "tooling only" restriction is gate-enforced: an oxlint
+ * `no-restricted-imports` rule in `.oxlintrc.json` forbids importing this subpath
+ * from anywhere outside `apps/server/src/scripts/**`, so a route or worker reaching
+ * for a write-capable internal here is a red `pnpm lint`, not a silent bypass.
  */
 export { backfillTeamGraph } from "./team-graph";
 export {
