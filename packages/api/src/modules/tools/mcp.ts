@@ -24,7 +24,7 @@ import {
   type ExternalToolRef,
   type McpBrokerOutcome,
   type McpCallEnvelope,
-} from "../mcp";
+} from "../connections";
 import { liveTool, type RegisteredTool } from "./registry";
 
 /** Model-safe projection of a broker outcome into an `mcp.call` tool result. */

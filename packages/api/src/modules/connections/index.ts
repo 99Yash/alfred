@@ -21,6 +21,14 @@ export {
 } from "./google-credential-lifecycle";
 export * from "./object-state/index";
 export { publishGoogleCallbackCompleted } from "./google-routes";
+export {
+  getMcpExecutionBroker,
+  listMcpToolsLocal,
+  resolveMcpCallRiskTier,
+  type ExternalToolRef,
+  type McpBrokerOutcome,
+  type McpCallEnvelope,
+} from "./mcp";
 
 export const connections = new Elysia({ name: "connections", normalize: "typebox" })
   .use(googleIntegrationRoutes)

@@ -2,7 +2,7 @@
  * Browser-safe MCP cross-boundary contracts: the `mcp.call` / `mcp.list_tools`
  * argument envelopes and the literal unions that back the persisted MCP tables
  * (`packages/db/src/schema/mcp.ts`) and the execution broker
- * (`packages/api/src/modules/mcp/`).
+ * (`packages/api/src/modules/connections/mcp/`).
  *
  * These are the shapes the web client, the model-facing tool surface, and the
  * DB layer must all agree on. Everything that depends on the MCP SDK or
@@ -32,7 +32,7 @@ export const mcpConnectionStatusSchema = z.enum(mcpConnectionStatusValues);
 
 // ---------------------------------------------------------------------------
 // Browser-safe mirror of the negotiated server identity. The runtime type
-// lives in `packages/api/src/modules/mcp/protocol.ts` (SDK-bound); this is the
+// lives in `packages/api/src/modules/connections/mcp/protocol.ts` (SDK-bound); this is the
 // persisted/`$type` snapshot stored on `mcp_connections.server_identity`.
 // ---------------------------------------------------------------------------
 export const mcpServerIdentitySchema = z.object({
