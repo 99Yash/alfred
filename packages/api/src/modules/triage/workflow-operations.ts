@@ -1,5 +1,5 @@
 import { publishEvent } from "../../events/publish";
-import { resolveFeatureFlags, resolveTimezone } from "../settings";
+import { resolveFeatureFlags, resolveTimezone } from "@alfred/assistant/settings";
 import { findActiveSenderSuppression, getSenderSignificance } from "../knowledge";
 import { suggestTodo } from "../todos";
 import {

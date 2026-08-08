@@ -4,7 +4,7 @@ import { user as userTable } from "@alfred/db/schemas";
 import { Queue, Worker, type Job } from "bullmq";
 import { createRedisConnection } from "../../queue/connection";
 import { startRun } from "../agent/index";
-import { resolveFeatureFlags } from "../settings";
+import { resolveFeatureFlags } from "@alfred/assistant/settings";
 import { inZone } from "@alfred/assistant/time";
 import { resolveBriefingPreferences } from "./preferences";
 import { DAILY_BRIEFING_WORKFLOW_SLUG } from "./workflow-input";

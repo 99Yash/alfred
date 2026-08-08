@@ -38,11 +38,11 @@ import {
 } from "./tool-card-events";
 import { toolEventOutcome } from "./tool-event-outcome";
 import { writeScratch } from "../../scratchpad";
-import { readIntegrationAvailability } from "../../connections";
+import { readIntegrationAvailability } from "@alfred/assistant/connections";
 import { buildConnectedSummaryFromAvailability } from "../connected-summary";
 import { formatDateGrounding } from "../grounding";
 import { composeAgentInstructions } from "@alfred/ai/voice";
-import { resolveTimezone } from "../../settings";
+import { resolveTimezone } from "@alfred/assistant/settings";
 import {
   foldToolSurfaceState,
   systemToolKernel,

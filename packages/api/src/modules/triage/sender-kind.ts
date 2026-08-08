@@ -5,7 +5,7 @@ import {
   type EntityKindClassification,
   type EntityNodeKind,
 } from "@alfred/contracts";
-import { getPreference } from "../settings";
+import { getPreference } from "@alfred/assistant/settings";
 import type { ActiveEntityProfile } from "../knowledge";
 import { userModelReader } from "../knowledge";
 
