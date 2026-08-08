@@ -24,8 +24,8 @@ import { and, asc, eq } from "drizzle-orm";
 import { publishEvent } from "../../events/publish";
 import { logger } from "../../lib/logger";
 import { buildThreadArtifactsContext } from "../artifacts";
-import { readIntegrationAvailability } from "../connections";
-import { resolveTimezone } from "../settings";
+import { readIntegrationAvailability } from "@alfred/assistant/connections";
+import { resolveTimezone } from "@alfred/assistant/settings";
 import { executeToolCallRound } from "../tool-runtime";
 import {
   appendModelResponseMessages,

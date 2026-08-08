@@ -27,7 +27,7 @@ import {
   disconnectGoogleCredentialConnection,
   GoogleCredentialNotFoundError,
   upsertGoogleCredentialConnection,
-} from "./google-credential-lifecycle";
+} from "@alfred/assistant/connections";
 import {
   consumeOAuthNonce,
   rememberOAuthNonce,

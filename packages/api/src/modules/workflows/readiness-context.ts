@@ -1,4 +1,4 @@
-import { readFreshIntegrationAvailability } from "../connections";
+import { readFreshIntegrationAvailability } from "@alfred/assistant/connections";
 import { readGmailEventHealth } from "./gmail-event-readiness";
 
 /** Load the complete mutable context required for one workflow readiness decision. */

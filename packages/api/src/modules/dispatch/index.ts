@@ -92,8 +92,8 @@ import {
   type ToolExecuteContext,
   type ToolUnavailabilityCode,
 } from "../tools/registry";
-import { readIntegrationAvailability } from "../connections";
-import { resolveTimezone } from "../settings";
+import { readIntegrationAvailability } from "@alfred/assistant/connections";
+import { resolveTimezone } from "@alfred/assistant/settings";
 
 export type DispatchArgs = ToolCallDispatchArgs;
 type DispatchToolCallRoundAdapter = Parameters<typeof registerToolCallRoundAdapter>[0];
