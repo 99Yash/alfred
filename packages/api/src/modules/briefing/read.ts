@@ -24,7 +24,7 @@ import {
   getSenderSignificanceBatch,
   listActiveSuppressionInstructions,
 } from "../knowledge";
-import { inZone } from "../timezone";
+import { inZone } from "@alfred/assistant/time";
 
 /**
  * Read-side helpers for the LLM-composed daily briefing.

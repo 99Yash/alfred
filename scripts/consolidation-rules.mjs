@@ -149,8 +149,8 @@ export const RULES = [
     id: "raw-intl-timezone",
     re: /new\s+Intl\.DateTimeFormat\(/,
     severity: "hint",
-    owners: ["packages/api/src/modules/timezone/local-time.ts"],
-    fix: "@alfred/api's timezone module owns every date/zone reading, split by one question: does the reading need a zone? NEEDS ONE — inZone(tz) binds it once and every reading is a method: .day() mints the LocalDateKey, .hour(), .offsetMs(), .clock(), .startOf(key, hour?), .dayBounds(), .format(instant). DOESN'T — a free function on the key: addDays (day math on the key, never in ms), weekdayIndex (day-of-week DECISIONS — never string-match a rendered weekday name), formatDay(key, \"short\"|\"long\"|\"weekday\"). Zones are IanaTimezone (settings.resolveTimezone, parseIanaTimezone); day keys are LocalDateKey (parseLocalDateKey / isLocalDateKey at a persistence or wire boundary) — both branded, so a plain string won't type-check. A bare Intl trial once broke briefings on \"UTC\", and a per-call-site UTC reading dated triage todos a day early.",
+    owners: ["packages/assistant/src/time/local-time.ts"],
+    fix: "@alfred/assistant/time owns every date/zone reading, split by one question: does the reading need a zone? NEEDS ONE — inZone(tz) binds it once and every reading is a method: .day() mints the LocalDateKey, .hour(), .offsetMs(), .clock(), .startOf(key, hour?), .dayBounds(), .format(instant). DOESN'T — a free function on the key: addDays (day math on the key, never in ms), weekdayIndex (day-of-week DECISIONS — never string-match a rendered weekday name), formatDay(key, \"short\"|\"long\"|\"weekday\"). Zones are IanaTimezone (settings.resolveTimezone, parseIanaTimezone); day keys are LocalDateKey (parseLocalDateKey / isLocalDateKey at a persistence or wire boundary) — both branded, so a plain string won't type-check. A bare Intl trial once broke briefings on \"UTC\", and a per-call-site UTC reading dated triage todos a day early.",
   },
   {
     id: "hand-rolled-utc-offset-parse",
@@ -158,8 +158,8 @@ export const RULES = [
     // is how the same zone got three different offset answers.
     re: /timeZoneName:\s*["']longOffset["']|GMT\(\?:/,
     severity: "gate",
-    owners: ["packages/api/src/modules/timezone/local-time.ts"],
-    fix: "Use inZone(timezone).offsetMs(instant) from @alfred/api's timezone module — the one place the longOffset string is parsed. inZone(tz).clock(instant).utcOffset gives the signed ISO fragment.",
+    owners: ["packages/assistant/src/time/local-time.ts"],
+    fix: "Use inZone(timezone).offsetMs(instant) from @alfred/assistant/time — the one place the longOffset string is parsed. inZone(tz).clock(instant).utcOffset gives the signed ISO fragment.",
   },
   {
     id: "stale-google-access-token",

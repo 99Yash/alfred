@@ -18,7 +18,7 @@ import {
 } from "@alfred/contracts";
 import type { IanaTimezone } from "@alfred/contracts";
 import type { z } from "zod";
-import { addDays, inZone } from "../timezone";
+import { addDays, inZone } from "@alfred/assistant/time";
 import { runRestPassthrough } from "./passthrough";
 import { liveTool, type RegisteredTool } from "./registry";
 import { AppError } from "../../lib/app-errors";
