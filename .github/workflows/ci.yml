@@ -163,10 +163,60 @@ jobs:
       - name: AI unit tests
         run: corepack pnpm --filter @alfred/ai test
 
+  # @alfred/assistant holds product modules moved out of @alfred/api during
+  # Phase 6B. Some are DB-backed (e.g. `delivery` owns notification idempotency
+  # over `email_sends`), so this job runs Postgres + Redis + a format-valid
+  # serverEnv, exactly like `api-tests`. The check name stays `assistant-unit-tests`
+  # (branch-protection stability); the `test` glob runs both pure and DB-backed
+  # suites, picking up the DB from the job-level env just as `api-tests` does.
   assistant-unit-tests:
     name: assistant-unit-tests
     runs-on: ubuntu-latest
     timeout-minutes: 10
+    services:
+      postgres:
+        image: pgvector/pgvector:pg16
+        env:
+          POSTGRES_USER: ci
+          POSTGRES_PASSWORD: ci
+          POSTGRES_DB: alfred_ci
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U ci -d alfred_ci"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+      redis:
+        image: redis:7-alpine
+        ports:
+          - 6379:6379
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+    env:
+      DATABASE_URL: postgresql://ci:ci@localhost:5432/alfred_ci
+      REDIS_URL: redis://localhost:6379
+      BETTER_AUTH_SECRET: ci-dummy-better-auth-secret-32chars-min
+      OAUTH_CREDENTIAL_KEK: Y2ktZHVtbXkta2VrLTMyLWJ5dGVzLW5vdC1zZWNyZXQ
+      BETTER_AUTH_URL: http://localhost:3001
+      ALFRED_ALLOWED_EMAIL: ci@example.com
+      RESEND_API_KEY: re_ci_dummy
+      RESEND_FROM_EMAIL: Alfred <noreply@example.com>
+      ANTHROPIC_API_KEY: ci-dummy
+      GOOGLE_GENERATIVE_AI_API_KEY: ci-dummy
+      GOOGLE_OAUTH_CLIENT_ID: ci-dummy
+      GOOGLE_OAUTH_CLIENT_SECRET: ci-dummy
+      GOOGLE_OAUTH_REDIRECT_URI: http://localhost:3001/api/integrations/google/callback
+      GITHUB_APP_ID: "1"
+      GITHUB_APP_SLUG: ci-dummy
+      GITHUB_APP_CLIENT_ID: ci-dummy
+      GITHUB_APP_CLIENT_SECRET: ci-dummy
+      GITHUB_APP_PRIVATE_KEY: ci-dummy
+      GITHUB_WEBHOOK_SECRET: ci-dummy
+      GITHUB_APP_REDIRECT_URI: http://localhost:3001/api/integrations/github/callback
     steps:
       - uses: actions/checkout@v4
 
@@ -189,7 +239,10 @@ jobs:
       - name: Install dependencies
         run: corepack pnpm install --frozen-lockfile
 
-      - name: Assistant unit tests
+      - name: Apply database migrations
+        run: corepack pnpm --filter @alfred/db db:migrate
+
+      - name: Assistant tests
         run: corepack pnpm --filter @alfred/assistant test
 
   web-unit-tests:

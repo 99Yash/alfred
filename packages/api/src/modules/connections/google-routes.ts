@@ -15,7 +15,7 @@ import { randomBytes } from "node:crypto";
 import { Elysia, t } from "elysia";
 import { and, eq } from "drizzle-orm";
 import { authMacro } from "../../middleware/auth";
-import { publishDomainEvent } from "../triggers";
+import { publishDomainEvent } from "@alfred/assistant/triggers";
 import {
   assertGmailPushOidcConfigured,
   getIngestionQueue,

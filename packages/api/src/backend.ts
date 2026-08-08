@@ -199,7 +199,7 @@ export {
   type SuppressedCategory,
 } from "./modules/briefing/index";
 
-export * from "./modules/delivery/index";
+export * from "@alfred/assistant/delivery";
 export * from "@alfred/assistant/time";
 export {
   bustPolicyCache,

@@ -1,4 +1,4 @@
-import { registerTriggerConsumer } from "../modules/triggers";
+import { registerTriggerConsumer } from "@alfred/assistant/triggers";
 import { acceptEvent } from "../modules/workflows";
 import { gmailIngestedTriggerConsumers } from "./gmail-ingested-consumers";
 

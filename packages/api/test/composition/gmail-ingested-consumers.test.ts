@@ -9,7 +9,7 @@ import {
   publishDomainEvent,
   registerTriggerConsumer,
   type DomainEvent,
-} from "../../src/modules/triggers";
+} from "@alfred/assistant/triggers";
 
 function emptyBatch(): DomainEvent {
   return {
