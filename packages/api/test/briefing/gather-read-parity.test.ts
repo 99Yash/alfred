@@ -12,7 +12,7 @@ import { closeReplicachePokeBridge } from "../../src/events/replicache-events";
 import { gatherBriefingWithSuppressionAudit } from "../../src/modules/briefing/gather";
 import { listEmailsSinceWatermark } from "../../src/modules/briefing/read";
 import { rememberSenderSuppression } from "../../src/modules/knowledge";
-import { parseLocalDateKey } from "../../src/modules/timezone";
+import { parseLocalDateKey } from "@alfred/assistant/time";
 import { closeRedis } from "../../src/queue/connection";
 
 /**

@@ -1,14 +1,11 @@
 import assert from "node:assert/strict";
 import { describe, test } from "node:test";
 
-import {
-  firstValidTimezone,
-  TIMEZONE_PREFERENCE_KEYS,
-} from "../src/modules/timezone/user-timezone";
+import { firstValidTimezone, TIMEZONE_PREFERENCE_KEYS } from "../src/time/user-timezone";
 // Reached through the module index — the pure `timezone` module now owns the
 // IANA-zone validity check, so cross-module callers no longer route it through
 // `briefing`.
-import { isValidTimezone } from "../src/modules/timezone";
+import { isValidTimezone } from "@alfred/assistant/time";
 
 describe("TIMEZONE_PREFERENCE_KEYS", () => {
   test("owns the ADR-0082 canonical-first key-set and order (canonical, then legacy)", () => {

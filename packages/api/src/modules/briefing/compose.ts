@@ -13,7 +13,7 @@ import {
 import type { ComposedEmail } from "@alfred/mailer";
 
 import { composeAgentInstructions, sanitizeVoice } from "@alfred/ai/voice";
-import type { LocalDateKey } from "../timezone";
+import type { LocalDateKey } from "@alfred/assistant/time";
 import type { BriefingDigest, BriefingItem, PriorityCategory } from "./gather";
 import {
   EMAIL_LINK_STYLE as LINK_STYLE,

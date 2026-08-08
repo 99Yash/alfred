@@ -9,7 +9,7 @@ import {
   isLocalDateKey,
   parseLocalDateKey,
   weekdayIndex,
-} from "../src/modules/timezone";
+} from "@alfred/assistant/time";
 
 // The two parsers, aliased for brevity — every zone and every day key in these
 // tests goes through them, which is the point: outside this module a value has

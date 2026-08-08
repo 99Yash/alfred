@@ -709,7 +709,15 @@ function collectArchitecture() {
         }
         if (fromModule && toModule && fromModule.name !== toModule.name) {
           moduleEdges.push({ from: fromModule.name, to: toModule.name });
-          if (targetFile !== toModule.index) {
+          // A null `targetFile` means this edge was derived from a published
+          // package subpath (`@alfred/assistant/<m>` or `@alfred/api/modules/<m>`)
+          // — the custom resolver only follows `./`/`~/` specifiers, so bare
+          // package specifiers resolve to null. Such an import addresses the
+          // module by its public interface (its index) by construction: a
+          // cross-package import physically cannot reach a module's
+          // implementation file, so it can never be a private reach. Only a
+          // resolved-but-non-index target (a `./`-relative deep import) is private.
+          if (targetFile !== null && targetFile !== toModule.index) {
             privateModuleImports.push({
               from: fromModule.name,
               key: importKey(file, imported.specifier),

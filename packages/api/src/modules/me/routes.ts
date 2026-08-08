@@ -46,7 +46,7 @@ import { resolveBriefingPreferences } from "../briefing/preferences";
 import { enqueueBriefingRun } from "../briefing/queue";
 import { notSentGmailDocumentWhere } from "../triage/sent-mail";
 import { resolveTimezone } from "../settings";
-import { inZone } from "../timezone";
+import { inZone } from "@alfred/assistant/time";
 import { sanitizeEmailHtml } from "./email-html";
 import { getUsageActivity, getUsageBreakdown, getUsageSummary } from "./usage-service";
 

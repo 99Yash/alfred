@@ -37,7 +37,13 @@ import {
 } from "../connections";
 import { getPreference } from "../settings";
 import { findSenderSuppression, listActiveSuppressionInstructions } from "../knowledge";
-import { addDays, formatDay, inZone, weekdayIndex, type LocalDateKey } from "../timezone";
+import {
+  addDays,
+  formatDay,
+  inZone,
+  weekdayIndex,
+  type LocalDateKey,
+} from "@alfred/assistant/time";
 import { scorePriorityEmailDemand } from "./read";
 import { shortenFrom } from "./sender";
 

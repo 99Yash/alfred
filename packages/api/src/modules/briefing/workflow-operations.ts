@@ -1,5 +1,5 @@
 import { gatherBriefingWithSuppressionAudit, type BriefingInstructionSuppression } from "./gather";
-import { inZone, parseLocalDateKey } from "../timezone";
+import { inZone, parseLocalDateKey } from "@alfred/assistant/time";
 import { resolveBriefingPreferences } from "./preferences";
 import { fetchLatestWatermark, isQuietMorning } from "./read";
 import {

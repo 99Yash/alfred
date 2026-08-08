@@ -1,6 +1,6 @@
 import { type IanaTimezone } from "@alfred/contracts";
 
-import { firstValidTimezone, TIMEZONE_PREFERENCE_KEYS } from "../timezone";
+import { firstValidTimezone, TIMEZONE_PREFERENCE_KEYS } from "@alfred/assistant/time";
 import { getPreference } from "./preferences";
 
 /**

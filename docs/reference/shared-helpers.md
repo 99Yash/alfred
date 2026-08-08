@@ -46,7 +46,7 @@ candidate `gate` rule — see [Closing the loop](#closing-the-loop).
 | enforce Alfred's prose voice (no em-dashes, plain words) | `sanitizeVoice` / `createVoiceStreamSanitizer` | `@alfred/ai/voice` | manual string replaces |
 | read an environment variable | `serverEnv()` | `@alfred/env/server` | `process.env.*` — **repo invariant** |
 | validate a timezone string | `isIanaTimezone(value)` | `@alfred/contracts` | `function isValidTimezone` / a raw `Intl.DateTimeFormat` trial — **drift check bans it** |
-| any calendar-day, wall-clock, or UTC-offset reading | `settings.resolveTimezone` for the zone, then the `@alfred/api` timezone module — `inZone(tz).day()` / `.hour()` / `.dayBounds()` / `.startOf(key)` / `.clock()` / `.format(at)`, and `addDays` / `weekdayIndex` / `formatDay` on the key ([full list](#timezone--alfredapi-srcmodulestimezone)) | `@alfred/api` timezone module | `Intl` glue per call site; day math in milliseconds; reading `getUTCDate()` off a user's instant; passing a bare `string` where `IanaTimezone` / `LocalDateKey` is expected |
+| any calendar-day, wall-clock, or UTC-offset reading | `settings.resolveTimezone` for the zone, then the `@alfred/assistant/time` module — `inZone(tz).day()` / `.hour()` / `.dayBounds()` / `.startOf(key)` / `.clock()` / `.format(at)`, and `addDays` / `weekdayIndex` / `formatDay` on the key ([full list](#timezone--alfredassistanttime-packagesassistantsrctime)) | `@alfred/assistant/time` | `Intl` glue per call site; day math in milliseconds; reading `getUTCDate()` off a user's instant; passing a bare `string` where `IanaTimezone` / `LocalDateKey` is expected |
 | get a language-model handle and reasoning policy | `route` | `@alfred/ai` | constructing a provider client |
 | run a query and read typed rows | `rowsFromExecute` + named Drizzle row types | `@alfred/db` | `(res as Row[])` |
 | restrict a query or partial index to live `agent_runs` | `runIsNotTerminal(t.status)` | `@alfred/db` schemas | `status NOT IN ('completed', 'failed', 'cancelled')` written out per site |
@@ -94,7 +94,7 @@ provider we called; `ApiError` is the *outbound* failure we answer a client with
 ### Env — `@alfred/env/server`
 - `serverEnv()` — the only sanctioned reader of process env.
 
-### Timezone — `@alfred/api` (`src/modules/timezone/`)
+### Timezone — `@alfred/assistant/time` (`packages/assistant/src/time/`)
 Owns two concepts, and every `Intl` formatter, DST edge, and memo cache that
 serves them. Nothing else in the API constructs an `Intl.DateTimeFormat` for a
 date or a zone.
