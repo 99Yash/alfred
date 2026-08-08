@@ -12,7 +12,7 @@ import {
 import type { z } from "zod";
 import { AppError, toPublicAppError, type PublicAppError } from "../../lib/app-errors";
 import { logger } from "../../lib/logger";
-import { addDays, inZone } from "../timezone";
+import { addDays, inZone } from "@alfred/assistant/time";
 import { runRestPassthrough } from "./passthrough";
 import { liveTool, type RegisteredTool, type ToolExecuteContext } from "./registry";
 

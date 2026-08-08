@@ -5,7 +5,7 @@ import { Queue, Worker, type Job } from "bullmq";
 import { createRedisConnection } from "../../queue/connection";
 import { startRun } from "../agent/index";
 import { resolveFeatureFlags } from "../settings";
-import { inZone } from "../timezone";
+import { inZone } from "@alfred/assistant/time";
 import { resolveBriefingPreferences } from "./preferences";
 import { DAILY_BRIEFING_WORKFLOW_SLUG } from "./workflow-input";
 import { toMessage } from "@alfred/contracts";

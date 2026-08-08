@@ -10,7 +10,7 @@ import {
 import { sanitizeVoice } from "@alfred/ai/voice";
 import { tool, type ToolSet } from "@alfred/ai";
 import type { CalendarContribution, DayShape, IanaTimezone } from "@alfred/contracts";
-import type { LocalDateKey } from "../../timezone";
+import type { LocalDateKey } from "@alfred/assistant/time";
 import { z } from "zod";
 
 /**

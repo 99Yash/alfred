@@ -54,7 +54,7 @@ import {
   startToolLoadSpan,
   startToolSearchSpan,
 } from "../tool-runtime";
-import { inZone } from "../timezone";
+import { inZone } from "@alfred/assistant/time";
 import { promoteScratch, readScratch, writeScratch } from "../scratchpad";
 import { resolveTodosForGmailSender, suggestTodo } from "../todos";
 import { rememberSenderSuppressionAndDismissTodos } from "./remember-suppression";
