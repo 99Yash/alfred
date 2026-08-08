@@ -1,7 +1,7 @@
 import { parseIanaTimezone, type IanaTimezone, type WorkflowTrigger } from "@alfred/contracts";
 import { CronExpressionParser } from "cron-parser";
 import { isValidTimezone } from "@alfred/assistant/time";
-import { resolveTimezone } from "../settings";
+import { resolveTimezone } from "@alfred/assistant/settings";
 
 /**
  * Workflow scheduling helpers (ADR-0027).

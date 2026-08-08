@@ -4,7 +4,9 @@
   "exports": {
     "./time": "./src/time/index.ts",
     "./delivery": "./src/delivery/index.ts",
-    "./triggers": "./src/triggers/index.ts"
+    "./triggers": "./src/triggers/index.ts",
+    "./settings": "./src/settings/index.ts",
+    "./connections": "./src/connections/index.ts"
   },
   "scripts": {
     "build": "node ../../scripts/clean-package-dist.mjs && tsc -b --emitDeclarationOnly --force",
@@ -16,6 +18,7 @@
     "@alfred/contracts": "workspace:*",
     "@alfred/db": "workspace:*",
     "@alfred/env": "workspace:*",
+    "@alfred/integrations": "workspace:*",
     "drizzle-orm": "^0.45.2",
     "resend": "catalog:",
     "zod": "catalog:"

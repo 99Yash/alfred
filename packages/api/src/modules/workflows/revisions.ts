@@ -27,7 +27,7 @@ import {
 } from "@alfred/db/schemas";
 import { and, eq, sql } from "drizzle-orm";
 import { canonicalWorkflowDefinition, workflowRevisionContentHash } from "./content-hash";
-import { readFreshIntegrationAvailability } from "../connections";
+import { readFreshIntegrationAvailability } from "@alfred/assistant/connections";
 import { workflowToolCatalog, type WorkflowToolCatalog } from "../tool-runtime";
 import {
   canonicalizeWorkflowAccounts,

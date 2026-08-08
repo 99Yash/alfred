@@ -21,6 +21,7 @@
       "@alfred/assistant -> @alfred/contracts",
       "@alfred/assistant -> @alfred/db",
       "@alfred/assistant -> @alfred/env",
+      "@alfred/assistant -> @alfred/integrations",
       "@alfred/auth -> @alfred/contracts",
       "@alfred/auth -> @alfred/db",
       "@alfred/auth -> @alfred/env",

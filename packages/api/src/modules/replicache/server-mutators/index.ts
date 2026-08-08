@@ -44,7 +44,7 @@ import type {
 import { and, eq, gt, inArray, isNull, lte, or, sql } from "drizzle-orm";
 import { DEFAULT_APPROVAL_NOTIFY_DELAY_MS } from "../../action-policies";
 import { isSingleValuedKey, valueSignature } from "../../knowledge";
-import { deletePreferenceRow, upsertPreference } from "../../settings";
+import { deletePreferenceRow, upsertPreference } from "@alfred/assistant/settings";
 import {
   reviseWorkflowFromPatch,
   setWorkflowStatus,
