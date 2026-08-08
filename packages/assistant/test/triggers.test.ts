@@ -5,7 +5,7 @@ import {
   NoTriggerConsumersRegisteredError,
   publishDomainEvent,
   registerTriggerConsumer,
-} from "../../src/modules/triggers";
+} from "../src/triggers";
 
 const event = {
   userId: "user-1",

@@ -19,6 +19,8 @@
       "@alfred/api -> @alfred/sync",
       "@alfred/artifacts-design -> @alfred/contracts",
       "@alfred/assistant -> @alfred/contracts",
+      "@alfred/assistant -> @alfred/db",
+      "@alfred/assistant -> @alfred/env",
       "@alfred/auth -> @alfred/contracts",
       "@alfred/auth -> @alfred/db",
       "@alfred/auth -> @alfred/env",

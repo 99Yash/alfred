@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { TriggerConsumerBootError } from "../triggers";
+import { TriggerConsumerBootError } from "@alfred/assistant/triggers";
 
 const identifierSchema = z.string().min(1).max(500);
 const storageKeySchema = z.string().min(1).max(2_000);

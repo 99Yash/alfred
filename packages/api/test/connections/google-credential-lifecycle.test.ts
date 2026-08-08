@@ -11,7 +11,7 @@ import {
   registerGoogleCredentialLifecycleHandler,
   upsertGoogleCredentialConnection,
 } from "../../src/modules/connections/google-credential-lifecycle";
-import { TriggerConsumerBootError } from "../../src/modules/triggers";
+import { TriggerConsumerBootError } from "@alfred/assistant/triggers";
 
 const fakeTransaction = {} as DbTransaction;
 const changedAt = new Date("2026-08-02T09:00:00.000Z");
