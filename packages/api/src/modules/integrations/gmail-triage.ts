@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { TriggerConsumerBootError } from "../triggers";
+import { TriggerConsumerBootError } from "@alfred/assistant/triggers";
 
 // Defensive process-local limits; normal Gmail identifiers and ingestion batches are far smaller.
 const identifierSchema = z.string().min(1).max(500);

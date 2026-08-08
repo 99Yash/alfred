@@ -5,7 +5,7 @@ import { gmailMailboxWritesEnabled } from "@alfred/env/server";
 import { getFreshAccessToken, stopGmailWatchWithAccessToken } from "@alfred/integrations/google";
 import { and, eq } from "drizzle-orm";
 import { z } from "zod";
-import { TriggerConsumerBootError } from "../triggers";
+import { TriggerConsumerBootError } from "@alfred/assistant/triggers";
 
 const identifierSchema = z.string().min(1).max(500);
 

@@ -30,7 +30,7 @@ before it extracts either target package. See the
 [active structure plan](../plans/agent-friendly-module-structure.md).
 
 During Phase 1, application domain events enter through
-`publishDomainEvent` in the in-place `packages/api/src/modules/triggers`
+`publishDomainEvent` in the `@alfred/assistant/triggers`
 interface. Producers call this named seam without importing consumers.
 `packages/api/src/composition/trigger-consumers.ts` wires the workflow trigger
 consumer before background workers start. Gmail ingestion also treats a

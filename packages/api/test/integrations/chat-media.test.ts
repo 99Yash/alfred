@@ -12,7 +12,7 @@ import {
   type ChatMediaHandler,
 } from "../../src/modules/integrations/chat-media";
 import { enqueueChatAttachmentEnrichmentWith } from "../../src/modules/integrations/queue";
-import { TriggerConsumerBootError } from "../../src/modules/triggers";
+import { TriggerConsumerBootError } from "@alfred/assistant/triggers";
 
 const enrichmentRequest = {
   userId: "user-1",

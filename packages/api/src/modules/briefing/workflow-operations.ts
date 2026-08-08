@@ -11,7 +11,7 @@ import {
   markBriefingSent,
   markBriefingSuppressed,
 } from "./store";
-import { send } from "../delivery";
+import { send } from "@alfred/assistant/delivery";
 import type { StepContext, StepResult } from "../agent/index";
 import { parseIanaTimezone, type BriefingGather } from "@alfred/contracts";
 import { db } from "@alfred/db";

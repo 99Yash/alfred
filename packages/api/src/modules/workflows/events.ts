@@ -5,7 +5,11 @@ import { and, eq, or, sql } from "drizzle-orm";
 import { uniqueViolationConstraint } from "../../lib/pg-errors";
 import { startRun } from "../agent";
 
-import { domainEventSchema, gmailMessagePayloadSchema, type DomainEvent } from "../triggers";
+import {
+  domainEventSchema,
+  gmailMessagePayloadSchema,
+  type DomainEvent,
+} from "@alfred/assistant/triggers";
 
 export interface AcceptEventResult {
   matched: number;

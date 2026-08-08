@@ -7,8 +7,8 @@ import { user } from "@alfred/db/schemas";
 import { databaseEnv } from "@alfred/env/database";
 import { inArray, like } from "drizzle-orm";
 
-import { send } from "../../src/modules/delivery";
-import { _setResendClientForTests } from "../../src/modules/delivery/resend-client";
+import { send } from "../src/delivery";
+import { _setResendClientForTests } from "../src/delivery/resend-client";
 
 function hasDatabaseUrl(): boolean {
   try {
