@@ -200,7 +200,7 @@ export {
 } from "./modules/briefing/index";
 
 export * from "./modules/delivery/index";
-export * from "./modules/timezone/index";
+export * from "@alfred/assistant/time";
 export {
   bustPolicyCache,
   clearPolicyCacheForTests,

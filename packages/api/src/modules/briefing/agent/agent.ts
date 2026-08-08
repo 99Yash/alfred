@@ -6,7 +6,7 @@ import {
   type ModelMessage,
 } from "@alfred/ai";
 import type { IanaTimezone } from "@alfred/contracts";
-import type { LocalDateKey } from "../../timezone";
+import type { LocalDateKey } from "@alfred/assistant/time";
 import { buildSystemPrompt } from "./prompt";
 import { buildBriefingTools, type DumpedBriefing } from "./tools";
 

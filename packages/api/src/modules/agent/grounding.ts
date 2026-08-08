@@ -1,5 +1,5 @@
 import type { IanaTimezone } from "@alfred/contracts";
-import { formatDay, inZone } from "../timezone";
+import { formatDay, inZone } from "@alfred/assistant/time";
 
 /**
  * One-line date grounding for a system prompt, e.g.

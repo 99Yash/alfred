@@ -1,6 +1,6 @@
 import { briefingSlotSchema } from "@alfred/contracts";
 import { z } from "zod";
-import { isLocalDateKey } from "../timezone";
+import { isLocalDateKey } from "@alfred/assistant/time";
 
 /** Canonical live briefing workflow: both morning and evening slots. */
 export const DAILY_BRIEFING_WORKFLOW_SLUG = "daily-briefing";

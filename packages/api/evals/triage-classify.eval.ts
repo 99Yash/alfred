@@ -16,7 +16,7 @@ import {
   type ClassifyEmailArgs,
   type TodoDecisionOutcome,
 } from "../src/modules/triage/classify";
-import { DEFAULT_USER_TIMEZONE } from "../src/modules/timezone";
+import { DEFAULT_USER_TIMEZONE } from "@alfred/assistant/time";
 import { assembleObservations, type Observations } from "../src/modules/triage/observations";
 import type { ThreadMessageContext } from "../src/modules/triage/thread-state";
 import { llmJudgeScorer } from "./lib/llm-judge";

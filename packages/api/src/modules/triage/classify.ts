@@ -21,7 +21,7 @@ import {
 import { serverEnv } from "@alfred/env/server";
 import { TRIAGE_CATEGORIES, type TriageCategory } from "@alfred/integrations/google";
 import { z } from "zod";
-import { addDays, formatDay, inZone } from "../timezone";
+import { addDays, formatDay, inZone } from "@alfred/assistant/time";
 import {
   applyFloors,
   isGithubNotificationSender,

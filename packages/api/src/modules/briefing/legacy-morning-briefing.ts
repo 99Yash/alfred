@@ -7,7 +7,7 @@ import {
 import { z } from "zod";
 import { type Workflow } from "../agent";
 import { send } from "../delivery";
-import { inZone, parseLocalDateKey } from "../timezone";
+import { inZone, parseLocalDateKey } from "@alfred/assistant/time";
 import { composeBriefing } from "./compose";
 import { gatherBriefingWithSuppressionAudit, type BriefingInstructionSuppression } from "./gather";
 import { resolveBriefingPreferences } from "./preferences";

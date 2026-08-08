@@ -5,7 +5,11 @@ import {
   DEFAULT_BRIEFING_TIMEZONE,
 } from "@alfred/contracts/briefing-constants";
 import { getPreference } from "../settings";
-import { firstValidTimezone, isValidTimezone, TIMEZONE_PREFERENCE_KEYS } from "../timezone";
+import {
+  firstValidTimezone,
+  isValidTimezone,
+  TIMEZONE_PREFERENCE_KEYS,
+} from "@alfred/assistant/time";
 
 /**
  * Briefing time-of-day preferences live under `user_preferences` keys
