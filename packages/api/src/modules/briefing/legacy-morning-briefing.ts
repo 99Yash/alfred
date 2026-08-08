@@ -6,7 +6,7 @@ import {
 } from "@alfred/contracts";
 import { z } from "zod";
 import { type Workflow } from "../agent";
-import { send } from "../delivery";
+import { send } from "@alfred/assistant/delivery";
 import { inZone, parseLocalDateKey } from "@alfred/assistant/time";
 import { composeBriefing } from "./compose";
 import { gatherBriefingWithSuppressionAudit, type BriefingInstructionSuppression } from "./gather";

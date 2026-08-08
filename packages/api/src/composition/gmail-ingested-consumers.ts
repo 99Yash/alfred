@@ -12,7 +12,7 @@ import {
   type GmailDocumentsIngestedPayload,
   type GmailMessageEventReason,
   type TriggerConsumer,
-} from "../modules/triggers";
+} from "@alfred/assistant/triggers";
 import {
   runGmailPostInsertTriage,
   type GmailPostInsertTriageResult,

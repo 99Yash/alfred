@@ -11,7 +11,7 @@ import {
 } from "./gmail-ingest";
 import { retryPending } from "@alfred/corpus";
 import { gmailMailboxWritesEnabled, serverEnv } from "@alfred/env/server";
-import { publishDomainEvent, type GmailDocumentsIngestedPayload } from "../triggers";
+import { publishDomainEvent, type GmailDocumentsIngestedPayload } from "@alfred/assistant/triggers";
 import { createRedisConnection } from "../../queue/connection";
 import { runGmailTriageRelabel } from "./gmail-triage";
 import { refoldGmailKindProjection, scheduleGmailKindRefoldSweep } from "./gmail-user-model";

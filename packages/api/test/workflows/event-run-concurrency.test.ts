@@ -26,7 +26,7 @@ import {
   registerTriggerConsumers,
   unregisterTriggerConsumers,
 } from "../../src/composition/trigger-consumers";
-import { publishDomainEvent } from "../../src/modules/triggers";
+import { publishDomainEvent } from "@alfred/assistant/triggers";
 import { acceptEvent } from "../../src/modules/workflows";
 import { publishGoogleCallbackCompleted } from "../../src/modules/connections/google-routes";
 import { COLD_START_WORKFLOW_SLUG } from "../../src/modules/knowledge/cold-start";
