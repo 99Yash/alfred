@@ -11,13 +11,9 @@ import {
   claimChatAttachmentEnrichment,
   enrichClaimedChatAttachment,
   recordChatAttachmentEnrichmentFailure,
-} from "../modules/conversations/attachments/attachment-enrichment";
-import {
-  deleteObjects,
-  deletePrefix,
-  isStorageConfigured,
-} from "../modules/conversations/attachments/storage";
-import { lockChatStorageKeys } from "../modules/conversations/attachments/storage-coordination";
+} from "@alfred/assistant/conversations";
+import { deleteObjects, deletePrefix, isStorageConfigured } from "@alfred/assistant/conversations";
+import { lockChatStorageKeys } from "@alfred/assistant/conversations";
 
 interface ChatMediaAdapterDeps {
   claimEnrichment(attachmentId: string): Promise<"claimed" | "existing">;

@@ -23,7 +23,7 @@ import { cancelRun } from "@alfred/assistant/execution/service";
 import {
   CHAT_TURN_WORKFLOW_SLUG,
   chatTurnWorkflow,
-} from "../../src/modules/conversations/chat-turn";
+} from "@alfred/assistant/conversations/chat-turn";
 import { resetToolFixtures } from "../lib/tool-fixtures";
 
 /**

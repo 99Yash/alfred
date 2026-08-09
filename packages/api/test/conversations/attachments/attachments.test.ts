@@ -16,7 +16,7 @@ import {
   assertPassThroughImageBytes,
   assertUploadAllowed,
   validateStoredMeta,
-} from "../../../src/modules/conversations/attachments/attachments";
+} from "@alfred/assistant/conversations/attachments/attachments";
 
 describe("assertAttachmentBatchAllowed", () => {
   test("per-file raw image cap fits under the primary provider's base64 image cap", () => {

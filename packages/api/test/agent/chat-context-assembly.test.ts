@@ -8,7 +8,7 @@ import {
   selectVerbatimTail,
   type ChatContextMessage,
   type LoadedChatThreadContext,
-} from "../../src/modules/conversations/compaction";
+} from "@alfred/assistant/conversations/compaction/index";
 
 const at = new Date("2026-07-11T00:00:00.000Z");
 

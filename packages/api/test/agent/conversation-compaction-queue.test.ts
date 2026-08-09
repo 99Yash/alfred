@@ -4,7 +4,7 @@ import { describe, test } from "node:test";
 import {
   enqueueConversationCompaction,
   isUnrecoverableConversationCompactionError,
-} from "../../src/modules/conversations/compaction";
+} from "@alfred/assistant/conversations/compaction/index";
 
 const at = new Date("2026-07-12T00:00:00.000Z");
 const args = {
