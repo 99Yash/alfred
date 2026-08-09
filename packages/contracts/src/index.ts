@@ -17,6 +17,7 @@ export * from "./tool-schemas";
 export * from "./github-search";
 export * from "./tool-fields";
 export * from "./mentions";
+export * from "./slug";
 export * from "./transcript";
 export * from "./triage";
 export * from "./attention";
