@@ -11,7 +11,7 @@ import {
   getPreference,
   setPreference,
   upsertPreference,
-} from "../../src/modules/settings";
+} from "../src/settings";
 
 /**
  * DB-backed integration test for the `tx`-accepting preference cores —

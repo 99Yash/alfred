@@ -5,7 +5,7 @@ import { documents, driftMetrics, emailTriage, todos } from "@alfred/db/schemas"
 import { selfSenderEmail } from "@alfred/integrations/google";
 import { and, eq, inArray, sql } from "drizzle-orm";
 import { send, type SendArgs, type SendResult } from "@alfred/assistant/delivery";
-import { resolveTimezone } from "../../settings";
+import { resolveTimezone } from "@alfred/assistant/settings";
 import { DEFAULT_USER_TIMEZONE, inZone } from "@alfred/assistant/time";
 
 /**

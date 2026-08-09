@@ -6,7 +6,7 @@ import { closeConnections, db } from "@alfred/db";
 import { user } from "@alfred/db/schemas";
 import { inArray, like } from "drizzle-orm";
 
-import { resolveTimezone, setPreference } from "../../src/modules/settings";
+import { resolveTimezone, setPreference } from "../src/settings";
 
 /**
  * DB-backed integration test for `settings.resolveTimezone` — the single

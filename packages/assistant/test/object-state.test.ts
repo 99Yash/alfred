@@ -12,7 +12,7 @@ import {
   isGithubNotificationSender,
   objectStateStore,
   reduceGithubEvent,
-} from "../../src/modules/connections/object-state";
+} from "../src/connections/object-state";
 
 /**
  * Contract tests for integration object-state memory (ADR-0062, #212).

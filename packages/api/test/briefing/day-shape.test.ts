@@ -9,7 +9,7 @@ import { inArray, like } from "drizzle-orm";
 
 import { closeReplicachePokeBridge } from "../../src/events/replicache-events";
 import { gatherDayShape } from "../../src/modules/briefing/gather";
-import { objectStateStore } from "../../src/modules/connections/object-state";
+import { objectStateStore } from "@alfred/assistant/connections";
 import { closeRedis } from "../../src/queue/connection";
 
 /**
