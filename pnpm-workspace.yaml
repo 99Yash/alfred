@@ -73,7 +73,7 @@ catalog:
   tsdown: ^0.15.5
   typescript: ^7.0.2
   vite: ^6.3.5
-  zod: 4.3.6
+  zod: 4.4.3
 
 minimumReleaseAgeExclude:
   - "@ai-sdk/gateway@4.0.15"
