@@ -35,7 +35,7 @@ import { userAuthoredBriefWorkflow } from "./workflows/user-authored-brief";
 import {
   workflowOccurrenceKey,
   type WorkflowOccurrenceIdentity,
-} from "../../lib/workflow-occurrence";
+} from "@alfred/db/workflow-occurrence";
 
 /**
  * After this much silence on `last_checkpoint_at`, a `running` row is

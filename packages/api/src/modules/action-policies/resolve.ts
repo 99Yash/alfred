@@ -31,7 +31,7 @@ import { db } from "@alfred/db";
 import { userActionPolicies } from "@alfred/db/schemas";
 import { eq } from "drizzle-orm";
 import type IORedis from "ioredis";
-import { createRedisConnection } from "../../queue/connection";
+import { createRedisConnection } from "@alfred/db/redis";
 
 /**
  * Default delay between staging a gated action and sending the user a

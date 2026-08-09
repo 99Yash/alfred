@@ -13,7 +13,7 @@ import { gatherBriefingWithSuppressionAudit } from "../../src/modules/briefing/g
 import { listEmailsSinceWatermark } from "../../src/modules/briefing/read";
 import { rememberSenderSuppression } from "../../src/modules/knowledge";
 import { parseLocalDateKey } from "@alfred/assistant/time";
-import { closeRedis } from "../../src/queue/connection";
+import { closeRedis } from "@alfred/db/redis";
 
 /**
  * Characterization of the *relationship* between the briefing's two reads of

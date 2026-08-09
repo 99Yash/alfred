@@ -7,7 +7,7 @@ import { user, userFacts } from "@alfred/db/schemas";
 import { and, eq, inArray } from "drizzle-orm";
 
 import { confirmFact, proposeFact, recallActiveByKey } from "../../src/modules/knowledge";
-import { closeRedis } from "../../src/queue/connection";
+import { closeRedis } from "@alfred/db/redis";
 
 /**
  * DB-backed integration test for `proposeFact`'s #330 capture invariants:

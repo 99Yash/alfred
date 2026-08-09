@@ -24,7 +24,7 @@ import {
 // `STANDING_INSTRUCTION_LIST_LIMIT` is internal-by-intent (dropped from the
 // barrel, item 15) — read from its owning file directly.
 import { STANDING_INSTRUCTION_LIST_LIMIT } from "../../src/modules/knowledge/standing-instructions";
-import { closeRedis } from "../../src/queue/connection";
+import { closeRedis } from "@alfred/db/redis";
 
 function hasDatabaseUrl(): boolean {
   try {
