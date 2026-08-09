@@ -9,7 +9,7 @@ import { db } from "@alfred/db";
 import { chatAttachments, chatMessages } from "@alfred/db/schemas";
 import { and, asc, eq, inArray, like, or, sql } from "drizzle-orm";
 import { readObject, sniffPassThroughImageMime } from "./attachments";
-import type { AgentDbExecutor } from "../agent";
+import type { AgentDbExecutor } from "@alfred/assistant/execution";
 
 /**
  * The attachment half of the chat transcript (ADR-0065): what a stored message

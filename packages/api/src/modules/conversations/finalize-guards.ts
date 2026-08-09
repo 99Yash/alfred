@@ -19,7 +19,7 @@ import {
   type ParkSignal,
   type StepContext,
   type StepResult,
-} from "../agent";
+} from "@alfred/assistant/execution";
 import { closeNarrationSegment, interruptChatRun, type ChatRunState } from "./chat-turn-state";
 
 /**

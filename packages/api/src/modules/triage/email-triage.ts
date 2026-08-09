@@ -1,7 +1,7 @@
 import { senderContextSchema } from "@alfred/contracts";
 import { TRIAGE_CATEGORIES } from "@alfred/integrations/google";
 import { z } from "zod";
-import { type Workflow } from "../agent";
+import { type Workflow } from "@alfred/assistant/execution";
 import { TRIAGE_WORKFLOW_SLUG, triageWorkflowInputSchema } from "./workflow-input";
 import { runEmailTriageApplyLabel, runEmailTriageClassify } from "./workflow-operations";
 

@@ -1,6 +1,6 @@
 import { z } from "zod";
 import { type GmailSenderParser } from "@alfred/contracts";
-import { type Workflow } from "../agent";
+import { type Workflow } from "@alfred/assistant/execution";
 import { factProposalSchema } from "./extraction";
 import { runMemoryFinalize, runMemoryPickDocuments, runMemoryProcess } from "./workflow-operations";
 

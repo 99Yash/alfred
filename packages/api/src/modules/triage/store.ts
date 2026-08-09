@@ -18,7 +18,7 @@ import type {
 } from "@alfred/contracts";
 import { and, eq, sql } from "drizzle-orm";
 import type { PgUpdateSetSource } from "drizzle-orm/pg-core";
-import { normalizeDecisionTraceKey } from "../agent";
+import { normalizeDecisionTraceKey } from "@alfred/assistant/execution";
 import type { SenderExtractionEvent } from "./sender-extraction-event";
 
 /**

@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { type Workflow } from "../agent";
+import { type Workflow } from "@alfred/assistant/execution";
 import { DAILY_BRIEFING_WORKFLOW_SLUG, dailyBriefingWorkflowInputSchema } from "./workflow-input";
 import {
   runDailyBriefingCompose,

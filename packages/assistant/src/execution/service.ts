@@ -18,7 +18,7 @@ import {
   removeApprovalExpiryJob,
   removeApprovalNotificationJob,
 } from "@alfred/assistant/tool-runtime";
-import { snapshotScratchToPostgres } from "../scratchpad";
+import { snapshotScratchToPostgres } from "./scratchpad/index";
 import { enqueueRun } from "./queue";
 import { getWorkflow, listWorkflows } from "./registry";
 import { resolveWorkflowForRun } from "./resolve-workflow";

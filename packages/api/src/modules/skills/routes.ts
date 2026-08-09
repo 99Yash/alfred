@@ -6,7 +6,7 @@ import { Elysia, t } from "elysia";
 import { randomUUID } from "node:crypto";
 import { emitReplicachePokes } from "@alfred/assistant/triggers";
 import { authMacro } from "../../middleware/auth";
-import { startRun } from "../agent";
+import { startRun } from "@alfred/assistant/execution";
 import { isUniqueViolation } from "@alfred/db/pg-errors";
 import { recordSkillRun } from "../skill-revisions";
 import { slugifyForUser } from "./slug";
