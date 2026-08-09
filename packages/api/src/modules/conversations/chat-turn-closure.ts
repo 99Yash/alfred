@@ -3,7 +3,7 @@ import { db } from "@alfred/db";
 import { agentRuns, chatMessages, chatThreads, type ChatMessageStatus } from "@alfred/db/schemas";
 import { and, eq, sql } from "drizzle-orm";
 import { publishEvent } from "@alfred/assistant/triggers";
-import { emitReplicachePokes } from "../../events/replicache-events";
+import { emitReplicachePokes } from "@alfred/assistant/triggers";
 import { logger } from "../../lib/logger";
 import { finalizeRunArtifacts } from "../artifacts";
 import { scheduleThreadIdleExtraction } from "./idle-capture-queue";

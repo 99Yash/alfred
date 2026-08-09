@@ -22,7 +22,7 @@ import {
 } from "drizzle-orm";
 import { z } from "zod";
 import { publishEvent } from "@alfred/assistant/triggers";
-import { emitReplicachePokes } from "../../events/replicache-events";
+import { emitReplicachePokes } from "@alfred/assistant/triggers";
 import {
   classifyDocumentFactKey,
   isSingleValuedKey,

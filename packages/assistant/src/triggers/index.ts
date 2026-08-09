@@ -234,3 +234,49 @@ export async function publishEvent<K extends EventKind>(args: PublishEventArgs<K
     payload: parsed.data,
   });
 }
+
+export interface ReplicachePokeAdapter {
+  emitReplicachePokes(userIds: string[], assetId?: string): void;
+}
+
+let replicachePokeAdapter: ReplicachePokeAdapter | null = null;
+
+/**
+ * Register the concrete Replicache poke adapter.
+ *
+ * A process that wants pokes actually delivered (the server, or a script/test asserting poke
+ * behavior) registers the concrete adapter — typically at startup via the composition root —
+ * which bridges to the Redis/EventEmitter poke bus in api. A process that does not register
+ * simply drops pokes (see `emitReplicachePokes`); emitting is always safe without it.
+ *
+ * Returns an unregister function for test cleanup.
+ */
+export function registerReplicachePokeAdapter(adapter: ReplicachePokeAdapter): () => void {
+  const prev = replicachePokeAdapter;
+  replicachePokeAdapter = adapter;
+  return () => {
+    replicachePokeAdapter = prev;
+  };
+}
+
+export function unregisterReplicachePokeAdapter(): void {
+  replicachePokeAdapter = null;
+}
+
+/**
+ * Emit pokes to notify connected clients of data changes.
+ *
+ * CONTRACT: Best-effort, fire-and-forget. A poke is a client cache-invalidation hint, not a
+ * durable event — losing one only means a client refetches slightly later. When no adapter is
+ * registered (a process that never booted the composition root: DB-backed tests, one-off
+ * backfills/probes, a terminal-closure tick that fires after a test unregistered its adapter)
+ * this is a silent no-op, exactly as the pre-inversion concrete emitter behaved for a process
+ * with no Redis bridge. It must NEVER throw: a UI-hint bus being absent must not fail the
+ * domain flow that emitted the poke. The composition root registers the real adapter at
+ * startup (`apps/server/src/runtime.ts` via the RUNTIME_ADAPTERS manifest); the bootPort-has-
+ * installer check guards that wiring. See `packages/api/src/events/replicache-events.ts` for
+ * the concrete Redis/EventEmitter bus.
+ */
+export function emitReplicachePokes(userIds: string[], assetId?: string): void {
+  replicachePokeAdapter?.emitReplicachePokes(userIds, assetId);
+}

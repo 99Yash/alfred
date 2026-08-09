@@ -73,7 +73,7 @@ import {
 import { logger, safeErrorDiagnostic } from "../../lib/logger";
 import { enrichInvalidInputMessage } from "./invalid-input";
 import { normalizeToolInputKeys } from "./normalize-keys";
-import { emitReplicachePokes } from "../../events/replicache-events";
+import { emitReplicachePokes } from "@alfred/assistant/triggers";
 import { resolveApprovalNotifyDelayMs, resolvePolicyMode } from "../action-policies/resolve";
 import { joinChildRun } from "../agent/sub-agent-join";
 import { scheduleApprovalExpiryJob, scheduleApprovalNotificationJob } from "../tool-runtime";

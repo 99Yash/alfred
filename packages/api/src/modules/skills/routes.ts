@@ -4,7 +4,7 @@ import { skills } from "@alfred/db/schemas";
 import { and, eq } from "drizzle-orm";
 import { Elysia, t } from "elysia";
 import { randomUUID } from "node:crypto";
-import { emitReplicachePokes } from "../../events/replicache-events";
+import { emitReplicachePokes } from "@alfred/assistant/triggers";
 import { authMacro } from "../../middleware/auth";
 import { startRun } from "../agent";
 import { isUniqueViolation } from "@alfred/db/pg-errors";

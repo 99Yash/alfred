@@ -3,7 +3,7 @@ import { db } from "@alfred/db";
 import { documents, todos } from "@alfred/db/schemas";
 import { and, eq, inArray, sql } from "drizzle-orm";
 import { z } from "zod";
-import { emitReplicachePokes } from "../../events/replicache-events";
+import { emitReplicachePokes } from "@alfred/assistant/triggers";
 import { normalizeSenderEmail } from "../knowledge";
 
 const resolveTodosForGmailSenderArgsSchema = z.object({
