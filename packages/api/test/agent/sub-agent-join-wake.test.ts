@@ -9,22 +9,22 @@ import { agentRuns, user } from "@alfred/db/schemas";
 import { eq, inArray, like } from "drizzle-orm";
 
 import { closeRedis } from "@alfred/db/redis";
-import { closeAgentQueue, getAgentQueue } from "../../src/modules/agent/queue";
-import { cancelRun } from "../../src/modules/agent/service";
+import { closeAgentQueue, getAgentQueue } from "@alfred/assistant/execution/queue";
+import { cancelRun } from "@alfred/assistant/execution/service";
 import {
   SUB_AGENT_WORKFLOW_SLUG,
   subAgentDoneSignalName,
-} from "../../src/modules/agent/sub-agent-metadata";
+} from "@alfred/assistant/execution/sub-agent-metadata";
 import {
   closeSubAgentJoinWakeQueue,
   getSubAgentJoinWakeQueue,
   scheduleSubAgentJoinWakeJob,
   subAgentJoinWakeJobId,
-} from "../../src/modules/agent/sub-agent-join-wake-queue";
+} from "@alfred/assistant/execution/sub-agent-join-wake-queue";
 import {
   startSubAgentJoinWakeWorker,
   stopSubAgentJoinWakeWorker,
-} from "../../src/modules/agent/sub-agent-join-wake-worker";
+} from "@alfred/assistant/execution/sub-agent-join-wake-worker";
 
 /**
  * DB/Redis-backed coverage for ADR-0073's liveness guarantee. The unit tests

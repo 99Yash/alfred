@@ -5,6 +5,7 @@ import {
   getRun,
   persistChatTurnRunInTx,
   redeliverRun,
+  replayRun,
   signalRun,
   signalRunInTx,
   startRun,
@@ -44,12 +45,16 @@ export { normalizeDecisionTraceKey } from "./decision-traces";
 // persist+deliver) plus two narrow ops for the callers that legitimately hold a
 // run apart from its delivery: `redeliverRun(runId)` hands an already-persisted
 // run to the worker (approvals re-delivery, the chat-turn post-commit kick, ops
-// re-kicks), and `persistChatTurnRunInTx(tx, args)` persists a chat-turn run on
-// the caller's transaction inside a savepoint. The raw `createRun` / `enqueueRun`
-// pair (and its former `deliverRun` alias) is no longer re-exported here, so no
-// caller outside `agent/` can split persistence from delivery or reach the queue
-// handle; both stay module-private for in-module callers and white-box tests.
-export { persistChatTurnRunInTx, redeliverRun };
+// re-kicks, and the HTTP replay/signal endpoints), and `persistChatTurnRunInTx(tx,
+// args)` persists a chat-turn run on the caller's transaction inside a savepoint.
+// `replayRun(args)` re-persists a run from a revision choice and returns the new
+// run for the caller to `redeliverRun`; it is the entry the `/runs/:runId/replay`
+// HTTP transport calls (that transport moved to `@alfred/api` when execution left
+// `agent/`, so the run-start surface it reaches must be public). The raw
+// `createRun` / `enqueueRun` pair (and its former `deliverRun` alias) is still not
+// re-exported here, so no caller outside execution can split persistence from
+// delivery or reach the queue handle; both stay module-private.
+export { persistChatTurnRunInTx, redeliverRun, replayRun };
 export { closeAgentQueue, closeSubAgentJoinWakeQueue };
 export type {
   RunStatus,
@@ -60,7 +65,7 @@ export type {
   Workflow,
   WorkflowInput,
 } from "./types";
-export type { CancelOutcome, SignalOutcome } from "./service";
+export type { CancelOutcome, SignalArgs, SignalOutcome } from "./service";
 
 // Agent-runtime primitives the `conversations` chat recipe reaches through this
 // public seam. The recipe lives in `conversations`; execution never imports it,

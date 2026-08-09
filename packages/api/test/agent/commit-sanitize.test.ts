@@ -7,13 +7,13 @@ import { closeConnections, db } from "@alfred/db";
 import { agentDecisionTraces, agentRuns, pendingActions, user } from "@alfred/db/schemas";
 import { eq, inArray, like } from "drizzle-orm";
 
-import { runOnce } from "../../src/modules/agent/executor";
+import { runOnce } from "@alfred/assistant/execution/executor";
 import {
   _resetRegistryForTests,
   getWorkflow,
   registerRecipe,
-} from "../../src/modules/agent/registry";
-import type { StepResult, Workflow } from "../../src/modules/agent/types";
+} from "@alfred/assistant/execution/registry";
+import type { StepResult, Workflow } from "@alfred/assistant/execution/types";
 import type { SenderExtractionEvent } from "../../src/modules/triage";
 
 /**

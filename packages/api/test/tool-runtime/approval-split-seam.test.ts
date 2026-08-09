@@ -19,7 +19,7 @@ import {
   startApprovalNotificationWorker,
   stopApprovalExpiryWorker,
   stopApprovalNotificationWorker,
-} from "../../src/modules/agent";
+} from "@alfred/assistant/execution";
 
 /**
  * Seam guard for the approvals 3-way split (slice 06 / ADR-0034).

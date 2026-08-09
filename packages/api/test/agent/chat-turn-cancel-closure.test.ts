@@ -18,8 +18,8 @@ import {
   _resetRegistryForTests,
   getWorkflow,
   registerRecipe,
-} from "../../src/modules/agent/registry";
-import { cancelRun } from "../../src/modules/agent/service";
+} from "@alfred/assistant/execution/registry";
+import { cancelRun } from "@alfred/assistant/execution/service";
 import {
   CHAT_TURN_WORKFLOW_SLUG,
   chatTurnWorkflow,

@@ -8,14 +8,14 @@ import { actionStagings, agentRuns, agentSteps, eventsOutbox, user } from "@alfr
 import { and, eq, inArray, like } from "drizzle-orm";
 
 import { closeRedis } from "@alfred/db/redis";
-import { commitStepSuccess, markRunFailed, runOnce } from "../../src/modules/agent/executor";
+import { commitStepSuccess, markRunFailed, runOnce } from "@alfred/assistant/execution/executor";
 import {
   _resetRegistryForTests,
   getWorkflow,
   registerRecipe,
-} from "../../src/modules/agent/registry";
-import { cancelRun } from "../../src/modules/agent/service";
-import type { StepResult, Workflow } from "../../src/modules/agent/types";
+} from "@alfred/assistant/execution/registry";
+import { cancelRun } from "@alfred/assistant/execution/service";
+import type { StepResult, Workflow } from "@alfred/assistant/execution/types";
 
 /**
  * DB-backed tests for the mid-flight cancel race (#530).

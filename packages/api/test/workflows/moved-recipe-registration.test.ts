@@ -18,7 +18,7 @@ import {
 // The recipe is built with the injected Gmail sender adapter (ADR-0089); its
 // identity (slug/steps/entry/trigger/dedup) is independent of the injection.
 const memoryExtractionWorkflow = buildMemoryExtractionWorkflow(gmailSenderAdapter);
-import type { Workflow, WorkflowInput } from "../../src/modules/agent/types";
+import type { Workflow, WorkflowInput } from "@alfred/assistant/execution/types";
 
 /**
  * Item 04 moves the product recipe declarations out of

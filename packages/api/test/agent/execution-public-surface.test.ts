@@ -1,14 +1,15 @@
 import assert from "node:assert/strict";
 import { describe, test } from "node:test";
 
-import * as agentBarrel from "../../src/modules/agent/index";
+import * as agentBarrel from "@alfred/assistant/execution";
 import * as backendFacade from "../../src/backend";
 
 /**
  * Item 09 removes the raw `createRun` / `enqueueRun` split primitives — and the
- * `enqueueRun as deliverRun` alias — from execution's public surface: the agent
- * module barrel (`modules/agent/index`) and the `@alfred/api/backend` facade.
- * After the removal a caller outside `packages/api/src/modules/agent/` can reach
+ * `enqueueRun as deliverRun` alias — from execution's public surface: the
+ * execution module barrel (`@alfred/assistant/execution`) and the
+ * `@alfred/api/backend` facade. After the removal a caller outside
+ * `packages/assistant/src/execution/` can reach
  * a run only through `startRun` / `startRunInTx` (folded persist+deliver),
  * `redeliverRun` (deliver an already-persisted run), or — barrel-only, for the
  * chat-turn savepoint — `persistChatTurnRunInTx`. It can no longer persist a run

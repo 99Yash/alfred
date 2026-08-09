@@ -8,14 +8,14 @@ import { agentRuns, user } from "@alfred/db/schemas";
 import { eq, inArray, like } from "drizzle-orm";
 
 import { closeRedis } from "@alfred/db/redis";
-import { closeAgentQueue, getAgentQueue } from "../../src/modules/agent/queue";
+import { closeAgentQueue, getAgentQueue } from "@alfred/assistant/execution/queue";
 import {
   _resetRegistryForTests,
   getWorkflow,
   registerRecipe,
-} from "../../src/modules/agent/registry";
-import { startRun } from "../../src/modules/agent/service";
-import type { StepResult, Workflow } from "../../src/modules/agent/types";
+} from "@alfred/assistant/execution/registry";
+import { startRun } from "@alfred/assistant/execution/service";
+import type { StepResult, Workflow } from "@alfred/assistant/execution/types";
 
 /**
  * DB/Redis-backed coverage for the execution module's `startRun` seam
