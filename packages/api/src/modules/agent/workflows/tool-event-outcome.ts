@@ -11,7 +11,7 @@
  * failure, and a surface that forgets it leaks dispatcher plumbing into chat.
  */
 
-import type { CompletedToolCall } from "../../tool-runtime";
+import type { CompletedToolCall } from "@alfred/assistant/tool-runtime";
 import { preview } from "./tool-preview";
 
 export interface ToolEventOutcome {

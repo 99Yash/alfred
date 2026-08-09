@@ -7,7 +7,11 @@ import {
 } from "@alfred/contracts";
 import type { ToolSet } from "@alfred/ai";
 import { z } from "zod";
-import { resolveToolSurface, restoreToolSurface, selectToolPreload } from "../tool-runtime";
+import {
+  resolveToolSurface,
+  restoreToolSurface,
+  selectToolPreload,
+} from "@alfred/assistant/tool-runtime";
 import { startToolPreloadSpan, startToolSurfaceSpan } from "./runtime-spans";
 
 export function systemToolKernel(): ToolName[] {

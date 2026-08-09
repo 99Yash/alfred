@@ -6,7 +6,7 @@ import {
   CHAT_TOOL_NAME_MAX,
   chatToolSchema,
 } from "@alfred/contracts/events";
-import type { CompletedToolCall } from "../../src/modules/tool-runtime";
+import type { CompletedToolCall } from "@alfred/assistant/tool-runtime";
 import {
   readSubAgentMetadata,
   type SubAgentMetadata,

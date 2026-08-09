@@ -1,6 +1,6 @@
 import { getPath } from "@alfred/contracts";
 import { z } from "zod";
-import { subAgentIdSchema } from "../tool-runtime";
+import { subAgentIdSchema } from "@alfred/assistant/tool-runtime";
 
 /**
  * The workflow every sub-agent run executes, regardless of which workflow

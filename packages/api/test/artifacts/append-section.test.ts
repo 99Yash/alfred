@@ -14,7 +14,7 @@ import { databaseEnv } from "@alfred/env/database";
 import { eq, inArray } from "drizzle-orm";
 
 import { closeRedis } from "@alfred/db/redis";
-import { appendArtifactSection, createArtifact } from "../../src/modules/artifacts/write";
+import { appendArtifactSection, createArtifact } from "@alfred/assistant/artifacts/write";
 
 /* ── schema caps (ADR-0085) — pure, always run ─────────────────────────── */
 

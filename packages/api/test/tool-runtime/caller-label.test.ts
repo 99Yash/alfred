@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { describe, test } from "node:test";
 
-import { callerLabel } from "../../src/modules/tool-runtime";
+import { callerLabel } from "@alfred/assistant/tool-runtime";
 
 // `callerLabel` is the single source for the caller trace tag consumed by
 // execute/reject/sub-agent-await spans and the workflow dispatch-batch span, so

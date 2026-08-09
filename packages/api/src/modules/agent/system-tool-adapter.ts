@@ -1,4 +1,7 @@
-import { registerSystemToolAgentAdapter, type SystemToolAgentAdapter } from "../tool-runtime";
+import {
+  registerSystemToolAgentAdapter,
+  type SystemToolAgentAdapter,
+} from "@alfred/assistant/tool-runtime";
 import { readChildRunOutcome, spawnSubAgent } from "./sub-agents";
 
 /**

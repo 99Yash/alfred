@@ -32,7 +32,7 @@ import {
   createArtifact,
   updateArtifact,
   type ArtifactWriteContext,
-} from "../artifacts";
+} from "@alfred/assistant/artifacts";
 import type { ToolExecuteContext } from "./registry";
 import {
   editStandingInstruction,
@@ -53,7 +53,7 @@ import {
   spawnSubAgentInputSchema,
   startToolLoadSpan,
   startToolSearchSpan,
-} from "../tool-runtime";
+} from "@alfred/assistant/tool-runtime";
 import { inZone } from "@alfred/assistant/time";
 import { promoteScratch, readScratch, writeScratch } from "../scratchpad";
 import { resolveTodosForGmailSender, suggestTodo } from "../todos";

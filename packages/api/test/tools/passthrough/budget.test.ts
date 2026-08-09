@@ -8,7 +8,7 @@ import {
 import {
   isNonExecutionFailure,
   toolCallLogStatus,
-} from "../../../src/modules/tool-runtime/internal/result-routing";
+} from "@alfred/assistant/tool-runtime/internal/result-routing";
 import type { DispatchResult } from "../../../src/modules/dispatch";
 
 /**

@@ -20,7 +20,7 @@ import { db } from "@alfred/db";
 import { documents } from "@alfred/db/schemas";
 import { and, eq } from "drizzle-orm";
 import { z } from "zod";
-import { executeToolCallRound, toolNamesForIntegrations } from "../../tool-runtime";
+import { executeToolCallRound, toolNamesForIntegrations } from "@alfred/assistant/tool-runtime";
 import { compactTranscript, compactWithRetry } from "../run-compaction";
 import {
   estimateNextTurnInputTokens,
