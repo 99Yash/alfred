@@ -29,7 +29,7 @@
 
 import { Queue } from "bullmq";
 import { z } from "zod";
-import { createRedisConnection, isQueueEnabled } from "../../queue/connection";
+import { createRedisConnection, isQueueEnabled } from "../../../../packages/api/src/queue/connection";
 import { toMessage } from "@alfred/contracts";
 
 export const SUB_AGENT_JOIN_WAKE_QUEUE_NAME = "sub-agent-join-wake";

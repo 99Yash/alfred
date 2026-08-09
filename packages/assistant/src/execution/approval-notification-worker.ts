@@ -18,14 +18,14 @@ import { serverEnv } from "@alfred/env/server";
 import { renderApprovalEmail, type ApprovalEmailField } from "@alfred/mailer";
 import { and, eq, sql } from "drizzle-orm";
 import { Worker, type Job } from "bullmq";
-import { emitReplicachePokes } from "../../events/replicache-events";
-import { createRedisConnection } from "../../queue/connection";
+import { emitReplicachePokes } from "../../../../packages/api/src/events/replicache-events";
+import { createRedisConnection } from "../../../../packages/api/src/queue/connection";
 import { send } from "@alfred/assistant/delivery";
 import {
   APPROVAL_NOTIFICATION_QUEUE_NAME,
   approvalNotificationJobDataSchema,
   type ApprovalNotificationJobData,
-} from "../tool-runtime";
+} from "@alfred/assistant/tool-runtime";
 
 let _worker: Worker<ApprovalNotificationJobData> | undefined;
 

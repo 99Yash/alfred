@@ -3,7 +3,7 @@ import { toMessage } from "@alfred/contracts";
 import { Queue, Worker, type Job } from "bullmq";
 import { z } from "zod";
 import { createRedisConnection, isQueueEnabled } from "../../queue/connection";
-import { startRun } from "../agent/index";
+import { startRun } from "@alfred/assistant/execution/index";
 import { isUniqueViolation } from "../../lib/pg-errors";
 
 /**

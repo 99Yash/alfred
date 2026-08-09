@@ -1,5 +1,5 @@
 import { Elysia, t } from "elysia";
-import { authMacro } from "../../middleware/auth";
+import { authMacro } from "../../../../packages/api/src/middleware/auth";
 import { closeAgentQueue, enqueueRun } from "./queue";
 import { isInternalWorkflowSlug, listPublicWorkflows, registerRecipe } from "./registry";
 import {
@@ -14,7 +14,7 @@ import {
   startRunInTx,
   type SignalArgs,
 } from "./service";
-import { isUniqueViolation } from "../../lib/pg-errors";
+import { isUniqueViolation } from "../../../../packages/api/src/lib/pg-errors";
 import { closeSubAgentJoinWakeQueue } from "./sub-agent-join-wake-queue";
 import {
   startSubAgentJoinWakeWorker,
@@ -23,6 +23,21 @@ import {
 import { verifyMeteringModels } from "./verify-models";
 import { startAgentWorker, stopAgentWorker } from "./worker";
 import { Errors, toMessage } from "@alfred/contracts";
+// Re-export scratchpad symbols folded into execution.
+export {
+  writeScratch,
+  readScratch,
+  promoteScratch,
+  snapshotScratchToPostgres,
+  RUNTIME_SCRATCH_READ,
+  RUNTIME_SCRATCH_WRITE,
+  RUNTIME_SCRATCH_PROMOTE,
+  RUNTIME_SCRATCH_SNAPSHOT,
+  _setScratchRuntimeSpanStarterForTests,
+  type WriteScratchArgs,
+  type ReadScratchArgs,
+  type PromoteScratchArgs,
+} from "./scratchpad/index";
 
 export {
   registerRecipe,

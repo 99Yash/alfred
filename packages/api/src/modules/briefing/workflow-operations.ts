@@ -12,7 +12,7 @@ import {
   markBriefingSuppressed,
 } from "./store";
 import { send } from "@alfred/assistant/delivery";
-import type { StepContext, StepResult } from "../agent/index";
+import type { StepContext, StepResult } from "@alfred/assistant/execution/index";
 import { parseIanaTimezone, type BriefingGather } from "@alfred/contracts";
 import { db } from "@alfred/db";
 import { user } from "@alfred/db/schemas";

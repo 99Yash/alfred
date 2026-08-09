@@ -75,7 +75,7 @@ import { enrichInvalidInputMessage } from "./invalid-input";
 import { normalizeToolInputKeys } from "./normalize-keys";
 import { emitReplicachePokes } from "../../events/replicache-events";
 import { resolveApprovalNotifyDelayMs, resolvePolicyMode } from "../action-policies/resolve";
-import { joinChildRun } from "../agent/sub-agent-join";
+import { joinChildRun } from "@alfred/assistant/execution/sub-agent-join";
 import { scheduleApprovalExpiryJob, scheduleApprovalNotificationJob } from "../tool-runtime";
 import { parseScratchToolKey, type ScratchToolKey } from "../tools/scratch-key";
 import {

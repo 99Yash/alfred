@@ -21,8 +21,8 @@ import { db } from "@alfred/db";
 import { actionStagings } from "@alfred/db/schemas";
 import { and, eq, sql } from "drizzle-orm";
 import { DelayedError, Worker, type Job } from "bullmq";
-import { emitReplicachePokes } from "../../events/replicache-events";
-import { createRedisConnection } from "../../queue/connection";
+import { emitReplicachePokes } from "../../../../packages/api/src/events/replicache-events";
+import { createRedisConnection } from "../../../../packages/api/src/queue/connection";
 import { redeliverRun, signalRunInTx } from "./service";
 import { startApprovalWaitSpan } from "./runtime-spans";
 import {
@@ -30,7 +30,7 @@ import {
   approvalExpiryJobDataSchema,
   removeApprovalNotificationJob,
   type ApprovalExpiryJobData,
-} from "../tool-runtime";
+} from "@alfred/assistant/tool-runtime";
 import { toMessage } from "@alfred/contracts";
 
 let _worker: Worker<ApprovalExpiryJobData> | undefined;

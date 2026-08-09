@@ -1,5 +1,5 @@
 import { Queue } from "bullmq";
-import { createRedisConnection } from "../../queue/connection";
+import { createRedisConnection } from "../../../../packages/api/src/queue/connection";
 
 export const AGENT_QUEUE_NAME = "agent-runs";
 

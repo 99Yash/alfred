@@ -2,7 +2,7 @@ export { publishEvent } from "./events/publish";
 export { emitReplicachePokes } from "./events/replicache-events";
 export type { EventFrame, EventKind, EventPayload } from "./events/types";
 
-export { cancelRun, redeliverRun, signalRun, startRun, startRunInTx } from "./modules/agent/index";
+export { cancelRun, redeliverRun, signalRun, startRun, startRunInTx } from "@alfred/assistant/execution";
 export { isUniqueViolation, uniqueViolationConstraint } from "./lib/pg-errors";
 export type {
   RunStatus,
@@ -12,7 +12,7 @@ export type {
   WakeCondition,
   Workflow,
   WorkflowInput,
-} from "./modules/agent/index";
+} from "@alfred/assistant/execution";
 export {
   getRunBottleneckSummary,
   summarizeRunBottlenecks,
@@ -21,13 +21,13 @@ export {
   type RunBottleneckStaging,
   type RunBottleneckStep,
   type RunBottleneckSummary,
-} from "./modules/agent/run-bottlenecks";
+} from "@alfred/assistant/execution";
 export {
   getRunToolSurfaceUsage,
   invokedToolNamesFromTranscript,
   summarizeToolSurfaceUsage,
   type ToolSurfaceUsage,
-} from "./modules/agent/tool-surface-usage";
+} from "@alfred/assistant/execution";
 export {
   chatMemoryCaptureWorkflow,
   chatTurnWorkflow,
@@ -36,7 +36,7 @@ export {
 export {
   userAuthoredBriefWorkflow,
   USER_AUTHORED_BRIEF_WORKFLOW_SLUG,
-} from "./modules/agent/workflows/user-authored-brief";
+} from "@alfred/assistant/execution";
 export {
   assertHandoffSections,
   compactTranscript,
@@ -46,7 +46,7 @@ export {
   type CompactTranscriptArgs,
   type CompactTranscriptResult,
   type HandoffSection,
-} from "./modules/agent/run-compaction/index";
+} from "@alfred/assistant/execution";
 export {
   backgroundCompactionThresholdTokens,
   CHAT_MAX_OUTPUT_TOKENS,
@@ -211,7 +211,7 @@ export {
   resolvePolicyMode,
   type ResolvedPolicy,
 } from "./modules/action-policies/index";
-export * from "./modules/scratchpad/index";
+export * from "@alfred/assistant/execution/scratchpad";
 export {
   clearToolRegistryForTests,
   getTool,
@@ -312,5 +312,5 @@ export {
   type ExpireStagingResult,
   type StartApprovalExpiryWorkerOpts,
   type StartApprovalNotificationWorkerOpts,
-} from "./modules/agent/index";
+} from "@alfred/assistant/execution/index";
 export type { MeInboxItem, MeLatestBriefing } from "./modules/me/index";

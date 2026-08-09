@@ -7,7 +7,7 @@ import { getSessionCached, invalidateSessionToken } from "./middleware/session-c
 import { createUntrackedRedisConnection } from "./queue/connection";
 import { events } from "./modules/events/index";
 import { replicache } from "./modules/replicache/index";
-import { agent } from "./modules/agent/index";
+import { agent } from "@alfred/assistant/execution/index";
 import { approvalsRoutes } from "./modules/approvals/index";
 import { chatRoutes } from "./modules/conversations/index";
 import { connections } from "./modules/connections/index";

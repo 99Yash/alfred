@@ -52,7 +52,7 @@ const BASELINE_FLAG = "--print-baseline";
 // The durable-execution module. Its directory is still named `agent`; Phase 6
 // renames it to `execution`, at which point this constant follows the rename
 // (the graph node is the raw directory name — see `moduleForPath`).
-const EXECUTION_MODULE = "agent";
+const EXECUTION_MODULE = "execution";
 // Product modules the durable-execution core must not import (ADR-0089). This is
 // an ABSOLUTE forbidden set: it is checked against the live module graph, not
 // the grandfathered baseline SCC, so a re-introduced product import fails even
@@ -855,31 +855,31 @@ const text = 'import "ignored-string"';
   }
 
   // Execution forbidden-import gate (item 06): the rule must FIRE on a live
-  // `agent -> triage` edge and stay SILENT on a non-product edge like
-  // `agent -> integrations`, independent of any baseline.
-  const forbiddenFired = executionForbiddenImportViolations([{ from: "agent", to: "triage" }]);
-  if (!forbiddenFired.some((violation) => violation.includes("agent -> triage"))) {
+  // `execution -> triage` edge and stay SILENT on a non-product edge like
+  // `execution -> integrations`, independent of any baseline.
+  const forbiddenFired = executionForbiddenImportViolations([{ from: "execution", to: "triage" }]);
+  if (!forbiddenFired.some((violation) => violation.includes("execution -> triage"))) {
     failures.push(
-      `execution forbidden-import fixture mismatch: expected an agent -> triage violation, received ${JSON.stringify(forbiddenFired)}`,
+      `execution forbidden-import fixture mismatch: expected an execution -> triage violation, received ${JSON.stringify(forbiddenFired)}`,
     );
   }
   // Each locked module carries its own live fixture (item 11): `workflows` is
   // the last product edge the execution core shed (item 10), so prove the gate
-  // fires for `agent -> workflows` too, not just `agent -> triage`.
+  // fires for `execution -> workflows` too, not just `execution -> triage`.
   const forbiddenFiredWorkflows = executionForbiddenImportViolations([
-    { from: "agent", to: "workflows" },
+    { from: "execution", to: "workflows" },
   ]);
-  if (!forbiddenFiredWorkflows.some((violation) => violation.includes("agent -> workflows"))) {
+  if (!forbiddenFiredWorkflows.some((violation) => violation.includes("execution -> workflows"))) {
     failures.push(
-      `execution forbidden-import fixture mismatch: expected an agent -> workflows violation, received ${JSON.stringify(forbiddenFiredWorkflows)}`,
+      `execution forbidden-import fixture mismatch: expected an execution -> workflows violation, received ${JSON.stringify(forbiddenFiredWorkflows)}`,
     );
   }
   const forbiddenSilent = executionForbiddenImportViolations([
-    { from: "agent", to: "integrations" },
+    { from: "execution", to: "integrations" },
   ]);
   if (forbiddenSilent.length > 0) {
     failures.push(
-      `execution forbidden-import fixture mismatch: expected no violation for agent -> integrations, received ${JSON.stringify(forbiddenSilent)}`,
+      `execution forbidden-import fixture mismatch: expected no violation for execution -> integrations, received ${JSON.stringify(forbiddenSilent)}`,
     );
   }
 
@@ -907,13 +907,13 @@ const text = 'import "ignored-string"';
     productionPreviewImports: [],
     ...overrides,
   });
-  // (i) A live `agent -> triage` edge with a self-consistent node set must make
+  // (i) A live `execution -> triage` edge with a self-consistent node set must make
   // `checkArchitecture` report the forbidden product import — guards the wiring
   // of the forbidden-import push.
   const forbiddenWiringDrive = checkArchitecture(
     syntheticArchitecture({
-      moduleGraph: { edges: ["agent -> triage"] },
-      moduleNodes: ["agent", "triage"],
+      moduleGraph: { edges: ["execution -> triage"] },
+      moduleNodes: ["execution", "triage"],
     }),
     syntheticBaseline(),
   );
@@ -923,7 +923,7 @@ const text = 'import "ignored-string"';
     )
   ) {
     failures.push(
-      `execution forbidden-import wiring self-test mismatch: expected checkArchitecture to report a forbidden product import for agent -> triage, received ${JSON.stringify(forbiddenWiringDrive)}`,
+      `execution forbidden-import wiring self-test mismatch: expected checkArchitecture to report a forbidden product import for execution -> triage, received ${JSON.stringify(forbiddenWiringDrive)}`,
     );
   }
   // (ii) A node set that omits EXECUTION_MODULE and the forbidden entry must make

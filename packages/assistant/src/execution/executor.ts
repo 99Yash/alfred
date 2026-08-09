@@ -17,12 +17,12 @@ import {
 import { runStatusSchema } from "@alfred/contracts";
 import { and, eq, sql } from "drizzle-orm";
 import type { PgUpdateSetSource } from "drizzle-orm/pg-core";
-import { publishEvent } from "../../events/publish";
+import { publishEvent } from "../../../../packages/api/src/events/publish";
 import { normalizeDecisionTraceKey, type DecisionTraceRecord } from "./decision-traces";
 import { resolveWorkflowForRun } from "./resolve-workflow";
 import { rejectLateCancelledRunStagings, resolveStaleAfterMs } from "./service";
 import { finalizeFailedRun } from "./terminal-closure";
-import { isUniqueViolation } from "../../lib/pg-errors";
+import { isUniqueViolation } from "../../../../packages/api/src/lib/pg-errors";
 import { startQueueLeaseSpan, type QueueLeaseFromStatus } from "./runtime-spans";
 import {
   isTerminalStatus,

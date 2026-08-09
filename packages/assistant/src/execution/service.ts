@@ -9,14 +9,14 @@ import {
   type AgentRunTrigger,
 } from "@alfred/contracts";
 import { and, desc, eq, sql } from "drizzle-orm";
-import { publishEvent } from "../../events/publish";
-import { emitReplicachePokes } from "../../events/replicache-events";
+import { publishEvent } from "../../../../packages/api/src/events/publish";
+import { emitReplicachePokes } from "../../../../packages/api/src/events/replicache-events";
 // Cancel's post-commit obligations include tearing down the queued jobs of the
 // stagings it bulk-rejected. The scheduling helpers live in `tool-runtime` (a
 // sink), so owning the teardown here rather than describing it to callers adds
 // no cycle.
-import { removeApprovalExpiryJob, removeApprovalNotificationJob } from "../tool-runtime";
-import { snapshotScratchToPostgres } from "../scratchpad";
+import { removeApprovalExpiryJob, removeApprovalNotificationJob } from "@alfred/assistant/tool-runtime";
+import { snapshotScratchToPostgres } from "./scratchpad/index";
 import { enqueueRun } from "./queue";
 import { getWorkflow, listWorkflows } from "./registry";
 import { resolveWorkflowForRun } from "./resolve-workflow";
@@ -35,7 +35,7 @@ import { userAuthoredBriefWorkflow } from "./workflows/user-authored-brief";
 import {
   workflowOccurrenceKey,
   type WorkflowOccurrenceIdentity,
-} from "../../lib/workflow-occurrence";
+} from "../../../../packages/api/src/lib/workflow-occurrence";
 
 /**
  * After this much silence on `last_checkpoint_at`, a `running` row is

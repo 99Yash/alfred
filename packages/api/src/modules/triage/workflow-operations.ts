@@ -34,7 +34,7 @@ import {
 import { reconcileThreadLabel } from "./tags";
 import { getThreadState } from "./thread-state";
 import { assembleObservations, type Observations } from "./observations";
-import type { StepContext, StepResult } from "../agent/index";
+import type { StepContext, StepResult } from "@alfred/assistant/execution/index";
 import {
   gmailTodoSources,
   isHttpError,

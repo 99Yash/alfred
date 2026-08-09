@@ -7,7 +7,7 @@ import { emitReplicachePokes } from "../../events/replicache-events";
 import { logger } from "../../lib/logger";
 import { finalizeRunArtifacts } from "../artifacts";
 import { scheduleThreadIdleExtraction } from "./idle-capture-queue";
-import { aggregateRunUsage } from "../agent";
+import { aggregateRunUsage } from "@alfred/assistant/execution";
 import { sanitizeVoice } from "@alfred/ai/voice";
 import { scheduleConversationCompactionIfNeeded } from "./compaction";
 import { classifyChatTurnFailure } from "./chat-failure-kind";

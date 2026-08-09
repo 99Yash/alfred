@@ -15,7 +15,7 @@ import {
   type ConversationSummary,
   type EligibleConversationSummarySources,
 } from "./conversation-summary";
-import { CHARS_PER_TOKEN } from "../../agent";
+import { CHARS_PER_TOKEN } from "@alfred/assistant/execution";
 
 const CONVERSATION_SUMMARY_MAX_OUTPUT_TOKENS = 4_000;
 const conversationSummaryRoutes = {

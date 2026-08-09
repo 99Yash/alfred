@@ -55,7 +55,7 @@ import {
   startToolSearchSpan,
 } from "../tool-runtime";
 import { inZone } from "@alfred/assistant/time";
-import { promoteScratch, readScratch, writeScratch } from "../scratchpad";
+import { promoteScratch, readScratch, writeScratch } from "@alfred/assistant/execution/scratchpad";
 import { resolveTodosForGmailSender, suggestTodo } from "../todos";
 import { rememberSenderSuppressionAndDismissTodos } from "./remember-suppression";
 import { redactCredentialUrl, runFetchUrl } from "./fetch-url";

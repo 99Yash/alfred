@@ -1,6 +1,6 @@
 import { Worker, type Job } from "bullmq";
-import { createRedisConnection } from "../../queue/connection";
-import { snapshotScratchToPostgres } from "../scratchpad";
+import { createRedisConnection } from "../../../../packages/api/src/queue/connection";
+import { snapshotScratchToPostgres } from "./scratchpad/index";
 import { runOnce, skipReasonIsLoud } from "./executor";
 import { AGENT_QUEUE_NAME, enqueueRun, type AgentJobData } from "./queue";
 import {

@@ -3,7 +3,7 @@ import { db } from "@alfred/db";
 import { chatMessages, chatThreads } from "@alfred/db/schemas";
 import { and, asc, eq, lt, lte, or } from "drizzle-orm";
 import { z } from "zod";
-import { type Workflow } from "../agent";
+import { type Workflow } from "@alfred/assistant/execution";
 import {
   buildThreadTranscript,
   extractPropositionsFromThread,
