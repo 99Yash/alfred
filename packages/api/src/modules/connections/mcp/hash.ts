@@ -1,5 +1,5 @@
 import type { Tool } from "@modelcontextprotocol/client";
-import { sha256Canonical } from "../../../lib/hash";
+import { sha256Canonical } from "@alfred/db/hash";
 
 /**
  * `sha256Canonical` is the shared digest (`lib/hash`); the MCP-specific hashes
