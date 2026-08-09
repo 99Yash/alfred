@@ -53,7 +53,7 @@ export type EntityRow = Omit<
 > & {
   kind: EntityKind;
   aliases: string[];
-  metadata: Record<string, unknown>;
+  metadata: z.infer<typeof jsonRecordSchema>;
 };
 
 function rowToEntity(r: Entity): EntityRow {

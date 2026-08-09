@@ -40,7 +40,7 @@ export interface WorkflowReadinessProblem {
 export interface WorkflowResourceAccessFact {
   tool: ToolName;
   accountRef?: string;
-  resourceScope: Record<string, unknown>;
+  resourceScope: NonNullable<WorkflowRequiredCapability["resourceScope"]>;
   granted: boolean;
   /** Supplied only when the owning provider boundary has an executable remedy. */
   recoveryAction?: WorkflowRecoveryAction;

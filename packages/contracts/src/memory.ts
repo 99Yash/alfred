@@ -1,6 +1,8 @@
 import { z } from "zod";
+import { jsonObjectSchema } from "./user-model";
 
-export const jsonRecordSchema = z.record(z.string(), z.unknown());
+/** @deprecated Use `jsonObjectSchema`; retained as a compatibility export for sync/memory callers. */
+export const jsonRecordSchema = jsonObjectSchema;
 
 export const memorySourceSchema = z.object({
   kind: z.enum(["document", "chunk", "tool_call", "cold_start", "user", "agent"]),
