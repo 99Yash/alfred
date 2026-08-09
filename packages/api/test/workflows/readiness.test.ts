@@ -14,9 +14,9 @@ import {
   resolveWorkflowCapabilities,
   resolveWorkflowApprovalDisplay,
   resolveWorkflowReadiness as resolveWorkflowReadinessBase,
-} from "../../src/modules/workflows/readiness";
-import { runtimeReadinessDisposition } from "../../src/modules/workflows/runtime-readiness";
-import { validateWorkflowDefinition } from "../../src/modules/workflows/revisions";
+} from "@alfred/assistant/automation/readiness";
+import { runtimeReadinessDisposition } from "@alfred/assistant/automation/runtime-readiness";
+import { validateWorkflowDefinition } from "@alfred/assistant/automation/revisions";
 
 function resolveWorkflowReadiness(
   args: Omit<

@@ -1,6 +1,6 @@
 import { serverEnv } from "@alfred/env/server";
 import { type ComposedEmail, renderSkillDocumentationEmail } from "@alfred/mailer";
-import type { SkillDocumentationContext } from "./context";
+import type { SkillDocumentationContext } from "./skill-documentation-context";
 
 /**
  * Deterministic email renderer for the "Skill documented" notification.

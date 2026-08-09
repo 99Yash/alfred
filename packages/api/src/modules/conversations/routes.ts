@@ -45,9 +45,9 @@ import {
   toAttachmentRow,
   writeObject,
   type AttachmentInput,
-} from "./attachments";
-import { CHAT_TURN_WORKFLOW_SLUG } from "./chat-turn";
-import { requestChatStop } from "./stop-signal";
+} from "@alfred/assistant/conversations";
+import { CHAT_TURN_WORKFLOW_SLUG } from "@alfred/assistant/conversations";
+import { requestChatStop } from "@alfred/assistant/conversations";
 
 const TITLE_MAX_CHARS = 80;
 const ATTACHMENT_UPLOAD_RATE_LIMIT_SECONDS = 60;

@@ -15,10 +15,10 @@ import { asc, eq } from "drizzle-orm";
 
 import { systemTools } from "../../src/modules/tools/system";
 import { registerBuiltinTools } from "../../src/modules/tools/runtime";
-import { registerWorkflowSystemToolAdapter } from "../../src/modules/workflows/system-tool-adapter";
+import { registerWorkflowSystemToolAdapter } from "@alfred/assistant/automation/system-tool-adapter";
 import { toolExecuteContext } from "../../src/modules/tools/context";
-import { definitionFromProposal } from "../../src/modules/workflows/authoring";
-import { refreshWorkflowActivationProposal } from "../../src/modules/workflows/revisions";
+import { definitionFromProposal } from "@alfred/assistant/automation/authoring";
+import { refreshWorkflowActivationProposal } from "@alfred/assistant/automation/revisions";
 import { createRun } from "@alfred/assistant/execution/service";
 
 const SKIP = (() => {

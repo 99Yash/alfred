@@ -11,7 +11,7 @@ import {
   commitSkillRevision,
   finalizeSkillRun,
   recordSkillRun,
-} from "../../src/modules/skill-revisions/revisions";
+} from "@alfred/assistant/skills/revisions";
 
 const SKIP = process.env.DATABASE_URL
   ? process.env.REDIS_URL

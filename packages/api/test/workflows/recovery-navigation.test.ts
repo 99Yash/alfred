@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { describe, test } from "node:test";
 
-import { workflowRecoveryNavigation } from "../../src/modules/workflows/recovery-navigation";
+import { workflowRecoveryNavigation } from "@alfred/assistant/automation/recovery-navigation";
 
 describe("workflow recovery navigation", () => {
   test("builds a context-preserving Google OAuth target", () => {

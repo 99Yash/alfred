@@ -12,12 +12,12 @@ import { subscribeUserPokes } from "../../src/events/replicache-events";
 import {
   finalizeAssistantMessage,
   finalizeFailedMessage,
-} from "../../src/modules/conversations/chat-turn-closure";
+} from "@alfred/assistant/conversations/chat-turn-closure";
 import {
   chatRunStateSchema,
   type ChatRunState,
-} from "../../src/modules/conversations/chat-turn-state";
-import { CHAT_TURN_WORKFLOW_SLUG } from "../../src/modules/conversations/chat-turn";
+} from "@alfred/assistant/conversations/chat-turn-state";
+import { CHAT_TURN_WORKFLOW_SLUG } from "@alfred/assistant/conversations/chat-turn";
 import { resetToolFixtures } from "../lib/tool-fixtures";
 
 /**

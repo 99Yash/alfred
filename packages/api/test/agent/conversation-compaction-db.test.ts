@@ -14,11 +14,11 @@ import {
 import { databaseEnv } from "@alfred/env/database";
 import { eq, inArray, sql } from "drizzle-orm";
 
-import { persistChatAttachmentRepresentation } from "../../src/modules/conversations/attachments/attachment-enrichment";
+import { persistChatAttachmentRepresentation } from "@alfred/assistant/conversations/attachments/attachment-enrichment";
 import {
   loadConversationSummaryEvidence,
   persistConversationSummary,
-} from "../../src/modules/conversations/compaction";
+} from "@alfred/assistant/conversations/compaction/index";
 
 const SKIP = (() => {
   try {

@@ -8,8 +8,8 @@ import { sanitizeVoice } from "@alfred/ai/voice";
 import {
   streamModelTurn,
   type StreamTurnState,
-} from "../../src/modules/conversations/stream-model-turn";
-import type { TurnStopController } from "../../src/modules/conversations/turn-stop-controller";
+} from "@alfred/assistant/conversations/stream-model-turn";
+import type { TurnStopController } from "@alfred/assistant/conversations/turn-stop-controller";
 
 /**
  * Unit tests for the extracted live-stream drain. Exercises the four stream
