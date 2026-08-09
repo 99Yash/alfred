@@ -42,7 +42,7 @@ import {
   embedMemoryChunk,
   findPendingEmbedChunks,
   isRejected,
-} from "@alfred/api/modules/knowledge/internal";
+} from "@alfred/assistant/knowledge/internal";
 import { closeAgentQueue, warmPool } from "@alfred/api/runtime";
 import { embed } from "@alfred/ai/embeddings";
 import { db } from "@alfred/db";

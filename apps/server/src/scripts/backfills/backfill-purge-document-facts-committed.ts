@@ -56,7 +56,7 @@ import {
   gateDocumentFact,
   loadSelfIdentity,
   type SelfIdentity,
-} from "@alfred/api/modules/knowledge/internal";
+} from "@alfred/assistant/knowledge/internal";
 import { warmPool } from "@alfred/api/runtime";
 import { closeScriptResources } from "../script-runtime";
 import { canonicalizeFactKey, toMessage } from "@alfred/contracts";

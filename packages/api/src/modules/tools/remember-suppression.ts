@@ -2,8 +2,11 @@ import {
   rememberSenderSuppression,
   type RememberSenderSuppressionArgs,
   type RememberSenderSuppressionResult,
-} from "../knowledge";
-import { resolveTodosForGmailSender, type ResolveTodosForGmailSenderResult } from "../todos";
+} from "@alfred/assistant/knowledge";
+import {
+  resolveTodosForGmailSender,
+  type ResolveTodosForGmailSenderResult,
+} from "@alfred/assistant/tasks";
 
 /**
  * Reason stamped on todos dismissed as a reaction to a sender suppression.

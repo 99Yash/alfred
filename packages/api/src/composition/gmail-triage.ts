@@ -3,14 +3,14 @@ import {
   registerGmailTriageHandler,
   type GmailTriageHandler,
   type GmailTriageRelabelResult,
+  enqueueTriageRelabel,
 } from "../modules/integrations";
 import {
-  enqueueTriageRelabel,
   findNewestLiveInboundGmailDocuments,
   reconcileGmailThreads,
   reconcileThreadLabel,
   type ReconcileResult,
-} from "../modules/triage";
+} from "@alfred/assistant/triage";
 
 const RELABEL_ENQUEUE_CONCURRENCY = 10;
 

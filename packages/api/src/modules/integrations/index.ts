@@ -4,6 +4,7 @@ export {
   closeIngestionQueue,
   enqueueChatAttachmentEnrichment,
   enqueueGmailKindRefold,
+  enqueueTriageRelabel,
   enqueuePendingUploadCleanup,
   getIngestionQueue,
 } from "./queue";

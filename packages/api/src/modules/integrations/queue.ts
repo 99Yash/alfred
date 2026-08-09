@@ -12,6 +12,7 @@ import {
 import { retryPending } from "@alfred/corpus";
 import { gmailMailboxWritesEnabled, serverEnv } from "@alfred/env/server";
 import { publishDomainEvent, type GmailDocumentsIngestedPayload } from "@alfred/assistant/triggers";
+import { prepareTriageRelabelJob } from "@alfred/assistant/triage";
 import { createRedisConnection } from "@alfred/db/redis";
 import { runGmailTriageRelabel } from "./gmail-triage";
 import { refoldGmailKindProjection, scheduleGmailKindRefoldSweep } from "./gmail-user-model";
@@ -594,4 +595,15 @@ export async function enqueueGmailKindRefold(userId: string): Promise<void> {
       removeOnFail: { count: 50, age: 7 * 24 * 60 * 60 },
     },
   );
+}
+
+export async function enqueueTriageRelabel(userId: string, sourceThreadId: string): Promise<void> {
+  const job = prepareTriageRelabelJob(userId, sourceThreadId);
+  const queue = getIngestionQueue();
+  await queue.add(job.jobName, job.jobData, {
+    deduplication: {
+      id: job.dedupId,
+      keepLastIfActive: true,
+    },
+  });
 }

@@ -9,9 +9,9 @@
  * so we confirm the discriminator splits manufactured conversion pressure from a
  * genuine bill without over-suppressing real billing mail.
  */
-import { classifyEmail } from "@alfred/api/modules/triage/classify";
-import { extractSenderContext } from "@alfred/api/modules/triage/sender-context";
-import type { Observations } from "@alfred/api/modules/triage/observations";
+import { classifyEmail } from "@alfred/assistant/triage/classify";
+import { extractSenderContext } from "@alfred/assistant/triage/sender-context";
+import type { Observations } from "@alfred/assistant/triage/observations";
 
 const baseObs = (over: Partial<Observations> = {}): Observations => ({
   senderPrior: { key: "service:github.com", categoryCounts: {}, lastCategory: null },

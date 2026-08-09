@@ -22,7 +22,7 @@
  *   TEAM_GRAPH_EMAILS="a@x.com" TEAM_GRAPH_MAX_DOCS=2000 node dist/scripts/backfills/backfill-team-graph-committed.js --commit
  */
 import { gmailSenderAdapter } from "@alfred/api/backend";
-import { backfillTeamGraph } from "@alfred/api/modules/knowledge/internal";
+import { backfillTeamGraph } from "@alfred/assistant/knowledge/internal";
 import { warmPool } from "@alfred/api/runtime";
 import { closeScriptResources } from "../script-runtime";
 import { db } from "@alfred/db";

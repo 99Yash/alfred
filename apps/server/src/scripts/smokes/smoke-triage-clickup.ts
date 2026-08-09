@@ -14,15 +14,15 @@ import {
   classifyEmail,
   triageClassificationSchema,
   type RunPass,
-} from "@alfred/api/modules/triage/classify";
-import { extractSenderContext } from "@alfred/api/modules/triage/sender-context";
+} from "@alfred/assistant/triage/classify";
+import { extractSenderContext } from "@alfred/assistant/triage/sender-context";
 import {
   clamp01,
   collabActivityPartition,
   toMessage,
   type CollabActivityKind,
 } from "@alfred/contracts";
-import type { Observations } from "@alfred/api/modules/triage/observations";
+import type { Observations } from "@alfred/assistant/triage/observations";
 import { generateText, Output } from "ai";
 
 const clickUpSenderKind = {
