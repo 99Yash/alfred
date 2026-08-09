@@ -24,12 +24,22 @@
 //
 // What this fixture does NOT pin is the `{ auth: true }` guard: commenting out
 // `.use(authMacro)` in the route module leaves this file green. It needs no
-// assertion here, because that mutation is already six compile errors in the
-// route module itself (TS2353 on the guard plus TS2339 on every `user`), so
-// the guard is checked one tier up from a fixture — and it is checked there
-// only by accident, because every handler happens to destructure `user`. A
-// deliberately unauthenticated route loses that check silently, so prove the
-// guard boundary of one with `app.handle`, not with `tsc`.
+// assertion here, because that mutation is already a compile error in the
+// route module itself, so the guard is checked one tier up from a fixture —
+// and it is checked there on purpose, not by accident. The load-bearing error
+// is TS2353 on the `.guard({ auth: true }, …)` object literal, which is
+// structurally independent of every handler: removing the guard AND every use
+// of `user` from `workflows.ts` still fails on it. The TS2339s on `user` are
+// extra, and the total is per-module, so never copy a count between route
+// files. Measured here one file at a time, each mutation reverted before the
+// next: agent 6, approvals 3, onboarding 4, skills 4, workflows 3 — one TS2353
+// on the guard, one TS6133 for the now-unused import, and one TS2339 per
+// handler that destructures `user`.
+//
+// The blind spot is the opposite shape: a route carrying no `{ auth: true }`
+// guard at all — the deliberately unauthenticated webhooks campaign items
+// 24-27 bring — leaves `tsc` nothing to fail on. Prove the guard boundary of
+// one of those with `app.handle`, not with `tsc`.
 
 import {
   agent,
