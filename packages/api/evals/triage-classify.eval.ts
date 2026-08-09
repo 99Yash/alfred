@@ -15,10 +15,10 @@ import {
   todoSuppressionReason,
   type ClassifyEmailArgs,
   type TodoDecisionOutcome,
-} from "../src/modules/triage/classify";
+} from "@alfred/assistant/triage/classify";
 import { DEFAULT_USER_TIMEZONE } from "@alfred/assistant/time";
-import { assembleObservations, type Observations } from "../src/modules/triage/observations";
-import type { ThreadMessageContext } from "../src/modules/triage/thread-state";
+import { assembleObservations, type Observations } from "@alfred/assistant/triage/observations";
+import type { ThreadMessageContext } from "@alfred/assistant/triage/thread-state";
 import { llmJudgeScorer } from "./lib/llm-judge";
 
 /**
