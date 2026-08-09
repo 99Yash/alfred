@@ -1,9 +1,9 @@
 import assert from "node:assert/strict";
 import { describe, test } from "node:test";
 
-import type { TriageClassification } from "../../src/modules/triage/classify";
-import { applyFloors, type FloorContext } from "../../src/modules/triage/floors";
-import { FLOOR_TRACE_PROJECTIONS } from "../../src/modules/triage/sender-extraction-event";
+import type { TriageClassification } from "@alfred/assistant/triage/classify";
+import { applyFloors, type FloorContext } from "@alfred/assistant/triage/floors";
+import { FLOOR_TRACE_PROJECTIONS } from "@alfred/assistant/triage/sender-extraction-event";
 
 // ---------------------------------------------------------------------------
 // Fixtures

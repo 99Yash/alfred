@@ -14,7 +14,7 @@ import {
   registerRecipe,
 } from "@alfred/assistant/execution/registry";
 import type { StepResult, Workflow } from "@alfred/assistant/execution/types";
-import type { SenderExtractionEvent } from "../../src/modules/triage";
+import type { SenderExtractionEvent } from "@alfred/assistant/triage";
 
 /**
  * DB-backed regression for the ADR-0070 §1.1/§1.3 executor-sink gap (PR review

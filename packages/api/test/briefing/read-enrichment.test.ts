@@ -8,7 +8,7 @@ import { databaseEnv } from "@alfred/env/database";
 import { inArray, like } from "drizzle-orm";
 
 import { closeReplicachePokeBridge } from "../../src/events/replicache-events";
-import { listEmailsSinceWatermark } from "../../src/modules/briefing/read";
+import { listEmailsSinceWatermark } from "@alfred/assistant/briefings/read";
 import { closeRedis } from "@alfred/db/redis";
 
 function hasDatabaseUrl(): boolean {

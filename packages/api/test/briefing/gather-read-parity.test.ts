@@ -9,9 +9,9 @@ import { databaseEnv } from "@alfred/env/database";
 import { inArray, like } from "drizzle-orm";
 
 import { closeReplicachePokeBridge } from "../../src/events/replicache-events";
-import { gatherBriefingWithSuppressionAudit } from "../../src/modules/briefing/gather";
-import { listEmailsSinceWatermark } from "../../src/modules/briefing/read";
-import { rememberSenderSuppression } from "../../src/modules/knowledge";
+import { gatherBriefingWithSuppressionAudit } from "@alfred/assistant/briefings/gather";
+import { listEmailsSinceWatermark } from "@alfred/assistant/briefings/read";
+import { rememberSenderSuppression } from "@alfred/assistant/knowledge";
 import { parseLocalDateKey } from "@alfred/assistant/time";
 import { closeRedis } from "@alfred/db/redis";
 

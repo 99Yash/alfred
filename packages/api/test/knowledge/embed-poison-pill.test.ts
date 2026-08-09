@@ -14,7 +14,7 @@ import {
   findPendingEmbedChunks,
   pendingEmbedChunkIds,
   recordMemoryEmbedFailure,
-} from "../../src/modules/knowledge/chunks";
+} from "@alfred/assistant/knowledge/chunks";
 
 /**
  * DB-backed test for the embedding poison-pill guard on both `memory_chunks`

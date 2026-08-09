@@ -1,15 +1,15 @@
 import assert from "node:assert/strict";
 import { describe, test } from "node:test";
 
-import { COLD_START_WORKFLOW_SLUG } from "../../src/modules/knowledge/cold-start/workflow-input";
+import { COLD_START_WORKFLOW_SLUG } from "@alfred/assistant/knowledge/cold-start/workflow-input";
 import { SUB_AGENT_WORKFLOW_SLUG } from "@alfred/assistant/execution/sub-agent-metadata";
 import {
   DAILY_BRIEFING_WORKFLOW_SLUG,
   LEGACY_MORNING_BRIEFING_WORKFLOW_SLUG,
-} from "../../src/modules/briefing/workflow-input";
+} from "@alfred/assistant/briefings/workflow-input";
 import { LEARN_SKILL_WORKFLOW_SLUG } from "../../src/modules/skills/workflow-input";
 import { SKILL_DOCUMENTATION_WORKFLOW_SLUG } from "../../src/modules/skill-documentation/workflow-input";
-import { TRIAGE_WORKFLOW_SLUG } from "../../src/modules/triage/workflow-input";
+import { TRIAGE_WORKFLOW_SLUG } from "@alfred/assistant/triage/workflow-input";
 import { SLUG_CATEGORY } from "../../src/modules/me/usage-service";
 
 /**

@@ -5,7 +5,7 @@ import {
   isObservationAppendConflict,
   isOrgAffiliationObservationAppendConflict,
   retryOnObservationChainConflict,
-} from "../../src/modules/knowledge";
+} from "@alfred/assistant/knowledge";
 
 function pgError(fields: {
   code?: string;

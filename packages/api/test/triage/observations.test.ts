@@ -5,8 +5,8 @@ import {
   assembleObservations,
   extractContentFlags,
   extractGmailSignals,
-} from "../../src/modules/triage/observations";
-import type { ThreadState } from "../../src/modules/triage/thread-state";
+} from "@alfred/assistant/triage/observations";
+import type { ThreadState } from "@alfred/assistant/triage/thread-state";
 
 describe("extractGmailSignals", () => {
   test("splits CATEGORY_* labels and flags IMPORTANT/STARRED/INBOX", () => {

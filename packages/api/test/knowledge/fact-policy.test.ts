@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { describe, test } from "node:test";
 
-import { isSingleValuedKey, isUninformativeRelationshipFact } from "../../src/modules/knowledge";
+import { isSingleValuedKey, isUninformativeRelationshipFact } from "@alfred/assistant/knowledge";
 // Internal-by-intent fact-policy helpers dropped from the `knowledge` barrel
 // (item 15) — this contract test reads them from their owning file directly.
 import {
@@ -14,8 +14,8 @@ import {
   validateFactValueForKey,
   type AuthorshipDocument,
   type SelfIdentity,
-} from "../../src/modules/knowledge/fact-policy";
-import { gmailSenderAdapter } from "../../src/modules/triage/gmail-sender-adapter";
+} from "@alfred/assistant/knowledge/fact-policy";
+import { gmailSenderAdapter } from "@alfred/assistant/triage/gmail-sender-adapter";
 
 describe("classifyDocumentFactKey (#330 — document write tiers)", () => {
   test("relationship:<email> is Tier A (authorship-free)", () => {

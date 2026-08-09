@@ -7,9 +7,9 @@ import {
   authoredByUser,
   type AuthorshipDocument,
   type SelfIdentity,
-} from "../../src/modules/knowledge/fact-policy";
-import { accumulateDoc, type ContactAggregate } from "../../src/modules/knowledge/team-graph";
-import { gmailSenderAdapter } from "../../src/modules/triage/gmail-sender-adapter";
+} from "@alfred/assistant/knowledge/fact-policy";
+import { accumulateDoc, type ContactAggregate } from "@alfred/assistant/knowledge/team-graph";
+import { gmailSenderAdapter } from "@alfred/assistant/triage/gmail-sender-adapter";
 
 /**
  * Characterization pin for campaign knowledge-settings-phase4 item 04

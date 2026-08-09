@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { describe, test } from "node:test";
 
-import { isSentGmailMetadata, mayBeUnflaggedSentMail } from "../../src/modules/triage/sent-mail";
+import { isSentGmailMetadata, mayBeUnflaggedSentMail } from "@alfred/assistant/triage/sent-mail";
 
 /**
  * The classify-time sent guard (#306) used to do a live Gmail `getMessage` on

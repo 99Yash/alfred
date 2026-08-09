@@ -16,7 +16,7 @@ import {
   runDriftHealthCheck,
   selfIngestionCount,
   todoDismissDoneRatio,
-} from "../../../src/modules/knowledge/drift-audit/metrics";
+} from "@alfred/assistant/knowledge/drift-audit/metrics";
 
 function hasDatabaseUrl(): boolean {
   try {

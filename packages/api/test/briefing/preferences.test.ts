@@ -6,7 +6,7 @@ import {
   DEFAULT_BRIEFING_EVENING_HOUR,
   DEFAULT_BRIEFING_TIMEZONE,
   resolveBriefingPreferenceValues,
-} from "../../src/modules/briefing/preferences";
+} from "@alfred/assistant/briefings/preferences";
 
 describe("resolveBriefingPreferenceValues", () => {
   test("prefers canonical timezone over the legacy briefing fallback", () => {

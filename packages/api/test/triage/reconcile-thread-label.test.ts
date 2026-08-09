@@ -2,8 +2,8 @@ import assert from "node:assert/strict";
 import { describe, test } from "node:test";
 
 import { HttpError } from "@alfred/contracts";
-import { reconcileThreadLabel, type ReconcileThreadLabelDeps } from "../../src/modules/triage/tags";
-import type { TriageRow, TriageDocumentContext } from "../../src/modules/triage/store";
+import { reconcileThreadLabel, type ReconcileThreadLabelDeps } from "@alfred/assistant/triage/tags";
+import type { TriageRow, TriageDocumentContext } from "@alfred/assistant/triage/store";
 
 // ---------------------------------------------------------------------------
 // Fixtures — #277: the relabel path wrote the triage label to the message id
