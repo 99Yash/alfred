@@ -5,7 +5,7 @@ import {
   type AgentTranscriptMessage,
 } from "@alfred/contracts";
 import { publishEvent } from "@alfred/assistant/triggers";
-import { isMutatingToolName } from "../tool-runtime";
+import { isMutatingToolName } from "@alfred/assistant/tool-runtime";
 import {
   isTerminalChildStatus,
   joinChildRun,

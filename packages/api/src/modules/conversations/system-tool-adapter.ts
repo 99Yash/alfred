@@ -1,7 +1,7 @@
 import {
   registerSystemToolChatHistoryAdapter,
   type SystemToolChatHistoryAdapter,
-} from "../tool-runtime";
+} from "@alfred/assistant/tool-runtime";
 import { readChatHistory } from "./chat-history-retrieval";
 
 /**

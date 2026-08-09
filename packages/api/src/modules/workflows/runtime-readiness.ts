@@ -3,7 +3,7 @@ import { toMessage } from "@alfred/contracts";
 import { db } from "@alfred/db";
 import { agentRuns, workflowRevisions, workflows } from "@alfred/db/schemas";
 import { and, eq } from "drizzle-orm";
-import { workflowToolCatalog } from "../tool-runtime";
+import { workflowToolCatalog } from "@alfred/assistant/tool-runtime";
 import { readWorkflowReadinessContext } from "./readiness-context";
 import { resolveWorkflowReadiness, type WorkflowReadinessProblem } from "./readiness";
 import { reconcileWorkflowReadiness } from "./revisions";

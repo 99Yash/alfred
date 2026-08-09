@@ -14,7 +14,7 @@ import {
   driveSearchInput,
   restPassthroughInput,
 } from "@alfred/contracts";
-import { surfaceExternalFileArtifact } from "../artifacts";
+import { surfaceExternalFileArtifact } from "@alfred/assistant/artifacts";
 import { runRestPassthrough } from "./passthrough";
 import { liveTool, type RegisteredTool, type ToolExecuteContext } from "./registry";
 

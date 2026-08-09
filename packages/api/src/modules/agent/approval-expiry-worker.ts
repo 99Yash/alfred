@@ -30,7 +30,7 @@ import {
   approvalExpiryJobDataSchema,
   removeApprovalNotificationJob,
   type ApprovalExpiryJobData,
-} from "../tool-runtime";
+} from "@alfred/assistant/tool-runtime";
 import { toMessage } from "@alfred/contracts";
 
 let _worker: Worker<ApprovalExpiryJobData> | undefined;

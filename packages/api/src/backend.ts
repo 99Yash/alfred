@@ -309,7 +309,7 @@ export {
   scheduleApprovalNotificationJob,
   type ApprovalExpiryJobData,
   type ApprovalNotificationJobData,
-} from "./modules/tool-runtime/index";
+} from "@alfred/assistant/tool-runtime";
 export {
   expireStaging,
   type ExpireStagingResult,

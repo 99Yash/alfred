@@ -9,8 +9,8 @@ import {
   type ProposedToolCall,
   type ToolCallRun,
   type ToolRuntimeAdapter,
-} from "../../src/modules/tool-runtime";
-import { _setToolRuntimeSpanStarterForTests } from "../../src/modules/tool-runtime/internal/runtime-spans";
+} from "@alfred/assistant/tool-runtime";
+import { _setToolRuntimeSpanStarterForTests } from "@alfred/assistant/tool-runtime/internal/runtime-spans";
 
 type ToolCallRoundAdapter = Parameters<typeof registerToolCallRoundAdapter>[0];
 type ToolCallDispatchResult = Awaited<ReturnType<ToolCallRoundAdapter["dispatch"]>>;

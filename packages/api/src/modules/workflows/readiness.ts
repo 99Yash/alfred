@@ -17,7 +17,7 @@ import {
   type WorkflowRevisionDefinition,
 } from "@alfred/contracts";
 import { GMAIL_READONLY_SCOPE, readGmailWatchState } from "@alfred/integrations/google";
-import type { WorkflowToolCatalog, WorkflowToolFacts } from "../tool-runtime";
+import type { WorkflowToolCatalog, WorkflowToolFacts } from "@alfred/assistant/tool-runtime";
 import type { GmailEventHealth } from "./gmail-event-readiness";
 
 type WorkflowReadinessProblemCode =
