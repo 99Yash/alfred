@@ -1,6 +1,6 @@
 import path from "node:path";
 import { route } from "@alfred/ai";
-import { calendarListEventsInput } from "@alfred/contracts";
+import { calendarListEventsInput, parseIanaTimezone } from "@alfred/contracts";
 import { serverEnv } from "@alfred/env/server";
 import { generateText, tool } from "ai";
 import { config as loadEnv } from "dotenv";
@@ -26,7 +26,7 @@ import type { GroundingTaskOutput } from "./lib/grounding";
 loadEnv({ path: path.resolve(import.meta.dirname, "../../../apps/server/.env") });
 
 const NOW = new Date("2026-06-26T04:44:00Z");
-const TIMEZONE = "Asia/Kolkata";
+const TIMEZONE = parseIanaTimezone("Asia/Kolkata");
 const EVAL_TIMEOUT_MS = 60_000;
 
 const LIST_EVENTS_TOOL = "calendar.list_events";

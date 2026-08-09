@@ -6,6 +6,7 @@ import {
   gmailReadMessageInput,
   gmailSearchInput,
   getStringPath,
+  parseIanaTimezone,
   readUserContextInput,
   webSearchInput,
 } from "@alfred/contracts";
@@ -31,7 +32,7 @@ import { buildSubAgentSystemPrompt } from "@alfred/assistant/execution/workflows
 loadEnv({ path: path.resolve(import.meta.dirname, "../../../apps/server/.env") });
 
 const NOW = new Date("2026-07-02T07:30:00Z");
-const TIMEZONE = "Asia/Kolkata";
+const TIMEZONE = parseIanaTimezone("Asia/Kolkata");
 const EVAL_TIMEOUT_MS = 60_000;
 
 const READ_CONTEXT_TOOL = "system.read_user_context";
