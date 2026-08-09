@@ -2,6 +2,7 @@ import path from "node:path";
 import { route } from "@alfred/ai";
 import {
   INTEGRATION_ACTIONS,
+  parseIanaTimezone,
   type IntegrationSlug,
   type LoadableIntegrationSlug,
 } from "@alfred/contracts";
@@ -38,7 +39,7 @@ loadEnv({ path: path.resolve(import.meta.dirname, "../../../apps/server/.env") }
 registerBuiltinTools();
 
 const NOW = new Date("2026-06-27T04:44:00Z");
-const TIMEZONE = "Asia/Kolkata";
+const TIMEZONE = parseIanaTimezone("Asia/Kolkata");
 const EVAL_TIMEOUT_MS = 60_000;
 
 // The 10 connected integrations with a non-empty action surface (slack, linear,
