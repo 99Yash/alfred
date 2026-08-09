@@ -489,6 +489,9 @@ importers:
       '@alfred/integrations':
         specifier: workspace:*
         version: link:../integrations
+      '@alfred/logging':
+        specifier: workspace:*
+        version: link:../logging
       '@alfred/mailer':
         specifier: workspace:*
         version: link:../mailer
@@ -10608,7 +10611,7 @@ snapshots:
 
   '@types/pg@8.21.0':
     dependencies:
-      '@types/node': 26.2.0
+      '@types/node': 22.20.1
       pg-protocol: 1.15.0
       pg-types: 2.2.0
 
@@ -12311,7 +12314,7 @@ snapshots:
 
   jest-worker@27.5.1:
     dependencies:
-      '@types/node': 26.2.0
+      '@types/node': 22.20.1
       merge-stream: 2.0.0
       supports-color: 8.1.1
     optional: true
