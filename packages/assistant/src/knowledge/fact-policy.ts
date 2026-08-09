@@ -30,6 +30,7 @@ import {
   PREF_FACT_PREFIX,
   RELATIONSHIP_FACT_PREFIX,
   type FactKey,
+  type JsonObject,
   type GmailAuthorshipObservation,
 } from "@alfred/contracts";
 import type { Document } from "@alfred/db/schemas";
@@ -573,7 +574,7 @@ export type DocumentFactGateResult =
       ok: true;
       key: string;
       value: unknown;
-      meta?: Record<string, unknown> | undefined;
+      meta?: JsonObject | undefined;
       authorship?: Authorship | undefined;
     }
   | {

@@ -78,6 +78,16 @@ export const RULES = [
     fix: "Narrow the string with isToolName from @alfred/contracts before indexing a ToolName record or dispatching. Don't assert it.",
   },
   {
+    id: "as-loose-record",
+    // An assertion from unknown/object to an open record, either directly or
+    // inside an Array/ReadonlyArray. Declarations and generic constraints do
+    // not match because this is anchored on `as`.
+    re: /\bas\s+(?:(?:Readonly)?Array\s*<\s*)?Record\s*<\s*string\s*,\s*unknown\s*>/,
+    scope: "chain",
+    severity: "gate",
+    fix: "Use isRecord/toRecord from @alfred/contracts for a genuine open object, or parse the known projection with its owning schema. An assertion does not validate the boundary.",
+  },
+  {
     id: "raw-process-env",
     // The repo invariant, promoted out of prose. Only the env package's own
     // schema readers and Drizzle's standalone config may touch process.env;
