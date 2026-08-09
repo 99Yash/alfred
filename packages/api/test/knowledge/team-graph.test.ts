@@ -3,9 +3,9 @@ import { describe, test } from "node:test";
 
 // Internal-by-intent helpers dropped from the `knowledge` barrel (item 15) —
 // read from their owning file directly.
-import { accumulateDoc, type ContactAggregate } from "../../src/modules/knowledge/team-graph";
-import { computeSignificance } from "../../src/modules/knowledge/significance";
-import { gmailSenderAdapter } from "../../src/modules/triage/gmail-sender-adapter";
+import { accumulateDoc, type ContactAggregate } from "@alfred/assistant/knowledge/team-graph";
+import { computeSignificance } from "@alfred/assistant/knowledge/significance";
+import { gmailSenderAdapter } from "@alfred/assistant/triage/gmail-sender-adapter";
 
 const NOW = new Date("2026-06-16T12:00:00.000Z");
 // Person classification needs a display name with a space OR a separator in the

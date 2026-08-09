@@ -6,7 +6,7 @@ import { closeConnections } from "@alfred/db";
 import { databaseEnv } from "@alfred/env/database";
 
 import { closeReplicachePokeBridge } from "../../src/events/replicache-events";
-import { isQuietMorning, scorePriorityEmailDemand } from "../../src/modules/briefing/read";
+import { isQuietMorning, scorePriorityEmailDemand } from "@alfred/assistant/briefings/read";
 import { closeRedis } from "@alfred/db/redis";
 
 /**

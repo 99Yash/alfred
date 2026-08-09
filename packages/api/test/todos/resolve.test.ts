@@ -6,7 +6,7 @@ import { resolveTodoInput, type TodoSource } from "@alfred/contracts";
 import {
   gmailThreadIdsFromSources,
   gmailThreadIdsFromTodoSources,
-} from "../../src/modules/todos/resolve";
+} from "@alfred/assistant/tasks/resolve";
 
 describe("gmailThreadIdsFromSources", () => {
   test("extracts unique Gmail thread source ids", () => {

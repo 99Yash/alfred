@@ -20,10 +20,10 @@ import {
   forgetStandingInstruction,
   listStandingInstructions,
   rememberSenderSuppression,
-} from "../../src/modules/knowledge";
+} from "@alfred/assistant/knowledge";
 // `STANDING_INSTRUCTION_LIST_LIMIT` is internal-by-intent (dropped from the
 // barrel, item 15) — read from its owning file directly.
-import { STANDING_INSTRUCTION_LIST_LIMIT } from "../../src/modules/knowledge/standing-instructions";
+import { STANDING_INSTRUCTION_LIST_LIMIT } from "@alfred/assistant/knowledge/standing-instructions";
 import { closeRedis } from "@alfred/db/redis";
 
 function hasDatabaseUrl(): boolean {

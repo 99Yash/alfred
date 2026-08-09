@@ -8,7 +8,7 @@ import {
 import {
   planGmailThreadReconcile,
   type ReconcileStoredGmailDoc,
-} from "../../src/modules/triage/gmail-reconcile";
+} from "@alfred/assistant/triage/gmail-reconcile";
 
 test("gmail initial triage seed emits normal triage and exactly one reply re-eval set", () => {
   const plan = planGmailPostInsertSideEffects({

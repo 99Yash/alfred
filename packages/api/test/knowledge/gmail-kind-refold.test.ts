@@ -14,7 +14,7 @@ import {
   refoldActiveGmailKindProjection,
   startProjectionRun,
   userModelReader,
-} from "../../src/modules/knowledge";
+} from "@alfred/assistant/knowledge";
 
 /**
  * Scheduled/event re-fold gate (#218 PR J). Proves the frozen-logic invariant:

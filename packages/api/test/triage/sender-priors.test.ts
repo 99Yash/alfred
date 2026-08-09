@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { describe, test } from "node:test";
 
-import { senderKeyFor, senderPriorWriteKeyFor } from "../../src/modules/triage/sender-priors";
+import { senderKeyFor, senderPriorWriteKeyFor } from "@alfred/assistant/triage/sender-priors";
 
 describe("senderKeyFor", () => {
   test("returns null for human senders — a person's category is per-message", () => {

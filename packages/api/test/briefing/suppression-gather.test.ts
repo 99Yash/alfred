@@ -9,8 +9,8 @@ import { ianaTimezoneSchema, type TriageCategory } from "@alfred/contracts";
 import { inArray, like } from "drizzle-orm";
 
 import { closeReplicachePokeBridge } from "../../src/events/replicache-events";
-import { gatherBriefingWithSuppressionAudit } from "../../src/modules/briefing/gather";
-import { isQuietMorning } from "../../src/modules/briefing/read";
+import { gatherBriefingWithSuppressionAudit } from "@alfred/assistant/briefings/gather";
+import { isQuietMorning } from "@alfred/assistant/briefings/read";
 import { closeRedis } from "@alfred/db/redis";
 
 /**

@@ -6,7 +6,7 @@ import { closeConnections, db } from "@alfred/db";
 import { user, userFacts } from "@alfred/db/schemas";
 import { inArray, like } from "drizzle-orm";
 
-import { getSupersessionChain } from "../../src/modules/knowledge";
+import { getSupersessionChain } from "@alfred/assistant/knowledge";
 
 /**
  * DB-backed test for `getSupersessionChain`'s recursive-CTE traversal (#189):

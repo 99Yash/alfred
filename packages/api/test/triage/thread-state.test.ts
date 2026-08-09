@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { describe, test } from "node:test";
 
-import { buildThreadSnippet } from "../../src/modules/triage/thread-state";
+import { buildThreadSnippet } from "@alfred/assistant/triage/thread-state";
 
 describe("buildThreadSnippet", () => {
   test("strips the leading RFC-822 header block and leads with the body", () => {

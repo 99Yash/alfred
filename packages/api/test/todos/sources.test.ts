@@ -10,7 +10,7 @@ import {
   type TodoSource,
 } from "@alfred/contracts";
 
-import { todoSourcesOverlap } from "../../src/modules/todos/suggest";
+import { todoSourcesOverlap } from "@alfred/assistant/tasks/suggest";
 
 // ---------------------------------------------------------------------------
 // Phase 0 — the source-overlap merge that keeps `suggestTodo` idempotent.

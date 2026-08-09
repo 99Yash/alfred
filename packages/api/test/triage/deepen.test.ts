@@ -2,8 +2,8 @@ import assert from "node:assert/strict";
 import { describe, test } from "node:test";
 
 import type { SenderContext } from "@alfred/contracts";
-import { shouldDeepen, type DeepenDecision } from "../../src/modules/triage/deepen";
-import type { TriageClassification } from "../../src/modules/triage/classify";
+import { shouldDeepen, type DeepenDecision } from "@alfred/assistant/triage/deepen";
+import type { TriageClassification } from "@alfred/assistant/triage/classify";
 
 describe("shouldDeepen", () => {
   test("executes live for severity-suspect bots", () => {

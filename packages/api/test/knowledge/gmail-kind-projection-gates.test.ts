@@ -13,8 +13,8 @@ import {
   projectGmailKindProfiles,
   startProjectionRun,
   userModelReader,
-} from "../../src/modules/knowledge";
-import { resolveSenderKind } from "../../src/modules/triage";
+} from "@alfred/assistant/knowledge";
+import { resolveSenderKind } from "@alfred/assistant/triage";
 
 /**
  * Local activation-gate rehearsal for the Gmail kind projection (#218 PR G).
