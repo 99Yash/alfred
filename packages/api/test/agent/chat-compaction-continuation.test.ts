@@ -6,7 +6,7 @@ import {
   buildCompactedChatTranscriptPair,
   oversizedUserMessageSummaryMessage,
   storedCompactionPrefix,
-} from "../../src/modules/conversations/compaction";
+} from "@alfred/assistant/conversations/compaction/index";
 
 describe("chat compaction continuation", () => {
   test("keeps hydrated image bytes in the provider transcript and storage keys in the checkpoint", () => {

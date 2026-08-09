@@ -4,7 +4,7 @@ import { describe, test } from "node:test";
 import {
   CHAT_HISTORY_EXCERPT_CHARS,
   readChatHistory,
-} from "../../src/modules/conversations/chat-history-retrieval";
+} from "@alfred/assistant/conversations/chat-history-retrieval";
 
 const at = new Date("2026-07-12T00:00:00.000Z");
 

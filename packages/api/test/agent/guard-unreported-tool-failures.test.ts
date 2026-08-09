@@ -1,12 +1,12 @@
 import assert from "node:assert/strict";
 import { describe, test } from "node:test";
 
-import { sanitizeChatMessageFields } from "../../src/modules/conversations/chat-turn-closure";
+import { sanitizeChatMessageFields } from "@alfred/assistant/conversations/chat-turn-closure";
 import {
   guardUnreportedToolFailures,
   type GuardUnreportedToolFailuresDeps,
-} from "../../src/modules/conversations/finalize-guards";
-import type { ChatRunState } from "../../src/modules/conversations/chat-turn-state";
+} from "@alfred/assistant/conversations/finalize-guards";
+import type { ChatRunState } from "@alfred/assistant/conversations/chat-turn-state";
 import { shouldPublishToolStarted } from "@alfred/assistant/execution/workflows/tool-card-events";
 import type { StepContext } from "@alfred/assistant/execution/types";
 

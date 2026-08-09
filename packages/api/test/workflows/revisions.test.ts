@@ -24,7 +24,7 @@ import {
   registerWorkflowReadiness,
   unregisterWorkflowReadiness,
 } from "../../src/composition/workflow-readiness";
-import { dispatchDueCronWorkflows } from "../../src/modules/workflows/tick";
+import { dispatchDueCronWorkflows } from "@alfred/assistant/automation/tick";
 import {
   activateWorkflow,
   clearWorkflowBlocked,
@@ -33,7 +33,7 @@ import {
   reviseWorkflow,
   setWorkflowBlocked,
   setWorkflowStatus,
-} from "../../src/modules/workflows/revisions";
+} from "@alfred/assistant/automation/revisions";
 
 const SKIP = (() => {
   try {
@@ -756,7 +756,7 @@ describe("workflow revision content hash (#555)", () => {
 });
 
 function hashInSeparateProcess(definition: WorkflowRevisionDefinition): string {
-  const moduleUrl = new URL("../../src/modules/workflows/content-hash.ts", import.meta.url).href;
+  const moduleUrl = new URL("../../../assistant/src/automation/content-hash.ts", import.meta.url).href;
   const script = `
     const { workflowRevisionContentHash } = await import(${JSON.stringify(moduleUrl)});
     const definition = JSON.parse(process.env.ALFRED_TEST_WORKFLOW_DEFINITION);

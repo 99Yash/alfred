@@ -8,7 +8,7 @@ import {
   assessChatRequestPressure,
   estimateChatRequestTokens,
   CHAT_HYDRATED_IMAGE_TOKENS,
-} from "../../src/modules/conversations/compaction";
+} from "@alfred/assistant/conversations/compaction/index";
 
 const tools = {
   lookup: tool({
