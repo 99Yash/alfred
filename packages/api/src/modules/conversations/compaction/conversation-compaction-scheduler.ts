@@ -10,7 +10,7 @@ import {
   selectAttachmentsWithinEnrichmentBudget,
   shouldStartMediaEnrichment,
 } from "../attachments";
-import { enqueueChatAttachmentEnrichment } from "../../integrations";
+import { enqueueChatAttachmentEnrichment } from "@alfred/assistant/triggers";
 import { enqueueConversationCompaction } from "./conversation-compaction-queue";
 import {
   afterChatMessageWatermark,

@@ -3,7 +3,7 @@ import { db } from "@alfred/db";
 import { ingestionState } from "@alfred/db/schemas";
 import { readGmailWatchState } from "@alfred/integrations/google";
 import { and, eq } from "drizzle-orm";
-import { pubSubOidcConfigFromEnv } from "../integrations/gmail-push-config";
+import { pubSubOidcConfigFromEnv } from "@alfred/integrations/google";
 
 export interface GmailEventHealth {
   receiverConfigured: boolean;
