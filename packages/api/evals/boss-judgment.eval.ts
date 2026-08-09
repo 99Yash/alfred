@@ -14,13 +14,10 @@ import { type Tool, generateText, isStepCount, tool } from "ai";
 import { config as loadEnv } from "dotenv";
 import { evalite } from "evalite";
 import { z } from "zod";
-import { formatDateGrounding } from "../src/modules/agent/grounding";
-import {
-  awaitSubAgentInputSchema,
-  spawnSubAgentInputSchema,
-} from "../src/modules/agent/sub-agents";
-import { buildChatSystemPrompt } from "../src/modules/agent/workflows/chat-turn";
-import { buildSubAgentSystemPrompt } from "../src/modules/agent/workflows/user-authored-brief";
+import { formatDateGrounding } from "@alfred/assistant/execution/grounding";
+import { awaitSubAgentInputSchema, spawnSubAgentInputSchema } from "@alfred/assistant/tool-runtime";
+import { buildChatSystemPrompt } from "@alfred/assistant/conversations/chat-turn";
+import { buildSubAgentSystemPrompt } from "@alfred/assistant/execution/workflows/user-authored-brief";
 
 // ADR-0077 amendment: behavioral guard for the boss charter. The old rulebook
 // routed people questions inward (memory + Gmail) and never mentioned the live
