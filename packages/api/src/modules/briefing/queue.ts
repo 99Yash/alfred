@@ -2,7 +2,7 @@ import type { BriefingSlot } from "@alfred/contracts";
 import { db } from "@alfred/db";
 import { user as userTable } from "@alfred/db/schemas";
 import { Queue, Worker, type Job } from "bullmq";
-import { createRedisConnection } from "../../queue/connection";
+import { createRedisConnection } from "@alfred/db/redis";
 import { startRun } from "../agent/index";
 import { resolveFeatureFlags } from "@alfred/assistant/settings";
 import { inZone } from "@alfred/assistant/time";

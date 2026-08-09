@@ -7,7 +7,7 @@ import { agentRuns, artifacts, chatMessages, chatThreads, user } from "@alfred/d
 import { databaseEnv } from "@alfred/env/database";
 import { eq, inArray, sql } from "drizzle-orm";
 
-import { closeRedis } from "../../src/queue/connection";
+import { closeRedis } from "@alfred/db/redis";
 import { createArtifact, finalizeRunArtifacts } from "../../src/modules/artifacts/write";
 
 /**

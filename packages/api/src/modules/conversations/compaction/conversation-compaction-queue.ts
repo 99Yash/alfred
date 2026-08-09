@@ -2,7 +2,7 @@ import { toMessage, type AgentTranscriptMessage } from "@alfred/contracts";
 import { Queue, UnrecoverableError, Worker, type Job } from "bullmq";
 import { z } from "zod";
 
-import { createRedisConnection, isQueueEnabled } from "../../../queue/connection";
+import { createRedisConnection, isQueueEnabled } from "@alfred/db/redis";
 import {
   markConversationCompactionRequested,
   recordConversationCompactionFailure,

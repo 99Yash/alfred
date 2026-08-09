@@ -13,7 +13,7 @@ import {
 } from "@alfred/db/schemas";
 import { eq, inArray, like } from "drizzle-orm";
 
-import { closeRedis } from "../../src/queue/connection";
+import { closeRedis } from "@alfred/db/redis";
 import {
   finalizeAssistantMessage,
   finalizeFailedMessage,

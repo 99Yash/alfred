@@ -17,7 +17,7 @@
 
 import { Queue } from "bullmq";
 import { z } from "zod";
-import { createRedisConnection, isQueueEnabled } from "../../queue/connection";
+import { createRedisConnection, isQueueEnabled } from "@alfred/db/redis";
 import { toMessage } from "@alfred/contracts";
 
 export const APPROVAL_EXPIRY_QUEUE_NAME = "staging-expire";

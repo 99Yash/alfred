@@ -9,7 +9,7 @@ import { serverEnv } from "@alfred/env/server";
 import { eq, inArray } from "drizzle-orm";
 
 import { handlePull } from "../../src/modules/replicache/pull";
-import { closeRedis } from "../../src/queue/connection";
+import { closeRedis } from "@alfred/db/redis";
 
 const SERVER_ENV_FIXTURES: Record<string, string> = {
   BETTER_AUTH_SECRET: "test better auth secret with length",

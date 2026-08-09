@@ -32,7 +32,7 @@ import type { RuntimeSpanEndArgs, RuntimeSpanInput } from "@alfred/ai";
 import { closeConnections, closeRedis, registerBuiltinTools, warmPool } from "@alfred/api/runtime";
 import { db } from "@alfred/db";
 import { actionStagings, agentRunContext, agentRuns, user as userTable } from "@alfred/db/schemas";
-import { createRedisConnection } from "@alfred/api/queue/connection";
+import { createRedisConnection } from "@alfred/db/redis";
 import { and, eq } from "drizzle-orm";
 
 /**
