@@ -1,5 +1,7 @@
 // Transitional barrel: re-exports domain logic from @alfred/assistant/automation.
-// Routes stay here and import from this barrel.
+// Transport left: the workflow route now lives in @alfred/http and imports
+// @alfred/assistant/automation directly. Only backend.ts, runtime.ts and
+// composition/* consume what is left here.
 // @alfred/api/backend surface is unchanged (byte-identical re-exports).
 // The module is renamed from workflows to automation in @alfred/assistant.
 
@@ -63,5 +65,3 @@ export {
   type WorkflowsJobData,
   type StartWorkflowsWorkerOpts,
 } from "@alfred/assistant/automation";
-
-export { workflowRoutes } from "./routes";

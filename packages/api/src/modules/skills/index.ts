@@ -1,5 +1,6 @@
 // Transitional barrel: re-exports domain logic from @alfred/assistant/skills.
-// Routes stay here and import from this barrel.
+// Transport left: the skills route now lives in @alfred/http and never used
+// this barrel. Only backend.ts consumes what is left here.
 // @alfred/api/backend surface is unchanged (byte-identical re-exports).
 // Combines the public surface of the original skills + skill-revisions + skill-documentation modules.
 
@@ -72,5 +73,3 @@ export {
 } from "@alfred/assistant/skills";
 
 export { skillDocumentationWorkflow } from "@alfred/assistant/skills";
-
-export { skillsRoutes } from "./routes";

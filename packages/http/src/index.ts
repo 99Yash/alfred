@@ -23,3 +23,7 @@ export { getSessionCached, invalidateSessionToken } from "./middleware/session-c
 // cost is inert today — but keep module-scope side effects out of anything
 // added here.
 export { agent } from "./routes/agent";
+export { approvalsRoutes } from "./approvals";
+export { onboardingRoutes } from "./onboarding";
+export { skillsRoutes } from "./skills";
+export { workflowRoutes } from "./workflows";

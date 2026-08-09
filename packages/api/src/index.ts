@@ -2,18 +2,23 @@ import { auth } from "@alfred/auth";
 import { db } from "@alfred/db";
 import { sql } from "drizzle-orm";
 import { Elysia } from "elysia";
-import { agent, errorHandler, getSessionCached, invalidateSessionToken } from "@alfred/http";
+import {
+  agent,
+  approvalsRoutes,
+  errorHandler,
+  getSessionCached,
+  invalidateSessionToken,
+  onboardingRoutes,
+  skillsRoutes,
+  workflowRoutes,
+} from "@alfred/http";
 import { createUntrackedRedisConnection } from "@alfred/db/redis";
 import { events } from "./modules/events/index";
 import { replicache } from "./modules/replicache/index";
-import { approvalsRoutes } from "./modules/approvals/index";
 import { chatRoutes } from "./modules/conversations/index";
 import { connections } from "./modules/connections/index";
 import { meRoutes } from "./modules/me/index";
 import { mcpIntegrationRoutes } from "./modules/connections/mcp/index";
-import { onboardingRoutes } from "./modules/onboarding/index";
-import { skillsRoutes } from "./modules/skills/index";
-import { workflowRoutes } from "./modules/workflows/index";
 import { toolTiersRoutes } from "./modules/tools/index";
 
 // `normalize: 'typebox'` opts out of Elysia 1.4's bundled `exact-mirror`
