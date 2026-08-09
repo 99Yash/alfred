@@ -14,7 +14,7 @@ import {
   startRunInTx,
   type SignalArgs,
 } from "./service";
-import { isUniqueViolation } from "../../lib/pg-errors";
+import { isUniqueViolation } from "@alfred/db/pg-errors";
 import { closeSubAgentJoinWakeQueue } from "./sub-agent-join-wake-queue";
 import {
   startSubAgentJoinWakeWorker,

@@ -22,7 +22,7 @@ import { normalizeDecisionTraceKey, type DecisionTraceRecord } from "./decision-
 import { resolveWorkflowForRun } from "./resolve-workflow";
 import { rejectLateCancelledRunStagings, resolveStaleAfterMs } from "./service";
 import { finalizeFailedRun } from "./terminal-closure";
-import { isUniqueViolation } from "../../lib/pg-errors";
+import { isUniqueViolation } from "@alfred/db/pg-errors";
 import { startQueueLeaseSpan, type QueueLeaseFromStatus } from "./runtime-spans";
 import {
   isTerminalStatus,

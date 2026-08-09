@@ -1,5 +1,5 @@
 import { canonicalJson, type WorkflowRevisionDefinition } from "@alfred/contracts";
-import { sha256Canonical } from "../../lib/hash";
+import { sha256Canonical } from "@alfred/db/hash";
 
 /**
  * The content hash of a workflow revision (#555).

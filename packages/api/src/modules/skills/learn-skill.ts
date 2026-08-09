@@ -1,6 +1,6 @@
 import { toMessage } from "@alfred/contracts";
 import { z } from "zod";
-import { isUniqueViolation } from "../../lib/pg-errors";
+import { isUniqueViolation } from "@alfred/db/pg-errors";
 import { startRun, type Workflow } from "../agent";
 import { proposeFact } from "../knowledge";
 import { SKILL_DOCUMENTATION_WORKFLOW_SLUG } from "../skill-documentation";

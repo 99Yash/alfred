@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { describe, test } from "node:test";
 
-import { isUniqueViolation, uniqueViolationConstraint } from "../../src/lib/pg-errors";
+import { isUniqueViolation, uniqueViolationConstraint } from "@alfred/db/pg-errors";
 
 /**
  * `isUniqueViolation` must recognize a Postgres 23505 even when Drizzle has
