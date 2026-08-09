@@ -4,7 +4,7 @@ import { agentRuns, chatMessages, chatThreads, type ChatMessageStatus } from "@a
 import { and, eq, sql } from "drizzle-orm";
 import { publishEvent } from "@alfred/assistant/triggers";
 import { emitReplicachePokes } from "@alfred/assistant/triggers";
-import { logger } from "../../lib/logger";
+import { logger } from "@alfred/logging";
 import { finalizeRunArtifacts } from "../artifacts";
 import { scheduleThreadIdleExtraction } from "./idle-capture-queue";
 import { aggregateRunUsage } from "../agent";

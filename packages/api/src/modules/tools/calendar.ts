@@ -10,8 +10,8 @@ import {
   type CalendarEvent,
 } from "@alfred/integrations/google";
 import type { z } from "zod";
-import { AppError, toPublicAppError, type PublicAppError } from "../../lib/app-errors";
-import { logger } from "../../lib/logger";
+import { AppError, toPublicAppError, type PublicAppError } from "@alfred/contracts/app-errors";
+import { logger } from "@alfred/logging";
 import { addDays, inZone } from "@alfred/assistant/time";
 import { runRestPassthrough } from "./passthrough";
 import { liveTool, type RegisteredTool, type ToolExecuteContext } from "./registry";

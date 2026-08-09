@@ -25,7 +25,7 @@ import {
   writeScratchInput,
 } from "@alfred/contracts";
 import type { IanaTimezone } from "@alfred/contracts";
-import { AppError } from "../../lib/app-errors";
+import { AppError } from "@alfred/contracts/app-errors";
 import {
   appendArtifactPage,
   appendArtifactSection,

@@ -22,7 +22,7 @@ import { db } from "@alfred/db";
 import { chatMessages } from "@alfred/db/schemas";
 import { and, asc, eq } from "drizzle-orm";
 import { publishEvent } from "@alfred/assistant/triggers";
-import { logger } from "../../lib/logger";
+import { logger } from "@alfred/logging";
 import { buildThreadArtifactsContext } from "../artifacts";
 import { readIntegrationAvailability } from "@alfred/assistant/connections";
 import { resolveTimezone } from "@alfred/assistant/settings";

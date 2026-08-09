@@ -1,0 +1,26 @@
+{
+  "name": "@alfred/logging",
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts",
+    "./logger": "./src/logger.ts"
+  },
+  "scripts": {
+    "build": "node ../../scripts/clean-package-dist.mjs && tsc -b --emitDeclarationOnly --force",
+    "check-types": "tsc -b --emitDeclarationOnly",
+    "test": "tsx --test --test-force-exit \"test/**/*.test.ts\""
+  },
+  "dependencies": {
+    "@alfred/contracts": "workspace:*",
+    "@alfred/db": "workspace:*",
+    "@alfred/env": "workspace:*",
+    "pino": "^10.3.1"
+  },
+  "devDependencies": {
+    "@alfred/config": "workspace:*",
+    "tsx": "^4.21.0"
+  },
+  "peerDependencies": {
+    "typescript": "catalog:"
+  }
+}
