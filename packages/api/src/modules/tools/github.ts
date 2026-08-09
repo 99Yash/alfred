@@ -21,7 +21,7 @@ import type { z } from "zod";
 import { addDays, inZone } from "@alfred/assistant/time";
 import { runRestPassthrough } from "./passthrough";
 import { liveTool, type RegisteredTool } from "./registry";
-import { AppError } from "../../lib/app-errors";
+import { AppError } from "@alfred/contracts/app-errors";
 
 type GithubSearchInput = z.infer<typeof githubSearchInput>;
 

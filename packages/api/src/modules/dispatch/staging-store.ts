@@ -31,7 +31,7 @@ import {
 } from "@alfred/db/schemas";
 import { and, desc, eq, sql } from "drizzle-orm";
 
-import type { PublicAppError } from "../../lib/app-errors";
+import type { PublicAppError } from "@alfred/contracts/app-errors";
 
 /**
  * The staging columns the gate actually reads. Narrower than

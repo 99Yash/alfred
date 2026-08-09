@@ -69,8 +69,8 @@ import {
   isAppErrorCode,
   toPublicAppError,
   type PublicAppError,
-} from "../../lib/app-errors";
-import { logger, safeErrorDiagnostic } from "../../lib/logger";
+} from "@alfred/contracts/app-errors";
+import { logger, safeErrorDiagnostic } from "@alfred/logging";
 import { enrichInvalidInputMessage } from "./invalid-input";
 import { normalizeToolInputKeys } from "./normalize-keys";
 import { emitReplicachePokes } from "@alfred/assistant/triggers";

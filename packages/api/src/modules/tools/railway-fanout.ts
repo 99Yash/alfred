@@ -10,8 +10,8 @@ import {
   type RailwayDeployment,
   type RailwayProject,
 } from "@alfred/integrations/railway";
-import { AppError, toPublicAppError, type PublicAppError } from "../../lib/app-errors";
-import { logger } from "../../lib/logger";
+import { AppError, toPublicAppError, type PublicAppError } from "@alfred/contracts/app-errors";
+import { logger } from "@alfred/logging";
 
 export interface RailwayCredentialRef {
   credentialId: string;
