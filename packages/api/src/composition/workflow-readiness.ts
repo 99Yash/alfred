@@ -1,4 +1,4 @@
-import { registerWorkflowReadinessCheck, type WorkflowReadinessVerdict } from "../modules/agent";
+import { registerWorkflowReadinessCheck, type WorkflowReadinessVerdict } from "@alfred/assistant/execution";
 import {
   checkWorkflowRunReadiness,
   type RuntimeReadinessResult,
