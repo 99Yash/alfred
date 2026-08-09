@@ -1,7 +1,7 @@
 import { isIndexable } from "@alfred/contracts";
 import { nodeEnv } from "@alfred/env/server";
 import pino, { type DestinationStream } from "pino";
-import { AppError } from "./app-errors";
+import { AppError } from "@alfred/contracts/app-errors";
 import { pgErrorChain } from "@alfred/db/pg-errors";
 
 const REDACT_PATHS = [

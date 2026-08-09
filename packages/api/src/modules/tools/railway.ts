@@ -17,7 +17,7 @@ import {
 } from "@alfred/contracts";
 import type { RailwayCredentialClient } from "@alfred/integrations/railway";
 import { runRailwayPassthrough } from "./passthrough";
-import { AppError } from "../../lib/app-errors";
+import { AppError } from "@alfred/contracts/app-errors";
 import {
   credentialRef,
   listProjectsForCredentials,

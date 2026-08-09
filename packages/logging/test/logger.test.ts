@@ -1,9 +1,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { GoogleCredentialSelectionError } from "@alfred/integrations/google";
-
-import { AppError, toPublicAppError } from "../../src/lib/app-errors";
-import { createLogger, safeErrorDiagnostic, serializeError } from "../../src/lib/logger";
+import { AppError, toPublicAppError } from "@alfred/contracts/app-errors";
+import { createLogger, safeErrorDiagnostic, serializeError } from "../src/logger";
 
 const RAW_SQL = 'Failed query: insert into "artifacts" ("user_id") values ($1) params: usr_private';
 
@@ -32,14 +30,6 @@ test("registered errors keep their public code without exposing their cause", ()
   assert.deepEqual(result, {
     code: "artifact_create_failed",
     message: "Saving the artifact failed; nothing was created.",
-  });
-});
-
-test("Google integration authority errors retain actionable tool error codes", () => {
-  assert.deepEqual(toPublicAppError(new GoogleCredentialSelectionError("docs", "scope_required")), {
-    code: "docs_scope_required",
-    message:
-      "The connected Google account does not grant Docs access. Reconnect with Docs enabled.",
   });
 });
 

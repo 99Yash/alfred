@@ -3,6 +3,7 @@
   "type": "module",
   "exports": {
     ".": "./src/index.ts",
+    "./app-errors": "./src/app-errors/index.ts",
     "./*": "./src/*.ts"
   },
   "scripts": {

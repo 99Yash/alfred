@@ -1,6 +1,6 @@
 import type { IntegrationSlug, ToolName, WakeCondition } from "@alfred/contracts";
 
-import type { PublicAppError } from "../../../lib/app-errors";
+import type { PublicAppError } from "@alfred/contracts/app-errors";
 import type { ToolCallDispatchArgs } from "../index";
 
 interface RejectedToolResult {
