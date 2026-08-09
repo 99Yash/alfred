@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { type Workflow } from "../agent";
+import { type Workflow } from "@alfred/assistant/execution";
 import { send } from "@alfred/assistant/delivery";
 import { commitSkillRevision, finalizeSkillRun, recordSkillRun } from "../skill-revisions";
 import { composeSkillDocumentation } from "./compose";

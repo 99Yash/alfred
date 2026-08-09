@@ -6,7 +6,7 @@ import { closeConnections, db } from "@alfred/db";
 import { agentRuns, agentSteps, user } from "@alfred/db/schemas";
 import { and, eq, inArray, like } from "drizzle-orm";
 
-import { leaseRun } from "../../src/modules/agent/executor";
+import { leaseRun } from "@alfred/assistant/execution/executor";
 
 /**
  * DB-backed tests for the ADR-0070 §1.4 non-progressing-step backstop (#137

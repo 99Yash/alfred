@@ -41,7 +41,7 @@ import {
   toolRuntimeForRun,
   type Step,
   type Workflow,
-} from "../agent";
+} from "@alfred/assistant/execution";
 import {
   assembleChatContext,
   CHAT_MAX_OUTPUT_TOKENS,

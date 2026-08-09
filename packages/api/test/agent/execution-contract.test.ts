@@ -8,20 +8,20 @@ import { agentRuns, agentSteps, eventsOutbox, user } from "@alfred/db/schemas";
 import { and, eq, inArray, like } from "drizzle-orm";
 
 import { closeRedis } from "@alfred/db/redis";
-import { closeAgentQueue, getAgentQueue } from "../../src/modules/agent/queue";
-import { leaseRun, runOnce } from "../../src/modules/agent/executor";
+import { closeAgentQueue, getAgentQueue } from "@alfred/assistant/execution/queue";
+import { leaseRun, runOnce } from "@alfred/assistant/execution/executor";
 import {
   _resetRegistryForTests,
   getWorkflow,
   registerRecipe,
-} from "../../src/modules/agent/registry";
-import { cancelRun, getRun, signalRun, startRun } from "../../src/modules/agent/service";
+} from "@alfred/assistant/execution/registry";
+import { cancelRun, getRun, signalRun, startRun } from "@alfred/assistant/execution/service";
 import type {
   StepContext,
   StepResult,
   TerminalOutcome,
   Workflow,
-} from "../../src/modules/agent/types";
+} from "@alfred/assistant/execution/types";
 
 /**
  * Generic execution contract for the durable-execution module (campaign item

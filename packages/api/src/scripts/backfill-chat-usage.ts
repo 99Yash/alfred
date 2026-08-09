@@ -34,7 +34,7 @@ import { db, closeConnections } from "@alfred/db";
 import { agentRuns, apiCallLog, chatMessages } from "@alfred/db/schemas";
 import { chatMessageUsageSchema, type ChatMessageUsage } from "@alfred/contracts";
 import { and, eq, isNotNull, sql } from "drizzle-orm";
-import { foldModelUsage } from "../modules/agent/usage-fold";
+import { foldModelUsage } from "@alfred/assistant/execution/usage-fold";
 
 const COMMIT = process.argv.includes("--commit");
 

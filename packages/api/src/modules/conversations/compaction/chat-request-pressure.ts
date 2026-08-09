@@ -2,7 +2,7 @@ import { asSchema, type ModelMessage, type ToolSet } from "ai";
 
 import { effectiveInputWindowTokens } from "@alfred/ai";
 
-import { estimateSerializedTokens } from "../../agent";
+import { estimateSerializedTokens } from "@alfred/assistant/execution";
 
 /** Synchronous chat compaction is the safety backstop, not the normal trigger. */
 const CHAT_SYNC_COMPACTION_RATIO = 0.85;

@@ -241,7 +241,7 @@ export function senderExtractionEvent(args: {
 // 06 removed). Module augmentation, not an `import`, so it adds no module graph
 // edge; it applies program-wide because this file is part of the compilation
 // and is already imported by the sole producer (`triage/workflow-operations.ts`).
-declare module "../agent/decision-traces" {
+declare module "@alfred/assistant/execution/decision-traces" {
   interface DecisionTraceRegistry {
     "triage.classification": SenderExtractionEvent;
   }

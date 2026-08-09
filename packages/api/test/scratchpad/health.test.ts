@@ -15,7 +15,7 @@ import {
   buildScratchWriteSpanInput,
   hashScratchKey,
   startScratchSpan,
-} from "../../src/modules/scratchpad/health";
+} from "@alfred/assistant/execution/scratchpad/health";
 
 const startedAt = new Date("2026-07-15T00:00:00.000Z");
 

@@ -14,7 +14,7 @@ import {
   startApprovalWaitSpan,
   startQueueLeaseSpan,
   startSubAgentWaitSpan,
-} from "../../src/modules/agent/runtime-spans";
+} from "@alfred/assistant/execution/runtime-spans";
 
 // Capture what a wait/lease closer forwards to the underlying runtime span, so
 // the tests exercise the real emission path (built input + folded end metadata

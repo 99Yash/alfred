@@ -4,7 +4,7 @@ import type { ChatMessageRole } from "@alfred/db/schemas";
 import type { ConversationSummary } from "./conversation-summary";
 import { nullableChatMessageWatermark } from "./chat-message-watermark";
 import type { ChatSummaryWatermark, LoadedChatThreadContext } from "./chat-context-store";
-import { estimateTranscriptTokens } from "../../agent";
+import { estimateTranscriptTokens } from "@alfred/assistant/execution";
 
 export interface ChatContextMessage {
   id: string;

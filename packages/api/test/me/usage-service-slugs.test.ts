@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { describe, test } from "node:test";
 
 import { COLD_START_WORKFLOW_SLUG } from "../../src/modules/knowledge/cold-start/workflow-input";
-import { SUB_AGENT_WORKFLOW_SLUG } from "../../src/modules/agent/sub-agent-metadata";
+import { SUB_AGENT_WORKFLOW_SLUG } from "@alfred/assistant/execution/sub-agent-metadata";
 import {
   DAILY_BRIEFING_WORKFLOW_SLUG,
   LEGACY_MORNING_BRIEFING_WORKFLOW_SLUG,

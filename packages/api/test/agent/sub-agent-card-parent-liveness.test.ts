@@ -11,7 +11,7 @@ import { closeRedis } from "@alfred/db/redis";
 import {
   parentRunStillOpen,
   USER_AUTHORED_BRIEF_WORKFLOW_SLUG,
-} from "../../src/modules/agent/workflows/user-authored-brief";
+} from "@alfred/assistant/execution/workflows/user-authored-brief";
 
 /**
  * DB-backed test for the sub-agent republish guard (campaign item 38, 37-MF1).

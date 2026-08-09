@@ -4,7 +4,7 @@ import { before, describe, test } from "node:test";
 import type { ToolName } from "@alfred/contracts";
 import { z } from "zod";
 
-import { systemToolKernel } from "../../src/modules/agent/tool-surface";
+import { systemToolKernel } from "@alfred/assistant/execution/tool-surface";
 import { estimateToolSurfaceBudget, toolSchemaSize } from "../../src/modules/tools/schema-budget";
 import {
   getTool,

@@ -19,7 +19,7 @@ import { registerWorkflowSystemToolAdapter } from "../../src/modules/workflows/s
 import { toolExecuteContext } from "../../src/modules/tools/context";
 import { definitionFromProposal } from "../../src/modules/workflows/authoring";
 import { refreshWorkflowActivationProposal } from "../../src/modules/workflows/revisions";
-import { createRun } from "../../src/modules/agent/service";
+import { createRun } from "@alfred/assistant/execution/service";
 
 const SKIP = (() => {
   try {

@@ -3,7 +3,7 @@ import { db } from "@alfred/db";
 import { isDuplicateRunIndex, workflows } from "@alfred/db/schemas";
 import { and, eq, or, sql } from "drizzle-orm";
 import { uniqueViolationConstraint } from "@alfred/db/pg-errors";
-import { startRun } from "../agent";
+import { startRun } from "@alfred/assistant/execution";
 
 import {
   domainEventSchema,

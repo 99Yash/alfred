@@ -19,9 +19,9 @@ import {
   _resetRegistryForTests,
   getWorkflow,
   registerRecipe,
-} from "../../src/modules/agent/registry";
-import { createRun } from "../../src/modules/agent/service";
-import type { StepResult, Workflow } from "../../src/modules/agent/types";
+} from "@alfred/assistant/execution/registry";
+import { createRun } from "@alfred/assistant/execution/service";
+import type { StepResult, Workflow } from "@alfred/assistant/execution/types";
 import {
   registerTriggerConsumers,
   unregisterTriggerConsumers,

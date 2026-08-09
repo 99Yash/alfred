@@ -3,9 +3,9 @@ import { afterEach, beforeEach, describe, test } from "node:test";
 
 import { z } from "zod";
 
-import { activateTool, migrateActiveTools } from "../../src/modules/agent/tool-surface";
+import { activateTool, migrateActiveTools } from "@alfred/assistant/execution/tool-surface";
 import { chatTurnWorkflow } from "../../src/modules/conversations/chat-turn";
-import { userAuthoredBriefWorkflow } from "../../src/modules/agent/workflows/user-authored-brief";
+import { userAuthoredBriefWorkflow } from "@alfred/assistant/execution/workflows/user-authored-brief";
 import { _setDispatchTraceSinksForTests, dispatchToolCall } from "../../src/modules/dispatch";
 import { liveTool, registerTool } from "../../src/modules/tools/registry";
 import { resetToolFixtures } from "../lib/tool-fixtures";

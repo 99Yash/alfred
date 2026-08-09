@@ -10,7 +10,9 @@
     "./artifacts": "./src/artifacts/index.ts",
     "./artifacts/*": "./src/artifacts/*",
     "./tool-runtime": "./src/tool-runtime/index.ts",
-    "./tool-runtime/*": "./src/tool-runtime/*"
+    "./tool-runtime/*": "./src/tool-runtime/*",
+    "./execution": "./src/execution/index.ts",
+    "./execution/*": "./src/execution/*.ts"
   },
   "scripts": {
     "build": "node ../../scripts/clean-package-dist.mjs && tsc -b --emitDeclarationOnly --force",
@@ -25,8 +27,10 @@
     "@alfred/db": "workspace:*",
     "@alfred/env": "workspace:*",
     "@alfred/integrations": "workspace:*",
+    "@alfred/mailer": "workspace:*",
     "bullmq": "catalog:",
     "drizzle-orm": "^0.45.2",
+    "ioredis": "catalog:",
     "resend": "catalog:",
     "zod": "catalog:"
   },

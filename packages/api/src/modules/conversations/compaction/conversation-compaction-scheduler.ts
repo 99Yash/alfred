@@ -23,7 +23,7 @@ import {
   type ChatSummaryWatermark,
 } from "./chat-context-store";
 import { CHAT_MAX_OUTPUT_TOKENS } from "./chat-request-pressure";
-import { estimateSerializedTokens } from "../../agent";
+import { estimateSerializedTokens } from "@alfred/assistant/execution";
 
 const BACKGROUND_COMPACTION_RATIO = 0.6;
 export const BACKGROUND_COMPACTION_ABSOLUTE_CAP_TOKENS = 200_000;

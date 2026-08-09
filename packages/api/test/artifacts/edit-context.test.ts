@@ -10,7 +10,7 @@ import {
 } from "@alfred/artifacts-design";
 import { updateArtifactInput } from "@alfred/contracts";
 import { z } from "zod";
-import { formatRuntimeTimeGrounding } from "../../src/modules/agent/grounding";
+import { formatRuntimeTimeGrounding } from "@alfred/assistant/execution/grounding";
 import { withEphemeralReference } from "../../src/modules/conversations/compaction";
 import { buildChatSystemPrompt } from "../../src/modules/conversations/chat-turn";
 import {

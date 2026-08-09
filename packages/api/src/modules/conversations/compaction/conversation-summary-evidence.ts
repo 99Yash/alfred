@@ -12,7 +12,7 @@ import {
   chatAttachmentRepresentationSchema,
 } from "../attachments";
 
-import type { AgentDbExecutor } from "../../agent";
+import type { AgentDbExecutor } from "@alfred/assistant/execution";
 import { afterChatMessageWatermark, throughChatMessageWatermark } from "./chat-message-watermark";
 import type { ChatSummaryWatermark } from "./chat-context-store";
 import type { ConversationSummaryEvidence } from "./conversation-summary-generator";

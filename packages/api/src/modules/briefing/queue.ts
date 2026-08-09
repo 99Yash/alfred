@@ -3,7 +3,7 @@ import { db } from "@alfred/db";
 import { user as userTable } from "@alfred/db/schemas";
 import { Queue, Worker, type Job } from "bullmq";
 import { createRedisConnection } from "@alfred/db/redis";
-import { startRun } from "../agent/index";
+import { startRun } from "@alfred/assistant/execution";
 import { resolveFeatureFlags } from "@alfred/assistant/settings";
 import { inZone } from "@alfred/assistant/time";
 import { resolveBriefingPreferences } from "./preferences";

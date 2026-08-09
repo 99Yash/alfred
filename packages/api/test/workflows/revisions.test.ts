@@ -16,8 +16,8 @@ import { databaseEnv } from "@alfred/env/database";
 import { GMAIL_READONLY_SCOPE } from "@alfred/integrations/google";
 import { and, eq } from "drizzle-orm";
 
-import { runOnce } from "../../src/modules/agent/executor";
-import { createRun, findResumableRunIds, replayRun } from "../../src/modules/agent/service";
+import { runOnce } from "@alfred/assistant/execution/executor";
+import { createRun, findResumableRunIds, replayRun } from "@alfred/assistant/execution/service";
 import { ENTITY_FETCHERS } from "../../src/modules/replicache/entities";
 import { registerBuiltinTools } from "../../src/modules/tools/runtime";
 import {
