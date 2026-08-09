@@ -1,3 +1,7 @@
+import {
+  registerChatAttachmentEnrichmentScheduler,
+  unregisterChatAttachmentEnrichmentScheduler,
+} from "./chat-attachment-enrichment-adapter";
 import { registerChatMedia, unregisterChatMedia } from "./chat-media";
 import { registerGmailTriage, unregisterGmailTriage } from "./gmail-triage";
 import { registerGmailUserModel, unregisterGmailUserModel } from "./gmail-user-model";
@@ -48,6 +52,13 @@ export function createRuntimeAdapterLifecycle(
 }
 
 export const RUNTIME_ADAPTERS = [
+  {
+    name: "chat-attachment-enrichment",
+    register: registerChatAttachmentEnrichmentScheduler,
+    unregister: unregisterChatAttachmentEnrichmentScheduler,
+    retainIfIngestionWorkerActive: true,
+    shutdownOrder: 8,
+  },
   {
     name: "chat-media",
     register: registerChatMedia,

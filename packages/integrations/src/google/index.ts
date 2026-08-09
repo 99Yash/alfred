@@ -64,6 +64,13 @@ export {
   startWatch,
   stopWatch,
 } from "./gmail";
+export {
+  assertGmailPushOidcConfigured,
+  GmailPushOidcConfigError,
+  isGmailPushOidcConfigError,
+  pubSubOidcConfigFromEnv,
+} from "./gmail-push-config";
+export type { PubSubOidcConfig } from "./gmail-push-config";
 export type {
   AlfredLabelMap,
   ApplyTriageLabelArgs,
