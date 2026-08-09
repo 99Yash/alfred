@@ -7,8 +7,8 @@ import {
   DAILY_BRIEFING_WORKFLOW_SLUG,
   LEGACY_MORNING_BRIEFING_WORKFLOW_SLUG,
 } from "@alfred/assistant/briefings/workflow-input";
-import { LEARN_SKILL_WORKFLOW_SLUG } from "../../src/modules/skills/workflow-input";
-import { SKILL_DOCUMENTATION_WORKFLOW_SLUG } from "../../src/modules/skill-documentation/workflow-input";
+import { LEARN_SKILL_WORKFLOW_SLUG } from "@alfred/assistant/skills/workflow-input";
+import { SKILL_DOCUMENTATION_WORKFLOW_SLUG } from "@alfred/assistant/skills/skill-documentation-workflow-input";
 import { TRIAGE_WORKFLOW_SLUG } from "@alfred/assistant/triage/workflow-input";
 import { SLUG_CATEGORY } from "../../src/modules/me/usage-service";
 

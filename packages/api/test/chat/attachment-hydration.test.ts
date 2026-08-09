@@ -10,7 +10,7 @@ import {
   buildStoredContentParts,
   hydrateTranscriptForModel,
   type StoredObjectReader,
-} from "../../src/modules/conversations/chat-attachments";
+} from "@alfred/assistant/conversations/chat-attachments";
 
 /**
  * Direct coverage for the ADR-0065 per-turn image budget, which had none while
