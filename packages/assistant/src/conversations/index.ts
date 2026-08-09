@@ -32,10 +32,25 @@ export {
 
 export { chatMemoryCaptureWorkflow } from "./chat-memory-capture";
 
+export { toAttachmentRow, writeObject, type AttachmentInput } from "./attachments";
+
 export {
-  toAttachmentRow,
-  writeObject,
-  type AttachmentInput,
+  claimChatAttachmentEnrichment,
+  enrichClaimedChatAttachment,
+  recordChatAttachmentEnrichmentFailure,
+} from "./attachments/attachment-enrichment";
+
+export { deleteObjects, deletePrefix, isStorageConfigured } from "./attachments/storage";
+
+export { lockChatStorageKeys } from "./attachments/storage-coordination";
+
+export {
+  assertAttachmentBatchAllowed,
+  assertPassThroughImageBytes,
+  assertStoredAttachmentReady,
+  assertUploadAllowed,
 } from "./attachments";
+
+export { attachmentUrl, buildAttachmentKey, copyObject, objectExists } from "./attachments/storage";
 
 export { registerConversationsSystemToolAdapter } from "./system-tool-adapter";

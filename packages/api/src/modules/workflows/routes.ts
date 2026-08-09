@@ -2,10 +2,7 @@ import { toJsonValue } from "@alfred/contracts";
 import { Elysia, t } from "elysia";
 
 import { authMacro } from "../../middleware/auth";
-import {
-  recoverWorkflowDraft,
-  workflowRecoveryNavigation,
-} from "@alfred/assistant/automation";
+import { recoverWorkflowDraft, workflowRecoveryNavigation } from "@alfred/assistant/automation";
 
 /** Revalidation boundary used after connect/reauthorize returns to a blocked draft. */
 export const workflowRoutes = new Elysia({ prefix: "/api/workflows", normalize: "typebox" })

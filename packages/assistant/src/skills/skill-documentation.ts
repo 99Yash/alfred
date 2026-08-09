@@ -3,7 +3,10 @@ import { type Workflow } from "@alfred/assistant/execution";
 import { send } from "@alfred/assistant/delivery";
 import { commitSkillRevision, finalizeSkillRun, recordSkillRun } from "./revisions";
 import { composeSkillDocumentation } from "./compose";
-import { collectSkillDocumentationContext, type SkillDocumentationContext } from "./skill-documentation-context";
+import {
+  collectSkillDocumentationContext,
+  type SkillDocumentationContext,
+} from "./skill-documentation-context";
 import { composeSkillDocumentationEmail } from "./email";
 import {
   SKILL_DOCUMENTATION_WORKFLOW_SLUG,
