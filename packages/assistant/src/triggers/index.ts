@@ -235,30 +235,26 @@ export async function publishEvent<K extends EventKind>(args: PublishEventArgs<K
   });
 }
 
-import { EventEmitter } from "node:events";
-
 export interface ReplicachePokeAdapter {
   emitReplicachePokes(userIds: string[], assetId?: string): void;
 }
 
 let replicachePokeAdapter: ReplicachePokeAdapter | null = null;
 
-// Fallback in-process emitter for graceful degradation when adapter is not registered
-// (e.g., in standalone scripts that don't bootstrap through registerRuntimeAdapters).
-const fallbackEmitter = new EventEmitter();
-fallbackEmitter.setMaxListeners(0);
-
-const fallbackAdapter: ReplicachePokeAdapter = {
-  emitReplicachePokes(userIds: string[], assetId = "") {
-    for (const userId of userIds) {
-      fallbackEmitter.emit(`poke:${userId}`, { userId, assetId });
-    }
-  },
-};
-
-export function registerReplicachePokeAdapter(adapter?: ReplicachePokeAdapter): () => void {
+/**
+ * Register the concrete Replicache poke adapter.
+ *
+ * REQUIRED: All code paths that call `emitReplicachePokes` must register the adapter first,
+ * typically at process startup via the composition root. Standalone scripts (backfills,
+ * probes) must call this before any domain code that emits pokes. The adapter bridges to
+ * the concrete Redis/EventEmitter poke bus in api; without registration, pokes are silently
+ * dropped and clients see stale data.
+ *
+ * Returns an unregister function for test cleanup.
+ */
+export function registerReplicachePokeAdapter(adapter: ReplicachePokeAdapter): () => void {
   const prev = replicachePokeAdapter;
-  replicachePokeAdapter = adapter ?? fallbackAdapter;
+  replicachePokeAdapter = adapter;
   return () => {
     replicachePokeAdapter = prev;
   };
@@ -268,7 +264,23 @@ export function unregisterReplicachePokeAdapter(): void {
   replicachePokeAdapter = null;
 }
 
+/**
+ * Emit pokes to notify connected clients of data changes.
+ *
+ * CONTRACT: This function REQUIRES an adapter to be registered first. Callers in the
+ * composition root are registered via `apps/server/src/runtime.ts`; standalone scripts
+ * must register the adapter at startup. Calling this without a registered adapter throws
+ * an error to surface the misconfiguration immediately rather than silently losing pokes.
+ *
+ * The adapter bridges to the concrete Redis pub/sub bus; without it, pokes never reach
+ * clients and the sync state becomes stale. See `packages/api/src/events/replicache-events.ts`
+ * for the bus implementation.
+ */
 export function emitReplicachePokes(userIds: string[], assetId?: string): void {
-  const adapter = replicachePokeAdapter ?? fallbackAdapter;
-  adapter.emitReplicachePokes(userIds, assetId);
+  if (!replicachePokeAdapter) {
+    throw new Error(
+      "ReplicachePokeAdapter not registered. Call registerReplicachePokeAdapter() at process startup.",
+    );
+  }
+  replicachePokeAdapter.emitReplicachePokes(userIds, assetId);
 }
