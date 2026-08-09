@@ -871,7 +871,12 @@ async function commitStepSuccessTx(
         .insert(agentDecisionTraces)
         .values(
           traces.map((t) => {
-            const trace = t as any;
+            // The executor persists traces kind-agnostically. Inside
+            // @alfred/assistant the `DecisionTraceRegistry` is empty (each
+            // producer augments it from its own package — triage et al.), so
+            // `DecisionTraceRecord` collapses to `never` here; read the base
+            // shape every trace carries at runtime rather than the registry type.
+            const trace = t as { kind: string; decisionKey: string; record: unknown };
             return {
               runId: run.id,
               userId: run.userId,
