@@ -9,10 +9,10 @@ import { serverEnv } from "@alfred/env/server";
 import { type Tool, type ToolSet, generateText, tool } from "ai";
 import { config as loadEnv } from "dotenv";
 import { evalite } from "evalite";
-import { formatDateGrounding } from "../src/modules/agent/grounding";
+import { formatDateGrounding } from "@alfred/assistant/execution/grounding";
 import { listToolsForIntegration } from "../src/modules/tools";
 import { registerBuiltinTools } from "../src/modules/tools/runtime";
-import { buildChatSystemPrompt } from "../src/modules/agent/workflows/chat-turn";
+import { buildChatSystemPrompt } from "@alfred/assistant/conversations/chat-turn";
 
 // LESSON 03 / context-purity experiment: does a bloated tool menu degrade the
 // boss's tool SELECTION? We run the same realistic tasks through Sonnet 4.6

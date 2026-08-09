@@ -10,8 +10,8 @@ import { serverEnv } from "@alfred/env/server";
 import { generateText, tool } from "ai";
 import { config as loadEnv } from "dotenv";
 import { evalite } from "evalite";
-import { formatDateGrounding } from "../src/modules/agent/grounding";
-import { buildChatSystemPrompt } from "../src/modules/agent/workflows/chat-turn";
+import { formatDateGrounding } from "@alfred/assistant/execution/grounding";
+import { buildChatSystemPrompt } from "@alfred/assistant/conversations/chat-turn";
 import type { GroundingTaskOutput } from "./lib/grounding";
 
 // GROUND / #213 / ADR-0071: behavioral guard that the boss answers GitHub
