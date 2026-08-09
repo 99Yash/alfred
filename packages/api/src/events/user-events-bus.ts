@@ -12,8 +12,8 @@
  */
 import { EventEmitter } from "node:events";
 import type IORedis from "ioredis";
-import type { EventFrame } from "./types";
-import { isKnownEventKind } from "./types";
+import type { EventFrame } from "@alfred/contracts/events";
+import { isKnownEventKind } from "@alfred/contracts/events";
 import { isRecord, toMessage } from "@alfred/contracts";
 
 type FrameListener = (frame: EventFrame) => void;

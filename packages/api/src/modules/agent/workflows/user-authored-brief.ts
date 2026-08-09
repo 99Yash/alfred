@@ -28,7 +28,7 @@ import {
   shouldSkipCompaction,
 } from "../run-compaction/tokens";
 import { appendModelResponseMessages } from "../transcript-dedup";
-import { publishEvent } from "../../../events/publish";
+import { publishEvent } from "@alfred/assistant/triggers";
 import {
   NESTED_SEGMENT_INDEX,
   shouldPublishToolStarted,

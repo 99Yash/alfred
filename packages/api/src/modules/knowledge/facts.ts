@@ -21,7 +21,7 @@ import {
   sql,
 } from "drizzle-orm";
 import { z } from "zod";
-import { publishEvent } from "../../events/publish";
+import { publishEvent } from "@alfred/assistant/triggers";
 import { emitReplicachePokes } from "../../events/replicache-events";
 import {
   classifyDocumentFactKey,

@@ -2,7 +2,7 @@ import type { AlfredAgent } from "@alfred/ai";
 import { isRecord, type ToolName } from "@alfred/contracts";
 import { CHAT_DELTA_MAX } from "@alfred/contracts/events";
 import { parsePartialJson } from "ai";
-import { publishEvent } from "../../events/publish";
+import { publishEvent } from "@alfred/assistant/triggers";
 import { shouldPublishToolStarted, toolCardStarted } from "../agent";
 import { createVoiceStreamSanitizer } from "@alfred/ai/voice";
 import type { TurnStopController } from "./turn-stop-controller";
