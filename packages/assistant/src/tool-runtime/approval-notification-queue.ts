@@ -9,7 +9,7 @@
  * This file deliberately holds ONLY the queue + scheduling helpers and imports
  * nothing outside `queue/connection` + `@alfred/contracts`, keeping
  * `tool-runtime` a 0-outgoing-edge sink: the dispatcher (`../dispatch`) and the
- * decision API (`../../modules/approvals/routes`) schedule/remove through it. The
+ * decision API (`@alfred/http`'s `approvals` route) schedule/remove through it. The
  * worker side that renders + sends the email lives in
  * `agent/approval-notification-worker.ts`, imported only at server boot.
  */

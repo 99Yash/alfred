@@ -1,7 +1,7 @@
 import { toJsonValue } from "@alfred/contracts";
 import { Elysia, t } from "elysia";
 
-import { authMacro } from "@alfred/http";
+import { authMacro } from "./middleware/auth";
 import { recoverWorkflowDraft, workflowRecoveryNavigation } from "@alfred/assistant/automation";
 
 /** Revalidation boundary used after connect/reauthorize returns to a blocked draft. */

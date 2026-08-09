@@ -3,7 +3,7 @@ import { actionStagings } from "@alfred/db/schemas";
 import { and, eq, sql } from "drizzle-orm";
 import { Elysia, t } from "elysia";
 import { emitReplicachePokes } from "@alfred/assistant/triggers";
-import { authMacro } from "@alfred/http";
+import { authMacro } from "./middleware/auth";
 import {
   redeliverRun,
   signalRunInTx,
@@ -25,7 +25,7 @@ import {
   prepareWorkflowApprovalEdit,
   restageWorkflowApproval,
   type WorkflowApprovalEditPreparation,
-} from "../workflows";
+} from "@alfred/assistant/automation";
 
 type Decision = "approve" | "reject" | "cancel_run";
 
