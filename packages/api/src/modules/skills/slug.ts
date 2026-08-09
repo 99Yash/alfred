@@ -1,7 +1,7 @@
 import { db } from "@alfred/db";
 import { skills } from "@alfred/db/schemas";
 import { and, eq, like } from "drizzle-orm";
-import { availableSlug, slugBase } from "../../lib/slug";
+import { availableSlug, slugBase } from "@alfred/contracts/slug";
 
 /**
  * Slugify a free-form skill name into a URL-safe identifier, then dedup
