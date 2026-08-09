@@ -31,6 +31,7 @@
 import { randomUUID } from "node:crypto";
 import { emitReplicachePokes, startRun, TRIAGE_WORKFLOW_SLUG } from "@alfred/api/backend";
 import { closeAgentQueue, warmPool } from "@alfred/api/runtime";
+import { registerReplicachePokeAdapter } from "~/composition/replicache-poke-adapter";
 import { db, rowsFromExecute } from "@alfred/db";
 import { documents, todos, user as userTable } from "@alfred/db/schemas";
 import { and, desc, eq, inArray, isNotNull, sql } from "drizzle-orm";
@@ -223,6 +224,7 @@ async function processUser(u: TargetUser): Promise<void> {
 async function main() {
   await warmPool();
   registerBuiltinWorkflows(); // createRun resolves builtins from the in-process registry
+  registerReplicachePokeAdapter(); // Register the concrete Replicache poke adapter before domain code can emit pokes
 
   console.log(
     `# Committed triage backfill — mode=${COMMIT ? "COMMIT" : "DRY"} | recentLimit=${RECENT_THREAD_LIMIT}`,
