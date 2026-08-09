@@ -30,8 +30,7 @@
  */
 import { randomUUID } from "node:crypto";
 import { emitReplicachePokes, startRun, TRIAGE_WORKFLOW_SLUG } from "@alfred/api/backend";
-import { closeAgentQueue, warmPool } from "@alfred/api/runtime";
-import { registerReplicachePokeAdapter } from "~/composition/replicache-poke-adapter";
+import { closeAgentQueue, registerReplicachePokeAdapter, warmPool } from "@alfred/api/runtime";
 import { db, rowsFromExecute } from "@alfred/db";
 import { documents, todos, user as userTable } from "@alfred/db/schemas";
 import { and, desc, eq, inArray, isNotNull, sql } from "drizzle-orm";
