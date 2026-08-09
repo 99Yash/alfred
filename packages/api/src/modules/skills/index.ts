@@ -1,37 +1,76 @@
-/**
- * Skill authoring + execution primitives (ADR-0017).
- *
- * Module shape mirrors `cold-start/`:
- *   - `workflow-input`  slug + zod schema for the `learn-skill` workflow
- *   - `mentions`        `@`-mention parser + registry-aware resolver
- *   - `context`         pure read of user identity + active facts +
- *                       connected integrations + existing skill slugs
- *   - `distill`         cheap-tier extractor (one structured-output call
- *                       producing body + name + fact proposals)
- *   - `learn-skill`     the sync phase-1 recipe that orchestrates the above
- *
- * Run + revision persistence lives one level DOWN in the `skill-revisions`
- * leaf, which both this module and `skill-documentation` (async phase 2)
- * import into — keeping the two authoring phases acyclic.
- */
+// Transitional barrel: re-exports domain logic from @alfred/assistant/skills.
+// Routes stay here and import from this barrel.
+// @alfred/api/backend surface is unchanged (byte-identical re-exports).
+// Combines the public surface of the original skills + skill-revisions + skill-documentation modules.
 
 export {
   LEARN_SKILL_WORKFLOW_SLUG,
   learnSkillDedupKey,
   learnSkillWorkflowInputSchema,
-} from "./workflow-input";
-export type { LearnSkillWorkflowInput } from "./workflow-input";
+  type LearnSkillWorkflowInput,
+} from "@alfred/assistant/skills";
 
-export { MENTION_KINDS, parseMentions, parsedMentionSchema, resolveMentions } from "./mentions";
-export type { MentionKind, MentionRegistry, ParsedMention } from "./mentions";
+export {
+  MENTION_KINDS,
+  parseMentions,
+  parsedMentionSchema,
+  resolveMentions,
+  type MentionKind,
+  type MentionRegistry,
+  type ParsedMention,
+} from "@alfred/assistant/skills";
 
-export { collectSkillLearnContext } from "./context";
-export type { SkillLearnContext } from "./context";
+export { collectSkillLearnContext, type SkillLearnContext } from "@alfred/assistant/skills";
 
-export { distillResultSchema, distillSkill, skillProposalSchema } from "./distill";
-export type { DistillResult, DistillSkillArgs, DistillSkillResult, SkillProposal } from "./distill";
+export {
+  distillResultSchema,
+  distillSkill,
+  skillProposalSchema,
+  type DistillResult,
+  type DistillSkillArgs,
+  type DistillSkillResult,
+  type SkillProposal,
+} from "@alfred/assistant/skills";
 
-export { learnSkillWorkflow } from "./learn-skill";
+export { learnSkillWorkflow } from "@alfred/assistant/skills";
 
-export { slugifyForUser } from "./slug";
+export { slugifyForUser } from "@alfred/assistant/skills";
+
+// Skill-revisions exports (now part of skills)
+export {
+  commitSkillRevision,
+  finalizeSkillRun,
+  recordSkillRun,
+  type CommitRevisionArgs,
+  type CommitRevisionResult,
+  type FinalizeSkillRunArgs,
+  type RecordSkillRunArgs,
+} from "@alfred/assistant/skills";
+
+// Skill-documentation exports (now part of skills)
+export {
+  SKILL_DOCUMENTATION_WORKFLOW_SLUG,
+  skillDocumentationDedupKey,
+  skillDocumentationInputSchema,
+  type SkillDocumentationInput,
+} from "@alfred/assistant/skills";
+
+export {
+  collectSkillDocumentationContext,
+  type SkillDocumentationContext,
+} from "@alfred/assistant/skills";
+
+export {
+  composeSkillDocumentation,
+  type ComposeArgs,
+  type ComposedDocumentation,
+} from "@alfred/assistant/skills";
+
+export {
+  composeSkillDocumentationEmail,
+  type SkillDocumentationEmailArgs,
+} from "@alfred/assistant/skills";
+
+export { skillDocumentationWorkflow } from "@alfred/assistant/skills";
+
 export { skillsRoutes } from "./routes";

@@ -57,8 +57,8 @@ export {
 export { registerBuiltinTools } from "./modules/tools/runtime";
 export { registerDispatchToolCallRoundAdapter } from "./modules/dispatch";
 export { registerAgentSystemToolAdapter } from "@alfred/assistant/execution/system-tool-adapter";
-export { registerConversationsSystemToolAdapter } from "./modules/conversations/system-tool-adapter";
-export { registerWorkflowSystemToolAdapter } from "./modules/workflows/system-tool-adapter";
+export { registerConversationsSystemToolAdapter } from "@alfred/assistant/conversations";
+export { registerWorkflowSystemToolAdapter } from "@alfred/assistant/automation";
 export { registerReplicachePokeAdapter } from "./composition/replicache-poke-adapter";
 export { reconcileInflightInvocations } from "./modules/connections/mcp/index";
 export {
