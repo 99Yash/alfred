@@ -6,8 +6,8 @@ import { generateText, tool } from "ai";
 import { config as loadEnv } from "dotenv";
 import { evalite } from "evalite";
 import { z } from "zod";
-import { formatRuntimeTimeGrounding } from "../src/modules/agent/grounding";
-import { buildChatSystemPrompt } from "../src/modules/agent/workflows/chat-turn";
+import { formatRuntimeTimeGrounding } from "@alfred/assistant/execution/grounding";
+import { buildChatSystemPrompt } from "@alfred/assistant/conversations/chat-turn";
 import type { GroundingTaskOutput } from "./lib/grounding";
 
 // GROUND: behavioral guard that the boss answers relative calendar questions
