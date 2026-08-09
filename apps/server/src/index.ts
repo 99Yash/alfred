@@ -8,9 +8,10 @@
 // import is then a harmless cache hit on the same module instance.
 import "./instrument";
 import { flushLangfuse } from "@alfred/ai";
-import { app, securityHeaders } from "@alfred/api";
+import { app } from "@alfred/api";
 import { toMessage } from "@alfred/contracts";
 import { serverEnv } from "@alfred/env/server";
+import { securityHeaders } from "@alfred/http";
 import { cors } from "@elysiajs/cors";
 import { node } from "@elysiajs/node";
 import * as Sentry from "@sentry/node";

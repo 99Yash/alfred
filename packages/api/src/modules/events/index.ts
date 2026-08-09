@@ -1,6 +1,6 @@
 import { Elysia, t } from "elysia";
 import { serverEnv } from "@alfred/env/server";
-import { authMacro } from "../../middleware/auth";
+import { authMacro } from "@alfred/http";
 import { publishEvent } from "@alfred/assistant/triggers";
 import { subscribeUserEvents } from "../../events/user-events-bus";
 import type { EventFrame } from "@alfred/contracts/events";

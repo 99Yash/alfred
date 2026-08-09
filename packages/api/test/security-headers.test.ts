@@ -7,8 +7,7 @@ import { fileURLToPath } from "node:url";
 
 import { Elysia } from "elysia";
 
-import { errorHandler } from "../src/middleware/error-handler";
-import { securityHeaders } from "../src/middleware/security-headers";
+import { errorHandler, securityHeaders } from "@alfred/http";
 
 /** Headers every API response must carry, regardless of HSTS. */
 const EXPECTED: Readonly<Record<string, string>> = {

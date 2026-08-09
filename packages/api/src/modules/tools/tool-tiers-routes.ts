@@ -1,6 +1,6 @@
 import { LOADABLE_INTEGRATION_SLUGS } from "@alfred/contracts";
 import { Elysia } from "elysia";
-import { authMacro } from "../../middleware/auth";
+import { authMacro } from "@alfred/http";
 import { type RiskTierCounts, riskTierCountsForIntegration } from "./registry";
 
 /** Authenticated capability-tier summary for the integrations UI. */

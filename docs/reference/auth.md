@@ -6,7 +6,7 @@ The allowlist rejects any signup whose email is not in `ALFRED_ALLOWED_EMAIL` �
 
 `packages/auth/src/session.ts` exports `sessionAuth()` — a lightweight instance for session-only verification (no social providers, no plugins). Used by `session-cache.ts`.
 
-In route handlers, call `getSessionCached(request)` from `packages/api/src/middleware/session-cache.ts` — never `auth().api.getSession()` directly.
+In route handlers, call `getSessionCached(request)` from `packages/http/src/middleware/session-cache.ts` — never `auth().api.getSession()` directly.
 
 ## GCP setup
 

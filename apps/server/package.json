@@ -19,6 +19,7 @@
     "@alfred/corpus": "workspace:*",
     "@alfred/db": "workspace:*",
     "@alfred/env": "workspace:*",
+    "@alfred/http": "workspace:*",
     "@alfred/integrations": "workspace:*",
     "@alfred/mailer": "workspace:*",
     "@elysiajs/cors": "catalog:",

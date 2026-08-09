@@ -12,7 +12,7 @@ import { deleteIntegrationCredential } from "@alfred/integrations/shared";
 import { randomBytes } from "node:crypto";
 import { Elysia, t } from "elysia";
 import { and, eq } from "drizzle-orm";
-import { authMacro } from "../../middleware/auth";
+import { authMacro } from "@alfred/http";
 import {
   consumeOAuthNonce,
   rememberOAuthNonce,
