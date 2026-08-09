@@ -117,6 +117,8 @@ After a derive lands, drop now-orphaned imports — the literal often named a un
 ## 2. TypeScript discipline
 
 - **No `any`.** Reach for `unknown` + a narrowing guard. Use the shared guards in `@alfred/contracts` (`isRecord`, `getPath`, `toRecord`, `isNonEmptyString`) instead of `as Record<string, unknown>` casts.
+- **No `Record<string, any>`.** It defeats every `unknown` guard the contracts package exists to provide; oxlint's `typescript/no-restricted-types` bans it.
+- **Make loose records intentional.** `Record<string, unknown>` is correct for a real open dictionary, but it is not a substitute for a boundary parse or a known object shape. Use a parsed schema (`z.infer`) for untrusted structured data, a `Record` keyed by a literal-union type with `satisfies` for known keys, `Map<K, V>` for an in-memory dynamic dictionary, and the canonical `JsonValue`/`JsonObject` from `@alfred/contracts` for JSON protocol bags. See [narrow record types](../research/narrow-record-types-2026-08-09.md).
 - **Type guards over casts.** `as` asserts; it doesn't check. A guard that the compiler verifies beats a cast that lies.
 - **Exhaustive switches** end with a `default` that assigns to `const _exhaustive: never = x` — adding a union member then fails the build instead of silently falling through.
 - **Minimize `!`.** A non-null assertion is a runtime promise the compiler can't keep. Narrow instead.

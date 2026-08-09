@@ -11,9 +11,9 @@ import {
   isIntegrationSlug,
   isToolName,
   toRecord,
+  workflowRevisionDefinitionSchema,
   workflowRequiredCapabilitySchema,
   type AgentTranscriptMessage,
-  type ToolName,
   type ToolRunContext,
 } from "@alfred/contracts";
 import { db } from "@alfred/db";
@@ -602,9 +602,10 @@ export const userAuthoredBriefWorkflow: Workflow<BriefRunState> = {
   closure: { kind: "none" },
   initialState(input) {
     if (!input.brief) throw new Error("user-authored brief workflow requires a brief");
-    const allowedIntegrations = readAllowedIntegrations(input.metadata);
-    const allowedTools = readAllowedTools(input.metadata);
-    const requiredCapabilities = readRequiredCapabilities(input.metadata);
+    const authoredMetadata = readBriefAuthoredMetadata(input.metadata);
+    const allowedIntegrations = authoredMetadata.allowedIntegrations ?? [];
+    const allowedTools = authoredMetadata.allowedTools;
+    const requiredCapabilities = authoredMetadata.requiredCapabilities;
     const eventSeed =
       input.trigger.kind === "event" &&
       input.trigger.source &&
@@ -712,23 +713,23 @@ function integrationAllowed(slug: string, allowedIntegrations: readonly string[]
   return allowedIntegrations.length === 0 || allowedIntegrations.includes(slug);
 }
 
-function readAllowedIntegrations(metadata: Record<string, unknown> | undefined): string[] {
-  const raw = metadata?.allowedIntegrations;
-  if (!Array.isArray(raw)) return [];
-  return raw.filter((value): value is string => typeof value === "string");
-}
+/**
+ * The revision fields copied into run metadata. Derive them from the canonical
+ * revision contract so a new constraint cannot land in authoring without also
+ * governing execution. They stay optional because sub-agent runs carry only
+ * `allowedIntegrations`, while legacy manual runs may carry none of the three.
+ */
+const briefAuthoredMetadataSchema = workflowRevisionDefinitionSchema
+  .pick({
+    allowedIntegrations: true,
+    allowedTools: true,
+    requiredCapabilities: true,
+  })
+  .partial();
+type BriefAuthoredMetadata = z.infer<typeof briefAuthoredMetadataSchema>;
 
-function readAllowedTools(metadata: Record<string, unknown> | undefined): ToolName[] | undefined {
-  const raw = metadata?.allowedTools;
-  if (!Array.isArray(raw)) return undefined;
-  return raw.filter((value): value is ToolName => typeof value === "string" && isToolName(value));
-}
-
-function readRequiredCapabilities(metadata: Record<string, unknown> | undefined) {
-  const parsed = z
-    .array(workflowRequiredCapabilitySchema)
-    .safeParse(metadata?.requiredCapabilities);
-  return parsed.success ? parsed.data : undefined;
+function readBriefAuthoredMetadata(metadata: unknown): BriefAuthoredMetadata {
+  return briefAuthoredMetadataSchema.parse(metadata ?? {});
 }
 
 async function buildTriggerEventMessage(input: {
