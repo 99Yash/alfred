@@ -29,3 +29,26 @@ options as overridable defaults around the composed fallback. The
 the provider-adapter module. This makes a third fallback leg a one-table edit
 and prevents a model chain from drifting away from its provider reasoning
 blocks.
+
+**Amendment (2026-08-09) — AI SDK 7 and its provider packages own model
+mechanics; Alfred keeps route policy, not a parallel model catalog.** This
+supersedes the original code-resident per-model capability decision. The
+installed AI SDK exposes one provider-neutral `reasoning` setting, and the
+installed Anthropic, Google, and OpenAI packages already translate it through
+their own model-aware capability logic. Provider-created model objects also own
+their `provider`, `modelId`, and `supportedUrls`, while the provider packages own
+provider option schemas and native tool constructors. Alfred must therefore
+remove its parallel effort vocabularies, `temperature` facts,
+`nativeToolSearch` facts, model-to-provider registry, and correlated identity
+parser instead of maintaining a second incomplete copy.
+
+Alfred still owns semantic product routes, fallback order, route reasoning
+policy, metering, and explicit native-tool rollout. Each route leg is
+constructed directly through its provider package and receives its matching
+Alfred adapter before fallback composition. Native loading is enabled on a
+specific route leg only after the installed package and live model pass the
+characterization probe. That opt-in is product rollout policy, not a universal
+model capability registry. Provider-specific cache placement, tool-name
+encoding, internal-envelope removal, and foreign-tool filtering remain in the
+Alfred adapter only where the provider package does not already own them. See
+`docs/plans/provider-native-tool-loading-v1.md` for the corrected build shape.
