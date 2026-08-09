@@ -1,5 +1,8 @@
-export { publishEvent, type PublishEventArgs } from "@alfred/assistant/triggers";
-export { emitReplicachePokes } from "./events/replicache-events";
+export {
+  emitReplicachePokes,
+  publishEvent,
+  type PublishEventArgs,
+} from "@alfred/assistant/triggers";
 export type { EventFrame, EventKind, EventPayload } from "@alfred/contracts/events";
 
 export { cancelRun, redeliverRun, signalRun, startRun, startRunInTx } from "./modules/agent/index";

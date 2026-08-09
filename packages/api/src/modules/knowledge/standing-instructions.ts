@@ -13,7 +13,7 @@ import { db } from "@alfred/db";
 import { rejectedInferences, userFacts } from "@alfred/db/schemas";
 import { and, desc, eq, gt, isNull, lte, or, sql } from "drizzle-orm";
 import { z } from "zod";
-import { emitReplicachePokes } from "../../events/replicache-events";
+import { emitReplicachePokes } from "@alfred/assistant/triggers";
 import { insertObservation } from "./observations";
 import { normalizeSenderEmail } from "./sender-email";
 import { valueSignature } from "./signature";

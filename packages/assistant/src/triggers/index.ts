@@ -234,3 +234,28 @@ export async function publishEvent<K extends EventKind>(args: PublishEventArgs<K
     payload: parsed.data,
   });
 }
+
+export interface ReplicachePokeAdapter {
+  emitReplicachePokes(userIds: string[], assetId?: string): void;
+}
+
+let replicachePokeAdapter: ReplicachePokeAdapter | null = null;
+
+export function registerReplicachePokeAdapter(adapter: ReplicachePokeAdapter): () => void {
+  const prev = replicachePokeAdapter;
+  replicachePokeAdapter = adapter;
+  return () => {
+    replicachePokeAdapter = prev;
+  };
+}
+
+export function unregisterReplicachePokeAdapter(): void {
+  replicachePokeAdapter = null;
+}
+
+export function emitReplicachePokes(userIds: string[], assetId?: string): void {
+  if (!replicachePokeAdapter) {
+    throw new Error("ReplicachePokeAdapter not registered");
+  }
+  replicachePokeAdapter.emitReplicachePokes(userIds, assetId);
+}

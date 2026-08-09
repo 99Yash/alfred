@@ -30,6 +30,7 @@ describe("runtime adapter lifecycle", () => {
         "gmail-triage",
         "gmail-user-model",
         "google-credential-lifecycle",
+        "replicache-poke-adapter",
         "trigger-consumers",
         "workflow-recovery",
         "workflow-readiness",
@@ -47,6 +48,7 @@ describe("runtime adapter lifecycle", () => {
         "google-credential-lifecycle",
         "workflow-recovery",
         "workflow-readiness",
+        "replicache-poke-adapter",
       ],
     );
     assert.deepEqual(

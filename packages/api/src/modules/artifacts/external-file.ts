@@ -1,7 +1,7 @@
 import type { ExternalFileContent, ExternalFileSource } from "@alfred/contracts";
 import { db } from "@alfred/db";
 import { artifacts, type Artifact } from "@alfred/db/schemas";
-import { emitReplicachePokes } from "../../events/replicache-events";
+import { emitReplicachePokes } from "@alfred/assistant/triggers";
 import { AppError } from "../../lib/app-errors";
 import type { ArtifactWriteContext } from "./write";
 
