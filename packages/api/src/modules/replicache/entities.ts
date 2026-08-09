@@ -95,7 +95,7 @@ import {
 } from "drizzle-orm";
 import { ZodError } from "zod";
 import { isInternalWorkflowSlug } from "@alfred/assistant/execution";
-import { isUninformativeRelationshipFact } from "../knowledge";
+import { isUninformativeRelationshipFact } from "@alfred/assistant/knowledge";
 
 /**
  * One row's contribution to the patch: its row_version drives CVR diffing,

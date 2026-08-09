@@ -21,7 +21,7 @@ import type { StepContext } from "@alfred/assistant/execution/types";
 // declares for `"triage.classification"` via a `declare module` augmentation at
 // the bottom of `triage/sender-extraction-event.ts`; because `tsconfig.test.json`
 // includes `src`, that augmentation is active in this program unconditionally.
-import type { SenderExtractionEvent } from "../../src/modules/triage";
+import type { SenderExtractionEvent } from "@alfred/assistant/triage";
 
 // `declare const` is ambient, so `noUnusedLocals`/`noUnusedParameters` never fire
 // on these; the `export const` fixtures below are exported for the same reason

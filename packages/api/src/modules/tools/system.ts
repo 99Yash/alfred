@@ -40,7 +40,7 @@ import {
   listStandingInstructions,
   readUserContext,
   runWebSearch,
-} from "../knowledge";
+} from "@alfred/assistant/knowledge";
 import {
   activateWorkflow,
   authorWorkflow,
@@ -56,7 +56,7 @@ import {
 } from "@alfred/assistant/tool-runtime";
 import { inZone } from "@alfred/assistant/time";
 import { promoteScratch, readScratch, writeScratch } from "@alfred/assistant/execution";
-import { resolveTodosForGmailSender, suggestTodo } from "../todos";
+import { resolveTodosForGmailSender, suggestTodo } from "@alfred/assistant/tasks";
 import { rememberSenderSuppressionAndDismissTodos } from "./remember-suppression";
 import { redactCredentialUrl, runFetchUrl } from "./fetch-url";
 import { liveTool, type RegisteredTool } from "./registry";

@@ -43,7 +43,7 @@ import type {
 } from "@alfred/sync";
 import { and, eq, gt, inArray, isNull, lte, or, sql } from "drizzle-orm";
 import { DEFAULT_APPROVAL_NOTIFY_DELAY_MS } from "../../action-policies";
-import { isSingleValuedKey, valueSignature } from "../../knowledge";
+import { isSingleValuedKey, valueSignature } from "@alfred/assistant/knowledge";
 import { deletePreferenceRow, upsertPreference } from "@alfred/assistant/settings";
 import {
   reviseWorkflowFromPatch,

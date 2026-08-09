@@ -623,6 +623,9 @@ importers:
       '@alfred/mailer':
         specifier: workspace:*
         version: link:../mailer
+      '@alfred/sync':
+        specifier: workspace:*
+        version: link:../sync
       bullmq:
         specifier: 'catalog:'
         version: 5.81.3
