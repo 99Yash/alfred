@@ -205,18 +205,3 @@ export async function reconcileThreadLabel(
   });
 }
 
-/**
- * Prepare triage relabel job data. The actual enqueueing happens in api code
- * since the ingestion queue lives in @alfred/api.
- */
-export function prepareTriageRelabelJob(userId: string, sourceThreadId: string): {
-  jobName: string;
-  jobData: { kind: "triage.relabel"; userId: string; sourceThreadId: string };
-  dedupId: string;
-} {
-  return {
-    jobName: "triage.relabel",
-    jobData: { kind: "triage.relabel", userId, sourceThreadId },
-    dedupId: `triage.relabel.${userId}.${sourceThreadId}`,
-  };
-}
