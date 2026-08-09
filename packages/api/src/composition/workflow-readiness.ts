@@ -5,7 +5,7 @@ import {
 import {
   checkWorkflowRunReadiness,
   type RuntimeReadinessResult,
-} from "../modules/workflows/runtime-readiness";
+} from "@alfred/assistant/automation";
 
 let unregisterWorkflowReadinessCheck: (() => void) | undefined;
 

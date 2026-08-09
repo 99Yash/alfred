@@ -273,8 +273,21 @@ export {
   type CommitRevisionResult,
   type FinalizeSkillRunArgs,
   type RecordSkillRunArgs,
-} from "./modules/skill-revisions/index";
-export * from "./modules/skill-documentation/index";
+} from "@alfred/assistant/skills";
+export {
+  SKILL_DOCUMENTATION_WORKFLOW_SLUG,
+  skillDocumentationDedupKey,
+  skillDocumentationInputSchema,
+  type SkillDocumentationInput,
+  collectSkillDocumentationContext,
+  type SkillDocumentationContext,
+  composeSkillDocumentation,
+  type ComposeArgs,
+  type ComposedDocumentation,
+  composeSkillDocumentationEmail,
+  type SkillDocumentationEmailArgs,
+  skillDocumentationWorkflow,
+} from "@alfred/assistant/skills";
 export {
   activateWorkflow,
   canonicalWorkflowDefinition,

@@ -62,3 +62,5 @@ export type { WorkflowsJobData, StartWorkflowsWorkerOpts } from "./queue";
 
 export { registerWorkflowSystemToolAdapter } from "./system-tool-adapter";
 export { workflowRecoveryNavigation } from "./recovery-navigation";
+
+export { checkWorkflowRunReadiness, type RuntimeReadinessResult } from "./runtime-readiness";
