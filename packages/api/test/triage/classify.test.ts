@@ -18,14 +18,14 @@ import {
   type ClassifyEmailArgs,
   type RunPass,
   type TriageClassification,
-} from "../../src/modules/triage/classify";
+} from "@alfred/assistant/triage/classify";
 import {
   applyMeetingDemotionFloor as meetingFloorVerdict,
   applyOverrideFloor as overrideFloorVerdict,
   applySenderKindDemotionFloor as senderKindFloorVerdict,
-} from "../../src/modules/triage/floors";
-import { applyFloorVerdict } from "../../src/modules/triage/floors/floor";
-import type { Observations } from "../../src/modules/triage/observations";
+} from "@alfred/assistant/triage/floors";
+import { applyFloorVerdict } from "@alfred/assistant/triage/floors/floor";
+import type { Observations } from "@alfred/assistant/triage/observations";
 
 // ---------------------------------------------------------------------------
 // Per-floor harness. A floor DECIDES (a verdict); the shared `applyFloorVerdict`

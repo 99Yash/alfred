@@ -93,27 +93,27 @@ export {
   type ProjectGmailKindProfilesResult,
   type RecordOrgAffiliationOnCredentialUpsertResult,
   type RecordOrgAffiliationResult,
-} from "./modules/knowledge";
+} from "@alfred/assistant/knowledge";
 
 // The knowledge substrate reaches `@alfred/api/backend` through its ONE curated
 // barrel (item 15) — the sanctioned observe / recall / contextFor /
 // applyCorrection contract plus the genuinely cross-module helpers, nothing
 // more. The named observe block above retains precedence over any collision this
 // `export *` could introduce. Privileged tooling internals (backfills / smokes)
-// resolve through the explicit `@alfred/api/modules/knowledge/internal` subpath.
-export * from "./modules/knowledge";
+// resolve through the explicit `@alfred/assistant/knowledge/internal` subpath.
+export * from "@alfred/assistant/knowledge";
 export {
   runMemoryFinalize,
   runMemoryPickDocuments,
   runMemoryProcess,
   type MemoryExtractionOperationState,
-} from "./modules/knowledge/workflow-operations";
+} from "@alfred/assistant/knowledge/workflow-operations";
 export {
   enqueueExtractionForUser,
   getMemoryQueue,
   type MemoryJobData,
-} from "./modules/knowledge/queue";
-export { buildMemoryExtractionWorkflow } from "./modules/knowledge/index";
+} from "@alfred/assistant/knowledge/queue";
+export { buildMemoryExtractionWorkflow } from "@alfred/assistant/knowledge";
 
 export * from "@alfred/assistant/settings";
 
@@ -131,8 +131,12 @@ export {
   type ChatMemoryJobData,
 } from "./modules/conversations";
 
-export * from "./modules/triage/index";
-export { suggestTodo, type SuggestTodoInput, type SuggestTodoResult } from "./modules/todos";
+export * from "@alfred/assistant/triage";
+export {
+  suggestTodo,
+  type SuggestTodoInput,
+  type SuggestTodoResult,
+} from "@alfred/assistant/tasks";
 export * from "./modules/connections/mcp/index";
 
 export {
@@ -206,7 +210,7 @@ export {
   type DailyBriefingOperationState,
   type ResolveBriefingReferencesResult,
   type SuppressedCategory,
-} from "./modules/briefing/index";
+} from "@alfred/assistant/briefings";
 
 export * from "@alfred/assistant/delivery";
 export * from "@alfred/assistant/time";

@@ -12,7 +12,7 @@
 
 // Deep import so the smoke doesn't pull `@alfred/api`'s entry barrel
 // (which boots env, queues, and Elysia plugins at module load).
-import { extractSenderContext } from "@alfred/api/modules/triage/sender-context";
+import { extractSenderContext } from "@alfred/assistant/triage/sender-context";
 import type { SenderContext } from "@alfred/contracts";
 
 interface Fixture {

@@ -156,6 +156,9 @@ importers:
       '@alfred/api':
         specifier: workspace:*
         version: link:../../packages/api
+      '@alfred/assistant':
+        specifier: workspace:*
+        version: link:../../packages/assistant
       '@alfred/contracts':
         specifier: workspace:*
         version: link:../../packages/contracts
@@ -623,6 +626,9 @@ importers:
       '@alfred/mailer':
         specifier: workspace:*
         version: link:../mailer
+      '@alfred/sync':
+        specifier: workspace:*
+        version: link:../sync
       bullmq:
         specifier: 'catalog:'
         version: 5.81.3

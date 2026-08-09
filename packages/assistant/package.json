@@ -12,7 +12,17 @@
     "./tool-runtime": "./src/tool-runtime/index.ts",
     "./tool-runtime/*": "./src/tool-runtime/*",
     "./execution": "./src/execution/index.ts",
-    "./execution/*": "./src/execution/*.ts"
+    "./execution/*": "./src/execution/*.ts",
+    "./knowledge": "./src/knowledge/index.ts",
+    "./knowledge/cold-start": "./src/knowledge/cold-start/index.ts",
+    "./knowledge/*": "./src/knowledge/*.ts",
+    "./tasks": "./src/tasks/index.ts",
+    "./tasks/*": "./src/tasks/*.ts",
+    "./triage": "./src/triage/index.ts",
+    "./triage/floors": "./src/triage/floors/index.ts",
+    "./triage/*": "./src/triage/*.ts",
+    "./briefings": "./src/briefings/index.ts",
+    "./briefings/*": "./src/briefings/*.ts"
   },
   "scripts": {
     "build": "node ../../scripts/clean-package-dist.mjs && tsc -b --emitDeclarationOnly --force",
@@ -28,6 +38,7 @@
     "@alfred/env": "workspace:*",
     "@alfred/integrations": "workspace:*",
     "@alfred/mailer": "workspace:*",
+    "@alfred/sync": "workspace:*",
     "bullmq": "catalog:",
     "drizzle-orm": "^0.45.2",
     "ioredis": "catalog:",

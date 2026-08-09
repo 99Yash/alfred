@@ -595,3 +595,29 @@ export async function enqueueGmailKindRefold(userId: string): Promise<void> {
     },
   );
 }
+
+function prepareTriageRelabelJob(
+  userId: string,
+  sourceThreadId: string,
+): {
+  jobName: string;
+  jobData: { kind: "triage.relabel"; userId: string; sourceThreadId: string };
+  dedupId: string;
+} {
+  return {
+    jobName: "triage.relabel",
+    jobData: { kind: "triage.relabel", userId, sourceThreadId },
+    dedupId: `triage.relabel.${userId}.${sourceThreadId}`,
+  };
+}
+
+export async function enqueueTriageRelabel(userId: string, sourceThreadId: string): Promise<void> {
+  const job = prepareTriageRelabelJob(userId, sourceThreadId);
+  const queue = getIngestionQueue();
+  await queue.add(job.jobName, job.jobData, {
+    deduplication: {
+      id: job.dedupId,
+      keepLastIfActive: true,
+    },
+  });
+}

@@ -42,9 +42,9 @@ import {
 import { Elysia, t } from "elysia";
 import { authMacro } from "../../middleware/auth";
 import { createCacheRedisConnection } from "@alfred/db/redis";
-import { resolveBriefingPreferences } from "../briefing/preferences";
-import { enqueueBriefingRun } from "../briefing/queue";
-import { notSentGmailDocumentWhere } from "../triage/sent-mail";
+import { resolveBriefingPreferences } from "@alfred/assistant/briefings/preferences";
+import { enqueueBriefingRun } from "@alfred/assistant/briefings/queue";
+import { notSentGmailDocumentWhere } from "@alfred/assistant/triage/sent-mail";
 import { resolveTimezone } from "@alfred/assistant/settings";
 import { inZone } from "@alfred/assistant/time";
 import { sanitizeEmailHtml } from "./email-html";

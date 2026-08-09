@@ -33,7 +33,7 @@ export {
   scheduleRepeatableBriefingJobs,
   startBriefingWorker,
   stopBriefingWorker,
-} from "./modules/briefing/index";
+} from "@alfred/assistant/briefings";
 export {
   closeIngestionQueue,
   startIngestionWorker,
@@ -45,7 +45,7 @@ export {
   scheduleRepeatableMemoryJobs,
   startMemoryWorker,
   stopMemoryWorker,
-} from "./modules/knowledge";
+} from "@alfred/assistant/knowledge";
 export {
   closeChatMemoryQueue,
   closeConversationCompactionQueue,

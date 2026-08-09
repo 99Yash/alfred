@@ -6,7 +6,7 @@ import { closeConnections, db } from "@alfred/db";
 import { user } from "@alfred/db/schemas";
 import { inArray, like } from "drizzle-orm";
 
-import { resolveBriefingPreferences } from "../../src/modules/briefing/preferences";
+import { resolveBriefingPreferences } from "@alfred/assistant/briefings/preferences";
 import { setPreference } from "@alfred/assistant/settings";
 
 /**

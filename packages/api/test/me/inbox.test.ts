@@ -3,7 +3,7 @@ import { describe, test } from "node:test";
 
 // Canonical sent-mail predicate — the single JS source of truth used by the
 // inbox query, triage thread-state, and the sender-prior write-back guard.
-import { isSentGmailMetadata } from "../../src/modules/triage/sent-mail";
+import { isSentGmailMetadata } from "@alfred/assistant/triage/sent-mail";
 
 describe("isSentGmailMetadata", () => {
   // Full legacy-vs-explicit matrix: a doc is sent on EITHER signal.

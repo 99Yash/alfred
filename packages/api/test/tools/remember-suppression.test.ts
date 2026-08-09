@@ -9,7 +9,7 @@ import { databaseEnv } from "@alfred/env/database";
 import { eq, inArray, like } from "drizzle-orm";
 
 import { closeReplicachePokeBridge } from "../../src/events/replicache-events";
-import { rememberSenderSuppression } from "../../src/modules/knowledge";
+import { rememberSenderSuppression } from "@alfred/assistant/knowledge";
 import { closeRedis } from "@alfred/db/redis";
 import { rememberSenderSuppressionAndDismissTodos } from "../../src/modules/tools/remember-suppression";
 

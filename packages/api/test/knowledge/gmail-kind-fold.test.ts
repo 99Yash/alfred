@@ -14,7 +14,7 @@ import {
   startProjectionRun,
   userModelReader,
   type InsertObservationResult,
-} from "../../src/modules/knowledge";
+} from "@alfred/assistant/knowledge";
 
 const ID_PREFIX = "test-gmail-kind-fold-";
 const OCCURRED_AT = new Date("2026-06-30T08:00:00.000Z");

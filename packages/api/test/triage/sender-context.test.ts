@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { describe, test } from "node:test";
 
-import { extractSenderContext } from "../../src/modules/triage/sender-context";
+import { extractSenderContext } from "@alfred/assistant/triage/sender-context";
 
 describe("extractSenderContext", () => {
   test("recognizes CodeRabbit GitHub body actors", () => {

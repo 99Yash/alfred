@@ -7,7 +7,7 @@ import {
   runHedged,
   type HedgeAttempt,
   type HedgeBudget,
-} from "../../src/modules/triage/hedge";
+} from "@alfred/assistant/triage/hedge";
 
 /**
  * Hedged classify (#436). The tail of `triage.classify` is provider scheduling

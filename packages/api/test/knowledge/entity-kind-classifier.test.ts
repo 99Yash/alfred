@@ -6,7 +6,7 @@ import {
   type IdentityRef,
 } from "@alfred/contracts";
 import type { Observation } from "@alfred/db/schemas";
-import { classifyEntityKind } from "../../src/modules/knowledge/entity-kind-classifier";
+import { classifyEntityKind } from "@alfred/assistant/knowledge/entity-kind-classifier";
 
 const OCCURRED_AT = new Date("2026-06-30T08:00:00.000Z");
 

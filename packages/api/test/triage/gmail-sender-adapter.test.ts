@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { describe, test } from "node:test";
 
-import { splitAddressList } from "../../src/modules/triage/gmail-sender-adapter";
+import { splitAddressList } from "@alfred/assistant/triage/gmail-sender-adapter";
 
 // splitAddressList relocated from memory/team-graph to the Gmail sender adapter
 // (campaign item 04). These cases are the ones that lived in team-graph.test.ts.
