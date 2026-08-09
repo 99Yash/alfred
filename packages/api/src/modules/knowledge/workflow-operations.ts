@@ -5,7 +5,7 @@ import { listFactsByStatus, proposeFact } from "./facts";
 import { loadSelfIdentity } from "./self-identity";
 import { runSignificancePass } from "./significance";
 import { accumulateDoc, applyCorrespondenceIncrements, type ContactAggregate } from "./team-graph";
-import type { StepContext, StepResult } from "../agent/index";
+import type { StepContext, StepResult } from "@alfred/assistant/execution";
 import { isRecord, toMessage, type GmailSenderParser } from "@alfred/contracts";
 import { db } from "@alfred/db";
 import { documents, memoryExtractionStatus, user, userFacts } from "@alfred/db/schemas";
