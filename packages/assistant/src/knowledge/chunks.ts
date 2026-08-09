@@ -45,7 +45,7 @@ export type MemoryChunkRow = Omit<
 > & {
   kind: MemoryChunkKind;
   source: MemorySource;
-  metadata: Record<string, unknown>;
+  metadata: z.infer<typeof jsonRecordSchema>;
   hasEmbedding: boolean;
 };
 

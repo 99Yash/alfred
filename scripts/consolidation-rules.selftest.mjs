@@ -19,6 +19,28 @@ const FILE = "packages/api/src/modules/agent/executor.ts";
 /** @type {{name: string, caught: boolean, code: string}[]} */
 const CASES = [
   {
+    name: "as-loose-record — direct boundary assertion",
+    caught: true,
+    code: `const payload = input as Record<string, unknown>;`,
+  },
+  {
+    name: "as-loose-record — multiline record assertion nested in ReadonlyArray",
+    caught: true,
+    code: `const rows = input as ReadonlyArray<
+      Record< string, unknown >
+    >;`,
+  },
+  {
+    name: "as-loose-record — an honest open-record declaration is not an assertion",
+    caught: false,
+    code: `const payload: Record<string, unknown> = {};`,
+  },
+  {
+    name: "as-loose-record — an honest generic dictionary constraint is not an assertion",
+    caught: false,
+    code: `function copy<T extends Record<string, unknown>>(value: T): T {`,
+  },
+  {
     name: "D1 verbatim — markRunFailed, the write that resurrected cancelled runs (#530)",
     caught: true,
     code: `

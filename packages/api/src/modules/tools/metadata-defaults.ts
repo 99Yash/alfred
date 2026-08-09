@@ -216,13 +216,13 @@ export function singularizePhrase(value: string): string {
  * rather than aborting boot.
  */
 function schemaFieldEntities(schema: z.ZodTypeAny): string[] {
-  let json: Record<string, unknown>;
+  let json: z.core.JSONSchema.BaseSchema;
   try {
     json = z.toJSONSchema(schema, {
       io: "input",
       reused: "inline",
       unrepresentable: "any",
-    }) as Record<string, unknown>;
+    });
   } catch {
     return [];
   }

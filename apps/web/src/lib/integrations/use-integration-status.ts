@@ -1,6 +1,7 @@
-import { credentialShapeForSlug, toStringArray } from "@alfred/contracts";
+import { credentialShapeForSlug } from "@alfred/contracts";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useMemo } from "react";
+import { z } from "zod";
 import { client } from "~/lib/eden";
 import {
   INTEGRATION_PROVIDERS,
@@ -12,17 +13,36 @@ import {
   type IntegrationProvider,
 } from "~/lib/integrations/integrations";
 
-interface CredentialRow {
-  id: string;
-  accountId: string;
-  accountLabel: string | null;
-  status: string;
-  scopes: ReadonlyArray<string>;
-  /** GitHub App installation id; null on legacy classic-OAuth rows. */
-  installationId: string | null;
-  expiresAt: string | null;
-  lastRefreshedAt: string | null;
-  createdAt: string;
+/**
+ * The web projection of every integration credential route. The server routes
+ * intentionally have provider-specific row types; this boundary keeps only the
+ * fields the connectedness UI consumes and normalizes the one provider-specific
+ * field (`installationId`) to null.
+ */
+export const credentialRowSchema = z.object({
+  id: z.string(),
+  accountId: z.string(),
+  accountLabel: z.string().nullable(),
+  status: z.string(),
+  scopes: z.array(z.string()).readonly(),
+  installationId: z
+    .string()
+    .nullable()
+    .optional()
+    .transform((value) => value ?? null),
+  expiresAt: z.string().nullable(),
+  lastRefreshedAt: z.string().nullable(),
+  createdAt: z.string(),
+});
+export type CredentialRow = z.infer<typeof credentialRowSchema>;
+
+/** Parse each row independently so one malformed credential cannot hide valid siblings. */
+export function parseCredentialRows(input: unknown): CredentialRow[] {
+  if (!Array.isArray(input)) return [];
+  return input.flatMap((row) => {
+    const parsed = credentialRowSchema.safeParse(row);
+    return parsed.success ? [parsed.data] : [];
+  });
 }
 
 export interface ConnectedAccount {
@@ -119,18 +139,7 @@ function useProviderCredentials(backend: IntegrationBackend) {
     queryFn: async () => {
       const res = await fetchBackendCredentials(backend);
       if (res.error || !res.data) return [];
-      const raw = res.data.credentials as ReadonlyArray<Record<string, unknown>>;
-      return raw.map((r) => ({
-        id: String(r.id),
-        accountId: String(r.accountId),
-        accountLabel: typeof r.accountLabel === "string" ? r.accountLabel : null,
-        status: String(r.status),
-        scopes: toStringArray(r.scopes),
-        installationId: typeof r.installationId === "string" ? r.installationId : null,
-        expiresAt: typeof r.expiresAt === "string" ? r.expiresAt : null,
-        lastRefreshedAt: typeof r.lastRefreshedAt === "string" ? r.lastRefreshedAt : null,
-        createdAt: typeof r.createdAt === "string" ? r.createdAt : new Date().toISOString(),
-      }));
+      return parseCredentialRows(res.data.credentials);
     },
     staleTime: 30_000,
     refetchOnWindowFocus: true,

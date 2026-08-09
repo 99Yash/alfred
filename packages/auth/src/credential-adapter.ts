@@ -5,6 +5,7 @@ import {
   type AccountSecretField,
   type CredentialVault,
 } from "@alfred/db/credential-vault";
+import { isRecord } from "@alfred/contracts";
 import type { drizzleAdapter } from "better-auth/adapters/drizzle";
 
 /**
@@ -76,8 +77,8 @@ function sealWrite<T extends Record<string, unknown>>(payload: T, vault: Credent
  * tokens — the exact state this change exists to end.
  */
 function openRow(row: unknown, vault: CredentialVault): unknown {
-  if (row === null || typeof row !== "object" || Array.isArray(row)) return row;
-  const source = row as Record<string, unknown>;
+  if (!isRecord(row)) return row;
+  const source = row;
   let opened: Record<string, unknown> | undefined;
   for (const field of ACCOUNT_SECRET_FIELDS) {
     if (!(field in source)) continue;
@@ -97,8 +98,8 @@ function openRow(row: unknown, vault: CredentialVault): unknown {
  */
 function openJoined(row: unknown, join: unknown, vault: CredentialVault): unknown {
   if (join === null || typeof join !== "object" || !(ACCOUNT_MODEL in join)) return row;
-  if (row === null || typeof row !== "object" || Array.isArray(row)) return row;
-  const source = row as Record<string, unknown>;
+  if (!isRecord(row)) return row;
+  const source = row;
   if (!(ACCOUNT_MODEL in source)) return row;
   const joined = source[ACCOUNT_MODEL];
   // `one-to-one` yields an object, the other relation types yield an array.

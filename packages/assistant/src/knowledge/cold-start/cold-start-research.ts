@@ -311,8 +311,12 @@ export const coldStartResearchWorkflow: Workflow<State> = {
           },
           metadata: {
             finishReason: ctx.state.research.meta.finishReason,
-            inputTokens: ctx.state.research.meta.inputTokens,
-            outputTokens: ctx.state.research.meta.outputTokens,
+            ...(ctx.state.research.meta.inputTokens === undefined
+              ? {}
+              : { inputTokens: ctx.state.research.meta.inputTokens }),
+            ...(ctx.state.research.meta.outputTokens === undefined
+              ? {}
+              : { outputTokens: ctx.state.research.meta.outputTokens }),
             citationCount: ctx.state.research.citations.length,
           },
         });
