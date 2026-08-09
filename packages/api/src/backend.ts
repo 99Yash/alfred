@@ -220,7 +220,7 @@ export {
   resolvePolicyMode,
   type ResolvedPolicy,
 } from "./modules/action-policies/index";
-export * from "@alfred/assistant/execution";
+export * from "@alfred/assistant/execution/scratchpad/index";
 export {
   clearToolRegistryForTests,
   getTool,
