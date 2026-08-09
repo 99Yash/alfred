@@ -7,6 +7,7 @@ import { agentRuns, chatMessages, chatThreads, eventsOutbox, user } from "@alfre
 import { and, eq, inArray, like } from "drizzle-orm";
 
 import { closeRedis } from "@alfred/db/redis";
+import { registerReplicachePokeAdapter } from "@alfred/api/runtime";
 import { subscribeUserPokes } from "../../src/events/replicache-events";
 import {
   finalizeAssistantMessage,
@@ -158,6 +159,7 @@ describe(
       // `chatRunStateSchema`'s transform restores the tool surface, which reads the
       // tool-runtime adapter; register the fixture adapter so the parse resolves.
       resetToolFixtures();
+      registerReplicachePokeAdapter();
       await db()
         .delete(user)
         .where(like(user.id, `${ID_PREFIX}%`));
