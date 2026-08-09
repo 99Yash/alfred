@@ -7,7 +7,7 @@ import {
 import { db } from "@alfred/db";
 import { todos } from "@alfred/db/schemas";
 import { and, eq, gte, inArray, or, sql } from "drizzle-orm";
-import { emitReplicachePokes } from "../../events/replicache-events";
+import { emitReplicachePokes } from "@alfred/assistant/triggers";
 
 /**
  * How far back a resolved (`done`/`dismissed`) todo still suppresses a

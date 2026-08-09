@@ -40,6 +40,7 @@ import {
   liveTool,
   registerTool,
 } from "../../src/modules/tools/registry";
+import { registerReplicachePokeAdapter } from "../../src/composition/replicache-poke-adapter";
 import { memoryStagingStore, type MemoryStagingStore } from "./memory-staging-store";
 import { runStagingStoreContract, type StagingStoreHarness } from "./staging-store-contract";
 
@@ -51,6 +52,7 @@ const TIMEZONE = "UTC" as const;
 let store: MemoryStagingStore;
 let restoreStore: (() => void) | null = null;
 let restoreTraceSinks: (() => void) | null = null;
+let unregisterPokeAdapter: (() => void) | null = null;
 let executeCount = 0;
 let lastExecutedInput: unknown = null;
 
@@ -133,6 +135,10 @@ function installMachineFixture(): void {
     rejectionRecorder: () => {},
     toolSpanStarter: () => ({ success: () => {}, error: () => {} }),
   });
+  // Register a no-op poke adapter for tests — pokes degrade gracefully.
+  unregisterPokeAdapter = registerReplicachePokeAdapter({
+    emitReplicachePokes: () => {},
+  });
   executeCount = 0;
   lastExecutedInput = null;
   registerDoubles();
@@ -150,6 +156,8 @@ function teardownMachineFixture(): void {
   restoreStore = null;
   restoreTraceSinks?.();
   restoreTraceSinks = null;
+  unregisterPokeAdapter?.();
+  unregisterPokeAdapter = null;
   clearToolRegistryForTests();
   clearPolicyCacheForTests();
 }

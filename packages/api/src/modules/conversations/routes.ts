@@ -25,7 +25,7 @@ import type { ChatAttachment, NewChatAttachment } from "@alfred/db/schemas";
 import { serverEnv } from "@alfred/env/server";
 import { and, asc, eq, inArray, notInArray, sql } from "drizzle-orm";
 import { Elysia, t } from "elysia";
-import { emitReplicachePokes } from "../../events/replicache-events";
+import { emitReplicachePokes } from "@alfred/assistant/triggers";
 import { authMacro } from "../../middleware/auth";
 import { createCacheRedisConnection } from "@alfred/db/redis";
 import { getRun, persistChatTurnRunInTx, redeliverRun } from "../agent";
