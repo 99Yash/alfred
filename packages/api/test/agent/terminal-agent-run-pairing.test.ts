@@ -7,13 +7,13 @@ import { closeConnections, db } from "@alfred/db";
 import { agentRuns, eventsOutbox, user } from "@alfred/db/schemas";
 import { and, eq, inArray, like } from "drizzle-orm";
 
-import { commitStepSuccess, markRunFailed, runOnce } from "../../src/modules/agent/executor";
+import { commitStepSuccess, markRunFailed, runOnce } from "@alfred/assistant/execution/executor";
 import {
   _resetRegistryForTests,
   getWorkflow,
   registerRecipe,
-} from "../../src/modules/agent/registry";
-import type { StepResult, Workflow } from "../../src/modules/agent/types";
+} from "@alfred/assistant/execution/registry";
+import type { StepResult, Workflow } from "@alfred/assistant/execution/types";
 
 /**
  * DB-backed test that PINS the server precondition item 49's client fix rests on

@@ -10,14 +10,14 @@ import type { CompletedToolCall } from "@alfred/assistant/tool-runtime";
 import {
   readSubAgentMetadata,
   type SubAgentMetadata,
-} from "../../src/modules/agent/sub-agent-metadata";
+} from "@alfred/assistant/execution/sub-agent-metadata";
 import {
   NESTED_SEGMENT_INDEX,
   subAgentToolCardTarget,
   toolCardStarted,
   toolCardTerminal,
-} from "../../src/modules/agent/workflows/tool-card-events";
-import { toolEventOutcome } from "../../src/modules/agent/workflows/tool-event-outcome";
+} from "@alfred/assistant/execution/workflows/tool-card-events";
+import { toolEventOutcome } from "@alfred/assistant/execution/workflows/tool-event-outcome";
 
 function completion(
   toolName: string,

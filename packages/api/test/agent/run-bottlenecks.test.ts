@@ -4,7 +4,7 @@ import { describe, test } from "node:test";
 import {
   summarizeRunBottlenecks,
   type RunBottleneckInput,
-} from "../../src/modules/agent/run-bottlenecks";
+} from "@alfred/assistant/execution/run-bottlenecks";
 
 // Fixed epoch so every duration in the fixtures is exact and readable.
 const t = (ms: number): Date => new Date(ms);

@@ -1,4 +1,7 @@
-import { registerWorkflowReadinessCheck, type WorkflowReadinessVerdict } from "@alfred/assistant/execution";
+import {
+  registerWorkflowReadinessCheck,
+  type WorkflowReadinessVerdict,
+} from "@alfred/assistant/execution";
 import {
   checkWorkflowRunReadiness,
   type RuntimeReadinessResult,

@@ -5,7 +5,7 @@ import {
   formatDateGrounding,
   formatRuntimeTimeGrounding,
   resolveRuntimeGroundingAnchor,
-} from "../../src/modules/agent/grounding";
+} from "@alfred/assistant/execution/grounding";
 
 describe("formatDateGrounding", () => {
   test("keeps the cached system grounding date-only", () => {

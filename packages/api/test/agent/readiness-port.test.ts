@@ -5,7 +5,7 @@ import {
   checkWorkflowReadiness,
   registerWorkflowReadinessCheck,
   type WorkflowReadinessVerdict,
-} from "../../src/modules/agent/workflows/readiness-port";
+} from "@alfred/assistant/execution/workflows/readiness-port";
 
 const ready: WorkflowReadinessVerdict = { kind: "ready" };
 

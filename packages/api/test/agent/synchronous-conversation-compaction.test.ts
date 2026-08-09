@@ -10,7 +10,7 @@ import {
   type LoadedChatThreadContext,
   type PersistConversationSummaryArgs,
 } from "../../src/modules/conversations/compaction";
-import { estimateTranscriptTokens } from "../../src/modules/agent/run-compaction";
+import { estimateTranscriptTokens } from "@alfred/assistant/execution/run-compaction/index";
 
 const at = new Date("2026-07-12T00:00:00.000Z");
 const watermark = { createdAt: at, messageId: "msg_2" };

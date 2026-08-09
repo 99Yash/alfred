@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { describe, test } from "node:test";
 
-import { foldModelUsage, type ModelUsageGroup } from "../../src/modules/agent/usage-fold";
+import { foldModelUsage, type ModelUsageGroup } from "@alfred/assistant/execution/usage-fold";
 
 /** Postgres hands back `sum`/`count` as strings; the fixtures keep that shape. */
 const group = (over: Partial<ModelUsageGroup>): ModelUsageGroup => ({

@@ -8,7 +8,7 @@ import type {
 } from "@alfred/contracts";
 import { z } from "zod";
 
-import { applyExactToolLoad } from "../../src/modules/agent/tool-surface";
+import { applyExactToolLoad } from "@alfred/assistant/execution/tool-surface";
 import {
   preloadToolCatalog,
   resolveExactToolLoad,

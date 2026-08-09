@@ -5,10 +5,10 @@ import {
   startRun,
   getRun,
   replayRun,
+  redeliverRun,
   signalRun,
   listPublicWorkflows,
 } from "@alfred/assistant/execution";
-import { enqueueRun } from "@alfred/assistant/execution/queue";
 import type { SignalArgs } from "@alfred/assistant/execution";
 import { isUniqueViolation } from "@alfred/db/pg-errors";
 import { Errors, toMessage } from "@alfred/contracts";
@@ -83,7 +83,7 @@ export const agent = new Elysia({ prefix: "/api/agent", normalize: "typebox" })
             requestId: body.requestId,
             revisionChoice: body.revisionChoice,
           });
-          await enqueueRun(replayed.runId);
+          await redeliverRun(replayed.runId);
           return replayed;
         },
         {
@@ -145,7 +145,7 @@ export const agent = new Elysia({ prefix: "/api/agent", normalize: "typebox" })
           }
           const woken = await signalRun({ runId: params.runId, match });
           if (!woken) throw Errors.ConflictError("Run not waiting on a matching condition");
-          await enqueueRun(params.runId);
+          await redeliverRun(params.runId);
           return { ok: true };
         },
         {

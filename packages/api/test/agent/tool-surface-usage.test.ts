@@ -6,7 +6,7 @@ import type { AgentTranscriptMessage, ToolName } from "@alfred/contracts";
 import {
   invokedToolNamesFromTranscript,
   summarizeToolSurfaceUsage,
-} from "../../src/modules/agent/tool-surface-usage";
+} from "@alfred/assistant/execution/tool-surface-usage";
 
 const KERNEL = new Set<ToolName>([
   "system.search_tools",

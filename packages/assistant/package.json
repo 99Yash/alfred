@@ -12,7 +12,7 @@
     "./tool-runtime": "./src/tool-runtime/index.ts",
     "./tool-runtime/*": "./src/tool-runtime/*",
     "./execution": "./src/execution/index.ts",
-    "./execution/*": "./src/execution/*"
+    "./execution/*": "./src/execution/*.ts"
   },
   "scripts": {
     "build": "node ../../scripts/clean-package-dist.mjs && tsc -b --emitDeclarationOnly --force",

@@ -7,7 +7,7 @@ import {
   applyExactToolLoad,
   migrateRecordedToolNames,
   systemToolKernel,
-} from "../../src/modules/agent/tool-surface";
+} from "@alfred/assistant/execution/tool-surface";
 import { currentTimeSnapshot } from "../../src/modules/tools/system";
 import { liveTool, registerTools } from "../../src/modules/tools/registry";
 import { resetToolFixtures } from "../lib/tool-fixtures";
