@@ -14,7 +14,7 @@ import {
   registerTool,
 } from "../../src/modules/tools/registry";
 import { postgresStagingStore } from "../../src/modules/dispatch/staging-store";
-import { closeRedis } from "../../src/queue/connection";
+import { closeRedis } from "@alfred/db/redis";
 import { runStagingStoreContract, type StagingStoreHarness } from "./staging-store-contract";
 
 /**

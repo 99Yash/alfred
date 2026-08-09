@@ -22,7 +22,7 @@ import { actionStagings } from "@alfred/db/schemas";
 import { and, eq, sql } from "drizzle-orm";
 import { DelayedError, Worker, type Job } from "bullmq";
 import { emitReplicachePokes } from "../../events/replicache-events";
-import { createRedisConnection } from "../../queue/connection";
+import { createRedisConnection } from "@alfred/db/redis";
 import { redeliverRun, signalRunInTx } from "./service";
 import { startApprovalWaitSpan } from "./runtime-spans";
 import {

@@ -1,5 +1,5 @@
 import { Queue, Worker, type Job } from "bullmq";
-import { createRedisConnection } from "../../queue/connection";
+import { createRedisConnection } from "@alfred/db/redis";
 import { dispatchDueCronWorkflows } from "./tick";
 
 /**

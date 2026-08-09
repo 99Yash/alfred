@@ -2,7 +2,7 @@ import { chatMemoryCaptureEnabled } from "@alfred/env/server";
 import { toMessage } from "@alfred/contracts";
 import { Queue, Worker, type Job } from "bullmq";
 import { z } from "zod";
-import { createRedisConnection, isQueueEnabled } from "../../queue/connection";
+import { createRedisConnection, isQueueEnabled } from "@alfred/db/redis";
 import { startRun } from "../agent/index";
 import { isUniqueViolation } from "@alfred/db/pg-errors";
 

@@ -4,7 +4,7 @@ import { sql } from "drizzle-orm";
 import { Elysia } from "elysia";
 import { errorHandler } from "./middleware/error-handler";
 import { getSessionCached, invalidateSessionToken } from "./middleware/session-cache";
-import { createUntrackedRedisConnection } from "./queue/connection";
+import { createUntrackedRedisConnection } from "@alfred/db/redis";
 import { events } from "./modules/events/index";
 import { replicache } from "./modules/replicache/index";
 import { agent } from "./modules/agent/index";

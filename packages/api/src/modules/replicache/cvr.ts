@@ -1,6 +1,6 @@
 import type { IDBKeys } from "@alfred/sync";
 import type IORedis from "ioredis";
-import { createRedisConnection } from "../../queue/connection";
+import { createRedisConnection } from "@alfred/db/redis";
 
 /** One entry per row in the CVR snapshot — `v` is the row's `row_version`. */
 export interface CVRRow {

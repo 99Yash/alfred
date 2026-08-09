@@ -7,7 +7,7 @@ import { databaseEnv } from "@alfred/env/database";
 
 import { closeReplicachePokeBridge } from "../../src/events/replicache-events";
 import { isQuietMorning, scorePriorityEmailDemand } from "../../src/modules/briefing/read";
-import { closeRedis } from "../../src/queue/connection";
+import { closeRedis } from "@alfred/db/redis";
 
 /**
  * Pins the morning suppression invariant (#259 / ADR-0064): a cron morning

@@ -15,7 +15,7 @@ import { resolveWorkflowForRun } from "../../src/modules/agent/resolve-workflow"
 import type { AgentDbExecutor, Workflow } from "../../src/modules/agent/types";
 import { handlePull } from "../../src/modules/replicache/pull";
 import { seedBuiltinWorkflowsForUser } from "../../src/modules/workflows/seeder";
-import { closeRedis } from "../../src/queue/connection";
+import { closeRedis } from "@alfred/db/redis";
 
 const RESUME_ONLY_SLUG = "retired-built-in";
 

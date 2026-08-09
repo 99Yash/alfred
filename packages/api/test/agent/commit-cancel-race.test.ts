@@ -7,7 +7,7 @@ import { closeConnections, db } from "@alfred/db";
 import { actionStagings, agentRuns, agentSteps, eventsOutbox, user } from "@alfred/db/schemas";
 import { and, eq, inArray, like } from "drizzle-orm";
 
-import { closeRedis } from "../../src/queue/connection";
+import { closeRedis } from "@alfred/db/redis";
 import { commitStepSuccess, markRunFailed, runOnce } from "../../src/modules/agent/executor";
 import {
   _resetRegistryForTests,

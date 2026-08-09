@@ -13,7 +13,7 @@ import { agentRuns, artifacts, chatThreads, user } from "@alfred/db/schemas";
 import { databaseEnv } from "@alfred/env/database";
 import { eq, inArray } from "drizzle-orm";
 
-import { closeRedis } from "../../src/queue/connection";
+import { closeRedis } from "@alfred/db/redis";
 import { appendArtifactSection, createArtifact } from "../../src/modules/artifacts/write";
 
 /* ── schema caps (ADR-0085) — pure, always run ─────────────────────────── */

@@ -7,7 +7,7 @@ import { agentRuns, user } from "@alfred/db/schemas";
 import { inArray, like } from "drizzle-orm";
 import type { RunStatus } from "@alfred/contracts";
 
-import { closeRedis } from "../../src/queue/connection";
+import { closeRedis } from "@alfred/db/redis";
 import {
   parentRunStillOpen,
   USER_AUTHORED_BRIEF_WORKFLOW_SLUG,

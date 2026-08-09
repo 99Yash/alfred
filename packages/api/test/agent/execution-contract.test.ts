@@ -7,7 +7,7 @@ import { closeConnections, db } from "@alfred/db";
 import { agentRuns, agentSteps, eventsOutbox, user } from "@alfred/db/schemas";
 import { and, eq, inArray, like } from "drizzle-orm";
 
-import { closeRedis } from "../../src/queue/connection";
+import { closeRedis } from "@alfred/db/redis";
 import { closeAgentQueue, getAgentQueue } from "../../src/modules/agent/queue";
 import { leaseRun, runOnce } from "../../src/modules/agent/executor";
 import {
