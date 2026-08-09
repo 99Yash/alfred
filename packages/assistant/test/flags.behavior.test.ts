@@ -7,7 +7,7 @@ import { closeConnections, db } from "@alfred/db";
 import { user } from "@alfred/db/schemas";
 import { inArray, like } from "drizzle-orm";
 
-import { resolveFeatureFlags, setPreference } from "../../src/modules/settings";
+import { resolveFeatureFlags, setPreference } from "../src/settings";
 
 /**
  * DB-backed integration test for feature-flag resolution after it folded into
@@ -16,7 +16,7 @@ import { resolveFeatureFlags, setPreference } from "../../src/modules/settings";
  * returns the same four booleans the deleted `features` module returned —
  * UNSET means ON, and only an explicit `false` / `"false"` / `0` means OFF —
  * and the resolver is reachable only through the `settings` interface
- * (`../../src/modules/settings`), never a deep `../features/flags` path.
+ * (`../src/settings`), never a deep `../features/flags` path.
  *
  * Opt-in: runs only when `DATABASE_URL` points at a reachable Postgres with the
  * migrated schema (the local dev DB). Skipped otherwise so the pure-function
