@@ -93,7 +93,6 @@
       "execution -> time",
       "execution -> tool-runtime",
       "execution -> triggers",
-      "integrations -> triage",
       "integrations -> triggers",
       "knowledge -> delivery",
       "knowledge -> execution",
@@ -146,7 +145,7 @@
       "workflows -> tool-runtime",
       "workflows -> triggers"
     ],
-    "sccs": [["connections", "execution", "integrations", "knowledge", "tasks", "triage"]]
+    "sccs": []
   },
   "legacyExceptions": {
     "privateModuleImports": {
