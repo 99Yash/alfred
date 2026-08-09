@@ -15,7 +15,7 @@
 
 import { randomUUID } from "node:crypto";
 import { startRun } from "@alfred/api/backend";
-import { closeAgentQueue, warmPool } from "@alfred/api/runtime";
+import { closeAgentQueue, registerReplicachePokeAdapter, warmPool } from "@alfred/api/runtime";
 import { db } from "@alfred/db";
 import {
   actionStagings,
@@ -54,6 +54,7 @@ async function pickGoogleUser(): Promise<{ id: string; email: string } | null> {
 async function main(): Promise<void> {
   await warmPool();
   registerBuiltinWorkflows();
+  registerReplicachePokeAdapter(); // enqueued runs may emit pokes; adapter must be registered
 
   const target = await pickGoogleUser();
   if (!target) {

@@ -3,7 +3,7 @@ import { replicacheClient, replicacheClientGroup } from "@alfred/db/schemas";
 import { mutatorArgsSchemas, type MutatorName } from "@alfred/sync";
 import { eq, sql } from "drizzle-orm";
 import { publishPolicyBust } from "../action-policies";
-import { emitReplicachePokes } from "../../events/replicache-events";
+import { emitReplicachePokes } from "@alfred/assistant/triggers";
 import { enqueueTriageRelabel } from "../triage/tags";
 import { enqueueChatStorageCleanup } from "../integrations/queue";
 import { MutatorForbiddenError } from "./authz";

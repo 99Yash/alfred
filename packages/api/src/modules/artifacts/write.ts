@@ -13,7 +13,7 @@ import {
 import { db } from "@alfred/db";
 import { artifacts, chatMessages, type Artifact } from "@alfred/db/schemas";
 import { and, eq, exists, inArray, sql } from "drizzle-orm";
-import { emitReplicachePokes } from "../../events/replicache-events";
+import { emitReplicachePokes } from "@alfred/assistant/triggers";
 import { AppError } from "../../lib/app-errors";
 import { artifactReplacementMatchesBase } from "./content-hash";
 

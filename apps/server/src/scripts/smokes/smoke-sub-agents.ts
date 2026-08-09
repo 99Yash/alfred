@@ -18,6 +18,7 @@ import {
   registerAgentSystemToolAdapter,
   registerBuiltinTools,
   registerConversationsSystemToolAdapter,
+  registerReplicachePokeAdapter,
   warmPool,
 } from "@alfred/api/runtime";
 import { isRecord } from "@alfred/contracts";
@@ -80,6 +81,8 @@ async function main(): Promise<void> {
   // seam installed by conversations; install it too so the smoke matches the
   // server bootstrap and the call does not hit the boot-order throw.
   registerConversationsSystemToolAdapter();
+  // Register the replicache poke adapter so pokes can be emitted during the smoke.
+  registerReplicachePokeAdapter();
 
   const userId = await findOrCreateSmokeUser();
   await resetSmokeRows(userId);

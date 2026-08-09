@@ -1,7 +1,7 @@
 import { db } from "@alfred/db";
 import { skillRevisions, skillRuns, skills } from "@alfred/db/schemas";
 import { and, eq, notInArray, sql } from "drizzle-orm";
-import { emitReplicachePokes } from "../../events/replicache-events";
+import { emitReplicachePokes } from "@alfred/assistant/triggers";
 
 /**
  * Append a `skill_revisions` row, advance `skills.current_revision_id`,

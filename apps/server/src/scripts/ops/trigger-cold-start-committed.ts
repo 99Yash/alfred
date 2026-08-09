@@ -26,7 +26,7 @@
  */
 import { randomUUID } from "node:crypto";
 import { COLD_START_WORKFLOW_SLUG, startRun } from "@alfred/api/backend";
-import { closeAgentQueue, warmPool } from "@alfred/api/runtime";
+import { closeAgentQueue, registerReplicachePokeAdapter, warmPool } from "@alfred/api/runtime";
 import { db } from "@alfred/db";
 import { agentRuns, user as userTable } from "@alfred/db/schemas";
 import { and, eq, inArray, sql } from "drizzle-orm";
@@ -95,6 +95,7 @@ async function processUser(u: { userId: string; email: string }): Promise<void> 
 async function main() {
   await warmPool();
   registerBuiltinWorkflows(); // createRun resolves builtins from the in-process registry
+  registerReplicachePokeAdapter(); // enqueued runs may emit pokes; adapter must be registered
 
   console.log(
     `# Committed cold-start trigger — mode=${COMMIT ? "COMMIT" : "DRY"} | targets=${TARGET_EMAILS.join(", ")}`,

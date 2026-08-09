@@ -9,8 +9,7 @@ import {
   type AgentRunTrigger,
 } from "@alfred/contracts";
 import { and, desc, eq, sql } from "drizzle-orm";
-import { publishEvent } from "@alfred/assistant/triggers";
-import { emitReplicachePokes } from "../../events/replicache-events";
+import { emitReplicachePokes, publishEvent } from "@alfred/assistant/triggers";
 // Cancel's post-commit obligations include tearing down the queued jobs of the
 // stagings it bulk-rejected. The scheduling helpers live in `tool-runtime` (a
 // sink), so owning the teardown here rather than describing it to callers adds

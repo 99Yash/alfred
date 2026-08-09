@@ -59,6 +59,7 @@ export { registerDispatchToolCallRoundAdapter } from "./modules/dispatch";
 export { registerAgentSystemToolAdapter } from "./modules/agent/system-tool-adapter";
 export { registerConversationsSystemToolAdapter } from "./modules/conversations/system-tool-adapter";
 export { registerWorkflowSystemToolAdapter } from "./modules/workflows/system-tool-adapter";
+export { registerReplicachePokeAdapter } from "./composition/replicache-poke-adapter";
 export { reconcileInflightInvocations } from "./modules/connections/mcp/index";
 export {
   scheduleRepeatableWorkflowsJobs,

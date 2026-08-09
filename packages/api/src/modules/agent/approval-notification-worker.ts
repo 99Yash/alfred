@@ -18,7 +18,7 @@ import { serverEnv } from "@alfred/env/server";
 import { renderApprovalEmail, type ApprovalEmailField } from "@alfred/mailer";
 import { and, eq, sql } from "drizzle-orm";
 import { Worker, type Job } from "bullmq";
-import { emitReplicachePokes } from "../../events/replicache-events";
+import { emitReplicachePokes } from "@alfred/assistant/triggers";
 import { createRedisConnection } from "@alfred/db/redis";
 import { send } from "@alfred/assistant/delivery";
 import {

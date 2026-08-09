@@ -5,6 +5,10 @@ import {
   registerGoogleCredentialLifecycle,
   unregisterGoogleCredentialLifecycle,
 } from "./google-credential-lifecycle";
+import {
+  registerReplicachePokeAdapter,
+  unregisterReplicachePokeAdapter,
+} from "./replicache-poke-adapter";
 import { registerTriggerConsumers, unregisterTriggerConsumers } from "./trigger-consumers";
 import { registerWorkflowReadiness, unregisterWorkflowReadiness } from "./workflow-readiness";
 import { registerWorkflowRecovery, unregisterWorkflowRecovery } from "./workflow-recovery";
@@ -71,6 +75,13 @@ export const RUNTIME_ADAPTERS = [
     unregister: unregisterGoogleCredentialLifecycle,
     retainIfIngestionWorkerActive: false,
     shutdownOrder: 4,
+  },
+  {
+    name: "replicache-poke-adapter",
+    register: registerReplicachePokeAdapter,
+    unregister: unregisterReplicachePokeAdapter,
+    retainIfIngestionWorkerActive: false,
+    shutdownOrder: 7,
   },
   {
     name: "trigger-consumers",
