@@ -33,6 +33,7 @@
     "@alfred/db": "workspace:*",
     "@alfred/env": "workspace:*",
     "@alfred/integrations": "workspace:*",
+    "@alfred/logging": "workspace:*",
     "@alfred/mailer": "workspace:*",
     "@alfred/sync": "workspace:*",
     "@aws-sdk/client-s3": "^3.1073.0",

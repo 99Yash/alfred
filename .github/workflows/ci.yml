@@ -163,6 +163,35 @@ jobs:
       - name: AI unit tests
         run: corepack pnpm --filter @alfred/ai test
 
+  logging-unit-tests:
+    name: logging-unit-tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Enable Corepack
+        run: corepack enable
+
+      - name: Resolve pnpm store path
+        run: echo "PNPM_STORE_PATH=$(corepack pnpm store path --silent)" >> "$GITHUB_ENV"
+
+      - uses: actions/cache@v4
+        with:
+          path: ${{ env.PNPM_STORE_PATH }}
+          key: ${{ runner.os }}-pnpm-store-${{ hashFiles('pnpm-lock.yaml') }}
+          restore-keys: ${{ runner.os }}-pnpm-store-
+
+      - name: Install dependencies
+        run: corepack pnpm install --frozen-lockfile
+
+      - name: Logging unit tests
+        run: corepack pnpm --filter @alfred/logging test
+
   # @alfred/assistant holds product modules moved out of @alfred/api during
   # Phase 6B. Some are DB-backed (e.g. `delivery` owns notification idempotency
   # over `email_sends`), so this job runs Postgres + Redis + a format-valid
