@@ -1,6 +1,6 @@
 import { Errors } from "@alfred/contracts";
 import { Elysia } from "elysia";
-import { authMacro } from "../../middleware/auth";
+import { authMacro } from "@alfred/http";
 import { subscribeUserPokes } from "../../events/replicache-events";
 import { ReplicacheModel } from "./model";
 import { handlePull } from "./pull";

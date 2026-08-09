@@ -6,14 +6,7 @@
     "sourceMap": true,
     "outDir": "dist",
     "rootDir": "src",
-    "composite": true,
-    // Type-checking the transitional re-export pulls `@alfred/api`'s whole
-    // source graph, which reaches `@alfred/mailer`'s React (`.tsx`) email
-    // templates. jsx here lets tsc parse those sources (classic runtime,
-    // matching the mailer package and `packages/api/tsconfig.json`). Nothing
-    // in this package renders them — server-side only, and the web-boundary
-    // check governs that direction.
-    "jsx": "react"
+    "composite": true
   },
   "include": ["src"]
 }

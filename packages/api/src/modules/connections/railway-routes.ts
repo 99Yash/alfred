@@ -6,7 +6,7 @@ import {
   upsertBearerCredential,
 } from "@alfred/integrations/shared";
 import { Elysia, t } from "elysia";
-import { authMacro } from "../../middleware/auth";
+import { authMacro } from "@alfred/http";
 
 /**
  * Railway integration routes. Railway has no public OAuth, so the user pastes

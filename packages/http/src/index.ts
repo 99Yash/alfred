@@ -1,17 +1,16 @@
-// Transitional re-export. `@alfred/api` still owns the root Elysia app; this
-// package exists so the later transport slices have a destination to move into
-// one at a time.
+// `@alfred/http` owns the transport layer. This is its one door — a single `.`
+// barrel, no subpaths, because a concrete `exports` entry rots silently when a
+// file moves and no repo gate reads the map (see
+// `.lessons/moving-a-file-leaves-its-exports-entry-behind-and-no-gate-catches-it.md`).
 //
-// While these two lines exist, `@alfred/api` must NOT import `@alfred/http`.
-// The edge here is `@alfred/http -> @alfred/api`; the opposite edge closes a
-// package cycle and `scripts/check-module-architecture.mjs` fails with `new
-// cyclic package edge`.
-//
-// That makes the FIRST slice which moves a file `@alfred/api` still consumes
-// the owner of this file's deletion — campaign item 03 (it moves
-// `packages/api/src/middleware/*` here while 17 files under `packages/api/src`
-// still import that middleware, so it cannot avoid the back-edge). Item 03
-// deletes these two lines and `test/type/app-reexport.type-test.ts` with them,
-// or moves enough of api's consumers that api needs nothing from http.
-export { app } from "@alfred/api";
-export type { App } from "@alfred/api";
+// The transitional `export { app } from "@alfred/api"` that this file held is
+// gone. It had to go in this slice: the middleware below still has 17 consumers
+// under `packages/api/src`, so `@alfred/api -> @alfred/http` is now a real
+// edge, and the re-export's opposite edge would close a package cycle that
+// `scripts/check-module-architecture.mjs` rejects. `apps/server` keeps
+// importing `app` straight from `@alfred/api` until campaign item 08 assembles
+// the root app here.
+export { authMacro } from "./middleware/auth";
+export { errorHandler } from "./middleware/error-handler";
+export { securityHeaders, type SecurityHeadersOptions } from "./middleware/security-headers";
+export { getSessionCached, invalidateSessionToken } from "./middleware/session-cache";
