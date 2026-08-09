@@ -28,7 +28,7 @@ import { Elysia, t } from "elysia";
 import { emitReplicachePokes } from "@alfred/assistant/triggers";
 import { authMacro } from "../../middleware/auth";
 import { createCacheRedisConnection } from "@alfred/db/redis";
-import { getRun, persistChatTurnRunInTx, redeliverRun } from "../agent";
+import { getRun, persistChatTurnRunInTx, redeliverRun } from "@alfred/assistant/execution";
 import { uniqueViolationConstraint } from "@alfred/db/pg-errors";
 import { enqueuePendingUploadCleanup } from "../integrations";
 import {

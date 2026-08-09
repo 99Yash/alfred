@@ -2,8 +2,8 @@ import assert from "node:assert/strict";
 import { describe, test } from "node:test";
 
 import type { AgentTranscriptMessage } from "@alfred/contracts";
-import type { ChildRunOutcome } from "../../src/modules/agent/sub-agents";
-import { AWAIT_SUB_AGENT_CEILING_MS } from "../../src/modules/agent/sub-agent-join-wake-queue";
+import type { ChildRunOutcome } from "@alfred/assistant/execution/sub-agents";
+import { AWAIT_SUB_AGENT_CEILING_MS } from "@alfred/assistant/execution/sub-agent-join-wake-queue";
 import {
   awaitedChildRunId,
   crossFinalizeBoundary,
@@ -12,8 +12,8 @@ import {
   type GuardSpawnedChildrenDeps,
 } from "../../src/modules/conversations/finalize-guards";
 import type { ChatRunState } from "../../src/modules/conversations/chat-turn-state";
-import { openChatTurnRetries } from "../../src/modules/agent/workflows/turn-budgets";
-import type { StepContext } from "../../src/modules/agent/types";
+import { openChatTurnRetries } from "@alfred/assistant/execution/workflows/turn-budgets";
+import type { StepContext } from "@alfred/assistant/execution/types";
 
 /**
  * Unit tests for the ADR-0073 finalization guard (#268). This guard is the

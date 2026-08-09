@@ -8,7 +8,7 @@ import {
   _setRuntimeSpanStarterForTests,
   buildToolPreloadSpanInput,
   startToolPreloadSpan,
-} from "../../src/modules/agent/runtime-spans";
+} from "@alfred/assistant/execution/runtime-spans";
 
 function capture(run: () => void): { opened: RuntimeSpanInput[]; ended: RuntimeSpanEndArgs[] } {
   const opened: RuntimeSpanInput[] = [];

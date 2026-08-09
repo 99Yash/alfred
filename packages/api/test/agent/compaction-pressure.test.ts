@@ -7,7 +7,7 @@ import {
   estimateNextTurnInputTokens,
   estimateTranscriptTokens,
   shouldSkipCompaction,
-} from "../../src/modules/agent/run-compaction/tokens";
+} from "@alfred/assistant/execution/run-compaction/tokens";
 
 describe("authored-brief compaction pressure (#369)", () => {
   const smallPriorChars = 10_000;

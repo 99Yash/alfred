@@ -6,20 +6,20 @@ import { closeConnections, db } from "@alfred/db";
 import { agentRuns, agentSteps, user } from "@alfred/db/schemas";
 import { eq, inArray, like } from "drizzle-orm";
 
-import { leaseRun } from "../../src/modules/agent/executor";
+import { leaseRun } from "@alfred/assistant/execution/executor";
 import {
   _resetRegistryForTests,
   getWorkflow,
   registerRecipe,
-} from "../../src/modules/agent/registry";
+} from "@alfred/assistant/execution/registry";
 import {
   findResumableRunIds,
   minStaleAfterMs,
   resolveStaleAfterMs,
   STALE_RUN_LEASE_MS,
-} from "../../src/modules/agent/service";
-import type { StepResult, Workflow } from "../../src/modules/agent/types";
-import { userAuthoredBriefWorkflow } from "../../src/modules/agent/workflows/user-authored-brief";
+} from "@alfred/assistant/execution/service";
+import type { StepResult, Workflow } from "@alfred/assistant/execution/types";
+import { userAuthoredBriefWorkflow } from "@alfred/assistant/execution/workflows/user-authored-brief";
 
 /**
  * Tests for the per-step stale-lease window (ADR-0070 §1.4, Lever A). Lever A

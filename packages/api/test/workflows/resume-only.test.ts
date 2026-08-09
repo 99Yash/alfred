@@ -9,10 +9,10 @@ import { serverEnv } from "@alfred/env/server";
 import { IDB_KEY } from "@alfred/sync";
 import { inArray } from "drizzle-orm";
 
-import { _resetRegistryForTests, registerRecipe } from "../../src/modules/agent/registry";
-import { createRun } from "../../src/modules/agent/service";
-import { resolveWorkflowForRun } from "../../src/modules/agent/resolve-workflow";
-import type { AgentDbExecutor, Workflow } from "../../src/modules/agent/types";
+import { _resetRegistryForTests, registerRecipe } from "@alfred/assistant/execution/registry";
+import { createRun } from "@alfred/assistant/execution/service";
+import { resolveWorkflowForRun } from "@alfred/assistant/execution/resolve-workflow";
+import type { AgentDbExecutor, Workflow } from "@alfred/assistant/execution/types";
 import { handlePull } from "../../src/modules/replicache/pull";
 import { seedBuiltinWorkflowsForUser } from "../../src/modules/workflows/seeder";
 import { closeRedis } from "@alfred/db/redis";

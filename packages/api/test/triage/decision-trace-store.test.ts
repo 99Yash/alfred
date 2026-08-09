@@ -7,9 +7,9 @@ import { agentDecisionTraces, agentRuns, documents, emailTriage, user } from "@a
 import { databaseEnv } from "@alfred/env/database";
 import { and, eq, inArray, like } from "drizzle-orm";
 
-import { runOnce } from "../../src/modules/agent/executor";
-import { _resetRegistryForTests, registerRecipe } from "../../src/modules/agent/registry";
-import type { StepResult, Workflow } from "../../src/modules/agent/types";
+import { runOnce } from "@alfred/assistant/execution/executor";
+import { _resetRegistryForTests, registerRecipe } from "@alfred/assistant/execution/registry";
+import type { StepResult, Workflow } from "@alfred/assistant/execution/types";
 import { upsertTriage, type SenderExtractionEvent } from "../../src/modules/triage";
 
 function hasDatabaseUrl(): boolean {

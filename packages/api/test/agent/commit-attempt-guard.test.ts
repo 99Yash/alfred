@@ -6,14 +6,14 @@ import { closeConnections, db } from "@alfred/db";
 import { agentRuns, agentSteps, user } from "@alfred/db/schemas";
 import { and, eq, inArray, like } from "drizzle-orm";
 
-import { commitStepSuccess, runOnce } from "../../src/modules/agent/executor";
+import { commitStepSuccess, runOnce } from "@alfred/assistant/execution/executor";
 import {
   _resetRegistryForTests,
   getWorkflow,
   registerRecipe,
-} from "../../src/modules/agent/registry";
-import { heartbeatRun } from "../../src/modules/agent/service";
-import type { StepResult, Workflow } from "../../src/modules/agent/types";
+} from "@alfred/assistant/execution/registry";
+import { heartbeatRun } from "@alfred/assistant/execution/service";
+import type { StepResult, Workflow } from "@alfred/assistant/execution/types";
 
 /**
  * DB-backed tests for the commit attempt-guard. A stale-lease reclaim bumps

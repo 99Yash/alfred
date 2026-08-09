@@ -4,14 +4,22 @@ import { and, eq, sql } from "drizzle-orm";
 import { Elysia, t } from "elysia";
 import { emitReplicachePokes } from "@alfred/assistant/triggers";
 import { authMacro } from "../../middleware/auth";
-import { redeliverRun, signalRunInTx, type CancelOutcome, type SignalOutcome } from "../agent";
-import { cancelRunInTx } from "../agent/service";
+import {
+  redeliverRun,
+  signalRunInTx,
+  type CancelOutcome,
+  type SignalOutcome,
+} from "@alfred/assistant/execution";
+import { cancelRunInTx } from "@alfred/assistant/execution/service";
 import {
   removeApprovalExpiryJob,
   removeApprovalNotificationJob,
   scheduleApprovalExpiryJob,
 } from "@alfred/assistant/tool-runtime";
-import { startApprovalWaitSpan, type ApprovalWaitOutcome } from "../agent/runtime-spans";
+import {
+  startApprovalWaitSpan,
+  type ApprovalWaitOutcome,
+} from "@alfred/assistant/execution/runtime-spans";
 import { Errors, toMessage } from "@alfred/contracts";
 import {
   prepareWorkflowApprovalEdit,

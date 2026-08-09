@@ -8,8 +8,8 @@ import {
   _setRuntimeSpanStarterForTests,
   buildToolSurfaceSpanInput,
   startToolSurfaceSpan,
-} from "../../src/modules/agent/runtime-spans";
-import { systemToolKernel, toolRuntimeForRun } from "../../src/modules/agent/tool-surface";
+} from "@alfred/assistant/execution/runtime-spans";
+import { systemToolKernel, toolRuntimeForRun } from "@alfred/assistant/execution/tool-surface";
 import { registerBuiltinTools } from "../../src/modules/tools/runtime";
 
 function capture(run: () => void): { opened: RuntimeSpanInput[]; ended: RuntimeSpanEndArgs[] } {

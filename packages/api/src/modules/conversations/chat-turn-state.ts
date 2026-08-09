@@ -10,7 +10,7 @@ import {
   pendingToolCallSchema as basePendingToolCallSchema,
   toolSurfaceStateFields,
   type StepResult,
-} from "../agent";
+} from "@alfred/assistant/execution";
 
 /**
  * Durable state for the interactive chat turn, plus the handful of pure

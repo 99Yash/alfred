@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { describe, test } from "node:test";
 
-import { userAuthoredBriefWorkflow } from "../../src/modules/agent/workflows/user-authored-brief";
+import { userAuthoredBriefWorkflow } from "@alfred/assistant/execution/workflows/user-authored-brief";
 
 const baseInput = {
   userId: "user-1",

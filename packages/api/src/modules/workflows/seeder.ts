@@ -1,7 +1,7 @@
 import { db } from "@alfred/db";
 import { user as userTable, workflows } from "@alfred/db/schemas";
 import { and, eq, inArray, sql } from "drizzle-orm";
-import { listPublicWorkflows, listResumeOnlyWorkflows } from "../agent";
+import { listPublicWorkflows, listResumeOnlyWorkflows } from "@alfred/assistant/execution";
 
 export function getBuiltinWorkflowSeedPlan(): {
   seed: ReturnType<typeof listPublicWorkflows>;

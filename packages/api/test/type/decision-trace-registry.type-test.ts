@@ -15,8 +15,8 @@
 // `@ts-expect-error` directives below become unused and `tsc` fails with TS2578
 // — the regression turns the build red.
 
-import type { DecisionTraceFor } from "../../src/modules/agent/decision-traces";
-import type { StepContext } from "../../src/modules/agent/types";
+import type { DecisionTraceFor } from "@alfred/assistant/execution/decision-traces";
+import type { StepContext } from "@alfred/assistant/execution/types";
 // Barrel import (triage/index.ts). `SenderExtractionEvent` is the payload triage
 // declares for `"triage.classification"` via a `declare module` augmentation at
 // the bottom of `triage/sender-extraction-event.ts`; because `tsconfig.test.json`

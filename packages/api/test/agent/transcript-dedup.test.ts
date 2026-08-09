@@ -5,7 +5,7 @@ import type { AgentTranscriptMessage } from "@alfred/contracts";
 import {
   appendModelResponseMessages,
   isSynthesizedToolDup,
-} from "../../src/modules/agent/transcript-dedup";
+} from "@alfred/assistant/execution/transcript-dedup";
 
 /**
  * Guards the Anthropic "each tool_use must have a single result" 400: the SDK

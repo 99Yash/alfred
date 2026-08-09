@@ -8,7 +8,7 @@ import {
   buildSdkToolSet,
   migrateActiveTools,
   systemToolKernel,
-} from "../../src/modules/agent/tool-surface";
+} from "@alfred/assistant/execution/tool-surface";
 import { preloadToolCatalog, type ToolCatalogAccess } from "../../src/modules/tools/discovery";
 import { registerBuiltinTools } from "../../src/modules/tools/runtime";
 import {

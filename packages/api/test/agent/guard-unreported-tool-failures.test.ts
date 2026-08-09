@@ -7,8 +7,8 @@ import {
   type GuardUnreportedToolFailuresDeps,
 } from "../../src/modules/conversations/finalize-guards";
 import type { ChatRunState } from "../../src/modules/conversations/chat-turn-state";
-import { shouldPublishToolStarted } from "../../src/modules/agent/workflows/tool-card-events";
-import type { StepContext } from "../../src/modules/agent/types";
+import { shouldPublishToolStarted } from "@alfred/assistant/execution/workflows/tool-card-events";
+import type { StepContext } from "@alfred/assistant/execution/types";
 
 /**
  * Unit tests for the #346 honesty guard. The invariant: a turn whose mutating

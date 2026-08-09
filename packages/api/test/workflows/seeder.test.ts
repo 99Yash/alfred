@@ -6,8 +6,8 @@ import {
   getWorkflow,
   listPublicWorkflows,
   registerRecipe,
-} from "../../src/modules/agent/registry";
-import type { Workflow } from "../../src/modules/agent/types";
+} from "@alfred/assistant/execution/registry";
+import type { Workflow } from "@alfred/assistant/execution/types";
 import { getBuiltinWorkflowSeedPlan } from "../../src/modules/workflows/seeder";
 
 function workflow(slug: string, options: { resumeOnly?: boolean } = {}): Workflow<unknown> {
