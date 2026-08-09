@@ -1,0 +1,70 @@
+{
+  "name": "superseded-directive",
+  "description": "When a later directive revokes an earlier one, both verbatim directives survive and the earlier one is marked superseded.",
+  "prior": [
+    {
+      "role": "user",
+      "content": "@gmail — Work through the inbox and handle obvious replies."
+    },
+    {
+      "role": "assistant",
+      "content": "I'll start with the unread inbox threads."
+    },
+    {
+      "role": "user",
+      "content": "trust gmail entirely for this conversation — send obvious replies without staging"
+    },
+    {
+      "role": "assistant",
+      "content": "Acknowledged. I'll send obvious replies directly."
+    },
+    {
+      "role": "tool",
+      "content": [
+        {
+          "type": "tool-result",
+          "toolCallId": "call_send_1",
+          "toolName": "gmail.send_draft",
+          "output": {
+            "type": "json",
+            "value": {
+              "status": "executed",
+              "result": { "messageId": "msg_sent_obvious_1", "threadId": "thread_obvious_1" }
+            }
+          }
+        }
+      ]
+    },
+    {
+      "role": "user",
+      "content": "Actually revoke that — stage every gmail send from now on"
+    },
+    {
+      "role": "assistant",
+      "content": "Understood. I will stage every Gmail send from now on."
+    }
+  ],
+  "inFlightTail": [
+    {
+      "role": "assistant",
+      "content": "Drafting the next Gmail reply as a staged action."
+    }
+  ],
+  "assertions": [
+    { "section": "user_directives", "contains": "superseded=\"true\"" },
+    {
+      "section": "user_directives",
+      "contains": "trust gmail entirely for this conversation — send obvious replies without staging"
+    },
+    {
+      "section": "user_directives",
+      "contains": "Actually revoke that — stage every gmail send from now on"
+    },
+    {
+      "section": "user_directives",
+      "absent": "superseded=\"true\">Actually revoke that — stage every gmail send from now on"
+    },
+    { "section": "actions_completed", "contains": "gmail.send_draft" },
+    { "section": "key_entities", "contains": "msg_sent_obvious_1" }
+  ]
+}

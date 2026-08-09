@@ -1,0 +1,69 @@
+{
+  "name": "directive-vs-decision-boundary",
+  "description": "A pragmatic user directive and an epistemic fact must land in different sections, with negatives proving the boundary.",
+  "prior": [
+    {
+      "role": "user",
+      "content": "@gmail @calendar — Help me coordinate Alice's vendor review this week."
+    },
+    {
+      "role": "assistant",
+      "content": "I'll inspect the relevant Gmail thread, then check calendar availability."
+    },
+    {
+      "role": "tool",
+      "content": [
+        {
+          "type": "tool-result",
+          "toolCallId": "call_thread",
+          "toolName": "gmail.thread_history",
+          "output": {
+            "type": "json",
+            "value": {
+              "status": "executed",
+              "result": {
+                "threadId": "thread_vendor_review_42",
+                "messages": [
+                  {
+                    "id": "msg_vendor_1",
+                    "from": "alice@acme.test",
+                    "body": "Alice is my manager for this review, and she prefers morning slots."
+                  }
+                ]
+              }
+            }
+          }
+        }
+      ]
+    },
+    {
+      "role": "user",
+      "content": "For the rest of this run, stage every calendar change before committing it"
+    },
+    {
+      "role": "assistant",
+      "content": "Understood. I will stage calendar changes before committing them."
+    }
+  ],
+  "inFlightTail": [
+    {
+      "role": "assistant",
+      "content": "Checking calendar availability for morning slots."
+    }
+  ],
+  "assertions": [
+    {
+      "section": "user_directives",
+      "contains": "For the rest of this run, stage every calendar change before committing it"
+    },
+    { "section": "user_directives", "absent": "Alice prefers morning" },
+    { "section": "decisions", "contains": "Alice" },
+    { "section": "decisions", "contains": "manager" },
+    { "section": "decisions", "contains": "morning" },
+    {
+      "section": "decisions",
+      "absent": "For the rest of this run, stage every calendar change before committing it"
+    },
+    { "section": "key_entities", "contains": "thread_vendor_review_42" }
+  ]
+}
