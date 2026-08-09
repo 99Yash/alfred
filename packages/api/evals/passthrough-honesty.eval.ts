@@ -1,5 +1,6 @@
 import path from "node:path";
 import { route } from "@alfred/ai";
+import { parseIanaTimezone } from "@alfred/contracts";
 import { serverEnv } from "@alfred/env/server";
 import { type Tool, type ToolSet, generateText, isStepCount, tool } from "ai";
 import { config as loadEnv } from "dotenv";
@@ -45,7 +46,7 @@ loadEnv({ path: path.resolve(import.meta.dirname, "../../../apps/server/.env") }
 registerBuiltinTools();
 
 const NOW = new Date("2026-06-27T04:44:00Z");
-const TIMEZONE = "Asia/Kolkata";
+const TIMEZONE = parseIanaTimezone("Asia/Kolkata");
 const EVAL_TIMEOUT_MS = 60_000;
 
 const REQUEST_TOOL = "github.request";

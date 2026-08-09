@@ -1,6 +1,6 @@
 import path from "node:path";
 import { route } from "@alfred/ai";
-import { calendarListEventsInput } from "@alfred/contracts";
+import { calendarListEventsInput, parseIanaTimezone } from "@alfred/contracts";
 import { serverEnv } from "@alfred/env/server";
 import { generateText, tool } from "ai";
 import { config as loadEnv } from "dotenv";
@@ -23,7 +23,7 @@ loadEnv({ path: path.resolve(import.meta.dirname, "../../../apps/server/.env") }
 
 // Pin "now" so expected windows are stable: noon IST on Wed 10 June 2026.
 const NOW = new Date("2026-06-10T06:30:00Z");
-const TIMEZONE = "Asia/Kolkata";
+const TIMEZONE = parseIanaTimezone("Asia/Kolkata");
 const EVAL_TIMEOUT_MS = 60_000;
 
 const CALENDAR_TOOL = "calendar.list_events";
