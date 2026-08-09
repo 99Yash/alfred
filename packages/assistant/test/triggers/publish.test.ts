@@ -6,7 +6,7 @@ import { closeConnections, db } from "@alfred/db";
 import { eventsOutbox, user } from "@alfred/db/schemas";
 import { and, eq, inArray } from "drizzle-orm";
 
-import { publishEvent } from "../../src/events/publish";
+import { publishEvent } from "../../src/triggers";
 
 /**
  * `publishEvent`'s executor selection, asserted against a real database.

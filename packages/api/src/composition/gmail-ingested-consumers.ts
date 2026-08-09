@@ -3,10 +3,10 @@ import { indexDocument } from "@alfred/corpus";
 import { db } from "@alfred/db";
 import { documents, emailTriage } from "@alfred/db/schemas";
 import { and, eq, inArray } from "drizzle-orm";
-import { publishEvent } from "../events/publish";
 import {
   gmailDocumentsIngestedPayloadSchema,
   publishDomainEvent,
+  publishEvent,
   TriggerConsumerBootError,
   type DomainEvent,
   type GmailDocumentsIngestedPayload,

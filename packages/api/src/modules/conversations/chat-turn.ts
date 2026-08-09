@@ -21,7 +21,7 @@ import {
 import { db } from "@alfred/db";
 import { chatMessages } from "@alfred/db/schemas";
 import { and, asc, eq } from "drizzle-orm";
-import { publishEvent } from "../../events/publish";
+import { publishEvent } from "@alfred/assistant/triggers";
 import { logger } from "../../lib/logger";
 import { buildThreadArtifactsContext } from "../artifacts";
 import { readIntegrationAvailability } from "@alfred/assistant/connections";
