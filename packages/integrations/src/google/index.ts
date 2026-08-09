@@ -144,11 +144,13 @@ export type {
   GetPresentationResult,
 } from "./slides";
 export { addSlide, batchUpdatePresentation, createPresentation, getPresentation } from "./slides";
-export type { GmailWatchState } from "./watch";
 export {
   findCredentialByEmail,
   findExpiringGmailWatches,
+  gmailWatchStateSchema,
   getGmailWatchState,
+  readGmailWatchState,
   stopGmailWatchWithAccessToken,
   uninstallGmailWatch,
+  type GmailWatchState,
 } from "./watch";

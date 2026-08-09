@@ -1,6 +1,7 @@
 import { db } from "@alfred/db";
 import { integrationCredentials } from "@alfred/db/schemas";
 import { and, eq, sql } from "drizzle-orm";
+import { z } from "zod";
 import { getFreshAccessToken } from "./credentials";
 import { startWatch, stopWatch } from "./gmail";
 import { toMessage, withDefaults } from "@alfred/contracts";
@@ -34,19 +35,26 @@ import { gmailMailboxWritesEnabled } from "@alfred/env/server";
  * provider — the jsonb shape keeps the schema diff to zero.
  */
 
-export interface GmailWatchState {
-  topic: string;
+export const gmailWatchStateSchema = z.object({
+  topic: z.string().min(1),
   /** ISO timestamp; convert with `new Date(...)`. */
-  expiresAt: string;
+  expiresAt: z.iso.datetime(),
   /** The `historyId` Gmail returned at watch creation. Cold-start cursor. */
-  baselineHistoryId: string;
+  baselineHistoryId: z.string().min(1),
   /** When we last installed/renewed this watch (audit). */
-  installedAt: string;
-}
+  installedAt: z.iso.datetime(),
+});
+export type GmailWatchState = z.infer<typeof gmailWatchStateSchema>;
 
-interface CredentialMetadataWithWatch {
-  watch?: GmailWatchState | undefined;
-  [key: string]: unknown;
+/** Parse the `watch` slice off metadata; normal object parsing ignores sibling keys. */
+const credentialWatchMetadataSchema = z.object({
+  watch: gmailWatchStateSchema.optional(),
+});
+
+/** Read the `watch` slice off a credential's metadata jsonb, else null. */
+export function readGmailWatchState(metadata: unknown): GmailWatchState | null {
+  const parsed = credentialWatchMetadataSchema.safeParse(metadata);
+  return parsed.success && parsed.data.watch ? parsed.data.watch : null;
 }
 
 interface GmailWatchDeps {
@@ -197,8 +205,8 @@ export async function getGmailWatchState(credentialId: string): Promise<GmailWat
     .select({ metadata: integrationCredentials.metadata })
     .from(integrationCredentials)
     .where(eq(integrationCredentials.id, credentialId));
-  const md = rows[0]?.metadata as CredentialMetadataWithWatch | undefined;
-  return md?.watch ?? null;
+  const md = rows[0]?.metadata;
+  return readGmailWatchState(md);
 }
 
 /**
@@ -245,8 +253,7 @@ export async function findExpiringGmailWatches(
   const out: { id: string; userId: string; expiresAt: Date; topic: string }[] = [];
   for (const row of rows) {
     if (row.status !== "active") continue;
-    const md = row.metadata as CredentialMetadataWithWatch | null;
-    const watch = md?.watch;
+    const watch = readGmailWatchState(row.metadata);
     if (!watch) continue;
     const expiresAt = new Date(watch.expiresAt);
     if (Number.isNaN(expiresAt.getTime())) continue;
