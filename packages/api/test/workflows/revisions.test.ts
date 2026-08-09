@@ -756,7 +756,8 @@ describe("workflow revision content hash (#555)", () => {
 });
 
 function hashInSeparateProcess(definition: WorkflowRevisionDefinition): string {
-  const moduleUrl = new URL("../../../assistant/src/automation/content-hash.ts", import.meta.url).href;
+  const moduleUrl = new URL("../../../assistant/src/automation/content-hash.ts", import.meta.url)
+    .href;
   const script = `
     const { workflowRevisionContentHash } = await import(${JSON.stringify(moduleUrl)});
     const definition = JSON.parse(process.env.ALFRED_TEST_WORKFLOW_DEFINITION);
