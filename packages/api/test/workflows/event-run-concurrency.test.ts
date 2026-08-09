@@ -31,7 +31,7 @@ import { acceptEvent } from "../../src/modules/workflows";
 import { publishGoogleCallbackCompleted } from "../../src/modules/connections/google-routes";
 import { COLD_START_WORKFLOW_SLUG } from "../../src/modules/knowledge/cold-start";
 import { uniqueViolationConstraint } from "@alfred/db/pg-errors";
-import { closeRedis } from "../../src/queue/connection";
+import { closeRedis } from "@alfred/db/redis";
 
 /**
  * DB-backed guard for the event-dispatch duplicate-run invariant (#531).

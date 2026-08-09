@@ -24,7 +24,7 @@ import {
 } from "../../src/modules/connections/mcp/persistence";
 import { clearToolRegistryForTests, registerTools } from "../../src/modules/tools/registry";
 import { mcpTools } from "../../src/modules/tools/mcp";
-import { closeRedis } from "../../src/queue/connection";
+import { closeRedis } from "@alfred/db/redis";
 
 /**
  * DB-backed tests for the dispatch → MCP seam (PRD #540 #6). These prove the two

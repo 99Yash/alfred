@@ -2,7 +2,7 @@ import { serverEnv } from "@alfred/env/server";
 import { z } from "zod";
 import { createHmac, timingSafeEqual } from "node:crypto";
 import type IORedis from "ioredis";
-import { createRedisConnection } from "../../queue/connection";
+import { createRedisConnection } from "@alfred/db/redis";
 import { workflowRecoveryStateSchema } from "../integrations";
 
 /**

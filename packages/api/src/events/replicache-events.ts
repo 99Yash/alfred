@@ -15,7 +15,7 @@
  */
 import { EventEmitter } from "node:events";
 import type IORedis from "ioredis";
-import { createRedisConnection, isQueueEnabled } from "../queue/connection";
+import { createRedisConnection, isQueueEnabled } from "@alfred/db/redis";
 import { isRecord, toMessage } from "@alfred/contracts";
 
 interface ReplicachePoke {
