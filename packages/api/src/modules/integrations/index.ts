@@ -15,7 +15,7 @@ export {
   isGmailPushOidcConfigError,
   pubSubOidcConfigFromEnv,
   type PubSubOidcConfig,
-} from "./gmail-push-config";
+} from "@alfred/integrations/google";
 export {
   registerChatMediaHandler,
   type ChatMediaHandler,

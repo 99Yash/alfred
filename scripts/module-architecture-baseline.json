@@ -139,7 +139,6 @@
       "triage -> triggers",
       "workflows -> connections",
       "workflows -> execution",
-      "workflows -> integrations",
       "workflows -> settings",
       "workflows -> time",
       "workflows -> tool-runtime",
@@ -158,8 +157,7 @@
         "packages/api/src/modules/dispatch/index.ts:../tools/passthrough",
         "packages/api/src/modules/dispatch/index.ts:../tools/registry",
         "packages/api/src/modules/dispatch/index.ts:../tools/scratch-key",
-        "packages/api/src/modules/replicache/push.ts:../integrations/queue",
-        "packages/api/src/modules/workflows/gmail-event-readiness.ts:../integrations/gmail-push-config"
+        "packages/api/src/modules/replicache/push.ts:../integrations/queue"
       ]
     },
     "webFeatureImports": {

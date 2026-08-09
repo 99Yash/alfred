@@ -22,7 +22,7 @@ import {
   enrichChatMedia,
   recordChatMediaEnqueueFailure,
 } from "./chat-media";
-import { assertGmailPushOidcConfigured } from "./gmail-push-config";
+import { assertGmailPushOidcConfigured } from "@alfred/integrations/google";
 
 /**
  * Ingestion queue. Each provider gets its own job kind so a stuck
