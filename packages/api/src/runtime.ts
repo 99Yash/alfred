@@ -12,7 +12,7 @@ export {
   stopAgentWorker,
   stopSubAgentJoinWakeWorker,
   verifyMeteringModels,
-} from "./modules/agent/index";
+} from "@alfred/assistant/execution";
 export {
   closeApprovalExpiryQueue,
   closeApprovalNotificationQueue,
@@ -22,7 +22,7 @@ export {
   startApprovalNotificationWorker,
   stopApprovalExpiryWorker,
   stopApprovalNotificationWorker,
-} from "./modules/agent/index";
+} from "@alfred/assistant/execution";
 export {
   ensureDefaultActionPolicyForUser,
   startPolicyBustSubscriber,
@@ -56,7 +56,7 @@ export {
 } from "./modules/conversations";
 export { registerBuiltinTools } from "./modules/tools/runtime";
 export { registerDispatchToolCallRoundAdapter } from "./modules/dispatch";
-export { registerAgentSystemToolAdapter } from "./modules/agent/system-tool-adapter";
+export { registerAgentSystemToolAdapter } from "@alfred/assistant/execution/system-tool-adapter";
 export { registerConversationsSystemToolAdapter } from "./modules/conversations/system-tool-adapter";
 export { registerWorkflowSystemToolAdapter } from "./modules/workflows/system-tool-adapter";
 export { registerReplicachePokeAdapter } from "./composition/replicache-poke-adapter";

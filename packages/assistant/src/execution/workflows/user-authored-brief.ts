@@ -37,7 +37,7 @@ import {
   toolCardTerminal,
 } from "./tool-card-events";
 import { toolEventOutcome } from "./tool-event-outcome";
-import { writeScratch } from "../../scratchpad";
+import { writeScratch } from "../scratchpad/index";
 import { readIntegrationAvailability } from "@alfred/assistant/connections";
 import { buildConnectedSummaryFromAvailability } from "../connected-summary";
 import { formatDateGrounding } from "../grounding";

@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { type Workflow } from "../../agent";
+import { type Workflow } from "@alfred/assistant/execution";
 import { proposeFact, writeMemoryChunk } from "..";
 import { researchAspects, type AspectFinding } from "./aspects";
 import { extractColdStartFacts, type ColdStartProposal } from "./extract";
