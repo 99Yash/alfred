@@ -499,6 +499,7 @@ describe("workflow readiness", () => {
               accountLabel: "selected@example.com",
               metadata: {
                 watch: {
+                  topic: "projects/example/topics/gmail",
                   expiresAt: "2026-08-01T00:00:00.000Z",
                   baselineHistoryId: "123",
                   installedAt: "2026-07-31T00:00:00.000Z",
@@ -558,6 +559,7 @@ describe("workflow readiness", () => {
                 ...selected,
                 metadata: {
                   watch: {
+                    topic: "projects/example/topics/gmail",
                     expiresAt: "2026-07-30T00:00:00.000Z",
                     baselineHistoryId: "123",
                     installedAt: "2026-07-29T00:00:00.000Z",
@@ -608,6 +610,7 @@ describe("workflow readiness", () => {
                 ...selected,
                 metadata: {
                   watch: {
+                    topic: "projects/example/topics/gmail",
                     expiresAt: "2026-08-01T00:00:00.000Z",
                     baselineHistoryId: "123",
                     installedAt: "2026-07-29T00:00:00.000Z",
@@ -657,6 +660,7 @@ describe("workflow readiness", () => {
                 ...selected,
                 metadata: {
                   watch: {
+                    topic: "projects/example/topics/gmail",
                     expiresAt: "2026-08-01T00:00:00.000Z",
                     baselineHistoryId: "123",
                     installedAt: "2026-07-29T00:00:00.000Z",

@@ -61,33 +61,88 @@ async function notionFetch(
   );
 }
 
-/** A Notion object (page/database/block) — arbitrary keys, extracted defensively. */
-const notionObjectSchema = z.record(z.string(), z.unknown());
-/** A `search`/`children` list response: a `results` array of Notion objects. */
-const notionListSchema = z.object({
-  results: z.array(notionObjectSchema),
+/** A Notion rich-text span. */
+const richTextSchema = z.object({ plain_text: z.string().catch("").optional() });
+type RichText = z.infer<typeof richTextSchema>;
+
+/** The title fields shared by page and database search projections. */
+const notionTitleFieldsSchema = z.object({
+  // Databases carry a top-level title. A malformed title is non-essential and
+  // degrades to empty instead of failing the complete search response.
+  title: z.array(richTextSchema).catch([]).optional(),
+  // Page property names are user-defined. Parse only the property selected by
+  // its `type`, so one unrelated malformed property cannot hide the page.
+  properties: z.record(z.string(), z.unknown()).optional(),
+});
+type NotionTitleFields = z.infer<typeof notionTitleFieldsSchema>;
+
+const notionTitlePropertySchema = z.object({
+  type: z.string(),
+  title: z.array(richTextSchema).catch([]).optional(),
+});
+
+/** One page or database result from `/search`. */
+const notionSearchObjectSchema = notionTitleFieldsSchema.extend({
+  id: z.string(),
+  object: z.string(),
+  url: z.string().nullable().optional(),
+  last_edited_time: z.string().nullable().optional(),
+});
+
+const notionSearchResponseSchema = z.object({
+  results: z.array(notionSearchObjectSchema),
   has_more: z.boolean().optional(),
 });
+
+/** One page response from `GET /pages/:id`. */
+const notionPageSchema = notionTitleFieldsSchema.extend({
+  id: z.string(),
+  url: z.string().nullable().optional(),
+  last_edited_time: z.string().nullable().optional(),
+});
+
+/** The minimal response from `POST /pages`. */
+const notionCreatedPageSchema = z.object({
+  id: z.string(),
+  url: z.string().nullable().optional(),
+});
+
+/** A block keeps its dynamic type payload; search/page projections do not. */
+const notionBlockSchema = z.object({ type: z.string() }).catchall(z.unknown());
+type NotionBlock = z.infer<typeof notionBlockSchema>;
+
+const notionBlockChildrenResponseSchema = z.object({
+  results: z.array(notionBlockSchema),
+  has_more: z.boolean().optional(),
+});
+
+/** The text-bearing payload under a block's type key (paragraph, heading, list item, ...). */
+const textPayloadSchema = z.object({ rich_text: z.array(richTextSchema).optional() });
+
+function paragraphBlock(content: string) {
+  return {
+    object: "block",
+    type: "paragraph",
+    paragraph: { rich_text: content ? [{ type: "text", text: { content } }] : [] },
+  } as const;
+}
+type ParagraphBlock = ReturnType<typeof paragraphBlock>;
 
 /** Notion rejects a single request with more than 100 child blocks. */
 const NOTION_MAX_CHILDREN_PER_REQUEST = 100;
 
-interface RichText {
-  plain_text?: string | undefined;
-}
-
 /** Best-effort plain-title extraction across page (title property) and database (title array) results. */
-function titleOf(result: Record<string, unknown>): string {
+function titleOf(result: NotionTitleFields): string {
   // Database object: `title` is a rich-text array at the top level.
-  const topTitle = result.title;
-  if (Array.isArray(topTitle)) return joinRichText(topTitle as RichText[]);
+  if (result.title !== undefined) return joinRichText(result.title);
   // Page object: find the property whose type is "title".
-  const props = result.properties as
-    | Record<string, { type?: string; title?: RichText[] }>
-    | undefined;
+  const props = result.properties;
   if (props) {
     for (const value of Object.values(props)) {
-      if (value?.type === "title" && Array.isArray(value.title)) return joinRichText(value.title);
+      const parsed = notionTitlePropertySchema.safeParse(value);
+      if (parsed.success && parsed.data.type === "title") {
+        return joinRichText(parsed.data.title ?? []);
+      }
     }
   }
   return "";
@@ -122,19 +177,21 @@ async function notionSearch(
   },
   retry: RetryPolicy | "none",
 ): Promise<NotionSearchResult> {
-  const body: Record<string, unknown> = { page_size: args.pageSize };
-  if (args.query) body.query = args.query;
-  if (args.filter !== "all") body.filter = { value: args.filter, property: "object" };
-  const json = notionListSchema.parse(
+  const body = {
+    page_size: args.pageSize,
+    ...(args.query ? { query: args.query } : {}),
+    ...(args.filter !== "all" ? { filter: { value: args.filter, property: "object" } } : {}),
+  };
+  const json = notionSearchResponseSchema.parse(
     await notionFetch(accessToken, "/search", { method: "POST", body }, retry, true),
   );
   return {
     hits: json.results.map((r) => ({
-      id: String(r.id ?? ""),
-      object: String(r.object ?? ""),
+      id: r.id,
+      object: r.object,
       title: titleOf(r),
-      url: typeof r.url === "string" ? r.url : null,
-      lastEditedTime: typeof r.last_edited_time === "string" ? r.last_edited_time : null,
+      url: r.url ?? null,
+      lastEditedTime: r.last_edited_time ?? null,
     })),
     hasMore: Boolean(json.has_more),
   };
@@ -161,41 +218,34 @@ async function notionGetPage(
     notionFetch(accessToken, `/pages/${id}`, undefined, retry),
     notionFetch(accessToken, `/blocks/${id}/children?page_size=100`, undefined, retry),
   ]);
-  const page = notionObjectSchema.parse(pageRaw);
-  const blocks = notionListSchema.parse(blocksRaw);
+  const page = notionPageSchema.parse(pageRaw);
+  const blocks = notionBlockChildrenResponseSchema.parse(blocksRaw);
   return {
-    id: String(page.id ?? args.pageId),
+    id: page.id,
     title: titleOf(page),
-    url: typeof page.url === "string" ? page.url : null,
-    lastEditedTime: typeof page.last_edited_time === "string" ? page.last_edited_time : null,
+    url: page.url ?? null,
+    lastEditedTime: page.last_edited_time ?? null,
     text: blocks.results.map(blockToText).filter(Boolean).join("\n"),
   };
 }
 
 /** Render the common text-bearing block types to plain text; ignore the rest. */
-function blockToText(block: Record<string, unknown>): string {
-  const type = typeof block.type === "string" ? block.type : "";
-  const payload = block[type] as { rich_text?: RichText[] } | undefined;
-  if (payload?.rich_text && Array.isArray(payload.rich_text))
-    return joinRichText(payload.rich_text);
-  return "";
+function blockToText(block: NotionBlock): string {
+  const payload = textPayloadSchema.safeParse(block[block.type]);
+  return payload.success ? joinRichText(payload.data.rich_text ?? []) : "";
 }
 
 /** Turn newline-separated text into Notion paragraph blocks. */
-function paragraphBlocks(content: string | undefined): Array<Record<string, unknown>> {
+function paragraphBlocks(content: string | undefined): ParagraphBlock[] {
   if (!content) return [];
-  return content.split("\n").map((line) => ({
-    object: "block",
-    type: "paragraph",
-    paragraph: { rich_text: line ? [{ type: "text", text: { content: line } }] : [] },
-  }));
+  return content.split("\n").map(paragraphBlock);
 }
 
 /** PATCH children onto a block in ≤100-block batches (Notion's per-request cap). */
 async function appendChildrenInBatches(
   accessToken: string,
   blockId: string,
-  children: Array<Record<string, unknown>>,
+  children: ParagraphBlock[],
 ): Promise<void> {
   const id = encodeURIComponent(blockId);
   for (let i = 0; i < children.length; i += NOTION_MAX_CHILDREN_PER_REQUEST) {
@@ -222,7 +272,7 @@ async function notionCreatePage(
   // Notion caps a single request at 100 child blocks: create the page with the
   // first batch inline, then PATCH the remainder in further ≤100 batches.
   const children = paragraphBlocks(args.content);
-  const json = notionObjectSchema.parse(
+  const json = notionCreatedPageSchema.parse(
     await notionFetch(accessToken, "/pages", {
       method: "POST",
       body: {
@@ -234,7 +284,7 @@ async function notionCreatePage(
       },
     }),
   );
-  const pageId = String(json.id ?? "");
+  const pageId = json.id;
   if (pageId && children.length > NOTION_MAX_CHILDREN_PER_REQUEST) {
     await appendChildrenInBatches(
       accessToken,
@@ -242,7 +292,7 @@ async function notionCreatePage(
       children.slice(NOTION_MAX_CHILDREN_PER_REQUEST),
     );
   }
-  return { id: pageId, url: typeof json.url === "string" ? json.url : null };
+  return { id: pageId, url: json.url ?? null };
 }
 
 async function notionAppendBlocks(

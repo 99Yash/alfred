@@ -4,6 +4,55 @@ import { describe, test } from "node:test";
 import { createNotionClient } from "../src/notion/client";
 
 describe("Notion configured client", () => {
+  test("keeps additive provider fields isolated and degrades malformed title fragments", async () => {
+    const originalFetch = globalThis.fetch;
+    globalThis.fetch = (async () =>
+      new Response(
+        JSON.stringify({
+          results: [
+            {
+              id: "page_1",
+              object: "page",
+              url: "https://notion.so/page_1",
+              last_edited_time: "2026-08-01T00:00:00.000Z",
+              properties: {
+                Broken: null,
+                Name: {
+                  type: "title",
+                  title: [{ plain_text: "Roadmap", future_field: true }],
+                },
+              },
+              future_top_level_field: { nested: true },
+            },
+            {
+              id: "database_1",
+              object: "database",
+              title: [{ plain_text: null }],
+            },
+          ],
+          has_more: false,
+          future_envelope_field: true,
+        }),
+        { status: 200, headers: { "Content-Type": "application/json" } },
+      )) as typeof fetch;
+
+    try {
+      const result = await createNotionClient(async () => "token").search({
+        filter: "all",
+        pageSize: 10,
+      });
+      assert.deepEqual(
+        result.hits.map(({ id, title }) => ({ id, title })),
+        [
+          { id: "page_1", title: "Roadmap" },
+          { id: "database_1", title: "" },
+        ],
+      );
+    } finally {
+      globalThis.fetch = originalFetch;
+    }
+  });
+
   test("resolves a fresh token for every request and keeps it out of call sites", async () => {
     const originalFetch = globalThis.fetch;
     const authorization: string[] = [];

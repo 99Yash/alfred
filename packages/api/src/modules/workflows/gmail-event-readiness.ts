@@ -1,6 +1,7 @@
 import { getPath, getStringPath, type IntegrationAvailabilitySnapshot } from "@alfred/contracts";
 import { db } from "@alfred/db";
 import { ingestionState } from "@alfred/db/schemas";
+import { readGmailWatchState } from "@alfred/integrations/google";
 import { and, eq } from "drizzle-orm";
 import { pubSubOidcConfigFromEnv } from "../integrations/gmail-push-config";
 
@@ -40,7 +41,7 @@ export async function readGmailEventHealth(
   return new Map(
     (availability.providers.get("google") ?? []).map(({ credentialId, metadata }) => {
       const cursor = cursorByCredential.get(credentialId);
-      const watchTopic = getStringPath(metadata, "watch", "topic");
+      const watchTopic = readGmailWatchState(metadata)?.topic;
       return [
         credentialId,
         {

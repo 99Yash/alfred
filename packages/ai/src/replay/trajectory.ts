@@ -1,4 +1,4 @@
-import { isRecord } from "@alfred/contracts";
+import { getStringPath, isRecord } from "@alfred/contracts";
 
 /**
  * Trajectory extraction + paired diff for agent-run replay (the regression
@@ -32,8 +32,8 @@ export interface TraceObservation {
   output?: unknown;
   level?: string | null; // "DEFAULT" | "ERROR" | ...
   statusMessage?: string | null;
-  /** Tool spans (#214) carry `{ toolCallId, ... }` here; used to reconcile decided↔executed. */
-  metadata?: Record<string, unknown> | null;
+  /** Untrusted provider metadata; tool spans carry `toolCallId` for decided↔executed reconciliation. */
+  metadata?: unknown;
 }
 
 export interface TraceLike {
@@ -115,9 +115,8 @@ function decidedCalls(
   return calls;
 }
 
-function readToolCallId(metadata: Record<string, unknown> | null | undefined): string | undefined {
-  const id = metadata?.toolCallId;
-  return typeof id === "string" ? id : undefined;
+function readToolCallId(metadata: unknown): string | undefined {
+  return getStringPath(metadata, "toolCallId");
 }
 
 export function extractTrajectory(trace: TraceLike): Trajectory {
