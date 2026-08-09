@@ -870,16 +870,19 @@ async function commitStepSuccessTx(
       await tx
         .insert(agentDecisionTraces)
         .values(
-          traces.map((t) => ({
-            runId: run.id,
-            userId: run.userId,
-            workflowSlug: run.workflowSlug,
-            stepId,
-            attempt,
-            kind: t.kind,
-            decisionKey: t.decisionKey,
-            trace: sanitizeToolResult(t.record).value as object,
-          })),
+          traces.map((t) => {
+            const trace = t as any;
+            return {
+              runId: run.id,
+              userId: run.userId,
+              workflowSlug: run.workflowSlug,
+              stepId,
+              attempt,
+              kind: trace.kind,
+              decisionKey: trace.decisionKey,
+              trace: sanitizeToolResult(trace.record).value as object,
+            };
+          }),
         )
         .onConflictDoNothing();
     }
