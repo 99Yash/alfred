@@ -11,7 +11,7 @@ import { inArray, like } from "drizzle-orm";
 import { closeReplicachePokeBridge } from "../../src/events/replicache-events";
 import { gatherBriefingWithSuppressionAudit } from "../../src/modules/briefing/gather";
 import { isQuietMorning } from "../../src/modules/briefing/read";
-import { closeRedis } from "../../src/queue/connection";
+import { closeRedis } from "@alfred/db/redis";
 
 /**
  * End-to-end coverage of the morning suppression chain the daily-briefing

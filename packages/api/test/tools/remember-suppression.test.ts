@@ -10,7 +10,7 @@ import { eq, inArray, like } from "drizzle-orm";
 
 import { closeReplicachePokeBridge } from "../../src/events/replicache-events";
 import { rememberSenderSuppression } from "../../src/modules/knowledge";
-import { closeRedis } from "../../src/queue/connection";
+import { closeRedis } from "@alfred/db/redis";
 import { rememberSenderSuppressionAndDismissTodos } from "../../src/modules/tools/remember-suppression";
 
 function hasDatabaseUrl(): boolean {

@@ -1,5 +1,5 @@
 import type IORedis from "ioredis";
-import { createCacheRedisConnection } from "../../queue/connection";
+import { createCacheRedisConnection } from "@alfred/db/redis";
 
 /**
  * User-initiated stop for an in-flight chat turn — what the composer's stop

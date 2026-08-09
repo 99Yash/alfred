@@ -10,7 +10,7 @@ import { inArray, like } from "drizzle-orm";
 import { closeReplicachePokeBridge } from "../../src/events/replicache-events";
 import { gatherDayShape } from "../../src/modules/briefing/gather";
 import { objectStateStore } from "@alfred/assistant/connections";
-import { closeRedis } from "../../src/queue/connection";
+import { closeRedis } from "@alfred/db/redis";
 
 /**
  * Characterization of `gatherDayShape` (ADR-0064 / #230) — the deterministic

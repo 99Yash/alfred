@@ -19,7 +19,7 @@ import { renderApprovalEmail, type ApprovalEmailField } from "@alfred/mailer";
 import { and, eq, sql } from "drizzle-orm";
 import { Worker, type Job } from "bullmq";
 import { emitReplicachePokes } from "../../events/replicache-events";
-import { createRedisConnection } from "../../queue/connection";
+import { createRedisConnection } from "@alfred/db/redis";
 import { send } from "@alfred/assistant/delivery";
 import {
   APPROVAL_NOTIFICATION_QUEUE_NAME,

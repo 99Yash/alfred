@@ -28,7 +28,7 @@ import { agentRunContext, type AgentRunContextRow } from "@alfred/db/schemas";
 import { sql } from "drizzle-orm";
 import type IORedis from "ioredis";
 import { z } from "zod";
-import { createRedisConnection } from "../../queue/connection";
+import { createRedisConnection } from "@alfred/db/redis";
 import {
   buildScratchPromoteSpanInput,
   buildScratchReadSpanInput,

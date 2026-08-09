@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { describe, test } from "node:test";
 
-import { workflowOccurrenceKey } from "../../src/lib/workflow-occurrence";
+import { workflowOccurrenceKey } from "@alfred/db/workflow-occurrence";
 
 describe("durable workflow occurrence identity (#558)", () => {
   test("cron identity includes the pinned revision and scheduled instant", () => {

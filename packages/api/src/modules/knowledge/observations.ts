@@ -2,7 +2,7 @@ import { db } from "@alfred/db";
 import { observationFamilyHeads, observations, type Observation } from "@alfred/db/schemas";
 import { observationInsertSchema, type ObservationInsertInput } from "@alfred/contracts";
 import { and, eq, sql, type SQL } from "drizzle-orm";
-import { PG_UNIQUE_VIOLATION, pgErrorChain } from "../../lib/pg-errors";
+import { PG_UNIQUE_VIOLATION, pgErrorChain } from "@alfred/db/pg-errors";
 import { type DbExecutor } from "./executor";
 
 /**

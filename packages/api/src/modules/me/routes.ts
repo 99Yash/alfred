@@ -41,7 +41,7 @@ import {
 } from "drizzle-orm";
 import { Elysia, t } from "elysia";
 import { authMacro } from "../../middleware/auth";
-import { createCacheRedisConnection } from "../../queue/connection";
+import { createCacheRedisConnection } from "@alfred/db/redis";
 import { resolveBriefingPreferences } from "../briefing/preferences";
 import { enqueueBriefingRun } from "../briefing/queue";
 import { notSentGmailDocumentWhere } from "../triage/sent-mail";

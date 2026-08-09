@@ -18,7 +18,7 @@ import {
   registerTool,
   type RegisteredTool,
 } from "../../src/modules/tools/registry";
-import { closeRedis } from "../../src/queue/connection";
+import { closeRedis } from "@alfred/db/redis";
 
 const startedAt = new Date("2026-06-29T00:00:00.000Z");
 

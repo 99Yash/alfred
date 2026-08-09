@@ -27,9 +27,9 @@ import { and, asc, eq, inArray, notInArray, sql } from "drizzle-orm";
 import { Elysia, t } from "elysia";
 import { emitReplicachePokes } from "../../events/replicache-events";
 import { authMacro } from "../../middleware/auth";
-import { createCacheRedisConnection } from "../../queue/connection";
+import { createCacheRedisConnection } from "@alfred/db/redis";
 import { getRun, persistChatTurnRunInTx, redeliverRun } from "../agent";
-import { uniqueViolationConstraint } from "../../lib/pg-errors";
+import { uniqueViolationConstraint } from "@alfred/db/pg-errors";
 import { enqueuePendingUploadCleanup } from "../integrations";
 import {
   assertAttachmentBatchAllowed,
