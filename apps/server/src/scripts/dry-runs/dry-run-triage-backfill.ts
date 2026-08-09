@@ -28,15 +28,10 @@ import {
   senderKeyFor,
   todoSuppressionReason,
 } from "@alfred/api/backend";
-import { toStringArray, toMessage } from "@alfred/contracts";
+import { toMessage } from "@alfred/contracts";
 import { db } from "@alfred/db";
 import { documents, todos, user as userTable } from "@alfred/db/schemas";
 import { and, desc, eq } from "drizzle-orm";
-
-function metaStr(meta: Record<string, unknown>, key: string): string | null {
-  const v = meta[key];
-  return typeof v === "string" ? v : null;
-}
 
 async function main() {
   const rows = await db()
@@ -100,14 +95,14 @@ async function main() {
     }
 
     const scResult = extractSenderContext({
-      fromHeader: metaStr(ctxData.document.metadata, "from"),
+      fromHeader: ctxData.document.metadata.from ?? null,
       subject: ctxData.document.title,
       body: ctxData.document.content,
     });
     const senderContext = scResult.context;
     const senderKey = senderKeyFor(senderContext, scResult.senderAddress);
     const meta = ctxData.document.metadata;
-    const labelIds = toStringArray(meta.labelIds);
+    const labelIds = meta.labelIds ?? [];
     const isHumanSender = senderContext.effectiveAuthor === "person";
     const [senderPrior, thread, senderKind] = await Promise.all([
       senderKey ? getSenderPrior(t.userId, senderKey).catch(() => null) : Promise.resolve(null),
@@ -135,10 +130,10 @@ async function main() {
       }).catch(() => ({ descriptor: null, isColdContact: false })),
     ]);
     const signalText = [
-      metaStr(meta, "from"),
-      metaStr(meta, "to"),
-      metaStr(meta, "cc"),
-      metaStr(meta, "snippet"),
+      meta.from,
+      meta.to,
+      meta.cc,
+      meta.snippet,
       ctxData.document.title,
       ctxData.document.content,
       ...labelIds,
@@ -194,7 +189,7 @@ async function main() {
     );
     const suppression = resolved
       ? todoSuppressionReason({
-          sender: metaStr(ctxData.document.metadata, "from"),
+          sender: ctxData.document.metadata.from ?? null,
           subject: ctxData.document.title,
           signalText,
           collabActivity: classification.collabActivity ?? null,

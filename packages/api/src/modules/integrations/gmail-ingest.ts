@@ -1,4 +1,9 @@
-import { isRecord, mapConcurrent, toMessage } from "@alfred/contracts";
+import {
+  gmailDocumentMetadataSchema,
+  mapConcurrent,
+  parseGmailDocumentMetadata,
+  toMessage,
+} from "@alfred/contracts";
 import { indexDocument } from "@alfred/corpus";
 import { db } from "@alfred/db";
 import { documents, ingestionState, integrationCredentials } from "@alfred/db/schemas";
@@ -299,7 +304,7 @@ async function persistMessage(
       contentHash,
       raw: message,
       authoredAt: extracted.date ?? internalDateToDate(message.internalDate),
-      metadata: {
+      metadata: gmailDocumentMetadataSchema.parse({
         from: extracted.from,
         to: extracted.to,
         cc: extracted.cc,
@@ -309,7 +314,7 @@ async function persistMessage(
         historyId: message.historyId,
         sizeEstimate: message.sizeEstimate,
         snippet: message.snippet,
-      },
+      }),
     })
     .onConflictDoNothing({
       target: [documents.userId, documents.source, documents.sourceId],
@@ -985,10 +990,8 @@ async function partitionKnownGmailRefs(
 }
 
 function isStoredGmailSentMetadata(metadata: unknown): boolean {
-  if (!isRecord(metadata)) return false;
-  if (metadata.isSent === true) return true;
-  const labelIds = metadata.labelIds;
-  return Array.isArray(labelIds) && labelIds.includes("SENT");
+  const parsed = parseGmailDocumentMetadata(metadata);
+  return parsed.isSent === true || parsed.labelIds?.includes("SENT") === true;
 }
 
 /** Return added message ids from a history entry. We dedupe upstream via Set. */

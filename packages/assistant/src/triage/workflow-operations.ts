@@ -38,8 +38,8 @@ import type { StepContext, StepResult } from "@alfred/assistant/execution";
 import {
   gmailTodoSources,
   isHttpError,
-  toStringArray,
   type AccountPersona,
+  type GmailDocumentMetadata,
   type SenderContext,
   toMessage,
 } from "@alfred/contracts";
@@ -183,7 +183,7 @@ export async function runEmailTriageClassify<State extends EmailTriageOperationS
   }
 
   const senderContextResult = extractSenderContext({
-    fromHeader: metadataString(ctxData.document.metadata, "from"),
+    fromHeader: ctxData.document.metadata.from ?? null,
     subject: ctxData.document.title,
     body: ctxData.document.content,
   });
@@ -285,8 +285,7 @@ export async function runEmailTriageClassify<State extends EmailTriageOperationS
     if (nextTodoSuggestion) {
       try {
         nextStandingSuppression = await findActiveSenderSuppression(ctx.userId, {
-          senderEmail:
-            senderContextResult.senderAddress ?? metadataString(ctxData.document.metadata, "from"),
+          senderEmail: senderContextResult.senderAddress ?? ctxData.document.metadata.from ?? null,
           accountId: ctxData.document.accountId,
           effect: "block_todo_suggestion",
         });
@@ -528,7 +527,7 @@ export async function runEmailTriageClassify<State extends EmailTriageOperationS
           userId: ctx.userId,
           senderKey,
           category: classification.category,
-          displayName: metadataString(ctxData.document.metadata, "from"),
+          displayName: ctxData.document.metadata.from ?? null,
         });
       } catch (err) {
         await ctx.log(`sender_prior write failed (non-fatal): ${toMessage(err)}`);
@@ -555,12 +554,12 @@ export async function runEmailTriageClassify<State extends EmailTriageOperationS
   // HIL approval mail, mints no rail todo even when the model proposed one.
   const suppression = todoSuggestion
     ? todoSuppressionReason({
-        sender: metadataString(ctxData.document.metadata, "from"),
+        sender: ctxData.document.metadata.from ?? null,
         subject: ctxData.document.title,
         signalText: [
           ctxData.document.title,
           ctxData.document.content,
-          metadataString(ctxData.document.metadata, "snippet"),
+          ctxData.document.metadata.snippet ?? null,
         ]
           .filter(Boolean)
           .join("\n"),
@@ -610,7 +609,7 @@ export async function runEmailTriageClassify<State extends EmailTriageOperationS
         sources: gmailTodoSources({
           threadId: sourceThreadId,
           subject: ctxData.document.title,
-          sender: metadataString(ctxData.document.metadata, "from"),
+          sender: ctxData.document.metadata.from ?? null,
         }),
       });
       await ctx.log(
@@ -705,11 +704,6 @@ export async function runEmailTriageApplyLabel<State extends EmailTriageOperatio
   };
 }
 
-function metadataString(metadata: Record<string, unknown>, key: string): string | null {
-  const value = metadata[key];
-  return typeof value === "string" && value.trim() ? value : null;
-}
-
 type SentDocumentStatus =
   | { kind: "not-sent" }
   | { kind: "missing" }
@@ -740,7 +734,7 @@ async function sentDocumentStatusAtClassifyTime(
   // Only pay the Gmail round trip when the stored "not sent" could actually be
   // wrong (#439) — see `mayBeUnflaggedSentMail` for the disproof.
   const ambiguous = mayBeUnflaggedSentMail({
-    fromHeader: metadataString(ctxData.document.metadata, "from"),
+    fromHeader: ctxData.document.metadata.from ?? null,
     // `identity.mailboxAddress`, never `identity.email`: the latter falls back
     // to the user's primary app email, which would turn a secondary mailbox's
     // own sent mail into "third party" and skip the guard for that whole
@@ -777,13 +771,13 @@ async function gatherObservations(args: {
   userId: string;
   documentId: string;
   sourceThreadId: string;
-  document: { title: string | null; content: string; metadata: Record<string, unknown> };
+  document: { title: string | null; content: string; metadata: GmailDocumentMetadata };
   persona: AccountPersona | null;
   senderContext: SenderContext;
   senderAddress: string | null;
 }): Promise<Observations> {
   const meta = args.document.metadata;
-  const labelIds = toStringArray(meta.labelIds);
+  const labelIds = meta.labelIds ?? [];
 
   // Read key uses the same derivation as the write key (humans → null) but no
   // sent/fallback guard: reads are harmless and the classify step only runs on
@@ -829,10 +823,10 @@ async function gatherObservations(args: {
   ]);
 
   const signalText = [
-    metadataString(meta, "from"),
-    metadataString(meta, "to"),
-    metadataString(meta, "cc"),
-    metadataString(meta, "snippet"),
+    meta.from,
+    meta.to,
+    meta.cc,
+    meta.snippet,
     args.document.title,
     args.document.content,
     ...labelIds,

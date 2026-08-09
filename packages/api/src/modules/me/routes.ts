@@ -5,7 +5,7 @@ import {
   Errors,
   getPath,
   isUsageRunCategory,
-  toRecord,
+  parseGmailDocumentMetadata,
   toStringArray,
   type BriefingSlot,
   type UsageRunCategory,
@@ -476,14 +476,14 @@ export const meRoutes = new Elysia({ prefix: "/api/me", normalize: "typebox" })
           const pageRows = hasMore ? rows.slice(0, limit) : rows;
 
           const items: MeInboxItem[] = pageRows.map((r) => {
-            const meta = toRecord(r.metadata);
-            const labelIds = toStringArray(meta.labelIds);
+            const meta = parseGmailDocumentMetadata(r.metadata);
+            const labelIds = meta.labelIds ?? [];
             return {
               documentId: r.documentId,
               threadId: r.threadId ?? null,
-              sender: typeof meta.from === "string" ? meta.from : null,
+              sender: meta.from ?? null,
               subject: r.subject ?? null,
-              snippet: typeof meta.snippet === "string" ? meta.snippet : null,
+              snippet: meta.snippet ?? null,
               authoredAt: r.authoredAt?.toISOString() ?? null,
               unread: labelIds.includes("UNREAD"),
               category: r.category ?? null,
@@ -565,8 +565,8 @@ export const meRoutes = new Elysia({ prefix: "/api/me", normalize: "typebox" })
             .orderBy(asc(documents.authoredAt), asc(documents.id));
 
           const messages: MeInboxMessage[] = threadRows.map((row) => {
-            const meta = toRecord(row.metadata);
-            const labelIds = toStringArray(meta.labelIds);
+            const meta = parseGmailDocumentMetadata(row.metadata);
+            const labelIds = meta.labelIds ?? [];
             // `documents.raw` is the verbatim Gmail message we stored at
             // ingest (schema-validated then). Cast back to `GmailMessage`
             // rather than re-running zod per request — the shape is fixed
@@ -576,11 +576,11 @@ export const meRoutes = new Elysia({ prefix: "/api/me", normalize: "typebox" })
             const rawHtml = raw ? extractMessageHtml(raw) : null;
             return {
               documentId: row.documentId,
-              sender: typeof meta.from === "string" ? meta.from : null,
-              to: typeof meta.to === "string" ? meta.to : null,
-              cc: typeof meta.cc === "string" ? meta.cc : null,
+              sender: meta.from ?? null,
+              to: meta.to ?? null,
+              cc: meta.cc ?? null,
               subject: row.subject ?? null,
-              snippet: typeof meta.snippet === "string" ? meta.snippet : null,
+              snippet: meta.snippet ?? null,
               body: normalizeBodyForReader(row.content ?? ""),
               htmlBody: sanitizeEmailHtml(rawHtml),
               authoredAt: row.authoredAt?.toISOString() ?? null,
@@ -642,8 +642,8 @@ export const meRoutes = new Elysia({ prefix: "/api/me", normalize: "typebox" })
             );
 
           const unreadRows = rows.filter((r) => {
-            const meta = toRecord(r.metadata);
-            const labelIds = toStringArray(meta.labelIds);
+            const meta = parseGmailDocumentMetadata(r.metadata);
+            const labelIds = meta.labelIds ?? [];
             return labelIds.includes("UNREAD");
           });
           if (unreadRows.length === 0) return { marked: 0 };
