@@ -7,7 +7,7 @@ import { user } from "@alfred/db/schemas";
 import { inArray, like } from "drizzle-orm";
 
 import { resolveBriefingPreferences } from "../../src/modules/briefing/preferences";
-import { setPreference } from "../../src/modules/settings";
+import { setPreference } from "@alfred/assistant/settings";
 
 /**
  * DB-backed integration test for `briefing.resolveBriefingPreferences` — the

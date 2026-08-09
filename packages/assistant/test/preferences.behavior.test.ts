@@ -7,12 +7,7 @@ import { closeConnections, db } from "@alfred/db";
 import { user } from "@alfred/db/schemas";
 import { inArray, like } from "drizzle-orm";
 
-import {
-  deletePreference,
-  getPreference,
-  getPreferences,
-  setPreference,
-} from "../../src/modules/settings";
+import { deletePreference, getPreference, getPreferences, setPreference } from "../src/settings";
 
 /**
  * DB-backed integration test for the `settings` preference gateway — the four
