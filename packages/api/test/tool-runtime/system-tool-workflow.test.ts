@@ -7,7 +7,7 @@ import {
   recoverWorkflow,
   registerSystemToolWorkflowAdapter,
   type SystemToolWorkflowAdapter,
-} from "../../src/modules/tool-runtime";
+} from "@alfred/assistant/tool-runtime";
 
 // The seam owns no behavior: it forwards each op to the registered adapter and
 // returns its result unchanged. These tests pin exactly that — a missing

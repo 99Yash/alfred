@@ -9,7 +9,7 @@ import {
   restoreToolSurface,
   selectToolPreload,
   toolNamesForIntegrations,
-} from "../../src/modules/tool-runtime";
+} from "@alfred/assistant/tool-runtime";
 import { liveTool, registerTools } from "../../src/modules/tools/registry";
 import { resetToolFixtures } from "../lib/tool-fixtures";
 

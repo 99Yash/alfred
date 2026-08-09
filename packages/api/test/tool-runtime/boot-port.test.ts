@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { describe, test } from "node:test";
 
-import { bootPort } from "../../src/modules/tool-runtime/boot-port";
+import { bootPort } from "@alfred/assistant/tool-runtime/boot-port";
 
 // The factory owns the one identity-guard idiom every boot-seam shares: a slot
 // the composition root installs once, a peer reads, and a disposer that clears

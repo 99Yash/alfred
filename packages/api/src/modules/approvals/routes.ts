@@ -10,7 +10,7 @@ import {
   removeApprovalExpiryJob,
   removeApprovalNotificationJob,
   scheduleApprovalExpiryJob,
-} from "../tool-runtime";
+} from "@alfred/assistant/tool-runtime";
 import { startApprovalWaitSpan, type ApprovalWaitOutcome } from "../agent/runtime-spans";
 import { Errors, toMessage } from "@alfred/contracts";
 import {

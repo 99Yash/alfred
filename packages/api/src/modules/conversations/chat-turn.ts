@@ -23,10 +23,10 @@ import { chatMessages } from "@alfred/db/schemas";
 import { and, asc, eq } from "drizzle-orm";
 import { publishEvent } from "@alfred/assistant/triggers";
 import { logger } from "@alfred/logging";
-import { buildThreadArtifactsContext } from "../artifacts";
+import { buildThreadArtifactsContext } from "@alfred/assistant/artifacts";
 import { readIntegrationAvailability } from "@alfred/assistant/connections";
 import { resolveTimezone } from "@alfred/assistant/settings";
-import { executeToolCallRound } from "../tool-runtime";
+import { executeToolCallRound } from "@alfred/assistant/tool-runtime";
 import {
   appendModelResponseMessages,
   buildConnectedSummaryFromAvailability,

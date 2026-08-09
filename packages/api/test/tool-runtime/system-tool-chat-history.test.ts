@@ -7,7 +7,7 @@ import {
   readChatHistory,
   registerSystemToolChatHistoryAdapter,
   type SystemToolChatHistoryAdapter,
-} from "../../src/modules/tool-runtime";
+} from "@alfred/assistant/tool-runtime";
 
 // The chat-history seam owns no behavior: it forwards `readChatHistory` to the
 // registered adapter and returns its result unchanged. This port split out of

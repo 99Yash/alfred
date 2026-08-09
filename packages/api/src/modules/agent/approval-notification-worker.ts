@@ -25,7 +25,7 @@ import {
   APPROVAL_NOTIFICATION_QUEUE_NAME,
   approvalNotificationJobDataSchema,
   type ApprovalNotificationJobData,
-} from "../tool-runtime";
+} from "@alfred/assistant/tool-runtime";
 
 let _worker: Worker<ApprovalNotificationJobData> | undefined;
 

@@ -3,8 +3,8 @@ import { describe, test } from "node:test";
 
 import type { RuntimeSpanEndArgs, RuntimeSpanInput } from "@alfred/ai";
 
-import type { ToolCallRun } from "../../src/modules/tool-runtime";
-import type { ToolCallDispatchResult } from "../../src/modules/tool-runtime/internal/adapter";
+import type { ToolCallRun } from "@alfred/assistant/tool-runtime";
+import type { ToolCallDispatchResult } from "@alfred/assistant/tool-runtime/internal/adapter";
 import {
   RUNTIME_TOOL_LOAD,
   RUNTIME_TOOL_SEARCH,
@@ -15,7 +15,7 @@ import {
   startToolCallBatchSpan,
   startToolLoadSpan,
   startToolSearchSpan,
-} from "../../src/modules/tool-runtime/internal/runtime-spans";
+} from "@alfred/assistant/tool-runtime/internal/runtime-spans";
 
 // The batch summary only reads `.kind`, so a minimal typed literal is enough to
 // exercise the count buckets without a live registry/dispatch.

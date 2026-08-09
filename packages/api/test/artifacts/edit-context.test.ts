@@ -20,8 +20,8 @@ import {
 import {
   artifactContentHash,
   artifactReplacementMatchesBase,
-} from "../../src/modules/artifacts/content-hash";
-import { buildArtifactReference } from "../../src/modules/artifacts/read";
+} from "@alfred/assistant/artifacts/content-hash";
+import { buildArtifactReference } from "@alfred/assistant/artifacts/read";
 
 const documentContent = { kind: "document" as const, markdown: "Current body" };
 const artifactReferenceSchema = z

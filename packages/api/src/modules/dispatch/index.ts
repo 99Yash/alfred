@@ -63,7 +63,7 @@ import {
   joinToolInput,
   registerToolCallRoundAdapter,
   type ToolCallDispatchArgs,
-} from "../tool-runtime";
+} from "@alfred/assistant/tool-runtime";
 import {
   APP_ERROR_REGISTRY,
   isAppErrorCode,
@@ -76,7 +76,10 @@ import { normalizeToolInputKeys } from "./normalize-keys";
 import { emitReplicachePokes } from "@alfred/assistant/triggers";
 import { resolveApprovalNotifyDelayMs, resolvePolicyMode } from "../action-policies/resolve";
 import { joinChildRun } from "../agent/sub-agent-join";
-import { scheduleApprovalExpiryJob, scheduleApprovalNotificationJob } from "../tool-runtime";
+import {
+  scheduleApprovalExpiryJob,
+  scheduleApprovalNotificationJob,
+} from "@alfred/assistant/tool-runtime";
 import { parseScratchToolKey, type ScratchToolKey } from "../tools/scratch-key";
 import {
   countRunPassthroughCalls,

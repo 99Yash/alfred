@@ -16,7 +16,7 @@ export {
 export {
   closeApprovalExpiryQueue,
   closeApprovalNotificationQueue,
-} from "./modules/tool-runtime/index";
+} from "@alfred/assistant/tool-runtime";
 export {
   startApprovalExpiryWorker,
   startApprovalNotificationWorker,

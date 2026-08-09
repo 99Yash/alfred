@@ -1,4 +1,7 @@
-import { registerSystemToolWorkflowAdapter, type SystemToolWorkflowAdapter } from "../tool-runtime";
+import {
+  registerSystemToolWorkflowAdapter,
+  type SystemToolWorkflowAdapter,
+} from "@alfred/assistant/tool-runtime";
 import { authorWorkflowDraft } from "./authoring";
 import { workflowRecoveryNavigation } from "./recovery-navigation";
 import type { WorkflowReadinessProblem } from "./readiness";
