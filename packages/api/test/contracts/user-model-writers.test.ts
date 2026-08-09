@@ -30,7 +30,7 @@ import {
   startProjectionRun,
   userModelReader,
   writeProjectionCursor,
-} from "../../src/modules/knowledge";
+} from "@alfred/assistant/knowledge";
 
 /**
  * DB-backed behavior test for the ADR-0067 P1 WRITE BOUNDARY + read surface — the

@@ -204,23 +204,3 @@ export async function reconcileThreadLabel(
     };
   });
 }
-
-/**
- * Enqueue a `triage.relabel` job for one thread. Called from the Replicache
- * push handler after commit when a `triageTagOverride` mutation applied.
- * Best-effort — a failed enqueue logs and is retried by the next override.
- */
-export async function enqueueTriageRelabel(userId: string, sourceThreadId: string): Promise<void> {
-  const { getIngestionQueue } = await import("../integrations/queue");
-  const queue = getIngestionQueue();
-  await queue.add(
-    "triage.relabel",
-    { kind: "triage.relabel", userId, sourceThreadId },
-    {
-      deduplication: {
-        id: `triage.relabel.${userId}.${sourceThreadId}`,
-        keepLastIfActive: true,
-      },
-    },
-  );
-}

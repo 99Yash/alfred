@@ -7,7 +7,7 @@ import {
   SYSTEM_PROMPT,
   type GenerateObject,
   type ThreadTurn,
-} from "../../src/modules/knowledge/extractor";
+} from "@alfred/assistant/knowledge/extractor";
 
 /**
  * Pins the pure surface of the chat→memory extractor (#398): transcript

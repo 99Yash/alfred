@@ -10,7 +10,7 @@ import { and, eq, inArray, like } from "drizzle-orm";
 import { runOnce } from "@alfred/assistant/execution/executor";
 import { _resetRegistryForTests, registerRecipe } from "@alfred/assistant/execution/registry";
 import type { StepResult, Workflow } from "@alfred/assistant/execution/types";
-import { upsertTriage, type SenderExtractionEvent } from "../../src/modules/triage";
+import { upsertTriage, type SenderExtractionEvent } from "@alfred/assistant/triage";
 
 function hasDatabaseUrl(): boolean {
   try {

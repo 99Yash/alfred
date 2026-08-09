@@ -6,7 +6,7 @@ import {
   RELATIONSHIP_READ_FAILED,
   isColdContactFromSignals,
   type SenderSignificanceBucket,
-} from "../../src/modules/triage/sender-relationship";
+} from "@alfred/assistant/triage/sender-relationship";
 
 // ---------------------------------------------------------------------------
 // isColdContactFromSignals — the producer of the typed rule-16b cold-contact

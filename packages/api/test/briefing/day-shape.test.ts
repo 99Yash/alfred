@@ -8,7 +8,7 @@ import { databaseEnv } from "@alfred/env/database";
 import { inArray, like } from "drizzle-orm";
 
 import { closeReplicachePokeBridge } from "../../src/events/replicache-events";
-import { gatherDayShape } from "../../src/modules/briefing/gather";
+import { gatherDayShape } from "@alfred/assistant/briefings/gather";
 import { objectStateStore } from "@alfred/assistant/connections";
 import { closeRedis } from "@alfred/db/redis";
 

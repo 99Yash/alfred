@@ -13,7 +13,7 @@ import {
   reduceGmailDocument,
   refoldActiveGmailKindProjection,
   type GmailDocumentForReduction,
-} from "../modules/knowledge";
+} from "@alfred/assistant/knowledge";
 
 const OBSERVATION_QUERY_CHUNK_SIZE = 1000;
 

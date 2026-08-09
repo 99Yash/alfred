@@ -11,7 +11,7 @@ import {
 import {
   buildBriefingSourcePanels,
   renderBriefingEmailHtml,
-} from "../../src/modules/briefing/references";
+} from "@alfred/assistant/briefings/references";
 
 /**
  * Characterization of the two server-side halves of `briefing/references.ts`

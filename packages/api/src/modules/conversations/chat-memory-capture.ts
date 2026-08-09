@@ -8,7 +8,7 @@ import {
   buildThreadTranscript,
   extractPropositionsFromThread,
   type ThreadTurn,
-} from "../knowledge";
+} from "@alfred/assistant/knowledge";
 import { CHAT_MEMORY_CAPTURE_WORKFLOW_SLUG } from "./idle-capture-queue";
 
 /**

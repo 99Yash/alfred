@@ -7,7 +7,7 @@ import {
   collectSurfacedKeys,
   collectSurfacedLoopKeys,
   collectSurfacedThreadIds,
-} from "../../src/modules/briefing/read";
+} from "@alfred/assistant/briefings/read";
 import { deriveLoopKey } from "@alfred/contracts";
 
 /**

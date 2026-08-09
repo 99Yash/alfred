@@ -37,7 +37,7 @@ import { isUninformativeRelationshipFact, rejectFact } from "@alfred/api/backend
 import {
   isServiceSender,
   isUninformativeRelationshipValue,
-} from "@alfred/api/modules/knowledge/internal";
+} from "@alfred/assistant/knowledge/internal";
 import { warmPool } from "@alfred/api/runtime";
 import { closeScriptResources } from "../script-runtime";
 import { RELATIONSHIP_FACT_PREFIX, toMessage } from "@alfred/contracts";

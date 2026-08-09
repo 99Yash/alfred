@@ -45,7 +45,7 @@ export type {
   TriageDocumentContext,
 } from "./store";
 
-export { reconcileThreadLabel, enqueueTriageRelabel } from "./tags";
+export { reconcileThreadLabel } from "./tags";
 export type { ReconcileResult, ReconcileThreadLabelArgs } from "./tags";
 export {
   reconcileGmailThreads,
