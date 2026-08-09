@@ -8,9 +8,10 @@ import {
   user,
   type EmailTriage,
 } from "@alfred/db/schemas";
-import { sanitizeToolResult, toRecord } from "@alfred/contracts";
+import { parseGmailDocumentMetadata, sanitizeToolResult } from "@alfred/contracts";
 import type {
   AccountPersona,
+  GmailDocumentMetadata,
   SignificanceBand,
   TriageCategory,
   TriageTodoDecision,
@@ -400,7 +401,7 @@ export interface TriageDocumentContext {
     title: string | null;
     content: string;
     authoredAt: Date | null;
-    metadata: Record<string, unknown>;
+    metadata: GmailDocumentMetadata;
   };
   /** Resolved Gmail credential for the doc's account. */
   credentialId: string;
@@ -493,7 +494,7 @@ export async function loadTriageContext(
       title: doc.title,
       content: doc.content,
       authoredAt: doc.authoredAt,
-      metadata: toRecord(doc.metadata),
+      metadata: parseGmailDocumentMetadata(doc.metadata),
     },
     credentialId: cred.id,
     persona: cred.persona ?? null,

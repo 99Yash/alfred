@@ -1,4 +1,4 @@
-import { parseEmailAddress, toStringArray } from "@alfred/contracts";
+import { parseEmailAddress, parseGmailDocumentMetadata } from "@alfred/contracts";
 import { documents } from "@alfred/db/schemas";
 import { sql, type SQL } from "drizzle-orm";
 
@@ -18,10 +18,9 @@ import { sql, type SQL } from "drizzle-orm";
 const SENT_LABEL = "SENT";
 
 /** JS predicate over a document's `metadata` object. */
-export function isSentGmailMetadata(metadata: Record<string, unknown> | null | undefined): boolean {
-  const meta = metadata ?? {};
-  const labelIds = toStringArray(meta.labelIds);
-  return meta.isSent === true || labelIds.some((label) => label === SENT_LABEL);
+export function isSentGmailMetadata(metadata: unknown): boolean {
+  const meta = parseGmailDocumentMetadata(metadata);
+  return meta.isSent === true || meta.labelIds?.some((label) => label === SENT_LABEL) === true;
 }
 
 /**

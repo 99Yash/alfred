@@ -12,8 +12,8 @@ import type {
 import {
   isLoopClosingCategory,
   isRecord,
+  parseGmailDocumentMetadata,
   toMessage,
-  toRecord,
   toStringArray,
   weatherFallbackFor,
 } from "@alfred/contracts";
@@ -248,7 +248,7 @@ export async function gatherBriefingDigest(
 
   for (const r of rows) {
     const cat = r.category;
-    const meta = toRecord(r.metadata);
+    const meta = parseGmailDocumentMetadata(r.metadata);
 
     if (isSuppressed(cat)) {
       suppressedCounts[cat] += 1;
@@ -256,7 +256,7 @@ export async function gatherBriefingDigest(
     }
     if (!isPriority(cat)) continue;
 
-    const from = typeof meta.from === "string" ? meta.from : null;
+    const from = meta.from ?? null;
     const instructionSuppression = findSenderSuppression(suppressionInstructions, {
       senderEmail: from,
       accountId: r.accountId,
@@ -280,7 +280,7 @@ export async function gatherBriefingDigest(
       rationale: r.rationale,
       subject: r.title,
       from: from,
-      snippet: typeof meta.snippet === "string" ? meta.snippet : null,
+      snippet: meta.snippet ?? null,
       authoredAt: r.authoredAt,
       threadUrl: r.sourceThreadId ? gmailThreadUrl(r.sourceThreadId) : null,
     });
