@@ -9,8 +9,10 @@
     "check-types": "tsc -b --emitDeclarationOnly && tsc -p tsconfig.test.json"
   },
   "dependencies": {
+    "@alfred/assistant": "workspace:*",
     "@alfred/auth": "workspace:*",
     "@alfred/contracts": "workspace:*",
+    "@alfred/db": "workspace:*",
     "elysia": "catalog:"
   },
   "devDependencies": {
