@@ -44,7 +44,7 @@ import { db, type DbRoot } from "@alfred/db";
 import { integrationCredentials, observationFamilyHeads } from "@alfred/db/schemas";
 import { createHash } from "node:crypto";
 import { and, eq } from "drizzle-orm";
-import { uniqueViolationConstraint } from "../../lib/pg-errors";
+import { uniqueViolationConstraint } from "@alfred/db/pg-errors";
 import { insertObservation } from "./observations";
 import { type DbExecutor } from "./executor";
 

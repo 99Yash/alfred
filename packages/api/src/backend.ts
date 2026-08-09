@@ -3,7 +3,7 @@ export { emitReplicachePokes } from "./events/replicache-events";
 export type { EventFrame, EventKind, EventPayload } from "./events/types";
 
 export { cancelRun, redeliverRun, signalRun, startRun, startRunInTx } from "./modules/agent/index";
-export { isUniqueViolation, uniqueViolationConstraint } from "./lib/pg-errors";
+export { isUniqueViolation, uniqueViolationConstraint } from "@alfred/db/pg-errors";
 export type {
   RunStatus,
   Step,

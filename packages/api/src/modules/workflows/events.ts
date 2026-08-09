@@ -2,7 +2,7 @@ import { toMessage } from "@alfred/contracts";
 import { db } from "@alfred/db";
 import { isDuplicateRunIndex, workflows } from "@alfred/db/schemas";
 import { and, eq, or, sql } from "drizzle-orm";
-import { uniqueViolationConstraint } from "../../lib/pg-errors";
+import { uniqueViolationConstraint } from "@alfred/db/pg-errors";
 import { startRun } from "../agent";
 
 import {

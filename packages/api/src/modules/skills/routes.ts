@@ -7,7 +7,7 @@ import { randomUUID } from "node:crypto";
 import { emitReplicachePokes } from "../../events/replicache-events";
 import { authMacro } from "../../middleware/auth";
 import { startRun } from "../agent";
-import { isUniqueViolation } from "../../lib/pg-errors";
+import { isUniqueViolation } from "@alfred/db/pg-errors";
 import { recordSkillRun } from "../skill-revisions";
 import { slugifyForUser } from "./slug";
 import {
