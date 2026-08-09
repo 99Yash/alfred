@@ -14,6 +14,7 @@ import {
 import { eq, inArray, like } from "drizzle-orm";
 
 import { closeRedis } from "@alfred/db/redis";
+import { registerReplicachePokeAdapter } from "@alfred/api/runtime";
 import {
   finalizeAssistantMessage,
   finalizeFailedMessage,
@@ -154,6 +155,7 @@ describe("chat-turn closure artifact strand (campaign 52, DB-backed)", { skip: S
     // `chatRunStateSchema`'s transform restores the tool surface, which reads the
     // tool-runtime adapter; register the fixture adapter so the parse resolves.
     resetToolFixtures();
+    registerReplicachePokeAdapter();
     await db()
       .delete(user)
       .where(like(user.id, `${ID_PREFIX}%`));
