@@ -235,15 +235,30 @@ export async function publishEvent<K extends EventKind>(args: PublishEventArgs<K
   });
 }
 
+import { EventEmitter } from "node:events";
+
 export interface ReplicachePokeAdapter {
   emitReplicachePokes(userIds: string[], assetId?: string): void;
 }
 
 let replicachePokeAdapter: ReplicachePokeAdapter | null = null;
 
-export function registerReplicachePokeAdapter(adapter: ReplicachePokeAdapter): () => void {
+// Fallback in-process emitter for graceful degradation when adapter is not registered
+// (e.g., in standalone scripts that don't bootstrap through registerRuntimeAdapters).
+const fallbackEmitter = new EventEmitter();
+fallbackEmitter.setMaxListeners(0);
+
+const fallbackAdapter: ReplicachePokeAdapter = {
+  emitReplicachePokes(userIds: string[], assetId = "") {
+    for (const userId of userIds) {
+      fallbackEmitter.emit(`poke:${userId}`, { userId, assetId });
+    }
+  },
+};
+
+export function registerReplicachePokeAdapter(adapter?: ReplicachePokeAdapter): () => void {
   const prev = replicachePokeAdapter;
-  replicachePokeAdapter = adapter;
+  replicachePokeAdapter = adapter ?? fallbackAdapter;
   return () => {
     replicachePokeAdapter = prev;
   };
@@ -254,8 +269,6 @@ export function unregisterReplicachePokeAdapter(): void {
 }
 
 export function emitReplicachePokes(userIds: string[], assetId?: string): void {
-  if (!replicachePokeAdapter) {
-    throw new Error("ReplicachePokeAdapter not registered");
-  }
-  replicachePokeAdapter.emitReplicachePokes(userIds, assetId);
+  const adapter = replicachePokeAdapter ?? fallbackAdapter;
+  adapter.emitReplicachePokes(userIds, assetId);
 }
