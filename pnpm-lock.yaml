@@ -791,6 +791,19 @@ importers:
         specifier: workspace:*
         version: link:../config
 
+  packages/http:
+    dependencies:
+      '@alfred/api':
+        specifier: workspace:*
+        version: link:../api
+      typescript:
+        specifier: 'catalog:'
+        version: 7.0.2
+    devDependencies:
+      '@alfred/config':
+        specifier: workspace:*
+        version: link:../config
+
   packages/integrations:
     dependencies:
       '@alfred/contracts':

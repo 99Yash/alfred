@@ -1,0 +1,20 @@
+{
+  "name": "@alfred/http",
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "scripts": {
+    "build": "node ../../scripts/clean-package-dist.mjs && tsc -b --emitDeclarationOnly --force",
+    "check-types": "tsc -b --emitDeclarationOnly && tsc -p tsconfig.test.json"
+  },
+  "dependencies": {
+    "@alfred/api": "workspace:*"
+  },
+  "devDependencies": {
+    "@alfred/config": "workspace:*"
+  },
+  "peerDependencies": {
+    "typescript": "catalog:"
+  }
+}
