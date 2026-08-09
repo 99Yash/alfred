@@ -3,7 +3,7 @@ import { describe, test } from "node:test";
 
 import type { ToolName } from "@alfred/contracts";
 
-import type { publishEvent } from "../../src/events/publish";
+import type { publishEvent } from "@alfred/assistant/triggers";
 import { sanitizeVoice } from "@alfred/ai/voice";
 import {
   streamModelTurn,
