@@ -17,7 +17,9 @@ Path alias `~/` maps to `src/` in both apps.
 **Web → API:** `apps/web/src/lib/eden.ts` creates an Eden treaty client typed against `App` from `@alfred/api`. The Vite dev server proxies `/api/auth/*` to `localhost:3001`; all other API calls use `VITE_API_URL` directly.
 
 **API entrypoints during migration:** the `@alfred/api` root exports the composed
-Elysia `app`, its `App` type, and HTTP security-header helpers. Reusable
+Elysia `app` and its `App` type. HTTP middleware now lives in the `@alfred/http`
+root barrel — `authMacro`, `errorHandler`, `securityHeaders` and the
+`getSessionCached` / `invalidateSessionToken` pair. Reusable
 server-side domain and queue behavior still lives at `@alfred/api/backend`.
 Worker lifecycle, registration, scheduling, bootstrap, and teardown operations
 still live at `@alfred/api/runtime`. These are legacy doors, not the target
