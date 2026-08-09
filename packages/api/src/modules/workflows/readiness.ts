@@ -1,6 +1,5 @@
 import {
   canonicalJson,
-  getStringPath,
   humanizeSlug,
   integrationFromToolName,
   isIntegrationSlug,
@@ -17,7 +16,7 @@ import {
   type WorkflowRequiredCapability,
   type WorkflowRevisionDefinition,
 } from "@alfred/contracts";
-import { GMAIL_READONLY_SCOPE } from "@alfred/integrations/google";
+import { GMAIL_READONLY_SCOPE, readGmailWatchState } from "@alfred/integrations/google";
 import type { WorkflowToolCatalog, WorkflowToolFacts } from "../tool-runtime";
 import type { GmailEventHealth } from "./gmail-event-readiness";
 
@@ -338,15 +337,11 @@ export function resolveWorkflowReadiness(args: {
     const gmailRows = args.availability.providers.get("google") ?? [];
     const hasReadyWatch = (row: ProviderAvailability) => {
       if (row.status !== "active" || !row.scopes.has(GMAIL_READONLY_SCOPE)) return false;
-      const expiresAt = getStringPath(row.metadata, "watch", "expiresAt");
-      const baseline = getStringPath(row.metadata, "watch", "baselineHistoryId");
-      const installedAt = getStringPath(row.metadata, "watch", "installedAt");
+      const watch = readGmailWatchState(row.metadata);
+      if (!watch) return false;
       const health = args.gmailEventHealth.get(row.credentialId);
       return Boolean(
-        expiresAt &&
-        baseline &&
-        installedAt &&
-        new Date(expiresAt).getTime() > now.getTime() &&
+        new Date(watch.expiresAt).getTime() > now.getTime() &&
         health?.receiverConfigured &&
         health.topicMatches &&
         health.cursorReady &&
@@ -367,16 +362,12 @@ export function resolveWorkflowReadiness(args: {
       const selectedHealth = selectedRow
         ? args.gmailEventHealth.get(selectedRow.credentialId)
         : undefined;
-      const expiresAt = selectedRow
-        ? getStringPath(selectedRow.metadata, "watch", "expiresAt")
-        : undefined;
+      const selectedWatch = selectedRow ? readGmailWatchState(selectedRow.metadata) : null;
       const watchInstalled = Boolean(
         selectedRow?.status === "active" &&
         selectedRow.scopes.has(GMAIL_READONLY_SCOPE) &&
-        expiresAt &&
-        new Date(expiresAt).getTime() > now.getTime() &&
-        getStringPath(selectedRow.metadata, "watch", "baselineHistoryId") &&
-        getStringPath(selectedRow.metadata, "watch", "installedAt"),
+        selectedWatch &&
+        new Date(selectedWatch.expiresAt).getTime() > now.getTime(),
       );
       const serverConfigurationBroken = Boolean(
         watchInstalled &&
