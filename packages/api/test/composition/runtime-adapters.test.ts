@@ -26,6 +26,7 @@ describe("runtime adapter lifecycle", () => {
     assert.deepEqual(
       RUNTIME_ADAPTERS.map(({ name }) => name),
       [
+        "chat-attachment-enrichment",
         "chat-media",
         "gmail-triage",
         "gmail-user-model",
@@ -49,13 +50,21 @@ describe("runtime adapter lifecycle", () => {
         "workflow-recovery",
         "workflow-readiness",
         "replicache-poke-adapter",
+        "chat-attachment-enrichment",
       ],
     );
     assert.deepEqual(
       RUNTIME_ADAPTERS.filter(({ retainIfIngestionWorkerActive }) =>
         Boolean(retainIfIngestionWorkerActive),
       ).map(({ name }) => name),
-      ["chat-media", "gmail-triage", "gmail-user-model", "trigger-consumers", "workflow-readiness"],
+      [
+        "chat-attachment-enrichment",
+        "chat-media",
+        "gmail-triage",
+        "gmail-user-model",
+        "trigger-consumers",
+        "workflow-readiness",
+      ],
     );
   });
 

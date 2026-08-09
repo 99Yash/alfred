@@ -280,3 +280,57 @@ export function unregisterReplicachePokeAdapter(): void {
 export function emitReplicachePokes(userIds: string[], assetId?: string): void {
   replicachePokeAdapter?.emitReplicachePokes(userIds, assetId);
 }
+
+export interface ChatAttachmentEnrichmentScheduler {
+  enqueueChatAttachmentEnrichment(args: {
+    userId: string;
+    attachmentId: string;
+    estimatedCostMicrousd: number;
+  }): Promise<"scheduled" | "existing">;
+}
+
+let chatAttachmentEnrichmentScheduler: ChatAttachmentEnrichmentScheduler | null = null;
+
+/**
+ * Register the concrete chat-attachment-enrichment scheduler.
+ *
+ * The concrete scheduler bridges to api's ingestion queue (`enqueueChatAttachmentEnrichment` in
+ * `packages/api/src/modules/integrations/queue.ts`), which conversation compaction cannot import
+ * directly without forming an `@alfred/assistant → @alfred/api` edge. The composition root
+ * registers it at startup via the RUNTIME_ADAPTERS manifest. Returns an unregister function for
+ * test cleanup.
+ */
+export function registerChatAttachmentEnrichmentScheduler(
+  scheduler: ChatAttachmentEnrichmentScheduler,
+): () => void {
+  const prev = chatAttachmentEnrichmentScheduler;
+  chatAttachmentEnrichmentScheduler = scheduler;
+  return () => {
+    chatAttachmentEnrichmentScheduler = prev;
+  };
+}
+
+export function unregisterChatAttachmentEnrichmentScheduler(): void {
+  chatAttachmentEnrichmentScheduler = null;
+}
+
+/**
+ * Enqueue background enrichment for a chat attachment.
+ *
+ * CONTRACT: best-effort. When no scheduler is registered (a process that never booted the
+ * composition root: DB-backed tests, one-off backfills/probes) this is a silent no-op that
+ * reports `"existing"` — nothing is scheduled and the domain flow proceeds unharmed. It must
+ * NEVER throw: the ingestion queue being absent must not fail conversation compaction. The
+ * composition root registers the real scheduler at startup (`apps/server/src/runtime.ts` via
+ * the RUNTIME_ADAPTERS manifest).
+ */
+export function enqueueChatAttachmentEnrichment(args: {
+  userId: string;
+  attachmentId: string;
+  estimatedCostMicrousd: number;
+}): Promise<"scheduled" | "existing"> {
+  return (
+    chatAttachmentEnrichmentScheduler?.enqueueChatAttachmentEnrichment(args) ??
+    Promise.resolve("existing")
+  );
+}

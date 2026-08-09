@@ -3,7 +3,7 @@ import { describe, test } from "node:test";
 import { Elysia } from "elysia";
 
 import { errorHandler } from "../../src/middleware/error-handler";
-import { assertGmailPushOidcConfigured } from "../../src/modules/integrations/gmail-push-config";
+import { assertGmailPushOidcConfigured } from "@alfred/integrations/google";
 import {
   makeGmailWebhookRoutes,
   verifyPubSubOidcForGmailWebhook,
