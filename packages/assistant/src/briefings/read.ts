@@ -2,10 +2,9 @@ import {
   deriveLoopKey,
   isTriageCategory,
   parseEmailAddress,
+  parseGmailDocumentMetadata,
   scoreAttentionForItems,
   toMessage,
-  toRecord,
-  toStringArray,
 } from "@alfred/contracts";
 import type {
   AttentionBand,
@@ -221,9 +220,9 @@ export async function listEmailsSinceWatermark(
     // the cross-row recurrence signal. Mirrors the same filter in `gather`.
     for (const row of page) {
       if (hasSuppression) {
-        const from = toRecord(row.metadata).from;
+        const from = parseGmailDocumentMetadata(row.metadata).from;
         const suppressed = findSenderSuppression(suppressionInstructions, {
-          senderEmail: typeof from === "string" ? from : null,
+          senderEmail: from ?? null,
           accountId: row.accountId,
           effect: "exclude_briefing_priority",
         });
@@ -237,8 +236,8 @@ export async function listEmailsSinceWatermark(
     if (!hasSuppression || page.length < pageSize) break;
   }
 
-  const metas = rows.map((r) => toRecord(r.metadata));
-  const senders = metas.map((meta) => (typeof meta.from === "string" ? meta.from : null));
+  const metas = rows.map((r) => parseGmailDocumentMetadata(r.metadata));
+  const senders = metas.map((meta) => meta.from ?? null);
 
   // Phase B (ADR-0064): fetch each distinct sender's precomputed significance so
   // the scorer demotes low-significance cold senders *within* their honest
@@ -280,7 +279,7 @@ export async function listEmailsSinceWatermark(
       documentId: r.documentId,
       subject: r.subject,
       from: senders[i] ?? null,
-      snippet: typeof meta.snippet === "string" ? meta.snippet : null,
+      snippet: meta.snippet ?? null,
       triageCategory: r.triageCategory,
       triageRationale: r.triageRationale,
       authoredAt: r.authoredAt,
@@ -311,9 +310,8 @@ function toTriageCategory(category: string | null): TriageCategory | null {
  * neither asserts seen nor unseen. A present empty array is a captured "not
  * unread" state, matching the inbox reader.
  */
-function unreadFromLabels(labelIds: unknown): boolean | null {
-  if (!Array.isArray(labelIds)) return null;
-  return toStringArray(labelIds).includes("UNREAD");
+function unreadFromLabels(labelIds: readonly string[] | undefined): boolean | null {
+  return labelIds ? labelIds.includes("UNREAD") : null;
 }
 
 /**
@@ -628,13 +626,13 @@ export async function readEmailDocument(args: {
 
   const row = rows[0];
   if (!row) return null;
-  const meta = toRecord(row.metadata);
+  const meta = parseGmailDocumentMetadata(row.metadata);
   const suppressionInstructions = await listActiveSuppressionInstructions(
     args.userId,
     "exclude_briefing_priority",
   );
   const suppressed = findSenderSuppression(suppressionInstructions, {
-    senderEmail: typeof meta.from === "string" ? meta.from : null,
+    senderEmail: meta.from ?? null,
     accountId: row.accountId,
     effect: "exclude_briefing_priority",
   });
@@ -645,7 +643,7 @@ export async function readEmailDocument(args: {
   return {
     documentId: row.documentId,
     subject: row.subject,
-    from: typeof meta.from === "string" ? meta.from : null,
+    from: meta.from ?? null,
     authoredAt: row.authoredAt,
     body: truncated ? full.slice(0, READ_EMAIL_BODY_CHAR_CAP) : full,
     truncated,

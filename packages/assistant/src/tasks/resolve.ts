@@ -1,4 +1,4 @@
-import { getStringPath, todoSourcesSchema, type TodoSource } from "@alfred/contracts";
+import { parseGmailDocumentMetadata, todoSourcesSchema, type TodoSource } from "@alfred/contracts";
 import { db } from "@alfred/db";
 import { documents, todos } from "@alfred/db/schemas";
 import { and, eq, inArray, sql } from "drizzle-orm";
@@ -183,8 +183,7 @@ async function loadThreadMetadata(
 }
 
 function metadataSenderEmail(metadata: unknown): string | null {
-  const from = getStringPath(metadata, "from");
-  return from === undefined ? null : normalizeSenderEmail(from);
+  return normalizeSenderEmail(parseGmailDocumentMetadata(metadata).from);
 }
 
 function normalizeOptional(value: string | null | undefined): string | null {

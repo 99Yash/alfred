@@ -22,7 +22,7 @@
  */
 
 import {
-  isRecord,
+  parseGmailDocumentMetadata,
   type GmailAuthorshipObservation,
   type GmailCorrespondentsObservation,
   type GmailSenderParser,
@@ -34,12 +34,6 @@ import { isSentGmailMetadata } from "./sent-mail";
 // ---------------------------------------------------------------------------
 // header splitting / person parsing (relocated from memory/team-graph.ts)
 // ---------------------------------------------------------------------------
-
-/** First non-empty string value at `key` in `meta`, else null. */
-function metaStr(meta: Record<string, unknown>, key: string): string | null {
-  const v = meta[key];
-  return typeof v === "string" && v.trim() ? v : null;
-}
 
 /**
  * Split a `To:`/`Cc:` header into individual address tokens. Commas inside a
@@ -117,10 +111,10 @@ function parsePersonToken(token: string): PersonToken | null {
 
 export const gmailSenderAdapter: GmailSenderParser = {
   authorship(metadata: unknown): GmailAuthorshipObservation {
-    const meta = isRecord(metadata) ? metadata : null;
+    const meta = parseGmailDocumentMetadata(metadata);
     // labelId-aware SENT signal (diverges from `correspondents.isSent`).
     const isSent = isSentGmailMetadata(meta);
-    const fromRaw = meta && typeof meta.from === "string" ? meta.from : null;
+    const fromRaw = meta.from ?? null;
     const fromEmail = fromRaw
       ? extractSenderContext({ fromHeader: fromRaw, subject: null, body: "" }).senderAddress
       : null;
@@ -128,14 +122,14 @@ export const gmailSenderAdapter: GmailSenderParser = {
   },
 
   correspondents(metadata: unknown): GmailCorrespondentsObservation {
-    const meta = isRecord(metadata) ? metadata : {};
+    const meta = parseGmailDocumentMetadata(metadata);
     // `meta.isSent === true` ONLY — labelIds intentionally ignored here.
     const isSent = meta.isSent === true;
-    const from = parsePersonToken(metaStr(meta, "from") ?? "");
+    const from = parsePersonToken(meta.from ?? "");
     const recipients: PersonToken[] = [];
     for (const token of [
-      ...splitAddressList(metaStr(meta, "to")),
-      ...splitAddressList(metaStr(meta, "cc")),
+      ...splitAddressList(meta.to ?? null),
+      ...splitAddressList(meta.cc ?? null),
     ]) {
       const p = parsePersonToken(token);
       if (p) recipients.push(p);

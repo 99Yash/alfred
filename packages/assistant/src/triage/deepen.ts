@@ -3,6 +3,7 @@ import {
   SEVERITY_SUSPECT_BOTS,
   TRIAGE_CATEGORIES,
   confidenceSchema,
+  type GmailDocumentMetadata,
   type SenderContext,
   type TriageCategory,
 } from "@alfred/contracts";
@@ -28,7 +29,7 @@ export interface DeepenTriageArgs {
     title: string | null;
     content: string;
     authoredAt: Date | null;
-    metadata: Record<string, unknown>;
+    metadata: GmailDocumentMetadata;
   };
   classification: TriageClassification;
   senderContext: SenderContext;

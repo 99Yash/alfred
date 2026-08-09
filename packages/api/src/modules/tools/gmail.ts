@@ -10,12 +10,11 @@
 
 import {
   GMAIL_SEARCH_SNIPPET_MAX_CHARS,
-  getPath,
   gmailReadMessageInput,
   gmailSearchInput,
   gmailSearchResultSchema,
   gmailSendDraftInput,
-  isNonEmptyString,
+  parseGmailDocumentMetadata,
   restPassthroughInput,
 } from "@alfred/contracts";
 import { db } from "@alfred/db";
@@ -42,12 +41,6 @@ function gmailThreadUrl(threadId: string): string {
 
 /** Scopes that grant Gmail read access — either readonly or the broader modify. */
 const GMAIL_READ_SCOPES = [GMAIL_READONLY_SCOPE, GMAIL_MODIFY_SCOPE] as const;
-
-/** Read a string field out of a `documents.metadata` jsonb blob; null when absent/non-string. */
-function metaString(metadata: unknown, key: string): string | null {
-  const value = getPath(metadata, key);
-  return isNonEmptyString(value) ? value : null;
-}
 
 /** Collapse whitespace and cap length so a search hit's preview stays a glanceable one-liner. */
 function truncateSnippet(text: string | null): string | null {
@@ -149,8 +142,9 @@ export const gmailTools: readonly RegisteredTool[] = [
         messages: result.messages.map((m) => {
           const cached = cachedBySourceId.get(m.id);
           const live = liveBySourceId.get(m.id);
-          const fromMeta = cached ? metaString(cached.metadata, "from") : null;
-          const snippetMeta = cached ? metaString(cached.metadata, "snippet") : null;
+          const metadata = cached ? parseGmailDocumentMetadata(cached.metadata) : null;
+          const fromMeta = metadata?.from ?? null;
+          const snippetMeta = metadata?.snippet ?? null;
           return {
             messageId: m.id,
             threadId: m.threadId,

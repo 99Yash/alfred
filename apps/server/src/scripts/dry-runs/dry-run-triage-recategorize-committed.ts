@@ -32,7 +32,7 @@ import {
 } from "@alfred/api/backend";
 import { warmPool } from "@alfred/api/runtime";
 import { closeScriptResources } from "../script-runtime";
-import { toMessage, toStringArray } from "@alfred/contracts";
+import { toMessage } from "@alfred/contracts";
 import { db } from "@alfred/db";
 import { emailTriage, user as userTable } from "@alfred/db/schemas";
 import { and, desc, eq, inArray, isNotNull } from "drizzle-orm";
@@ -40,11 +40,6 @@ import { and, desc, eq, inArray, isNotNull } from "drizzle-orm";
 /** Mailboxes to sample. */
 const TARGET_EMAILS = ["yash.k@oliv.ai", "yashgouravkar@gmail.com"];
 const RECAT_LIMIT = Number(process.env.RECAT_LIMIT) || 60;
-
-function metaStr(meta: Record<string, unknown>, key: string): string | null {
-  const v = meta[key];
-  return typeof v === "string" ? v : null;
-}
 
 interface TargetUser {
   userId: string;
@@ -89,14 +84,14 @@ async function processUser(u: TargetUser): Promise<void> {
     }
 
     const scResult = extractSenderContext({
-      fromHeader: metaStr(ctxData.document.metadata, "from"),
+      fromHeader: ctxData.document.metadata.from ?? null,
       subject: ctxData.document.title,
       body: ctxData.document.content,
     });
     const senderContext = scResult.context;
     const senderKey = senderKeyFor(senderContext, scResult.senderAddress);
     const meta = ctxData.document.metadata;
-    const labelIds = toStringArray(meta.labelIds);
+    const labelIds = meta.labelIds ?? [];
     const isHumanSender = senderContext.effectiveAuthor === "person";
 
     const [senderPrior, thread, senderKind] = await Promise.all([
@@ -133,10 +128,10 @@ async function processUser(u: TargetUser): Promise<void> {
     ]);
 
     const signalText = [
-      metaStr(meta, "from"),
-      metaStr(meta, "to"),
-      metaStr(meta, "cc"),
-      metaStr(meta, "snippet"),
+      meta.from,
+      meta.to,
+      meta.cc,
+      meta.snippet,
       ctxData.document.title,
       ctxData.document.content,
       ...labelIds,
@@ -184,7 +179,7 @@ async function processUser(u: TargetUser): Promise<void> {
     const key = `${oldCategory} → ${newCategory}`;
     transitions.set(key, (transitions.get(key) ?? 0) + 1);
     if (oldCategory !== newCategory) {
-      const from = metaStr(meta, "from") ?? "?";
+      const from = meta.from ?? "?";
       changed.push(`  ${key} | ${from} | ${(ctxData.document.title ?? "").slice(0, 60)}`);
     }
   }
