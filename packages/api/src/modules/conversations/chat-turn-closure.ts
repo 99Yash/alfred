@@ -2,7 +2,7 @@ import { runStatusSchema, sanitizeToolResult } from "@alfred/contracts";
 import { db } from "@alfred/db";
 import { agentRuns, chatMessages, chatThreads, type ChatMessageStatus } from "@alfred/db/schemas";
 import { and, eq, sql } from "drizzle-orm";
-import { publishEvent } from "../../events/publish";
+import { publishEvent } from "@alfred/assistant/triggers";
 import { emitReplicachePokes } from "../../events/replicache-events";
 import { logger } from "../../lib/logger";
 import { finalizeRunArtifacts } from "../artifacts";

@@ -17,7 +17,7 @@
  */
 import pg from "pg";
 import { serverEnv } from "@alfred/env/server";
-import { isKnownEventKind, type EventFrame } from "./types";
+import { isKnownEventKind, type EventFrame } from "@alfred/contracts/events";
 import { PeriodicTask } from "./periodic-task";
 import { publishFrameToUser } from "./user-events-bus";
 import { toMessage } from "@alfred/contracts";

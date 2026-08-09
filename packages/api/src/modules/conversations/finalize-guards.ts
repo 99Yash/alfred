@@ -4,7 +4,7 @@ import {
   withDefaults,
   type AgentTranscriptMessage,
 } from "@alfred/contracts";
-import { publishEvent } from "../../events/publish";
+import { publishEvent } from "@alfred/assistant/triggers";
 import { isMutatingToolName } from "../tool-runtime";
 import {
   isTerminalChildStatus,
