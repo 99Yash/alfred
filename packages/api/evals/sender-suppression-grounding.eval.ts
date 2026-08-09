@@ -3,6 +3,7 @@ import { route } from "@alfred/ai";
 import {
   gmailSearchInput,
   gmailSearchResultSchema,
+  parseIanaTimezone,
   rememberInput,
   resolveTodoInput,
   type GmailSearchResult,
@@ -33,7 +34,7 @@ import type { GroundingTaskOutput } from "./lib/grounding";
 loadEnv({ path: path.resolve(import.meta.dirname, "../../../apps/server/.env") });
 
 const NOW = new Date("2026-06-27T04:44:00Z");
-const TIMEZONE = "Asia/Kolkata";
+const TIMEZONE = parseIanaTimezone("Asia/Kolkata");
 const EVAL_TIMEOUT_MS = 60_000;
 
 const SEARCH_TOOL = "gmail.search";

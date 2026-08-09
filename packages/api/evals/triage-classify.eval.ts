@@ -90,7 +90,7 @@ interface Case {
   /** Prior-key + histogram for senders that should carry a prior (services/bulk). */
   senderKey?: string | null;
   senderPrior?: Record<string, number>;
-  lastCategory?: string;
+  lastCategory?: TriageCategory;
   /** Prior thread messages (newest first) — drives follow_up/done/ownership reads. */
   recentMessages?: ThreadMessageContext[];
   messageCount?: number;
@@ -734,7 +734,6 @@ function buildArgs(c: Case): ClassifyEmailArgs {
     signalText,
   });
   return {
-    userId: undefined,
     identity: USER,
     document: {
       id: `eval_${c.label}`,

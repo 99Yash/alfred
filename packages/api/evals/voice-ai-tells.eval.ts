@@ -1,5 +1,6 @@
 import path from "node:path";
 import { route } from "@alfred/ai";
+import { parseIanaTimezone } from "@alfred/contracts";
 import { generateText } from "ai";
 import { config as loadEnv } from "dotenv";
 import { evalite } from "evalite";
@@ -20,7 +21,7 @@ import { llmJudgeScorer } from "./lib/llm-judge";
 loadEnv({ path: path.resolve(import.meta.dirname, "../../../apps/server/.env") });
 
 const NOW = new Date("2026-06-26T04:44:00Z");
-const TIMEZONE = "Asia/Kolkata";
+const TIMEZONE = parseIanaTimezone("Asia/Kolkata");
 const EVAL_TIMEOUT_MS = 60_000;
 
 const CONNECTED_SUMMARY = [
@@ -122,7 +123,7 @@ evalite<Case, TaskOutput>("Chat voice — direct, human, and useful", {
         };
       },
     },
-    llmJudgeScorer<Case, TaskOutput, never>({
+    llmJudgeScorer<Case, TaskOutput, undefined>({
       name: "Useful and natural",
       rubric: QUALITY_RUBRIC,
       // Generation is Claude; use cheap Gemini as the judge to reduce spend and

@@ -4,6 +4,7 @@ import {
   githubGetPullRequestInput,
   githubSearchInput,
   githubSearchQueryIssues,
+  parseIanaTimezone,
   sanitizeGithubSearchQuery,
 } from "@alfred/contracts";
 import { serverEnv } from "@alfred/env/server";
@@ -30,7 +31,7 @@ import type { GroundingTaskOutput } from "./lib/grounding";
 loadEnv({ path: path.resolve(import.meta.dirname, "../../../apps/server/.env") });
 
 const NOW = new Date("2026-06-24T04:44:00Z");
-const TIMEZONE = "Asia/Kolkata";
+const TIMEZONE = parseIanaTimezone("Asia/Kolkata");
 const EVAL_TIMEOUT_MS = 60_000;
 
 const SEARCH_TOOL = "github.search";

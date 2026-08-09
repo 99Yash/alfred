@@ -1,0 +1,11 @@
+{
+  "extends": "./packages/api/tsconfig.json",
+  "compilerOptions": {
+    "rootDir": ".",
+    "noEmit": true,
+    "declaration": false,
+    "declarationMap": false,
+    "composite": false
+  },
+  "include": ["evals/**/*.ts", "src/**/*.ts"]
+}
