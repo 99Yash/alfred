@@ -1,8 +1,12 @@
 # Provider-native tool loading — v1
 
-> Status: implementation started 2026-07-29. Capability facts, correlated
-> provider/model validation, application protocol wrappers, and provider-owned
-> cache decoration are complete; native loading remains disabled.
+> Status: implementation started 2026-07-29. Application protocol wrappers and
+> provider-owned cache decoration are complete; native loading remains disabled.
+> Design corrected 2026-08-09: the installed AI SDK and provider packages own
+> model mechanics. The hand-maintained `MODEL_DEFINITIONS` capability registry,
+> correlated provider/model parser, and per-model native-support flags are not
+> part of the target design. Existing Slice 1 registry work must be simplified
+> before native loading is enabled.
 
 ## Outcome
 
@@ -26,24 +30,55 @@ mechanism.
 
 ## Existing facts
 
-1. `MODEL_DEFINITIONS` already owns the closed provider/model relation and
-   per-model capabilities in `packages/ai/src/models.ts`.
-2. ADR-0078 puts per-model facts in `MODEL_CAPABILITIES`; its provider dispatch
-   has now been deepened into the adapter map in `provider-adapter.ts`.
-3. `activeTools` is the exact run-local eager surface. The dispatcher currently
-   bounces an allowed inactive call, activates that one schema, and requires the
-   model to reissue it.
-4. `AlfredAgent` sorts tool definitions, strips `execute`, and applies
-   Anthropic-only cache annotations.
-5. Chat routes are composite: Anthropic primary, Gemini fallback. The fallback
-   wrapper currently reuses one common request unchanged.
-6. Installed AI SDK 7 / provider packages 4.0.11 already expose:
+1. The repository uses AI SDK 7.0.19 with `@ai-sdk/anthropic` 4.0.36,
+   `@ai-sdk/google` 4.0.39, and `@ai-sdk/openai` 4.0.36.
+2. Every provider-created `LanguageModelV4` already carries its canonical
+   `provider`, `modelId`, and `supportedUrls`. AI SDK 7 also exposes one
+   provider-neutral `reasoning` setting. The provider packages translate that
+   setting to adaptive thinking, thinking levels/budgets, or OpenAI reasoning
+   effort with their own model-aware logic.
+3. The provider packages already expose the native tool constructors and typed
+   provider options used by this plan:
    - `anthropic.tools.toolSearchBm25_20251119()`;
    - `providerOptions.anthropic.deferLoading`;
    - `openai.tools.toolSearch()`;
    - `providerOptions.openai.deferLoading`.
+4. `activeTools` is the exact run-local eager surface. The dispatcher currently
+   bounces an allowed inactive call, activates that one schema, and requires the
+   model to reissue it.
+5. `AlfredAgent` sorts tool definitions, strips `execute`, and applies
+   Anthropic-only cache annotations.
+6. Chat routes are composite: Anthropic primary, Gemini fallback. The fallback
+   wrapper currently reuses one common request unchanged.
 
 No raw HTTP client, provider SDK fork, or prompt-text tool protocol is required.
+
+## Ownership rule: SDK capability, Alfred policy
+
+Do not copy the provider packages into an Alfred model catalog.
+
+The AI SDK and its provider packages own:
+
+- model construction and provider identity;
+- provider option schemas and request serialization;
+- generic reasoning-to-provider translation;
+- model-specific request compatibility and warnings;
+- provider-defined native tool constructors and normalized response parts;
+- URL-media support exposed on the model object.
+
+Alfred owns only product policy:
+
+- semantic route names and their concrete primary/fallback legs;
+- the reasoning ceiling selected for each route;
+- whether a probed route leg enables native or application tool loading;
+- tool availability, authorization, validation, execution, and durable state;
+- metering and price verification for the model that actually served a call.
+
+This is not a runtime dependency on a remote model catalog. It is normal use of
+the installed packages that already serialize every request. A provider package
+upgrade brings its updated model handling into the same dependency update and
+verification pass. Alfred must not maintain parallel `effortValues`,
+`temperature`, `nativeToolSearch`, or model-to-provider tables.
 
 ## Load-bearing model
 
@@ -79,13 +114,28 @@ execution authorization.
 
 ## Deep module and seam
 
-Introduce one deep module in `@alfred/ai`. Its external interface is the model
-wrapper, because that is the only seam reached independently by every concrete
-fallback attempt:
+Keep one deep module in `@alfred/ai`. Its external interface remains the product
+route, while each concrete route leg is adapted before fallback composition:
 
 ```ts
-function withProviderAdapter(modelId: ModelId, model: LanguageModelV4): LanguageModelV4;
+route("boss").model();
 ```
+
+Inside the module, provider-specific constructors take their model-id parameter
+type from the installed provider factory and immediately attach the matching
+adapter:
+
+```ts
+function anthropicLeg(
+  modelId: Parameters<typeof anthropic>[0],
+  options: { toolLoading: "application" | "native" },
+): LanguageModelV4;
+```
+
+The model object, not a second registry entry, supplies `provider` and `modelId`.
+`googleLeg` and `openaiLeg` do the same with their provider packages. A route
+table contains constructed legs plus Alfred policy; it does not contain a
+parallel capability catalog.
 
 `AlfredAgent` hands the request a provider-neutral logical surface plus cache
 policy in a reserved Alfred-only request envelope. The wrapper's middleware
@@ -118,89 +168,51 @@ The fallback may switch the concrete model, but it cannot accidentally reuse the
 wrong provider's tool-loading representation. A pre-flattened `ToolSet` prepared
 in `AlfredAgent` cannot satisfy this invariant and is explicitly rejected.
 
-## Provider/model validation and inference
+## Model construction and identity
 
 ### Canonical identity
 
-Internal callers should pass only a `ModelId`; provider is derived from
-`MODEL_REGISTRY`. They must not pass redundant `{ provider, modelId }` pairs.
+Construct models through `anthropic`, `google`, and `openai.responses`. Keep the
+returned model object intact through wrapping and fallback composition. Code
+that already has a model must read `model.provider` and `model.modelId`; it must
+not reconstruct either value from a handwritten table.
 
-At untrusted/external boundaries that genuinely provide both fields, add:
+Untrusted provider/model strings are telemetry, not authorization input. Parse
+their wire shape, retain unknown values, and reconcile them through metering or
+provider response metadata. Do not use a closed Alfred enum or fuzzy model-name
+matching for security decisions.
 
-```ts
-const providerModelSchema = z
-  .object({
-    provider: providerIdSchema,
-    modelId: modelIdSchema,
-  })
-  .superRefine((value, ctx) => {
-    if (MODEL_REGISTRY[value.modelId] !== value.provider) {
-      ctx.addIssue({
-        code: "custom",
-        message: `${value.modelId} is not registered to ${value.provider}`,
-      });
-    }
-  });
-```
+### Capability ownership
 
-Expose one parser returning the canonical correlated identity. Do not add new
-`id.includes(...)`, provider-prefix, or dated-alias inference throughout callers.
-Served/reported model aliases need a separate normalization table or explicit
-provider metadata; they must not be fuzzy-matched into security decisions.
+Do not add a `nativeToolSearch` fact per model. The provider package proves that
+Alfred can construct and serialize its native search tool. Slice 0 proves that a
+specific product route leg is accepted by the live model. The route leg then
+opts into native loading. This is a small rollout decision next to the model that
+uses it, not a capability claim duplicated for every known model.
 
-### Per-model facts
-
-Extend `ModelCapabilities` only with facts that vary by model:
-
-```ts
-interface ModelCapabilities {
-  // existing fields...
-  readonly nativeToolSearch: boolean;
-}
-```
-
-Current intended values:
-
-- Claude Sonnet 4.6 / Opus 4.8: `true`;
-- GPT-5.6 Sol / Luna: `true`;
-- Gemini models: `false`;
-- Claude Haiku: set from the official compatibility table and a live probe,
-  not from provider family alone.
-
-The models.dev audit remains an oracle only where it actually publishes the fact.
-Tool-search support that is absent from that catalog remains code-resident and
-covered by a live smoke probe.
+The same rule applies to reasoning. Product routes choose the AI SDK generic
+`reasoning` value. The provider package maps or clamps it for the concrete model.
+Alfred must remove its parallel effort vocabulary and provider-option builder.
+If a product route later needs a provider-only setting that the generic option
+cannot express, put that typed exception on the concrete route leg. Do not grow
+it into a global capability table.
 
 ### Per-provider mechanics
 
-The adapter map in `provider-adapter.ts` owns:
+The provider adapters in `provider-adapter.ts` own only Alfred-specific policy
+that the provider packages do not own:
 
-- reasoning option shape;
 - tool-name encoding policy;
-- prompt-cache annotation shape;
+- Alfred's prompt-cache placement policy;
 - native search-tool construction;
 - deferred-tool annotation shape;
 - filtering of foreign provider-defined tools;
 - application fallback projection.
 
-Capability and enablement are deliberately separate. A protocol is native only
-when all three are true:
-
-```ts
-MODEL_CAPABILITIES[modelId].nativeToolSearch
-  && PROVIDER_ADAPTERS[provider].nativeToolSearch
-  && NATIVE_TOOL_LOADING_MODELS.has(modelId)
-```
-
-`NATIVE_TOOL_LOADING_MODELS` is a code-resident rollout set owned by the protocol
-module and starts empty. This prevents a capability-map update from changing
-production behavior and permits Slice 3 to enable one probed model at a time.
-
-A registry invariant test fails when an enabled model lacks either capability or
-an implemented adapter, or when an implemented adapter is unreachable from every
-registered supporting model. A model capability may safely precede its adapter;
-capability means the external model supports the protocol, not that Alfred has
-implemented or enabled its transform.
+Attach the adapter at construction time. Do not look up an adapter from a model
+registry after construction. Native loading is enabled on one constructed route
+leg after its characterization probe passes. An SDK package upgrade or route
+model change resets that proof and requires the probe again.
 
 ## Request construction
 
@@ -303,14 +315,23 @@ search blocks must survive checkpoint, compaction replay, and resume.
 ### Modify
 
 - `packages/ai/src/models.ts`
-  - add `nativeToolSearch`;
-  - add canonical provider/model pair validation for external identities;
-  - retain the existing registry as the only model→provider source.
+  - retire the model/capability registry;
+  - keep only a small identity helper if metering still needs one, or move that
+    helper to the metering module;
+  - do not add native-tool capability flags or external identity validation.
 - `packages/ai/src/provider.ts`
-  - keep product routes and model/fallback construction;
-  - construct each concrete model with the provider protocol before
-    `withFallback`;
+  - keep semantic product routes and fallback order;
+  - construct route legs directly with the installed provider factories;
+  - apply generic AI SDK `reasoning`, not handwritten provider reasoning blocks;
+  - attach each provider adapter before `withFallback`;
   - stop accumulating new wire mechanics here.
+- `packages/ai/src/provider-adapter.ts`
+  - replace registry-indexed adapters with provider-specific constructors and
+    adapters backed by `@ai-sdk/*`;
+  - use generic AI SDK reasoning;
+  - retain pure tool, cache, and internal-envelope transformations.
+- `packages/ai/test/provider-adapter.test.ts`
+  - replace registered-model coverage with route-leg interface coverage.
 - `packages/ai/src/agent.ts`
   - accept `LogicalToolSurface`;
   - delegate provider-specific tool and cache decoration;
@@ -329,12 +350,6 @@ search blocks must survive checkpoint, compaction replay, and resume.
 
 ### Add
 
-- `packages/ai/src/provider-adapter.ts`
-  - concrete provider adapter map;
-  - protocol resolution;
-  - pure tool/cache transformations.
-- `packages/ai/test/provider-adapter.test.ts`
-  - request projection and registry invariants for every registered model.
 - `packages/ai/src/scripts/probe-native-tool-loading.ts`
   - opt-in live Anthropic/OpenAI characterization probe.
 - focused API tests beside existing tool-surface and dispatch tests
@@ -368,24 +383,28 @@ No production behavior change.
 This slice is a gate. Do not design response classification from documentation
 alone when the installed SDK's normalized shape is directly testable.
 
-### Slice 1 — capability substrate
+### Slice 1 — SDK-owned model substrate
 
 No behavior change.
 
-1. Add model fact and provider/model validator. **Complete 2026-07-29.**
-2. Add the empty rollout set and exhaustive support/adapter/enablement
-   invariants. **Complete 2026-07-29.**
-3. Extract and deepen `provider-adapter.ts` around `withProviderAdapter`.
-   **Complete 2026-07-29 for the application adapters; incorporates the
-   architecture review's top recommendation.**
-4. Move existing prompt-cache, reasoning, model-construction, and tool-name
-   mechanics behind the concrete adapter wrapper. **Complete 2026-07-29.**
+1. Remove `MODEL_DEFINITIONS`, `MODEL_CAPABILITIES`, the correlated identity
+   parser, and the empty model rollout set.
+2. Construct each route leg with its provider package and attach the matching
+   adapter at that point.
+3. Replace Alfred's effort vocabulary and provider reasoning blocks with the AI
+   SDK generic `reasoning` setting.
+4. Keep prompt-cache placement, tool-name encoding, and Alfred's internal
+   request envelope behind the concrete adapter wrapper.
 5. Make every current request byte-equivalent for Anthropic and behavior-equivalent
    for Gemini. **Normalized request behavior is covered offline by
    concrete-wrapper and forced-fallback tests. Serialized Anthropic byte/cache
    equivalence remains unproven until Slice 0's live probe.**
-6. Add exhaustive registry/adapter tests, including wrapper ordering and removal
-   of the Alfred-only envelope. **Complete for application adapters 2026-07-29.**
+6. Replace registry tests with route-leg interface tests, including wrapper
+   ordering, model identity preservation, generic reasoning projection, and
+   removal of the Alfred-only envelope.
+
+The old registry-based items were completed on 2026-07-29, but the 2026-08-09
+design correction supersedes them. They are migration work, not a base to extend.
 
 ### Slice 2 — logical tool surface
 
@@ -398,7 +417,7 @@ No native enablement yet.
 
 ### Slice 3 — Anthropic native loading
 
-1. Enable native search for one supported chat model.
+1. Enable native search on one probed Anthropic product route leg.
 2. Preserve native search/reference blocks through durable transcript replay.
 3. Dispatch verified provider-discovered calls without promotion/reissue.
 4. Keep Gemini fallback on application mode.
@@ -406,16 +425,19 @@ No native enablement yet.
 
 ### Slice 4 — OpenAI native loading
 
-Enable only when an OpenAI model is placed on a product route. The registered
-GPT-5.6 smoke path can validate the adapter earlier, but unused production
-machinery should not complicate chat behavior.
+Enable only when an OpenAI model is placed on a product route. A direct
+`openai.responses(...)` smoke path can validate the adapter earlier, but the
+model must not enter an Alfred production registry merely to support that probe.
 
 ## Acceptance
 
 Correctness:
 
-- unknown or mismatched provider/model identities fail closed;
-- every registered model resolves one exhaustive protocol;
+- every product route leg is constructed by its installed provider package;
+- wrapped and fallback models preserve the provider/model identity supplied by
+  that package;
+- no handwritten per-model capability or model-to-provider table exists;
+- every product route leg resolves one explicit tool-loading policy;
 - no provider-specific branch exists in chat/workflow orchestration;
 - foreign provider tools never reach a concrete provider request;
 - Google fallback sees only the current application-loaded subset;
@@ -449,13 +471,16 @@ Observability:
 - Programmatic tool calling/code mode.
 - Inferring undocumented provider prompt order.
 - Making models.dev a runtime dependency.
+- Replacing provider-package model handling with an Alfred compatibility table.
 
 ## Decision record
 
-After Slice 0 proves the installed SDK shapes, add one ADR amending ADR-0053 and
-ADR-0078:
+ADR-0078 is amended by the 2026-08-09 design correction: AI SDK and its provider
+packages own model mechanics; Alfred owns route and rollout policy. After Slice
+0 proves the installed SDK shapes, add the native-loading decision that amends
+ADR-0053:
 
 > Logical tool discovery is harness-owned; its wire representation is selected by
-> a validated per-model capability and a per-provider protocol adapter. Native
-> deferral is an optimization behind that seam, while execution policy remains
-> provider-independent.
+> the provider adapter attached to a concrete product route leg. Native deferral
+> is an explicitly probed rollout policy behind that seam, while execution policy
+> remains provider-independent.
