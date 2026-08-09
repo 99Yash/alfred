@@ -27,8 +27,9 @@ import { and, asc, eq, inArray, notInArray, sql } from "drizzle-orm";
 import { Elysia, t } from "elysia";
 import { emitReplicachePokes } from "@alfred/assistant/triggers";
 import { authMacro } from "../../middleware/auth";
-import { stopTurn } from "@alfred/assistant/conversations";import { createCacheRedisConnection } from "@alfred/db/redis";
-import { getRun, persistChatTurnRunInTx, redeliverRun } from "@alfred/assistant/execution";
+import { stopTurn } from "@alfred/assistant/conversations";
+import { createCacheRedisConnection } from "@alfred/db/redis";
+import { persistChatTurnRunInTx, redeliverRun } from "@alfred/assistant/execution";
 import { uniqueViolationConstraint } from "@alfred/db/pg-errors";
 import { enqueuePendingUploadCleanup } from "../integrations";
 import {
@@ -46,8 +47,7 @@ import {
   writeObject,
   type AttachmentInput,
 } from "./attachments";
-import { CHAT_TURN_WORKFLOW_SLUG } from "./chat-turn";
-import { requestChatStop } from "./stop-signal";
+import { CHAT_TURN_WORKFLOW_SLUG } from "@alfred/assistant/conversations";
 
 const TITLE_MAX_CHARS = 80;
 const ATTACHMENT_UPLOAD_RATE_LIMIT_SECONDS = 60;
@@ -370,12 +370,6 @@ async function enqueueChatTurnRunBestEffort(runId: string | null | undefined): P
  */
 /** OpenAI's transcription endpoint caps uploads at 25 MB; mirror it here. */
 const TRANSCRIBE_MAX_BYTES = 25 * 1024 * 1024;
-
-/**
- * Request a stop on an in-flight chat turn: set the Redis stop flag the
- * chat-turn workflow polls while draining the model stream. Rejects a run that
- * is not a chat turn, already finished, or parked on an approval.
- */
 
 interface StartTurnInput {
   userId: string;

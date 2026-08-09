@@ -22,7 +22,13 @@
     "./triage/floors": "./src/triage/floors/index.ts",
     "./triage/*": "./src/triage/*.ts",
     "./briefings": "./src/briefings/index.ts",
-    "./briefings/*": "./src/briefings/*.ts"
+    "./briefings/*": "./src/briefings/*.ts",
+    "./conversations": "./src/conversations/index.ts",
+    "./conversations/*": "./src/conversations/*.ts",
+    "./skills": "./src/skills/index.ts",
+    "./skills/*": "./src/skills/*.ts",
+    "./automation": "./src/automation/index.ts",
+    "./automation/*": "./src/automation/*.ts"
   },
   "scripts": {
     "build": "node ../../scripts/clean-package-dist.mjs && tsc -b --emitDeclarationOnly --force",

@@ -8,13 +8,13 @@ import { emitReplicachePokes } from "@alfred/assistant/triggers";
 import { authMacro } from "../../middleware/auth";
 import { startRun } from "@alfred/assistant/execution";
 import { isUniqueViolation } from "@alfred/db/pg-errors";
-import { recordSkillRun } from "../skill-revisions";
-import { slugifyForUser } from "./slug";
 import {
+  recordSkillRun,
+  slugifyForUser,
   LEARN_SKILL_WORKFLOW_SLUG,
   learnSkillDedupKey,
   type LearnSkillWorkflowInput,
-} from "./workflow-input";
+} from "@alfred/assistant/skills";
 
 /**
  * Skill authoring HTTP routes.
