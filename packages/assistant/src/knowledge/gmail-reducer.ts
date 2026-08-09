@@ -6,6 +6,8 @@ import {
   identityRefSchema,
   isRecord,
   observationInsertSchema,
+  parseGmailDocumentMetadata,
+  type GmailDocumentMetadata,
   type GmailEmailMessagePayload,
   type IdentityRef,
   type JsonValue,
@@ -55,7 +57,7 @@ interface HeaderLookup {
 export function reduceGmailDocument(row: GmailDocumentForReduction): GmailReductionResult {
   const issues: GmailReductionIssue[] = [];
   const headers = headersFromRaw(row.raw);
-  const metadata = isRecord(row.metadata) ? row.metadata : {};
+  const metadata = parseGmailDocumentMetadata(row.metadata);
 
   const occurredAt = row.authoredAt ?? internalDateFromRaw(row.raw);
   if (!occurredAt) {
@@ -165,7 +167,7 @@ function headersFromRaw(raw: unknown): HeaderLookup {
 
 function headerOrMetadata(
   headers: HeaderLookup,
-  metadata: Record<string, unknown>,
+  metadata: GmailDocumentMetadata,
   name: string,
 ): string | null {
   return headers.get(name) ?? normalizeHeader(metadata[name]);
@@ -194,12 +196,11 @@ function internalDateFromRaw(raw: unknown): Date | null {
   return Number.isNaN(date.getTime()) ? null : date;
 }
 
-function isSentMessage(raw: unknown, metadata: Record<string, unknown>): boolean {
+function isSentMessage(raw: unknown, metadata: GmailDocumentMetadata): boolean {
   if (metadata.isSent === true) return true;
   const rawLabelIds = getPath(raw, "labelIds");
   if (Array.isArray(rawLabelIds) && rawLabelIds.some((label) => label === SENT_LABEL)) return true;
-  const metadataLabelIds = metadata.labelIds;
-  return Array.isArray(metadataLabelIds) && metadataLabelIds.some((label) => label === SENT_LABEL);
+  return metadata.labelIds?.some((label) => label === SENT_LABEL) === true;
 }
 
 function parseAddressList(

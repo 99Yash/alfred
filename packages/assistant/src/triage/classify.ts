@@ -13,6 +13,7 @@ import {
   triageTodoDecisionSchema,
   triageTodoSuggestionSchema,
   type CollabActivityKind,
+  type GmailDocumentMetadata,
   type IanaTimezone,
   type SenderContext,
   type TodoDecisionOutcome,
@@ -145,8 +146,8 @@ export interface ClassifyEmailArgs {
     title: string | null;
     content: string;
     authoredAt: Date | null;
-    /** Provider metadata — `from`, `to`, `cc`, `labelIds`, `snippet`. */
-    metadata: Record<string, unknown>;
+    /** Canonical persisted Gmail metadata projection. */
+    metadata: GmailDocumentMetadata;
   };
   /**
    * Deterministic parse of the sender/envelope/body actor (ADR-0042 #1,
@@ -443,9 +444,7 @@ function renderObservations(obs: Observations): string {
 function userPrompt(args: ClassifyEmailArgs, conflict: TriageConflict | null): string {
   const lines: string[] = [];
   const meta = args.document.metadata;
-  const from = typeof meta.from === "string" ? meta.from : null;
-  const to = typeof meta.to === "string" ? meta.to : null;
-  const cc = typeof meta.cc === "string" ? meta.cc : null;
+  const { from, to, cc } = meta;
 
   lines.push("=== SenderContext ===");
   lines.push(JSON.stringify(args.senderContext));
@@ -915,16 +914,16 @@ function floorSignalText(document: ClassifyEmailArgs["document"]): string {
   const parts: string[] = [];
   if (document.title) parts.push(document.title);
   parts.push(document.content);
-  const snippet = document.metadata.snippet;
-  if (typeof snippet === "string") parts.push(snippet);
+  const { snippet } = document.metadata;
+  if (snippet) parts.push(snippet);
   return parts.join("\n").toLowerCase();
 }
 
 /** Body + snippet only: task/issue titles are not intrinsic-stake evidence for collab floors. */
 function floorBodySignalText(document: ClassifyEmailArgs["document"]): string {
   const parts: string[] = [document.content];
-  const snippet = document.metadata.snippet;
-  if (typeof snippet === "string") parts.push(snippet);
+  const { snippet } = document.metadata;
+  if (snippet) parts.push(snippet);
   return parts.join("\n").toLowerCase();
 }
 
@@ -982,18 +981,16 @@ export async function classifyEmail(
   // owned by the `floors/` module. `classifyEmail` only assembles the context;
   // the outcome then travels onto the audit and the model id unflattened.
   const meta = args.document.metadata;
-  const from = typeof meta.from === "string" ? meta.from : null;
-  const to = typeof meta.to === "string" ? meta.to : null;
-  const cc = typeof meta.cc === "string" ? meta.cc : null;
+  const { from, to, cc } = meta;
   const floors = applyFloors(working, {
     signalText,
     collabVetoText,
     senderKind: args.observations.senderKind,
     effectiveAuthor: args.senderContext.effectiveAuthor,
-    sender: from,
+    sender: from ?? null,
     subject: args.document.title,
-    to,
-    cc,
+    to: to ?? null,
+    cc: cc ?? null,
     accountEmail: args.identity?.email ?? null,
     contentFlags: args.observations.content,
   });
