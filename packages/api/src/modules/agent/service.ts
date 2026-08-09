@@ -9,7 +9,7 @@ import {
   type AgentRunTrigger,
 } from "@alfred/contracts";
 import { and, desc, eq, sql } from "drizzle-orm";
-import { publishEvent } from "../../events/publish";
+import { publishEvent } from "@alfred/assistant/triggers";
 import { emitReplicachePokes } from "../../events/replicache-events";
 // Cancel's post-commit obligations include tearing down the queued jobs of the
 // stagings it bulk-rejected. The scheduling helpers live in `tool-runtime` (a

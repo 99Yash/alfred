@@ -1,8 +1,8 @@
 import { db } from "@alfred/db";
 import { eventsOutbox } from "@alfred/db/schemas";
 import { and, asc, eq, gt, isNotNull, lte, sql } from "drizzle-orm";
-import type { EventFrame } from "../../events/types";
-import { isKnownEventKind } from "../../events/types";
+import type { EventFrame } from "@alfred/contracts/events";
+import { isKnownEventKind } from "@alfred/contracts/events";
 import { REPLAY_PAGE_SIZE, toReplayPage, type ReplayPage } from "./replay-page";
 
 /**

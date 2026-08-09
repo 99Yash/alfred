@@ -1,4 +1,4 @@
-import { publishEvent } from "../../events/publish";
+import { publishEvent } from "@alfred/assistant/triggers";
 import { resolveFeatureFlags, resolveTimezone } from "@alfred/assistant/settings";
 import { findActiveSenderSuppression, getSenderSignificance } from "../knowledge";
 import { suggestTodo } from "../todos";
