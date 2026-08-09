@@ -27,7 +27,7 @@ import { and, asc, eq, inArray, notInArray, sql } from "drizzle-orm";
 import { Elysia, t } from "elysia";
 import { emitReplicachePokes } from "@alfred/assistant/triggers";
 import { authMacro } from "../../middleware/auth";
-import { stopTurn } from "@alfred/assistant/conversations";import { createCacheRedisConnection } from "@alfred/db/redis";
+import { createCacheRedisConnection } from "@alfred/db/redis";
 import { getRun, persistChatTurnRunInTx, redeliverRun } from "@alfred/assistant/execution";
 import { uniqueViolationConstraint } from "@alfred/db/pg-errors";
 import { enqueuePendingUploadCleanup } from "../integrations";
@@ -376,6 +376,23 @@ const TRANSCRIBE_MAX_BYTES = 25 * 1024 * 1024;
  * chat-turn workflow polls while draining the model stream. Rejects a run that
  * is not a chat turn, already finished, or parked on an approval.
  */
+export async function stopTurn(runId: string, userId: string): Promise<{ ok: true }> {
+  const run = await getRun(runId, userId);
+  if (!run) throw Errors.NotFoundError("Run not found");
+  if (run.workflowSlug !== CHAT_TURN_WORKFLOW_SLUG) {
+    throw Errors.BadRequestError("Not a chat run");
+  }
+  if (run.status === "completed" || run.status === "failed" || run.status === "cancelled") {
+    throw Errors.ConflictError("Run already finished");
+  }
+  if (run.status === "waiting") {
+    throw Errors.ConflictError("Run is awaiting approval — resolve the approval instead");
+  }
+  const recorded = await requestChatStop(runId);
+  if (!recorded)
+    throw Errors.ServiceUnavailableError("Couldn't reach the stop channel — try again");
+  return { ok: true };
+}
 
 interface StartTurnInput {
   userId: string;

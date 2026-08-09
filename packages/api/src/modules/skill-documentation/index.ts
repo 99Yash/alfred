@@ -1,34 +1,16 @@
-/**
- * Skill documentation — phase 2 of dimension's two-phase Learn (ADR-0017).
- *
- * Module shape mirrors `cold-start/` and `skills/`:
- *   - `workflow-input`  slug + zod schema + per-skill dedup key
- *   - `context`         hybrid search (search + recallMemory) +
- *                       active-fact pull, keyed on the v1 body
- *   - `compose`         boss-tier `meteredGenerateText` producing the v2
- *                       body that integrates retrieved evidence
- *   - `email`           deterministic HTML+text renderer for the
- *                       "Skill documented: <name>" notification
- *
- * The workflow itself lives in apps/server/src/builtins/workflows/
- * skill-documentation.ts and only orchestrates these helpers.
- */
-
+// Transitional barrel: skill documentation (async phase 2) moved to @alfred/assistant/skills
+// during 6B. Re-export for backward compatibility with @alfred/api/backend.
 export {
   SKILL_DOCUMENTATION_WORKFLOW_SLUG,
   skillDocumentationDedupKey,
   skillDocumentationInputSchema,
-} from "./workflow-input";
-export type { SkillDocumentationInput } from "./workflow-input";
-
-export { collectSkillDocumentationContext } from "./context";
-export type { SkillDocumentationContext } from "./context";
-
-export { composeSkillDocumentation } from "./compose";
-export type { ComposeArgs, ComposedDocumentation } from "./compose";
-
-export { composeSkillDocumentationEmail } from "./email";
-export type { SkillDocumentationEmailArgs } from "./email";
-
-// Async phase-2 documentation recipe; registered by the composition root.
-export { skillDocumentationWorkflow } from "./skill-documentation";
+  collectSkillDocumentationContext,
+  composeSkillDocumentation,
+  composeSkillDocumentationEmail,
+  skillDocumentationWorkflow,
+  type SkillDocumentationInput,
+  type SkillDocumentationContext,
+  type ComposeArgs,
+  type ComposedDocumentation,
+  type SkillDocumentationEmailArgs,
+} from "@alfred/assistant/skills";

@@ -1,11 +1,13 @@
+// Transitional barrel: re-exports automation domain logic from @alfred/assistant/automation
+// and routes from ./routes for backward compatibility during the 6B migration.
+// This keeps @alfred/api/backend surface byte-identical while moving the domain module.
 export {
   DEFAULT_WORKFLOW_TIMEZONE,
   computeNextRunAt,
   resolveWorkflowTimezone,
   validateCronTrigger,
-} from "./scheduling";
-export { canonicalWorkflowDefinition, workflowRevisionContentHash } from "./content-hash";
-export {
+  canonicalWorkflowDefinition,
+  workflowRevisionContentHash,
   activateWorkflow,
   clearWorkflowBlocked,
   createWorkflowDraft,
@@ -15,36 +17,34 @@ export {
   setWorkflowBlocked,
   setWorkflowStatus,
   validateWorkflowDefinition,
-} from "./revisions";
-export type {
-  ActivateWorkflowArgs,
-  CreateWorkflowDraftArgs,
-  InactiveWorkflowStatus,
-  ReviseWorkflowArgs,
-  WorkflowDefinitionDraft,
-  WorkflowDefinitionPatch,
-  WorkflowRevisedOutcome,
-  WorkflowRevisionOutcome,
-  WorkflowRevisionProblem,
-  WorkflowRevisionProblemCode,
-  WorkflowServiceFailure,
-  WorkflowServiceResult,
-} from "./revisions";
-export {
   prepareWorkflowApprovalEdit,
   restageWorkflowApproval,
-  type WorkflowApprovalEditPreparation,
-} from "./approval-activation";
-export { workflowRoutes } from "./routes";
-export { acceptEvent } from "./events";
-export { seedBuiltinWorkflowsForAllUsers, seedBuiltinWorkflowsForUser } from "./seeder";
-export { dispatchDueCronWorkflows } from "./tick";
-export type { TickResult } from "./tick";
-export {
+  acceptEvent,
+  seedBuiltinWorkflowsForAllUsers,
+  seedBuiltinWorkflowsForUser,
+  dispatchDueCronWorkflows,
   getWorkflowsQueue,
   startWorkflowsWorker,
   stopWorkflowsWorker,
   closeWorkflowsQueue,
   scheduleRepeatableWorkflowsJobs,
-} from "./queue";
-export type { WorkflowsJobData, StartWorkflowsWorkerOpts } from "./queue";
+  type ActivateWorkflowArgs,
+  type CreateWorkflowDraftArgs,
+  type InactiveWorkflowStatus,
+  type ReviseWorkflowArgs,
+  type WorkflowDefinitionDraft,
+  type WorkflowDefinitionPatch,
+  type WorkflowRevisedOutcome,
+  type WorkflowRevisionOutcome,
+  type WorkflowRevisionProblem,
+  type WorkflowRevisionProblemCode,
+  type WorkflowServiceFailure,
+  type WorkflowServiceResult,
+  type WorkflowApprovalEditPreparation,
+  type TickResult,
+  type WorkflowsJobData,
+  type StartWorkflowsWorkerOpts,
+} from "@alfred/assistant/automation";
+
+// HTTP transport
+export { workflowRoutes } from "./routes";
