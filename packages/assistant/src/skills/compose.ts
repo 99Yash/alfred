@@ -1,5 +1,5 @@
 import { route, meteredGenerateText } from "@alfred/ai";
-import type { SkillDocumentationContext } from "./context";
+import type { SkillDocumentationContext } from "./skill-documentation-context";
 
 /**
  * Boss-tier compose pass — phase 2 of dimension's two-phase Learn.

@@ -1,15 +1,15 @@
 import { z } from "zod";
 import { type Workflow } from "@alfred/assistant/execution";
 import { send } from "@alfred/assistant/delivery";
-import { commitSkillRevision, finalizeSkillRun, recordSkillRun } from "../skill-revisions";
+import { commitSkillRevision, finalizeSkillRun, recordSkillRun } from "./revisions";
 import { composeSkillDocumentation } from "./compose";
-import { collectSkillDocumentationContext, type SkillDocumentationContext } from "./context";
+import { collectSkillDocumentationContext, type SkillDocumentationContext } from "./skill-documentation-context";
 import { composeSkillDocumentationEmail } from "./email";
 import {
   SKILL_DOCUMENTATION_WORKFLOW_SLUG,
   skillDocumentationDedupKey,
   skillDocumentationInputSchema,
-} from "./workflow-input";
+} from "./skill-documentation-workflow-input";
 
 /**
  * `skill-documentation` — async phase 2 of dimension's two-phase Learn

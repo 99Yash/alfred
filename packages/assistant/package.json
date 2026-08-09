@@ -22,7 +22,13 @@
     "./triage/floors": "./src/triage/floors/index.ts",
     "./triage/*": "./src/triage/*.ts",
     "./briefings": "./src/briefings/index.ts",
-    "./briefings/*": "./src/briefings/*.ts"
+    "./briefings/*": "./src/briefings/*.ts",
+    "./conversations": "./src/conversations/index.ts",
+    "./conversations/*": "./src/conversations/*.ts",
+    "./skills": "./src/skills/index.ts",
+    "./skills/*": "./src/skills/*.ts",
+    "./automation": "./src/automation/index.ts",
+    "./automation/*": "./src/automation/*.ts"
   },
   "scripts": {
     "build": "node ../../scripts/clean-package-dist.mjs && tsc -b --emitDeclarationOnly --force",
@@ -34,15 +40,21 @@
     "@alfred/ai": "workspace:*",
     "@alfred/artifacts-design": "workspace:*",
     "@alfred/contracts": "workspace:*",
+    "@alfred/corpus": "workspace:*",
     "@alfred/db": "workspace:*",
     "@alfred/env": "workspace:*",
     "@alfred/integrations": "workspace:*",
+    "@alfred/logging": "workspace:*",
     "@alfred/mailer": "workspace:*",
     "@alfred/sync": "workspace:*",
+    "ai": "catalog:",
     "bullmq": "catalog:",
+    "cron-parser": "^5.5.0",
     "drizzle-orm": "^0.45.2",
+    "files-sdk": "^2.0.0",
     "ioredis": "catalog:",
     "resend": "catalog:",
+    "sharp": "^0.35.2",
     "zod": "catalog:"
   },
   "devDependencies": {
