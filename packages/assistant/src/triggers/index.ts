@@ -244,11 +244,10 @@ let replicachePokeAdapter: ReplicachePokeAdapter | null = null;
 /**
  * Register the concrete Replicache poke adapter.
  *
- * REQUIRED: All code paths that call `emitReplicachePokes` must register the adapter first,
- * typically at process startup via the composition root. Standalone scripts (backfills,
- * probes) must call this before any domain code that emits pokes. The adapter bridges to
- * the concrete Redis/EventEmitter poke bus in api; without registration, pokes are silently
- * dropped and clients see stale data.
+ * A process that wants pokes actually delivered (the server, or a script/test asserting poke
+ * behavior) registers the concrete adapter — typically at startup via the composition root —
+ * which bridges to the Redis/EventEmitter poke bus in api. A process that does not register
+ * simply drops pokes (see `emitReplicachePokes`); emitting is always safe without it.
  *
  * Returns an unregister function for test cleanup.
  */
@@ -267,20 +266,17 @@ export function unregisterReplicachePokeAdapter(): void {
 /**
  * Emit pokes to notify connected clients of data changes.
  *
- * CONTRACT: This function REQUIRES an adapter to be registered first. Callers in the
- * composition root are registered via `apps/server/src/runtime.ts`; standalone scripts
- * must register the adapter at startup. Calling this without a registered adapter throws
- * an error to surface the misconfiguration immediately rather than silently losing pokes.
- *
- * The adapter bridges to the concrete Redis pub/sub bus; without it, pokes never reach
- * clients and the sync state becomes stale. See `packages/api/src/events/replicache-events.ts`
- * for the bus implementation.
+ * CONTRACT: Best-effort, fire-and-forget. A poke is a client cache-invalidation hint, not a
+ * durable event — losing one only means a client refetches slightly later. When no adapter is
+ * registered (a process that never booted the composition root: DB-backed tests, one-off
+ * backfills/probes, a terminal-closure tick that fires after a test unregistered its adapter)
+ * this is a silent no-op, exactly as the pre-inversion concrete emitter behaved for a process
+ * with no Redis bridge. It must NEVER throw: a UI-hint bus being absent must not fail the
+ * domain flow that emitted the poke. The composition root registers the real adapter at
+ * startup (`apps/server/src/runtime.ts` via the RUNTIME_ADAPTERS manifest); the bootPort-has-
+ * installer check guards that wiring. See `packages/api/src/events/replicache-events.ts` for
+ * the concrete Redis/EventEmitter bus.
  */
 export function emitReplicachePokes(userIds: string[], assetId?: string): void {
-  if (!replicachePokeAdapter) {
-    throw new Error(
-      "ReplicachePokeAdapter not registered. Call registerReplicachePokeAdapter() at process startup.",
-    );
-  }
-  replicachePokeAdapter.emitReplicachePokes(userIds, assetId);
+  replicachePokeAdapter?.emitReplicachePokes(userIds, assetId);
 }
