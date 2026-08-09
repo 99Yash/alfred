@@ -6,7 +6,7 @@ import { loadSelfIdentity } from "./self-identity";
 import { runSignificancePass } from "./significance";
 import { accumulateDoc, applyCorrespondenceIncrements, type ContactAggregate } from "./team-graph";
 import type { StepContext, StepResult } from "@alfred/assistant/execution";
-import { isRecord, toMessage, type GmailSenderParser } from "@alfred/contracts";
+import { isRecord, toMessage, type GmailSenderParser, type JsonObject } from "@alfred/contracts";
 import { db } from "@alfred/db";
 import { documents, memoryExtractionStatus, user, userFacts } from "@alfred/db/schemas";
 import { and, desc, eq, gte, inArray, isNotNull, sql } from "drizzle-orm";
@@ -175,7 +175,7 @@ export async function runMemoryProcess<State extends MemoryExtractionOperationSt
     for (const p of proposals) {
       let key = p.key;
       let value: unknown = p.value;
-      let sourceMeta: Record<string, unknown> = { rationale: p.rationale };
+      let sourceMeta: JsonObject = { rationale: p.rationale };
       // Per-document write gate (#330): the contextual authorship check
       // `proposeFact` can't do. Manual mode bypasses it (test fixtures);
       // `proposeFact` still backstops canonicalization + the document

@@ -28,6 +28,8 @@ Two consequences matter here:
 - A read from `Record<string, unknown>` produces `unknown`, so each consumer must rediscover the value shape.
 - A string index signature permits arbitrary property names. With `noUncheckedIndexedAccess`, an indexed read also carries `undefined`, because the requested key might not exist. [TypeScript 4.1 release notes](https://www.typescriptlang.org/docs/handbook/release-notes/typescript-4-1.html#checked-indexed-accesses---nouncheckedindexedaccess)
 
+Alfred already enables `noUncheckedIndexedAccess`, so an open record does not falsely promise that an arbitrary key is present. TypeScript also offers `noPropertyAccessFromIndexSignature`: it requires bracket access for a property that exists only through an index signature. That flag makes the calling syntax show whether a field is declared or merely assumed, but it still does not validate the value at runtime. [TypeScript `noPropertyAccessFromIndexSignature`](https://www.typescriptlang.org/tsconfig/noPropertyAccessFromIndexSignature.html)
+
 For a closed key set, `Record<LiteralUnion, Value>` is different. TypeScript's `satisfies` operator can check exact keys and compatible values while it preserves the expression's narrow inferred type. [TypeScript 4.9 release notes](https://www.typescriptlang.org/docs/handbook/release-notes/typescript-4-9.html#the-satisfies-operator)
 
 ### Zod object policy is part of the contract
@@ -47,6 +49,8 @@ This distinction is important for provider compatibility. Notion says it can add
 
 `z.record(z.string(), valueSchema)` represents a true string-keyed map. In Zod 4, an enum-keyed `z.record` checks every enum key; `z.partialRecord` represents a partial enum-keyed map. [Zod records](https://zod.dev/api#records)
 
+`z.json()` validates the recursive set of JSON values: strings, finite numbers, booleans, `null`, arrays of JSON values, and string-keyed records of JSON values. This is narrower than `Record<string, unknown>`, which also admits `undefined`, functions, class instances, `Date`, `BigInt`, and other values that JSON cannot encode. Alfred already owns this distinction as `JsonValue`, `JsonObject`, `jsonValueSchema`, and `jsonObjectSchema` in [`user-model.ts`](../../packages/contracts/src/user-model.ts). Use those contracts for a JSON protocol or persistence bag instead of naming any JavaScript object as JSON. [Zod JSON schema](https://zod.dev/api#json)
+
 `.catch(fallback)` returns the fallback after any validation error in that schema. It can be useful for an explicitly best-effort field, but it also hides the distinction between absent and malformed input. [Zod catch](https://zod.dev/api#catch)
 
 Zod 4 changed the inferred shape of `z.unknown()` and `z.any()` fields: they are no longer inferred as optional object keys. [Zod 4 migration guide](https://zod.dev/v4/changelog#changes-zunknown-optionality)
@@ -61,7 +65,7 @@ The database column currently declares credential metadata with Drizzle `jsonb(.
 
 This supports the diff's move from casts to Zod reads. It does not require one shared schema for every consumer of the JSON bag. Each owner can parse its own projection.
 
-### Oxlint can enforce exact type-reference spellings
+### Static analysis can enforce unsafe operations, not domain intent
 
 Oxlint's `typescript/no-restricted-types` rule accepts a map of banned type names and custom messages. The rule is a restriction rule and supports fixes and suggestions. [Oxlint `no-restricted-types`](https://oxc.rs/docs/guide/usage/linter/rules/typescript/no-restricted-types)
 
@@ -73,7 +77,49 @@ Therefore the Oxlint rule correctly bans the exact `Record<string, any>` spellin
 
 Oxlint supports narrowly scoped inline disables for exceptional cases. It can also report an unused disable through a CLI option or `options.reportUnusedDisableDirectives`, which makes a local exception self-cleaning after the exceptional node disappears. [Oxlint inline ignore comments](https://oxc.rs/docs/guide/usage/linter/ignore-comments.html)
 
-Oxlint also supports local JavaScript rules with AST traversal, but its JavaScript plugin API is still alpha and does not support type-aware custom rules. A custom rule is possible, but this stability and capability tradeoff must be explicit. [Oxlint JavaScript plugins](https://oxc.rs/docs/guide/usage/linter/js-plugins)
+Oxlint now has a built-in type-aware `typescript/no-unsafe-type-assertion` rule. It rejects an assertion that narrows the source type and recommends a guard instead. Type-aware linting requires the separate `oxlint-tsgolint` package and a TypeScript 7-compatible project. [Oxlint `no-unsafe-type-assertion`](https://oxc.rs/docs/guide/usage/linter/rules/typescript/no-unsafe-type-assertion.html) [Oxlint type-aware linting](https://oxc.rs/docs/guide/usage/linter/type-aware.html)
+
+This repository is already on TypeScript 7.0.2 and Oxlint 1.77.0, but it does not install `oxlint-tsgolint`. A temporary probe with that package and only `no-unsafe-type-assertion` enabled found 347 narrowing assertions, including 156 in production paths after excluding tests, evals, and scripts. The rule is feasible, but the current backlog is too broad for an immediate repository-wide error gate. It also reports many justified library-adapter and branded-type assertions that have nothing to do with loose records.
+
+Use a layered policy instead:
+
+1. Keep `no-restricted-types` for the exact `Record<string, any>` hard ban.
+2. Add a small syntax check for assertions directly to `Record<string, unknown>` or arrays of it. This catches the unsafe operation that matters without banning honest dictionary declarations or generic constraints.
+3. Pilot `no-unsafe-type-assertion` as a report. Fix boundary assertions first, then enable it by package only when that package has no unexplained findings. Give each justified exception a local reason and reject unused disables.
+4. Measure `noPropertyAccessFromIndexSignature` before enabling it. It is useful pressure toward declared fields and explicit dictionary access, but it is not a parser and must not be described as one.
+5. Do not build a line-number baseline for every open record spelling. It rewards aliases and formatting changes, while honest dictionaries remain valid.
+
+Oxlint's JavaScript plugin API remains alpha. For the exact direct-assertion spelling, a narrow rule in the existing consolidation checker is the lower-risk first step. Its guarantee is syntactic and whitespace-tolerant, not type-equivalence-complete. Use a real AST rule only if the policy later expands to aliases or equivalent type forms. [Oxlint JavaScript plugins](https://oxc.rs/docs/guide/usage/linter/writing-js-plugins.html)
+
+## Alfred audit model
+
+Do not review these sites by spelling alone. Ask four ownership questions:
+
+1. **Who chooses the keys?** If Alfred or a pinned provider contract names them, use a closed object type or an owning schema. If callers choose them at runtime, an index signature, `Map`, or `z.record` can be honest.
+2. **Who establishes the value types?** External, persisted, and protocol values start as `unknown`. A `Record<string, unknown>` assertion is not evidence. The owner must use a guard or schema before the value enters internal code.
+3. **Must the value cross a JSON boundary?** If yes, use `JsonObject` or `JsonValue`. `Record<string, unknown>` says nothing about JSON encodability.
+4. **Must unknown fields survive?** A normal `z.object` accepts additive input fields and strips them. Use a loose object or catchall only when a consumer must inspect or re-emit those fields.
+
+This produces four useful classes:
+
+| Class                           | Honest representation                                           | Typical Alfred example                                     | Review action                                                         |
+| ------------------------------- | --------------------------------------------------------------- | ---------------------------------------------------------- | --------------------------------------------------------------------- |
+| Known shape                     | Named type, `z.infer`, `Pick`/`Omit`, or a literal-key `Record` | Credential UI rows, request bodies, state-machine payloads | Remove the open record. Derive from the owner.                        |
+| Untrusted structured boundary   | `unknown` input, then an owning projection schema               | Provider response, webhook, persisted metadata             | Parse once. Pass only the parsed output inward.                       |
+| JSON value or object            | Canonical `JsonValue` / `JsonObject` and schema                 | MCP arguments, event payloads, persisted protocol bags     | Replace `unknown` values with the recursive JSON contract.            |
+| True dynamic runtime dictionary | `Record<K, V>` or `Map<K, V>` with an honest value type         | Caches, registries, accumulators keyed by runtime ids      | Keep it. Prefer `Map` when it never crosses a serialization boundary. |
+
+The initial source inventory found about one hundred production source-line matches. That count is useful only as a work queue. It mixes canonical guards, MCP dictionaries, JSON Schema adapters, telemetry bags, provider request construction, persisted metadata, and known objects. Driving it to zero would replace honest types with aliases and hide the distinction that matters.
+
+### High-signal improvement order
+
+1. **Unsafe boundary assertions.** The starting tree had four direct record assertions across [`credential-adapter.ts`](../../packages/auth/src/credential-adapter.ts), [`metadata-defaults.ts`](../../packages/api/src/modules/tools/metadata-defaults.ts), and the integration credential UI adapter. These are high value because a guard, an existing library return type, or `safeParse` can establish the fact instead.
+2. **Known local objects widened for construction convenience.** Gmail request bodies in [`gmail.ts`](../../packages/integrations/src/google/gmail.ts) name fixed provider fields but use `Record<string, unknown>` so fields can be assigned conditionally. A named request type, conditional spread, or `satisfies` keeps the provider shape visible without adding runtime parsing to locally authored data.
+3. **JSON protocols typed as arbitrary JavaScript.** MCP arguments, durable event payloads, and persisted provider metadata should use the canonical JSON contracts where their protocol forbids `undefined`, functions, and class instances. Keep a narrower endpoint schema when Alfred consumes named fields.
+4. **Open bags that can overwrite invariants.** [`chat/timing.ts`](../../apps/web/src/lib/chat/timing.ts) spreads open `detail` after fixed timeline fields, so a caller can replace `stage`, `at`, or duration values. The type is revealing a structural problem: nest `detail`, constrain its keys, or spread it before the owner-controlled fields.
+5. **Intentional dictionaries.** The shared guards, dynamic MCP validator maps, schema sanitizers, and string-keyed accumulators are not migration debt merely because their keys are open. Give a recurring domain dictionary a name when that name adds ownership, but do not wrap it only to evade a check.
+
+The structural change probe is simple: add or change one domain field. If several manual readers and writers must change, and no schema or named type forces those edits, the open record is hiding a missing owner. The downward proof is equally simple: inject a malformed sibling field, an absent key, an additive provider field, and a non-JSON value. Confirm that parsing rejects or strips each one according to the owning boundary's policy.
 
 ## Diff adjudication
 
@@ -143,7 +189,7 @@ Recommended enforcement:
 4. If a temporary migration inventory is proposed later, use AST locations plus a stable fingerprint, and reject both new entries and stale entries. At minimum, store file plus normalized node text and occurrence count instead of line number. Do not make zero open-record spellings its completion condition.
 5. Add checker fixtures for whitespace, multiline forms, named index parameters, comments, aliases, test-directory scope, stale entries, and duplicate occurrences.
 6. State the intentional exclusions. The current script ignores tests, evals, scripts, and spikes, so the policy is not repository-wide.
-7. If a custom Oxlint JavaScript rule is chosen, record that the plugin API is alpha and cannot provide type-aware analysis today. [Oxlint JavaScript plugins](https://oxc.rs/docs/guide/usage/linter/js-plugins)
+7. Prefer Oxlint's built-in type-aware assertion rule over a custom JavaScript rule. If a custom syntax rule is still chosen, record that the JavaScript plugin API is alpha. [Oxlint JavaScript plugins](https://oxc.rs/docs/guide/usage/linter/writing-js-plugins.html)
 
 ### P2: the Notion schema conflates three provider objects
 
@@ -226,6 +272,10 @@ These are strong direction changes. They do not remove the specific failure and 
 The revised landing follows the research result:
 
 - It removes the loose-record baseline and its `pnpm check` hook.
+- It adds a narrow consolidation gate for direct `as Record<string, unknown>` assertions, including `Array` and `ReadonlyArray` wrappers. Its self-tests prove that honest declarations and generic dictionary constraints remain allowed.
+- It removes the four production assertions that motivated the gate: credential rows now narrow with `isRecord`, Zod JSON Schema output keeps Zod's own return type, and the web credential adapter parses a Zod-derived row projection independently per row.
+- It derives workflow resource scopes from `WorkflowRequiredCapability["resourceScope"]` instead of restating an open record.
+- It aliases the legacy `jsonRecordSchema` to the canonical `jsonObjectSchema`, moves memory metadata outputs to `z.infer` or `JsonObject`, and omits present-`undefined` metadata fields that JSON cannot represent.
 - It derives authored-run policy fields from `workflowRevisionDefinitionSchema`, parses once, and throws on malformed present policy instead of mapping it to unrestricted.
 - It gives Notion search, page, created-page, and block responses separate projections. Only the block projection retains a dynamic type payload.
 - It makes Gmail watch timestamps and all four current fields required, exports one metadata reader, and routes renewal plus readiness through it.
@@ -248,15 +298,14 @@ Use this decision table when later debt sites migrate:
 
 The important unit is the consumer's projection, not the provider's entire object and not the storage bag. A dependency can add fields without coordinated edits because normal object parsing strips them. A breaking dependency change affects the one adapter that owns that endpoint. An unrelated malformed field cannot erase a valid policy because independent policies are not parsed as one all-or-nothing object.
 
-## Recommended landing order
+## Next work
 
-1. Fix the brief-metadata fail-open regression and parse once.
-2. Split Notion search/page/block schemas by endpoint projection.
-3. Separate Gmail persisted compatibility input from the current exported state; validate timestamp formats.
-4. Remove passthrough from read projections that do not consume or re-emit unknown keys.
-5. Remove `check:loose-record-types` and the shrink-to-zero baseline from this landing. Replace the goal with semantics-based unsafe-use enforcement or review.
-6. Add focused tests for malformed sibling metadata, incomplete Gmail rows, Notion additive fields, and Notion block payloads.
-7. Retain the hard `Record<string, any>` Oxlint ban. Adopt semantics-based unsafe-use review; do not adopt a ban on intentional open dictionaries.
+1. Keep the exact assertion gate and the hard `Record<string, any>` ban. Do not add a shrink-to-zero baseline for honest open dictionaries.
+2. Audit cross-boundary JSON bags. Move them to `JsonObject` or an endpoint schema when the protocol requires JSON, and omit `undefined` explicitly.
+3. Replace open records that only make known local request construction convenient. Start with the fixed Gmail request bodies and use a named type, conditional spread, or `satisfies`.
+4. Fix open-bag key collisions such as chat timing `detail` overriding owner-controlled fields.
+5. Measure `noPropertyAccessFromIndexSignature` before enabling it.
+6. Add `oxlint-tsgolint` only as a deliberate type-aware linting change. Run `no-unsafe-type-assertion` as a report first; its current 156-production-finding backlog is broader than this migration.
 
 ## Sources
 
@@ -265,13 +314,17 @@ The important unit is the consumer's projection, not the provider's entire objec
 - [TypeScript 3.0: `unknown`](https://www.typescriptlang.org/docs/handbook/release-notes/typescript-3-0.html#new-unknown-top-type)
 - [TypeScript 4.1: checked indexed access](https://www.typescriptlang.org/docs/handbook/release-notes/typescript-4-1.html#checked-indexed-accesses---nouncheckedindexedaccess)
 - [TypeScript 4.9: `satisfies`](https://www.typescriptlang.org/docs/handbook/release-notes/typescript-4-9.html#the-satisfies-operator)
+- [TypeScript `noPropertyAccessFromIndexSignature`](https://www.typescriptlang.org/tsconfig/noPropertyAccessFromIndexSignature.html)
 - [Zod basic usage](https://zod.dev/basics)
 - [Zod schema API](https://zod.dev/api)
+- [Zod JSON values](https://zod.dev/api#json)
 - [Zod 4 migration guide](https://zod.dev/v4/changelog)
 - [Oxlint `no-restricted-types`](https://oxc.rs/docs/guide/usage/linter/rules/typescript/no-restricted-types)
 - [Oxlint `no-restricted-types` source](https://github.com/oxc-project/oxc/blob/main/crates/oxc_linter/src/rules/typescript/no_restricted_types.rs)
+- [Oxlint `no-unsafe-type-assertion`](https://oxc.rs/docs/guide/usage/linter/rules/typescript/no-unsafe-type-assertion.html)
+- [Oxlint type-aware linting](https://oxc.rs/docs/guide/usage/linter/type-aware.html)
 - [Oxlint inline ignore comments](https://oxc.rs/docs/guide/usage/linter/ignore-comments.html)
-- [Oxlint JavaScript plugins](https://oxc.rs/docs/guide/usage/linter/js-plugins)
+- [Oxlint JavaScript plugins](https://oxc.rs/docs/guide/usage/linter/writing-js-plugins.html)
 - [Drizzle PostgreSQL JSON/JSONB columns](https://orm.drizzle.team/docs/column-types/pg#jsonb)
 - [Notion API versioning](https://developers.notion.com/reference/versioning)
 - [Notion block object](https://developers.notion.com/reference/block)

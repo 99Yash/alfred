@@ -262,7 +262,7 @@ export type WorkflowRequiredCapability = z.infer<typeof workflowRequiredCapabili
  */
 export function inputMatchesWorkflowResourceScope(
   input: unknown,
-  resourceScope: Record<string, unknown>,
+  resourceScope: NonNullable<WorkflowRequiredCapability["resourceScope"]>,
 ): boolean {
   if (!isRecord(input)) return false;
   return Object.entries(resourceScope).every(
