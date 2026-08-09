@@ -13,16 +13,14 @@ const isSentField = z.boolean().optional();
  * invalid writer fails at its owning seam. The parser below is lenient for
  * legacy rows: it drops an invalid known field without discarding valid peers.
  */
-export const gmailDocumentMetadataSchema = z
-  .object({
-    from: nullableStringField,
-    to: nullableStringField,
-    cc: nullableStringField,
-    snippet: nullableStringField,
-    labelIds: labelIdsField,
-    isSent: isSentField,
-  })
-  .passthrough();
+export const gmailDocumentMetadataSchema = z.looseObject({
+  from: nullableStringField,
+  to: nullableStringField,
+  cc: nullableStringField,
+  snippet: nullableStringField,
+  labelIds: labelIdsField,
+  isSent: isSentField,
+});
 
 export type GmailDocumentMetadata = z.infer<typeof gmailDocumentMetadataSchema>;
 type GmailDocumentMetadataKey = keyof typeof gmailDocumentMetadataSchema.shape;
