@@ -3,7 +3,7 @@ import { embed } from "@alfred/ai/embeddings";
 import { Queue, Worker, type Job } from "bullmq";
 import { randomUUID } from "node:crypto";
 import { db } from "@alfred/db";
-import { createRedisConnection } from "../../queue/connection";
+import { createRedisConnection } from "@alfred/db/redis";
 import { startRun } from "../agent/index";
 import { runDriftHealthCheck } from "./drift-audit/index";
 import { embedMemoryChunk, findPendingEmbedChunks, recordMemoryEmbedFailure } from "./chunks";

@@ -5,7 +5,7 @@ import type { TriageCategory } from "@alfred/integrations/google";
 import { and, eq, sql } from "drizzle-orm";
 import type { PgUpdateSetSource } from "drizzle-orm/pg-core";
 import type IORedis from "ioredis";
-import { createCacheRedisConnection } from "../../queue/connection";
+import { createCacheRedisConnection } from "@alfred/db/redis";
 
 /**
  * Sender priors store (ADR-0051 #2): a per-sender category histogram that is a

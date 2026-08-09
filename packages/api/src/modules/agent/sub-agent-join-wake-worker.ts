@@ -24,7 +24,7 @@
  */
 
 import { Worker, type Job } from "bullmq";
-import { createRedisConnection } from "../../queue/connection";
+import { createRedisConnection } from "@alfred/db/redis";
 import { enqueueRun } from "./queue";
 import { signalParentOfSubAgent } from "./service";
 import {

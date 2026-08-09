@@ -6,7 +6,7 @@ import { closeConnections, db } from "@alfred/db";
 import { agentRuns, chatMessages, chatThreads, eventsOutbox, user } from "@alfred/db/schemas";
 import { and, eq, inArray, like } from "drizzle-orm";
 
-import { closeRedis } from "../../src/queue/connection";
+import { closeRedis } from "@alfred/db/redis";
 import { subscribeUserPokes } from "../../src/events/replicache-events";
 import {
   finalizeAssistantMessage,

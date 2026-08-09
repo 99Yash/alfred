@@ -707,6 +707,9 @@ importers:
       drizzle-zod:
         specifier: ^0.8.3
         version: 0.8.3(drizzle-orm@0.45.2(@opentelemetry/api@1.9.1)(@types/pg@8.20.0)(kysely@0.29.4)(pg@8.20.0))(zod@4.3.6)
+      ioredis:
+        specifier: 'catalog:'
+        version: 5.10.1
       pg:
         specifier: ^8.16.3
         version: 8.20.0

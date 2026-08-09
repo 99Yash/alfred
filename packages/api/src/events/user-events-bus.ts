@@ -46,7 +46,7 @@ function isFrame(value: unknown): value is EventFrame {
 
 export async function initUserEventsBus(): Promise<void> {
   if (publisher && subscriber) return;
-  const { isQueueEnabled, createRedisConnection } = await import("../queue/connection");
+  const { isQueueEnabled, createRedisConnection } = await import("@alfred/db/redis");
   if (!isQueueEnabled()) return;
 
   try {
