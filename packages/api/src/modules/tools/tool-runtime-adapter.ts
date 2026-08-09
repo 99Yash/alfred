@@ -5,7 +5,7 @@ import {
   registerToolRuntimeAdapter,
   type ResolvedToolSurface,
   type ToolRuntimeAdapter,
-} from "../tool-runtime";
+} from "@alfred/assistant/tool-runtime";
 import { latestUserPrompt, preloadToolsForPrompt } from "./discovery";
 import {
   availableToolNames,

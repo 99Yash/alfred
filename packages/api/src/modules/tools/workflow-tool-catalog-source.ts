@@ -4,7 +4,7 @@ import {
   type WorkflowToolCatalog,
   type WorkflowToolCatalogSource,
   type WorkflowToolFacts,
-} from "../tool-runtime";
+} from "@alfred/assistant/tool-runtime";
 import { evaluateToolAvailability, listRegisteredTools } from "./registry";
 
 /**

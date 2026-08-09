@@ -8,7 +8,7 @@ import { databaseEnv } from "@alfred/env/database";
 import { eq, inArray, sql } from "drizzle-orm";
 
 import { closeRedis } from "@alfred/db/redis";
-import { createArtifact, finalizeRunArtifacts } from "../../src/modules/artifacts/write";
+import { createArtifact, finalizeRunArtifacts } from "@alfred/assistant/artifacts/write";
 
 /**
  * DB-backed regression for the `artifacts.message_id` FK-ordering bug.

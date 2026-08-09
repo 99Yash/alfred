@@ -5,7 +5,7 @@ import { and, eq, sql } from "drizzle-orm";
 import { publishEvent } from "@alfred/assistant/triggers";
 import { emitReplicachePokes } from "@alfred/assistant/triggers";
 import { logger } from "@alfred/logging";
-import { finalizeRunArtifacts } from "../artifacts";
+import { finalizeRunArtifacts } from "@alfred/assistant/artifacts";
 import { scheduleThreadIdleExtraction } from "./idle-capture-queue";
 import { aggregateRunUsage } from "../agent";
 import { sanitizeVoice } from "@alfred/ai/voice";

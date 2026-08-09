@@ -3,7 +3,7 @@ import type {
   LoadableIntegrationSlug,
   ToolRunContext,
 } from "@alfred/contracts";
-import { availableToolNamesByIntegration } from "../tool-runtime";
+import { availableToolNamesByIntegration } from "@alfred/assistant/tool-runtime";
 
 /**
  * ADR-0053 connected summary: a frozen, human-readable one-line-per-integration

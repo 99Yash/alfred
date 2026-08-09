@@ -3,7 +3,7 @@ import { before, describe, test } from "node:test";
 
 import type { IntegrationAvailabilitySnapshot, ToolRunContext } from "@alfred/contracts";
 
-import { workflowToolCatalog } from "../../src/modules/tool-runtime";
+import { workflowToolCatalog } from "@alfred/assistant/tool-runtime";
 import { evaluateToolAvailability, listRegisteredTools } from "../../src/modules/tools/registry";
 import { registerBuiltinTools } from "../../src/modules/tools/runtime";
 

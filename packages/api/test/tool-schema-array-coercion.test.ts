@@ -4,7 +4,7 @@ import { describe, test } from "node:test";
 import type { ToolName } from "@alfred/contracts";
 import { TOOL_INPUT_SCHEMAS } from "@alfred/contracts/tool-schemas";
 import { z } from "zod";
-import { spawnSubAgentInputSchema } from "../src/modules/tool-runtime";
+import { spawnSubAgentInputSchema } from "@alfred/assistant/tool-runtime";
 
 /**
  * Cross-integration guard for the JSON-stringified-array failure mode.

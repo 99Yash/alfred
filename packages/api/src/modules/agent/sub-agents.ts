@@ -5,7 +5,7 @@ import { createRun } from "./service";
 import { isUniqueViolation } from "@alfred/db/pg-errors";
 import { enqueueRun } from "./queue";
 import { AWAIT_SUB_AGENT_CEILING_MS } from "./sub-agent-join-wake-queue";
-import { type SpawnSubAgentInput } from "../tool-runtime";
+import { type SpawnSubAgentInput } from "@alfred/assistant/tool-runtime";
 import {
   readSubAgentMetadata,
   SUB_AGENT_WORKFLOW_SLUG,

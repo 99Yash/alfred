@@ -12,7 +12,7 @@ import {
   removeApprovalNotificationJob,
   scheduleApprovalExpiryJob,
   scheduleApprovalNotificationJob,
-} from "../../src/modules/tool-runtime";
+} from "@alfred/assistant/tool-runtime";
 import {
   expireStaging,
   startApprovalExpiryWorker,

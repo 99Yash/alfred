@@ -14,7 +14,10 @@ import { emitReplicachePokes, publishEvent } from "@alfred/assistant/triggers";
 // stagings it bulk-rejected. The scheduling helpers live in `tool-runtime` (a
 // sink), so owning the teardown here rather than describing it to callers adds
 // no cycle.
-import { removeApprovalExpiryJob, removeApprovalNotificationJob } from "../tool-runtime";
+import {
+  removeApprovalExpiryJob,
+  removeApprovalNotificationJob,
+} from "@alfred/assistant/tool-runtime";
 import { snapshotScratchToPostgres } from "../scratchpad";
 import { enqueueRun } from "./queue";
 import { getWorkflow, listWorkflows } from "./registry";

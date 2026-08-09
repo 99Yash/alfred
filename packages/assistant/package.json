@@ -6,7 +6,11 @@
     "./delivery": "./src/delivery/index.ts",
     "./triggers": "./src/triggers/index.ts",
     "./settings": "./src/settings/index.ts",
-    "./connections": "./src/connections/index.ts"
+    "./connections": "./src/connections/index.ts",
+    "./artifacts": "./src/artifacts/index.ts",
+    "./artifacts/*": "./src/artifacts/*",
+    "./tool-runtime": "./src/tool-runtime/index.ts",
+    "./tool-runtime/*": "./src/tool-runtime/*"
   },
   "scripts": {
     "build": "node ../../scripts/clean-package-dist.mjs && tsc -b --emitDeclarationOnly --force",
@@ -15,10 +19,13 @@
     "test:db": "tsx --env-file-if-exists=../../apps/server/.env --test --test-force-exit \"test/**/*.test.ts\""
   },
   "dependencies": {
+    "@alfred/ai": "workspace:*",
+    "@alfred/artifacts-design": "workspace:*",
     "@alfred/contracts": "workspace:*",
     "@alfred/db": "workspace:*",
     "@alfred/env": "workspace:*",
     "@alfred/integrations": "workspace:*",
+    "bullmq": "catalog:",
     "drizzle-orm": "^0.45.2",
     "resend": "catalog:",
     "zod": "catalog:"
