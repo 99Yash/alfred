@@ -6,6 +6,7 @@ const ROOT = dirname(dirname(fileURLToPath(import.meta.url)));
 const WEB_SRC = join(ROOT, "apps/web/src");
 const FORBIDDEN_RUNTIME_PACKAGES = new Set([
   "@alfred/api",
+  "@alfred/http",
   "@alfred/auth",
   "@alfred/db",
   "@alfred/env",
