@@ -1,3 +1,5 @@
+import type { JsonObject } from "@alfred/contracts";
+
 const DEV =
   (import.meta as { env?: { DEV?: boolean } }).env?.DEV === true &&
   typeof window !== "undefined" &&
@@ -9,7 +11,7 @@ interface ChatTimingMark {
   stage: string;
   at: number;
   iso: string;
-  detail?: Record<string, unknown> | undefined;
+  detail?: JsonObject | undefined;
 }
 
 interface ChatTurnTiming {
@@ -20,6 +22,14 @@ interface ChatTurnTiming {
   runId?: string | null | undefined;
   contentChars?: number | undefined;
   marks: Map<string, ChatTimingMark>;
+}
+
+interface ChatTimingTimelineRow {
+  stage: string;
+  sinceSubmitMs: number;
+  sincePreviousMs: number;
+  at: string;
+  detail?: JsonObject | undefined;
 }
 
 interface MarkOptions {
@@ -56,7 +66,7 @@ export function markChatSubmit(args: {
 export function markChatTimingByUser(
   userMessageId: string,
   stage: string,
-  detail?: Record<string, unknown>,
+  detail?: JsonObject,
   options?: MarkOptions,
 ): void {
   if (!DEV) return;
@@ -69,7 +79,7 @@ export function attachChatAssistantTiming(args: {
   userMessageId: string;
   assistantMessageId: string;
   runId: string | null;
-  detail?: Record<string, unknown> | undefined;
+  detail?: JsonObject | undefined;
 }): void {
   if (!DEV) return;
   const userTurn = byUserMessageId.get(args.userMessageId);
@@ -81,17 +91,13 @@ export function attachChatAssistantTiming(args: {
   turn.runId = args.runId;
   byUserMessageId.set(args.userMessageId, turn);
   byAssistantMessageId.set(args.assistantMessageId, turn);
-  mark(turn, "turn_request_ack", {
-    runId: args.runId,
-    assistantMessageId: args.assistantMessageId,
-    ...args.detail,
-  });
+  mark(turn, "turn_request_ack", args.detail);
 }
 
 export function markChatTimingByAssistant(
   assistantMessageId: string,
   stage: string,
-  detail?: Record<string, unknown>,
+  detail?: JsonObject,
   options?: MarkOptions & { threadId?: string; runId?: string },
 ): void {
   if (!DEV) return;
@@ -119,7 +125,7 @@ function getChatTimingSnapshot(): Array<{
   userMessageId?: string | undefined;
   assistantMessageId?: string | undefined;
   runId?: string | null | undefined;
-  timeline: Array<Record<string, unknown>>;
+  timeline: ChatTimingTimelineRow[];
 }> {
   return order.map((turn) => ({
     threadId: turn.threadId,
@@ -148,7 +154,7 @@ function mergeTurns(
 function mark(
   turn: ChatTurnTiming,
   stage: string,
-  detail?: Record<string, unknown>,
+  detail?: JsonObject,
   options?: MarkOptions,
 ): void {
   const existing = turn.marks.get(stage);
@@ -174,7 +180,7 @@ function mark(
       userMessageId: turn.userMessageId,
       assistantMessageId: turn.assistantMessageId,
       runId: turn.runId,
-      ...detail,
+      ...(detail ? { detail } : {}),
     });
   }
 
@@ -209,7 +215,7 @@ function printSummary(turn: ChatTurnTiming, stage: string): void {
   console.groupEnd();
 }
 
-function timelineRows(turn: ChatTurnTiming): Array<Record<string, unknown>> {
+function timelineRows(turn: ChatTurnTiming): ChatTimingTimelineRow[] {
   const rows = Array.from(turn.marks.values()).toSorted((a, b) => a.at - b.at);
   const submitAt = turn.marks.get("submit")?.at ?? rows[0]?.at ?? 0;
   return rows.map((row, index) => {
@@ -219,7 +225,7 @@ function timelineRows(turn: ChatTurnTiming): Array<Record<string, unknown>> {
       sinceSubmitMs: round(row.at - submitAt),
       sincePreviousMs: previous ? round(row.at - previous.at) : 0,
       at: row.iso,
-      ...row.detail,
+      ...(row.detail ? { detail: row.detail } : {}),
     };
   });
 }
