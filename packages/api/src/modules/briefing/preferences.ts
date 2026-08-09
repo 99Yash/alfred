@@ -4,7 +4,7 @@ import {
   DEFAULT_BRIEFING_EVENING_HOUR,
   DEFAULT_BRIEFING_TIMEZONE,
 } from "@alfred/contracts/briefing-constants";
-import { getPreference } from "../settings";
+import { getPreference } from "@alfred/assistant/settings";
 import {
   firstValidTimezone,
   isValidTimezone,

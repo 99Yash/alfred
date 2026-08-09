@@ -2,7 +2,7 @@ import { db } from "@alfred/db";
 import { webhookEvents } from "@alfred/db/schemas";
 import { findUserByInstallationId, verifyWebhookSignature } from "@alfred/integrations/github";
 import { Elysia, t } from "elysia";
-import { objectStateStore } from "./object-state";
+import { objectStateStore } from "@alfred/assistant/connections";
 import { getPath, getStringPath, isRecord, toMessage } from "@alfred/contracts";
 
 /**

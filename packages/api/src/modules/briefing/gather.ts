@@ -34,8 +34,8 @@ import {
   isGithubNotificationSender,
   type ObjectState,
   objectStateStore,
-} from "../connections";
-import { getPreference } from "../settings";
+} from "@alfred/assistant/connections";
+import { getPreference } from "@alfred/assistant/settings";
 import { findSenderSuppression, listActiveSuppressionInstructions } from "../knowledge";
 import {
   addDays,

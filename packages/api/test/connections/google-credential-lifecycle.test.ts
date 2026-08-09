@@ -10,7 +10,7 @@ import {
   NoGoogleCredentialLifecycleHandlerRegisteredError,
   registerGoogleCredentialLifecycleHandler,
   upsertGoogleCredentialConnection,
-} from "../../src/modules/connections/google-credential-lifecycle";
+} from "@alfred/assistant/connections";
 import { TriggerConsumerBootError } from "@alfred/assistant/triggers";
 
 const fakeTransaction = {} as DbTransaction;

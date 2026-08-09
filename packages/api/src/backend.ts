@@ -54,7 +54,7 @@ export {
 } from "./modules/conversations";
 
 export { getIngestionQueue, type IngestionJobData } from "./modules/integrations/index";
-export * from "./modules/connections/object-state/index";
+export * from "@alfred/assistant/connections";
 
 export {
   activateProjectionVersion,
@@ -106,7 +106,7 @@ export {
 } from "./modules/knowledge/queue";
 export { buildMemoryExtractionWorkflow } from "./modules/knowledge/index";
 
-export * from "./modules/settings";
+export * from "@alfred/assistant/settings";
 
 // The idle-capture trigger moved to `conversations/idle-capture-queue.ts`; these
 // public names are unchanged so `apps/server` and the backfill stay unchanged.
