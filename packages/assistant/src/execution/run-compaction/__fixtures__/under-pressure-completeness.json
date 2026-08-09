@@ -1,0 +1,134 @@
+{
+  "name": "under-pressure-completeness",
+  "description": "Noisy prior transcript forces the compactor to drop narrative while preserving directives, action outcomes, and actionable IDs.",
+  "prior": [
+    {
+      "role": "user",
+      "content": "@github @gmail — Prepare a release note for project Atlas. Keep every GitHub issue ID you touch."
+    },
+    {
+      "role": "assistant",
+      "content": "I'll collect recent GitHub activity, inspect related Gmail context, and keep the issue IDs in the handoff."
+    },
+    {
+      "role": "tool",
+      "content": [
+        {
+          "type": "tool-result",
+          "toolCallId": "call_issue_101",
+          "toolName": "github.get_issue",
+          "output": {
+            "type": "json",
+            "value": {
+              "status": "executed",
+              "result": {
+                "id": "GH-101",
+                "title": "Add calendar conflict detection",
+                "body": "Long narrative context: The team discussed many intermediate options, rejected broad rewrites, and landed on a minimal conflict detector. Filler note A. Filler note B. Filler note C. Filler note D. Filler note E. Filler note F. Filler note G. Filler note H."
+              }
+            }
+          }
+        }
+      ]
+    },
+    {
+      "role": "tool",
+      "content": [
+        {
+          "type": "tool-result",
+          "toolCallId": "call_issue_102",
+          "toolName": "github.get_issue",
+          "output": {
+            "type": "json",
+            "value": {
+              "status": "executed",
+              "result": {
+                "id": "GH-102",
+                "title": "Fix Gmail reply staging audit log",
+                "body": "Long narrative context: Implementation notes repeat the same audit concerns in several forms. Filler note I. Filler note J. Filler note K. Filler note L. Filler note M. Filler note N. Filler note O. Filler note P."
+              }
+            }
+          }
+        }
+      ]
+    },
+    {
+      "role": "tool",
+      "content": [
+        {
+          "type": "tool-result",
+          "toolCallId": "call_issue_103",
+          "toolName": "github.get_issue",
+          "output": {
+            "type": "json",
+            "value": {
+              "status": "executed",
+              "result": {
+                "id": "GH-103",
+                "title": "Document release caveats",
+                "body": "Long narrative context: The draft had too much prose and needs compression. Filler note Q. Filler note R. Filler note S. Filler note T. Filler note U. Filler note V. Filler note W. Filler note X."
+              }
+            }
+          }
+        }
+      ]
+    },
+    {
+      "role": "user",
+      "content": "Do not drop GH-101, GH-102, or GH-103 from the final release note"
+    },
+    {
+      "role": "tool",
+      "content": [
+        {
+          "type": "tool-result",
+          "toolCallId": "call_send_rejected",
+          "toolName": "gmail.send_draft",
+          "output": {
+            "type": "json",
+            "value": {
+              "status": "rejected_by_user",
+              "toolName": "gmail.send_draft",
+              "reason": "release note is not ready; keep drafting"
+            }
+          }
+        }
+      ]
+    },
+    {
+      "role": "tool",
+      "content": [
+        {
+          "type": "tool-result",
+          "toolCallId": "call_label_failed",
+          "toolName": "github.add_label",
+          "output": {
+            "type": "error-json",
+            "value": {
+              "status": "failed",
+              "error": "github.add_label: 404 label release-ready not found"
+            }
+          }
+        }
+      ]
+    }
+  ],
+  "inFlightTail": [
+    {
+      "role": "assistant",
+      "content": "Continuing the release note draft with the three issue IDs preserved."
+    }
+  ],
+  "assertions": [
+    {
+      "section": "user_directives",
+      "contains": "Do not drop GH-101, GH-102, or GH-103 from the final release note"
+    },
+    { "section": "actions_completed", "contains": "github.get_issue" },
+    { "section": "actions_rejected", "contains": "gmail.send_draft" },
+    { "section": "actions_failed", "contains": "github.add_label" },
+    { "section": "key_entities", "contains": "GH-101" },
+    { "section": "key_entities", "contains": "GH-102" },
+    { "section": "key_entities", "contains": "GH-103" }
+  ]
+}

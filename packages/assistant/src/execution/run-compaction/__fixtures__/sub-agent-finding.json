@@ -1,0 +1,84 @@
+{
+  "name": "sub-agent-finding",
+  "description": "When a sub-agent reports back via the scratchpad, the boss's later compaction must preserve which sub_id produced which finding. Losing the sub_id breaks attribution for any follow-up promote() / read_scratch() the boss might issue post-compaction.",
+  "prior": [
+    {
+      "role": "user",
+      "content": "Investigate who on the team is over-committed this week and surface the worst case."
+    },
+    {
+      "role": "assistant",
+      "content": "I'll spawn a focused sub-agent to scan the calendar load for each direct report."
+    },
+    {
+      "role": "tool",
+      "content": [
+        {
+          "type": "tool-result",
+          "toolCallId": "call_spawn",
+          "toolName": "system.spawn_sub_agent",
+          "output": {
+            "type": "json",
+            "value": {
+              "status": "executed",
+              "result": {
+                "ok": true,
+                "status": "spawned",
+                "subId": "sub_a",
+                "childRunId": "run_child_001"
+              }
+            }
+          }
+        }
+      ]
+    },
+    {
+      "role": "assistant",
+      "content": "Reading sub_a's findings from the scratchpad."
+    },
+    {
+      "role": "tool",
+      "content": [
+        {
+          "type": "tool-result",
+          "toolCallId": "call_read",
+          "toolName": "system.read_scratch",
+          "output": {
+            "type": "json",
+            "value": {
+              "status": "executed",
+              "result": {
+                "ok": true,
+                "key": "scratch.sub_a.summary",
+                "found": true,
+                "entry": {
+                  "value": {
+                    "text": "Bob has 27 calendar hours booked Mon-Fri — most overcommitted on the team. Alice second at 22h."
+                  },
+                  "zone": "scratch",
+                  "writtenBy": "sub_a",
+                  "writtenAt": 1716800000000
+                }
+              }
+            }
+          }
+        }
+      ]
+    },
+    {
+      "role": "assistant",
+      "content": "Sub_a found Bob is the most overcommitted at 27h booked this week."
+    }
+  ],
+  "inFlightTail": [
+    {
+      "role": "assistant",
+      "content": "Now drafting a short note flagging Bob's load to the user."
+    }
+  ],
+  "assertions": [
+    { "section": "sub_agent_findings", "contains": "sub_a" },
+    { "section": "sub_agent_findings", "contains": "Bob has 27 calendar hours" },
+    { "section": "key_entities", "contains": "run_child_001" }
+  ]
+}
