@@ -119,7 +119,7 @@ Allowed in `apps/web`:
 
 Forbidden in `apps/web`:
 
-- Any non-type import of `@alfred/api`, `@alfred/auth`, `@alfred/db`, `@alfred/env`.
+- Any non-type import of `@alfred/api`, `@alfred/http`, `@alfred/auth`, `@alfred/db`, `@alfred/env`.
 - Any import of `@alfred/ai` (contains server-only AI SDK providers).
 
 `pnpm check:web-boundaries` enforces these forbidden runtime imports for `apps/web`.
