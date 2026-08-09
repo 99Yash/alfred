@@ -5,15 +5,7 @@
     ".": "./src/index.ts",
     "./backend": "./src/backend.ts",
     "./runtime": "./src/runtime.ts",
-    "./modules/integrations/gmail-ingest": "./src/modules/integrations/gmail-ingest.ts",
-    "./modules/triage/classify": "./src/modules/triage/classify.ts",
-    "./modules/triage/gmail-reconcile": "./src/modules/triage/gmail-reconcile.ts",
-    "./modules/triage/observations": "./src/modules/triage/observations.ts",
-    "./modules/triage/sender-context": "./src/modules/triage/sender-context.ts",
-    "./modules/triage/sent-mail": "./src/modules/triage/sent-mail.ts",
-    "./modules/knowledge/internal": "./src/modules/knowledge/internal.ts",
-    "./modules/triage/store": "./src/modules/triage/store.ts",
-    "./queue/connection": "./src/queue/connection.ts"
+    "./modules/integrations/gmail-ingest": "./src/modules/integrations/gmail-ingest.ts"
   },
   "scripts": {
     "build": "node ../../scripts/clean-package-dist.mjs && tsc -b --emitDeclarationOnly --force",
