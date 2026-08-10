@@ -10,7 +10,7 @@ import {
   runGmailPostInsertTriage,
   runGmailTriageRelabel,
   type GmailTriageHandler,
-} from "../../src/modules/integrations/gmail-triage";
+} from "@alfred/assistant/connections/ingestion/gmail-triage";
 import { pairReplyReevalTargets } from "../../src/composition/gmail-ingested-consumers";
 import { createGmailTriageHandler } from "../../src/composition/gmail-triage";
 

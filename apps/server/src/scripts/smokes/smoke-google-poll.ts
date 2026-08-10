@@ -26,7 +26,7 @@ import { findUnembeddedDocumentIds } from "@alfred/corpus";
 import {
   findCredentialsNeedingPoll,
   pollGmailHistory,
-} from "@alfred/api/modules/integrations/gmail-ingest";
+} from "@alfred/assistant/connections/ingestion/internal";
 import { and, eq } from "drizzle-orm";
 
 async function main() {

@@ -18,7 +18,7 @@ import {
   rememberOAuthNonce,
   signOAuthState,
   verifyOAuthState,
-} from "./oauth-state";
+} from "@alfred/assistant/connections";
 
 /**
  * Notion OAuth routes (full authorization-code flow). Same state-nonce CSRF

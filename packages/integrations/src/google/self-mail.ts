@@ -5,7 +5,7 @@ import { serverEnv } from "@alfred/env/server";
  * Alfred self-mail identity. Pure identity helpers — no `documents` /
  * `ingestion_state` writes and no corpus indexing — so they stay in the
  * provider package after the ingestion orchestration moved to the api-layer
- * consumer (`@alfred/api` `modules/integrations/gmail-ingest.ts`). Both the
+ * consumer (`@alfred/assistant` `connections/ingestion/gmail-ingest.ts`). Both the
  * consumer's persist path and downstream self-mail retirement/label backfills
  * plus the drift-audit metrics read them through `@alfred/integrations/google`.
  */

@@ -11,10 +11,10 @@ import {
   registerGmailUserModelHandler,
   scheduleGmailKindRefoldSweep,
   type GmailUserModelHandler,
-} from "../../src/modules/integrations/gmail-user-model";
+} from "@alfred/assistant/connections/ingestion/gmail-user-model";
 import { createGmailUserModelHandler } from "../../src/composition/gmail-user-model";
 import type { GmailDocumentForReduction } from "@alfred/assistant/knowledge";
-import { runGmailKindRefoldJob } from "../../src/modules/integrations/queue";
+import { runGmailKindRefoldJob } from "@alfred/assistant/connections/ingestion/queue";
 
 const captureRequest = {
   userId: "user-1",

@@ -3,8 +3,8 @@
  * into the raw Gmail watch primitive.
  *
  * The sanctioned app-facing door is the api wrapper
- * `installGmailWatchAndSeedCursor` (`@alfred/api`
- * `modules/integrations/gmail-ingest.ts`): it installs the watch AND seeds the
+ * `installGmailWatchAndSeedCursor` (`@alfred/assistant`
+ * `connections/ingestion/gmail-ingest.ts`): it installs the watch AND seeds the
  * `ingestion_state` baseline `historyId` cursor in one step. A RAW
  * `installGmailWatch` call leaves the credential cursorless — the first Pub/Sub
  * push then has no baseline to diff against and the credential is invisible to

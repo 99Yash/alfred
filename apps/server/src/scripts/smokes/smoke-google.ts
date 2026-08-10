@@ -22,7 +22,7 @@ import { closeConnections, warmPool } from "@alfred/api/runtime";
 import { db } from "@alfred/db";
 import { documents, integrationCredentials } from "@alfred/db/schemas";
 import { ALL_GOOGLE_SCOPES, buildAuthorizeUrl } from "@alfred/integrations/google";
-import { ingestRecentGmail } from "@alfred/api/modules/integrations/gmail-ingest";
+import { ingestRecentGmail } from "@alfred/assistant/connections/ingestion/internal";
 import { serverEnv } from "@alfred/env/server";
 import { and, eq } from "drizzle-orm";
 import { toMessage } from "@alfred/contracts";

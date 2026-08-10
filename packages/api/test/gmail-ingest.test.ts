@@ -13,7 +13,7 @@ import { and, eq, inArray } from "drizzle-orm";
 // byte-identical move is provably unchanged — and it is the one delicate piece
 // of the move (Risk: a watch install that fails to seed a cursor drops a
 // freshly-watched credential into perpetual full re-sync).
-import { seedGmailHistoryCursorIfAbsent } from "../src/modules/integrations/gmail-ingest";
+import { seedGmailHistoryCursorIfAbsent } from "@alfred/assistant/connections/ingestion/internal";
 
 const ID_PREFIX = "test-gmail-ingest-";
 const SKIP = process.env.DATABASE_URL ? false : "DATABASE_URL not set — skipping DB-backed test";

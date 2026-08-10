@@ -295,7 +295,7 @@ let chatAttachmentEnrichmentScheduler: ChatAttachmentEnrichmentScheduler | null 
  * Register the concrete chat-attachment-enrichment scheduler.
  *
  * The concrete scheduler bridges to api's ingestion queue (`enqueueChatAttachmentEnrichment` in
- * `packages/api/src/modules/integrations/queue.ts`), which conversation compaction cannot import
+ * `packages/assistant/src/connections/ingestion/queue.ts`), which conversation compaction cannot import
  * directly without forming an `@alfred/assistant → @alfred/api` edge. The composition root
  * registers it at startup via the RUNTIME_ADAPTERS manifest. Returns an unregister function for
  * test cleanup.

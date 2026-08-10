@@ -7,7 +7,7 @@ import {
   registerGmailUserModelHandler,
   type GmailKindRefoldResult,
   type GmailUserModelHandler,
-} from "../modules/integrations";
+} from "@alfred/assistant/connections/ingestion";
 import {
   appendObservationFamilyMember,
   reduceGmailDocument,

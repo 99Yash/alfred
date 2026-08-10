@@ -35,12 +35,6 @@ export {
   stopBriefingWorker,
 } from "@alfred/assistant/briefings";
 export {
-  closeIngestionQueue,
-  startIngestionWorker,
-  stopIngestionWorker,
-} from "./modules/integrations/index";
-export { scheduleRepeatableIngestionJobs } from "./modules/connections/index";
-export {
   closeMemoryQueue,
   scheduleRepeatableMemoryJobs,
   startMemoryWorker,

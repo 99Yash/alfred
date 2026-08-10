@@ -3,7 +3,7 @@ import { z } from "zod";
 import { createHmac, timingSafeEqual } from "node:crypto";
 import type IORedis from "ioredis";
 import { createRedisConnection } from "@alfred/db/redis";
-import { workflowRecoveryStateSchema } from "../integrations";
+import { workflowRecoveryStateSchema } from "./ingestion/workflow-recovery";
 
 /**
  * Server-side OAuth state nonce store.

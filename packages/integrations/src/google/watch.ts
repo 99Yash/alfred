@@ -10,7 +10,7 @@ import { gmailMailboxWritesEnabled } from "@alfred/env/server";
 /**
  * Push-channel lifecycle for Gmail. The delta sync and the rolling
  * `ingestion_state` cursor now live in the api-layer consumer
- * (`@alfred/api` `modules/integrations/gmail-ingest.ts`); this provider
+ * (`@alfred/assistant` `connections/ingestion/gmail-ingest.ts`); this provider
  * module is just the watch channel bookkeeping.
  *
  * State is split across two tables:
