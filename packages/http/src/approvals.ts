@@ -27,7 +27,7 @@ import {
   startApprovalWaitSpan,
   type ApprovalWaitOutcome,
 } from "@alfred/assistant/execution/runtime-spans";
-import { Errors, toMessage } from "@alfred/contracts";
+import { Errors, jsonValueSchema, toMessage } from "@alfred/contracts";
 import {
   prepareWorkflowApprovalEdit,
   restageWorkflowApproval,
@@ -94,6 +94,8 @@ export const approvalsRoutes = new Elysia({ prefix: "/api/approvals", normalize:
           throw Errors.BadRequestError("decision must be 'approve' | 'reject' | 'cancel_run'");
         }
         const reason = body.reason?.trim();
+        const editedInput =
+          body.editedInput === undefined ? undefined : jsonValueSchema.parse(body.editedInput);
 
         if ((decision === "reject" || decision === "cancel_run") && !reason) {
           throw Errors.BadRequestError("Rejecting an action requires a reason");
@@ -108,7 +110,7 @@ export const approvalsRoutes = new Elysia({ prefix: "/api/approvals", normalize:
             userId: user.id,
             stagingId: params.stagingId,
             expectedRowVersion: body.expectedRowVersion,
-            editedInput: body.editedInput,
+            editedInput,
           });
           if (workflowEdit.kind === "invalid") {
             throw Errors.BadRequestError(workflowEdit.message);
@@ -171,10 +173,8 @@ export const approvalsRoutes = new Elysia({ prefix: "/api/approvals", normalize:
                 status: "approved",
                 decidedInput:
                   workflowEdit.kind === "prepared"
-                    ? workflowEdit.input
-                    : body.editedInput === undefined
-                      ? undefined
-                      : (body.editedInput as object),
+                    ? jsonValueSchema.parse(workflowEdit.input)
+                    : editedInput,
                 decidedAt: now,
                 rowVersion: sql`${actionStagings.rowVersion} + 1`,
               })

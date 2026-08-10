@@ -80,7 +80,7 @@ function registerDoubles(): void {
       action: "load_tool",
       riskTier: "no_risk",
       description: "test double — counts executions",
-      inputSchema: z.object({ slug: z.string() }),
+      inputSchema: z.object({ slug: z.string(), optional: z.string().optional() }),
       execute: async (input) => {
         executeCount += 1;
         lastExecutedInput = input;
@@ -89,6 +89,13 @@ function registerDoubles(): void {
         // must strip (ADR-0070 §1.1). Written as the `\x00` ESCAPE, never a
         // literal NUL byte (a literal one turns this file binary to rg/git).
         if (input.slug === "poison") return { ok: true, note: "tail\x00end", call: executeCount };
+        if (input.slug === "json-normalization") {
+          return {
+            at: new Date("2026-08-10T00:00:00.000Z"),
+            omitted: undefined,
+            items: [undefined, "kept"],
+          };
+        }
         return { ok: true, slug: input.slug, call: executeCount };
       },
     }),
@@ -176,6 +183,35 @@ describe("dispatch staging machine (DB-free)", () => {
     assert.equal(row?.requiresApproval, false);
     assert.deepEqual(row?.executeResult, { ok: true, slug: "github", call: 1 });
     assert.equal(row?.rowVersion, 2, "insert then commit");
+  });
+
+  test("a staged tool result is normalized before return and persistence", async () => {
+    const result = await dispatchToolCall(
+      baseArgs({ toolCallId: "tc_json", input: { slug: "json-normalization" } }),
+    );
+    const expected = {
+      at: "2026-08-10T00:00:00.000Z",
+      items: [null, "kept"],
+    };
+
+    assert.equal(result.kind, "executed");
+    assert.deepEqual(result.kind === "executed" ? result.toolResult : undefined, expected);
+    assert.deepEqual(store.rows()[0]?.executeResult, expected);
+  });
+
+  test("a non-JSON proposed input is rejected before a staging row is written", async () => {
+    await assert.rejects(
+      dispatchToolCall(
+        baseArgs({
+          toolCallId: "tc_non_json_input",
+          input: { slug: "github", optional: undefined },
+        }),
+      ),
+      /Invalid input/,
+    );
+
+    assert.equal(executeCount, 0);
+    assert.equal(store.rows().length, 0);
   });
 
   test("re-dispatching an executed call replays the stored result without re-executing", async () => {

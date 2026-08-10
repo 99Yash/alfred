@@ -12,6 +12,7 @@
  */
 
 import type { z } from "zod";
+import type { JsonValue } from "./user-model";
 
 /**
  * `JSON.parse` that returns `unknown` instead of `any`, and `null` instead of
@@ -53,10 +54,10 @@ export function parseJsonWith<T>(
  * round-trip through `JSON.stringify` (cycles, BigInt, …) degrades to a
  * `{ unserializable }` marker rather than throwing.
  */
-export function toJsonValue(value: unknown): unknown {
+export function toJsonValue(value: unknown): JsonValue {
   if (value === undefined) return null;
   try {
-    return JSON.parse(JSON.stringify(value)) as unknown;
+    return JSON.parse(JSON.stringify(value)) as JsonValue;
   } catch {
     return { unserializable: String(value) };
   }
