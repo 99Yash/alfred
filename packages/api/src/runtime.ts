@@ -1,8 +1,12 @@
 export { closeConnections, warmPool } from "@alfred/db";
 export { registerRuntimeAdapters, unregisterRuntimeAdapters } from "./composition/runtime-adapters";
 export { closeRedis } from "@alfred/db/redis";
-export { initEventBridge, closeEventBridge } from "./events/index";
-export { initReplicachePokeBridge, closeReplicachePokeBridge } from "./events/replicache-events";
+export {
+  closeEventBridge,
+  closeReplicachePokeBridge,
+  initEventBridge,
+  initReplicachePokeBridge,
+} from "@alfred/assistant/realtime";
 export {
   closeAgentQueue,
   closeSubAgentJoinWakeQueue,

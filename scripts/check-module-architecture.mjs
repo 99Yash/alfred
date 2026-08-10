@@ -39,6 +39,7 @@ const TARGET_ASSISTANT_MODULES = new Set([
   "triggers",
   "execution",
   "knowledge",
+  "realtime",
   "settings",
   "skills",
   "tasks",

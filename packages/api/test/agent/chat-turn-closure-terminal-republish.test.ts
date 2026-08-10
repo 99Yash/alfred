@@ -8,7 +8,7 @@ import { and, eq, inArray, like } from "drizzle-orm";
 
 import { closeRedis } from "@alfred/db/redis";
 import { registerReplicachePokeAdapter } from "@alfred/api/runtime";
-import { subscribeUserPokes } from "../../src/events/replicache-events";
+import { subscribeUserPokes } from "@alfred/assistant/realtime";
 import {
   finalizeAssistantMessage,
   finalizeFailedMessage,

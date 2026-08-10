@@ -8,7 +8,7 @@ import { databaseEnv } from "@alfred/env/database";
 import { ianaTimezoneSchema, type TriageCategory } from "@alfred/contracts";
 import { inArray, like } from "drizzle-orm";
 
-import { closeReplicachePokeBridge } from "../../src/events/replicache-events";
+import { closeReplicachePokeBridge } from "@alfred/assistant/realtime";
 import { gatherBriefingWithSuppressionAudit } from "@alfred/assistant/briefings/gather";
 import { isQuietMorning } from "@alfred/assistant/briefings/read";
 import { closeRedis } from "@alfred/db/redis";
