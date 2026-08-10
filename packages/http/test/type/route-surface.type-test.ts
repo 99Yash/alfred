@@ -32,9 +32,14 @@
 // of `user` from `workflows.ts` still fails on it. The TS2339s on `user` are
 // extra, and the total is per-module, so never copy a count between route
 // files. Measured here one file at a time, each mutation reverted before the
-// next: agent 6, approvals 3, onboarding 4, skills 4, workflows 3 — one TS2353
-// on the guard, one TS6133 for the now-unused import, and one TS2339 per
-// handler that destructures `user`.
+// next: agent 6, approvals 3, onboarding 4, skills 4, workflows 3,
+// conversations 6 — one TS2353 on the guard, one TS6133 for the now-unused
+// import, and one TS2339 per handler that destructures `user`. Measure with one
+// `tsc` pass, or with a mutation inside `src`: `check-types` here is
+// `tsc -b … && tsc -p …` over the same sources, so a `test/`-only mutation that
+// leaves the first pass green is counted once by the second pass, while a `src`
+// mutation short-circuits the `&&` and is also counted once. A mutation red in
+// both passes is counted twice.
 //
 // The blind spot is the opposite shape: a route carrying no `{ auth: true }`
 // guard at all — the deliberately unauthenticated webhooks campaign items
