@@ -84,6 +84,40 @@
       "rules": {
         "no-restricted-imports": "off"
       }
+    },
+    {
+      "files": ["packages/http/src/**"],
+      "rules": {
+        "no-restricted-imports": [
+          "error",
+          {
+            "patterns": [
+              {
+                "group": ["@alfred/assistant/knowledge/internal"],
+                "message": "The knowledge internal tooling door is restricted to apps/server/src/scripts/** (see packages/assistant/src/knowledge/internal.ts). Import the sanctioned contract from @alfred/assistant/knowledge instead."
+              },
+              {
+                "group": ["@alfred/integrations/google/internal"],
+                "message": "The raw Gmail watch primitive is restricted to its two allowlisted friend files (see google/internal.ts). Install a watch through the api wrapper installGmailWatchAndSeedCursor, which also seeds the ingestion_state cursor; a raw installGmailWatch leaves the credential cursorless."
+              },
+              {
+                "group": [
+                  "@alfred/http",
+                  "@alfred/http/*",
+                  "@alfred/http/**",
+                  ".",
+                  "./index*",
+                  "..",
+                  "../index*",
+                  "../..",
+                  "../../index*"
+                ],
+                "message": "packages/http/src may not import its own root barrel. `@alfred/http` and every relative spelling of src/index.ts resolve to the barrel that re-exports this file, so the import closes an `index.ts -> this file -> index.ts` module cycle. That cycle compiles, passes every gate and boots; it becomes a TDZ ReferenceError the day someone reorders the exports in index.ts. Import the concrete sibling module instead, e.g. `./middleware/auth`."
+              }
+            ]
+          }
+        ]
+      }
     }
   ]
 }

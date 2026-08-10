@@ -1,13 +1,6 @@
 import { toJsonValue } from "@alfred/contracts";
 import { Elysia, t } from "elysia";
 
-// The sibling relative path, not the `@alfred/http` package specifier: that
-// specifier resolves to this package's own `src/index.ts`, which re-exports
-// this file, so it would make `index.ts -> workflows.ts -> index.ts` a module
-// cycle inside the package. The package form compiles, passes every gate and
-// boots — it survives only because `index.ts` exports the middleware before
-// the routes, and reordering those lines turns it into a TDZ `ReferenceError`.
-// Campaign item 21 owns the lint fence that makes it a compile error instead.
 import { authMacro } from "./middleware/auth";
 import { recoverWorkflowDraft, workflowRecoveryNavigation } from "@alfred/assistant/automation";
 
