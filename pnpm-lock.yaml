@@ -824,6 +824,9 @@ importers:
       '@alfred/config':
         specifier: workspace:*
         version: link:../config
+      tsx:
+        specifier: ^4.21.0
+        version: 4.23.11
 
   packages/integrations:
     dependencies:
