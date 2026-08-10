@@ -7,10 +7,10 @@
 // The fixture is compile-only because the runtime alternative is not viable
 // here: `session-cache` calls `@alfred/auth`, so exercising `authMacro` for
 // real needs env and a live database, and a skipped test is not a pass. This
-// file never runs — `@alfred/http` has no test script (campaign item 19 owns
-// adding one). It is type-checked solely by `packages/http/tsconfig.test.json`,
-// which `check-types` runs as its second `tsc` pass, after the composite
-// `tsc -b` that only ever sees `src`.
+// file never runs: the package's `test` script globs `test/**/*.test.ts`, and
+// a `.type-test.ts` name does not match it. It is type-checked solely by
+// `packages/http/tsconfig.test.json`, which `check-types` runs as its second
+// `tsc` pass, after the composite `tsc -b` that only ever sees `src`.
 //
 // Every binding below is mutation-tested: dropping the matching `export` from
 // the barrel, or dropping `.use(authMacro)` from `probe`, turns this file red.

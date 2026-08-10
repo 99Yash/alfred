@@ -1,13 +1,19 @@
 {
-  // Scoped typecheck project for compile-only type fixtures under `test/type`.
-  // `check-types` runs this as a SECOND `tsc` pass (after the composite
-  // `tsc -b`), because the composite build emits declarations only for `src`
-  // and never sees `test/**`. Without this pass the package's `test/` tree is
-  // checked by nothing.
+  // Scoped typecheck project for the package's whole `test/` tree — the
+  // compile-only fixtures under `test/type` and the runnable `*.test.ts`
+  // suites the `test` script executes. `check-types` runs this as a SECOND
+  // `tsc` pass (after the composite `tsc -b`), because the composite build
+  // emits declarations only for `src` and never sees `test/**`. Without this
+  // pass the package's `test/` tree is checked by nothing.
+  //
+  // `include` covers `test` rather than `test/type` so that a file added
+  // anywhere under `test/` is type-checked without an edit here. The runner
+  // and this pass are both glob-derived and they overlap: no `.ts` under
+  // `test/` is checked by neither.
   //
   // The base `tsconfig.json` is `composite: true`; a `tsc -p` invocation with
   // `noEmit` errors unless `composite`/`declaration` are overridden off here.
-  // Nothing under `test/type` is emitted or built — this project only
+  // Nothing under `test/` is emitted or built — this project only
   // type-checks.
   "extends": "./tsconfig.json",
   "compilerOptions": {
@@ -18,5 +24,5 @@
     "declarationMap": false,
     "sourceMap": false
   },
-  "include": ["src", "test/type"]
+  "include": ["src", "test"]
 }

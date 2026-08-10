@@ -7,11 +7,11 @@
 //
 // The fixture is compile-only for the same reason as its sibling: exercising
 // the route for real needs the auth macro, which needs env and a live
-// database, and a skipped test is not a pass. This file never runs —
-// `@alfred/http` has no test script (campaign item 19 owns adding one). It is
-// type-checked solely by `packages/http/tsconfig.test.json`, which
-// `check-types` runs as its second `tsc` pass, after the composite `tsc -b`
-// that only ever sees `src`.
+// database, and a skipped test is not a pass. This file never runs: the
+// package's `test` script globs `test/**/*.test.ts`, and a `.type-test.ts`
+// name does not match it. It is type-checked solely by
+// `packages/http/tsconfig.test.json`, which `check-types` runs as its second
+// `tsc` pass, after the composite `tsc -b` that only ever sees `src`.
 //
 // Every binding below is mutation-tested, one binding at a time. Dropping the
 // barrel export turns this file red with TS2305; changing the route module's
