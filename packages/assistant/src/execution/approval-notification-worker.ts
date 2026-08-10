@@ -11,7 +11,7 @@
  * schedule the notification without forming an import cycle.
  */
 
-import { humanizeSlug, humanizeToolName, isRecord } from "@alfred/contracts";
+import { humanizeSlug, humanizeToolName, isRecord, jsonValueSchema } from "@alfred/contracts";
 import { db } from "@alfred/db";
 import { actionStagings, agentRuns } from "@alfred/db/schemas";
 import { serverEnv } from "@alfred/env/server";
@@ -84,6 +84,7 @@ async function processApprovalNotificationJob(
   if (row.status !== "pending") return { status: "skipped", reason: row.status, stagingId };
   if (row.notifiedAt) return { status: "skipped", reason: "already_notified", stagingId };
 
+  const proposedInput = jsonValueSchema.parse(row.proposedInput);
   const approvalUrl = approvalDeepLink(stagingId);
   const rendered = await renderApprovalNotification({
     stagingId,
@@ -93,7 +94,7 @@ async function processApprovalNotificationJob(
     toolName: row.toolName,
     integration: row.integration,
     riskTier: row.riskTier,
-    proposedInput: row.proposedInput,
+    proposedInput,
     approvalUrl,
   });
 
@@ -113,7 +114,7 @@ async function processApprovalNotificationJob(
       integration: row.integration,
       riskTier: row.riskTier,
       approvalUrl,
-      proposedInput: row.proposedInput,
+      proposedInput,
     },
   });
 

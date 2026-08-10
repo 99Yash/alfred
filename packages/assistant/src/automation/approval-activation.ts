@@ -3,6 +3,7 @@ import {
   APPROVAL_EXPIRY_MS,
   canonicalJson,
   hashToolInput,
+  jsonValueSchema,
 } from "@alfred/contracts";
 import { db, type DbTransaction } from "@alfred/db";
 import { actionStagings } from "@alfred/db/schemas";
@@ -80,7 +81,7 @@ export async function restageWorkflowApproval(
   await tx
     .update(actionStagings)
     .set({
-      proposedInput: input,
+      proposedInput: jsonValueSchema.parse(input),
       proposedInputHash: hashToolInput("system.activate_workflow", input),
       decidedInput: null,
       expiresAt,

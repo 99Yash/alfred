@@ -5,7 +5,7 @@ import { useReplicacheStatus } from "./context";
 
 export interface PreferenceMap {
   /** Live `key → value` map of the synced `pref/{key}` rows; absent keys are unset. */
-  values: Record<string, unknown>;
+  values: Record<string, PreferenceValue>;
   /** True once the first subscription result has arrived. */
   loaded: boolean;
   /** Optimistically write a preference row; the next server pull rebases it. */
@@ -24,7 +24,7 @@ export interface PreferenceMap {
  */
 export function usePreferenceMap(): PreferenceMap {
   const { rep, loadError, retry } = useReplicacheStatus();
-  const [values, setValues] = useState<Record<string, unknown>>({});
+  const [values, setValues] = useState<Record<string, PreferenceValue>>({});
   const [loaded, setLoaded] = useState(false);
 
   useEffect(() => {
@@ -37,7 +37,7 @@ export function usePreferenceMap(): PreferenceMap {
     return rep.subscribe(
       async (tx: ReadTransaction) => tx.scan({ prefix }).values().toArray(),
       (rows) => {
-        const next: Record<string, unknown> = {};
+        const next: Record<string, PreferenceValue> = {};
         for (const row of rows) {
           const parsed = syncedPreferenceSchema.safeParse(row);
           if (parsed.success) next[parsed.data.key] = parsed.data.value;

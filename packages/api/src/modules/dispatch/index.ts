@@ -44,9 +44,11 @@ import {
   isRecord,
   isTerminalStatus,
   isToolName,
+  jsonValueSchema,
   sanitizeErrorMessage,
   sanitizeToolResult,
   summarizeBody,
+  toJsonValue,
   toMessage,
 } from "@alfred/contracts";
 import {
@@ -575,7 +577,7 @@ export async function dispatchToolCall(args: DispatchArgs): Promise<DispatchResu
     toolName,
     integration,
     riskTier,
-    proposedInput: proposedInputForRow,
+    proposedInput: jsonValueSchema.parse(proposedInputForRow),
     proposedInputHash,
     requiresApproval,
     status: "pending",
@@ -1122,15 +1124,21 @@ async function guardPassthroughBudget(
   const priorCalls = await countRunPassthroughCalls(ctx.runId);
   if (priorCalls < PASSTHROUGH_PER_RUN_CEILING) return null;
   const envelope = passthroughBudgetExhausted(priorCalls);
+  const persistedEnvelope = jsonValueSchema.parse(envelope);
   // The envelope is minted here, never through the tool, so it cannot carry
   // persistence poison — `sanitized: false` is the verdict, not a default.
   await commitAndPoke(row, ctx, {
     status: "executed",
-    result: envelope,
+    result: persistedEnvelope,
     sanitized: false,
     executedAt: new Date(),
   });
-  return { kind: "executed", stagingId: row.id, toolResult: envelope, editedByUser: false };
+  return {
+    kind: "executed",
+    stagingId: row.id,
+    toolResult: persistedEnvelope,
+    editedByUser: false,
+  };
 }
 
 /**
@@ -1185,7 +1193,7 @@ async function executeAndCommit(
   // `execute_result` jsonb write below AND the `toolResult` returned to the
   // caller (which flows into the transcript/state — the same poison sinks).
   const sanitizedResult = sanitizeToolResult(result);
-  result = sanitizedResult.value;
+  const persistedResult = toJsonValue(sanitizedResult.value);
   const didSanitize = sanitizedResult.removed > 0 || sanitizedResult.collisions > 0;
   if (didSanitize) {
     console.warn(
@@ -1196,14 +1204,14 @@ async function executeAndCommit(
   }
   await commitAndPoke(row, ctx, {
     status: "executed",
-    result,
+    result: persistedResult,
     sanitized: didSanitize,
     executedAt: now,
   });
   return {
     kind: "executed",
     stagingId: row.id,
-    toolResult: result,
+    toolResult: persistedResult,
     editedByUser,
     sanitized: didSanitize,
   };
@@ -1219,6 +1227,7 @@ async function executeFastPath(
     // ADR-0070 §1.1: sanitize at the boundary even on the fast path — this
     // result flows into the transcript/state just like the staged path.
     const sanitized = sanitizeToolResult(result);
+    const jsonResult = toJsonValue(sanitized.value);
     const didSanitize = sanitized.removed > 0 || sanitized.collisions > 0;
     if (didSanitize) {
       console.warn(
@@ -1230,7 +1239,7 @@ async function executeFastPath(
     return {
       kind: "executed",
       stagingId: null,
-      toolResult: sanitized.value,
+      toolResult: jsonResult,
       editedByUser: false,
       sanitized: didSanitize,
     };

@@ -20,8 +20,8 @@
  * `src/` is a runtime someone can select in production.
  */
 
-import type { RunStatus, ToolName } from "@alfred/contracts";
-import { actionStagingStatusSchema, runStatusSchema } from "@alfred/contracts";
+import type { JsonValue, RunStatus, ToolName } from "@alfred/contracts";
+import { actionStagingStatusSchema, jsonValueSchema, runStatusSchema } from "@alfred/contracts";
 import { db } from "@alfred/db";
 import {
   actionStagings,
@@ -64,7 +64,7 @@ export type StagingRow = Pick<
  */
 export type StagingCommit =
   | { status: "failed"; error: PublicAppError; executedAt: Date }
-  | { status: "executed"; result: unknown; sanitized: boolean; executedAt: Date };
+  | { status: "executed"; result: JsonValue | undefined; sanitized: boolean; executedAt: Date };
 
 export interface StagingStore {
   /**
@@ -132,7 +132,7 @@ function commitColumns(commit: StagingCommit) {
     case "failed":
       return {
         status: "failed",
-        executeError: commit.error,
+        executeError: jsonValueSchema.parse(commit.error),
         executedAt: commit.executedAt,
       } as const;
     case "executed":
@@ -141,7 +141,7 @@ function commitColumns(commit: StagingCommit) {
         // A tool legitimately returning `undefined` is stored as SQL NULL.
         // `status = 'executed'` is the discriminator for "execution happened" —
         // readers must never infer "no result yet" from a null payload.
-        executeResult: (commit.result === undefined ? null : commit.result) as object | null,
+        executeResult: commit.result === undefined ? null : commit.result,
         // Persist the sanitize verdict alongside the scrubbed result so the
         // idempotent `executed` replay re-emits the same "may be incomplete"
         // notice rather than replaying it as pristine (ADR-0070 §1.1).
