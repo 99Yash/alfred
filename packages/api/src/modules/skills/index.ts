@@ -1,5 +1,11 @@
 // Transitional barrel: re-exports domain logic from @alfred/assistant/skills.
-// Routes stay here and import from this barrel.
+// Transport left: the skills route now lives in @alfred/http and never used
+// this barrel. What is left is the skills half of the @alfred/api/backend
+// service surface, for server-side callers that have not moved to
+// @alfred/assistant/skills yet. Do not enumerate those callers here — some of
+// them live only in test files, which api's tsconfig.test.json excludes, so an
+// enumeration written in this comment is invisible to every static gate and
+// goes stale without anything saying so.
 // @alfred/api/backend surface is unchanged (byte-identical re-exports).
 // Combines the public surface of the original skills + skill-revisions + skill-documentation modules.
 
@@ -72,5 +78,3 @@ export {
 } from "@alfred/assistant/skills";
 
 export { skillDocumentationWorkflow } from "@alfred/assistant/skills";
-
-export { skillsRoutes } from "./routes";
