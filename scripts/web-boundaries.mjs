@@ -41,13 +41,13 @@ const DOC_MARKER_END = "<!-- forbidden-runtime-packages:end -->";
 
 const SOURCE_FILE = /\.(ts|tsx)$/;
 
-export function packageName(specifier) {
+function packageName(specifier) {
   if (!specifier.startsWith("@alfred/")) return null;
   const [scope, pkg] = specifier.split("/");
   return pkg ? `${scope}/${pkg}` : null;
 }
 
-export function lineNumber(source, index) {
+function lineNumber(source, index) {
   return source.slice(0, index).split("\n").length;
 }
 
@@ -72,7 +72,7 @@ export function hasRuntimeBinding(clause) {
  * The scan is a regex over specifiers, so a computed `import(variable)` is
  * invisible to it.
  */
-export function scanAlfredImports(source) {
+function scanAlfredImports(source) {
   const imports = [];
   const staticImport = /\b(import|export)\s+([\s\S]*?)\s+from\s*["']([^"']+)["']/g;
   const sideEffectImport = /\bimport\s*["']([^"']+)["']/g;
