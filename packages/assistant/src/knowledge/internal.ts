@@ -1,10 +1,10 @@
 /**
- * `@alfred/api/modules/knowledge/internal` — the single privileged tooling door
+ * `@alfred/assistant/knowledge/internal` — the single privileged tooling door
  * into the knowledge substrate's internals.
  *
  * The sanctioned knowledge contract (observe / recall / contextFor /
  * applyCorrection + genuinely cross-module helpers) flows out through the
- * curated barrel `./index` and onto `@alfred/api/backend`. A handful of
+ * curated barrel `./index`, published as `@alfred/assistant/knowledge`. A handful of
  * `apps/server` operational scripts (backfills / smokes) legitimately reach
  * PAST that contract to poke internal projection / policy / significance
  * helpers — a privileged tooling surface, not the general public one.

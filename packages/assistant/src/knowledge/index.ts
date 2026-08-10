@@ -92,7 +92,7 @@ export * from "./extractor";
  * Item 16 then closed the twin leak: `backend.ts` re-exports this curated
  * barrel with a single `export * from "./modules/knowledge"` instead of the old
  * by-path `export *` block, so the only door to a privileged tooling internal is
- * the explicit `@alfred/api/modules/knowledge/internal` subpath (nine named
+ * the explicit `@alfred/assistant/knowledge/internal` subpath (nine named
  * re-exports for `apps/server` backfills/smokes). Both boundaries are now Tier-2:
  * a new `packages/api/src/modules/*` file cannot reach a dropped internal through
  * `../knowledge`, and no unlisted knowledge internal is reachable through
