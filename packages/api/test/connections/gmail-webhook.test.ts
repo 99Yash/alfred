@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { describe, test } from "node:test";
 import { Elysia } from "elysia";
 
-import { errorHandler } from "../../src/middleware/error-handler";
+import { errorHandler } from "@alfred/http";
 import { assertGmailPushOidcConfigured } from "@alfred/integrations/google";
 import {
   makeGmailWebhookRoutes,

@@ -24,6 +24,7 @@
     "@alfred/corpus": "workspace:*",
     "@alfred/db": "workspace:*",
     "@alfred/env": "workspace:*",
+    "@alfred/http": "workspace:*",
     "@alfred/integrations": "workspace:*",
     "@alfred/logging": "workspace:*",
     "@alfred/mailer": "workspace:*",
