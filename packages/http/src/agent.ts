@@ -1,5 +1,5 @@
 import { Elysia, t } from "elysia";
-import { authMacro } from "../middleware/auth";
+import { authMacro } from "./middleware/auth";
 import {
   isInternalWorkflowSlug,
   startRun,
