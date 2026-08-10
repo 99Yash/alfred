@@ -3,6 +3,16 @@
 // file moves and no repo gate reads the map (see
 // `.lessons/moving-a-file-leaves-its-exports-entry-behind-and-no-gate-catches-it.md`).
 //
+// Nothing under `src/` may import this file back. Every module named below is
+// re-exported here, so a return import closes an `index.ts -> that module ->
+// index.ts` cycle, and the order of the export lines below is the only reason
+// such a cycle boots at all — reorder them and it becomes a TDZ
+// `ReferenceError` at startup, in the package whose job is to be imported
+// first. Import the concrete sibling module instead. The `packages/http/src/**`
+// override in `.oxlintrc.json` holds the rule: it fails `pnpm lint` on the
+// `@alfred/http` specifier, on any subpath of it, and on every relative
+// spelling of this file.
+//
 // The transitional `export { app } from "@alfred/api"` that this file held is
 // gone. It had to go in this slice: the middleware below still has 17 consumers
 // under `packages/api/src`, so `@alfred/api -> @alfred/http` is now a real
