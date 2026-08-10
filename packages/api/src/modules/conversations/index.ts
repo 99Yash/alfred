@@ -1,5 +1,7 @@
-// Transitional barrel: re-exports domain logic from @alfred/assistant/conversations.
-// Routes stay here and import from this barrel.
+// Transitional barrel: re-exports domain logic from @alfred/assistant/conversations
+// so that `@alfred/api/backend` keeps advertising these names while consumers move
+// to the assistant package directly. The `/api/chat` transport left this directory
+// at campaign item 25 and now lives in `@alfred/http`.
 // @alfred/api/backend surface is unchanged (byte-identical re-exports).
 
 export {
@@ -25,5 +27,3 @@ export {
   stopChatMemoryWorker,
   type ChatMemoryJobData,
 } from "@alfred/assistant/conversations";
-
-export { chatRoutes, startTurn, stopTurn } from "./routes";

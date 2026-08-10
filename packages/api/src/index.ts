@@ -5,6 +5,7 @@ import { Elysia } from "elysia";
 import {
   agent,
   approvalsRoutes,
+  chatRoutes,
   errorHandler,
   getSessionCached,
   invalidateSessionToken,
@@ -15,7 +16,6 @@ import {
 import { createUntrackedRedisConnection } from "@alfred/db/redis";
 import { events } from "./modules/events/index";
 import { replicache } from "./modules/replicache/index";
-import { chatRoutes } from "./modules/conversations/index";
 import { connections } from "./modules/connections/index";
 import { meRoutes } from "./modules/me/index";
 import { mcpIntegrationRoutes } from "./modules/connections/mcp/index";

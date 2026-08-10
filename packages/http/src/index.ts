@@ -26,19 +26,20 @@ export { securityHeaders, type SecurityHeadersOptions } from "./middleware/secur
 export { getSessionCached, invalidateSessionToken } from "./middleware/session-cache";
 
 // Routes. This is one barrel with no subpaths, so it is also one
-// module-evaluation unit: importing ANY binding above now also evaluates all
-// five route modules below — the agent route plus the four domain routes
-// campaign item 05 moved across — and through them `drizzle-orm`, `@alfred/db`
-// and every `@alfred/assistant` subpath they reach. That graph needs no
-// environment variables and no database to load, re-probed after item 05's
-// move with `DATABASE_URL`, `REDIS_URL`, `BETTER_AUTH_SECRET` and
-// `OAUTH_CREDENTIAL_KEK` all unset, and `apps/server` already loads it through
-// `@alfred/api`, so the cost is inert today — but keep module-scope side
-// effects out of anything added here. Do not turn "what the routes reach" into
-// a list: campaign items 24-27 add more, and an enumeration in this position
-// is the one prose shape no gate maintains.
+// module-evaluation unit: importing ANY binding above also evaluates every
+// route module below, and through them `drizzle-orm`, `@alfred/db`,
+// `@alfred/ai` and every `@alfred/assistant` subpath they reach. That graph
+// needs no environment variables and no database to load, re-probed after
+// campaign item 25's move with `DATABASE_URL`, `REDIS_URL`,
+// `BETTER_AUTH_SECRET`, `OAUTH_CREDENTIAL_KEK` and the three model-provider
+// keys all unset, and `apps/server` already loads it through `@alfred/api`, so
+// the cost is inert today — but keep module-scope side effects out of anything
+// added here. Do not turn "what the routes reach" into a list: campaign items
+// 24-27 add more, and an enumeration in this position is the one prose shape
+// no gate maintains.
 export { agent } from "./agent";
 export { approvalsRoutes } from "./approvals";
+export { chatRoutes } from "./conversations";
 export { onboardingRoutes } from "./onboarding";
 export { skillsRoutes } from "./skills";
 export { workflowRoutes } from "./workflows";

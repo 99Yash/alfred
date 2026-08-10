@@ -1,9 +1,9 @@
 // Compile-only fixture for the route half of `@alfred/http`'s barrel
 // (`packages/http/src/index.ts`). The middleware half is pinned by
 // `middleware-surface.type-test.ts`; this file pins every route the package
-// owns — the agent-run route plus the four domain routes campaign item 05
-// moved across — each of which `packages/api/src/index.ts` mounts with
-// `.use(...)`.
+// owns, each of which `packages/api/src/index.ts` mounts with `.use(...)`. Add
+// a prefix line here in the same slice that adds a barrel route line, and do
+// not describe the set by counting it — the campaign is still moving routes in.
 //
 // The fixture is compile-only for the same reason as its sibling: exercising
 // the route for real needs the auth macro, which needs env and a live
@@ -44,6 +44,7 @@
 import {
   agent,
   approvalsRoutes,
+  chatRoutes,
   onboardingRoutes,
   skillsRoutes,
   workflowRoutes,
@@ -60,9 +61,8 @@ import { Elysia } from "elysia";
 // established `.type-test.ts` idiom in this package and `@alfred/api`.
 export const prefix: (typeof agent)["config"]["prefix"] = "/api/agent";
 
-// The four domain routes campaign item 05 moved out of
-// `packages/api/src/modules/*`. The mount path is the one property a pure
-// transport move must preserve.
+// The domain routes the campaign moved out of `packages/api/src/modules/*`. The
+// mount path is the one property a pure transport move must preserve.
 //
 // This is not the repo's only pin on it, and do not write that it is. The web
 // Eden client (`apps/web/src/lib/eden.ts`) is `treaty<App>` over
@@ -76,6 +76,13 @@ export const prefix: (typeof agent)["config"]["prefix"] = "/api/agent";
 // this fixture covers the first gap and pins the surface at the package that
 // now owns it, so a later transport move need not restate the mount surface.
 export const approvalsPrefix: (typeof approvalsRoutes)["config"]["prefix"] = "/api/approvals";
+// `/api/chat` is the first route here for which the Eden paragraph above buys
+// nothing at all: all five of its web call sites are untyped `fetch`, so
+// `treaty<App>` derives the types and nobody consumes them, and renaming this
+// prefix fails nothing in `pnpm --filter web exec tsc`. This line plus a
+// route-table comparison against the pre-move app are the whole mount-surface
+// evidence for it. Check for a call site before assuming Eden covers a prefix.
+export const chatPrefix: (typeof chatRoutes)["config"]["prefix"] = "/api/chat";
 export const onboardingPrefix: (typeof onboardingRoutes)["config"]["prefix"] = "/api/me/onboarding";
 export const skillsPrefix: (typeof skillsRoutes)["config"]["prefix"] = "/api/skills";
 export const workflowsPrefix: (typeof workflowRoutes)["config"]["prefix"] = "/api/workflows";
@@ -86,6 +93,7 @@ export const workflowsPrefix: (typeof workflowRoutes)["config"]["prefix"] = "/ap
 export const composed = new Elysia()
   .use(agent)
   .use(approvalsRoutes)
+  .use(chatRoutes)
   .use(onboardingRoutes)
   .use(skillsRoutes)
   .use(workflowRoutes);
