@@ -25,7 +25,8 @@ Strict-Transport-Security: max-age=63072000; includeSubDomains; preload   # prod
 HSTS is gated on `serverEnv().NODE_ENV === "production"` so it is never sent on
 the local http origin. The plugin uses `onRequest` + `set.headers` — the one
 mechanism verified to reach every response, including Elysia `onError` responses
-and the `.mount()`ed Better Auth handler (see `test/security-headers.test.ts`).
+and the `.mount()`ed Better Auth handler (see
+`packages/http/test/security-headers.test.ts`).
 
 ## Web (`alfred.beauty`)
 

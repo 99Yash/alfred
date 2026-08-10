@@ -134,6 +134,43 @@ jobs:
       - name: API tests
         run: corepack pnpm --filter @alfred/api test
 
+  # No `services:` and no `env:` here, unlike `api-tests`. The `@alfred/http`
+  # barrel is a single module-evaluation unit that loads with DATABASE_URL,
+  # REDIS_URL, BETTER_AUTH_SECRET and OAUTH_CREDENTIAL_KEK all unset — measured
+  # at campaign items 03, 04 and 05, and the suites under `packages/http/test`
+  # touch no database. That expires the moment any module reachable from the
+  # barrel reads env or calls `db()` at module scope: the symptom is this job
+  # failing with an env error on a pull request that changed no test. The fix
+  # is then to copy the `services:` and `env:` blocks from `api-tests` above.
+  http-tests:
+    name: http-tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Enable Corepack
+        run: corepack enable
+
+      - name: Resolve pnpm store path
+        run: echo "PNPM_STORE_PATH=$(corepack pnpm store path --silent)" >> "$GITHUB_ENV"
+
+      - uses: actions/cache@v4
+        with:
+          path: ${{ env.PNPM_STORE_PATH }}
+          key: ${{ runner.os }}-pnpm-store-${{ hashFiles('pnpm-lock.yaml') }}
+          restore-keys: ${{ runner.os }}-pnpm-store-
+
+      - name: Install dependencies
+        run: corepack pnpm install --frozen-lockfile
+
+      - name: HTTP tests
+        run: corepack pnpm --filter @alfred/http test
+
   ai-unit-tests:
     name: ai-unit-tests
     runs-on: ubuntu-latest
