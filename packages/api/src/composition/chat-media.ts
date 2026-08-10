@@ -6,7 +6,7 @@ import {
   registerChatMediaHandler,
   type ChatMediaHandler,
   type ChatMediaPendingUploadCleanupRequest,
-} from "../modules/integrations";
+} from "@alfred/assistant/connections/ingestion";
 import {
   claimChatAttachmentEnrichment,
   enrichClaimedChatAttachment,

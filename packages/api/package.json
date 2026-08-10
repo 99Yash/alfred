@@ -4,8 +4,7 @@
   "exports": {
     ".": "./src/index.ts",
     "./backend": "./src/backend.ts",
-    "./runtime": "./src/runtime.ts",
-    "./modules/integrations/gmail-ingest": "./src/modules/integrations/gmail-ingest.ts"
+    "./runtime": "./src/runtime.ts"
   },
   "scripts": {
     "build": "node ../../scripts/clean-package-dist.mjs && tsc -b --emitDeclarationOnly --force",

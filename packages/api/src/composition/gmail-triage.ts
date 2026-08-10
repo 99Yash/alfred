@@ -4,7 +4,7 @@ import {
   type GmailTriageHandler,
   type GmailTriageRelabelResult,
   enqueueTriageRelabel,
-} from "../modules/integrations";
+} from "@alfred/assistant/connections/ingestion";
 import {
   findNewestLiveInboundGmailDocuments,
   reconcileGmailThreads,

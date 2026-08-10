@@ -46,7 +46,7 @@ import { toMessage } from "@alfred/contracts";
 import { db } from "@alfred/db";
 import { integrationCredentials, user as userTable } from "@alfred/db/schemas";
 import { getFreshAccessToken, listMessages } from "@alfred/integrations/google";
-import { ingestRecentGmail } from "@alfred/api/modules/integrations/gmail-ingest";
+import { ingestRecentGmail } from "@alfred/assistant/connections/ingestion/internal";
 import { and, eq, inArray } from "drizzle-orm";
 
 const COMMIT = process.argv.includes("--commit");

@@ -19,7 +19,7 @@ import {
   rememberOAuthNonce,
   signOAuthState,
   verifyOAuthState,
-} from "./oauth-state";
+} from "@alfred/assistant/connections";
 
 /**
  * Vercel integration OAuth routes. The connect step sends the user to the

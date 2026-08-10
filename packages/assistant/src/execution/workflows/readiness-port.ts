@@ -3,7 +3,7 @@
 // wired in at boot by the composition layer (see
 // `composition/workflow-readiness.ts`). This keeps `agent` from importing
 // `workflows` — the last product edge the execution core sheds (ADR-0089) —
-// mirroring how `integrations/workflow-recovery.ts` receives its checker.
+// mirroring how `connections/ingestion/workflow-recovery.ts` receives its checker.
 
 // `problems` is forwarded opaquely into the blocked step-output; the engine
 // never inspects a problem's fields, so the port keeps them as `unknown`.

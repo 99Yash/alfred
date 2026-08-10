@@ -151,7 +151,7 @@ async function markRunFailed(runId: string, error: string): Promise<void> {
 // through `matchLine`, the same door `pnpm check` uses for line rules.
 
 /** A source file the line rules are not exempt in. */
-const LINE_FILE = "packages/api/src/modules/integrations/chat-media.ts";
+const LINE_FILE = "packages/assistant/src/connections/ingestion/chat-media.ts";
 
 /** @type {{name: string, caught: boolean, code: string}[]} */
 const LINE_CASES = [

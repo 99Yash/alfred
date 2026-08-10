@@ -14,10 +14,10 @@ import {
   type TriggerConsumer,
 } from "@alfred/assistant/triggers";
 import {
+  captureGmailObservations,
   runGmailPostInsertTriage,
   type GmailPostInsertTriageResult,
-} from "../modules/integrations/gmail-triage";
-import { captureGmailObservations } from "../modules/integrations/gmail-user-model";
+} from "@alfred/assistant/connections/ingestion";
 
 /**
  * Composition adapters for the `gmail.documents_ingested` batch fact (ADR-0089).

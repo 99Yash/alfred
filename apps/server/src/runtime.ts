@@ -7,7 +7,6 @@ import {
   closeConversationCompactionQueue,
   closeConnections,
   closeEventBridge,
-  closeIngestionQueue,
   closeMemoryQueue,
   closeRedis,
   closeReplicachePokeBridge,
@@ -25,7 +24,6 @@ import {
   registerWorkflowSystemToolAdapter,
   registerRuntimeAdapters,
   scheduleRepeatableBriefingJobs,
-  scheduleRepeatableIngestionJobs,
   scheduleRepeatableMemoryJobs,
   scheduleRepeatableWorkflowsJobs,
   seedBuiltinWorkflowsForAllUsers,
@@ -36,7 +34,6 @@ import {
   startBriefingWorker,
   startChatMemoryWorker,
   startConversationCompactionWorker,
-  startIngestionWorker,
   startMemoryWorker,
   startPolicyBustSubscriber,
   startSubAgentJoinWakeWorker,
@@ -47,7 +44,6 @@ import {
   stopBriefingWorker,
   stopChatMemoryWorker,
   stopConversationCompactionWorker,
-  stopIngestionWorker,
   stopMemoryWorker,
   stopPolicyBustSubscriber,
   stopSubAgentJoinWakeWorker,
@@ -56,6 +52,12 @@ import {
   verifyMeteringModels,
   warmPool,
 } from "@alfred/api/runtime";
+import {
+  closeIngestionQueue,
+  scheduleRepeatableIngestionJobs,
+  startIngestionWorker,
+  stopIngestionWorker,
+} from "@alfred/assistant/connections/ingestion";
 import { flushLangfuse, flushMeteringWrites } from "@alfred/ai";
 import { toMessage } from "@alfred/contracts";
 import { assertPersistedCredentialsSealed } from "@alfred/db/credential-vault-maintenance";
