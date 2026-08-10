@@ -6,7 +6,15 @@
     "sourceMap": true,
     "outDir": "dist",
     "rootDir": "src",
-    "composite": true
+    "composite": true,
+    // Back after campaign item 03 removed it. The agent route imports
+    // `@alfred/assistant/execution`, which reaches `@alfred/mailer`'s React
+    // (`.tsx`) email sources in four value-import hops, so tsc has to parse
+    // them. Classic runtime, matching the mailer package and
+    // `packages/api/tsconfig.json`. Server-side rendering only — no React
+    // reaches the web bundle (the web-boundary check governs that direction).
+    // Symptom if this is dropped again: three `TS6142` errors.
+    "jsx": "react"
   },
   "include": ["src"]
 }
