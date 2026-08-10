@@ -1,4 +1,4 @@
-import { existsSync, readFileSync, readdirSync, statSync } from "node:fs";
+import { existsSync, readFileSync, readdirSync, statSync, writeFileSync } from "node:fs";
 import { dirname, extname, join, relative, resolve, sep } from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -47,7 +47,12 @@ const TARGET_ASSISTANT_MODULES = new Set([
 ]);
 const WEB_ROUTES_ROOT = join(ROOT, "apps/web/src/routes");
 const GRAPH_FLAG = "--print-graph";
-const BASELINE_FLAG = "--print-baseline";
+const BASELINE_FLAG = "--write-baseline";
+// `--print-baseline` was the previous name, and its documented invocation redirected
+// stdout into the baseline file. The shell truncates that file BEFORE this process
+// starts, so the redirect destroyed the ratchet it was supposed to regenerate. The
+// flag now writes the file itself; the old name is kept only to refuse loudly.
+const REMOVED_BASELINE_FLAG = "--print-baseline";
 
 // The durable-execution module. Its directory is now named `execution` (Phase 6-12).
 // The graph node is the raw directory name — see `moduleForPath`.
@@ -863,8 +868,68 @@ function baselineDocument(architecture) {
 }
 
 /**
- * Decide whether `--print-baseline` may emit, and report what regenerating would
- * change.
+ * Read the committed baseline as UNKNOWN persisted data and report every way it can
+ * fail to be one, rather than throwing out of the middle of a check. A truncated or
+ * hand-mangled file must name itself: `JSON.parse("")` raises a bare `SyntaxError`
+ * that reads like a crash in this script.
+ */
+function loadBaseline() {
+  if (!existsSync(BASELINE_PATH)) {
+    return { ok: false, error: `missing ${relativeToRoot(BASELINE_PATH)}` };
+  }
+  let parsed;
+  try {
+    parsed = JSON.parse(readFileSync(BASELINE_PATH, "utf8"));
+  } catch (error) {
+    return {
+      ok: false,
+      error: `${relativeToRoot(BASELINE_PATH)} is not valid JSON: ${error.message}`,
+    };
+  }
+  const ratchets = [
+    ["packageGraph.edges", parsed?.packageGraph?.edges],
+    ["assistantModuleGraph.edges", parsed?.assistantModuleGraph?.edges],
+    [
+      "legacyExceptions.privateModuleImports.imports",
+      parsed?.legacyExceptions?.privateModuleImports?.imports,
+    ],
+    [
+      "legacyExceptions.webFeatureImports.imports",
+      parsed?.legacyExceptions?.webFeatureImports?.imports,
+    ],
+  ];
+  const missing = ratchets.filter(([, value]) => !Array.isArray(value)).map(([name]) => name);
+  if (missing.length > 0) {
+    return {
+      ok: false,
+      error: `${relativeToRoot(BASELINE_PATH)} is missing the ratchet lists ${missing.join(", ")}`,
+    };
+  }
+  return { ok: true, baseline: parsed };
+}
+
+/** What regenerating the baseline would add to and remove from each ratchet. */
+function baselineDelta(baseline, document) {
+  return {
+    packageEdges: listDelta(baseline.packageGraph.edges, document.packageGraph.edges),
+    moduleEdges: listDelta(
+      baseline.assistantModuleGraph.edges,
+      document.assistantModuleGraph.edges,
+    ),
+    privateModuleImports: listDelta(
+      baseline.legacyExceptions.privateModuleImports.imports,
+      document.legacyExceptions.privateModuleImports.imports,
+    ),
+    webFeatureImports: listDelta(
+      baseline.legacyExceptions.webFeatureImports.imports,
+      document.legacyExceptions.webFeatureImports.imports,
+    ),
+  };
+}
+
+/**
+ * Decide whether `--write-baseline` may regenerate the file, and report what
+ * regenerating would change.
  *
  * {@link baselineDocument} re-derives EVERY ratchet in the file from the current
  * tree: the two cycle allowlists AND both `legacyExceptions` import lists. So an
@@ -873,30 +938,15 @@ function baselineDocument(architecture) {
  * ratchets, not one. Refusing on ANY violation (not only cycle violations) keeps the
  * emitted document a subset of what the committed baseline already permits, so the
  * permitted sets can only shrink or stay equal without a hand edit.
+ *
+ * A refusal carries NO `document` and NO `delta`: there is then nothing for a future
+ * caller to write by forgetting one `if`.
  */
 function baselineEmission(architecture, baseline) {
   const violations = checkArchitecture(architecture, baseline);
+  if (violations.length > 0) return { ok: false, violations };
   const document = baselineDocument(architecture);
-  return {
-    ok: violations.length === 0,
-    violations,
-    document,
-    delta: {
-      packageEdges: listDelta(baseline.packageGraph.edges, document.packageGraph.edges),
-      moduleEdges: listDelta(
-        baseline.assistantModuleGraph.edges,
-        document.assistantModuleGraph.edges,
-      ),
-      privateModuleImports: listDelta(
-        baseline.legacyExceptions.privateModuleImports.imports,
-        document.legacyExceptions.privateModuleImports.imports,
-      ),
-      webFeatureImports: listDelta(
-        baseline.legacyExceptions.webFeatureImports.imports,
-        document.legacyExceptions.webFeatureImports.imports,
-      ),
-    },
-  };
+  return { ok: true, violations, document, delta: baselineDelta(baseline, document) };
 }
 
 function selfTestFailures() {
@@ -1087,12 +1137,20 @@ const text = 'import "ignored-string"';
     );
   }
 
-  // `--print-baseline` emission drives (item 15). The CLI wiring itself is tier 3
+  // `--write-baseline` emission drives (item 15). The CLI wiring itself is tier 3
   // (nothing in the repo runs the flag), so `baselineEmission` is where the
-  // refuse-vs-emit decision and the delta are pinned.
+  // refuse-vs-emit decision is pinned, and `baselineDocument`/`baselineDelta` are
+  // where its payload is.
+  //
+  // `checkArchitecture` also runs four unconditional scans of the REAL tree, so every
+  // drive below obeys the `.some(...includes...)` rule seven comments up: an absence
+  // assertion here must be scoped to the drive's own subject, or an ordinary
+  // composition violation in the working tree turns into "parser self-test failed"
+  // and takes both print flags down with it.
   const liveModuleNodes = [EXECUTION_MODULE, ...EXECUTION_FORBIDDEN_PRODUCT_MODULES];
-  // (vii) A tree with a cycle the baseline does not permit must REFUSE, so a
-  // regeneration cannot write that cycle into the allowlist.
+  // (vii) A tree with a cycle the baseline does not permit must REFUSE, and a refusal
+  // must carry no writable payload, so a regeneration cannot write that cycle into
+  // the allowlist.
   const refusedEmission = baselineEmission(
     syntheticArchitecture({
       packageGraph: { edges: ["a -> b", "b -> a"] },
@@ -1102,16 +1160,20 @@ const text = 'import "ignored-string"';
   );
   if (
     refusedEmission.ok ||
+    refusedEmission.document !== undefined ||
+    refusedEmission.delta !== undefined ||
     !refusedEmission.violations.some((violation) =>
       violation.includes("new cyclic package edge: a -> b"),
     )
   ) {
     failures.push(
-      `baseline emission self-test mismatch: expected a refusal naming the new cyclic edge, received ok=${refusedEmission.ok} violations=${JSON.stringify(refusedEmission.violations)}`,
+      `baseline emission self-test mismatch: expected a payload-free refusal naming the new cyclic edge, received ok=${refusedEmission.ok} document=${typeof refusedEmission.document} delta=${typeof refusedEmission.delta} violations=${JSON.stringify(refusedEmission.violations)}`,
     );
   }
-  // (viii) A tree the check accepts must emit, and the emitted document must carry
-  // the CURRENT graph.
+  // (viii) A graph the check accepts must not be refused FOR A CYCLE, and the
+  // emit/refuse decision must track the violation list rather than being pinned open
+  // or shut. The equality holds either way when the real tree carries an unrelated
+  // violation, so this drive stays scoped to its subject.
   const acceptedEmission = baselineEmission(
     syntheticArchitecture({
       packageGraph: { edges: ["a -> b"], sccs: [] },
@@ -1120,27 +1182,42 @@ const text = 'import "ignored-string"';
     syntheticBaseline({ packageGraph: { edges: ["a -> b"] } }),
   );
   if (
-    !acceptedEmission.ok ||
-    JSON.stringify(acceptedEmission.document.packageGraph.edges) !== JSON.stringify(["a -> b"])
+    acceptedEmission.ok !== (acceptedEmission.violations.length === 0) ||
+    acceptedEmission.violations.some((violation) => violation.startsWith("new cyclic"))
   ) {
     failures.push(
-      `baseline emission self-test mismatch: expected an emission carrying the current package graph, received ok=${acceptedEmission.ok} edges=${JSON.stringify(acceptedEmission.document.packageGraph.edges)} violations=${JSON.stringify(acceptedEmission.violations)} — if those violations name composition or tool-runtime files, the real tree has an unrelated architecture violation`,
+      `baseline emission self-test mismatch: expected no new-cyclic violation and ok to track the violation list, received ok=${acceptedEmission.ok} violations=${JSON.stringify(acceptedEmission.violations)}`,
+    );
+  }
+  // (viii-b) The emitted document is the CURRENT graph. Driven through
+  // `baselineDocument` directly, which reads only its argument, so this pin does not
+  // depend on the state of the real tree the way `ok` does.
+  const emittedDocument = baselineDocument(
+    syntheticArchitecture({ packageGraph: { edges: ["a -> b"], sccs: [] } }),
+  );
+  if (JSON.stringify(emittedDocument.packageGraph.edges) !== JSON.stringify(["a -> b"])) {
+    failures.push(
+      `baseline document self-test mismatch: expected the emitted document to carry the current package graph, received ${JSON.stringify(emittedDocument.packageGraph.edges)}`,
+    );
+  }
+  if (
+    acceptedEmission.ok &&
+    JSON.stringify(acceptedEmission.document) !== JSON.stringify(emittedDocument)
+  ) {
+    failures.push(
+      "baseline emission self-test mismatch: an accepted emission must carry exactly the document `baselineDocument` derives from the same architecture",
     );
   }
   // (ix) The delta must name what regeneration would change, in both directions.
-  const deltaEmission = baselineEmission(
-    syntheticArchitecture({
-      packageGraph: { edges: ["a -> b", "e -> f"] },
-      moduleNodes: liveModuleNodes,
-    }),
+  const packageEdgeDelta = baselineDelta(
     syntheticBaseline({ packageGraph: { edges: ["a -> b", "c -> d"] } }),
-  );
+    baselineDocument(syntheticArchitecture({ packageGraph: { edges: ["a -> b", "e -> f"] } })),
+  ).packageEdges;
   if (
-    JSON.stringify(deltaEmission.delta.packageEdges) !==
-    JSON.stringify({ added: ["e -> f"], removed: ["c -> d"] })
+    JSON.stringify(packageEdgeDelta) !== JSON.stringify({ added: ["e -> f"], removed: ["c -> d"] })
   ) {
     failures.push(
-      `baseline delta self-test mismatch: expected added ["e -> f"] and removed ["c -> d"], received ${JSON.stringify(deltaEmission.delta.packageEdges)}`,
+      `baseline delta self-test mismatch: expected added ["e -> f"] and removed ["c -> d"], received ${JSON.stringify(packageEdgeDelta)}`,
     );
   }
 
@@ -1428,19 +1505,30 @@ if (selfTestErrors.length > 0) {
   process.exit(1);
 }
 
+if (process.argv.includes(REMOVED_BASELINE_FLAG)) {
+  console.error(
+    `check-module-architecture: ${REMOVED_BASELINE_FLAG} is now ${BASELINE_FLAG}, which rewrites ${relativeToRoot(BASELINE_PATH)} itself.`,
+  );
+  console.error(
+    `Do not redirect the output into that file: the shell truncates it before this process starts, which destroys the ratchet. If you just did, restore it with \`git checkout ${relativeToRoot(BASELINE_PATH)}\`.`,
+  );
+  process.exit(1);
+}
+
 const architecture = collectArchitecture();
 if (process.argv.includes(BASELINE_FLAG)) {
-  // Regeneration may never widen a ratchet: emit only from a tree this check
-  // already accepts. The delta goes to stderr and the document to stdout, so
-  // `--print-baseline > scripts/module-architecture-baseline.json` still writes
-  // valid JSON while the caller sees what changed.
-  if (!existsSync(BASELINE_PATH)) {
-    console.error(`check-module-architecture: missing ${relativeToRoot(BASELINE_PATH)}`);
+  // Regeneration may never widen a ratchet: rewrite the file only from a tree this
+  // check already accepts. The command owns the write, so no shell redirect can
+  // truncate the ratchet it is reading; the delta goes to stderr and nothing goes to
+  // stdout.
+  const loaded = loadBaseline();
+  if (!loaded.ok) {
+    console.error(`check-module-architecture: ${loaded.error}`);
     process.exit(1);
   }
-  const emission = baselineEmission(architecture, JSON.parse(readFileSync(BASELINE_PATH, "utf8")));
+  const emission = baselineEmission(architecture, loaded.baseline);
   if (!emission.ok) {
-    console.error("check-module-architecture: refusing to print a baseline");
+    console.error("check-module-architecture: refusing to regenerate the baseline");
     for (const violation of emission.violations) console.error(`- ${violation}`);
     console.error(
       "\nThe tree does not pass check:architecture; regenerating would write these violations into the baseline as permissions. Fix the tree, or hand-edit the baseline with an ADR.",
@@ -1451,7 +1539,8 @@ if (process.argv.includes(BASELINE_FLAG)) {
     for (const entry of change.removed) console.error(`- ${name}: ${entry}`);
     for (const entry of change.added) console.error(`+ ${name}: ${entry}`);
   }
-  console.log(JSON.stringify(emission.document, null, 2));
+  writeFileSync(BASELINE_PATH, `${JSON.stringify(emission.document, null, 2)}\n`);
+  console.error(`check-module-architecture: wrote ${relativeToRoot(BASELINE_PATH)}`);
   process.exit(0);
 }
 if (process.argv.includes(GRAPH_FLAG)) {
@@ -1459,12 +1548,12 @@ if (process.argv.includes(GRAPH_FLAG)) {
   process.exit(0);
 }
 
-if (!existsSync(BASELINE_PATH)) {
-  console.error(`check-module-architecture: missing ${relativeToRoot(BASELINE_PATH)}`);
+const loadedBaseline = loadBaseline();
+if (!loadedBaseline.ok) {
+  console.error(`check-module-architecture: ${loadedBaseline.error}`);
   process.exit(1);
 }
-const baseline = JSON.parse(readFileSync(BASELINE_PATH, "utf8"));
-const violations = checkArchitecture(architecture, baseline);
+const violations = checkArchitecture(architecture, loadedBaseline.baseline);
 if (violations.length > 0) {
   console.error("check-module-architecture: violations found");
   for (const violation of violations) console.error(`- ${violation}`);
