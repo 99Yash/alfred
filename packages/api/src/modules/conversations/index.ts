@@ -1,8 +1,10 @@
-// Transitional barrel: re-exports domain logic from @alfred/assistant/conversations
-// so that `@alfred/api/backend` keeps advertising these names while consumers move
-// to the assistant package directly. The `/api/chat` transport left this directory
-// at campaign item 25 and now lives in `@alfred/http`.
-// @alfred/api/backend surface is unchanged (byte-identical re-exports).
+// Transitional barrel. `@alfred/assistant/conversations` owns this domain logic;
+// this file re-exports its names unchanged so that the `@alfred/api` doors that
+// already advertise them keep doing so while consumers repoint at the assistant
+// package directly. It holds no code of its own, so it is finished the day nothing
+// resolves any of these names through `@alfred/api` — check that by following the
+// names, not by reading a list of readers here. The `/api/chat` transport left this
+// directory at campaign item 25 and now lives in `@alfred/http`.
 
 export {
   backgroundCompactionThresholdTokens,
