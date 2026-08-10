@@ -26,7 +26,7 @@ import { serverEnv } from "@alfred/env/server";
 import { and, asc, eq, inArray, notInArray, sql } from "drizzle-orm";
 import { Elysia, t } from "elysia";
 import { emitReplicachePokes } from "@alfred/assistant/triggers";
-import { authMacro } from "@alfred/http";
+import { authMacro } from "./middleware/auth";
 import { createCacheRedisConnection } from "@alfred/db/redis";
 import { getRun, persistChatTurnRunInTx, redeliverRun } from "@alfred/assistant/execution";
 import { uniqueViolationConstraint } from "@alfred/db/pg-errors";
@@ -67,7 +67,7 @@ type RetryAttachmentSource = Pick<ChatAttachment, "id" | "storageKey" | "name" |
  */
 type FreshAttachmentDescriptor = Omit<AttachmentInput, "position"> & { position?: number };
 
-export interface ExistingChatTurnRun {
+interface ExistingChatTurnRun {
   runId: string | null;
   assistantMessageId: string;
 }
@@ -376,7 +376,7 @@ const TRANSCRIBE_MAX_BYTES = 25 * 1024 * 1024;
  * chat-turn workflow polls while draining the model stream. Rejects a run that
  * is not a chat turn, already finished, or parked on an approval.
  */
-export async function stopTurn(runId: string, userId: string): Promise<{ ok: true }> {
+async function stopTurn(runId: string, userId: string): Promise<{ ok: true }> {
   const run = await getRun(runId, userId);
   if (!run) throw Errors.NotFoundError("Run not found");
   if (run.workflowSlug !== CHAT_TURN_WORKFLOW_SLUG) {
@@ -413,7 +413,7 @@ interface StartTurnInput {
  * per-thread concurrency guard. The route is the only transport in front of
  * this; `conversations` owns turn admission per ADR-0089.
  */
-export async function startTurn(input: StartTurnInput): Promise<TurnKickResponse> {
+async function startTurn(input: StartTurnInput): Promise<TurnKickResponse> {
   const { userId, threadId, tier, artifactTargetId } = input;
   const userMessageId = input.userMessageId;
   const content = input.content.trim();
