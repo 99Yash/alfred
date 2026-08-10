@@ -37,7 +37,7 @@ export { getSessionCached, invalidateSessionToken } from "./middleware/session-c
 // effects out of anything added here. Do not turn "what the routes reach" into
 // a list: campaign items 24-27 add more, and an enumeration in this position
 // is the one prose shape no gate maintains.
-export { agent } from "./routes/agent";
+export { agent } from "./agent";
 export { approvalsRoutes } from "./approvals";
 export { onboardingRoutes } from "./onboarding";
 export { skillsRoutes } from "./skills";
