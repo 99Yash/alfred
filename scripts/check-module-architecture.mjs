@@ -1,4 +1,4 @@
-import { existsSync, readFileSync, readdirSync, statSync } from "node:fs";
+import { existsSync, readFileSync, readdirSync, statSync, writeFileSync } from "node:fs";
 import { dirname, extname, join, relative, resolve, sep } from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -47,7 +47,12 @@ const TARGET_ASSISTANT_MODULES = new Set([
 ]);
 const WEB_ROUTES_ROOT = join(ROOT, "apps/web/src/routes");
 const GRAPH_FLAG = "--print-graph";
-const BASELINE_FLAG = "--print-baseline";
+const BASELINE_FLAG = "--write-baseline";
+// `--print-baseline` was the previous name, and its documented invocation redirected
+// stdout into the baseline file. The shell truncates that file BEFORE this process
+// starts, so the redirect destroyed the ratchet it was supposed to regenerate. The
+// flag now writes the file itself; the old name is kept only to refuse loudly.
+const REMOVED_BASELINE_FLAG = "--print-baseline";
 
 // The durable-execution module. Its directory is now named `execution` (Phase 6-12).
 // The graph node is the raw directory name — see `moduleForPath`.
@@ -652,6 +657,48 @@ function cyclicEdgeKeys(edges, components) {
   );
 }
 
+/**
+ * Split `"A -> B"` graph keys back into edge records. The live graph and the
+ * committed baseline both store edges as keys, so this is the one spelling of the
+ * split.
+ */
+function edgesFromKeys(keys) {
+  return keys.map((key) => {
+    const [from, to] = key.split(" -> ");
+    return { from, to };
+  });
+}
+
+/**
+ * The CYCLIC SUBSET of a recorded edge list.
+ *
+ * `scripts/module-architecture-baseline.json` records the whole graph, but
+ * {@link checkArchitecture} consults it as a cycle ALLOWLIST: an entry there means
+ * "this cyclic edge is permitted". Comparing a live cycle against the raw recorded
+ * list conflates the two — an edge recorded because it was ordinary acyclic debt
+ * would double as a permission slip on the day it joins a cycle, and a new cycle
+ * whose forward direction happens to be recorded would be reported in one direction
+ * only. Putting the recorded list through the SAME SCC pass the live graph goes
+ * through settles it: a recorded ACYCLIC edge grants nothing, so the recorded graph
+ * is a record, not a permission.
+ */
+function cyclicEdgeKeysOf(keys) {
+  const edges = edgesFromKeys(keys);
+  return cyclicEdgeKeys(
+    edges,
+    stronglyConnectedComponents(uniqueSorted(edges.flatMap((edge) => [edge.from, edge.to])), edges),
+  );
+}
+
+function listDelta(before, after) {
+  const beforeEntries = new Set(before);
+  const afterEntries = new Set(after);
+  return {
+    added: uniqueSorted(after.filter((entry) => !beforeEntries.has(entry))),
+    removed: uniqueSorted(before.filter((entry) => !afterEntries.has(entry))),
+  };
+}
+
 function graphFromEdges(nodes, rawEdges) {
   const keys = uniqueSorted(rawEdges.map((edge) => edgeKey(edge.from, edge.to)));
   const edges = keys.map((key) => {
@@ -820,6 +867,125 @@ function baselineDocument(architecture) {
   };
 }
 
+/**
+ * Read the committed baseline as UNKNOWN persisted data and report every way it can
+ * fail to be one, rather than throwing out of the middle of a check. A truncated or
+ * hand-mangled file must name itself: `JSON.parse("")` raises a bare `SyntaxError`
+ * that reads like a crash in this script.
+ */
+function loadBaseline() {
+  if (!existsSync(BASELINE_PATH)) {
+    return { ok: false, error: `missing ${relativeToRoot(BASELINE_PATH)}` };
+  }
+  let parsed;
+  try {
+    parsed = JSON.parse(readFileSync(BASELINE_PATH, "utf8"));
+  } catch (error) {
+    return {
+      ok: false,
+      error: `${relativeToRoot(BASELINE_PATH)} is not valid JSON: ${error.message}`,
+    };
+  }
+  const faults = baselineRatchetFaults(parsed);
+  if (faults.length > 0) {
+    return {
+      ok: false,
+      error: `${relativeToRoot(BASELINE_PATH)} has unusable ratchet lists: ${faults.join(", ")}`,
+    };
+  }
+  return { ok: true, baseline: parsed };
+}
+
+/**
+ * Every way a parsed baseline's four ratchet lists can fail to be lists of keys, as
+ * sentences naming the offending list.
+ *
+ * The list TYPE is not enough: {@link checkArchitecture} routes every recorded key
+ * through {@link edgesFromKeys}, which splits it, and both `legacyExceptions` lists are
+ * compared as string keys. So a non-string member of a hand-edited file — the edit path
+ * a refusal explicitly invites — is an uncaught `TypeError` in the middle of the check
+ * unless the member type is checked HERE, in the boundary that already owns the shape.
+ */
+function baselineRatchetFaults(parsed) {
+  const ratchets = [
+    ["packageGraph.edges", parsed?.packageGraph?.edges],
+    ["assistantModuleGraph.edges", parsed?.assistantModuleGraph?.edges],
+    [
+      "legacyExceptions.privateModuleImports.imports",
+      parsed?.legacyExceptions?.privateModuleImports?.imports,
+    ],
+    [
+      "legacyExceptions.webFeatureImports.imports",
+      parsed?.legacyExceptions?.webFeatureImports?.imports,
+    ],
+  ];
+  const faults = [];
+  for (const [name, value] of ratchets) {
+    if (!Array.isArray(value)) {
+      faults.push(`${name} is missing or not an array`);
+      continue;
+    }
+    const index = value.findIndex((entry) => typeof entry !== "string");
+    if (index !== -1) {
+      faults.push(`${name}[${index}] is ${typeof value[index]}, not a string`);
+    }
+  }
+  return faults;
+}
+
+/** What regenerating the baseline would add to and remove from each ratchet. */
+function baselineDelta(baseline, document) {
+  return {
+    packageEdges: listDelta(baseline.packageGraph.edges, document.packageGraph.edges),
+    moduleEdges: listDelta(
+      baseline.assistantModuleGraph.edges,
+      document.assistantModuleGraph.edges,
+    ),
+    privateModuleImports: listDelta(
+      baseline.legacyExceptions.privateModuleImports.imports,
+      document.legacyExceptions.privateModuleImports.imports,
+    ),
+    webFeatureImports: listDelta(
+      baseline.legacyExceptions.webFeatureImports.imports,
+      document.legacyExceptions.webFeatureImports.imports,
+    ),
+  };
+}
+
+/**
+ * Decide whether `--write-baseline` may regenerate the file, and report what
+ * regenerating would change.
+ *
+ * {@link baselineDocument} re-derives EVERY ratchet in the file from the current
+ * tree: the two cycle allowlists AND both `legacyExceptions` import lists. So an
+ * unguarded regeneration from a tree that already violates the check writes those
+ * violations into the file as tomorrow's permissions — the flag launders three
+ * ratchets, not one. Refusing on ANY violation (not only cycle violations) keeps the
+ * emitted document a subset of what the committed baseline already permits.
+ *
+ * That subset argument holds for ONE writer at a time, and only for one. Two branches
+ * that each regenerate from an individually accepted tree merge into a file that
+ * permits a cycle neither branch permitted: the two edge keys sort far apart in the
+ * JSON array, so git auto-merges both without a conflict, and the SCC pass over the
+ * union finds a component that is in neither record. `legacyExceptions.*.imports` is a
+ * pure allowlist that can only shrink, so a union of deletions is merge-safe; the two
+ * graph lists are records that grow freely whose permission is a NON-MONOTONE function
+ * of the record, so a union of additions is not. This hole is older than this guard —
+ * the same merge is clean against the unguarded flag — and the one-line closure is a
+ * `-merge` attribute on the baseline file, which turns the silent auto-merge into a
+ * conflict and forces a refusing re-run. It is not applied here. Until it is: rebase
+ * onto the merged base and regenerate again before merging a branch that regenerated.
+ *
+ * A refusal carries NO `document` and NO `delta`: there is then nothing for a future
+ * caller to write by forgetting one `if`.
+ */
+function baselineEmission(architecture, baseline) {
+  const violations = checkArchitecture(architecture, baseline);
+  if (violations.length > 0) return { ok: false, violations };
+  const document = baselineDocument(architecture);
+  return { ok: true, violations, document, delta: baselineDelta(baseline, document) };
+}
+
 function selfTestFailures() {
   const failures = [];
   const parsed = parseImports(`
@@ -889,13 +1055,14 @@ const text = 'import "ignored-string"';
   // to catch either regression on its own. The drives also run the real
   // composition/tool-runtime FS checks (clean today), so assert only with
   // `.some(...includes...)` — never exact-equality — to stay non-brittle.
-  const syntheticBaseline = () => ({
+  const syntheticBaseline = (overrides) => ({
     packageGraph: { edges: [] },
     assistantModuleGraph: { edges: [] },
     legacyExceptions: {
       privateModuleImports: { imports: [] },
       webFeatureImports: { imports: [] },
     },
+    ...overrides,
   });
   const syntheticArchitecture = (overrides) => ({
     packageGraph: { edges: [] },
@@ -958,6 +1125,197 @@ const text = 'import "ignored-string"';
   ) {
     failures.push(
       `execution gate forbidden-set liveness self-test mismatch: expected checkArchitecture to report a forbidden-set unknown-module violation when the live graph lists "${EXECUTION_MODULE}" but omits a forbidden entry, received ${JSON.stringify(forbiddenSetLivenessDrive)}`,
+    );
+  }
+
+  // Baseline-as-cycle-allowlist drives (item 15). The recorded graph is a
+  // full-graph mirror consulted as a cycle allowlist, so the comparison must run
+  // over the baseline's CYCLIC SUBSET. Today's real baseline permits ZERO cycles in
+  // both graphs, so nothing observable changes on the live tree — these synthetic
+  // drives are the only evidence the rule does anything, and (iv) is the one that
+  // was red before the fix.
+  //
+  // (iv) A live two-node cycle whose FORWARD direction sits in the baseline must be
+  // reported in BOTH directions: `a -> b` was recorded as ordinary acyclic debt and
+  // must not double as a permission slip now that it has joined a cycle.
+  const partialCyclePackageDrive = checkArchitecture(
+    syntheticArchitecture({ packageGraph: { edges: ["a -> b", "b -> a"] } }),
+    syntheticBaseline({ packageGraph: { edges: ["a -> b"] } }),
+  );
+  for (const edge of ["a -> b", "b -> a"]) {
+    if (!partialCyclePackageDrive.includes(`new cyclic package edge: ${edge}`)) {
+      failures.push(
+        `baseline cycle-allowlist self-test mismatch: expected checkArchitecture to report "new cyclic package edge: ${edge}" when the baseline records only the acyclic direction, received ${JSON.stringify(partialCyclePackageDrive)}`,
+      );
+    }
+  }
+  // (v) The same shape on the assistant-module graph — the two comparisons are
+  // separate `Set`s, so each needs its own drive.
+  const partialCycleModuleDrive = checkArchitecture(
+    syntheticArchitecture({ moduleGraph: { edges: ["a -> b", "b -> a"] } }),
+    syntheticBaseline({ assistantModuleGraph: { edges: ["a -> b"] } }),
+  );
+  for (const edge of ["a -> b", "b -> a"]) {
+    if (!partialCycleModuleDrive.includes(`new cyclic assistant-module edge: ${edge}`)) {
+      failures.push(
+        `baseline cycle-allowlist self-test mismatch: expected checkArchitecture to report "new cyclic assistant-module edge: ${edge}" when the baseline records only the acyclic direction, received ${JSON.stringify(partialCycleModuleDrive)}`,
+      );
+    }
+  }
+  // (vi) The tightening must not over-fire: a cycle the baseline records in BOTH
+  // directions is still permitted, so no `new cyclic package edge` may appear.
+  const permittedCycleDrive = checkArchitecture(
+    syntheticArchitecture({ packageGraph: { edges: ["a -> b", "b -> a"] } }),
+    syntheticBaseline({ packageGraph: { edges: ["a -> b", "b -> a"] } }),
+  );
+  if (permittedCycleDrive.some((violation) => violation.includes("new cyclic package edge"))) {
+    failures.push(
+      `baseline cycle-allowlist self-test mismatch: expected no new-cyclic-package-edge violation when the baseline records the whole cycle, received ${JSON.stringify(permittedCycleDrive)}`,
+    );
+  }
+
+  // `--write-baseline` emission drives (item 15). The CLI wiring itself is tier 3
+  // (nothing in the repo runs the flag), so `baselineEmission` is where the
+  // refuse-vs-emit decision is pinned, and `baselineDocument`/`baselineDelta` are
+  // where its payload is.
+  //
+  // `checkArchitecture` also runs four unconditional scans of the REAL tree, so every
+  // drive below obeys the `.some(...includes...)` rule seven comments up: an absence
+  // assertion here must be scoped to the drive's own subject, or an ordinary
+  // composition violation in the working tree turns into "parser self-test failed"
+  // and takes both print flags down with it.
+  const liveModuleNodes = [EXECUTION_MODULE, ...EXECUTION_FORBIDDEN_PRODUCT_MODULES];
+  // (vii) A tree with a cycle the baseline does not permit must REFUSE, and a refusal
+  // must carry no writable payload, so a regeneration cannot write that cycle into
+  // the allowlist.
+  const refusedEmission = baselineEmission(
+    syntheticArchitecture({
+      packageGraph: { edges: ["a -> b", "b -> a"] },
+      moduleNodes: liveModuleNodes,
+    }),
+    syntheticBaseline(),
+  );
+  if (
+    refusedEmission.ok ||
+    refusedEmission.document !== undefined ||
+    refusedEmission.delta !== undefined ||
+    !refusedEmission.violations.some((violation) =>
+      violation.includes("new cyclic package edge: a -> b"),
+    )
+  ) {
+    failures.push(
+      `baseline emission self-test mismatch: expected a payload-free refusal naming the new cyclic edge, received ok=${refusedEmission.ok} document=${typeof refusedEmission.document} delta=${typeof refusedEmission.delta} violations=${JSON.stringify(refusedEmission.violations)}`,
+    );
+  }
+  // (viii) A graph the check accepts must not be refused FOR A CYCLE, and the
+  // emit/refuse decision must track the violation list rather than being pinned open
+  // or shut. The equality holds either way when the real tree carries an unrelated
+  // violation, so this drive stays scoped to its subject.
+  const acceptedEmission = baselineEmission(
+    syntheticArchitecture({
+      packageGraph: { edges: ["a -> b"], sccs: [] },
+      moduleNodes: liveModuleNodes,
+    }),
+    syntheticBaseline({ packageGraph: { edges: ["a -> b"] } }),
+  );
+  if (
+    acceptedEmission.ok !== (acceptedEmission.violations.length === 0) ||
+    acceptedEmission.violations.some((violation) => violation.startsWith("new cyclic"))
+  ) {
+    failures.push(
+      `baseline emission self-test mismatch: expected no new-cyclic violation and ok to track the violation list, received ok=${acceptedEmission.ok} violations=${JSON.stringify(acceptedEmission.violations)}`,
+    );
+  }
+  // (viii-b) The emitted document is the CURRENT graph. Driven through
+  // `baselineDocument` directly, which reads only its argument, so this pin does not
+  // depend on the state of the real tree the way `ok` does.
+  const emittedDocument = baselineDocument(
+    syntheticArchitecture({ packageGraph: { edges: ["a -> b"], sccs: [] } }),
+  );
+  if (JSON.stringify(emittedDocument.packageGraph.edges) !== JSON.stringify(["a -> b"])) {
+    failures.push(
+      `baseline document self-test mismatch: expected the emitted document to carry the current package graph, received ${JSON.stringify(emittedDocument.packageGraph.edges)}`,
+    );
+  }
+  if (
+    acceptedEmission.ok &&
+    JSON.stringify(acceptedEmission.document) !== JSON.stringify(emittedDocument)
+  ) {
+    failures.push(
+      "baseline emission self-test mismatch: an accepted emission must carry exactly the document `baselineDocument` derives from the same architecture",
+    );
+  }
+  // (viii-c) An accepted emission must carry the delta, keyed by every ratchet — the
+  // mirror of (vii)'s payload-free refusal. `--write-baseline` reads
+  // `Object.entries(emission.delta)` before it writes, so without this drive dropping
+  // the field leaves every gate green and kills the command with an uncaught TypeError.
+  const deltaRatchetKeys = [
+    "packageEdges",
+    "moduleEdges",
+    "privateModuleImports",
+    "webFeatureImports",
+  ];
+  if (
+    acceptedEmission.ok &&
+    deltaRatchetKeys.some((key) => acceptedEmission.delta?.[key] === undefined)
+  ) {
+    failures.push(
+      `baseline emission self-test mismatch: an accepted emission must carry a delta keyed by ${JSON.stringify(deltaRatchetKeys)}, received ${JSON.stringify(acceptedEmission.delta)}`,
+    );
+  }
+  // (ix) The delta must name what regeneration would change, in both directions.
+  const packageEdgeDelta = baselineDelta(
+    syntheticBaseline({ packageGraph: { edges: ["a -> b", "c -> d"] } }),
+    baselineDocument(syntheticArchitecture({ packageGraph: { edges: ["a -> b", "e -> f"] } })),
+  ).packageEdges;
+  if (
+    JSON.stringify(packageEdgeDelta) !== JSON.stringify({ added: ["e -> f"], removed: ["c -> d"] })
+  ) {
+    failures.push(
+      `baseline delta self-test mismatch: expected added ["e -> f"] and removed ["c -> d"], received ${JSON.stringify(packageEdgeDelta)}`,
+    );
+  }
+  // (x) The persisted-shape boundary. `loadBaseline` reads a real path, so the pure
+  // half is driven here instead: one drive per fault branch, each asserting a substring
+  // no other drive produces.
+  const wellFormedFaults = baselineRatchetFaults(syntheticBaseline());
+  if (wellFormedFaults.length > 0) {
+    failures.push(
+      `baseline shape self-test mismatch: expected no fault for a well-formed baseline, received ${JSON.stringify(wellFormedFaults)}`,
+    );
+  }
+  // (x-b) A ratchet list that is absent or of the wrong TYPE.
+  const missingListFaults = baselineRatchetFaults(
+    syntheticBaseline({ assistantModuleGraph: { edges: "a -> b" } }),
+  );
+  if (
+    !missingListFaults.some(
+      (fault) => fault === "assistantModuleGraph.edges is missing or not an array",
+    )
+  ) {
+    failures.push(
+      `baseline shape self-test mismatch: expected a fault naming the non-array ratchet list, received ${JSON.stringify(missingListFaults)}`,
+    );
+  }
+  // (x-c) A ratchet list whose MEMBER is not a key. Uncaught before this drive existed:
+  // `checkArchitecture` splits every recorded key, so a hand-edited `42` threw a bare
+  // `TypeError` out of the middle of the check and of the write flag.
+  const memberFaults = baselineRatchetFaults(
+    syntheticBaseline({
+      legacyExceptions: {
+        privateModuleImports: { imports: ["a -> b", 42] },
+        webFeatureImports: { imports: [] },
+      },
+    }),
+  );
+  if (
+    !memberFaults.some(
+      (fault) =>
+        fault === "legacyExceptions.privateModuleImports.imports[1] is number, not a string",
+    )
+  ) {
+    failures.push(
+      `baseline shape self-test mismatch: expected a fault naming the non-string ratchet member and its index, received ${JSON.stringify(memberFaults)}`,
     );
   }
 
@@ -1178,38 +1536,22 @@ function executionGateLivenessViolations(moduleNodes) {
 
 function checkArchitecture(architecture, baseline) {
   const violations = [];
-  const baselinePackageEdges = new Set(baseline.packageGraph.edges);
-  const baselineModuleEdges = new Set(baseline.assistantModuleGraph.edges);
-  const currentPackageEdges = architecture.packageGraph.edges.map((key) => {
-    const [from, to] = key.split(" -> ");
-    return { from, to };
-  });
-  const currentModuleEdges = architecture.moduleGraph.edges.map((key) => {
-    const [from, to] = key.split(" -> ");
-    return { from, to };
-  });
+  // The baseline records the whole graph but is consulted ONLY as a cycle
+  // allowlist, so it goes through the same SCC pass the live graph does — see
+  // `cyclicEdgeKeysOf`. A recorded acyclic edge permits nothing.
+  const permittedCyclicPackageEdges = new Set(cyclicEdgeKeysOf(baseline.packageGraph.edges));
+  const permittedCyclicModuleEdges = new Set(cyclicEdgeKeysOf(baseline.assistantModuleGraph.edges));
+  const currentModuleEdges = edgesFromKeys(architecture.moduleGraph.edges);
   violations.push(...executionForbiddenImportViolations(currentModuleEdges));
   violations.push(...executionGateLivenessViolations(architecture.moduleNodes));
-  const packageCycles = cyclicEdgeKeys(
-    currentPackageEdges,
-    stronglyConnectedComponents(
-      uniqueSorted(currentPackageEdges.flatMap((edge) => [edge.from, edge.to])),
-      currentPackageEdges,
-    ),
-  );
-  const moduleCycles = cyclicEdgeKeys(
-    currentModuleEdges,
-    stronglyConnectedComponents(
-      uniqueSorted(currentModuleEdges.flatMap((edge) => [edge.from, edge.to])),
-      currentModuleEdges,
-    ),
-  );
+  const packageCycles = cyclicEdgeKeysOf(architecture.packageGraph.edges);
+  const moduleCycles = cyclicEdgeKeysOf(architecture.moduleGraph.edges);
 
   for (const edge of packageCycles) {
-    if (!baselinePackageEdges.has(edge)) violations.push(`new cyclic package edge: ${edge}`);
+    if (!permittedCyclicPackageEdges.has(edge)) violations.push(`new cyclic package edge: ${edge}`);
   }
   for (const edge of moduleCycles) {
-    if (!baselineModuleEdges.has(edge)) {
+    if (!permittedCyclicModuleEdges.has(edge)) {
       violations.push(`new cyclic assistant-module edge: ${edge}`);
     }
   }
@@ -1261,9 +1603,56 @@ if (selfTestErrors.length > 0) {
   process.exit(1);
 }
 
+/**
+ * The cause-and-recovery sentence for an unreadable baseline.
+ *
+ * A baseline that will not load is nearly always a shell redirect: `> <baseline>`
+ * truncates the target before this process starts, so the flag reads 0 bytes and writes
+ * nothing. The hint therefore belongs on every LIVE path that can observe the damage —
+ * putting it only on the removed flag's tombstone leaves it on a branch nobody types.
+ */
+function baselineRedirectHint() {
+  const path = relativeToRoot(BASELINE_PATH);
+  return `${BASELINE_FLAG} rewrites ${path} itself: never redirect its output into that file, because the shell truncates the target before this process starts. If ${path} is already damaged, restore it with \`git checkout ${path}\`.`;
+}
+
+function reportBaselineLoadFailure(error) {
+  console.error(`check-module-architecture: ${error}`);
+  console.error(baselineRedirectHint());
+}
+
+if (process.argv.includes(REMOVED_BASELINE_FLAG)) {
+  console.error(`check-module-architecture: ${REMOVED_BASELINE_FLAG} is now ${BASELINE_FLAG}.`);
+  console.error(baselineRedirectHint());
+  process.exit(1);
+}
+
 const architecture = collectArchitecture();
 if (process.argv.includes(BASELINE_FLAG)) {
-  console.log(JSON.stringify(baselineDocument(architecture), null, 2));
+  // Regeneration may never widen a ratchet: rewrite the file only from a tree this
+  // check already accepts. The command owns the write, so no shell redirect can
+  // truncate the ratchet it is reading; the delta goes to stderr and nothing goes to
+  // stdout.
+  const loaded = loadBaseline();
+  if (!loaded.ok) {
+    reportBaselineLoadFailure(loaded.error);
+    process.exit(1);
+  }
+  const emission = baselineEmission(architecture, loaded.baseline);
+  if (!emission.ok) {
+    console.error("check-module-architecture: refusing to regenerate the baseline");
+    for (const violation of emission.violations) console.error(`- ${violation}`);
+    console.error(
+      `\nThe tree does not pass check:architecture; regenerating would write these violations into the baseline as permissions. Fix the tree, or hand-edit ${relativeToRoot(BASELINE_PATH)}. A hand edit is legitimate in exactly two cases: an accepted ADR changes the target structure, or a path rename preserves an existing exception. Only the first needs an ADR.`,
+    );
+    process.exit(1);
+  }
+  for (const [name, change] of Object.entries(emission.delta)) {
+    for (const entry of change.removed) console.error(`- ${name}: ${entry}`);
+    for (const entry of change.added) console.error(`+ ${name}: ${entry}`);
+  }
+  writeFileSync(BASELINE_PATH, `${JSON.stringify(emission.document, null, 2)}\n`);
+  console.error(`check-module-architecture: wrote ${relativeToRoot(BASELINE_PATH)}`);
   process.exit(0);
 }
 if (process.argv.includes(GRAPH_FLAG)) {
@@ -1271,12 +1660,12 @@ if (process.argv.includes(GRAPH_FLAG)) {
   process.exit(0);
 }
 
-if (!existsSync(BASELINE_PATH)) {
-  console.error(`check-module-architecture: missing ${relativeToRoot(BASELINE_PATH)}`);
+const loadedBaseline = loadBaseline();
+if (!loadedBaseline.ok) {
+  reportBaselineLoadFailure(loadedBaseline.error);
   process.exit(1);
 }
-const baseline = JSON.parse(readFileSync(BASELINE_PATH, "utf8"));
-const violations = checkArchitecture(architecture, baseline);
+const violations = checkArchitecture(architecture, loadedBaseline.baseline);
 if (violations.length > 0) {
   console.error("check-module-architecture: violations found");
   for (const violation of violations) console.error(`- ${violation}`);
