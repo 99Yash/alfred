@@ -961,8 +961,20 @@ function baselineDelta(baseline, document) {
  * unguarded regeneration from a tree that already violates the check writes those
  * violations into the file as tomorrow's permissions — the flag launders three
  * ratchets, not one. Refusing on ANY violation (not only cycle violations) keeps the
- * emitted document a subset of what the committed baseline already permits, so the
- * permitted sets can only shrink or stay equal without a hand edit.
+ * emitted document a subset of what the committed baseline already permits.
+ *
+ * That subset argument holds for ONE writer at a time, and only for one. Two branches
+ * that each regenerate from an individually accepted tree merge into a file that
+ * permits a cycle neither branch permitted: the two edge keys sort far apart in the
+ * JSON array, so git auto-merges both without a conflict, and the SCC pass over the
+ * union finds a component that is in neither record. `legacyExceptions.*.imports` is a
+ * pure allowlist that can only shrink, so a union of deletions is merge-safe; the two
+ * graph lists are records that grow freely whose permission is a NON-MONOTONE function
+ * of the record, so a union of additions is not. This hole is older than this guard —
+ * the same merge is clean against the unguarded flag — and the one-line closure is a
+ * `-merge` attribute on the baseline file, which turns the silent auto-merge into a
+ * conflict and forces a refusing re-run. It is not applied here. Until it is: rebase
+ * onto the merged base and regenerate again before merging a branch that regenerated.
  *
  * A refusal carries NO `document` and NO `delta`: there is then nothing for a future
  * caller to write by forgetting one `if`.
@@ -1231,6 +1243,24 @@ const text = 'import "ignored-string"';
   ) {
     failures.push(
       "baseline emission self-test mismatch: an accepted emission must carry exactly the document `baselineDocument` derives from the same architecture",
+    );
+  }
+  // (viii-c) An accepted emission must carry the delta, keyed by every ratchet — the
+  // mirror of (vii)'s payload-free refusal. `--write-baseline` reads
+  // `Object.entries(emission.delta)` before it writes, so without this drive dropping
+  // the field leaves every gate green and kills the command with an uncaught TypeError.
+  const deltaRatchetKeys = [
+    "packageEdges",
+    "moduleEdges",
+    "privateModuleImports",
+    "webFeatureImports",
+  ];
+  if (
+    acceptedEmission.ok &&
+    deltaRatchetKeys.some((key) => acceptedEmission.delta?.[key] === undefined)
+  ) {
+    failures.push(
+      `baseline emission self-test mismatch: an accepted emission must carry a delta keyed by ${JSON.stringify(deltaRatchetKeys)}, received ${JSON.stringify(acceptedEmission.delta)}`,
     );
   }
   // (ix) The delta must name what regeneration would change, in both directions.
@@ -1613,7 +1643,7 @@ if (process.argv.includes(BASELINE_FLAG)) {
     console.error("check-module-architecture: refusing to regenerate the baseline");
     for (const violation of emission.violations) console.error(`- ${violation}`);
     console.error(
-      "\nThe tree does not pass check:architecture; regenerating would write these violations into the baseline as permissions. Fix the tree, or hand-edit the baseline with an ADR.",
+      `\nThe tree does not pass check:architecture; regenerating would write these violations into the baseline as permissions. Fix the tree, or hand-edit ${relativeToRoot(BASELINE_PATH)}. A hand edit is legitimate in exactly two cases: an accepted ADR changes the target structure, or a path rename preserves an existing exception. Only the first needs an ADR.`,
     );
     process.exit(1);
   }
