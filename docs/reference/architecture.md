@@ -126,13 +126,15 @@ Forbidden in `apps/web`: <!-- forbidden-runtime-packages:start -->
 
 <!-- forbidden-runtime-packages:end -->
 
-`pnpm check:web-boundaries` enforces these forbidden runtime imports for `apps/web/src` and for every
-package under `packages/` that the browser bundle reaches. It derives that surface by following runtime
-`@alfred/*` bindings out of `apps/web/src`, so a package that joins the bundle joins the check in the same
-commit. Two things stay outside the derived surface, both deliberately: a second workspace under `apps/`,
-which the walk does not enumerate, and everything a browser file reaches through a non-`@alfred/*`
-specifier, including Node-only npm packages. A reached package that keeps no sources in `src/` is not a
-third gap — the check reports it as a failure instead of skipping it.
+`pnpm check:web-boundaries` enforces these forbidden runtime imports for `apps/web/src` and for the `src/`
+of every package under `packages/` that the browser bundle reaches. It derives that surface by following
+runtime `@alfred/*` bindings out of `apps/web/src`, so a package that joins the bundle joins the check in
+the same commit. Three things stay outside the derived surface, all deliberately: a second workspace under
+`apps/`, which the walk does not enumerate; everything a browser file reaches through a non-`@alfred/*`
+specifier, including Node-only npm packages; and any subtree of a reached package that sits outside its
+`src/`, because reachability is recorded per package and read at that one directory. A reached package
+whose `src/` is missing, or holds no TypeScript file, is not a fourth gap — the check reports it as a
+failure instead of skipping it.
 The check also compares the marked lists above and in [`apps/web/AGENTS.md`](../../apps/web/AGENTS.md)
 against the one list in [`scripts/web-boundaries.mjs`](../../scripts/web-boundaries.mjs); the markers are
 set-equality anchors, so rewording either sentence is free.
