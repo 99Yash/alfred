@@ -60,9 +60,7 @@ function runtimeBindingFailures() {
   ];
   for (const [clause, expected] of cases) {
     if (hasRuntimeBinding(clause) !== expected) {
-      failures.push(
-        `hasRuntimeBinding("${clause}") must be ${expected}, received ${!expected}`,
-      );
+      failures.push(`hasRuntimeBinding("${clause}") must be ${expected}, received ${!expected}`);
     }
   }
   return failures;
@@ -170,28 +168,41 @@ function docListFailuresFailures() {
       if (problem) failures.push(`docListFailures ${label}: ${problem}`);
     });
 
-  expect("must pass when both sites name the whole set", { architecture: list(all), agents: list(all) }, (result) =>
-    result.length === 0 ? null : `expected no failures, received ${JSON.stringify(result)}`,
+  expect(
+    "must pass when both sites name the whole set",
+    { architecture: list(all), agents: list(all) },
+    (result) =>
+      result.length === 0 ? null : `expected no failures, received ${JSON.stringify(result)}`,
   );
 
   // Wording, order and punctuation are the two sites' own business.
   expect(
     "must ignore reordering and rewording",
-    { architecture: list([...all].reverse()), agents: `nothing at all from ${list([...all].reverse())} — none` },
-    (result) => (result.length === 0 ? null : `expected no failures, received ${JSON.stringify(result)}`),
+    {
+      architecture: list([...all].reverse()),
+      agents: `nothing at all from ${list([...all].reverse())} — none`,
+    },
+    (result) =>
+      result.length === 0 ? null : `expected no failures, received ${JSON.stringify(result)}`,
   );
 
   const dropped = all[0];
-  expect("must catch a package missing from the prose", { architecture: list(all.slice(1)), agents: list(all) }, (result) =>
-    result.some((failure) => failure.includes(dropped) && failure.includes("architecture.md"))
-      ? null
-      : `expected a failure naming ${dropped} and architecture.md, received ${JSON.stringify(result)}`,
+  expect(
+    "must catch a package missing from the prose",
+    { architecture: list(all.slice(1)), agents: list(all) },
+    (result) =>
+      result.some((failure) => failure.includes(dropped) && failure.includes("architecture.md"))
+        ? null
+        : `expected a failure naming ${dropped} and architecture.md, received ${JSON.stringify(result)}`,
   );
 
-  expect("must catch a package the prose adds", { architecture: list(all), agents: list([...all, "@alfred/logging"]) }, (result) =>
-    result.some((failure) => failure.includes("@alfred/logging") && failure.includes("AGENTS.md"))
-      ? null
-      : `expected a failure naming @alfred/logging and AGENTS.md, received ${JSON.stringify(result)}`,
+  expect(
+    "must catch a package the prose adds",
+    { architecture: list(all), agents: list([...all, "@alfred/logging"]) },
+    (result) =>
+      result.some((failure) => failure.includes("@alfred/logging") && failure.includes("AGENTS.md"))
+        ? null
+        : `expected a failure naming @alfred/logging and AGENTS.md, received ${JSON.stringify(result)}`,
   );
 
   withFixture("alfred-web-boundaries-docs-", (fixture) => {
