@@ -17,7 +17,7 @@ import { fileURLToPath } from "node:url";
 import {
   FORBIDDEN_RUNTIME_PACKAGES,
   browserRoots,
-  browserSourceFiles,
+  browserSurface,
   docListFailures,
   findViolations,
   hasRuntimeBinding,
@@ -81,9 +81,22 @@ function buildReachabilityFixture(fixture) {
     ].join("\n"),
   );
 
+  // `.tsx` is 61% of the real `apps/web/src`, and it reaches `@alfred/component`
+  // and its leak through no other file — so a scan surface that drops the
+  // extension fails both the roots case and the violation case below, rather
+  // than unfencing every React component in silence.
+  write(
+    fixture,
+    "apps/web/src/widget.tsx",
+    ['import { rendered } from "@alfred/component";', "export const Widget = () => rendered;"].join(
+      "\n",
+    ),
+  );
+
   workspace(fixture, "fake", { "b.ts": 'export { deep as thing } from "@alfred/deeper";\n' });
   // Closes a cycle back to `fake`; the walk must terminate.
   workspace(fixture, "deeper", { "c.ts": 'import "@alfred/fake";\nexport const deep = 1;\n' });
+  workspace(fixture, "component", { "w.tsx": "export const rendered = 1;\n" });
   workspace(fixture, "typeonly", { "t.ts": "export type Shape = { id: string };\n" });
   workspace(fixture, "db", { "d.ts": "export const pool = 1;\n" });
   workspace(fixture, "unreached", { "u.ts": "export const nobody = 1;\n" });
@@ -95,7 +108,12 @@ function browserRootsFailures() {
     buildReachabilityFixture(fixture);
 
     const roots = browserRoots(fixture);
-    const expected = ["apps/web/src", "packages/deeper/src", "packages/fake/src"];
+    const expected = [
+      "apps/web/src",
+      "packages/component/src",
+      "packages/deeper/src",
+      "packages/fake/src",
+    ];
     if (JSON.stringify(roots) !== JSON.stringify(expected)) {
       failures.push(
         `browserRoots must follow runtime @alfred/* bindings transitively, skip forbidden and type-only packages, and terminate on a cycle: expected ${JSON.stringify(expected)}, received ${JSON.stringify(roots)}`,
@@ -116,6 +134,13 @@ function widenedScanFailures() {
       "packages/fake/src/leak.ts",
       'import { serverEnv } from "@alfred/env/server";\nexport const leak = serverEnv;\n',
     );
+    // The same leak in a `.tsx`, reachable only through the fixture's own `.tsx`
+    // entry: it disappears from this list if either extension leaves the surface.
+    write(
+      fixture,
+      "packages/component/src/leak.tsx",
+      'import { serverEnv } from "@alfred/env/server";\nexport const leak = serverEnv;\n',
+    );
     // Same leak, in a package nothing reaches: the fence follows the bundle, so
     // this one must stay unreported.
     write(
@@ -124,12 +149,16 @@ function widenedScanFailures() {
       'import { serverEnv } from "@alfred/env/server";\nexport const leak = serverEnv;\n',
     );
 
-    const flagged = browserSourceFiles(fixture)
-      .filter((file) => findViolations(join(fixture, file)).length > 0)
+    const flagged = browserSurface(fixture)
+      .files.filter((file) => findViolations(join(fixture, file)).length > 0)
       .sort();
     // `entry.ts` is the old surface's own catch (it binds `@alfred/db`); the
-    // second entry is the one a scan fixed at `apps/web/src` cannot see.
-    const expected = ["apps/web/src/entry.ts", "packages/fake/src/leak.ts"];
+    // other two are the ones a scan fixed at `apps/web/src` cannot see.
+    const expected = [
+      "apps/web/src/entry.ts",
+      "packages/component/src/leak.tsx",
+      "packages/fake/src/leak.ts",
+    ];
     if (JSON.stringify(flagged) !== JSON.stringify(expected)) {
       failures.push(
         `the scan must cover every browser-reachable package and nothing else: expected ${JSON.stringify(expected)}, received ${JSON.stringify(flagged)}`,
@@ -139,11 +168,73 @@ function widenedScanFailures() {
   });
 }
 
-function writeDocs(fixture, { architecture, agents }) {
+/** The two shapes that make the fence resolve nothing while looking clean. */
+function surfaceFailureFailures() {
+  const failures = [];
+
+  // A reached package that keeps no sources in `src/`. `packages/config` is this
+  // shape in the real repo, so the skip must be loud rather than silent.
+  withFixture("alfred-web-boundaries-layout-", (fixture) => {
+    execFileSync("git", ["init", "--quiet"], { cwd: fixture });
+    write(
+      fixture,
+      "apps/web/src/entry.ts",
+      'import { ui } from "@alfred/fakeui";\nexport const used = ui;\n',
+    );
+    write(fixture, "packages/fakeui/package.json", '{ "name": "@alfred/fakeui" }\n');
+    write(
+      fixture,
+      "packages/fakeui/lib/index.ts",
+      'import { serverEnv } from "@alfred/env/server";\nexport const ui = serverEnv;\n',
+    );
+
+    const reported = browserSurface(fixture).failures;
+    if (!reported.some((failure) => failure.includes("@alfred/fakeui"))) {
+      failures.push(
+        `browserSurface must report a reached package whose sources are not under src/, received ${JSON.stringify(reported)}`,
+      );
+    }
+  });
+
+  // The seed root is a constant, so a web app that moves leaves the walk with
+  // nothing to follow. Scanning zero files must be red, not green.
+  withFixture("alfred-web-boundaries-seed-", (fixture) => {
+    execFileSync("git", ["init", "--quiet"], { cwd: fixture });
+    write(
+      fixture,
+      "apps/web/app/entry.ts",
+      'import { pool } from "@alfred/db";\nexport const used = pool;\n',
+    );
+
+    const { files, failures: reported } = browserSurface(fixture);
+    if (files.length > 0) {
+      failures.push(
+        `the seed fixture must resolve no files, received ${JSON.stringify(files)} — rewrite the fixture`,
+      );
+    }
+    if (reported.length === 0) {
+      failures.push(
+        "browserSurface must report a missing browser entry root and an empty file list instead of passing vacuously",
+      );
+    }
+  });
+
+  return failures;
+}
+
+function writeDocs(fixture, { architecture, agents, architectureExtra }) {
   write(
     fixture,
     "docs/reference/architecture.md",
-    `Forbidden in \`apps/web\`: <!-- forbidden-runtime-packages:start -->\n\n- Any non-type import of ${architecture}. <!-- forbidden-runtime-packages:end -->\n`,
+    [
+      "Forbidden in `apps/web`: <!-- forbidden-runtime-packages:start -->",
+      "",
+      `- Any non-type import of ${architecture}.`,
+      ...(architectureExtra ? [`- Any non-type import of ${architectureExtra}.`] : []),
+      "",
+      "<!-- forbidden-runtime-packages:end -->",
+      "",
+    ].join("\n"),
   );
   write(
     fixture,
@@ -205,6 +296,22 @@ function docListFailuresFailures() {
         : `expected a failure naming @alfred/logging and AGENTS.md, received ${JSON.stringify(result)}`,
   );
 
+  // The case above plants the extra package inside an existing sentence. This one
+  // is the gesture a contributor actually makes — append one more bullet to the
+  // list — which lands outside the block whenever the `:end` marker shares the
+  // last bullet's line. The `architecture.md` fixture keeps that marker on its
+  // own line for exactly this reason.
+  expect(
+    "must catch a package appended as a new bullet after the last one",
+    { architecture: list(all), agents: list(all), architectureExtra: "`@alfred/logging`" },
+    (result) =>
+      result.some(
+        (failure) => failure.includes("@alfred/logging") && failure.includes("architecture.md"),
+      )
+        ? null
+        : `expected a failure naming @alfred/logging and architecture.md, received ${JSON.stringify(result)}`,
+  );
+
   withFixture("alfred-web-boundaries-docs-", (fixture) => {
     write(fixture, "docs/reference/architecture.md", `Forbidden: ${list(all)}\n`);
     write(fixture, "apps/web/AGENTS.md", `Forbidden: ${list(all)}\n`);
@@ -224,6 +331,7 @@ export function webBoundarySelfTestFailures() {
     ...runtimeBindingFailures(),
     ...browserRootsFailures(),
     ...widenedScanFailures(),
+    ...surfaceFailureFailures(),
     ...docListFailuresFailures(),
   ];
 }

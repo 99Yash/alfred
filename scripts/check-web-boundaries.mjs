@@ -10,12 +10,7 @@
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 
-import {
-  browserRoots,
-  browserSourceFiles,
-  docListFailures,
-  findViolations,
-} from "./web-boundaries.mjs";
+import { browserSurface, docListFailures, findViolations } from "./web-boundaries.mjs";
 import { webBoundarySelfTestFailures } from "./web-boundaries.selftest.mjs";
 
 const ROOT = dirname(dirname(fileURLToPath(import.meta.url)));
@@ -31,8 +26,10 @@ if (selfTest.length > 0) {
   process.exit(1);
 }
 
+const { roots, files, failures: surfaceFailures } = browserSurface(ROOT);
+
 const violations = [];
-for (const file of browserSourceFiles(ROOT)) {
+for (const file of files) {
   for (const violation of findViolations(join(ROOT, file))) {
     violations.push({ file, ...violation });
   }
@@ -40,8 +37,16 @@ for (const file of browserSourceFiles(ROOT)) {
 
 const docFailures = docListFailures(ROOT);
 
+if (surfaceFailures.length > 0) {
+  console.error("The browser boundary scan surface did not resolve:");
+  for (const failure of surfaceFailures) console.error(`- ${failure}`);
+  console.error(
+    "A check that cannot resolve its own surface must not report success. Fix the surface, then re-run.\n",
+  );
+}
+
 if (violations.length > 0) {
-  console.error(`Forbidden runtime imports in ${browserRoots(ROOT).join(", ")}:`);
+  console.error(`Forbidden runtime imports in ${roots.join(", ")}:`);
   for (const v of violations) {
     console.error(`- ${v.file}:${v.line} imports ${v.specifier}`);
   }
@@ -58,4 +63,4 @@ if (docFailures.length > 0) {
   );
 }
 
-if (violations.length > 0 || docFailures.length > 0) process.exit(1);
+if (surfaceFailures.length > 0 || violations.length > 0 || docFailures.length > 0) process.exit(1);

@@ -109,7 +109,7 @@ integrations interface for the shared signed OAuth state and nonce store.
 
 ## Package boundaries
 
-`@alfred/api` and `@alfred/auth` depend on `@alfred/db` and `@alfred/env`, which pull in Node-only modules (`pg`, `drizzle-orm`). **Never import these packages into `apps/web`'s runtime bundle.**
+The server-side packages reach Node-only modules (`pg`, `drizzle-orm`) transitively. **Never import them into `apps/web`'s runtime bundle.** They are enumerated once, in the marked block below — this paragraph deliberately names none of them, because a second enumeration is a second thing to keep true and nothing gates prose outside the markers.
 
 Allowed in `apps/web`:
 
@@ -122,11 +122,17 @@ Allowed in `apps/web`:
 Forbidden in `apps/web`: <!-- forbidden-runtime-packages:start -->
 
 - Any non-type import of `@alfred/api`, `@alfred/http`, `@alfred/auth`, `@alfred/db`, `@alfred/env`.
-- Any non-type import of `@alfred/ai` (contains server-only AI SDK providers). <!-- forbidden-runtime-packages:end -->
+- Any non-type import of `@alfred/ai` (contains server-only AI SDK providers).
 
-`pnpm check:web-boundaries` enforces these forbidden runtime imports for `apps/web` and for every
-workspace package the browser bundle reaches. It derives that surface by following runtime `@alfred/*`
-bindings out of `apps/web/src`, so a package that joins the bundle joins the check in the same commit.
+<!-- forbidden-runtime-packages:end -->
+
+`pnpm check:web-boundaries` enforces these forbidden runtime imports for `apps/web/src` and for every
+package under `packages/` that the browser bundle reaches. It derives that surface by following runtime
+`@alfred/*` bindings out of `apps/web/src`, so a package that joins the bundle joins the check in the same
+commit. Two things stay outside the derived surface, both deliberately: a second workspace under `apps/`,
+which the walk does not enumerate, and everything a browser file reaches through a non-`@alfred/*`
+specifier, including Node-only npm packages. A reached package that keeps no sources in `src/` is not a
+third gap — the check reports it as a failure instead of skipping it.
 The check also compares the marked lists above and in [`apps/web/AGENTS.md`](../../apps/web/AGENTS.md)
 against the one list in [`scripts/web-boundaries.mjs`](../../scripts/web-boundaries.mjs); the markers are
 set-equality anchors, so rewording either sentence is free.
