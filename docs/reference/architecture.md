@@ -145,12 +145,33 @@ set-equality anchors, so rewording either sentence is free.
 assistant-module graph, and route-private web features. The committed baseline is
 [`scripts/module-architecture-baseline.json`](../../scripts/module-architecture-baseline.json).
 It records current debt so the checker permits the list to shrink but does not
-permit a new cyclic edge or private cross-module import.
+permit a new cyclic edge or private cross-module import. The two recorded graphs
+are a record of the whole graph, but the checker consults them for their cyclic
+subset only. An acyclic recorded edge is therefore a record and not a permission:
+the day that edge joins a cycle, the checker reports it.
 
 Use `pnpm check:architecture -- --print-graph` to print the current stable graph.
+Use `pnpm check:architecture -- --write-baseline` to regenerate the baseline file.
+That command writes the baseline file itself. It prints the added and removed entries
+to standard error, and it prints nothing to standard output. The command refuses to
+write, and exits with status 1, when the current tree fails the check, and when the
+baseline file is absent, is not valid JSON, or does not hold four ratchet lists of
+key strings. Each refusal names its cause. A refusal that reads a damaged baseline
+file also names the command that restores it.
+
+One writer at a time therefore cannot widen a permitted set, because the command only
+writes from a tree the checker already accepts. Two writers can. Two branches that
+each regenerate from an accepted tree merge into a file that permits a cycle neither
+branch permitted, because the two edge keys sort far apart in the file and git merges
+both without a conflict. The two recorded graphs grow freely and their permission is a
+non-monotone function of the record, so their union is not safe the way the
+shrink-only exception lists are. Before you merge a branch that regenerated the
+baseline, rebase it onto the merged base and regenerate again.
+
 Do not update the baseline to make a failure disappear. Change it only when an
 accepted ADR changes the target structure or when a path rename preserves an
-existing exception. Every exception needs an owner, a reason, and a removal
+existing exception. These two edits are the only legitimate ones, and the refusal
+message names both. Every exception needs an owner, a reason, and a removal
 phase.
 
 The local verification levels are:
