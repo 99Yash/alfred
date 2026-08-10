@@ -145,9 +145,21 @@ set-equality anchors, so rewording either sentence is free.
 assistant-module graph, and route-private web features. The committed baseline is
 [`scripts/module-architecture-baseline.json`](../../scripts/module-architecture-baseline.json).
 It records current debt so the checker permits the list to shrink but does not
-permit a new cyclic edge or private cross-module import.
+permit a new cyclic edge or private cross-module import. The two recorded graphs
+are a record of the whole graph, but the checker consults them for their cyclic
+subset only. An acyclic recorded edge is therefore a record and not a permission:
+the day that edge joins a cycle, the checker reports it.
 
 Use `pnpm check:architecture -- --print-graph` to print the current stable graph.
+Use `pnpm check:architecture -- --print-baseline` to regenerate the baseline file.
+That command refuses to print, and exits with status 1, when the current tree fails
+the check or when the baseline file is absent. Regeneration therefore cannot widen
+a permitted set, because the command only prints from a tree the checker already
+accepts. The command writes the document to standard output and the added and
+removed entries to standard error, so
+`pnpm check:architecture -- --print-baseline > scripts/module-architecture-baseline.json`
+writes valid JSON and still shows what changed.
+
 Do not update the baseline to make a failure disappear. Change it only when an
 accepted ADR changes the target structure or when a path rename preserves an
 existing exception. Every exception needs an owner, a reason, and a removal
