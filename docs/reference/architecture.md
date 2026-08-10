@@ -47,10 +47,11 @@ complete. Realtime outbox and SSE updates use the separate `publishEvent`
 interface.
 
 Google OAuth draft recovery enters through `resolveWorkflowRecoveryTarget` in
-the integrations module. Runtime composition registers a workflow adapter that
+the ingestion module (`@alfred/assistant/connections/ingestion`). Runtime
+composition registers a workflow adapter that
 maps workflow revalidation to the connection-facing `ready`, `blocked`, or
-typed-failure result. Integrations owns the HTTP redirect; it does not import
-the workflow implementation.
+typed-failure result. The connections routes own the HTTP redirect; the ingestion
+module does not import the workflow implementation.
 
 Gmail post-insert repair enters through `runGmailPostInsertTriage`, and queued
 label reconciliation enters through `runGmailTriageRelabel`. Runtime composition
@@ -58,7 +59,7 @@ registers one triage adapter for both operations before ingestion workers start.
 The ingestion queue owns provider polling, insert ordering, reply event identity,
 and BullMQ retry behavior. Triage owns live-thread repair, relabel queueing, and
 the mailbox-write gate. Requests and adapter results are validated at the
-integrations-owned interface, so integrations does not import the triage
+ingestion-owned interface, so ingestion does not import the triage
 implementation.
 
 Gmail post-insert observation capture enters through `captureGmailObservations`,
@@ -73,7 +74,7 @@ refold failures reject the ingestion job so worker retry and monitoring remain
 effective.
 
 Chat attachment enrichment scheduling and chat-media ingestion jobs enter
-through the integrations-owned chat-media interface. Runtime composition
+through the ingestion-owned chat-media interface. Runtime composition
 registers one chat adapter before ingestion workers start. The adapter owns the
 attachment claim and enqueue-failure transition, enrichment behavior, object
 storage checks and deletion, and durable-key lookup for pending-upload cleanup.
@@ -97,7 +98,8 @@ MCP owns its authenticated connection routes, public OAuth metadata and
 callback routes, persistence behavior, and runtime connection manager. The API
 composition root mounts this presentation directly. The integrations route
 aggregate does not import or mount MCP implementation details. MCP uses the
-integrations interface for the shared signed OAuth state and nonce store.
+connections interface (`@alfred/assistant/connections`) for the shared signed
+OAuth state and nonce store.
 
 **Web → Auth:** `apps/web/src/lib/auth-client.ts` creates a Better Auth client. The web app calls `authClient.signIn.social({ provider: "google" })` from the login surface; Better Auth redirects through Google and back to `/api/auth/callback/google`, both mounted on the Elysia server.
 
