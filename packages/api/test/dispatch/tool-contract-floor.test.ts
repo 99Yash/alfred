@@ -202,4 +202,36 @@ describe("the declared tool contract is enforced at the dispatch floor", () => {
     assert.equal(result.kind, "not_allowed");
     assert.equal(executions, 0);
   });
+
+  test("a fast-path result uses the same JSON normalization as a staged result", async () => {
+    registerTool(
+      liveTool({
+        integration: "system",
+        action: "read_scratch",
+        riskTier: "no_risk",
+        description: "test JSON normalization on the fast path",
+        staging: "fast_path",
+        inputSchema: z.object({ key: z.string() }).strict(),
+        execute: async () => ({
+          at: new Date("2026-08-10T00:00:00.000Z"),
+          omitted: undefined,
+          items: [undefined, "kept"],
+        }),
+      }),
+    );
+
+    const result = await dispatchToolCall({
+      ...baseDispatch,
+      toolName: "system.read_scratch",
+      input: { key: "shared.test" },
+      activeTools: ["system.read_scratch"],
+      caller: "boss" as const,
+    });
+
+    assert.equal(result.kind, "executed");
+    assert.deepEqual(result.kind === "executed" ? result.toolResult : undefined, {
+      at: "2026-08-10T00:00:00.000Z",
+      items: [null, "kept"],
+    });
+  });
 });

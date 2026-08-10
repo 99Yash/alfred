@@ -45,21 +45,26 @@
  *   node dist/scripts/repairs/repair-sent-mislabeled-triage-committed.js --commit
  */
 import { warmPool } from "@alfred/api/runtime";
-import { closeScriptResources } from "../script-runtime";
 import { gmailSentSql, isSentGmailMetadata } from "@alfred/assistant/triage/sent-mail";
 import { loadTriageContext, withTriageThreadLock } from "@alfred/assistant/triage/store";
-import { isHttpError, isTriageCategory, toMessage } from "@alfred/contracts";
 import type { TriageCategory } from "@alfred/contracts";
+import { isHttpError, isTriageCategory, toMessage } from "@alfred/contracts";
 import { db } from "@alfred/db";
-import { documents, emailTriage, integrationCredentials } from "@alfred/db/schemas";
+import {
+  documents,
+  emailTriage,
+  integrationCredentials,
+  type IntegrationCredential,
+} from "@alfred/db/schemas";
 import { gmailMailboxWritesEnabled } from "@alfred/env/server";
 import {
   ensureAlfredLabels,
-  getThreadMessageLabels,
   getFreshAccessToken,
+  getThreadMessageLabels,
   modifyMessageLabels,
 } from "@alfred/integrations/google";
 import { and, eq, sql } from "drizzle-orm";
+import { closeScriptResources } from "../script-runtime";
 
 const COMMIT = process.argv.includes("--commit");
 
@@ -71,10 +76,7 @@ type DocRow = {
   metadata: Record<string, unknown>;
 };
 
-type GoogleCredentialRow = Pick<
-  typeof integrationCredentials.$inferSelect,
-  "id" | "userId" | "accountId"
->;
+type GoogleCredentialRow = Pick<IntegrationCredential, "id" | "userId" | "accountId">;
 
 type CurrentMisPointedRow = {
   category: string;
