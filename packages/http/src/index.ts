@@ -14,3 +14,12 @@ export { authMacro } from "./middleware/auth";
 export { errorHandler } from "./middleware/error-handler";
 export { securityHeaders, type SecurityHeadersOptions } from "./middleware/security-headers";
 export { getSessionCached, invalidateSessionToken } from "./middleware/session-cache";
+
+// Routes. This is one barrel with no subpaths, so it is also one
+// module-evaluation unit: importing ANY binding above now also evaluates the
+// agent route and, through it, `@alfred/assistant/execution` and its whole
+// transitive graph. That graph needs no environment variables and no database
+// to load, and `apps/server` already loads it through `@alfred/api`, so the
+// cost is inert today — but keep module-scope side effects out of anything
+// added here.
+export { agent } from "./routes/agent";

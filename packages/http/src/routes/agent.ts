@@ -1,5 +1,9 @@
 import { Elysia, t } from "elysia";
-import { authMacro } from "@alfred/http";
+// The sibling relative path, not the `@alfred/http` package specifier: the
+// specifier resolves to this package's own `src/index.ts`, which re-exports
+// this file, so using it here would make `index.ts -> routes/agent.ts ->
+// index.ts` a module cycle inside the package.
+import { authMacro } from "../middleware/auth";
 import {
   isInternalWorkflowSlug,
   startRun,
