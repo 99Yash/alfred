@@ -886,6 +886,27 @@ function loadBaseline() {
       error: `${relativeToRoot(BASELINE_PATH)} is not valid JSON: ${error.message}`,
     };
   }
+  const faults = baselineRatchetFaults(parsed);
+  if (faults.length > 0) {
+    return {
+      ok: false,
+      error: `${relativeToRoot(BASELINE_PATH)} has unusable ratchet lists: ${faults.join(", ")}`,
+    };
+  }
+  return { ok: true, baseline: parsed };
+}
+
+/**
+ * Every way a parsed baseline's four ratchet lists can fail to be lists of keys, as
+ * sentences naming the offending list.
+ *
+ * The list TYPE is not enough: {@link checkArchitecture} routes every recorded key
+ * through {@link edgesFromKeys}, which splits it, and both `legacyExceptions` lists are
+ * compared as string keys. So a non-string member of a hand-edited file — the edit path
+ * a refusal explicitly invites — is an uncaught `TypeError` in the middle of the check
+ * unless the member type is checked HERE, in the boundary that already owns the shape.
+ */
+function baselineRatchetFaults(parsed) {
   const ratchets = [
     ["packageGraph.edges", parsed?.packageGraph?.edges],
     ["assistantModuleGraph.edges", parsed?.assistantModuleGraph?.edges],
@@ -898,14 +919,18 @@ function loadBaseline() {
       parsed?.legacyExceptions?.webFeatureImports?.imports,
     ],
   ];
-  const missing = ratchets.filter(([, value]) => !Array.isArray(value)).map(([name]) => name);
-  if (missing.length > 0) {
-    return {
-      ok: false,
-      error: `${relativeToRoot(BASELINE_PATH)} is missing the ratchet lists ${missing.join(", ")}`,
-    };
+  const faults = [];
+  for (const [name, value] of ratchets) {
+    if (!Array.isArray(value)) {
+      faults.push(`${name} is missing or not an array`);
+      continue;
+    }
+    const index = value.findIndex((entry) => typeof entry !== "string");
+    if (index !== -1) {
+      faults.push(`${name}[${index}] is ${typeof value[index]}, not a string`);
+    }
   }
-  return { ok: true, baseline: parsed };
+  return faults;
 }
 
 /** What regenerating the baseline would add to and remove from each ratchet. */
@@ -1220,6 +1245,49 @@ const text = 'import "ignored-string"';
       `baseline delta self-test mismatch: expected added ["e -> f"] and removed ["c -> d"], received ${JSON.stringify(packageEdgeDelta)}`,
     );
   }
+  // (x) The persisted-shape boundary. `loadBaseline` reads a real path, so the pure
+  // half is driven here instead: one drive per fault branch, each asserting a substring
+  // no other drive produces.
+  const wellFormedFaults = baselineRatchetFaults(syntheticBaseline());
+  if (wellFormedFaults.length > 0) {
+    failures.push(
+      `baseline shape self-test mismatch: expected no fault for a well-formed baseline, received ${JSON.stringify(wellFormedFaults)}`,
+    );
+  }
+  // (x-b) A ratchet list that is absent or of the wrong TYPE.
+  const missingListFaults = baselineRatchetFaults(
+    syntheticBaseline({ assistantModuleGraph: { edges: "a -> b" } }),
+  );
+  if (
+    !missingListFaults.some(
+      (fault) => fault === "assistantModuleGraph.edges is missing or not an array",
+    )
+  ) {
+    failures.push(
+      `baseline shape self-test mismatch: expected a fault naming the non-array ratchet list, received ${JSON.stringify(missingListFaults)}`,
+    );
+  }
+  // (x-c) A ratchet list whose MEMBER is not a key. Uncaught before this drive existed:
+  // `checkArchitecture` splits every recorded key, so a hand-edited `42` threw a bare
+  // `TypeError` out of the middle of the check and of the write flag.
+  const memberFaults = baselineRatchetFaults(
+    syntheticBaseline({
+      legacyExceptions: {
+        privateModuleImports: { imports: ["a -> b", 42] },
+        webFeatureImports: { imports: [] },
+      },
+    }),
+  );
+  if (
+    !memberFaults.some(
+      (fault) =>
+        fault === "legacyExceptions.privateModuleImports.imports[1] is number, not a string",
+    )
+  ) {
+    failures.push(
+      `baseline shape self-test mismatch: expected a fault naming the non-string ratchet member and its index, received ${JSON.stringify(memberFaults)}`,
+    );
+  }
 
   const lifecycleSource = `
 export function registerExample(): void {}
@@ -1505,13 +1573,27 @@ if (selfTestErrors.length > 0) {
   process.exit(1);
 }
 
+/**
+ * The cause-and-recovery sentence for an unreadable baseline.
+ *
+ * A baseline that will not load is nearly always a shell redirect: `> <baseline>`
+ * truncates the target before this process starts, so the flag reads 0 bytes and writes
+ * nothing. The hint therefore belongs on every LIVE path that can observe the damage —
+ * putting it only on the removed flag's tombstone leaves it on a branch nobody types.
+ */
+function baselineRedirectHint() {
+  const path = relativeToRoot(BASELINE_PATH);
+  return `${BASELINE_FLAG} rewrites ${path} itself: never redirect its output into that file, because the shell truncates the target before this process starts. If ${path} is already damaged, restore it with \`git checkout ${path}\`.`;
+}
+
+function reportBaselineLoadFailure(error) {
+  console.error(`check-module-architecture: ${error}`);
+  console.error(baselineRedirectHint());
+}
+
 if (process.argv.includes(REMOVED_BASELINE_FLAG)) {
-  console.error(
-    `check-module-architecture: ${REMOVED_BASELINE_FLAG} is now ${BASELINE_FLAG}, which rewrites ${relativeToRoot(BASELINE_PATH)} itself.`,
-  );
-  console.error(
-    `Do not redirect the output into that file: the shell truncates it before this process starts, which destroys the ratchet. If you just did, restore it with \`git checkout ${relativeToRoot(BASELINE_PATH)}\`.`,
-  );
+  console.error(`check-module-architecture: ${REMOVED_BASELINE_FLAG} is now ${BASELINE_FLAG}.`);
+  console.error(baselineRedirectHint());
   process.exit(1);
 }
 
@@ -1523,7 +1605,7 @@ if (process.argv.includes(BASELINE_FLAG)) {
   // stdout.
   const loaded = loadBaseline();
   if (!loaded.ok) {
-    console.error(`check-module-architecture: ${loaded.error}`);
+    reportBaselineLoadFailure(loaded.error);
     process.exit(1);
   }
   const emission = baselineEmission(architecture, loaded.baseline);
@@ -1550,7 +1632,7 @@ if (process.argv.includes(GRAPH_FLAG)) {
 
 const loadedBaseline = loadBaseline();
 if (!loadedBaseline.ok) {
-  console.error(`check-module-architecture: ${loadedBaseline.error}`);
+  reportBaselineLoadFailure(loadedBaseline.error);
   process.exit(1);
 }
 const violations = checkArchitecture(architecture, loadedBaseline.baseline);

@@ -152,14 +152,13 @@ the day that edge joins a cycle, the checker reports it.
 
 Use `pnpm check:architecture -- --print-graph` to print the current stable graph.
 Use `pnpm check:architecture -- --write-baseline` to regenerate the baseline file.
-That command rewrites the baseline file itself. Do not redirect its output into the
-baseline file: a shell redirect truncates the target before the command starts, which
-destroys the ratchet the command must read. The command refuses to write, and exits
-with status 1, when the current tree fails the check, when the baseline file is
-absent, and when the baseline file does not hold the four ratchet lists.
-Regeneration therefore cannot widen a permitted set, because the command only writes
-from a tree the checker already accepts. The command prints the added and removed
-entries to standard error and prints nothing to standard output.
+That command writes the baseline file itself. It prints the added and removed entries
+to standard error, and it prints nothing to standard output. The command refuses to
+write, and exits with status 1, when the current tree fails the check, and when the
+baseline file is absent, is not valid JSON, or does not hold four ratchet lists of
+key strings. Each refusal names its cause and the command that recovers the baseline
+file. Regeneration therefore cannot widen a permitted set, because the command only
+writes from a tree the checker already accepts.
 
 Do not update the baseline to make a failure disappear. Change it only when an
 accepted ADR changes the target structure or when a path rename preserves an
