@@ -17,7 +17,9 @@ Path alias `~/` maps to `src/` in both apps.
 **Web → API:** `apps/web/src/lib/eden.ts` creates an Eden treaty client typed against `App` from `@alfred/api`. The Vite dev server proxies `/api/auth/*` to `localhost:3001`; all other API calls use `VITE_API_URL` directly.
 
 **API entrypoints during migration:** the `@alfred/api` root exports the composed
-Elysia `app`, its `App` type, and HTTP security-header helpers. Reusable
+Elysia `app` and its `App` type. HTTP middleware now lives in the `@alfred/http`
+root barrel — `authMacro`, `errorHandler`, `securityHeaders` and the
+`getSessionCached` / `invalidateSessionToken` pair. Reusable
 server-side domain and queue behavior still lives at `@alfred/api/backend`.
 Worker lifecycle, registration, scheduling, bootstrap, and teardown operations
 still live at `@alfred/api/runtime`. These are legacy doors, not the target
@@ -99,7 +101,7 @@ integrations interface for the shared signed OAuth state and nonce store.
 
 **Web → Auth:** `apps/web/src/lib/auth-client.ts` creates a Better Auth client. The web app calls `authClient.signIn.social({ provider: "google" })` from the login surface; Better Auth redirects through Google and back to `/api/auth/callback/google`, both mounted on the Elysia server.
 
-**API → Auth:** `packages/api/src/middleware/session-cache.ts` calls `auth().api.getSession()` with a two-layer cache (per-request WeakMap + 10-second token cache). Import `getSessionCached()` in route handlers; never call `auth()` directly from routes.
+**HTTP → Auth:** `packages/http/src/middleware/session-cache.ts` calls `auth().api.getSession()` with a two-layer cache (per-request WeakMap + 10-second token cache). Import `getSessionCached()` in route handlers; never call `auth()` directly from routes.
 
 **API → DB:** `db()` from `@alfred/db` returns the shared pg pool singleton. Call it inside handlers and workers; do not call it at module init time.
 

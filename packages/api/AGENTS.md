@@ -2,7 +2,7 @@
 
 `@alfred/api` owns the authenticated HTTP surface, server-side workflow orchestration, and Replicache server protocol.
 
-Use `@alfred/api` only for the Elysia app, its `App` type, and HTTP security headers. Import reusable server services from `@alfred/api/backend` and worker/bootstrap/teardown operations from `@alfred/api/runtime`.
+Use `@alfred/api` only for the Elysia app and its `App` type. HTTP middleware now lives in `@alfred/http` — `authMacro`, `errorHandler`, `securityHeaders` and the `getSessionCached` / `invalidateSessionToken` pair all come from that one root barrel. Import reusable server services from `@alfred/api/backend` and worker/bootstrap/teardown operations from `@alfred/api/runtime`.
 
 ## Boundaries
 

@@ -3,7 +3,7 @@ import { db } from "@alfred/db";
 import { user, userPreferences } from "@alfred/db/schemas";
 import { eq, sql } from "drizzle-orm";
 import { Elysia, t } from "elysia";
-import { authMacro } from "../../middleware/auth";
+import { authMacro } from "@alfred/http";
 import { isValidTimezone } from "@alfred/assistant/time";
 
 /**

@@ -2,8 +2,7 @@ import { auth } from "@alfred/auth";
 import { db } from "@alfred/db";
 import { sql } from "drizzle-orm";
 import { Elysia } from "elysia";
-import { errorHandler } from "./middleware/error-handler";
-import { getSessionCached, invalidateSessionToken } from "./middleware/session-cache";
+import { errorHandler, getSessionCached, invalidateSessionToken } from "@alfred/http";
 import { createUntrackedRedisConnection } from "@alfred/db/redis";
 import { events } from "./modules/events/index";
 import { replicache } from "./modules/replicache/index";
@@ -17,8 +16,6 @@ import { onboardingRoutes } from "./modules/onboarding/index";
 import { skillsRoutes } from "./modules/skills/index";
 import { workflowRoutes } from "./modules/workflows/index";
 import { toolTiersRoutes } from "./modules/tools/index";
-
-export { securityHeaders, type SecurityHeadersOptions } from "./middleware/security-headers";
 
 // `normalize: 'typebox'` opts out of Elysia 1.4's bundled `exact-mirror`
 // schema cleaner in favour of TypeBox's native `Value.Clean`. Elysia

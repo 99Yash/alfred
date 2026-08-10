@@ -3,7 +3,7 @@ import { actionStagings } from "@alfred/db/schemas";
 import { and, eq, sql } from "drizzle-orm";
 import { Elysia, t } from "elysia";
 import { emitReplicachePokes } from "@alfred/assistant/triggers";
-import { authMacro } from "../../middleware/auth";
+import { authMacro } from "@alfred/http";
 import {
   redeliverRun,
   signalRunInTx,
