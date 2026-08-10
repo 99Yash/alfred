@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { hasGmailPostInsertSideEffects } from "../../src/modules/integrations/queue";
+import { hasGmailPostInsertSideEffects } from "@alfred/assistant/connections/ingestion/queue";
 import {
   FULL_RESYNC_REPLY_REEVAL_THREAD_LIMIT,
   planGmailPostInsertSideEffects,

@@ -7,7 +7,7 @@ import {
   getIngestionQueue,
   pubSubOidcConfigFromEnv,
   type PubSubOidcConfig,
-} from "../integrations";
+} from "@alfred/assistant/connections/ingestion";
 
 /**
  * Gmail push receiver.

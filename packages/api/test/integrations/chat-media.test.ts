@@ -10,8 +10,8 @@ import {
   recordChatMediaEnqueueFailure,
   registerChatMediaHandler,
   type ChatMediaHandler,
-} from "../../src/modules/integrations/chat-media";
-import { enqueueChatAttachmentEnrichmentWith } from "../../src/modules/integrations/queue";
+} from "@alfred/assistant/connections/ingestion/chat-media";
+import { enqueueChatAttachmentEnrichmentWith } from "@alfred/assistant/connections/ingestion/queue";
 import { TriggerConsumerBootError } from "@alfred/assistant/triggers";
 
 const enrichmentRequest = {

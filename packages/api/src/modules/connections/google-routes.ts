@@ -15,25 +15,23 @@ import { randomBytes } from "node:crypto";
 import { Elysia, t } from "elysia";
 import { and, eq } from "drizzle-orm";
 import { authMacro } from "@alfred/http";
-import { publishDomainEvent } from "@alfred/assistant/triggers";
 import {
   assertGmailPushOidcConfigured,
   getIngestionQueue,
   installGmailWatchAndSeedCursor,
   isGmailPushOidcConfigError,
   resolveWorkflowRecoveryTarget,
-} from "../integrations";
-import {
-  disconnectGoogleCredentialConnection,
-  GoogleCredentialNotFoundError,
-  upsertGoogleCredentialConnection,
-} from "@alfred/assistant/connections";
+} from "@alfred/assistant/connections/ingestion";
 import {
   consumeOAuthNonce,
+  disconnectGoogleCredentialConnection,
+  GoogleCredentialNotFoundError,
+  publishGoogleCallbackCompleted,
   rememberOAuthNonce,
   signOAuthState,
+  upsertGoogleCredentialConnection,
   verifyOAuthState,
-} from "./oauth-state";
+} from "@alfred/assistant/connections";
 
 /**
  * Google integration routes.
@@ -61,24 +59,6 @@ async function bestEffort(label: string, fn: () => Promise<unknown>): Promise<vo
   } catch (err) {
     console.warn(`[google.callback] ${label}:`, toMessage(err));
   }
-}
-
-type DomainEventPublisher = typeof publishDomainEvent;
-
-/** Publish the completed connection occurrence without naming its consumers. */
-export async function publishGoogleCallbackCompleted(
-  userId: string,
-  credentialId: string,
-  publish: DomainEventPublisher = publishDomainEvent,
-): Promise<void> {
-  await bestEffort(`failed to publish completed event for ${userId}`, () =>
-    publish({
-      userId,
-      source: "google.oauth.callback",
-      type: "completed",
-      eventId: `google.callback:${credentialId}`,
-    }),
-  );
 }
 
 /**

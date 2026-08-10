@@ -28,7 +28,7 @@ import {
 } from "../../src/composition/trigger-consumers";
 import { publishDomainEvent } from "@alfred/assistant/triggers";
 import { acceptEvent } from "../../src/modules/workflows";
-import { publishGoogleCallbackCompleted } from "../../src/modules/connections/google-routes";
+import { publishGoogleCallbackCompleted } from "@alfred/assistant/connections";
 import { COLD_START_WORKFLOW_SLUG } from "@alfred/assistant/knowledge/cold-start";
 import { uniqueViolationConstraint } from "@alfred/db/pg-errors";
 import { closeRedis } from "@alfred/db/redis";

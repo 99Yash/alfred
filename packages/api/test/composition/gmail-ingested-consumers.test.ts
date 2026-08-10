@@ -4,7 +4,7 @@ import { gmailIngestedTriggerConsumers } from "../../src/composition/gmail-inges
 import {
   NoGmailTriageHandlerRegisteredError,
   registerGmailTriageHandler,
-} from "../../src/modules/integrations/gmail-triage";
+} from "@alfred/assistant/connections/ingestion/gmail-triage";
 import {
   publishDomainEvent,
   registerTriggerConsumer,

@@ -3,7 +3,7 @@ import { serverEnv } from "@alfred/env/server";
 import { Elysia, t } from "elysia";
 import { z } from "zod";
 import { authMacro } from "@alfred/http";
-import { consumeOAuthNonce, verifyOAuthState } from "../oauth-state";
+import { consumeOAuthNonce, verifyOAuthState } from "@alfred/assistant/connections";
 import { boundedMcpErrorText } from "./errors";
 import { MCP_OAUTH_PENDING_ISSUER } from "./manager";
 import {

@@ -4,7 +4,10 @@ import { mutatorArgsSchemas, type MutatorName } from "@alfred/sync";
 import { eq, sql } from "drizzle-orm";
 import { publishPolicyBust } from "../action-policies";
 import { emitReplicachePokes } from "@alfred/assistant/triggers";
-import { enqueueChatStorageCleanup, enqueueTriageRelabel } from "../integrations/queue";
+import {
+  enqueueChatStorageCleanup,
+  enqueueTriageRelabel,
+} from "@alfred/assistant/connections/ingestion";
 import { MutatorForbiddenError } from "./authz";
 import type { ReplicacheModel } from "./model";
 import { serverMutators } from "./server-mutators";

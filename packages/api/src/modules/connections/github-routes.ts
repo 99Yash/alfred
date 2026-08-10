@@ -18,7 +18,7 @@ import {
   rememberOAuthNonce,
   signOAuthState,
   verifyOAuthState,
-} from "./oauth-state";
+} from "@alfred/assistant/connections";
 
 /**
  * GitHub App integration routes (ADR-0052). Same state-nonce CSRF defense as

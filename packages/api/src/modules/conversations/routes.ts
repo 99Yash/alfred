@@ -30,7 +30,7 @@ import { authMacro } from "@alfred/http";
 import { createCacheRedisConnection } from "@alfred/db/redis";
 import { getRun, persistChatTurnRunInTx, redeliverRun } from "@alfred/assistant/execution";
 import { uniqueViolationConstraint } from "@alfred/db/pg-errors";
-import { enqueuePendingUploadCleanup } from "../integrations";
+import { enqueuePendingUploadCleanup } from "@alfred/assistant/connections/ingestion";
 import {
   assertAttachmentBatchAllowed,
   assertPassThroughImageBytes,
