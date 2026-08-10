@@ -42,31 +42,44 @@ export default defineConfig({
   sourcemap: true,
   noExternal: [/@alfred\/.*/],
   // Pin symlink resolution. `noExternal` above inlines every @alfred/* package
-  // into this bundle, and pnpm links one of them, @alfred/http, through two
-  // separate paths: apps/server/node_modules/@alfred/http and
-  // packages/api/node_modules/@alfred/http, both pointing at packages/http.
-  // With `symlinks: true` the resolver collapses both onto the real path, so
-  // each file becomes one module in the output. With `false` it keeps the
-  // symlinked location, so the same file can become two modules.
+  // into this bundle, and pnpm links several of them through more than one
+  // path: @alfred/http through apps/server/node_modules/@alfred/http and
+  // packages/api/node_modules/@alfred/http, @alfred/db through nine such paths,
+  // @alfred/auth through two — each set pointing at one directory under
+  // packages/. With `symlinks: true` the resolver collapses every path onto the
+  // real one, so each source file becomes one module in the output. With
+  // `false` it keeps the symlinked location, so one file becomes one module per
+  // path that reaches it (measured: two copies of session-cache.ts).
   //
-  // packages/http/src/middleware/session-cache.ts holds module-level mutable
-  // state — tokenCache, tokenInflight and the sweep timer — and its writer and
-  // its readers now sit in different packages: invalidateSessionToken runs on
-  // sign-out from packages/api/src/index.ts, while getSessionCached runs on
-  // every request through authMacro. Two copies of that module means sign-out
-  // clears a cache nobody reads, and the signed-out session stays valid until
-  // the entry expires. Nothing else here depends on module identity, so this
-  // one cache is the reason the setting is written down.
+  // Module-level mutable state is what makes that matter.
+  // packages/http/src/middleware/session-cache.ts holds tokenCache,
+  // tokenInflight and a 60s sweep timer. For that cache the duplication is
+  // latent rather than a live bug today, and this comment does not claim more:
+  // the writer (invalidateSessionToken, on sign-out) is called from
+  // packages/api/src/index.ts, and every mounted reader reaches getSessionCached
+  // through authMacro inside the app object this app takes from @alfred/api, so
+  // writer and readers land in the copy that packages/api's link produced. The
+  // only direct @alfred/http import here is securityHeaders, whose copy would
+  // carry a second tokenCache nothing reads and a second sweep timer. The
+  // sign-out failure arms the first time this app reaches session-cache's
+  // readers or its writer directly through @alfred/http: sign-out would then
+  // clear one map while requests read the other, and the signed-out session
+  // would stay valid for up to TOKEN_TTL_MS (10s). The same class is wider than
+  // this one cache — @alfred/db's _db/_pool/_heartbeatTimer would fork into two
+  // pools and two heartbeat timers with shutdown closing one — so read this pin
+  // as covering every @alfred/* module reached through more than one link, not
+  // just the cache that made it explicit.
   //
   // `true` is already rolldown's default (it is oxc-resolver's). This states it
-  // so the singleton stops riding a default nothing in the repo pins. No test
-  // observes the built output, so this is a statement of the dependency, not a
-  // guard on it.
+  // so nothing here rides a default the repo does not pin. No test observes the
+  // built output, so this is a statement of the dependency, not a guard on it.
   //
-  // The function form is required. tsdown shallow-merges user input options
-  // over its own ({ ...defaults, ...user }), and its defaults already set
-  // `resolve: { alias }`; the object form would replace that whole object and
-  // drop the alias channel. Spreading `options` and `options.resolve` keeps it.
+  // Use the function form. tsdown shallow-merges user input options over its own
+  // ({ ...defaults, ...user }) and its defaults set `resolve: { alias }`, so the
+  // object form would replace that whole object; spreading `options.resolve`
+  // keeps the alias channel for whoever adds an alias here (there is none
+  // today). The returned object is load-bearing — a callback body that returns
+  // nothing also type-checks, and drops the pin silently.
   inputOptions: (options) => ({
     ...options,
     resolve: { ...options.resolve, symlinks: true },
