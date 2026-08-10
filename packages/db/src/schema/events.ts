@@ -13,10 +13,11 @@ import { user } from "./auth";
  * rows on reconnect via `id > Last-Event-ID`.
  *
  * Replicache pokes intentionally do NOT go through this table — they have a
- * separate, lower-latency bus (events/replicache-events.ts) because pokes are
- * idempotent hints, not durable state.
+ * separate, lower-latency bus (packages/assistant/src/realtime/replicache-events.ts)
+ * because pokes are idempotent hints, not durable state.
  *
- * Retention is bounded (#533): `events/outbox-reaper.ts` deletes rows whose
+ * Retention is bounded (#533): `packages/assistant/src/realtime/outbox-reaper.ts`
+ * deletes rows whose
  * `published_at` is older than `OUTBOX_RETENTION_MS`, and never deletes a row
  * with `published_at IS NULL` because that row is undelivered work. Ids are
  * never reused, so replay cursors stay valid — a cursor older than the window
