@@ -145,17 +145,25 @@ function sourceFilesUnder(root, dir) {
  * conservative because a package that is browser-safe through one subpath and
  * server-bound through another has a boundary problem of its own.
  *
- * `failures` exists because the two ways this walk can resolve *nothing* both
- * look exactly like a clean tree from the outside: the seed root is a constant,
- * so a web app that moves leaves the fence scanning zero files; and a reached
- * package that keeps no sources in `src/` would otherwise be skipped in silence.
- * Both are reported, so the check goes red instead of passing vacuously.
+ * `failures` exists because every way this walk can resolve *nothing* looks
+ * exactly like a clean tree from the outside. There are three, and they are
+ * three because three different authorities decide what a root contains: the
+ * filesystem says whether `<pkg>/src` exists, git says which files under it are
+ * listed, and `SOURCE_FILE` says which of those are TypeScript. So a reached
+ * package that keeps no sources in `src/` is reported; a root whose `src/`
+ * resolves no scannable file — an empty directory left behind by a move, or a
+ * package written in plain `.js` — is reported too, because being inside the
+ * surface is not being scanned; and the seed root is a constant, so a web app
+ * that moves leaves the fence scanning zero files. All three go red instead of
+ * passing vacuously.
  */
 export function browserSurface(root) {
   const packageDirs = workspacePackageDirs(root);
   const failures = [];
   const roots = [BROWSER_ENTRY_ROOT];
   const seen = new Set(roots);
+  /** Why each derived root joined the surface, so an empty one can name its importer. */
+  const reachedBy = new Map();
 
   if (!existsSync(join(root, BROWSER_ENTRY_ROOT))) {
     failures.push(
@@ -183,13 +191,28 @@ export function browserSurface(root) {
           continue;
         }
 
+        reachedBy.set(next, { file, pkg: entry.pkg });
         roots.push(next);
       }
     }
   }
 
   roots.sort();
-  const files = roots.flatMap((dir) => sourceFilesUnder(root, dir));
+  const files = [];
+  for (const dir of roots) {
+    const scanned = sourceFilesUnder(root, dir);
+    if (scanned.length === 0) {
+      const reached = reachedBy.get(dir);
+      failures.push(
+        reached
+          ? `${reached.file} imports ${reached.pkg} at runtime, but git lists no .ts or .tsx file under ${dir}, so the fence scans none of it.`
+          : `git lists no .ts or .tsx file under ${dir}, so the fence scans none of it.`,
+      );
+      continue;
+    }
+    files.push(...scanned);
+  }
+
   if (files.length === 0) {
     failures.push(
       `the scan resolved no source files under ${roots.join(", ")}; a check that reads nothing cannot report a violation.`,
@@ -210,6 +233,11 @@ export function browserRoots(root) {
  * The comparison is set equality over the backticked `@alfred/*` tokens inside
  * the marker pair, so the two sites stay free to word, order and punctuate the
  * rule differently — only the membership is checked.
+ *
+ * A site must hold exactly one pair. A second marked block — a worked example in
+ * a fenced code block, or a second enumeration further down the file — would
+ * otherwise read as gated while nothing compares it, which is the drift the
+ * markers exist to stop.
  */
 export function docListFailures(root) {
   const failures = [];
@@ -222,10 +250,19 @@ export function docListFailures(root) {
     }
 
     const source = readFileSync(path, "utf8");
+    const starts = source.split(DOC_MARKER_START).length - 1;
+    const ends = source.split(DOC_MARKER_END).length - 1;
+    if (starts !== 1 || ends !== 1) {
+      failures.push(
+        `${site} must hold exactly one ${DOC_MARKER_START} / ${DOC_MARKER_END} marker pair, but it holds ${starts} start and ${ends} end markers; only the first pair is ever compared.`,
+      );
+      continue;
+    }
+
     const start = source.indexOf(DOC_MARKER_START);
     const end = source.indexOf(DOC_MARKER_END);
-    if (start === -1 || end === -1 || end < start) {
-      failures.push(`${site} is missing the ${DOC_MARKER_START} / ${DOC_MARKER_END} marker pair.`);
+    if (end < start) {
+      failures.push(`${site} closes the ${DOC_MARKER_END} marker before it opens the pair.`);
       continue;
     }
 

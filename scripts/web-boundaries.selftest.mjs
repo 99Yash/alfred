@@ -66,7 +66,10 @@ function runtimeBindingFailures() {
   return failures;
 }
 
-/** A fixture repo: a web app, a reachable chain, a cycle, and two decoys. */
+/**
+ * A fixture repo: a web app, a reachable chain, a cycle, one package reached
+ * through each of the three import shapes, and two decoys.
+ */
 function buildReachabilityFixture(fixture) {
   execFileSync("git", ["init", "--quiet"], { cwd: fixture });
 
@@ -93,10 +96,25 @@ function buildReachabilityFixture(fixture) {
     ),
   );
 
+  // The scan has three detection patterns and the two files above exercise only
+  // the static one. Both idioms below are live in the real `apps/web/src` (lazy
+  // routes and deferred Sentry use `import(...)`; two files import for side
+  // effects), and each reaches its package through no other file, so deleting
+  // either pattern drops a root here and a violation in the scan case below.
+  write(
+    fixture,
+    "apps/web/src/boot.ts",
+    ['import "@alfred/sideeffect";', 'export const lazy = () => import("@alfred/dynamic");'].join(
+      "\n",
+    ),
+  );
+
   workspace(fixture, "fake", { "b.ts": 'export { deep as thing } from "@alfred/deeper";\n' });
   // Closes a cycle back to `fake`; the walk must terminate.
   workspace(fixture, "deeper", { "c.ts": 'import "@alfred/fake";\nexport const deep = 1;\n' });
   workspace(fixture, "component", { "w.tsx": "export const rendered = 1;\n" });
+  workspace(fixture, "sideeffect", { "s.ts": "export const registered = 1;\n" });
+  workspace(fixture, "dynamic", { "y.ts": "export const later = 1;\n" });
   workspace(fixture, "typeonly", { "t.ts": "export type Shape = { id: string };\n" });
   workspace(fixture, "db", { "d.ts": "export const pool = 1;\n" });
   workspace(fixture, "unreached", { "u.ts": "export const nobody = 1;\n" });
@@ -112,11 +130,13 @@ function browserRootsFailures() {
       "apps/web/src",
       "packages/component/src",
       "packages/deeper/src",
+      "packages/dynamic/src",
       "packages/fake/src",
+      "packages/sideeffect/src",
     ];
     if (JSON.stringify(roots) !== JSON.stringify(expected)) {
       failures.push(
-        `browserRoots must follow runtime @alfred/* bindings transitively, skip forbidden and type-only packages, and terminate on a cycle: expected ${JSON.stringify(expected)}, received ${JSON.stringify(roots)}`,
+        `browserRoots must follow runtime @alfred/* bindings transitively through static, side-effect and dynamic imports, skip forbidden and type-only packages, and terminate on a cycle: expected ${JSON.stringify(expected)}, received ${JSON.stringify(roots)}`,
       );
     }
     return failures;
@@ -148,16 +168,29 @@ function widenedScanFailures() {
       "packages/unreached/src/leak.ts",
       'import { serverEnv } from "@alfred/env/server";\nexport const leak = serverEnv;\n',
     );
+    // A forbidden package taken through a side-effect import and through a
+    // dynamic one. Neither clause binds a name, so both are runtime bindings by
+    // construction — and each of these files is doubly load-bearing: dropping
+    // the pattern stops the package being reached AND stops the leak inside it
+    // being recognised.
+    write(fixture, "packages/sideeffect/src/leak.ts", 'import "@alfred/db";\n');
+    write(
+      fixture,
+      "packages/dynamic/src/leak.ts",
+      'export const load = () => import("@alfred/env/server");\n',
+    );
 
     const flagged = browserSurface(fixture)
       .files.filter((file) => findViolations(join(fixture, file)).length > 0)
       .sort();
     // `entry.ts` is the old surface's own catch (it binds `@alfred/db`); the
-    // other two are the ones a scan fixed at `apps/web/src` cannot see.
+    // other four are the ones a scan fixed at `apps/web/src` cannot see.
     const expected = [
       "apps/web/src/entry.ts",
       "packages/component/src/leak.tsx",
+      "packages/dynamic/src/leak.ts",
       "packages/fake/src/leak.ts",
+      "packages/sideeffect/src/leak.ts",
     ];
     if (JSON.stringify(flagged) !== JSON.stringify(expected)) {
       failures.push(
@@ -168,9 +201,47 @@ function widenedScanFailures() {
   });
 }
 
-/** The two shapes that make the fence resolve nothing while looking clean. */
+/** The three shapes that make the fence resolve nothing while looking clean. */
 function surfaceFailureFailures() {
   const failures = [];
+
+  // A root that exists and is listed, and whose files the scan cannot read: one
+  // package written in plain `.js`, one whose sources moved to `lib/` and left an
+  // empty `src/` behind (git tracks no empty directory, so a stray file is what
+  // survives such a move). Both pass the `existsSync` guard, so both would sit
+  // inside the surface holding a leak nobody reads.
+  withFixture("alfred-web-boundaries-empty-root-", (fixture) => {
+    execFileSync("git", ["init", "--quiet"], { cwd: fixture });
+    write(
+      fixture,
+      "apps/web/src/entry.ts",
+      [
+        'import { plain } from "@alfred/jsonly";',
+        'import { moved } from "@alfred/relocated";',
+        "export const used = [plain, moved];",
+      ].join("\n"),
+    );
+    workspace(fixture, "jsonly", {
+      "index.js":
+        'import { serverEnv } from "@alfred/env/server";\nexport const plain = serverEnv;\n',
+    });
+    write(fixture, "packages/relocated/package.json", '{ "name": "@alfred/relocated" }\n');
+    write(fixture, "packages/relocated/src/.keep", "");
+    write(
+      fixture,
+      "packages/relocated/lib/index.ts",
+      'import { serverEnv } from "@alfred/env/server";\nexport const moved = serverEnv;\n',
+    );
+
+    const reported = browserSurface(fixture).failures;
+    for (const pkg of ["@alfred/jsonly", "@alfred/relocated"]) {
+      if (!reported.some((failure) => failure.includes(pkg))) {
+        failures.push(
+          `browserSurface must report a reached root that resolves no scannable file (${pkg}), received ${JSON.stringify(reported)}`,
+        );
+      }
+    }
+  });
 
   // A reached package that keeps no sources in `src/`. `packages/config` is this
   // shape in the real repo, so the skip must be loud rather than silent.
@@ -222,7 +293,7 @@ function surfaceFailureFailures() {
   return failures;
 }
 
-function writeDocs(fixture, { architecture, agents, architectureExtra }) {
+function writeDocs(fixture, { architecture, agents, architectureExtra, architectureSecondBlock }) {
   write(
     fixture,
     "docs/reference/architecture.md",
@@ -234,6 +305,18 @@ function writeDocs(fixture, { architecture, agents, architectureExtra }) {
       "",
       "<!-- forbidden-runtime-packages:end -->",
       "",
+      ...(architectureSecondBlock
+        ? [
+            "For example, a package guide restates it as:",
+            "",
+            "```markdown",
+            "<!-- forbidden-runtime-packages:start -->",
+            `- Any non-type import of ${architectureSecondBlock}.`,
+            "<!-- forbidden-runtime-packages:end -->",
+            "```",
+            "",
+          ]
+        : []),
     ].join("\n"),
   );
   write(
@@ -310,6 +393,25 @@ function docListFailuresFailures() {
       )
         ? null
         : `expected a failure naming @alfred/logging and architecture.md, received ${JSON.stringify(result)}`,
+  );
+
+  // A second marked block reads as gated while nothing compares it: the first
+  // pair is the only one the set comparison ever sees. Here the first block is
+  // correct and the second one drifts, so only the duplication itself can catch
+  // it — which is the shape a worked example in a fenced code block takes.
+  expect(
+    "must catch a second marker pair the comparison never reads",
+    {
+      architecture: list(all),
+      agents: list(all),
+      architectureSecondBlock: list([...all.slice(1), "@alfred/logging"]),
+    },
+    (result) =>
+      result.some(
+        (failure) => failure.includes("architecture.md") && failure.includes("marker pair"),
+      )
+        ? null
+        : `expected a failure naming architecture.md and the marker pair, received ${JSON.stringify(result)}`,
   );
 
   withFixture("alfred-web-boundaries-docs-", (fixture) => {
