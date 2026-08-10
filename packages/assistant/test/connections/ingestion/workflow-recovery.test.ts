@@ -6,7 +6,7 @@ import {
   resolveWorkflowRecoveryTarget,
   workflowRecoveryRequestSchema,
   workflowRecoveryResultSchema,
-} from "../../src/modules/integrations/workflow-recovery";
+} from "../../../src/connections/ingestion/workflow-recovery";
 
 const request = {
   userId: "user-1",

@@ -78,7 +78,7 @@
     },
     {
       "files": [
-        "packages/api/src/modules/integrations/gmail-ingest.ts",
+        "packages/assistant/src/connections/ingestion/gmail-ingest.ts",
         "packages/api/test/integrations/gmail-watch-gate.test.ts"
       ],
       "rules": {

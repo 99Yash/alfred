@@ -62,7 +62,6 @@ export {
   scheduleConversationCompactionIfNeeded,
 } from "./modules/conversations";
 
-export { getIngestionQueue, type IngestionJobData } from "./modules/integrations/index";
 export * from "@alfred/assistant/connections";
 
 export {

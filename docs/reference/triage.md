@@ -5,7 +5,7 @@ Per ADR-0025 #1 alfred classifies every newly-ingested Gmail message into one of
 The pipeline:
 
 1. A Gmail ingestion job inserts a fresh `documents` row. The realtime path is `gmail.poll_recent` (pub/sub → `messages.list?q=newer_than:5m`, ADR-0037); the catch-up path is `gmail.poll_history` (5-min sweep → `history.list` from the stored cursor). Both call into the same `persistMessage` helper so dedup behaves identically.
-2. `packages/api/src/modules/integrations/queue.ts` enqueues an `email-triage` agent run per inserted doc (skipped on bulk re-ingest / `fullResync`). The realtime case enqueues triage _before_ awaiting embedding so the classifier worker overlaps with Voyage.
+2. The Gmail ingestion job publishes an ingested-documents fact for the freshly-inserted docs, and independent consumers fan out from it — corpus embedding, user-model capture, the inbox rail, and triage. The triage consumer skips back-catalog triage on bulk re-ingest / `fullResync`. m13 replaced the earlier inline triage enqueue in the ingestion queue, and ADR-0047 owns the event dispatch that starts the run.
 3. The `email-triage` workflow (in `apps/server/src/builtins/workflows/email-triage.ts`) runs `extract-sender-context` (deterministic parser) → `classify` (context-rich cheap-tier LLM via `@alfred/ai`'s `metered.object()`, fed deterministic observations) → optional second cheap pass on tightly-gated conflicts → `applyFloors` → `apply-label` (`messages.modify` through the shared `reconcileThreadLabel` writer). There is no routine boss `deepen` path in triage v3.
 4. Result lands in `email_triage` (one row per thread, keyed by `(user_id, source_thread_id)`); the chosen `Alfred/`\* label id is persisted on `applied_label_id`.
 
