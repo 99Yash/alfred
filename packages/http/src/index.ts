@@ -27,16 +27,18 @@ export { getSessionCached, invalidateSessionToken } from "./middleware/session-c
 
 // Routes. This is one barrel with no subpaths, so it is also one
 // module-evaluation unit: importing ANY binding above also evaluates every
-// route module below, and through them `drizzle-orm`, `@alfred/db`,
-// `@alfred/ai` and every `@alfred/assistant` subpath they reach. That graph
-// needs no environment variables and no database to load, re-probed after
-// campaign item 25's move with `DATABASE_URL`, `REDIS_URL`,
-// `BETTER_AUTH_SECRET`, `OAUTH_CREDENTIAL_KEK` and the three model-provider
-// keys all unset, and `apps/server` already loads it through `@alfred/api`, so
-// the cost is inert today — but keep module-scope side effects out of anything
-// added here. Do not turn "what the routes reach" into a list: campaign items
-// 24-27 add more, and an enumeration in this position is the one prose shape
-// no gate maintains.
+// route module below, and everything those modules reach, transitively. So the
+// whole graph must load with no environment variable, no database and no Redis,
+// and must retain no handles once loaded — keep module-scope side effects out of
+// anything added here and out of anything it imports. The detector is the
+// `http-tests` CI job, which imports this barrel with no service containers and
+// no `env:` block. It is tier 4: it reports a module-scope read of something
+// that is not there, it does not prevent one, and it says nothing about how wide
+// the graph became. If you need that width, measure the resolved-module graph on
+// both sides of your change — an export count cannot see it, and neither can the
+// package you happened to declare. Do not restate either fact as a list of what
+// the routes reach: an enumeration in this position is the one prose shape no
+// gate maintains.
 export { agent } from "./agent";
 export { approvalsRoutes } from "./approvals";
 export { chatRoutes } from "./conversations";
