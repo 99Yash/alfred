@@ -134,20 +134,34 @@ function sourceFilesUnder(root, dir) {
 }
 
 /**
- * The trees that reach the browser bundle: the web app plus, transitively, the
- * `src` of every workspace package some already-reachable file imports at
- * runtime.
+ * The scan surface: the trees that reach the browser bundle, the files inside
+ * them, and the structural problems that make the surface untrustworthy.
  *
+ * The trees are the web app plus, transitively, the `src` of every workspace
+ * package under `packages/` that some already-reachable file imports at runtime.
  * A forbidden package is never added as a root — an import of one is a violation
  * to report, not a tree to walk. Reachability is per-package, not per-module:
  * one runtime binding pulls the whole `src` into the fence, which is deliberately
  * conservative because a package that is browser-safe through one subpath and
  * server-bound through another has a boundary problem of its own.
+ *
+ * `failures` exists because the two ways this walk can resolve *nothing* both
+ * look exactly like a clean tree from the outside: the seed root is a constant,
+ * so a web app that moves leaves the fence scanning zero files; and a reached
+ * package that keeps no sources in `src/` would otherwise be skipped in silence.
+ * Both are reported, so the check goes red instead of passing vacuously.
  */
-export function browserRoots(root) {
+export function browserSurface(root) {
   const packageDirs = workspacePackageDirs(root);
+  const failures = [];
   const roots = [BROWSER_ENTRY_ROOT];
   const seen = new Set(roots);
+
+  if (!existsSync(join(root, BROWSER_ENTRY_ROOT))) {
+    failures.push(
+      `the browser entry root ${BROWSER_ENTRY_ROOT} does not exist, so the scan surface is derived from nothing.`,
+    );
+  }
 
   for (let index = 0; index < roots.length; index += 1) {
     for (const file of sourceFilesUnder(root, roots[index])) {
@@ -160,20 +174,34 @@ export function browserRoots(root) {
         if (!dir) continue;
         const next = `${dir}/src`;
         if (seen.has(next)) continue;
-        if (!existsSync(join(root, next))) continue;
-
         seen.add(next);
+
+        if (!existsSync(join(root, next))) {
+          failures.push(
+            `${file} imports ${entry.pkg} at runtime, but ${dir} keeps no sources in src/, so the fence cannot scan it.`,
+          );
+          continue;
+        }
+
         roots.push(next);
       }
     }
   }
 
-  return roots.sort();
+  roots.sort();
+  const files = roots.flatMap((dir) => sourceFilesUnder(root, dir));
+  if (files.length === 0) {
+    failures.push(
+      `the scan resolved no source files under ${roots.join(", ")}; a check that reads nothing cannot report a violation.`,
+    );
+  }
+
+  return { roots, files, failures };
 }
 
-/** Every source file inside the browser-reachable surface, repo-relative. */
-export function browserSourceFiles(root) {
-  return browserRoots(root).flatMap((dir) => sourceFilesUnder(root, dir));
+/** The browser-reachable trees alone, repo-relative and sorted. */
+export function browserRoots(root) {
+  return browserSurface(root).roots;
 }
 
 /**
