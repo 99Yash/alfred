@@ -1,7 +1,7 @@
 import { isRecord } from "@alfred/contracts";
 import { db } from "@alfred/db";
 import { replicacheClient, replicacheClientGroup } from "@alfred/db/schemas";
-import { IDB_KEY, type IDBKeys } from "@alfred/sync";
+import { IDB_KEY, type IDBKeys, type SyncedEntity } from "@alfred/sync";
 import { asc, eq, sql } from "drizzle-orm";
 import { getCVRStore, type ClientViewMap, type CVRRow, type CVRSnapshot } from "./cvr";
 import { SYNC_ENTITIES } from "./entities";
@@ -11,7 +11,7 @@ const POSTGRES_INTEGER_MAX = 2_147_483_647;
 const MAX_ACCEPTED_COOKIE_ORDER = POSTGRES_INTEGER_MAX - 1;
 
 type PatchOp =
-  | { op: "put"; key: string; value: Record<string, unknown> }
+  | { op: "put"; key: string; value: SyncedEntity }
   | { op: "del"; key: string }
   | { op: "clear" };
 

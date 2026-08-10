@@ -17,6 +17,7 @@ import {
   isIntegrationSlug,
   isToolName,
   jsonRecordSchema,
+  jsonValueSchema,
   memorySourceSchema,
   significanceBandSchema,
   todoCreatedBySchema,
@@ -48,7 +49,7 @@ export const factValueSchema = z.union([
   z.string(),
   z.number(),
   z.boolean(),
-  z.array(z.unknown()),
+  z.array(jsonValueSchema),
   jsonRecordSchema,
 ]);
 export type FactValue = z.infer<typeof factValueSchema>;
@@ -70,7 +71,7 @@ export type SyncedNote = z.infer<typeof syncedNoteSchema>;
 export const syncedPreferenceSchema = z.object({
   key: z.string(),
   userId: z.string(),
-  value: z.unknown(),
+  value: preferenceValueSchema,
   source: memorySourceSchema,
   rowVersion: z.number(),
 });
