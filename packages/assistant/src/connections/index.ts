@@ -7,7 +7,7 @@
  * - `objectStateStore` / `isGithubNotificationSender` / `extractGithubKeys`
  * - `registerGoogleCredentialLifecycleHandler` / `GoogleCredentialLifecycleHandler`
  *
- * Tangled parts stay in `@alfred/api/modules/connections`: routes, webhooks,
+ * Tangled parts stay in `packages/api/src/modules/connections/`: routes, webhooks,
  * oauth-state, repeatable, mcp. The full surface is re-exported from
  * `@alfred/api/backend`.
  */

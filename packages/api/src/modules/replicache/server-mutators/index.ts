@@ -190,7 +190,7 @@ async function supersedeConflictingConfirmedFacts(
  *   - the savepoint rolls back and the LMID still advances so the
  *     client doesn't re-queue the failed mutation forever.
  *
- * Memory primitives (`packages/api/src/modules/knowledge/*`) open their
+ * Memory primitives (`@alfred/assistant/knowledge`) open their
  * own transactions via `db()`, which would escape this savepoint. The
  * fact mutators below re-implement the same logic inline against the
  * supplied `tx` so atomicity is preserved.
