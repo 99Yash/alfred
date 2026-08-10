@@ -1,103 +1,61 @@
-import { readFileSync, readdirSync } from "node:fs";
-import { dirname, join, relative } from "node:path";
+// Fails the build when browser runtime code takes a value binding on a Node-only
+// workspace package, and when the prose that restates the forbidden list has
+// drifted from the list itself.
+//
+// The rules live in ./web-boundaries.mjs so they can be exercised by fixtures;
+// this file is the enforcing consumer.
+//
+// Usage: node scripts/check-web-boundaries.mjs
+
+import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 
+import {
+  browserRoots,
+  browserSourceFiles,
+  docListFailures,
+  findViolations,
+} from "./web-boundaries.mjs";
+import { webBoundarySelfTestFailures } from "./web-boundaries.selftest.mjs";
+
 const ROOT = dirname(dirname(fileURLToPath(import.meta.url)));
-const WEB_SRC = join(ROOT, "apps/web/src");
-const FORBIDDEN_RUNTIME_PACKAGES = new Set([
-  "@alfred/api",
-  "@alfred/http",
-  "@alfred/auth",
-  "@alfred/db",
-  "@alfred/env",
-  "@alfred/ai",
-]);
 
-function* walk(dir) {
-  for (const entry of readdirSync(dir, { withFileTypes: true })) {
-    if (entry.name.startsWith(".")) continue;
-    const path = join(dir, entry.name);
-    if (entry.isDirectory()) {
-      yield* walk(path);
-      continue;
-    }
-    if (/\.(ts|tsx)$/.test(entry.name)) yield path;
-  }
-}
-
-function packageName(specifier) {
-  if (!specifier.startsWith("@alfred/")) return null;
-  const [scope, pkg] = specifier.split("/");
-  return pkg ? `${scope}/${pkg}` : null;
-}
-
-function lineNumber(source, index) {
-  return source.slice(0, index).split("\n").length;
-}
-
-function findViolations(file) {
-  const source = readFileSync(file, "utf8");
-  const violations = [];
-  const staticImport = /\b(import|export)\s+([\s\S]*?)\s+from\s*["']([^"']+)["']/g;
-  const sideEffectImport = /\bimport\s*["']([^"']+)["']/g;
-  const dynamicImport = /\b(?:import|require)\s*\(\s*["']([^"']+)["']\s*\)/g;
-
-  for (const match of source.matchAll(staticImport)) {
-    const clause = match[2] ?? "";
-    const specifier = match[3] ?? "";
-    const pkg = packageName(specifier);
-    if (!pkg || !FORBIDDEN_RUNTIME_PACKAGES.has(pkg) || !hasRuntimeBinding(clause)) continue;
-    violations.push({
-      line: lineNumber(source, match.index ?? 0),
-      specifier,
-    });
-  }
-
-  for (const pattern of [sideEffectImport, dynamicImport]) {
-    for (const match of source.matchAll(pattern)) {
-      const specifier = match[1] ?? "";
-      const pkg = packageName(specifier);
-      if (!pkg || !FORBIDDEN_RUNTIME_PACKAGES.has(pkg)) continue;
-      violations.push({
-        line: lineNumber(source, match.index ?? 0),
-        specifier,
-      });
-    }
-  }
-  return violations;
-}
-
-function hasRuntimeBinding(clause) {
-  const trimmed = clause.trim();
-  if (trimmed.startsWith("type ")) return false;
-
-  const namedOnly = trimmed.match(/^\{([\s\S]*)\}$/);
-  if (!namedOnly) return true;
-
-  const specifiers = namedOnly[1]
-    .split(",")
-    .map((part) => part.trim())
-    .filter(Boolean);
-  return specifiers.some((specifier) => !specifier.startsWith("type "));
+// A fence that cannot see its own violation passes a clean tree exactly like a
+// fence that works. Check the fixtures first, so "no violations" means "looked
+// and found nothing".
+const selfTest = webBoundarySelfTestFailures();
+if (selfTest.length > 0) {
+  console.error("Web boundary self-test failed:\n");
+  for (const failure of selfTest) console.error(`  ${failure}`);
+  console.error("\nFix the rules before trusting this check.");
+  process.exit(1);
 }
 
 const violations = [];
-for (const file of walk(WEB_SRC)) {
-  for (const violation of findViolations(file)) {
-    violations.push({
-      file: relative(ROOT, file),
-      ...violation,
-    });
+for (const file of browserSourceFiles(ROOT)) {
+  for (const violation of findViolations(join(ROOT, file))) {
+    violations.push({ file, ...violation });
   }
 }
 
+const docFailures = docListFailures(ROOT);
+
 if (violations.length > 0) {
-  console.error("Forbidden runtime imports in apps/web:");
+  console.error(`Forbidden runtime imports in ${browserRoots(ROOT).join(", ")}:`);
   for (const v of violations) {
     console.error(`- ${v.file}:${v.line} imports ${v.specifier}`);
   }
   console.error(
     "Use type-only imports where allowed, or move shared runtime code to @alfred/contracts/@alfred/sync.",
   );
-  process.exit(1);
 }
+
+if (docFailures.length > 0) {
+  console.error("\nThe forbidden package list has drifted from the prose that restates it:");
+  for (const failure of docFailures) console.error(`- ${failure}`);
+  console.error(
+    "Edit the marked block so it names the same packages as FORBIDDEN_RUNTIME_PACKAGES in scripts/web-boundaries.mjs.",
+  );
+}
+
+if (violations.length > 0 || docFailures.length > 0) process.exit(1);

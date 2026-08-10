@@ -119,12 +119,17 @@ Allowed in `apps/web`:
 - `import { treaty } from '@elysiajs/eden'` — client-side.
 - `import { createAuthClient } from 'better-auth/react'` — client-side.
 
-Forbidden in `apps/web`:
+Forbidden in `apps/web`: <!-- forbidden-runtime-packages:start -->
 
 - Any non-type import of `@alfred/api`, `@alfred/http`, `@alfred/auth`, `@alfred/db`, `@alfred/env`.
-- Any import of `@alfred/ai` (contains server-only AI SDK providers).
+- Any non-type import of `@alfred/ai` (contains server-only AI SDK providers). <!-- forbidden-runtime-packages:end -->
 
-`pnpm check:web-boundaries` enforces these forbidden runtime imports for `apps/web`.
+`pnpm check:web-boundaries` enforces these forbidden runtime imports for `apps/web` and for every
+workspace package the browser bundle reaches. It derives that surface by following runtime `@alfred/*`
+bindings out of `apps/web/src`, so a package that joins the bundle joins the check in the same commit.
+The check also compares the marked lists above and in [`apps/web/AGENTS.md`](../../apps/web/AGENTS.md)
+against the one list in [`scripts/web-boundaries.mjs`](../../scripts/web-boundaries.mjs); the markers are
+set-equality anchors, so rewording either sentence is free.
 
 ## Architecture enforcement
 
