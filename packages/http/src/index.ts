@@ -28,15 +28,21 @@ export { getSessionCached, invalidateSessionToken } from "./middleware/session-c
 // Routes. This is one barrel with no subpaths, so it is also one
 // module-evaluation unit: importing ANY binding above also evaluates every
 // route module below, and everything those modules reach, transitively. So the
-// whole graph must load with no environment variable, no database and no Redis,
-// and must retain no handles once loaded — keep module-scope side effects out of
-// anything added here and out of anything it imports. The detector is the
-// `http-tests` CI job, which imports this barrel with no service containers and
-// no `env:` block. It is tier 4: it reports a module-scope read of something
-// that is not there, it does not prevent one, and it says nothing about how wide
-// the graph became. If you need that width, measure the resolved-module graph on
-// both sides of your change — an export count cannot see it, and neither can the
-// package you happened to declare. Do not restate either fact as a list of what
+// whole graph must load with no environment variable, no database and no Redis
+// — keep module-scope side effects out of anything added here and out of
+// anything it imports.
+//
+// The detector for that load requirement is `test/barrel-load.test.ts`, which
+// exists as a file of its own so that no other test's import can quietly become
+// the thing that checks it. It is tier 4 and it covers one clause: it reports a
+// module-scope read of something that is not there, it does not prevent one.
+// Two things nothing here reports. A handle retained at module scope — a timer,
+// an open connection — is checked by no gate in this repo, because the package
+// runs its tests with `--test-force-exit`; keep them out on the strength of the
+// rule above, not on the strength of a green job. And how wide the graph
+// became: if you need that, measure the resolved-module graph on both sides of
+// your change, because an export count cannot see it and neither can the
+// package you happened to declare. Do not restate any of this as a list of what
 // the routes reach: an enumeration in this position is the one prose shape no
 // gate maintains.
 export { agent } from "./agent";
