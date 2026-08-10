@@ -6,7 +6,7 @@ import { closeConnections, db } from "@alfred/db";
 import { skillRuns, skills, user } from "@alfred/db/schemas";
 import { eq, inArray } from "drizzle-orm";
 
-import { subscribeUserPokes } from "../../src/events/replicache-events";
+import { subscribeUserPokes } from "@alfred/assistant/realtime";
 import {
   commitSkillRevision,
   finalizeSkillRun,

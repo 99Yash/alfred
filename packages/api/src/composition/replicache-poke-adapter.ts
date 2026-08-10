@@ -3,7 +3,7 @@ import {
   registerReplicachePokeAdapter as registerPort,
   unregisterReplicachePokeAdapter as unregisterPort,
 } from "@alfred/assistant/triggers";
-import { emitReplicachePokes as concrete } from "../events/replicache-events";
+import { emitReplicachePokes as concrete } from "@alfred/assistant/realtime";
 
 export function registerReplicachePokeAdapter(adapter?: ReplicachePokeAdapter): () => void {
   return registerPort(adapter ?? { emitReplicachePokes: concrete });

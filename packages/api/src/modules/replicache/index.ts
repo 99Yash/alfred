@@ -1,7 +1,7 @@
 import { Errors } from "@alfred/contracts";
 import { Elysia } from "elysia";
 import { authMacro } from "@alfred/http";
-import { subscribeUserPokes } from "../../events/replicache-events";
+import { subscribeUserPokes } from "@alfred/assistant/realtime";
 import { ReplicacheModel } from "./model";
 import { handlePull } from "./pull";
 import { handlePush } from "./push";

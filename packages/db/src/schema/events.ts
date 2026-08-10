@@ -7,7 +7,7 @@ import { user } from "./auth";
  *
  * Producers INSERT a row inside the same transaction as the domain write that
  * triggered the event. A relay worker (LISTEN/NOTIFY-driven, in
- * packages/api/src/events/outbox-relay.ts) drains unpublished rows, publishes
+ * packages/assistant/src/realtime/outbox-relay.ts) drains unpublished rows, publishes
  * them to Redis Pub/Sub on `user-events:u:<userId>`, then stamps
  * `published_at`. SSE consumers subscribe to that channel and replay missed
  * rows on reconnect via `id > Last-Event-ID`.

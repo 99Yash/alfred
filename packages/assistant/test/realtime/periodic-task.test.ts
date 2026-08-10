@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { describe, test } from "node:test";
 
-import { PeriodicTask } from "../../src/events/periodic-task";
+import { PeriodicTask } from "../../src/realtime/periodic-task";
 
 /**
  * The lifecycle both outbox loops run on.

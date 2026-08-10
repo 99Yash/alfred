@@ -14,7 +14,7 @@ import { observations, user, userFacts } from "@alfred/db/schemas";
 import { databaseEnv } from "@alfred/env/database";
 import { eq, inArray, like } from "drizzle-orm";
 
-import { closeReplicachePokeBridge } from "../../src/events/replicache-events";
+import { closeReplicachePokeBridge } from "@alfred/assistant/realtime";
 import {
   editStandingInstruction,
   forgetStandingInstruction,

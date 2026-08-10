@@ -5,7 +5,7 @@ import { after, describe, test } from "node:test";
 import { closeConnections } from "@alfred/db";
 import { databaseEnv } from "@alfred/env/database";
 
-import { closeReplicachePokeBridge } from "../../src/events/replicache-events";
+import { closeReplicachePokeBridge } from "@alfred/assistant/realtime";
 import { isQuietMorning, scorePriorityEmailDemand } from "@alfred/assistant/briefings/read";
 import { closeRedis } from "@alfred/db/redis";
 

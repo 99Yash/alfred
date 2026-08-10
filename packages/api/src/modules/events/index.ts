@@ -2,9 +2,12 @@ import { Elysia, t } from "elysia";
 import { serverEnv } from "@alfred/env/server";
 import { authMacro } from "@alfred/http";
 import { publishEvent } from "@alfred/assistant/triggers";
-import { subscribeUserEvents } from "../../events/user-events-bus";
+import {
+  getEventsSince,
+  getReplayHighWatermark,
+  subscribeUserEvents,
+} from "@alfred/assistant/realtime";
 import type { EventFrame } from "@alfred/contracts/events";
-import { getEventsSince, getReplayHighWatermark } from "./replay";
 import { toMessage } from "@alfred/contracts";
 
 /**
