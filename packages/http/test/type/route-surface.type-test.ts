@@ -1,8 +1,9 @@
 // Compile-only fixture for the route half of `@alfred/http`'s barrel
 // (`packages/http/src/index.ts`). The middleware half is pinned by
-// `middleware-surface.type-test.ts`; this file pins the first route the
-// package owns, the agent-run route that `packages/api/src/index.ts` mounts
-// with `.use(agent)`.
+// `middleware-surface.type-test.ts`; this file pins every route the package
+// owns — the agent-run route plus the four domain routes campaign item 05
+// moved across — each of which `packages/api/src/index.ts` mounts with
+// `.use(...)`.
 //
 // The fixture is compile-only for the same reason as its sibling: exercising
 // the route for real needs the auth macro, which needs env and a live
@@ -12,18 +13,41 @@
 // `check-types` runs as its second `tsc` pass, after the composite `tsc -b`
 // that only ever sees `src`.
 //
-// Every binding below is mutation-tested. Dropping `export { agent }` from the
-// barrel turns this file red with TS2305; rebinding `agent` to a non-Elysia
-// value turns it red with TS2339 + TS2769; changing the route module's own
-// prefix turns it red with TS2322.
+// Every binding below is mutation-tested, one binding at a time. Dropping the
+// barrel export turns this file red with TS2305; changing the route module's
+// own prefix turns it red with TS2322. The codes for a rebind to a non-Elysia
+// value depend on the SHAPE of the replacement, so record the shape next to
+// any code you cite here: rebinding to an object literal that does carry a
+// `config.prefix` of the wrong type fails the assertion below with TS2769 plus
+// TS2322, while rebinding to a value on which the indexed access itself fails
+// gives TS2769 plus TS2339. The fixture is red either way.
 //
 // What this fixture does NOT pin is the `{ auth: true }` guard: commenting out
 // `.use(authMacro)` in the route module leaves this file green. It needs no
-// assertion here, because that mutation is already five compile errors in the
-// route module itself (TS2353 on the guard plus TS2339 on every `user`), so
-// the guard is checked one tier up from a fixture.
+// assertion here, because that mutation is already a compile error in the
+// route module itself, so the guard is checked one tier up from a fixture —
+// and it is checked there on purpose, not by accident. The load-bearing error
+// is TS2353 on the `.guard({ auth: true }, …)` object literal, which is
+// structurally independent of every handler: removing the guard AND every use
+// of `user` from `workflows.ts` still fails on it. The TS2339s on `user` are
+// extra, and the total is per-module, so never copy a count between route
+// files. Measured here one file at a time, each mutation reverted before the
+// next: agent 6, approvals 3, onboarding 4, skills 4, workflows 3 — one TS2353
+// on the guard, one TS6133 for the now-unused import, and one TS2339 per
+// handler that destructures `user`.
+//
+// The blind spot is the opposite shape: a route carrying no `{ auth: true }`
+// guard at all — the deliberately unauthenticated webhooks campaign items
+// 24-27 bring — leaves `tsc` nothing to fail on. Prove the guard boundary of
+// one of those with `app.handle`, not with `tsc`.
 
-import { agent } from "@alfred/http";
+import {
+  agent,
+  approvalsRoutes,
+  onboardingRoutes,
+  skillsRoutes,
+  workflowRoutes,
+} from "@alfred/http";
 import { Elysia } from "elysia";
 
 // The barrel binding is an Elysia plugin instance, not a factory, and it
@@ -36,6 +60,32 @@ import { Elysia } from "elysia";
 // established `.type-test.ts` idiom in this package and `@alfred/api`.
 export const prefix: (typeof agent)["config"]["prefix"] = "/api/agent";
 
-// The mount call site itself: `packages/api/src/index.ts` composes the route
-// into the root app with `.use(agent)`, so the plugin must stay usable there.
-export const composed = new Elysia().use(agent);
+// The four domain routes campaign item 05 moved out of
+// `packages/api/src/modules/*`. The mount path is the one property a pure
+// transport move must preserve.
+//
+// This is not the repo's only pin on it, and do not write that it is. The web
+// Eden client (`apps/web/src/lib/eden.ts`) is `treaty<App>` over
+// `import type { App } from "@alfred/api"`, whose `exports["."]` is the live
+// `./src/index.ts`, so the path, method, params, body and response of every
+// route the root app mounts are already derived and checked wherever a web
+// call site uses them — inside the same `turbo run check-types`. Renaming the
+// workflows prefix below to `/api/workflowsZZZ` fails `pnpm --filter web exec
+// tsc` with TS2551 in `recovery-panel.tsx`. What that client cannot see is a route
+// with no web call site, and what nothing here sees is handler-body behavior;
+// this fixture covers the first gap and pins the surface at the package that
+// now owns it, so a later transport move need not restate the mount surface.
+export const approvalsPrefix: (typeof approvalsRoutes)["config"]["prefix"] = "/api/approvals";
+export const onboardingPrefix: (typeof onboardingRoutes)["config"]["prefix"] = "/api/me/onboarding";
+export const skillsPrefix: (typeof skillsRoutes)["config"]["prefix"] = "/api/skills";
+export const workflowsPrefix: (typeof workflowRoutes)["config"]["prefix"] = "/api/workflows";
+
+// The mount call sites themselves: `packages/api/src/index.ts` composes each
+// route into the root app with `.use(...)`, so every plugin must stay usable
+// there.
+export const composed = new Elysia()
+  .use(agent)
+  .use(approvalsRoutes)
+  .use(onboardingRoutes)
+  .use(skillsRoutes)
+  .use(workflowRoutes);

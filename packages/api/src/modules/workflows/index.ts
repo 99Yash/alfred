@@ -1,5 +1,12 @@
 // Transitional barrel: re-exports domain logic from @alfred/assistant/automation.
-// Routes stay here and import from this barrel.
+// Transport left: the workflow route now lives in @alfred/http and imports
+// @alfred/assistant/automation directly. What is left is the automation half of
+// the @alfred/api/backend and @alfred/api/runtime service surface, plus the
+// composition wiring, for server-side callers that have not moved to
+// @alfred/assistant/automation yet. Do not enumerate those callers here — some
+// of them live only in test files, which api's tsconfig.test.json excludes, so
+// an enumeration written in this comment is invisible to every static gate and
+// goes stale without anything saying so.
 // @alfred/api/backend surface is unchanged (byte-identical re-exports).
 // The module is renamed from workflows to automation in @alfred/assistant.
 
@@ -63,5 +70,3 @@ export {
   type WorkflowsJobData,
   type StartWorkflowsWorkerOpts,
 } from "@alfred/assistant/automation";
-
-export { workflowRoutes } from "./routes";
