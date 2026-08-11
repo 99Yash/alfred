@@ -84,7 +84,7 @@ export default defineConfig({
     ...options,
     resolve: { ...options.resolve, symlinks: true },
   }),
-  // jsdom (pulled in by isomorphic-dompurify, which @alfred/api uses for
+  // jsdom (pulled in by isomorphic-dompurify, which @alfred/assistant uses for
   // sanitizing Gmail HTML bodies) is CommonJS. Bundling it into the
   // server's ESM output makes Node 22 throw ERR_AMBIGUOUS_MODULE_SYNTAX
   // on boot. Keep both packages external so they resolve from

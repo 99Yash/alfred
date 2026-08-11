@@ -10,7 +10,7 @@ import { setTimeout as delay } from "node:timers/promises";
 import { describe, test } from "node:test";
 import { WebSocket } from "undici";
 
-import { EMAIL_CSP_META, sanitizeEmailHtml } from "../../src/modules/me/email-html";
+import { EMAIL_CSP_META, sanitizeEmailHtml } from "@alfred/assistant/triage/email-html";
 
 const LOOSE_CSP_META =
   `<meta http-equiv="Content-Security-Policy" content="` +
