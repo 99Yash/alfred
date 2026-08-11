@@ -5,7 +5,7 @@ import {
   type WorkflowToolCatalogSource,
   type WorkflowToolFacts,
 } from "@alfred/assistant/tool-runtime";
-import { evaluateToolAvailability, listRegisteredTools } from "./registry";
+import { evaluateToolAvailability, listRegisteredTools } from "@alfred/assistant/tool-runtime";
 
 /**
  * The tools-owned source behind the `workflowToolCatalog()` read. It projects

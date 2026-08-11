@@ -19,7 +19,7 @@ import {
   slidesGetInput,
 } from "@alfred/contracts";
 import { runRestPassthrough } from "./passthrough";
-import { liveTool, type RegisteredTool } from "./registry";
+import { liveTool, type RegisteredTool } from "@alfred/assistant/tool-runtime";
 
 export const slidesTools: readonly RegisteredTool[] = [
   liveTool({

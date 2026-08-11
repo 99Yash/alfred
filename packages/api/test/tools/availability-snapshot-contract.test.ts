@@ -7,7 +7,7 @@ import {
   evaluateToolAvailability,
   listRegisteredTools,
   readsAvailabilitySnapshot,
-} from "../../src/modules/tools/registry";
+} from "@alfred/assistant/tool-runtime";
 import { registerBuiltinTools } from "../../src/modules/tools/runtime";
 
 /**

@@ -8,7 +8,7 @@ import {
   liveTool,
   registerTool,
   resolveToolAvailability,
-} from "../../src/modules/tools/registry";
+} from "@alfred/assistant/tool-runtime";
 
 afterEach(() => {
   clearToolRegistryForTests();

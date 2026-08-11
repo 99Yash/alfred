@@ -7,7 +7,7 @@ import { config as loadEnv } from "dotenv";
 import { evalite } from "evalite";
 import { formatDateGrounding } from "@alfred/assistant/execution/grounding";
 import { buildChatSystemPrompt } from "@alfred/assistant/conversations/chat-turn";
-import { listToolsForIntegration } from "../src/modules/tools";
+import { listToolsForIntegration } from "@alfred/assistant/tool-runtime";
 import { registerBuiltinTools } from "../src/modules/tools/runtime";
 import type { GroundingTaskOutput } from "./lib/grounding";
 import { llmJudgeScorer } from "./lib/llm-judge";

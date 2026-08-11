@@ -1,7 +1,7 @@
-import { LOADABLE_INTEGRATION_SLUGS } from "@alfred/contracts";
+import { LOADABLE_INTEGRATION_SLUGS, type RiskTierCounts } from "@alfred/contracts";
 import { Elysia } from "elysia";
 import { authMacro } from "@alfred/http";
-import { type RiskTierCounts, riskTierCountsForIntegration } from "./registry";
+import { riskTierCountsForIntegration } from "@alfred/assistant/tool-runtime";
 
 /** Authenticated capability-tier summary for the integrations UI. */
 export const toolTiersRoutes = new Elysia({

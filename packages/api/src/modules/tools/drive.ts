@@ -16,7 +16,11 @@ import {
 } from "@alfred/contracts";
 import { surfaceExternalFileArtifact } from "@alfred/assistant/artifacts";
 import { runRestPassthrough } from "./passthrough";
-import { liveTool, type RegisteredTool, type ToolExecuteContext } from "./registry";
+import {
+  liveTool,
+  type RegisteredTool,
+  type ToolExecuteContext,
+} from "@alfred/assistant/tool-runtime";
 
 /** Google-editable file (Doc/Sheet/Slide) — the only kind `export_file` can read as text. */
 function isGoogleNativeMimeType(mimeType: string | undefined): boolean {

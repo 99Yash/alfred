@@ -11,7 +11,7 @@ import { type Tool, type ToolSet, generateText, tool } from "ai";
 import { config as loadEnv } from "dotenv";
 import { evalite } from "evalite";
 import { formatDateGrounding } from "@alfred/assistant/execution/grounding";
-import { listToolsForIntegration } from "../src/modules/tools";
+import { listToolsForIntegration } from "@alfred/assistant/tool-runtime";
 import { registerBuiltinTools } from "../src/modules/tools/runtime";
 import { buildChatSystemPrompt } from "@alfred/assistant/conversations/chat-turn";
 

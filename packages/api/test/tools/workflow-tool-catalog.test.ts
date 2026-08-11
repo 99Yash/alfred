@@ -4,7 +4,7 @@ import { before, describe, test } from "node:test";
 import type { IntegrationAvailabilitySnapshot, ToolRunContext } from "@alfred/contracts";
 
 import { workflowToolCatalog } from "@alfred/assistant/tool-runtime";
-import { evaluateToolAvailability, listRegisteredTools } from "../../src/modules/tools/registry";
+import { evaluateToolAvailability, listRegisteredTools } from "@alfred/assistant/tool-runtime";
 import { registerBuiltinTools } from "../../src/modules/tools/runtime";
 
 before(() => registerBuiltinTools());

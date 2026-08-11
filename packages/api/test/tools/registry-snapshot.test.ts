@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { after, describe, test } from "node:test";
 import { registerBuiltinTools } from "../../src/modules/tools/runtime";
-import { clearToolRegistryForTests, listRegisteredTools } from "../../src/modules/tools/registry";
+import { clearToolRegistryForTests, listRegisteredTools } from "@alfred/assistant/tool-runtime";
 
 /**
  * `listRegisteredTools()` is read on every discovery/search/preload/kernel
