@@ -108,12 +108,16 @@ export * from "./extractor";
  *     half of one.
  *   - A file PRESENT in the map is reachable directly, bypassing this barrel.
  *     Several listed subpaths exist only for tests that import implementation
- *     files, and two of them front symbols the privileged door also fronts. Do
- *     not read this barrel as the only route to a knowledge internal.
- *   - `@alfred/api/backend` re-exports this barrel, and separately re-exports
- *     four symbols straight from `./workflow-operations`, which is NOT in this
- *     barrel. So a curated-barrel entry is not a complete account of what a
- *     `@alfred/api/backend` consumer can see.
+ *     files, and `./chunks`, `./fact-policy` and `./team-graph` front symbols the
+ *     privileged `./internal` door also fronts. Do not read this barrel as the only
+ *     route to a knowledge internal.
+ *   - `@alfred/api/backend` re-exports this barrel, and separately re-exports by
+ *     path from TWO subpaths that this barrel does not front the same way:
+ *     `./workflow-operations`, which is not in this barrel at all, and `./queue`,
+ *     of which this barrel exports only the worker lifecycle. So a curated-barrel
+ *     entry is not a complete account of what a `@alfred/api/backend` consumer can
+ *     see. Count the blocks in `backend.ts`, not the symbols here — a symbol tally
+ *     in a comment rots on the next export added there.
  *
  * `./types` stays `export *` — pure enums / schemas / contract re-exports, no
  * behavior-bearing symbol, so curating it buys no encapsulation.
