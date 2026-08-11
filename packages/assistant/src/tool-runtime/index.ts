@@ -24,11 +24,16 @@ export { joinToolInput } from "./join-contract";
 // a value, so nothing outside this directory can name them. Two groups below,
 // and the split is deliberate.
 //
-// GROUP A — permanent. The registration + tool-contract door
-// `docs/plans/agent-friendly-module-structure.md:210` names for this module
-// ("registerTools, resolveSurface, executeCalls, resolveApproval; registry and
-// queues stay private"). The 21 `@alfred/api` tool-definition files are WRITERS:
-// they build with `liveTool` and register with `registerTool`/`registerTools`.
+// GROUP A — permanent, 8 names. The registration + tool-contract door.
+// `docs/plans/agent-friendly-module-structure.md:210` gives this module the
+// interface "registerTools, resolveSurface, executeCalls, resolveApproval;
+// registry and queues stay private", so `registerTools` is plan-sanctioned. The
+// other three plan names are not symbols in this repo: `resolveToolSurface` and
+// `executeToolCallRound` further down this file are their live equivalents, and
+// approval resolution sits in `dispatch`. `@alfred/api`'s tool definitions are
+// WRITERS: 12 files build entries with `liveTool`, and `modules/tools/
+// runtime.ts` makes every registration call. `registerTool` (singular) has no
+// production caller — item 97 narrows group A too, not only group B.
 export {
   liveTool,
   registerTool,
@@ -39,14 +44,17 @@ export {
   type ToolExecuteContext,
   type ToolExecuteContextFields,
 } from "./internal/registry";
-// GROUP B — transitional readers, published only because the tool DEFINITIONS
-// still live in `@alfred/api` while their catalog lives here. These 13 names
-// collapse into group A's four-name shape when `packages/api/src/modules/tools/*`
-// moves into this module; nothing distinguishes them from group A to any check,
-// so the removal phase is a queue item, not a lint. Do not add to this group.
+// GROUP B — transitional readers, 13 names: the 12 in the statement below plus
+// `singularizePhrase`, which needs its own statement because it comes from
+// `./internal/metadata-defaults`. They are published only because the tool
+// DEFINITIONS still live in `@alfred/api` while their catalog lives here, and
+// they collapse into group A's 8-name shape when
+// `packages/api/src/modules/tools/*` moves into this module. Nothing
+// distinguishes them from group A to any check, so the removal phase is a queue
+// item, not a lint. Do not add to this group.
 //
 // Removal phase (campaign item 97): once the tool definitions live here, delete
-// this group and let `resolveSurface` / `executeCalls` answer for the readers.
+// this group and let this module's own surface forwarders answer the readers.
 export {
   getTool,
   listRegisteredTools,
@@ -199,9 +207,13 @@ export type ToolCallRoundOutcome<Call extends ProposedToolCall = ProposedToolCal
  * Surface:  chat.
  * Owns/hides: owns the executable tool surface — surface restore, surface
  *   resolve, integration-name projection, and preload selection. Hides the tools
- *   registry and its credential gates.
+ *   IMPLEMENTATION that answers them: the credential and availability gates, the
+ *   integration projection, and the preload selector, all of which live in
+ *   `@alfred/api`'s tools module. The catalog is NOT hidden by this seam any
+ *   more — `internal/registry.ts` owns the one map, and the door at the top of
+ *   this file publishes readers over it (group B, campaign item 97).
  * Why the seam: it inverts tool-runtime -> tools, so the runtime forwards to the
- *   installed tools implementation and never imports the registry.
+ *   installed tools implementation instead of importing it.
  * Wiring: tools/tool-runtime-adapter.ts installs; the tool-runtime forwarders
  *   (resolveToolSurface, restoreToolSurface, selectToolPreload) read.
  * See: ADR-0089, and docs/reference/tool-runtime-map.md.
