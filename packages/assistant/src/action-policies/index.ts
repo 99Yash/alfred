@@ -9,17 +9,30 @@
  * server-lifecycle code and not in the HTTP layer.
  *
  * Invariant. Given a process that has imported this barrel and nothing else, no Redis
- * connection and no timer exist; and after any interleaving of `publishPolicyBust`,
- * `startPolicyBustSubscriber` and `stopPolicyBustSubscriber` and any Redis failure among
- * them, at most one `policy-bust:u:*` subscription is live, and the module reports itself
- * started only while a `psubscribe` has succeeded and has not been stopped — a
- * `psubscribe` that throws closes its half-built connection and leaves the flag false, so
- * the next start retries rather than no-opping into a dead subscriber — and a dropped
- * bust degrades to a stale cache entry, never to a failed policy mutation.
+ * connection and no timer exists. For a single sequential caller of
+ * `startPolicyBustSubscriber` and `stopPolicyBustSubscriber` — which is what the server is,
+ * one start at boot and one stop at shutdown — the module reports itself started only after
+ * an `await conn.psubscribe` has resolved and has not been stopped since. The guard is the
+ * `subscriberStarted` flag in `./resolve` and the order of its assignment: it is set after
+ * that await, never before, so a `psubscribe` that throws closes its half-built connection,
+ * leaves the flag false and lets the next start retry instead of no-opping into a dead
+ * subscriber. And because the cache holds no TTL, a bust that is never delivered bounds to
+ * one stale entry per user on the instances that missed it, until the next delivered bust
+ * for that user or a process restart.
  *
- * The guard is the `subscriberStarted` flag in `./resolve` and the order of its
- * assignment: it is set only after `await conn.psubscribe` resolves, never before. No
- * Redis connection exists until the first `publishPolicyBust` or the first
+ * Deliberately NOT guaranteed, so nobody builds on it. Two concurrent
+ * `startPolicyBustSubscriber` calls can each pass the `if (subscriberStarted) return;`
+ * check and open their own `policy-bust:u:*` subscription — there is no in-flight memo —
+ * and a `stopPolicyBustSubscriber` that races an in-flight start can be overtaken by that
+ * start's flag assignment. Nothing calls them concurrently today. A publish against an
+ * unreachable Redis does not fail either: `createRedisConnection` (`@alfred/db/redis`)
+ * passes `maxRetriesPerRequest: null` and keeps the offline queue with no `commandTimeout`,
+ * so the command is queued rather than rejected and the `try/catch` inside
+ * `publishPolicyBust` never runs — an awaiting caller waits on the connection instead of
+ * degrading to a stale cache entry. `createCacheRedisConnection` in the same module already
+ * sets `enableOfflineQueue: false` and a `commandTimeout`, if that ever has to bound.
+ *
+ * No Redis connection exists until the first `publishPolicyBust` or the first
  * `startPolicyBustSubscriber`; both build theirs lazily inside the call.
  *
  * The two cache helpers tests need are NOT on this barrel. They live behind the separate
