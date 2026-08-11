@@ -13,9 +13,14 @@ Two user surfaces reach tools, and they reach them in opposite directions:
 - The **workflows** side reads the tool catalog. A readiness, author, or revision
   decision confirms that a tool is integrated. It never executes a tool.
 
-The `tools` module owns the registry. The `tool-runtime` module holds the shared
-seams. Neither user surface imports the other, and no user surface imports the
-`tools` registry directly. Each crossing goes through one boot-seam.
+The `tool-runtime` module owns the tool catalog and holds the shared seams. The
+`tools` module owns the tool definitions. The catalog lives in
+`tool-runtime/internal/registry.ts`, and `tool-runtime/index.ts` publishes a
+named door over it: a registration group, plus a transitional reader group the
+`tools` and `dispatch` modules import directly while the definitions still sit in
+`@alfred/api` (campaign item 97 closes that group). Neither user surface imports
+the other, and neither reaches the catalog itself — for chat and workflows, each
+crossing goes through one boot-seam.
 
 ## The four players
 
@@ -23,8 +28,8 @@ seams. Neither user surface imports the other, and no user surface imports the
 | --------------------- | ---------------------------------------------------------------------------------------- |
 | chat / agent          | proposes and runs tool calls; spawns sub-agents; reads chat history                       |
 | workflows             | reads tool facts to decide readiness, authoring, and revision                            |
-| tools                 | owns the registry: each tool's schema, credential gate, staging, and `execute`           |
-| tool-runtime          | holds the boot-seams that invert every crossing above; imports no user surface directly  |
+| tools                 | owns the tool definitions: each tool's schema, credential gate, staging, and `execute`   |
+| tool-runtime          | owns the catalog and holds the boot-seams that invert every crossing above; imports no user surface directly |
 
 ## The five seams
 

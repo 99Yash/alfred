@@ -1,18 +1,24 @@
 /**
  * The tool-registry door on `@alfred/assistant/tool-runtime`.
  *
- * Two things are under test, and the second is the whole reason the file exists:
+ * Two things are under test:
  *
  * 1. The barrel publishes the registration + lookup door, imported through the
  *    PACKAGE specifier. That spelling is what makes this a red-run detector for
  *    the `exports` seam — a manifest key that stops resolving fails here.
- * 2. ONE map. Writers live in `@alfred/api` (21 tool-definition files) and
- *    readers live in `@alfred/api`, `@alfred/http` and `apps/server`, so a
- *    per-root module fork would silently split the catalog. Registering through
- *    the package specifier and reading back through the relative
- *    `../src/tool-runtime/internal/registry` spelling proves the two specifiers
- *    resolve to one module instance. This detects a fork; it does not prevent
- *    one.
+ * 2. The `exports` SELF-REFERENCE, and only that. Writers live in `@alfred/api`
+ *    (`modules/tools/runtime.ts` registers the entries the definition files
+ *    build with `liveTool`) while readers live in `@alfred/api` and
+ *    `apps/server`, so the catalog crosses package roots. The last test
+ *    registers through the package specifier and reads back through the relative
+ *    `../src/tool-runtime/internal/registry` spelling. Be precise about what
+ *    that pins: `packages/assistant` has no `node_modules` self-link, so Node
+ *    resolves both spellings through this package's own `exports` map to the
+ *    IDENTICAL file URL. The assertion therefore pins the manifest key — it goes
+ *    red if `"./tool-runtime"` stops resolving to this file — and it CANNOT
+ *    detect a module fork, because the two spellings cannot diverge here. The
+ *    only real fork detector is at the bundle: exactly one copy of the registry
+ *    module in `apps/server/dist`. Campaign item 103 owns that check.
  */
 
 import assert from "node:assert/strict";
@@ -83,7 +89,7 @@ test("clearToolRegistryForTests empties the map", () => {
   assert.equal(getTool(probeTool("read_scratch").name), undefined);
 });
 
-test("the package specifier and the relative path resolve to the same registry map", () => {
+test("the exports self-reference resolves both spellings to the same module", () => {
   clearToolRegistryForTests();
   const tool = probeTool("write_scratch");
 
@@ -92,7 +98,7 @@ test("the package specifier and the relative path resolve to the same registry m
   assert.equal(
     getToolRelative(tool.name),
     tool,
-    "a second module instance would return undefined here",
+    "the package specifier no longer resolves to this file through the exports map",
   );
   assert.deepEqual(
     listRegisteredToolsRelative().map((entry) => entry.name),
