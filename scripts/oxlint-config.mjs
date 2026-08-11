@@ -55,6 +55,15 @@ export const ROOT_OXLINT_CONFIG = ".oxlintrc.json";
 
 const RESTRICTED_IMPORTS = "no-restricted-imports";
 
+// The one thing a config author has to know to omit a root group from an override on
+// purpose. It is read from the raw JSONC text because `--print-config` drops comments
+// (measured: 0 hits for the prose already written above two of the sites), and it is
+// deliberately in the config rather than in a table here — a declaration hosted in
+// this file would be a second copy of the fact, in a file the person editing
+// `.oxlintrc.json` is not looking at, which is the exact shape the copy rule exists
+// to end.
+const OMISSION_MARKER = "oxlint-omission:";
+
 // The TOOL comes from this repo's own install; only the config and the workspaces
 // come from the `root` argument. That split is what lets a fixture root be a bare
 // `mkdtemp` with no `node_modules` and still be read by the same oxlint the repo
@@ -309,8 +318,8 @@ export function resolvedOxlintConfig(root) {
  * one being fixed. A severity-only string (`"allow"`, `"deny"`) is recognized and
  * contributes no groups, which is what the repo's own `"off"` override resolves to.
  *
- * Exported for item 47, which compares the group ARRAYS across these same sites and
- * must not re-derive the reader.
+ * `restrictedGroupCopyFailures` below compares the group ARRAYS and MESSAGES across
+ * these same sites and reads them from here rather than re-deriving the reader.
  */
 export function restrictedImportSites(config) {
   const sites = [];
@@ -477,6 +486,249 @@ export function restrictedSpecifierFailures(root) {
   }
 
   return { checked, subpathChecked, ungated, failures };
+}
+
+/**
+ * @typedef {{group: string[], message: string|null}} FenceGroup
+ * @typedef {{where: string, groups: FenceGroup[]}} FenceSite
+ * @typedef {{rootGroups: number, siteCount: number, restated: number,
+ *            declared: number, failures: string[]}} FenceCopyReport
+ */
+
+/**
+ * Every group the ROOT fence holds must be restated byte-identically in every
+ * override that carries the rule, or be named there by a declared omission.
+ *
+ * An oxlint `overrides` entry REPLACES a rule's options wholesale rather than merging
+ * them, so a fence that must apply to a subset of the repo cannot be written as one
+ * added group: the override has to restate every group the root list holds. That makes
+ * the copies real and unavoidable, and nothing else compares them. When the root list
+ * moves — a door narrowed, an allowlist repointed, a specifier rewritten — the copy
+ * does not follow, `pnpm lint` stays at exit 0, and one tree quietly enforces a stale
+ * version of the fence. Same fails-open shape as a group naming a dead specifier, one
+ * level up: the group here is alive, it is just not the group anyone edited.
+ *
+ * The rule per (override site, root group) pair:
+ *
+ *   - RESTATED iff the site holds a group deep-equal on `group` (an order-sensitive
+ *     array of strings) and on `message`. Comparing `group` alone would rebuild the
+ *     fail-open inside the fix — an edit to the root's array would make the copy read
+ *     as a DIFFERENT fence and nothing would fire;
+ *   - DECLARED OMITTED iff the site's own comment region carries
+ *     `// oxlint-omission: <specifier> — <reason>` for a specifier the group holds, and
+ *     `<reason>` is non-empty. The reason is required and never read, like item 72's
+ *     `// path-ok:`;
+ *   - otherwise a FAILURE naming the site, its `files`, the specifier, and whether the
+ *     group is absent outright or present with a diverged `message` or specifier list.
+ *
+ * A declaration that can rot is the same bug one level up, so three clauses fail
+ * closed on the declarations themselves: a marker naming a specifier NO root group
+ * holds is a failure (this is what fires when the root group is repointed and the
+ * exemption is left behind), a marker for a group the site DOES restate is a failure
+ * (vacuous), and a marker in the root site's own region is a failure.
+ *
+ * EXTRA groups in an override are allowed and uncounted — `packages/http/src/**` adds
+ * a self-barrel group that exists nowhere else, and an addition only narrows a fence.
+ * A rule demanding equal lists would report today's healthy tree as broken and would
+ * be tuned away inside a week.
+ *
+ * Pure by construction: `sites` comes from `restrictedImportSites`, `source` is the
+ * raw config text, and `scopes[k]` is site k's `files` (or `null` for the root) used
+ * only in the diagnostic. That is what lets every case be driven from literal fixtures
+ * with no oxlint run and no temp repo.
+ *
+ * @param {{sites: FenceSite[], source: string, scopes: (string[]|null)[]}} input
+ * @returns {FenceCopyReport}
+ */
+export function restrictedGroupCopyFailures({ sites, source, scopes }) {
+  const failures = [];
+  const empty = { rootGroups: 0, siteCount: 0, restated: 0, declared: 0, failures };
+
+  const { occurrences, markers } = declaredOmissions(source, sites.length);
+  if (occurrences !== sites.length) {
+    failures.push(
+      `the tracked config text holds ${occurrences} occurrence(s) of "${RESTRICTED_IMPORTS}" but oxlint resolved ${sites.length} rule site(s) carrying it. Comments are absent from the resolved config, so a declared omission can only be attributed to a site by position — and two readers that disagree about the order would attribute it to the wrong one. This refuses rather than skipping the declarations, because skipping them would pass every diverged copy.`,
+    );
+    return empty;
+  }
+
+  const rootIndex = sites.findIndex((site) => site.where === "rules");
+  const rootGroups = rootIndex === -1 ? [] : sites[rootIndex].groups;
+  const overrideIndexes = sites.map((_site, index) => index).filter((index) => index !== rootIndex);
+
+  // Vacuity floors. A rule that reads nothing passes a healthy repo and a broken one
+  // identically, which is the failure being fixed rather than a quiet edge case.
+  if (occurrences === 0) {
+    failures.push(
+      `the tracked config text holds no "${RESTRICTED_IMPORTS}" key at all, so no fence copy could be compared. Every scoped fence in this repo is a copy of the root list; an empty read is a green run over zero assertions.`,
+    );
+    return empty;
+  }
+  if (rootGroups.length === 0) {
+    failures.push(
+      `the root "rules" site carries no ${RESTRICTED_IMPORTS} group, so this rule compared nothing. The copies under "overrides" are copies OF the root list — with no root list every one of them passes by default.`,
+    );
+    return empty;
+  }
+  if (overrideIndexes.length === 0) {
+    failures.push(
+      `no "overrides" entry carries ${RESTRICTED_IMPORTS}, so this rule compared the root list against nothing. Either the scoped fences were deleted, or the reader stopped seeing them; both must be loud.`,
+    );
+    return empty;
+  }
+
+  if (rootIndex !== -1) {
+    for (const marker of markers.filter((entry) => entry.site === rootIndex)) {
+      failures.push(
+        `the root "rules" site declares an omission for "${marker.specifier}". The root cannot omit its own group — a group it does not want is deleted, not exempted. Move the marker into the "overrides" entry that is exempt, or delete the group.`,
+      );
+    }
+  }
+
+  let restated = 0;
+  let declared = 0;
+
+  for (const index of overrideIndexes) {
+    const site = sites[index];
+    const scope = scopeLabel(scopes[index]);
+    const siteMarkers = markers.filter((entry) => entry.site === index);
+
+    for (const rootGroup of rootGroups) {
+      const label = rootGroup.group.map((specifier) => `"${specifier}"`).join(", ");
+      if (site.groups.some((group) => sameFenceGroup(group, rootGroup))) {
+        restated += 1;
+        continue;
+      }
+
+      const marker = siteMarkers.find((entry) => rootGroup.group.includes(entry.specifier));
+      if (marker !== undefined) {
+        if (marker.reason.length === 0) {
+          failures.push(
+            `${site.where}${scope} declares an omission for ${label} with no reason after it. Write \`// ${OMISSION_MARKER} ${marker.specifier} — <why this scope is exempt>\`; the reason is never read by this check and is the only thing that tells the next editor whether the exemption is still true.`,
+          );
+          continue;
+        }
+        declared += 1;
+        continue;
+      }
+
+      failures.push(
+        `${site.where}${scope} ${divergence(site.groups, rootGroup)} the root group ${label}. An "overrides" entry REPLACES this rule's options wholesale, so the root list is not inherited here — restate the group byte-identically (\`group\` array AND \`message\`), or declare the exemption with \`// ${OMISSION_MARKER} ${rootGroup.group[0]} — <why>\` beside this site's "${RESTRICTED_IMPORTS}" key. Until then this scope enforces a stale version of the fence and \`pnpm lint\` exits 0.`,
+      );
+    }
+
+    for (const marker of siteMarkers) {
+      const holders = rootGroups.filter((group) => group.group.includes(marker.specifier));
+      if (holders.length === 0) {
+        failures.push(
+          `${site.where}${scope} declares an omission for "${marker.specifier}", which no root ${RESTRICTED_IMPORTS} group holds. The root list moved and the exemption was left behind, so this scope is now exempt from nothing and the group the root DID add is unrestated here. Repoint the marker at the specifier the root fences now, or delete it.`,
+        );
+        continue;
+      }
+      if (holders.length > 1) {
+        failures.push(
+          `${site.where}${scope} declares an omission for "${marker.specifier}", which ${holders.length} different root groups hold, so the exemption names no single group. Split the root groups or name a specifier that identifies one of them.`,
+        );
+        continue;
+      }
+      if (site.groups.some((group) => sameFenceGroup(group, holders[0]))) {
+        failures.push(
+          `${site.where}${scope} declares an omission for "${marker.specifier}" AND restates the group holding it. A declaration nobody needs rots into one nobody checks — delete the marker, or delete the restated group if this scope really is exempt.`,
+        );
+      }
+    }
+  }
+
+  return {
+    rootGroups: rootGroups.length,
+    siteCount: overrideIndexes.length,
+    restated,
+    declared,
+    failures,
+  };
+}
+
+/**
+ * Which declared omissions the raw config text carries, and for which site.
+ *
+ * Comments do not survive `oxlint --print-config`, so the declaration has to come from
+ * the tracked JSONC text, and the text has to be attributed to the sites the resolver
+ * reported. There is no JSONC parser here to ask for positions — a `scripts/*.mjs`
+ * cannot import a workspace package — so the attribution is positional: split the
+ * source on the rule key, and region k is the text between occurrence k and occurrence
+ * k+1, which puts a comment written immediately above a key inside that key's region.
+ *
+ * The caller REFUSES when `occurrences` disagrees with `siteCount`; that mismatch is
+ * the only way the two readers can disagree about order, and the markers are withheld
+ * so the refusal cannot be mistaken for a clean read. Note the direction of the
+ * residual risk: if the rule key ever appears inside a `message`, the regions shift and
+ * a declaration lands on the WRONG site, which surfaces as a stale or vacuous marker —
+ * red, not silent.
+ *
+ * @param {string} source
+ * @param {number} siteCount
+ * @returns {{occurrences: number,
+ *            markers: {site: number, specifier: string, reason: string}[]}}
+ */
+function declaredOmissions(source, siteCount) {
+  const regions = source.split(`"${RESTRICTED_IMPORTS}"`);
+  const occurrences = regions.length - 1;
+  if (occurrences !== siteCount) return { occurrences, markers: [] };
+
+  const markers = [];
+  for (let site = 0; site < occurrences; site += 1) {
+    for (const line of regions[site].split("\n")) {
+      const at = line.indexOf(OMISSION_MARKER);
+      // The marker is only a marker inside a comment. A config that spells it in a
+      // `message` string is describing the mechanism, not invoking it.
+      if (at === -1 || !line.slice(0, at).includes("//")) continue;
+      const rest = line.slice(at + OMISSION_MARKER.length).trim();
+      const [specifier, ...words] = rest.split(/\s+/u);
+      if (specifier === undefined || specifier.length === 0) continue;
+      // An em dash or a hyphen may separate the specifier from its reason, and neither
+      // is the reason. Anything else after the specifier is prose.
+      const reason = words
+        .join(" ")
+        .replace(/^[—-]\s*/u, "")
+        .trim();
+      markers.push({ site, specifier, reason });
+    }
+  }
+  return { occurrences, markers };
+}
+
+/** Two fence groups are the same fence only if BOTH halves match. */
+function sameFenceGroup(left, right) {
+  return (
+    left.message === right.message &&
+    left.group.length === right.group.length &&
+    left.group.every((specifier, index) => specifier === right.group[index])
+  );
+}
+
+/**
+ * How a site fails to restate a root group, in the words the fix needs. "Absent" and
+ * "present but edited" call for different repairs, and a copy sharing a specifier with
+ * the root group is the drifted-copy case this rule exists for.
+ */
+function divergence(siteGroups, rootGroup) {
+  const overlapping = siteGroups.find((group) =>
+    group.group.some((specifier) => rootGroup.group.includes(specifier)),
+  );
+  if (overlapping === undefined) return "does not restate";
+  if (overlapping.group.length !== rootGroup.group.length) {
+    return `restates, with a DIVERGED specifier list (${JSON.stringify(overlapping.group)} against ${JSON.stringify(rootGroup.group)}),`;
+  }
+  if (!overlapping.group.every((specifier, index) => specifier === rootGroup.group[index])) {
+    return `restates, with a DIVERGED specifier list (${JSON.stringify(overlapping.group)} against ${JSON.stringify(rootGroup.group)}),`;
+  }
+  return "restates, with a DIVERGED message,";
+}
+
+/** The site's `files` globs, for a diagnostic that names the scope and not only its index. */
+function scopeLabel(scope) {
+  if (!Array.isArray(scope) || scope.length === 0) return "";
+  return ` (${scope.join(", ")})`;
 }
 
 /**
