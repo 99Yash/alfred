@@ -1,4 +1,13 @@
-import { existsSync, readFileSync, readdirSync, statSync, writeFileSync } from "node:fs";
+import {
+  existsSync,
+  mkdtempSync,
+  readFileSync,
+  readdirSync,
+  rmSync,
+  statSync,
+  writeFileSync,
+} from "node:fs";
+import { tmpdir } from "node:os";
 import { dirname, extname, join, relative, resolve, sep } from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -1685,7 +1694,32 @@ const text = 'import "ignored-string"';
       }
     }
   }
-  // (xiii-e) The COMMITTED file passes the cross-check. A gate that is red on the default
+  // (xiii-e) The cross-check is WIRED INTO `loadBaseline`, which is the only reason it is
+  // tier 1: every path that reads the baseline goes through that function. The drives
+  // above call the predicate directly, so without this one the call site is deletable
+  // with every gate green — the failure this campaign has hit repeatedly. `loadBaseline`
+  // reads a path, so the drive needs a file: it is written under the system temp
+  // directory, never in the repository, and removed again.
+  const wiringDirectory = mkdtempSync(join(tmpdir(), "check-module-architecture-"));
+  try {
+    const wiringPath = join(wiringDirectory, "baseline.json");
+    writeFileSync(
+      wiringPath,
+      JSON.stringify(
+        baselineWithGraph(RECORDED_GRAPHS[0], ["union-a -> union-b", "union-b -> union-a"], []),
+      ),
+    );
+    const wiringLoad = loadBaseline(wiringPath);
+    if (wiringLoad.ok || !wiringLoad.error?.includes("permits a cycle it does not declare")) {
+      failures.push(
+        `baseline load self-test mismatch: expected loadBaseline to refuse a baseline whose recorded edges form a component its declared cycles omit, received ${JSON.stringify(wiringLoad)}`,
+      );
+    }
+  } finally {
+    rmSync(wiringDirectory, { force: true, recursive: true });
+  }
+
+  // (xiii-f) The COMMITTED file passes the cross-check. A gate that is red on the default
   // branch is not landable, and this is the drive that reports it — the two lists are
   // written from one snapshot, so they can only disagree through a merge or a hand edit.
   const committedBaselineLoad = loadBaseline();
