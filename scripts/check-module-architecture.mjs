@@ -3,6 +3,7 @@ import { dirname, extname, join, relative, resolve, sep } from "node:path";
 import { fileURLToPath } from "node:url";
 
 import { lexSource, parseImports } from "./ts-imports.mjs";
+import { listWorkspaces } from "./workspaces.mjs";
 
 const ROOT = dirname(dirname(fileURLToPath(import.meta.url)));
 const BASELINE_PATH = join(ROOT, "scripts/module-architecture-baseline.json");
@@ -395,22 +396,31 @@ function resolveSourceImport(importer, specifier) {
   return candidates.find((path) => existsSync(path) && statSync(path).isFile()) ?? candidate;
 }
 
+/**
+ * The workspaces this checker walks, absolute-path throughout as the rest of the
+ * file is, plus whatever the enumeration itself refused.
+ *
+ * A workspace with no `name` is dropped because every use of an entry here is
+ * keyed on identity: an edge is `from` one name `to` another, and a specifier is
+ * matched against a name. The failures travel with the entries so a graph derived
+ * from nothing cannot be reported as a clean graph.
+ */
 function workspaceEntries() {
-  const entries = [];
-  for (const group of ["apps", "packages"]) {
-    for (const directory of listDirectories(join(ROOT, group))) {
-      const manifestPath = join(directory, "package.json");
-      if (!existsSync(manifestPath)) continue;
-      const manifest = JSON.parse(readFileSync(manifestPath, "utf8"));
-      if (typeof manifest.name !== "string") continue;
-      entries.push({
-        directory,
-        name: manifest.name,
-        source: join(directory, "src"),
-      });
-    }
+  const { workspaces, failures } = listWorkspaces(ROOT);
+  const entries = workspaces
+    .filter((workspace) => workspace.name !== null)
+    .map((workspace) => ({
+      directory: join(ROOT, workspace.dir),
+      name: workspace.name,
+      source: join(ROOT, workspace.source),
+    }))
+    .sort((a, b) => a.name.localeCompare(b.name));
+  if (entries.length === 0) {
+    failures.push(
+      "no workspace declares a `name`, so this check has no package to walk and no edge it could report.",
+    );
   }
-  return entries.sort((a, b) => a.name.localeCompare(b.name));
+  return { entries, failures };
 }
 
 function entryForFile(entries, file) {
@@ -583,7 +593,7 @@ function graphFromEdges(nodes, rawEdges) {
 }
 
 function collectArchitecture() {
-  const entries = workspaceEntries();
+  const { entries, failures: workspaceFailures } = workspaceEntries();
   const packageEdges = [];
   const moduleEdges = [];
   const privateModuleImports = [];
@@ -706,6 +716,7 @@ function collectArchitecture() {
       packageEdges,
     ),
     productionPreviewImports,
+    workspaceFailures,
   };
 }
 
@@ -940,8 +951,22 @@ const text = 'import "ignored-string"';
     exceptions: { privateModuleImports: [], webFeatureImports: [] },
     forbiddenBackendImports: [],
     productionPreviewImports: [],
+    workspaceFailures: [],
     ...overrides,
   });
+  // (0) A refused workspace enumeration must reach the violation list. The live
+  // enumeration is clean, so nothing else here would notice the wiring going away —
+  // and a checker that walked a partial workspace list would report every absence
+  // in it as a clean graph.
+  const workspaceWiringDrive = checkArchitecture(
+    syntheticArchitecture({ workspaceFailures: ["pnpm-workspace.yaml does not exist"] }),
+    syntheticBaseline(),
+  );
+  if (!workspaceWiringDrive.some((violation) => violation.includes("workspace enumeration:"))) {
+    failures.push(
+      `workspace-enumeration wiring self-test mismatch: expected checkArchitecture to report a refused enumeration, received ${JSON.stringify(workspaceWiringDrive)}`,
+    );
+  }
   // (i) A live `agent -> triage` edge with a self-consistent node set must make
   // `checkArchitecture` report the forbidden product import — guards the wiring
   // of the forbidden-import push.
@@ -1405,6 +1430,14 @@ function executionGateLivenessViolations(moduleNodes) {
 
 function checkArchitecture(architecture, baseline) {
   const violations = [];
+  // The graph is only as trustworthy as the list of workspaces it was walked over.
+  // A refusal here means the walk read fewer trees than the repository has, which
+  // makes every absence below meaningless — so it is a violation, not a warning,
+  // and it also stops `--write-baseline` recording a graph derived from a partial
+  // enumeration as the permitted one.
+  for (const failure of architecture.workspaceFailures) {
+    violations.push(`workspace enumeration: ${failure}`);
+  }
   // The baseline records the whole graph but is consulted ONLY as a cycle
   // allowlist, so it goes through the same SCC pass the live graph does — see
   // `cyclicEdgeKeysOf`. A recorded acyclic edge permits nothing.
