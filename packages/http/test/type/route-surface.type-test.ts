@@ -50,6 +50,7 @@ import {
   agent,
   approvalsRoutes,
   chatRoutes,
+  events,
   onboardingRoutes,
   skillsRoutes,
   workflowRoutes,
@@ -92,6 +93,14 @@ export const onboardingPrefix: (typeof onboardingRoutes)["config"]["prefix"] = "
 export const skillsPrefix: (typeof skillsRoutes)["config"]["prefix"] = "/api/skills";
 export const workflowsPrefix: (typeof workflowRoutes)["config"]["prefix"] = "/api/workflows";
 
+// The SSE endpoint, and the Eden check above buys nothing here either: the web
+// client builds this URL by hand (`apps/web/src/lib/events/stream.ts:27`, and
+// `routes/-debug/debug-events-page.tsx:20` for `_demo`), so `treaty<App>` never
+// sees the prefix and this line is its only pin. A changed prefix does not fail
+// a call — the browser gets a 404, which puts an `EventSource` in a permanently
+// CLOSED state with no reconnect, so the stream stops silently.
+export const eventsPrefix: (typeof events)["config"]["prefix"] = "/api/events";
+
 // The mount call sites themselves: `packages/api/src/index.ts` composes each
 // route into the root app with `.use(...)`, so every plugin must stay usable
 // there.
@@ -99,6 +108,7 @@ export const composed = new Elysia()
   .use(agent)
   .use(approvalsRoutes)
   .use(chatRoutes)
+  .use(events)
   .use(onboardingRoutes)
   .use(skillsRoutes)
   .use(workflowRoutes);

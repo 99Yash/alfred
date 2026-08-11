@@ -23,7 +23,8 @@ export interface AcceptEventResult {
  * Generic event-trigger dispatcher (ADR-0047).
  *
  * This is intentionally a direct DB query + run creation path, not the
- * realtime outbox/SSE event bus under `modules/events`.
+ * realtime outbox/SSE event bus, which is `@alfred/assistant/realtime` plus the
+ * SSE endpoint in `@alfred/http`.
  */
 export async function acceptEvent(input: DomainEvent): Promise<AcceptEventResult> {
   // Keep validation at this public automation seam as well as at publication,
