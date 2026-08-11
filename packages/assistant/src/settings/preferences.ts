@@ -42,9 +42,9 @@ function rowToPref(r: UserPreference): PreferenceRow {
 
 /**
  * A pooled handle (`db()`) OR a Replicache push `tx` — both satisfy the
- * `user_preferences` write. The same `DbRoot | DbTransaction` executor seam
- * already used in `agent/types.ts`, `workflows/revisions.ts`, and
- * `conversations/routes.ts`.
+ * `user_preferences` write. The same `DbRoot | DbTransaction` executor seam the
+ * repo's other push-transaction-aware writers take, so a mutator and a plain
+ * service call reach the row through one function.
  */
 export type PreferenceWriteExecutor = DbRoot | DbTransaction;
 

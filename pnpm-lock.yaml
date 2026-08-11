@@ -796,6 +796,9 @@ importers:
 
   packages/http:
     dependencies:
+      '@alfred/ai':
+        specifier: workspace:*
+        version: link:../ai
       '@alfred/assistant':
         specifier: workspace:*
         version: link:../assistant
@@ -808,6 +811,9 @@ importers:
       '@alfred/db':
         specifier: workspace:*
         version: link:../db
+      '@alfred/env':
+        specifier: workspace:*
+        version: link:../env
       drizzle-orm:
         specifier: ^0.45.2
         version: 0.45.2(@opentelemetry/api@1.9.1)(@types/pg@8.21.0)(kysely@0.29.4)(pg@8.22.0)
