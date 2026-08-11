@@ -146,11 +146,22 @@ directory-wide fence there would need a suppression list. The classification its
 filed under `NODE_ONLY_APPS` leaves the fence narrow, and the only check against that is that a Node-only
 app holding an `index.html` is reported.
 
-Some things stay outside the derived surface, deliberately: everything a browser file reaches through a
-non-`@alfred/*` specifier, including Node-only npm packages, and any subtree of a reached package that sits
+One thing stays outside the derived surface, deliberately: any subtree of a reached package that sits
 outside its `src/`, because reachability is recorded per package and read at that one directory. A reached
 package whose `src/` is missing, or holds no TypeScript file, is not one of these — the check reports it as a
 failure instead of skipping it.
+
+Node-only **npm** packages are outside the source fence too, because it reads specifiers and a transitive
+npm dependency is written down nowhere in browser code. `pnpm check:web-bundle-graph` closes that half by
+asking vite for `apps/web`'s real module graph, so it rules on resolution rather than on source text. It
+forbids every package that a workspace outside the browser surface declares as a dependency, minus a short
+declared list of genuinely shared ones, plus the same forbidden set above; it fails on the stub id vite
+resolves an externalized Node builtin to; and it requires every workspace TypeScript module in the bundle to
+be a file the source fence scans, which is the only thing in the repo that could detect a hole in that
+fence. The two checks are additive and neither replaces the other: the fence scans 466 files and the graph
+holds 425, and the difference is preview and debug routes plus not-yet-imported components, which an
+entry-seeded graph cannot see by construction. The graph check is CI-only, as a step in the
+`web-unit-tests` job, because it costs a second `vite build`.
 The check also rules on the marked prose above and in
 [`apps/web/AGENTS.md`](../../apps/web/AGENTS.md). Each site marks two regions. The
 `forbidden-runtime-packages` region must name exactly the set in

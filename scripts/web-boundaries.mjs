@@ -62,8 +62,14 @@ export const FORBIDDEN_RUNTIME_PACKAGES = new Set([
 // `apps/web/src`, so a second browser app was outside the fence by construction and
 // the check exited 0. The second set is the record that somebody looked.
 
-/** Apps whose sources reach a browser bundle. The fence seeds from these. */
-const BROWSER_ENTRY_APPS = new Set(["apps/web"]);
+/**
+ * Apps whose sources reach a browser bundle. The fence seeds from these.
+ *
+ * Exported because `scripts/web-bundle-graph.mjs` builds exactly these apps to record
+ * the real module graph. One declaration, two fences: an app declared here joins both
+ * in the same commit, which is the property this set exists for.
+ */
+export const BROWSER_ENTRY_APPS = new Set(["apps/web"]);
 
 /** Apps that are Node programs. Listed so a NEW app cannot be silently either. */
 const NODE_ONLY_APPS = new Set(["apps/server"]);

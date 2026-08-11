@@ -10,6 +10,7 @@
     "dev:server": "turbo run dev --filter=server",
     "check:architecture": "node scripts/check-module-architecture.mjs",
     "check:web-boundaries": "node scripts/check-web-boundaries.mjs",
+    "check:web-bundle-graph": "node scripts/check-web-bundle-graph.mjs",
     "check:exports": "node scripts/check-package-exports.mjs",
     "check:type-fixtures": "node scripts/check-type-fixture-programs.mjs",
     "check:imports": "node scripts/relative-to-alias.mjs --check",
