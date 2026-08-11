@@ -420,6 +420,9 @@ export function bundleViolations(graph, { forbidden, surface }) {
   const floors = [];
   /** @type {Violation[]} */
   const violations = [];
+  /** R1's violations, keyed on the package, so one package reports once. */
+  /** @type {Map<string, Violation>} */
+  const reported = new Map();
 
   const chainOf = (id) => importerChain(graph, id).map((step) => describeModuleId(graph.root, step));
 
@@ -444,14 +447,25 @@ export function bundleViolations(graph, { forbidden, surface }) {
     }
 
     if (info.kind === "npm") {
-      const reason = info.package === null ? undefined : forbidden.get(info.package);
+      const pkg = info.package;
+      if (pkg === null) continue;
+      const reason = forbidden.get(pkg);
       if (reason === undefined) continue;
-      violations.push({
-        rule: "forbidden-package",
-        subject: /** @type {string} */ (info.package),
-        message: `the browser bundle contains ${info.package}, which is Node-only: ${reason}. Either the package is browser-safe, in which case declare it in BROWSER_SAFE_NPM_PACKAGES in scripts/web-bundle-graph.mjs with the reason, or a browser-reachable workspace should not depend on it.`,
-        chain: chainOf(id),
-      });
+      // One violation per PACKAGE, not per module. A single forbidden package
+      // contributes dozens of modules to the graph — driving this rule with `zod`
+      // produced one identical paragraph per module — and the subject of R1 is the
+      // package. The shortest chain wins, because the shortest route from a browser
+      // entry is the one a reader should follow first.
+      const shortest = chainOf(id);
+      const seen = reported.get(pkg);
+      if (seen === undefined || shortest.length < seen.chain.length) {
+        reported.set(pkg, {
+          rule: "forbidden-package",
+          subject: pkg,
+          message: `the browser bundle contains ${pkg}, which is Node-only: ${reason}. Either the package is browser-safe, in which case declare it in BROWSER_SAFE_NPM_PACKAGES in scripts/web-bundle-graph.mjs with the reason, or a browser-reachable workspace should not depend on it.`,
+          chain: shortest,
+        });
+      }
       continue;
     }
 
@@ -513,7 +527,7 @@ export function bundleViolations(graph, { forbidden, surface }) {
     });
   }
 
-  return [...floors, ...violations].sort(
+  return [...floors, ...violations, ...reported.values()].sort(
     (left, right) => left.rule.localeCompare(right.rule) || left.subject.localeCompare(right.subject),
   );
 }

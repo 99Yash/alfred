@@ -12,7 +12,7 @@
 // only a job which does not exist would run is a dead guard.
 
 import { execFileSync } from "node:child_process";
-import { mkdirSync, mkdtempSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 
@@ -345,6 +345,35 @@ function violationFailures() {
       failures,
     );
 
+    // One violation per PACKAGE, not per module, and the shortest chain wins. Driving
+    // R1 over the real graph is what found this: `zod` contributes dozens of modules
+    // and each one produced an identical paragraph.
+    const pgSecond = abs("node_modules/pg/lib/client.js");
+    const twice = graphOf(
+      root,
+      [
+        [entry, []],
+        [eden, [entry]],
+        [deep, [eden]],
+        [pg, [deep]],
+        [pgSecond, [entry]],
+      ],
+      { entries: [entry] },
+    );
+    const once = bundleViolations(twice, { forbidden, surface });
+    expect(
+      rulesOf(once),
+      ["forbidden-package"],
+      "bundleViolations — two modules of one forbidden package report once",
+      failures,
+    );
+    expect(
+      once[0]?.chain,
+      ["apps/web/src/main.tsx", "pg (npm)"],
+      "bundleViolations — the shortest chain to the package wins",
+      failures,
+    );
+
     // The builtin stub: the verdict is the id, the naming comes from the warning.
     const builtin = graphOf(
       root,
@@ -524,6 +553,46 @@ function chainFailures() {
   return failures;
 }
 
+/**
+ * The one guard that reads source text rather than behaviour, because the seam it
+ * guards is the untestable one.
+ *
+ * Supplying `build.rollupOptions.onwarn` REPLACES vite's own `viteLog` handler, and
+ * `viteLog` is where vite turns `UNRESOLVED_IMPORT` into a thrown error.
+ * `normalizeUserOnWarn` hands the default in only as an opt-in second argument. So the
+ * obvious one-argument collector silently disarms a build failure this repo already
+ * relies on — measured on vite 6.4.3 by planting an unresolvable import in
+ * `apps/web/src/main.tsx`: with the two-argument form the check exits 1 and names the
+ * import, and with the one-argument form the same tree builds 4181 modules and the
+ * check exits **0**.
+ *
+ * A behavioural fixture for that would have to run a real vite build, which is the one
+ * thing `recordBundleGraph` exists to keep out of this suite. So this asserts the shape
+ * of the call instead. It is tier 3 and it is here because the failure it guards is
+ * silent, invisible and turns a red into a green.
+ */
+function recorderDelegationFailures() {
+  const failures = [];
+  const source = readFileSync(new URL("./web-bundle-graph.mjs", import.meta.url), "utf8");
+
+  const declaration = /onwarn\((\w+), (\w+)\) \{([\s\S]*?)\n {12}\},/.exec(source);
+  if (declaration === null) {
+    failures.push(
+      "recordBundleGraph's onwarn must be declared as onwarn(warning, defaultHandler) — a one-argument collector replaces vite's own handler and stops an unresolved import from failing the build.",
+    );
+    return failures;
+  }
+
+  const [, warning, defaultHandler, body] = declaration;
+  if (!body?.includes(`${defaultHandler}(${warning})`)) {
+    failures.push(
+      `recordBundleGraph's onwarn takes ${defaultHandler} and never calls ${defaultHandler}(${warning}), so vite's own handler never runs and an unresolved import stops failing the build.`,
+    );
+  }
+
+  return failures;
+}
+
 /** Every fixture failure, for `check-web-bundle-graph.mjs` to exit on. */
 export function webBundleGraphSelfTestFailures() {
   return [
@@ -531,5 +600,6 @@ export function webBundleGraphSelfTestFailures() {
     ...forbidSetFailures(),
     ...violationFailures(),
     ...chainFailures(),
+    ...recorderDelegationFailures(),
   ];
 }
