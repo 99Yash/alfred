@@ -143,7 +143,7 @@ export const events = new Elysia({ prefix: "/api/events", normalize: "typebox" }
       // imported — not when a request arrives. That is why this is `nodeEnv()`
       // and not `serverEnv().NODE_ENV`: the two read the same field through the
       // same schema and agree whenever the whole environment is valid, but
-      // `serverEnv()` throws when any of its ~25 variables is missing OR
+      // `serverEnv()` throws when any of its required variables is missing OR
       // invalid, and this package must stay importable with no environment at
       // all. The divergence is real and one-sided: where `serverEnv()` would
       // have aborted the import, `nodeEnv()` returns the schema default
@@ -151,14 +151,20 @@ export const events = new Elysia({ prefix: "/api/events", normalize: "typebox" }
       // wider than an empty environment — a `.default()` fires only on
       // `undefined`, so a fully configured deploy that sets `NODE_ENV` to a
       // value outside the enum (`Production`, or an empty string) diverges
-      // too. What keeps that off a socket is not this file: `apps/server`
-      // takes its port from `serverEnv().PORT` at
-      // `apps/server/src/index.ts:75`, so a whole-environment validation is a
-      // data dependency of the bind and no such process ever listens. A second
-      // control exists today and will not survive — `@alfred/api` reads
-      // `serverEnv()` at import through `auth()` — so when item 12 deletes
-      // that package, the `.listen` read is the only one left. A valid
-      // `NODE_ENV=production` is unaffected either way.
+      // too. What keeps a diverged `_demo` off the wire is a control inside
+      // this package, at the layer that decides: the route sits behind
+      // `authMacro`, whose resolve runs `getSessionCached` -> `auth()` ->
+      // `serverEnv()` on every request. The divergence set is exactly the set
+      // where `serverEnv()` throws, so on any environment that mounts `_demo`
+      // the request answers 500 "Missing or invalid environment variables"
+      // and never reaches `publishEvent` (measured). That control survives
+      // item 12's deletion of `@alfred/api`. Process-level reads sit behind it
+      // as backstops, not as the argument: `apps/server/src/index.ts` calls
+      // `serverEnv()` at module scope in `startRuntime()` (`:54`), for
+      // `CORS_ORIGIN` (`:59`), for the HSTS flag (`:67`) and for
+      // `.listen({ port })` (`:75`), all of which outlive item 12, while
+      // `@alfred/api`'s own import-time read through `auth()` dies with it. A
+      // valid `NODE_ENV=production` is unaffected either way.
       .guard({}, (inner) =>
         nodeEnv() === "development"
           ? inner.post(
