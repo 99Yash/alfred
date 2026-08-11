@@ -3,7 +3,7 @@
  * status).
  *
  * Every statement the gate needs to read or advance a staging row lives here,
- * behind four methods, so the gate itself holds no SQL. That buys two things:
+ * behind this small port, so the gate itself holds no SQL. That buys two things:
  *
  *   1. The four terminal `UPDATE`s the gate used to hand-write become one
  *      `commitStaging` over the closed {@link StagingCommit} union — a fifth
@@ -45,7 +45,9 @@ export type StagingRow = Pick<
   | "status"
   | "requiresApproval"
   | "toolName"
+  | "riskTier"
   | "proposedInput"
+  | "proposedInputHash"
   | "decidedInput"
   | "rejectReason"
   | "executeResult"
@@ -54,6 +56,11 @@ export type StagingRow = Pick<
   | "notifyAfterAt"
   | "notifiedAt"
   | "expiresAt"
+>;
+
+export type PendingApprovalPromotion = Pick<
+  ActionStaging,
+  "riskTier" | "proposedInput" | "proposedInputHash" | "notifyAfterAt" | "expiresAt"
 >;
 
 /**
@@ -92,6 +99,15 @@ export interface StagingStore {
    */
   upsertStaging(values: NewActionStaging): Promise<{ row: StagingRow; wasInserted: boolean }>;
 
+  /**
+   * Monotonically raise an old pending autonomous row into the approval queue.
+   * Returns null when the row is no longer pending and autonomous.
+   */
+  promotePendingApproval(
+    stagingId: string,
+    promotion: PendingApprovalPromotion,
+  ): Promise<StagingRow | null>;
+
   /** Terminal commit onto an existing row. Bumps `row_version`. */
   commitStaging(stagingId: string, commit: StagingCommit): Promise<void>;
 }
@@ -102,7 +118,9 @@ const STAGING_COLUMNS = {
   status: actionStagings.status,
   requiresApproval: actionStagings.requiresApproval,
   toolName: actionStagings.toolName,
+  riskTier: actionStagings.riskTier,
   proposedInput: actionStagings.proposedInput,
+  proposedInputHash: actionStagings.proposedInputHash,
   decidedInput: actionStagings.decidedInput,
   rejectReason: actionStagings.rejectReason,
   executeResult: actionStagings.executeResult,
@@ -214,6 +232,30 @@ export const postgresStagingStore: StagingStore = {
     }
     const { wasInserted, ...rowColumns } = upsertedRow;
     return { row: parseStagingRow(rowColumns), wasInserted };
+  },
+
+  async promotePendingApproval(stagingId, promotion) {
+    const promoted = await db()
+      .update(actionStagings)
+      .set({
+        riskTier: promotion.riskTier,
+        proposedInput: promotion.proposedInput,
+        proposedInputHash: promotion.proposedInputHash,
+        requiresApproval: true,
+        notifyAfterAt: promotion.notifyAfterAt,
+        expiresAt: promotion.expiresAt,
+        rowVersion: sql`${actionStagings.rowVersion} + 1`,
+      })
+      .where(
+        and(
+          eq(actionStagings.id, stagingId),
+          eq(actionStagings.status, "pending"),
+          eq(actionStagings.requiresApproval, false),
+        ),
+      )
+      .returning(STAGING_COLUMNS);
+    const row = promoted[0];
+    return row ? parseStagingRow(row) : null;
   },
 
   async commitStaging(stagingId, commit) {

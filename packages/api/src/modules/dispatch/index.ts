@@ -32,7 +32,13 @@
  * Callers don't need a separate "resume" entry point.
  */
 
-import type { IntegrationSlug, PolicyMode, ToolName, ToolRiskTier } from "@alfred/contracts";
+import type {
+  IntegrationAvailabilitySnapshot,
+  IntegrationSlug,
+  PolicyMode,
+  ToolName,
+  ToolRiskTier,
+} from "@alfred/contracts";
 import {
   APPROVAL_EXPIRY_MS,
   getPath,
@@ -44,6 +50,7 @@ import {
   isRecord,
   isTerminalStatus,
   isToolName,
+  isToolRiskTier,
   jsonValueSchema,
   sanitizeErrorMessage,
   sanitizeToolResult,
@@ -106,8 +113,16 @@ export type DispatchResult = Awaited<ReturnType<DispatchToolCallRoundAdapter["di
 
 const UNKNOWN_TOOL_TRACE_NAME = "<unknown>";
 const TOOLISH_NAME = /^[A-Za-z][A-Za-z0-9_.]*$/;
+const TOOL_RISK_RANK = {
+  no_risk: 0,
+  low: 1,
+  medium: 2,
+  high: 3,
+} as const satisfies Record<ToolRiskTier, number>;
 let dispatchRejectionRecorder: (args: DispatchRejectionInput) => void = recordDispatchRejection;
 let toolSpanStarter: (args: ToolSpanInput) => ToolSpanCloser = startToolSpan;
+let integrationAvailabilityReader: (userId: string) => Promise<IntegrationAvailabilitySnapshot> =
+  readIntegrationAvailability;
 
 /** Zod-issue shape we read for the rejection signature (loose by design). */
 type RejectionIssue = { code?: string; path?: readonly PropertyKey[] };
@@ -168,6 +183,16 @@ export function _setDispatchTraceSinksForTests(sinks: {
   return () => {
     dispatchRejectionRecorder = previousRejectionRecorder;
     toolSpanStarter = previousToolSpanStarter;
+  };
+}
+
+export function _setIntegrationAvailabilityReaderForTests(
+  reader: (userId: string) => Promise<IntegrationAvailabilitySnapshot>,
+): () => void {
+  const previous = integrationAvailabilityReader;
+  integrationAvailabilityReader = reader;
+  return () => {
+    integrationAvailabilityReader = previous;
   };
 }
 
@@ -342,7 +367,7 @@ export async function dispatchToolCall(args: DispatchArgs): Promise<DispatchResu
     tool,
     allowed: new Set(args.allowedIntegrations ?? []),
     context: args.runContext,
-    loadSnapshot: () => readIntegrationAvailability(args.userId),
+    loadSnapshot: () => integrationAvailabilityReader(args.userId),
   });
   if (!availability.available) {
     recordRejection({
@@ -538,12 +563,11 @@ export async function dispatchToolCall(args: DispatchArgs): Promise<DispatchResu
   }
 
   // Most tools carry a static `riskTier`. A tool may instead resolve its
-  // EFFECTIVE tier from the validated input at the gate — `mcp.call` uses this to
-  // narrow its `high` floor to a reviewed per-descriptor downgrade (#541). The
-  // resolved tier drives both the approval decision and the persisted staging row.
-  const riskTier: ToolRiskTier = tool.resolveRiskTier
-    ? await tool.resolveRiskTier(input, ctx)
-    : tool.riskTier;
+  // EFFECTIVE tier from validated input at the gate: Calendar raises an invite
+  // from medium to high, while `mcp.call` can use a reviewed per-descriptor
+  // downgrade (#541). The central resolver clamps undeclared downgrades. The
+  // effective tier drives both the approval decision and the persisted row.
+  const riskTier = await resolveEffectiveRiskTier(tool, input, ctx);
   const policyMode =
     integration === "system" ? "autonomy" : await resolvePolicyMode(args.userId, toolName);
   const requiresApproval = toolRequiresApproval(policyMode, riskTier);
@@ -569,7 +593,8 @@ export async function dispatchToolCall(args: DispatchArgs): Promise<DispatchResu
   // a future gated secret-bearing tool. The hash + execute always use raw `input`.
   const proposedInputForRow =
     !requiresApproval && tool.redactInput ? tool.redactInput(input) : input;
-  const { row, wasInserted: insertedNew } = await stagingStore().upsertStaging({
+  const persistedProposedInput = jsonValueSchema.parse(proposedInputForRow);
+  const upserted = await stagingStore().upsertStaging({
     userId: args.userId,
     runId: args.runId,
     stepId: args.stepId,
@@ -577,13 +602,15 @@ export async function dispatchToolCall(args: DispatchArgs): Promise<DispatchResu
     toolName,
     integration,
     riskTier,
-    proposedInput: jsonValueSchema.parse(proposedInputForRow),
+    proposedInput: persistedProposedInput,
     proposedInputHash,
     requiresApproval,
     status: "pending",
     notifyAfterAt,
     expiresAt,
   });
+  let row = upserted.row;
+  const insertedNew = upserted.wasInserted;
   // Defensive: the (run_id, tool_call_id) unique index says one tool call id
   // maps to one row. If a caller re-dispatches the same id with a different
   // `toolName`, the model emitted two tools under the same call id — a
@@ -596,23 +623,43 @@ export async function dispatchToolCall(args: DispatchArgs): Promise<DispatchResu
       `[dispatch] toolName mismatch on re-dispatch (run=${args.runId}, toolCallId=${args.toolCallId}, stored='${row.toolName}', got='${toolName}')`,
     );
   }
+  let promotedPendingApproval = false;
+  const riskFloorRequiresApproval = toolRequiresApproval("autonomy", riskTier);
+  if (
+    !insertedNew &&
+    row.status === "pending" &&
+    riskFloorRequiresApproval &&
+    !row.requiresApproval
+  ) {
+    const promoted = await stagingStore().promotePendingApproval(row.id, {
+      riskTier,
+      proposedInput: persistedProposedInput,
+      proposedInputHash,
+      notifyAfterAt,
+      expiresAt,
+    });
+    if (!promoted) {
+      throw new Error(
+        `[dispatch] pending approval promotion failed closed (run=${args.runId}, toolCallId=${args.toolCallId})`,
+      );
+    }
+    row = promoted;
+    promotedPendingApproval = true;
+  }
   switch (row.status) {
     case "pending":
-      // Honor the `requires_approval` recorded on the row, NOT the
-      // freshly-resolved policy. If the user changed their integration
-      // mode after the row was inserted (e.g. gated → autonomy), the
-      // pending row should still respect the decision that was active
-      // when it was staged — otherwise a policy toggle would silently
-      // auto-execute every in-flight gated call. Policy changes apply
-      // to the next dispatched tool call; once staged, a row's gate
-      // sticks. Mirrors the plan's intent that `requires_approval` is
-      // the locked-in decision per ADR-0034.
+      // Approval requirements are monotonic while a row is pending. The
+      // promotion above lets a newly-raised risk floor add a gate, while this
+      // stored value prevents a later policy change (gated → autonomy) from
+      // removing one. Policy changes apply normally to fresh calls, but an
+      // in-flight call can only become safer. See ADR-0034 / ADR-0088.
       if (row.requiresApproval) {
         // Park. The executor emits the transient `approval.requested`
         // event when it commits the interrupt; Replicache carries the
-        // durable approvals queue. Emit the poke only for a newly-created
-        // row so crash/resume re-dispatches don't spam connected clients.
-        if (insertedNew) emitReplicachePokes([args.userId], row.id);
+        // durable approvals queue. Emit the poke only when the row first enters
+        // that queue, by insertion or promotion, so ordinary resumes do not spam
+        // connected clients.
+        if (insertedNew || promotedPendingApproval) emitReplicachePokes([args.userId], row.id);
         if (!row.notifiedAt) {
           const delayMs =
             row.notifyAfterAt instanceof Date
@@ -806,6 +853,63 @@ export function toolRequiresApproval(policyMode: PolicyMode, riskTier: ToolRiskT
 }
 
 /**
+ * Resolve input-dependent risk without letting a new resolver silently lower
+ * its tool's approval floor. Intentional downgrades are reviewed declarations
+ * on the tool and are logged without the proposed input (ADR-0088).
+ */
+export async function resolveEffectiveRiskTier(
+  tool: RegisteredTool,
+  input: unknown,
+  ctx: ToolExecuteContext,
+): Promise<ToolRiskTier> {
+  if (!tool.resolveRiskTier) return tool.riskTier;
+
+  const resolved: unknown = await tool.resolveRiskTier(input, ctx);
+  if (!isToolRiskTier(resolved)) {
+    logger.warn(
+      {
+        event: "tool_risk_tier_invalid",
+        toolName: tool.name,
+        staticRiskTier: tool.riskTier,
+        runId: ctx.runId,
+      },
+      "Ignored invalid resolved tool risk tier",
+    );
+    return tool.riskTier;
+  }
+  const staticRank = TOOL_RISK_RANK[tool.riskTier];
+  const resolvedRank = TOOL_RISK_RANK[resolved];
+  if (resolvedRank >= staticRank) return resolved;
+
+  if (!tool.riskTierDowngradeReason) {
+    logger.warn(
+      {
+        event: "tool_risk_tier_downgrade_clamped",
+        toolName: tool.name,
+        staticRiskTier: tool.riskTier,
+        attemptedRiskTier: resolved,
+        runId: ctx.runId,
+      },
+      "Clamped undeclared tool risk-tier downgrade",
+    );
+    return tool.riskTier;
+  }
+
+  logger.info(
+    {
+      event: "tool_risk_tier_downgrade",
+      toolName: tool.name,
+      staticRiskTier: tool.riskTier,
+      resolvedRiskTier: resolved,
+      reason: tool.riskTierDowngradeReason,
+      runId: ctx.runId,
+    },
+    "Applied reviewed tool risk-tier downgrade",
+  );
+  return resolved;
+}
+
+/**
  * Best-effort prediction of whether a *fresh* dispatch of this tool would gate
  * (stage for approval) instead of executing autonomously. Mirrors the policy +
  * risk-tier gate in {@link dispatchToolCall}: `system.*` is always autonomy,
@@ -824,8 +928,13 @@ export async function toolCallWouldGate(userId: string, toolName: string): Promi
   if (!isToolName(toolName)) return false;
   if (integrationFromToolName(toolName) === "system") return false;
   const policyMode = await resolvePolicyMode(userId, toolName);
-  const riskTier = getTool(toolName)?.riskTier ?? "no_risk";
-  return toolRequiresApproval(policyMode, riskTier);
+  const tool = getTool(toolName);
+  if (!tool) return false;
+  // The hint has no validated input or execution context. Keep any dynamic
+  // resolver in the serial approval lane; the live dispatch remains the source
+  // of truth and may still execute a lower-tier call without parking.
+  if (tool.resolveRiskTier) return true;
+  return toolRequiresApproval(policyMode, tool.riskTier);
 }
 
 const dispatchToolCallRoundAdapter: DispatchToolCallRoundAdapter = {

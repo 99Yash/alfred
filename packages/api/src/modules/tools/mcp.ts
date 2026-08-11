@@ -92,6 +92,8 @@ export const mcpTools: readonly RegisteredTool[] = [
         remoteName: input.remoteName,
         catalogRevision: input.catalogRevision,
       }),
+    riskTierDowngradeReason:
+      "#541 reviewed policy binds the exact owned MCP descriptor and catalog revision",
     execute: async (input, ctx) => {
       if (!ctx.stagingId) {
         // mcp.call is always staged (high floor), so it only reaches execution via

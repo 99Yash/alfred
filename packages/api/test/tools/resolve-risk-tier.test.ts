@@ -1,9 +1,11 @@
 import assert from "node:assert/strict";
 import { describe, test } from "node:test";
 import { z } from "zod";
+import type { ToolRiskTier } from "@alfred/contracts";
 
 import { toolExecuteContext } from "../../src/modules/tools/context";
 import { liveTool } from "../../src/modules/tools/registry";
+import { resolveEffectiveRiskTier } from "../../src/modules/dispatch";
 
 /**
  * Deterministic (no-DB) coverage of the `resolveRiskTier` wiring seam (#541 Part
@@ -76,5 +78,50 @@ describe("liveTool resolveRiskTier wiring", () => {
     const tier = await tool.resolveRiskTier?.({ n: "3" }, ctx);
     assert.equal(tier, "low");
     assert.deepEqual(seen, { n: 3 }, "the resolver receives the parsed (coerced) input");
+  });
+
+  test("centrally clamps an undeclared downgrade to the static tier", async () => {
+    const tool = liveTool({
+      integration: "mcp",
+      action: "call",
+      riskTier: "high",
+      description: "t",
+      inputSchema: z.object({ n: z.number() }),
+      resolveRiskTier: async () => "low",
+      execute: async () => ({ ok: true }),
+    });
+
+    assert.equal(await resolveEffectiveRiskTier(tool, { n: 3 }, ctx), "high");
+  });
+
+  test("allows a declared reviewed downgrade", async () => {
+    const tool = liveTool({
+      integration: "mcp",
+      action: "call",
+      riskTier: "high",
+      description: "t",
+      inputSchema: z.object({ n: z.number() }),
+      resolveRiskTier: async () => "low",
+      riskTierDowngradeReason: "reviewed test policy",
+      execute: async () => ({ ok: true }),
+    });
+
+    assert.equal(await resolveEffectiveRiskTier(tool, { n: 3 }, ctx), "low");
+  });
+
+  test("an invalid resolver result fails closed to the static tier", async () => {
+    const tool = liveTool({
+      integration: "mcp",
+      action: "call",
+      riskTier: "high",
+      description: "t",
+      inputSchema: z.object({ n: z.number() }),
+      // Model a resolver that failed to validate a persisted or protocol value.
+      resolveRiskTier: async () => "not_a_tier" as ToolRiskTier,
+      riskTierDowngradeReason: "reviewed test policy",
+      execute: async () => ({ ok: true }),
+    });
+
+    assert.equal(await resolveEffectiveRiskTier(tool, { n: 3 }, ctx), "high");
   });
 });

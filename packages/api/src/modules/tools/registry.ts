@@ -211,26 +211,21 @@ export interface LiveToolArgs<
   riskTier: ToolRiskTier;
   /**
    * Optional: compute the EFFECTIVE risk tier from the validated input at the
-   * dispatch gate, overriding the static `riskTier`. `mcp.call` uses it to apply
-   * a reviewed per-descriptor downgrade (#541) — its static `riskTier` is the
-   * pessimistic floor, and this narrows it only when a reviewed policy binds to
-   * the exact tool being called.
+   * dispatch gate. The dispatcher centrally clamps an undeclared downgrade to
+   * the static `riskTier`; raising the tier needs no extra declaration.
    *
-   * TRUST BOUNDARY — read before adding a second implementer. The dispatcher does
-   * NOT clamp what this returns (it cannot: the whole point is to go *below* the
-   * static floor), so `toolRequiresApproval` gates on the returned tier verbatim —
-   * any value other than `high` waives approval. This hook is therefore the SOLE
-   * gate on lowering a tool's approval floor: there is no central guard, type, or
-   * test that makes an over-permissive return impossible. So it MUST be
-   * fail-closed — every point of uncertainty returns the static floor — and
-   * side-effect free (it runs on EVERY dispatch, before staging). Today `mcp.call`
-   * is the only caller and the decision is centralized in `resolveMcpCallRiskTier`;
-   * a second caller that returns a lower tier on a bug silently un-gates a
-   * high-floor action. If this grows past one caller, promote the guard from this
-   * convention into a central clamp/audit rather than another careful function.
-   * See decisions.md (ADR-0088).
+   * The resolver must be side-effect free because it runs on every fresh
+   * dispatch before staging. A tool that intentionally lowers its static tier
+   * must also set `riskTierDowngradeReason`; the dispatcher records that reviewed
+   * exception without logging the tool input. See decisions.md (ADR-0088).
    */
   resolveRiskTier?: (input: z.infer<S>, ctx: ToolExecuteContext) => Promise<ToolRiskTier>;
+  /**
+   * Reviewed reason that permits `resolveRiskTier` to return below the static
+   * tier. Omit for input-dependent escalation rules; an accidental downgrade is
+   * then clamped centrally. Illegal without `resolveRiskTier`.
+   */
+  riskTierDowngradeReason?: string;
   /** How the dispatch floor routes this call. Omitted means `"staged"`. */
   staging?: ToolStagingPolicy;
   /** Calls in the same live-chat lane execute in model order. */
@@ -286,6 +281,8 @@ export interface RegisteredTool {
   riskTier: ToolRiskTier;
   /** See {@link LiveToolArgs.resolveRiskTier}. Erased to `unknown` at the registry boundary. */
   resolveRiskTier?: (input: unknown, ctx: ToolExecuteContext) => Promise<ToolRiskTier>;
+  /** See {@link LiveToolArgs.riskTierDowngradeReason}. */
+  riskTierDowngradeReason?: string | undefined;
   /** See {@link ToolStagingPolicy}. Resolved from the optional declaration. */
   staging: ToolStagingPolicy;
   /** Shared-state lane that tool-runtime serializes during a live chat round. */
@@ -475,6 +472,7 @@ export function liveTool<
     integration: args.integration,
     action: args.action,
     riskTier: args.riskTier,
+    riskTierDowngradeReason: args.riskTierDowngradeReason,
     staging: args.staging ?? "staged",
     executionLane: args.executionLane,
     policyGateWaiver: args.policyGateWaiver,
@@ -537,6 +535,16 @@ export function registerTool(tool: RegisteredTool): void {
   }
   if (tool.availability?.surface === "kernel" && tool.integration !== "system") {
     throw new Error(`[tools] only system tools may declare availability.surface='kernel'`);
+  }
+  if (tool.riskTierDowngradeReason !== undefined) {
+    if (!tool.resolveRiskTier) {
+      throw new Error(
+        `[tools] '${tool.name}' declares riskTierDowngradeReason without resolveRiskTier`,
+      );
+    }
+    if (tool.riskTierDowngradeReason.trim().length === 0) {
+      throw new Error(`[tools] '${tool.name}' declares an empty riskTierDowngradeReason`);
+    }
   }
   // `fast_path` skips the staging row and with it the ADR-0034 policy / ADR-0069
   // risk gate, so it must be unreachable for anything that could ever require
