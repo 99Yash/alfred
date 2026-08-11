@@ -26,19 +26,28 @@ export { securityHeaders, type SecurityHeadersOptions } from "./middleware/secur
 export { getSessionCached, invalidateSessionToken } from "./middleware/session-cache";
 
 // Routes. This is one barrel with no subpaths, so it is also one
-// module-evaluation unit: importing ANY binding above now also evaluates all
-// five route modules below — the agent route plus the four domain routes
-// campaign item 05 moved across — and through them `drizzle-orm`, `@alfred/db`
-// and every `@alfred/assistant` subpath they reach. That graph needs no
-// environment variables and no database to load, re-probed after item 05's
-// move with `DATABASE_URL`, `REDIS_URL`, `BETTER_AUTH_SECRET` and
-// `OAUTH_CREDENTIAL_KEK` all unset, and `apps/server` already loads it through
-// `@alfred/api`, so the cost is inert today — but keep module-scope side
-// effects out of anything added here. Do not turn "what the routes reach" into
-// a list: campaign items 24-27 add more, and an enumeration in this position
-// is the one prose shape no gate maintains.
+// module-evaluation unit: importing ANY binding above also evaluates every
+// route module below, and everything those modules reach, transitively. So the
+// whole graph must load with no environment variable, no database and no Redis
+// — keep module-scope side effects out of anything added here and out of
+// anything it imports.
+//
+// The detector for that load requirement is `test/barrel-load.test.ts`, which
+// exists as a file of its own so that no other test's import can quietly become
+// the thing that checks it. It is tier 4 and it covers one clause: it reports a
+// module-scope read of something that is not there, it does not prevent one.
+// Two things nothing here reports. A handle retained at module scope — a timer,
+// an open connection — is checked by no gate in this repo, because the package
+// runs its tests with `--test-force-exit`; keep them out on the strength of the
+// rule above, not on the strength of a green job. And how wide the graph
+// became: if you need that, measure the resolved-module graph on both sides of
+// your change, because an export count cannot see it and neither can the
+// package you happened to declare. Do not restate any of this as a list of what
+// the routes reach: an enumeration in this position is the one prose shape no
+// gate maintains.
 export { agent } from "./agent";
 export { approvalsRoutes } from "./approvals";
+export { chatRoutes } from "./conversations";
 export { onboardingRoutes } from "./onboarding";
 export { skillsRoutes } from "./skills";
 export { workflowRoutes } from "./workflows";
