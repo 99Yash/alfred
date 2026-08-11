@@ -21,14 +21,17 @@
  *   4. cancelRun: idempotent transitions + pending approval cleanup.
  */
 
-import { bustPolicyCache, cancelRun, dispatchToolCall, signalRun } from "@alfred/api/backend";
+import { cancelRun, dispatchToolCall, signalRun } from "@alfred/api/backend";
 import { clearToolRegistryForTests, liveTool, registerTools } from "@alfred/assistant/tool-runtime";
 import {
   closeConnections,
   closeRedis,
-  ensureDefaultActionPolicyForUser,
   warmPool,
 } from "@alfred/api/runtime";
+import {
+  bustPolicyCache,
+  ensureDefaultActionPolicyForUser,
+} from "@alfred/assistant/action-policies";
 import { db } from "@alfred/db";
 import {
   actionStagings,

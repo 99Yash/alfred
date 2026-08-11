@@ -2,7 +2,7 @@ import { db, type DbTransaction } from "@alfred/db";
 import { replicacheClient, replicacheClientGroup } from "@alfred/db/schemas";
 import { mutatorArgsSchemas, type MutatorName } from "@alfred/sync";
 import { eq, sql } from "drizzle-orm";
-import { publishPolicyBust } from "../action-policies";
+import { publishPolicyBust } from "@alfred/assistant/action-policies";
 import { emitReplicachePokes } from "@alfred/assistant/triggers";
 import {
   enqueueChatStorageCleanup,

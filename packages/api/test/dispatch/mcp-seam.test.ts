@@ -7,7 +7,7 @@ import { actionStagings, agentRuns, user, userActionPolicies } from "@alfred/db/
 import type { Tool } from "@modelcontextprotocol/client";
 import { and, eq, inArray, like } from "drizzle-orm";
 
-import { clearPolicyCacheForTests } from "../../src/modules/action-policies/resolve";
+import { clearPolicyCacheForTests } from "@alfred/assistant/action-policies/test-support";
 import { dispatchToolCall } from "../../src/modules/dispatch";
 import {
   _setMcpRuntimeForTests,
