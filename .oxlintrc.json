@@ -101,7 +101,20 @@
         "packages/api/test/integrations/gmail-watch-gate.test.ts"
       ],
       "rules": {
-        "no-restricted-imports": "off"
+        // Deliberate omission: the @alfred/integrations/google/internal group is absent on purpose — these
+        // two files ARE that door's allowlist. Every other root group must be restated here, because an
+        // override REPLACES the rule's options wholesale. Item 47 asserts this list against the root one.
+        "no-restricted-imports": [
+          "error",
+          {
+            "patterns": [
+              {
+                "group": ["@alfred/assistant/knowledge/internal"],
+                "message": "The knowledge internal tooling door is restricted to apps/server/src/scripts/** (see packages/assistant/src/knowledge/internal.ts). Import the sanctioned contract from @alfred/assistant/knowledge instead."
+              }
+            ]
+          }
+        ]
       }
     },
     {
