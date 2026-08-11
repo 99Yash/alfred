@@ -19,11 +19,18 @@ a lock, changes the one item, stamps `updatedAt`, and renames the file into plac
 only reason more than one lane can run at a time.
 
 ```bash
-node scripts/campaign-state.mjs set --state "$S" --id 09 phase=review round=1 pr=764
-node scripts/campaign-state.mjs set --state "$S" --id 09 phase=needs-human note="one line why"
-node scripts/campaign-state.mjs note --state "$S" "- [09 design] the fact another item needs"
-node scripts/campaign-state.mjs get  --state "$S" --id 09
+CS="$(cd "$C/../.." && pwd)/scripts/campaign-state.mjs"
+
+node "$CS" set --state "$S" --id 09 phase=review round=1 pr=764
+node "$CS" set --state "$S" --id 09 phase=needs-human note="one line why"
+node "$CS" note --state "$S" "- [09 design] the fact another item needs"
+node "$CS" get  --state "$S" --id 09
 ```
+
+Resolve it from `$C` like that, **not** as `scripts/campaign-state.mjs`. Your cwd is the
+item's worktree, and a worktree branched before this script landed does not contain it —
+`$C` is always in the main checkout, two levels above the campaign dir, so the same command
+works from every worktree regardless of what its branch point held.
 
 `note` appends to `NOTES.md` under the same lock, for the same reason. `round` and `pr` are
 written as numbers, `null` as JSON null; the literal `updatedAt` is never passed by hand. A
