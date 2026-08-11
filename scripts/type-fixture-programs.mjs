@@ -43,6 +43,29 @@ const FIXTURE_SUFFIX = ".type-test.ts";
 const CHECK_TYPES = "check-types";
 const TSC_BIN = "node_modules/.bin/tsc";
 
+/**
+ * The standalone program that type-checks `scripts/`. The tree is not a workspace, so
+ * no package's `check-types` reaches it; the root `check-types` script runs this
+ * project directly.
+ */
+export const SCRIPTS_PROJECT = "scripts/tsconfig.json";
+
+/**
+ * The one directory of `scripts/` that stays outside that program. A spike carries its
+ * own `package.json` and its own uninstalled dependencies, so including it would report
+ * a missing module rather than anything about this repository.
+ *
+ * This is the check's spelling of the rule. `SCRIPTS_PROJECT` holds a SECOND spelling,
+ * project-relative and as a glob (`spikes/**`), and nothing holds the two to each
+ * other: tsc's config grammar takes globs, this comparison takes a path prefix. That
+ * divergence is stated rather than hidden — whoever changes one must change the other,
+ * and the only thing that catches it is a reader.
+ */
+export const SCRIPTS_EXCLUDED_ROOT = "scripts/spikes/";
+
+/** `scripts/` holds `.mjs` and nothing else that runs; the program's `include` says the same. */
+const SCRIPT_FILE = /\.mjs$/;
+
 // Options that consume the token after them. A value mistaken for a positional
 // would be read as a project path, so the ones a typecheck script could
 // plausibly carry are listed rather than guessed at.
@@ -91,6 +114,7 @@ export function tscProjectsFor(script) {
     const found = [];
     let build = false;
     let inputFiles = false;
+    /** @type {string | null} */
     let dangling = null;
 
     for (let index = start + 1; index < tokens.length; index += 1) {
@@ -157,6 +181,17 @@ function normalizeProject(project) {
  * composite projects every package here extends. The cache is per call rather
  * than per module: a fixture that narrows an `include` and re-runs must see the
  * new answer.
+ *
+ * `cache` was passed by one call site and declared by nobody until
+ * `scripts/tsconfig.json` type-checked this file: the documented option list and the
+ * call site had disagreed in silence, which is the shape this program exists to end.
+ *
+ * @typedef {{files: Set<string>, problem: string | null}} ProgramFileSet
+ *
+ * @param {string} root
+ * @param {string} projectPath
+ * @param {{tsc?: string, cache?: Map<string, ProgramFileSet>}} [options]
+ * @returns {ProgramFileSet}
  */
 export function programFiles(root, projectPath, { tsc = defaultTscPath(root), cache } = {}) {
   const absolute = resolve(root, projectPath);
@@ -180,7 +215,8 @@ export function programFiles(root, projectPath, { tsc = defaultTscPath(root), ca
     } catch (error) {
       // tsc reports a malformed project on stdout and exits non-zero; keep
       // whatever it listed so a partial answer is still a named failure.
-      stdout = typeof error.stdout === "string" ? error.stdout : "";
+      const partial = /** @type {{stdout?: unknown}} */ (error).stdout;
+      stdout = typeof partial === "string" ? partial : "";
     }
     const files = new Set(
       stdout
@@ -284,6 +320,51 @@ export function typeFixtureFailures(root, tsc = defaultTscPath(root)) {
   }
 
   return { checked: fixtures.length, projectsProbed, failures };
+}
+
+/**
+ * The same rule as {@link typeFixtureFailures}, one directory over: every tracked
+ * script outside {@link SCRIPTS_EXCLUDED_ROOT} must be a file of
+ * {@link SCRIPTS_PROJECT}.
+ *
+ * `scripts/tsconfig.json` selects its files by a glob, so a new script joins the
+ * program by existing — which is exactly what makes the failure invisible. A script the
+ * glob does not reach, because someone added a directory or narrowed the `include`, is
+ * type-checked by nothing and reads identically to one that is checked. The `include`
+ * is the thing that rots, so this asks `tsc` which files it actually read instead of
+ * re-implementing the glob.
+ *
+ * Membership goes through {@link programFiles}, so a project that cannot be probed at
+ * all — deleted, malformed, or narrowed down to nothing — is one named failure and
+ * never a silent pass over an empty file set.
+ *
+ * @param {string} root
+ * @param {string} [tsc]
+ * @param {Map<string, ProgramFileSet>} [cache]
+ * @returns {{checked: number, failures: string[]}}
+ */
+export function scriptProgramFailures(root, tsc = defaultTscPath(root), cache) {
+  const failures = [];
+  const tracked = listGitSourceFiles(["scripts"], root).filter(
+    (file) => SCRIPT_FILE.test(file) && !file.startsWith(SCRIPTS_EXCLUDED_ROOT),
+  );
+
+  const { files, problem } = programFiles(root, SCRIPTS_PROJECT, cache ? { tsc, cache } : { tsc });
+  if (problem !== null) {
+    failures.push(
+      `${SCRIPTS_PROJECT} · ${problem}, so no script in the tree can be shown to be type-checked.`,
+    );
+    return { checked: tracked.length, failures };
+  }
+
+  for (const script of tracked) {
+    if (isMember(root, script, files)) continue;
+    failures.push(
+      `${script} · is in no program (${SCRIPTS_PROJECT} does not read it), so tsc never checks it. Widen that project's \`include\`, or move the file under \`${SCRIPTS_EXCLUDED_ROOT}\` if it is a spike with dependencies of its own.`,
+    );
+  }
+
+  return { checked: tracked.length, failures };
 }
 
 /** Compare against tsc's own answer under both spellings of the path — a temp dir may be reached through a symlink. */

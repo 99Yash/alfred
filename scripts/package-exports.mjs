@@ -175,7 +175,9 @@ export function packageExportsFailures(root) {
     try {
       parsed = JSON.parse(readFileSync(join(root, manifest), "utf8"));
     } catch (error) {
-      failures.push(`${manifest} is not readable as JSON (${error.message}), so its exports map cannot be checked.`);
+      failures.push(
+        `${manifest} is not readable as JSON (${error instanceof Error ? error.message : String(error)}), so its exports map cannot be checked.`,
+      );
       continue;
     }
 

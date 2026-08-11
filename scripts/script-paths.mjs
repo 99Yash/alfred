@@ -126,7 +126,7 @@ export function repoPathLiterals(root) {
       source = readFileSync(join(root, file), "utf8");
     } catch (error) {
       failures.push(
-        `${file} could not be read (${error.message}), so its path literals went unchecked`,
+        `${file} could not be read (${error instanceof Error ? error.message : String(error)}), so its path literals went unchecked`,
       );
       continue;
     }

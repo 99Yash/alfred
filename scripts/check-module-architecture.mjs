@@ -922,6 +922,21 @@ function baselineDocument(architecture) {
  *
  * `path` is a parameter so the self-test can drive the missing-file and unparseable
  * branches without writing to disk — every caller in this script passes nothing.
+ *
+ * A rejection carries only `error` and an acceptance only `baseline`, for the same
+ * reason and by the same mechanism as {@link baselineEmission}: the literal `ok` makes
+ * reading the wrong one a compile error rather than an `undefined` some later caller
+ * has to notice at run time.
+ *
+ * The accepted `baseline` stays `unknown`. Only the ratchet lists are validated here,
+ * so the rest of the document is whatever the file held, and it is typed as it is read
+ * rather than as it is hoped.
+ *
+ * @typedef {{ok: false, error: string}} BaselineRejection
+ * @typedef {{ok: true, baseline: unknown}} BaselineAcceptance
+ *
+ * @param {string} [path]
+ * @returns {BaselineRejection | BaselineAcceptance}
  */
 function loadBaseline(path = BASELINE_PATH) {
   if (!existsSync(path)) {
@@ -933,7 +948,7 @@ function loadBaseline(path = BASELINE_PATH) {
   } catch (error) {
     return {
       ok: false,
-      error: `${relativeToRoot(path)} is not valid JSON: ${error.message}`,
+      error: `${relativeToRoot(path)} is not valid JSON: ${error instanceof Error ? error.message : String(error)}`,
     };
   }
   const faults = baselineRatchetFaults(parsed);
@@ -977,6 +992,12 @@ function loadBaseline(path = BASELINE_PATH) {
  * a list of keys, so it gets its own loop rather than a `memberKind`. A baseline with no
  * `sccs` is refused by name — fails closed, because a recorded graph that declares
  * nothing would otherwise pass the cross-check by permitting everything.
+ *
+ * @param {unknown} parsed The committed file exactly as it was read. This function is
+ *   the boundary that owns the shape, so it takes the persisted document unvalidated.
+ * @returns {string[]} One sentence per unusable list. Empty means every ratchet list is
+ *   a list of keys of its own spelling — never a "the baseline is valid" verdict, which
+ *   is {@link loadBaseline}'s to give.
  */
 function baselineRatchetFaults(parsed) {
   const faults = [];
@@ -1119,8 +1140,22 @@ function baselineDelta(baseline, document) {
  * self-permitting baseline would launder the union into a legitimately declared cycle,
  * because the check would already have accepted the merged tree against it.
  *
- * A refusal carries NO `document` and NO `delta`: there is then nothing for a future
- * caller to write by forgetting one `if`.
+ * A refusal carries no `document` and no `delta`, so there is nothing for a future
+ * caller to write by forgetting one `if`. That is a property of the return TYPE below,
+ * not of this sentence: `scripts/tsconfig.json` type-checks this file, and reading
+ * either field without first narrowing on `ok` does not compile.
+ *
+ * The literal `ok` in each member is what buys that. Without the annotation TypeScript
+ * widens the `ok` of a fresh object literal to `boolean`, the return type stops being a
+ * discriminated union, and the narrowing this function's whole safety argument rests on
+ * silently does nothing.
+ *
+ * @typedef {{ok: false, violations: string[]}} BaselineEmissionRefusal
+ * @typedef {{ok: true, violations: string[], document: ReturnType<typeof baselineDocument>, delta: ReturnType<typeof baselineDelta>}} BaselineEmissionAcceptance
+ *
+ * @param {ReturnType<typeof collectArchitecture>} architecture
+ * @param {unknown} baseline The `baseline` of an accepted {@link loadBaseline} read.
+ * @returns {BaselineEmissionRefusal | BaselineEmissionAcceptance}
  */
 function baselineEmission(architecture, baseline) {
   const violations = checkArchitecture(architecture, baseline);
@@ -1404,16 +1439,22 @@ const text = 'import "ignored-string"';
     }),
     syntheticBaseline(),
   );
+  // `Object.hasOwn` rather than a `!== undefined` read: the return type now declares
+  // both fields ABSENT from a refusal, so reading either one off this value no longer
+  // compiles. This holds the runtime object to the same claim the type makes — a
+  // present-but-`undefined` key would satisfy the old comparison and contradict it.
+  const refusedPayloadKeys = ["document", "delta"].filter((key) =>
+    Object.hasOwn(refusedEmission, key),
+  );
   if (
     refusedEmission.ok ||
-    refusedEmission.document !== undefined ||
-    refusedEmission.delta !== undefined ||
+    refusedPayloadKeys.length > 0 ||
     !refusedEmission.violations.some((violation) =>
       violation.includes("new cyclic package edge: a -> b"),
     )
   ) {
     failures.push(
-      `baseline emission self-test mismatch: expected a payload-free refusal naming the new cyclic edge, received ok=${refusedEmission.ok} document=${typeof refusedEmission.document} delta=${typeof refusedEmission.delta} violations=${JSON.stringify(refusedEmission.violations)}`,
+      `baseline emission self-test mismatch: expected a payload-free refusal naming the new cyclic edge, received ok=${refusedEmission.ok} payloadKeys=${JSON.stringify(refusedPayloadKeys)} violations=${JSON.stringify(refusedEmission.violations)}`,
     );
   }
   // (viii) A graph the check accepts must not be refused FOR A CYCLE, and it must be

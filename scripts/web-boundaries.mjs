@@ -348,7 +348,14 @@ function packageTokens(line) {
  * — an inline pair leaves a bullet half inside and half outside.
  */
 function locateRegion(site, kind, lines, failures) {
-  const { start: startMarker, end: endMarker } = DOC_REGION_MARKERS.get(kind.name);
+  // `Map.get` is typed as partial, but this one is not: `DOC_REGION_MARKERS` is built
+  // from `DOC_REGION_KINDS` and every call site passes a `kind` drawn from that same
+  // list, so the miss is unreachable by construction. The assertion records that
+  // warrant. A runtime guard here would be a branch no input can reach and no drive
+  // can cover — which is a worse thing to add to a checker than a stated assumption.
+  const { start: startMarker, end: endMarker } = /** @type {{start: string, end: string}} */ (
+    DOC_REGION_MARKERS.get(kind.name)
+  );
   const source = lines.join("\n");
 
   const starts = source.split(startMarker).length - 1;

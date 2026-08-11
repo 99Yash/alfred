@@ -63,6 +63,12 @@ function withFixture(body) {
  * discovery asks git for `--others --exclude-standard`, so an uncommitted fixture
  * exercises the same path a working tree does.
  */
+/**
+ * @param {string} fixture
+ * @param {Record<string, unknown>} [manifest] Whatever the case under test needs the
+ *   root manifest to be — including one with no oxlint script at all, which is the
+ *   shape that makes the pin rule vacuous.
+ */
 function initRepo(fixture, manifest = PINNED_MANIFEST) {
   execFileSync("git", ["init", "--quiet"], { cwd: fixture });
   write(fixture, "package.json", `${JSON.stringify(manifest, null, 2)}\n`);
@@ -293,6 +299,12 @@ function fenceFailures(shape) {
  * A drive: the fixture must report exactly one failure naming `expected`, and its
  * control must report none. Both halves are required — a check that reddens on
  * everything is as useless as one that reddens on nothing.
+ */
+/**
+ * @param {string} label
+ * @param {{mutated: object, expected: string, control?: object}} cases `control` is
+ *   optional on purpose: a drive whose mutation is the only claim states none, and a
+ *   drive that also has to show the clean twin is silent states one.
  */
 function drive(label, { mutated, control, expected }) {
   const failures = [];
