@@ -7,7 +7,7 @@ path in `validateUrl` that 293 reuses; 294 is independent and could land any tim
 Source files:
 - `packages/api/src/modules/tools/fetch-url.ts` — `validateUrl()` (per-hop, line ~555), `FetchUrlError` union, `runFetchUrl` output.
 - `packages/api/src/modules/dispatch/index.ts` — `proposedInput` write (~371), `executeToolWithSpan`/`startToolSpan` input (~772). Hash (~301) + execute stay raw.
-- `packages/api/src/modules/me/email-html.ts` — `sanitizeEmailHtml` (inject CSP meta).
+- `packages/assistant/src/triage/email-html.ts` — `sanitizeEmailHtml` (inject CSP meta).
 - `apps/web/src/routes/-preview-chat/inbox-feed.tsx` — `EmailHtmlFrame` (CSP swap + Load button), Reader `MarkdownRenderer` call.
 - `apps/web/src/components/markdown-renderer/index.tsx` — add `images` prop.
 

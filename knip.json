@@ -26,11 +26,14 @@
     "apps/server": {
       "entry": ["src/scripts/**/*.ts", "evals/**/*.ts", "evalite.config.ts"],
       "ignoreDependencies": [
-        // Bundle externals (see `external` in apps/server/tsdown.config.ts): @alfred/api
-        // imports these, tsdown leaves them out of the bundle, so they must resolve from
-        // the server's own node_modules at runtime. Knip does not read tsdown externals.
-        "isomorphic-dompurify",
-        "jsdom",
+        // Bundle externals (see `external` in apps/server/tsdown.config.ts): a workspace
+        // package in the server's graph imports these, tsdown leaves them out of the
+        // bundle, so they must resolve from the server's own node_modules at runtime.
+        // Knip does not read tsdown externals. The importer is named per entry where it
+        // is not this app.
+        "isomorphic-dompurify", // @alfred/assistant/triage/email-html
+        "jsdom", // transitive: isomorphic-dompurify
+
         "sharp",
         "@alfred/mailer",
         // Needed for `"jsx": "react"` (apps/server/tsconfig.json) — the server

@@ -17,7 +17,7 @@ import { client } from "~/lib/eden";
  * render honest empty states.
  *
  * The server already coerces every aggregate to a finite number (Postgres
- * returns `numeric`/`sum` as strings; `usage-service` folds them via `num`), so
+ * returns `numeric`/`sum` as strings; `usage-report` folds them via `num`), so
  * the responses arrive shaped exactly as the `@alfred/contracts` types declare.
  * We return Eden's typed payload directly rather than re-coercing field by field
  * — the only date fields here are fed straight to `new Date()` downstream, which
