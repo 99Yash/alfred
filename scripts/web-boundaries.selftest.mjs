@@ -64,28 +64,35 @@ function initWorkspaceRepo(fixture) {
 
 function runtimeBindingFailures() {
   const failures = [];
-  // Pins today's behavior exactly. The widened surface must not change which
-  // clause shapes count as a runtime binding.
+  // One rule over every clause shape: a clause is erased only when the `type`
+  // keyword LEADS it. Everything else is a module load.
   //
-  // All seven cells are unchanged by the move to a token walk, and that is by
-  // construction rather than by luck: `hasRuntimeBinding` itself is untouched,
-  // and the walk hands it the same text the regex captured — the source between
-  // the `import`/`export` keyword and the `from` token, so ` { type A } ` and
-  // never ` { type A } from `. Widening the slice over the `from` token would
-  // flip `{ type A }` to `true`.
+  // The three cells that look surprising are the point. `{ type A }`, `{ type A,
+  // type B }` and `{}` bind no value, but under `verbatimModuleSyntax`
+  // (`packages/config/tsconfig.base.json:8`, which `apps/web/tsconfig.json`
+  // extends) TypeScript emits `import {} from "@alfred/db"` for all three — a
+  // live evaluation that drags the package's Node-only dependencies into the
+  // bundle. A predicate that called them erased both under-reported a real leak
+  // and dropped the package out of browser-root discovery entirely.
   //
-  // `{ type A }` must stay `false` here even though `verbatimModuleSyntax`
-  // makes that form emit a real module load. That gap is its own queued change;
-  // a scanner rewrite must not close it in passing, because a fence that moves
-  // two rules at once cannot say which one a new failure came from.
+  // The clause the walk hands over is the source between the `import`/`export`
+  // keyword and the `from` token, so ` { type A } ` and never ` { type A } from `.
+  // Widening the slice over the `from` token would flip `{ type A }` to `true`
+  // for the wrong reason and make these cells pass vacuously — which is why the
+  // two fixtures below assert the same rule at the file level as well.
   const cases = [
     ["type A", false],
-    ["{ type A }", false],
-    ["{ type A, type B }", false],
+    ["type { A }", false],
+    ["{ type A }", true],
+    ["{ type A, type B }", true],
+    ["{ type A as B }", true],
+    ["{}", true],
     ["{ type A, b }", true],
     ["{ A }", true],
     ["A", true],
     ["* as A", true],
+    // A side-effect, dynamic or `require` form carries no clause at all.
+    ["", true],
   ];
   for (const [clause, expected] of cases) {
     if (hasRuntimeBinding(clause) !== expected) {
@@ -93,6 +100,84 @@ function runtimeBindingFailures() {
     }
   }
   return failures;
+}
+
+/**
+ * The reporting half, at file level: an all-`type` brace clause on a forbidden
+ * package is a violation.
+ *
+ * Asserts the exact violation list rather than "non-empty", so a fixture that
+ * starts reporting something else cannot pass as this one.
+ */
+function inlineTypeClauseViolationFailures() {
+  return withFixture("alfred-web-boundaries-inline-type-", (fixture) => {
+    const failures = [];
+    initWorkspaceRepo(fixture);
+
+    write(
+      fixture,
+      "apps/web/src/entry.ts",
+      ['import { type Database } from "@alfred/db";', "export type Handle = Database;"].join("\n"),
+    );
+    workspace(fixture, "db", { "d.ts": "export type Database = { id: string };\n" });
+
+    const violations = findViolations(fixture, "apps/web/src/entry.ts");
+    const expected = [{ line: 1, specifier: "@alfred/db" }];
+    if (JSON.stringify(violations) !== JSON.stringify(expected)) {
+      failures.push(
+        `an all-type brace clause on a forbidden package is a module load under verbatimModuleSyntax and must be reported: expected ${JSON.stringify(expected)}, received ${JSON.stringify(violations)}`,
+      );
+    }
+    return failures;
+  });
+}
+
+/**
+ * The root-discovery half, which is the half with the wider blast radius: the
+ * surface follows an all-`type` brace clause, so the package it reaches is
+ * scanned.
+ *
+ * Calling that clause erased does not merely under-report the clause itself — it
+ * keeps the whole package out of the fence, so a genuine leak anywhere in its
+ * `src/` goes unreported. The inline-`type` import is deliberately the ONLY edge
+ * into `typedonly`: give it a second, runtime edge and the case passes whatever
+ * the predicate answers, and proves nothing.
+ */
+function inlineTypeClauseRootFailures() {
+  return withFixture("alfred-web-boundaries-inline-type-root-", (fixture) => {
+    const failures = [];
+    buildReachabilityFixture(fixture);
+
+    write(
+      fixture,
+      "apps/web/src/typed.ts",
+      ['import { type Widget } from "@alfred/typedonly";', "export type Handle = Widget;"].join(
+        "\n",
+      ),
+    );
+    workspace(fixture, "typedonly", {
+      "w.ts": "export type Widget = { id: string };\n",
+      // The genuine leak that a missing root hides.
+      "leak.ts": 'import { serverEnv } from "@alfred/env/server";\nexport const leak = serverEnv;\n',
+    });
+
+    const roots = browserRoots(fixture);
+    if (!roots.includes("packages/typedonly/src")) {
+      failures.push(
+        `a package reached ONLY through an all-type brace clause must still become a browser root: expected packages/typedonly/src in ${JSON.stringify(roots)}`,
+      );
+    }
+
+    const flagged = browserSurface(fixture)
+      .files.filter((file) => findViolations(fixture, file).length > 0)
+      .sort();
+    if (!flagged.includes("packages/typedonly/src/leak.ts")) {
+      failures.push(
+        `the leak inside a package reached only through an all-type brace clause must be reported: expected packages/typedonly/src/leak.ts in ${JSON.stringify(flagged)}`,
+      );
+    }
+    return failures;
+  });
 }
 
 /**
@@ -740,6 +825,8 @@ function docListFailuresFailures() {
 export function webBoundarySelfTestFailures() {
   return [
     ...runtimeBindingFailures(),
+    ...inlineTypeClauseViolationFailures(),
+    ...inlineTypeClauseRootFailures(),
     ...lexicalPositionFailures(),
     ...mentionedPackageRootFailures(),
     ...statementBoundaryFailures(),
