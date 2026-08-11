@@ -12,7 +12,12 @@ const LEGACY_API_MODULES_ROOT = join(ROOT, "packages/api/src/modules");
 const ASSISTANT_SOURCE_ROOT = join(ROOT, "packages/assistant/src");
 const API_COMPOSITION_ROOT = join(ROOT, "packages/api/src/composition");
 const RUNTIME_ADAPTER_MANIFEST = join(API_COMPOSITION_ROOT, "runtime-adapters.ts");
-const TOOL_RUNTIME_ROOT = join(LEGACY_API_MODULES_ROOT, "tool-runtime");
+// The boot seams live in `@alfred/assistant`, not in the legacy api modules tree.
+// They moved there before this constant did, and because `walkSourceFiles` returns
+// `[]` for a directory that does not exist, the header rule below scanned zero files
+// and reported success from the move until this repoint. `SCANNED_PATHS` is what stops
+// the next move doing the same thing.
+const TOOL_RUNTIME_ROOT = join(ASSISTANT_SOURCE_ROOT, "tool-runtime");
 const BOOT_PORT_DEFINER = join(TOOL_RUNTIME_ROOT, "boot-port.ts");
 // A boot-seam call is `bootPort` followed by a generic or an argument list. The
 // character class covers both the `bootPort<Type>(` form and the bare `bootPort(`
@@ -50,6 +55,26 @@ const TARGET_ASSISTANT_MODULES = new Set([
   "triage",
 ]);
 const WEB_ROUTES_ROOT = join(ROOT, "apps/web/src/routes");
+// Every hardcoded repository path a rule in this file reads. Each one is the SOLE
+// input of its rule, so a path that stops resolving does not make its rule lenient —
+// it makes it enforce nothing, silently for a directory (`walkSourceFiles` returns
+// `[]`) and with an uncaught `node:fs` stack for a file. Absence is therefore a
+// violation for every row, with no "legitimately empty" escape hatch: it always means
+// one of two deliberate edits to this file — repoint the constant, or delete the rule
+// that reads it — and `scannedPathLivenessViolations` names both.
+//
+// Listing a path here proves it resolves on every `pnpm check`. It does NOT force the
+// next hardcoded path someone adds to be listed; that residue is real and is owned
+// elsewhere, not claimed here.
+const SCANNED_PATHS = [
+  { constant: "ASSISTANT_SOURCE_ROOT", path: ASSISTANT_SOURCE_ROOT, kind: "directory" },
+  { constant: "LEGACY_API_MODULES_ROOT", path: LEGACY_API_MODULES_ROOT, kind: "directory" },
+  { constant: "WEB_ROUTES_ROOT", path: WEB_ROUTES_ROOT, kind: "directory" },
+  { constant: "API_COMPOSITION_ROOT", path: API_COMPOSITION_ROOT, kind: "directory" },
+  { constant: "TOOL_RUNTIME_ROOT", path: TOOL_RUNTIME_ROOT, kind: "directory" },
+  { constant: "RUNTIME_ADAPTER_MANIFEST", path: RUNTIME_ADAPTER_MANIFEST, kind: "file" },
+  { constant: "BOOT_PORT_DEFINER", path: BOOT_PORT_DEFINER, kind: "file" },
+];
 const GRAPH_FLAG = "--print-graph";
 const BASELINE_FLAG = "--write-baseline";
 // `--print-baseline` was the previous name, and its documented invocation redirected
@@ -1655,6 +1680,85 @@ const aliasedPort = make("aliased");
       `boot-seam header alias-import fixture mismatch: received ${JSON.stringify(aliasImportFixtureViolations)}`,
     );
   }
+
+  // (a) Scanned-path liveness, red case. One absent row must be reported and must name
+  // its constant, so the message tells the reader which of the two edits to make. Pure,
+  // no filesystem.
+  const absentPathViolations = scannedPathLivenessViolations([
+    {
+      constant: "SELF_TEST_ABSENT_ROOT",
+      path: "/self-test/absent",
+      kind: "directory",
+      present: false,
+    },
+  ]);
+  if (!absentPathViolations.some((violation) => violation.includes("SELF_TEST_ABSENT_ROOT"))) {
+    failures.push(
+      `scanned-path liveness fixture mismatch: expected an absent row to be reported by constant name, received ${JSON.stringify(absentPathViolations)}`,
+    );
+  }
+  // (b) Scanned-path liveness, green case. Without it, (a) also passes for a closure
+  // that fires on every row.
+  const presentPathViolations = scannedPathLivenessViolations([
+    {
+      constant: "SELF_TEST_PRESENT_ROOT",
+      path: "/self-test/present",
+      kind: "directory",
+      present: true,
+    },
+    {
+      constant: "SELF_TEST_PRESENT_FILE",
+      path: "/self-test/present.ts",
+      kind: "file",
+      present: true,
+    },
+  ]);
+  if (presentPathViolations.length > 0) {
+    failures.push(
+      `scanned-path liveness fixture mismatch: expected no violation for an all-present list, received ${JSON.stringify(presentPathViolations)}`,
+    );
+  }
+  // (c) Discovery, over the REAL tool-runtime tree — the drive whose absence let this
+  // rule scan zero files. The five fixtures above all pass over an empty file set,
+  // because a fixture drives the matcher and not the walk. This asserts the SUBJECT
+  // exists: the filtered walk is non-empty and holds at least one `bootPort` call.
+  // Accepted trade: deleting the last real seam turns this red, which is the same
+  // ruling as `SCANNED_PATHS` — the fix is then to delete the rule, deliberately.
+  const discoveredSeamSources = walkSourceFiles(TOOL_RUNTIME_ROOT)
+    .filter((file) => !/\.test\.tsx?$/.test(file) && file !== BOOT_PORT_DEFINER)
+    .map((file) => ({ file, source: readFileSync(file, "utf8") }));
+  const discoveredSeamCalls = discoveredSeamSources.reduce(
+    (total, { source }) => total + findBootPortCalls(source).length,
+    0,
+  );
+  if (discoveredSeamSources.length === 0 || discoveredSeamCalls === 0) {
+    failures.push(
+      `boot-seam discovery self-test mismatch: ${relativeToRoot(TOOL_RUNTIME_ROOT)} yielded ${discoveredSeamSources.length} scanned files and ${discoveredSeamCalls} bootPort calls, so the header rule enforces nothing — update TOOL_RUNTIME_ROOT or delete the rule that reads it`,
+    );
+  }
+  // (d) The wiring, and the shape of the guard. An absent row must reach
+  // `checkArchitecture`'s violation list, and the guard it drives must be PER BLOCK: the
+  // cycle rules must still report on the same tree, or a missing path has turned a
+  // fail-closed change into a fail-open one.
+  const absentPathWiringDrive = checkArchitecture(
+    syntheticArchitecture({ packageGraph: { edges: ["a -> b", "b -> a"] } }),
+    syntheticBaseline(),
+    [{ constant: "TOOL_RUNTIME_ROOT", path: TOOL_RUNTIME_ROOT, kind: "directory", present: false }],
+  );
+  if (!absentPathWiringDrive.some((violation) => violation.includes("update TOOL_RUNTIME_ROOT"))) {
+    failures.push(
+      `scanned-path liveness wiring self-test mismatch: expected checkArchitecture to report an absent scanned path, received ${JSON.stringify(absentPathWiringDrive)}`,
+    );
+  }
+  if (
+    !absentPathWiringDrive.some((violation) =>
+      violation.includes("new cyclic package edge: a -> b"),
+    )
+  ) {
+    failures.push(
+      `scanned-path guard self-test mismatch: expected the cycle rules to still report while a scanned path is absent, received ${JSON.stringify(absentPathWiringDrive)}`,
+    );
+  }
   return failures;
 }
 
@@ -1716,7 +1820,47 @@ function executionGateLivenessViolations(moduleNodes) {
   return violations;
 }
 
-function checkArchitecture(architecture, baseline) {
+/**
+ * Liveness gate for every hardcoded repository path a rule in this file reads (item
+ * 36). Same shape and same reason as {@link executionGateLivenessViolations}: a rule
+ * whose sole input stops resolving enforces nothing. `TOOL_RUNTIME_ROOT` proved it —
+ * the boot-seam header rule walked a directory that had not existed since
+ * `tool-runtime` moved to `@alfred/assistant`, so it ran over zero files while five
+ * matcher fixtures stayed green, because a fixture drives the matcher and not the
+ * discovery. Pure over the collected presence list so the self-test can drive it both
+ * ways on a synthetic list; the message names the constant, the path and the two
+ * legitimate fixes.
+ */
+function scannedPathLivenessViolations(entries) {
+  const violations = [];
+  for (const entry of entries) {
+    if (entry.present) continue;
+    violations.push(
+      `scanned ${entry.kind} does not exist: ${entry.path} — the rule that reads it enforces nothing; update ${entry.constant} or delete the rule that reads it`,
+    );
+  }
+  return violations;
+}
+
+/**
+ * Resolves {@link SCANNED_PATHS} against the working tree. `kind` is load-bearing: a
+ * file where a rule walks a directory (or the reverse) leaves the rule as empty as an
+ * absent path would, so the type is checked, not just existence.
+ */
+function scannedPathPresence() {
+  return SCANNED_PATHS.map((entry) => {
+    let present = false;
+    if (existsSync(entry.path)) {
+      const stats = statSync(entry.path);
+      present = entry.kind === "directory" ? stats.isDirectory() : stats.isFile();
+    }
+    return { ...entry, present };
+  });
+}
+
+// `scannedPaths` is resolved from the working tree by default and injected only by the
+// self-test, which needs an absent row without moving a real directory aside.
+function checkArchitecture(architecture, baseline, scannedPaths = scannedPathPresence()) {
   const violations = [];
   // The graph is only as trustworthy as the list of workspaces it was walked over.
   // A refusal here means the walk read fewer trees than the repository has, which
@@ -1773,16 +1917,32 @@ function checkArchitecture(architecture, baseline) {
       `production imports preview/debug code: ${imported.key} (line ${imported.line})`,
     );
   }
-  const compositionSources = walkSourceFiles(API_COMPOSITION_ROOT)
-    .filter((file) => file !== RUNTIME_ADAPTER_MANIFEST)
-    .map((file) => ({ file, source: readFileSync(file, "utf8") }));
-  violations.push(
-    ...runtimeAdapterViolations(compositionSources, readFileSync(RUNTIME_ADAPTER_MANIFEST, "utf8")),
-  );
-  const toolRuntimeSources = walkSourceFiles(TOOL_RUNTIME_ROOT)
-    .filter((file) => !/\.test\.tsx?$/.test(file) && file !== BOOT_PORT_DEFINER)
-    .map((file) => ({ file, source: readFileSync(file, "utf8") }));
-  violations.push(...bootSeamHeaderViolations(toolRuntimeSources));
+  // The two blocks below read the working tree through hardcoded paths, so they are
+  // reported on and then guarded per block. The guard is per block, never one early
+  // return: a missing tool-runtime root must not also suppress the cycle, private-import
+  // and web-feature rules above, which is a fail-open regression in the middle of a
+  // fail-closed change. Without the guard the liveness message is pushed and the same
+  // function then dies three lines later on the very absence it just reported.
+  violations.push(...scannedPathLivenessViolations(scannedPaths));
+  const pathPresent = (constant) =>
+    scannedPaths.some((entry) => entry.constant === constant && entry.present);
+  if (pathPresent("API_COMPOSITION_ROOT") && pathPresent("RUNTIME_ADAPTER_MANIFEST")) {
+    const compositionSources = walkSourceFiles(API_COMPOSITION_ROOT)
+      .filter((file) => file !== RUNTIME_ADAPTER_MANIFEST)
+      .map((file) => ({ file, source: readFileSync(file, "utf8") }));
+    violations.push(
+      ...runtimeAdapterViolations(
+        compositionSources,
+        readFileSync(RUNTIME_ADAPTER_MANIFEST, "utf8"),
+      ),
+    );
+  }
+  if (pathPresent("TOOL_RUNTIME_ROOT")) {
+    const toolRuntimeSources = walkSourceFiles(TOOL_RUNTIME_ROOT)
+      .filter((file) => !/\.test\.tsx?$/.test(file) && file !== BOOT_PORT_DEFINER)
+      .map((file) => ({ file, source: readFileSync(file, "utf8") }));
+    violations.push(...bootSeamHeaderViolations(toolRuntimeSources));
+  }
   return violations.sort((a, b) => a.localeCompare(b));
 }
 
