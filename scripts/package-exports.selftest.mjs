@@ -303,7 +303,9 @@ function unparsableManifestFailures() {
     try {
       result = packageExportsFailures(fixture);
     } catch (error) {
-      failures.push(`an unparsable package.json must not throw, received ${error.message}`);
+      failures.push(
+        `an unparsable package.json must not throw, received ${error instanceof Error ? error.message : String(error)}`,
+      );
       return;
     }
     if (!result.failures.some((failure) => failure.includes("packages/broken/package.json"))) {

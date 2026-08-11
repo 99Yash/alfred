@@ -147,7 +147,7 @@ export function resolvedOxlintConfig(root) {
     });
   } catch (error) {
     return {
-      failure: `\`${invocation}\` did not run (${error.message}). The restricted-specifier rules read the config through oxlint, so without it they would examine nothing.`,
+      failure: `\`${invocation}\` did not run (${error instanceof Error ? error.message : String(error)}). The restricted-specifier rules read the config through oxlint, so without it they would examine nothing.`,
     };
   }
 
@@ -156,7 +156,7 @@ export function resolvedOxlintConfig(root) {
     config = JSON.parse(stdout);
   } catch (error) {
     return {
-      failure: `\`${invocation}\` did not emit JSON (${error.message}). Its resolved shape is an internal representation, not a documented contract, so a release that changes it must fail this check rather than silently read nothing.`,
+      failure: `\`${invocation}\` did not emit JSON (${error instanceof Error ? error.message : String(error)}). Its resolved shape is an internal representation, not a documented contract, so a release that changes it must fail this check rather than silently read nothing.`,
     };
   }
   if (config === null || typeof config !== "object" || Array.isArray(config)) {
@@ -435,6 +435,15 @@ function collectSite(rules, where, sites, failures) {
  * A scoped name is two segments, an unscoped name is one, and the remainder becomes
  * an `exports`-map subpath (`"."` when there is none) so it can be compared with the
  * keys a manifest publishes without a second spelling.
+ *
+ * The literal `kind` of each member is load-bearing, not decoration. Without the
+ * annotation TypeScript widens the `kind` of a fresh object literal to `string`, the
+ * two members join into one optional-property shape, and the caller that reads
+ * `subpath` after testing for `"relative"` is reading a field the type says may be
+ * absent. With it, the test narrows and the read is checked.
+ *
+ * @param {string} specifier
+ * @returns {{kind: "relative"} | {kind: "bare", packageName: string, subpath: string}}
  */
 function specifierKind(specifier) {
   if (specifier.startsWith(".")) return { kind: "relative" };
@@ -456,6 +465,7 @@ function specifierKind(specifier) {
  */
 function publishedKey(keys, subpath) {
   if (keys.has(subpath)) return subpath;
+  /** @type {string | null} */
   let best = null;
   for (const key of keys.keys()) {
     if (!key.includes("*")) continue;

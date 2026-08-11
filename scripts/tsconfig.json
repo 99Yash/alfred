@@ -1,0 +1,38 @@
+{
+  "$schema": "https://json.schemastore.org/tsconfig",
+  // The program that type-checks `scripts/`. It is standalone on purpose and does
+  // NOT extend `packages/config/tsconfig.base.json`: that config resolves modules
+  // the way a bundler does, so it accepts a relative specifier that Node rejects.
+  // These files are run by `node`, so the program has to resolve the way Node
+  // does — `nodenext` turns a missing `.mjs` extension into `TS2835`, which is
+  // Node's own `ERR_MODULE_NOT_FOUND` reported before the script runs.
+  //
+  // `scripts/` is not a workspace, so no package's `check-types` reaches it. The
+  // root `check-types` script runs this project directly, and
+  // `check-type-fixture-programs.mjs` holds every tracked script to membership in
+  // it. See `docs/reference/typescript.md` for the two strictness flags that are
+  // deliberately off and what each one costs.
+  "compilerOptions": {
+    "target": "ESNext",
+    "lib": ["ESNext"],
+    "module": "nodenext",
+    "moduleResolution": "nodenext",
+    "types": ["node"],
+
+    "allowJs": true,
+    "checkJs": true,
+    "noEmit": true,
+
+    "strict": true,
+    "noImplicitAny": false,
+    "noUncheckedIndexedAccess": false,
+    "skipLibCheck": true,
+    "resolveJsonModule": true,
+    "esModuleInterop": true,
+    "forceConsistentCasingInFileNames": true,
+    "exactOptionalPropertyTypes": true,
+    "noFallthroughCasesInSwitch": true
+  },
+  "include": ["**/*.mjs"],
+  "exclude": ["spikes/**"]
+}
