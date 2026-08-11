@@ -31,11 +31,7 @@ import {
   removeApprovalExpiryJob,
 } from "@alfred/api/backend";
 import { clearToolRegistryForTests, liveTool, registerTools } from "@alfred/assistant/tool-runtime";
-import {
-  closeConnections,
-  closeRedis,
-  warmPool,
-} from "@alfred/api/runtime";
+import { closeConnections, closeRedis, warmPool } from "@alfred/api/runtime";
 import {
   bustPolicyCache,
   ensureDefaultActionPolicyForUser,
