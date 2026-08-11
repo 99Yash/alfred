@@ -1719,15 +1719,12 @@ const text = 'import "ignored-string"';
     rmSync(wiringDirectory, { force: true, recursive: true });
   }
 
-  // (xiii-f) The COMMITTED file passes the cross-check. A gate that is red on the default
-  // branch is not landable, and this is the drive that reports it — the two lists are
-  // written from one snapshot, so they can only disagree through a merge or a hand edit.
-  const committedBaselineLoad = loadBaseline();
-  if (!committedBaselineLoad.ok) {
-    failures.push(
-      `committed baseline self-test mismatch: ${relativeToRoot(BASELINE_PATH)} must load, received ${JSON.stringify(committedBaselineLoad.error)}`,
-    );
-  }
+  // There is deliberately NO drive over the COMMITTED baseline here. The self-test runs
+  // before every flag, so a drive that reads the real file reports a merge or a hand edit
+  // as "parser self-test failed" and takes `--print-graph` and `--write-baseline` down
+  // with it — the recovery commands. The committed file is already read on every run by
+  // `loadBaseline`, which reports the same fault under its own cause and leaves both
+  // flags reachable.
 
   // (xiv) `loadBaseline`'s two read failures. Both were undriven: deleting the
   // `existsSync` branch left an absent file reporting itself as "not valid JSON: ENOENT"
