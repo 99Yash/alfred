@@ -128,7 +128,9 @@ function blockedTargetFailures() {
       failures.push(`null target: expected blocked 1, received ${result.blocked}`);
     }
     if (result.checked !== 1) {
-      failures.push(`null target: expected checked 1 (the block is not checked), received ${result.checked}`);
+      failures.push(
+        `null target: expected checked 1 (the block is not checked), received ${result.checked}`,
+      );
     }
   });
 
@@ -154,7 +156,12 @@ function wildcardTargetFailures() {
     // that empties `src/` — the same shape web-boundaries.selftest.mjs uses.
     rmSync(join(fixture, "packages/four/src/nested/two.ts"));
     write(fixture, "packages/four/src/.keep", "");
-    expectFailure("wildcard matching nothing", fixture, ["./src/*.ts", "matches no file"], failures);
+    expectFailure(
+      "wildcard matching nothing",
+      fixture,
+      ["./src/*.ts", "matches no file"],
+      failures,
+    );
   });
 
   return failures;

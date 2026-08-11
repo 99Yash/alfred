@@ -383,7 +383,8 @@ function wildcardKeyFailures() {
     ...drive("a file deleted behind a live wildcard key is reported", {
       mutated: { ...shape, files: ["packages/x/src/k/other.ts"] },
       control: shape,
-      expected: 'wildcard exports key "./k/*" to "packages/x/src/k/internal.ts", which no file git lists',
+      expected:
+        'wildcard exports key "./k/*" to "packages/x/src/k/internal.ts", which no file git lists',
     }),
   ];
 }
@@ -442,7 +443,7 @@ function globSpecifierFailures() {
         packages: { x: workspace("@alfred/x", { ".": "./src/index.ts" }) },
         rules: fence(["@alfred/*"]),
       },
-      expected: 'restricts a package pattern that matches no workspace package',
+      expected: "restricts a package pattern that matches no workspace package",
     }),
   ];
 }
