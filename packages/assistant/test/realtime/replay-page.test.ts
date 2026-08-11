@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { describe, test } from "node:test";
 
-import { REPLAY_PAGE_SIZE, toReplayPage } from "../../src/modules/events/replay-page";
+import { REPLAY_PAGE_SIZE, toReplayPage } from "../../src/realtime/replay-page";
 
 describe("event replay pages", () => {
   test("marks a full page for reconnect without dropping its last frame", () => {

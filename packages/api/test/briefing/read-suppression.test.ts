@@ -7,7 +7,7 @@ import { documents, emailTriage, user } from "@alfred/db/schemas";
 import { databaseEnv } from "@alfred/env/database";
 import { inArray, like } from "drizzle-orm";
 
-import { closeReplicachePokeBridge } from "../../src/events/replicache-events";
+import { closeReplicachePokeBridge } from "@alfred/assistant/realtime";
 import { listEmailsSinceWatermark, readEmailDocument } from "@alfred/assistant/briefings/read";
 import { rememberSenderSuppression } from "@alfred/assistant/knowledge";
 import { closeRedis } from "@alfred/db/redis";

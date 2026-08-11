@@ -186,7 +186,7 @@ const SPEAKS_FOR_NO_RUN = {
   "tool.call": "Workflow tool telemetry; the chat trail's cards arrive as `chat.tool`.",
   "artifact.delta":
     "Carries the chat run's own `runId`, and replay is kind-agnostic (one global id range, " +
-    "`modules/events/replay.ts`), so a client that armed this run's barrier at `chat.message` / " +
+    "`packages/assistant/src/realtime/replay.ts`), so a client that armed this run's barrier at `chat.message` / " +
     '`phase: "started"` has that barrier span the deltas and gets them back on reload. But the ' +
     "barrier only exists for a client that saw `started`. A client that first observes the run " +
     "through `artifact.delta` alone — a fresh tab, or a reconnect whose resume floor already " +

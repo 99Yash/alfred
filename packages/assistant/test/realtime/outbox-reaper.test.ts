@@ -14,7 +14,7 @@ import {
   reapOutboxOnce,
   startOutboxReaper,
   stopOutboxReaper,
-} from "../../src/events/outbox-reaper";
+} from "../../src/realtime/outbox-reaper";
 
 /**
  * Retention for `events_outbox` (#533), asserted against a real database.
