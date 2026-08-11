@@ -113,13 +113,15 @@ OAuth state and nonce store.
 
 The server-side packages reach Node-only modules (`pg`, `drizzle-orm`) transitively. **Never import them into `apps/web`'s runtime bundle.** They are enumerated once, in the marked block below — this paragraph deliberately names none of them, because a second enumeration is a second thing to keep true and nothing gates prose outside the markers.
 
-Allowed in `apps/web`:
+Allowed in `apps/web`: <!-- browser-safe-packages:start -->
 
 - `import type { App } from '@alfred/api'` — type-only, stripped at build time, safe.
 - `import { ... } from '@alfred/contracts'` — browser-safe shared Zod schemas, inferred types, constants, and small boundary helpers.
 - `import { ... } from '@alfred/sync'` — Replicache keys, mutators, and synced read-model schemas.
 - `import { treaty } from '@elysiajs/eden'` — client-side.
 - `import { createAuthClient } from 'better-auth/react'` — client-side.
+
+<!-- browser-safe-packages:end -->
 
 Forbidden in `apps/web`: <!-- forbidden-runtime-packages:start -->
 
@@ -149,9 +151,16 @@ non-`@alfred/*` specifier, including Node-only npm packages, and any subtree of 
 outside its `src/`, because reachability is recorded per package and read at that one directory. A reached
 package whose `src/` is missing, or holds no TypeScript file, is not one of these — the check reports it as a
 failure instead of skipping it.
-The check also compares the marked lists above and in [`apps/web/AGENTS.md`](../../apps/web/AGENTS.md)
-against the one list in [`scripts/web-boundaries.mjs`](../../scripts/web-boundaries.mjs); the markers are
-set-equality anchors, so rewording either sentence is free.
+The check also rules on the marked prose above and in
+[`apps/web/AGENTS.md`](../../apps/web/AGENTS.md). Each site marks two regions. The
+`forbidden-runtime-packages` region must name exactly the set in
+[`scripts/web-boundaries.mjs`](../../scripts/web-boundaries.mjs); the `browser-safe-packages` region must
+name none of it. Membership is all that is compared, so rewording, reordering or repunctuating either list
+is free. A region spans whole lines — the `:start` marker ends its line and the `:end` marker opens its own
+— and every backticked `@alfred/*` package name in the markdown list that holds a region must sit inside
+one of the two regions, so a package named in a sibling bullet is ruled on rather than ignored. A package
+name inside a longer code span, such as `import type { App } from '@alfred/api'` above, is not one of those
+names.
 
 ## Architecture enforcement
 

@@ -2,7 +2,13 @@
 
 ## Browser Boundary
 
-- Browser runtime code may import browser-safe packages such as `@alfred/contracts` and `@alfred/sync`. <!-- forbidden-runtime-packages:start -->It must not import runtime values from `@alfred/api`, `@alfred/http`, `@alfred/auth`, `@alfred/db`, `@alfred/env`, or `@alfred/ai`.<!-- forbidden-runtime-packages:end -->
+- Browser runtime code may import these browser-safe packages: <!-- browser-safe-packages:start -->
+  - `@alfred/contracts` — shared Zod schemas, inferred types, constants, and small boundary helpers.
+  - `@alfred/sync` — Replicache keys, mutators, and synced read-model schemas.
+  <!-- browser-safe-packages:end -->
+- Browser runtime code must not import runtime values from: <!-- forbidden-runtime-packages:start -->
+  - `@alfred/api`, `@alfred/http`, `@alfred/auth`, `@alfred/db`, `@alfred/env`, or `@alfred/ai`.
+  <!-- forbidden-runtime-packages:end -->
 - A type-only import from a server package is acceptable only when it is declared with `import type` and erased from the bundle. Do not rely on a type annotation to make a value import safe.
 - Run `pnpm check:web-boundaries` after changing imports near `apps/web`.
 
