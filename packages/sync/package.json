@@ -7,7 +7,7 @@
   },
   "scripts": {
     "build": "node ../../scripts/clean-package-dist.mjs && tsc -b --emitDeclarationOnly --force",
-    "check-types": "tsc -b --emitDeclarationOnly"
+    "check-types": "tsc -b --emitDeclarationOnly && tsc -p tsconfig.test.json"
   },
   "dependencies": {
     "@alfred/contracts": "workspace:*",
