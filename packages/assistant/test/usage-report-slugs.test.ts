@@ -10,10 +10,10 @@ import {
 import { LEARN_SKILL_WORKFLOW_SLUG } from "@alfred/assistant/skills/workflow-input";
 import { SKILL_DOCUMENTATION_WORKFLOW_SLUG } from "@alfred/assistant/skills/skill-documentation-workflow-input";
 import { TRIAGE_WORKFLOW_SLUG } from "@alfred/assistant/triage/workflow-input";
-import { SLUG_CATEGORY } from "../../src/modules/me/usage-service";
+import { SLUG_CATEGORY } from "@alfred/assistant/execution/usage-report";
 
 /**
- * `SLUG_CATEGORY` (usage-service) hard-codes workflow slugs as literals rather
+ * `SLUG_CATEGORY` (usage-report) hard-codes workflow slugs as literals rather
  * than importing the workflow modules that define them (those pull heavy
  * graphs). That decouples the read service, but it means a slug rename in a
  * workflow module leaves this map silently stale — misattributing that run's

@@ -47,8 +47,12 @@ import { enqueueBriefingRun } from "@alfred/assistant/briefings/queue";
 import { notSentGmailDocumentWhere } from "@alfred/assistant/triage/sent-mail";
 import { resolveTimezone } from "@alfred/assistant/settings";
 import { inZone } from "@alfred/assistant/time";
-import { sanitizeEmailHtml } from "./email-html";
-import { getUsageActivity, getUsageBreakdown, getUsageSummary } from "./usage-service";
+import { sanitizeEmailHtml } from "@alfred/assistant/triage/email-html";
+import {
+  getUsageActivity,
+  getUsageBreakdown,
+  getUsageSummary,
+} from "@alfred/assistant/execution/usage-report";
 
 /**
  * Per-user read endpoints used by the chat right rail.
