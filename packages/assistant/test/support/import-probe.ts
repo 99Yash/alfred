@@ -8,7 +8,7 @@
  *
  * One process per specifier is not a cost the driver could avoid. ESM evaluates a
  * specifier once per process, so a loop over N subpaths inside one process would find
- * subpaths 2..N already in the module cache and all three runtime detectors below would
+ * subpaths 2..N already in the module cache and all four runtime detectors below would
  * read green without having measured anything.
  *
  * Usage: `node --import tsx test/support/import-probe.ts <absolute specifier>`.
@@ -97,8 +97,8 @@ const report: ImportProbeReport = { arms, handleDelta, names, importError };
 // asynchronous and `process.exit` does not flush, so exiting immediately truncates the
 // report at the 64 KiB pipe buffer — measured on this platform: a 100 KB line comes back as
 // exactly 65536 bytes. Truncated JSON fails loudly, but it fails as "unparseable stdout"
-// rather than as the report it wrote, and it puts the driver's `maxBuffer` below the real
-// ceiling. The exit still happens last, which is the point: a ref'd handle the import leaked
+// rather than as the report it wrote, and it leaves the driver's `maxBuffer` above the real
+// ceiling, where it can never bind. The exit still happens last, which is the point: a ref'd handle the import leaked
 // would otherwise hold this process open until the driver's timeout, and a timeout is
 // reported as a spawn failure rather than as the handle delta the report already carries.
 process.stdout.write(`${JSON.stringify(report)}\n`, () => process.exit(0));
