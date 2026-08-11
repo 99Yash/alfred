@@ -44,14 +44,14 @@ VERCEL_TOKEN=xxx VERCEL_TEAM_ID=team_xxx VERCEL_PROJECT_ID=prj_xxx npm run spike
 
 ## What it proves (Phase 0 acceptance matrix)
 
-| Probe | Asserts |
-|---|---|
-| `baseline-compute` | Option A works: 2,000-row parked handle written in, model JS derives a result, bounded stdout read back, `exit=0`. Records vCPU/memory/timeout. |
-| `egress-denied` | Under `deny-all`, both DNS resolution and `fetch()` **fail closed** — the welded door holds. |
-| `crash-clean-exit` | A throwing command surfaces a clean nonzero exit + stderr; parent unaffected. |
-| `output-flood-bounded` | ~50 MB of stdout is capped at the parent read (64 KiB) — a flood can't OOM the API. |
-| `memory-pressure-contained` | A memory hog (capped heap) returns control to the parent cleanly. |
-| `infinite-loop-terminates` | `while(true){}` is force-stopped by the session `timeout`; the harness stays responsive (a parent-side guard proves no hang). |
+| Probe                       | Asserts                                                                                                                                         |
+| --------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------- |
+| `baseline-compute`          | Option A works: 2,000-row parked handle written in, model JS derives a result, bounded stdout read back, `exit=0`. Records vCPU/memory/timeout. |
+| `egress-denied`             | Under `deny-all`, both DNS resolution and `fetch()` **fail closed** — the welded door holds.                                                    |
+| `crash-clean-exit`          | A throwing command surfaces a clean nonzero exit + stderr; parent unaffected.                                                                   |
+| `output-flood-bounded`      | ~50 MB of stdout is capped at the parent read (64 KiB) — a flood can't OOM the API.                                                             |
+| `memory-pressure-contained` | A memory hog (capped heap) returns control to the parent cleanly.                                                                               |
+| `infinite-loop-terminates`  | `while(true){}` is force-stopped by the session `timeout`; the harness stays responsive (a parent-side guard proves no hang).                   |
 
 Exit code `0` + all-`PASS` = **GO**. Any `FAIL` = **REVIEW** before building the
 handle substrate (Phase 1).

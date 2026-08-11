@@ -245,7 +245,10 @@ export function nodeOnlyPackages(root) {
   const packages = new Map();
   for (const [pkg, dir] of declared) {
     if (BROWSER_SAFE_NPM_PACKAGES.has(pkg)) continue;
-    packages.set(pkg, `${dir} declares it as a dependency and the browser fence does not reach ${dir}`);
+    packages.set(
+      pkg,
+      `${dir} declares it as a dependency and the browser fence does not reach ${dir}`,
+    );
   }
   for (const pkg of FORBIDDEN_RUNTIME_PACKAGES) {
     packages.set(pkg, "FORBIDDEN_RUNTIME_PACKAGES in scripts/web-boundaries.mjs forbids it");
@@ -424,7 +427,8 @@ export function bundleViolations(graph, { forbidden, surface }) {
   /** @type {Map<string, Violation>} */
   const reported = new Map();
 
-  const chainOf = (id) => importerChain(graph, id).map((step) => describeModuleId(graph.root, step));
+  const chainOf = (id) =>
+    importerChain(graph, id).map((step) => describeModuleId(graph.root, step));
 
   const builtins = warnedBuiltins(graph);
   let workspaceModules = 0;
@@ -528,7 +532,8 @@ export function bundleViolations(graph, { forbidden, surface }) {
   }
 
   return [...floors, ...violations, ...reported.values()].sort(
-    (left, right) => left.rule.localeCompare(right.rule) || left.subject.localeCompare(right.subject),
+    (left, right) =>
+      left.rule.localeCompare(right.rule) || left.subject.localeCompare(right.subject),
   );
 }
 

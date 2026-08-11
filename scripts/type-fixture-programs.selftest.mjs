@@ -125,7 +125,9 @@ function includeNarrowingFailures() {
 
     const clean = expectClean("fixture inside the second pass", fixture, failures);
     if (clean.checked !== 1) {
-      failures.push(`fixture inside the second pass: expected checked 1, received ${clean.checked}`);
+      failures.push(
+        `fixture inside the second pass: expected checked 1, received ${clean.checked}`,
+      );
     }
     if (clean.projectsProbed !== 2) {
       failures.push(
@@ -317,7 +319,9 @@ function scriptProgramCoverageFailures() {
     }
     if (expected.needles === null) {
       if (result.failures.length > 0) {
-        failures.push(`${label}: expected no failures, received ${JSON.stringify(result.failures)}`);
+        failures.push(
+          `${label}: expected no failures, received ${JSON.stringify(result.failures)}`,
+        );
       }
       return;
     }
@@ -377,10 +381,16 @@ function projectParseFailures() {
 
   const cases = [
     ["tsc -b --emitDeclarationOnly", ["tsconfig.json"]],
-    ["tsc -b --emitDeclarationOnly && tsc -p tsconfig.test.json", ["tsconfig.json", "tsconfig.test.json"]],
+    [
+      "tsc -b --emitDeclarationOnly && tsc -p tsconfig.test.json",
+      ["tsconfig.json", "tsconfig.test.json"],
+    ],
     ["tsc --noEmit && tsc -p tsconfig.test.json", ["tsconfig.json", "tsconfig.test.json"]],
     ["tsc -b", ["tsconfig.json"]],
-    ["tsc -b packages/one packages/two", ["packages/one/tsconfig.json", "packages/two/tsconfig.json"]],
+    [
+      "tsc -b packages/one packages/two",
+      ["packages/one/tsconfig.json", "packages/two/tsconfig.json"],
+    ],
     ["tsc --project ./scoped.json", ["scoped.json"]],
     ["node ../../scripts/clean-package-dist.mjs && tsc -b --force", ["tsconfig.json"]],
     ["tsc --outDir dist -b", ["tsconfig.json"]],
@@ -389,7 +399,9 @@ function projectParseFailures() {
   for (const [script, expected] of cases) {
     const { projects, problems } = tscProjectsFor(script);
     if (problems.length > 0) {
-      failures.push(`tscProjectsFor(${JSON.stringify(script)}) reported ${JSON.stringify(problems)}`);
+      failures.push(
+        `tscProjectsFor(${JSON.stringify(script)}) reported ${JSON.stringify(problems)}`,
+      );
     }
     if (JSON.stringify(projects) !== JSON.stringify(expected)) {
       failures.push(

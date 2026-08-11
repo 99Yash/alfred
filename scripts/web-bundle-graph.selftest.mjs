@@ -335,12 +335,7 @@ function violationFailures() {
     expect(subjectsOf(leaked), ["pg"], "bundleViolations — names the package", failures);
     expect(
       leaked[0]?.chain,
-      [
-        "apps/web/src/main.tsx",
-        "apps/web/src/lib/eden.ts",
-        "@alfred/db (npm)",
-        "pg (npm)",
-      ],
+      ["apps/web/src/main.tsx", "apps/web/src/lib/eden.ts", "@alfred/db (npm)", "pg (npm)"],
       "bundleViolations — carries the importer chain from the browser entry",
       failures,
     );
@@ -425,7 +420,12 @@ function violationFailures() {
       { entries: [entry] },
     );
     const holes = bundleViolations(hole, { forbidden, surface });
-    expect(rulesOf(holes), ["unscanned-module"], "bundleViolations — an unscanned module", failures);
+    expect(
+      rulesOf(holes),
+      ["unscanned-module"],
+      "bundleViolations — an unscanned module",
+      failures,
+    );
     expect(
       subjectsOf(holes),
       ["apps/web/src/routes/-preview/panel.tsx"],
@@ -518,12 +518,16 @@ function chainFailures() {
   const failures = [];
   const root = "/repo";
 
-  const four = graphOf(root, [
-    ["entry", []],
-    ["a", ["entry"]],
-    ["b", ["a"]],
-    ["leaf", ["b"]],
-  ], { entries: ["entry"] });
+  const four = graphOf(
+    root,
+    [
+      ["entry", []],
+      ["a", ["entry"]],
+      ["b", ["a"]],
+      ["leaf", ["b"]],
+    ],
+    { entries: ["entry"] },
+  );
   expect(
     importerChain(four, "leaf"),
     ["entry", "a", "b", "leaf"],
