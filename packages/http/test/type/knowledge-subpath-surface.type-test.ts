@@ -18,10 +18,12 @@
  * guards it (oxlint matches a specifier as text, with no module resolution, so it
  * can only fence the exact string it is given).
  *
- * This fixture fails CLOSED. If `tsc` ever stopped honouring `exports`, or if the
- * wildcard came back, these directives would go UNUSED and `check-types` would go
- * red on every line — so a green run is evidence that the gate is real, not an
- * assumption that it is. The `typeof import(…)` form is used because a plain
+ * This fixture fails CLOSED against BOTH wildcard spellings. If `tsc` ever stopped
+ * honouring `exports`, or if a `./knowledge/*` key came back in either the `*.ts` or
+ * the extensionless target form, the matching directives below would go UNUSED and
+ * `check-types` would go red — so a green run is evidence that the gate is real, not
+ * an assumption that it is. Pinning only one spelling leaves the other free, which is
+ * why every negative appears twice. The `typeof import(…)` form is used because a plain
  * `import type` binding would additionally trip `noUnusedLocals`.
  *
  * `packages/http` is the home because its `check-types` runs a second
@@ -49,6 +51,29 @@ type _Projection = typeof import("@alfred/assistant/knowledge/projection");
 
 // @ts-expect-error - `facts` is not an exported subpath; the exports map is the gate.
 type _Facts = typeof import("@alfred/assistant/knowledge/facts");
+
+/**
+ * The same three files, spelled WITH `.ts`. Both spellings are load-bearing, because a
+ * wildcard key can be written two ways and each one republishes a different specifier:
+ *
+ *   "./knowledge/*": "./src/knowledge/*.ts"  -> the extensionless specifiers above resolve
+ *   "./knowledge/*": "./src/knowledge/*"     -> only the `.ts` specifiers below resolve
+ *
+ * The second form is not hypothetical: `./artifacts/*` and `./tool-runtime/*` are written
+ * that way in this very manifest, so it is the idiom a future edit is most likely to copy.
+ * With only the extensionless half, re-adding that form republishes every unlisted file in
+ * the directory while all three directives above stay used and `check-types`,
+ * `check:exports` and CI all stay green — measured, not argued.
+ */
+
+// @ts-expect-error - `self-identity` is not exported under any spelling; see above.
+type _SelfIdentityTs = typeof import("@alfred/assistant/knowledge/self-identity.ts");
+
+// @ts-expect-error - `projection` is not exported under any spelling; see above.
+type _ProjectionTs = typeof import("@alfred/assistant/knowledge/projection.ts");
+
+// @ts-expect-error - `facts` is not exported under any spelling; see above.
+type _FactsTs = typeof import("@alfred/assistant/knowledge/facts.ts");
 
 /**
  * The positive half, so the three assertions above cannot pass by naming a
