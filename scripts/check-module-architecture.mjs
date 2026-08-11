@@ -1240,6 +1240,54 @@ const text = 'import "ignored-string"';
       `workspace-enumeration wiring self-test mismatch: expected checkArchitecture to report a refused enumeration, received ${JSON.stringify(workspaceWiringDrive)}`,
     );
   }
+  // (0-b) A collected assistant -> transport import must reach the violation list.
+  // This is ADR-0089's fence — `@alfred/assistant` must never import `@alfred/http`,
+  // legacy `@alfred/api` or `apps/server` — and this loop is its only enforcement.
+  // The live tree holds zero members, so deleting the push left every gate green.
+  // The key and line conjuncts fail a body that pushes a constant or reads the wrong
+  // member field, which a deletion mutant alone would not catch.
+  const assistantBackendFenceWiringDrive = checkArchitecture(
+    syntheticArchitecture({
+      forbiddenBackendImports: [
+        { key: "packages/assistant/src/triage/self-test-fixture.ts:@alfred/http", line: 7 },
+      ],
+    }),
+    syntheticBaseline(),
+  );
+  if (
+    !assistantBackendFenceWiringDrive.some(
+      (violation) =>
+        violation.includes("assistant imports transport or app code:") &&
+        violation.includes("@alfred/http") &&
+        violation.includes("line 7"),
+    )
+  ) {
+    failures.push(
+      `assistant-backend-fence wiring self-test mismatch: expected checkArchitecture to report the planted assistant -> transport import with its key and line, received ${JSON.stringify(assistantBackendFenceWiringDrive)}`,
+    );
+  }
+  // (0-c) The production -> preview fence, same shape one list over. Also zero
+  // members in the live tree, also deletable green before this drive existed.
+  const productionPreviewWiringDrive = checkArchitecture(
+    syntheticArchitecture({
+      productionPreviewImports: [
+        { key: "apps/web/src/features/inbox/self-test-fixture.tsx:../debug/panel", line: 11 },
+      ],
+    }),
+    syntheticBaseline(),
+  );
+  if (
+    !productionPreviewWiringDrive.some(
+      (violation) =>
+        violation.includes("production imports preview/debug code:") &&
+        violation.includes("../debug/panel") &&
+        violation.includes("line 11"),
+    )
+  ) {
+    failures.push(
+      `production-preview-fence wiring self-test mismatch: expected checkArchitecture to report the planted production -> preview import with its key and line, received ${JSON.stringify(productionPreviewWiringDrive)}`,
+    );
+  }
   // (i) A live `agent -> triage` edge with a self-consistent node set must make
   // `checkArchitecture` report the forbidden product import — guards the wiring
   // of the forbidden-import push.
