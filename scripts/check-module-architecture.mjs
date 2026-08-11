@@ -712,6 +712,45 @@ function graphFromEdges(nodes, rawEdges) {
   };
 }
 
+/**
+ * The runtime-adapter rule's two tree reads, in the one place this file reads the tree
+ * (item 38). Both paths are parameters for the same reason `loadBaseline(path =
+ * BASELINE_PATH)`'s is: a self-test can then drive the absent case without moving a
+ * real file aside.
+ *
+ * The manifest read is guarded HERE, at the read, and consults no {@link SCANNED_PATHS}
+ * row — a guard paired with the wrong row is invisible on a clean tree, while a guard
+ * that observes the absence it is guarding against cannot be mispaired. An absent
+ * manifest is reported by its own row; this returns `null` so the rule that needs it
+ * simply does not run.
+ */
+function collectRuntimeAdapterScan(
+  root = API_COMPOSITION_ROOT,
+  manifest = RUNTIME_ADAPTER_MANIFEST,
+) {
+  const compositionSources = walkSourceFiles(root)
+    .filter((file) => file !== manifest)
+    .map((file) => ({ file, source: readFileSync(file, "utf8") }));
+  const manifestPresent = existsSync(manifest) && statSync(manifest).isFile();
+  return {
+    compositionSources,
+    manifestSource: manifestPresent ? readFileSync(manifest, "utf8") : null,
+  };
+}
+
+/**
+ * The boot-seam rule's tree read (item 38). The filter is declared once here and read
+ * by both `checkArchitecture`'s rule and the discovery drive, which held a duplicate of
+ * these three lines — two copies of a filter are how the two drift apart.
+ * `walkSourceFiles` returns `[]` for an absent root, so absence needs no guard beyond
+ * the row that reports it.
+ */
+function collectBootSeamSources(root = TOOL_RUNTIME_ROOT, definer = BOOT_PORT_DEFINER) {
+  return walkSourceFiles(root)
+    .filter((file) => !/\.test\.tsx?$/.test(file) && file !== definer)
+    .map((file) => ({ file, source: readFileSync(file, "utf8") }));
+}
+
 function collectArchitecture() {
   const { entries, failures: workspaceFailures } = workspaceEntries();
   const packageEdges = [];
@@ -820,6 +859,12 @@ function collectArchitecture() {
       .filter((name) => name && TARGET_ASSISTANT_MODULES.has(name)),
   ];
   return {
+    // Every tree read a rule needs is collected here, so `checkArchitecture` decides
+    // over its arguments alone (item 38). Before this the boot-seam and runtime-adapter
+    // rules read the tree from inside the check, which made every self-test drive run
+    // the real scans, forced each drive to assert positively, and made the emit/refuse
+    // drive a tautology.
+    bootSeamSources: collectBootSeamSources(),
     exceptions: {
       privateModuleImports: privateModuleImports.sort((a, b) => a.key.localeCompare(b.key)),
       webFeatureImports: webFeatureImports.sort((a, b) => a.key.localeCompare(b.key)),
@@ -836,6 +881,8 @@ function collectArchitecture() {
       packageEdges,
     ),
     productionPreviewImports,
+    runtimeAdapterScan: collectRuntimeAdapterScan(),
+    scannedPaths: scannedPathPresence(),
     workspaceFailures,
   };
 }
@@ -1148,9 +1195,9 @@ const text = 'import "ignored-string"';
   // that they are wired into `checkArchitecture`. Drive synthetic graphs through
   // `checkArchitecture` ITSELF so a deleted `violations.push(...)` line turns this
   // red — the live graph has no forbidden edge, and post-rename no missing node,
-  // to catch either regression on its own. The drives also run the real
-  // composition/tool-runtime FS checks (clean today), so assert only with
-  // `.some(...includes...)` — never exact-equality — to stay non-brittle.
+  // to catch either regression on its own. `checkArchitecture` is pure over its two
+  // arguments (item 38), so a drive sees exactly what its synthetic architecture
+  // plants.
   // Both graphs carry `sccs` because a well-formed baseline does: `baselineRatchetFaults`
   // refuses a recorded graph that declares no cycle list, and
   // `baselineSelfPermissionFaults` reads it. Drives that hand `checkArchitecture` or
@@ -1164,6 +1211,9 @@ const text = 'import "ignored-string"';
     },
     ...overrides,
   });
+  // The three tree-derived fields default INERT — an empty presence list, no
+  // composition sources, a null manifest, no boot-seam sources. That is what makes
+  // every drive below a decision over its own plant and nothing else.
   const syntheticArchitecture = (overrides) => ({
     packageGraph: { edges: [] },
     moduleGraph: { edges: [] },
@@ -1171,6 +1221,9 @@ const text = 'import "ignored-string"';
     exceptions: { privateModuleImports: [], webFeatureImports: [] },
     forbiddenBackendImports: [],
     productionPreviewImports: [],
+    scannedPaths: [],
+    runtimeAdapterScan: { compositionSources: [], manifestSource: null },
+    bootSeamSources: [],
     workspaceFailures: [],
     ...overrides,
   });
@@ -1292,12 +1345,6 @@ const text = 'import "ignored-string"';
   // (nothing in the repo runs the flag), so `baselineEmission` is where the
   // refuse-vs-emit decision is pinned, and `baselineDocument`/`baselineDelta` are
   // where its payload is.
-  //
-  // `checkArchitecture` also runs four unconditional scans of the REAL tree, so every
-  // drive below obeys the `.some(...includes...)` rule seven comments up: an absence
-  // assertion here must be scoped to the drive's own subject, or an ordinary
-  // composition violation in the working tree turns into "parser self-test failed"
-  // and takes both print flags down with it.
   const liveModuleNodes = [EXECUTION_MODULE, ...EXECUTION_FORBIDDEN_PRODUCT_MODULES];
   // (vii) A tree with a cycle the baseline does not permit must REFUSE, and a refusal
   // must carry no writable payload, so a regeneration cannot write that cycle into
@@ -1321,10 +1368,14 @@ const text = 'import "ignored-string"';
       `baseline emission self-test mismatch: expected a payload-free refusal naming the new cyclic edge, received ok=${refusedEmission.ok} document=${typeof refusedEmission.document} delta=${typeof refusedEmission.delta} violations=${JSON.stringify(refusedEmission.violations)}`,
     );
   }
-  // (viii) A graph the check accepts must not be refused FOR A CYCLE, and the
-  // emit/refuse decision must track the violation list rather than being pinned open
-  // or shut. The equality holds either way when the real tree carries an unrelated
-  // violation, so this drive stays scoped to its subject.
+  // (viii) A graph the check accepts must not be refused FOR A CYCLE, and it must be
+  // ACCEPTED — `ok` true over an empty violation list, not merely consistent with a
+  // non-empty one. The exact assertion is valid only because `checkArchitecture` is pure
+  // over its arguments (item 38): while it read the real tree, this had to weaken to the
+  // tautology `ok === (violations.length === 0)`, which stayed green for an emit/refuse
+  // decision pinned shut. The coupling runs the other way too — re-introduce a real-tree
+  // read in `checkArchitecture` and an ordinary composition violation surfaces here as
+  // "parser self-test failed", taking `--print-graph` and `--write-baseline` with it.
   const acceptedEmission = baselineEmission(
     syntheticArchitecture({
       packageGraph: { edges: ["a -> b"], sccs: [] },
@@ -1332,12 +1383,9 @@ const text = 'import "ignored-string"';
     }),
     syntheticBaseline({ packageGraph: { edges: ["a -> b"] } }),
   );
-  if (
-    acceptedEmission.ok !== (acceptedEmission.violations.length === 0) ||
-    acceptedEmission.violations.some((violation) => violation.startsWith("new cyclic"))
-  ) {
+  if (!acceptedEmission.ok || acceptedEmission.violations.length !== 0) {
     failures.push(
-      `baseline emission self-test mismatch: expected no new-cyclic violation and ok to track the violation list, received ok=${acceptedEmission.ok} violations=${JSON.stringify(acceptedEmission.violations)}`,
+      `baseline emission self-test mismatch: expected an accepted emission over an empty violation list, received ok=${acceptedEmission.ok} violations=${JSON.stringify(acceptedEmission.violations)}`,
     );
   }
   // (viii-b) The emitted document is the CURRENT graph. Driven through
@@ -1443,9 +1491,8 @@ const text = 'import "ignored-string"';
   //    shape validator each to name it;
   //  - the coverage assertion requires a drive per row and a row per drive.
   //
-  // `checkArchitecture` runs four unconditional scans of the REAL tree, so every
-  // assertion below obeys the `.some(...includes...)` rule stated above: each is
-  // positive and scoped to a member spelling no other row and no real file produces.
+  // Each assertion below is positive and scoped to a member spelling no other row
+  // produces, so one row's drive cannot pass on another row's violation.
   const documentArrayPaths = (value, prefix = "") => {
     if (Array.isArray(value)) return [prefix];
     if (value === null || typeof value !== "object") return [];
@@ -1945,9 +1992,10 @@ const aliasedPort = make("aliased");
   // exists: the filtered walk is non-empty and holds at least one `bootPort` call.
   // Accepted trade: deleting the last real seam turns this red, which is the same
   // ruling as `SCANNED_PATHS` — the fix is then to delete the rule, deliberately.
-  const discoveredSeamSources = walkSourceFiles(TOOL_RUNTIME_ROOT)
-    .filter((file) => !/\.test\.tsx?$/.test(file) && file !== BOOT_PORT_DEFINER)
-    .map((file) => ({ file, source: readFileSync(file, "utf8") }));
+  // Drives the collector the check reads, not a copy of its filter, and deliberately
+  // NOT `collectArchitecture()` — the self-test runs before collection, and a full
+  // workspace walk inside it is not the trade.
+  const discoveredSeamSources = collectBootSeamSources();
   const discoveredSeamCalls = discoveredSeamSources.reduce(
     (total, { source }) => total + findBootPortCalls(source).length,
     0,
@@ -1962,9 +2010,18 @@ const aliasedPort = make("aliased");
   // cycle rules must still report on the same tree, or a missing path has turned a
   // fail-closed change into a fail-open one.
   const absentPathWiringDrive = checkArchitecture(
-    syntheticArchitecture({ packageGraph: { edges: ["a -> b", "b -> a"] } }),
+    syntheticArchitecture({
+      packageGraph: { edges: ["a -> b", "b -> a"] },
+      scannedPaths: [
+        {
+          constant: "TOOL_RUNTIME_ROOT",
+          path: TOOL_RUNTIME_ROOT,
+          kind: "directory",
+          present: false,
+        },
+      ],
+    }),
     syntheticBaseline(),
-    [{ constant: "TOOL_RUNTIME_ROOT", path: TOOL_RUNTIME_ROOT, kind: "directory", present: false }],
   );
   if (!absentPathWiringDrive.some((violation) => violation.includes("update TOOL_RUNTIME_ROOT"))) {
     failures.push(
@@ -1978,6 +2035,84 @@ const aliasedPort = make("aliased");
   ) {
     failures.push(
       `scanned-path guard self-test mismatch: expected the cycle rules to still report while a scanned path is absent, received ${JSON.stringify(absentPathWiringDrive)}`,
+    );
+  }
+  // (e) Collector defensiveness (item 38). The two collectors are the only places a
+  // hardcoded path is read, so absence must become a value here, not an exception:
+  // before the reads moved, an absent `runtime-adapters.ts` killed this self-test, the
+  // plain check AND `--write-baseline` with an uncaught `node:fs` stack. Both paths are
+  // parameters so this drive needs no real file moved aside.
+  const absentScanRoot = join(ROOT, "scripts/.self-test-absent-scan-root");
+  const absentScan = collectRuntimeAdapterScan(
+    absentScanRoot,
+    join(absentScanRoot, "runtime-adapters.ts"),
+  );
+  if (absentScan.compositionSources.length > 0 || absentScan.manifestSource !== null) {
+    failures.push(
+      `runtime-adapter collector self-test mismatch: expected an absent root to yield no sources and a null manifest, received ${absentScan.compositionSources.length} sources and manifestSource=${typeof absentScan.manifestSource}`,
+    );
+  }
+  const absentSeamSources = collectBootSeamSources(
+    absentScanRoot,
+    join(absentScanRoot, "boot-port.ts"),
+  );
+  if (absentSeamSources.length > 0) {
+    failures.push(
+      `boot-seam collector self-test mismatch: expected an absent root to yield no sources, received ${JSON.stringify(absentSeamSources.map(({ file }) => relativeToRoot(file)))}`,
+    );
+  }
+  // (f) Discovery, over the REAL composition tree — the mirror of (c), and the price of
+  // moving these reads into one collector. `SCANNED_PATHS` proves the root RESOLVES and
+  // the five fixtures above prove the MATCHER; neither notices a walk that resolves and
+  // collects nothing, because a fixture supplies its own source text. Same accepted trade
+  // as (c): emptying the directory turns this red, and the fix is then to delete the rule.
+  const discoveredCompositionScan = collectRuntimeAdapterScan();
+  if (
+    discoveredCompositionScan.compositionSources.length === 0 ||
+    discoveredCompositionScan.manifestSource === null
+  ) {
+    failures.push(
+      `runtime-adapter discovery self-test mismatch: ${relativeToRoot(API_COMPOSITION_ROOT)} yielded ${discoveredCompositionScan.compositionSources.length} scanned files and manifestSource=${typeof discoveredCompositionScan.manifestSource}, so the runtime-adapter rule enforces nothing — update API_COMPOSITION_ROOT/RUNTIME_ADAPTER_MANIFEST or delete the rule that reads them`,
+    );
+  }
+  // (g) Runtime-adapter wiring. The fixtures above drive `runtimeAdapterViolations`, not
+  // its push: deleting that push left every gate green, because the real tree is clean.
+  // Reuses the omission fixture's own source text, so this pins the wiring and not the
+  // matcher.
+  const runtimeAdapterWiringDrive = checkArchitecture(
+    syntheticArchitecture({
+      runtimeAdapterScan: {
+        compositionSources: lifecycleFixture,
+        manifestSource: validManifestSource.replace(
+          "{ register: registerExample, unregister: unregisterExample },",
+          "",
+        ),
+      },
+    }),
+    syntheticBaseline(),
+  );
+  if (
+    !runtimeAdapterWiringDrive.some((violation) =>
+      violation.includes("must list registerExample/unregisterExample exactly once"),
+    )
+  ) {
+    failures.push(
+      `runtime-adapter wiring self-test mismatch: expected checkArchitecture to report the unlisted lifecycle pair, received ${JSON.stringify(runtimeAdapterWiringDrive)}`,
+    );
+  }
+  // (h) Boot-seam wiring, the same shape one rule over. Also deletable-green before this
+  // drive existed.
+  const bootSeamWiringDrive = checkArchitecture(
+    syntheticArchitecture({
+      bootSeamSources: [
+        { file: join(TOOL_RUNTIME_ROOT, "self-test-fixture.ts"), source: bootSeamFixtureSource },
+      ],
+    }),
+    syntheticBaseline(),
+  );
+  if (!bootSeamWiringDrive.some((violation) => violation.includes('missing "Wiring:"'))) {
+    failures.push(
+      `boot-seam wiring self-test mismatch: expected checkArchitecture to report the headerless seam, received ${JSON.stringify(bootSeamWiringDrive)}`,
     );
   }
   return failures;
@@ -2079,9 +2214,14 @@ function scannedPathPresence() {
   });
 }
 
-// `scannedPaths` is resolved from the working tree by default and injected only by the
-// self-test, which needs an absent row without moving a real directory aside.
-function checkArchitecture(architecture, baseline, scannedPaths = scannedPathPresence()) {
+/**
+ * Decides over the two values it is given, and over nothing else: it opens no file and
+ * stats no path (item 38). `collectArchitecture` owns every tree read, including the
+ * scanned-path presence list, the composition scan and the boot-seam sources, so a
+ * self-test drive over a synthetic architecture reports exactly the violations that
+ * architecture plants — which is what lets a drive assert an absence.
+ */
+function checkArchitecture(architecture, baseline) {
   const violations = [];
   // The graph is only as trustworthy as the list of workspaces it was walked over.
   // A refusal here means the walk read fewer trees than the repository has, which
@@ -2138,32 +2278,23 @@ function checkArchitecture(architecture, baseline, scannedPaths = scannedPathPre
       `production imports preview/debug code: ${imported.key} (line ${imported.line})`,
     );
   }
-  // The two blocks below read the working tree through hardcoded paths, so they are
-  // reported on and then guarded per block. The guard is per block, never one early
-  // return: a missing tool-runtime root must not also suppress the cycle, private-import
-  // and web-feature rules above, which is a fail-open regression in the middle of a
-  // fail-closed change. Without the guard the liveness message is pushed and the same
-  // function then dies three lines later on the very absence it just reported.
-  violations.push(...scannedPathLivenessViolations(scannedPaths));
-  const pathPresent = (constant) =>
-    scannedPaths.some((entry) => entry.constant === constant && entry.present);
-  if (pathPresent("API_COMPOSITION_ROOT") && pathPresent("RUNTIME_ADAPTER_MANIFEST")) {
-    const compositionSources = walkSourceFiles(API_COMPOSITION_ROOT)
-      .filter((file) => file !== RUNTIME_ADAPTER_MANIFEST)
-      .map((file) => ({ file, source: readFileSync(file, "utf8") }));
+  // The two rules below run over collected tree reads, so their inputs can be absent.
+  // Every absent hardcoded path is reported first, and each rule is then guarded on the
+  // SHAPE of its own collected data — never on one early return: a missing tool-runtime
+  // root must not also suppress the cycle, private-import and web-feature rules above,
+  // which is a fail-open regression in the middle of a fail-closed change. A data-shaped
+  // guard also cannot be paired with the wrong row, which a `SCANNED_PATHS` lookup here
+  // could be, invisibly, on a clean tree.
+  violations.push(...scannedPathLivenessViolations(architecture.scannedPaths));
+  if (architecture.runtimeAdapterScan.manifestSource !== null) {
     violations.push(
       ...runtimeAdapterViolations(
-        compositionSources,
-        readFileSync(RUNTIME_ADAPTER_MANIFEST, "utf8"),
+        architecture.runtimeAdapterScan.compositionSources,
+        architecture.runtimeAdapterScan.manifestSource,
       ),
     );
   }
-  if (pathPresent("TOOL_RUNTIME_ROOT")) {
-    const toolRuntimeSources = walkSourceFiles(TOOL_RUNTIME_ROOT)
-      .filter((file) => !/\.test\.tsx?$/.test(file) && file !== BOOT_PORT_DEFINER)
-      .map((file) => ({ file, source: readFileSync(file, "utf8") }));
-    violations.push(...bootSeamHeaderViolations(toolRuntimeSources));
-  }
+  violations.push(...bootSeamHeaderViolations(architecture.bootSeamSources));
   return violations.sort((a, b) => a.localeCompare(b));
 }
 
