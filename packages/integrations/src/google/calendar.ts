@@ -1,3 +1,4 @@
+import { calendarCreateEventSendsInvitations } from "@alfred/contracts";
 import { z } from "zod";
 import type { RetryPolicy } from "../shared/retry";
 import { googleJson } from "./http";
@@ -120,7 +121,7 @@ export interface CreateEventArgs {
 export async function createEvent(args: CreateEventArgs): Promise<CalendarEvent> {
   const calendarId = encodeURIComponent(args.calendarId ?? "primary");
   const url = new URL(`${API_BASE}/calendars/${calendarId}/events`);
-  if (args.attendees && args.attendees.length > 0) {
+  if (calendarCreateEventSendsInvitations(args)) {
     url.searchParams.set("sendUpdates", "all");
   }
 

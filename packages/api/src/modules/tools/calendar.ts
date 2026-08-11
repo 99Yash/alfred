@@ -1,4 +1,5 @@
 import {
+  calendarCreateEventSendsInvitations,
   calendarCreateEventInput,
   calendarListEventsInput,
   restPassthroughInput,
@@ -23,7 +24,7 @@ type CalendarListEventsInput = z.infer<typeof calendarListEventsInput>;
 type CalendarCreateEventInput = z.infer<typeof calendarCreateEventInput>;
 
 export function resolveCalendarCreateEventRiskTier(input: CalendarCreateEventInput): ToolRiskTier {
-  return input.attendees && input.attendees.length > 0 ? "high" : "medium";
+  return calendarCreateEventSendsInvitations(input) ? "high" : "medium";
 }
 
 interface CalendarListWindow {

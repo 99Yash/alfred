@@ -144,6 +144,42 @@ export function runStagingStoreContract(
       );
     });
 
+    test("promotePendingApproval raises only a pending autonomous row", async () => {
+      const h = harness();
+      const run = await h.seedRun("running");
+      const { row } = await h.store.upsertStaging(
+        stagingValues(run, { riskTier: "medium", requiresApproval: false }),
+      );
+      const notifyAfterAt = new Date("2026-08-11T10:00:00.000Z");
+      const expiresAt = new Date("2026-08-12T10:00:00.000Z");
+
+      const promoted = await h.store.promotePendingApproval(row.id, {
+        riskTier: "high",
+        proposedInput: { slug: "calendar" },
+        proposedInputHash: "hash_promoted",
+        notifyAfterAt,
+        expiresAt,
+      });
+
+      assert.equal(promoted?.riskTier, "high");
+      assert.equal(promoted?.requiresApproval, true);
+      assert.deepEqual(promoted?.proposedInput, { slug: "calendar" });
+      assert.equal(promoted?.proposedInputHash, "hash_promoted");
+      assert.deepEqual(promoted?.notifyAfterAt, notifyAfterAt);
+      assert.deepEqual(promoted?.expiresAt, expiresAt);
+      assert.equal(
+        await h.store.promotePendingApproval(row.id, {
+          riskTier: "high",
+          proposedInput: { slug: "calendar" },
+          proposedInputHash: "hash_promoted",
+          notifyAfterAt,
+          expiresAt,
+        }),
+        null,
+        "promotion is monotonic and cannot rewrite an already-gated row",
+      );
+    });
+
     test("findPriorRejection returns null when nothing matches", async () => {
       const h = harness();
       const run = await h.seedRun("running");

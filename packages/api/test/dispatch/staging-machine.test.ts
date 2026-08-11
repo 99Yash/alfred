@@ -27,7 +27,7 @@ import assert from "node:assert/strict";
 import { afterEach, beforeEach, describe, test } from "node:test";
 
 import { z } from "zod";
-import { calendarCreateEventInput, type IntegrationAvailabilitySnapshot } from "@alfred/contracts";
+import { hashToolInput, type IntegrationAvailabilitySnapshot } from "@alfred/contracts";
 
 import {
   _setDispatchTraceSinksForTests,
@@ -46,7 +46,7 @@ import {
   liveTool,
   registerTool,
 } from "../../src/modules/tools/registry";
-import { resolveCalendarCreateEventRiskTier } from "../../src/modules/tools/calendar";
+import { calendarTools } from "../../src/modules/tools/calendar";
 import { registerReplicachePokeAdapter } from "../../src/composition/replicache-poke-adapter";
 import { memoryStagingStore, type MemoryStagingStore } from "./memory-staging-store";
 import { runStagingStoreContract, type StagingStoreHarness } from "./staging-store-contract";
@@ -63,6 +63,14 @@ let restoreAvailabilityReader: (() => void) | null = null;
 let unregisterPokeAdapter: (() => void) | null = null;
 let executeCount = 0;
 let lastExecutedInput: unknown = null;
+
+const calendarCreateEventTool = calendarTools.find((tool) => tool.name === "calendar.create_event");
+assert.ok(calendarCreateEventTool, "production Calendar registration must include create_event");
+const calendarCredentialRequirement = calendarCreateEventTool.availability?.credential;
+assert.ok(
+  calendarCredentialRequirement,
+  "production Calendar create_event must declare its credential requirement",
+);
 
 function baseArgs(overrides: Record<string, unknown> = {}) {
   return {
@@ -141,21 +149,14 @@ function registerDoubles(): void {
       },
     }),
   );
-  registerTool(
-    liveTool({
-      integration: "calendar",
-      action: "create_event",
-      riskTier: "medium",
-      description: "test double — applies the production Calendar invite risk rule",
-      inputSchema: calendarCreateEventInput,
-      resolveRiskTier: (input) => Promise.resolve(resolveCalendarCreateEventRiskTier(input)),
-      execute: async (input) => {
-        executeCount += 1;
-        lastExecutedInput = input;
-        return { ok: true };
-      },
-    }),
-  );
+  registerTool({
+    ...calendarCreateEventTool,
+    execute: async (input) => {
+      executeCount += 1;
+      lastExecutedInput = input;
+      return { ok: true };
+    },
+  });
 }
 
 function installMachineFixture(): void {
@@ -172,7 +173,18 @@ function installMachineFixture(): void {
   });
   const availability: IntegrationAvailabilitySnapshot = {
     integrations: new Map([["calendar", { health: "active", accountLabel: null }]]),
-    providers: new Map(),
+    providers: new Map([
+      [
+        calendarCredentialRequirement.provider,
+        [
+          {
+            status: "active",
+            scopes: new Set(calendarCredentialRequirement.anyOfScopes),
+            accountLabel: null,
+          },
+        ],
+      ],
+    ]),
     passthroughEnabled: new Map(),
   };
   restoreAvailabilityReader = _setIntegrationAvailabilityReaderForTests(() =>
@@ -454,6 +466,85 @@ describe("dispatch staging machine (DB-free)", () => {
       calendarId: "primary",
       ...input,
     });
+  });
+
+  test("a pending pre-floor Calendar invite is promoted to approval before resume", async () => {
+    const toolCallId = "tc_calendar_invite_before_floor";
+    const input = calendarCreateEventTool.inputSchema.parse({
+      summary: "Legacy planning",
+      start: "2026-08-12T10:00:00+05:30",
+      end: "2026-08-12T11:00:00+05:30",
+      attendees: ["ada@example.com"],
+    });
+    await store.upsertStaging({
+      userId: USER_ID,
+      runId: RUN_ID,
+      stepId: "dispatch-tools",
+      toolCallId,
+      toolName: "calendar.create_event",
+      integration: "calendar",
+      riskTier: "medium",
+      proposedInput: input,
+      proposedInputHash: hashToolInput("calendar.create_event", input),
+      requiresApproval: false,
+      status: "pending",
+    });
+
+    const result = await dispatchToolCall(
+      baseArgs({
+        toolCallId,
+        toolName: "calendar.create_event",
+        input,
+      }),
+    );
+
+    assert.equal(result.kind, "staged", "the new high-risk floor must dominate the old row");
+    assert.equal(executeCount, 0, "an old autonomous row must not execute the invite");
+    const [row] = store.rows();
+    assert.equal(row?.riskTier, "high");
+    assert.equal(row?.requiresApproval, true);
+  });
+
+  test("a policy change does not promote a pending medium-risk autonomous row", async () => {
+    const toolCallId = "tc_calendar_policy_change";
+    const input = calendarCreateEventTool.inputSchema.parse({
+      summary: "Focus block",
+      start: "2026-08-12T10:00:00+05:30",
+      end: "2026-08-12T11:00:00+05:30",
+      attendees: [],
+    });
+    await store.upsertStaging({
+      userId: USER_ID,
+      runId: RUN_ID,
+      stepId: "dispatch-tools",
+      toolCallId,
+      toolName: "calendar.create_event",
+      integration: "calendar",
+      riskTier: "medium",
+      proposedInput: input,
+      proposedInputHash: hashToolInput("calendar.create_event", input),
+      requiresApproval: false,
+      status: "pending",
+    });
+    clearPolicyCacheForTests();
+    _primePolicyCacheForTests({
+      userId: USER_ID,
+      defaultMode: "gated",
+      integrationRules: { calendar: { mode: "gated" } },
+      approvalNotifyDelayMs: DEFAULT_APPROVAL_NOTIFY_DELAY_MS,
+    });
+
+    const result = await dispatchToolCall(
+      baseArgs({
+        toolCallId,
+        toolName: "calendar.create_event",
+        input,
+      }),
+    );
+
+    assert.equal(result.kind, "executed", "a later policy change applies only to fresh calls");
+    assert.equal(executeCount, 1);
+    assert.equal(store.rows()[0]?.requiresApproval, false);
   });
 
   test("a pending gated row stays gated when the policy flips to autonomy mid-run", async () => {
