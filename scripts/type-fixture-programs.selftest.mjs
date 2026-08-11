@@ -1,0 +1,326 @@
+// Fixtures for the type-fixture membership rule. A clean run of a check that
+// cannot see a dead guard is indistinguishable from a clean run of a check that
+// works, so every case here asserts the MUTATION fails and its clean twin passes.
+//
+// The fixtures drive the REAL `tsc` binary against dependency-free temp
+// projects, because the property under test is "which files does tsc read",
+// and a stub that answered that question would be the very glob
+// re-implementation the check exists to avoid. Each temp `tsconfig.json` is
+// self-contained — `extends: "@alfred/config/…"` resolves to nothing outside
+// this repo — and each fixture file imports nothing, so no `node_modules` is
+// needed in the temp tree.
+//
+// `scripts/` has no CI test job and no tsconfig names the tree, so this suite is
+// run by `check-type-fixture-programs.mjs` itself — the same wiring
+// `check-package-exports.mjs` and `check-web-boundaries.mjs` use. A test file
+// that only a job which does not exist would run is a dead guard, which is the
+// exact defect this check reports.
+
+import { execFileSync } from "node:child_process";
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { dirname, join } from "node:path";
+import { fileURLToPath } from "node:url";
+
+import { defaultTscPath, tscProjectsFor, typeFixtureFailures } from "./type-fixture-programs.mjs";
+
+const ROOT = dirname(dirname(fileURLToPath(import.meta.url)));
+const TSC = defaultTscPath(ROOT);
+
+/** A self-contained project: no `extends`, no lib beyond the compiler's own. */
+function project(include) {
+  return `${JSON.stringify(
+    {
+      compilerOptions: { noEmit: true, strict: true, module: "nodenext", target: "es2022" },
+      include,
+    },
+    null,
+    2,
+  )}\n`;
+}
+
+function write(root, relative, content) {
+  const path = join(root, relative);
+  mkdirSync(dirname(path), { recursive: true });
+  writeFileSync(path, content);
+}
+
+/** A workspace whose files git lists. Nothing is committed: discovery asks for `--others --exclude-standard`. */
+function withWorkspace(prefix, body) {
+  const fixture = mkdtempSync(join(tmpdir(), prefix));
+  try {
+    execFileSync("git", ["init", "--quiet"], { cwd: fixture });
+    write(fixture, "pnpm-workspace.yaml", "packages:\n  - packages/*\n");
+    return body(fixture);
+  } finally {
+    rmSync(fixture, { recursive: true, force: true });
+  }
+}
+
+/** One package: a manifest with the given `check-types`, one source file, one type fixture. */
+function packageWith(fixture, name, checkTypes, { withFixture = true } = {}) {
+  write(
+    fixture,
+    `packages/${name}/package.json`,
+    `${JSON.stringify({ name: `@alfred/${name}`, scripts: { "check-types": checkTypes } }, null, 2)}\n`,
+  );
+  write(fixture, `packages/${name}/src/index.ts`, `export const ${name} = 1;\n`);
+  if (withFixture) {
+    write(
+      fixture,
+      `packages/${name}/test/surface.type-test.ts`,
+      `import { ${name} } from "../src/index.ts";\n\nconst pinned: number = ${name};\nvoid pinned;\n`,
+    );
+  }
+}
+
+function run(fixture) {
+  return typeFixtureFailures(fixture, TSC);
+}
+
+function expectClean(label, fixture, failures) {
+  const result = run(fixture);
+  if (result.failures.length > 0) {
+    failures.push(`${label}: expected no failures, received ${JSON.stringify(result.failures)}`);
+  }
+  return result;
+}
+
+function expectFailure(label, fixture, needles, failures) {
+  const result = run(fixture);
+  if (result.failures.length === 0) {
+    failures.push(`${label}: expected a reported failure, received none`);
+    return result;
+  }
+  for (const needle of needles) {
+    if (!result.failures.some((failure) => failure.includes(needle))) {
+      failures.push(
+        `${label}: the failure must name ${JSON.stringify(needle)}, received ${JSON.stringify(result.failures)}`,
+      );
+    }
+  }
+  return result;
+}
+
+/**
+ * 1 — the negative control. A fixture inside the second pass's `include` is
+ * clean, and the SAME tree with the `include` narrowed by one directory is not.
+ * Without this pair a check that reported nothing would look identical to one
+ * that worked.
+ */
+function includeNarrowingFailures() {
+  const failures = [];
+
+  withWorkspace("alfred-type-fixture-include-", (fixture) => {
+    packageWith(fixture, "one", "tsc -b && tsc -p tsconfig.test.json");
+    write(fixture, "packages/one/tsconfig.json", project(["src"]));
+    write(fixture, "packages/one/tsconfig.test.json", project(["src", "test"]));
+
+    const clean = expectClean("fixture inside the second pass", fixture, failures);
+    if (clean.checked !== 1) {
+      failures.push(`fixture inside the second pass: expected checked 1, received ${clean.checked}`);
+    }
+    if (clean.projectsProbed !== 2) {
+      failures.push(
+        `fixture inside the second pass: expected projectsProbed 2, received ${clean.projectsProbed}`,
+      );
+    }
+
+    // One directory too high is the shape that produced two dead guards here.
+    write(fixture, "packages/one/tsconfig.test.json", project(["src", "test/type"]));
+    expectFailure(
+      "include narrowed past the fixture",
+      fixture,
+      ["packages/one/test/surface.type-test.ts", "in no program"],
+      failures,
+    );
+  });
+
+  return failures;
+}
+
+/** 2 — `packages/sync` in miniature: a one-pass `check-types` never reads `test/`. */
+function onePassFailures() {
+  const failures = [];
+
+  withWorkspace("alfred-type-fixture-onepass-", (fixture) => {
+    packageWith(fixture, "two", "tsc -b --emitDeclarationOnly");
+    write(fixture, "packages/two/tsconfig.json", project(["src"]));
+
+    expectFailure(
+      "one-pass check-types",
+      fixture,
+      ["packages/two/test/surface.type-test.ts", "in no program"],
+      failures,
+    );
+
+    // The repair this item ships for `@alfred/sync`, proved to clear it.
+    write(fixture, "packages/two/tsconfig.test.json", project(["src", "test"]));
+    write(
+      fixture,
+      "packages/two/package.json",
+      `${JSON.stringify(
+        {
+          name: "@alfred/two",
+          scripts: { "check-types": "tsc -b --emitDeclarationOnly && tsc -p tsconfig.test.json" },
+        },
+        null,
+        2,
+      )}\n`,
+    );
+    expectClean("one-pass check-types, repaired", fixture, failures);
+  });
+
+  return failures;
+}
+
+/**
+ * 3 — a `tsconfig.test.json` that exists on disk and that `check-types` never
+ * runs. This is the shape an `existsSync` check would pass, and it is the one a
+ * future author will reach for: writing the project is only half the repair.
+ */
+function unrunProjectFailures() {
+  const failures = [];
+
+  withWorkspace("alfred-type-fixture-unrun-", (fixture) => {
+    packageWith(fixture, "three", "tsc -b --emitDeclarationOnly");
+    write(fixture, "packages/three/tsconfig.json", project(["src"]));
+    write(fixture, "packages/three/tsconfig.test.json", project(["src", "test"]));
+
+    const result = expectFailure(
+      "a project on disk that check-types never runs",
+      fixture,
+      ["packages/three/test/surface.type-test.ts", "in no program"],
+      failures,
+    );
+    if (result.projectsProbed !== 1) {
+      failures.push(
+        `a project on disk that check-types never runs: only the project the script names may be probed, received projectsProbed ${result.projectsProbed}`,
+      );
+    }
+  });
+
+  return failures;
+}
+
+/** 4 — fail closed. A command line naming no project is a loud failure, never a pass. */
+function failClosedFailures() {
+  const failures = [];
+
+  for (const [label, script, needle] of [
+    ["no tsc at all", "echo skipped", "runs no tsc project"],
+    ["input files on the command line", "tsc src/index.ts --noEmit", "names input files"],
+    ["a dangling -p", "tsc -p", "names no project"],
+  ]) {
+    withWorkspace("alfred-type-fixture-closed-", (fixture) => {
+      packageWith(fixture, "four", script);
+      write(fixture, "packages/four/tsconfig.json", project(["src", "test"]));
+      expectFailure(label, fixture, [needle], failures);
+    });
+  }
+
+  // A fixture in a package with no `check-types` script at all.
+  withWorkspace("alfred-type-fixture-noscript-", (fixture) => {
+    write(fixture, "packages/five/package.json", '{ "name": "@alfred/five" }\n');
+    write(fixture, "packages/five/tsconfig.json", project(["src", "test"]));
+    write(fixture, "packages/five/test/surface.type-test.ts", "export const five: number = 5;\n");
+    expectFailure("no check-types script", fixture, ["declares no `check-types` script"], failures);
+  });
+
+  // A project the script names but that is not on disk.
+  withWorkspace("alfred-type-fixture-missing-", (fixture) => {
+    packageWith(fixture, "six", "tsc -p tsconfig.test.json");
+    write(fixture, "packages/six/tsconfig.json", project(["src"]));
+    expectFailure("a named project that does not exist", fixture, ["does not exist"], failures);
+  });
+
+  return failures;
+}
+
+/** 5 — a package with no fixture costs no `tsc` run, and is not a failure. */
+function zeroFixtureFailures() {
+  const failures = [];
+
+  withWorkspace("alfred-type-fixture-none-", (fixture) => {
+    packageWith(fixture, "seven", "tsc -b --emitDeclarationOnly", { withFixture: false });
+    write(fixture, "packages/seven/tsconfig.json", project(["src"]));
+
+    const result = expectClean("no fixture anywhere", fixture, failures);
+    if (result.checked !== 0 || result.projectsProbed !== 0) {
+      failures.push(
+        `no fixture anywhere: expected checked 0 and projectsProbed 0, received ${result.checked} and ${result.projectsProbed}`,
+      );
+    }
+  });
+
+  return failures;
+}
+
+/** 6 — a fixture that only this worktree has must not pass a gate for a tree nobody else has. */
+function untrackedDiscoveryFailures() {
+  const failures = [];
+
+  withWorkspace("alfred-type-fixture-ignored-", (fixture) => {
+    packageWith(fixture, "eight", "tsc -b --emitDeclarationOnly");
+    write(fixture, "packages/eight/tsconfig.json", project(["src"]));
+    expectFailure("an untracked fixture is still discovered", fixture, ["in no program"], failures);
+
+    // Gitignored is the one case that leaves the check surface, because CI
+    // never sees the file at all.
+    write(fixture, ".gitignore", "packages/eight/test/\n");
+    expectClean("a gitignored fixture is outside the surface", fixture, failures);
+  });
+
+  return failures;
+}
+
+/** 7 — the four `check-types` shapes this repo runs today, read directly. */
+function projectParseFailures() {
+  const failures = [];
+
+  const cases = [
+    ["tsc -b --emitDeclarationOnly", ["tsconfig.json"]],
+    ["tsc -b --emitDeclarationOnly && tsc -p tsconfig.test.json", ["tsconfig.json", "tsconfig.test.json"]],
+    ["tsc --noEmit && tsc -p tsconfig.test.json", ["tsconfig.json", "tsconfig.test.json"]],
+    ["tsc -b", ["tsconfig.json"]],
+    ["tsc -b packages/one packages/two", ["packages/one/tsconfig.json", "packages/two/tsconfig.json"]],
+    ["tsc --project ./scoped.json", ["scoped.json"]],
+    ["node ../../scripts/clean-package-dist.mjs && tsc -b --force", ["tsconfig.json"]],
+    ["tsc --outDir dist -b", ["tsconfig.json"]],
+  ];
+
+  for (const [script, expected] of cases) {
+    const { projects, problems } = tscProjectsFor(script);
+    if (problems.length > 0) {
+      failures.push(`tscProjectsFor(${JSON.stringify(script)}) reported ${JSON.stringify(problems)}`);
+    }
+    if (JSON.stringify(projects) !== JSON.stringify(expected)) {
+      failures.push(
+        `tscProjectsFor(${JSON.stringify(script)}) must yield ${JSON.stringify(expected)}, received ${JSON.stringify(projects)}`,
+      );
+    }
+  }
+
+  return failures;
+}
+
+export function typeFixtureProgramsSelfTestFailures() {
+  return [
+    ...projectParseFailures(),
+    ...includeNarrowingFailures(),
+    ...onePassFailures(),
+    ...unrunProjectFailures(),
+    ...failClosedFailures(),
+    ...zeroFixtureFailures(),
+    ...untrackedDiscoveryFailures(),
+  ];
+}
+
+if (process.argv[1] && fileURLToPath(import.meta.url) === process.argv[1]) {
+  const failures = typeFixtureProgramsSelfTestFailures();
+  if (failures.length > 0) {
+    for (const failure of failures) console.error(failure);
+    process.exit(1);
+  }
+  console.log("type-fixture-programs self-test passed.");
+}
