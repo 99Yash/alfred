@@ -1,2 +1,3 @@
 *.ts text diff
 *.tsx text diff
+scripts/module-architecture-baseline.json -merge
