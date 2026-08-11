@@ -21,15 +21,8 @@
  *   4. cancelRun: idempotent transitions + pending approval cleanup.
  */
 
-import {
-  bustPolicyCache,
-  cancelRun,
-  clearToolRegistryForTests,
-  dispatchToolCall,
-  liveTool,
-  registerTools,
-  signalRun,
-} from "@alfred/api/backend";
+import { bustPolicyCache, cancelRun, dispatchToolCall, signalRun } from "@alfred/api/backend";
+import { clearToolRegistryForTests, liveTool, registerTools } from "@alfred/assistant/tool-runtime";
 import {
   closeConnections,
   closeRedis,

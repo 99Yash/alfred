@@ -1,19 +1,9 @@
-/** Side-effect-free tools interface for registry and availability operations. */
+/**
+ * Side-effect-free tools interface. The registry and the availability
+ * evaluators now live behind `@alfred/assistant/tool-runtime`; callers import
+ * them from that door directly, so this module publishes only what `@alfred/api`
+ * still owns.
+ */
 
-export {
-  liveTool,
-  registerTool,
-  registerTools,
-  getTool,
-  listRegisteredTools,
-  listToolsForIntegration,
-  riskTierCountsForIntegration,
-  clearToolRegistryForTests,
-  type RiskTierCounts,
-  type RegisteredTool,
-  type LiveToolArgs,
-  type ToolExecuteContext,
-  type ToolExecuteContextFields,
-} from "./registry";
 export { toolExecuteContext } from "./context";
 export { toolTiersRoutes } from "./tool-tiers-routes";

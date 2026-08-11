@@ -15,7 +15,7 @@ import {
   restPassthroughInput,
 } from "@alfred/contracts";
 import { runRestPassthrough } from "./passthrough";
-import { liveTool, type RegisteredTool } from "./registry";
+import { liveTool, type RegisteredTool } from "@alfred/assistant/tool-runtime";
 
 export const notionTools: readonly RegisteredTool[] = [
   liveTool({

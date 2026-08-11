@@ -7,7 +7,7 @@ import { activateTool, migrateActiveTools } from "@alfred/assistant/execution/to
 import { chatTurnWorkflow } from "@alfred/assistant/conversations/chat-turn";
 import { userAuthoredBriefWorkflow } from "@alfred/assistant/execution/workflows/user-authored-brief";
 import { _setDispatchTraceSinksForTests, dispatchToolCall } from "../../src/modules/dispatch";
-import { liveTool, registerTool } from "../../src/modules/tools/registry";
+import { liveTool, registerTool } from "@alfred/assistant/tool-runtime";
 import { resetToolFixtures } from "../lib/tool-fixtures";
 
 let restoreTraceSinks: (() => void) | undefined;

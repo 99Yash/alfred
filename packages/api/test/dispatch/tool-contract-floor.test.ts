@@ -4,11 +4,7 @@ import { afterEach, beforeEach, describe, test } from "node:test";
 import { z } from "zod";
 
 import { _setDispatchTraceSinksForTests, dispatchToolCall } from "../../src/modules/dispatch";
-import {
-  clearToolRegistryForTests,
-  liveTool,
-  registerTool,
-} from "../../src/modules/tools/registry";
+import { clearToolRegistryForTests, liveTool, registerTool } from "@alfred/assistant/tool-runtime";
 
 /**
  * The declared tool contract is enforced at the dispatch floor, by the ONE

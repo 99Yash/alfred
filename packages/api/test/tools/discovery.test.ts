@@ -4,6 +4,7 @@ import { afterEach, beforeEach, describe, test } from "node:test";
 import type {
   IntegrationAvailabilitySnapshot,
   LoadableIntegrationSlug,
+  ToolAvailabilityResult,
   ToolName,
 } from "@alfred/contracts";
 import { z } from "zod";
@@ -21,8 +22,7 @@ import {
   liveTool,
   registerTool,
   type RegisteredTool,
-  type ToolAvailabilityResult,
-} from "../../src/modules/tools/registry";
+} from "@alfred/assistant/tool-runtime";
 import { resetToolFixtures } from "../lib/tool-fixtures";
 
 beforeEach(resetToolFixtures);

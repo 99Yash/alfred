@@ -37,7 +37,7 @@ import {
 // tool declaration imports. Building a context lives in `./context`.
 import type { Integrations } from "@alfred/integrations";
 import { z } from "zod";
-import { joinToolInput } from "@alfred/assistant/tool-runtime";
+import { joinToolInput } from "../join-contract";
 import { deriveToolDiscovery, type ResolvedDiscovery } from "./metadata-defaults";
 
 export interface ToolDiscoveryMetadata {

@@ -18,11 +18,7 @@ import { inArray, like } from "drizzle-orm";
 import { clearPolicyCacheForTests } from "../../src/modules/action-policies/resolve";
 import { dispatchToolCall } from "../../src/modules/dispatch";
 import { PASSTHROUGH_PER_RUN_CEILING } from "../../src/modules/tools/passthrough";
-import {
-  clearToolRegistryForTests,
-  liveTool,
-  registerTool,
-} from "../../src/modules/tools/registry";
+import { clearToolRegistryForTests, liveTool, registerTool } from "@alfred/assistant/tool-runtime";
 
 /**
  * DB-backed regression for the ADR-0074 per-run passthrough ceiling. A runaway

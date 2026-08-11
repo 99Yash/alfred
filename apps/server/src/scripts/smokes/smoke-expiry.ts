@@ -26,14 +26,12 @@
 import {
   approvalExpiryJobId,
   bustPolicyCache,
-  clearToolRegistryForTests,
   dispatchToolCall,
   expireStaging,
   getApprovalExpiryQueue,
-  liveTool,
-  registerTools,
   removeApprovalExpiryJob,
 } from "@alfred/api/backend";
+import { clearToolRegistryForTests, liveTool, registerTools } from "@alfred/assistant/tool-runtime";
 import {
   closeConnections,
   closeRedis,

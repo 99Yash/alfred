@@ -25,7 +25,7 @@ import {
   type Tool,
   type ToolSet,
 } from "@alfred/ai";
-import { listToolsForIntegration } from "@alfred/api/backend";
+import { listToolsForIntegration } from "@alfred/assistant/tool-runtime";
 import { registerBuiltinTools } from "@alfred/api/runtime";
 import { INTEGRATION_SLUGS } from "@alfred/contracts";
 

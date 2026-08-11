@@ -17,7 +17,7 @@ import {
   liveTool,
   registerTool,
   type RegisteredTool,
-} from "../../src/modules/tools/registry";
+} from "@alfred/assistant/tool-runtime";
 import { closeRedis } from "@alfred/db/redis";
 
 const startedAt = new Date("2026-06-29T00:00:00.000Z");

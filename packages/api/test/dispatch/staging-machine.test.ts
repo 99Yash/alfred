@@ -41,11 +41,7 @@ import {
   clearPolicyCacheForTests,
   DEFAULT_APPROVAL_NOTIFY_DELAY_MS,
 } from "../../src/modules/action-policies/resolve";
-import {
-  clearToolRegistryForTests,
-  liveTool,
-  registerTool,
-} from "../../src/modules/tools/registry";
+import { clearToolRegistryForTests, liveTool, registerTool } from "@alfred/assistant/tool-runtime";
 import { calendarTools } from "../../src/modules/tools/calendar";
 import { registerReplicachePokeAdapter } from "../../src/composition/replicache-poke-adapter";
 import { memoryStagingStore, type MemoryStagingStore } from "./memory-staging-store";

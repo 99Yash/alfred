@@ -10,7 +10,7 @@ import {
   selectToolPreload,
   toolNamesForIntegrations,
 } from "@alfred/assistant/tool-runtime";
-import { liveTool, registerTools } from "../../src/modules/tools/registry";
+import { liveTool, registerTools } from "@alfred/assistant/tool-runtime";
 import { resetToolFixtures } from "../lib/tool-fixtures";
 
 beforeEach(resetToolFixtures);
