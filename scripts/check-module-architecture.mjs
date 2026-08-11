@@ -1828,7 +1828,7 @@ const text = 'import "ignored-string"';
   // names a path that must not exist, and the unparseable case names this script, a real
   // file that is not JSON.
   const missingBaselineLoad = loadBaseline(
-    join(ROOT, "scripts/.baseline-that-does-not-exist.json"),
+    join(ROOT, "scripts/.baseline-that-does-not-exist.json"), // path-ok: the drive's subject is that this path is absent
   );
   if (missingBaselineLoad.ok || !missingBaselineLoad.error?.startsWith("missing ")) {
     failures.push(
@@ -2090,7 +2090,7 @@ const aliasedPort = make("aliased");
   // before the reads moved, an absent `runtime-adapters.ts` killed this self-test, the
   // plain check AND `--write-baseline` with an uncaught `node:fs` stack. Both paths are
   // parameters so this drive needs no real file moved aside.
-  const absentScanRoot = join(ROOT, "scripts/.self-test-absent-scan-root");
+  const absentScanRoot = join(ROOT, "scripts/.self-test-absent-scan-root"); // path-ok: the drive's subject is that this scan root is absent
   const absentScan = collectRuntimeAdapterScan(
     absentScanRoot,
     join(absentScanRoot, "runtime-adapters.ts"),

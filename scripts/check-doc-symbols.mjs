@@ -191,13 +191,31 @@ function collectDefinedNames() {
 
 const defined = collectDefinedNames();
 const missing = [];
+const absent = [];
 
 for (const doc of DOC_FILES) {
   const path = join(ROOT, doc);
-  if (!isFile(path)) continue;
+  if (!isFile(path)) {
+    absent.push(doc);
+    continue;
+  }
   for (const symbol of symbolsIn(readFileSync(path, "utf8"))) {
     if (!defined.has(symbol)) missing.push({ doc, symbol });
   }
+}
+
+// A doc that stopped resolving used to be skipped, and the run then reported
+// success over fewer docs than it names. Only a HARDCODED entry can be absent —
+// `referenceDocs()` and `packageGuides()` both filter to real files before
+// pushing — so absence here is a stale constant in this file, and the doc it
+// names is unscanned either way.
+if (absent.length > 0) {
+  console.error("A doc this check names does not exist, so its symbols went unchecked:\n");
+  for (const doc of absent) console.error(`- ${doc}`);
+  console.error(
+    "\nRepoint the entry in DOC_FILES in scripts/check-doc-symbols.mjs at the doc's" +
+      "\nnew path, or drop the entry if the doc is gone for good.\n",
+  );
 }
 
 // A refused enumeration means the per-workspace guides were collected from a
@@ -221,7 +239,7 @@ if (missing.length > 0) {
   );
 }
 
-if (missing.length > 0 || workspaceFailures.length > 0) process.exit(1);
+if (missing.length > 0 || workspaceFailures.length > 0 || absent.length > 0) process.exit(1);
 
 console.log(
   `check-doc-symbols: ${DOC_FILES.length} docs scanned, every named symbol resolves.`,
