@@ -134,16 +134,106 @@ jobs:
       - name: API tests
         run: corepack pnpm --filter @alfred/api test
 
-  # No `services:` and no `env:` here, unlike `api-tests`. The `@alfred/http`
-  # barrel is a single module-evaluation unit that loads with DATABASE_URL,
-  # REDIS_URL, BETTER_AUTH_SECRET and OAUTH_CREDENTIAL_KEK all unset — measured
-  # at campaign items 03, 04 and 05, and the suites under `packages/http/test`
-  # touch no database. That expires the moment any module reachable from the
-  # barrel reads env or calls `db()` at module scope: the symptom is this job
-  # failing with an env error on a pull request that changed no test. The fix
-  # is then to copy the `services:` and `env:` blocks from `api-tests` above.
+  # TWO http jobs, and they prove different claims. `http-tests` runs the whole
+  # `packages/http/test` glob against real Postgres and Redis, because a file in
+  # that tree may guard itself with `{ skip: !process.env.DATABASE_URL }` and a
+  # skipped test exits 0. Without the `services:` and `env:` blocks below, a
+  # DB-backed suite moved in here reports `# skipped` and this job goes green
+  # without running it — the quiet failure, not the loud one. Read the skip
+  # count, not the exit status, when you change anything here.
+  #
+  # `http-env-free-load` runs one file, with no `services:` and no `env:` at all.
+  # The `@alfred/http` barrel is a single module-evaluation unit that must load
+  # with no service variable set — measured at campaign items 03, 04 and 05 — and
+  # `barrel-load.test.ts` is the detector. It is not redundant with that file's
+  # own `delete process.env[…]` loop: the loop clears seven keys, so a module
+  # reading BETTER_AUTH_URL or a GITHUB_* key at module scope still loads inside
+  # a job whose `env:` block sets them. An empty **ambient** environment is the
+  # stronger control, and it cannot be weakened by the `env:` block above growing
+  # a key. The `delete` loop stays because it is what keeps the file honest in a
+  # populated developer shell and inside `http-tests`.
   http-tests:
     name: http-tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    services:
+      postgres:
+        image: pgvector/pgvector:pg16
+        env:
+          POSTGRES_USER: ci
+          POSTGRES_PASSWORD: ci
+          POSTGRES_DB: alfred_ci
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U ci -d alfred_ci"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+      redis:
+        image: redis:7-alpine
+        ports:
+          - 6379:6379
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+    env:
+      DATABASE_URL: postgresql://ci:ci@localhost:5432/alfred_ci
+      # Format-valid dummies required by serverEnv(). The suite uses the local
+      # Postgres/Redis services and does not call external providers.
+      REDIS_URL: redis://localhost:6379
+      BETTER_AUTH_SECRET: ci-dummy-better-auth-secret-32chars-min
+      # #453: serverEnv() requires a credential KEK decoding to 32 bytes. This
+      # one seals nothing real — CI writes no provider tokens.
+      OAUTH_CREDENTIAL_KEK: Y2ktZHVtbXkta2VrLTMyLWJ5dGVzLW5vdC1zZWNyZXQ
+      BETTER_AUTH_URL: http://localhost:3001
+      ALFRED_ALLOWED_EMAIL: ci@example.com
+      RESEND_API_KEY: re_ci_dummy
+      RESEND_FROM_EMAIL: Alfred <noreply@example.com>
+      ANTHROPIC_API_KEY: ci-dummy
+      GOOGLE_GENERATIVE_AI_API_KEY: ci-dummy
+      GOOGLE_OAUTH_CLIENT_ID: ci-dummy
+      GOOGLE_OAUTH_CLIENT_SECRET: ci-dummy
+      GOOGLE_OAUTH_REDIRECT_URI: http://localhost:3001/api/integrations/google/callback
+      GITHUB_APP_ID: "1"
+      GITHUB_APP_SLUG: ci-dummy
+      GITHUB_APP_CLIENT_ID: ci-dummy
+      GITHUB_APP_CLIENT_SECRET: ci-dummy
+      GITHUB_APP_PRIVATE_KEY: ci-dummy
+      GITHUB_WEBHOOK_SECRET: ci-dummy
+      GITHUB_APP_REDIRECT_URI: http://localhost:3001/api/integrations/github/callback
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Enable Corepack
+        run: corepack enable
+
+      - name: Resolve pnpm store path
+        run: echo "PNPM_STORE_PATH=$(corepack pnpm store path --silent)" >> "$GITHUB_ENV"
+
+      - uses: actions/cache@v4
+        with:
+          path: ${{ env.PNPM_STORE_PATH }}
+          key: ${{ runner.os }}-pnpm-store-${{ hashFiles('pnpm-lock.yaml') }}
+          restore-keys: ${{ runner.os }}-pnpm-store-
+
+      - name: Install dependencies
+        run: corepack pnpm install --frozen-lockfile
+
+      - name: Apply database migrations
+        run: corepack pnpm --filter @alfred/db db:migrate
+
+      - name: HTTP tests
+        run: corepack pnpm --filter @alfred/http test
+
+  http-env-free-load:
+    name: http-env-free-load
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
@@ -168,8 +258,8 @@ jobs:
       - name: Install dependencies
         run: corepack pnpm install --frozen-lockfile
 
-      - name: HTTP tests
-        run: corepack pnpm --filter @alfred/http test
+      - name: HTTP barrel loads with no service environment
+        run: corepack pnpm --filter @alfred/http test:env-free
 
   ai-unit-tests:
     name: ai-unit-tests
