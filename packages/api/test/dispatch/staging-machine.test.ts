@@ -36,11 +36,11 @@ import {
   toolCallWouldGate,
 } from "../../src/modules/dispatch";
 import { _setStagingStoreForTests } from "../../src/modules/dispatch/staging-store";
+import { DEFAULT_APPROVAL_NOTIFY_DELAY_MS } from "@alfred/assistant/action-policies";
 import {
   _primePolicyCacheForTests,
   clearPolicyCacheForTests,
-  DEFAULT_APPROVAL_NOTIFY_DELAY_MS,
-} from "../../src/modules/action-policies/resolve";
+} from "@alfred/assistant/action-policies/test-support";
 import { clearToolRegistryForTests, liveTool, registerTool } from "@alfred/assistant/tool-runtime";
 import { calendarTools } from "../../src/modules/tools/calendar";
 import { registerReplicachePokeAdapter } from "../../src/composition/replicache-poke-adapter";

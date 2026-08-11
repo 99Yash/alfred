@@ -150,7 +150,6 @@
       "imports": [
         "packages/api/src/backend.ts:./modules/connections/mcp/index",
         "packages/api/src/index.ts:./modules/connections/mcp/index",
-        "packages/api/src/modules/dispatch/index.ts:../action-policies/resolve",
         "packages/api/src/modules/dispatch/index.ts:../tools/context",
         "packages/api/src/modules/dispatch/index.ts:../tools/passthrough",
         "packages/api/src/modules/dispatch/index.ts:../tools/scratch-key",

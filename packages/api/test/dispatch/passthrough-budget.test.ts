@@ -15,7 +15,7 @@ import {
 } from "@alfred/db/schemas";
 import { inArray, like } from "drizzle-orm";
 
-import { clearPolicyCacheForTests } from "../../src/modules/action-policies/resolve";
+import { clearPolicyCacheForTests } from "@alfred/assistant/action-policies/test-support";
 import { dispatchToolCall } from "../../src/modules/dispatch";
 import { PASSTHROUGH_PER_RUN_CEILING } from "../../src/modules/tools/passthrough";
 import { clearToolRegistryForTests, liveTool, registerTool } from "@alfred/assistant/tool-runtime";

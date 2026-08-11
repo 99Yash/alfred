@@ -12,7 +12,6 @@ import {
   closeReplicachePokeBridge,
   closeSubAgentJoinWakeQueue,
   closeWorkflowsQueue,
-  ensureDefaultActionPolicyForUser,
   initEventBridge,
   initReplicachePokeBridge,
   reconcileInflightInvocations,
@@ -35,7 +34,6 @@ import {
   startChatMemoryWorker,
   startConversationCompactionWorker,
   startMemoryWorker,
-  startPolicyBustSubscriber,
   startSubAgentJoinWakeWorker,
   startWorkflowsWorker,
   stopAgentWorker,
@@ -45,13 +43,17 @@ import {
   stopChatMemoryWorker,
   stopConversationCompactionWorker,
   stopMemoryWorker,
-  stopPolicyBustSubscriber,
   stopSubAgentJoinWakeWorker,
   stopWorkflowsWorker,
   unregisterRuntimeAdapters,
   verifyMeteringModels,
   warmPool,
 } from "@alfred/api/runtime";
+import {
+  ensureDefaultActionPolicyForUser,
+  startPolicyBustSubscriber,
+  stopPolicyBustSubscriber,
+} from "@alfred/assistant/action-policies";
 import {
   closeIngestionQueue,
   scheduleRepeatableIngestionJobs,

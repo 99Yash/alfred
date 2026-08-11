@@ -42,7 +42,7 @@ import type {
   WorkflowUpdateArgs,
 } from "@alfred/sync";
 import { and, eq, gt, inArray, isNull, lte, or, sql } from "drizzle-orm";
-import { DEFAULT_APPROVAL_NOTIFY_DELAY_MS } from "../../action-policies";
+import { DEFAULT_APPROVAL_NOTIFY_DELAY_MS } from "@alfred/assistant/action-policies";
 import { isSingleValuedKey, valueSignature } from "@alfred/assistant/knowledge";
 import { deletePreferenceRow, upsertPreference } from "@alfred/assistant/settings";
 import {
