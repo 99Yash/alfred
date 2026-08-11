@@ -2,9 +2,8 @@
  * `@alfred/integrations/google/internal` — the single privileged friend door
  * into the raw Gmail watch primitive.
  *
- * The sanctioned app-facing door is the api wrapper
- * `installGmailWatchAndSeedCursor` (`@alfred/assistant`
- * `connections/ingestion/gmail-ingest.ts`): it installs the watch AND seeds the
+ * The sanctioned app-facing door is `installGmailWatchAndSeedCursor` from
+ * `@alfred/assistant/connections/ingestion`: it installs the watch AND seeds the
  * `ingestion_state` baseline `historyId` cursor in one step. A RAW
  * `installGmailWatch` call leaves the credential cursorless — the first Pub/Sub
  * push then has no baseline to diff against and the credential is invisible to
@@ -21,8 +20,8 @@
  *
  * The "friend only" restriction is gate-enforced: an oxlint
  * `no-restricted-imports` rule in `.oxlintrc.json` forbids importing this subpath
- * from anywhere outside the two allowlisted friend files (the api wrapper and its
- * characterization test), so a route or worker reaching for the raw primitive
+ * from anywhere outside the two allowlisted friend files (the seeding wrapper and
+ * its characterization test), so a route or worker reaching for the raw primitive
  * here is a red `pnpm lint`, not a silent bypass.
  */
 export { installGmailWatch } from "./watch";
