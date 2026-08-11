@@ -142,13 +142,23 @@ export const events = new Elysia({ prefix: "/api/events", normalize: "typebox" }
       // environment reader sits here runs when `@alfred/http`'s barrel is
       // imported — not when a request arrives. That is why this is `nodeEnv()`
       // and not `serverEnv().NODE_ENV`: the two read the same field through the
-      // same schema and agree whenever the environment is valid, but
-      // `serverEnv()` throws when any of its ~25 variables is missing, and this
-      // package must stay importable with no environment at all. The divergence
-      // is real and one-sided: with no environment, `serverEnv()` aborted the
-      // import while `nodeEnv()` returns the schema default `"development"` and
-      // therefore MOUNTS `_demo`. `NODE_ENV=production` is unaffected, which is
-      // the case that matters and which the route-table probe checks.
+      // same schema and agree whenever the whole environment is valid, but
+      // `serverEnv()` throws when any of its ~25 variables is missing OR
+      // invalid, and this package must stay importable with no environment at
+      // all. The divergence is real and one-sided: where `serverEnv()` would
+      // have aborted the import, `nodeEnv()` returns the schema default
+      // `"development"` and therefore MOUNTS `_demo`. Note the trigger is
+      // wider than an empty environment — a `.default()` fires only on
+      // `undefined`, so a fully configured deploy that sets `NODE_ENV` to a
+      // value outside the enum (`Production`, or an empty string) diverges
+      // too. What keeps that off a socket is not this file: `apps/server`
+      // takes its port from `serverEnv().PORT` at
+      // `apps/server/src/index.ts:75`, so a whole-environment validation is a
+      // data dependency of the bind and no such process ever listens. A second
+      // control exists today and will not survive — `@alfred/api` reads
+      // `serverEnv()` at import through `auth()` — so when item 12 deletes
+      // that package, the `.listen` read is the only one left. A valid
+      // `NODE_ENV=production` is unaffected either way.
       .guard({}, (inner) =>
         nodeEnv() === "development"
           ? inner.post(

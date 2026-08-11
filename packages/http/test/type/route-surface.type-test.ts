@@ -93,8 +93,7 @@ export const onboardingPrefix: (typeof onboardingRoutes)["config"]["prefix"] = "
 export const skillsPrefix: (typeof skillsRoutes)["config"]["prefix"] = "/api/skills";
 export const workflowsPrefix: (typeof workflowRoutes)["config"]["prefix"] = "/api/workflows";
 
-// The SSE endpoint campaign item 06 moved out of
-// `packages/api/src/modules/events/`. Its mount path carries more weight than
+// The SSE endpoint. Its mount path carries more weight than
 // the others': a browser `EventSource` reconnects to the URL it was opened
 // with, so a changed prefix does not fail a call — it silently stops
 // delivering events to a client that keeps retrying.

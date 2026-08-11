@@ -56,9 +56,17 @@ export { workflowRoutes } from "./workflows";
 // the flat `src/<domain>.ts` layout names product domains, and SSE delivery is
 // a transport concern that several domains push through. Only the wire half
 // lives here — frame encoding, heartbeats, `Last-Event-ID` replay handoff. The
-// substrate underneath it (the Redis user-event bus, the Postgres
-// LISTEN/NOTIFY outbox relay, the retention reaper, the cursor-paged outbox
-// read) is runtime, not transport: delete SSE and every one of those files
-// still has a job, so they live on `@alfred/assistant/realtime` and this route
-// imports them.
+// substrate underneath it lives on `@alfred/assistant/realtime` and this route
+// imports it. Where the line falls is not decided by counting callers: today
+// most of that substrate is reached by this route alone, and pulling it across
+// on that basis is the mistake to avoid. Two properties decide it instead.
+// A module stays out if it shares mutable state or a written invariant with a
+// background loop — the outbox reader and the retention reaper agree on one
+// retention window, and a Redis bus's subscribe half agrees with its publish
+// half on one channel name; split either pair across a package boundary and
+// the invariant has two owners and no checker. And a module stays out if the
+// server's lifecycle starts or stops it, because ADR-0089 fixes that direction
+// at `apps/server -> @alfred/assistant/runtime`, which does not pass through
+// transport. What is left — code that only exists because a client speaks HTTP
+// — is what belongs here.
 export { events } from "./realtime/events";
