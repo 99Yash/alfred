@@ -32,7 +32,7 @@
           },
           {
             "group": ["@alfred/integrations/google/internal"],
-            "message": "The raw Gmail watch primitive is restricted to its two allowlisted friend files (see google/internal.ts). Install a watch through the api wrapper installGmailWatchAndSeedCursor, which also seeds the ingestion_state cursor; a raw installGmailWatch leaves the credential cursorless."
+            "message": "The raw Gmail watch primitive is restricted to its two allowlisted friend files (see packages/integrations/src/google/internal.ts). Install a watch through installGmailWatchAndSeedCursor from @alfred/assistant/connections/ingestion, which also seeds the ingestion_state cursor; a raw installGmailWatch leaves the credential cursorless."
           }
         ]
       }
@@ -88,7 +88,7 @@
             "patterns": [
               {
                 "group": ["@alfred/integrations/google/internal"],
-                "message": "The raw Gmail watch primitive is restricted to its two allowlisted friend files (see google/internal.ts). Install a watch through the api wrapper installGmailWatchAndSeedCursor, which also seeds the ingestion_state cursor; a raw installGmailWatch leaves the credential cursorless."
+                "message": "The raw Gmail watch primitive is restricted to its two allowlisted friend files (see packages/integrations/src/google/internal.ts). Install a watch through installGmailWatchAndSeedCursor from @alfred/assistant/connections/ingestion, which also seeds the ingestion_state cursor; a raw installGmailWatch leaves the credential cursorless."
               }
             ]
           }
@@ -130,7 +130,7 @@
               },
               {
                 "group": ["@alfred/integrations/google/internal"],
-                "message": "The raw Gmail watch primitive is restricted to its two allowlisted friend files (see google/internal.ts). Install a watch through the api wrapper installGmailWatchAndSeedCursor, which also seeds the ingestion_state cursor; a raw installGmailWatch leaves the credential cursorless."
+                "message": "The raw Gmail watch primitive is restricted to its two allowlisted friend files (see packages/integrations/src/google/internal.ts). Install a watch through installGmailWatchAndSeedCursor from @alfred/assistant/connections/ingestion, which also seeds the ingestion_state cursor; a raw installGmailWatch leaves the credential cursorless."
               },
               {
                 "group": [

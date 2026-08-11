@@ -9,9 +9,9 @@ import { gmailMailboxWritesEnabled } from "@alfred/env/server";
 
 /**
  * Push-channel lifecycle for Gmail. The delta sync and the rolling
- * `ingestion_state` cursor now live in the api-layer consumer
- * (`@alfred/assistant` `connections/ingestion/gmail-ingest.ts`); this provider
- * module is just the watch channel bookkeeping.
+ * `ingestion_state` cursor now live in the ingestion consumer
+ * (`@alfred/assistant/connections/ingestion`); this provider module is just the
+ * watch channel bookkeeping.
  *
  * State is split across two tables:
  *  - `integration_credentials.metadata.watch`: channel-level bookkeeping
@@ -19,14 +19,15 @@ import { gmailMailboxWritesEnabled } from "@alfred/env/server";
  *    time, kept as the cold-start baseline) — owned here.
  *  - `ingestion_state.state.historyId`: rolling cursor — advanced by
  *    every successful poll/webhook delta and seeded on first connect. This
- *    table is owned by the api consumer, NOT this provider package;
+ *    table is owned by the ingestion consumer, NOT this provider package;
  *    `installGmailWatch` returns the baseline historyId and the consumer's
  *    `installGmailWatchAndSeedCursor` wrapper seeds the cursor row.
  *
  * `installGmailWatch` is package-internal: it is NOT on the public
  * `@alfred/integrations/google` barrel, only on the `./internal` friend subpath
- * (`google/internal.ts`, oxlint-gated to two allowlisted files). App code
- * installs a watch through the api wrapper `installGmailWatchAndSeedCursor`,
+ * (`packages/integrations/src/google/internal.ts`, oxlint-gated to two
+ * allowlisted files). App code installs a watch through the seeding wrapper
+ * `installGmailWatchAndSeedCursor` (`@alfred/assistant/connections/ingestion`),
  * which is the only door that also seeds the `ingestion_state` cursor — a raw
  * call leaves the credential cursorless.
  *
@@ -84,8 +85,9 @@ const DEFAULT_DEPS: GmailWatchDeps = {
  * PACKAGE-INTERNAL: reachable only via `@alfred/integrations/google/internal`
  * (the oxlint-gated friend door), never the public `./google` barrel. This is
  * the RAW primitive — it does NOT seed the `ingestion_state` cursor. App code
- * must go through the api wrapper `installGmailWatchAndSeedCursor`; a direct raw
- * call leaves the credential cursorless (the item-01 round-0 bug).
+ * must go through the seeding wrapper `installGmailWatchAndSeedCursor`
+ * (`@alfred/assistant/connections/ingestion`); a direct raw call leaves the
+ * credential cursorless (the item-01 round-0 bug).
  */
 export async function installGmailWatch(
   args: {
@@ -130,7 +132,7 @@ export async function installGmailWatch(
     })
     .where(eq(integrationCredentials.id, args.credentialId));
 
-  // The rolling `ingestion_state` cursor is seeded by the api-layer consumer
+  // The rolling `ingestion_state` cursor is seeded by the ingestion consumer
   // (`installGmailWatchAndSeedCursor`), not here — this provider package no
   // longer writes ingestion-domain tables. `state.baselineHistoryId` carries the
   // historyId the caller needs to seed from.
