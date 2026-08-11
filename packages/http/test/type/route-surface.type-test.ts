@@ -93,10 +93,12 @@ export const onboardingPrefix: (typeof onboardingRoutes)["config"]["prefix"] = "
 export const skillsPrefix: (typeof skillsRoutes)["config"]["prefix"] = "/api/skills";
 export const workflowsPrefix: (typeof workflowRoutes)["config"]["prefix"] = "/api/workflows";
 
-// The SSE endpoint. Its mount path carries more weight than
-// the others': a browser `EventSource` reconnects to the URL it was opened
-// with, so a changed prefix does not fail a call — it silently stops
-// delivering events to a client that keeps retrying.
+// The SSE endpoint, and the Eden check above buys nothing here either: the web
+// client builds this URL by hand (`apps/web/src/lib/events/stream.ts:27`, and
+// `routes/-debug/debug-events-page.tsx:20` for `_demo`), so `treaty<App>` never
+// sees the prefix and this line is its only pin. A changed prefix does not fail
+// a call — the browser gets a 404, which puts an `EventSource` in a permanently
+// CLOSED state with no reconnect, so the stream stops silently.
 export const eventsPrefix: (typeof events)["config"]["prefix"] = "/api/events";
 
 // The mount call sites themselves: `packages/api/src/index.ts` composes each

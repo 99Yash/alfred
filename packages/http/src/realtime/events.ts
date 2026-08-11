@@ -152,12 +152,17 @@ export const events = new Elysia({ prefix: "/api/events", normalize: "typebox" }
       // `undefined`, so a fully configured deploy that sets `NODE_ENV` to a
       // value outside the enum (`Production`, or an empty string) diverges
       // too. What keeps a diverged `_demo` off the wire is a control inside
-      // this package, at the layer that decides: the route sits behind
-      // `authMacro`, whose resolve runs `getSessionCached` -> `auth()` ->
-      // `serverEnv()` on every request. The divergence set is exactly the set
-      // where `serverEnv()` throws, so on any environment that mounts `_demo`
-      // the request answers 500 "Missing or invalid environment variables"
-      // and never reaches `publishEvent` (measured). That control survives
+      // this package: the route sits behind `authMacro`, whose resolve runs
+      // `getSessionCached` -> `auth()` -> `serverEnv()` on every request that
+      // reaches the handler — Elysia validates the body first, so a malformed
+      // body answers 422 without it. The divergence set is contained in the
+      // set where `serverEnv()` throws, so an environment that mounts `_demo`
+      // BECAUSE of that divergence answers 500 on a well-formed request and
+      // 422 on a malformed one, and reaches `publishEvent` on neither path
+      // (measured). The 500 body is `errorHandler`'s generic
+      // `INTERNAL_SERVER_ERROR`; the missing-variable list goes to the server
+      // log only. A valid development environment is not that case — it
+      // mounts `_demo` and serves it, as it does today. That control survives
       // item 12's deletion of `@alfred/api`. Process-level reads sit behind it
       // as backstops, not as the argument: `apps/server/src/index.ts` calls
       // `serverEnv()` at module scope in `startRuntime()` (`:54`), for
