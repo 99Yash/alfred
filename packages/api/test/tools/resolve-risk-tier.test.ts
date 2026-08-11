@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { describe, test } from "node:test";
 import { z } from "zod";
+import type { ToolRiskTier } from "@alfred/contracts";
 
 import { toolExecuteContext } from "../../src/modules/tools/context";
 import { liveTool } from "../../src/modules/tools/registry";
@@ -106,5 +107,21 @@ describe("liveTool resolveRiskTier wiring", () => {
     });
 
     assert.equal(await resolveEffectiveRiskTier(tool, { n: 3 }, ctx), "low");
+  });
+
+  test("an invalid resolver result fails closed to the static tier", async () => {
+    const tool = liveTool({
+      integration: "mcp",
+      action: "call",
+      riskTier: "high",
+      description: "t",
+      inputSchema: z.object({ n: z.number() }),
+      // Model a resolver that failed to validate a persisted or protocol value.
+      resolveRiskTier: async () => "not_a_tier" as ToolRiskTier,
+      riskTierDowngradeReason: "reviewed test policy",
+      execute: async () => ({ ok: true }),
+    });
+
+    assert.equal(await resolveEffectiveRiskTier(tool, { n: 3 }, ctx), "high");
   });
 });

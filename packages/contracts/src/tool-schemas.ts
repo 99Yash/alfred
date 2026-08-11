@@ -371,6 +371,15 @@ export const calendarCreateEventInput = coerceJsonArrayFields(
     }),
 );
 
+export type CalendarCreateEventInput = z.infer<typeof calendarCreateEventInput>;
+
+/** Whether creating this event asks Google Calendar to notify external attendees. */
+export function calendarCreateEventSendsInvitations(
+  input: Pick<CalendarCreateEventInput, "attendees">,
+): boolean {
+  return (input.attendees?.length ?? 0) > 0;
+}
+
 /* ── docs ─────────────────────────────────────────────────────────────── */
 
 export const docsGetDocumentInput = z
