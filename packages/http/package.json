@@ -7,7 +7,9 @@
   "scripts": {
     "build": "node ../../scripts/clean-package-dist.mjs && tsc -b --emitDeclarationOnly --force",
     "check-types": "tsc -b --emitDeclarationOnly && tsc -p tsconfig.test.json",
-    "test": "tsx --test --test-force-exit \"test/**/*.test.ts\""
+    "test": "tsx --test --test-force-exit \"test/**/*.test.ts\"",
+    "test:db": "tsx --env-file-if-exists=../../apps/server/.env --test --test-force-exit \"test/**/*.test.ts\"",
+    "test:env-free": "tsx --test --test-force-exit \"test/barrel-load.test.ts\""
   },
   "dependencies": {
     "@alfred/ai": "workspace:*",
