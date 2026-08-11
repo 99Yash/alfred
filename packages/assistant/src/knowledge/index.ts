@@ -68,12 +68,11 @@ export { refoldActiveGmailKindProjection } from "./refold";
 export * from "./extractor";
 
 /**
- * ── recall · contextFor · applyCorrection (folded from `memory`, item 07) ────
+ * ── recall · contextFor · applyCorrection ───────────────────────────────────
  *
- * Item 07 folded the former `memory` module in, completing the knowledge domain
- * behind ONE interface. The groupings below are DOCUMENTARY (Tier 3) — nothing
- * at compile time forbids a "recall" export from writing. Every symbol
- * re-exported here is byte-identical to its former `../memory/*` home.
+ * The former `memory` module was folded in here, so the whole knowledge domain
+ * sits behind ONE interface. The groupings below are DOCUMENTARY (Tier 3) —
+ * nothing at compile time forbids a "recall" export from writing.
  *
  *   - recall           — `recallActiveByKey` / `recallLatestByKey` /
  *                        `listFactsByStatus` / `getSupersessionChain` (facts),
@@ -82,21 +81,39 @@ export * from "./extractor";
  *   - applyCorrection  — `proposeFact` / `confirmFact` / `supersedeFact` /
  *                        `rejectFact` / `editFact` (facts).
  *
- * Item 15 CURATED this barrel: each behavior-bearing internal file is now an
- * explicit `export { … }` of only the symbols a sibling-`api` module imports
- * through `../knowledge`, not a wholesale `export *`. Six whole files
- * (self-identity, entity-graph, team-graph, style-profiles, rejected,
- * extraction) left the barrel entirely — their symbols stay `export`ed from
- * their own file for intra-`knowledge` direct import, so nothing inside the
- * module breaks, but no new sibling caller can reach them through `../knowledge`.
- * Item 16 then closed the twin leak: `backend.ts` re-exports this curated
- * barrel with a single `export * from "@alfred/assistant/knowledge"` instead of
- * the old by-path `export *` block, so the only door to a privileged tooling
- * internal is the explicit `@alfred/assistant/knowledge/internal` subpath (nine
- * named re-exports for `apps/server` backfills/smokes). Both boundaries are now
- * Tier-2: a new sibling module under `packages/assistant/src/*` cannot reach a
- * dropped internal through `../knowledge`, and no unlisted knowledge internal is
- * reachable through `@alfred/api/backend` either.
+ * This barrel is CURATED and it is the sanctioned contract for callers outside
+ * the module: each behavior-bearing internal file is an explicit `export { … }`
+ * of only the symbols a caller legitimately needs, not a wholesale `export *`.
+ * Six whole files (self-identity, entity-graph, team-graph, style-profiles,
+ * rejected, extraction) are deliberately absent — their symbols stay `export`ed
+ * from their own file so direct intra-`knowledge` import still works, but no new
+ * caller reaches them *through here*.
+ *
+ * `internal.ts` is the privileged tooling door, published as the explicit
+ * `@alfred/assistant/knowledge/internal` subpath: nine named re-exports that
+ * `apps/server` backfills and smokes need and that do not belong in a general
+ * contract. A `no-restricted-imports` rule in `.oxlintrc.json` fences WHO may
+ * import that subpath; it matches the specifier as text, with no module
+ * resolution, so it can fence only the exact string it is given.
+ *
+ * WHICH sibling files are reachable at all is decided by `package.json`'s
+ * `exports` map, NOT by this comment and NOT by the curation above. That map
+ * lists one key per supported `./knowledge/…` subpath and no wildcard, so an
+ * unlisted file fails module resolution in `tsc` and at runtime (Tier 1;
+ * `packages/http/test/type/knowledge-subpath-surface.type-test.ts` pins it).
+ * Be precise about what that does and does not buy:
+ *
+ *   - A file absent from the map is unreachable from outside the package by any
+ *     specifier, so dropping it from this barrel is the whole gate rather than
+ *     half of one.
+ *   - A file PRESENT in the map is reachable directly, bypassing this barrel.
+ *     Several listed subpaths exist only for tests that import implementation
+ *     files, and two of them front symbols the privileged door also fronts. Do
+ *     not read this barrel as the only route to a knowledge internal.
+ *   - `@alfred/api/backend` re-exports this barrel, and separately re-exports
+ *     four symbols straight from `./workflow-operations`, which is NOT in this
+ *     barrel. So a curated-barrel entry is not a complete account of what a
+ *     `@alfred/api/backend` consumer can see.
  *
  * `./types` stays `export *` — pure enums / schemas / contract re-exports, no
  * behavior-bearing symbol, so curating it buys no encapsulation.
