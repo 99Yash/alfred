@@ -131,7 +131,9 @@ Forbidden in `apps/web`: <!-- forbidden-runtime-packages:start -->
 `pnpm check:web-boundaries` enforces these forbidden runtime imports for `apps/web/src` and for the `src/`
 of every package under `packages/` that the browser bundle reaches. It derives that surface by following
 runtime `@alfred/*` bindings out of `apps/web/src`, so a package that joins the bundle joins the check in
-the same commit. Three things stay outside the derived surface, all deliberately: a second workspace under
+the same commit. It reads import statements rather than lines: a specifier that a comment, a quoted string
+or a template literal only mentions binds nothing, so it neither reports a violation nor pulls a package
+into the surface. Three things stay outside the derived surface, all deliberately: a second workspace under
 `apps/`, which the walk does not enumerate; everything a browser file reaches through a non-`@alfred/*`
 specifier, including Node-only npm packages; and any subtree of a reached package that sits outside its
 `src/`, because reachability is recorded per package and read at that one directory. A reached package

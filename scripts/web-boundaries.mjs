@@ -15,6 +15,7 @@ import { existsSync, readFileSync, readdirSync } from "node:fs";
 import { join } from "node:path";
 
 import { listGitSourceFiles } from "./git-source-files.mjs";
+import { parseImports } from "./ts-imports.mjs";
 
 /**
  * Packages a browser runtime file must not take a value binding on. `import type`
@@ -47,10 +48,6 @@ function packageName(specifier) {
   return pkg ? `${scope}/${pkg}` : null;
 }
 
-function lineNumber(source, index) {
-  return source.slice(0, index).split("\n").length;
-}
-
 export function hasRuntimeBinding(clause) {
   const trimmed = clause.trim();
   if (trimmed.startsWith("type ")) return false;
@@ -68,40 +65,28 @@ export function hasRuntimeBinding(clause) {
 /**
  * Every `@alfred/*` import in a source text, with whether it binds a value.
  *
- * Side-effect and dynamic imports carry no clause and always bind at runtime.
- * The scan is a regex over specifiers, so a computed `import(variable)` is
- * invisible to it.
+ * The walk is over import *statements*, so a specifier that a comment, a quoted
+ * string or a template literal merely mentions is not a binding — which matters
+ * more here than it looks, because a mentioned package would join the browser
+ * surface and fail this check on its own legitimate server-side imports.
+ *
+ * One rule decides all four import shapes. A side-effect, dynamic or `require`
+ * form carries no clause, and an empty clause is a runtime binding, which is the
+ * right answer for all three. A computed `import(variable)` is still invisible:
+ * the walk needs a literal in the argument position, so there is nothing to read.
  */
 function scanAlfredImports(source) {
   const imports = [];
-  const staticImport = /\b(import|export)\s+([\s\S]*?)\s+from\s*["']([^"']+)["']/g;
-  const sideEffectImport = /\bimport\s*["']([^"']+)["']/g;
-  const dynamicImport = /\b(?:import|require)\s*\(\s*["']([^"']+)["']\s*\)/g;
-
-  for (const match of source.matchAll(staticImport)) {
-    const pkg = packageName(match[3] ?? "");
+  for (const entry of parseImports(source)) {
+    const pkg = packageName(entry.specifier);
     if (!pkg) continue;
     imports.push({
       pkg,
-      specifier: match[3] ?? "",
-      line: lineNumber(source, match.index ?? 0),
-      runtime: hasRuntimeBinding(match[2] ?? ""),
+      specifier: entry.specifier,
+      line: entry.line,
+      runtime: hasRuntimeBinding(entry.clause),
     });
   }
-
-  for (const pattern of [sideEffectImport, dynamicImport]) {
-    for (const match of source.matchAll(pattern)) {
-      const pkg = packageName(match[1] ?? "");
-      if (!pkg) continue;
-      imports.push({
-        pkg,
-        specifier: match[1] ?? "",
-        line: lineNumber(source, match.index ?? 0),
-        runtime: true,
-      });
-    }
-  }
-
   return imports;
 }
 
