@@ -1,6 +1,7 @@
-// Fails the build when oxlint would read a config other than the root one, and
-// when a root oxlint script has lost the `--config` pin that makes the root config
-// the only one it reads.
+// Fails the build when oxlint would read a config other than the root one, when a
+// root oxlint script has lost the `--config` pin that makes the root config the only
+// one it reads, and when a fence inside that config names a specifier that no longer
+// resolves to anything.
 //
 // The rules live in ./oxlint-config.mjs so fixtures can exercise them; this file is
 // the enforcing consumer.
@@ -13,6 +14,7 @@ import { fileURLToPath } from "node:url";
 import {
   ROOT_OXLINT_CONFIG,
   oxlintScripts,
+  restrictedSpecifierFailures,
   rootConfigFailures,
   strayOxlintConfigs,
   unpinnedLintScripts,
@@ -68,6 +70,29 @@ if (unpinned.length > 0) {
   );
 }
 
-if (rootFailures.length > 0 || strays.length > 0 || unpinned.length > 0 || scripts.length === 0) {
+const specifiers = restrictedSpecifierFailures(ROOT);
+
+if (specifiers.failures.length > 0) {
+  console.error(`Restricted-import fence in ${ROOT_OXLINT_CONFIG} that resolves to nothing:`);
+  for (const failure of specifiers.failures) console.error(`- ${failure}`);
+  console.error(
+    "oxlint matches a restricted specifier as text with no module resolution, so a group nobody can write produces no diagnostic, no warning and no configuration hint — it lints exactly like a fence that is simply never violated.\n",
+  );
+}
+
+// State the ungated share rather than the total. A summary claiming every specifier
+// is gated would recreate, in this check's own output, the false confidence it exists
+// to remove.
+console.log(
+  `Restricted-import specifiers: ${specifiers.subpathChecked} gated on package and subpath, ${specifiers.checked - specifiers.subpathChecked} on package existence only (glob forms), ${specifiers.ungated} ungated (relative literals, and packages with no exports map, which nothing here can resolve).`,
+);
+
+if (
+  rootFailures.length > 0 ||
+  strays.length > 0 ||
+  unpinned.length > 0 ||
+  scripts.length === 0 ||
+  specifiers.failures.length > 0
+) {
   process.exit(1);
 }
