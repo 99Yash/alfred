@@ -13,7 +13,7 @@ import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 
-import { exportTargets, packageExportsFailures } from "./package-exports.mjs";
+import { exportTargets, matchesSubpathKey, packageExportsFailures } from "./package-exports.mjs";
 
 function write(root, relative, content) {
   const path = join(root, relative);
@@ -316,8 +316,63 @@ function unparsableManifestFailures() {
   return failures;
 }
 
+/**
+ * The `*` semantics themselves, driven directly.
+ *
+ * `matchesSubpathKey` has two callers now — this file's `targetProblem` resolves a
+ * wildcard TARGET against the files git lists, and `oxlint-config.mjs` resolves a
+ * restricted-import specifier against the KEYS a package publishes. Neither reaches
+ * every branch through a fixture: `targetProblem` handles a star-free target with a
+ * Set lookup and never calls this, so its equality branch is reachable from no
+ * caller at all, and no fixture happens to hold a target whose prefix differs while
+ * its suffix agrees. Both were confirmed undriven by mutation (breaking either left
+ * this whole suite green), which is why the shared semantics are asserted here
+ * rather than only through the callers that consume them.
+ */
+function subpathKeyMatchFailures() {
+  const failures = [];
+  for (const [key, subpath, expected] of [
+    // No `*`: equality, and nothing else. A prefix is not a match.
+    ["./a", "./a", true],
+    ["./a", "./b", false],
+    ["./a", "./a/b", false],
+    // A `*` is a prefix plus a literal suffix, and it crosses `/`.
+    ["./k/*", "./k/internal", true],
+    ["./k/*", "./k/deep/internal", true],
+    ["./k/*", "./other/internal", false],
+    ["./*.ts", "./src/main.ts", true],
+    ["./*.ts", "./src/main.js", false],
+    // The prefix half alone must not carry a match, and the suffix half alone
+    // must not either — one drive per conjunct.
+    ["./k/*.ts", "./j/main.ts", false],
+    ["./k/*.ts", "./k/main.js", false],
+    // A `*` stands for at least zero characters, never for less than the key needs.
+    ["./k/*", "./k/", true],
+    ["./ab*yz", "./abyz", true],
+    ["./ab*yz", "./ayz", false],
+    // The length guard, whose only job is to stop the prefix and the suffix from
+    // matching the SAME characters: `./a` starts with `./a` and ends with `a`, and
+    // is still not a member of `./a*a`.
+    ["./a*a", "./aba", true],
+    ["./a*a", "./a", false],
+    // A package name is matched by the same rule, which is what makes `@alfred/*`
+    // an assertion that some workspace still answers to it.
+    ["@alfred/*", "@alfred/http", true],
+    ["@alfred/*", "@other/http", false],
+  ]) {
+    const actual = matchesSubpathKey(key, subpath);
+    if (actual !== expected) {
+      failures.push(
+        `matchesSubpathKey(${JSON.stringify(key)}, ${JSON.stringify(subpath)}): expected ${expected}, received ${actual}`,
+      );
+    }
+  }
+  return failures;
+}
+
 export function packageExportsSelfTestFailures() {
   return [
+    ...subpathKeyMatchFailures(),
     ...concreteTargetFailures(),
     ...gitignoredTargetFailures(),
     ...blockedTargetFailures(),
