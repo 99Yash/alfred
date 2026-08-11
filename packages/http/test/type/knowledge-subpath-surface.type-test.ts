@@ -25,9 +25,17 @@
  * `import type` binding would additionally trip `noUnusedLocals`.
  *
  * `packages/http` is the home because its `check-types` runs a second
- * `tsc -p tsconfig.test.json` pass over this tree and the package has a CI job.
- * A fixture in `packages/assistant/test/` would be compiled by nothing
+ * `tsc -p tsconfig.test.json` pass over this tree, which is the whole mechanism.
+ * The compiler that reads this file is reached through CI's `static` job —
+ * `verify:fast` -> `check-types` -> `turbo run check-types` across every workspace.
+ * NOT the `http-tests` job: that runs `tsx --test` over a glob of `.test.ts` files
+ * under `test/`, and this file ends in `-test.ts`, so the glob never matches it.
+ * (Spelling the glob out here is not possible: it contains the block-comment
+ * terminator.) A fixture in
+ * `packages/assistant/test/` would be compiled by nothing
  * (see `.lessons/type-fixture-outside-the-checked-program-is-compiled-by-nothing.md`).
+ * `packages/api` would serve equally on mechanism and is closer to the 14 subpaths
+ * it consumes; moving it there is a follow-up, not a property of this fixture.
  */
 
 // @ts-expect-error - `self-identity` is not an exported subpath; the exports map is the gate.
