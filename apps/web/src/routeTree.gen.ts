@@ -9,108 +9,38 @@
 // Additionally, you should also exclude this file from your linter and/or formatter to prevent it from being checked or modified.
 
 import { Route as rootRouteImport } from './routes/__root'
-import { Route as WorkflowsRouteImport } from './routes/workflows'
-import { Route as TermsOfServiceRouteImport } from './routes/terms-of-service'
-import { Route as SupportRouteImport } from './routes/support'
-import { Route as StyleguideRouteImport } from './routes/styleguide'
-import { Route as SkillsRouteImport } from './routes/skills'
-import { Route as SettingsRouteImport } from './routes/settings'
-import { Route as PrivacyPolicyRouteImport } from './routes/privacy-policy'
-import { Route as OnboardingRouteImport } from './routes/onboarding'
-import { Route as NotesRouteImport } from './routes/notes'
-import { Route as MemoryRouteImport } from './routes/memory'
-import { Route as LoginRouteImport } from './routes/login'
-import { Route as LibraryRouteImport } from './routes/library'
-import { Route as IntegrationsRouteImport } from './routes/integrations'
-import { Route as ChatRouteImport } from './routes/chat'
-import { Route as BriefingsRouteImport } from './routes/briefings'
-import { Route as ApprovalsRouteImport } from './routes/approvals'
 import { Route as IndexRouteImport } from './routes/index'
-import { Route as WorkflowsWorkflowRouteImport } from './routes/workflows.$workflow'
-import { Route as SkillsSlugRouteImport } from './routes/skills.$slug'
-import { Route as PreviewVirtuosoRouteImport } from './routes/preview.virtuoso'
-import { Route as PreviewLandingRouteImport } from './routes/preview.landing'
-import { Route as PreviewChatRouteImport } from './routes/preview.chat'
-import { Route as LibraryArtifactRouteImport } from './routes/library.$artifact'
-import { Route as IntegrationsProviderRouteImport } from './routes/integrations.$provider'
-import { Route as DebugEventsRouteImport } from './routes/debug.events'
-import { Route as ChatThreadIdRouteImport } from './routes/chat.$threadId'
+import { Route as ApprovalsRouteImport } from './routes/approvals'
+import { Route as BriefingsRouteImport } from './routes/briefings'
+import { Route as ChatRouteImport } from './routes/chat'
+import { Route as IntegrationsRouteImport } from './routes/integrations'
+import { Route as LibraryRouteImport } from './routes/library'
+import { Route as LoginRouteImport } from './routes/login'
+import { Route as MemoryRouteImport } from './routes/memory'
+import { Route as NotesRouteImport } from './routes/notes'
+import { Route as OnboardingRouteImport } from './routes/onboarding'
+import { Route as PrivacyPolicyRouteImport } from './routes/privacy-policy'
+import { Route as SettingsRouteImport } from './routes/settings'
+import { Route as SkillsRouteImport } from './routes/skills'
+import { Route as StyleguideRouteImport } from './routes/styleguide'
+import { Route as SupportRouteImport } from './routes/support'
+import { Route as TermsOfServiceRouteImport } from './routes/terms-of-service'
+import { Route as WorkflowsRouteImport } from './routes/workflows'
 import { Route as BriefingsDateRouteImport } from './routes/briefings.$date'
+import { Route as ChatThreadIdRouteImport } from './routes/chat.$threadId'
+import { Route as DebugEventsRouteImport } from './routes/debug.events'
+import { Route as IntegrationsProviderRouteImport } from './routes/integrations.$provider'
+import { Route as LibraryArtifactRouteImport } from './routes/library.$artifact'
+import { Route as PreviewChatRouteImport } from './routes/preview.chat'
+import { Route as PreviewLandingRouteImport } from './routes/preview.landing'
+import { Route as PreviewVirtuosoRouteImport } from './routes/preview.virtuoso'
+import { Route as SkillsSlugRouteImport } from './routes/skills.$slug'
+import { Route as WorkflowsWorkflowRouteImport } from './routes/workflows.$workflow'
 import { Route as PreviewChatThreadIdRouteImport } from './routes/preview.chat.$threadId'
 
-const WorkflowsRoute = WorkflowsRouteImport.update({
-  id: '/workflows',
-  path: '/workflows',
-  getParentRoute: () => rootRouteImport,
-} as any)
-const TermsOfServiceRoute = TermsOfServiceRouteImport.update({
-  id: '/terms-of-service',
-  path: '/terms-of-service',
-  getParentRoute: () => rootRouteImport,
-} as any)
-const SupportRoute = SupportRouteImport.update({
-  id: '/support',
-  path: '/support',
-  getParentRoute: () => rootRouteImport,
-} as any)
-const StyleguideRoute = StyleguideRouteImport.update({
-  id: '/styleguide',
-  path: '/styleguide',
-  getParentRoute: () => rootRouteImport,
-} as any)
-const SkillsRoute = SkillsRouteImport.update({
-  id: '/skills',
-  path: '/skills',
-  getParentRoute: () => rootRouteImport,
-} as any)
-const SettingsRoute = SettingsRouteImport.update({
-  id: '/settings',
-  path: '/settings',
-  getParentRoute: () => rootRouteImport,
-} as any)
-const PrivacyPolicyRoute = PrivacyPolicyRouteImport.update({
-  id: '/privacy-policy',
-  path: '/privacy-policy',
-  getParentRoute: () => rootRouteImport,
-} as any)
-const OnboardingRoute = OnboardingRouteImport.update({
-  id: '/onboarding',
-  path: '/onboarding',
-  getParentRoute: () => rootRouteImport,
-} as any)
-const NotesRoute = NotesRouteImport.update({
-  id: '/notes',
-  path: '/notes',
-  getParentRoute: () => rootRouteImport,
-} as any)
-const MemoryRoute = MemoryRouteImport.update({
-  id: '/memory',
-  path: '/memory',
-  getParentRoute: () => rootRouteImport,
-} as any)
-const LoginRoute = LoginRouteImport.update({
-  id: '/login',
-  path: '/login',
-  getParentRoute: () => rootRouteImport,
-} as any)
-const LibraryRoute = LibraryRouteImport.update({
-  id: '/library',
-  path: '/library',
-  getParentRoute: () => rootRouteImport,
-} as any)
-const IntegrationsRoute = IntegrationsRouteImport.update({
-  id: '/integrations',
-  path: '/integrations',
-  getParentRoute: () => rootRouteImport,
-} as any)
-const ChatRoute = ChatRouteImport.update({
-  id: '/chat',
-  path: '/chat',
-  getParentRoute: () => rootRouteImport,
-} as any)
-const BriefingsRoute = BriefingsRouteImport.update({
-  id: '/briefings',
-  path: '/briefings',
+const IndexRoute = IndexRouteImport.update({
+  id: '/',
+  path: '/',
   getParentRoute: () => rootRouteImport,
 } as any)
 const ApprovalsRoute = ApprovalsRouteImport.update({
@@ -118,24 +48,109 @@ const ApprovalsRoute = ApprovalsRouteImport.update({
   path: '/approvals',
   getParentRoute: () => rootRouteImport,
 } as any)
-const IndexRoute = IndexRouteImport.update({
-  id: '/',
-  path: '/',
+const BriefingsRoute = BriefingsRouteImport.update({
+  id: '/briefings',
+  path: '/briefings',
   getParentRoute: () => rootRouteImport,
 } as any)
-const WorkflowsWorkflowRoute = WorkflowsWorkflowRouteImport.update({
-  id: '/$workflow',
-  path: '/$workflow',
-  getParentRoute: () => WorkflowsRoute,
+const ChatRoute = ChatRouteImport.update({
+  id: '/chat',
+  path: '/chat',
+  getParentRoute: () => rootRouteImport,
 } as any)
-const SkillsSlugRoute = SkillsSlugRouteImport.update({
-  id: '/$slug',
-  path: '/$slug',
-  getParentRoute: () => SkillsRoute,
+const IntegrationsRoute = IntegrationsRouteImport.update({
+  id: '/integrations',
+  path: '/integrations',
+  getParentRoute: () => rootRouteImport,
 } as any)
-const PreviewVirtuosoRoute = PreviewVirtuosoRouteImport.update({
-  id: '/preview/virtuoso',
-  path: '/preview/virtuoso',
+const LibraryRoute = LibraryRouteImport.update({
+  id: '/library',
+  path: '/library',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const LoginRoute = LoginRouteImport.update({
+  id: '/login',
+  path: '/login',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const MemoryRoute = MemoryRouteImport.update({
+  id: '/memory',
+  path: '/memory',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const NotesRoute = NotesRouteImport.update({
+  id: '/notes',
+  path: '/notes',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const OnboardingRoute = OnboardingRouteImport.update({
+  id: '/onboarding',
+  path: '/onboarding',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const PrivacyPolicyRoute = PrivacyPolicyRouteImport.update({
+  id: '/privacy-policy',
+  path: '/privacy-policy',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const SettingsRoute = SettingsRouteImport.update({
+  id: '/settings',
+  path: '/settings',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const SkillsRoute = SkillsRouteImport.update({
+  id: '/skills',
+  path: '/skills',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const StyleguideRoute = StyleguideRouteImport.update({
+  id: '/styleguide',
+  path: '/styleguide',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const SupportRoute = SupportRouteImport.update({
+  id: '/support',
+  path: '/support',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const TermsOfServiceRoute = TermsOfServiceRouteImport.update({
+  id: '/terms-of-service',
+  path: '/terms-of-service',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const WorkflowsRoute = WorkflowsRouteImport.update({
+  id: '/workflows',
+  path: '/workflows',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const BriefingsDateRoute = BriefingsDateRouteImport.update({
+  id: '/$date',
+  path: '/$date',
+  getParentRoute: () => BriefingsRoute,
+} as any)
+const ChatThreadIdRoute = ChatThreadIdRouteImport.update({
+  id: '/$threadId',
+  path: '/$threadId',
+  getParentRoute: () => ChatRoute,
+} as any)
+const DebugEventsRoute = DebugEventsRouteImport.update({
+  id: '/debug/events',
+  path: '/debug/events',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const IntegrationsProviderRoute = IntegrationsProviderRouteImport.update({
+  id: '/$provider',
+  path: '/$provider',
+  getParentRoute: () => IntegrationsRoute,
+} as any)
+const LibraryArtifactRoute = LibraryArtifactRouteImport.update({
+  id: '/$artifact',
+  path: '/$artifact',
+  getParentRoute: () => LibraryRoute,
+} as any)
+const PreviewChatRoute = PreviewChatRouteImport.update({
+  id: '/preview/chat',
+  path: '/preview/chat',
   getParentRoute: () => rootRouteImport,
 } as any)
 const PreviewLandingRoute = PreviewLandingRouteImport.update({
@@ -143,35 +158,20 @@ const PreviewLandingRoute = PreviewLandingRouteImport.update({
   path: '/preview/landing',
   getParentRoute: () => rootRouteImport,
 } as any)
-const PreviewChatRoute = PreviewChatRouteImport.update({
-  id: '/preview/chat',
-  path: '/preview/chat',
+const PreviewVirtuosoRoute = PreviewVirtuosoRouteImport.update({
+  id: '/preview/virtuoso',
+  path: '/preview/virtuoso',
   getParentRoute: () => rootRouteImport,
 } as any)
-const LibraryArtifactRoute = LibraryArtifactRouteImport.update({
-  id: '/$artifact',
-  path: '/$artifact',
-  getParentRoute: () => LibraryRoute,
+const SkillsSlugRoute = SkillsSlugRouteImport.update({
+  id: '/$slug',
+  path: '/$slug',
+  getParentRoute: () => SkillsRoute,
 } as any)
-const IntegrationsProviderRoute = IntegrationsProviderRouteImport.update({
-  id: '/$provider',
-  path: '/$provider',
-  getParentRoute: () => IntegrationsRoute,
-} as any)
-const DebugEventsRoute = DebugEventsRouteImport.update({
-  id: '/debug/events',
-  path: '/debug/events',
-  getParentRoute: () => rootRouteImport,
-} as any)
-const ChatThreadIdRoute = ChatThreadIdRouteImport.update({
-  id: '/$threadId',
-  path: '/$threadId',
-  getParentRoute: () => ChatRoute,
-} as any)
-const BriefingsDateRoute = BriefingsDateRouteImport.update({
-  id: '/$date',
-  path: '/$date',
-  getParentRoute: () => BriefingsRoute,
+const WorkflowsWorkflowRoute = WorkflowsWorkflowRouteImport.update({
+  id: '/$workflow',
+  path: '/$workflow',
+  getParentRoute: () => WorkflowsRoute,
 } as any)
 const PreviewChatThreadIdRoute = PreviewChatThreadIdRouteImport.update({
   id: '/$threadId',
@@ -389,109 +389,11 @@ export interface RootRouteChildren {
 
 declare module '@tanstack/react-router' {
   interface FileRoutesByPath {
-    '/workflows': {
-      id: '/workflows'
-      path: '/workflows'
-      fullPath: '/workflows'
-      preLoaderRoute: typeof WorkflowsRouteImport
-      parentRoute: typeof rootRouteImport
-    }
-    '/terms-of-service': {
-      id: '/terms-of-service'
-      path: '/terms-of-service'
-      fullPath: '/terms-of-service'
-      preLoaderRoute: typeof TermsOfServiceRouteImport
-      parentRoute: typeof rootRouteImport
-    }
-    '/support': {
-      id: '/support'
-      path: '/support'
-      fullPath: '/support'
-      preLoaderRoute: typeof SupportRouteImport
-      parentRoute: typeof rootRouteImport
-    }
-    '/styleguide': {
-      id: '/styleguide'
-      path: '/styleguide'
-      fullPath: '/styleguide'
-      preLoaderRoute: typeof StyleguideRouteImport
-      parentRoute: typeof rootRouteImport
-    }
-    '/skills': {
-      id: '/skills'
-      path: '/skills'
-      fullPath: '/skills'
-      preLoaderRoute: typeof SkillsRouteImport
-      parentRoute: typeof rootRouteImport
-    }
-    '/settings': {
-      id: '/settings'
-      path: '/settings'
-      fullPath: '/settings'
-      preLoaderRoute: typeof SettingsRouteImport
-      parentRoute: typeof rootRouteImport
-    }
-    '/privacy-policy': {
-      id: '/privacy-policy'
-      path: '/privacy-policy'
-      fullPath: '/privacy-policy'
-      preLoaderRoute: typeof PrivacyPolicyRouteImport
-      parentRoute: typeof rootRouteImport
-    }
-    '/onboarding': {
-      id: '/onboarding'
-      path: '/onboarding'
-      fullPath: '/onboarding'
-      preLoaderRoute: typeof OnboardingRouteImport
-      parentRoute: typeof rootRouteImport
-    }
-    '/notes': {
-      id: '/notes'
-      path: '/notes'
-      fullPath: '/notes'
-      preLoaderRoute: typeof NotesRouteImport
-      parentRoute: typeof rootRouteImport
-    }
-    '/memory': {
-      id: '/memory'
-      path: '/memory'
-      fullPath: '/memory'
-      preLoaderRoute: typeof MemoryRouteImport
-      parentRoute: typeof rootRouteImport
-    }
-    '/login': {
-      id: '/login'
-      path: '/login'
-      fullPath: '/login'
-      preLoaderRoute: typeof LoginRouteImport
-      parentRoute: typeof rootRouteImport
-    }
-    '/library': {
-      id: '/library'
-      path: '/library'
-      fullPath: '/library'
-      preLoaderRoute: typeof LibraryRouteImport
-      parentRoute: typeof rootRouteImport
-    }
-    '/integrations': {
-      id: '/integrations'
-      path: '/integrations'
-      fullPath: '/integrations'
-      preLoaderRoute: typeof IntegrationsRouteImport
-      parentRoute: typeof rootRouteImport
-    }
-    '/chat': {
-      id: '/chat'
-      path: '/chat'
-      fullPath: '/chat'
-      preLoaderRoute: typeof ChatRouteImport
-      parentRoute: typeof rootRouteImport
-    }
-    '/briefings': {
-      id: '/briefings'
-      path: '/briefings'
-      fullPath: '/briefings'
-      preLoaderRoute: typeof BriefingsRouteImport
+    '/': {
+      id: '/'
+      path: '/'
+      fullPath: '/'
+      preLoaderRoute: typeof IndexRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/approvals': {
@@ -501,32 +403,151 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof ApprovalsRouteImport
       parentRoute: typeof rootRouteImport
     }
-    '/': {
-      id: '/'
-      path: '/'
-      fullPath: '/'
-      preLoaderRoute: typeof IndexRouteImport
+    '/briefings': {
+      id: '/briefings'
+      path: '/briefings'
+      fullPath: '/briefings'
+      preLoaderRoute: typeof BriefingsRouteImport
       parentRoute: typeof rootRouteImport
     }
-    '/workflows/$workflow': {
-      id: '/workflows/$workflow'
-      path: '/$workflow'
-      fullPath: '/workflows/$workflow'
-      preLoaderRoute: typeof WorkflowsWorkflowRouteImport
-      parentRoute: typeof WorkflowsRoute
+    '/chat': {
+      id: '/chat'
+      path: '/chat'
+      fullPath: '/chat'
+      preLoaderRoute: typeof ChatRouteImport
+      parentRoute: typeof rootRouteImport
     }
-    '/skills/$slug': {
-      id: '/skills/$slug'
-      path: '/$slug'
-      fullPath: '/skills/$slug'
-      preLoaderRoute: typeof SkillsSlugRouteImport
-      parentRoute: typeof SkillsRoute
+    '/integrations': {
+      id: '/integrations'
+      path: '/integrations'
+      fullPath: '/integrations'
+      preLoaderRoute: typeof IntegrationsRouteImport
+      parentRoute: typeof rootRouteImport
     }
-    '/preview/virtuoso': {
-      id: '/preview/virtuoso'
-      path: '/preview/virtuoso'
-      fullPath: '/preview/virtuoso'
-      preLoaderRoute: typeof PreviewVirtuosoRouteImport
+    '/library': {
+      id: '/library'
+      path: '/library'
+      fullPath: '/library'
+      preLoaderRoute: typeof LibraryRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/login': {
+      id: '/login'
+      path: '/login'
+      fullPath: '/login'
+      preLoaderRoute: typeof LoginRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/memory': {
+      id: '/memory'
+      path: '/memory'
+      fullPath: '/memory'
+      preLoaderRoute: typeof MemoryRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/notes': {
+      id: '/notes'
+      path: '/notes'
+      fullPath: '/notes'
+      preLoaderRoute: typeof NotesRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/onboarding': {
+      id: '/onboarding'
+      path: '/onboarding'
+      fullPath: '/onboarding'
+      preLoaderRoute: typeof OnboardingRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/privacy-policy': {
+      id: '/privacy-policy'
+      path: '/privacy-policy'
+      fullPath: '/privacy-policy'
+      preLoaderRoute: typeof PrivacyPolicyRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/settings': {
+      id: '/settings'
+      path: '/settings'
+      fullPath: '/settings'
+      preLoaderRoute: typeof SettingsRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/skills': {
+      id: '/skills'
+      path: '/skills'
+      fullPath: '/skills'
+      preLoaderRoute: typeof SkillsRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/styleguide': {
+      id: '/styleguide'
+      path: '/styleguide'
+      fullPath: '/styleguide'
+      preLoaderRoute: typeof StyleguideRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/support': {
+      id: '/support'
+      path: '/support'
+      fullPath: '/support'
+      preLoaderRoute: typeof SupportRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/terms-of-service': {
+      id: '/terms-of-service'
+      path: '/terms-of-service'
+      fullPath: '/terms-of-service'
+      preLoaderRoute: typeof TermsOfServiceRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/workflows': {
+      id: '/workflows'
+      path: '/workflows'
+      fullPath: '/workflows'
+      preLoaderRoute: typeof WorkflowsRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/briefings/$date': {
+      id: '/briefings/$date'
+      path: '/$date'
+      fullPath: '/briefings/$date'
+      preLoaderRoute: typeof BriefingsDateRouteImport
+      parentRoute: typeof BriefingsRoute
+    }
+    '/chat/$threadId': {
+      id: '/chat/$threadId'
+      path: '/$threadId'
+      fullPath: '/chat/$threadId'
+      preLoaderRoute: typeof ChatThreadIdRouteImport
+      parentRoute: typeof ChatRoute
+    }
+    '/debug/events': {
+      id: '/debug/events'
+      path: '/debug/events'
+      fullPath: '/debug/events'
+      preLoaderRoute: typeof DebugEventsRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/integrations/$provider': {
+      id: '/integrations/$provider'
+      path: '/$provider'
+      fullPath: '/integrations/$provider'
+      preLoaderRoute: typeof IntegrationsProviderRouteImport
+      parentRoute: typeof IntegrationsRoute
+    }
+    '/library/$artifact': {
+      id: '/library/$artifact'
+      path: '/$artifact'
+      fullPath: '/library/$artifact'
+      preLoaderRoute: typeof LibraryArtifactRouteImport
+      parentRoute: typeof LibraryRoute
+    }
+    '/preview/chat': {
+      id: '/preview/chat'
+      path: '/preview/chat'
+      fullPath: '/preview/chat'
+      preLoaderRoute: typeof PreviewChatRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/preview/landing': {
@@ -536,47 +557,26 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof PreviewLandingRouteImport
       parentRoute: typeof rootRouteImport
     }
-    '/preview/chat': {
-      id: '/preview/chat'
-      path: '/preview/chat'
-      fullPath: '/preview/chat'
-      preLoaderRoute: typeof PreviewChatRouteImport
+    '/preview/virtuoso': {
+      id: '/preview/virtuoso'
+      path: '/preview/virtuoso'
+      fullPath: '/preview/virtuoso'
+      preLoaderRoute: typeof PreviewVirtuosoRouteImport
       parentRoute: typeof rootRouteImport
     }
-    '/library/$artifact': {
-      id: '/library/$artifact'
-      path: '/$artifact'
-      fullPath: '/library/$artifact'
-      preLoaderRoute: typeof LibraryArtifactRouteImport
-      parentRoute: typeof LibraryRoute
+    '/skills/$slug': {
+      id: '/skills/$slug'
+      path: '/$slug'
+      fullPath: '/skills/$slug'
+      preLoaderRoute: typeof SkillsSlugRouteImport
+      parentRoute: typeof SkillsRoute
     }
-    '/integrations/$provider': {
-      id: '/integrations/$provider'
-      path: '/$provider'
-      fullPath: '/integrations/$provider'
-      preLoaderRoute: typeof IntegrationsProviderRouteImport
-      parentRoute: typeof IntegrationsRoute
-    }
-    '/debug/events': {
-      id: '/debug/events'
-      path: '/debug/events'
-      fullPath: '/debug/events'
-      preLoaderRoute: typeof DebugEventsRouteImport
-      parentRoute: typeof rootRouteImport
-    }
-    '/chat/$threadId': {
-      id: '/chat/$threadId'
-      path: '/$threadId'
-      fullPath: '/chat/$threadId'
-      preLoaderRoute: typeof ChatThreadIdRouteImport
-      parentRoute: typeof ChatRoute
-    }
-    '/briefings/$date': {
-      id: '/briefings/$date'
-      path: '/$date'
-      fullPath: '/briefings/$date'
-      preLoaderRoute: typeof BriefingsDateRouteImport
-      parentRoute: typeof BriefingsRoute
+    '/workflows/$workflow': {
+      id: '/workflows/$workflow'
+      path: '/$workflow'
+      fullPath: '/workflows/$workflow'
+      preLoaderRoute: typeof WorkflowsWorkflowRouteImport
+      parentRoute: typeof WorkflowsRoute
     }
     '/preview/chat/$threadId': {
       id: '/preview/chat/$threadId'

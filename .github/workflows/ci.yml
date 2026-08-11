@@ -311,6 +311,21 @@ jobs:
       - name: Assistant tests
         run: corepack pnpm --filter @alfred/assistant test
 
+  # This job builds the browser bundle as well as running the web unit tests. The
+  # name is unchanged and this comment carries the widened remit instead, because
+  # a second job would pay a second full `pnpm install` for the same signal. Until
+  # the build step below, no job in this workflow invoked vite, so a change that
+  # type-checked and passed every unit test could still break `vite build`, and
+  # the first place that showed up was a deploy. The build also writes
+  # `apps/web/src/routeTree.gen.ts` and reaches into the route sources under
+  # `apps/web/src/routes/`, which is why the assertion after it is worth its
+  # lines. The two write sets are not the same kind of file: the route tree is
+  # generated and the router plugin is its only writer, while the route sources
+  # are hand-authored components in which the plugin owns only the
+  # `createFileRoute` id argument. `@tanstack/router-plugin` is a floating caret
+  # (`^1.121.7` in `pnpm-workspace.yaml`), so a plugin bump can change what it
+  # emits. `vite build` needs no `env:` and no `services:` — `apps/web` has no
+  # `.env*` file.
   web-unit-tests:
     name: web-unit-tests
     runs-on: ubuntu-latest
@@ -336,6 +351,34 @@ jobs:
 
       - name: Install dependencies
         run: corepack pnpm install --frozen-lockfile
+
+      # The router plugin swallows a generator failure into `console.error` and
+      # lets the build exit 0, and it throws before it writes the tree. A build
+      # whose generator never ran therefore leaves the committed file
+      # byte-unchanged, which is indistinguishable from agreement. Deleting the
+      # file first closes that hole at the build step below, not at the assertion:
+      # `apps/web/src/main.tsx` imports `./routeTree.gen` statically, so a
+      # generator that emits nothing makes `Web build` fail on an unresolvable
+      # import, and the job stops there with the assertion never running.
+      - name: Delete the generated route tree so the build must re-emit it
+        run: rm apps/web/src/routeTree.gen.ts
+
+      - name: Web build
+        run: corepack pnpm --filter web build
+
+      # `git status --porcelain`, not `git diff --exit-code`: the invariant is that
+      # a build leaves the tree clean, and `git diff` is tracked-only, so it is
+      # blind to a path the generator adds. Porcelain exits 0 whether or not it
+      # prints, so the test is on its output.
+      - name: Committed sources match the route generator
+        run: |
+          CHANGED="$(git status --porcelain)"
+          if [ -n "$CHANGED" ]; then
+            echo "$CHANGED"
+            git diff
+            echo "::error::The web build changed the tree, so what is committed is not what @tanstack/router-plugin emits. The changed paths are listed above. If apps/web/src/routeTree.gen.ts changed, run 'pnpm --filter web build' and commit that file verbatim - it is generated and the plugin is its only writer. If a file under apps/web/src/routes/ changed, the plugin rewrote its createFileRoute id to match where the file sits: do NOT commit that rewrite, it discards your own edit - rename the file or change the id so the two agree."
+            exit 1
+          fi
 
       - name: Web unit tests
         run: corepack pnpm --filter web test
