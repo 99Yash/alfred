@@ -66,7 +66,7 @@ if (docFailures.length > 0) {
   console.error("\nThe forbidden package list has drifted from the prose that restates it:");
   for (const failure of docFailures) console.error(`- ${failure}`);
   console.error(
-    "Edit the marked block so it names the same packages as FORBIDDEN_RUNTIME_PACKAGES in scripts/web-boundaries.mjs.",
+    "Edit the marked regions so the forbidden one names the same packages as FORBIDDEN_RUNTIME_PACKAGES in scripts/web-boundaries.mjs, the browser-safe one names none of them, and every package the list names sits inside one of them.",
   );
 }
 
