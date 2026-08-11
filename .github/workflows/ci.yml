@@ -312,14 +312,15 @@ jobs:
         run: corepack pnpm --filter @alfred/assistant test
 
   # This job runs the browser bundle as well as the web unit tests. The name is
-  # unchanged on purpose — a rename costs the same as a new check name, and a
+  # unchanged and this comment carries the widened remit instead, because a
   # second job would pay a second full `pnpm install` for the same signal. Until
   # the build step below, no job in this workflow invoked vite, so a change that
   # type-checked and passed every unit test could still break `vite build`, and
-  # the first place that showed up was a deploy. The build also regenerates the
-  # tracked `apps/web/src/routeTree.gen.ts`, which is why the assertion after it
-  # is worth its one line: the file has exactly one writer, the router plugin,
-  # and `@tanstack/router-plugin` is a floating caret (`^1.121.7` in
+  # the first place that showed up was a deploy. The build also rewrites the
+  # tracked `apps/web/src/routeTree.gen.ts` and the route sources under
+  # `apps/web/src/routes/`, which is why the assertion after it is worth its
+  # lines: those files have exactly one writer, the router plugin, and
+  # `@tanstack/router-plugin` is a floating caret (`^1.121.7` in
   # `pnpm-workspace.yaml`), so a plugin bump can change what it emits. `vite
   # build` needs no `env:` and no `services:` — `apps/web` has no `.env*` file.
   web-unit-tests:
@@ -348,13 +349,22 @@ jobs:
       - name: Install dependencies
         run: corepack pnpm install --frozen-lockfile
 
+      # The router plugin swallows a generator failure into `console.error` and
+      # lets the build exit 0, and it throws before it writes the tree. A build
+      # whose generator never ran therefore leaves the committed file
+      # byte-unchanged, which is indistinguishable from agreement. Deleting the
+      # file first turns that case into a deleted tracked path, which the
+      # assertion below reports.
+      - name: Delete the generated route tree so the build must re-emit it
+        run: rm apps/web/src/routeTree.gen.ts
+
       - name: Web build
         run: corepack pnpm --filter web build
 
-      - name: Generated route tree matches its generator
+      - name: Committed sources match the route generator
         run: |
-          if ! git diff --exit-code -- apps/web/src/routeTree.gen.ts; then
-            echo "::error file=apps/web/src/routeTree.gen.ts::The committed route tree is not what @tanstack/router-plugin emits. Regenerate it and commit the result verbatim: pnpm --filter web build && git add apps/web/src/routeTree.gen.ts"
+          if ! git diff --exit-code; then
+            echo "::error::The web build changed tracked files, so what is committed is not what @tanstack/router-plugin emits. The generator writes apps/web/src/routeTree.gen.ts and the route source files under apps/web/src/routes/. Run 'pnpm --filter web build' and commit every file it changes, verbatim. A DELETED apps/web/src/routeTree.gen.ts above means the generator itself failed - read the build step log for the error it printed."
             exit 1
           fi
 
