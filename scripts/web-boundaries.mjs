@@ -74,8 +74,34 @@ const BUNDLER_ENTRY_DOCUMENT = "index.html";
 /** Prose sites that enumerate the forbidden list and must not drift from it. */
 const DOC_LIST_SITES = ["docs/reference/architecture.md", "apps/web/AGENTS.md"];
 
-const DOC_MARKER_START = "<!-- forbidden-runtime-packages:start -->";
-const DOC_MARKER_END = "<!-- forbidden-runtime-packages:end -->";
+/**
+ * The region kinds a prose site marks, and what each region's tokens must satisfy.
+ *
+ * The forbidden region restates the list, so it is compared by set EQUALITY. The
+ * browser-safe region is compared by DISJOINTNESS instead, because there is no
+ * source-of-truth allowed set to equal: the same list also names `@elysiajs/eden`
+ * and `better-auth/react`, which are not `@alfred/*` packages at all.
+ */
+const DOC_REGION_KINDS = [
+  { name: "forbidden-runtime-packages", predicate: "equals" },
+  { name: "browser-safe-packages", predicate: "disjoint" },
+];
+
+const DOC_REGION_MARKERS = new Map(
+  DOC_REGION_KINDS.map((kind) => [
+    kind.name,
+    { start: `<!-- ${kind.name}:start -->`, end: `<!-- ${kind.name}:end -->` },
+  ]),
+);
+
+/** A backticked `@alfred/*` token on its own. A longer code span is not one. */
+const DOC_PACKAGE_TOKEN = /`(@alfred\/[a-z0-9-]+)`/g;
+
+/** A line whose whole content is one region marker. */
+const DOC_MARKER_LINE = /^\s*<!--\s*[a-z-]+:(?:start|end)\s*-->\s*$/;
+
+/** A markdown list item, at any nesting depth. */
+const DOC_LIST_ITEM_LINE = /^\s*[-*+]\s/;
 
 const SOURCE_FILE = /\.(ts|tsx)$/;
 
@@ -308,17 +334,146 @@ export function browserRoots(root) {
   return browserSurface(root).roots;
 }
 
+/** The bare `@alfred/*` tokens on one line. A longer code span holds none. */
+function packageTokens(line) {
+  return [...line.matchAll(DOC_PACKAGE_TOKEN)].map((match) => match[1]);
+}
+
+/**
+ * One region of one kind at one site, or `null` with its failures recorded.
+ *
+ * A region is a range of WHOLE LINES: the `:start` marker ends its line and the
+ * `:end` marker opens its line, so every line is either wholly inside the region
+ * or wholly outside it. That is what makes per-line containment definable at all
+ * — an inline pair leaves a bullet half inside and half outside.
+ */
+function locateRegion(site, kind, lines, failures) {
+  const { start: startMarker, end: endMarker } = DOC_REGION_MARKERS.get(kind.name);
+  const source = lines.join("\n");
+
+  const starts = source.split(startMarker).length - 1;
+  const ends = source.split(endMarker).length - 1;
+  if (starts !== 1 || ends !== 1) {
+    failures.push(
+      `${site} must hold exactly one ${startMarker} / ${endMarker} marker pair, but it holds ${starts} start and ${ends} end markers; only the first pair is ever compared.`,
+    );
+    return null;
+  }
+
+  if (source.indexOf(endMarker) < source.indexOf(startMarker)) {
+    failures.push(`${site} closes the ${endMarker} marker before it opens the pair.`);
+    return null;
+  }
+
+  const startLine = lines.findIndex((line) => line.includes(startMarker));
+  const endLine = lines.findIndex((line) => line.includes(endMarker));
+
+  const trailer = lines[startLine].slice(
+    lines[startLine].indexOf(startMarker) + startMarker.length,
+  );
+  const leader = lines[endLine].slice(0, lines[endLine].indexOf(endMarker));
+  if (trailer.trim() !== "") {
+    failures.push(
+      `${site}:${startLine + 1} puts text after ${startMarker}; the marker must end its line, or the region is a sub-span of a line rather than whole lines.`,
+    );
+  }
+  if (leader.trim() !== "") {
+    failures.push(
+      `${site}:${endLine + 1} puts text before ${endMarker}; the marker must open its line, or the region is a sub-span of a line rather than whole lines.`,
+    );
+  }
+  if (trailer.trim() !== "" || leader.trim() !== "") return null;
+
+  const listed = new Set(lines.slice(startLine + 1, endLine).flatMap(packageTokens));
+
+  if (kind.predicate === "equals") {
+    for (const pkg of FORBIDDEN_RUNTIME_PACKAGES) {
+      if (!listed.has(pkg)) failures.push(`${site} does not list ${pkg} as forbidden.`);
+    }
+    for (const pkg of listed) {
+      if (!FORBIDDEN_RUNTIME_PACKAGES.has(pkg)) {
+        failures.push(`${site} lists ${pkg} as forbidden, but it is not in the forbidden set.`);
+      }
+    }
+  } else {
+    for (const pkg of listed) {
+      if (FORBIDDEN_RUNTIME_PACKAGES.has(pkg)) {
+        failures.push(
+          `${site} names ${pkg} in its ${kind.name} region, but it is a forbidden runtime package.`,
+        );
+      }
+    }
+  }
+
+  return { name: kind.name, startLine, endLine };
+}
+
+/** Lines that belong to the markdown list a region sits in, region included. */
+function listBlockLines(lines, region) {
+  const holds = (index) =>
+    lines[index].trim() === "" ||
+    DOC_LIST_ITEM_LINE.test(lines[index]) ||
+    DOC_MARKER_LINE.test(lines[index]);
+
+  const block = new Set();
+  for (let index = region.startLine; index <= region.endLine; index += 1) block.add(index);
+  for (let index = region.startLine - 1; index >= 0 && holds(index); index -= 1) block.add(index);
+  for (let index = region.endLine + 1; index < lines.length && holds(index); index += 1) {
+    block.add(index);
+  }
+  return block;
+}
+
+/**
+ * Bare tokens that sit in the list a region marks, but in no region.
+ *
+ * A blank line does not end the list: the gesture this rule exists to catch is a
+ * sibling bullet added after the marked one, and an author writes that with or
+ * without a blank line between. A paragraph, a heading or a fence does end it —
+ * `architecture.md` names `@alfred/db` and `@alfred/env` correctly in a paragraph
+ * about `apps/server`, which is why the scope is the list rather than the section.
+ */
+function containmentFailures(site, lines, regions) {
+  const failures = [];
+  const block = new Set();
+  for (const region of regions) {
+    for (const index of listBlockLines(lines, region)) block.add(index);
+  }
+
+  for (const index of [...block].sort((left, right) => left - right)) {
+    if (regions.some((region) => index > region.startLine && index < region.endLine)) continue;
+    for (const pkg of packageTokens(lines[index])) {
+      failures.push(
+        `${site}:${index + 1} names ${pkg} in the same list as a marked region but outside every region; move it into the region it belongs to.`,
+      );
+    }
+  }
+  return failures;
+}
+
 /**
  * Drift between the forbidden list and the prose that restates it.
  *
- * The comparison is set equality over the backticked `@alfred/*` tokens inside
- * the marker pair, so the two sites stay free to word, order and punctuate the
- * rule differently — only the membership is checked.
+ * Each site marks two regions. The `forbidden-runtime-packages` region restates
+ * the list and is compared by set EQUALITY over the bare backticked `@alfred/*`
+ * tokens inside it; the `browser-safe-packages` region names what browser code
+ * may import and is compared by DISJOINTNESS from the same set. So both sites
+ * stay free to word, order and punctuate the rule differently — only membership
+ * is checked — and prose that declares a forbidden package browser-safe fails.
  *
- * A site must hold exactly one pair. A second marked block — a worked example in
- * a fenced code block, or a second enumeration further down the file — would
- * otherwise read as gated while nothing compares it, which is the drift the
- * markers exist to stop.
+ * A token is a backticked package name ON ITS OWN. A longer code span such as
+ * `` `import type { App } from '@alfred/api'` `` is not a token, which is what
+ * lets the allowed list keep its type-only example inside the browser-safe region.
+ *
+ * Three structural rules make those comparisons mean what they read as:
+ *
+ * - A site holds exactly one pair PER KIND. A second same-kind block — a worked
+ *   example in a fenced code block, or a second enumeration further down the file
+ *   — would read as gated while nothing compares it.
+ * - A region spans WHOLE LINES. An inline pair gates a sub-span of one line, so
+ *   ordinary edits to the rest of that line ship unchecked.
+ * - Every bare token in the markdown list that holds a region sits INSIDE a
+ *   region. Without this, a sibling bullet names a package and nothing rules on it.
  */
 export function docListFailures(root) {
   const failures = [];
@@ -330,36 +485,14 @@ export function docListFailures(root) {
       continue;
     }
 
-    const source = readFileSync(path, "utf8");
-    const starts = source.split(DOC_MARKER_START).length - 1;
-    const ends = source.split(DOC_MARKER_END).length - 1;
-    if (starts !== 1 || ends !== 1) {
-      failures.push(
-        `${site} must hold exactly one ${DOC_MARKER_START} / ${DOC_MARKER_END} marker pair, but it holds ${starts} start and ${ends} end markers; only the first pair is ever compared.`,
-      );
-      continue;
+    const lines = readFileSync(path, "utf8").split("\n");
+    const regions = [];
+    for (const kind of DOC_REGION_KINDS) {
+      const region = locateRegion(site, kind, lines, failures);
+      if (region) regions.push(region);
     }
 
-    const start = source.indexOf(DOC_MARKER_START);
-    const end = source.indexOf(DOC_MARKER_END);
-    if (end < start) {
-      failures.push(`${site} closes the ${DOC_MARKER_END} marker before it opens the pair.`);
-      continue;
-    }
-
-    const block = source.slice(start + DOC_MARKER_START.length, end);
-    const listed = new Set(
-      [...block.matchAll(/`(@alfred\/[a-z0-9-]+)`/g)].map((match) => match[1]),
-    );
-
-    for (const pkg of FORBIDDEN_RUNTIME_PACKAGES) {
-      if (!listed.has(pkg)) failures.push(`${site} does not list ${pkg} as forbidden.`);
-    }
-    for (const pkg of listed) {
-      if (!FORBIDDEN_RUNTIME_PACKAGES.has(pkg)) {
-        failures.push(`${site} lists ${pkg} as forbidden, but it is not in the forbidden set.`);
-      }
-    }
+    failures.push(...containmentFailures(site, lines, regions));
   }
 
   return failures;

@@ -687,11 +687,41 @@ function appRulingFailures() {
   return failures;
 }
 
-function writeDocs(fixture, { architecture, agents, architectureExtra, architectureSecondBlock }) {
+const SAFE_LIST = "`@alfred/contracts`, `@alfred/sync`";
+
+/**
+ * Both prose sites, in the shape the real ones have.
+ *
+ * Each site holds a `browser-safe-packages` region and a
+ * `forbidden-runtime-packages` region, both spanning whole lines, both sitting in
+ * one markdown list. The knobs are the ways an author breaks that shape.
+ */
+function writeDocs(
+  fixture,
+  {
+    architecture,
+    agents,
+    architectureExtra,
+    architectureSecondBlock,
+    architectureSafe = SAFE_LIST,
+    agentsSafe = SAFE_LIST,
+    agentsSafeOmitted = false,
+    agentsSecondSafeBlock,
+    agentsStartTrailer = "",
+    agentsEndLeader = "",
+    agentsSiblings = [],
+  },
+) {
   write(
     fixture,
     "docs/reference/architecture.md",
     [
+      "Allowed in `apps/web`: <!-- browser-safe-packages:start -->",
+      "",
+      `- Browser-safe: ${architectureSafe}.`,
+      "",
+      "<!-- browser-safe-packages:end -->",
+      "",
       "Forbidden in `apps/web`: <!-- forbidden-runtime-packages:start -->",
       "",
       `- Any non-type import of ${architecture}.`,
@@ -716,7 +746,32 @@ function writeDocs(fixture, { architecture, agents, architectureExtra, architect
   write(
     fixture,
     "apps/web/AGENTS.md",
-    `- It may import \`@alfred/contracts\`. <!-- forbidden-runtime-packages:start -->It must not import runtime values from ${agents}. <!-- forbidden-runtime-packages:end -->\n`,
+    [
+      "## Browser Boundary",
+      "",
+      ...(agentsSafeOmitted
+        ? [`- It may import ${agentsSafe}.`]
+        : [
+            "- It may import these browser-safe packages: <!-- browser-safe-packages:start -->",
+            `  - ${agentsSafe}`,
+            "  <!-- browser-safe-packages:end -->",
+          ]),
+      ...(agentsSecondSafeBlock
+        ? [
+            "- Restated for reviewers: <!-- browser-safe-packages:start -->",
+            `  - ${agentsSecondSafeBlock}`,
+            "  <!-- browser-safe-packages:end -->",
+          ]
+        : []),
+      `- It must not import runtime values from: <!-- forbidden-runtime-packages:start -->${agentsStartTrailer}`,
+      `  - ${agents}.`,
+      `  ${agentsEndLeader}<!-- forbidden-runtime-packages:end -->`,
+      ...agentsSiblings.flatMap((sibling) =>
+        sibling.blankBefore ? ["", `- ${sibling.text}`] : [`- ${sibling.text}`],
+      ),
+      "- Run `pnpm check:web-boundaries` after changing imports near `apps/web`.",
+      "",
+    ].join("\n"),
   );
 }
 
@@ -806,6 +861,127 @@ function docListFailuresFailures() {
       )
         ? null
         : `expected a failure naming architecture.md and the marker pair, received ${JSON.stringify(result)}`,
+  );
+
+  // C1 — the allowed half. Declaring a forbidden package browser-safe is an edit to
+  // the sentence next to the forbidden one, and nothing ruled on it while the marked
+  // region was a sub-span of that sentence.
+  expect(
+    "must catch a forbidden package named in the browser-safe region",
+    { architecture: list(all), agents: list(all), agentsSafe: "`@alfred/contracts`, `@alfred/http`" },
+    (result) =>
+      result.some((failure) => failure.includes("@alfred/http") && failure.includes("AGENTS.md"))
+        ? null
+        : `expected a failure naming @alfred/http and AGENTS.md, received ${JSON.stringify(result)}`,
+  );
+
+  // C1' — the same claim, written as a fresh bullet instead of inside the region.
+  // Containment is what keeps C1 closed for an author who does not edit the region.
+  expect(
+    "must catch a browser-safe claim written as an unmarked bullet",
+    {
+      architecture: list(all),
+      agents: list(all),
+      agentsSiblings: [{ text: "`@alfred/http` is browser-safe too.", blankBefore: false }],
+    },
+    (result) =>
+      result.some((failure) => failure.includes("@alfred/http") && failure.includes("AGENTS.md"))
+        ? null
+        : `expected a failure naming @alfred/http and AGENTS.md, received ${JSON.stringify(result)}`,
+  );
+
+  // C1" — the negative control for the two rules above. A package name inside a
+  // longer code span is not a token, which is what lets the allowed list keep its
+  // type-only import example inside the browser-safe region.
+  expect(
+    "must not read a package name inside a longer code span as a token",
+    {
+      architecture: list(all),
+      agents: list(all),
+      architectureSafe: "`import type { App } from '@alfred/api'` — type-only, stripped at build time",
+    },
+    (result) =>
+      result.length === 0 ? null : `expected no failures, received ${JSON.stringify(result)}`,
+  );
+
+  // C2 — a sibling bullet naming a package that is in no region. The blank-line
+  // variant is the one that decides the list block's boundary: an author writes the
+  // gesture both ways, and a block that stopped at the blank line would let the
+  // second one through silently, which is the defect this rule replaces.
+  for (const blankBefore of [false, true]) {
+    expect(
+      `must catch a sibling bullet naming a package outside every region (${
+        blankBefore ? "after a blank line" : "adjacent"
+      })`,
+      {
+        architecture: list(all),
+        agents: list(all),
+        agentsSiblings: [
+          { text: "Any non-type import of `@alfred/logging` is also forbidden.", blankBefore },
+        ],
+      },
+      (result) =>
+        result.some(
+          (failure) => failure.includes("@alfred/logging") && failure.includes("AGENTS.md"),
+        )
+          ? null
+          : `expected a failure naming @alfred/logging and AGENTS.md, received ${JSON.stringify(result)}`,
+    );
+  }
+
+  // M1 — the two halves of the inline pair, together. This is the shape the real
+  // `apps/web/AGENTS.md` had: a region opening mid-sentence and closing mid-sentence,
+  // so the rest of the bullet was gated by nothing.
+  expect(
+    "must catch a region that does not span whole lines, at both ends",
+    {
+      architecture: list(all),
+      agents: list(all),
+      agentsStartTrailer: "It must not import runtime values from any of them.",
+      agentsEndLeader: "That is the whole list. ",
+    },
+    (result) => {
+      const start = result.some(
+        (failure) =>
+          failure.includes("AGENTS.md") && failure.includes("forbidden-runtime-packages:start"),
+      );
+      const end = result.some(
+        (failure) =>
+          failure.includes("AGENTS.md") && failure.includes("forbidden-runtime-packages:end"),
+      );
+      if (start && end) return null;
+      return `expected one failure for each marker, received ${JSON.stringify(result)}`;
+    },
+  );
+
+  // The pair count is per KIND: a browser-safe region is not a second forbidden
+  // block, and a second browser-safe block is still a second block.
+  expect(
+    "must catch a second browser-safe pair at one site",
+    { architecture: list(all), agents: list(all), agentsSecondSafeBlock: "`@alfred/contracts`" },
+    (result) =>
+      result.some(
+        (failure) =>
+          failure.includes("AGENTS.md") &&
+          failure.includes("browser-safe-packages") &&
+          failure.includes("marker pair"),
+      )
+        ? null
+        : `expected a browser-safe marker pair failure at AGENTS.md, received ${JSON.stringify(result)}`,
+  );
+
+  expect(
+    "must catch a site with no browser-safe pair at all",
+    { architecture: list(all), agents: list(all), agentsSafeOmitted: true },
+    (result) =>
+      result.some(
+        (failure) =>
+          failure.includes("AGENTS.md") &&
+          failure.includes("browser-safe-packages") &&
+          failure.includes("marker pair"),
+      )
+        ? null
+        : `expected a browser-safe marker pair failure at AGENTS.md, received ${JSON.stringify(result)}`,
   );
 
   withFixture("alfred-web-boundaries-docs-", (fixture) => {
