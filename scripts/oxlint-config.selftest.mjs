@@ -384,7 +384,8 @@ function wildcardKeyFailures() {
     ...drive("a file deleted behind a live wildcard key is reported", {
       mutated: { ...shape, files: ["packages/x/src/k/other.ts"] },
       control: shape,
-      expected: 'wildcard exports key "./k/*" to "packages/x/src/k/internal.ts", which no file git lists',
+      expected:
+        'wildcard exports key "./k/*" to "packages/x/src/k/internal.ts", which no file git lists',
     }),
   ];
 }
@@ -443,7 +444,7 @@ function globSpecifierFailures() {
         packages: { x: workspace("@alfred/x", { ".": "./src/index.ts" }) },
         rules: fence(["@alfred/*"]),
       },
-      expected: 'restricts a package pattern that matches no workspace package',
+      expected: "restricts a package pattern that matches no workspace package",
     }),
   ];
 }
@@ -706,11 +707,7 @@ function copyDrive(label, { sites, regions, scopes, expected, restated, declared
 
 /** The root list as every drive below starts from it. */
 function rootSite() {
-  return copySite(
-    "rules",
-    copyGroup([DOOR_A], A_MESSAGE),
-    copyGroup([DOOR_B], B_MESSAGE),
-  );
+  return copySite("rules", copyGroup([DOOR_A], A_MESSAGE), copyGroup([DOOR_B], B_MESSAGE));
 }
 
 /** The false-positive control: an override restating both root groups is silent. */
@@ -764,7 +761,9 @@ function messageDriftFailures() {
     ],
     regions: ["", ""],
     scopes: [null, FIXTURE_SCOPE],
-    expected: [`overrides[0] (fixture-tree/src/**) restates, with a DIVERGED message, the root group "${DOOR_A}"`],
+    expected: [
+      `overrides[0] (fixture-tree/src/**) restates, with a DIVERGED message, the root group "${DOOR_A}"`,
+    ],
     restated: 1,
   });
 }
@@ -890,10 +889,7 @@ function regionCountMismatchFailures() {
 /** The vacuity floors: a rule that compared nothing is a failure, not a pass. */
 function emptyCopySurfaceFailures() {
   const noRootGroups = copyDrive("a root site with no groups is reported", {
-    sites: [
-      copySite("rules"),
-      copySite("overrides[0]", copyGroup([DOOR_A], A_MESSAGE)),
-    ],
+    sites: [copySite("rules"), copySite("overrides[0]", copyGroup([DOOR_A], A_MESSAGE))],
     regions: ["", ""],
     scopes: [null, FIXTURE_SCOPE],
     expected: ["so this rule compared nothing"],
