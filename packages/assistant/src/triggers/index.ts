@@ -274,7 +274,7 @@ export function unregisterReplicachePokeAdapter(): void {
  * with no Redis bridge. It must NEVER throw: a UI-hint bus being absent must not fail the
  * domain flow that emitted the poke. The composition root registers the real adapter at
  * startup (`apps/server/src/runtime.ts` via the RUNTIME_ADAPTERS manifest); the bootPort-has-
- * installer check guards that wiring. See `packages/api/src/events/replicache-events.ts` for
+ * installer check guards that wiring. See `packages/assistant/src/realtime/replicache-events.ts` for
  * the concrete Redis/EventEmitter bus.
  */
 export function emitReplicachePokes(userIds: string[], assetId?: string): void {
