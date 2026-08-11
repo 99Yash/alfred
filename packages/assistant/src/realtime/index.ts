@@ -6,8 +6,8 @@
  * outbox relay, the outbox retention reaper, the Replicache poke bridge, and the
  * cursor-paged read of `events_outbox` that a reconnecting client replays from.
  * Protocol framing (`Last-Event-ID`, `event:`/`data:` lines, heartbeats) is the
- * transport half. It still sits in `packages/api/src/modules/events/index.ts` today
- * and moves to `packages/http/src/realtime/`; either way it does not belong here.
+ * transport half. It lives in `packages/http/src/realtime/`, which imports this
+ * barrel; it does not belong here.
  *
  * `emitReplicachePokesOverRedis` is the concrete publisher. Producers should not call
  * it — they call the `emitReplicachePokes` port on `@alfred/assistant/triggers`, which

@@ -1,6 +1,6 @@
 import { Elysia, t } from "elysia";
-import { serverEnv } from "@alfred/env/server";
-import { authMacro } from "@alfred/http";
+import { nodeEnv } from "@alfred/env/server";
+import { authMacro } from "../middleware/auth";
 import { publishEvent } from "@alfred/assistant/triggers";
 import {
   getEventsSince,
@@ -138,8 +138,19 @@ export const events = new Elysia({ prefix: "/api/events", normalize: "typebox" }
           },
         }) as Response;
       })
+      // Elysia calls this builder callback EAGERLY, at module load, so whichever
+      // environment reader sits here runs when `@alfred/http`'s barrel is
+      // imported — not when a request arrives. That is why this is `nodeEnv()`
+      // and not `serverEnv().NODE_ENV`: the two read the same field through the
+      // same schema and agree whenever the environment is valid, but
+      // `serverEnv()` throws when any of its ~25 variables is missing, and this
+      // package must stay importable with no environment at all. The divergence
+      // is real and one-sided: with no environment, `serverEnv()` aborted the
+      // import while `nodeEnv()` returns the schema default `"development"` and
+      // therefore MOUNTS `_demo`. `NODE_ENV=production` is unaffected, which is
+      // the case that matters and which the route-table probe checks.
       .guard({}, (inner) =>
-        serverEnv().NODE_ENV === "development"
+        nodeEnv() === "development"
           ? inner.post(
               "/_demo",
               async ({ user, body }) => {

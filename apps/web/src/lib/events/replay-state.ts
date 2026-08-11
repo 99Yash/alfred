@@ -44,8 +44,8 @@ export interface ReplayStateStore {
  * `frame.id`. The arming branch carries the matching tolerance: a run whose
  * terminal frame was applied is recorded in `completedRuns`, and a later frame
  * that merely names it arms nothing. So after any sequence of frames — arriving
- * in any id order, which
- * `packages/api/src/modules/events/index.ts` warns is routine when the relay
+ * in any id order, which the SSE endpoint in
+ * `packages/http/src/realtime/events.ts` warns is routine when the relay
  * retries a row — a run whose `completed` has been applied holds no entry in
  * `activeRuns`, and `since` never freezes below the cursor because of a frame
  * that only names an already-completed run.
