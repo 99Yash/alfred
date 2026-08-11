@@ -1,5 +1,6 @@
 import {
   existsSync,
+  mkdirSync,
   mkdtempSync,
   readFileSync,
   readdirSync,
@@ -483,9 +484,12 @@ function moduleForPath(path) {
   return null;
 }
 
-function webFeatureForPath(path) {
-  if (!path.startsWith(`${WEB_ROUTES_ROOT}${sep}`)) return null;
-  const [first] = relative(WEB_ROUTES_ROOT, path).split(sep);
+// `routesRoot` is a parameter for the same reason `collectImportFacts` takes one: the
+// two-arm feature derivation is only reachable from the import walk, so a drive that
+// plants a fixture route tree outside the repository has to be able to point both at it.
+function webFeatureForPath(path, routesRoot = WEB_ROUTES_ROOT) {
+  if (!path.startsWith(`${routesRoot}${sep}`)) return null;
+  const [first] = relative(routesRoot, path).split(sep);
   return first?.startsWith("-") ? first.slice(1) : null;
 }
 
@@ -751,8 +755,24 @@ function collectBootSeamSources(root = TOOL_RUNTIME_ROOT, definer = BOOT_PORT_DE
     .map((file) => ({ file, source: readFileSync(file, "utf8") }));
 }
 
-function collectArchitecture() {
-  const { entries, failures: workspaceFailures } = workspaceEntries();
+/**
+ * The import walk, roots as parameters. Both fence predicates below — ADR-0089's
+ * assistant-to-transport rule and the production-to-preview rule — decide membership
+ * here, and the live tree holds zero members of either list, so a narrowed predicate
+ * collects the same empty list as a correct one. Taking `entries` and `routesRoot` as
+ * arguments is what lets a self-test drive run THIS function over a planted fixture
+ * instead of a copy of it; a copy of the walk inside the drive is how the two drift
+ * (the same reason `collectBootSeamSources` takes its root).
+ *
+ * @param {{ directory: string, name: string, source: string }[]} entries
+ * @param {string} routesRoot
+ * @returns {{ packageEdges: { from: string, to: string }[],
+ *             moduleEdges: { from: string, to: string }[],
+ *             exceptions: { privateModuleImports: object[], webFeatureImports: object[] },
+ *             forbiddenBackendImports: { key: string, line: number }[],
+ *             productionPreviewImports: { key: string, line: number }[] }}
+ */
+function collectImportFacts(entries, routesRoot = WEB_ROUTES_ROOT) {
   const packageEdges = [];
   const moduleEdges = [];
   const privateModuleImports = [];
@@ -826,8 +846,8 @@ function collectArchitecture() {
         }
 
         if (entry.name === "web" && targetFile) {
-          const fromFeature = webFeatureForPath(file);
-          const toFeature = webFeatureForPath(targetFile);
+          const fromFeature = webFeatureForPath(file, routesRoot);
+          const toFeature = webFeatureForPath(targetFile, routesRoot);
           if (fromFeature && toFeature && fromFeature !== toFeature) {
             webFeatureImports.push({
               from: fromFeature,
@@ -840,7 +860,7 @@ function collectArchitecture() {
           const sourceIsPreview =
             fromFeature === "debug" ||
             fromFeature?.startsWith("preview-") ||
-            /^(debug|preview)\./.test(relative(WEB_ROUTES_ROOT, file));
+            /^(debug|preview)\./.test(relative(routesRoot, file));
           if (targetIsPreview && !sourceIsPreview) {
             productionPreviewImports.push({
               key: importKey(file, imported.specifier),
@@ -851,6 +871,28 @@ function collectArchitecture() {
       }
     }
   }
+
+  return {
+    exceptions: {
+      privateModuleImports: privateModuleImports.sort((a, b) => a.key.localeCompare(b.key)),
+      webFeatureImports: webFeatureImports.sort((a, b) => a.key.localeCompare(b.key)),
+    },
+    forbiddenBackendImports,
+    moduleEdges,
+    packageEdges,
+    productionPreviewImports,
+  };
+}
+
+function collectArchitecture() {
+  const { entries, failures: workspaceFailures } = workspaceEntries();
+  const {
+    exceptions,
+    forbiddenBackendImports,
+    moduleEdges,
+    packageEdges,
+    productionPreviewImports,
+  } = collectImportFacts(entries);
 
   const moduleNodes = [
     ...listDirectories(LEGACY_API_MODULES_ROOT).map((path) => path.split(sep).at(-1)),
@@ -865,10 +907,7 @@ function collectArchitecture() {
     // the real scans, forced each drive to assert positively, and made the emit/refuse
     // drive a tautology.
     bootSeamSources: collectBootSeamSources(),
-    exceptions: {
-      privateModuleImports: privateModuleImports.sort((a, b) => a.key.localeCompare(b.key)),
-      webFeatureImports: webFeatureImports.sort((a, b) => a.key.localeCompare(b.key)),
-    },
+    exceptions,
     forbiddenBackendImports,
     moduleGraph: graphFromEdges(moduleNodes, moduleEdges),
     // The directory-derived live module nodes, surfaced so the execution-gate
@@ -1322,6 +1361,139 @@ const text = 'import "ignored-string"';
     failures.push(
       `production-preview-fence wiring self-test mismatch: expected checkArchitecture to report the planted production -> preview import with its key and line, received ${JSON.stringify(productionPreviewWiringDrive)}`,
     );
+  }
+  // (0-d)/(0-e) The COLLECTION half of the same two fences. `(0-b)`/`(0-c)` above drive
+  // the REPORT half over a synthetic architecture, so they never run the walk that
+  // decides membership. The live tree holds zero members of either list, which means a
+  // NARROWED predicate — dropping the `@alfred/api` arm of ADR-0089's fence, dropping
+  // `!sourceIsPreview` — collects the same empty list as a correct one and passes every
+  // gate, including those two drives. This drive runs the same `collectImportFacts` the
+  // production walk runs, over a fixture it plants, so each arm is named by the importer
+  // basename that fails when the arm goes away. `collectArchitecture()` itself stays
+  // off-limits here for the reason drive `(c)` gives: the self-test runs before
+  // collection, and a full workspace walk inside it is not the trade.
+  //
+  // The fixture is written under the system temp directory, never in the repository —
+  // the same shape drive `(xiii-e)` uses. A deliberately-violating tracked file would be
+  // seen by `tsc`, `knip`, oxlint and this fence on a real run; a fixture inside
+  // `apps/web/src/routes` would make every `pnpm check` mutate a tracked directory and
+  // would leave a violating file behind if the process died mid-run.
+  const importFactsDirectory = mkdtempSync(join(tmpdir(), "check-module-architecture-"));
+  try {
+    const assistantRoot = join(importFactsDirectory, "assistant");
+    const serverRoot = join(importFactsDirectory, "server");
+    const webRoot = join(importFactsDirectory, "web");
+    const fixtureRoutesRoot = join(webRoot, "src", "routes");
+    // Every fixture path is built segment-wise off the `mkdtemp` root and no segment is a
+    // tracked top-level directory, so none of these literals is a repo path literal that
+    // `check:script-paths` would resolve and refuse.
+    const plant = (path, specifier) => {
+      mkdirSync(dirname(path), { recursive: true });
+      writeFileSync(
+        path,
+        specifier === null
+          ? "export const leaf = 1;\n"
+          : `import { leaf } from "${specifier}";\n\nexport const reexported = leaf;\n`,
+      );
+    };
+    plant(join(assistantRoot, "fence-http-exact.ts"), "@alfred/http");
+    plant(join(assistantRoot, "fence-http-subpath.ts"), "@alfred/http/routes");
+    plant(join(assistantRoot, "fence-api-exact.ts"), "@alfred/api");
+    plant(join(assistantRoot, "fence-api-subpath.ts"), "@alfred/api/context");
+    plant(join(assistantRoot, "fence-server-relative.ts"), "../server/handler.ts");
+    plant(join(serverRoot, "server-imports-transport.ts"), "@alfred/http");
+    plant(join(serverRoot, "handler.ts"), null);
+    plant(join(fixtureRoutesRoot, "-inbox", "production-to-debug.tsx"), "../-debug/panel.tsx");
+    plant(
+      join(fixtureRoutesRoot, "-inbox", "production-to-preview.tsx"),
+      "../-preview-panel/panel.tsx",
+    );
+    plant(
+      join(fixtureRoutesRoot, "-inbox", "production-to-production.tsx"),
+      "../-settings/panel.tsx",
+    );
+    plant(join(fixtureRoutesRoot, "-debug", "debug-to-preview.tsx"), "../-preview-panel/panel.tsx");
+    plant(join(fixtureRoutesRoot, "-preview-panel", "preview-to-debug.tsx"), "../-debug/panel.tsx");
+    plant(join(fixtureRoutesRoot, "debug.route-file.tsx"), "./-debug/panel.tsx");
+    plant(join(fixtureRoutesRoot, "-debug", "panel.tsx"), null);
+    plant(join(fixtureRoutesRoot, "-preview-panel", "panel.tsx"), null);
+    plant(join(fixtureRoutesRoot, "-settings", "panel.tsx"), null);
+    // Three synthetic entries, so the fence's `entry.name === "@alfred/assistant"` gate
+    // and the preview predicate's `entry.name === "web"` gate cannot cross-contaminate.
+    // `moduleForPath` stays bound to the real assistant root and returns null for every
+    // temp path, so the fixture contributes no module edge and no private import.
+    const importFacts = collectImportFacts(
+      [
+        { directory: assistantRoot, name: "@alfred/assistant", source: assistantRoot },
+        { directory: serverRoot, name: "server", source: serverRoot },
+        { directory: webRoot, name: "web", source: join(webRoot, "src") },
+      ],
+      fixtureRoutesRoot,
+    );
+    // (0-d) One arm of the assistant -> transport specifier test per row, so a narrowed
+    // fence fails by the arm it dropped rather than as "some list is empty".
+    for (const [importerBasename, arm] of [
+      ["fence-http-exact", "the exact `@alfred/http` specifier"],
+      ["fence-http-subpath", "an `@alfred/http/` subpath specifier"],
+      ["fence-api-exact", "the exact legacy `@alfred/api` specifier"],
+      ["fence-api-subpath", "an `@alfred/api/` subpath specifier"],
+      ["fence-server-relative", "a relative import that resolves into the `server` entry"],
+    ]) {
+      if (
+        !importFacts.forbiddenBackendImports.some((imported) =>
+          imported.key.includes(importerBasename),
+        )
+      ) {
+        failures.push(
+          `assistant-backend-fence collection self-test mismatch: expected the import walk to collect ${importerBasename} for ${arm}, received ${JSON.stringify(importFacts.forbiddenBackendImports)}`,
+        );
+      }
+    }
+    if (
+      importFacts.forbiddenBackendImports.some((imported) =>
+        imported.key.includes("server-imports-transport"),
+      )
+    ) {
+      failures.push(
+        `assistant-backend-fence collection self-test mismatch: expected the import walk to leave server-imports-transport uncollected, because the fence applies to the \`@alfred/assistant\` entry alone, received ${JSON.stringify(importFacts.forbiddenBackendImports)}`,
+      );
+    }
+    // (0-e) The production -> preview predicate, both directions. The two positives cover
+    // `targetIsPreview`'s `debug` and `preview-` arms; the three negatives cover
+    // `targetIsPreview` refusing a production target and `!sourceIsPreview` refusing each
+    // of the three ways a source is itself preview code.
+    for (const [importerBasename, arm] of [
+      ["production-to-debug", "a production route importing the `-debug` feature"],
+      ["production-to-preview", "a production route importing a `-preview-` feature"],
+    ]) {
+      if (
+        !importFacts.productionPreviewImports.some((imported) =>
+          imported.key.includes(importerBasename),
+        )
+      ) {
+        failures.push(
+          `production-preview-fence collection self-test mismatch: expected the import walk to collect ${importerBasename} for ${arm}, received ${JSON.stringify(importFacts.productionPreviewImports)}`,
+        );
+      }
+    }
+    for (const [importerBasename, reason] of [
+      ["production-to-production", "its target is not preview or debug code"],
+      ["debug-to-preview", "its source is the `-debug` feature"],
+      ["preview-to-debug", "its source is a `-preview-` feature"],
+      ["debug.route-file", "its source is a `debug.`-prefixed route file"],
+    ]) {
+      if (
+        importFacts.productionPreviewImports.some((imported) =>
+          imported.key.includes(importerBasename),
+        )
+      ) {
+        failures.push(
+          `production-preview-fence collection self-test mismatch: expected the import walk to leave ${importerBasename} uncollected, because ${reason}, received ${JSON.stringify(importFacts.productionPreviewImports)}`,
+        );
+      }
+    }
+  } finally {
+    rmSync(importFactsDirectory, { force: true, recursive: true });
   }
   // (i) A live `agent -> triage` edge with a self-consistent node set must make
   // `checkArchitecture` report the forbidden product import — guards the wiring
