@@ -26,7 +26,7 @@ import { type ImportProbeReport, parseImportProbeReport } from "./support/import
  * reasons, both load-bearing:
  *
  * - ESM evaluates a specifier once per process. A loop over the subpaths inside this file
- *   would find subpaths 2..N already cached and all three runtime detectors would read
+ *   would find subpaths 2..N already cached and all four runtime detectors would read
  *   green without measuring anything. `node:test` isolates per *file*, not per subtest.
  * - A minimal environment is stronger than deleting known keys in-process, and it does not
  *   depend on what the ambient shell holds. The `assistant-unit-tests` CI job runs with a
@@ -80,10 +80,10 @@ import { type ImportProbeReport, parseImportProbeReport } from "./support/import
  *   every other subpath is unpinned. The per-name `typeof value === "function"` check the
  *   realtime-only predecessor made is dropped for one reason only: locking the public API
  *   surface of all subpaths is a different property from import inertness, and pinning
- *   ~617 names would make this suite mostly data.
+ *   the 628 names behind the 39 probed subpaths would make this suite mostly data.
  * - **Wildcard subpaths** (`./triage/*` and the eight others). A `*` matches any substring
  *   including `/`, so a wildcard's reachable set is not enumerable from the map; globbing
- *   the target directory only approximates it, at roughly 138 more children. They are
+ *   the target directories only approximates it, at 174 more children today. They are
  *   declined here, by name, in the `wildcards` bucket rather than skipped silently.
  */
 
