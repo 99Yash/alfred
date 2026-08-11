@@ -73,7 +73,20 @@
     {
       "files": ["apps/server/src/scripts/**"],
       "rules": {
-        "no-restricted-imports": "off"
+        // Deliberate omission: the @alfred/assistant/knowledge/internal group is absent on purpose — this
+        // tree IS that door's allowlist. Every other root group must be restated here, because an override
+        // REPLACES the rule's options wholesale. Item 47 asserts this list against the root one.
+        "no-restricted-imports": [
+          "error",
+          {
+            "patterns": [
+              {
+                "group": ["@alfred/integrations/google/internal"],
+                "message": "The raw Gmail watch primitive is restricted to its two allowlisted friend files (see google/internal.ts). Install a watch through the api wrapper installGmailWatchAndSeedCursor, which also seeds the ingestion_state cursor; a raw installGmailWatch leaves the credential cursorless."
+              }
+            ]
+          }
+        ]
       }
     },
     {
