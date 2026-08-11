@@ -173,23 +173,40 @@ are a record of the whole graph, but the checker consults them for their cyclic
 subset only. An acyclic recorded edge is therefore a record and not a permission:
 the day that edge joins a cycle, the checker reports it.
 
+Each recorded graph also declares the cycles it records, in its `sccs` list. The
+checker rejects a baseline whose two lists disagree, in either direction: a
+recorded edge set that forms a component the `sccs` list does not declare, and an
+`sccs` list that declares a component the recorded edges do not form. So a
+recorded graph cannot permit a cycle it does not name.
+
 Use `pnpm check:architecture -- --print-graph` to print the current stable graph.
 Use `pnpm check:architecture -- --write-baseline` to regenerate the baseline file.
 That command writes the baseline file itself. It prints the added and removed entries
 to standard error, and it prints nothing to standard output. The command refuses to
 write, and exits with status 1, when the current tree fails the check, and when the
-baseline file is absent, is not valid JSON, or does not hold four ratchet lists of
-key strings. Each refusal names its cause. A refusal that reads a damaged baseline
-file also names the command that restores it.
+baseline file is absent, is not valid JSON, does not hold every ratchet list as a
+list of key strings, does not hold a declared cycle list for each recorded graph, or
+permits a cycle it does not declare. Each refusal names its cause. A refusal that
+reads a damaged baseline file also names the command that restores it.
 
-One writer at a time therefore cannot widen a permitted set, because the command only
-writes from a tree the checker already accepts. Two writers can. Two branches that
-each regenerate from an accepted tree merge into a file that permits a cycle neither
-branch permitted, because the two edge keys sort far apart in the file and git merges
-both without a conflict. The two recorded graphs grow freely and their permission is a
-non-monotone function of the record, so their union is not safe the way the
-shrink-only exception lists are. Before you merge a branch that regenerated the
-baseline, rebase it onto the merged base and regenerate again.
+One writer at a time cannot widen a permitted set, because the command only writes
+from a tree the checker already accepts. Two writers could. Two branches that each
+regenerate from an accepted tree merge into a file whose recorded edges hold a cycle
+neither branch recorded, because the two edge keys sort far apart in the file and git
+merges both without a conflict. The two recorded graphs grow freely and their
+permission is a non-monotone function of the record, so their union is not safe the
+way the shrink-only exception lists are.
+
+The declared cycle lists close this. Both branches write `sccs` and `edges` from one
+snapshot of one accepted tree, so each branch declares no new cycle, while the merged
+`edges` lists form one. The merged file therefore contradicts itself, and every path
+that reads it refuses, including the check that runs on the merge result in CI. You do
+not need to rebase and regenerate before you merge, and no merge tool has to help. The
+repository also marks the baseline file `-merge` in `.gitattributes`, which makes a
+local `git merge` of two regenerated baselines report a conflict instead of merging
+them silently. That is a convenience for the person doing the merge. It is not the
+guard, and a merge performed by a service that ignores the attribute is still caught by
+the check.
 
 Do not update the baseline to make a failure disappear. Change it only when an
 accepted ADR changes the target structure or when a path rename preserves an
