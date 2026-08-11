@@ -84,7 +84,10 @@ import { logger, safeErrorDiagnostic } from "@alfred/logging";
 import { enrichInvalidInputMessage } from "./invalid-input";
 import { normalizeToolInputKeys } from "./normalize-keys";
 import { emitReplicachePokes } from "@alfred/assistant/triggers";
-import { resolveApprovalNotifyDelayMs, resolvePolicyMode } from "../action-policies/resolve";
+import {
+  resolveApprovalNotifyDelayMs,
+  resolvePolicyMode,
+} from "@alfred/assistant/action-policies";
 import { joinChildRun } from "@alfred/assistant/execution/sub-agent-join";
 import {
   scheduleApprovalExpiryJob,

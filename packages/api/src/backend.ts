@@ -213,16 +213,6 @@ export {
 
 export * from "@alfred/assistant/delivery";
 export * from "@alfred/assistant/time";
-export {
-  bustPolicyCache,
-  clearPolicyCacheForTests,
-  DEFAULT_APPROVAL_NOTIFY_DELAY_MS,
-  getResolvedPolicy,
-  publishPolicyBust,
-  resolveApprovalNotifyDelayMs,
-  resolvePolicyMode,
-  type ResolvedPolicy,
-} from "./modules/action-policies/index";
 export * from "@alfred/assistant/execution/scratchpad/index";
 export { toolExecuteContext } from "./modules/tools/index";
 export * from "./modules/dispatch/index";

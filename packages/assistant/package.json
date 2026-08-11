@@ -49,7 +49,9 @@
     "./skills/*": "./src/skills/*.ts",
     "./automation": "./src/automation/index.ts",
     "./automation/*": "./src/automation/*.ts",
-    "./realtime": "./src/realtime/index.ts"
+    "./realtime": "./src/realtime/index.ts",
+    "./action-policies": "./src/action-policies/index.ts",
+    "./action-policies/test-support": "./src/action-policies/test-support.ts"
   },
   "scripts": {
     "build": "node ../../scripts/clean-package-dist.mjs && tsc -b --emitDeclarationOnly --force",

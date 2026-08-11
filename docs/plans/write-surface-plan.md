@@ -53,7 +53,7 @@ new architecture.
   let a broad product scope satisfy `openid` / `userinfo.email`.
 
 **0d. Dispatcher override slot (no thread table assumption)**
-- `packages/api/src/modules/action-policies/resolve.ts`: keep durable policy resolution
+- `packages/assistant/src/action-policies/resolve.ts`: keep durable policy resolution
   as-is, but expose a helper/signature that accepts an optional run-scoped
   `PolicyMode` override.
 - `packages/api/src/modules/dispatch/index.ts`: add an optional `policyModeOverride`
@@ -108,7 +108,7 @@ approving it (via the API) creates a real deck and writes `webViewLink` to
 
 ## Phase 2 — Policy-mutation endpoint + settings editor (the real backend gap)
 
-**2a. `packages/api/src/modules/action-policies/routes.ts` (new)**
+**2a. `packages/api/src/modules/me/routes.ts` (new handlers on the existing `me` group)**
 - `GET /api/me/action-policy` → resolved policy (default_mode, integration_rules,
   approval_notify_delay_ms).
 - `PUT /api/me/action-policy` → upsert `user_action_policies`; **must call

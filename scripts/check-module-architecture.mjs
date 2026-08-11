@@ -46,6 +46,7 @@ const BOOT_PORT_VARIABLE_TYPE = /:\s*BootPort\s*<\s*([A-Za-z_$][\w$]*)/;
 const BOOT_PORT_IMPORT = /\bimport\b[^;\n]*\bbootPort\b[^;\n]*\bfrom\b/;
 const BOOT_SEAM_HEADER_LABELS = ["Surface:", "Owns/hides:", "Why the seam:", "Wiring:"];
 const TARGET_ASSISTANT_MODULES = new Set([
+  "action-policies",
   "artifacts",
   "automation",
   "briefings",
