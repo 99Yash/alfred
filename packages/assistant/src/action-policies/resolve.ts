@@ -197,7 +197,7 @@ let subscriberStarted = false;
  * multiple bootstrap paths. Uses PSUBSCRIBE on `policy-bust:u:*` so a
  * single subscription covers every user; the channel suffix is parsed
  * out and fed to `bustPolicyCache`. Started once at server boot in
- * `apps/server/src/index.ts`.
+ * `apps/server/src/runtime.ts`.
  */
 export async function startPolicyBustSubscriber(): Promise<void> {
   if (subscriberStarted) return;
