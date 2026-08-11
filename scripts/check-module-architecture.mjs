@@ -2,6 +2,8 @@ import { existsSync, readFileSync, readdirSync, statSync, writeFileSync } from "
 import { dirname, extname, join, relative, resolve, sep } from "node:path";
 import { fileURLToPath } from "node:url";
 
+import { lexSource, parseImports } from "./ts-imports.mjs";
+
 const ROOT = dirname(dirname(fileURLToPath(import.meta.url)));
 const BASELINE_PATH = join(ROOT, "scripts/module-architecture-baseline.json");
 const SOURCE_EXTENSIONS = [".ts", ".tsx", ".mts", ".cts"];
@@ -103,140 +105,6 @@ function walkSourceFiles(parent) {
     }
   }
   return files.sort((a, b) => a.localeCompare(b));
-}
-
-function parseImports(source) {
-  const tokens = lexSource(source);
-  const imports = [];
-  const lineStarts = [0];
-  for (let index = 0; index < source.length; index += 1) {
-    if (source[index] === "\n") lineStarts.push(index + 1);
-  }
-
-  function lineAt(position) {
-    let low = 0;
-    let high = lineStarts.length;
-    while (low < high) {
-      const middle = Math.floor((low + high) / 2);
-      if (lineStarts[middle] <= position) low = middle + 1;
-      else high = middle;
-    }
-    return low;
-  }
-
-  function add(token, kind) {
-    imports.push({
-      kind,
-      line: lineAt(token.start),
-      specifier: token.value,
-    });
-  }
-
-  for (let index = 0; index < tokens.length; index += 1) {
-    const token = tokens[index];
-    if (token.kind !== "identifier") continue;
-    const next = tokens[index + 1];
-    const argument = tokens[index + 2];
-    if (
-      (token.value === "import" || token.value === "require") &&
-      next?.value === "(" &&
-      argument?.kind === "string"
-    ) {
-      add(argument, token.value === "import" ? "dynamic-import" : "require");
-      continue;
-    }
-    if (token.value === "import") {
-      for (let cursor = index + 1; cursor < tokens.length; cursor += 1) {
-        const candidate = tokens[cursor];
-        if (candidate.value === ";") break;
-        if (candidate.kind === "string") {
-          add(candidate, "import");
-          break;
-        }
-      }
-      continue;
-    }
-    if (token.value === "export") {
-      let sawFrom = false;
-      for (let cursor = index + 1; cursor < tokens.length; cursor += 1) {
-        const candidate = tokens[cursor];
-        if (candidate.value === ";") break;
-        if (candidate.value === "from") sawFrom = true;
-        else if (sawFrom && candidate.kind === "string") {
-          add(candidate, "export");
-          break;
-        }
-      }
-    }
-  }
-  return [
-    ...new Map(imports.map((entry) => [`${entry.line}:${entry.specifier}`, entry])).values(),
-  ].sort((a, b) => a.line - b.line || a.specifier.localeCompare(b.specifier));
-}
-
-function lexSource(source) {
-  const tokens = [];
-  let index = 0;
-  while (index < source.length) {
-    const char = source[index];
-    const next = source[index + 1];
-    if (/\s/.test(char)) {
-      index += 1;
-      continue;
-    }
-    if (char === "/" && next === "/") {
-      index += 2;
-      while (index < source.length && source[index] !== "\n") index += 1;
-      continue;
-    }
-    if (char === "/" && next === "*") {
-      index += 2;
-      while (index < source.length && !(source[index] === "*" && source[index + 1] === "/")) {
-        index += 1;
-      }
-      index += 2;
-      continue;
-    }
-    if (char === '"' || char === "'") {
-      const start = index;
-      const quote = char;
-      index += 1;
-      let value = "";
-      while (index < source.length && source[index] !== quote) {
-        if (source[index] === "\\" && index + 1 < source.length) {
-          value += source[index + 1];
-          index += 2;
-        } else {
-          value += source[index];
-          index += 1;
-        }
-      }
-      index += 1;
-      tokens.push({ kind: "string", start, value });
-      continue;
-    }
-    if (char === "`") {
-      index += 1;
-      while (index < source.length) {
-        if (source[index] === "\\") index += 2;
-        else if (source[index] === "`") {
-          index += 1;
-          break;
-        } else index += 1;
-      }
-      continue;
-    }
-    if (/[A-Za-z_$]/.test(char)) {
-      const start = index;
-      index += 1;
-      while (index < source.length && /[A-Za-z0-9_$]/.test(source[index])) index += 1;
-      tokens.push({ kind: "identifier", start, value: source.slice(start, index) });
-      continue;
-    }
-    tokens.push({ kind: "punctuation", start: index, value: char });
-    index += 1;
-  }
-  return tokens;
 }
 
 function exportedRuntimeLifecycleSymbols(source) {
