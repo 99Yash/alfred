@@ -65,9 +65,8 @@ export { workflowRoutes } from "./workflows";
 // one `channelFor` name, and what the outbox reader can serve is bounded by
 // what the retention reaper has already deleted; split either pair across a
 // package boundary and the invariant has two owners and no checker. And a
-// module stays out if the
-// server's lifecycle starts or stops it, because ADR-0089 fixes that direction
-// at `apps/server -> @alfred/assistant/runtime`, which does not pass through
-// transport. What is left — code that only exists because a client speaks HTTP
-// — is what belongs here.
+// module stays out if the server's lifecycle starts or stops it, because
+// ADR-0089 fixes that direction at `apps/server -> @alfred/assistant/runtime`,
+// which does not pass through transport. What is left — code that only exists
+// because a client speaks HTTP — is what belongs here.
 export { events } from "./realtime/events";
