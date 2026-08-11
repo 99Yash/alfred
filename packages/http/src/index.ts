@@ -51,3 +51,14 @@ export { chatRoutes } from "./conversations";
 export { onboardingRoutes } from "./onboarding";
 export { skillsRoutes } from "./skills";
 export { workflowRoutes } from "./workflows";
+
+// Realtime push. `realtime/` is a non-domain subdirectory, like `middleware/`:
+// the flat `src/<domain>.ts` layout names product domains, and SSE delivery is
+// a transport concern that several domains push through. Only the wire half
+// lives here — frame encoding, heartbeats, `Last-Event-ID` replay handoff. The
+// substrate underneath it (the Redis user-event bus, the Postgres
+// LISTEN/NOTIFY outbox relay, the retention reaper, the cursor-paged outbox
+// read) is runtime, not transport: delete SSE and every one of those files
+// still has a job, so they live on `@alfred/assistant/realtime` and this route
+// imports them.
+export { events } from "./realtime/events";
