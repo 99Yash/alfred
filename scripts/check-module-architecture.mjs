@@ -64,6 +64,15 @@ const TARGET_ASSISTANT_MODULES = new Set([
   "time",
   "triage",
 ]);
+// The two roots that decide which module owns a file, as one parameter so a self-test
+// can point the module derivation at a fixture tree. Both members are the existing
+// constants, so this adds no path literal and no `SCANNED_PATHS` row: the rows for
+// `ASSISTANT_SOURCE_ROOT` and `LEGACY_API_MODULES_ROOT` below already prove both
+// resolve on every `pnpm check`.
+const MODULE_ROOTS = {
+  apiModules: LEGACY_API_MODULES_ROOT,
+  assistantSource: ASSISTANT_SOURCE_ROOT,
+};
 const WEB_ROUTES_ROOT = join(ROOT, "apps/web/src/routes");
 // Every hardcoded repository path a rule in this file reads. Each one is the SOLE
 // input of its rule, so a path that stops resolving does not make its rule lenient —
@@ -470,15 +479,18 @@ function packageFromSpecifier(entries, specifier) {
   );
 }
 
-function moduleForPath(path) {
-  if (path.startsWith(`${LEGACY_API_MODULES_ROOT}${sep}`)) {
-    const [name] = relative(LEGACY_API_MODULES_ROOT, path).split(sep);
-    return name ? { index: join(LEGACY_API_MODULES_ROOT, name, "index.ts"), name } : null;
+// `roots` is a parameter for the same reason `collectImportFacts` takes one: module
+// identity is only decided from inside the import walk, so a drive that plants a
+// fixture module tree outside the repository has to be able to point this at it.
+function moduleForPath(path, roots = MODULE_ROOTS) {
+  if (path.startsWith(`${roots.apiModules}${sep}`)) {
+    const [name] = relative(roots.apiModules, path).split(sep);
+    return name ? { index: join(roots.apiModules, name, "index.ts"), name } : null;
   }
-  if (path.startsWith(`${ASSISTANT_SOURCE_ROOT}${sep}`)) {
-    const [name] = relative(ASSISTANT_SOURCE_ROOT, path).split(sep);
+  if (path.startsWith(`${roots.assistantSource}${sep}`)) {
+    const [name] = relative(roots.assistantSource, path).split(sep);
     return name && TARGET_ASSISTANT_MODULES.has(name)
-      ? { index: join(ASSISTANT_SOURCE_ROOT, name, "index.ts"), name }
+      ? { index: join(roots.assistantSource, name, "index.ts"), name }
       : null;
   }
   return null;
@@ -756,23 +768,28 @@ function collectBootSeamSources(root = TOOL_RUNTIME_ROOT, definer = BOOT_PORT_DE
 }
 
 /**
- * The import walk, roots as parameters. Both fence predicates below — ADR-0089's
- * assistant-to-transport rule and the production-to-preview rule — decide membership
- * here, and the live tree holds zero members of either list, so a narrowed predicate
- * collects the same empty list as a correct one. Taking `entries` and `routesRoot` as
+ * The import walk, roots as parameters. Three fence predicates below — ADR-0089's
+ * assistant-to-transport rule, its private cross-module import rule, and the
+ * production-to-preview rule — decide membership here. The live tree holds zero members
+ * of the first and third, so a narrowed predicate collects the same empty list as a
+ * correct one, and a narrowed private-reach predicate collects a shorter list that every
+ * baselined key still covers. Taking `entries`, `routesRoot` and `moduleRoots` as
  * arguments is what lets a self-test drive run THIS function over a planted fixture
  * instead of a copy of it; a copy of the walk inside the drive is how the two drift
  * (the same reason `collectBootSeamSources` takes its root).
  *
  * @param {{ directory: string, name: string, source: string }[]} entries
  * @param {string} routesRoot
+ * @param {{ apiModules: string, assistantSource: string }} moduleRoots
  * @returns {{ packageEdges: { from: string, to: string }[],
  *             moduleEdges: { from: string, to: string }[],
- *             exceptions: { privateModuleImports: object[], webFeatureImports: object[] },
+ *             exceptions: {
+ *               privateModuleImports: { from: string, key: string, line: number, to: string }[],
+ *               webFeatureImports: { from: string, key: string, line: number, to: string }[] },
  *             forbiddenBackendImports: { key: string, line: number }[],
  *             productionPreviewImports: { key: string, line: number }[] }}
  */
-function collectImportFacts(entries, routesRoot = WEB_ROUTES_ROOT) {
+function collectImportFacts(entries, routesRoot = WEB_ROUTES_ROOT, moduleRoots = MODULE_ROOTS) {
   const packageEdges = [];
   const moduleEdges = [];
   const privateModuleImports = [];
@@ -792,13 +809,13 @@ function collectImportFacts(entries, routesRoot = WEB_ROUTES_ROOT) {
           packageEdges.push({ from: entry.name, to: targetEntry.name });
         }
 
-        const fromModule = moduleForPath(file);
-        let toModule = targetFile ? moduleForPath(targetFile) : null;
+        const fromModule = moduleForPath(file, moduleRoots);
+        let toModule = targetFile ? moduleForPath(targetFile, moduleRoots) : null;
         if (!toModule && imported.specifier.startsWith("@alfred/api/modules/")) {
           const name = imported.specifier.split("/")[3];
           if (name) {
             toModule = {
-              index: join(LEGACY_API_MODULES_ROOT, name, "index.ts"),
+              index: join(moduleRoots.apiModules, name, "index.ts"),
               name,
             };
           }
@@ -806,29 +823,40 @@ function collectImportFacts(entries, routesRoot = WEB_ROUTES_ROOT) {
           const name = imported.specifier.split("/")[2];
           if (name && TARGET_ASSISTANT_MODULES.has(name)) {
             toModule = {
-              index: join(ASSISTANT_SOURCE_ROOT, name, "index.ts"),
+              index: join(moduleRoots.assistantSource, name, "index.ts"),
               name,
             };
           }
         }
+        // A module EDGE needs two module endpoints: it names the modules at both
+        // ends, so an importer outside every module contributes no edge.
         if (fromModule && toModule && fromModule.name !== toModule.name) {
           moduleEdges.push({ from: fromModule.name, to: toModule.name });
-          // A null `targetFile` means this edge was derived from a published
-          // package subpath (`@alfred/assistant/<m>` or `@alfred/api/modules/<m>`)
-          // — the custom resolver only follows `./`/`~/` specifiers, so bare
-          // package specifiers resolve to null. Such an import addresses the
-          // module by its public interface (its index) by construction: a
-          // cross-package import physically cannot reach a module's
-          // implementation file, so it can never be a private reach. Only a
-          // resolved-but-non-index target (a `./`-relative deep import) is private.
-          if (targetFile !== null && targetFile !== toModule.index) {
-            privateModuleImports.push({
-              from: fromModule.name,
-              key: importKey(file, imported.specifier),
-              line: imported.line,
-              to: toModule.name,
-            });
-          }
+        }
+        // A private REACH needs only one module endpoint — the target's. Any file
+        // that resolves an import to another module's non-index file has reached
+        // past that module's public interface, whether or not the importer itself
+        // lives in a module directory: the wiring files in `packages/api/src`,
+        // `packages/http` and `apps/server` are exactly the ones that can do it.
+        //
+        // A null `targetFile` is what holds bare package specifiers out. The custom
+        // resolver returns null for anything that does not start with `.` or `~/`,
+        // so a `@alfred/assistant/<m>` or `@alfred/api/modules/<m>` specifier
+        // synthesizes a `toModule` with no resolved file: it addresses the module by
+        // its public subpath and cannot name an implementation file. Only a resolved
+        // non-index target — a relative deep import — is a private reach.
+        if (
+          toModule &&
+          targetFile !== null &&
+          targetFile !== toModule.index &&
+          fromModule?.name !== toModule.name
+        ) {
+          privateModuleImports.push({
+            from: fromModule?.name ?? entry.name,
+            key: importKey(file, imported.specifier),
+            line: imported.line,
+            to: toModule.name,
+          });
         }
 
         if (
@@ -1378,24 +1406,26 @@ const text = 'import "ignored-string"';
   // seen by `tsc`, `knip`, oxlint and this fence on a real run; a fixture inside
   // `apps/web/src/routes` would make every `pnpm check` mutate a tracked directory and
   // would leave a violating file behind if the process died mid-run.
+  // Shared by `(0-d)`/`(0-e)` and `(0-f)`: one fixture file, whose single import sits on
+  // line 1 so a drive can assert the collected line number. Every fixture path a caller
+  // builds is assembled segment-wise off its own `mkdtemp` root and no segment is a
+  // tracked top-level directory, so none of those literals is a repo path literal that
+  // `check:script-paths` would resolve and refuse.
+  const plant = (path, specifier) => {
+    mkdirSync(dirname(path), { recursive: true });
+    writeFileSync(
+      path,
+      specifier === null
+        ? "export const leaf = 1;\n"
+        : `import { leaf } from "${specifier}";\n\nexport const reexported = leaf;\n`,
+    );
+  };
   const importFactsDirectory = mkdtempSync(join(tmpdir(), "check-module-architecture-"));
   try {
     const assistantRoot = join(importFactsDirectory, "assistant");
     const serverRoot = join(importFactsDirectory, "server");
     const webRoot = join(importFactsDirectory, "web");
     const fixtureRoutesRoot = join(webRoot, "src", "routes");
-    // Every fixture path is built segment-wise off the `mkdtemp` root and no segment is a
-    // tracked top-level directory, so none of these literals is a repo path literal that
-    // `check:script-paths` would resolve and refuse.
-    const plant = (path, specifier) => {
-      mkdirSync(dirname(path), { recursive: true });
-      writeFileSync(
-        path,
-        specifier === null
-          ? "export const leaf = 1;\n"
-          : `import { leaf } from "${specifier}";\n\nexport const reexported = leaf;\n`,
-      );
-    };
     plant(join(assistantRoot, "fence-http-exact.ts"), "@alfred/http");
     plant(join(assistantRoot, "fence-http-subpath.ts"), "@alfred/http/routes");
     plant(join(assistantRoot, "fence-api-exact.ts"), "@alfred/api");
@@ -1420,8 +1450,9 @@ const text = 'import "ignored-string"';
     plant(join(fixtureRoutesRoot, "-settings", "panel.tsx"), null);
     // Three synthetic entries, so the fence's `entry.name === "@alfred/assistant"` gate
     // and the preview predicate's `entry.name === "web"` gate cannot cross-contaminate.
-    // `moduleForPath` stays bound to the real assistant root and returns null for every
-    // temp path, so the fixture contributes no module edge and no private import.
+    // This call takes `moduleRoots`' default, i.e. the real repository roots, and the
+    // fixture plants no module tree under either of them — so it contributes no module
+    // edge and no private import, and drive `(0-f)` below owns those two lists.
     const importFacts = collectImportFacts(
       [
         { directory: assistantRoot, name: "@alfred/assistant", source: assistantRoot },
@@ -1494,6 +1525,103 @@ const text = 'import "ignored-string"';
     }
   } finally {
     rmSync(importFactsDirectory, { force: true, recursive: true });
+  }
+  // (0-f) The COLLECTION half of ADR-0089's private cross-module import fence. `(0-b)`
+  // and the report loop drive the message, over a synthetic architecture that already
+  // holds the record — so nothing there runs the predicate that decides which imports
+  // become records, and a NARROWED predicate collects a shorter list that every
+  // baselined key still covers, leaving every gate green. The fence used to require the
+  // IMPORTING file to live in a module directory too, which exempted every wiring file
+  // in `packages/api/src`, `packages/http` and `apps/server` — the files that reach
+  // across modules for a living. This drive names each importer position separately, so
+  // re-gating on `fromModule` fails by the position it dropped rather than as "the list
+  // got shorter".
+  //
+  // `moduleRoots` is the parameter this rides: the fixture plants a module tree under
+  // its own `mkdtemp` root, the same way `(0-d)`/`(0-e)` plant a route tree, so the
+  // walk under test is the production `collectImportFacts` and not a copy of it.
+  const moduleReachDirectory = mkdtempSync(join(tmpdir(), "check-module-architecture-"));
+  try {
+    const apiRoot = join(moduleReachDirectory, "api");
+    const assistantRoot = join(moduleReachDirectory, "assistant");
+    const serverRoot = join(moduleReachDirectory, "server");
+    const apiSourceRoot = join(apiRoot, "src");
+    const assistantSourceRoot = join(assistantRoot, "src");
+    const serverSourceRoot = join(serverRoot, "src");
+    const apiModulesRoot = join(apiSourceRoot, "modules");
+    const fixtureModuleRoots = { apiModules: apiModulesRoot, assistantSource: assistantSourceRoot };
+    // Every `plant` path below is built off `moduleReachDirectory`, never off
+    // `fixtureModuleRoots` — the roots object is what a mutant repoints, and a plant that
+    // read it would write a fixture into the real `packages/api/src/modules` tree.
+    plant(join(apiModulesRoot, "connections", "store.ts"), null);
+    plant(join(apiModulesRoot, "skills", "index.ts"), null);
+    // `triage` and `knowledge` are real `TARGET_ASSISTANT_MODULES` members, so the module
+    // name Set needs no parameter of its own; `not-a-module` deliberately is not one.
+    plant(join(assistantSourceRoot, "triage", "internal.ts"), null);
+    plant(join(assistantSourceRoot, "knowledge", "internal.ts"), null);
+    // One importer per position a private reach can come from.
+    plant(join(apiSourceRoot, "runtime-reach.ts"), "./modules/connections/store.ts");
+    plant(join(serverSourceRoot, "wire-reach.ts"), "../../api/src/modules/connections/store.ts");
+    plant(join(assistantSourceRoot, "not-a-module", "outside-module.ts"), "../triage/internal.ts");
+    plant(join(assistantSourceRoot, "triage", "module-reach.ts"), "../knowledge/internal.ts");
+    // One importer per way an import into a module directory stays public.
+    plant(join(apiSourceRoot, "runtime-barrel.ts"), "./modules/skills/index.ts");
+    plant(join(serverSourceRoot, "wire-barrel.ts"), "../../api/src/modules/skills/index.ts");
+    plant(join(assistantSourceRoot, "triage", "intra-flat.ts"), "./internal.ts");
+    plant(join(assistantSourceRoot, "triage", "nested", "intra-deep.ts"), "../internal.ts");
+    const moduleReachFacts = collectImportFacts(
+      [
+        { directory: apiRoot, name: "@alfred/api", source: apiSourceRoot },
+        { directory: assistantRoot, name: "@alfred/assistant", source: assistantSourceRoot },
+        { directory: serverRoot, name: "server", source: serverSourceRoot },
+      ],
+      WEB_ROUTES_ROOT,
+      fixtureModuleRoots,
+    );
+    const privateReaches = moduleReachFacts.exceptions.privateModuleImports;
+    for (const [importerBasename, position] of [
+      ["runtime-reach", "a non-module file reaching into a module of its own package"],
+      ["wire-reach", "a non-module file in another package reaching around into a module"],
+      ["outside-module", "a file inside the assistant source root but outside any target module"],
+      ["module-reach", "a module file reaching into another module"],
+    ]) {
+      if (!privateReaches.some((imported) => imported.key.includes(`${importerBasename}.ts`))) {
+        failures.push(
+          `private-module-import fence collection self-test mismatch: expected the import walk to collect ${importerBasename} for ${position}, received ${JSON.stringify(privateReaches)}`,
+        );
+      }
+    }
+    for (const [importerBasename, reason] of [
+      ["runtime-barrel", "it addresses the module through its own `index.ts`"],
+      ["wire-barrel", "a barrel import is public from another package too"],
+      ["intra-flat", "the importer lives in the module it imports"],
+      ["intra-deep", "the importer lives in a subdirectory of the module it imports"],
+    ]) {
+      if (privateReaches.some((imported) => imported.key.includes(`${importerBasename}.ts`))) {
+        failures.push(
+          `private-module-import fence collection self-test mismatch: expected the import walk to leave ${importerBasename} uncollected, because ${reason}, received ${JSON.stringify(privateReaches)}`,
+        );
+      }
+    }
+    // Every reported field on one row per `from` arm, because a deletion-only matrix
+    // leaves a stubbed field green. `from` is the importer's owning scope: its module
+    // when it has one, otherwise its package name.
+    for (const expected of [
+      { from: "@alfred/api", importer: "runtime-reach.ts", line: 1, to: "connections" },
+      { from: "triage", importer: "module-reach.ts", line: 1, to: "knowledge" },
+    ]) {
+      const reach = privateReaches.find((imported) => imported.key.includes(expected.importer));
+      if (
+        reach &&
+        (reach.from !== expected.from || reach.to !== expected.to || reach.line !== expected.line)
+      ) {
+        failures.push(
+          `private-module-import fence collection self-test mismatch: expected ${expected.importer} to be collected as from ${expected.from} -> ${expected.to} at line ${expected.line}, received ${JSON.stringify(reach)}`,
+        );
+      }
+    }
+  } finally {
+    rmSync(moduleReachDirectory, { force: true, recursive: true });
   }
   // (i) A live `agent -> triage` edge with a self-consistent node set must make
   // `checkArchitecture` report the forbidden product import — guards the wiring
