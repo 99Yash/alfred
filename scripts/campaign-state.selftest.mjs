@@ -198,23 +198,25 @@ function run(args, options = {}) {
   const adderCount = 8;
   for (let i = 0; i < adderCount; i += 1) {
     adders.push(
-      new Promise((resolveAdder) => {
-        const child = spawn(
-          process.execPath,
-          [
-            SCRIPT,
-            "add",
-            "--state",
-            statePath,
-            "--item-slug",
-            `follow-up-${i}`,
-            "--title",
-            `F${i}`,
-          ],
-          { env: { ...process.env, CAMPAIGN_STATE_SELFTEST_DELAY_MS: "80" }, stdio: "ignore" },
-        );
-        child.on("exit", () => resolveAdder());
-      }),
+      /** @type {Promise<void>} */ (
+        new Promise((resolveAdder) => {
+          const child = spawn(
+            process.execPath,
+            [
+              SCRIPT,
+              "add",
+              "--state",
+              statePath,
+              "--item-slug",
+              `follow-up-${i}`,
+              "--title",
+              `F${i}`,
+            ],
+            { env: { ...process.env, CAMPAIGN_STATE_SELFTEST_DELAY_MS: "80" }, stdio: "ignore" },
+          );
+          child.on("exit", () => resolveAdder());
+        })
+      ),
     );
   }
   await Promise.all(adders);
@@ -243,11 +245,11 @@ function run(args, options = {}) {
     appends.push(
       /** @type {Promise<void>} */ (
         new Promise((resolveAppend) => {
-        const child = spawn(
-          process.execPath,
-          [SCRIPT, "note", "--state", statePath, `- [selftest] line ${i}`],
-          { env: { ...process.env, CAMPAIGN_STATE_SELFTEST_DELAY_MS: "60" }, stdio: "ignore" },
-        );
+          const child = spawn(
+            process.execPath,
+            [SCRIPT, "note", "--state", statePath, `- [selftest] line ${i}`],
+            { env: { ...process.env, CAMPAIGN_STATE_SELFTEST_DELAY_MS: "60" }, stdio: "ignore" },
+          );
           child.on("exit", () => resolveAppend());
         })
       ),
