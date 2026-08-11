@@ -11,8 +11,25 @@ Throughout: `$C` is the campaign dir (`.campaign/<slug>/`, absolute), `$S` is
 
 ## Updating state
 
-`state.json` is small and hand-editable. Read it, change the one item, write it back.
-Every phase sets at minimum `phase` and `updatedAt`; most also set one more field.
+**Write it through `scripts/campaign-state.mjs`, never by hand.** `state.json` holds every
+item, so a hand edit is a whole-file rewrite: two phases running at once each read the same
+bytes, edit their own item, and the later write silently drops the earlier one — the losing
+item keeps its old `phase` and the driver re-runs a phase that already ran. The script takes
+a lock, changes the one item, stamps `updatedAt`, and renames the file into place. It is the
+only reason more than one lane can run at a time.
+
+```bash
+node scripts/campaign-state.mjs set --state "$S" --id 09 phase=review round=1 pr=764
+node scripts/campaign-state.mjs set --state "$S" --id 09 phase=needs-human note="one line why"
+node scripts/campaign-state.mjs note --state "$S" "- [09 design] the fact another item needs"
+node scripts/campaign-state.mjs get  --state "$S" --id 09
+```
+
+`note` appends to `NOTES.md` under the same lock, for the same reason. `round` and `pr` are
+written as numbers, `null` as JSON null; the literal `updatedAt` is never passed by hand. A
+phase name outside the known set is refused rather than written.
+
+Every phase sets at minimum `phase`; most also set one more field. The shape it maintains:
 
 ```jsonc
 {
@@ -40,7 +57,8 @@ Every phase sets at minimum `phase` and `updatedAt`; most also set one more fiel
 }
 ```
 
-Timestamps come from `date -u +%Y-%m-%dT%H:%M:%SZ`. Never invent one.
+`set` stamps `updatedAt` itself, so no phase formats a timestamp. Any timestamp you write
+elsewhere comes from `date -u +%Y-%m-%dT%H:%M:%SZ`. Never invent one.
 
 ---
 
@@ -49,7 +67,8 @@ Timestamps come from `date -u +%Y-%m-%dT%H:%M:%SZ`. Never invent one.
 **Read `$C/NOTES.md` before you start** (create it empty if absent). It is the
 campaign's shared scratchpad — facts one item learned that another item needs.
 Item 07 and item 08 both live in `use-chat-stream.ts`; without this, the second one
-rediscovers what the first already knew. Append to it when you learn something an
+rediscovers what the first already knew. Append to it — through
+`campaign-state.mjs note`, never with an editor — when you learn something an
 item *other than yours* would want:
 
 ```markdown
