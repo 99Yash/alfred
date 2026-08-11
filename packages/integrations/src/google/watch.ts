@@ -25,10 +25,10 @@ import { gmailMailboxWritesEnabled } from "@alfred/env/server";
  *
  * `installGmailWatch` is package-internal: it is NOT on the public
  * `@alfred/integrations/google` barrel, only on the `./internal` friend subpath
- * (`google/internal.ts`, oxlint-gated to two allowlisted files). App code
- * installs a watch through `installGmailWatchAndSeedCursor`
- * (`@alfred/assistant/connections/ingestion`), which is the only door that also
- * seeds the `ingestion_state` cursor — a raw
+ * (`packages/integrations/src/google/internal.ts`, oxlint-gated to two
+ * allowlisted files). App code installs a watch through the seeding wrapper
+ * `installGmailWatchAndSeedCursor` (`@alfred/assistant/connections/ingestion`),
+ * which is the only door that also seeds the `ingestion_state` cursor — a raw
  * call leaves the credential cursorless.
  *
  * Rationale for not adding a dedicated `gmail_watches` table: at most one
@@ -85,9 +85,9 @@ const DEFAULT_DEPS: GmailWatchDeps = {
  * PACKAGE-INTERNAL: reachable only via `@alfred/integrations/google/internal`
  * (the oxlint-gated friend door), never the public `./google` barrel. This is
  * the RAW primitive — it does NOT seed the `ingestion_state` cursor. App code
- * must go through `installGmailWatchAndSeedCursor`
- * (`@alfred/assistant/connections/ingestion`); a direct raw
- * call leaves the credential cursorless (the item-01 round-0 bug).
+ * must go through the seeding wrapper `installGmailWatchAndSeedCursor`
+ * (`@alfred/assistant/connections/ingestion`); a direct raw call leaves the
+ * credential cursorless (the item-01 round-0 bug).
  */
 export async function installGmailWatch(
   args: {
