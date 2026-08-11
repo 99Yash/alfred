@@ -121,7 +121,7 @@ export const RULES = [
     re: /\bnew\s+ApiError\s*\(|\bextends\s+ApiError\b/,
     severity: "gate",
     owners: ["packages/contracts/src/api-errors.ts"],
-    fix: "Throw an Errors.* factory from @alfred/contracts — `throw Errors.NotFoundError(\"…\")`. It owns the code-to-status pairing. Catch with isApiError(err, \"NOT_FOUND\") rather than a per-kind class.",
+    fix: 'Throw an Errors.* factory from @alfred/contracts — `throw Errors.NotFoundError("…")`. It owns the code-to-status pairing. Catch with isApiError(err, "NOT_FOUND") rather than a per-kind class.',
   },
   {
     id: "boot-error-plain-extends",
@@ -160,7 +160,7 @@ export const RULES = [
     re: /new\s+Intl\.DateTimeFormat\(/,
     severity: "hint",
     owners: ["packages/assistant/src/time/local-time.ts"],
-    fix: "@alfred/assistant/time owns every date/zone reading, split by one question: does the reading need a zone? NEEDS ONE — inZone(tz) binds it once and every reading is a method: .day() mints the LocalDateKey, .hour(), .offsetMs(), .clock(), .startOf(key, hour?), .dayBounds(), .format(instant). DOESN'T — a free function on the key: addDays (day math on the key, never in ms), weekdayIndex (day-of-week DECISIONS — never string-match a rendered weekday name), formatDay(key, \"short\"|\"long\"|\"weekday\"). Zones are IanaTimezone (settings.resolveTimezone, parseIanaTimezone); day keys are LocalDateKey (parseLocalDateKey / isLocalDateKey at a persistence or wire boundary) — both branded, so a plain string won't type-check. A bare Intl trial once broke briefings on \"UTC\", and a per-call-site UTC reading dated triage todos a day early.",
+    fix: '@alfred/assistant/time owns every date/zone reading, split by one question: does the reading need a zone? NEEDS ONE — inZone(tz) binds it once and every reading is a method: .day() mints the LocalDateKey, .hour(), .offsetMs(), .clock(), .startOf(key, hour?), .dayBounds(), .format(instant). DOESN\'T — a free function on the key: addDays (day math on the key, never in ms), weekdayIndex (day-of-week DECISIONS — never string-match a rendered weekday name), formatDay(key, "short"|"long"|"weekday"). Zones are IanaTimezone (settings.resolveTimezone, parseIanaTimezone); day keys are LocalDateKey (parseLocalDateKey / isLocalDateKey at a persistence or wire boundary) — both branded, so a plain string won\'t type-check. A bare Intl trial once broke briefings on "UTC", and a per-call-site UTC reading dated triage todos a day early.',
   },
   {
     id: "hand-rolled-utc-offset-parse",

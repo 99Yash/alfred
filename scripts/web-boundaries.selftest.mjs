@@ -158,7 +158,8 @@ function inlineTypeClauseRootFailures() {
     workspace(fixture, "typedonly", {
       "w.ts": "export type Widget = { id: string };\n",
       // The genuine leak that a missing root hides.
-      "leak.ts": 'import { serverEnv } from "@alfred/env/server";\nexport const leak = serverEnv;\n',
+      "leak.ts":
+        'import { serverEnv } from "@alfred/env/server";\nexport const leak = serverEnv;\n',
     });
 
     const roots = browserRoots(fixture);
@@ -868,7 +869,11 @@ function docListFailuresFailures() {
   // region was a sub-span of that sentence.
   expect(
     "must catch a forbidden package named in the browser-safe region",
-    { architecture: list(all), agents: list(all), agentsSafe: "`@alfred/contracts`, `@alfred/http`" },
+    {
+      architecture: list(all),
+      agents: list(all),
+      agentsSafe: "`@alfred/contracts`, `@alfred/http`",
+    },
     (result) =>
       result.some((failure) => failure.includes("@alfred/http") && failure.includes("AGENTS.md"))
         ? null
@@ -898,7 +903,8 @@ function docListFailuresFailures() {
     {
       architecture: list(all),
       agents: list(all),
-      architectureSafe: "`import type { App } from '@alfred/api'` — type-only, stripped at build time",
+      architectureSafe:
+        "`import type { App } from '@alfred/api'` — type-only, stripped at build time",
     },
     (result) =>
       result.length === 0 ? null : `expected no failures, received ${JSON.stringify(result)}`,
