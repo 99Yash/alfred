@@ -549,6 +549,68 @@ function edgesFromKeys(keys) {
 }
 
 /**
+ * The ratchet set, declared once.
+ *
+ * A ratchet is a list {@link baselineDocument} re-derives from the current tree and
+ * {@link checkArchitecture} consults as a permission record. Each row names the dotted
+ * `path` that reads the list out of BOTH the committed baseline and the emitted document
+ * — which is also the name a fault sentence carries — and the `channel` the regeneration
+ * delta reports it under. The persisted-shape validator, the delta and the self-test's
+ * drive list are all derived from this table, so a ratchet cannot exist in one of them
+ * and be missing from another.
+ *
+ * `memberKind` is why this is not a bare list of paths. The two graph rows hold
+ * `"A -> B"` keys that {@link edgesFromKeys} SPLITS, so a member that does not split into
+ * two non-empty sides would mint a permission for a prefix of itself. Both
+ * `legacyExceptions` rows hold {@link importKey} keys — `path:specifier`, a COLON key —
+ * which are never split and are compared as opaque literals, so the same check would
+ * reject every real entry.
+ *
+ * The two sites this table is deliberately NOT projected into are
+ * {@link checkArchitecture}'s four comparisons and {@link baselineDocument}: the two
+ * families have different algebras (an SCC pass over split keys against literal set
+ * membership) and different message shapes, so a shared `compare` callback would be the
+ * same restatement in another spelling inside the function ADR-0089's cycle fence rests
+ * on. Their agreement with this table is held by the self-test instead — a per-row drive
+ * plants one violating member and requires the comparison to report it, and a document
+ * walk requires every array the document emits to be a row here or a declared derived
+ * array.
+ */
+const BASELINE_RATCHETS = [
+  { channel: "packageEdges", path: "packageGraph.edges", memberKind: "edgeKey" },
+  { channel: "moduleEdges", path: "assistantModuleGraph.edges", memberKind: "edgeKey" },
+  {
+    channel: "privateModuleImports",
+    path: "legacyExceptions.privateModuleImports.imports",
+    memberKind: "opaque",
+  },
+  {
+    channel: "webFeatureImports",
+    path: "legacyExceptions.webFeatureImports.imports",
+    memberKind: "opaque",
+  },
+];
+
+/**
+ * Read a dotted path off unknown persisted data, returning `undefined` on a missing hop
+ * rather than throwing.
+ *
+ * `getPath` from `@alfred/contracts` is the repo's helper for this shape, and it cannot
+ * be used here: `scripts/*.mjs` run under bare `node` and may import node builtins only,
+ * while `@alfred/contracts` resolves through its `exports` map to TypeScript SOURCE this
+ * process cannot load. Same reason {@link edgesFromKeys} and {@link uniqueSorted} are
+ * local.
+ */
+function ratchetList(root, path) {
+  let value = root;
+  for (const key of path.split(".")) {
+    if (value === null || typeof value !== "object") return undefined;
+    value = value[key];
+  }
+  return value;
+}
+
+/**
  * The CYCLIC SUBSET of a recorded edge list.
  *
  * `scripts/module-architecture-baseline.json` records the whole graph, but
@@ -752,84 +814,93 @@ function baselineDocument(architecture) {
  * fail to be one, rather than throwing out of the middle of a check. A truncated or
  * hand-mangled file must name itself: `JSON.parse("")` raises a bare `SyntaxError`
  * that reads like a crash in this script.
+ *
+ * `path` is a parameter so the self-test can drive the missing-file and unparseable
+ * branches without writing to disk — every caller in this script passes nothing.
  */
-function loadBaseline() {
-  if (!existsSync(BASELINE_PATH)) {
-    return { ok: false, error: `missing ${relativeToRoot(BASELINE_PATH)}` };
+function loadBaseline(path = BASELINE_PATH) {
+  if (!existsSync(path)) {
+    return { ok: false, error: `missing ${relativeToRoot(path)}` };
   }
   let parsed;
   try {
-    parsed = JSON.parse(readFileSync(BASELINE_PATH, "utf8"));
+    parsed = JSON.parse(readFileSync(path, "utf8"));
   } catch (error) {
     return {
       ok: false,
-      error: `${relativeToRoot(BASELINE_PATH)} is not valid JSON: ${error.message}`,
+      error: `${relativeToRoot(path)} is not valid JSON: ${error.message}`,
     };
   }
   const faults = baselineRatchetFaults(parsed);
   if (faults.length > 0) {
     return {
       ok: false,
-      error: `${relativeToRoot(BASELINE_PATH)} has unusable ratchet lists: ${faults.join(", ")}`,
+      error: `${relativeToRoot(path)} has unusable ratchet lists: ${faults.join(", ")}`,
     };
   }
   return { ok: true, baseline: parsed };
 }
 
 /**
- * Every way a parsed baseline's four ratchet lists can fail to be lists of keys, as
- * sentences naming the offending list.
+ * Every way a parsed baseline's ratchet lists can fail to be lists of keys of their own
+ * spelling, as sentences naming the offending list. One row of {@link BASELINE_RATCHETS}
+ * is one list checked here.
  *
  * The list TYPE is not enough: {@link checkArchitecture} routes every recorded key
  * through {@link edgesFromKeys}, which splits it, and both `legacyExceptions` lists are
  * compared as string keys. So a non-string member of a hand-edited file — the edit path
  * a refusal explicitly invites — is an uncaught `TypeError` in the middle of the check
  * unless the member type is checked HERE, in the boundary that already owns the shape.
+ *
+ * The member SHAPE is checked for `edgeKey` rows only, and it is the one thing in this
+ * script that can newly refuse a file accepted before it: `edgesFromKeys` splits on the
+ * FIRST `" -> "`, so a hand-edited `"a -> b -> c"` silently mints a permission for
+ * `a -> b`, an edge the file does not name. `opaque` rows must not get this check —
+ * their members are {@link importKey} colon keys and every real one would fail it.
  */
 function baselineRatchetFaults(parsed) {
-  const ratchets = [
-    ["packageGraph.edges", parsed?.packageGraph?.edges],
-    ["assistantModuleGraph.edges", parsed?.assistantModuleGraph?.edges],
-    [
-      "legacyExceptions.privateModuleImports.imports",
-      parsed?.legacyExceptions?.privateModuleImports?.imports,
-    ],
-    [
-      "legacyExceptions.webFeatureImports.imports",
-      parsed?.legacyExceptions?.webFeatureImports?.imports,
-    ],
-  ];
   const faults = [];
-  for (const [name, value] of ratchets) {
+  for (const ratchet of BASELINE_RATCHETS) {
+    const value = ratchetList(parsed, ratchet.path);
     if (!Array.isArray(value)) {
-      faults.push(`${name} is missing or not an array`);
+      faults.push(`${ratchet.path} is missing or not an array`);
       continue;
     }
     const index = value.findIndex((entry) => typeof entry !== "string");
     if (index !== -1) {
-      faults.push(`${name}[${index}] is ${typeof value[index]}, not a string`);
+      faults.push(`${ratchet.path}[${index}] is ${typeof value[index]}, not a string`);
+      continue;
+    }
+    if (ratchet.memberKind !== "edgeKey") continue;
+    const malformed = value.findIndex((entry) => {
+      const sides = entry.split(" -> ");
+      return sides.length !== 2 || sides[0].length === 0 || sides[1].length === 0;
+    });
+    if (malformed !== -1) {
+      faults.push(
+        `${ratchet.path}[${malformed}] is not an edge key: ${JSON.stringify(value[malformed])}`,
+      );
     }
   }
   return faults;
 }
 
-/** What regenerating the baseline would add to and remove from each ratchet. */
+/**
+ * What regenerating the baseline would add to and remove from each ratchet.
+ *
+ * One channel per {@link BASELINE_RATCHETS} row, in table order, reading the SAME dotted
+ * path out of the committed baseline and the emitted document. A channel that read two
+ * different ratchets' lists would print a delta for a list nobody changed, and
+ * `--write-baseline` reports this to a human as the only account of what it is about to
+ * write.
+ */
 function baselineDelta(baseline, document) {
-  return {
-    packageEdges: listDelta(baseline.packageGraph.edges, document.packageGraph.edges),
-    moduleEdges: listDelta(
-      baseline.assistantModuleGraph.edges,
-      document.assistantModuleGraph.edges,
-    ),
-    privateModuleImports: listDelta(
-      baseline.legacyExceptions.privateModuleImports.imports,
-      document.legacyExceptions.privateModuleImports.imports,
-    ),
-    webFeatureImports: listDelta(
-      baseline.legacyExceptions.webFeatureImports.imports,
-      document.legacyExceptions.webFeatureImports.imports,
-    ),
-  };
+  return Object.fromEntries(
+    BASELINE_RATCHETS.map((ratchet) => [
+      ratchet.channel,
+      listDelta(ratchetList(baseline, ratchet.path), ratchetList(document, ratchet.path)),
+    ]),
+  );
 }
 
 /**
@@ -1143,12 +1214,7 @@ const text = 'import "ignored-string"';
   // mirror of (vii)'s payload-free refusal. `--write-baseline` reads
   // `Object.entries(emission.delta)` before it writes, so without this drive dropping
   // the field leaves every gate green and kills the command with an uncaught TypeError.
-  const deltaRatchetKeys = [
-    "packageEdges",
-    "moduleEdges",
-    "privateModuleImports",
-    "webFeatureImports",
-  ];
+  const deltaRatchetKeys = BASELINE_RATCHETS.map((ratchet) => ratchet.channel);
   if (
     acceptedEmission.ok &&
     deltaRatchetKeys.some((key) => acceptedEmission.delta?.[key] === undefined)
@@ -1210,6 +1276,228 @@ const text = 'import "ignored-string"';
   ) {
     failures.push(
       `baseline shape self-test mismatch: expected a fault naming the non-string ratchet member and its index, received ${JSON.stringify(memberFaults)}`,
+    );
+  }
+
+  // Ratchet-set coverage drives (item 35). Everything above drives the CYCLE half of the
+  // ratchet set. The other agreements the set rests on were hand-held and undriven:
+  // deleting `checkArchitecture`'s `privateModuleImports` comparison, its
+  // `webFeatureImports` comparison, or either of two `baselineRatchetFaults` rows left
+  // every gate green, and a delta channel could be pointed at another ratchet's list
+  // unnoticed. The three drives below turn those agreements into driven properties:
+  //
+  //  - the document walk enumerates every array `baselineDocument` EMITS and requires
+  //    each to be a `BASELINE_RATCHETS` row or a declared derived array, so a fifth
+  //    emitted list with no row is red and a row whose list leaves the document is red;
+  //  - the per-row loop plants one violating member per ratchet and requires THAT row's
+  //    comparison in `checkArchitecture`, the emitted document, the delta channel and the
+  //    shape validator each to name it;
+  //  - the coverage assertion requires a drive per row and a row per drive.
+  //
+  // `checkArchitecture` runs four unconditional scans of the REAL tree, so every
+  // assertion below obeys the `.some(...includes...)` rule stated above: each is
+  // positive and scoped to a member spelling no other row and no real file produces.
+  const documentArrayPaths = (value, prefix = "") => {
+    if (Array.isArray(value)) return [prefix];
+    if (value === null || typeof value !== "object") return [];
+    return Object.entries(value).flatMap(([key, child]) =>
+      documentArrayPaths(child, prefix === "" ? key : `${prefix}.${key}`),
+    );
+  };
+  // The arrays the emitted document carries that are NOT ratchets. `sccs` is derived
+  // from `edges` by the same SCC pass the check runs, so it permits nothing and is never
+  // read back; every other array the document grows must earn a row.
+  const derivedDocumentArrays = ["packageGraph.sccs", "assistantModuleGraph.sccs"];
+  // One entry per ratchet channel. `member` is planted in the architecture and must reach
+  // the violation, the document and the delta's `added`; `removedMember` is planted in
+  // the baseline at the same path and must reach the delta's `removed`, which is what
+  // catches a channel reading another ratchet's list; `malformedMember` is a member of
+  // this list's OWN spelling that the shape validator must reject.
+  const ratchetDrives = {
+    packageEdges: {
+      member: "ratchet-pkg-a -> ratchet-pkg-b",
+      removedMember: "ratchet-pkg-c -> ratchet-pkg-d",
+      plant: {
+        packageGraph: {
+          edges: ["ratchet-pkg-a -> ratchet-pkg-b", "ratchet-pkg-b -> ratchet-pkg-a"],
+        },
+      },
+      reports: "new cyclic package edge: ratchet-pkg-a -> ratchet-pkg-b",
+      malformedMember: "ratchet-pkg-a -> ratchet-pkg-b -> ratchet-pkg-c",
+      malformedFault:
+        'packageGraph.edges[0] is not an edge key: "ratchet-pkg-a -> ratchet-pkg-b -> ratchet-pkg-c"',
+    },
+    moduleEdges: {
+      member: "ratchet-mod-a -> ratchet-mod-b",
+      removedMember: "ratchet-mod-c -> ratchet-mod-d",
+      plant: {
+        moduleGraph: {
+          edges: ["ratchet-mod-a -> ratchet-mod-b", "ratchet-mod-b -> ratchet-mod-a"],
+        },
+      },
+      reports: "new cyclic assistant-module edge: ratchet-mod-a -> ratchet-mod-b",
+      malformedMember: "ratchet-mod-a -> ",
+      malformedFault: 'assistantModuleGraph.edges[0] is not an edge key: "ratchet-mod-a -> "',
+    },
+    privateModuleImports: {
+      member: "packages/ratchet/src/private-drive.ts:../other-module/internal",
+      removedMember: "packages/ratchet/src/private-gone.ts:../other-module/internal",
+      plant: {
+        exceptions: {
+          privateModuleImports: [
+            {
+              key: "packages/ratchet/src/private-drive.ts:../other-module/internal",
+              from: "ratchet",
+              to: "other-module",
+              line: 1,
+            },
+          ],
+          webFeatureImports: [],
+        },
+      },
+      reports:
+        "private assistant-module import: packages/ratchet/src/private-drive.ts:../other-module/internal",
+      malformedMember: 42,
+      malformedFault: "legacyExceptions.privateModuleImports.imports[0] is number, not a string",
+    },
+    webFeatureImports: {
+      member: "apps/web/src/routes/-ratchet/drive.tsx:~/routes/-other-feature/door",
+      removedMember: "apps/web/src/routes/-ratchet/gone.tsx:~/routes/-other-feature/door",
+      plant: {
+        exceptions: {
+          privateModuleImports: [],
+          webFeatureImports: [
+            {
+              key: "apps/web/src/routes/-ratchet/drive.tsx:~/routes/-other-feature/door",
+              from: "ratchet",
+              to: "other-feature",
+              line: 1,
+            },
+          ],
+        },
+      },
+      reports:
+        "cross-feature web import: apps/web/src/routes/-ratchet/drive.tsx:~/routes/-other-feature/door",
+      malformedMember: 42,
+      malformedFault: "legacyExceptions.webFeatureImports.imports[0] is number, not a string",
+    },
+  };
+  // Plant a member list at a ratchet's own dotted path in an otherwise well-formed
+  // synthetic baseline. Derived from the row's `path`, so a renamed ratchet cannot leave
+  // a drive pointing at the old spelling.
+  const baselineWithRatchetMembers = (path, members) => {
+    const planted = syntheticBaseline();
+    const keys = path.split(".");
+    let container = planted;
+    for (const key of keys.slice(0, -1)) container = container[key];
+    container[keys[keys.length - 1]] = members;
+    return planted;
+  };
+
+  // (xi) The document walk: what the document emits and what the table declares are the
+  // same set.
+  const declaredArrayPaths = new Set([
+    ...BASELINE_RATCHETS.map((ratchet) => ratchet.path),
+    ...derivedDocumentArrays,
+  ]);
+  // The two graphs go into the document exactly as `graphFromEdges` built them, so the
+  // walk uses that constructor rather than a hand-written mirror of its shape: a
+  // synthetic `{ edges: [] }` carries no `sccs`, and the walk would then never see the
+  // derived arrays it exists to account for.
+  const emittedArrayPaths = documentArrayPaths(
+    baselineDocument(
+      syntheticArchitecture({
+        packageGraph: graphFromEdges([], []),
+        moduleGraph: graphFromEdges([], []),
+      }),
+    ),
+  );
+  for (const path of emittedArrayPaths) {
+    if (declaredArrayPaths.has(path)) continue;
+    failures.push(
+      `baseline document walk mismatch: the emitted document carries an array at ${path}, which is neither a BASELINE_RATCHETS row nor a declared derived array — nothing validates its shape, compares it against the tree, or names it in the regeneration delta`,
+    );
+  }
+  for (const ratchet of BASELINE_RATCHETS) {
+    if (emittedArrayPaths.includes(ratchet.path)) continue;
+    failures.push(
+      `baseline document walk mismatch: BASELINE_RATCHETS declares ${ratchet.path}, but the emitted document carries no array there, so that ratchet is validated and reported against a list nothing re-derives from the tree`,
+    );
+  }
+
+  // (xii) One drive per ratchet, each asserting on a member spelling only its own row
+  // produces.
+  for (const ratchet of BASELINE_RATCHETS) {
+    const drive = ratchetDrives[ratchet.channel];
+    if (drive === undefined) {
+      failures.push(
+        `ratchet drive coverage mismatch: ${ratchet.channel} (${ratchet.path}) has no entry in ratchetDrives, so its comparison in checkArchitecture, its delta channel and its member-shape check are all deletable with every gate green`,
+      );
+      continue;
+    }
+    const driveArchitecture = syntheticArchitecture({
+      ...drive.plant,
+      moduleNodes: liveModuleNodes,
+    });
+    const reported = checkArchitecture(driveArchitecture, syntheticBaseline());
+    if (!reported.some((violation) => violation.includes(drive.reports))) {
+      failures.push(
+        `ratchet drive mismatch: expected checkArchitecture to report "${drive.reports}" for a ${ratchet.path} member the baseline does not hold, received ${JSON.stringify(reported)}`,
+      );
+    }
+    const driveDocument = baselineDocument(driveArchitecture);
+    const emitted = ratchetList(driveDocument, ratchet.path);
+    if (!Array.isArray(emitted) || !emitted.includes(drive.member)) {
+      failures.push(
+        `ratchet drive mismatch: expected the emitted document to carry ${JSON.stringify(drive.member)} at ${ratchet.path}, received ${JSON.stringify(emitted)}`,
+      );
+    }
+    const channelDelta = baselineDelta(
+      baselineWithRatchetMembers(ratchet.path, [drive.removedMember]),
+      driveDocument,
+    )[ratchet.channel];
+    if (
+      !channelDelta?.added.includes(drive.member) ||
+      !channelDelta?.removed.includes(drive.removedMember)
+    ) {
+      failures.push(
+        `ratchet drive mismatch: expected the ${ratchet.channel} delta channel to read ${ratchet.path} on both sides and report ${JSON.stringify(drive.member)} added and ${JSON.stringify(drive.removedMember)} removed, received ${JSON.stringify(channelDelta)}`,
+      );
+    }
+    const memberShapeFaults = baselineRatchetFaults(
+      baselineWithRatchetMembers(ratchet.path, [drive.malformedMember]),
+    );
+    if (!memberShapeFaults.some((fault) => fault === drive.malformedFault)) {
+      failures.push(
+        `ratchet drive mismatch: expected baselineRatchetFaults to report "${drive.malformedFault}", received ${JSON.stringify(memberShapeFaults)}`,
+      );
+    }
+  }
+  for (const channel of Object.keys(ratchetDrives)) {
+    if (deltaRatchetKeys.includes(channel)) continue;
+    failures.push(
+      `ratchet drive coverage mismatch: ratchetDrives names ${channel}, which is not a BASELINE_RATCHETS channel — a drive for a ratchet that no longer exists proves nothing`,
+    );
+  }
+
+  // (xiii) `loadBaseline`'s two read failures. Both were undriven: deleting the
+  // `existsSync` branch left an absent file reporting itself as "not valid JSON: ENOENT"
+  // with every gate green, which contradicts the enumeration in
+  // `docs/reference/architecture.md`. Neither drive writes anything — the missing case
+  // names a path that must not exist, and the unparseable case names this script, a real
+  // file that is not JSON.
+  const missingBaselineLoad = loadBaseline(
+    join(ROOT, "scripts/.baseline-that-does-not-exist.json"),
+  );
+  if (missingBaselineLoad.ok || !missingBaselineLoad.error?.startsWith("missing ")) {
+    failures.push(
+      `baseline load self-test mismatch: expected an absent baseline to report itself as missing, received ${JSON.stringify(missingBaselineLoad)}`,
+    );
+  }
+  const unparsableBaselineLoad = loadBaseline(fileURLToPath(import.meta.url));
+  if (unparsableBaselineLoad.ok || !unparsableBaselineLoad.error?.includes("is not valid JSON")) {
+    failures.push(
+      `baseline load self-test mismatch: expected a non-JSON baseline to report itself as unparseable, received ${JSON.stringify(unparsableBaselineLoad)}`,
     );
   }
 
