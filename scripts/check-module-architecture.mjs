@@ -591,6 +591,11 @@ function edgesFromKeys(keys) {
  * which are never split and are compared as opaque literals, so the same check would
  * reject every real entry.
  *
+ * `declaredCyclesPath` is why the two graph rows carry a second path. A recorded graph
+ * must DECLARE the cycles it records, and {@link baselineSelfPermissionFaults} holds the
+ * two lists to each other. Only the graph rows have one: the `legacyExceptions` lists are
+ * flat allowlists with no derived companion.
+ *
  * The two sites this table is deliberately NOT projected into are
  * {@link checkArchitecture}'s four comparisons and {@link baselineDocument}: the two
  * families have different algebras (an SCC pass over split keys against literal set
@@ -598,12 +603,22 @@ function edgesFromKeys(keys) {
  * same restatement in another spelling inside the function ADR-0089's cycle fence rests
  * on. Their agreement with this table is held by the self-test instead — a per-row drive
  * plants one violating member and requires the comparison to report it, and a document
- * walk requires every array the document emits to be a row here or a declared derived
- * array.
+ * walk requires every array the document emits to be a row here or a `declaredCyclesPath`
+ * of one.
  */
 const BASELINE_RATCHETS = [
-  { channel: "packageEdges", path: "packageGraph.edges", memberKind: "edgeKey" },
-  { channel: "moduleEdges", path: "assistantModuleGraph.edges", memberKind: "edgeKey" },
+  {
+    channel: "packageEdges",
+    path: "packageGraph.edges",
+    memberKind: "edgeKey",
+    declaredCyclesPath: "packageGraph.sccs",
+  },
+  {
+    channel: "moduleEdges",
+    path: "assistantModuleGraph.edges",
+    memberKind: "edgeKey",
+    declaredCyclesPath: "assistantModuleGraph.sccs",
+  },
   {
     channel: "privateModuleImports",
     path: "legacyExceptions.privateModuleImports.imports",
@@ -615,6 +630,15 @@ const BASELINE_RATCHETS = [
     memberKind: "opaque",
   },
 ];
+
+/**
+ * The rows of {@link BASELINE_RATCHETS} that record a graph, and so must declare the
+ * cycles they record. Derived from the table rather than listed a second time, so a
+ * renamed or removed graph cannot leave a cross-check pointing at the old spelling.
+ */
+const RECORDED_GRAPHS = BASELINE_RATCHETS.filter(
+  (ratchet) => ratchet.declaredCyclesPath !== undefined,
+);
 
 /**
  * Read a dotted path off unknown persisted data, returning `undefined` on a missing hop
@@ -863,6 +887,13 @@ function loadBaseline(path = BASELINE_PATH) {
       error: `${relativeToRoot(path)} has unusable ratchet lists: ${faults.join(", ")}`,
     };
   }
+  const selfPermissions = baselineSelfPermissionFaults(parsed);
+  if (selfPermissions.length > 0) {
+    return {
+      ok: false,
+      error: `${relativeToRoot(path)} permits a cycle it does not declare: ${selfPermissions.join(", ")}. A recorded graph must declare its own cycles. A file in this state is what merging two independently regenerated baselines produces, and it grants a cycle neither side granted. Restore the file, then regenerate it from this tree with ${BASELINE_FLAG}, which refuses while the tree still has that cycle.`,
+    };
+  }
   return { ok: true, baseline: parsed };
 }
 
@@ -882,9 +913,33 @@ function loadBaseline(path = BASELINE_PATH) {
  * FIRST `" -> "`, so a hand-edited `"a -> b -> c"` silently mints a permission for
  * `a -> b`, an edge the file does not name. `opaque` rows must not get this check —
  * their members are {@link importKey} colon keys and every real one would fail it.
+ *
+ * Each recorded graph's `declaredCyclesPath` list is checked here too, for the same
+ * reason one hop down: {@link baselineSelfPermissionFaults} compares it member by member
+ * against a derived component list, so a hand-edited `[["a", 42]]` would be an uncaught
+ * `TypeError` in the middle of that comparison. It is a list of lists of node names, not
+ * a list of keys, so it gets its own loop rather than a `memberKind`. A baseline with no
+ * `sccs` is refused by name — fails closed, because a recorded graph that declares
+ * nothing would otherwise pass the cross-check by permitting everything.
  */
 function baselineRatchetFaults(parsed) {
   const faults = [];
+  for (const graph of RECORDED_GRAPHS) {
+    const declared = ratchetList(parsed, graph.declaredCyclesPath);
+    if (!Array.isArray(declared)) {
+      faults.push(`${graph.declaredCyclesPath} is missing or not an array`);
+      continue;
+    }
+    const index = declared.findIndex(
+      (component) =>
+        !Array.isArray(component) || component.some((node) => typeof node !== "string"),
+    );
+    if (index !== -1) {
+      faults.push(
+        `${graph.declaredCyclesPath}[${index}] is not a list of node names: ${JSON.stringify(declared[index])}`,
+      );
+    }
+  }
   for (const ratchet of BASELINE_RATCHETS) {
     const value = ratchetList(parsed, ratchet.path);
     if (!Array.isArray(value)) {
@@ -904,6 +959,58 @@ function baselineRatchetFaults(parsed) {
     if (malformed !== -1) {
       faults.push(
         `${ratchet.path}[${malformed}] is not an edge key: ${JSON.stringify(value[malformed])}`,
+      );
+    }
+  }
+  return faults;
+}
+
+/**
+ * Every recorded graph that PERMITS a cycle it does not DECLARE, as one sentence naming
+ * both lists and the components they disagree about.
+ *
+ * This is what makes the two fields of a recorded graph hold each other. A single writer
+ * emits `edges` and `sccs` from ONE {@link collectArchitecture} snapshot through
+ * {@link graphFromEdges}, so they agree by construction, always. A union of two writers
+ * cannot: two branches that each regenerate from an individually accepted tree both emit
+ * `sccs: []` — an accepted tree has no new cycle — while their merged `edges` lists hold
+ * a component neither branch recorded. The keys sort far apart in the file, so git merges
+ * both without a conflict, and no merge tool is involved in catching it: the merged FILE
+ * is internally inconsistent, so the fault is reported wherever that file is read, which
+ * includes CI on the merge ref.
+ *
+ * Two clauses, and the second is not redundant. (a) The components the recorded edges
+ * form must be exactly the declared ones — an equality, so a stale declaration is caught
+ * with the same reading as an undeclared cycle. (b) Every cyclic recorded edge must sit
+ * in a declared component, which is what covers a SELF-LOOP: {@link cyclicEdgeKeys}
+ * counts `a -> a` as cyclic while {@link graphFromEdges} filters length-1 components out,
+ * so `"a -> a"` is a permission clause (a) cannot see. Both collectors drop self-edges at
+ * the push site, so no GENERATED file holds one; (b) is there for the hand edit a refusal
+ * invites.
+ *
+ * The derived side goes through {@link graphFromEdges} and {@link cyclicEdgeKeysOf}, the
+ * same two spellings of the SCC pass the live check uses, so this adds no third traversal
+ * whose agreement with the other two would need its own drive.
+ */
+function baselineSelfPermissionFaults(parsed) {
+  const faults = [];
+  for (const graph of RECORDED_GRAPHS) {
+    const edges = ratchetList(parsed, graph.path);
+    const declared = ratchetList(parsed, graph.declaredCyclesPath);
+    const derived = graphFromEdges([], edgesFromKeys(edges)).sccs;
+    if (JSON.stringify(derived) !== JSON.stringify(declared)) {
+      faults.push(
+        `${graph.path} forms ${JSON.stringify(derived)}, but ${graph.declaredCyclesPath} declares ${JSON.stringify(declared)}`,
+      );
+      continue;
+    }
+    const declaredNodes = new Set(declared.flat());
+    const undeclared = cyclicEdgeKeysOf(edges).filter(
+      (key) => !declaredNodes.has(key.split(" -> ")[0]),
+    );
+    if (undeclared.length > 0) {
+      faults.push(
+        `${graph.path} permits ${JSON.stringify(undeclared)}, which lies in no component ${graph.declaredCyclesPath} declares`,
       );
     }
   }
@@ -947,10 +1054,14 @@ function baselineDelta(baseline, document) {
  * pure allowlist that can only shrink, so a union of deletions is merge-safe; the two
  * graph lists are records that grow freely whose permission is a NON-MONOTONE function
  * of the record, so a union of additions is not. This hole is older than this guard —
- * the same merge is clean against the unguarded flag — and the one-line closure is a
- * `-merge` attribute on the baseline file, which turns the silent auto-merge into a
- * conflict and forces a refusing re-run. It is not applied here. Until it is: rebase
- * onto the merged base and regenerate again before merging a branch that regenerated.
+ * the same merge is clean against the unguarded flag.
+ *
+ * What closes it is {@link baselineSelfPermissionFaults}, one layer down in
+ * {@link loadBaseline}: the union file is internally inconsistent, so it is refused
+ * before this function sees it, by every path that reads the file and on the merge ref
+ * in CI. That refusal covers this flag too, deliberately — regenerating from a
+ * self-permitting baseline would launder the union into a legitimately declared cycle,
+ * because the check would already have accepted the merged tree against it.
  *
  * A refusal carries NO `document` and NO `delta`: there is then nothing for a future
  * caller to write by forgetting one `if`.
@@ -1031,9 +1142,13 @@ const text = 'import "ignored-string"';
   // to catch either regression on its own. The drives also run the real
   // composition/tool-runtime FS checks (clean today), so assert only with
   // `.some(...includes...)` — never exact-equality — to stay non-brittle.
+  // Both graphs carry `sccs` because a well-formed baseline does: `baselineRatchetFaults`
+  // refuses a recorded graph that declares no cycle list, and
+  // `baselineSelfPermissionFaults` reads it. Drives that hand `checkArchitecture` or
+  // `baselineDelta` an override without one still work — neither reads it.
   const syntheticBaseline = (overrides) => ({
-    packageGraph: { edges: [] },
-    assistantModuleGraph: { edges: [] },
+    packageGraph: { edges: [], sccs: [] },
+    assistantModuleGraph: { edges: [], sccs: [] },
     legacyExceptions: {
       privateModuleImports: { imports: [] },
       webFeatureImports: { imports: [] },
@@ -1329,10 +1444,14 @@ const text = 'import "ignored-string"';
       documentArrayPaths(child, prefix === "" ? key : `${prefix}.${key}`),
     );
   };
-  // The arrays the emitted document carries that are NOT ratchets. `sccs` is derived
-  // from `edges` by the same SCC pass the check runs, so it permits nothing and is never
-  // read back; every other array the document grows must earn a row.
-  const derivedDocumentArrays = ["packageGraph.sccs", "assistantModuleGraph.sccs"];
+  // The arrays the emitted document carries that are NOT ratchets: each recorded graph's
+  // declared cycle list. It permits nothing — it is derived from `edges` by the same SCC
+  // pass the check runs — but it IS read back, by `baselineSelfPermissionFaults`, which
+  // requires it to keep agreeing with the edges beside it. Taken from the table, so a
+  // graph row that loses its `declaredCyclesPath` turns this walk red instead of silently
+  // leaving an emitted array accounted for by nothing. Every other array the document
+  // grows must earn a row.
+  const derivedDocumentArrays = RECORDED_GRAPHS.map((graph) => graph.declaredCyclesPath);
   // One entry per ratchet channel. `member` is planted in the architecture and must reach
   // the violation, the document and the delta's `added`; `removedMember` is planted in
   // the baseline at the same path and must reach the delta's `removed`, which is what
@@ -1407,17 +1526,19 @@ const text = 'import "ignored-string"';
       malformedFault: "legacyExceptions.webFeatureImports.imports[0] is number, not a string",
     },
   };
-  // Plant a member list at a ratchet's own dotted path in an otherwise well-formed
+  // Plant a member list at a table row's own dotted path in an otherwise well-formed
   // synthetic baseline. Derived from the row's `path`, so a renamed ratchet cannot leave
-  // a drive pointing at the old spelling.
-  const baselineWithRatchetMembers = (path, members) => {
-    const planted = syntheticBaseline();
+  // a drive pointing at the old spelling. `base` lets a caller plant a second list — a
+  // recorded graph is driven through both of its paths at once.
+  const baselineWithList = (path, members, base = syntheticBaseline()) => {
     const keys = path.split(".");
-    let container = planted;
+    let container = base;
     for (const key of keys.slice(0, -1)) container = container[key];
     container[keys[keys.length - 1]] = members;
-    return planted;
+    return base;
   };
+  const baselineWithGraph = (graph, edges, sccs) =>
+    baselineWithList(graph.declaredCyclesPath, sccs, baselineWithList(graph.path, edges));
 
   // (xi) The document walk: what the document emits and what the table declares are the
   // same set.
@@ -1478,7 +1599,7 @@ const text = 'import "ignored-string"';
       );
     }
     const channelDelta = baselineDelta(
-      baselineWithRatchetMembers(ratchet.path, [drive.removedMember]),
+      baselineWithList(ratchet.path, [drive.removedMember]),
       driveDocument,
     )[ratchet.channel];
     if (
@@ -1490,7 +1611,7 @@ const text = 'import "ignored-string"';
       );
     }
     const memberShapeFaults = baselineRatchetFaults(
-      baselineWithRatchetMembers(ratchet.path, [drive.malformedMember]),
+      baselineWithList(ratchet.path, [drive.malformedMember]),
     );
     if (!memberShapeFaults.some((fault) => fault === drive.malformedFault)) {
       failures.push(
@@ -1505,7 +1626,76 @@ const text = 'import "ignored-string"';
     );
   }
 
-  // (xiii) `loadBaseline`'s two read failures. Both were undriven: deleting the
+  // (xiii) A recorded graph must declare its own cycles (item 37). This is the only
+  // evidence the cross-check does anything: today's committed file declares no cycle in
+  // either graph, so nothing observable changes on the live tree. One drive per recorded
+  // graph, planted through the row's own two paths, because the two graphs are two
+  // iterations of one loop and a table that lost a row would otherwise take a graph's
+  // check away silently.
+  for (const graph of RECORDED_GRAPHS) {
+    // (xiii-a) THE UNION CASE, expressed at the seam: two independently regenerated
+    // baselines merge into edges that form a component neither declared. Red before the
+    // cross-check existed — the merged file passed every gate and granted the cycle.
+    const unionFault = `${graph.path} forms [["union-a","union-b"]], but ${graph.declaredCyclesPath} declares []`;
+    const unionFaults = baselineSelfPermissionFaults(
+      baselineWithGraph(graph, ["union-a -> union-b", "union-b -> union-a"], []),
+    );
+    if (!unionFaults.some((fault) => fault === unionFault)) {
+      failures.push(
+        `baseline self-permission self-test mismatch: expected "${unionFault}" for a ${graph.path} that records both directions of a cycle ${graph.declaredCyclesPath} does not declare, received ${JSON.stringify(unionFaults)}`,
+      );
+    }
+    // (xiii-b) The opposite drift: a declaration the edges do not form. Pins clause (a)
+    // as an equality rather than a subset.
+    const staleFault = `${graph.path} forms [], but ${graph.declaredCyclesPath} declares [["stale-a","stale-b"]]`;
+    const staleFaults = baselineSelfPermissionFaults(
+      baselineWithGraph(graph, ["stale-a -> stale-b"], [["stale-a", "stale-b"]]),
+    );
+    if (!staleFaults.some((fault) => fault === staleFault)) {
+      failures.push(
+        `baseline self-permission self-test mismatch: expected "${staleFault}" for a ${graph.declaredCyclesPath} declaring a component ${graph.path} does not form, received ${JSON.stringify(staleFaults)}`,
+      );
+    }
+    // (xiii-c) A hand-written self-loop. Pins clause (b) on its own: the SCC pass filters
+    // length-1 components out, so clause (a) is green here and only (b) can report it.
+    const selfLoopFault = `${graph.path} permits ["loop-a -> loop-a"], which lies in no component ${graph.declaredCyclesPath} declares`;
+    const selfLoopFaults = baselineSelfPermissionFaults(
+      baselineWithGraph(graph, ["loop-a -> loop-a"], []),
+    );
+    if (!selfLoopFaults.some((fault) => fault === selfLoopFault)) {
+      failures.push(
+        `baseline self-permission self-test mismatch: expected "${selfLoopFault}" for a hand-written self-edge, received ${JSON.stringify(selfLoopFaults)}`,
+      );
+    }
+    // (xiii-d) The declared list's own shape, in the boundary that owns it. Without these
+    // the comparison one hop down meets a number where a node name belongs.
+    for (const [declared, expected] of [
+      [
+        [["shape-a", 42]],
+        `${graph.declaredCyclesPath}[0] is not a list of node names: ["shape-a",42]`,
+      ],
+      [["shape-a"], `${graph.declaredCyclesPath}[0] is not a list of node names: "shape-a"`],
+      [{}, `${graph.declaredCyclesPath} is missing or not an array`],
+    ]) {
+      const shapeFaults = baselineRatchetFaults(baselineWithGraph(graph, [], declared));
+      if (!shapeFaults.some((fault) => fault === expected)) {
+        failures.push(
+          `baseline declared-cycle shape self-test mismatch: expected "${expected}", received ${JSON.stringify(shapeFaults)}`,
+        );
+      }
+    }
+  }
+  // (xiii-e) The COMMITTED file passes the cross-check. A gate that is red on the default
+  // branch is not landable, and this is the drive that reports it — the two lists are
+  // written from one snapshot, so they can only disagree through a merge or a hand edit.
+  const committedBaselineLoad = loadBaseline();
+  if (!committedBaselineLoad.ok) {
+    failures.push(
+      `committed baseline self-test mismatch: ${relativeToRoot(BASELINE_PATH)} must load, received ${JSON.stringify(committedBaselineLoad.error)}`,
+    );
+  }
+
+  // (xiv) `loadBaseline`'s two read failures. Both were undriven: deleting the
   // `existsSync` branch left an absent file reporting itself as "not valid JSON: ENOENT"
   // with every gate green, which contradicts the enumeration in
   // `docs/reference/architecture.md`. Neither drive writes anything — the missing case
