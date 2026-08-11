@@ -554,9 +554,7 @@ export function restrictedGroupCopyFailures({ sites, source, scopes }) {
 
   const rootIndex = sites.findIndex((site) => site.where === "rules");
   const rootGroups = rootIndex === -1 ? [] : sites[rootIndex].groups;
-  const overrideIndexes = sites
-    .map((_site, index) => index)
-    .filter((index) => index !== rootIndex);
+  const overrideIndexes = sites.map((_site, index) => index).filter((index) => index !== rootIndex);
 
   // Vacuity floors. A rule that reads nothing passes a healthy repo and a broken one
   // identically, which is the failure being fixed rather than a quiet edge case.
@@ -689,7 +687,10 @@ function declaredOmissions(source, siteCount) {
       if (specifier === undefined || specifier.length === 0) continue;
       // An em dash or a hyphen may separate the specifier from its reason, and neither
       // is the reason. Anything else after the specifier is prose.
-      const reason = words.join(" ").replace(/^[—-]\s*/u, "").trim();
+      const reason = words
+        .join(" ")
+        .replace(/^[—-]\s*/u, "")
+        .trim();
       markers.push({ site, specifier, reason });
     }
   }

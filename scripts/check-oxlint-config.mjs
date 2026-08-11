@@ -131,7 +131,7 @@ if (copyReaderFailures.length > 0 || copies.failures.length > 0) {
   console.error(`Scoped copy of a ${ROOT_OXLINT_CONFIG} fence that drifted from the root list:`);
   for (const failure of [...copyReaderFailures, ...copies.failures]) console.error(`- ${failure}`);
   console.error(
-    'An "overrides" entry REPLACES a rule\'s options wholesale rather than merging them, so a fence narrowed to part of the tree cannot be written as one added group — every scoped fence is a verbatim COPY of the root list. When the root list moves and a copy does not follow, pnpm lint still exits 0 and that one tree quietly enforces the old fence. Restate the group byte-identically, or declare the exemption in a comment beside the site\'s own rule key.\n',
+    "An \"overrides\" entry REPLACES a rule's options wholesale rather than merging them, so a fence narrowed to part of the tree cannot be written as one added group — every scoped fence is a verbatim COPY of the root list. When the root list moves and a copy does not follow, pnpm lint still exits 0 and that one tree quietly enforces the old fence. Restate the group byte-identically, or declare the exemption in a comment beside the site's own rule key.\n",
   );
 }
 
