@@ -1,15 +1,27 @@
 {
-  // Scoped typecheck project for compile-only type fixtures under `test/type`.
-  // `check-types` runs this as a SECOND `tsc` pass (after the composite
-  // `tsc -b`), because the composite build emits declarations only for `src`
-  // and never sees `test/**`. We re-include `src` so producer module
-  // augmentations (e.g. triage's `declare module "../agent/decision-traces"`)
-  // are guaranteed active in the program, then add `test/type` on top.
+  // Scoped typecheck project for this package's `test/` tree. `check-types`
+  // runs it as a SECOND `tsc` pass (after the composite `tsc -b`), because the
+  // composite build emits declarations only for `src` and never sees `test/**`.
+  // We re-include `src` so producer module augmentations (e.g. triage's
+  // `declare module "../agent/decision-traces"`) are guaranteed active in the
+  // program, then add `test` on top.
   //
   // The base `tsconfig.json` is `composite: true`; a `tsc -p` invocation with
   // `noEmit` errors unless `composite`/`declaration` are overridden off here.
-  // Nothing under `test/type` is emitted or built — this project only
-  // type-checks.
+  // Nothing under `test` is emitted or built — this project only type-checks.
+  //
+  // `rootDir: "."` is also the fence: a test that reaches into another package
+  // by a relative path (`../../../assistant/src/...`) is TS6059/TS6307 here and
+  // is caught by nothing else in the repo.
+  //
+  // `exclude` is a BASELINE, not a policy. Every path below is a file that
+  // carried at least one diagnostic when this tree first entered the program,
+  // and each is a debt to be repaid rather than a file that is allowed to be
+  // unchecked. `pnpm check:test-typecheck-baseline` derives this list from `tsc`
+  // and fails when it drifts in either direction: an entry whose file is now
+  // clean or absent must be deleted, and a file that is dirty and unlisted must
+  // be repaired. Paths are literal on purpose — a directory glob such as
+  // `"test/dispatch"` would silently un-check every file added tomorrow.
   "extends": "./tsconfig.json",
   "compilerOptions": {
     "noEmit": true,
@@ -19,5 +31,64 @@
     "declarationMap": false,
     "sourceMap": false
   },
-  "include": ["src", "test/type"]
+  "include": ["src", "test"],
+  "exclude": [
+    "test/agent/chat-context-assembly.test.ts",
+    "test/agent/chat-turn-closure-artifact-strand.test.ts",
+    "test/agent/commit-cancel-race.test.ts",
+    "test/agent/conversation-compaction-wait.test.ts",
+    "test/agent/conversation-summary-evidence.test.ts",
+    "test/agent/conversation-summary-generator.test.ts",
+    "test/agent/grounding.test.ts",
+    "test/agent/guard-spawned-children.test.ts",
+    "test/agent/guard-unreported-tool-failures.test.ts",
+    "test/agent/synchronous-conversation-compaction.test.ts",
+    "test/agent/terminal-agent-run-pairing.test.ts",
+    "test/agent/tool-preload-span.test.ts",
+    "test/agent/tool-surface-span.test.ts",
+    "test/agent/tool-surface.test.ts",
+    "test/artifacts/edit-context.test.ts",
+    "test/briefing/read-enrichment.test.ts",
+    "test/briefing/suppression-gather.test.ts",
+    "test/conversations/attachments/attachment-enrichment.test.ts",
+    "test/conversations/chat-history-retrieval.test.ts",
+    "test/credentials/credential-persistence.test.ts",
+    "test/credentials/credential-vault.test.ts",
+    "test/dispatch/active-tools.test.ts",
+    "test/dispatch/mcp-seam.test.ts",
+    "test/dispatch/memory-staging-store.ts",
+    "test/dispatch/param-ergonomics.test.ts",
+    "test/dispatch/rejection-trace.test.ts",
+    "test/dispatch/staging-machine.test.ts",
+    "test/dispatch/staging-store-contract.ts",
+    "test/dispatch/staging.test.ts",
+    "test/dispatch/tool-contract-floor.test.ts",
+    "test/integrations/google-credential-refresh.test.ts",
+    "test/knowledge/drift-audit/metrics.test.ts",
+    "test/knowledge/fact-policy.test.ts",
+    "test/knowledge/user-context.test.ts",
+    "test/mcp/manager-lifecycle.test.ts",
+    "test/mcp/risk.test.ts",
+    "test/mcp/streamable-http.test.ts",
+    "test/replicache/todos.test.ts",
+    "test/replicache/triage-tags.test.ts",
+    "test/tool-runtime/runtime-spans.test.ts",
+    "test/tool-runtime/surface.test.ts",
+    "test/tool-runtime/tool-call-round.test.ts",
+    "test/tools/calendar.test.ts",
+    "test/tools/current-time.test.ts",
+    "test/tools/discovery.test.ts",
+    "test/tools/github.test.ts",
+    "test/tools/passthrough/dispatch-routing.test.ts",
+    "test/tools/resolve-risk-tier.test.ts",
+    "test/triage/classify.test.ts",
+    "test/triage/decision-trace-store.test.ts",
+    "test/triage/reconcile-thread-label.test.ts",
+    "test/triage/sender-kind.test.ts",
+    "test/workflows/authoring-tools.test.ts",
+    "test/workflows/readiness.test.ts",
+    "test/workflows/resume-only.test.ts",
+    "test/workflows/revisions.test.ts",
+    "test/workflows/seeder.test.ts"
+  ]
 }
