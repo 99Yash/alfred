@@ -93,6 +93,31 @@ function visitConditions(value, subpath, targets, failures) {
 }
 
 /**
+ * Whether one `exports`-map key or target matches one concrete subpath or path.
+ *
+ * This is Node's `PATTERN_KEY_COMPARE` rule and nothing else: the text before the
+ * first `*` is a prefix, the text after it is a literal suffix, and `*` stands for
+ * any run of characters INCLUDING `/`. A key with no `*` matches by equality.
+ *
+ * It lives here, beside the `exports` reader, because two checks now need the same
+ * semantics — this file resolves a target against the files git lists, and
+ * `oxlint-config.mjs` resolves a restricted-import specifier against the keys a
+ * package publishes. One home means a future reading of `*` cannot drift between
+ * them.
+ */
+export function matchesSubpathKey(key, subpath) {
+  const star = key.indexOf("*");
+  if (star === -1) return key === subpath;
+  const before = key.slice(0, star);
+  const after = key.slice(star + 1);
+  return (
+    subpath.length >= before.length + after.length &&
+    subpath.startsWith(before) &&
+    subpath.endsWith(after)
+  );
+}
+
+/**
  * Why one target resolves to nothing, or `null` when it resolves.
  *
  * `listed` is one listing of the whole workspace, not one `git ls-files` per
@@ -123,16 +148,10 @@ export function targetProblem(target, packageDir, listed) {
     return listed.has(path) ? null : "resolves to no file git lists";
   }
 
-  const [before, after] = path.split("*");
-  const pattern = new RegExp(`^${escapeRegExp(before)}.*${escapeRegExp(after)}$`);
   for (const file of listed) {
-    if (pattern.test(file)) return null;
+    if (matchesSubpathKey(path, file)) return null;
   }
   return "matches no file git lists";
-}
-
-function escapeRegExp(text) {
-  return text.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 }
 
 /**
