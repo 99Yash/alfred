@@ -7,18 +7,25 @@
 //
 // Usage: node scripts/check-web-boundaries.mjs
 
-import { dirname, join } from "node:path";
+import { dirname } from "node:path";
 import { fileURLToPath } from "node:url";
 
 import { browserSurface, docListFailures, findViolations } from "./web-boundaries.mjs";
 import { webBoundarySelfTestFailures } from "./web-boundaries.selftest.mjs";
+import { workspaceSelfTestFailures } from "./workspaces.selftest.mjs";
 
 const ROOT = dirname(dirname(fileURLToPath(import.meta.url)));
 
 // A fence that cannot see its own violation passes a clean tree exactly like a
 // fence that works. Check the fixtures first, so "no violations" means "looked
 // and found nothing".
-const selfTest = webBoundarySelfTestFailures();
+//
+// The workspace enumeration is driven here too. It feeds four checks, and a vacuous
+// enumeration does the most damage in this one — it silently narrows a fence, where
+// the other three merely read less. One convenient host beats four copies of the
+// same drive, the same way `check-consolidation-drift.mjs` hosts the git-source-file
+// fixtures.
+const selfTest = [...workspaceSelfTestFailures(), ...webBoundarySelfTestFailures()];
 if (selfTest.length > 0) {
   console.error("Web boundary self-test failed:\n");
   for (const failure of selfTest) console.error(`  ${failure}`);
@@ -30,7 +37,7 @@ const { roots, files, failures: surfaceFailures } = browserSurface(ROOT);
 
 const violations = [];
 for (const file of files) {
-  for (const violation of findViolations(join(ROOT, file))) {
+  for (const violation of findViolations(ROOT, file)) {
     violations.push({ file, ...violation });
   }
 }

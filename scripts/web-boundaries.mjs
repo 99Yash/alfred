@@ -4,18 +4,24 @@
 // The second half used to be a constant (`apps/web/src`), which made the fence
 // narrower than the rule it enforces — a new browser-bound package sat outside it
 // by construction until somebody remembered to widen the walk. Here the surface is
-// derived instead: start at the web app and follow every runtime `@alfred/*`
-// binding into the workspace, so a package that joins the bundle joins the fence in
-// the same commit.
+// derived instead: start at the apps declared browser-bound and follow every runtime
+// `@alfred/*` binding into the workspace, so a package that joins the bundle joins
+// the fence in the same commit.
+//
+// The seed is the remaining declaration, and it is deliberate. `apps/*` is
+// enumerated from `pnpm-workspace.yaml` but never walked as a browser root; each app
+// is declared browser-bound or Node-only by hand, and an app in neither set is a
+// reported failure. See the two sets below for why inference was rejected.
 //
 // This module is pure. `scripts/check-web-boundaries.mjs` is the CLI that exits on
 // it, and `scripts/web-boundaries.selftest.mjs` is its fixture suite.
 
-import { existsSync, readFileSync, readdirSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 
 import { listGitSourceFiles } from "./git-source-files.mjs";
 import { parseImports } from "./ts-imports.mjs";
+import { listWorkspaces } from "./workspaces.mjs";
 
 /**
  * Packages a browser runtime file must not take a value binding on. `import type`
@@ -31,8 +37,34 @@ export const FORBIDDEN_RUNTIME_PACKAGES = new Set([
   "@alfred/ai",
 ]);
 
-/** The tree the fence starts from. Everything else is derived from its imports. */
-const BROWSER_ENTRY_ROOT = "apps/web/src";
+// Which apps reach a browser bundle is DECLARED, not inferred, and the declaration
+// has to be exhaustive over the apps the workspace enumeration lists.
+//
+// Widening the fence to `apps/*` by directory was the obvious alternative and it is
+// wrong: `apps/server` takes runtime `@alfred/db`, `@alfred/env` and `@alfred/auth`
+// bindings by design, so walking it as a browser root would report dozens of correct
+// imports as violations, and the only way back to green is a suppression list — a
+// fence that trains its readers to suppress it. The axis is browser-reachability,
+// not directory.
+//
+// Inferring browser-ness from evidence was the other alternative, and it is worse:
+// an SSR or non-Vite browser app has no `index.html`, so inference answers "Node"
+// SILENTLY for exactly the app that most needs fencing. A declaration is one line
+// and its absence is loud.
+//
+// Two sets rather than one set plus an implicit "everything else is Node", because
+// that implicit default is the bug this replaces: the seed used to be the constant
+// `apps/web/src`, so a second browser app was outside the fence by construction and
+// the check exited 0. The second set is the record that somebody looked.
+
+/** Apps whose sources reach a browser bundle. The fence seeds from these. */
+const BROWSER_ENTRY_APPS = new Set(["apps/web"]);
+
+/** Apps that are Node programs. Listed so a NEW app cannot be silently either. */
+const NODE_ONLY_APPS = new Set(["apps/server"]);
+
+/** A browser bundler's entry document, used only to corroborate a NODE_ONLY claim. */
+const BUNDLER_ENTRY_DOCUMENT = "index.html";
 
 /** Prose sites that enumerate the forbidden list and must not drift from it. */
 const DOC_LIST_SITES = ["docs/reference/architecture.md", "apps/web/AGENTS.md"];
@@ -90,31 +122,65 @@ function scanAlfredImports(source) {
   return imports;
 }
 
-/** Forbidden runtime bindings in one file, by absolute path. */
-export function findViolations(file) {
-  const source = readFileSync(file, "utf8");
+/**
+ * Forbidden runtime bindings in one file, named the way the surface names it.
+ *
+ * Repo-relative, because that is the dialect every other function here speaks:
+ * `browserSurface` hands back repo-relative paths and this takes them, so no call
+ * site has to know that one half of the module wanted absolute ones.
+ */
+export function findViolations(root, file) {
+  const source = readFileSync(join(root, file), "utf8");
   return scanAlfredImports(source)
     .filter((entry) => entry.runtime && FORBIDDEN_RUNTIME_PACKAGES.has(entry.pkg))
     .map(({ line, specifier }) => ({ line, specifier }));
 }
 
-/** Workspace package name to its repo-relative directory. */
-function workspacePackageDirs(root) {
-  const dirs = new Map();
-  const packagesDir = join(root, "packages");
-  if (!existsSync(packagesDir)) return dirs;
+/**
+ * Whether every app has a declared relationship to the browser bundle.
+ *
+ * These are failures and never violations: nothing in the tree is wrong, the fence
+ * simply does not know how wide it should be. Honest about what it buys — an app in
+ * neither set cannot reach a green `pnpm check`, and a declared entry app that the
+ * enumeration does not list cannot either, so the add-an-app and move-the-app events
+ * are both caught. Neither forces the classification to be CORRECT: a browser app
+ * filed under `NODE_ONLY_APPS` leaves the fence narrow, and the only argument against
+ * that is the `index.html` corroboration, which an SSR browser app would not trip.
+ */
+function appDeclarationFailures(root, appDirs) {
+  const failures = [];
 
-  for (const entry of readdirSync(packagesDir, { withFileTypes: true })) {
-    if (!entry.isDirectory()) continue;
-    const manifest = join(packagesDir, entry.name, "package.json");
-    if (!existsSync(manifest)) continue;
-    const { name } = JSON.parse(readFileSync(manifest, "utf8"));
-    if (typeof name === "string") dirs.set(name, `packages/${entry.name}`);
+  for (const dir of appDirs) {
+    if (BROWSER_ENTRY_APPS.has(dir) || NODE_ONLY_APPS.has(dir)) continue;
+    failures.push(
+      `${dir} is a workspace under apps/ that neither BROWSER_ENTRY_APPS nor NODE_ONLY_APPS names, so nobody has declared whether its sources reach a browser bundle. Add it to one of the two sets in scripts/web-boundaries.mjs.`,
+    );
   }
-  return dirs;
+
+  const enumerated = new Set(appDirs);
+  for (const dir of BROWSER_ENTRY_APPS) {
+    if (enumerated.has(dir)) continue;
+    failures.push(
+      `BROWSER_ENTRY_APPS names ${dir}, which the workspace enumeration does not list, so the fence is seeded from a tree that is not there. Point BROWSER_ENTRY_APPS at the app's new directory.`,
+    );
+  }
+
+  for (const dir of NODE_ONLY_APPS) {
+    if (!existsSync(join(root, dir, BUNDLER_ENTRY_DOCUMENT))) continue;
+    failures.push(
+      `${dir} is listed in NODE_ONLY_APPS and holds an ${BUNDLER_ENTRY_DOCUMENT}, which is what a browser app's bundler entry looks like. Either it belongs in BROWSER_ENTRY_APPS, or the file does not belong there.`,
+    );
+  }
+
+  return failures;
 }
 
 function sourceFilesUnder(root, dir) {
+  // A pathspec whose parent directory is gone makes git print
+  // `warning: could not open directory ...` onto this check's own stderr, and a gate
+  // whose output opens with a raw git warning reads like a crash. A root that is not
+  // there is reported by the caller in a sentence that says what to do about it.
+  if (!existsSync(join(root, dir))) return [];
   return listGitSourceFiles([dir], root).filter((file) => SOURCE_FILE.test(file));
 }
 
@@ -122,8 +188,8 @@ function sourceFilesUnder(root, dir) {
  * The scan surface: the trees that reach the browser bundle, the files inside
  * them, and the structural problems that make the surface untrustworthy.
  *
- * The trees are the web app plus, transitively, the `src` of every workspace
- * package under `packages/` that some already-reachable file imports at runtime.
+ * The trees are the `src` of every app declared browser-bound plus, transitively,
+ * the `src` of every workspace that some already-reachable file imports at runtime.
  * A forbidden package is never added as a root — an import of one is a violation
  * to report, not a tree to walk. Reachability is per-package, not per-module:
  * one runtime binding pulls the whole `src` into the fence, which is deliberately
@@ -131,28 +197,41 @@ function sourceFilesUnder(root, dir) {
  * server-bound through another has a boundary problem of its own.
  *
  * `failures` exists because every way this walk can resolve *nothing* looks
- * exactly like a clean tree from the outside. There are three, and they are
- * three because three different authorities decide what a root contains: the
- * filesystem says whether `<pkg>/src` exists, git says which files under it are
- * listed, and `SOURCE_FILE` says which of those are TypeScript. So a reached
- * package that keeps no sources in `src/` is reported; a root whose `src/`
- * resolves no scannable file — an empty directory left behind by a move, or a
- * package written in plain `.js` — is reported too, because being inside the
- * surface is not being scanned; and the seed root is a constant, so a web app
- * that moves leaves the fence scanning zero files. All three go red instead of
- * passing vacuously.
+ * exactly like a clean tree from the outside, and the authorities that decide what
+ * the surface holds each fail differently. `pnpm-workspace.yaml` says which
+ * directories are workspaces, so a refused enumeration is carried through from
+ * `listWorkspaces`; the two declaration sets say which apps the fence seeds from,
+ * so an app nobody classified is reported; the filesystem says whether `<dir>/src`
+ * exists, so a reached workspace that keeps no sources there is reported; and git
+ * plus `SOURCE_FILE` say which files under a root are scannable, so a root that
+ * resolves none — an empty directory left behind by a move, or a package written in
+ * plain `.js` — is reported too, because being inside the surface is not being
+ * scanned. All of them go red instead of passing vacuously.
  */
 export function browserSurface(root) {
-  const packageDirs = workspacePackageDirs(root);
-  const failures = [];
-  const roots = [BROWSER_ENTRY_ROOT];
+  const { workspaces, failures } = listWorkspaces(root);
+
+  /** Workspace package name to its repo-relative directory, for the reachability walk. */
+  const packageDirs = new Map();
+  const appDirs = [];
+  for (const workspace of workspaces) {
+    if (workspace.name !== null) packageDirs.set(workspace.name, workspace.dir);
+    if (workspace.group === "apps") appDirs.push(workspace.dir);
+  }
+  failures.push(...appDeclarationFailures(root, appDirs));
+
+  const roots = [...BROWSER_ENTRY_APPS].map((app) => `${app}/src`).sort();
   const seen = new Set(roots);
   /** Why each derived root joined the surface, so an empty one can name its importer. */
   const reachedBy = new Map();
 
-  if (!existsSync(join(root, BROWSER_ENTRY_ROOT))) {
+  /** Entry roots that are not there, so the walk below does not report them twice. */
+  const missingRoots = new Set();
+  for (const entryRoot of roots) {
+    if (existsSync(join(root, entryRoot))) continue;
+    missingRoots.add(entryRoot);
     failures.push(
-      `the browser entry root ${BROWSER_ENTRY_ROOT} does not exist, so the scan surface is derived from nothing.`,
+      `the browser entry root ${entryRoot} does not exist, so the scan surface is derived from nothing.`,
     );
   }
 
@@ -185,6 +264,7 @@ export function browserSurface(root) {
   roots.sort();
   const files = [];
   for (const dir of roots) {
+    if (missingRoots.has(dir)) continue;
     const scanned = sourceFilesUnder(root, dir);
     if (scanned.length === 0) {
       const reached = reachedBy.get(dir);

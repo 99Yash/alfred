@@ -16,85 +16,11 @@
 // the enforcing consumer, and `package-exports.selftest.mjs` is their only
 // executor — `scripts/` has no CI test job and no tsconfig names the tree.
 
-import { existsSync, readFileSync } from "node:fs";
+import { readFileSync } from "node:fs";
 import { join } from "node:path";
 
 import { listGitSourceFiles } from "./git-source-files.mjs";
-
-const WORKSPACE_FILE = "pnpm-workspace.yaml";
-const MANIFEST = "package.json";
-
-/**
- * The workspace globs `pnpm-workspace.yaml` declares, as written.
- *
- * Deriving the list rather than hardcoding `packages/*` means a new workspace
- * root joins this check in the same commit that declares it. Every shape this
- * mini-parser cannot read is a reported failure and never a silent skip, because
- * a glob list that quietly comes back empty looks exactly like a clean tree.
- */
-export function workspaceGlobs(root) {
-  const failures = [];
-  const path = join(root, WORKSPACE_FILE);
-
-  if (!existsSync(path)) {
-    failures.push(`${WORKSPACE_FILE} does not exist, so the set of workspaces is derived from nothing.`);
-    return { globs: [], failures };
-  }
-
-  const lines = readFileSync(path, "utf8").split("\n");
-  const start = lines.findIndex((line) => /^packages:\s*(#.*)?$/.test(line));
-  if (start === -1) {
-    failures.push(
-      `${WORKSPACE_FILE} has no top-level \`packages:\` sequence, so the set of workspaces is derived from nothing.`,
-    );
-    return { globs: [], failures };
-  }
-
-  const globs = [];
-  for (const line of lines.slice(start + 1)) {
-    if (/^\s*(#.*)?$/.test(line)) continue;
-    const item = /^\s+-\s+(.+?)\s*(?:#.*)?$/.exec(line);
-    if (!item) break; // A line at column 0 ends the sequence.
-    const value = item[1].replace(/^["']|["']$/g, "");
-    if (value.startsWith("!")) {
-      failures.push(
-        `${WORKSPACE_FILE} excludes \`${value}\`, a shape this check cannot model — it would report a workspace that pnpm does not have.`,
-      );
-      continue;
-    }
-    globs.push(value);
-  }
-
-  if (globs.length === 0) {
-    failures.push(
-      `${WORKSPACE_FILE}'s \`packages:\` sequence lists no glob, so the set of workspaces is empty.`,
-    );
-  }
-  return { globs, failures };
-}
-
-/**
- * Every workspace manifest git lists, plus the globs that found them.
- *
- * The globs come back with the manifests because the caller needs the same list
- * to take its one listing of the workspace trees, and re-parsing
- * `pnpm-workspace.yaml` to get them again would read one file twice.
- */
-export function workspaceManifests(root) {
-  const { globs, failures } = workspaceGlobs(root);
-  if (globs.length === 0) return { manifests: [], globs, failures };
-
-  const manifests = listGitSourceFiles(
-    globs.map((glob) => `${glob}/${MANIFEST}`),
-    root,
-  );
-  if (manifests.length === 0) {
-    failures.push(
-      `the workspace globs (${globs.join(", ")}) list no ${MANIFEST} that git tracks, so this check has nothing to read.`,
-    );
-  }
-  return { manifests, globs, failures };
-}
+import { listWorkspaces } from "./workspaces.mjs";
 
 /**
  * Flatten one `exports` map into the targets it advertises.
@@ -217,17 +143,15 @@ function escapeRegExp(text) {
  * which is why it is itself a failure.
  */
 export function packageExportsFailures(root) {
-  const { manifests, globs, failures } = workspaceManifests(root);
-  if (manifests.length === 0) return { checked: 0, blocked: 0, failures };
+  const { workspaces, globs, failures } = listWorkspaces(root);
+  if (workspaces.length === 0) return { checked: 0, blocked: 0, failures };
 
   const listed = new Set(listGitSourceFiles(globs, root));
   let checked = 0;
   let blocked = 0;
   let mapped = 0;
 
-  for (const manifest of manifests) {
-    const packageDir = manifest.slice(0, -(MANIFEST.length + 1));
-
+  for (const { dir: packageDir, manifest } of workspaces) {
     let parsed;
     try {
       parsed = JSON.parse(readFileSync(join(root, manifest), "utf8"));
@@ -255,7 +179,7 @@ export function packageExportsFailures(root) {
 
   if (mapped === 0) {
     failures.push(
-      `none of the ${manifests.length} workspace manifests carries an "exports" map, so this check examined nothing.`,
+      `none of the ${workspaces.length} workspace manifests carries an "exports" map, so this check examined nothing.`,
     );
   } else if (checked === 0) {
     failures.push(

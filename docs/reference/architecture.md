@@ -128,16 +128,26 @@ Forbidden in `apps/web`: <!-- forbidden-runtime-packages:start -->
 
 <!-- forbidden-runtime-packages:end -->
 
-`pnpm check:web-boundaries` enforces these forbidden runtime imports for `apps/web/src` and for the `src/`
-of every package under `packages/` that the browser bundle reaches. It derives that surface by following
-runtime `@alfred/*` bindings out of `apps/web/src`, so a package that joins the bundle joins the check in
-the same commit. It reads import statements rather than lines: a specifier that a comment, a quoted string
-or a template literal only mentions binds nothing, so it neither reports a violation nor pulls a package
-into the surface. Three things stay outside the derived surface, all deliberately: a second workspace under
-`apps/`, which the walk does not enumerate; everything a browser file reaches through a non-`@alfred/*`
-specifier, including Node-only npm packages; and any subtree of a reached package that sits outside its
-`src/`, because reachability is recorded per package and read at that one directory. A reached package
-whose `src/` is missing, or holds no TypeScript file, is not a fourth gap — the check reports it as a
+`pnpm check:web-boundaries` enforces these forbidden runtime imports for the `src/` of every app declared
+browser-bound, and for the `src/` of every workspace that the browser bundle reaches from there. It derives
+that surface by following runtime `@alfred/*` bindings out of the declared apps, so a package that joins the
+bundle joins the check in the same commit. It reads import statements rather than lines: a specifier that a
+comment, a quoted string or a template literal only mentions binds nothing, so it neither reports a
+violation nor pulls a package into the surface.
+
+Which apps reach a browser bundle is declared by hand, in `BROWSER_ENTRY_APPS` and `NODE_ONLY_APPS` in
+[`scripts/web-boundaries.mjs`](../../scripts/web-boundaries.mjs). Workspaces are enumerated from
+`pnpm-workspace.yaml`, so a workspace under `apps/` that neither set names is a reported failure, and so is
+a declared browser app that the enumeration no longer lists. `apps/*` is never walked as a browser root by
+directory: `apps/server` takes runtime `@alfred/db` and `@alfred/env` bindings by design, so a
+directory-wide fence there would need a suppression list. The classification itself is not enforced — an app
+filed under `NODE_ONLY_APPS` leaves the fence narrow, and the only check against that is that a Node-only
+app holding an `index.html` is reported.
+
+Some things stay outside the derived surface, deliberately: everything a browser file reaches through a
+non-`@alfred/*` specifier, including Node-only npm packages, and any subtree of a reached package that sits
+outside its `src/`, because reachability is recorded per package and read at that one directory. A reached
+package whose `src/` is missing, or holds no TypeScript file, is not one of these — the check reports it as a
 failure instead of skipping it.
 The check also compares the marked lists above and in [`apps/web/AGENTS.md`](../../apps/web/AGENTS.md)
 against the one list in [`scripts/web-boundaries.mjs`](../../scripts/web-boundaries.mjs); the markers are
