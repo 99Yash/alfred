@@ -24,9 +24,14 @@ import { parseImports } from "./ts-imports.mjs";
 import { listWorkspaces } from "./workspaces.mjs";
 
 /**
- * Packages a browser runtime file must not take a value binding on. `import type`
- * is allowed for every member: a type erases at build time, so it cannot ship the
- * package's Node-only dependencies into the bundle.
+ * Packages a browser runtime file must not load. The `import type { … } from`
+ * STATEMENT is allowed: TypeScript erases it, so it cannot ship the package's
+ * Node-only dependencies into the bundle.
+ *
+ * The inline-specifier form is not the same statement and is not allowed.
+ * `import { type A } from "@alfred/db"` emits `import {} from "@alfred/db"` under
+ * `verbatimModuleSyntax` (`packages/config/tsconfig.base.json:8`) — the module is
+ * still evaluated. Only a leading `type` keyword erases; see `isRuntimeLoad`.
  */
 export const FORBIDDEN_RUNTIME_PACKAGES = new Set([
   "@alfred/api",
@@ -80,32 +85,43 @@ function packageName(specifier) {
   return pkg ? `${scope}/${pkg}` : null;
 }
 
-export function hasRuntimeBinding(clause) {
-  const trimmed = clause.trim();
-  if (trimmed.startsWith("type ")) return false;
-
-  const namedOnly = trimmed.match(/^\{([\s\S]*)\}$/);
-  if (!namedOnly) return true;
-
-  const specifiers = namedOnly[1]
-    .split(",")
-    .map((part) => part.trim())
-    .filter(Boolean);
-  return specifiers.some((specifier) => !specifier.startsWith("type "));
+/**
+ * Whether an import clause survives to a runtime module load.
+ *
+ * The subject is the LOAD, not the binding, and the two come apart:
+ * `import {} from "@alfred/db"` binds nothing and still evaluates the module.
+ * TypeScript erases an import statement only when the `type` keyword leads the
+ * clause — `import type { A } from …`. A brace clause whose specifiers each
+ * carry an inline `type` is a different statement: under `verbatimModuleSyntax`
+ * (`packages/config/tsconfig.base.json:8`, which `apps/web/tsconfig.json`
+ * extends) `import { type A } from "@alfred/db"` emits `import {} from
+ * "@alfred/db"`, which drags the package's Node-only dependencies into the
+ * bundle exactly as a value import would.
+ *
+ * So the rule is one test, and the precondition is worth stating plainly: this
+ * is correct because `verbatimModuleSyntax` is on. If it were turned off,
+ * TypeScript would drop an all-`type` clause and this predicate would
+ * over-report — loud and conservative, never a missed leak, which is why the
+ * setting is cited here rather than parsed and enforced.
+ */
+export function isRuntimeLoad(clause) {
+  return !clause.trim().startsWith("type ");
 }
 
 /**
- * Every `@alfred/*` import in a source text, with whether it binds a value.
+ * Every `@alfred/*` import in a source text, with whether it loads the module.
  *
  * The walk is over import *statements*, so a specifier that a comment, a quoted
- * string or a template literal merely mentions is not a binding — which matters
+ * string or a template literal merely mentions is not an import — which matters
  * more here than it looks, because a mentioned package would join the browser
  * surface and fail this check on its own legitimate server-side imports.
  *
- * One rule decides all four import shapes. A side-effect, dynamic or `require`
- * form carries no clause, and an empty clause is a runtime binding, which is the
- * right answer for all three. A computed `import(variable)` is still invisible:
- * the walk needs a literal in the argument position, so there is nothing to read.
+ * One rule decides every import shape, and it is stated over clauses rather than
+ * over shapes: a clause is erased only when the `type` keyword leads it, and every
+ * other clause is a module load. A side-effect, dynamic or `require` form carries
+ * no clause at all, so it loads — which is the right answer for all three. A
+ * computed `import(variable)` is still invisible: the walk needs a literal in the
+ * argument position, so there is nothing to read.
  */
 function scanAlfredImports(source) {
   const imports = [];
@@ -116,14 +132,14 @@ function scanAlfredImports(source) {
       pkg,
       specifier: entry.specifier,
       line: entry.line,
-      runtime: hasRuntimeBinding(entry.clause),
+      runtime: isRuntimeLoad(entry.clause),
     });
   }
   return imports;
 }
 
 /**
- * Forbidden runtime bindings in one file, named the way the surface names it.
+ * Forbidden runtime loads in one file, named the way the surface names it.
  *
  * Repo-relative, because that is the dialect every other function here speaks:
  * `browserSurface` hands back repo-relative paths and this takes them, so no call

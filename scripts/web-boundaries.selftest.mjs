@@ -20,7 +20,7 @@ import {
   browserSurface,
   docListFailures,
   findViolations,
-  hasRuntimeBinding,
+  isRuntimeLoad,
 } from "./web-boundaries.mjs";
 
 function write(root, relative, content) {
@@ -62,7 +62,7 @@ function initWorkspaceRepo(fixture) {
   write(fixture, "apps/web/package.json", '{ "name": "web" }\n');
 }
 
-function runtimeBindingFailures() {
+function runtimeLoadFailures() {
   const failures = [];
   // One rule over every clause shape: a clause is erased only when the `type`
   // keyword LEADS it. Everything else is a module load.
@@ -95,8 +95,8 @@ function runtimeBindingFailures() {
     ["", true],
   ];
   for (const [clause, expected] of cases) {
-    if (hasRuntimeBinding(clause) !== expected) {
-      failures.push(`hasRuntimeBinding("${clause}") must be ${expected}, received ${!expected}`);
+    if (isRuntimeLoad(clause) !== expected) {
+      failures.push(`isRuntimeLoad("${clause}") must be ${expected}, received ${!expected}`);
     }
   }
   return failures;
@@ -824,7 +824,7 @@ function docListFailuresFailures() {
 
 export function webBoundarySelfTestFailures() {
   return [
-    ...runtimeBindingFailures(),
+    ...runtimeLoadFailures(),
     ...inlineTypeClauseViolationFailures(),
     ...inlineTypeClauseRootFailures(),
     ...lexicalPositionFailures(),
