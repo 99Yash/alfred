@@ -48,8 +48,6 @@ function timerAndConnectionCounts(): Map<string, number> {
   return counts;
 }
 
-type TimerFn = typeof globalThis.setInterval;
-
 /**
  * Runs `body` with `setInterval` and `setTimeout` counted, and reports every arm.
  *
@@ -61,11 +59,14 @@ type TimerFn = typeof globalThis.setInterval;
 async function withTimerArmsCounted(body: () => Promise<void>): Promise<string[]> {
   const arms: string[] = [];
   const real = { setInterval: globalThis.setInterval, setTimeout: globalThis.setTimeout };
-  const counted = (fn: TimerFn, kind: string): TimerFn =>
-    ((...args: Parameters<TimerFn>) => {
+  // Generic over the timer it wraps: `setInterval` and `setTimeout` are NOT one type
+  // (`@types/node` gives `setTimeout` a `__promisify__` member), so a single alias for
+  // both is wrong on the `setTimeout` arm. `Parameters<F>` stays bound to the real global.
+  const counted = <F extends (...args: never[]) => unknown>(fn: F, kind: string): F =>
+    ((...args: Parameters<F>) => {
       arms.push(kind);
       return fn(...args);
-    }) as TimerFn;
+    }) as F;
   globalThis.setInterval = counted(real.setInterval, "setInterval");
   globalThis.setTimeout = counted(real.setTimeout, "setTimeout");
   try {
