@@ -14,7 +14,7 @@
 // Usage: node scripts/relative-to-alias.mjs [--check]
 //   --check  report what would change and exit non-zero if anything would; no writes.
 
-import { readFileSync, writeFileSync } from "node:fs";
+import { existsSync, readFileSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import { listGitSourceFiles } from "./git-source-files.mjs";
 
@@ -35,6 +35,23 @@ function toAlias(spec, fileDir, root) {
   const rel = path.relative(root, abs);
   if (rel.startsWith("..") || path.isAbsolute(rel)) return null; // escapes the alias root
   return `~/${rel.split(path.sep).join("/")}`;
+}
+
+// Each root becomes a glob, and a glob matching nothing yields no files. Without
+// this, a renamed or moved alias root made `--check` print `Would rewrite 0
+// specifiers across 0 files:` and exit 0 — the check passing because it looked at
+// nothing. The rewrite mode is refused for the same reason: a codemod that
+// silently rewrites nothing is the same lie.
+const absentRoots = ROOTS.map(({ root }) => root).filter((root) => !existsSync(root));
+if (absentRoots.length > 0) {
+  console.error("relative-to-alias: ROOTS names alias roots that do not exist:\n");
+  for (const root of absentRoots) console.error(`  ${root}`);
+  console.error(
+    "\nRepoint ROOTS in scripts/relative-to-alias.mjs at the tree that now defines" +
+      "\n`~/* -> ./src/*` in its tsconfig, or drop the entry. Nothing under an absent" +
+      "\nroot is scanned, so leaving it would report a clean rewrite over zero files.",
+  );
+  process.exit(1);
 }
 
 let changedFiles = 0;
