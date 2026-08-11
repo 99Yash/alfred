@@ -42,7 +42,10 @@ function run(args, options = {}) {
       stdout: execFileSync(process.execPath, [SCRIPT, ...args], { encoding: "utf8", ...options }),
     };
   } catch (error) {
-    return { ok: false, stdout: error.stdout ?? "", stderr: error.stderr ?? "" };
+    // `execFileSync` throws an Error carrying the child's captured streams. The
+    // assertion names the two fields this reads; the `??` still handles their absence.
+    const failed = /** @type {{stdout?: string, stderr?: string}} */ (error);
+    return { ok: false, stdout: failed.stdout ?? "", stderr: failed.stderr ?? "" };
   }
 }
 
@@ -238,14 +241,16 @@ function run(args, options = {}) {
   const appends = [];
   for (let i = 0; i < lineCount; i += 1) {
     appends.push(
-      new Promise((resolveAppend) => {
+      /** @type {Promise<void>} */ (
+        new Promise((resolveAppend) => {
         const child = spawn(
           process.execPath,
           [SCRIPT, "note", "--state", statePath, `- [selftest] line ${i}`],
           { env: { ...process.env, CAMPAIGN_STATE_SELFTEST_DELAY_MS: "60" }, stdio: "ignore" },
         );
-        child.on("exit", () => resolveAppend());
-      }),
+          child.on("exit", () => resolveAppend());
+        })
+      ),
     );
   }
   await Promise.all(appends);

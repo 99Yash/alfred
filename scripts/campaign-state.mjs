@@ -87,7 +87,10 @@ function withLock(statePath, body) {
       mkdirSync(lockDir);
       break;
     } catch (error) {
-      if (error.code !== "EEXIST") throw error;
+      // `mkdirSync` throws only a Node `ErrnoException`, so this reads the same
+      // property the untyped version read, on the same value, and rethrows the same
+      // one. The cast states that warrant; it does not create a new branch.
+      if (/** @type {NodeJS.ErrnoException} */ (error).code !== "EEXIST") throw error;
       let age = 0;
       try {
         age = Date.now() - statSync(lockDir).mtimeMs;
@@ -142,7 +145,9 @@ function readState(statePath) {
   try {
     parsed = JSON.parse(readFileSync(statePath, "utf8"));
   } catch (error) {
-    die(`${statePath} is missing or unparseable: ${error.message}`);
+    die(
+      `${statePath} is missing or unparseable: ${error instanceof Error ? error.message : String(error)}`,
+    );
   }
   if (!Array.isArray(parsed.items)) die(`${statePath} has no items array`);
   return parsed;

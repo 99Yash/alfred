@@ -80,6 +80,7 @@ export function parseImports(source) {
       continue;
     }
     if (token.value === "import") {
+      /** @type {(typeof tokens)[number] | null} */
       let fromToken = null;
       for (let cursor = index + 1; cursor < tokens.length; cursor += 1) {
         const candidate = tokens[cursor];
@@ -96,6 +97,7 @@ export function parseImports(source) {
       continue;
     }
     if (token.value === "export") {
+      /** @type {(typeof tokens)[number] | null} */
       let fromToken = null;
       for (let cursor = index + 1; cursor < tokens.length; cursor += 1) {
         const candidate = tokens[cursor];
