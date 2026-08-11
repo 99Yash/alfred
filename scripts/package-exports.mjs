@@ -66,7 +66,9 @@ function visitConditions(value, subpath, targets, failures) {
   }
   if (Array.isArray(value)) {
     if (value.length === 0) {
-      failures.push(`"${subpath}" is an empty array, so it advertises a subpath that resolves to nothing`);
+      failures.push(
+        `"${subpath}" is an empty array, so it advertises a subpath that resolves to nothing`,
+      );
       return;
     }
     for (const element of value) visitConditions(element, subpath, targets, failures);
@@ -75,7 +77,9 @@ function visitConditions(value, subpath, targets, failures) {
   if (typeof value === "object") {
     const keys = Object.keys(value);
     if (keys.length === 0) {
-      failures.push(`"${subpath}" is an empty object, so it advertises a subpath that resolves to nothing`);
+      failures.push(
+        `"${subpath}" is an empty object, so it advertises a subpath that resolves to nothing`,
+      );
       return;
     }
     if (keys.some((key) => key.startsWith("."))) {
