@@ -155,10 +155,12 @@ export const events = new Elysia({ prefix: "/api/events", normalize: "typebox" }
       // this package: the route sits behind `authMacro`, whose resolve runs
       // `getSessionCached` -> `auth()` -> `serverEnv()` on every request that
       // reaches the handler — Elysia validates the body first, so a malformed
-      // body answers 422 without it. The divergence set is contained in the
+      // body answers 400 without it (the global `errorHandler` maps Elysia's
+      // `VALIDATION` code to `VALIDATION_ERROR`; 422 is Elysia's default only on
+      // a bare mount with no `errorHandler`). The divergence set is contained in the
       // set where `serverEnv()` throws, so an environment that mounts `_demo`
       // BECAUSE of that divergence answers 500 on a well-formed request and
-      // 422 on a malformed one, and reaches `publishEvent` on neither path
+      // 400 on a malformed one, and reaches `publishEvent` on neither path
       // (measured). The 500 body is `errorHandler`'s generic
       // `INTERNAL_SERVER_ERROR`; the missing-variable list goes to the server
       // log only. A valid development environment is not that case — it
