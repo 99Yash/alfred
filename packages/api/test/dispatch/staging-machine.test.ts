@@ -27,8 +27,14 @@ import assert from "node:assert/strict";
 import { afterEach, beforeEach, describe, test } from "node:test";
 
 import { z } from "zod";
+import { calendarCreateEventInput, type IntegrationAvailabilitySnapshot } from "@alfred/contracts";
 
-import { _setDispatchTraceSinksForTests, dispatchToolCall } from "../../src/modules/dispatch";
+import {
+  _setDispatchTraceSinksForTests,
+  _setIntegrationAvailabilityReaderForTests,
+  dispatchToolCall,
+  toolCallWouldGate,
+} from "../../src/modules/dispatch";
 import { _setStagingStoreForTests } from "../../src/modules/dispatch/staging-store";
 import {
   _primePolicyCacheForTests,
@@ -40,6 +46,7 @@ import {
   liveTool,
   registerTool,
 } from "../../src/modules/tools/registry";
+import { resolveCalendarCreateEventRiskTier } from "../../src/modules/tools/calendar";
 import { registerReplicachePokeAdapter } from "../../src/composition/replicache-poke-adapter";
 import { memoryStagingStore, type MemoryStagingStore } from "./memory-staging-store";
 import { runStagingStoreContract, type StagingStoreHarness } from "./staging-store-contract";
@@ -52,6 +59,7 @@ const TIMEZONE = "UTC" as const;
 let store: MemoryStagingStore;
 let restoreStore: (() => void) | null = null;
 let restoreTraceSinks: (() => void) | null = null;
+let restoreAvailabilityReader: (() => void) | null = null;
 let unregisterPokeAdapter: (() => void) | null = null;
 let executeCount = 0;
 let lastExecutedInput: unknown = null;
@@ -62,7 +70,12 @@ function baseArgs(overrides: Record<string, unknown> = {}) {
     stepId: "dispatch-tools",
     toolCallId: "tc_default",
     toolName: "system.load_tool" as const,
-    activeTools: ["system.load_tool", "system.spawn_sub_agent", "system.fetch_url"] as const,
+    activeTools: [
+      "system.load_tool",
+      "system.spawn_sub_agent",
+      "system.fetch_url",
+      "calendar.create_event",
+    ] as const,
     input: { slug: "github" },
     userId: USER_ID,
     caller: "boss" as const,
@@ -128,6 +141,21 @@ function registerDoubles(): void {
       },
     }),
   );
+  registerTool(
+    liveTool({
+      integration: "calendar",
+      action: "create_event",
+      riskTier: "medium",
+      description: "test double — applies the production Calendar invite risk rule",
+      inputSchema: calendarCreateEventInput,
+      resolveRiskTier: (input) => Promise.resolve(resolveCalendarCreateEventRiskTier(input)),
+      execute: async (input) => {
+        executeCount += 1;
+        lastExecutedInput = input;
+        return { ok: true };
+      },
+    }),
+  );
 }
 
 function installMachineFixture(): void {
@@ -142,6 +170,14 @@ function installMachineFixture(): void {
     rejectionRecorder: () => {},
     toolSpanStarter: () => ({ success: () => {}, error: () => {} }),
   });
+  const availability: IntegrationAvailabilitySnapshot = {
+    integrations: new Map([["calendar", { health: "active", accountLabel: null }]]),
+    providers: new Map(),
+    passthroughEnabled: new Map(),
+  };
+  restoreAvailabilityReader = _setIntegrationAvailabilityReaderForTests(() =>
+    Promise.resolve(availability),
+  );
   // Register a no-op poke adapter for tests — pokes degrade gracefully.
   unregisterPokeAdapter = registerReplicachePokeAdapter({
     emitReplicachePokes: () => {},
@@ -153,7 +189,10 @@ function installMachineFixture(): void {
   _primePolicyCacheForTests({
     userId: USER_ID,
     defaultMode: "gated",
-    integrationRules: { system: { mode: "autonomy" } },
+    integrationRules: {
+      system: { mode: "autonomy" },
+      calendar: { mode: "autonomy" },
+    },
     approvalNotifyDelayMs: DEFAULT_APPROVAL_NOTIFY_DELAY_MS,
   });
 }
@@ -163,6 +202,8 @@ function teardownMachineFixture(): void {
   restoreStore = null;
   restoreTraceSinks?.();
   restoreTraceSinks = null;
+  restoreAvailabilityReader?.();
+  restoreAvailabilityReader = null;
   unregisterPokeAdapter?.();
   unregisterPokeAdapter = null;
   clearToolRegistryForTests();
@@ -351,6 +392,68 @@ describe("dispatch staging machine (DB-free)", () => {
     assert.equal(row?.status, "pending");
     assert.equal(row?.requiresApproval, true);
     assert.ok(row?.expiresAt instanceof Date, "a gated row gets a hard expiry");
+  });
+
+  test("a Calendar event without attendees stays medium and executes under autonomy", async () => {
+    const input = {
+      summary: "Focus block",
+      start: "2026-08-12T10:00:00+05:30",
+      end: "2026-08-12T11:00:00+05:30",
+      attendees: [],
+    };
+    const result = await dispatchToolCall(
+      baseArgs({
+        toolCallId: "tc_calendar_no_attendees",
+        toolName: "calendar.create_event",
+        input,
+      }),
+    );
+
+    assert.equal(result.kind, "executed");
+    assert.equal(executeCount, 1);
+    const [row] = store.rows();
+    assert.equal(row?.riskTier, "medium");
+    assert.equal(row?.requiresApproval, false);
+    assert.deepEqual(lastExecutedInput, { calendarId: "primary", ...input });
+  });
+
+  test("the live-chat hint keeps dynamic Calendar risk in the serial approval lane", async () => {
+    assert.equal(await toolCallWouldGate(USER_ID, "calendar.create_event"), true);
+  });
+
+  test("a Calendar invite becomes high, stages, and resumes with every attendee", async () => {
+    const attendees = ["ada@example.com", "grace@example.com"];
+    const input = {
+      summary: "Planning",
+      start: "2026-08-12T10:00:00+05:30",
+      end: "2026-08-12T11:00:00+05:30",
+      attendees,
+    };
+    const args = baseArgs({
+      toolCallId: "tc_calendar_invite",
+      toolName: "calendar.create_event",
+      input,
+    });
+
+    const staged = await dispatchToolCall(args);
+    assert.equal(staged.kind, "staged", "an invite must park even under autonomy");
+    assert.equal(executeCount, 0);
+    const [row] = store.rows();
+    assert.equal(row?.riskTier, "high");
+    assert.equal(row?.requiresApproval, true);
+    assert.deepEqual(row?.proposedInput, {
+      calendarId: "primary",
+      ...input,
+    });
+
+    store.decide(row!.id, { status: "approved" });
+    const resumed = await dispatchToolCall(args);
+    assert.equal(resumed.kind, "executed");
+    assert.equal(executeCount, 1);
+    assert.deepEqual(lastExecutedInput, {
+      calendarId: "primary",
+      ...input,
+    });
   });
 
   test("a pending gated row stays gated when the policy flips to autonomy mid-run", async () => {

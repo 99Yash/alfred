@@ -3,6 +3,7 @@ import {
   calendarListEventsInput,
   restPassthroughInput,
   type IanaTimezone,
+  type ToolRiskTier,
 } from "@alfred/contracts";
 import {
   CALENDAR_EVENTS_SCOPE,
@@ -20,6 +21,10 @@ const MS_PER_DAY = 86_400_000;
 
 type CalendarListEventsInput = z.infer<typeof calendarListEventsInput>;
 type CalendarCreateEventInput = z.infer<typeof calendarCreateEventInput>;
+
+export function resolveCalendarCreateEventRiskTier(input: CalendarCreateEventInput): ToolRiskTier {
+  return input.attendees && input.attendees.length > 0 ? "high" : "medium";
+}
 
 interface CalendarListWindow {
   timeMin: Date;
@@ -294,6 +299,7 @@ export const calendarTools: readonly RegisteredTool[] = [
       credential: { provider: "google", anyOfScopes: CALENDAR_WRITE_SCOPES },
     },
     inputSchema: calendarCreateEventInput,
+    resolveRiskTier: (input) => Promise.resolve(resolveCalendarCreateEventRiskTier(input)),
     execute: async (input, ctx) => {
       return executeCreateEvent(input, ctx);
     },
