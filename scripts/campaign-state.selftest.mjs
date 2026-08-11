@@ -137,6 +137,99 @@ function run(args, options = {}) {
   rmSync(dir, { recursive: true, force: true });
 }
 
+// --- add: id assignment and refusals -------------------------------------
+
+{
+  const { dir, statePath } = freshState(9);
+  const result = run([
+    "add",
+    "--state",
+    statePath,
+    "--item-slug",
+    "fence-the-door",
+    "--title",
+    "Fence the door",
+    "--prereqs",
+    "03",
+  ]);
+  check("add succeeds", result.ok, "add exited non-zero");
+  check("add prints the id", result.stdout.includes("added item 10"), `stdout: ${result.stdout}`);
+  const state = JSON.parse(readFileSync(statePath, "utf8"));
+  const added = state.items.at(-1);
+  check("add keeps the id width", added.id === "10", `id is ${added.id}`);
+  check("add starts at design", added.phase === "design", `phase is ${added.phase}`);
+  check("add records prereqs", added.prereqs[0] === "03", `prereqs ${added.prereqs}`);
+  check(
+    "add names the item file",
+    result.stdout.includes("10-fence-the-door.md"),
+    `stdout: ${result.stdout}`,
+  );
+  check(
+    "unknown prereq refused",
+    !run(["add", "--state", statePath, "--item-slug", "x-y", "--title", "T", "--prereqs", "99"]).ok,
+    "an add with a nonexistent prereq succeeded",
+  );
+  check(
+    "non-kebab slug refused",
+    !run(["add", "--state", statePath, "--item-slug", "Not_Kebab", "--title", "T"]).ok,
+    "a non-kebab item slug was accepted",
+  );
+  check(
+    "missing title refused",
+    !run(["add", "--state", statePath, "--item-slug", "no-title"]).ok,
+    "an add with no title succeeded",
+  );
+  check(
+    "refusals added nothing",
+    JSON.parse(readFileSync(statePath, "utf8")).items.length === 10,
+    "a refused add still appended",
+  );
+  rmSync(dir, { recursive: true, force: true });
+}
+
+// --- the second separating drive: concurrent adds must not share an id ----
+
+{
+  const { dir, statePath } = freshState(4);
+  const adders = [];
+  const adderCount = 8;
+  for (let i = 0; i < adderCount; i += 1) {
+    adders.push(
+      new Promise((resolveAdder) => {
+        const child = spawn(
+          process.execPath,
+          [
+            SCRIPT,
+            "add",
+            "--state",
+            statePath,
+            "--item-slug",
+            `follow-up-${i}`,
+            "--title",
+            `F${i}`,
+          ],
+          { env: { ...process.env, CAMPAIGN_STATE_SELFTEST_DELAY_MS: "80" }, stdio: "ignore" },
+        );
+        child.on("exit", () => resolveAdder());
+      }),
+    );
+  }
+  await Promise.all(adders);
+  const items = JSON.parse(readFileSync(statePath, "utf8")).items;
+  const ids = items.map((item) => item.id);
+  check(
+    "concurrent add: every item landed",
+    items.length === 4 + adderCount,
+    `${items.length} items, expected ${4 + adderCount} — a concurrent add was clobbered`,
+  );
+  check(
+    "concurrent add: no id issued twice",
+    new Set(ids).size === ids.length,
+    `duplicate ids in ${ids.join(", ")}`,
+  );
+  rmSync(dir, { recursive: true, force: true });
+}
+
 // --- concurrent NOTES appends --------------------------------------------
 
 {
@@ -174,4 +267,4 @@ if (failures.length > 0) {
   for (const failure of failures) process.stderr.write(`- ${failure}\n`);
   process.exit(1);
 }
-process.stdout.write("campaign-state self-test: clean (5 drives)\n");
+process.stdout.write("campaign-state self-test: clean (7 drives)\n");
