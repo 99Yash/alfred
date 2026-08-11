@@ -223,7 +223,14 @@ export function restrictedImportSites(config) {
  *
  *   - a glob-free specifier naming a workspace package is gated on BOTH halves: the
  *     package exists, and its `exports` map publishes the subpath (an explicit key or
- *     a `*` key that matches). This is the class that rotted for two campaigns;
+ *     a `*` key that matches). This is the class that rotted for two campaigns.
+ *     When the key that publishes it is a WILDCARD, the file behind it is gated too:
+ *     `"./knowledge/*"` keeps publishing the whole family after the one module the
+ *     fence names is deleted, so the family-level answer is the same before and after
+ *     — which is the failure being fixed, one level in. `pnpm check:exports` cannot
+ *     cover this: it asks whether a wildcard target matches SOME file, and dozens
+ *     match. An explicit key's target IS its subject, so that half is left to it
+ *     rather than reported twice;
  *   - a specifier holding a glob is gated on package existence ONLY. A defensive
  *     pattern legitimately covers subpaths nobody has written yet — `@alfred/http`'s
  *     map publishes exactly `"."`, so `@alfred/http/*` resolves through no entry and
@@ -250,7 +257,7 @@ export function restrictedSpecifierFailures(root) {
   const { sites, failures: readerFailures } = restrictedImportSites(resolved.config);
   failures.push(...readerFailures);
 
-  const { packages, failures: workspaceFailures } = workspaceExportIndex(root);
+  const { packages, listed, failures: workspaceFailures } = workspaceExportIndex(root);
   failures.push(...workspaceFailures);
   if (packages.size === 0) {
     failures.push(
@@ -311,9 +318,25 @@ export function restrictedSpecifierFailures(root) {
           failures.push(
             `${where} · "${specifier}" restricts a subpath "${subpath}" that ${packageName}'s exports map does not publish, so no importer can write it and the fence is dead. Repoint the group at the subpath that carries the door now, or delete it.`,
           );
-        } else if (entry.keys.get(key) === "blocked") {
+          continue;
+        }
+
+        const published = entry.keys.get(key);
+        if (published.blocked) {
           failures.push(
             `${where} · "${specifier}" restricts a subpath ${packageName}'s exports map SEALS ("${key}" maps to null), so the fence duplicates a block that already refuses every importer. Delete the group; the null entry is the enforcement.`,
+          );
+          continue;
+        }
+
+        if (!key.includes("*")) continue;
+
+        const resolvedPaths = published.targets.map((target) =>
+          wildcardTargetPath(entry.dir, key, target, subpath),
+        );
+        if (!resolvedPaths.some((path) => path !== null && listed.has(path))) {
+          failures.push(
+            `${where} · "${specifier}" resolves through ${packageName}'s wildcard exports key "${key}" to ${resolvedPaths.map((path) => `"${path}"`).join(" / ")}, which no file git lists. The wildcard still publishes the family, so nothing else reports this: the module the fence names is gone and the fence now restricts a specifier nobody can write.`,
           );
         }
       }
@@ -443,36 +466,62 @@ function publishedKey(keys, subpath) {
 }
 
 /**
- * Every named workspace package, with the `exports` keys it publishes.
+ * The concrete file a wildcard `exports` key resolves one subpath to, or `null` when
+ * the target escapes its package.
  *
- * A key maps to `"blocked"` when every entry under it is `null`, so a caller can
- * tell a sealed door from a published one. `problem` is non-null when the subpath
- * half cannot be asserted at all: a package with no `exports` map resolves `.`
- * through `main`, and a map that does not parse is `pnpm check:exports`'s failure,
- * not a licence for this check to report every subpath under it as dead.
+ * The text the key's `*` stood for is substituted into the target's `*`, which is
+ * Node's own rule. A key with a `*` whose target has none maps its whole family onto
+ * one file, so the target is used as written.
+ */
+function wildcardTargetPath(packageDir, key, target, subpath) {
+  if (!target.startsWith("./")) return null;
+
+  const star = key.indexOf("*");
+  const matched = subpath.slice(star, subpath.length - (key.length - star - 1));
+  const path = `${packageDir}/${target.replace("*", matched).slice(2)}`;
+  return path.split("/").includes("..") ? null : path;
+}
+
+/**
+ * Every named workspace package, with the `exports` keys it publishes, plus one
+ * listing of every file inside the workspaces.
+ *
+ * The listing is taken ONCE rather than per target: a `git ls-files` whose pathspec
+ * parent is gone writes `warning: could not open directory …` onto this check's own
+ * stderr, and a gate whose failure output opens with a raw git warning reads like a
+ * crash.
+ *
+ * A key carries `blocked` when every entry under it is `null`, so a caller can tell a
+ * sealed door from a published one, and the targets behind it so a wildcard key can
+ * be resolved to a file. `problem` is non-null when the subpath half cannot be
+ * asserted at all: a package with no `exports` map resolves `.` through `main`, and a
+ * map that does not parse is `pnpm check:exports`'s failure, not a licence for this
+ * check to report every subpath under it as dead.
  */
 function workspaceExportIndex(root) {
-  const { workspaces, failures } = listWorkspaces(root);
+  const { workspaces, globs, failures } = listWorkspaces(root);
   const packages = new Map();
+  const listed = new Set(globs.length === 0 ? [] : listGitSourceFiles(globs, root));
 
-  for (const { name, manifest } of workspaces) {
+  for (const { name, dir, manifest } of workspaces) {
     if (name === null) continue;
 
     let parsed;
     try {
       parsed = JSON.parse(readFileSync(resolve(root, manifest), "utf8"));
     } catch {
-      packages.set(name, { keys: new Map(), problem: `${manifest} does not parse` });
+      packages.set(name, { dir, keys: new Map(), problem: `${manifest} does not parse` });
       continue;
     }
     if (parsed === null || typeof parsed !== "object" || !("exports" in parsed)) {
-      packages.set(name, { keys: new Map(), problem: `${name} declares no exports map` });
+      packages.set(name, { dir, keys: new Map(), problem: `${name} declares no exports map` });
       continue;
     }
 
     const { targets, failures: shapeFailures } = exportTargets(parsed.exports);
     if (shapeFailures.length > 0) {
       packages.set(name, {
+        dir,
         keys: new Map(),
         problem: `${name}'s exports map does not parse (pnpm check:exports reports it)`,
       });
@@ -480,14 +529,15 @@ function workspaceExportIndex(root) {
     }
 
     const keys = new Map();
-    for (const { subpath, kind } of targets) {
-      const seen = keys.get(subpath);
-      keys.set(subpath, kind === "blocked" && seen !== "published" ? "blocked" : "published");
+    for (const { subpath, target, kind } of targets) {
+      const seen = keys.get(subpath) ?? { blocked: true, targets: [] };
+      if (kind === "blocked") keys.set(subpath, seen);
+      else keys.set(subpath, { blocked: false, targets: [...seen.targets, target] });
     }
-    packages.set(name, { keys, problem: null });
+    packages.set(name, { dir, keys, problem: null });
   }
 
-  return { packages, failures };
+  return { packages, listed, failures };
 }
 
 function pinsRootConfig(tokens) {
