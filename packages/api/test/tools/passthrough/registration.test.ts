@@ -11,7 +11,7 @@ import {
   clearToolRegistryForTests,
   listToolsForIntegration,
   type RegisteredTool,
-} from "../../../src/modules/tools";
+} from "@alfred/assistant/tool-runtime";
 import { registerBuiltinTools } from "../../../src/modules/tools/runtime";
 
 /**

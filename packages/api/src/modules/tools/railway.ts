@@ -26,7 +26,11 @@ import {
   withCredential,
   type RailwayDeploymentWithCredential,
 } from "./railway-fanout";
-import { liveTool, type RegisteredTool, type ToolExecuteContext } from "./registry";
+import {
+  liveTool,
+  type RegisteredTool,
+  type ToolExecuteContext,
+} from "@alfred/assistant/tool-runtime";
 
 async function credentialsFor(ctx: ToolExecuteContext): Promise<RailwayCredentialClient[]> {
   const credentials = await ctx.integrations.railway.credentials();

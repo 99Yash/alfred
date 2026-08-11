@@ -8,11 +8,7 @@ import { and, eq, inArray, like, sql } from "drizzle-orm";
 import { z } from "zod";
 
 import { dispatchToolCall } from "../../src/modules/dispatch";
-import {
-  clearToolRegistryForTests,
-  liveTool,
-  registerTool,
-} from "../../src/modules/tools/registry";
+import { clearToolRegistryForTests, liveTool, registerTool } from "@alfred/assistant/tool-runtime";
 import { postgresStagingStore } from "../../src/modules/dispatch/staging-store";
 import { closeRedis } from "@alfred/db/redis";
 import { runStagingStoreContract, type StagingStoreHarness } from "./staging-store-contract";

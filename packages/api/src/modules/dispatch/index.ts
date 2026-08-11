@@ -57,6 +57,7 @@ import {
   summarizeBody,
   toJsonValue,
   toMessage,
+  type ToolUnavailabilityCode,
 } from "@alfred/contracts";
 import {
   recordDispatchRejection,
@@ -102,8 +103,7 @@ import {
   resolveToolAvailability,
   type RegisteredTool,
   type ToolExecuteContext,
-  type ToolUnavailabilityCode,
-} from "../tools/registry";
+} from "@alfred/assistant/tool-runtime";
 import { readIntegrationAvailability } from "@alfred/assistant/connections";
 import { resolveTimezone } from "@alfred/assistant/settings";
 

@@ -4,7 +4,7 @@ import { z } from "zod";
 import type { ToolRiskTier } from "@alfred/contracts";
 
 import { toolExecuteContext } from "../../src/modules/tools/context";
-import { liveTool } from "../../src/modules/tools/registry";
+import { liveTool } from "@alfred/assistant/tool-runtime";
 import { resolveEffectiveRiskTier } from "../../src/modules/dispatch";
 
 /**

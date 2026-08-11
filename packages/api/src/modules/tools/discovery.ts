@@ -4,18 +4,18 @@ import {
   type ToolName,
   type ToolRunContext,
   type ToolRiskTier,
+  type ToolAvailabilityResult,
+  type ToolUnavailabilityCode,
 } from "@alfred/contracts";
 import { readIntegrationAvailability } from "@alfred/assistant/connections";
-import { singularizePhrase } from "./metadata-defaults";
 import {
   evaluateToolAvailability,
   evaluateToolCatalog,
   getTool,
   listRegisteredTools,
+  singularizePhrase,
   type RegisteredTool,
-  type ToolAvailabilityResult,
-  type ToolUnavailabilityCode,
-} from "./registry";
+} from "@alfred/assistant/tool-runtime";
 
 interface ToolCandidateBase {
   name: ToolName;

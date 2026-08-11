@@ -3,7 +3,7 @@ import { describe, test } from "node:test";
 
 import { z } from "zod";
 
-import { deriveToolDiscovery } from "../../src/modules/tools/metadata-defaults";
+import { deriveToolDiscovery } from "../src/tool-runtime/internal/metadata-defaults";
 
 describe("deriveToolDiscovery", () => {
   test("derives a searchable baseline from identity, action, and schema fields", () => {

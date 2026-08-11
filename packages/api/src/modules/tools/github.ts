@@ -20,7 +20,7 @@ import type { IanaTimezone } from "@alfred/contracts";
 import type { z } from "zod";
 import { addDays, inZone } from "@alfred/assistant/time";
 import { runRestPassthrough } from "./passthrough";
-import { liveTool, type RegisteredTool } from "./registry";
+import { liveTool, type RegisteredTool } from "@alfred/assistant/tool-runtime";
 import { AppError } from "@alfred/contracts/app-errors";
 
 type GithubSearchInput = z.infer<typeof githubSearchInput>;

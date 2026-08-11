@@ -28,7 +28,7 @@ import {
 } from "@alfred/integrations/google";
 import { and, eq, inArray } from "drizzle-orm";
 import { runRestPassthrough } from "./passthrough";
-import { liveTool, type RegisteredTool } from "./registry";
+import { liveTool, type RegisteredTool } from "@alfred/assistant/tool-runtime";
 
 /**
  * Best-effort Gmail webview URL. Gmail accepts thread ids in the `#all/` path

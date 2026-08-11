@@ -16,7 +16,11 @@ import { AppError, toPublicAppError, type PublicAppError } from "@alfred/contrac
 import { logger } from "@alfred/logging";
 import { addDays, inZone } from "@alfred/assistant/time";
 import { runRestPassthrough } from "./passthrough";
-import { liveTool, type RegisteredTool, type ToolExecuteContext } from "./registry";
+import {
+  liveTool,
+  type RegisteredTool,
+  type ToolExecuteContext,
+} from "@alfred/assistant/tool-runtime";
 
 const MS_PER_DAY = 86_400_000;
 

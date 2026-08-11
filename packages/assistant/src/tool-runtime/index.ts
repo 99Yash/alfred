@@ -18,6 +18,50 @@ import { runToolCallRound } from "./internal/tool-call-round";
 import type { SpawnSubAgentInput } from "./sub-agent-contract";
 export { isMutatingToolName } from "./internal/result-routing";
 export { joinToolInput } from "./join-contract";
+// The tool catalog. `internal/registry.ts` owns the one
+// `Map<ToolName, RegisteredTool>` every reader in every package resolves; the
+// map itself and its sorted cache are module-locals that no barrel re-exports as
+// a value, so nothing outside this directory can name them. Two groups below,
+// and the split is deliberate.
+//
+// GROUP A — permanent. The registration + tool-contract door
+// `docs/plans/agent-friendly-module-structure.md:210` names for this module
+// ("registerTools, resolveSurface, executeCalls, resolveApproval; registry and
+// queues stay private"). The 21 `@alfred/api` tool-definition files are WRITERS:
+// they build with `liveTool` and register with `registerTool`/`registerTools`.
+export {
+  liveTool,
+  registerTool,
+  registerTools,
+  clearToolRegistryForTests,
+  type RegisteredTool,
+  type LiveToolArgs,
+  type ToolExecuteContext,
+  type ToolExecuteContextFields,
+} from "./internal/registry";
+// GROUP B — transitional readers, published only because the tool DEFINITIONS
+// still live in `@alfred/api` while their catalog lives here. These 13 names
+// collapse into group A's four-name shape when `packages/api/src/modules/tools/*`
+// moves into this module; nothing distinguishes them from group A to any check,
+// so the removal phase is a queue item, not a lint. Do not add to this group.
+//
+// Removal phase (campaign item 97): once the tool definitions live here, delete
+// this group and let `resolveSurface` / `executeCalls` answer for the readers.
+export {
+  getTool,
+  listRegisteredTools,
+  listKernelTools,
+  listToolsForIntegration,
+  assertKernelToolsRegistered,
+  riskTierCountsForIntegration,
+  availableToolNames,
+  evaluateToolRunContext,
+  evaluateToolAvailability,
+  evaluateToolCatalog,
+  resolveToolAvailability,
+  readsAvailabilitySnapshot,
+} from "./internal/registry";
+export { singularizePhrase } from "./internal/metadata-defaults";
 export {
   awaitSubAgentInputSchema,
   spawnSubAgentInputSchema,

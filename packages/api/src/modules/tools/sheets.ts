@@ -23,7 +23,7 @@ import {
   sheetsUpdateValuesInput,
 } from "@alfred/contracts";
 import { runRestPassthrough } from "./passthrough";
-import { liveTool, type RegisteredTool } from "./registry";
+import { liveTool, type RegisteredTool } from "@alfred/assistant/tool-runtime";
 
 export const sheetsTools: readonly RegisteredTool[] = [
   liveTool({

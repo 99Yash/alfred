@@ -17,7 +17,7 @@ import { readFileSync } from "node:fs";
 import { resolve, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
 import { asSchema } from "ai";
-import { getTool, listRegisteredTools } from "../modules/tools";
+import { getTool, listRegisteredTools } from "@alfred/assistant/tool-runtime";
 import { registerBuiltinTools } from "../modules/tools/runtime";
 import { systemToolKernel } from "@alfred/assistant/execution/tool-surface";
 import { toolSchemaSize } from "../modules/tools/schema-budget";
