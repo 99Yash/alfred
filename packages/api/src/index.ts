@@ -7,6 +7,7 @@ import {
   approvalsRoutes,
   chatRoutes,
   errorHandler,
+  events,
   getSessionCached,
   invalidateSessionToken,
   onboardingRoutes,
@@ -14,7 +15,6 @@ import {
   workflowRoutes,
 } from "@alfred/http";
 import { createUntrackedRedisConnection } from "@alfred/db/redis";
-import { events } from "./modules/events/index";
 import { replicache } from "./modules/replicache/index";
 import { connections } from "./modules/connections/index";
 import { meRoutes } from "./modules/me/index";

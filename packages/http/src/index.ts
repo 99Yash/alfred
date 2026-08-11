@@ -51,3 +51,22 @@ export { chatRoutes } from "./conversations";
 export { onboardingRoutes } from "./onboarding";
 export { skillsRoutes } from "./skills";
 export { workflowRoutes } from "./workflows";
+
+// Realtime push. `realtime/` is a non-domain subdirectory, like `middleware/`:
+// the flat `src/<domain>.ts` layout names product domains, and SSE delivery is
+// a transport concern that several domains push through. Only the wire half
+// lives here — frame encoding, heartbeats, `Last-Event-ID` replay handoff. The
+// substrate underneath it lives on `@alfred/assistant/realtime` and this route
+// imports it. Where the line falls is not decided by counting callers: parts
+// of that substrate are reached by this route alone, and pulling them across
+// on that basis is the mistake to avoid. Two properties decide it instead.
+// A module stays out if it shares mutable state or a written invariant with a
+// background loop — a Redis bus's subscribe half and its publish half agree on
+// one `channelFor` name, and what the outbox reader can serve is bounded by
+// what the retention reaper has already deleted; split either pair across a
+// package boundary and the invariant has two owners and no checker. And a
+// module stays out if the server's lifecycle starts or stops it, because
+// ADR-0089 fixes that direction at `apps/server -> @alfred/assistant/runtime`,
+// which does not pass through transport. What is left — code that only exists
+// because a client speaks HTTP — is what belongs here.
+export { events } from "./realtime/events";
