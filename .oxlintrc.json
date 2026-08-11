@@ -7,7 +7,13 @@
   // entry below, never with a nested config file — and never with a .gitignore line either. oxlint
   // and oxfmt both walk the tree honoring gitignore at any depth, so a gitignore line over a
   // tracked source file removes it from linting AND formatting while the file still ships; the pin
-  // does not reach that, so `pnpm check:oxlint-config` reports it by name and ignore line.
+  // does not reach that, so `pnpm check:oxlint-config` reports it by name and ignore line. An "overrides"
+  // entry REPLACES a rule's options wholesale, so every scoped fence below is a verbatim COPY of the root
+  // list: restate each root group byte-identically (group array AND message), or exempt this scope from one
+  // with an `oxlint-omission` marker line beside that entry's own rule key — the marker names one specifier
+  // of the omitted group and then a reason, and the two below are the pattern. `check:oxlint-config` asserts
+  // both directions, including a marker that has gone stale or vacuous. Do not spell a marker in prose up
+  // here: this header is the ROOT site's own region, and the root may not exempt itself from its own group.
   "plugins": null,
   "jsPlugins": ["oxlint-tailwindcss"],
   "categories": {},
@@ -89,7 +95,9 @@
         // TWO deliberate omissions: the @alfred/assistant/knowledge/internal group and the
         // @alfred/assistant/connections/ingestion/internal group are both absent on purpose — this tree IS
         // the allowlist for both of those doors. Every other root group must be restated here, because an
-        // override REPLACES the rule's options wholesale. Item 47 asserts this list against the root one.
+        // override REPLACES the rule's options wholesale.
+        // oxlint-omission: @alfred/assistant/knowledge/internal — apps/server/src/scripts/** IS this door's allowlist.
+        // oxlint-omission: @alfred/assistant/connections/ingestion/internal — apps/server/src/scripts/** IS this door's allowlist.
         "no-restricted-imports": [
           "error",
           {
@@ -111,7 +119,8 @@
       "rules": {
         // Deliberate omission: the @alfred/integrations/google/internal group is absent on purpose — these
         // two files ARE that door's allowlist. Every other root group must be restated here, because an
-        // override REPLACES the rule's options wholesale. Item 47 asserts this list against the root one.
+        // override REPLACES the rule's options wholesale.
+        // oxlint-omission: @alfred/integrations/google/internal — these two files ARE this door's allowlist.
         "no-restricted-imports": [
           "error",
           {
@@ -140,6 +149,7 @@
       "rules": {
         // Deliberate omission: the @alfred/assistant/connections/ingestion/internal group is absent on
         // purpose — this file IS that door's allowlist. Every other root group must be restated here.
+        // oxlint-omission: @alfred/assistant/connections/ingestion/internal — packages/api/test/gmail-ingest.test.ts IS this door's second allowlist.
         "no-restricted-imports": [
           "error",
           {

@@ -115,8 +115,7 @@ async function probeBaselineCompute() {
     );
     const out = await boundedStdout(cmd);
     const parsed = JSON.parse(out.text);
-    const ok =
-      cmd.exitCode === 0 && parsed.totalRows === 2000 && parsed.openCount > 0;
+    const ok = cmd.exitCode === 0 && parsed.totalRows === 2000 && parsed.openCount > 0;
     record(
       "baseline-compute",
       ok,
@@ -161,9 +160,7 @@ async function probeEgressDenied() {
     record(
       "egress-denied",
       ok,
-      ok
-        ? "DNS + HTTP both failed closed under deny-all"
-        : `LEAK: dns=${dns} http=${http}`,
+      ok ? "DNS + HTTP both failed closed under deny-all" : `LEAK: dns=${dns} http=${http}`,
       Date.now() - t0,
     );
   } catch (err) {
@@ -183,9 +180,7 @@ async function probeInfiniteLoop() {
       timeout: 15_000, // short session so the CPU spin is force-stopped
       networkPolicy: "deny-all",
     });
-    await sandbox.writeFiles([
-      { path: "spin.mjs", content: Buffer.from("while(true){}") },
-    ]);
+    await sandbox.writeFiles([{ path: "spin.mjs", content: Buffer.from("while(true){}") }]);
     let terminated = false;
     try {
       // Parent guard is generous vs the 15s session cap; if the session cap

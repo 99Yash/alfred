@@ -18,6 +18,7 @@ import { dirname, join } from "node:path";
 import {
   ROOT_OXLINT_CONFIG,
   oxlintScripts,
+  restrictedGroupCopyFailures,
   restrictedImportSites,
   restrictedSpecifierFailures,
   rootConfigFailures,
@@ -383,7 +384,8 @@ function wildcardKeyFailures() {
     ...drive("a file deleted behind a live wildcard key is reported", {
       mutated: { ...shape, files: ["packages/x/src/k/other.ts"] },
       control: shape,
-      expected: 'wildcard exports key "./k/*" to "packages/x/src/k/internal.ts", which no file git lists',
+      expected:
+        'wildcard exports key "./k/*" to "packages/x/src/k/internal.ts", which no file git lists',
     }),
   ];
 }
@@ -442,7 +444,7 @@ function globSpecifierFailures() {
         packages: { x: workspace("@alfred/x", { ".": "./src/index.ts" }) },
         rules: fence(["@alfred/*"]),
       },
-      expected: 'restricts a package pattern that matches no workspace package',
+      expected: "restricts a package pattern that matches no workspace package",
     }),
   ];
 }
@@ -619,6 +621,309 @@ function readerRefusalFailures() {
   return failures;
 }
 
+// --- Copies of the root fence across scopes --------------------------------------
+//
+// A scoped fence cannot be written as one added group, because an `overrides` entry
+// REPLACES the rule's options wholesale — so every scoped fence is a verbatim COPY of
+// the root list, and a copy left behind by an edit to the root lints exactly like a
+// copy that is current. The rule is pure, so every drive here is a literal: no repo,
+// no oxlint run, and the resolved `sites` shape handed in directly as
+// `restrictedImportSites` reports it.
+//
+// The specifiers below are deliberately not this repo's real doors, and the fixture
+// `files` globs deliberately begin with a segment no tracked top-level directory uses:
+// a literal that looks like a repo path is itself a `check:script-paths` failure.
+
+const COPY_KEY = '"no-restricted-imports"';
+const DOOR_A = "@alfred/fixture-door-a";
+const DOOR_B = "@alfred/fixture-door-b";
+const A_MESSAGE = "Door A is restricted to its allowlist.";
+const B_MESSAGE = "Door B is restricted to its allowlist.";
+const FIXTURE_SCOPE = ["fixture-tree/src/**"];
+
+/** One group as the resolver reports it: the specifier array and its message. */
+function copyGroup(group, message) {
+  return { group, message };
+}
+
+/** One rule site as `restrictedImportSites` reports it. A `"off"` site has no groups. */
+function copySite(where, ...groups) {
+  return { where, groups };
+}
+
+/**
+ * Config TEXT whose regions are chosen rather than measured: region k is the prose
+ * handed in at index k, and it is placed above occurrence k of the rule key, which is
+ * exactly where the attribution rule looks for a marker. The trailing value keeps the
+ * text shaped like the config without adding another occurrence of the key.
+ */
+function copySource(...regions) {
+  return regions.map((region) => `${region}\n  ${COPY_KEY}: ["error", {}]`).join("\n");
+}
+
+/** A declared omission as a config author writes it. */
+function omission(specifier, reason) {
+  return `        // oxlint-omission: ${specifier} — ${reason}`;
+}
+
+/**
+ * A drive: the fixture must report exactly one failure per `expected` substring, and no
+ * others. Asserting on the RENDERED message rather than on a count alone is the point —
+ * a failure fired for the wrong reason reads exactly like the one being claimed.
+ *
+ * @param {string} label
+ * @param {{sites: import("./oxlint-config.mjs").FenceSite[], regions: string[],
+ *          scopes: (string[]|null)[], expected: string[],
+ *          restated?: number, declared?: number}} shape
+ */
+function copyDrive(label, { sites, regions, scopes, expected, restated, declared }) {
+  const result = restrictedGroupCopyFailures({
+    sites,
+    source: copySource(...regions),
+    scopes,
+  });
+  const failures = [];
+
+  if (result.failures.length !== expected.length) {
+    return [
+      `${label}: expected ${expected.length} failure(s), received ${JSON.stringify(result.failures)}`,
+    ];
+  }
+  for (const want of expected) {
+    if (result.failures.filter((failure) => failure.includes(want)).length !== 1) {
+      failures.push(
+        `${label}: expected exactly one failure containing ${JSON.stringify(want)}, received ${JSON.stringify(result.failures)}`,
+      );
+    }
+  }
+  if (restated !== undefined) {
+    failures.push(...equal(result.restated, restated, `${label}: restated`));
+  }
+  if (declared !== undefined) {
+    failures.push(...equal(result.declared, declared, `${label}: declared`));
+  }
+  return failures;
+}
+
+/** The root list as every drive below starts from it. */
+function rootSite() {
+  return copySite("rules", copyGroup([DOOR_A], A_MESSAGE), copyGroup([DOOR_B], B_MESSAGE));
+}
+
+/** The false-positive control: an override restating both root groups is silent. */
+function healthyCopyFailures() {
+  return copyDrive("an override restating every root group is silent", {
+    sites: [
+      rootSite(),
+      copySite("overrides[0]", copyGroup([DOOR_A], A_MESSAGE), copyGroup([DOOR_B], B_MESSAGE)),
+    ],
+    regions: ["", ""],
+    scopes: [null, FIXTURE_SCOPE],
+    expected: [],
+    restated: 2,
+    declared: 0,
+  });
+}
+
+/**
+ * An override may ADD a group the root does not carry — `packages/http/src/**`'s
+ * self-barrel fence is exactly that, and an addition only narrows. A rule demanding
+ * equal lists would report this repo as broken today.
+ */
+function extraOverrideGroupFailures() {
+  return copyDrive("a group the override ADDS is allowed and uncounted", {
+    sites: [
+      rootSite(),
+      copySite(
+        "overrides[0]",
+        copyGroup([DOOR_A], A_MESSAGE),
+        copyGroup([DOOR_B], B_MESSAGE),
+        copyGroup(["."], "No self-barrel import."),
+      ),
+    ],
+    regions: ["", ""],
+    scopes: [null, FIXTURE_SCOPE],
+    expected: [],
+    restated: 2,
+  });
+}
+
+/** The message edited in one copy and not the other — the whole subject, minimal form. */
+function messageDriftFailures() {
+  return copyDrive("a copy whose message diverged by one character is reported", {
+    sites: [
+      rootSite(),
+      copySite(
+        "overrides[0]",
+        copyGroup([DOOR_A], `${A_MESSAGE}.`),
+        copyGroup([DOOR_B], B_MESSAGE),
+      ),
+    ],
+    regions: ["", ""],
+    scopes: [null, FIXTURE_SCOPE],
+    expected: [
+      `overrides[0] (fixture-tree/src/**) restates, with a DIVERGED message, the root group "${DOOR_A}"`,
+    ],
+    restated: 1,
+  });
+}
+
+/** The copy simply does not carry the group, and nothing says that is on purpose. */
+function absentCopyFailures() {
+  return copyDrive("a root group missing from an override with no declaration is reported", {
+    sites: [rootSite(), copySite("overrides[0]", copyGroup([DOOR_B], B_MESSAGE))],
+    regions: ["", ""],
+    scopes: [null, FIXTURE_SCOPE],
+    expected: [`does not restate the root group "${DOOR_A}"`],
+    restated: 1,
+  });
+}
+
+/**
+ * The motivating case: a specifier ADDED to the root group only. Keying the copies by
+ * their `group` array would make this look like a different fence and fire nothing.
+ */
+function groupArrayDriftFailures() {
+  return copyDrive("a root group that gained a specifier is reported at the stale copy", {
+    sites: [
+      copySite(
+        "rules",
+        copyGroup([DOOR_A, `${DOOR_A}/*`], A_MESSAGE),
+        copyGroup([DOOR_B], B_MESSAGE),
+      ),
+      copySite("overrides[0]", copyGroup([DOOR_A], A_MESSAGE), copyGroup([DOOR_B], B_MESSAGE)),
+    ],
+    regions: ["", ""],
+    scopes: [null, FIXTURE_SCOPE],
+    expected: ["restates, with a DIVERGED specifier list"],
+    restated: 1,
+  });
+}
+
+/** The sanctioned form: the scope IS the door's allowlist, and says so. */
+function declaredOmissionFailures() {
+  return copyDrive("a declared omission with a reason is accepted", {
+    sites: [rootSite(), copySite("overrides[0]", copyGroup([DOOR_B], B_MESSAGE))],
+    regions: ["", omission(DOOR_A, "this tree IS door A's allowlist.")],
+    scopes: [null, FIXTURE_SCOPE],
+    expected: [],
+    restated: 1,
+    declared: 1,
+  });
+}
+
+/** The declaration itself can rot: the root group moved and the exemption stayed. */
+function staleOmissionFailures() {
+  return copyDrive("a declaration naming a specifier no root group holds is reported", {
+    sites: [
+      rootSite(),
+      copySite("overrides[0]", copyGroup([DOOR_A], A_MESSAGE), copyGroup([DOOR_B], B_MESSAGE)),
+    ],
+    regions: ["", omission("@alfred/fixture-door-gone", "it used to live here.")],
+    scopes: [null, FIXTURE_SCOPE],
+    expected: [`declares an omission for "@alfred/fixture-door-gone", which no root`],
+    restated: 2,
+    declared: 0,
+  });
+}
+
+/** A declaration for a group the site restates exempts nothing and will rot unread. */
+function vacuousOmissionFailures() {
+  return copyDrive("a declaration for a group the site restates is reported", {
+    sites: [
+      rootSite(),
+      copySite("overrides[0]", copyGroup([DOOR_A], A_MESSAGE), copyGroup([DOOR_B], B_MESSAGE)),
+    ],
+    regions: ["", omission(DOOR_A, "supposedly exempt.")],
+    scopes: [null, FIXTURE_SCOPE],
+    expected: ["AND restates the group holding it"],
+    restated: 2,
+    declared: 0,
+  });
+}
+
+/** The reason is required and never read — the only thing that tells the next editor. */
+function reasonlessOmissionFailures() {
+  return copyDrive("a declaration with no reason is reported", {
+    sites: [rootSite(), copySite("overrides[0]", copyGroup([DOOR_B], B_MESSAGE))],
+    regions: ["", `        // oxlint-omission: ${DOOR_A}`],
+    scopes: [null, FIXTURE_SCOPE],
+    expected: ["with no reason after it"],
+    restated: 1,
+    declared: 0,
+  });
+}
+
+/** The root cannot exempt itself from its own group: it deletes the group instead. */
+function rootRegionOmissionFailures() {
+  return copyDrive("a declaration in the root site's own region is reported", {
+    sites: [
+      rootSite(),
+      copySite("overrides[0]", copyGroup([DOOR_A], A_MESSAGE), copyGroup([DOOR_B], B_MESSAGE)),
+    ],
+    regions: [omission(DOOR_A, "not a thing the root may say."), ""],
+    scopes: [null, FIXTURE_SCOPE],
+    expected: ["The root cannot omit its own group"],
+    restated: 2,
+  });
+}
+
+/**
+ * The positional attribution's own gate. Two readers disagreeing about order is the one
+ * way a marker lands on the wrong site, and its outcome must be RED — a skip here would
+ * pass every diverged copy in the file.
+ */
+function regionCountMismatchFailures() {
+  return copyDrive("a text/site count mismatch REFUSES rather than skipping", {
+    sites: [
+      rootSite(),
+      copySite("overrides[0]", copyGroup([DOOR_A], A_MESSAGE), copyGroup([DOOR_B], B_MESSAGE)),
+      copySite("overrides[1]", copyGroup([DOOR_A], A_MESSAGE), copyGroup([DOOR_B], B_MESSAGE)),
+    ],
+    regions: ["", ""],
+    scopes: [null, FIXTURE_SCOPE, FIXTURE_SCOPE],
+    expected: [`holds 2 occurrence(s) of ${COPY_KEY} but oxlint resolved 3 rule site(s)`],
+  });
+}
+
+/** The vacuity floors: a rule that compared nothing is a failure, not a pass. */
+function emptyCopySurfaceFailures() {
+  const noRootGroups = copyDrive("a root site with no groups is reported", {
+    sites: [copySite("rules"), copySite("overrides[0]", copyGroup([DOOR_A], A_MESSAGE))],
+    regions: ["", ""],
+    scopes: [null, FIXTURE_SCOPE],
+    expected: ["so this rule compared nothing"],
+    restated: 0,
+  });
+  const noOverrides = copyDrive("a config with no override site is reported", {
+    sites: [rootSite()],
+    regions: [""],
+    scopes: [null],
+    expected: ["compared the root list against nothing"],
+    restated: 0,
+  });
+  return [...noRootGroups, ...noOverrides];
+}
+
+/**
+ * A rule-level `"off"` resolves to a site with ZERO groups, so it must declare an
+ * omission for EVERY root group. Loud is right: a blanket `"off"` written for one door
+ * silently opens every other door the same rule carries.
+ */
+function severityStringSiteFailures() {
+  return copyDrive("an override that disarms the rule is reported once per root group", {
+    sites: [rootSite(), copySite("overrides[0]")],
+    regions: ["", ""],
+    scopes: [null, FIXTURE_SCOPE],
+    expected: [
+      `does not restate the root group "${DOOR_A}"`,
+      `does not restate the root group "${DOOR_B}"`,
+    ],
+    restated: 0,
+    declared: 0,
+  });
+}
+
 // --- The file walk ---------------------------------------------------------------
 //
 // A third mechanism, and the one no config can govern: oxlint and oxfmt honor
@@ -768,6 +1073,19 @@ export function oxlintConfigSelfTestFailures() {
     ...allowOverrideFailures(),
     ...vacuousConfigFailures(),
     ...readerRefusalFailures(),
+    ...healthyCopyFailures(),
+    ...extraOverrideGroupFailures(),
+    ...messageDriftFailures(),
+    ...absentCopyFailures(),
+    ...groupArrayDriftFailures(),
+    ...declaredOmissionFailures(),
+    ...staleOmissionFailures(),
+    ...vacuousOmissionFailures(),
+    ...reasonlessOmissionFailures(),
+    ...rootRegionOmissionFailures(),
+    ...regionCountMismatchFailures(),
+    ...emptyCopySurfaceFailures(),
+    ...severityStringSiteFailures(),
     ...walkedSourceFailures(),
     ...rootIgnoredSourceFailures(),
     ...nestedIgnoredSourceFailures(),
