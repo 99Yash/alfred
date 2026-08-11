@@ -252,7 +252,7 @@ function emptyRootConfigFailures() {
  * read by the same oxlint binary the repo lints with, spawned against this fixture,
  * which is why a directory with no `node_modules` is enough.
  */
-function fenceRepo(fixture, { packages, rules, overrides }) {
+function fenceRepo(fixture, { packages, rules, overrides, files = [] }) {
   execFileSync("git", ["init", "--quiet"], { cwd: fixture });
   write(fixture, "package.json", `${JSON.stringify({ name: "fixture" }, null, 2)}\n`);
   write(fixture, "pnpm-workspace.yaml", 'packages:\n  - "packages/*"\n');
@@ -260,6 +260,9 @@ function fenceRepo(fixture, { packages, rules, overrides }) {
     write(fixture, `packages/${dir}/package.json`, `${JSON.stringify(manifest, null, 2)}\n`);
     write(fixture, `packages/${dir}/src/index.ts`, "export const value = 1;\n");
   }
+  // A wildcard `exports` key is resolved to a concrete file, so a drive whose subject
+  // is a live wildcard has to put the file behind it on disk.
+  for (const file of files) write(fixture, file, "export const value = 1;\n");
   const config = overrides === undefined ? { rules } : { rules, overrides };
   write(fixture, ROOT_OXLINT_CONFIG, `${JSON.stringify(config, null, 2)}\n`);
 }
@@ -352,17 +355,23 @@ function deadSubpathFailures() {
  * report the repo's own armed fence as dead.
  */
 function wildcardKeyFailures() {
-  const result = fenceFailures({
+  const shape = {
     packages: { x: workspace("@alfred/x", { "./k/*": "./src/k/*.ts" }) },
     rules: fence(["@alfred/x/k/internal"]),
-  });
+    files: ["packages/x/src/k/internal.ts"],
+  };
+  const result = fenceFailures(shape);
   return [
-    ...equal(
-      result.failures,
-      [],
-      "a subpath published only by a wildcard exports key resolves",
-    ),
+    ...equal(result.failures, [], "a subpath published only by a wildcard exports key resolves"),
     ...equal(result.subpathChecked, 1, "and it is gated on its subpath, not waved through"),
+    // The half `pnpm check:exports` cannot reach. Its wildcard branch asks whether the
+    // target matches SOME file, and `./src/k/*.ts` still matches the survivors, so
+    // deleting the one module the fence names leaves every other gate green.
+    ...drive("a file deleted behind a live wildcard key is reported", {
+      mutated: { ...shape, files: ["packages/x/src/k/other.ts"] },
+      control: shape,
+      expected: 'wildcard exports key "./k/*" to "packages/x/src/k/internal.ts", which no file git lists',
+    }),
   ];
 }
 
