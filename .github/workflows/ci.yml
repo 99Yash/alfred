@@ -311,6 +311,17 @@ jobs:
       - name: Assistant tests
         run: corepack pnpm --filter @alfred/assistant test
 
+  # This job runs the browser bundle as well as the web unit tests. The name is
+  # unchanged on purpose — a rename costs the same as a new check name, and a
+  # second job would pay a second full `pnpm install` for the same signal. Until
+  # the build step below, no job in this workflow invoked vite, so a change that
+  # type-checked and passed every unit test could still break `vite build`, and
+  # the first place that showed up was a deploy. The build also regenerates the
+  # tracked `apps/web/src/routeTree.gen.ts`, which is why the assertion after it
+  # is worth its one line: the file has exactly one writer, the router plugin,
+  # and `@tanstack/router-plugin` is a floating caret (`^1.121.7` in
+  # `pnpm-workspace.yaml`), so a plugin bump can change what it emits. `vite
+  # build` needs no `env:` and no `services:` — `apps/web` has no `.env*` file.
   web-unit-tests:
     name: web-unit-tests
     runs-on: ubuntu-latest
@@ -336,6 +347,16 @@ jobs:
 
       - name: Install dependencies
         run: corepack pnpm install --frozen-lockfile
+
+      - name: Web build
+        run: corepack pnpm --filter web build
+
+      - name: Generated route tree matches its generator
+        run: |
+          if ! git diff --exit-code -- apps/web/src/routeTree.gen.ts; then
+            echo "::error file=apps/web/src/routeTree.gen.ts::The committed route tree is not what @tanstack/router-plugin emits. Regenerate it and commit the result verbatim: pnpm --filter web build && git add apps/web/src/routeTree.gen.ts"
+            exit 1
+          fi
 
       - name: Web unit tests
         run: corepack pnpm --filter web test
