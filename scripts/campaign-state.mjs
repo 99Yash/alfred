@@ -17,6 +17,7 @@
  *
  * Usage:
  *   campaign-state.mjs set  --state <path> --id <id> phase=review round=1 pr=764 note="..."
+ *   campaign-state.mjs add  --state <path> --item-slug fence-the-door --title "..." [--prereqs 39,73]
  *   campaign-state.mjs note --state <path> "- [70 design] the fact another item needs"
  *   campaign-state.mjs get  --state <path> [--id <id>]
  *
@@ -206,6 +207,63 @@ function commandNote(statePath, lines) {
   });
 }
 
+/**
+ * Appends a follow-up item and prints the id it was given.
+ *
+ * The id is assigned HERE, under the lock, and never passed in. A phase that picks its own
+ * id reads the queue, decides "the next one is 78", and then loses the race to another lane
+ * that decided the same thing — or writes an id that a lane appended in the meantime, which
+ * silently renames someone else's item. Two lanes calling this concurrently get two ids.
+ *
+ * The item FILE stays the caller's job: only the phase knows what the finding says. The
+ * printed path is where it must go, because `campaign.sh` resolves `items/<id>-<slug>.md`
+ * from the id and slug recorded here and exits if the file is missing.
+ */
+function commandAdd(statePath, flags) {
+  const itemSlug = flags["item-slug"];
+  const title = flags.title;
+  if (!itemSlug) die("add needs --item-slug <kebab-case-slug>");
+  if (!title) die("add needs --title <one line>");
+  if (!/^[a-z0-9]+(-[a-z0-9]+)*$/.test(itemSlug)) {
+    die(`--item-slug must be kebab-case, received ${itemSlug}`);
+  }
+  const prereqs = flags.prereqs ? flags.prereqs.split(",").filter((one) => one.length > 0) : [];
+
+  withLock(statePath, () => {
+    const state = readState(statePath);
+    for (const prereq of prereqs) {
+      if (!state.items.some((item) => item.id === prereq)) {
+        die(`prereq ${prereq} is not an item in ${statePath}`);
+      }
+    }
+    // Ids are zero-padded strings. Keep the existing width so `07` does not become `7`.
+    const numeric = state.items.map((item) => Number(item.id)).filter(Number.isFinite);
+    const width = Math.max(...state.items.map((item) => item.id.length), 2);
+    const nextId = String(Math.max(0, ...numeric) + 1).padStart(width, "0");
+    if (state.items.some((item) => item.id === nextId)) die(`id ${nextId} already exists`);
+
+    selftestDelay();
+    state.items.push({
+      id: nextId,
+      slug: itemSlug,
+      title,
+      strength: flags.strength ?? "Worth exploring",
+      phase: "design",
+      round: 0,
+      prereqs,
+      needsCoverage: false,
+      branch: null,
+      worktree: null,
+      pr: null,
+      note: null,
+      updatedAt: new Date().toISOString().replace(/\.\d+Z$/, "Z"),
+    });
+    writeAtomic(statePath, `${JSON.stringify(state, null, 2)}\n`);
+    const itemFile = join(dirname(statePath), "items", `${nextId}-${itemSlug}.md`);
+    process.stdout.write(`added item ${nextId}\nwrite its item file at: ${itemFile}\n`);
+  });
+}
+
 function commandGet(statePath, flags) {
   const state = readState(statePath);
   if (!flags.id) {
@@ -227,9 +285,12 @@ switch (command) {
   case "note":
     commandNote(resolveStatePath(flags), rest);
     break;
+  case "add":
+    commandAdd(resolveStatePath(flags), flags);
+    break;
   case "get":
     commandGet(resolveStatePath(flags), flags);
     break;
   default:
-    die(`unknown command ${command ?? "(none)"} — expected set, note, or get`);
+    die(`unknown command ${command ?? "(none)"} — expected set, add, note, or get`);
 }
