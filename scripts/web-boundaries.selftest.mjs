@@ -45,6 +45,23 @@ function withFixture(prefix, body) {
   }
 }
 
+/**
+ * A repository shaped like this one: workspace roots declared in the yaml, and
+ * `apps/web` declared as a workspace so the enumeration lists the app the fence
+ * seeds from.
+ *
+ * Nothing is committed — discovery asks git for `--others --exclude-standard`.
+ * Without the `apps/web` manifest the fence still seeds `apps/web/src`, but it also
+ * reports that `BROWSER_ENTRY_APPS` names an app the enumeration does not list. That
+ * is the ruling working, and noise in every fixture that is about something else, so
+ * the fixtures that mean to test it declare it explicitly instead.
+ */
+function initWorkspaceRepo(fixture) {
+  execFileSync("git", ["init", "--quiet"], { cwd: fixture });
+  write(fixture, "pnpm-workspace.yaml", "packages:\n  - apps/*\n  - packages/*\n");
+  write(fixture, "apps/web/package.json", '{ "name": "web" }\n');
+}
+
 function runtimeBindingFailures() {
   const failures = [];
   // Pins today's behavior exactly. The widened surface must not change which
@@ -116,7 +133,7 @@ function lexicalPositionFailures() {
     ].join("\n");
     write(fixture, "sample.ts", source);
 
-    const violations = findViolations(join(fixture, "sample.ts"));
+    const violations = findViolations(fixture, "sample.ts");
     const expected = [{ line: 11, specifier: "@alfred/db" }];
     if (JSON.stringify(violations) !== JSON.stringify(expected)) {
       failures.push(
@@ -141,7 +158,7 @@ function mentionedPackageRootFailures() {
   const failures = [];
 
   const build = (fixture, edge) => {
-    execFileSync("git", ["init", "--quiet"], { cwd: fixture });
+    initWorkspaceRepo(fixture);
     write(fixture, "apps/web/src/entry.ts", `${edge}\nexport const used = 1;\n`);
     workspace(fixture, "logging", { "log.ts": "export const log = 1;\n" });
   };
@@ -171,7 +188,7 @@ function mentionedPackageRootFailures() {
   // having no runtime binding, and the package leaves the fence entirely — no
   // root, so no violation and no emptiness to report.
   withFixture("alfred-web-boundaries-swallow-root-", (fixture) => {
-    execFileSync("git", ["init", "--quiet"], { cwd: fixture });
+    initWorkspaceRepo(fixture);
     write(
       fixture,
       "apps/web/src/entry.ts",
@@ -211,7 +228,7 @@ function statementBoundaryFailures() {
   const expectViolation = (label, source, expected) =>
     withFixture("alfred-web-boundaries-statement-", (fixture) => {
       write(fixture, "sample.ts", source);
-      const violations = findViolations(join(fixture, "sample.ts"));
+      const violations = findViolations(fixture, "sample.ts");
       if (JSON.stringify(violations) !== JSON.stringify(expected)) {
         failures.push(
           `${label}: expected ${JSON.stringify(expected)}, received ${JSON.stringify(violations)}`,
@@ -259,7 +276,7 @@ function statementBoundaryFailures() {
  * through each of the three import shapes, and two decoys.
  */
 function buildReachabilityFixture(fixture) {
-  execFileSync("git", ["init", "--quiet"], { cwd: fixture });
+  initWorkspaceRepo(fixture);
 
   write(
     fixture,
@@ -369,7 +386,7 @@ function widenedScanFailures() {
     );
 
     const flagged = browserSurface(fixture)
-      .files.filter((file) => findViolations(join(fixture, file)).length > 0)
+      .files.filter((file) => findViolations(fixture, file).length > 0)
       .sort();
     // `entry.ts` is the old surface's own catch (it binds `@alfred/db`); the
     // other four are the ones a scan fixed at `apps/web/src` cannot see.
@@ -399,7 +416,7 @@ function surfaceFailureFailures() {
   // survives such a move). Both pass the `existsSync` guard, so both would sit
   // inside the surface holding a leak nobody reads.
   withFixture("alfred-web-boundaries-empty-root-", (fixture) => {
-    execFileSync("git", ["init", "--quiet"], { cwd: fixture });
+    initWorkspaceRepo(fixture);
     write(
       fixture,
       "apps/web/src/entry.ts",
@@ -434,7 +451,7 @@ function surfaceFailureFailures() {
   // A reached package that keeps no sources in `src/`. `packages/config` is this
   // shape in the real repo, so the skip must be loud rather than silent.
   withFixture("alfred-web-boundaries-layout-", (fixture) => {
-    execFileSync("git", ["init", "--quiet"], { cwd: fixture });
+    initWorkspaceRepo(fixture);
     write(
       fixture,
       "apps/web/src/entry.ts",
@@ -458,7 +475,7 @@ function surfaceFailureFailures() {
   // The seed root is a constant, so a web app that moves leaves the walk with
   // nothing to follow. Scanning zero files must be red, not green.
   withFixture("alfred-web-boundaries-seed-", (fixture) => {
-    execFileSync("git", ["init", "--quiet"], { cwd: fixture });
+    initWorkspaceRepo(fixture);
     write(
       fixture,
       "apps/web/app/entry.ts",
@@ -474,6 +491,110 @@ function surfaceFailureFailures() {
     if (reported.length === 0) {
       failures.push(
         "browserSurface must report a missing browser entry root and an empty file list instead of passing vacuously",
+      );
+    }
+  });
+
+  return failures;
+}
+
+/**
+ * The `apps/*` ruling: enumerated, never walked as a browser root, and classified by
+ * hand. Each case is the event the declaration exists to catch.
+ */
+function appRulingFailures() {
+  const failures = [];
+
+  const expectSurfaceFailure = (label, needles, build) =>
+    withFixture(`alfred-web-boundaries-${label}-`, (fixture) => {
+      build(fixture);
+      const reported = browserSurface(fixture).failures;
+      for (const needle of needles) {
+        if (reported.some((failure) => failure.includes(needle))) continue;
+        failures.push(
+          `${label}: browserSurface must report a failure naming ${JSON.stringify(needle)}, received ${JSON.stringify(reported)}`,
+        );
+      }
+    });
+
+  // Add-an-app. A second app is neither browser-bound nor Node-only until somebody
+  // says so, and the message has to name both sets or the reader cannot act on it.
+  expectSurfaceFailure(
+    "unclassified-app",
+    ["apps/marketing", "BROWSER_ENTRY_APPS", "NODE_ONLY_APPS"],
+    (fixture) => {
+      initWorkspaceRepo(fixture);
+      write(fixture, "apps/web/src/entry.ts", "export const used = 1;\n");
+      write(fixture, "apps/marketing/package.json", '{ "name": "marketing" }\n');
+      write(
+        fixture,
+        "apps/marketing/src/main.ts",
+        'import { serverEnv } from "@alfred/env/server";\nexport const leak = serverEnv;\n',
+      );
+    },
+  );
+
+  // Move-the-app. The seed is a declaration, so an app that moves or is renamed
+  // leaves it pointing at a tree the enumeration does not list.
+  expectSurfaceFailure("moved-app", ["BROWSER_ENTRY_APPS names apps/web"], (fixture) => {
+    execFileSync("git", ["init", "--quiet"], { cwd: fixture });
+    write(fixture, "pnpm-workspace.yaml", "packages:\n  - apps/*\n  - packages/*\n");
+    write(fixture, "apps/client/package.json", '{ "name": "client" }\n');
+    write(fixture, "apps/client/src/entry.ts", "export const used = 1;\n");
+  });
+
+  // Corroboration, and the only argument against a browser app misfiled as Node-only.
+  // A stated blind spot: an SSR browser app has no `index.html` and slips through.
+  expectSurfaceFailure("misfiled-node-app", ["apps/server", "index.html"], (fixture) => {
+    initWorkspaceRepo(fixture);
+    write(fixture, "apps/web/src/entry.ts", "export const used = 1;\n");
+    write(fixture, "apps/server/package.json", '{ "name": "server" }\n');
+    write(fixture, "apps/server/index.html", "<!doctype html>\n");
+  });
+
+  // The vacuous-pass guard, and the reason `listWorkspaces` returns failures at all:
+  // an enumeration that resolves nothing must not leave this check reporting a
+  // one-root surface it never verified.
+  withFixture("alfred-web-boundaries-vacuous-", (fixture) => {
+    execFileSync("git", ["init", "--quiet"], { cwd: fixture });
+    write(
+      fixture,
+      "apps/web/src/entry.ts",
+      'import { pool } from "@alfred/db";\nexport const used = pool;\n',
+    );
+    const reported = browserSurface(fixture).failures;
+    if (!reported.some((failure) => failure.includes("pnpm-workspace.yaml"))) {
+      failures.push(
+        `a repository with no pnpm-workspace.yaml must make browserSurface report the refused enumeration, received ${JSON.stringify(reported)}`,
+      );
+    }
+  });
+
+  // `apps/*` now joins the package-name map. Inert in this repository, where the apps
+  // are named `web` and `server` and `packageName` yields only `@alfred/*` — pinned so
+  // that an app published under the scope becoming a derived root is a recorded
+  // decision rather than an accident somebody discovers later.
+  withFixture("alfred-web-boundaries-app-package-", (fixture) => {
+    initWorkspaceRepo(fixture);
+    write(
+      fixture,
+      "apps/web/src/entry.ts",
+      'import { widget } from "@alfred/kiosk";\nexport const used = widget;\n',
+    );
+    write(fixture, "apps/kiosk/package.json", '{ "name": "@alfred/kiosk" }\n');
+    write(fixture, "apps/kiosk/src/widget.ts", "export const widget = 1;\n");
+
+    const { roots, failures: reported } = browserSurface(fixture);
+    if (!roots.includes("apps/kiosk/src")) {
+      failures.push(
+        `an app whose manifest name is @alfred/* and which the browser surface imports at runtime must become a derived root, received ${JSON.stringify(roots)}`,
+      );
+    }
+    // It is still an app, so it still needs classifying — being reached is not being
+    // declared.
+    if (!reported.some((failure) => failure.includes("apps/kiosk"))) {
+      failures.push(
+        `a reached app must still be reported as unclassified, received ${JSON.stringify(reported)}`,
       );
     }
   });
@@ -625,6 +746,7 @@ export function webBoundarySelfTestFailures() {
     ...browserRootsFailures(),
     ...widenedScanFailures(),
     ...surfaceFailureFailures(),
+    ...appRulingFailures(),
     ...docListFailuresFailures(),
   ];
 }

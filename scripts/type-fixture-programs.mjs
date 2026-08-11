@@ -36,7 +36,7 @@ import { existsSync, readFileSync, realpathSync } from "node:fs";
 import { join, resolve } from "node:path";
 
 import { listGitSourceFiles } from "./git-source-files.mjs";
-import { workspaceManifests } from "./package-exports.mjs";
+import { listWorkspaces } from "./workspaces.mjs";
 
 const MANIFEST = "package.json";
 const FIXTURE_SUFFIX = ".type-test.ts";
@@ -215,14 +215,17 @@ export function programFiles(root, projectPath, { tsc = defaultTscPath(root), ca
  * rather than from a count on the real tree.
  */
 export function typeFixtureFailures(root, tsc = defaultTscPath(root)) {
-  const { manifests, globs, failures } = workspaceManifests(root);
-  if (manifests.length === 0) return { checked: 0, projectsProbed: 0, failures };
+  const { workspaces, globs, failures } = listWorkspaces(root);
+  if (workspaces.length === 0) return { checked: 0, projectsProbed: 0, failures };
 
   const listed = listGitSourceFiles(globs, root);
   const fixtures = listed.filter((file) => file.endsWith(FIXTURE_SUFFIX));
 
-  const packageDirs = manifests
-    .map((manifest) => manifest.slice(0, -(MANIFEST.length + 1)))
+  // Longest first, so a fixture inside a nested workspace matches that workspace
+  // rather than the one above it. The order is this check's `startsWith` concern,
+  // not a property of the enumeration.
+  const packageDirs = workspaces
+    .map((workspace) => workspace.dir)
     .sort((left, right) => right.length - left.length);
 
   const byPackage = new Map();

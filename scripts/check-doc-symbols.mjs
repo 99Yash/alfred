@@ -26,10 +26,14 @@ import { readFileSync, readdirSync, statSync } from "node:fs";
 import { dirname, join, relative } from "node:path";
 import { fileURLToPath } from "node:url";
 
+import { listWorkspaces } from "./workspaces.mjs";
+
 const ROOT = dirname(dirname(fileURLToPath(import.meta.url)));
 const SEARCH_ROOTS = ["packages", "apps", "scripts"];
 const SEARCH_EXTENSIONS = /\.(ts|tsx|mjs|js|json|sql|yaml|yml)$/;
 const SKIP_DIRECTORIES = new Set(["node_modules", "dist", "build", ".turbo", "coverage"]);
+
+const { workspaces, failures: workspaceFailures } = listWorkspaces(ROOT);
 
 /** Docs that claim to describe current code. */
 const DOC_FILES = [
@@ -37,7 +41,7 @@ const DOC_FILES = [
   "CLAUDE.md",
   "CONTEXT.md",
   "docs/README.md",
-  ...packageGuides(),
+  ...packageGuides(workspaces),
 ];
 
 /**
@@ -79,18 +83,21 @@ function referenceDocs() {
     .map((name) => `docs/reference/${name}`);
 }
 
-function packageGuides() {
+/**
+ * The per-workspace guide of every declared workspace.
+ *
+ * Keyed on the directory and never on the manifest's `name`: a guide file is prose
+ * about a tree, so a workspace whose manifest is nameless or unreadable still has a
+ * guide that claims to describe current code.
+ */
+function packageGuides(declared) {
   const guides = [];
-  for (const area of ["packages", "apps"]) {
-    const dir = join(ROOT, area);
-    for (const entry of readdirSync(dir, { withFileTypes: true })) {
-      if (!entry.isDirectory()) continue;
-      for (const name of ["CLAUDE.md", "AGENTS.md"]) {
-        const candidate = join(dir, entry.name, name);
-        if (!isFile(candidate)) continue;
-        guides.push(relative(ROOT, candidate));
-        break; // AGENTS.md is usually a symlink to CLAUDE.md; one read is enough.
-      }
+  for (const workspace of declared) {
+    for (const name of ["CLAUDE.md", "AGENTS.md"]) {
+      const candidate = join(ROOT, workspace.dir, name);
+      if (!isFile(candidate)) continue;
+      guides.push(relative(ROOT, candidate));
+      break; // AGENTS.md is usually a symlink to CLAUDE.md; one read is enough.
     }
   }
   return guides;
@@ -193,6 +200,15 @@ for (const doc of DOC_FILES) {
   }
 }
 
+// A refused enumeration means the per-workspace guides were collected from a
+// shorter list of workspaces than the repository declares, so "every named symbol
+// resolves" would be a statement about docs this run never opened.
+if (workspaceFailures.length > 0) {
+  console.error("The workspace enumeration did not resolve, so some package guides went unread:\n");
+  for (const failure of workspaceFailures) console.error(`- ${failure}`);
+  console.error("");
+}
+
 if (missing.length > 0) {
   console.error("Docs name symbols that do not exist in packages/apps/scripts:\n");
   for (const { doc, symbol } of missing) {
@@ -203,8 +219,9 @@ if (missing.length > 0) {
       "\nscripts/check-doc-symbols.mjs with a reason if it is genuinely external" +
       "\nor illustrative.",
   );
-  process.exit(1);
 }
+
+if (missing.length > 0 || workspaceFailures.length > 0) process.exit(1);
 
 console.log(
   `check-doc-symbols: ${DOC_FILES.length} docs scanned, every named symbol resolves.`,
