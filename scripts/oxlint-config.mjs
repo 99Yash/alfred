@@ -16,6 +16,19 @@
 //   - the rules here report a stray config AND a lint script that lost the pin, so
 //     neither the file nor the flag's removal is silent.
 //
+// A THIRD mechanism shrinks the same fence, and the pin above is measured NOT to
+// close it: the FILE WALK. oxlint and oxfmt both honor `.gitignore`, at any depth, so
+// a gitignore line naming an already-tracked source file removes it from the walk
+// while leaving it tracked — it still ships, still compiles, still runs in CI, and no
+// rule can fire on a file the linter never opens. Measured on 1.77.0 / oxfmt 0.26.0,
+// and the reason it needs its own rule rather than a flag: `--config` reports the same
+// 2-of-4 violations as a bare run, `--no-ignore` disables `.eslintignore`/
+// `--ignore-path`/`--ignore-pattern` and not the gitignore walk, `--ignore-path` ADDS
+// an ignore file rather than replacing the walk, and naming the hidden file explicitly
+// on the command line does not lint it because the filter runs after argument
+// expansion. There is no oxlint invocation that lints a gitignored file, so the walk
+// has to be ASSERTED. That is `unwalkedSourceFailures` below.
+//
 // The contents half is the same shape of silence one level in. oxlint matches a
 // `no-restricted-imports` group specifier as PURE TEXT with no module resolution, so
 // a group naming a specifier nobody can write is indistinguishable from a fence that
@@ -28,7 +41,7 @@
 // Enforcing consumer: ../scripts/check-oxlint-config.mjs. Fixtures:
 // ./oxlint-config.selftest.mjs.
 
-import { execFileSync } from "node:child_process";
+import { execFileSync, spawnSync } from "node:child_process";
 import { readFileSync } from "node:fs";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -121,6 +134,120 @@ export function rootConfigFailures(root) {
     ];
   }
   return [];
+}
+
+// Every extension oxlint and oxfmt open when they walk a directory. The list is
+// module-private on purpose: it is one rule's input, and exporting it would invite a
+// second consumer to re-derive the walked surface from it and drift.
+//
+// `:(glob)` is required for `**` to mean "any depth INCLUDING none". Measured in a
+// fixture holding four `.ts` files, two at the root: the same pathspec without the
+// magic returns only the two nested ones, because `**/` then demands an intervening
+// directory. A rule that enumerated half the tree would report success over the half
+// it never read, so the magic prefix is load-bearing rather than decorative.
+const WALKED_SOURCE_PATTERNS = [
+  ":(glob)**/*.ts",
+  ":(glob)**/*.tsx",
+  ":(glob)**/*.js",
+  ":(glob)**/*.jsx",
+  ":(glob)**/*.mjs",
+  ":(glob)**/*.cjs",
+  ":(glob)**/*.mts",
+  ":(glob)**/*.cts",
+];
+
+const CHECK_IGNORE = "git check-ignore --no-index -v";
+
+/**
+ * Tracked source files that oxlint and oxfmt will never open, because a gitignore
+ * rule excludes them from the walk.
+ *
+ * Enumeration is `listGitSourceFiles`, which needs no new collector: its
+ * `--exclude-standard` filters only the `--others` half, so `--cached` still
+ * contributes tracked-and-ignored paths. That asymmetry is exactly the surface wanted.
+ * An untracked-and-ignored file is correctly out of scope by construction — it cannot
+ * reach CI, so a linter that never opens it costs nothing.
+ *
+ * The verdict comes from git rather than from a gitignore parser of our own, so the
+ * failure names the ignore file, its line and the pattern with no work here. Two flags
+ * are load-bearing and were measured, not assumed:
+ *
+ *   - `--no-index` is REQUIRED. Without it git consults the index and reports ZERO
+ *     hits for a tracked-and-ignored file, which is this rule's entire subject
+ *     reappearing as a flag;
+ *   - `-v` is what makes the failure locatable rather than a bare filename.
+ *
+ * `git check-ignore`'s exit code is a three-way answer, not a boolean: 0 = hits,
+ * 1 = no hits, 128 = git failed. So the status is branched on explicitly. A
+ * `try { … } catch { return [] }` around it would fold 128 — a bad pathspec, a corrupt
+ * repo, a git that is not there — into the green path, recreating in a new rule the
+ * fail-open shape this whole file exists to end. For the same reason `checked === 0`
+ * is a failure rather than a pass, and a `-v` row this reader cannot parse is a
+ * failure rather than a skip.
+ *
+ * @param {string} root
+ * @returns {{failures: string[], checked: number, hidden: Array<{file: string, ignoreFile: string, line: string, pattern: string}>}}
+ */
+export function unwalkedSourceFailures(root) {
+  const files = listGitSourceFiles(WALKED_SOURCE_PATTERNS, root);
+  if (files.length === 0) {
+    return {
+      checked: 0,
+      hidden: [],
+      failures: [
+        `no source file was enumerated across the ${WALKED_SOURCE_PATTERNS.length} extensions oxlint and oxfmt walk, so this check examined nothing. An empty read reports success exactly like a repo whose whole surface is visible.`,
+      ],
+    };
+  }
+
+  const result = spawnSync("git", ["check-ignore", "--no-index", "--stdin", "-v"], {
+    cwd: root,
+    input: `${files.join("\n")}\n`,
+    encoding: "utf8",
+  });
+
+  if (result.error !== undefined) {
+    return {
+      checked: files.length,
+      hidden: [],
+      failures: [
+        `\`${CHECK_IGNORE}\` did not run (${result.error.message}). It is the only reader of which files oxlint's walk can reach, so without it this check would pass over ${files.length} unexamined file(s).`,
+      ],
+    };
+  }
+  // 1 is the green answer — "no listed path is ignored" — and it is the ONLY non-zero
+  // status that means anything but trouble.
+  if (result.status === 1) return { checked: files.length, hidden: [], failures: [] };
+  if (result.status !== 0) {
+    return {
+      checked: files.length,
+      hidden: [],
+      failures: [
+        `\`${CHECK_IGNORE}\` exited ${result.status} rather than 0 (hits) or 1 (none)${result.stderr.trim() === "" ? "" : `: ${result.stderr.trim()}`}. A git failure must redden this check rather than read as "nothing is hidden".`,
+      ],
+    };
+  }
+
+  const failures = [];
+  const hidden = [];
+  for (const row of result.stdout.split("\n").filter(Boolean)) {
+    // `<ignore file>:<line>:<pattern>\t<path>`. The source is matched lazily so a
+    // pattern holding a colon stays in the pattern half.
+    const parsed = /^(.*?):(\d+):(.*)\t(.*)$/.exec(row);
+    if (parsed === null) {
+      failures.push(
+        `\`${CHECK_IGNORE}\` emitted a row this reader cannot parse (${JSON.stringify(row)}), so the file it names went unchecked. Its documented shape is \`<ignore file>:<line>:<pattern>\\t<path>\`; a git release that changes it must fail this check rather than quietly report nothing.`,
+      );
+      continue;
+    }
+    const [, ignoreFile, line, pattern, file] = parsed;
+    hidden.push({ file, ignoreFile, line, pattern });
+    failures.push(
+      `${file} is tracked, but ${ignoreFile}:${line} ("${pattern}") removes it from the file walk. A gitignore line does not untrack an already-tracked file — it still ships, still compiles and still runs in CI, while oxlint and oxfmt never open it, so no fence in ${ROOT_OXLINT_CONFIG} can fire on it and pnpm lint exits 0. Delete the ignore line; to exempt the file from linting use "ignorePatterns", and to exempt it from one rule use an "overrides" entry, both in ${ROOT_OXLINT_CONFIG}.`,
+    );
+  }
+
+  return { checked: files.length, hidden, failures };
 }
 
 /**

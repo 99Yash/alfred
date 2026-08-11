@@ -4,7 +4,10 @@
   // subtree and leave `pnpm lint` green. The three oxlint scripts therefore pin
   // `--config .oxlintrc.json`, which makes a nested config inert, and `pnpm check:oxlint-config`
   // reports both a stray config and a script that lost the pin. Narrow a rule with an "overrides"
-  // entry below, never with a nested config file.
+  // entry below, never with a nested config file — and never with a .gitignore line either. oxlint
+  // and oxfmt both walk the tree honoring gitignore at any depth, so a gitignore line over a
+  // tracked source file removes it from linting AND formatting while the file still ships; the pin
+  // does not reach that, so `pnpm check:oxlint-config` reports it by name and ignore line.
   "plugins": null,
   "jsPlugins": ["oxlint-tailwindcss"],
   "categories": {},
