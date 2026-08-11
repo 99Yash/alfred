@@ -104,8 +104,13 @@ export * from "./extractor";
  * Be precise about what that does and does not buy:
  *
  *   - A file absent from the map is unreachable from outside the package by any
- *     specifier, so dropping it from this barrel is the whole gate rather than
- *     half of one.
+ *     PACKAGE specifier, so dropping it from this barrel closes the
+ *     `@alfred/assistant/knowledge/…` route to it. It does not close every route:
+ *     an `exports` map governs package specifiers only, and a cross-package
+ *     RELATIVE specifier (`../../assistant/src/knowledge/…`) is fenced by
+ *     `composite` / `rootDir` (TS6059 + TS6307) instead. That fence reaches only
+ *     files some tsc program compiles, so the relative route is still open from a
+ *     test tree that no program includes.
  *   - A file PRESENT in the map is reachable directly, bypassing this barrel.
  *     Several listed subpaths exist only for tests that import implementation
  *     files, and `./chunks`, `./fact-policy` and `./team-graph` front symbols the

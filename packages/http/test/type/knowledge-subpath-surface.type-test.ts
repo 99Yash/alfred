@@ -34,8 +34,11 @@
  * terminator.) A fixture in
  * `packages/assistant/test/` would be compiled by nothing
  * (see `.lessons/type-fixture-outside-the-checked-program-is-compiled-by-nothing.md`).
- * `packages/api` would serve equally on mechanism and is closer to the 14 subpaths
- * it consumes; moving it there is a follow-up, not a property of this fixture.
+ * `packages/api` would serve equally on mechanism and is where almost every
+ * `knowledge` subpath importer lives, so it is the more colocated home; moving it
+ * there is a follow-up, not a property of this fixture. No count is given on
+ * purpose — a tally in a comment rots on the next importer added or removed, and
+ * the queued item that rehomes those tests will move most of them.
  */
 
 // @ts-expect-error - `self-identity` is not an exported subpath; the exports map is the gate.
