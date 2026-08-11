@@ -13,7 +13,7 @@ import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 
-import { exportTargets, packageExportsFailures, workspaceGlobs } from "./package-exports.mjs";
+import { exportTargets, packageExportsFailures } from "./package-exports.mjs";
 
 function write(root, relative, content) {
   const path = join(root, relative);
@@ -233,7 +233,15 @@ function malformedTargetFailures() {
   return failures;
 }
 
-/** 8 — every way the surface can resolve nothing while looking clean. */
+/**
+ * 8 — every way the surface can resolve nothing while looking clean.
+ *
+ * The enumeration's own refusals are proved in `workspaces.selftest.mjs`, which owns
+ * the code that produces them. What is proved here is the property this check owns:
+ * that it SURFACES them rather than returning a clean `checked: 0`. The distinction
+ * is load-bearing now that one enumeration feeds four checks — a consumer that drops
+ * the failures reports success on a surface nobody resolved.
+ */
 function degenerateSurfaceFailures() {
   const failures = [];
 
@@ -255,13 +263,7 @@ function degenerateSurfaceFailures() {
     try {
       execFileSync("git", ["init", "--quiet"], { cwd: fixture });
       write(fixture, "pnpm-workspace.yaml", body);
-      const reported = workspaceGlobs(fixture).failures;
-      if (!reported.some((failure) => failure.includes(needle))) {
-        failures.push(
-          `${label}: workspaceGlobs must report ${needle}, received ${JSON.stringify(reported)}`,
-        );
-      }
-      expectFailure(label, fixture, ["pnpm-workspace.yaml"], failures);
+      expectFailure(label, fixture, ["pnpm-workspace.yaml", needle], failures);
     } finally {
       rmSync(fixture, { recursive: true, force: true });
     }
