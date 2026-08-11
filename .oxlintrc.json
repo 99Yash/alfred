@@ -1,4 +1,10 @@
 {
+  // Every fence in this repo lives in THIS file and nowhere else. oxlint resolves the nearest
+  // config, so a second .oxlintrc.json anywhere below the root would replace this one for its whole
+  // subtree and leave `pnpm lint` green. The three oxlint scripts therefore pin
+  // `--config .oxlintrc.json`, which makes a nested config inert, and `pnpm check:oxlint-config`
+  // reports both a stray config and a script that lost the pin. Narrow a rule with an "overrides"
+  // entry below, never with a nested config file.
   "plugins": null,
   "jsPlugins": ["oxlint-tailwindcss"],
   "categories": {},
