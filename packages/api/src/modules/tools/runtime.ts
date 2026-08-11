@@ -9,7 +9,7 @@ import { gmailTools } from "./gmail";
 import { mcpTools } from "./mcp";
 import { notionTools } from "./notion";
 import { railwayTools } from "./railway";
-import { assertKernelToolsRegistered, registerTools } from "./registry";
+import { assertKernelToolsRegistered, registerTools } from "@alfred/assistant/tool-runtime";
 import { sheetsTools } from "./sheets";
 import { slidesTools } from "./slides";
 import { systemTools } from "./system";

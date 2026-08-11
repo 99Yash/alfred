@@ -33,7 +33,7 @@ import {
   updateArtifact,
   type ArtifactWriteContext,
 } from "@alfred/assistant/artifacts";
-import type { ToolExecuteContext } from "./registry";
+import type { ToolExecuteContext } from "@alfred/assistant/tool-runtime";
 import {
   editStandingInstruction,
   forgetStandingInstruction,
@@ -59,7 +59,7 @@ import { promoteScratch, readScratch, writeScratch } from "@alfred/assistant/exe
 import { resolveTodosForGmailSender, suggestTodo } from "@alfred/assistant/tasks";
 import { rememberSenderSuppressionAndDismissTodos } from "./remember-suppression";
 import { redactCredentialUrl, runFetchUrl } from "./fetch-url";
-import { liveTool, type RegisteredTool } from "./registry";
+import { liveTool, type RegisteredTool } from "@alfred/assistant/tool-runtime";
 import { parseScratchToolKey } from "./scratch-key";
 import { resolveExactToolLoad, searchAvailableTools } from "./discovery";
 

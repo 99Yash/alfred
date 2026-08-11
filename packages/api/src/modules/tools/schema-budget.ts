@@ -10,7 +10,7 @@
 import { APPROXIMATE_CHARS_PER_TOKEN } from "@alfred/ai";
 import { z } from "zod";
 
-import type { RegisteredTool } from "./registry";
+import type { RegisteredTool } from "@alfred/assistant/tool-runtime";
 
 export interface ToolSchemaSize {
   bytes: number;

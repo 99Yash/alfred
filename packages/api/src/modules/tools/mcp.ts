@@ -25,7 +25,7 @@ import {
   type McpBrokerOutcome,
   type McpCallEnvelope,
 } from "../connections";
-import { liveTool, type RegisteredTool } from "./registry";
+import { liveTool, type RegisteredTool } from "@alfred/assistant/tool-runtime";
 
 /** Model-safe projection of a broker outcome into an `mcp.call` tool result. */
 function brokerResult(outcome: McpBrokerOutcome): unknown {

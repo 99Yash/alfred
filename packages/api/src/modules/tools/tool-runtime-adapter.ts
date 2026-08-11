@@ -15,7 +15,7 @@ import {
   listRegisteredTools,
   listToolsForIntegration,
   type RegisteredTool,
-} from "./registry";
+} from "@alfred/assistant/tool-runtime";
 import { estimateToolSurfaceBudget } from "./schema-budget";
 
 const sdkSurfaceCache = new Map<string, ResolvedToolSurface>();

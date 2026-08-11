@@ -10,7 +10,7 @@
 import { integrations } from "@alfred/integrations";
 import type { RetryPolicy } from "@alfred/integrations/shared";
 
-import type { ToolExecuteContext, ToolExecuteContextFields } from "./registry";
+import type { ToolExecuteContext, ToolExecuteContextFields } from "@alfred/assistant/tool-runtime";
 
 /**
  * The transient-retry envelope every provider bind inside a tool dispatch gets.

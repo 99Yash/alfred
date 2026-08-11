@@ -22,7 +22,7 @@ import {
   publishCatalogRevision,
   upsertToolPolicy,
 } from "../../src/modules/connections/mcp/persistence";
-import { clearToolRegistryForTests, registerTools } from "../../src/modules/tools/registry";
+import { clearToolRegistryForTests, registerTools } from "@alfred/assistant/tool-runtime";
 import { mcpTools } from "../../src/modules/tools/mcp";
 import { closeRedis } from "@alfred/db/redis";
 

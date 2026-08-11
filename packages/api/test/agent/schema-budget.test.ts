@@ -6,11 +6,7 @@ import { z } from "zod";
 
 import { systemToolKernel } from "@alfred/assistant/execution/tool-surface";
 import { estimateToolSurfaceBudget, toolSchemaSize } from "../../src/modules/tools/schema-budget";
-import {
-  getTool,
-  listRegisteredTools,
-  type RegisteredTool,
-} from "../../src/modules/tools/registry";
+import { getTool, listRegisteredTools, type RegisteredTool } from "@alfred/assistant/tool-runtime";
 import { registerBuiltinTools } from "../../src/modules/tools/runtime";
 
 /**

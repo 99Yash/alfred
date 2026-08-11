@@ -8,7 +8,11 @@
  * `server` package, which is exactly the signal we want.
  */
 
-import { getTool, listToolsForIntegration, type RegisteredTool } from "@alfred/api/backend";
+import {
+  getTool,
+  listToolsForIntegration,
+  type RegisteredTool,
+} from "@alfred/assistant/tool-runtime";
 
 // Resolves: `'gmail.search'` is a member of the `ToolName` template union.
 const _searchTool: RegisteredTool | undefined = getTool("gmail.search");

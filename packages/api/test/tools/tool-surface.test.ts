@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { after, before, describe, test } from "node:test";
-import { isToolName, type ToolName } from "@alfred/contracts";
+import { isToolName, type ToolAvailabilityResult, type ToolName } from "@alfred/contracts";
 import { buildChatSystemPrompt } from "@alfred/assistant/conversations/chat-turn";
 import { toolNamesForIntegrations } from "@alfred/assistant/tool-runtime";
 import {
@@ -16,8 +16,7 @@ import {
   getTool,
   listKernelTools,
   listToolsForIntegration,
-  type ToolAvailabilityResult,
-} from "../../src/modules/tools/registry";
+} from "@alfred/assistant/tool-runtime";
 
 /**
  * Regression coverage for the run-local tool surface + persisted-state

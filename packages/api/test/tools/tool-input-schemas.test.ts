@@ -3,7 +3,7 @@ import { test } from "node:test";
 import { asSchema } from "ai";
 import { INTEGRATION_SLUGS } from "@alfred/contracts";
 import { acceptedParamNames } from "../../src/modules/dispatch/invalid-input";
-import { listToolsForIntegration } from "../../src/modules/tools";
+import { listToolsForIntegration } from "@alfred/assistant/tool-runtime";
 import { registerBuiltinTools } from "../../src/modules/tools/runtime";
 
 /**

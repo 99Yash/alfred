@@ -224,21 +224,7 @@ export {
   type ResolvedPolicy,
 } from "./modules/action-policies/index";
 export * from "@alfred/assistant/execution/scratchpad/index";
-export {
-  clearToolRegistryForTests,
-  getTool,
-  listToolsForIntegration,
-  liveTool,
-  registerTool,
-  registerTools,
-  riskTierCountsForIntegration,
-  toolExecuteContext,
-  type LiveToolArgs,
-  type RegisteredTool,
-  type RiskTierCounts,
-  type ToolExecuteContext,
-  type ToolExecuteContextFields,
-} from "./modules/tools/index";
+export { toolExecuteContext } from "./modules/tools/index";
 export * from "./modules/dispatch/index";
 export {
   collectSkillLearnContext,

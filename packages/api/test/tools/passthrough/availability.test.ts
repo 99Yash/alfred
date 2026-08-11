@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { describe, test } from "node:test";
 import type { IntegrationAvailabilitySnapshot } from "@alfred/contracts";
 import { z } from "zod";
-import { evaluateToolAvailability, liveTool } from "../../../src/modules/tools/registry";
+import { evaluateToolAvailability, liveTool } from "@alfred/assistant/tool-runtime";
 
 /**
  * The default-OFF passthrough preference gate (ADR-0074). `evaluateToolAvailability`
