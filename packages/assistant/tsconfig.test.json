@@ -1,0 +1,30 @@
+{
+  // Scoped typecheck project for the package's whole `test/` tree. `check-types`
+  // runs this as a SECOND `tsc` pass (after the composite `tsc -b`), because the
+  // composite build emits declarations only for `src` and never sees `test/**`.
+  //
+  // `@alfred/assistant`'s tests do run (the `assistant-unit-tests` CI job), so a
+  // wrong import path shows up as a red test run. Until this project existed it
+  // showed up ONLY that way: nothing type-checked `test/**`, so a stale relative
+  // `../src/...` specifier left behind by a cross-package move survived
+  // `pnpm check-types` at exit 0.
+  //
+  // `include` covers `test` rather than `test/type` so that a file added
+  // anywhere under `test/` is type-checked without an edit here. This tree is
+  // all runtime `*.test.ts` at the `test/` root and under `test/<module>/`; a
+  // `test/type` include would read none of them.
+  //
+  // The base `tsconfig.json` is `composite: true`; a `tsc -p` invocation with
+  // `noEmit` errors unless `composite`/`declaration` are overridden off here.
+  // Nothing under `test/` is emitted or built — this project only type-checks.
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "noEmit": true,
+    "rootDir": ".",
+    "composite": false,
+    "declaration": false,
+    "declarationMap": false,
+    "sourceMap": false
+  },
+  "include": ["src", "test"]
+}
