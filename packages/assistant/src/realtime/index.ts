@@ -18,12 +18,19 @@
  * Importing this barrel evaluates every file in the module, so the module holds one
  * property that must survive any edit: **no module-scope evaluation reads the
  * environment, opens a Postgres pool or a Redis connection, or arms a timer.** Every
- * connection and every timer is created inside one of the four lifecycle functions.
- * `packages/assistant/test/realtime/barrel-load.test.ts` pins three of the four clauses:
- * the env read (the import throws without `DATABASE_URL` / `REDIS_URL`), an armed timer
- * and an opened socket (both visible in `process.getActiveResourcesInfo()`). A
- * `new pg.Pool()` that is constructed but never connected opens nothing, so that one
- * shape is prose only — keep pool construction inside the lifecycle functions anyway.
+ * timer belongs to one of the four lifecycle functions. Connections do not all: the
+ * relay's Postgres clients and the poke subscriber belong to the lifecycle functions,
+ * but the poke *publisher* is created lazily on the first
+ * `emitReplicachePokesOverRedis` call whether or not a bridge was ever initialised —
+ * deliberately, so a worker or a smoke script still delivers pokes across processes.
+ * `packages/assistant/test/realtime/barrel-load.test.ts` pins three shapes of the
+ * import-time property: an env read (it deletes `DATABASE_URL` and `REDIS_URL` and
+ * requires the import to succeed anyway), any timer the import arms (it counts
+ * `setInterval` / `setTimeout` calls, because `PeriodicTask` unrefs its interval and an
+ * unref'd timer is invisible to `process.getActiveResourcesInfo()`), and a socket the
+ * import connects (a `TCP*` / `TLS*` handle delta). A `new pg.Pool()` that is
+ * constructed but never connected arms no timer and opens no handle, so that one shape
+ * is prose only — keep pool construction inside the lifecycle functions anyway.
  *
  * The relay, the reaper and the `PeriodicTask` primitive stay off this barrel on
  * purpose: they are internals of the delivery loop, and only its own tests reach them.
