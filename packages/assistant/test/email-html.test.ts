@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { describe, test } from "node:test";
 
-import { EMAIL_CSP_META, sanitizeEmailHtml } from "../../src/modules/me/email-html";
+import { EMAIL_CSP_META, sanitizeEmailHtml } from "@alfred/assistant/triage/email-html";
 
 /**
  * Pins the #294 invariant: the Original email body always carries a strict CSP
