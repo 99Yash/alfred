@@ -22,7 +22,14 @@ import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 
-import { defaultTscPath, tscProjectsFor, typeFixtureFailures } from "./type-fixture-programs.mjs";
+import {
+  defaultTscPath,
+  SCRIPTS_EXCLUDED_ROOT,
+  SCRIPTS_PROJECT,
+  scriptProgramFailures,
+  tscProjectsFor,
+  typeFixtureFailures,
+} from "./type-fixture-programs.mjs";
 
 const ROOT = dirname(dirname(fileURLToPath(import.meta.url)));
 const TSC = defaultTscPath(ROOT);
@@ -274,6 +281,96 @@ function untrackedDiscoveryFailures() {
   return failures;
 }
 
+/**
+ * 8 — the same rule for `scripts/`. The tree joins its program by a glob, so a script
+ * the glob does not reach is type-checked by nothing and reads exactly like one that
+ * is; every case here is therefore a pair, with the mutation and its clean twin.
+ *
+ * The fixture writes its project at `SCRIPTS_PROJECT` rather than at a path of its own,
+ * so the constant the check reads is the constant under test.
+ */
+function scriptProgramCoverageFailures() {
+  const failures = [];
+
+  /** `project`, plus the two flags without which tsc reads no `.mjs` file at all. */
+  const scriptsProject = (include) =>
+    `${JSON.stringify(
+      {
+        compilerOptions: {
+          noEmit: true,
+          allowJs: true,
+          checkJs: true,
+          module: "nodenext",
+          target: "es2022",
+        },
+        include,
+        exclude: ["spikes/**"],
+      },
+      null,
+      2,
+    )}\n`;
+
+  const expect = (label, fixture, expected) => {
+    const result = scriptProgramFailures(fixture, TSC);
+    if (result.checked !== expected.checked) {
+      failures.push(`${label}: expected checked ${expected.checked}, received ${result.checked}`);
+    }
+    if (expected.needles === null) {
+      if (result.failures.length > 0) {
+        failures.push(`${label}: expected no failures, received ${JSON.stringify(result.failures)}`);
+      }
+      return;
+    }
+    if (result.failures.length === 0) {
+      failures.push(`${label}: expected a reported failure, received none`);
+      return;
+    }
+    for (const needle of expected.needles) {
+      if (!result.failures.some((failure) => failure.includes(needle))) {
+        failures.push(
+          `${label}: the failure must name ${JSON.stringify(needle)}, received ${JSON.stringify(result.failures)}`,
+        );
+      }
+    }
+  };
+
+  withWorkspace("alfred-script-program-", (fixture) => {
+    write(fixture, SCRIPTS_PROJECT, scriptsProject(["**/*.mjs"]));
+    write(fixture, "scripts/one.mjs", "export const one = 1;\n");
+    write(fixture, "scripts/nested/two.mjs", "export const two = 2;\n");
+    expect("every script in the program", fixture, { checked: 2, needles: null });
+
+    // The mutation the rule exists for. An `include` narrowed to the top level
+    // leaves the nested script checked by nothing and looking no different.
+    write(fixture, SCRIPTS_PROJECT, scriptsProject(["*.mjs"]));
+    expect("include narrowed past a nested script", fixture, {
+      checked: 2,
+      needles: ["scripts/nested/two.mjs", "in no program", SCRIPTS_PROJECT],
+    });
+  });
+
+  // A spike is outside the surface on the check's side too, not only in the project's
+  // `exclude`. The two spellings of that rule agree here by test rather than by claim.
+  withWorkspace("alfred-script-spike-", (fixture) => {
+    write(fixture, SCRIPTS_PROJECT, scriptsProject(["**/*.mjs"]));
+    write(fixture, "scripts/one.mjs", "export const one = 1;\n");
+    write(fixture, `${SCRIPTS_EXCLUDED_ROOT}sandbox/spike.mjs`, "export const spike = 3;\n");
+    expect("a spike is outside the surface", fixture, { checked: 1, needles: null });
+  });
+
+  // Fail closed. No project on disk is one named failure, never a silent pass over the
+  // empty file set tsc reports for a project it cannot read.
+  withWorkspace("alfred-script-missing-", (fixture) => {
+    write(fixture, "scripts/one.mjs", "export const one = 1;\n");
+    expect("no scripts project at all", fixture, {
+      checked: 1,
+      needles: [SCRIPTS_PROJECT, "no script in the tree can be shown to be type-checked"],
+    });
+  });
+
+  return failures;
+}
+
 /** 7 — the four `check-types` shapes this repo runs today, read directly. */
 function projectParseFailures() {
   const failures = [];
@@ -313,6 +410,7 @@ export function typeFixtureProgramsSelfTestFailures() {
     ...failClosedFailures(),
     ...zeroFixtureFailures(),
     ...untrackedDiscoveryFailures(),
+    ...scriptProgramCoverageFailures(),
   ];
 }
 

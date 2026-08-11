@@ -136,7 +136,7 @@ export function listWorkspaces(root) {
       }
     } catch (error) {
       failures.push(
-        `${manifest} is not readable as JSON (${error.message}), so the workspace it declares has no identity.`,
+        `${manifest} is not readable as JSON (${error instanceof Error ? error.message : String(error)}), so the workspace it declares has no identity.`,
       );
     }
 

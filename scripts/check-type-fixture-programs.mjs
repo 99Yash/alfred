@@ -1,5 +1,6 @@
-// Fails the build when a tracked `*.type-test.ts` is read by no tsc program its
-// own package's `check-types` script runs.
+// Fails the build when a tracked source file is read by no tsc program: a
+// `*.type-test.ts` outside a program its own package's `check-types` runs, or a
+// `scripts/**/*.mjs` outside `scripts/tsconfig.json`.
 //
 // The rules live in ./type-fixture-programs.mjs so they can be exercised by
 // fixtures; this file is the enforcing consumer. It takes no flags and writes
@@ -10,7 +11,11 @@
 import { dirname } from "node:path";
 import { fileURLToPath } from "node:url";
 
-import { typeFixtureFailures } from "./type-fixture-programs.mjs";
+import {
+  SCRIPTS_PROJECT,
+  scriptProgramFailures,
+  typeFixtureFailures,
+} from "./type-fixture-programs.mjs";
 import { typeFixtureProgramsSelfTestFailures } from "./type-fixture-programs.selftest.mjs";
 
 const ROOT = dirname(dirname(fileURLToPath(import.meta.url)));
@@ -37,4 +42,17 @@ if (failures.length > 0) {
   process.exit(1);
 }
 
-console.log(`type fixtures clean (${checked} fixtures checked, ${projectsProbed} tsc projects probed)`);
+const scriptCoverage = scriptProgramFailures(ROOT);
+
+if (scriptCoverage.failures.length > 0) {
+  console.error("A script is read by no tsc program:\n");
+  for (const failure of scriptCoverage.failures) console.error(`- ${failure}`);
+  console.error(
+    `\n\`scripts/\` is not a workspace, so no package's \`check-types\` reaches it; the root \`check-types\` script runs ${SCRIPTS_PROJECT} directly. A script outside that program is checked by nothing, and nothing about the file says so.`,
+  );
+  process.exit(1);
+}
+
+console.log(
+  `type fixtures clean (${checked} fixtures checked, ${projectsProbed} tsc projects probed; ${scriptCoverage.checked} scripts in ${SCRIPTS_PROJECT})`,
+);
