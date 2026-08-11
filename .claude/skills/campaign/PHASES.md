@@ -23,9 +23,16 @@ CS="$(cd "$C/../.." && pwd)/scripts/campaign-state.mjs"
 
 node "$CS" set --state "$S" --id 09 phase=review round=1 pr=764
 node "$CS" set --state "$S" --id 09 phase=needs-human note="one line why"
+node "$CS" add --state "$S" --item-slug fence-the-door --title "Fence the door" --prereqs 09
 node "$CS" note --state "$S" "- [09 design] the fact another item needs"
 node "$CS" get  --state "$S" --id 09
 ```
+
+**`add` assigns the id — never choose one yourself.** Two phases that both read the queue and
+both conclude "the next id is 78" write the same id, and the second silently renames the
+first one's item. `add` prints the id it gave you and the `items/<id>-<slug>.md` path the
+item file must go to; `campaign.sh` resolves that exact path from the id and slug and exits
+if the file is missing, so write it before you finish.
 
 Resolve it from `$C` like that, **not** as `scripts/campaign-state.mjs`. Your cwd is the
 item's worktree, and a worktree branched before this script landed does not contain it —
@@ -319,8 +326,9 @@ yourself, and a verdict.
 
 1. `cd $WT`. Read **only** the must-fix list from the latest review round in the item
    file. Not the raw subagent output; not the earlier rounds.
-2. Fix them. Nothing else. A follow-up that tempts you is a new queue item — append
-   it to `state.json` with `phase: "design"` and write its item file, then leave it.
+2. Fix them. Nothing else. A follow-up that tempts you is a new queue item — queue it
+   with `campaign-state.mjs add` (below), write the item file at the path it prints,
+   then leave it.
 3. `pnpm check && pnpm check-types`, tests, commit, push.
 4. Append to the review round section: how each must-fix was closed, or why it is
    being disputed. A disputed finding is legitimate — argue it in one paragraph
@@ -335,8 +343,9 @@ yourself, and a verdict.
 1. `gh pr ready <pr>` — out of draft.
 2. Final comment on the PR: the invariant, the down-conclusion (closed within scope /
    unproven with named residual risk), and the review rounds it took.
-3. Append any follow-ups the review deferred as **new items** in `state.json`, each
-   with its own item file. This is where scope discovered mid-item goes to live.
+3. Queue any follow-ups the review deferred as **new items** with
+   `campaign-state.mjs add`, each with its own item file at the path `add` prints. This
+   is where scope discovered mid-item goes to live.
 4. **If this item produced a durable, repeatable lesson, run `/learn`.** Not a
    summary of the change — the repo's git history already holds that. The bar is a
    non-obvious, costly, *recurring* trap: the ordering that has to happen first, the
