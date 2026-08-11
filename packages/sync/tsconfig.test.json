@@ -1,0 +1,30 @@
+{
+  // Scoped typecheck project for the package's whole `test/` tree. `check-types`
+  // runs this as a SECOND `tsc` pass (after the composite `tsc -b`), because the
+  // composite build emits declarations only for `src` and never sees `test/**`.
+  //
+  // `@alfred/sync` has no test runner and no `test` script, so this pass is the
+  // ONLY thing in the repo that reads `test/`. Without it the tree's one type
+  // fixture is a dead guard: `test/triage-tags.type-test.ts` asserts nothing at
+  // runtime, nothing executes it, and a deliberate type error appended to it
+  // left `pnpm check-types` at exit 0 for as long as the file existed.
+  // `pnpm check:type-fixtures` now reports that shape instead of leaving it to
+  // be found by eye.
+  //
+  // `include` covers `test` rather than `test/type` so that a file added
+  // anywhere under `test/` is type-checked without an edit here.
+  //
+  // The base `tsconfig.json` is `composite: true`; a `tsc -p` invocation with
+  // `noEmit` errors unless `composite`/`declaration` are overridden off here.
+  // Nothing under `test/` is emitted or built — this project only type-checks.
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "noEmit": true,
+    "rootDir": ".",
+    "composite": false,
+    "declaration": false,
+    "declarationMap": false,
+    "sourceMap": false
+  },
+  "include": ["src", "test"]
+}
