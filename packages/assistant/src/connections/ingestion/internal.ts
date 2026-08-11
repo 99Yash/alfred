@@ -18,13 +18,12 @@
  * file is a privileged friend door beside it, not a second public one.
  *
  * The privileged callers are operational scripts under `apps/server/src/scripts/**`
- * and the ingestion-cursor test that has to stay under the `api-tests` job
- * (`packages/api/test/gmail-ingest.test.ts`). That restriction is NOT yet
- * gate-enforced — campaign item 52 adds this subpath to the `.oxlintrc.json`
- * `no-restricted-imports` group that already fences
- * `@alfred/assistant/knowledge/internal`, and its allowlist must cover the test
- * path as well as the scripts glob, the same shape that file already uses for
- * `gmail-watch-gate.test.ts`. Until then this comment is the only guard.
+ * and the ingestion-cursor test `packages/api/test/gmail-ingest.test.ts`. That
+ * restriction is enforced, not merely stated: `.oxlintrc.json` fences this subpath
+ * in the `no-restricted-imports` group that also fences
+ * `@alfred/assistant/knowledge/internal`, and those two paths are its allowlist,
+ * each as its own `overrides` entry. An import of this module from anywhere else
+ * fails `pnpm lint`.
  */
 export {
   findCredentialsNeedingPoll,

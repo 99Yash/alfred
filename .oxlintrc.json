@@ -42,6 +42,10 @@
           {
             "group": ["@alfred/integrations/google/internal"],
             "message": "The raw Gmail watch primitive is restricted to its two allowlisted friend files (see packages/integrations/src/google/internal.ts). Install a watch through installGmailWatchAndSeedCursor from @alfred/assistant/connections/ingestion, which also seeds the ingestion_state cursor; a raw installGmailWatch leaves the credential cursorless."
+          },
+          {
+            "group": ["@alfred/assistant/connections/ingestion/internal"],
+            "message": "The raw Gmail ingestion entry points are restricted to the operational scripts under apps/server/src/scripts/** and the ingestion-cursor test packages/api/test/gmail-ingest.test.ts (see packages/assistant/src/connections/ingestion/internal.ts). Import the sanctioned contract from @alfred/assistant/connections/ingestion instead, which drives ingestion through the BullMQ job that owns retry, burst dedup and the ingestion_state cursor."
           }
         ]
       }
@@ -88,10 +92,12 @@
     {
       "files": ["apps/server/src/scripts/**"],
       "rules": {
-        // Deliberate omission: the @alfred/assistant/knowledge/internal group is absent on purpose — this
-        // tree IS that door's allowlist. Every other root group must be restated here, because an override
-        // REPLACES the rule's options wholesale.
+        // TWO deliberate omissions: the @alfred/assistant/knowledge/internal group and the
+        // @alfred/assistant/connections/ingestion/internal group are both absent on purpose — this tree IS
+        // the allowlist for both of those doors. Every other root group must be restated here, because an
+        // override REPLACES the rule's options wholesale.
         // oxlint-omission: @alfred/assistant/knowledge/internal — apps/server/src/scripts/** IS this door's allowlist.
+        // oxlint-omission: @alfred/assistant/connections/ingestion/internal — apps/server/src/scripts/** IS this door's allowlist.
         "no-restricted-imports": [
           "error",
           {
@@ -122,6 +128,39 @@
               {
                 "group": ["@alfred/assistant/knowledge/internal"],
                 "message": "The knowledge internal tooling door is restricted to apps/server/src/scripts/** (see packages/assistant/src/knowledge/internal.ts). Import the sanctioned contract from @alfred/assistant/knowledge instead."
+              },
+              {
+                "group": ["@alfred/assistant/connections/ingestion/internal"],
+                "message": "The raw Gmail ingestion entry points are restricted to the operational scripts under apps/server/src/scripts/** and the ingestion-cursor test packages/api/test/gmail-ingest.test.ts (see packages/assistant/src/connections/ingestion/internal.ts). Import the sanctioned contract from @alfred/assistant/connections/ingestion instead, which drives ingestion through the BullMQ job that owns retry, burst dedup and the ingestion_state cursor."
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      // The ingestion-cursor test drives seedGmailHistoryCursorIfAbsent directly, so this file IS the
+      // @alfred/assistant/connections/ingestion/internal door's second allowlist beside the scripts glob.
+      // It gets its own entry rather than joining the two friend files above, because that entry's
+      // deliberate omission is the google door and this test has no use for a raw installGmailWatch
+      // exemption. No file matches two entries: an override REPLACES the rule's options wholesale and the
+      // last match wins, so an overlap would silently drop one entry's list.
+      "files": ["packages/api/test/gmail-ingest.test.ts"],
+      "rules": {
+        // Deliberate omission: the @alfred/assistant/connections/ingestion/internal group is absent on
+        // purpose — this file IS that door's allowlist. Every other root group must be restated here.
+        // oxlint-omission: @alfred/assistant/connections/ingestion/internal — packages/api/test/gmail-ingest.test.ts IS this door's second allowlist.
+        "no-restricted-imports": [
+          "error",
+          {
+            "patterns": [
+              {
+                "group": ["@alfred/assistant/knowledge/internal"],
+                "message": "The knowledge internal tooling door is restricted to apps/server/src/scripts/** (see packages/assistant/src/knowledge/internal.ts). Import the sanctioned contract from @alfred/assistant/knowledge instead."
+              },
+              {
+                "group": ["@alfred/integrations/google/internal"],
+                "message": "The raw Gmail watch primitive is restricted to its two allowlisted friend files (see packages/integrations/src/google/internal.ts). Install a watch through installGmailWatchAndSeedCursor from @alfred/assistant/connections/ingestion, which also seeds the ingestion_state cursor; a raw installGmailWatch leaves the credential cursorless."
               }
             ]
           }
@@ -142,6 +181,10 @@
               {
                 "group": ["@alfred/integrations/google/internal"],
                 "message": "The raw Gmail watch primitive is restricted to its two allowlisted friend files (see packages/integrations/src/google/internal.ts). Install a watch through installGmailWatchAndSeedCursor from @alfred/assistant/connections/ingestion, which also seeds the ingestion_state cursor; a raw installGmailWatch leaves the credential cursorless."
+              },
+              {
+                "group": ["@alfred/assistant/connections/ingestion/internal"],
+                "message": "The raw Gmail ingestion entry points are restricted to the operational scripts under apps/server/src/scripts/** and the ingestion-cursor test packages/api/test/gmail-ingest.test.ts (see packages/assistant/src/connections/ingestion/internal.ts). Import the sanctioned contract from @alfred/assistant/connections/ingestion instead, which drives ingestion through the BullMQ job that owns retry, burst dedup and the ingestion_state cursor."
               },
               {
                 "group": [

@@ -74,6 +74,32 @@ const MODULE_ROOTS = {
   assistantSource: ASSISTANT_SOURCE_ROOT,
 };
 const WEB_ROUTES_ROOT = join(ROOT, "apps/web/src/routes");
+// The connections barrel and the two ingestion modules it must never reach, transitively.
+// The barrel's own header records the convention in two lines: it does not re-export
+// `./ingestion`, and `./oauth-state` imports the `./ingestion/workflow-recovery` LEAF rather
+// than the ingestion barrel. Both lines exist because importing the ingestion barrel evaluates
+// the BullMQ queue and the whole Gmail ingestion graph, and this barrel is reached by
+// `@alfred/api/backend`'s `export *` and therefore by every operational script.
+//
+// This gate covers BOTH lines, not just the first. `export * from "./ingestion"` here is the
+// direct violation; swapping `oauth-state`'s leaf import for the `./ingestion` barrel is the
+// indirect one, and it fires too, because that barrel re-exports `queue` and `gmail-ingest`.
+//
+// It has to be a reachability walk rather than a `moduleEdges` row or an oxlint group.
+// `moduleForPath` files `connections/ingestion/*` inside the `connections` module, so an
+// intra-module reach produces NO edge and no arch rule can see the widening — measured:
+// `export * from "./ingestion"` takes the barrel from 19 to 41 exports with `check:architecture`,
+// `check:package-exports`, the retained-handle count and the exit code all unchanged. A one-hop
+// oxlint group on `./ingestion` cannot express "transitively, except `workflow-recovery`", which
+// is the actual convention.
+//
+// Absolute, and checked against the live walk rather than the baseline: a ratchet row would let a
+// future PR regenerate the baseline and walk the invariant back.
+const CONNECTIONS_BARREL = join(ASSISTANT_SOURCE_ROOT, "connections/index.ts");
+const CONNECTIONS_BARREL_FORBIDDEN_REACH = [
+  join(ASSISTANT_SOURCE_ROOT, "connections/ingestion/queue.ts"),
+  join(ASSISTANT_SOURCE_ROOT, "connections/ingestion/gmail-ingest.ts"),
+];
 // Every hardcoded repository path a rule in this file reads. Each one is the SOLE
 // input of its rule, so a path that stops resolving does not make its rule lenient —
 // it makes it enforce nothing, silently for a directory (`walkSourceFiles` returns
@@ -93,6 +119,7 @@ const SCANNED_PATHS = [
   { constant: "TOOL_RUNTIME_ROOT", path: TOOL_RUNTIME_ROOT, kind: "directory" },
   { constant: "RUNTIME_ADAPTER_MANIFEST", path: RUNTIME_ADAPTER_MANIFEST, kind: "file" },
   { constant: "BOOT_PORT_DEFINER", path: BOOT_PORT_DEFINER, kind: "file" },
+  { constant: "CONNECTIONS_BARREL", path: CONNECTIONS_BARREL, kind: "file" },
 ];
 const GRAPH_FLAG = "--print-graph";
 const BASELINE_FLAG = "--write-baseline";
@@ -768,6 +795,67 @@ function collectBootSeamSources(root = TOOL_RUNTIME_ROOT, definer = BOOT_PORT_DE
 }
 
 /**
+ * The barrel-reach rule's tree read (item 38): a breadth-first walk of the relative import
+ * graph rooted at {@link CONNECTIONS_BARREL}, plus the presence of each forbidden target.
+ *
+ * Breadth-first, so the recorded chain for a reached file is the SHORTEST one. "the barrel
+ * reaches queue.ts" without the hops is unactionable; `index.ts -> ingestion/index.ts ->
+ * queue.ts` names the import to delete.
+ *
+ * Uses `parseImports`, never a regex. This barrel's own header contains the literal string
+ * `export * from "./ingestion"` as prose, so a hand-rolled pattern reports a false reach into
+ * `queue.ts` on a clean tree; the lexer consumes comments and strings and does not.
+ *
+ * Only relative specifiers become hops — a bare package specifier leaves this package, which is
+ * the module-graph rules' subject, not this one. `resolveSourceImport` is the SOLE arbiter of
+ * that: it returns null for every specifier that starts with neither `.` nor `~/`, and a `~/`
+ * specifier resolves only from inside an `apps/<app>/src` tree, which no barrel this rule walks
+ * is in. A second `startsWith(".")` guard here was measured to be unobservable — removing it
+ * changed no drive — and this file does not keep branches no mutant can reach. What does hold
+ * the line is `(f-c)`'s exact reached-file count, over a fixture whose barrel exports from a
+ * bare package specifier. Separately, `resolveSourceImport` returns the unresolved CANDIDATE
+ * rather than null when nothing exists at a relative path, so every hop is also filtered on
+ * being a real file.
+ *
+ * Both arguments are parameters so the self-test can walk a fixture tree with the production
+ * walk instead of a copy of it, the same reason `collectBootSeamSources` takes its root.
+ *
+ * @param {string} barrel
+ * @param {string[]} forbidden
+ * @returns {{ reached: { chain: string, file: string }[],
+ *             forbidden: { path: string, present: boolean }[] }}
+ */
+function collectConnectionsBarrelReach(
+  barrel = CONNECTIONS_BARREL,
+  forbidden = CONNECTIONS_BARREL_FORBIDDEN_REACH,
+) {
+  const base = dirname(barrel);
+  const label = (file) => normalizePath(relative(base, file));
+  const isFile = (path) => existsSync(path) && statSync(path).isFile();
+  const reached = [];
+  if (isFile(barrel)) {
+    const seen = new Set([barrel]);
+    reached.push({ chain: label(barrel), file: barrel });
+    // `reached` IS the queue: an array iterator re-reads `length` on every step, so a file
+    // appended here is visited later in the same loop, in insertion order. That is the
+    // breadth-first order, without a second array and without a `shift()` whose result the
+    // checker would have to prove non-empty.
+    for (const current of reached) {
+      for (const imported of parseImports(readFileSync(current.file, "utf8"))) {
+        const target = resolveSourceImport(current.file, imported.specifier);
+        if (target === null || seen.has(target) || !isFile(target)) continue;
+        seen.add(target);
+        reached.push({ chain: `${current.chain} -> ${label(target)}`, file: target });
+      }
+    }
+  }
+  return {
+    reached,
+    forbidden: forbidden.map((path) => ({ path, present: isFile(path) })),
+  };
+}
+
+/**
  * The import walk, roots as parameters. Three fence predicates below — ADR-0089's
  * assistant-to-transport rule, its private cross-module import rule, and the
  * production-to-preview rule — decide membership here. The live tree holds zero members
@@ -935,6 +1023,7 @@ function collectArchitecture() {
     // the real scans, forced each drive to assert positively, and made the emit/refuse
     // drive a tautology.
     bootSeamSources: collectBootSeamSources(),
+    connectionsBarrelReach: collectConnectionsBarrelReach(),
     exceptions,
     forbiddenBackendImports,
     moduleGraph: graphFromEdges(moduleNodes, moduleEdges),
@@ -1313,9 +1402,12 @@ const text = 'import "ignored-string"';
     },
     ...overrides,
   });
-  // The three tree-derived fields default INERT — an empty presence list, no
-  // composition sources, a null manifest, no boot-seam sources. That is what makes
-  // every drive below a decision over its own plant and nothing else.
+  // The four tree-derived fields default INERT — an empty presence list, no composition
+  // sources, a null manifest, an empty barrel walk with an empty forbidden list, no boot-seam
+  // sources. That is what makes every drive below a decision over its own plant and nothing
+  // else. An inert barrel walk is why `connectionsBarrelReachViolations` does not assert its
+  // own liveness: a "the walk found more than the barrel" check here would fire on every
+  // drive of every other rule. That assertion is `(f-b)`, over the real tree.
   const syntheticArchitecture = (overrides) => ({
     packageGraph: { edges: [] },
     moduleGraph: { edges: [] },
@@ -1325,6 +1417,7 @@ const text = 'import "ignored-string"';
     productionPreviewImports: [],
     scannedPaths: [],
     runtimeAdapterScan: { compositionSources: [], manifestSource: null },
+    connectionsBarrelReach: { reached: [], forbidden: [] },
     bootSeamSources: [],
     workspaceFailures: [],
     ...overrides,
@@ -1622,6 +1715,77 @@ const text = 'import "ignored-string"';
     }
   } finally {
     rmSync(moduleReachDirectory, { force: true, recursive: true });
+  }
+  // (0-g) The connections-barrel forbidden-reach rule, red case (item 52). A walk that reached
+  // a forbidden target must reach the violation list, and must carry the CHAIN — "the barrel
+  // reaches queue.ts" names nothing to delete. The reached file is built from the real
+  // constant, not from a path literal, so repointing `CONNECTIONS_BARREL_FORBIDDEN_REACH` at a
+  // module this rule was never meant to guard fails here rather than passing quietly.
+  const barrelReachRedDrive = checkArchitecture(
+    syntheticArchitecture({
+      connectionsBarrelReach: {
+        reached: [
+          {
+            chain: "index.ts -> ingestion/index.ts -> queue.ts",
+            file: CONNECTIONS_BARREL_FORBIDDEN_REACH[0],
+          },
+        ],
+        forbidden: CONNECTIONS_BARREL_FORBIDDEN_REACH.map((path) => ({ path, present: true })),
+      },
+    }),
+    syntheticBaseline(),
+  );
+  if (
+    !barrelReachRedDrive.some(
+      (violation) =>
+        violation.includes("connections barrel reaches forbidden ingestion module:") &&
+        violation.includes("index.ts -> ingestion/index.ts -> queue.ts"),
+    )
+  ) {
+    failures.push(
+      `connections-barrel reach self-test mismatch: expected checkArchitecture to report the planted reach with its importer chain, received ${JSON.stringify(barrelReachRedDrive)}`,
+    );
+  }
+  // (0-h) The liveness half, and the drive whose expected outcome DIFFERS from (0-g)'s: a
+  // forbidden target that is not a file forbids nothing, so it is reported by constant name
+  // rather than ignored. Swapping this drive's expected message with (0-g)'s must redden both;
+  // a deletion matrix alone leaves each message bound to no particular subject.
+  const barrelReachLivenessDrive = checkArchitecture(
+    syntheticArchitecture({
+      connectionsBarrelReach: {
+        reached: [],
+        forbidden: [{ path: "/self-test/renamed-queue.ts", present: false }],
+      },
+    }),
+    syntheticBaseline(),
+  );
+  if (
+    !barrelReachLivenessDrive.some(
+      (violation) =>
+        violation.includes("connections barrel forbidden-reach target is not a file:") &&
+        violation.includes("CONNECTIONS_BARREL_FORBIDDEN_REACH"),
+    )
+  ) {
+    failures.push(
+      `connections-barrel reach self-test mismatch: expected checkArchitecture to report an absent forbidden target by constant name, received ${JSON.stringify(barrelReachLivenessDrive)}`,
+    );
+  }
+  // (0-i) The green case. Without it (0-g) also passes for a rule that reports every reached
+  // file, which would redden the ten files the barrel legitimately reaches — including
+  // `ingestion/workflow-recovery`, the leaf `oauth-state` imports on purpose.
+  const barrelReachGreenDrive = checkArchitecture(
+    syntheticArchitecture({
+      connectionsBarrelReach: {
+        reached: [{ chain: "index.ts -> oauth-state.ts", file: "/self-test/oauth-state.ts" }],
+        forbidden: CONNECTIONS_BARREL_FORBIDDEN_REACH.map((path) => ({ path, present: true })),
+      },
+    }),
+    syntheticBaseline(),
+  );
+  if (barrelReachGreenDrive.some((violation) => violation.includes("connections barrel"))) {
+    failures.push(
+      `connections-barrel reach self-test mismatch: expected no violation for a walk that reached no forbidden target, received ${JSON.stringify(barrelReachGreenDrive)}`,
+    );
   }
   // (i) A live `agent -> triage` edge with a self-consistent node set must make
   // `checkArchitecture` report the forbidden product import — guards the wiring
@@ -2464,6 +2628,100 @@ const aliasedPort = make("aliased");
       `runtime-adapter discovery self-test mismatch: ${relativeToRoot(API_COMPOSITION_ROOT)} yielded ${discoveredCompositionScan.compositionSources.length} scanned files and manifestSource=${typeof discoveredCompositionScan.manifestSource}, so the runtime-adapter rule enforces nothing — update API_COMPOSITION_ROOT/RUNTIME_ADAPTER_MANIFEST or delete the rule that reads them`,
     );
   }
+  // (f-b) Discovery, over the REAL connections barrel — the third mirror of (c), and the one
+  // that keeps `connectionsBarrelReachViolations` honest about a subject it cannot see. A walk
+  // that visits only the barrel, or none of it, is a rule wearing a green badge: `(0-g)` still
+  // passes, because a fixture supplies its own reach. Both halves are asserted, because an
+  // emptied `CONNECTIONS_BARREL_FORBIDDEN_REACH` forbids nothing just as completely as a walk
+  // that goes nowhere, and neither is visible to any drive above. Same accepted trade as (c)
+  // and (f): flattening the connections module turns this red, and the fix is then to delete
+  // the rule, deliberately.
+  const discoveredBarrelReach = collectConnectionsBarrelReach();
+  if (discoveredBarrelReach.reached.length <= 1 || discoveredBarrelReach.forbidden.length === 0) {
+    failures.push(
+      `connections-barrel discovery self-test mismatch: ${relativeToRoot(CONNECTIONS_BARREL)} yielded ${discoveredBarrelReach.reached.length} reached file(s) against ${discoveredBarrelReach.forbidden.length} forbidden target(s), so the barrel-reach rule enforces nothing — update CONNECTIONS_BARREL/CONNECTIONS_BARREL_FORBIDDEN_REACH or delete the rule that reads them`,
+    );
+  }
+  // (f-c) The WALK itself, over a fixture tree, because every drive above supplies its own
+  // reach and none of them runs the breadth-first search. Four things the walk has to get
+  // right and no other drive can see:
+  //   - transitivity, with the chain naming every hop rather than only the endpoints;
+  //   - a leaf import that must NOT drag in its siblings, which is exactly what
+  //     `oauth-state -> ingestion/workflow-recovery` relies on;
+  //   - a specifier inside a COMMENT, which the real barrel's header contains verbatim as
+  //     `export * from "./ingestion"` — a regex walk reports a false reach on a clean tree;
+  //   - a bare package specifier and a relative specifier resolving to nothing, neither of
+  //     which is a hop.
+  // Plants are built off the drive's own `mkdtemp` root, never off the injected argument: the
+  // "repoint it at the real constant" mutant would otherwise write fixtures into
+  // `packages/assistant/src` while the `finally` cleans only the temp directory.
+  const barrelWalkDirectory = mkdtempSync(join(tmpdir(), "check-module-architecture-"));
+  try {
+    const walkRoot = join(barrelWalkDirectory, "connections");
+    const fixtureBarrel = join(walkRoot, "index.ts");
+    const fixtureQueue = join(walkRoot, "ingestion", "queue.ts");
+    mkdirSync(dirname(fixtureBarrel), { recursive: true });
+    writeFileSync(
+      fixtureBarrel,
+      [
+        "/** It deliberately does NOT re-export `./ingestion`:",
+        ' *   export * from "./ingestion";',
+        " */",
+        'export * from "./availability";',
+        'export * from "./oauth-state";',
+        'export * from "@alfred/contracts";',
+        'export * from "./deleted-sibling";',
+        "",
+      ].join("\n"),
+    );
+    plant(join(walkRoot, "availability.ts"), "./ingestion/queue.ts");
+    plant(join(walkRoot, "oauth-state.ts"), "./ingestion/workflow-recovery.ts");
+    plant(join(walkRoot, "ingestion", "workflow-recovery.ts"), null);
+    plant(fixtureQueue, null);
+    const fixtureWalk = collectConnectionsBarrelReach(fixtureBarrel, [fixtureQueue]);
+    const chainFor = (basename) =>
+      fixtureWalk.reached.find((entry) => entry.file.endsWith(basename))?.chain ?? null;
+    for (const [basename, expectedChain, position] of [
+      ["index.ts", "index.ts", "the barrel is the root of its own walk"],
+      ["availability.ts", "index.ts -> availability.ts", "a one-hop relative export"],
+      [
+        "queue.ts",
+        "index.ts -> availability.ts -> ingestion/queue.ts",
+        "a two-hop transitive reach, which is the whole point of the rule",
+      ],
+      [
+        "workflow-recovery.ts",
+        "index.ts -> oauth-state.ts -> ingestion/workflow-recovery.ts",
+        "the leaf import that must not drag its siblings in",
+      ],
+    ]) {
+      if (chainFor(basename) !== expectedChain) {
+        failures.push(
+          `connections-barrel walk self-test mismatch: expected ${basename} to be reached as "${expectedChain}" for ${position}, received ${JSON.stringify(chainFor(basename))}`,
+        );
+      }
+    }
+    // The commented specifier resolves to a real fixture directory, so a regex walk WOULD
+    // follow it. `ingestion/index.ts` is deliberately never planted: if the walk ever reports
+    // reaching it, the lexer stopped consuming comments.
+    if (fixtureWalk.reached.some((entry) => entry.chain.includes("ingestion/index.ts"))) {
+      failures.push(
+        `connections-barrel walk self-test mismatch: the walk followed a specifier that exists only inside a comment, so it is not lexing its input, received ${JSON.stringify(fixtureWalk.reached)}`,
+      );
+    }
+    if (fixtureWalk.reached.length !== 5) {
+      failures.push(
+        `connections-barrel walk self-test mismatch: expected exactly the 5 planted files to be reached, so that a bare package specifier and a relative specifier resolving to nothing are both non-hops, received ${JSON.stringify(fixtureWalk.reached)}`,
+      );
+    }
+    if (!fixtureWalk.forbidden.every((entry) => entry.present)) {
+      failures.push(
+        `connections-barrel walk self-test mismatch: expected the planted forbidden target to be collected as present, received ${JSON.stringify(fixtureWalk.forbidden)}`,
+      );
+    }
+  } finally {
+    rmSync(barrelWalkDirectory, { force: true, recursive: true });
+  }
   // (g) Runtime-adapter wiring. The fixtures above drive `runtimeAdapterViolations`, not
   // its push: deleting that push left every gate green, because the real tree is clean.
   // Reuses the omission fixture's own source text, so this pins the wiring and not the
@@ -2566,6 +2824,46 @@ function executionGateLivenessViolations(moduleNodes) {
 }
 
 /**
+ * The connections-barrel forbidden-reach gate (item 52). Absolute, like
+ * {@link executionForbiddenImportViolations}: consulted against the walk of the CURRENT tree,
+ * never the baseline, so no ratchet regeneration can permit it later.
+ *
+ * Two things are reported. A forbidden target that is not a file is the analogue of
+ * {@link executionGateLivenessViolations}' unknown-module refusal — a renamed `queue.ts` would
+ * otherwise turn this half of the rule into a vacuous pass, silently. A reached file that is a
+ * forbidden target is the rule itself, reported with the chain that produced it.
+ *
+ * Deliberately says nothing about any other barrel. Its scope is the one file whose header
+ * records the convention.
+ *
+ * Pure over the collected walk (item 38): it opens no file and stats no path, so a self-test
+ * drive over a synthetic reach reports exactly what that reach plants. The "the walk found
+ * more than the barrel itself" liveness assertion is NOT here for that reason — an inert
+ * synthetic default is an empty walk, so a starvation check here would fire on every drive of
+ * every other rule. It lives in `selfTestFailures` instead, over the real tree, beside the
+ * other discovery drives.
+ *
+ * @param {{ reached: { chain: string, file: string }[],
+ *           forbidden: { path: string, present: boolean }[] }} reach
+ * @returns {string[]}
+ */
+function connectionsBarrelReachViolations(reach) {
+  const violations = [];
+  for (const entry of reach.forbidden) {
+    if (entry.present) continue;
+    violations.push(
+      `connections barrel forbidden-reach target is not a file: ${relativeToRoot(entry.path)} — the rule that names it forbids nothing; update CONNECTIONS_BARREL_FORBIDDEN_REACH or delete the rule that reads it`,
+    );
+  }
+  const forbiddenPaths = new Set(reach.forbidden.map((entry) => entry.path));
+  for (const entry of reach.reached) {
+    if (!forbiddenPaths.has(entry.file)) continue;
+    violations.push(`connections barrel reaches forbidden ingestion module: ${entry.chain}`);
+  }
+  return violations;
+}
+
+/**
  * Liveness gate for every hardcoded repository path a rule in this file reads (item
  * 36). Same shape and same reason as {@link executionGateLivenessViolations}: a rule
  * whose sole input stops resolving enforces nothing. `TOOL_RUNTIME_ROOT` proved it —
@@ -2628,6 +2926,7 @@ function checkArchitecture(architecture, baseline) {
   const currentModuleEdges = edgesFromKeys(architecture.moduleGraph.edges);
   violations.push(...executionForbiddenImportViolations(currentModuleEdges));
   violations.push(...executionGateLivenessViolations(architecture.moduleNodes));
+  violations.push(...connectionsBarrelReachViolations(architecture.connectionsBarrelReach));
   const packageCycles = cyclicEdgeKeysOf(architecture.packageGraph.edges);
   const moduleCycles = cyclicEdgeKeysOf(architecture.moduleGraph.edges);
 
