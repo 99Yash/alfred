@@ -241,6 +241,4 @@ if (missing.length > 0) {
 
 if (missing.length > 0 || workspaceFailures.length > 0 || absent.length > 0) process.exit(1);
 
-console.log(
-  `check-doc-symbols: ${DOC_FILES.length} docs scanned, every named symbol resolves.`,
-);
+console.log(`check-doc-symbols: ${DOC_FILES.length} docs scanned, every named symbol resolves.`);
