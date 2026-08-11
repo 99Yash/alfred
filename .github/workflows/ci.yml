@@ -325,7 +325,11 @@ jobs:
   # `createFileRoute` id argument. `@tanstack/router-plugin` is a floating caret
   # (`^1.121.7` in `pnpm-workspace.yaml`), so a plugin bump can change what it
   # emits. `vite build` needs no `env:` and no `services:` — `apps/web` has no
-  # `.env*` file.
+  # `.env*` file. The last step runs a SECOND vite pass, for a different question:
+  # the build says the bundle compiles, and `pnpm check:web-bundle-graph` says what
+  # is in it. That check is a step here rather than a job of its own for the same
+  # reason as the build, and it is deliberately outside the local `pnpm check` chain
+  # because it costs 10-35 s depending on how warm the vite cache is.
   web-unit-tests:
     name: web-unit-tests
     runs-on: ubuntu-latest
@@ -379,6 +383,16 @@ jobs:
             echo "::error::The web build changed the tree, so what is committed is not what @tanstack/router-plugin emits. The changed paths are listed above. If apps/web/src/routeTree.gen.ts changed, run 'pnpm --filter web build' and commit that file verbatim - it is generated and the plugin is its only writer. If a file under apps/web/src/routes/ changed, the plugin rewrote its createFileRoute id to match where the file sits: do NOT commit that rewrite, it discards your own edit - rename the file or change the id so the two agree."
             exit 1
           fi
+
+      # A second vite pass, and it asks a question the first one cannot. `pnpm --filter
+      # web build` proves the bundle BUILDS; this proves what is IN it. The gap is real:
+      # a Node-only npm package that resolves — `pg` declared by a browser-safe
+      # workspace, several hops down a subpath condition — bundles cleanly and fails
+      # only in a browser at runtime, and neither the build nor the source fence in
+      # `scripts/web-boundaries.mjs` can see it. It runs AFTER the assertion above so a
+      # second vite pass can never be the thing that makes that assertion fail.
+      - name: Node-only packages are out of the browser bundle
+        run: corepack pnpm check:web-bundle-graph
 
       - name: Web unit tests
         run: corepack pnpm --filter web test
