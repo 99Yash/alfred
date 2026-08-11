@@ -1,4 +1,5 @@
-// Rules about WHERE the oxlint config lives and HOW oxlint is invoked.
+// Rules about WHERE the oxlint config lives, HOW oxlint is invoked, and WHETHER
+// the fences inside it still name anything.
 //
 // oxlint resolves the NEAREST config, not the root one. A `.oxlintrc.json`
 // committed anywhere below the repo root therefore REPLACES the root config for
