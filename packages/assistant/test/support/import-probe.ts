@@ -73,6 +73,10 @@ try {
     const namespace: Record<string, unknown> = await import(target);
     names = Object.keys(namespace).sort();
   } catch (error) {
+    // Deliberately not `toMessage(error)` from `@alfred/contracts`: this wants the error's
+    // name plus only the first line (a tsx resolution failure carries a whole stack), and
+    // importing a workspace package here would load a dependency before the measurement,
+    // which the `import type` above exists to avoid.
     importError =
       error instanceof Error ? `${error.name}: ${error.message.split("\n")[0]}` : String(error);
   }
@@ -89,8 +93,12 @@ for (const [kind, count] of Object.entries(after)) {
 }
 
 const report: ImportProbeReport = { arms, handleDelta, names, importError };
-process.stdout.write(`${JSON.stringify(report)}\n`);
-// Last statement on purpose: a ref'd handle the import leaked would otherwise keep this
-// process alive until the driver's timeout, and a timeout is reported as a spawn failure
-// rather than as the handle delta the report already carries.
-process.exit(0);
+// The exit is the write's completion callback, not the next statement. A write to a pipe is
+// asynchronous and `process.exit` does not flush, so exiting immediately truncates the
+// report at the 64 KiB pipe buffer — measured on this platform: a 100 KB line comes back as
+// exactly 65536 bytes. Truncated JSON fails loudly, but it fails as "unparseable stdout"
+// rather than as the report it wrote, and it puts the driver's `maxBuffer` below the real
+// ceiling. The exit still happens last, which is the point: a ref'd handle the import leaked
+// would otherwise hold this process open until the driver's timeout, and a timeout is
+// reported as a spawn failure rather than as the handle delta the report already carries.
+process.stdout.write(`${JSON.stringify(report)}\n`, () => process.exit(0));

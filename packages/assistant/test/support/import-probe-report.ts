@@ -1,3 +1,4 @@
+import { toMessage } from "@alfred/contracts";
 import { z } from "zod";
 
 /**
@@ -9,6 +10,10 @@ import { z } from "zod";
  * there. A child that dies mid-write, or that prints a tsx diagnostic instead of a
  * report, must not be able to hand the driver a half-shaped object whose missing `arms`
  * array reads as "this barrel armed no timer".
+ *
+ * This module has runtime imports (`zod`, `@alfred/contracts`) and the child must load
+ * neither before it measures. That holds because the child imports this file with
+ * `import type` only, which TypeScript erases — keep it that way.
  */
 const importProbeReportSchema = z.object({
   /** Each `setInterval` / `setTimeout` armed across the `await import(...)`, in call order. */
@@ -48,8 +53,9 @@ export function parseImportProbeReport(raw: unknown): ImportProbeReport {
   try {
     json = JSON.parse(raw);
   } catch (error) {
-    const reason = error instanceof Error ? error.message : String(error);
-    throw new Error(`import probe child wrote unparseable stdout (${reason}): ${excerpt(raw)}`);
+    throw new Error(
+      `import probe child wrote unparseable stdout (${toMessage(error)}): ${excerpt(raw)}`,
+    );
   }
 
   const result = importProbeReportSchema.safeParse(json);
