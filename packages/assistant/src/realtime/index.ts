@@ -23,14 +23,14 @@
  * but the poke *publisher* is created lazily on the first
  * `emitReplicachePokesOverRedis` call whether or not a bridge was ever initialised —
  * deliberately, so a worker or a smoke script still delivers pokes across processes.
- * `packages/assistant/test/realtime/barrel-load.test.ts` pins three shapes of the
- * import-time property: an env read (it deletes `DATABASE_URL` and `REDIS_URL` and
- * requires the import to succeed anyway), any timer the import arms (it counts
- * `setInterval` / `setTimeout` calls, because `PeriodicTask` unrefs its interval and an
- * unref'd timer is invisible to `process.getActiveResourcesInfo()`), and a socket the
- * import connects (a `TCP*` / `TLS*` handle delta). A `new pg.Pool()` that is
- * constructed but never connected arms no timer and opens no handle, so that one shape
- * is prose only — keep pool construction inside the lifecycle functions anyway.
+ * That property is not pinned here and is not specific to this barrel: it is pinned for
+ * every subpath `@alfred/assistant` advertises, by `packages/assistant/test/barrel-load.test.ts`.
+ * Read that file's docstring for the detectors and — more importantly — for the shapes
+ * they cannot see. It is the single statement of both; this header does not repeat it,
+ * because a limit restated in two places narrows in one and stays wide in the other.
+ * One realtime-specific instruction the probe cannot give: a `new pg.Pool()` that is
+ * constructed but never connected arms no timer and opens no handle, so it is invisible
+ * to every detector there — keep pool construction inside the lifecycle functions anyway.
  *
  * The relay, the reaper and the `PeriodicTask` primitive stay off this barrel on
  * purpose: they are internals of the delivery loop, and only its own tests reach them.
