@@ -49,6 +49,18 @@ function runtimeBindingFailures() {
   const failures = [];
   // Pins today's behavior exactly. The widened surface must not change which
   // clause shapes count as a runtime binding.
+  //
+  // All seven cells are unchanged by the move to a token walk, and that is by
+  // construction rather than by luck: `hasRuntimeBinding` itself is untouched,
+  // and the walk hands it the same text the regex captured — the source between
+  // the `import`/`export` keyword and the `from` token, so ` { type A } ` and
+  // never ` { type A } from `. Widening the slice over the `from` token would
+  // flip `{ type A }` to `true`.
+  //
+  // `{ type A }` must stay `false` here even though `verbatimModuleSyntax`
+  // makes that form emit a real module load. That gap is its own queued change;
+  // a scanner rewrite must not close it in passing, because a fence that moves
+  // two rules at once cannot say which one a new failure came from.
   const cases = [
     ["type A", false],
     ["{ type A }", false],
@@ -63,6 +75,182 @@ function runtimeBindingFailures() {
       failures.push(`hasRuntimeBinding("${clause}") must be ${expected}, received ${!expected}`);
     }
   }
+  return failures;
+}
+
+/**
+ * A specifier is only an import when a statement puts it there.
+ *
+ * Every case below is text a reader would call prose: an `@alfred/*` specifier
+ * quoted in a comment or inside a template literal. A scan that reads lines
+ * instead of statements reports each of them, and the consequence is not a
+ * stray warning — a mentioned package is promoted to a browser root, so its own
+ * legitimate server-side imports become failures and a documentation edit turns
+ * the gate red.
+ *
+ * Each fixture is a pair. The quiet half is the mention that must stay silent;
+ * the loud half is a real statement in the same file that must still be
+ * reported, so a scanner that has gone blind altogether fails here too.
+ */
+function lexicalPositionFailures() {
+  return withFixture("alfred-web-boundaries-lexical-", (fixture) => {
+    const failures = [];
+    // The block comment and the template literal both hold a line that starts
+    // at column 0 with the word `import`. Anchoring a regex to the start of a
+    // line answers those two wrong; only a walk that knows where the comment
+    // and the literal begin can skip them.
+    const source = [
+      "/**",
+      ' * Superseded: this module used to `import { pool } from "@alfred/db";`.',
+      " */",
+      '// import { serverEnv } from "@alfred/env/server";',
+      "/*",
+      'import { auth } from "@alfred/auth";',
+      "*/",
+      "const snippet = `",
+      'import { treaty } from "@alfred/api";',
+      "`;",
+      'import { pool } from "@alfred/db";',
+      "export const used = [snippet, pool];",
+      "",
+    ].join("\n");
+    write(fixture, "sample.ts", source);
+
+    const violations = findViolations(join(fixture, "sample.ts"));
+    const expected = [{ line: 11, specifier: "@alfred/db" }];
+    if (JSON.stringify(violations) !== JSON.stringify(expected)) {
+      failures.push(
+        `findViolations must report the one real import and none of the four mentions: expected ${JSON.stringify(expected)}, received ${JSON.stringify(violations)}`,
+      );
+    }
+    return failures;
+  });
+}
+
+/**
+ * The same rule at the surface level, where it costs the most.
+ *
+ * `browserRoots` follows runtime bindings, so a mention decides whether a whole
+ * package tree is fenced. Reading a comment as an import adds a server-side
+ * package to the browser surface and reddens the gate on code that never
+ * reaches the browser; failing to read a real import next to a comment drops a
+ * package tree out of the surface with no output at all. The second direction
+ * is the dangerous one, because nothing about it looks like a failure.
+ */
+function mentionedPackageRootFailures() {
+  const failures = [];
+
+  const build = (fixture, edge) => {
+    execFileSync("git", ["init", "--quiet"], { cwd: fixture });
+    write(fixture, "apps/web/src/entry.ts", `${edge}\nexport const used = 1;\n`);
+    workspace(fixture, "logging", { "log.ts": "export const log = 1;\n" });
+  };
+
+  withFixture("alfred-web-boundaries-mention-", (fixture) => {
+    build(fixture, '// import { log } from "@alfred/logging";');
+    const roots = browserRoots(fixture);
+    if (roots.includes("packages/logging/src")) {
+      failures.push(
+        `a commented-out import must not promote its package to a browser root, received ${JSON.stringify(roots)}`,
+      );
+    }
+  });
+
+  withFixture("alfred-web-boundaries-mention-armed-", (fixture) => {
+    build(fixture, 'import { log } from "@alfred/logging";');
+    const roots = browserRoots(fixture);
+    if (!roots.includes("packages/logging/src")) {
+      failures.push(
+        `the same import, uncommented, must promote its package to a browser root, received ${JSON.stringify(roots)}`,
+      );
+    }
+  });
+
+  // The loss direction: a comment above the file's only edge to a package. A
+  // scan that lets a comment swallow the statement below it reads this file as
+  // having no runtime binding, and the package leaves the fence entirely — no
+  // root, so no violation and no emptiness to report.
+  withFixture("alfred-web-boundaries-swallow-root-", (fixture) => {
+    execFileSync("git", ["init", "--quiet"], { cwd: fixture });
+    write(
+      fixture,
+      "apps/web/src/entry.ts",
+      [
+        "// Prefer import type wherever the symbol erases at build time.",
+        'import { log } from "@alfred/logging";',
+        "export const used = log;",
+        "",
+      ].join("\n"),
+    );
+    workspace(fixture, "logging", { "log.ts": "export const log = 1;\n" });
+
+    const roots = browserRoots(fixture);
+    if (!roots.includes("packages/logging/src")) {
+      failures.push(
+        `a comment above the only edge to a package must not remove that package from the surface, received ${JSON.stringify(roots)}`,
+      );
+    }
+  });
+
+  return failures;
+}
+
+/**
+ * One statement's clause must not run into the next statement's.
+ *
+ * A scan built from one lazy match reads everything between the first `import`
+ * keyword it finds and the first specifier it can reach as a single clause. The
+ * verdict it computes from that concatenation is right only by accident, and
+ * both shapes below are the accident going the other way: the joined text opens
+ * with `type `, so a real runtime import reads as type-only and is not
+ * reported.
+ */
+function statementBoundaryFailures() {
+  const failures = [];
+
+  const expectViolation = (label, source, expected) =>
+    withFixture("alfred-web-boundaries-statement-", (fixture) => {
+      write(fixture, "sample.ts", source);
+      const violations = findViolations(join(fixture, "sample.ts"));
+      if (JSON.stringify(violations) !== JSON.stringify(expected)) {
+        failures.push(
+          `${label}: expected ${JSON.stringify(expected)}, received ${JSON.stringify(violations)}`,
+        );
+      }
+    });
+
+  // A prose header that happens to use the words `import type`. This is the
+  // shape that is live in nineteen files of the real browser surface today.
+  expectViolation(
+    "a comment above an import must not lend that import its own clause",
+    [
+      "/**",
+      " * Prefer import type wherever the symbol erases at build time.",
+      " */",
+      'import { pool } from "@alfred/db";',
+      "export const used = pool;",
+      "",
+    ].join("\n"),
+    [{ line: 4, specifier: "@alfred/db" }],
+  );
+
+  // A preceding statement rather than a comment. A clause that may span a `;`
+  // reads the type alias and the re-export as one import.
+  expectViolation(
+    "a preceding statement must not lend a re-export its own clause",
+    ["export type Props = { a: string };", 'export { thing } from "@alfred/db";', ""].join("\n"),
+    [{ line: 2, specifier: "@alfred/db" }],
+  );
+
+  // The known blind spot, pinned so a later widening is a deliberate edit
+  // rather than a surprise: the walk needs a string in the argument position,
+  // so a computed dynamic import is invisible to the fence.
+  expectViolation(
+    "a computed dynamic import stays invisible",
+    ['const name = "@alfred/db";', "export const load = () => import(name);", ""].join("\n"),
+    [],
+  );
+
   return failures;
 }
 
@@ -431,6 +619,9 @@ function docListFailuresFailures() {
 export function webBoundarySelfTestFailures() {
   return [
     ...runtimeBindingFailures(),
+    ...lexicalPositionFailures(),
+    ...mentionedPackageRootFailures(),
+    ...statementBoundaryFailures(),
     ...browserRootsFailures(),
     ...widenedScanFailures(),
     ...surfaceFailureFailures(),
