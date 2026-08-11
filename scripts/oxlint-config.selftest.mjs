@@ -23,6 +23,7 @@ import {
   rootConfigFailures,
   strayOxlintConfigs,
   unpinnedLintScripts,
+  unwalkedSourceFailures,
 } from "./oxlint-config.mjs";
 
 const ROOT_CONFIG_BODY = `{
@@ -618,6 +619,131 @@ function readerRefusalFailures() {
   return failures;
 }
 
+// --- The file walk ---------------------------------------------------------------
+//
+// A third mechanism, and the one no config can govern: oxlint and oxfmt honor
+// `.gitignore` at any depth, so a gitignore line over an already-tracked source file
+// removes it from the walk while the file still ships. The drives below separate the
+// two states a single flag decides between — TRACKED and hidden (ships, lints nowhere)
+// versus merely IGNORED and untracked (cannot reach CI) — because a reader that
+// conflated them would report the second and miss the first.
+
+/**
+ * A repo whose subject is the WALK: source files at chosen depths, gitignore files at
+ * chosen depths, and the `git add -f` that makes the combination possible at all.
+ *
+ * The two `add` calls are ordered, not redundant. `git add -A` honors gitignore and so
+ * skips the hidden files; `git add -f` then forces exactly the declared sources in.
+ * That is the item's own premise as a fixture: a gitignore line does not untrack a file
+ * that is already tracked. `untracked` files are written AFTER both adds so they stay
+ * untracked, which is the negation case.
+ *
+ * @param {string} fixture
+ * @param {{sources?: string[], ignores?: Record<string, string>, untracked?: string[]}} shape
+ */
+function walkRepo(fixture, { sources = [], ignores = {}, untracked = [] }) {
+  execFileSync("git", ["init", "--quiet"], { cwd: fixture });
+  write(fixture, "package.json", `${JSON.stringify({ name: "fixture" }, null, 2)}\n`);
+  for (const file of sources) write(fixture, file, "export const value = 1;\n");
+  for (const [path, body] of Object.entries(ignores)) write(fixture, path, body);
+  execFileSync("git", ["add", "-A"], { cwd: fixture });
+  if (sources.length > 0) execFileSync("git", ["add", "-f", "--", ...sources], { cwd: fixture });
+  for (const file of untracked) write(fixture, file, "export const value = 1;\n");
+}
+
+function walkFailures(shape) {
+  return withFixture((fixture) => {
+    walkRepo(fixture, shape);
+    return unwalkedSourceFailures(fixture);
+  });
+}
+
+/**
+ * One hidden-file drive: exactly one failure, naming the file AND the located ignore
+ * line, plus the parsed row behind it. The row is asserted separately from the message
+ * so that stubbing either field out of the message cannot leave the drive green.
+ *
+ * @param {string} label
+ * @param {{sources?: string[], ignores?: Record<string, string>, untracked?: string[]}} shape
+ * @param {{file: string, ignoreFile: string, line: string, pattern: string}} expected
+ */
+function walkDrive(label, shape, expected) {
+  const result = walkFailures(shape);
+  const failures = [];
+
+  if (result.failures.length !== 1) {
+    return [`${label}: expected exactly one failure, received ${JSON.stringify(result.failures)}`];
+  }
+  for (const fragment of [expected.file, `${expected.ignoreFile}:${expected.line}`]) {
+    if (!result.failures[0].includes(fragment)) {
+      failures.push(
+        `${label}: the failure must name ${JSON.stringify(fragment)}, received ${JSON.stringify(result.failures[0])}`,
+      );
+    }
+  }
+  return [...failures, ...equal(result.hidden, [expected], `${label}: the parsed row`)];
+}
+
+/** The false-positive control: a repo whose whole source surface is walked. */
+function walkedSourceFailures() {
+  const result = walkFailures({ sources: ["src/a.ts", "src/deep/b.tsx", "src/c.mjs"] });
+  return [
+    ...equal(result.failures, [], "a repo hiding no tracked source reports nothing"),
+    ...equal(result.checked, 3, "and every extension it enumerated is counted"),
+  ];
+}
+
+/**
+ * The mechanism at the ROOT. Both `[41 design]` and this item's own text describe the
+ * NESTED case, and a rule scoped to "below the repo root" would pass here — measured:
+ * a root gitignore line drops a tracked file from the walk just as a nested one does.
+ */
+function rootIgnoredSourceFailures() {
+  return walkDrive(
+    "a tracked source hidden by the root gitignore is reported",
+    { sources: ["src/a.ts", "src/hidden.ts"], ignores: { ".gitignore": "src/hidden.ts\n" } },
+    { file: "src/hidden.ts", ignoreFile: ".gitignore", line: "1", pattern: "src/hidden.ts" },
+  );
+}
+
+/** The same mechanism at depth, which is where the item first measured it. */
+function nestedIgnoredSourceFailures() {
+  return walkDrive(
+    "a tracked source hidden by a nested gitignore is reported",
+    { sources: ["src/a.ts", "src/hidden.ts"], ignores: { "src/.gitignore": "hidden.ts\n" } },
+    { file: "src/hidden.ts", ignoreFile: "src/.gitignore", line: "1", pattern: "hidden.ts" },
+  );
+}
+
+/**
+ * The negation drive, and the one that binds the rule to TRACKEDNESS rather than to
+ * ignoredness. An untracked-and-ignored file is invisible to CI, which clones tracked
+ * files, so a linter that never opens it costs nothing and must not be reported.
+ */
+function untrackedIgnoredSourceFailures() {
+  const result = walkFailures({
+    sources: ["src/a.ts"],
+    ignores: { ".gitignore": "src/hidden.ts\n" },
+    untracked: ["src/hidden.ts"],
+  });
+  return [
+    ...equal(
+      result.failures,
+      [],
+      "an untracked gitignored source is out of scope, by construction",
+    ),
+    ...equal(result.checked, 1, "and it is not even enumerated"),
+  ];
+}
+
+/** The vacuity floor: an enumeration that read nothing is a failure, not a pass. */
+function emptyWalkSurfaceFailures() {
+  const result = walkFailures({ sources: [] });
+  return result.failures.length === 1 && result.failures[0].includes("examined nothing")
+    ? equal(result.checked, 0, "an empty walk surface reports zero checked")
+    : [`an empty walk surface must be reported, received ${JSON.stringify(result.failures)}`];
+}
+
 export function oxlintConfigSelfTestFailures() {
   return [
     ...cleanFixtureFailures(),
@@ -642,5 +768,10 @@ export function oxlintConfigSelfTestFailures() {
     ...allowOverrideFailures(),
     ...vacuousConfigFailures(),
     ...readerRefusalFailures(),
+    ...walkedSourceFailures(),
+    ...rootIgnoredSourceFailures(),
+    ...nestedIgnoredSourceFailures(),
+    ...untrackedIgnoredSourceFailures(),
+    ...emptyWalkSurfaceFailures(),
   ];
 }

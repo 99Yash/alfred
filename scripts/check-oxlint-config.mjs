@@ -1,7 +1,9 @@
 // Fails the build when oxlint would read a config other than the root one, when a
 // root oxlint script has lost the `--config` pin that makes the root config the only
-// one it reads, and when a fence inside that config names a specifier that no longer
-// resolves to anything.
+// one it reads, when a fence inside that config names a specifier that no longer
+// resolves to anything, and when a gitignore line hides a tracked source file from
+// oxlint's and oxfmt's file walk — a mechanism the `--config` pin is measured NOT to
+// close, because the walk happens before any config is consulted.
 //
 // The rules live in ./oxlint-config.mjs so fixtures can exercise them; this file is
 // the enforcing consumer.
@@ -18,6 +20,7 @@ import {
   rootConfigFailures,
   strayOxlintConfigs,
   unpinnedLintScripts,
+  unwalkedSourceFailures,
 } from "./oxlint-config.mjs";
 import { oxlintConfigSelfTestFailures } from "./oxlint-config.selftest.mjs";
 
@@ -80,11 +83,24 @@ if (specifiers.failures.length > 0) {
   );
 }
 
-// State the ungated share rather than the total. A summary claiming every specifier
-// is gated would recreate, in this check's own output, the false confidence it exists
-// to remove.
+const unwalked = unwalkedSourceFailures(ROOT);
+
+if (unwalked.failures.length > 0) {
+  console.error("Tracked source file that oxlint and oxfmt never open:");
+  for (const failure of unwalked.failures) console.error(`- ${failure}`);
+  console.error(
+    "Both tools walk the tree and both honor gitignore at any depth, so this is a THIRD way to disarm a fence and the --config pin above does not reach it: --no-ignore disables .eslintignore and --ignore-path rather than the gitignore walk, --ignore-path adds an ignore file instead of replacing it, and naming the hidden file on the command line does not lint it either.\n",
+  );
+}
+
+// State the ungated share rather than the total, and publish what the walk rule READ
+// rather than only what it rejected. A summary claiming every specifier is gated would
+// recreate, in this check's own output, the false confidence it exists to remove.
 console.log(
   `Restricted-import specifiers: ${specifiers.subpathChecked} gated on package and subpath, ${specifiers.checked - specifiers.subpathChecked} on package existence only (glob forms), ${specifiers.ungated} ungated (relative literals, and packages with no exports map, which nothing here can resolve).`,
+);
+console.log(
+  `Walked source files: ${unwalked.checked} tracked or new, ${unwalked.hidden.length} removed from the walk by a gitignore rule.`,
 );
 
 if (
@@ -92,7 +108,8 @@ if (
   strays.length > 0 ||
   unpinned.length > 0 ||
   scripts.length === 0 ||
-  specifiers.failures.length > 0
+  specifiers.failures.length > 0 ||
+  unwalked.failures.length > 0
 ) {
   process.exit(1);
 }
