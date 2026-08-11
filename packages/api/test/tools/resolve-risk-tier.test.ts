@@ -4,6 +4,7 @@ import { z } from "zod";
 
 import { toolExecuteContext } from "../../src/modules/tools/context";
 import { liveTool } from "../../src/modules/tools/registry";
+import { resolveEffectiveRiskTier } from "../../src/modules/dispatch";
 
 /**
  * Deterministic (no-DB) coverage of the `resolveRiskTier` wiring seam (#541 Part
@@ -76,5 +77,34 @@ describe("liveTool resolveRiskTier wiring", () => {
     const tier = await tool.resolveRiskTier?.({ n: "3" }, ctx);
     assert.equal(tier, "low");
     assert.deepEqual(seen, { n: 3 }, "the resolver receives the parsed (coerced) input");
+  });
+
+  test("centrally clamps an undeclared downgrade to the static tier", async () => {
+    const tool = liveTool({
+      integration: "mcp",
+      action: "call",
+      riskTier: "high",
+      description: "t",
+      inputSchema: z.object({ n: z.number() }),
+      resolveRiskTier: async () => "low",
+      execute: async () => ({ ok: true }),
+    });
+
+    assert.equal(await resolveEffectiveRiskTier(tool, { n: 3 }, ctx), "high");
+  });
+
+  test("allows a declared reviewed downgrade", async () => {
+    const tool = liveTool({
+      integration: "mcp",
+      action: "call",
+      riskTier: "high",
+      description: "t",
+      inputSchema: z.object({ n: z.number() }),
+      resolveRiskTier: async () => "low",
+      riskTierDowngradeReason: "reviewed test policy",
+      execute: async () => ({ ok: true }),
+    });
+
+    assert.equal(await resolveEffectiveRiskTier(tool, { n: 3 }, ctx), "low");
   });
 });
