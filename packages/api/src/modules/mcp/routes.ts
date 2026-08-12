@@ -4,22 +4,20 @@ import { Elysia, t } from "elysia";
 import { z } from "zod";
 import { authMacro } from "@alfred/http";
 import { consumeOAuthNonce, verifyOAuthState } from "@alfred/assistant/connections";
-import { boundedMcpErrorText } from "./errors";
-import { MCP_OAUTH_PENDING_ISSUER } from "./manager";
 import {
   authorizeMcpOAuth,
+  boundedMcpErrorText,
   finishMcpOAuth,
+  getMcpConnectionManager,
+  listOwnedConnections,
+  MCP_OAUTH_PENDING_ISSUER,
   McpOAuthAuthorizationRequiredError,
   mcpOAuthClientConfiguration,
   mcpOAuthProviderForConnection,
-} from "./oauth";
-import {
-  listOwnedConnections,
   readOwnedConnection,
   updateConnection,
   upsertConnection,
-} from "./persistence";
-import { getMcpConnectionManager } from "./runtime";
+} from "@alfred/assistant/connections/mcp";
 
 const GITHUB_MCP_ENDPOINT = new URL("https://api.githubcopilot.com/mcp");
 const callbackParamsSchema = z.object({ state: z.string().min(1) });

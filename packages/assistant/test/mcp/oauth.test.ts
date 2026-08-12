@@ -10,7 +10,7 @@ import {
   McpOAuthProvider,
   refreshMcpOAuthIfNeeded,
   type McpOAuthCredentialStore,
-} from "../../src/modules/connections/mcp";
+} from "../../src/connections/mcp/oauth";
 
 class MemoryStore implements McpOAuthCredentialStore {
   row: McpOauthCredential | undefined;

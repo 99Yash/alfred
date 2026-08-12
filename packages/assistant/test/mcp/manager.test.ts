@@ -13,9 +13,9 @@ import {
   type McpProtocolCallResult,
   type McpProtocolClient,
   type McpProtocolPage,
-} from "../../src/modules/connections/mcp";
-import { McpConnectionManager } from "../../src/modules/connections/mcp/manager";
-import { insertConnection, readConnection } from "../../src/modules/connections/mcp/persistence";
+} from "../../src/connections/mcp";
+import { McpConnectionManager } from "../../src/connections/mcp/manager";
+import { insertConnection, readConnection } from "../../src/connections/mcp/persistence";
 
 /**
  * DB-backed tests for the connection manager (PRD #540). A real `McpRawClient`

@@ -1,0 +1,39 @@
+/**
+ * The MCP tool-runtime door: durable invocation, the ambiguity barrier, result
+ * correlation, the reviewed-downgrade risk resolver, and the one identity
+ * derivation (`resolveMcpToolIdentity`) that ADR-0088 makes the single fail-closed
+ * owner of `(current catalog revision, descriptor hash, reviewed policy)`.
+ *
+ * What lives behind this door is a tool call, not a connection. The live client,
+ * the session cache, and the connection rows are behind
+ * `@alfred/assistant/connections/mcp`; this module imports that one and never the
+ * other way round.
+ *
+ * This barrel is deliberately NOT re-exported from `tool-runtime/index.ts`. That
+ * barrel is imported nearly everywhere, and folding the MCP client SDK plus the
+ * credential vault into its graph is exactly the door-widening this split exists
+ * to avoid.
+ *
+ * Enforcement tier 4, not 1. The package manifest already carries
+ * `"./tool-runtime/*": "./src/tool-runtime/*.ts"`, so
+ * `@alfred/assistant/tool-runtime/mcp/invocations` resolves whether or not this
+ * file names it, and the private-import fence is blind to a bare specifier. Item
+ * 79 owns narrowing that wildcard and is the only thing that promotes this door.
+ */
+
+export {
+  McpExecutionBroker,
+  type McpBrokerBlockReason,
+  type McpBrokerCallInput,
+  type McpBrokerOutcome,
+} from "./broker";
+export {
+  reconcileInflightInvocations,
+  resolveMcpToolIdentity,
+  upsertToolPolicy,
+  type McpToolIdentityResolution,
+  type OwnedMcpConnectionRef,
+  type ReconcileSummary,
+} from "./invocations";
+export { MCP_CALL_RISK_FLOOR, resolveMcpCallRiskTier, type McpCallRiskInput } from "./risk";
+export { _setMcpExecutionBrokerForTests, getMcpExecutionBroker } from "./runtime";
