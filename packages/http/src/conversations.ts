@@ -27,8 +27,7 @@ import { and, asc, eq, inArray, notInArray, sql } from "drizzle-orm";
 import { Elysia, t } from "elysia";
 import { emitReplicachePokes } from "@alfred/assistant/triggers";
 import { authMacro } from "./middleware/auth";
-import type IORedis from "ioredis";
-import { createRedisConnection } from "@alfred/db/redis";
+import { createRedisConnection, type BoundedRedis } from "@alfred/db/redis";
 import { getRun, persistChatTurnRunInTx, redeliverRun } from "@alfred/assistant/execution";
 import { uniqueViolationConstraint } from "@alfred/db/pg-errors";
 import { enqueuePendingUploadCleanup } from "@alfred/assistant/connections/ingestion";
@@ -55,7 +54,7 @@ const ATTACHMENT_UPLOAD_RATE_LIMIT_SECONDS = 60;
 const ATTACHMENT_UPLOAD_RATE_LIMIT_COUNT = 30;
 const ATTACHMENT_UPLOAD_QUOTA_TTL_SECONDS = 60 * 60;
 const MAX_PENDING_ATTACHMENT_UPLOAD_BYTES = MAX_ATTACHMENT_BYTES_PER_MESSAGE * 4;
-let attachmentUploadRateRedis: IORedis | undefined;
+let attachmentUploadRateRedis: BoundedRedis | undefined;
 
 type DbExecutor = DbRoot | DbTransaction;
 type AttachmentInsertRow = NewChatAttachment;
@@ -73,7 +72,7 @@ interface ExistingChatTurnRun {
   assistantMessageId: string;
 }
 
-function getAttachmentUploadRateRedis(): IORedis {
+function getAttachmentUploadRateRedis(): BoundedRedis {
   attachmentUploadRateRedis ??= createRedisConnection("fail-fast");
   return attachmentUploadRateRedis;
 }

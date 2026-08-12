@@ -31,7 +31,7 @@ import { db } from "@alfred/db";
 import { userActionPolicies } from "@alfred/db/schemas";
 import { eq } from "drizzle-orm";
 import type IORedis from "ioredis";
-import { createRedisConnection } from "@alfred/db/redis";
+import { createRedisConnection, type BoundedRedis } from "@alfred/db/redis";
 
 /**
  * Default delay between staging a gated action and sending the user a
@@ -153,9 +153,9 @@ export function _primePolicyCacheForTests(policy: ResolvedPolicy): void {
   cache.set(policy.userId, Promise.resolve(policy));
 }
 
-let publisher: IORedis | undefined;
+let publisher: BoundedRedis | undefined;
 
-function getPublisher(): IORedis {
+function getPublisher(): BoundedRedis {
   if (!publisher) publisher = createRedisConnection("command");
   return publisher;
 }
@@ -239,6 +239,24 @@ export async function startPolicyBustSubscriber(): Promise<void> {
   // again rather than no-op into a non-started state.
   subscriber = conn;
   subscriberStarted = true;
+
+  // A reconnect drops the pattern subscription, and the `"subscriber"` kind
+  // sets `autoResubscribe: false` — ioredis's own re-subscribe carries no
+  // `.catch`, so any rejection of it exits the process. Re-issuing is therefore
+  // this module's job. Without it a single reconnect leaves every policy edit
+  // stale on this instance until restart, and SILENTLY: nothing rejects, the
+  // messages simply stop arriving.
+  //
+  // Registered only after the first subscription is live, so the initial
+  // `ready` does not issue a second, redundant PSUBSCRIBE.
+  conn.on("ready", () => {
+    if (!subscriberStarted) return;
+    conn.psubscribe(POLICY_BUST_PATTERN).catch((err: unknown) => {
+      console.error("[action-policies] policy-bust re-subscribe after reconnect failed", {
+        error: toMessage(err),
+      });
+    });
+  });
 }
 
 /**

@@ -1,5 +1,4 @@
-import type IORedis from "ioredis";
-import { createRedisConnection } from "@alfred/db/redis";
+import { createRedisConnection, type BoundedRedis } from "@alfred/db/redis";
 
 /**
  * User-initiated stop for an in-flight chat turn — what the composer's stop
@@ -25,8 +24,8 @@ import { createRedisConnection } from "@alfred/db/redis";
  * (broken). The `"fail-fast"` connection rejects instead of queueing.
  */
 
-let conn: IORedis | null = null;
-function redis(): IORedis {
+let conn: BoundedRedis | null = null;
+function redis(): BoundedRedis {
   if (!conn) conn = createRedisConnection("fail-fast");
   return conn;
 }

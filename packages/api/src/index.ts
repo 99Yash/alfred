@@ -15,8 +15,7 @@ import {
   skillsRoutes,
   workflowRoutes,
 } from "@alfred/http";
-import type IORedis from "ioredis";
-import { createRedisConnection } from "@alfred/db/redis";
+import { createRedisConnection, type BoundedRedis } from "@alfred/db/redis";
 import { connections } from "./modules/connections/index";
 import { meRoutes } from "./modules/me/index";
 import { mcpIntegrationRoutes } from "./modules/connections/mcp/index";
@@ -63,7 +62,7 @@ export const app = new Elysia({ name: "api", normalize: "typebox" })
       checks.db = "error";
     }
 
-    let conn: IORedis | undefined;
+    let conn: BoundedRedis | undefined;
     try {
       conn = createRedisConnection("fail-fast", { tracked: false });
       await conn.ping();

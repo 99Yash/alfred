@@ -11,17 +11,26 @@ import { after, before, describe, test } from "node:test";
  * so no later listener passed the "first listener" test and re-issued the
  * subscription, and ioredis will not re-issue it either — its auto-resubscribe
  * reads the channel list from `condition.subscriber`, which is populated only
- * from a SUBSCRIBE REPLY that never arrived. Every poke for that user was then
- * dropped for the lifetime of the process.
+ * from a SUBSCRIBE REPLY that never arrived, and on the `"subscriber"` kind that
+ * auto-resubscribe is switched off outright because it is uncaught. Every poke
+ * for that user was then dropped for the lifetime of the process.
  *
- * The Redis here is a real socket speaking just enough RESP to REFUSE the first
- * SUBSCRIBE and accept the second. A mock of the bus's own connection could not
- * show this: the defect is in which commands reach the wire, and only the wire
- * can count them.
+ * Two recovery paths, and the second subtest exists because the first one alone
+ * is not enough. A LATER listener re-issuing the subscription only helps if a
+ * later listener arrives; a listener that was already attached when its
+ * SUBSCRIBE failed has no such rescuer, and stayed deaf for the life of its SSE
+ * stream even after Redis came back. The connection's `ready` event is what
+ * recovers it, and `ready` is also the only thing that re-subscribes after an
+ * ordinary reconnect, because ioredis no longer does.
  *
- * `user-events-bus.ts` carries the identical pair of structures for the same
- * reason. It is not separately pinned here — the two files are deliberate
- * mirrors, and this test is what documents the shape.
+ * The Redis here is a real socket speaking just enough RESP to refuse a
+ * SUBSCRIBE on demand and to drop its connections. A mock of the bus's own
+ * connection could not show either subtest: the defect is in which commands
+ * reach the wire, and only the wire can count them.
+ *
+ * `user-events-bus.ts` carries the identical pair of structures and the identical
+ * `ready` handler for the same reason. It is not separately pinned here — the two
+ * files are deliberate mirrors, and this test is what documents the shape.
  */
 
 /**
@@ -52,7 +61,9 @@ const ENV_DUMMIES: Readonly<Record<string, string>> = {
   GITHUB_APP_REDIRECT_URI: "http://localhost:3001/api/integrations/github/callback",
 };
 
-const USER_ID = "poke-recovery-user";
+/** One user per subtest: the bus is a module singleton and keeps its refcounts. */
+const LATER_LISTENER_USER = "poke-recovery-user";
+const RECONNECT_USER = "poke-reconnect-user";
 const DEADLINE_MS = 5_000;
 
 /** Split one inbound RESP array into its arguments. Returns null if incomplete. */
@@ -78,11 +89,14 @@ function bulk(value: string): string {
 }
 
 /**
- * A Redis that refuses the first SUBSCRIBE it is asked for and accepts every
- * one after it.
+ * A Redis that refuses a SUBSCRIBE whenever the test says to, counts the
+ * SUBSCRIBE frames it received per channel, and can drop its connections to make
+ * the client reconnect.
  */
 class FlakySubscribeRedis {
-  subscribeCount = 0;
+  /** Set by the test around the SUBSCRIBE it wants to fail. */
+  refuseSubscribes = false;
+  private readonly subscribesByChannel = new Map<string, number>();
   private readonly sockets = new Set<Socket>();
   private constructor(private readonly server: Server) {}
 
@@ -116,12 +130,22 @@ class FlakySubscribeRedis {
     });
   }
 
+  /** SUBSCRIBE frames received for `channel`, refused ones included. */
+  subscribesFor(channel: string): number {
+    return this.subscribesByChannel.get(channel) ?? 0;
+  }
+
+  /** Cut every live connection. The server keeps listening, so the client reconnects. */
+  dropConnections(): void {
+    for (const socket of this.sockets) socket.destroy();
+  }
+
   private reply(args: string[]): string {
     const name = (args[0] ?? "").toLowerCase();
     const channel = args[1] ?? "";
     if (name === "subscribe") {
-      this.subscribeCount += 1;
-      if (this.subscribeCount === 1) return "-ERR simulated subscribe failure\r\n";
+      this.subscribesByChannel.set(channel, this.subscribesFor(channel) + 1);
+      if (this.refuseSubscribes) return "-ERR simulated subscribe failure\r\n";
       return `*3\r\n${bulk("subscribe")}${bulk(channel)}:1\r\n`;
     }
     if (name === "unsubscribe") return `*3\r\n${bulk("unsubscribe")}${bulk(channel)}:0\r\n`;
@@ -178,19 +202,47 @@ describe("replicache poke bus recovers from a rejected SUBSCRIBE", () => {
   });
 
   test("a later listener re-issues a subscription the first one failed to open", async () => {
-    const first = bus.subscribeUserPokes(USER_ID, () => {});
-    await waitFor(() => redis.subscribeCount >= 1, "the first SUBSCRIBE to reach Redis");
+    const channel = `replicache-pokes:u:${LATER_LISTENER_USER}`;
+    redis.refuseSubscribes = true;
+
+    const first = bus.subscribeUserPokes(LATER_LISTENER_USER, () => {});
+    await waitFor(() => redis.subscribesFor(channel) >= 1, "the first SUBSCRIBE to reach Redis");
     // The rejection has to be delivered and handled before the second listener
     // arrives, or this measures the in-flight guard instead of the recovery.
     await new Promise((resolve) => setTimeout(resolve, 100));
+    redis.refuseSubscribes = false;
 
-    const second = bus.subscribeUserPokes(USER_ID, () => {});
+    const second = bus.subscribeUserPokes(LATER_LISTENER_USER, () => {});
     await waitFor(
-      () => redis.subscribeCount >= 2,
+      () => redis.subscribesFor(channel) >= 2,
       "a SECOND SUBSCRIBE — a rejected one left the refcount claiming this replica was already subscribed, so no later listener re-issued it and every poke for the user was dropped",
     );
 
     first();
     second();
+  });
+
+  test("a listener that was ALREADY attached recovers when the connection comes back", async () => {
+    const channel = `replicache-pokes:u:${RECONNECT_USER}`;
+    redis.refuseSubscribes = true;
+
+    // Exactly one listener, and no second one ever arrives. This is the SSE
+    // stream that was already open when Redis blipped: the subtest above cannot
+    // save it, because its rescuer is a listener that may never come.
+    const only = bus.subscribeUserPokes(RECONNECT_USER, () => {});
+    await waitFor(() => redis.subscribesFor(channel) >= 1, "the first SUBSCRIBE to reach Redis");
+    await new Promise((resolve) => setTimeout(resolve, 100));
+
+    // Redis comes back: the socket drops, ioredis reconnects to the same
+    // listening server and reaches `ready`.
+    redis.refuseSubscribes = false;
+    redis.dropConnections();
+
+    await waitFor(
+      () => redis.subscribesFor(channel) >= 2,
+      "a SECOND SUBSCRIBE after the reconnect, with no new listener — without the bus's own `ready` handler nothing re-issues it: ioredis's auto-resubscribe is off on the `\"subscriber\"` kind (it is uncaught, and an uncaught rejection exits the server) and it would not have re-issued this one anyway, because it re-reads the channel list from a SUBSCRIBE REPLY that never arrived",
+    );
+
+    only();
   });
 });

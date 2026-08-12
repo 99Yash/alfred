@@ -26,9 +26,8 @@ import type { ScratchEntry, ScratchZone } from "@alfred/contracts";
 import { db } from "@alfred/db";
 import { agentRunContext, type AgentRunContextRow } from "@alfred/db/schemas";
 import { sql } from "drizzle-orm";
-import type IORedis from "ioredis";
 import { z } from "zod";
-import { createRedisConnection } from "@alfred/db/redis";
+import { createRedisConnection, type BoundedRedis } from "@alfred/db/redis";
 import {
   buildScratchPromoteSpanInput,
   buildScratchReadSpanInput,
@@ -60,8 +59,8 @@ const scratchEntrySchema = z.object({
   writtenAt: z.number(),
 });
 
-let _client: IORedis | undefined;
-function client(): IORedis {
+let _client: BoundedRedis | undefined;
+function client(): BoundedRedis {
   if (!_client) _client = createRedisConnection("command");
   return _client;
 }

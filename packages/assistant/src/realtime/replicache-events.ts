@@ -15,7 +15,7 @@
  */
 import { EventEmitter } from "node:events";
 import type IORedis from "ioredis";
-import { createRedisConnection, isQueueEnabled } from "@alfred/db/redis";
+import { createRedisConnection, isQueueEnabled, type BoundedRedis } from "@alfred/db/redis";
 import { isRecord, toMessage } from "@alfred/contracts";
 
 interface ReplicachePoke {
@@ -40,7 +40,7 @@ const userIdFromChannel = (channel: string): string | null =>
 const emitter = new EventEmitter();
 emitter.setMaxListeners(0);
 
-let publisher: IORedis | undefined;
+let publisher: BoundedRedis | undefined;
 let subscriber: IORedis | undefined;
 
 /** Refcount of active SSE listeners per user on this replica. */
@@ -54,15 +54,18 @@ const userRefCounts = new Map<string, number>();
  * no later listener ever passed the "first listener" test and re-issued it, and
  * ioredis will not re-issue it either — its auto-resubscribe reads the channel
  * list from `condition.subscriber`, which is populated only from a SUBSCRIBE
- * REPLY that never arrived. `subscribed` records replies, `subscribing` keeps a
- * second listener from issuing a duplicate while the first is in flight.
+ * REPLY that never arrived — and on the `"subscriber"` kind ioredis's
+ * auto-resubscribe is switched off outright. `subscribed` records replies,
+ * `subscribing` keeps a second listener from issuing a duplicate while the first
+ * is in flight, and `resubscribeAll` below rebuilds both after a reconnect.
  */
 const subscribed = new Set<string>();
 const subscribing = new Set<string>();
 
 /**
  * Subscribe to `userId`'s channel unless this replica already holds it or is
- * already asking for it. Safe to call on every listener registration.
+ * already asking for it. Safe to call on every listener registration and on
+ * every reconnect.
  */
 function ensureSubscribed(userId: string): void {
   const conn = subscriber;
@@ -84,15 +87,47 @@ function ensureSubscribed(userId: string): void {
   );
 }
 
+/**
+ * Re-subscribe every user this replica still has listeners for.
+ *
+ * A reconnect drops every server-side subscription, and the `"subscriber"` kind
+ * sets `autoResubscribe: false`, so ioredis will NOT re-issue them — deliberately,
+ * because the command it would issue is the one command on the connection that
+ * no module catches, and an uncaught rejection exits the process. Re-issuing is
+ * therefore this module's job, and `ready` is the only event that says the
+ * connection can carry a subscription again.
+ *
+ * This is also the recovery path for a subscribe that REJECTED. A listener that
+ * was already registered when its SUBSCRIBE failed is not re-subscribed by a
+ * later listener arriving — there may never be one — so without this the listener
+ * stays deaf for the life of its SSE stream, including after Redis comes back.
+ *
+ * Both sets are cleared first. `subscribed` because the server no longer holds
+ * any of it; `subscribing` because a subscribe still in flight from the previous
+ * socket would otherwise block the re-issue, and if it then rejects there is no
+ * further `ready` to recover it. A duplicate SUBSCRIBE is harmless — Redis
+ * ignores the second, and both settlements write into the same Set.
+ */
+function resubscribeAll(): void {
+  subscribed.clear();
+  subscribing.clear();
+  for (const [userId, count] of userRefCounts) {
+    if (count > 0) ensureSubscribed(userId);
+  }
+}
+
 export async function initReplicachePokeBridge(): Promise<void> {
   if (!isQueueEnabled()) return;
 
   try {
     publisher = createRedisConnection("command");
-    // `"subscriber"`, not `"command"`: a `commandTimeout` on a connection that
-    // holds subscriptions turns ioredis's own uncaught re-subscribe into an
-    // unhandled rejection, and the server exits on one of those.
+    // `"subscriber"`, not `"command"`: ioredis's own re-subscribe after a
+    // reconnect carries no `.catch`, so any rejection of it exits the server.
+    // The kind removes that command rather than the ways it can fail, which is
+    // why the `ready` handler below has to exist.
     subscriber = createRedisConnection("subscriber");
+
+    subscriber.on("ready", resubscribeAll);
 
     subscriber.on("message", (channel: string, raw: string) => {
       const userId = userIdFromChannel(channel);

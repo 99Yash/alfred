@@ -85,19 +85,25 @@ describe("redis connection kinds against an unreachable Redis", () => {
     await redis.closeRedis();
   });
 
-  test('"command" bounds publish, psubscribe and punsubscribe', async () => {
+  test('"command" bounds publish, get and set', async () => {
     const conn = redis.createRedisConnection("command");
     // Errors are emitted on the connection for every refused attempt; ioredis
     // throws on an unhandled `error` event.
     conn.on("error", () => {});
 
+    // The three verbs the 12 `"command"` call sites actually issue: the policy
+    // bust publishes, and the scratchpad, OAuth-state and CVR handles read and
+    // write keys. The subscribe verbs are NOT reachable from this handle — they
+    // are typed off `BoundedRedis`, and `test/type/redis-kind-surface.type-test.ts`
+    // is what pins that; the psubscribe/punsubscribe half of the reported hang
+    // is measured on `"subscriber"` in the subtest below.
     const settlements = await Promise.all([
       settleWithin(conn.publish("policy-bust:u:probe", "1"), COMMAND_DEADLINE_MS),
-      settleWithin(conn.psubscribe("policy-bust:u:*"), COMMAND_DEADLINE_MS),
-      settleWithin(conn.punsubscribe("policy-bust:u:*"), COMMAND_DEADLINE_MS),
+      settleWithin(conn.get("alfred:probe"), COMMAND_DEADLINE_MS),
+      settleWithin(conn.set("alfred:probe", "1"), COMMAND_DEADLINE_MS),
     ]);
 
-    const names = ["publish", "psubscribe", "punsubscribe"];
+    const names = ["publish", "get", "set"];
     settlements.forEach((settlement, index) => {
       // "pending" is the pre-fix behavior and is called out by name: a bare
       // `assert.rejects` would report it as a timeout with no diagnosis.

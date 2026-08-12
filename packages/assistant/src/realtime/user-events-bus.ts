@@ -12,6 +12,7 @@
  */
 import { EventEmitter } from "node:events";
 import type IORedis from "ioredis";
+import type { BoundedRedis } from "@alfred/db/redis";
 import type { EventFrame } from "@alfred/contracts/events";
 import { isKnownEventKind } from "@alfred/contracts/events";
 import { isRecord, toMessage } from "@alfred/contracts";
@@ -27,7 +28,7 @@ const eventFor = (userId: string) => `frame:${userId}`;
 const emitter = new EventEmitter();
 emitter.setMaxListeners(0);
 
-let publisher: IORedis | undefined;
+let publisher: BoundedRedis | undefined;
 let subscriber: IORedis | undefined;
 
 const userRefCounts = new Map<string, number>();
@@ -58,6 +59,21 @@ function ensureSubscribed(userId: string): void {
   );
 }
 
+/**
+ * Re-subscribe every user this replica still has listeners for — see the same
+ * function in `replicache-events.ts` for why the connection owner has to do
+ * this. In short: the `"subscriber"` kind sets `autoResubscribe: false` because
+ * ioredis's own re-subscribe is uncaught and exits the process, and a rejected
+ * subscribe has no other recovery point.
+ */
+function resubscribeAll(): void {
+  subscribed.clear();
+  subscribing.clear();
+  for (const [userId, count] of userRefCounts) {
+    if (count > 0) ensureSubscribed(userId);
+  }
+}
+
 function isFrame(value: unknown): value is EventFrame {
   if (!isRecord(value)) return false;
   const v = value;
@@ -77,9 +93,12 @@ export async function initUserEventsBus(): Promise<void> {
 
   try {
     publisher = createRedisConnection("command");
-    // `"subscriber"`, not `"command"` — mirrors `replicache-events.ts`; a
-    // `commandTimeout` on a subscribing connection is a process-killer.
+    // `"subscriber"`, not `"command"` — mirrors `replicache-events.ts`;
+    // ioredis's uncaught re-subscribe on a subscribing connection is a
+    // process-killer, so the kind removes it and this module re-subscribes.
     subscriber = createRedisConnection("subscriber");
+
+    subscriber.on("ready", resubscribeAll);
 
     subscriber.on("message", (channel: string, raw: string) => {
       const userId = userIdFromChannel(channel);

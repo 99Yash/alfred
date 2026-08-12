@@ -6,33 +6,48 @@ import { fileURLToPath } from "node:url";
 import { before, describe, test } from "node:test";
 
 /**
- * Why `"subscriber"` exists as a kind of its own, pinned by the process
- * boundary.
+ * Why `"subscriber"` exists as a kind of its own, pinned at the process
+ * boundary and on the wire.
  *
- * A `commandTimeout` on a connection that holds subscriptions kills the server.
- * Two steps, both measured on ioredis 5.11.1 and both needed:
+ * After a reconnect, ioredis's `readyHandler` re-issues the previous SUBSCRIBE
+ * and PSUBSCRIBE with NO `.catch` — unlike the `readonly().catch(noop)` a few
+ * lines above it in the same function. That is the only command on such a
+ * connection that no module owns, so ANY rejection of it is an unhandled
+ * rejection, and `apps/server/src/index.ts` turns one of those into
+ * `process.exit(1)`. Two measured routes reach that rejection, and removing
+ * either alone leaves the other:
  *
- * 1. Against a peer that accepts the TCP connection and never replies, the
- *    `commandTimeout` is what lets the connection reach `ready` at all — it
- *    ends the `CLIENT SETINFO` handshake ioredis sends on every connect. With
- *    no `commandTimeout` that handshake never completes and `ready` never
- *    fires.
- * 2. Reaching `ready` runs ioredis's `readyHandler`, which re-issues the
- *    previous SUBSCRIBE/PSUBSCRIBE with NO `.catch` — unlike the
- *    `readonly().catch(noop)` two lines above it in the same function. The next
- *    `commandTimeout` on that re-issued command is an unhandled rejection, and
- *    `apps/server/src/index.ts` turns an unhandled rejection into
- *    `process.exit(1)`.
+ * 1. a `commandTimeout` times the re-issued command out;
+ * 2. a numeric `maxRetriesPerRequest` flushes it with `MaxRetriesPerRequestError`
+ *    when the peer then refuses — `prevCommandQueue = self.commandQueue` in the
+ *    close handler is an ALIAS, not a move, and only a TCP `connect` calls
+ *    `resetCommandQueue()`, which a refusing peer never emits.
  *
- * The subject is `"subscriber"` and MUST survive. The control is `"command"`,
- * which must NOT — that is what proves the harness reproduces the crash rather
- * than passing because the outage never happened. If the control ever goes
- * green, either this harness stopped provoking a reconnect or `"command"` lost
- * its `commandTimeout`; check which before deleting the subtest.
+ * `"subscriber"` therefore deletes the command itself: `autoResubscribe: false`.
+ * That is what these subtests measure — not the absence of a crash, which an
+ * outage that never happened also produces, but the absence of the COMMAND, on a
+ * reconnect the harness proves it provoked.
  *
- * Both run as child processes because `node:test` fails any test in whose
- * process an unhandled rejection occurs, even one the test installed a listener
- * for — so a control that expects a crash cannot live in this process.
+ * The three subtests are one subject and two controls:
+ *
+ * - The subject reconnects for real (a second `READY` from the child) and must
+ *   send ZERO further SUBSCRIBE frames.
+ * - Control A is the same reconnect on `"command"`, which MUST send one. Without
+ *   it, "zero frames" is equally consistent with a harness that never
+ *   reconnected — which is exactly how the previous version of this file passed
+ *   while measuring nothing.
+ * - Control B is `"command"` against a peer that accepts and never replies,
+ *   which must exit 1. It proves an unhandled rejection is observable through
+ *   this harness at all, and it is why `"subscriber"` also carries no
+ *   `commandTimeout`.
+ *
+ * There is deliberately NO `"subscriber"` counterpart to control B: measured on
+ * ioredis 5.11.1, a connection with no `commandTimeout` never reaches `ready`
+ * against a peer that accepts and never replies, because the `CLIENT SETINFO`
+ * handshake never completes. It would exit 0 by not reconnecting, which is the
+ * vacuity this file was rewritten to remove. The subject uses a HEALTHY peer
+ * behind a cut socket instead, where reaching `ready` again is guaranteed and
+ * observable.
  *
  * Needs a reachable Redis: the connection must genuinely subscribe before the
  * outage, or the reconnect has nothing to re-issue. The `db-tests` CI job
@@ -42,25 +57,39 @@ import { before, describe, test } from "node:test";
 const UPSTREAM_URL = process.env["REDIS_URL"] ?? "redis://127.0.0.1:6379";
 /** The child's own window is 8s; this is that plus room for spawn and install. */
 const CHILD_DEADLINE_MS = 20_000;
+/** How long a reconnect onto a healthy peer may take before it counts as never. */
+const RECONNECT_DEADLINE_MS = 10_000;
+/** Time given to a re-issued SUBSCRIBE to reach the wire after `ready`. */
+const RESUBSCRIBE_WINDOW_MS = 750;
 
 const CHILD = fileURLToPath(new URL("./support/subscriber-reconnect-child.ts", import.meta.url));
 const TSX = fileURLToPath(new URL("../node_modules/.bin/tsx", import.meta.url));
 
+/** `*2\r\n$9\r\nsubscribe\r\n…` — the RESP framing of the command, not a substring of a payload. */
+const SUBSCRIBE_FRAME = /\$9\r\nsubscribe\r\n/i;
+
 interface ChildOutcome {
   readonly code: number | null;
   readonly stderr: string;
+  /** SUBSCRIBE frames the client put on the wire AFTER the socket was cut. */
+  readonly resubscribeFrames: number;
 }
 
 /**
- * A TCP proxy in front of the real Redis that can be turned into a peer which
- * accepts connections and never answers. A closed port is not enough here: the
- * client must reconnect SUCCESSFULLY to reach `ready` and re-issue its
- * subscriptions, and nothing reconnects successfully to a closed port.
+ * A TCP proxy in front of the real Redis. It can cut every live socket while
+ * still serving the reconnect (a flap), stop answering entirely (a peer that
+ * accepts and never replies), and count the SUBSCRIBE frames the client sends.
+ *
+ * A closed port is not enough for the subject: the client must reconnect
+ * SUCCESSFULLY to reach `ready` and re-issue its subscriptions, and nothing
+ * reconnects successfully to a closed port.
  */
 class SwitchableProxy {
   private mode: "forward" | "silent" = "forward";
   private readonly open = new Set<Socket>();
   private readonly server: Server;
+  /** Counted from the client's bytes, so it measures what ioredis actually sent. */
+  subscribeFrames = 0;
   private constructor(server: Server) {
     this.server = server;
   }
@@ -77,10 +106,23 @@ class SwitchableProxy {
       }
       proxy.track(downstream);
       if (proxy.mode === "silent") return;
-      const upstreamSocket = connectTcp(upstreamPort, upstreamHost, () => {
-        downstream.pipe(upstreamSocket);
-        upstreamSocket.pipe(downstream);
+      const upstreamSocket = connectTcp(upstreamPort, upstreamHost);
+      // Not `pipe`: every client byte is inspected on its way through, which is
+      // the only place a re-issued SUBSCRIBE is visible. A mock of the
+      // connection could not show it — the whole question is which commands
+      // reach the wire.
+      let pending = "";
+      downstream.on("data", (chunk: Buffer) => {
+        pending = (pending + chunk.toString("latin1")).slice(-512);
+        for (;;) {
+          const match = SUBSCRIBE_FRAME.exec(pending);
+          if (!match) break;
+          proxy.subscribeFrames += 1;
+          pending = pending.slice(match.index + match[0].length);
+        }
+        upstreamSocket.write(chunk);
       });
+      upstreamSocket.pipe(downstream);
       upstreamSocket.on("error", () => downstream.destroy());
       proxy.track(upstreamSocket);
     });
@@ -106,10 +148,15 @@ class SwitchableProxy {
     return `redis://127.0.0.1:${address.port}`;
   }
 
+  /** Cut every live socket. The next connection is served normally — a flap. */
+  cutSockets(): void {
+    for (const socket of this.open) socket.destroy();
+  }
+
   /** Take Redis away: cut every live socket and answer nothing from now on. */
   goSilent(): void {
     this.mode = "silent";
-    for (const socket of this.open) socket.destroy();
+    this.cutSockets();
   }
 
   async stop(): Promise<void> {
@@ -118,44 +165,99 @@ class SwitchableProxy {
   }
 }
 
+/** The child's stdout, as the two events the parent waits on. */
+class ChildEvents {
+  private buffer = "";
+  private readonly waiters: { needle: string; count: number; resolve: () => void }[] = [];
+  private readonly seen = new Map<string, number>();
+
+  feed(chunk: string): void {
+    this.buffer += chunk;
+    // Recounted from the whole buffer each time rather than tracked across
+    // partial lines: the volume is a handful of lines, and a miscounted READY
+    // is precisely the failure this file exists to avoid.
+    this.seen.clear();
+    for (const line of this.buffer.split("\n")) {
+      const trimmed = line.trim();
+      if (trimmed === "") continue;
+      this.seen.set(trimmed, (this.seen.get(trimmed) ?? 0) + 1);
+    }
+    for (const waiter of this.waiters.slice()) {
+      if ((this.seen.get(waiter.needle) ?? 0) >= waiter.count) {
+        this.waiters.splice(this.waiters.indexOf(waiter), 1);
+        waiter.resolve();
+      }
+    }
+  }
+
+  count(needle: string): number {
+    return this.seen.get(needle) ?? 0;
+  }
+
+  async wait(needle: string, count: number, timeoutMs: number, what: string): Promise<void> {
+    if (this.count(needle) >= count) return;
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    try {
+      await new Promise<void>((resolve, reject) => {
+        this.waiters.push({ needle, count, resolve });
+        timer = setTimeout(() => reject(new Error(what)), timeoutMs);
+      });
+    } finally {
+      if (timer) clearTimeout(timer);
+    }
+  }
+}
+
 /**
  * A fresh proxy per child: `goSilent()` is one-way, so a shared one would leave
  * the second child unable to subscribe in the first place.
  */
-async function runChild(kind: string): Promise<ChildOutcome> {
+async function runChild(
+  kind: string,
+  outage: (proxy: SwitchableProxy, events: ChildEvents) => Promise<void>,
+): Promise<ChildOutcome> {
   const proxy = await SwitchableProxy.start(new URL(UPSTREAM_URL));
   try {
-    return await drive(kind, proxy);
+    return await drive(kind, proxy, outage);
   } finally {
     await proxy.stop();
   }
 }
 
-async function drive(kind: string, proxy: SwitchableProxy): Promise<ChildOutcome> {
+async function drive(
+  kind: string,
+  proxy: SwitchableProxy,
+  outage: (proxy: SwitchableProxy, events: ChildEvents) => Promise<void>,
+): Promise<ChildOutcome> {
   const child = spawn(TSX, [CHILD, kind, proxy.url], { stdio: ["ignore", "pipe", "pipe"] });
   let stderr = "";
   child.stderr.setEncoding("utf8");
   child.stderr.on("data", (chunk: string) => (stderr += chunk));
 
-  const subscribed = new Promise<void>((resolve, reject) => {
-    let stdout = "";
-    child.stdout.setEncoding("utf8");
-    child.stdout.on("data", (chunk: string) => {
-      stdout += chunk;
-      if (stdout.includes("SUBSCRIBED")) resolve();
-    });
-    child.once("exit", () => reject(new Error(`child exited before subscribing: ${stderr}`)));
-  });
+  const events = new ChildEvents();
+  child.stdout.setEncoding("utf8");
+  child.stdout.on("data", (chunk: string) => events.feed(chunk));
 
+  let exitedEarly = false;
+  child.once("exit", () => (exitedEarly = true));
   const exited = new Promise<number | null>((resolve) =>
     child.once("exit", (code) => resolve(code)),
   );
+
   let deadline: ReturnType<typeof setTimeout> | undefined;
   try {
-    await subscribed;
+    await events.wait(
+      "SUBSCRIBED",
+      1,
+      CHILD_DEADLINE_MS,
+      `child never subscribed${exitedEarly ? " (it exited first)" : ""}: ${stderr}`,
+    );
     // Only now: the subscription must exist before the outage, or the reconnect
     // has nothing to re-issue and the whole file measures nothing.
-    proxy.goSilent();
+    const framesBefore = proxy.subscribeFrames;
+    await outage(proxy, events);
+    const resubscribeFrames = proxy.subscribeFrames - framesBefore;
+
     const code = await Promise.race([
       exited,
       new Promise<number | null>((resolve) => {
@@ -165,22 +267,44 @@ async function drive(kind: string, proxy: SwitchableProxy): Promise<ChildOutcome
         }, CHILD_DEADLINE_MS);
       }),
     ]);
-    return { code, stderr };
+    return { code, stderr, resubscribeFrames };
   } finally {
     if (deadline) clearTimeout(deadline);
     if (child.exitCode === null) child.kill("SIGKILL");
   }
 }
 
-describe("a subscriber connection that reconnects onto an unresponsive Redis", () => {
+/**
+ * Cut the socket and serve the reconnect normally, then WAIT FOR PROOF that the
+ * reconnect happened before measuring anything. A second `READY` is that proof.
+ */
+async function flapAndProveReconnect(proxy: SwitchableProxy, events: ChildEvents): Promise<void> {
+  proxy.cutSockets();
+  await events.wait(
+    "READY",
+    2,
+    RECONNECT_DEADLINE_MS,
+    "the child never reached `ready` a second time — it did not reconnect, so nothing about a re-issued subscribe was measured. Fix the harness before trusting any subtest in this file",
+  );
+  // `ready` is when `readyHandler` runs; the re-issued SUBSCRIBE is written from
+  // inside it, so a short window after is enough for it to reach the proxy.
+  await new Promise((resolve) => setTimeout(resolve, RESUBSCRIBE_WINDOW_MS));
+}
+
+describe("a subscriber connection that reconnects", () => {
   before(() => {
     assert.ok(existsSync(TSX), `no tsx binary at ${TSX} — run \`pnpm install\``);
     assert.ok(existsSync(CHILD), `no child fixture at ${CHILD}`);
   });
 
-  test('"subscriber" survives the reconnect', async () => {
-    const outcome = await runChild("subscriber");
+  test('"subscriber" re-issues nothing of its own and survives', async () => {
+    const outcome = await runChild("subscriber", flapAndProveReconnect);
 
+    assert.equal(
+      outcome.resubscribeFrames,
+      0,
+      `ioredis put ${String(outcome.resubscribeFrames)} SUBSCRIBE frame(s) on the wire after the reconnect — \`autoResubscribe\` is back on, and that command is the one nothing catches`,
+    );
     assert.equal(
       outcome.code,
       0,
@@ -189,13 +313,29 @@ describe("a subscriber connection that reconnects onto an unresponsive Redis", (
     assert.doesNotMatch(outcome.stderr, /UNHANDLED/);
   });
 
-  test('"command" does not — the control that proves the reconnect really happens', async () => {
-    const outcome = await runChild("command");
+  test('"command" re-issues one — the control that proves the reconnect happens', async () => {
+    const outcome = await runChild("command", flapAndProveReconnect);
+
+    assert.equal(
+      outcome.resubscribeFrames,
+      1,
+      "ioredis did not re-issue a SUBSCRIBE on a kind whose `autoResubscribe` is ON, so this harness is no longer reaching the point of failure and the subtest above proves nothing. Check that the flap really cuts the socket before assuming the vendor changed",
+    );
+  });
+
+  test('"command" against a peer that never replies exits 1 — the crash is observable', async () => {
+    const outcome = await runChild("command", async (proxy) => {
+      proxy.goSilent();
+      // No reconnect proof to wait for: this peer is the one shape where the
+      // connection reaches `ready` only BECAUSE of the `commandTimeout`, which
+      // is the fact under measurement.
+      await new Promise((resolve) => setTimeout(resolve, RESUBSCRIBE_WINDOW_MS));
+    });
 
     assert.equal(
       outcome.code,
       1,
-      'a "command" connection survived the same sequence — the harness is no longer provoking the re-issued subscribe, so the subtest above proves nothing',
+      'a "command" connection survived a peer that accepts and never replies — an unhandled rejection is no longer observable through this harness, so the subject subtest cannot be read as evidence of anything',
     );
     assert.match(outcome.stderr, /UNHANDLED Command timed out/);
   });
