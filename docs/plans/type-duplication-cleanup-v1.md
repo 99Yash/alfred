@@ -61,11 +61,11 @@ Recommendation: add `New*` insert exports **on demand** (i.e. export `NewChatAtt
 
 | # | Location | Problem | Fix | Conf |
 |---|---|---|---|---|
-| 6 | `apps/web/src/hooks/use-meetings.ts:48` | `interface MeetingResponseItem` = Eden `me.meetings` item (`MeMeetingItem`, `me/routes.ts:178`); line 26 casts, defeating inference | Delete interface + cast; `type … = NonNullable<Awaited<ReturnType<typeof client.api.me.meetings.get>>["data"]>["items"][number]` | H |
-| 7 | `apps/web/src/hooks/use-inbox.ts:234` | `interface InboxResponseItem` = Eden `me.inbox` item (`MeInboxItem`, `me/routes.ts:96`) | Type `toInboxItem`'s `row` param from the inferred element; delete interface | H |
-| 8 | `apps/web/src/hooks/use-latest-briefing.ts:12` | `interface LatestBriefingSummary` = Eden `me.briefings.latest` (`MeLatestBriefing`, `me/routes.ts:169`) | Derive via `ReturnType` of the `.get` | H |
+| 6 | `apps/web/src/hooks/use-meetings.ts:48` | `interface MeetingResponseItem` = Eden `me.meetings` item (`MeMeetingItem`, `packages/http/src/me.ts:186`); line 26 casts, defeating inference | Delete interface + cast; `type … = NonNullable<Awaited<ReturnType<typeof client.api.me.meetings.get>>["data"]>["items"][number]` | H |
+| 7 | `apps/web/src/hooks/use-inbox.ts:234` | `interface InboxResponseItem` = Eden `me.inbox` item (`MeInboxItem`, `packages/http/src/me.ts:99`) | Type `toInboxItem`'s `row` param from the inferred element; delete interface | H |
+| 8 | `apps/web/src/hooks/use-latest-briefing.ts:12` | `interface LatestBriefingSummary` = Eden `me.briefings.latest` (`MeLatestBriefing`, `packages/http/src/me.ts:177`) | Derive via `ReturnType` of the `.get` | H |
 | 9 | `apps/web/src/hooks/use-run-briefing.ts:15` | `interface RunBriefingResult` — flattened hand-type **loses the discriminated union**; line 29 casts | Derive from `me.briefings.run.post`; drop the cast | M/H |
-| 10 | `apps/web/src/hooks/use-inbox.ts:155` | `interface InboxAttachment` = Eden inbox-detail attachment (`MeInboxAttachment`, `me/routes.ts:161`); mapper is 1:1 | Derive mapper output from inferred element | M |
+| 10 | `apps/web/src/hooks/use-inbox.ts:155` | `interface InboxAttachment` = Eden inbox-detail attachment (`MeInboxAttachment`, `packages/http/src/me.ts:169`); mapper is 1:1 | Derive mapper output from inferred element | M |
 | 11 | `apps/web/src/hooks/use-tool-tiers.ts:5` | `interface RiskTierCounts {no_risk;low;medium;high}` — server's is literally `Record<ToolRiskTier, number>` | `type RiskTierCounts = Record<ToolRiskTier, number>` (`ToolRiskTier` from `@alfred/contracts`); keep the runtime guard | M/L |
 | 12 | `apps/web/src/lib/replicache/{use-briefings.ts:7,use-workflows.ts:12,use-chat.ts:15}` | `interface ReplicacheSnapshot<T>` declared **3× identically** | Hoist to `lib/replicache/client.ts`, import in all three | M/L |
 | 13 | `apps/web/src/lib/chat/chat-stream-state.ts` | `interface StreamingNarration {index;text}` = `SyncedChatNarration` (`@alfred/sync`) exactly | `import type { SyncedChatNarration }`; keep sibling `StreamingToolCall`/`StreamingMessage` (they deliberately diverge) | L |
