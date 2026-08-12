@@ -153,7 +153,7 @@ describe("@alfred/http root app", () => {
     });
   });
 
-  test("keeps session caching, sign-out invalidation, and auth delegation", async (t) => {
+  test("keeps session caching, sign-out invalidation, and auth delegation failures", async (t) => {
     const authInstance = auth();
     const session = {
       session: {
@@ -201,6 +201,18 @@ describe("@alfred/http root app", () => {
     assert.equal(signOut.status, 202);
     assert.equal(await signOut.text(), "delegated");
     assert.equal(handler.mock.callCount(), 1);
+
+    handler.mock.mockImplementation(async () => {
+      throw new Error("auth handler unavailable");
+    });
+    const logError = t.mock.method(console, "error", () => {});
+    const authFailure = await app.handle(new Request("http://localhost/api/auth/failure"));
+    assert.equal(authFailure.status, 500);
+    assert.deepEqual(await authFailure.json(), {
+      error: "Internal server error",
+      code: "INTERNAL_SERVER_ERROR",
+    });
+    assert.equal(logError.mock.callCount(), 1);
 
     const afterSignOut = await app.handle(
       new Request("http://localhost/api/auth/get-session", { headers }),
