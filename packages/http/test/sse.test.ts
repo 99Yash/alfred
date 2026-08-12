@@ -93,6 +93,35 @@ describe("sseResponse", () => {
     assert.equal(calls, 1);
   });
 
+  test("runs a teardown registered after teardown already ran, immediately and once", async () => {
+    // The shape this exists for: an `open` that must await a subscribe before
+    // it can register the matching unsubscribe. A client that disconnects
+    // inside that await tears the stream down first, so the handler arrives
+    // after the list has already been drained.
+    let calls = 0;
+    let releaseOpen: () => void = () => {};
+    const subscribed = new Promise<void>((resolve) => {
+      releaseOpen = resolve;
+    });
+
+    const res = sseResponse(async (conn) => {
+      await subscribed;
+      conn.onCancel(() => {
+        calls += 1;
+      });
+    });
+
+    await res.body?.cancel();
+    assert.equal(calls, 0, "nothing is registered yet, so teardown ran no handler");
+
+    releaseOpen();
+    await subscribed;
+    // Let the continuation of `open` past its await actually run.
+    await new Promise((resolve) => setTimeout(resolve, 0));
+
+    assert.equal(calls, 1);
+  });
+
   test("write after close does not throw", async () => {
     let threw: unknown;
     const res = sseResponse((conn) => {
