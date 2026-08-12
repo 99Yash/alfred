@@ -8,6 +8,10 @@
  * the `./ingestion` block there is a separate key: importing this subtree
  * evaluates a process-lifetime live-client cache and the credential vault, and a
  * module that only wants a Google connection helper must not pay for that.
+ * `check:architecture` enforces it rather than leaving it to this sentence: the
+ * connections barrel must not transitively reach `./mcp/{client,oauth}`, by the same
+ * reachability walk that already fences `./ingestion/{queue,gmail-ingest}`, and a
+ * violation names the importer chain that produced it.
  *
  * What is NOT here is the point of the split: the durable invocation ledger, the
  * ADR-0088 approval derivation (`resolveMcpToolIdentity`), and the risk floor live
@@ -24,10 +28,11 @@
  * leaf (`mcpIntegrationRoutes`) that sits on top of this door out of `@alfred/api`
  * and into `@alfred/http`.
  *
- * That fence only means something if every name below is one a caller SHOULD be
- * able to make, so names a test wants and production does not live behind
- * `./test-support` instead — notably the unguarded catalog-pointer write. Add a
- * name here only after checking a product file calls it.
+ * The line that fence draws is about AUTHORITY, not about who calls a name: a name
+ * that mints authority and that only a test wants lives behind `./test-support`
+ * instead — the unguarded catalog-pointer write and the session-cache setter. It
+ * does not claim every name below has a product caller, and today several are
+ * read-only names that only a test reaches.
  */
 
 export {
