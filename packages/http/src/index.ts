@@ -48,6 +48,8 @@ export { getSessionCached, invalidateSessionToken } from "./middleware/session-c
 export { agent } from "./agent";
 export { approvalsRoutes } from "./approvals";
 export { chatRoutes } from "./conversations";
+export { meRoutes } from "./me";
+export type { MeInboxItem, MeInboxMessage, MeLatestBriefing, MeMeetingItem } from "./me";
 export { onboardingRoutes } from "./onboarding";
 export { skillsRoutes } from "./skills";
 export { workflowRoutes } from "./workflows";

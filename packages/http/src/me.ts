@@ -40,7 +40,7 @@ import {
   sql as drizzleSql,
 } from "drizzle-orm";
 import { Elysia, t } from "elysia";
-import { authMacro } from "@alfred/http";
+import { authMacro } from "./middleware/auth";
 import { createRedisConnection, type BoundedRedis } from "@alfred/db/redis";
 import { resolveBriefingPreferences } from "@alfred/assistant/briefings/preferences";
 import { enqueueBriefingRun } from "@alfred/assistant/briefings/queue";

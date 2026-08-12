@@ -12,13 +12,13 @@ import {
   getSessionCached,
   invalidateSessionToken,
   mcpIntegrationRoutes,
+  meRoutes,
   onboardingRoutes,
   replicache,
   skillsRoutes,
   workflowRoutes,
 } from "@alfred/http";
 import { createRedisConnection, type BoundedRedis } from "@alfred/db/redis";
-import { meRoutes } from "./modules/me/index";
 import { toolTiersRoutes } from "./modules/tools/index";
 
 // `normalize: 'typebox'` opts out of Elysia 1.4's bundled `exact-mirror`
