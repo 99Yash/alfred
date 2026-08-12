@@ -24,9 +24,8 @@
  * are its two exact `exports` keys — `./connections/mcp` (this file) and
  * `./connections/mcp/test-support`. A name in neither file is unreachable by any
  * package specifier, and WHICH of the two a name sits in is the enforcement.
- * Campaign item 39 exists to keep the wildcard off; item 51 moves the transport
- * leaf (`mcpIntegrationRoutes`) that sits on top of this door out of `@alfred/api`
- * and into `@alfred/http`.
+ * Campaign item 39 exists to keep the wildcard off. The transport leaf on top of
+ * this door is `mcpIntegrationRoutes` in `packages/http/src/mcp.ts`.
  *
  * The line that fence draws is about AUTHORITY, not about who calls a name: a name
  * that mints authority and that only a test wants lives behind `./test-support`

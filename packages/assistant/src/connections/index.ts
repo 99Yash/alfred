@@ -30,8 +30,7 @@
  *
  * What still lives in `packages/api/src/modules/connections/` is transport: the Elysia
  * routes and the webhooks (campaign item 24). MCP is no longer among them — the product
- * half is here, and its transport leaf sits at `packages/api/src/modules/mcp/routes.ts`,
- * which campaign item 51 moves to `@alfred/http`.
+ * half is here, and its transport leaf lives at `packages/http/src/mcp.ts`.
  */
 
 export * from "./availability";

@@ -245,9 +245,8 @@ The process still sees only `createAssistantRuntime().start()` and `.stop()`.
   and `packages/assistant/src/tool-runtime/mcp/`, split exactly on that line:
   `persistence.ts` and `runtime.ts` were each cut in two, because holding either
   whole on one side gives the other a back-edge and closes a
-  `connections` <-> `tool-runtime` cycle. What remains under
-  `packages/api/src/modules/mcp/` is one Elysia route file; item 51 moves it to
-  `@alfred/http`.
+  `connections` <-> `tool-runtime` cycle. The Elysia transport leaf now lives at
+  `packages/http/src/mcp.ts`.
 
 ## Required dependency direction
 
