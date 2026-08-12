@@ -18,8 +18,11 @@
     "@alfred/contracts": "workspace:*",
     "@alfred/db": "workspace:*",
     "@alfred/env": "workspace:*",
+    "@alfred/sync": "workspace:*",
     "drizzle-orm": "^0.45.2",
-    "elysia": "catalog:"
+    "elysia": "catalog:",
+    "ioredis": "catalog:",
+    "zod": "catalog:"
   },
   "devDependencies": {
     "@alfred/config": "workspace:*",

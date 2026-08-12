@@ -1,7 +1,8 @@
 import { Errors } from "@alfred/contracts";
 import { Elysia } from "elysia";
-import { authMacro } from "@alfred/http";
+import { authMacro } from "../middleware/auth";
 import { subscribeUserPokes } from "@alfred/assistant/realtime";
+import { sseResponse } from "../realtime/sse";
 import { ReplicacheModel } from "./model";
 import { handlePull } from "./pull";
 import { handlePush } from "./push";
@@ -39,45 +40,12 @@ export const replicache = new Elysia({ prefix: "/api/replicache", normalize: "ty
       )
       .get("/events", ({ user }) => {
         const userId = user.id;
-        const encoder = new TextEncoder();
-        let cleanup: (() => void) | undefined;
 
-        const stream = new ReadableStream({
-          start(controller) {
-            const write = (text: string) => {
-              try {
-                controller.enqueue(encoder.encode(text));
-              } catch {
-                // stream already closed
-              }
-            };
-
-            const unsubscribe = subscribeUserPokes(userId, () => {
-              write(`event: poke\ndata: {}\n\n`);
-            });
-
-            const heartbeat = setInterval(() => {
-              write(": heartbeat\n\n");
-            }, 30_000);
-
-            write(": connected\n\n");
-
-            cleanup = () => {
-              unsubscribe();
-              clearInterval(heartbeat);
-            };
-          },
-          cancel() {
-            cleanup?.();
-          },
+        return sseResponse((conn) => {
+          const unsubscribe = subscribeUserPokes(userId, () => {
+            conn.write(`event: poke\ndata: {}\n\n`);
+          });
+          conn.onCancel(unsubscribe);
         });
-
-        return new Response(stream, {
-          headers: {
-            "Content-Type": "text/event-stream",
-            "Cache-Control": "no-cache",
-            Connection: "keep-alive",
-          },
-        }) as Response;
       }),
   );

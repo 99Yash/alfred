@@ -50,7 +50,7 @@ import {
   setWorkflowStatus,
   type WorkflowDefinitionPatch,
   type WorkflowServiceFailure,
-} from "../../workflows";
+} from "@alfred/assistant/automation";
 import { MutatorForbiddenError } from "../authz";
 
 /**

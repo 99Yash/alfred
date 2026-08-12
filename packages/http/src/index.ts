@@ -70,3 +70,35 @@ export { workflowRoutes } from "./workflows";
 // which does not pass through transport. What is left — code that only exists
 // because a client speaks HTTP — is what belongs here.
 export { events } from "./realtime/events";
+
+// Replicache sync. `sync/` is a third non-domain subdirectory, on the same
+// rule as `middleware/` and `realtime/`: what lives here exists only because a
+// client speaks a wire protocol. Membership is decided by the two properties
+// stated above, not by counting callers — a module stays out if it shares
+// mutable state or a written invariant with a background loop, and it stays
+// out if the server's lifecycle starts or stops it. Applied to the Replicache
+// server, both properties come back negative for the whole set: the CVR store
+// is a lazy per-process cache that one request path writes and the same path
+// reads, with no reaper and no relay behind it, and nothing under `sync/` is
+// started or stopped by `apps/server`. The domain DECISIONS these adapters
+// reach for — what a fact is worth keeping, what a preference means, what a
+// workflow revision may become — all come from `@alfred/assistant`, and what
+// is left here is protocol adaptation and row-version bookkeeping. That is
+// also what ADR-0089 assigns to this package by name.
+//
+// `ENTITY_FETCHERS` is advertised for one reason: a workflow test in
+// `@alfred/api` asserts the sync projection of a revision it just wrote, and
+// this package has no subpaths, so the barrel is its only door. It is the read
+// half of the protocol, not a general-purpose map.
+export { replicache } from "./sync/replicache";
+export { ENTITY_FETCHERS } from "./sync/entities";
+
+// Not optional and not a widening of intent: `/pull` and `/push` answer with
+// these two types, so the inferred type of `app` in `packages/api/src/index.ts`
+// names them. While both sides sat in one package that was free; across the
+// boundary it is TS2883 ("cannot be named without a reference to ... This is
+// likely not portable"), and this package has no subpath the declaration could
+// point at. Deleting either line fails `pnpm --filter @alfred/api check-types`,
+// not this package's own build.
+export type { PullResponse } from "./sync/pull";
+export type { PushResponse } from "./sync/push";
