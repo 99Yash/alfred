@@ -45,13 +45,54 @@ let subscriber: IORedis | undefined;
 
 /** Refcount of active SSE listeners per user on this replica. */
 const userRefCounts = new Map<string, number>();
+/**
+ * Which users this replica actually holds a Redis subscription for, tracked
+ * apart from the listener refcount.
+ *
+ * The two are NOT the same thing, and conflating them made a single failed
+ * SUBSCRIBE permanently deaf: a rejected subscribe left the refcount at 1, so
+ * no later listener ever passed the "first listener" test and re-issued it, and
+ * ioredis will not re-issue it either — its auto-resubscribe reads the channel
+ * list from `condition.subscriber`, which is populated only from a SUBSCRIBE
+ * REPLY that never arrived. `subscribed` records replies, `subscribing` keeps a
+ * second listener from issuing a duplicate while the first is in flight.
+ */
+const subscribed = new Set<string>();
+const subscribing = new Set<string>();
+
+/**
+ * Subscribe to `userId`'s channel unless this replica already holds it or is
+ * already asking for it. Safe to call on every listener registration.
+ */
+function ensureSubscribed(userId: string): void {
+  const conn = subscriber;
+  if (!conn) return;
+  if (subscribed.has(userId) || subscribing.has(userId)) return;
+  subscribing.add(userId);
+  conn.subscribe(channelFor(userId)).then(
+    () => {
+      subscribing.delete(userId);
+      // The last listener may have gone while the subscribe was in flight; its
+      // teardown could not unsubscribe a channel this replica did not yet hold.
+      if ((userRefCounts.get(userId) ?? 0) > 0) subscribed.add(userId);
+      else conn.unsubscribe(channelFor(userId)).catch(() => {});
+    },
+    (err: unknown) => {
+      subscribing.delete(userId);
+      console.warn("[replicache-events] subscribe failed for user", userId, toMessage(err));
+    },
+  );
+}
 
 export async function initReplicachePokeBridge(): Promise<void> {
   if (!isQueueEnabled()) return;
 
   try {
     publisher = createRedisConnection("command");
-    subscriber = createRedisConnection("command");
+    // `"subscriber"`, not `"command"`: a `commandTimeout` on a connection that
+    // holds subscriptions turns ioredis's own uncaught re-subscribe into an
+    // unhandled rejection, and the server exits on one of those.
+    subscriber = createRedisConnection("subscriber");
 
     subscriber.on("message", (channel: string, raw: string) => {
       const userId = userIdFromChannel(channel);
@@ -76,12 +117,16 @@ export async function initReplicachePokeBridge(): Promise<void> {
 
 export async function closeReplicachePokeBridge(): Promise<void> {
   if (subscriber) {
-    const channels = Array.from(userRefCounts.keys()).map(channelFor);
+    // Only channels this replica actually holds: unsubscribing one it never
+    // subscribed to is a wasted round trip on a connection that may be down.
+    const channels = Array.from(subscribed).map(channelFor);
     if (channels.length > 0) {
       await subscriber.unsubscribe(...channels).catch(() => {});
     }
   }
   userRefCounts.clear();
+  subscribed.clear();
+  subscribing.clear();
   publisher = undefined;
   subscriber = undefined;
 }
@@ -123,21 +168,17 @@ export function subscribeUserPokes(userId: string, listener: PokeListener): () =
   const eventName = eventFor(userId);
   emitter.on(eventName, listener);
 
-  const prev = userRefCounts.get(userId) ?? 0;
-  userRefCounts.set(userId, prev + 1);
-
-  if (prev === 0 && subscriber) {
-    subscriber.subscribe(channelFor(userId)).catch((err) => {
-      console.warn("[replicache-events] subscribe failed for user", userId, toMessage(err));
-    });
-  }
+  userRefCounts.set(userId, (userRefCounts.get(userId) ?? 0) + 1);
+  // Called on EVERY registration, not only the first: it is idempotent, and a
+  // later listener is the only thing that can recover a subscribe that failed.
+  ensureSubscribed(userId);
 
   return () => {
     emitter.off(eventName, listener);
     const remaining = (userRefCounts.get(userId) ?? 1) - 1;
     if (remaining <= 0) {
       userRefCounts.delete(userId);
-      if (subscriber) {
+      if (subscribed.delete(userId) && subscriber) {
         subscriber.unsubscribe(channelFor(userId)).catch(() => {});
       }
     } else {

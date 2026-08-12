@@ -270,10 +270,13 @@ jobs:
   # A Redis SERVICE is required and Postgres is not: the suite touches no
   # Postgres, and `serverEnv()` needs `DATABASE_URL` to be format-valid rather
   # than live, so the `env:` block below carries one and there is no migrate
-  # step. Most subtests point `REDIS_URL` at a port they bind and release
-  # themselves; the service is what `redis-cold-command.test.ts` needs, and that
-  # file FAILS rather than skips when nothing answers — a skip there would
-  # silently delete the only proof that `"command"` and `"fail-fast"` differ.
+  # step. Several subtests point `REDIS_URL` at an endpoint they build
+  # themselves; the service is what `redis-cold-command.test.ts` and
+  # `redis-subscriber-reconnect.test.ts` need, and both FAIL rather than skip
+  # when nothing answers. A skip would silently delete the only proof that
+  # `"command"` and `"fail-fast"` differ, and the only proof that a subscriber
+  # survives a reconnect. Their liveness probes run on bounded kinds for the
+  # same reason: a probe on `"queue"` would hang instead of reporting.
   #
   # This is a separate job rather than a step on `assistant-unit-tests` (which
   # already has a Redis service) so a red row names the package that broke. It

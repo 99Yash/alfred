@@ -6,7 +6,8 @@ import { applyServerEnv } from "./support/server-env";
 import { settleWithin, settlementMessage } from "./support/settle";
 
 /**
- * Why there are THREE connection kinds and not two, pinned against a real Redis.
+ * Why `"command"` and `"fail-fast"` are different kinds, pinned against a real
+ * Redis.
  *
  * `"fail-fast"` looks like it could serve every non-BullMQ caller — it already
  * bounds an outage, and it has been in this module the whole time. It cannot,
@@ -37,9 +38,23 @@ describe("redis connection kinds against a healthy Redis", () => {
 
     // Fail loudly rather than skipping: a skipped subtest here would remove the
     // only evidence that `"command"` and `"fail-fast"` differ at all.
-    const probe = redis.createRedisConnection("queue");
+    //
+    // The probe MUST be a bounded kind. A `"queue"` ping never settles when
+    // nothing answers — that is what `"queue"` means — so the assertion below
+    // would be unreachable and the file would hang instead of reporting a
+    // missing Redis. `"command"` is the kind that both resolves cold against a
+    // healthy Redis and rejects within its bound against a dead endpoint, which
+    // is exactly what a liveness probe needs.
+    const probe = redis.createRedisConnection("command");
+    probe.on("error", () => {});
     try {
-      assert.equal(await probe.ping(), "PONG", `no Redis at ${REDIS_URL}`);
+      const settlement = await settleWithin(probe.ping(), DEADLINE_MS);
+      assert.equal(
+        settlement.state,
+        "resolved",
+        `no Redis at ${REDIS_URL} — the probe was ${settlement.state} (${settlementMessage(settlement)}); start one with \`docker compose up redis\``,
+      );
+      assert.equal(settlement.value, "PONG");
     } finally {
       await redis.closeRedis();
     }

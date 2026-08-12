@@ -115,10 +115,46 @@ describe("redis connection kinds against an unreachable Redis", () => {
     });
   });
 
+  test('"subscriber" bounds psubscribe and punsubscribe without a commandTimeout', async () => {
+    const conn = redis.createRedisConnection("subscriber");
+    conn.on("error", () => {});
+
+    // This is the shape the issue was reported as: boot awaits `psubscribe` and
+    // shutdown awaits `punsubscribe`, and both used to sit in the offline queue
+    // forever. `"subscriber"` cannot carry a `commandTimeout` — one on a
+    // subscribing connection kills the process, see
+    // `redis-subscriber-reconnect.test.ts` — so `maxRetriesPerRequest` alone
+    // does the work here, which it can because a refused connection closes.
+    const settlements = await Promise.all([
+      settleWithin(conn.psubscribe("policy-bust:u:*"), COMMAND_DEADLINE_MS),
+      settleWithin(conn.punsubscribe("policy-bust:u:*"), COMMAND_DEADLINE_MS),
+    ]);
+
+    const names = ["psubscribe", "punsubscribe"];
+    settlements.forEach((settlement, index) => {
+      assert.notEqual(
+        settlement.state,
+        "pending",
+        `${names[index]} was still pending after ${COMMAND_DEADLINE_MS}ms — boot and shutdown hang again`,
+      );
+      assert.equal(settlement.state, "rejected", `${names[index]} must reject, not resolve`);
+      assert.match(
+        settlementMessage(settlement),
+        /max retries per request|Connection is closed/i,
+        `${names[index]} rejected for an unexpected reason`,
+      );
+    });
+  });
+
   test('"queue" is deliberately unbounded — the control that proves the harness sees a hang', async () => {
     queueConn = redis.createRedisConnection("queue");
     queueConn.on("error", () => {});
 
+    // `publish` is an ORDINARY command, and it hangs here. That is the point:
+    // `"queue"` is unbounded for everything, not only for BullMQ's blocking
+    // reads. BullMQ shares the instance it is handed as its non-blocking
+    // client, so `queue.add()`'s own writes take this same unbounded path.
+    //
     // If this ever settles, either BullMQ's carve-out was removed (its blocking
     // reads need it) or — worse — the closed port is not actually closed and
     // the subtest above proved nothing. Both are worth a red build.

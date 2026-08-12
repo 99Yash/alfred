@@ -204,7 +204,7 @@ let subscriberStarted = false;
 export async function startPolicyBustSubscriber(): Promise<void> {
   if (subscriberStarted) return;
 
-  const conn = createRedisConnection("command");
+  const conn = createRedisConnection("subscriber");
   conn.on("pmessage", (_pattern, channel, _message) => {
     if (!channel.startsWith(POLICY_BUST_CHANNEL_PREFIX)) return;
     const userId = channel.slice(POLICY_BUST_CHANNEL_PREFIX.length);

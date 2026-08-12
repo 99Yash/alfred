@@ -17,20 +17,28 @@ const connections: IORedis[] = [];
  * from another here, so it is the parameter rather than a factory name.
  *
  * - `"queue"` — a connection handed to a BullMQ `Queue`/`Worker`/`QueueEvents`
- *   as its `connection:` option and used for nothing else. BullMQ hard-requires
- *   `maxRetriesPerRequest: null`, and its blocking reads must survive an outage,
- *   so a command on one of these may wait indefinitely BY DESIGN. Never issue an
- *   ordinary command on a `"queue"` connection: nothing bounds it.
- * - `"command"` — ordinary commands (publish/subscribe, scratchpad reads and
- *   writes, OAuth state, CVR reads). Keeps the offline queue, so a command
- *   issued before the connection is `ready` still runs once it is, and bounds
- *   that wait so the command always settles.
+ *   as its `connection:` option. BullMQ hard-requires `maxRetriesPerRequest:
+ *   null`, and its blocking reads must survive an outage, so NOTHING on one of
+ *   these is bounded. That is not confined to the blocking reads: BullMQ SHARES
+ *   the instance it is handed as its non-blocking client, so `queue.add()`'s own
+ *   `hset` runs on this connection and an `await queue.add(...)` during an outage
+ *   waits indefinitely too. A bound here is not available — BullMQ derives its
+ *   blocking client from the same options, and a `commandTimeout` there would
+ *   break `BRPOPLPUSH`.
+ * - `"command"` — ordinary commands (publish, scratchpad reads and writes, OAuth
+ *   state, CVR reads). Keeps the offline queue, so a command issued before the
+ *   connection is `ready` still runs once it is, and bounds that wait so the
+ *   command always settles. NOT for a connection that subscribes — see below.
+ * - `"subscriber"` — a long-lived connection that holds SUBSCRIBE/PSUBSCRIBE
+ *   channels. Identical to `"command"` except that it carries no
+ *   `commandTimeout`, because a `commandTimeout` on a subscriber KILLS THE
+ *   PROCESS: see the `CONNECTION_PROFILES` note below.
  * - `"fail-fast"` — read-through caches, throttles, and one-shot probes, where
  *   the caller has a source of truth to fall back to and would rather be told
  *   NOW than wait. Rejects instead of queueing, which includes rejecting during
  *   the pre-`ready` window right after construction.
  */
-export type RedisConnectionKind = "queue" | "command" | "fail-fast";
+export type RedisConnectionKind = "queue" | "command" | "subscriber" | "fail-fast";
 
 /**
  * The whole failure matrix, in one place. Measured against ioredis 5.11.1:
@@ -54,6 +62,18 @@ export type RedisConnectionKind = "queue" | "command" | "fail-fast";
  *   rejects the first command of a lazily-constructed handle even against a
  *   healthy Redis. That is correct for a cache and wrong for everything else,
  *   which is why `"command"` exists as a separate kind.
+ * - A `commandTimeout` on a connection that HOLDS SUBSCRIPTIONS crashes the
+ *   process, which is why `"subscriber"` exists as a fourth kind. Two measured
+ *   steps: (1) a `commandTimeout` is what lets a connection to a peer that
+ *   accepts and never replies reach `ready` at all, because it ends the
+ *   `CLIENT SETINFO` handshake ioredis sends on every connect; (2) reaching
+ *   `ready` runs `readyHandler`, which re-issues the previous SUBSCRIBE and
+ *   PSUBSCRIBE with NO `.catch` — unlike the `readonly().catch(noop)` two lines
+ *   above it. The next `commandTimeout` on that re-issued command is therefore
+ *   an unhandled rejection, and `apps/server/src/index.ts` turns one of those
+ *   into `process.exit(1)`. Without a `commandTimeout` the same peer never
+ *   reaches `ready`, and a close FROM `ready` parks the in-flight queue in
+ *   `prevCommandQueue` for resend instead of rejecting it.
  *
  * `enableReadyCheck: false` is shared: Alfred's Redis is never a replica
  * loading a dataset, and the ready check only delays `ready`.
@@ -68,6 +88,16 @@ const CONNECTION_PROFILES: Record<RedisConnectionKind, RedisOptions> = {
     maxRetriesPerRequest: 3,
     enableOfflineQueue: true,
     commandTimeout: 2_000,
+    enableReadyCheck: false,
+  },
+  subscriber: {
+    maxRetriesPerRequest: 3,
+    enableOfflineQueue: true,
+    // Deliberately no `commandTimeout` — see the fourth note above. The cost is
+    // stated rather than hidden: a subscribe or unsubscribe issued against a
+    // peer that accepts and never replies is unbounded on this kind. A refusing
+    // or unreachable peer, which is the shape that hung boot and shutdown,
+    // still rejects through `maxRetriesPerRequest`.
     enableReadyCheck: false,
   },
   "fail-fast": {
