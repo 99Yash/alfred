@@ -8,8 +8,8 @@ import {
   type McpProtocolClient,
   type McpProtocolPage,
   type McpProtocolServer,
-} from "../../src/modules/connections/mcp";
-import { isPreDeliveryErrorCode } from "../../src/modules/connections/mcp/errors";
+} from "../../src/connections/mcp";
+import { isPreDeliveryErrorCode } from "../../src/connections/mcp/errors";
 
 type FakePage = Omit<McpProtocolPage, "ttlMs" | "cacheScope"> &
   Partial<Pick<McpProtocolPage, "ttlMs" | "cacheScope">>;

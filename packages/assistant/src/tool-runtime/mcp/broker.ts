@@ -17,16 +17,25 @@
  *
  * It is proven OFFLINE: the connection manager injects a fake protocol, so
  * connect → refresh → call runs with no socket. Successor minting stays
- * host-owned in `persistence.createSuccessorInvocation`; the broker never mints a
+ * host-owned in `invocations.createSuccessorInvocation`; the broker never mints a
  * successor from a model proposal (clarification #4).
  */
 
 import type { McpEffectClass } from "@alfred/contracts";
 import type { McpInvocation, McpToolPolicyRow } from "@alfred/db/schemas";
-import type { ExternalToolRef, McpCallEnvelope, McpPreparedToolCall } from "./client";
-import { McpClientError, boundedMcpErrorText, isPreDeliveryErrorCode } from "./errors";
-import { canonicalArgsHash, descriptorHash } from "./hash";
-import type { McpConnectionManager } from "./manager";
+import {
+  boundedMcpErrorText,
+  canonicalArgsHash,
+  descriptorHash,
+  isPreDeliveryErrorCode,
+  McpClientError,
+  startMcpTraceSpan,
+  type ExternalToolRef,
+  type McpCallEnvelope,
+  type McpConnectionManager,
+  type McpPreparedToolCall,
+  type McpTraceContext,
+} from "@alfred/assistant/connections/mcp";
 import {
   findUnresolvedBarrier,
   insertInvocation,
@@ -34,8 +43,7 @@ import {
   resolveMcpToolIdentity,
   type OwnedMcpConnectionRef,
   updateInvocation,
-} from "./persistence";
-import { startMcpTraceSpan, type McpTraceContext } from "./trace";
+} from "./invocations";
 
 const BLOCKED_BARRIER_MESSAGE =
   "A matching write to this MCP tool is already unresolved (it may have been delivered). " +

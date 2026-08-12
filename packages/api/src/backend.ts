@@ -136,7 +136,6 @@ export {
   type SuggestTodoInput,
   type SuggestTodoResult,
 } from "@alfred/assistant/tasks";
-export * from "./modules/connections/mcp/index";
 
 export {
   beginBriefing,
