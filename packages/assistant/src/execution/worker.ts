@@ -48,7 +48,7 @@ export async function startAgentWorker(opts: StartAgentWorkerOpts): Promise<void
   const { concurrency } = opts;
 
   _worker = new Worker<AgentJobData>(AGENT_QUEUE_NAME, processAgentJob, {
-    connection: createRedisConnection(),
+    connection: createRedisConnection("queue"),
     concurrency,
     // BullMQ's stalled-job mechanism is our last-line backstop if the
     // process dies between heartbeats. Tighter than the resume sweep so

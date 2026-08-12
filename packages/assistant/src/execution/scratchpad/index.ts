@@ -62,7 +62,7 @@ const scratchEntrySchema = z.object({
 
 let _client: IORedis | undefined;
 function client(): IORedis {
-  if (!_client) _client = createRedisConnection();
+  if (!_client) _client = createRedisConnection("command");
   return _client;
 }
 

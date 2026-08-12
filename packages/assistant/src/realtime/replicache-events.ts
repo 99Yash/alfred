@@ -50,8 +50,8 @@ export async function initReplicachePokeBridge(): Promise<void> {
   if (!isQueueEnabled()) return;
 
   try {
-    publisher = createRedisConnection();
-    subscriber = createRedisConnection();
+    publisher = createRedisConnection("command");
+    subscriber = createRedisConnection("command");
 
     subscriber.on("message", (channel: string, raw: string) => {
       const userId = userIdFromChannel(channel);
@@ -95,7 +95,7 @@ function publish(event: ReplicachePoke): void {
   // only the SSE handler subscribes, and that runs from the server.
   if (!publisher && isQueueEnabled()) {
     try {
-      publisher = createRedisConnection();
+      publisher = createRedisConnection("command");
     } catch {
       publisher = undefined;
     }

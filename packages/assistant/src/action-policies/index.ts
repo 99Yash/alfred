@@ -18,19 +18,18 @@
  * leaves the flag false and lets the next start retry instead of no-opping into a dead
  * subscriber. And because the cache holds no TTL, a bust that is never delivered bounds to
  * one stale entry per user on the instances that missed it, until the next delivered bust
- * for that user or a process restart.
+ * for that user or a process restart. A dropped bust degrades to that stale cache entry,
+ * never to a failed policy mutation: both connections are `"command"` connections
+ * (`createRedisConnection` in `@alfred/db/redis`), whose numeric `maxRetriesPerRequest` and
+ * `commandTimeout` make a command against an unreachable Redis reject within a bounded wait
+ * instead of queueing offline forever, and `publishPolicyBust` catches that rejection rather
+ * than surfacing it on the mutation.
  *
  * Deliberately NOT guaranteed, so nobody builds on it. Two concurrent
  * `startPolicyBustSubscriber` calls can each pass the `if (subscriberStarted) return;`
  * check and open their own `policy-bust:u:*` subscription — there is no in-flight memo —
  * and a `stopPolicyBustSubscriber` that races an in-flight start can be overtaken by that
- * start's flag assignment. Nothing calls them concurrently today. A publish against an
- * unreachable Redis does not fail either: `createRedisConnection` (`@alfred/db/redis`)
- * passes `maxRetriesPerRequest: null` and keeps the offline queue with no `commandTimeout`,
- * so the command is queued rather than rejected and the `try/catch` inside
- * `publishPolicyBust` never runs — an awaiting caller waits on the connection instead of
- * degrading to a stale cache entry. `createCacheRedisConnection` in the same module already
- * sets `enableOfflineQueue: false` and a `commandTimeout`, if that ever has to bound.
+ * start's flag assignment. Nothing calls them concurrently today.
  *
  * No Redis connection exists until the first `publishPolicyBust` or the first
  * `startPolicyBustSubscriber`; both build theirs lazily inside the call.

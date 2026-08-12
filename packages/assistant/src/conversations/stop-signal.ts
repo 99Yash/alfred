@@ -1,5 +1,5 @@
 import type IORedis from "ioredis";
-import { createCacheRedisConnection } from "@alfred/db/redis";
+import { createRedisConnection } from "@alfred/db/redis";
 
 /**
  * User-initiated stop for an in-flight chat turn — what the composer's stop
@@ -22,12 +22,12 @@ import { createCacheRedisConnection } from "@alfred/db/redis";
  *
  * Fail-open on Redis trouble: a stop that can't be recorded means the turn
  * keeps streaming (annoying), whereas fail-closed would mean every turn stops
- * (broken). The cache-style connection rejects fast instead of queueing.
+ * (broken). The `"fail-fast"` connection rejects instead of queueing.
  */
 
 let conn: IORedis | null = null;
 function redis(): IORedis {
-  if (!conn) conn = createCacheRedisConnection();
+  if (!conn) conn = createRedisConnection("fail-fast");
   return conn;
 }
 

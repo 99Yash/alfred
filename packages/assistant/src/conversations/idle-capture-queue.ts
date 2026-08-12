@@ -118,7 +118,7 @@ async function addIdleJob(
 export function getChatMemoryQueue(): Queue<ChatMemoryJobData> {
   if (_queue) return _queue;
   _queue = new Queue<ChatMemoryJobData>(CHAT_MEMORY_QUEUE_NAME, {
-    connection: createRedisConnection(),
+    connection: createRedisConnection("queue"),
     defaultJobOptions: {
       attempts: 3,
       backoff: { type: "exponential", delay: 30_000 },
@@ -172,7 +172,7 @@ export async function startChatMemoryWorker(opts: StartChatMemoryWorkerOpts = {}
   if (!chatMemoryCaptureEnabled()) return;
   if (_worker) return;
   _worker = new Worker<ChatMemoryJobData>(CHAT_MEMORY_QUEUE_NAME, processChatMemoryJob, {
-    connection: createRedisConnection(),
+    connection: createRedisConnection("queue"),
     // Cheap (a couple of queries + an enqueue); the real work runs in the
     // fanned-out agent run, so single-threaded is plenty.
     concurrency: opts.concurrency ?? 1,

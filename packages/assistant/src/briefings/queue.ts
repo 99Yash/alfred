@@ -37,7 +37,7 @@ let _worker: Worker<BriefingJobData> | undefined;
 export function getBriefingQueue(): Queue<BriefingJobData> {
   if (_queue) return _queue;
   _queue = new Queue<BriefingJobData>(BRIEFING_QUEUE_NAME, {
-    connection: createRedisConnection(),
+    connection: createRedisConnection("queue"),
     defaultJobOptions: {
       attempts: 3,
       backoff: { type: "exponential", delay: 30_000 },
@@ -55,7 +55,7 @@ export interface StartBriefingWorkerOpts {
 export async function startBriefingWorker(opts: StartBriefingWorkerOpts = {}): Promise<void> {
   if (_worker) return;
   _worker = new Worker<BriefingJobData>(BRIEFING_QUEUE_NAME, processBriefingJob, {
-    connection: createRedisConnection(),
+    connection: createRedisConnection("queue"),
     // Cron tick + per-user enqueue is cheap; one is enough.
     concurrency: opts.concurrency ?? 1,
   });

@@ -48,7 +48,7 @@ export async function startSubAgentJoinWakeWorker(
     SUB_AGENT_JOIN_WAKE_QUEUE_NAME,
     processSubAgentJoinWakeJob,
     {
-      connection: createRedisConnection(),
+      connection: createRedisConnection("queue"),
       concurrency: opts.concurrency ?? 1,
     },
   );

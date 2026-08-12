@@ -50,8 +50,8 @@ export async function initUserEventsBus(): Promise<void> {
   if (!isQueueEnabled()) return;
 
   try {
-    publisher = createRedisConnection();
-    subscriber = createRedisConnection();
+    publisher = createRedisConnection("command");
+    subscriber = createRedisConnection("command");
 
     subscriber.on("message", (channel: string, raw: string) => {
       const userId = userIdFromChannel(channel);

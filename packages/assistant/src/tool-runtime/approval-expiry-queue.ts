@@ -39,7 +39,7 @@ export function approvalExpiryJobId(stagingId: string): string {
 export function getApprovalExpiryQueue(): Queue<ApprovalExpiryJobData> {
   if (_queue) return _queue;
   _queue = new Queue<ApprovalExpiryJobData>(APPROVAL_EXPIRY_QUEUE_NAME, {
-    connection: createRedisConnection(),
+    connection: createRedisConnection("queue"),
     defaultJobOptions: {
       attempts: 3,
       backoff: { type: "exponential", delay: 2_000 },

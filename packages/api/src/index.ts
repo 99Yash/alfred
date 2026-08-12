@@ -15,7 +15,8 @@ import {
   skillsRoutes,
   workflowRoutes,
 } from "@alfred/http";
-import { createUntrackedRedisConnection } from "@alfred/db/redis";
+import type IORedis from "ioredis";
+import { createRedisConnection } from "@alfred/db/redis";
 import { connections } from "./modules/connections/index";
 import { meRoutes } from "./modules/me/index";
 import { mcpIntegrationRoutes } from "./modules/connections/mcp/index";
@@ -62,17 +63,17 @@ export const app = new Elysia({ name: "api", normalize: "typebox" })
       checks.db = "error";
     }
 
-    let conn: ReturnType<typeof createUntrackedRedisConnection> | undefined;
+    let conn: IORedis | undefined;
     try {
-      conn = createUntrackedRedisConnection();
+      conn = createRedisConnection("fail-fast", { tracked: false });
       await conn.ping();
       checks.redis = "ok";
     } catch {
       checks.redis = "error";
     } finally {
-      // Untracked connection — close it here so a failing probe can't leak a
-      // perpetually-reconnecting socket. quit() can reject if already broken;
-      // fall back to a hard disconnect.
+      // `tracked: false`, so `closeRedis()` never sees this one — close it here
+      // so a failing probe cannot leak a perpetually-reconnecting socket.
+      // quit() can reject if already broken; fall back to a hard disconnect.
       await conn?.quit().catch(() => conn?.disconnect());
     }
 
