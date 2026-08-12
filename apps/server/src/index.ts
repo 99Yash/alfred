@@ -1,6 +1,6 @@
 // MUST be the first import: Sentry.init() has to run before the instrumented
 // libraries (http/pg/ioredis/undici, all pulled in transitively by
-// @alfred/api) are evaluated, or the HTTP/fetch auto-instrumentation never
+// @alfred/http) are evaluated, or the HTTP/fetch auto-instrumentation never
 // patches them. In dev (tsx, unbundled) ESM source order guarantees this. In
 // the bundled prod build, the `start` script ALSO preloads it via
 // `node --import ./dist/instrument.js` — bundlers don't preserve import order
@@ -8,10 +8,9 @@
 // import is then a harmless cache hit on the same module instance.
 import "./instrument";
 import { flushLangfuse } from "@alfred/ai";
-import { app } from "@alfred/api";
 import { toMessage } from "@alfred/contracts";
 import { serverEnv } from "@alfred/env/server";
-import { securityHeaders } from "@alfred/http";
+import { app, securityHeaders } from "@alfred/http";
 import { cors } from "@elysiajs/cors";
 import { node } from "@elysiajs/node";
 import * as Sentry from "@sentry/node";

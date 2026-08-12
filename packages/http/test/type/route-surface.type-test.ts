@@ -1,7 +1,7 @@
 // Compile-only fixture for the route half of `@alfred/http`'s barrel
 // (`packages/http/src/index.ts`). The middleware half is pinned by
 // `middleware-surface.type-test.ts`; this file pins every route the package
-// owns, each of which `packages/api/src/index.ts` mounts with `.use(...)`. Add
+// owns, each of which `packages/http/src/index.ts` mounts with `.use(...)`. Add
 // a prefix line here in the same slice that adds a barrel route line, and do
 // not describe the set by counting it — the campaign is still moving routes in.
 //
@@ -76,7 +76,7 @@ export const prefix: (typeof agent)["config"]["prefix"] = "/api/agent";
 //
 // This is not the repo's only pin on it, and do not write that it is. The web
 // Eden client (`apps/web/src/lib/eden.ts`) is `treaty<App>` over
-// `import type { App } from "@alfred/api"`, whose `exports["."]` is the live
+// `import type { App } from "@alfred/http"`, whose `exports["."]` is the live
 // `./src/index.ts`, so the path, method, params, body and response of every
 // route the root app mounts are already derived and checked wherever a web
 // call site uses them — inside the same `turbo run check-types`. Renaming the
@@ -122,7 +122,7 @@ export const eventsPrefix: (typeof events)["config"]["prefix"] = "/api/events";
 // client from syncing.
 export const replicachePrefix: (typeof replicache)["config"]["prefix"] = "/api/replicache";
 
-// The mount call sites themselves: `packages/api/src/index.ts` composes each
+// The mount call sites themselves: `packages/http/src/index.ts` composes each
 // route into the root app with `.use(...)`, so every plugin must stay usable
 // there.
 export const composed = new Elysia()

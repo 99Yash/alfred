@@ -1,8 +1,12 @@
 # Alfred API Guidance
 
-`@alfred/api` owns the authenticated HTTP surface and server-side workflow orchestration. The Replicache server protocol — the `/api/replicache` route, its push/pull handlers, the CVR store and the server mutators — now lives in `@alfred/http` under `packages/http/src/sync/`.
+`@alfred/api` is the legacy server-side workflow and runtime facade. The authenticated HTTP surface,
+root Elysia app, derived `App` type, middleware, routes, SSE, webhooks, and Replicache protocol live in
+`@alfred/http`.
 
-Use `@alfred/api` only for the Elysia app and its `App` type. HTTP middleware now lives in `@alfred/http` — `authMacro`, `errorHandler`, `securityHeaders` and the `getSessionCached` / `invalidateSessionToken` pair all come from that one root barrel. Import reusable server services from `@alfred/api/backend` and worker/bootstrap/teardown operations from `@alfred/api/runtime`.
+Do not import the package root. Import reusable server services from `@alfred/api/backend` and
+worker/bootstrap/teardown operations from `@alfred/api/runtime` until their owning migration items remove
+these transitional doors.
 
 ## Boundaries
 
