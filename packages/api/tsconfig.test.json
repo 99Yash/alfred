@@ -70,8 +70,6 @@
     "test/mcp/manager-lifecycle.test.ts",
     "test/mcp/risk.test.ts",
     "test/mcp/streamable-http.test.ts",
-    "test/replicache/todos.test.ts",
-    "test/replicache/triage-tags.test.ts",
     "test/tool-runtime/runtime-spans.test.ts",
     "test/tool-runtime/surface.test.ts",
     "test/tool-runtime/tool-call-round.test.ts",
@@ -87,7 +85,6 @@
     "test/triage/sender-kind.test.ts",
     "test/workflows/authoring-tools.test.ts",
     "test/workflows/readiness.test.ts",
-    "test/workflows/resume-only.test.ts",
     "test/workflows/revisions.test.ts",
     "test/workflows/seeder.test.ts"
   ]
