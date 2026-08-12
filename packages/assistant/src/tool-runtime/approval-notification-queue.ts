@@ -38,7 +38,7 @@ export function approvalNotificationJobId(stagingId: string): string {
 export function getApprovalNotificationQueue(): Queue<ApprovalNotificationJobData> {
   if (_queue) return _queue;
   _queue = new Queue<ApprovalNotificationJobData>(APPROVAL_NOTIFICATION_QUEUE_NAME, {
-    connection: createRedisConnection(),
+    connection: createRedisConnection("queue"),
     defaultJobOptions: {
       attempts: 3,
       backoff: { type: "exponential", delay: 2_000 },

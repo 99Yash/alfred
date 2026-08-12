@@ -225,9 +225,15 @@ export async function handlePush(
     await publishPolicyBust(userId);
   }
 
-  // Reconcile each overridden thread's Gmail label off the request path. The
-  // DB tag is already committed; the relabel job converges Gmail and is
-  // idempotent, so a failed enqueue self-heals on the next override/classify.
+  // Reconcile each overridden thread's Gmail label. The DB tag is already
+  // committed; the relabel JOB converges Gmail and is idempotent, so a failed
+  // enqueue self-heals on the next override/classify.
+  //
+  // The job runs off the request path. The ENQUEUE does not, and it is not
+  // bounded: BullMQ shares the connection it is handed, so this `add` is an
+  // ordinary command on a `"queue"`-kind handle, which `@alfred/db/redis`
+  // documents as unbounded in every case. During a Redis outage this `await`
+  // waits indefinitely and the `catch` below is unreachable.
   for (const sourceThreadId of outcome.relabelThreads) {
     try {
       await enqueueTriageRelabel(userId, sourceThreadId);

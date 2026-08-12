@@ -14,6 +14,10 @@
 - Use `.$type<T>()` for `jsonb` only when the database layer can truthfully guarantee that shape. Otherwise retain `unknown` and validate at the owning mapper boundary.
 - Treat the result of raw `db().execute(...)` calls as `unknown`; read typed rows with `rowsFromExecute` and a named row type instead of casting the driver result.
 
+## Redis Connections
+
+- `createRedisConnection(kind)` in `packages/db/src/redis.ts` is the only door to an ioredis client, and its `RedisConnectionKind` table is the single home of what a connection does when Redis is unreachable. Pick the kind there; do not restate its options at a call site.
+
 ## Migrations
 
 - Change schemas with `db:generate` then `db:migrate`. Never use `db:push` outside local exploration.

@@ -41,7 +41,7 @@ export async function startApprovalNotificationWorker(
     APPROVAL_NOTIFICATION_QUEUE_NAME,
     processApprovalNotificationJob,
     {
-      connection: createRedisConnection(),
+      connection: createRedisConnection("queue"),
       concurrency: opts.concurrency ?? 1,
     },
   );

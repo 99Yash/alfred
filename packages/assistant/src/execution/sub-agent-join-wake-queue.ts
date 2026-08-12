@@ -68,7 +68,7 @@ export function subAgentJoinWakeJobId(childRunId: string): string {
 export function getSubAgentJoinWakeQueue(): Queue<SubAgentJoinWakeJobData> {
   if (_queue) return _queue;
   _queue = new Queue<SubAgentJoinWakeJobData>(SUB_AGENT_JOIN_WAKE_QUEUE_NAME, {
-    connection: createRedisConnection(),
+    connection: createRedisConnection("queue"),
     defaultJobOptions: {
       attempts: 3,
       backoff: { type: "exponential", delay: 2_000 },

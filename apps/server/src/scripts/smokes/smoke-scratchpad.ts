@@ -436,7 +436,7 @@ async function main(): Promise<void> {
     };
   });
 
-  const seedConn = createRedisConnection();
+  const seedConn = createRedisConnection("command");
   try {
     // Bypass writeScratch so the envelope is deliberately unparseable.
     await seedConn.set(`alfred:scratch:${runId}:shared.corrupt`, "{ not valid json", "EX", 300);
@@ -493,7 +493,7 @@ async function main(): Promise<void> {
   // Cleanup: scratchpad keys (best-effort), then DB rows. SCAN+DEL
   // instead of KEYS so the script stays safe if it ever points at a
   // non-trivial Redis.
-  const conn = createRedisConnection();
+  const conn = createRedisConnection("command");
   try {
     const match = `alfred:scratch:${runId}:*`;
     let cursor = "0";

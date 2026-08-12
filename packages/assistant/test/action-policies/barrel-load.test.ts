@@ -86,7 +86,7 @@ async function withTimerArmsCounted(body: () => Promise<void>): Promise<string[]
 
 test("action-policies barrel loads with no database and no redis configured", async () => {
   // `serverEnv()` is all-or-nothing, so removing these two keys is enough to make a
-  // module-scope env read throw; a module-scope `createRedisConnection()` needs REDIS_URL.
+  // module-scope env read throw; a module-scope `createRedisConnection(...)` needs REDIS_URL.
   delete process.env["DATABASE_URL"];
   delete process.env["REDIS_URL"];
 
