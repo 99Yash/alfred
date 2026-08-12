@@ -4,8 +4,7 @@ import { senderPriors } from "@alfred/db/schemas";
 import type { TriageCategory } from "@alfred/integrations/google";
 import { and, eq, sql } from "drizzle-orm";
 import type { PgUpdateSetSource } from "drizzle-orm/pg-core";
-import type IORedis from "ioredis";
-import { createRedisConnection } from "@alfred/db/redis";
+import { createRedisConnection, type BoundedRedis } from "@alfred/db/redis";
 
 /**
  * Sender priors store (ADR-0051 #2): a per-sender category histogram that is a
@@ -89,8 +88,8 @@ export function senderPriorWriteKeyFor(args: SenderPriorWriteKeyArgs): string | 
 // Redis read-through cache
 // ---------------------------------------------------------------------------
 
-let redis: IORedis | undefined;
-function getRedis(): IORedis {
+let redis: BoundedRedis | undefined;
+function getRedis(): BoundedRedis {
   // Fail-fast cache connection: a Redis outage must degrade to the Postgres
   // read, never delay the per-email triage path. The `"command"` kind would
   // also settle, but only after its offline queue is bounded out; a cache read

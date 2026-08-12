@@ -41,8 +41,7 @@ import {
 } from "drizzle-orm";
 import { Elysia, t } from "elysia";
 import { authMacro } from "@alfred/http";
-import type IORedis from "ioredis";
-import { createRedisConnection } from "@alfred/db/redis";
+import { createRedisConnection, type BoundedRedis } from "@alfred/db/redis";
 import { resolveBriefingPreferences } from "@alfred/assistant/briefings/preferences";
 import { enqueueBriefingRun } from "@alfred/assistant/briefings/queue";
 import { notSentGmailDocumentWhere } from "@alfred/assistant/triage/sent-mail";
@@ -69,9 +68,9 @@ import {
 const INBOX_DEFAULT_LIMIT = 8;
 const INBOX_MAX_LIMIT = 50;
 const BRIEFING_RUN_THROTTLE_SECONDS = 60;
-let briefingRunThrottleRedis: IORedis | undefined;
+let briefingRunThrottleRedis: BoundedRedis | undefined;
 
-function getBriefingRunThrottleRedis(): IORedis {
+function getBriefingRunThrottleRedis(): BoundedRedis {
   briefingRunThrottleRedis ??= createRedisConnection("fail-fast");
   return briefingRunThrottleRedis;
 }

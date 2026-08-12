@@ -31,8 +31,14 @@ const connections: IORedis[] = [];
  *   command always settles. NOT for a connection that subscribes — see below.
  * - `"subscriber"` — a long-lived connection that holds SUBSCRIBE/PSUBSCRIBE
  *   channels. Identical to `"command"` except that it carries no
- *   `commandTimeout`, because a `commandTimeout` on a subscriber KILLS THE
- *   PROCESS: see the `CONNECTION_PROFILES` note below.
+ *   `commandTimeout` and switches ioredis's auto-resubscribe OFF, because the
+ *   command ioredis re-issues for itself after a reconnect is the one command
+ *   on the connection that nothing catches, and an uncaught rejection is
+ *   `process.exit(1)`: see the `CONNECTION_PROFILES` note below. THE OWNER OF
+ *   THE CONNECTION MUST RE-SUBSCRIBE ITSELF on `conn.on("ready")` — a reconnect
+ *   drops every server-side subscription and nothing else will re-issue it.
+ *   `packages/assistant/src/realtime/replicache-events.ts` is the worked
+ *   example.
  * - `"fail-fast"` — read-through caches, throttles, and one-shot probes, where
  *   the caller has a source of truth to fall back to and would rather be told
  *   NOW than wait. Rejects instead of queueing, which includes rejecting during
@@ -62,18 +68,25 @@ export type RedisConnectionKind = "queue" | "command" | "subscriber" | "fail-fas
  *   rejects the first command of a lazily-constructed handle even against a
  *   healthy Redis. That is correct for a cache and wrong for everything else,
  *   which is why `"command"` exists as a separate kind.
- * - A `commandTimeout` on a connection that HOLDS SUBSCRIPTIONS crashes the
- *   process, which is why `"subscriber"` exists as a fourth kind. Two measured
- *   steps: (1) a `commandTimeout` is what lets a connection to a peer that
- *   accepts and never replies reach `ready` at all, because it ends the
- *   `CLIENT SETINFO` handshake ioredis sends on every connect; (2) reaching
- *   `ready` runs `readyHandler`, which re-issues the previous SUBSCRIBE and
- *   PSUBSCRIBE with NO `.catch` — unlike the `readonly().catch(noop)` two lines
- *   above it. The next `commandTimeout` on that re-issued command is therefore
- *   an unhandled rejection, and `apps/server/src/index.ts` turns one of those
- *   into `process.exit(1)`. Without a `commandTimeout` the same peer never
- *   reaches `ready`, and a close FROM `ready` parks the in-flight queue in
- *   `prevCommandQueue` for resend instead of rejecting it.
+ * - `autoResubscribe` is the reason `"subscriber"` exists as a fourth kind.
+ *   After a reconnect, `readyHandler` re-issues the previous SUBSCRIBE,
+ *   PSUBSCRIBE and SSUBSCRIBE with NO `.catch` — unlike the
+ *   `readonly().catch(noop)` a few lines above it in the same function. That is
+ *   the only command on such a connection that no module owns, so ANY rejection
+ *   of it is an unhandled rejection, and `apps/server/src/index.ts` turns one of
+ *   those into `process.exit(1)`. Two measured routes reach that rejection, and
+ *   removing either one alone leaves the other: (1) a `commandTimeout` times the
+ *   re-issued command out — and a `commandTimeout` is also what lets a
+ *   connection to a peer that accepts and never replies reach `ready` in the
+ *   first place, because it ends the `CLIENT SETINFO` handshake ioredis sends on
+ *   every connect; (2) a numeric `maxRetriesPerRequest` flushes the re-issued
+ *   command with `MaxRetriesPerRequestError` when the peer then refuses —
+ *   `prevCommandQueue = self.commandQueue` in the close handler is an ALIAS, not
+ *   a move, and only a TCP `connect` calls `resetCommandQueue()`, which a
+ *   refusing peer never emits. `"subscriber"` therefore drops the
+ *   `commandTimeout` AND sets `autoResubscribe: false`, which deletes the
+ *   uncaught command itself rather than the two ways it can fail. The cost is
+ *   that re-subscription becomes the connection owner's job on `ready`.
  *
  * `enableReadyCheck: false` is shared: Alfred's Redis is never a replica
  * loading a dataset, and the ready check only delays `ready`.
@@ -93,11 +106,14 @@ const CONNECTION_PROFILES: Record<RedisConnectionKind, RedisOptions> = {
   subscriber: {
     maxRetriesPerRequest: 3,
     enableOfflineQueue: true,
-    // Deliberately no `commandTimeout` — see the fourth note above. The cost is
-    // stated rather than hidden: a subscribe or unsubscribe issued against a
-    // peer that accepts and never replies is unbounded on this kind. A refusing
-    // or unreachable peer, which is the shape that hung boot and shutdown,
-    // still rejects through `maxRetriesPerRequest`.
+    // Deliberately no `commandTimeout`, and ioredis's own re-subscribe switched
+    // off — see the fourth note above. Two costs, stated rather than hidden:
+    // (a) a subscribe or unsubscribe issued against a peer that accepts and
+    // never replies is unbounded on this kind (a refusing or unreachable peer,
+    // which is the shape that hung boot and shutdown, still rejects through
+    // `maxRetriesPerRequest`); (b) the owner MUST re-subscribe on `ready`,
+    // because nothing else does now.
+    autoResubscribe: false,
     enableReadyCheck: false,
   },
   "fail-fast": {
@@ -109,6 +125,21 @@ const CONNECTION_PROFILES: Record<RedisConnectionKind, RedisOptions> = {
 };
 
 /**
+ * An ioredis client with the subscribe verbs taken away.
+ *
+ * Holding a subscription on a connection whose profile carries a
+ * `commandTimeout` and ioredis's auto-resubscribe is the exact mistake that
+ * ends in `process.exit(1)` (see the note above), and it is a mistake nothing
+ * used to catch: the factory handed back the same `IORedis` for every kind, so
+ * `.subscribe()` sat in autocomplete on a `"command"` handle. All three
+ * subscriber handles in this repo were written that way first, by an author
+ * holding the whole design, and `pnpm check`, `pnpm check-types` and two
+ * mutation probes all passed over it. Removing the verbs from the type turns
+ * that into TS2339 at the call site.
+ */
+export type BoundedRedis = Omit<IORedis, "subscribe" | "psubscribe" | "ssubscribe">;
+
+/**
  * The one door to an ioredis client. `new IORedis(...)` appears nowhere else in
  * the repo and `pnpm check` fails on a second one, so every connection in the
  * process carries one of the profiles above.
@@ -117,10 +148,29 @@ const CONNECTION_PROFILES: Record<RedisConnectionKind, RedisOptions> = {
  * inherit a failure profile it never chose, which is the defect this signature
  * exists to close.
  *
+ * The bounded kinds return {@link BoundedRedis}, so a handle that must not
+ * subscribe cannot. The third overload exists for a caller that holds the kind
+ * as a VALUE rather than a literal — only the test fixtures do — and it is the
+ * reason this lever is tier 1 for every real call site and tier 3 for those:
+ * overload resolution takes the first match, so a literal `"command"` can never
+ * reach it.
+ *
  * @param tracked Push the connection onto the list `closeRedis()` drains.
  *   Default `true`. Pass `false` for a one-shot probe that closes itself in a
  *   `finally` — tracking those would grow the list once per probe.
  */
+export function createRedisConnection(
+  kind: "command" | "fail-fast",
+  options?: { tracked?: boolean },
+): BoundedRedis;
+export function createRedisConnection(
+  kind: "queue" | "subscriber",
+  options?: { tracked?: boolean },
+): IORedis;
+export function createRedisConnection(
+  kind: RedisConnectionKind,
+  options?: { tracked?: boolean },
+): IORedis;
 export function createRedisConnection(
   kind: RedisConnectionKind,
   { tracked = true }: { tracked?: boolean } = {},
