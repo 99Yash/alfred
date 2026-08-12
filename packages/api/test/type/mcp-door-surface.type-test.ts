@@ -79,6 +79,31 @@ type _NoReconcileOnConnections = ConnectionsDoor["reconcileInflightInvocations"]
 type _NoRiskOnConnections = ConnectionsDoor["resolveMcpCallRiskTier"];
 
 // ---------------------------------------------------------------------------
+// A tier-1 door is only worth having if the names ON it are the ones a caller
+// should be able to make. Two authority-minting writes are therefore behind a
+// `test-support` subpath instead (the `./action-policies/test-support` precedent):
+// `publishCatalogRevision` advances a catalog pointer with no compare-and-set, and
+// `upsertToolPolicy` mints the ADR-0088 reviewed downgrade. Both have zero product
+// callers repo-wide. `_setMcpConnectionManagerForTests` is there for the same
+// reason. The negatives below are what keep them off the product doors.
+// ---------------------------------------------------------------------------
+
+type ConnectionsTestSupport = typeof import("@alfred/assistant/connections/mcp/test-support");
+type ToolRuntimeTestSupport = typeof import("@alfred/assistant/tool-runtime/mcp/test-support");
+
+type _AssertConnTestSupportResolves = ConnectionsTestSupport["publishCatalogRevision"];
+type _AssertToolRuntimeTestSupportResolves = ToolRuntimeTestSupport["upsertToolPolicy"];
+
+// @ts-expect-error - the unguarded catalog-pointer write is test-support, not product surface.
+type _NoPublishOnConnections = ConnectionsDoor["publishCatalogRevision"];
+
+// @ts-expect-error - replacing the session cache does not invalidate the broker; test-support only.
+type _NoManagerSetterOnConnections = ConnectionsDoor["_setMcpConnectionManagerForTests"];
+
+// @ts-expect-error - the reviewed-downgrade mint is test-support, not product surface.
+type _NoPolicyMintOnToolRuntime = ToolRuntimeDoor["upsertToolPolicy"];
+
+// ---------------------------------------------------------------------------
 // Door 2 is TIER 4, not tier 1, and this is the measurement that says so rather
 // than a claim in a comment. `"./tool-runtime/*": "./src/tool-runtime/*.ts"`
 // already republishes every leaf under the directory, so the barrel is a

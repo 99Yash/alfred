@@ -380,7 +380,8 @@ export const EMBED_SUCCESS_RESET = {
  * A handle that can run a query: either the root client or an open transaction.
  *
  * Persistence modules take this rather than `DbRoot` so one operation composes
- * inside a caller's larger transaction without nesting a second one. The union
+ * inside a caller's larger transaction instead of opening a second, independent
+ * one — see `runAtomic` below for what "composes" actually means here. The union
  * was previously re-declared per module under five different local names
  * (`Db`, `Runner`, `Executor`, …); this is the canonical spelling. The import is
  * type-only, so `helpers.ts` gains no runtime dependency on `./index` and the
@@ -389,9 +390,23 @@ export const EMBED_SUCCESS_RESET = {
 export type DbRunner = DbRoot | DbTransaction;
 
 /**
- * Run `body` atomically, reusing the caller's transaction if one was passed and
- * opening a fresh one otherwise. The root client exposes `transaction`; an open
- * transaction handle does not, which is what distinguishes the two at runtime.
+ * Run `body` atomically: a fresh transaction when `runner` is the root client, a
+ * `SAVEPOINT` inside the caller's when it is already a transaction handle.
+ *
+ * The two are NOT distinguished by the `in` test. Both union members carry
+ * `transaction` — drizzle's `PgTransaction` extends `PgDatabase` and re-declares
+ * it (`pg-core/session.d.ts`), and `NodePgTransaction` implements the nested call
+ * by issuing `SAVEPOINT` (`node-postgres/session.js`) — so the condition is always
+ * true, the second arm is unreachable, and TypeScript narrows nothing.
+ *
+ * That leaves atomicity intact (`txid_current()` is unchanged, so the outermost
+ * transaction is still the unit that commits or rolls back) but it is not
+ * transaction reuse: a failing `body` rolls back to its savepoint and leaves the
+ * caller's transaction USABLE, where reuse would abort it. Callers that rely on an
+ * inner failure poisoning the outer transaction do not get that here. Campaign
+ * item 131 owns the choice between making the branch discriminate
+ * (`is(runner, PgTransaction)`) and deleting the dead arm; this docstring only
+ * stops the next reader from assuming the semantics the name suggests.
  */
 export function runAtomic<T>(runner: DbRunner, body: (tx: DbRunner) => Promise<T>): Promise<T> {
   return "transaction" in runner ? runner.transaction(body) : body(runner);

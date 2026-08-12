@@ -7,12 +7,10 @@ import { closeConnections, db } from "@alfred/db";
 import { user } from "@alfred/db/schemas";
 import { inArray, like } from "drizzle-orm";
 
-import { insertConnection, publishCatalogRevision } from "@alfred/assistant/connections/mcp";
-import {
-  MCP_CALL_RISK_FLOOR,
-  resolveMcpCallRiskTier,
-  upsertToolPolicy,
-} from "@alfred/assistant/tool-runtime/mcp";
+import { insertConnection } from "@alfred/assistant/connections/mcp";
+import { publishCatalogRevision } from "@alfred/assistant/connections/mcp/test-support";
+import { MCP_CALL_RISK_FLOOR, resolveMcpCallRiskTier } from "@alfred/assistant/tool-runtime/mcp";
+import { upsertToolPolicy } from "@alfred/assistant/tool-runtime/mcp/test-support";
 
 /**
  * DB-backed tests for the `mcp.call` gate-side effective-risk resolver (#541

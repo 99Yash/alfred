@@ -12,16 +12,16 @@ import { dispatchToolCall } from "../../src/modules/dispatch";
 import {
   computeDescriptorHashes,
   insertConnection,
-  publishCatalogRevision,
   type McpCallEnvelope,
 } from "@alfred/assistant/connections/mcp";
+import { publishCatalogRevision } from "@alfred/assistant/connections/mcp/test-support";
 import {
   _setMcpExecutionBrokerForTests,
-  upsertToolPolicy,
   type McpBrokerCallInput,
   type McpBrokerOutcome,
   type McpExecutionBroker,
 } from "@alfred/assistant/tool-runtime/mcp";
+import { upsertToolPolicy } from "@alfred/assistant/tool-runtime/mcp/test-support";
 import { clearToolRegistryForTests, registerTools } from "@alfred/assistant/tool-runtime";
 import { mcpTools } from "../../src/modules/tools/mcp";
 import { closeRedis } from "@alfred/db/redis";
