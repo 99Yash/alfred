@@ -52,6 +52,7 @@ import {
   chatRoutes,
   events,
   mcpIntegrationRoutes,
+  meRoutes,
   onboardingRoutes,
   replicache,
   skillsRoutes,
@@ -91,6 +92,7 @@ export const approvalsPrefix: (typeof approvalsRoutes)["config"]["prefix"] = "/a
 // route-table comparison against the pre-move app are the whole mount-surface
 // evidence for it. Check for a call site before assuming Eden covers a prefix.
 export const chatPrefix: (typeof chatRoutes)["config"]["prefix"] = "/api/chat";
+export const mePrefix: (typeof meRoutes)["config"]["prefix"] = "/api/me";
 export const onboardingPrefix: (typeof onboardingRoutes)["config"]["prefix"] = "/api/me/onboarding";
 export const skillsPrefix: (typeof skillsRoutes)["config"]["prefix"] = "/api/skills";
 export const workflowsPrefix: (typeof workflowRoutes)["config"]["prefix"] = "/api/workflows";
@@ -126,6 +128,7 @@ export const composed = new Elysia()
   .use(approvalsRoutes)
   .use(chatRoutes)
   .use(events)
+  .use(meRoutes)
   .use(onboardingRoutes)
   .use(replicache)
   .use(skillsRoutes)

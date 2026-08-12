@@ -108,7 +108,7 @@ approving it (via the API) creates a real deck and writes `webViewLink` to
 
 ## Phase 2 — Policy-mutation endpoint + settings editor (the real backend gap)
 
-**2a. `packages/api/src/modules/me/routes.ts` (new handlers on the existing `me` group)**
+**2a. `packages/http/src/me.ts` (new handlers on the existing `me` group)**
 - `GET /api/me/action-policy` → resolved policy (default_mode, integration_rules,
   approval_notify_delay_ms).
 - `PUT /api/me/action-policy` → upsert `user_action_policies`; **must call
