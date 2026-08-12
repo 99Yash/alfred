@@ -10,18 +10,20 @@ import { and, eq, inArray, like } from "drizzle-orm";
 import { clearPolicyCacheForTests } from "@alfred/assistant/action-policies/test-support";
 import { dispatchToolCall } from "../../src/modules/dispatch";
 import {
-  _setMcpRuntimeForTests,
+  computeDescriptorHashes,
+  insertConnection,
+  type McpCallEnvelope,
+} from "@alfred/assistant/connections/mcp";
+import { publishCatalogRevision } from "@alfred/assistant/connections/mcp/test-support";
+import {
   type McpBrokerCallInput,
   type McpBrokerOutcome,
-  type McpCallEnvelope,
   type McpExecutionBroker,
-} from "../../src/modules/connections/mcp";
-import { computeDescriptorHashes } from "../../src/modules/connections/mcp/hash";
+} from "@alfred/assistant/tool-runtime/mcp";
 import {
-  insertConnection,
-  publishCatalogRevision,
+  _setMcpExecutionBrokerForTests,
   upsertToolPolicy,
-} from "../../src/modules/connections/mcp/persistence";
+} from "@alfred/assistant/tool-runtime/mcp/test-support";
 import { clearToolRegistryForTests, registerTools } from "@alfred/assistant/tool-runtime";
 import { mcpTools } from "../../src/modules/tools/mcp";
 import { closeRedis } from "@alfred/db/redis";
@@ -39,7 +41,7 @@ import { closeRedis } from "@alfred/db/redis";
  *
  * The broker itself is exercised offline against a fake protocol elsewhere
  * (`test/mcp/broker.test.ts`); here it is replaced with a capturing fake via
- * `_setMcpRuntimeForTests`, so these assert only the SEAM (gate + fast-path +
+ * `_setMcpExecutionBrokerForTests`, so these assert only the SEAM (gate + fast-path +
  * stagingId threading), not the ledger semantics. Opt-in on `DATABASE_URL`.
  */
 const SKIP = process.env.DATABASE_URL ? false : "DATABASE_URL not set — skipping DB-backed test";
@@ -173,7 +175,7 @@ describe("dispatch → mcp seam (DB-backed)", { skip: SKIP }, () => {
 
   after(async () => {
     clearToolRegistryForTests();
-    _setMcpRuntimeForTests({});
+    _setMcpExecutionBrokerForTests();
     clearPolicyCacheForTests();
     if (createdUserIds.length > 0) {
       await db().delete(user).where(inArray(user.id, createdUserIds));
@@ -219,7 +221,7 @@ describe("dispatch → mcp seam (DB-backed)", { skip: SKIP }, () => {
     // exact descriptor, the dispatcher gates on that resolved tier (autonomy +
     // `low` → no approval), and the SAME tier is persisted on the staging row.
     const broker = new CapturingBroker();
-    _setMcpRuntimeForTests({ broker: asBroker(broker) });
+    _setMcpExecutionBrokerForTests(asBroker(broker));
 
     const { userId, runId } = await seedUserAndRun();
     await seedAutonomyPolicy(userId);
@@ -278,7 +280,7 @@ describe("dispatch → mcp seam (DB-backed)", { skip: SKIP }, () => {
 
   test("an approved mcp.call routes through the broker with ctx.stagingId set to the row id", async () => {
     const broker = new CapturingBroker();
-    _setMcpRuntimeForTests({ broker: asBroker(broker) });
+    _setMcpExecutionBrokerForTests(asBroker(broker));
 
     const { userId, runId } = await seedUserAndRun();
     const toolCallId = `tc_${randomUUID().slice(0, 8)}`;

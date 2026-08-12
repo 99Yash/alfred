@@ -14,7 +14,6 @@ import {
   closeWorkflowsQueue,
   initEventBridge,
   initReplicachePokeBridge,
-  reconcileInflightInvocations,
   registerAgentSystemToolAdapter,
   registerBuiltinTools,
   registerConversationsSystemToolAdapter,
@@ -60,6 +59,7 @@ import {
   startIngestionWorker,
   stopIngestionWorker,
 } from "@alfred/assistant/connections/ingestion";
+import { reconcileInflightInvocations } from "@alfred/assistant/tool-runtime/mcp";
 import { flushLangfuse, flushMeteringWrites } from "@alfred/ai";
 import { toMessage } from "@alfred/contracts";
 import { assertPersistedCredentialsSealed } from "@alfred/db/credential-vault-maintenance";

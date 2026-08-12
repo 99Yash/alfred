@@ -14,6 +14,7 @@ import {
 import { sql, type SQL } from "drizzle-orm";
 import { customType, timestamp, type AnyPgColumn } from "drizzle-orm/pg-core";
 import { customAlphabet } from "nanoid";
+import type { DbRoot, DbTransaction } from "./index";
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -370,3 +371,55 @@ export const EMBED_SUCCESS_RESET = {
   "embedAttempts" | "embedFirstFailedAt" | "embedFailedAt" | "lastEmbedError",
   number | null
 >;
+
+// ---------------------------------------------------------------------------
+// Query-runner plumbing
+// ---------------------------------------------------------------------------
+
+/**
+ * A handle that can run a query: either the root client or an open transaction.
+ *
+ * Persistence modules take this rather than `DbRoot` so one operation composes
+ * inside a caller's larger transaction instead of opening a second, independent
+ * one — see `runAtomic` below for what "composes" actually means here. The union
+ * was previously re-declared per module under five different local names
+ * (`Db`, `Runner`, `Executor`, …); this is the canonical spelling. The import is
+ * type-only, so `helpers.ts` gains no runtime dependency on `./index` and the
+ * schema modules that import this file keep their evaluation unit unchanged.
+ */
+export type DbRunner = DbRoot | DbTransaction;
+
+/**
+ * Run `body` atomically: a fresh transaction when `runner` is the root client, a
+ * `SAVEPOINT` inside the caller's when it is already a transaction handle.
+ *
+ * The two are NOT distinguished by the `in` test. Both union members carry
+ * `transaction` — drizzle's `PgTransaction` extends `PgDatabase` and re-declares
+ * it (`pg-core/session.d.ts`), and `NodePgTransaction` implements the nested call
+ * by issuing `SAVEPOINT` (`node-postgres/session.js`) — so the condition is always
+ * true, the second arm is unreachable, and TypeScript narrows nothing.
+ *
+ * That leaves atomicity intact (`txid_current()` is unchanged, so the outermost
+ * transaction is still the unit that commits or rolls back) but it is not
+ * transaction reuse: a failing `body` rolls back to its savepoint and leaves the
+ * caller's transaction USABLE, where reuse would abort it. Callers that rely on an
+ * inner failure poisoning the outer transaction do not get that here. Campaign
+ * item 131 owns the choice between making the branch discriminate
+ * (`is(runner, PgTransaction)`) and deleting the dead arm; this docstring only
+ * stops the next reader from assuming the semantics the name suggests.
+ */
+export function runAtomic<T>(runner: DbRunner, body: (tx: DbRunner) => Promise<T>): Promise<T> {
+  return "transaction" in runner ? runner.transaction(body) : body(runner);
+}
+
+/**
+ * Assert an `INSERT ... RETURNING` produced its row. `noUncheckedIndexedAccess`
+ * types `const [row] = ...returning()` as `T | undefined`, but an insert without
+ * a swallowed conflict always yields exactly one row; a missing one is a bug, not
+ * a normal outcome, so this throws rather than propagating `undefined`. `op`
+ * names the operation so the thrown message identifies the call site.
+ */
+export function requireRow<T>(row: T | undefined, op: string): T {
+  if (row === undefined) throw new Error(`${op}: expected a returned row, got none`);
+  return row;
+}

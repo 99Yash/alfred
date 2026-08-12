@@ -18,14 +18,16 @@
 
 import { mcpCallInput, mcpListToolsInput } from "@alfred/contracts";
 import {
-  getMcpExecutionBroker,
   listMcpToolsLocal,
-  resolveMcpCallRiskTier,
   type ExternalToolRef,
-  type McpBrokerOutcome,
   type McpCallEnvelope,
-} from "../connections";
+} from "@alfred/assistant/connections/mcp";
 import { liveTool, type RegisteredTool } from "@alfred/assistant/tool-runtime";
+import {
+  getMcpExecutionBroker,
+  resolveMcpCallRiskTier,
+  type McpBrokerOutcome,
+} from "@alfred/assistant/tool-runtime/mcp";
 
 /** Model-safe projection of a broker outcome into an `mcp.call` tool result. */
 function brokerResult(outcome: McpBrokerOutcome): unknown {

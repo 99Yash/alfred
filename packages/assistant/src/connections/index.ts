@@ -14,18 +14,24 @@
  * operational script. For the same reason `./oauth-state` imports the
  * `./ingestion/workflow-recovery` leaf directly rather than the ingestion barrel.
  *
- * `check:architecture` enforces BOTH of those lines, as one rule: this file must not
- * transitively reach `./ingestion/{queue,gmail-ingest}`, and a violation is reported
- * with the importer chain that produced it. The rule is a reachability walk rather
- * than a module edge because no edge exists to see — `moduleForPath` files
- * `./ingestion/*` inside this same `connections` module. That is what made the
- * widening invisible before: adding `export * from "./ingestion"` here takes this
- * barrel from 19 to 41 exports with every gate green, and a module-load probe
- * reports the same retained-handle count and exit code, because the queue builds its
- * BullMQ objects lazily.
+ * It does NOT re-export `./mcp` either, for the same reason at a different cost:
+ * importing that subtree evaluates a process-lifetime live-client cache and the
+ * credential vault. It has its own door, `@alfred/assistant/connections/mcp`.
  *
- * What still lives in `packages/api/src/modules/connections/` is transport and
- * protocol: the Elysia routes, the webhooks, and `mcp` (campaign items 24, 48, 51).
+ * `check:architecture` enforces all three of those lines, as one rule: this file must
+ * not transitively reach `./ingestion/{queue,gmail-ingest}` or `./mcp/{client,oauth}`,
+ * and a violation is reported with the importer chain that produced it. The rule is a
+ * reachability walk rather than a module edge because no edge exists to see —
+ * `moduleForPath` files `./ingestion/*` and `./mcp/*` inside this same `connections`
+ * module. That is what made the widening invisible before: adding
+ * `export * from "./ingestion"` here takes this barrel from 19 to 41 exports with
+ * every gate green, and a module-load probe reports the same retained-handle count
+ * and exit code, because the queue builds its BullMQ objects lazily.
+ *
+ * What still lives in `packages/api/src/modules/connections/` is transport: the Elysia
+ * routes and the webhooks (campaign item 24). MCP is no longer among them — the product
+ * half is here, and its transport leaf sits at `packages/api/src/modules/mcp/routes.ts`,
+ * which campaign item 51 moves to `@alfred/http`.
  */
 
 export * from "./availability";

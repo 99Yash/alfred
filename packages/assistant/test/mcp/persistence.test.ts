@@ -8,22 +8,24 @@ import { eq, inArray, like } from "drizzle-orm";
 
 import {
   compareAndSetCatalogRevision,
-  createSuccessorInvocation,
-  findUnresolvedBarrier,
   insertConnection,
   insertCatalogRevision,
-  insertInvocation,
   publishCatalogRevision,
   readConnection,
   readCurrentRevision,
   readRevisionByHash,
+  updateConnection,
+} from "../../src/connections/mcp/persistence";
+import {
+  createSuccessorInvocation,
+  findUnresolvedBarrier,
+  insertInvocation,
   reconcileInflightInvocations,
   readToolPolicy,
   resolveMcpToolIdentity,
-  updateConnection,
   updateInvocation,
   upsertToolPolicy,
-} from "../../src/modules/connections/mcp/persistence";
+} from "../../src/tool-runtime/mcp/invocations";
 
 /**
  * DB-backed tests for the MCP persistence layer (PRD #540). They exercise the
@@ -544,6 +546,79 @@ describe("mcp persistence (DB-backed)", { skip: SKIP }, () => {
         const text = `${String(err)} ${cause instanceof Error ? cause.message : String(cause)}`;
         return /foreign key|violates|constraint/i.test(text);
       },
+    );
+  });
+});
+
+/**
+ * The ONE branch of `insertInvocation` no live database can reach, and the one the
+ * move changed. The barrier classification used to run on a hand-rolled 23505
+ * narrowing whose return distinguished three cases by `undefined` vs `""`; it now
+ * runs on `@alfred/db`'s canonical `isUniqueViolation` + `uniqueViolationConstraint`
+ * pair. Two cases are already pinned above against real indexes: a named barrier
+ * collision and a named `mcp_invocation_staging_idx` collision. The third — a 23505
+ * whose `constraint` the driver did NOT report — must still default to the barrier,
+ * because reading only the constraint name would collapse it into "not a unique
+ * violation" and rethrow, turning a blocked ambiguous write into a 500.
+ *
+ * Postgres always names the index it violated, so this is reachable only with an
+ * injected runner. That is also what makes it worth a test: the case is invisible
+ * to every DB-backed assertion in this file.
+ */
+describe("insertInvocation unique-violation classification", () => {
+  /**
+   * A minimal drizzle-shaped runner: `stagingCorrelation`'s select resolves, and
+   * the ledger insert rejects with `err`. The cast is the test's, not production
+   * code's — `DbRunner` is drizzle's full builder surface and only these two
+   * chains are reached.
+   */
+  function runnerThatRejectsInsertWith(err: unknown): Parameters<typeof insertInvocation>[1] {
+    const correlation = [{ traceId: "run_fake", stepId: "step_fake", toolCallId: "tc_fake" }];
+    return {
+      select: () => ({
+        from: () => ({ where: () => ({ limit: () => Promise.resolve(correlation) }) }),
+      }),
+      insert: () => ({ values: () => ({ returning: () => Promise.reject(err) }) }),
+    } as unknown as Parameters<typeof insertInvocation>[1];
+  }
+
+  /** A wrapped driver error, the shape drizzle actually throws. */
+  function wrappedPgError(fields: { code: string; constraint?: string }): Error {
+    return new Error("Failed query", { cause: Object.assign(new Error("duplicate key"), fields) });
+  }
+
+  const values = {
+    userId: "u_fake",
+    connectionId: "conn_fake",
+    stagingId: "stg_fake",
+    remoteName: "do_thing",
+    argsHash: "sha256:fake",
+  } as unknown as Parameters<typeof insertInvocation>[0];
+
+  test("an unnamed unique violation still defaults to the barrier", async () => {
+    const result = await insertInvocation(
+      values,
+      runnerThatRejectsInsertWith(wrappedPgError({ code: "23505" })),
+    );
+    assert.deepEqual(result, { ok: false, reason: "barrier" });
+  });
+
+  test("a named staging-index violation is still distinguished", async () => {
+    const result = await insertInvocation(
+      values,
+      runnerThatRejectsInsertWith(
+        wrappedPgError({ code: "23505", constraint: "mcp_invocation_staging_idx" }),
+      ),
+    );
+    assert.deepEqual(result, { ok: false, reason: "duplicate_staging" });
+  });
+
+  test("a non-unique-violation error is rethrown, not classified", async () => {
+    await assert.rejects(
+      insertInvocation(values, runnerThatRejectsInsertWith(wrappedPgError({ code: "23503" }))),
+      // The ORIGINAL wrapper is rethrown untouched — not re-wrapped, and not
+      // swallowed into a typed result. A foreign-key violation is a real failure.
+      /Failed query/,
     );
   });
 });

@@ -6,17 +6,15 @@ import type { Tool } from "@modelcontextprotocol/client";
 
 import {
   McpClientError,
+  McpConnectionManager,
   McpRawClient,
+  type McpConnectionManagerPersistence,
   type McpNegotiatedServer,
   type McpProtocolCallResult,
   type McpProtocolClient,
   type McpProtocolPage,
   type McpTraceContext,
-} from "../../src/modules/connections/mcp";
-import {
-  McpConnectionManager,
-  type McpConnectionManagerPersistence,
-} from "../../src/modules/connections/mcp/manager";
+} from "@alfred/assistant/connections/mcp";
 
 class FakeProtocol implements McpProtocolClient {
   tools: Tool[] = [tool("tool_a")];

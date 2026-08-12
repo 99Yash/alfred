@@ -29,7 +29,7 @@
  */
 
 import { isToolRiskTier, type ToolRiskTier } from "@alfred/contracts";
-import { resolveMcpToolIdentity, type ResolveMcpToolIdentityInput } from "./persistence";
+import { resolveMcpToolIdentity, type ResolveMcpToolIdentityInput } from "./invocations";
 
 /** The conservative floor an `mcp.call` falls back to when no reviewed downgrade applies. */
 export const MCP_CALL_RISK_FLOOR: ToolRiskTier = "high";
