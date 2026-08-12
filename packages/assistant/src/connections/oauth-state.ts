@@ -23,7 +23,7 @@ const DEFAULT_TTL_SECONDS = 600; // 10 minutes — generous for slow IdP redirec
 
 let _client: IORedis | undefined;
 function client(): IORedis {
-  if (!_client) _client = createRedisConnection();
+  if (!_client) _client = createRedisConnection("command");
   return _client;
 }
 

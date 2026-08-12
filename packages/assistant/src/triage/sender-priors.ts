@@ -5,7 +5,7 @@ import type { TriageCategory } from "@alfred/integrations/google";
 import { and, eq, sql } from "drizzle-orm";
 import type { PgUpdateSetSource } from "drizzle-orm/pg-core";
 import type IORedis from "ioredis";
-import { createCacheRedisConnection } from "@alfred/db/redis";
+import { createRedisConnection } from "@alfred/db/redis";
 
 /**
  * Sender priors store (ADR-0051 #2): a per-sender category histogram that is a
@@ -16,9 +16,9 @@ import { createCacheRedisConnection } from "@alfred/db/redis";
  * email, the cache is mostly a within-burst optimization — but it keeps the
  * Phase-3 read off the per-email DB path. A Redis key is used instead of an
  * in-process Map (a Map would be stale the instant the same run increments).
- * The cache connection is fail-fast ({@link createCacheRedisConnection}): an
- * outage rejects immediately and we fall through to Postgres, so the cache is
- * never a correctness or availability dependency of the classify path.
+ * The cache connection is `createRedisConnection("fail-fast")`: an outage
+ * rejects immediately and we fall through to Postgres, so the cache is never a
+ * correctness or availability dependency of the classify path.
  */
 
 const CACHE_PREFIX = "alfred:sender-prior:";
@@ -92,10 +92,10 @@ export function senderPriorWriteKeyFor(args: SenderPriorWriteKeyArgs): string | 
 let redis: IORedis | undefined;
 function getRedis(): IORedis {
   // Fail-fast cache connection: a Redis outage must degrade to the Postgres
-  // read, never hang the per-email triage path. The BullMQ connection's
-  // offline-queue-forever behavior would otherwise stall every classify on the
-  // cache read under an outage (the try/catch can only rescue a rejection).
-  if (!redis) redis = createCacheRedisConnection();
+  // read, never delay the per-email triage path. The `"command"` kind would
+  // also settle, but only after its offline queue is bounded out; a cache read
+  // with Postgres behind it should not wait that long.
+  if (!redis) redis = createRedisConnection("fail-fast");
   return redis;
 }
 

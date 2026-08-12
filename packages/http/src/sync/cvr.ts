@@ -61,6 +61,6 @@ let _store: CVRStore | undefined;
 
 export function getCVRStore(): CVRStore {
   if (_store) return _store;
-  _store = new CVRStore(createRedisConnection());
+  _store = new CVRStore(createRedisConnection("command"));
   return _store;
 }

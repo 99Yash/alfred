@@ -47,7 +47,7 @@ export async function startApprovalExpiryWorker(
     APPROVAL_EXPIRY_QUEUE_NAME,
     processApprovalExpiryJob,
     {
-      connection: createRedisConnection(),
+      connection: createRedisConnection("queue"),
       concurrency: opts.concurrency ?? 1,
     },
   );
