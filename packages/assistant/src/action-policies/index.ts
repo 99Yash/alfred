@@ -19,11 +19,14 @@
  * subscriber. And because the cache holds no TTL, a bust that is never delivered bounds to
  * one stale entry per user on the instances that missed it, until the next delivered bust
  * for that user or a process restart. A dropped bust degrades to that stale cache entry,
- * never to a failed policy mutation: both connections are `"command"` connections
+ * never to a failed policy mutation: the publisher is a `"command"` connection
  * (`createRedisConnection` in `@alfred/db/redis`), whose numeric `maxRetriesPerRequest` and
- * `commandTimeout` make a command against an unreachable Redis reject within a bounded wait
+ * `commandTimeout` make a publish against an unreachable Redis reject within a bounded wait
  * instead of queueing offline forever, and `publishPolicyBust` catches that rejection rather
- * than surfacing it on the mutation.
+ * than surfacing it on the mutation. The subscriber is a `"subscriber"` connection, which
+ * carries no `commandTimeout` — a subscribing connection cannot have one — so it is bounded
+ * against a refusing or unreachable Redis but not against one that accepts and never
+ * answers.
  *
  * Deliberately NOT guaranteed, so nobody builds on it. Two concurrent
  * `startPolicyBustSubscriber` calls can each pass the `if (subscriberStarted) return;`

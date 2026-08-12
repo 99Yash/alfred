@@ -24,6 +24,6 @@ Drizzle config reads `DATABASE_URL` from `apps/server/.env`.
 
 ## BullMQ / Redis
 
-`createRedisConnection(kind)` from `@alfred/db/redis` is the only factory. `kind` picks the connection's behavior during a Redis outage, and `packages/db/src/redis.ts` holds the one table that defines each kind: `"queue"` for a connection handed to BullMQ (unbounded by design), `"command"` for ordinary commands, `"fail-fast"` for a cache, throttle, or probe that has a source of truth to fall back to. Pass `{ tracked: false }` for a short-lived probe the caller closes itself; every other connection is drained by `closeRedis()` at shutdown.
+`createRedisConnection(kind)` from `@alfred/db/redis` is the only factory. `kind` picks what the connection does when Redis is unreachable, refusing, or accepting but unresponsive. Read the kinds off the `RedisConnectionKind` table in `packages/db/src/redis.ts` — it is the single home of that matrix, and a copy here would drift from it. Pass `{ tracked: false }` for a short-lived probe the caller closes itself; every other connection is drained by `closeRedis()` at shutdown.
 
 Never create raw `new IORedis()` in app code; `pnpm check` fails on one.
