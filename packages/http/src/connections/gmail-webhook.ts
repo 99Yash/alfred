@@ -1,13 +1,13 @@
 import { Errors, toMessage } from "@alfred/contracts";
-import { findCredentialByEmail } from "@alfred/integrations/google";
-import { Elysia, t } from "elysia";
-import { createRemoteJWKSet, jwtVerify, type JWTPayload } from "jose";
 import {
   assertGmailPushOidcConfigured,
-  getIngestionQueue,
+  findCredentialByEmail,
   pubSubOidcConfigFromEnv,
   type PubSubOidcConfig,
-} from "@alfred/assistant/connections/ingestion";
+} from "@alfred/integrations/google";
+import { Elysia, t } from "elysia";
+import { createRemoteJWKSet, jwtVerify, type JWTPayload } from "jose";
+import { getIngestionQueue } from "@alfred/assistant/connections/ingestion";
 
 /**
  * Gmail push receiver.

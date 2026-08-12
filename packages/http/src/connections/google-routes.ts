@@ -7,6 +7,8 @@ import {
   exchangeCode,
   getGmailWatchState,
   GOOGLE_FEATURE_SCOPES,
+  assertGmailPushOidcConfigured,
+  isGmailPushOidcConfigError,
   type GoogleFeature,
   scopesForFeatures,
   uninstallGmailWatch,
@@ -14,12 +16,9 @@ import {
 import { randomBytes } from "node:crypto";
 import { Elysia, t } from "elysia";
 import { and, eq } from "drizzle-orm";
-import { authMacro } from "@alfred/http";
 import {
-  assertGmailPushOidcConfigured,
   getIngestionQueue,
   installGmailWatchAndSeedCursor,
-  isGmailPushOidcConfigError,
   resolveWorkflowRecoveryTarget,
 } from "@alfred/assistant/connections/ingestion";
 import {
@@ -32,6 +31,7 @@ import {
   upsertGoogleCredentialConnection,
   verifyOAuthState,
 } from "@alfred/assistant/connections";
+import { authMacro } from "../middleware/auth";
 
 /**
  * Google integration routes.

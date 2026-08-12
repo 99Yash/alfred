@@ -537,9 +537,6 @@ importers:
       ioredis:
         specifier: 'catalog:'
         version: 5.11.1
-      jose:
-        specifier: ^6.2.2
-        version: 6.2.8
       pino:
         specifier: ^10.3.1
         version: 10.3.1
@@ -820,6 +817,9 @@ importers:
       '@alfred/env':
         specifier: workspace:*
         version: link:../env
+      '@alfred/integrations':
+        specifier: workspace:*
+        version: link:../integrations
       '@alfred/sync':
         specifier: workspace:*
         version: link:../sync
@@ -832,6 +832,9 @@ importers:
       ioredis:
         specifier: 'catalog:'
         version: 5.11.1
+      jose:
+        specifier: ^6.2.2
+        version: 6.2.8
       typescript:
         specifier: 'catalog:'
         version: 7.0.2
