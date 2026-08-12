@@ -213,7 +213,7 @@ let _worker: Worker<IngestionJobData> | undefined;
 export function getIngestionQueue(): Queue<IngestionJobData> {
   if (_queue) return _queue;
   _queue = new Queue<IngestionJobData>(INGESTION_QUEUE_NAME, {
-    connection: createRedisConnection(),
+    connection: createRedisConnection("queue"),
     defaultJobOptions: {
       // Long-running ingestion can fail mid-page; let BullMQ retry with
       // exponential backoff. The DB unique index makes re-runs safe.
@@ -233,7 +233,7 @@ export interface StartIngestionWorkerOpts {
 export async function startIngestionWorker(opts: StartIngestionWorkerOpts = {}): Promise<void> {
   if (_worker) return;
   _worker = new Worker<IngestionJobData>(INGESTION_QUEUE_NAME, processIngestionJob, {
-    connection: createRedisConnection(),
+    connection: createRedisConnection("queue"),
     // Default 2: ingestion is I/O-heavy but per-credential; bumping this
     // mostly helps when a user connects multiple Google accounts.
     concurrency: opts.concurrency ?? 2,

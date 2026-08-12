@@ -1,8 +1,7 @@
 import { serverEnv } from "@alfred/env/server";
 import { z } from "zod";
 import { createHmac, timingSafeEqual } from "node:crypto";
-import type IORedis from "ioredis";
-import { createRedisConnection } from "@alfred/db/redis";
+import { createRedisConnection, type BoundedRedis } from "@alfred/db/redis";
 import { workflowRecoveryStateSchema } from "./ingestion/workflow-recovery";
 
 /**
@@ -21,9 +20,9 @@ import { workflowRecoveryStateSchema } from "./ingestion/workflow-recovery";
 const KEY_PREFIX = "oauth:state:";
 const DEFAULT_TTL_SECONDS = 600; // 10 minutes — generous for slow IdP redirects
 
-let _client: IORedis | undefined;
-function client(): IORedis {
-  if (!_client) _client = createRedisConnection();
+let _client: BoundedRedis | undefined;
+function client(): BoundedRedis {
+  if (!_client) _client = createRedisConnection("command");
   return _client;
 }
 

@@ -13,7 +13,7 @@ let _queue: Queue<AgentJobData> | undefined;
 export function getAgentQueue(): Queue<AgentJobData> {
   if (_queue) return _queue;
   _queue = new Queue<AgentJobData>(AGENT_QUEUE_NAME, {
-    connection: createRedisConnection(),
+    connection: createRedisConnection("queue"),
     defaultJobOptions: {
       // BullMQ retries a failed job (the *job*, not the run-step attempt).
       // The run row is the source of truth for step-attempt retries; this
