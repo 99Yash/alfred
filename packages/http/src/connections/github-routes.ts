@@ -12,13 +12,13 @@ import { deleteIntegrationCredential } from "@alfred/integrations/shared";
 import { randomBytes } from "node:crypto";
 import { Elysia, t } from "elysia";
 import { and, eq } from "drizzle-orm";
-import { authMacro } from "@alfred/http";
 import {
   consumeOAuthNonce,
   rememberOAuthNonce,
   signOAuthState,
   verifyOAuthState,
 } from "@alfred/assistant/connections";
+import { authMacro } from "../middleware/auth";
 
 /**
  * GitHub App integration routes (ADR-0052). Same state-nonce CSRF defense as
