@@ -51,6 +51,7 @@ import {
   approvalsRoutes,
   chatRoutes,
   events,
+  mcpIntegrationRoutes,
   onboardingRoutes,
   replicache,
   skillsRoutes,
@@ -94,6 +95,11 @@ export const onboardingPrefix: (typeof onboardingRoutes)["config"]["prefix"] = "
 export const skillsPrefix: (typeof skillsRoutes)["config"]["prefix"] = "/api/skills";
 export const workflowsPrefix: (typeof workflowRoutes)["config"]["prefix"] = "/api/workflows";
 
+// Only `/connections` has a typed Eden call site. The browser builds connect,
+// reconsent and OAuth URLs by hand, so this line and the composed-app route
+// comparison pin the MCP mount prefix for the remaining surface.
+export const mcpPrefix: (typeof mcpIntegrationRoutes)["config"]["prefix"] = "/api/integrations/mcp";
+
 // The SSE endpoint, and the Eden check above buys nothing here either: the web
 // client builds this URL by hand (`apps/web/src/lib/events/stream.ts:27`, and
 // `routes/-debug/debug-events-page.tsx:20` for `_demo`), so `treaty<App>` never
@@ -123,4 +129,5 @@ export const composed = new Elysia()
   .use(onboardingRoutes)
   .use(replicache)
   .use(skillsRoutes)
-  .use(workflowRoutes);
+  .use(workflowRoutes)
+  .use(mcpIntegrationRoutes);
