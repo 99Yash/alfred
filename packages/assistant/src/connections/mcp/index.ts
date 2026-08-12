@@ -16,11 +16,13 @@
  * refuses the reverse edge by name, so nothing here can consult the approval half.
  *
  * Enforcement tier 1: `./connections` has no `"./connections/*"` wildcard sibling
- * in the package manifest, so this exact `exports` key is the only spelling that
- * resolves and a name absent from this file is unreachable by any package
- * specifier. Campaign item 39 exists to keep it that way; item 51 moves the
- * transport leaf (`mcpIntegrationRoutes`) that sits on top of this door out of
- * `@alfred/api` and into `@alfred/http`.
+ * in the package manifest, so the only spellings that resolve into this directory
+ * are its two exact `exports` keys — `./connections/mcp` (this file) and
+ * `./connections/mcp/test-support`. A name in neither file is unreachable by any
+ * package specifier, and WHICH of the two a name sits in is the enforcement.
+ * Campaign item 39 exists to keep the wildcard off; item 51 moves the transport
+ * leaf (`mcpIntegrationRoutes`) that sits on top of this door out of `@alfred/api`
+ * and into `@alfred/http`.
  *
  * That fence only means something if every name below is one a caller SHOULD be
  * able to make, so names a test wants and production does not live behind

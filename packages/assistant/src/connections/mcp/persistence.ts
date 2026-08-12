@@ -240,7 +240,9 @@ export async function publishCatalogRevision(
       .where(eq(mcpConnections.id, input.connectionId));
     return revision;
   };
-  // Reuse a caller's transaction when given one; otherwise open our own.
+  // Atomic either way: a root client opens a transaction, and a caller's open
+  // transaction gets a SAVEPOINT nested inside it (see `runAtomic`; item 131 owns
+  // whether nesting should reuse instead).
   return runAtomic(runner, run);
 }
 

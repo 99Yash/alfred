@@ -16,12 +16,14 @@ import {
 } from "@alfred/assistant/connections/mcp";
 import { publishCatalogRevision } from "@alfred/assistant/connections/mcp/test-support";
 import {
-  _setMcpExecutionBrokerForTests,
   type McpBrokerCallInput,
   type McpBrokerOutcome,
   type McpExecutionBroker,
 } from "@alfred/assistant/tool-runtime/mcp";
-import { upsertToolPolicy } from "@alfred/assistant/tool-runtime/mcp/test-support";
+import {
+  _setMcpExecutionBrokerForTests,
+  upsertToolPolicy,
+} from "@alfred/assistant/tool-runtime/mcp/test-support";
 import { clearToolRegistryForTests, registerTools } from "@alfred/assistant/tool-runtime";
 import { mcpTools } from "../../src/modules/tools/mcp";
 import { closeRedis } from "@alfred/db/redis";

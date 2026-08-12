@@ -35,11 +35,14 @@ type _AssertToolRuntimeDoorResolves = ToolRuntimeDoor["getMcpExecutionBroker"];
 
 // ---------------------------------------------------------------------------
 // Door 1 is TIER 1, and this is what makes it so: `packages/assistant/package.json`
-// carries `"./connections/mcp"` as an EXACT key with no `"./connections/*"`
-// wildcard sibling, so a leaf under the directory is unreachable by any package
-// specifier and `index.ts` is the whole public face. Both wildcard spellings are
-// pinned, because a wildcard key can be written two ways and each republishes a
-// different specifier (`.lessons/a-wildcard-exports-target-has-two-forms-that-republish-different-specifier-spellings.md`):
+// carries `"./connections/mcp"` and `"./connections/mcp/test-support"` as EXACT
+// keys with no `"./connections/*"` wildcard sibling. So the only names reachable by
+// a package specifier are the ones those TWO files export, every other leaf under
+// the directory is unreachable, and which of the two a name sits in is the
+// enforcement (the test-support block below is where that second half is pinned).
+// Both wildcard spellings are pinned here, because a wildcard key can be written
+// two ways and each republishes a different specifier
+// (`.lessons/a-wildcard-exports-target-has-two-forms-that-republish-different-specifier-spellings.md`):
 //
 //   "./connections/mcp/*": "./src/connections/mcp/*.ts"  -> the extensionless form resolves
 //   "./connections/mcp/*": "./src/connections/mcp/*"     -> only the `.ts` form resolves
@@ -79,13 +82,17 @@ type _NoReconcileOnConnections = ConnectionsDoor["reconcileInflightInvocations"]
 type _NoRiskOnConnections = ConnectionsDoor["resolveMcpCallRiskTier"];
 
 // ---------------------------------------------------------------------------
-// A tier-1 door is only worth having if the names ON it are the ones a caller
-// should be able to make. Two authority-minting writes are therefore behind a
-// `test-support` subpath instead (the `./action-policies/test-support` precedent):
-// `publishCatalogRevision` advances a catalog pointer with no compare-and-set, and
-// `upsertToolPolicy` mints the ADR-0088 reviewed downgrade. Both have zero product
-// callers repo-wide. `_setMcpConnectionManagerForTests` is there for the same
-// reason. The negatives below are what keep them off the product doors.
+// A door is only worth having if the names ON it are the ones a caller should be
+// able to make. Four names are therefore behind a `test-support` subpath instead
+// (the `./action-policies/test-support` precedent). Two are authority-minting
+// writes: `publishCatalogRevision` advances a catalog pointer with no
+// compare-and-set, and `upsertToolPolicy` mints the ADR-0088 reviewed downgrade.
+// Two are the singleton setters, `_setMcpConnectionManagerForTests` and
+// `_setMcpExecutionBrokerForTests` — one per module since the split, so replacing
+// either from product code leaves the other holding a stale view. All four have
+// zero product callers repo-wide. The negatives below are what keep them off the
+// product doors, and they are what makes the rule symmetric: a setter on one door
+// and its twin behind test-support would be the door stating a rule it breaks.
 // ---------------------------------------------------------------------------
 
 type ConnectionsTestSupport = typeof import("@alfred/assistant/connections/mcp/test-support");
@@ -93,6 +100,7 @@ type ToolRuntimeTestSupport = typeof import("@alfred/assistant/tool-runtime/mcp/
 
 type _AssertConnTestSupportResolves = ConnectionsTestSupport["publishCatalogRevision"];
 type _AssertToolRuntimeTestSupportResolves = ToolRuntimeTestSupport["upsertToolPolicy"];
+type _AssertBrokerSetterIsTestSupport = ToolRuntimeTestSupport["_setMcpExecutionBrokerForTests"];
 
 // @ts-expect-error - the unguarded catalog-pointer write is test-support, not product surface.
 type _NoPublishOnConnections = ConnectionsDoor["publishCatalogRevision"];
@@ -102,6 +110,9 @@ type _NoManagerSetterOnConnections = ConnectionsDoor["_setMcpConnectionManagerFo
 
 // @ts-expect-error - the reviewed-downgrade mint is test-support, not product surface.
 type _NoPolicyMintOnToolRuntime = ToolRuntimeDoor["upsertToolPolicy"];
+
+// @ts-expect-error - replacing the broker singleton is test-support, exactly like its manager twin.
+type _NoBrokerSetterOnToolRuntime = ToolRuntimeDoor["_setMcpExecutionBrokerForTests"];
 
 // ---------------------------------------------------------------------------
 // Door 2 is TIER 4, not tier 1, and this is the measurement that says so rather
