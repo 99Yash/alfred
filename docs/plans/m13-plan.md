@@ -85,7 +85,7 @@ In `packages/api/src/modules/scratchpad/` (or similar):
 - `promoteScratch({ runId, fromSubId, fromPath, toSharedPath })` — read-then-write; boss-only. Single-writer-per-zone enforced inside the dispatcher (a child run's `write_scratch` tool can only target its own `scratch.{subId}.*`).
 - `snapshotScratchToPostgres(runId)` — terminal-step routine; SCAN keys, INSERT `agent_run_context` with `ON CONFLICT (run_id, key) DO UPDATE`.
 
-Connection uses `createRedisConnection()` from the existing queue connection factory.
+Connection uses `createRedisConnection("command")` from `@alfred/db/redis`. The kind matters: the scratchpad is Redis-primary, so its commands must settle rather than queue forever against an unreachable Redis.
 
 ### 2b. Tool registry shape
 

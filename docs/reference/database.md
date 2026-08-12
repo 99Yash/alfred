@@ -24,8 +24,6 @@ Drizzle config reads `DATABASE_URL` from `apps/server/.env`.
 
 ## BullMQ / Redis
 
-`createRedisConnection()` from `@alfred/db/redis` returns a tracked IORedis connection (closed on shutdown). Use it for BullMQ Queue and Worker constructors.
+`createRedisConnection(kind)` from `@alfred/db/redis` is the only factory. `kind` picks what the connection does when Redis is unreachable, refusing, or accepting but unresponsive. Read the kinds off the `RedisConnectionKind` table in `packages/db/src/redis.ts` — it is the single home of that matrix, and a copy here would drift from it. Pass `{ tracked: false }` for a short-lived probe the caller closes itself; every other connection is drained by `closeRedis()` at shutdown.
 
-`createUntrackedRedisConnection()` is for short-lived probes (health checks) — caller must close it.
-
-Never create raw `new IORedis()` in app code; always use these factories.
+Never create raw `new IORedis()` in app code; `pnpm check` fails on one.

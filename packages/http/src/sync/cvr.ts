@@ -1,6 +1,5 @@
 import type { IDBKeys } from "@alfred/sync";
-import type IORedis from "ioredis";
-import { createRedisConnection } from "@alfred/db/redis";
+import { createRedisConnection, type BoundedRedis } from "@alfred/db/redis";
 
 /** One entry per row in the CVR snapshot — `v` is the row's `row_version`. */
 export interface CVRRow {
@@ -31,7 +30,7 @@ export interface CVRSnapshot {
 const TTL_SECONDS = 12 * 60 * 60;
 
 export class CVRStore {
-  constructor(private readonly redis: IORedis) {}
+  constructor(private readonly redis: BoundedRedis) {}
 
   private key(clientGroupId: string, version: number): string {
     return `cvr:${clientGroupId}:${version}`;
@@ -61,6 +60,6 @@ let _store: CVRStore | undefined;
 
 export function getCVRStore(): CVRStore {
   if (_store) return _store;
-  _store = new CVRStore(createRedisConnection());
+  _store = new CVRStore(createRedisConnection("command"));
   return _store;
 }

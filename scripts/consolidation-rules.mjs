@@ -250,6 +250,16 @@ export const RULES = [
     severity: "gate",
     fix: "Do not write agent_runs.status with raw SQL. Route lifecycle transitions through the owning agent service/executor door.",
   },
+  {
+    id: "raw-ioredis-construction",
+    // A hand-built ioredis client. The default import is spelled `IORedis`
+    // here and `Redis` in ioredis' own docs, so both spellings are banned.
+    // Zero call sites outside the owner, hence "gate" on day one.
+    re: /\bnew\s+(?:IORedis|Redis)\s*\(/,
+    severity: "gate",
+    owners: ["packages/db/src/redis.ts"],
+    fix: 'Use createRedisConnection(kind) from @alfred/db/redis. Its RedisConnectionKind table is the one place that decides what a connection does during an outage — a hand-built client silently picks "waits forever".',
+  },
 ];
 
 /**

@@ -53,7 +53,7 @@ function conversationCompactionJobId(threadId: string): string {
 function getConversationCompactionQueue(): Queue<ConversationCompactionJobData> {
   if (queue) return queue;
   queue = new Queue(CONVERSATION_COMPACTION_QUEUE_NAME, {
-    connection: createRedisConnection(),
+    connection: createRedisConnection("queue"),
     defaultJobOptions: {
       attempts: 3,
       backoff: { type: "exponential", delay: 5_000 },
@@ -125,7 +125,7 @@ export async function enqueueConversationCompaction(
 export async function startConversationCompactionWorker(): Promise<void> {
   if (!isQueueEnabled() || worker) return;
   worker = new Worker(CONVERSATION_COMPACTION_QUEUE_NAME, processConversationCompactionJob, {
-    connection: createRedisConnection(),
+    connection: createRedisConnection("queue"),
     concurrency: 1,
   });
   worker.on("error", (error) =>

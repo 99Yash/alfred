@@ -38,7 +38,7 @@ let _worker: Worker<MemoryJobData> | undefined;
 export function getMemoryQueue(): Queue<MemoryJobData> {
   if (_queue) return _queue;
   _queue = new Queue<MemoryJobData>(MEMORY_QUEUE_NAME, {
-    connection: createRedisConnection(),
+    connection: createRedisConnection("queue"),
     defaultJobOptions: {
       attempts: 3,
       backoff: { type: "exponential", delay: 30_000 },
@@ -56,7 +56,7 @@ export interface StartMemoryWorkerOpts {
 export async function startMemoryWorker(opts: StartMemoryWorkerOpts = {}): Promise<void> {
   if (_worker) return;
   _worker = new Worker<MemoryJobData>(MEMORY_QUEUE_NAME, processMemoryJob, {
-    connection: createRedisConnection(),
+    connection: createRedisConnection("queue"),
     // The job is cheap (queries + enqueue); single-threaded is plenty.
     concurrency: opts.concurrency ?? 1,
   });
