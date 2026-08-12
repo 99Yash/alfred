@@ -51,6 +51,7 @@ export { chatRoutes } from "./conversations";
 export { onboardingRoutes } from "./onboarding";
 export { skillsRoutes } from "./skills";
 export { workflowRoutes } from "./workflows";
+export { connections } from "./connections";
 
 // Realtime push. `realtime/` is a non-domain subdirectory, like `middleware/`:
 // the flat `src/<domain>.ts` layout names product domains, and SSE delivery is

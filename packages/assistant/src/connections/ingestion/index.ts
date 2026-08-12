@@ -40,12 +40,6 @@ export type { IngestionJobData } from "./queue";
 export { scheduleRepeatableIngestionJobs } from "./repeatable";
 export { installGmailWatchAndSeedCursor } from "./gmail-ingest";
 export {
-  assertGmailPushOidcConfigured,
-  isGmailPushOidcConfigError,
-  pubSubOidcConfigFromEnv,
-  type PubSubOidcConfig,
-} from "@alfred/integrations/google";
-export {
   registerChatMediaHandler,
   type ChatMediaHandler,
   type ChatMediaPendingUploadCleanupRequest,
