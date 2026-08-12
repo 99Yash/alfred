@@ -56,6 +56,7 @@ import {
   onboardingRoutes,
   replicache,
   skillsRoutes,
+  toolTiersRoutes,
   workflowRoutes,
 } from "@alfred/http";
 import { Elysia } from "elysia";
@@ -101,6 +102,7 @@ export const workflowsPrefix: (typeof workflowRoutes)["config"]["prefix"] = "/ap
 // reconsent and OAuth URLs by hand, so this line and the composed-app route
 // comparison pin the MCP mount prefix for the remaining surface.
 export const mcpPrefix: (typeof mcpIntegrationRoutes)["config"]["prefix"] = "/api/integrations/mcp";
+export const toolTiersPrefix: (typeof toolTiersRoutes)["config"]["prefix"] = "/api/integrations";
 
 // The SSE endpoint, and the Eden check above buys nothing here either: the web
 // client builds this URL by hand (`apps/web/src/lib/events/stream.ts:27`, and
@@ -133,4 +135,5 @@ export const composed = new Elysia()
   .use(replicache)
   .use(skillsRoutes)
   .use(workflowRoutes)
-  .use(mcpIntegrationRoutes);
+  .use(mcpIntegrationRoutes)
+  .use(toolTiersRoutes);
