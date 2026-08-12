@@ -247,15 +247,15 @@ importers:
 
   apps/web:
     dependencies:
-      '@alfred/api':
-        specifier: workspace:*
-        version: link:../../packages/api
       '@alfred/artifacts-design':
         specifier: workspace:*
         version: link:../../packages/artifacts-design
       '@alfred/contracts':
         specifier: workspace:*
         version: link:../../packages/contracts
+      '@alfred/http':
+        specifier: workspace:*
+        version: link:../../packages/http
       '@alfred/sync':
         specifier: workspace:*
         version: link:../../packages/sync

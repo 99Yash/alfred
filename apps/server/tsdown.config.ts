@@ -43,10 +43,10 @@ export default defineConfig({
   noExternal: [/@alfred\/.*/],
   // Pin symlink resolution. `noExternal` above inlines every @alfred/* package
   // into this bundle, and pnpm links several of them through more than one
-  // path: @alfred/http through apps/server/node_modules/@alfred/http and
-  // packages/api/node_modules/@alfred/http, @alfred/db through nine such paths,
-  // @alfred/auth through two — each set pointing at one directory under
-  // packages/. With `symlinks: true` the resolver collapses every path onto the
+  // path: @alfred/http is reached directly by apps/server and transitively by
+  // legacy @alfred/api modules, @alfred/db through nine such paths, and
+  // @alfred/auth through two — each set points at one directory under packages/.
+  // With `symlinks: true` the resolver collapses every path onto the
   // real one, so each source file becomes one module in the output. With
   // `false` it keeps the symlinked location, so one file becomes one module per
   // path that reaches it (measured: two copies of session-cache.ts).
@@ -54,19 +54,13 @@ export default defineConfig({
   // Module-level mutable state is what makes that matter.
   // packages/http/src/middleware/session-cache.ts holds tokenCache,
   // tokenInflight and a 60s sweep timer. For that cache the duplication is
-  // latent rather than a live bug today, and this comment does not claim more:
-  // the writer (invalidateSessionToken, on sign-out) is called from
-  // packages/api/src/index.ts, and every mounted reader reaches getSessionCached
-  // through authMacro inside the app object this app takes from @alfred/api, so
-  // writer and readers land in the copy that packages/api's link produced. The
-  // only direct @alfred/http import here is securityHeaders, whose copy would
-  // carry a second tokenCache nothing reads and a second sweep timer. The
-  // sign-out failure arms the first time this app reaches session-cache's
-  // readers or its writer directly through @alfred/http: sign-out would then
-  // clear one map while requests read the other, and the signed-out session
-  // would stay valid for up to TOKEN_TTL_MS (10s). The same class is wider than
-  // this one cache — @alfred/db's _db/_pool/_heartbeatTimer would fork into two
-  // pools and two heartbeat timers with shutdown closing one — so read this pin
+  // live now: apps/server imports the root app directly from @alfred/http, and
+  // that app reaches both the sign-out writer and the route readers in the same
+  // session-cache module. A duplicated copy could make sign-out clear one map
+  // while requests read another, which would keep a signed-out session valid
+  // for up to TOKEN_TTL_MS (10s). The same class is wider than this one cache —
+  // @alfred/db's _db/_pool/_heartbeatTimer would fork into two pools and two
+  // heartbeat timers with shutdown closing one — so read this pin
   // as covering every @alfred/* module reached through more than one link, not
   // just the cache that made it explicit.
   //
