@@ -313,4 +313,3 @@ export {
   type StartApprovalExpiryWorkerOpts,
   type StartApprovalNotificationWorkerOpts,
 } from "@alfred/assistant/execution";
-export type { MeInboxItem, MeLatestBriefing } from "./modules/me/index";

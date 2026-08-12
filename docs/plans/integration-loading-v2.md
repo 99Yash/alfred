@@ -29,7 +29,7 @@ Lazy catalog + two-step `load_integration` + auto-activation is deferred until s
 | Chat preamble, current `[]` seed | `packages/api/src/modules/agent/workflows/chat-turn.ts` |
 | `integrationCredentials.status` | `packages/db/src/schema/integrations.ts` |
 | Google scope mapping | `packages/integrations/src/google/oauth.ts` |
-| Existing Google scope filters | `packages/api/src/modules/me/routes.ts` |
+| Existing Google scope filters | `packages/http/src/me.ts` |
 
 ---
 
