@@ -7,10 +7,7 @@
  *
  * `upsertToolPolicy` writes the reviewed-downgrade row that ADR-0088 makes the one
  * input able to lower an MCP call BELOW the risk floor. Nothing in `src` mints one
- * — the approval flow does, and it does not live here yet. Its guard,
- * `readToolPolicy`, is the name the door would need if any of this were product
- * surface, and it is deliberately not published either: the pair is private to
- * `invocations.ts`, where `resolveMcpToolIdentity` is the single fail-closed reader.
+ * — the approval flow does, and it does not live here yet.
  *
  * `_setMcpExecutionBrokerForTests` drops the process-lifetime broker singleton.
  * Nothing in `src` replaces it, and the same rule already put its twin

@@ -91,8 +91,7 @@ type _NoRiskOnConnections = ConnectionsDoor["resolveMcpCallRiskTier"];
 // `_setMcpExecutionBrokerForTests` — one per module since the split, so replacing
 // either from product code leaves the other holding a stale view. All four have
 // zero product callers repo-wide. The negatives below are what keep them off the
-// product doors, and they are what makes the rule symmetric: a setter on one door
-// and its twin behind test-support would be the door stating a rule it breaks.
+// product doors.
 // ---------------------------------------------------------------------------
 
 type ConnectionsTestSupport = typeof import("@alfred/assistant/connections/mcp/test-support");
