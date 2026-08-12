@@ -16,10 +16,10 @@ import {
   onboardingRoutes,
   replicache,
   skillsRoutes,
+  toolTiersRoutes,
   workflowRoutes,
 } from "@alfred/http";
 import { createRedisConnection, type BoundedRedis } from "@alfred/db/redis";
-import { toolTiersRoutes } from "./modules/tools/index";
 
 // `normalize: 'typebox'` opts out of Elysia 1.4's bundled `exact-mirror`
 // schema cleaner in favour of TypeBox's native `Value.Clean`. Elysia

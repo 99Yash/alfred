@@ -55,6 +55,7 @@ export { skillsRoutes } from "./skills";
 export { workflowRoutes } from "./workflows";
 export { connections } from "./connections";
 export { mcpIntegrationRoutes } from "./mcp";
+export { toolTiersRoutes } from "./tool-tiers";
 
 // Realtime push. `realtime/` is a non-domain subdirectory, like `middleware/`:
 // the flat `src/<domain>.ts` layout names product domains, and SSE delivery is
