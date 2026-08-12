@@ -42,10 +42,11 @@ export const replicache = new Elysia({ prefix: "/api/replicache", normalize: "ty
         const userId = user.id;
 
         return sseResponse((conn) => {
-          const unsubscribe = subscribeUserPokes(userId, () => {
-            conn.write(`event: poke\ndata: {}\n\n`);
-          });
-          conn.onCancel(unsubscribe);
+          conn.defer(
+            subscribeUserPokes(userId, () => {
+              conn.frame({ event: "poke", data: "{}" });
+            }),
+          );
         });
       }),
   );
