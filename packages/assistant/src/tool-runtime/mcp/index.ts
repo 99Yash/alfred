@@ -22,7 +22,10 @@
  *
  * Names a test wants and production does not are behind `./test-support`, the same
  * way `action-policies` does it — `upsertToolPolicy`, the reviewed-downgrade mint,
- * is there rather than here.
+ * and `_setMcpExecutionBrokerForTests`, which replaces the singleton below it, are
+ * there rather than here. The rule holds for both singleton setters or for
+ * neither: its twin `_setMcpConnectionManagerForTests` is behind
+ * `@alfred/assistant/connections/mcp/test-support`.
  */
 
 export {
@@ -39,4 +42,4 @@ export {
   type ReconcileSummary,
 } from "./invocations";
 export { MCP_CALL_RISK_FLOOR, resolveMcpCallRiskTier, type McpCallRiskInput } from "./risk";
-export { _setMcpExecutionBrokerForTests, getMcpExecutionBroker } from "./runtime";
+export { getMcpExecutionBroker } from "./runtime";

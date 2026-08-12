@@ -5,10 +5,11 @@
  * is the precedent and the reason: reaching either name means writing a subpath
  * called `test-support`, which no product file has a reason to write.
  *
- * The door is tier 1 — an exact `exports` key with no wildcard sibling, so an
- * absent name is unreachable by any package specifier. That fence only points the
- * right way if the names on it are the ones a caller should be able to make. Both
- * names below fail that test:
+ * The door is tier 1 — an exact `exports` key with no wildcard sibling, so the
+ * only names reachable by a package specifier are the ones the door and this file
+ * export between them. That fence only points the right way if the names on the
+ * DOOR are the ones a caller should be able to make. Both names below fail that
+ * test, which is why they are here and not there:
  *
  *  - `publishCatalogRevision` advances a connection's catalog pointer
  *    UNCONDITIONALLY. Production never does that; `McpConnectionManager` advances
