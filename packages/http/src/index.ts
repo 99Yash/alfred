@@ -1,3 +1,26 @@
+import { auth } from "@alfred/auth";
+import { db } from "@alfred/db";
+import { createRedisConnection, type BoundedRedis } from "@alfred/db/redis";
+import { sql } from "drizzle-orm";
+import { Elysia } from "elysia";
+import { agent } from "./agent";
+import { approvalsRoutes } from "./approvals";
+import { chatRoutes } from "./conversations";
+import { connections } from "./connections";
+import { mcpIntegrationRoutes } from "./mcp";
+import { meRoutes } from "./me";
+import { authMacro } from "./middleware/auth";
+import { errorHandler } from "./middleware/error-handler";
+import { securityHeaders } from "./middleware/security-headers";
+import { getSessionCached, invalidateSessionToken } from "./middleware/session-cache";
+import { onboardingRoutes } from "./onboarding";
+import { events } from "./realtime/events";
+import { skillsRoutes } from "./skills";
+import { ENTITY_FETCHERS } from "./sync/entities";
+import { replicache } from "./sync/replicache";
+import { toolTiersRoutes } from "./tool-tiers";
+import { workflowRoutes } from "./workflows";
+
 // `@alfred/http` owns the transport layer. This is its one door — a single `.`
 // barrel, no subpaths, because a concrete `exports` entry rots silently when a
 // file moves and no repo gate reads the map (see
@@ -13,17 +36,11 @@
 // `@alfred/http` specifier, on any subpath of it, and on every relative
 // spelling of this file.
 //
-// The transitional `export { app } from "@alfred/api"` that this file held is
-// gone. It had to go in this slice: the middleware below still has 17 consumers
-// under `packages/api/src`, so `@alfred/api -> @alfred/http` is now a real
-// edge, and the re-export's opposite edge would close a package cycle that
-// `scripts/check-module-architecture.mjs` rejects. `apps/server` keeps
-// importing `app` straight from `@alfred/api` until campaign item 08 assembles
-// the root app here.
-export { authMacro } from "./middleware/auth";
-export { errorHandler } from "./middleware/error-handler";
-export { securityHeaders, type SecurityHeadersOptions } from "./middleware/security-headers";
-export { getSessionCached, invalidateSessionToken } from "./middleware/session-cache";
+// This barrel also owns the composed root `app` and its derived `App` type.
+// Importing it must stay environment-free, so the final Better Auth mount
+// delegates through a request-time wrapper instead of calling `auth()` here.
+export { authMacro, errorHandler, getSessionCached, invalidateSessionToken, securityHeaders };
+export type { SecurityHeadersOptions } from "./middleware/security-headers";
 
 // Routes. This is one barrel with no subpaths, so it is also one
 // module-evaluation unit: importing ANY binding above also evaluates every
@@ -45,17 +62,16 @@ export { getSessionCached, invalidateSessionToken } from "./middleware/session-c
 // package you happened to declare. Do not restate any of this as a list of what
 // the routes reach: an enumeration in this position is the one prose shape no
 // gate maintains.
-export { agent } from "./agent";
-export { approvalsRoutes } from "./approvals";
-export { chatRoutes } from "./conversations";
-export { meRoutes } from "./me";
+export { agent, approvalsRoutes, chatRoutes, meRoutes };
 export type { MeInboxItem, MeInboxMessage, MeLatestBriefing, MeMeetingItem } from "./me";
-export { onboardingRoutes } from "./onboarding";
-export { skillsRoutes } from "./skills";
-export { workflowRoutes } from "./workflows";
-export { connections } from "./connections";
-export { mcpIntegrationRoutes } from "./mcp";
-export { toolTiersRoutes } from "./tool-tiers";
+export {
+  connections,
+  mcpIntegrationRoutes,
+  onboardingRoutes,
+  skillsRoutes,
+  toolTiersRoutes,
+  workflowRoutes,
+};
 
 // Realtime push. `realtime/` is a non-domain subdirectory, like `middleware/`:
 // the flat `src/<domain>.ts` layout names product domains, and SSE delivery is
@@ -74,7 +90,7 @@ export { toolTiersRoutes } from "./tool-tiers";
 // ADR-0089 fixes that direction at `apps/server -> @alfred/assistant/runtime`,
 // which does not pass through transport. What is left — code that only exists
 // because a client speaks HTTP — is what belongs here.
-export { events } from "./realtime/events";
+export { events };
 
 // Replicache sync. `sync/` is a third non-domain subdirectory, on the same
 // rule as `middleware/` and `realtime/`: what lives here exists only because a
@@ -91,19 +107,94 @@ export { events } from "./realtime/events";
 // is left here is protocol adaptation and row-version bookkeeping. That is
 // also what ADR-0089 assigns to this package by name.
 //
-// `ENTITY_FETCHERS` is advertised for one reason: a workflow test in
-// `@alfred/api` asserts the sync projection of a revision it just wrote, and
+// `ENTITY_FETCHERS` is advertised for one reason: a workflow test in the legacy
+// `@alfred/api` package asserts the sync projection of a revision it just wrote, and
 // this package has no subpaths, so the barrel is its only door. It is the read
 // half of the protocol, not a general-purpose map.
-export { replicache } from "./sync/replicache";
-export { ENTITY_FETCHERS } from "./sync/entities";
+export { ENTITY_FETCHERS, replicache };
 
 // Not optional and not a widening of intent: `/pull` and `/push` answer with
-// these two types, so the inferred type of `app` in `packages/api/src/index.ts`
-// names them. While both sides sat in one package that was free; across the
-// boundary it is TS2883 ("cannot be named without a reference to ... This is
-// likely not portable"), and this package has no subpath the declaration could
-// point at. Deleting either line fails `pnpm --filter @alfred/api check-types`,
-// not this package's own build.
+// these two types, so the inferred type of the root `app` names them. This
+// package has no subpath the declaration could point at, so the one root barrel
+// advertises both protocol response types with the app that uses them.
 export type { PullResponse } from "./sync/pull";
 export type { PushResponse } from "./sync/push";
+
+// `normalize: 'typebox'` opts out of Elysia 1.4's bundled `exact-mirror`
+// schema cleaner in favour of TypeBox's native `Value.Clean`. Elysia
+// 1.4.28 passes the wrong option key to `exact-mirror@1.0.0`
+// (`TypeCompiler` vs the expected `Compile`), so every route with a
+// `t.Optional(...)` query/body — which desugars to a Union internally —
+// logs `[exact-mirror] TypeBox's TypeCompiler is required to use Union`
+// on first hit. `Value.Clean` is slower but for a single-user app the
+// per-request cost is negligible.
+export const app = new Elysia({ name: "api", normalize: "typebox" })
+  .use(errorHandler)
+  .use(replicache)
+  .use(events)
+  .use(agent)
+  .use(approvalsRoutes)
+  .use(chatRoutes)
+  .use(connections)
+  .use(mcpIntegrationRoutes)
+  .use(toolTiersRoutes)
+  .use(meRoutes)
+  .use(onboardingRoutes)
+  .use(skillsRoutes)
+  .use(workflowRoutes)
+  .get("/health", async ({ set }) => {
+    try {
+      await db().execute(sql`SELECT 1`);
+      return { ok: true, db: "connected" };
+    } catch {
+      set.status = 503;
+      return { ok: false, db: "disconnected" };
+    }
+  })
+  .get("/ready", async ({ set }) => {
+    const checks: Record<string, "ok" | "error"> = {};
+
+    try {
+      await db().execute(sql`SELECT 1`);
+      checks.db = "ok";
+    } catch {
+      checks.db = "error";
+    }
+
+    let conn: BoundedRedis | undefined;
+    try {
+      conn = createRedisConnection("fail-fast", { tracked: false });
+      await conn.ping();
+      checks.redis = "ok";
+    } catch {
+      checks.redis = "error";
+    } finally {
+      // `tracked: false`, so `closeRedis()` never sees this one — close it here
+      // so a failing probe cannot leak a perpetually-reconnecting socket.
+      // quit() can reject if already broken; fall back to a hard disconnect.
+      await conn?.quit().catch(() => conn?.disconnect());
+    }
+
+    const allOk = Object.values(checks).every((value) => value === "ok");
+    if (!allOk) set.status = 503;
+    return { ok: allOk, checks };
+  })
+  .get("/api/auth/get-session", async ({ request, set }) => {
+    try {
+      const session = await getSessionCached(request);
+      set.headers["Cache-Control"] = "private, no-store";
+      return session;
+    } catch {
+      set.headers["Cache-Control"] = "private, no-store";
+      return null;
+    }
+  })
+  .onRequest(({ request }) => {
+    const url = new URL(request.url);
+    if (request.method === "POST" && url.pathname === "/api/auth/sign-out") {
+      invalidateSessionToken(request.headers);
+    }
+  })
+  .mount((request: Request) => auth().handler(request));
+
+export type App = typeof app;

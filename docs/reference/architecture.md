@@ -4,7 +4,7 @@
 
 Two apps — `server` (Elysia HTTP, port 3001) and `web` (Vite + TanStack Router
 SPA, port 3000). For the package list, run `ls packages/`. The load-bearing
-packages (`ai`, `api`, `contracts`, `db`, `integrations`, `sync`) each carry an
+packages (`ai`, `api`, `contracts`, `db`, `http`, `integrations`, `sync`) each carry an
 agent guide stating what they own — that ownership rule is the thing a directory
 listing cannot tell you.
 
@@ -14,12 +14,10 @@ Path alias `~/` maps to `src/` in both apps.
 
 ## How the pieces coordinate
 
-**Web → API:** `apps/web/src/lib/eden.ts` creates an Eden treaty client typed against `App` from `@alfred/api`. The Vite dev server proxies `/api/auth/*` to `localhost:3001`; all other API calls use `VITE_API_URL` directly.
+**Web → HTTP:** `apps/web/src/lib/eden.ts` creates an Eden treaty client typed against `App` from `@alfred/http`. The Vite dev server proxies `/api/auth/*` to `localhost:3001`; all other API calls use `VITE_API_URL` directly.
 
-**API entrypoints during migration:** the `@alfred/api` root exports the composed
-Elysia `app` and its `App` type. HTTP middleware now lives in the `@alfred/http`
-root barrel — `authMacro`, `errorHandler`, `securityHeaders` and the
-`getSessionCached` / `invalidateSessionToken` pair. Reusable
+**HTTP and API entrypoints during migration:** the `@alfred/http` root exports
+the composed Elysia `app`, its derived `App` type, middleware, and routes. Reusable
 server-side domain and queue behavior still lives at `@alfred/api/backend`.
 Worker lifecycle, registration, scheduling, bootstrap, and teardown operations
 still live at `@alfred/api/runtime`. These are legacy doors, not the target
@@ -95,7 +93,7 @@ losing delete appends no observation. Remote Gmail watch shutdown remains
 best-effort and starts only after the credential transaction commits.
 
 MCP owns its authenticated connection routes, public OAuth metadata and
-callback routes, persistence behavior, and runtime connection manager. The API
+callback routes, persistence behavior, and runtime connection manager. The HTTP
 composition root mounts this presentation directly. The integrations route
 aggregate does not import or mount MCP implementation details. MCP uses the
 connections interface (`@alfred/assistant/connections`) for the shared signed
@@ -103,7 +101,7 @@ OAuth state and nonce store.
 
 **Web → Auth:** `apps/web/src/lib/auth-client.ts` creates a Better Auth client. The web app calls `authClient.signIn.social({ provider: "google" })` from the login surface; Better Auth redirects through Google and back to `/api/auth/callback/google`, both mounted on the Elysia server.
 
-**HTTP → Auth:** `packages/http/src/middleware/session-cache.ts` calls `auth().api.getSession()` with a two-layer cache (per-request WeakMap + 10-second token cache). Import `getSessionCached()` in route handlers; never call `auth()` directly from routes.
+**HTTP → Auth:** `packages/http/src/middleware/session-cache.ts` calls `auth().api.getSession()` with a two-layer cache (per-request WeakMap + 10-second token cache). Import `getSessionCached()` in route handlers; never call `auth()` directly from routes. The root app delegates its final Better Auth mount through a request-time wrapper so importing `@alfred/http` stays environment-free.
 
 **API → DB:** `db()` from `@alfred/db` returns the shared pg pool singleton. Call it inside handlers and workers; do not call it at module init time.
 
@@ -115,7 +113,7 @@ The server-side packages reach Node-only modules (`pg`, `drizzle-orm`) transitiv
 
 Allowed in `apps/web`: <!-- browser-safe-packages:start -->
 
-- `import type { App } from '@alfred/api'` — type-only, stripped at build time, safe.
+- `import type { App } from '@alfred/http'` — type-only, stripped at build time, safe.
 - `import { ... } from '@alfred/contracts'` — browser-safe shared Zod schemas, inferred types, constants, and small boundary helpers.
 - `import { ... } from '@alfred/sync'` — Replicache keys, mutators, and synced read-model schemas.
 - `import { treaty } from '@elysiajs/eden'` — client-side.
@@ -170,7 +168,7 @@ name none of it. Membership is all that is compared, so rewording, reordering or
 is free. A region spans whole lines — the `:start` marker ends its line and the `:end` marker opens its own
 — and every backticked `@alfred/*` package name in the markdown list that holds a region must sit inside
 one of the two regions, so a package named in a sibling bullet is ruled on rather than ignored. A package
-name inside a longer code span, such as `import type { App } from '@alfred/api'` above, is not one of those
+name inside a longer code span, such as `import type { App } from '@alfred/http'` above, is not one of those
 names.
 
 ## Architecture enforcement
