@@ -21,6 +21,11 @@
  * specifier. Campaign item 39 exists to keep it that way; item 51 moves the
  * transport leaf (`mcpIntegrationRoutes`) that sits on top of this door out of
  * `@alfred/api` and into `@alfred/http`.
+ *
+ * That fence only means something if every name below is one a caller SHOULD be
+ * able to make, so names a test wants and production does not live behind
+ * `./test-support` instead — notably the unguarded catalog-pointer write. Add a
+ * name here only after checking a product file calls it.
  */
 
 export {
@@ -47,7 +52,6 @@ export {
 export {
   insertConnection,
   listOwnedConnections,
-  publishCatalogRevision,
   readOwnedConnection,
   updateConnection,
   upsertConnection,
@@ -61,5 +65,5 @@ export {
   type McpProtocolPage,
   type McpProtocolServer,
 } from "./protocol";
-export { _setMcpConnectionManagerForTests, getMcpConnectionManager } from "./runtime";
+export { getMcpConnectionManager } from "./runtime";
 export { startMcpTraceSpan, type McpTraceContext } from "./trace";

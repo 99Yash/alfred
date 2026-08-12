@@ -19,6 +19,10 @@
  * `@alfred/assistant/tool-runtime/mcp/invocations` resolves whether or not this
  * file names it, and the private-import fence is blind to a bare specifier. Item
  * 79 owns narrowing that wildcard and is the only thing that promotes this door.
+ *
+ * Names a test wants and production does not are behind `./test-support`, the same
+ * way `action-policies` does it — `upsertToolPolicy`, the reviewed-downgrade mint,
+ * is there rather than here.
  */
 
 export {
@@ -30,7 +34,6 @@ export {
 export {
   reconcileInflightInvocations,
   resolveMcpToolIdentity,
-  upsertToolPolicy,
   type McpToolIdentityResolution,
   type OwnedMcpConnectionRef,
   type ReconcileSummary,
