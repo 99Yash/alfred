@@ -6,4 +6,3 @@
  */
 
 export { toolExecuteContext } from "./context";
-export { toolTiersRoutes } from "./tool-tiers-routes";
