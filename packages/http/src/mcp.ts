@@ -2,7 +2,6 @@ import { Errors } from "@alfred/contracts";
 import { serverEnv } from "@alfred/env/server";
 import { Elysia, t } from "elysia";
 import { z } from "zod";
-import { authMacro } from "@alfred/http";
 import { consumeOAuthNonce, verifyOAuthState } from "@alfred/assistant/connections";
 import {
   authorizeMcpOAuth,
@@ -18,6 +17,7 @@ import {
   updateConnection,
   upsertConnection,
 } from "@alfred/assistant/connections/mcp";
+import { authMacro } from "./middleware/auth";
 
 const GITHUB_MCP_ENDPOINT = new URL("https://api.githubcopilot.com/mcp");
 const callbackParamsSchema = z.object({ state: z.string().min(1) });
