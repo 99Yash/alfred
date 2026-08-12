@@ -2,7 +2,6 @@ import assert from "node:assert/strict";
 import { describe, test } from "node:test";
 import { auth } from "@alfred/auth";
 import { db } from "@alfred/db";
-import { app } from "@alfred/http";
 import IORedis from "ioredis";
 
 const SERVER_ENV_FIXTURES: Record<string, string> = {
@@ -33,6 +32,8 @@ const SERVER_ENV_FIXTURES: Record<string, string> = {
 for (const [key, value] of Object.entries(SERVER_ENV_FIXTURES)) {
   process.env[key] ??= value;
 }
+
+const { app } = await import("@alfred/http");
 
 const EXPECTED_ROUTES = [
   "POST /api/replicache/pull",
