@@ -12,7 +12,7 @@ import {
   type SyncedTodo,
 } from "@alfred/sync";
 
-import { serverMutators } from "../../src/modules/replicache/server-mutators";
+import { serverMutators } from "../../src/sync/server-mutators";
 
 // ---------------------------------------------------------------------------
 // Todo lifecycle transitions (ADR-0050). Covers the two new transitions —

@@ -1,6 +1,7 @@
 import { Elysia, t } from "elysia";
 import { nodeEnv } from "@alfred/env/server";
 import { authMacro } from "../middleware/auth";
+import { sseResponse } from "./sse";
 import { publishEvent } from "@alfred/assistant/triggers";
 import {
   getEventsSince,
@@ -43,22 +44,11 @@ export const events = new Elysia({ prefix: "/api/events", normalize: "typebox" }
         const sinceId = parseSinceId(lastEventId ?? sinceParam ?? undefined);
 
         const userId = user.id;
-        const encoder = new TextEncoder();
 
-        let cleanup: (() => void) | undefined;
-
-        const stream = new ReadableStream({
-          async start(controller) {
-            const write = (text: string) => {
-              try {
-                controller.enqueue(encoder.encode(text));
-              } catch {
-                // stream already closed
-              }
-            };
-
+        return sseResponse(
+          async (conn) => {
             const writeFrame = (frame: EventFrame) => {
-              write(
+              conn.write(
                 `id: ${frame.id}\nevent: ${frame.kind}\ndata: ${JSON.stringify({
                   payload: frame.payload,
                   createdAt: frame.createdAt,
@@ -76,20 +66,7 @@ export const events = new Elysia({ prefix: "/api/events", normalize: "typebox" }
                 writeFrame(frame);
               }
             });
-
-            const heartbeat = setInterval(() => {
-              write(": heartbeat\n\n");
-            }, 30_000);
-            if (typeof heartbeat === "object" && "unref" in heartbeat) {
-              heartbeat.unref();
-            }
-
-            cleanup = () => {
-              unsubscribe();
-              clearInterval(heartbeat);
-            };
-
-            write(": connected\n\n");
+            conn.onCancel(unsubscribe);
 
             // Phase 2 + 3: snapshot watermark, replay rows in (since, watermark].
             let watermark = sinceId;
@@ -103,11 +80,10 @@ export const events = new Elysia({ prefix: "/api/events", normalize: "typebox" }
                   // ids must still advance Last-Event-ID or reconnect could
                   // request the same page forever.
                   if (replay.cursor > (replay.frames.at(-1)?.id ?? sinceId)) {
-                    write(`id: ${replay.cursor}\n\n`);
+                    conn.write(`id: ${replay.cursor}\n\n`);
                   }
                   if (replay.hasMore) {
-                    cleanup();
-                    controller.close();
+                    conn.close();
                     return;
                   }
                 }
@@ -124,19 +100,11 @@ export const events = new Elysia({ prefix: "/api/events", normalize: "typebox" }
             buffer.length = 0;
             mode = "passthrough";
           },
-          cancel() {
-            cleanup?.();
-          },
-        });
-
-        return new Response(stream, {
-          headers: {
-            "Content-Type": "text/event-stream",
-            "Cache-Control": "no-cache",
-            Connection: "keep-alive",
-            "X-Accel-Buffering": "no",
-          },
-        }) as Response;
+          // Nginx and friends buffer a response body by default, which holds
+          // every frame until the buffer fills. Not a base header: only this
+          // route has ever sent it.
+          { headers: { "X-Accel-Buffering": "no" } },
+        );
       })
       // Elysia calls this builder callback EAGERLY, at module load, so whichever
       // environment reader sits here runs when `@alfred/http`'s barrel is
