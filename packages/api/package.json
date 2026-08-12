@@ -2,7 +2,6 @@
   "name": "@alfred/api",
   "type": "module",
   "exports": {
-    ".": "./src/index.ts",
     "./backend": "./src/backend.ts",
     "./runtime": "./src/runtime.ts"
   },
