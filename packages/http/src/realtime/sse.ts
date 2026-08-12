@@ -42,9 +42,18 @@ export interface SseConnection {
    */
   write(text: string): void;
   /**
-   * Register teardown — unsubscribing a bus listener, typically. Every
-   * registered function runs exactly once, whether the client cancelled or the
-   * route called `close()`, and never twice.
+   * Register teardown — unsubscribing a bus listener, typically. A function
+   * registered while the stream is still open runs exactly once, whether the
+   * client cancelled or the route called `close()`, and never twice. One
+   * registered after teardown has already run — an `open` that awaits a
+   * subscribe, and a client that disconnects inside that await — runs
+   * immediately instead, so a late registration cannot strand its
+   * subscription.
+   *
+   * Deliberately NOT guaranteed: teardown at all if `open` REJECTS. A rejected
+   * `start` moves a `ReadableStream` to `errored`, and that transition does not
+   * invoke the underlying source's `cancel`, so nothing registered before the
+   * throw runs. An `open` that can throw owns its own cleanup.
    */
   onCancel(fn: () => void): void;
   /** Run teardown, then close the stream. Idempotent. */
@@ -103,6 +112,14 @@ export function sseResponse(
       const conn: SseConnection = {
         write,
         onCancel(fn) {
+          // Registering after teardown has run would put the handler on a list
+          // nothing iterates again: the bus listener would never be removed and
+          // the per-user refcount behind it would never decrement, so the
+          // subscription leaks for the life of the process. Run it now instead.
+          if (tornDown) {
+            fn();
+            return;
+          }
           cancelHandlers.push(fn);
         },
         close() {
