@@ -6,6 +6,7 @@ import {
   agent,
   approvalsRoutes,
   chatRoutes,
+  connections,
   errorHandler,
   events,
   getSessionCached,
@@ -16,7 +17,6 @@ import {
   workflowRoutes,
 } from "@alfred/http";
 import { createRedisConnection, type BoundedRedis } from "@alfred/db/redis";
-import { connections } from "./modules/connections/index";
 import { meRoutes } from "./modules/me/index";
 import { mcpIntegrationRoutes } from "./modules/mcp";
 import { toolTiersRoutes } from "./modules/tools/index";

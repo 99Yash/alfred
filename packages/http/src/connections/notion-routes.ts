@@ -12,13 +12,13 @@ import {
 } from "@alfred/integrations/shared";
 import { randomBytes } from "node:crypto";
 import { Elysia, t } from "elysia";
-import { authMacro } from "@alfred/http";
 import {
   consumeOAuthNonce,
   rememberOAuthNonce,
   signOAuthState,
   verifyOAuthState,
 } from "@alfred/assistant/connections";
+import { authMacro } from "../middleware/auth";
 
 /**
  * Notion OAuth routes (full authorization-code flow). Same state-nonce CSRF
