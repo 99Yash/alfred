@@ -52,6 +52,7 @@ import {
   chatRoutes,
   events,
   onboardingRoutes,
+  replicache,
   skillsRoutes,
   workflowRoutes,
 } from "@alfred/http";
@@ -101,6 +102,16 @@ export const workflowsPrefix: (typeof workflowRoutes)["config"]["prefix"] = "/ap
 // CLOSED state with no reconnect, so the stream stops silently.
 export const eventsPrefix: (typeof events)["config"]["prefix"] = "/api/events";
 
+// The Replicache protocol endpoints (`/pull`, `/push`, and a second SSE stream
+// for pokes). Eden buys nothing here either, and for a stronger reason than
+// above: all three are reached by a hand-built URL, never by the Eden client —
+// `fetch(\`${API_URL}/api/replicache/pull\`)` and `/push` at
+// `apps/web/src/lib/replicache/client.ts:100,125`, and `new EventSource(...)`
+// at `:140`. No generated type is consulted at any of the three call sites, so
+// a changed prefix leaves both packages compiling and silently stops every
+// client from syncing.
+export const replicachePrefix: (typeof replicache)["config"]["prefix"] = "/api/replicache";
+
 // The mount call sites themselves: `packages/api/src/index.ts` composes each
 // route into the root app with `.use(...)`, so every plugin must stay usable
 // there.
@@ -110,5 +121,6 @@ export const composed = new Elysia()
   .use(chatRoutes)
   .use(events)
   .use(onboardingRoutes)
+  .use(replicache)
   .use(skillsRoutes)
   .use(workflowRoutes);

@@ -11,11 +11,11 @@ import {
   getSessionCached,
   invalidateSessionToken,
   onboardingRoutes,
+  replicache,
   skillsRoutes,
   workflowRoutes,
 } from "@alfred/http";
 import { createUntrackedRedisConnection } from "@alfred/db/redis";
-import { replicache } from "./modules/replicache/index";
 import { connections } from "./modules/connections/index";
 import { meRoutes } from "./modules/me/index";
 import { mcpIntegrationRoutes } from "./modules/connections/mcp/index";

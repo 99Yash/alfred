@@ -8,7 +8,7 @@ import { databaseEnv } from "@alfred/env/database";
 import { serverEnv } from "@alfred/env/server";
 import { eq, inArray } from "drizzle-orm";
 
-import { handlePull } from "../../src/modules/replicache/pull";
+import { handlePull } from "../../src/sync/pull";
 import { closeRedis } from "@alfred/db/redis";
 
 const SERVER_ENV_FIXTURES: Record<string, string> = {

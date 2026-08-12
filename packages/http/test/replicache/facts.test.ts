@@ -6,7 +6,7 @@ import { closeConnections, db } from "@alfred/db";
 import { user, userFacts } from "@alfred/db/schemas";
 import { and, eq, inArray } from "drizzle-orm";
 
-import { serverMutators } from "../../src/modules/replicache/server-mutators";
+import { serverMutators } from "../../src/sync/server-mutators";
 
 const SKIP = process.env.DATABASE_URL ? false : "DATABASE_URL not set — skipping DB-backed test";
 
