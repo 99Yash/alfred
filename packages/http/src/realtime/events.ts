@@ -45,66 +45,60 @@ export const events = new Elysia({ prefix: "/api/events", normalize: "typebox" }
 
         const userId = user.id;
 
-        return sseResponse(
-          async (conn) => {
-            const writeFrame = (frame: EventFrame) => {
-              conn.write(
-                `id: ${frame.id}\nevent: ${frame.kind}\ndata: ${JSON.stringify({
-                  payload: frame.payload,
-                  createdAt: frame.createdAt,
-                })}\n\n`,
-              );
-            };
+        return sseResponse(async (conn) => {
+          const writeFrame = (frame: EventFrame) => {
+            conn.frame({
+              id: frame.id,
+              event: frame.kind,
+              data: JSON.stringify({ payload: frame.payload, createdAt: frame.createdAt }),
+            });
+          };
 
-            // Phase 1: subscribe to live, buffering until replay finishes.
-            let mode: "buffering" | "passthrough" = "buffering";
-            const buffer: EventFrame[] = [];
-            const unsubscribe = subscribeUserEvents(userId, (frame) => {
+          // Phase 1: subscribe to live, buffering until replay finishes.
+          let mode: "buffering" | "passthrough" = "buffering";
+          const buffer: EventFrame[] = [];
+          conn.defer(
+            subscribeUserEvents(userId, (frame) => {
               if (mode === "buffering") {
                 buffer.push(frame);
               } else {
                 writeFrame(frame);
               }
-            });
-            conn.onCancel(unsubscribe);
+            }),
+          );
 
-            // Phase 2 + 3: snapshot watermark, replay rows in (since, watermark].
-            let watermark = sinceId;
-            if (sinceId !== undefined) {
-              try {
-                watermark = await getReplayHighWatermark(userId);
-                if (watermark > sinceId) {
-                  const replay = await getEventsSince(userId, sinceId, watermark);
-                  for (const frame of replay.frames) writeFrame(frame);
-                  // Unknown legacy kinds are filtered from dispatch, but their
-                  // ids must still advance Last-Event-ID or reconnect could
-                  // request the same page forever.
-                  if (replay.cursor > (replay.frames.at(-1)?.id ?? sinceId)) {
-                    conn.write(`id: ${replay.cursor}\n\n`);
-                  }
-                  if (replay.hasMore) {
-                    conn.close();
-                    return;
-                  }
+          // Phase 2 + 3: snapshot watermark, replay rows in (since, watermark].
+          let watermark = sinceId;
+          if (sinceId !== undefined) {
+            try {
+              watermark = await getReplayHighWatermark(userId);
+              if (watermark > sinceId) {
+                const replay = await getEventsSince(userId, sinceId, watermark);
+                for (const frame of replay.frames) writeFrame(frame);
+                // Unknown legacy kinds are filtered from dispatch, but their
+                // ids must still advance Last-Event-ID or reconnect could
+                // request the same page forever.
+                if (replay.cursor > (replay.frames.at(-1)?.id ?? sinceId)) {
+                  conn.cursor(replay.cursor);
                 }
-              } catch (err) {
-                console.warn("[events:sse] replay failed for user", userId, toMessage(err));
+                if (replay.hasMore) {
+                  conn.close();
+                  return;
+                }
               }
+            } catch (err) {
+              console.warn("[events:sse] replay failed for user", userId, toMessage(err));
             }
+          }
 
-            // Phase 4: flush buffered live frames newer than the watermark.
-            const cutoff = watermark ?? 0;
-            for (const frame of buffer) {
-              if (frame.id > cutoff) writeFrame(frame);
-            }
-            buffer.length = 0;
-            mode = "passthrough";
-          },
-          // Nginx and friends buffer a response body by default, which holds
-          // every frame until the buffer fills. Not a base header: only this
-          // route has ever sent it.
-          { headers: { "X-Accel-Buffering": "no" } },
-        );
+          // Phase 4: flush buffered live frames newer than the watermark.
+          const cutoff = watermark ?? 0;
+          for (const frame of buffer) {
+            if (frame.id > cutoff) writeFrame(frame);
+          }
+          buffer.length = 0;
+          mode = "passthrough";
+        });
       })
       // Elysia calls this builder callback EAGERLY, at module load, so whichever
       // environment reader sits here runs when `@alfred/http`'s barrel is
