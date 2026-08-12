@@ -212,7 +212,7 @@ The process still sees only `createAssistantRuntime().start()` and `.stop()`.
 | `triggers` | Durable domain-event publication and trigger-consumer delivery | `publishDomainEvent`, runtime consumer registration; no imports of consumers | `workflows/events`; not HTTP SSE framing |
 | `action-policies` | Per-user action policy row, the resolved-policy cache, and the Redis policy-bust channel that keeps that cache honest across server instances | `resolvePolicyMode`, `resolveApprovalNotifyDelayMs`, `getResolvedPolicy`, `bustPolicyCache`, `publishPolicyBust`, `ensureDefaultActionPolicyForUser`, `DEFAULT_APPROVAL_NOTIFY_DELAY_MS`, and the `startPolicyBustSubscriber` / `stopPolicyBustSubscriber` lifecycle pair; the cache, the channel names and the two Redis connections stay private, and the test-only cache controls sit behind a separate `test-support` subpath | `src/action-policies` |
 | `realtime` | User-event fan-out, outbox relay and retention, Replicache poke bridge, outbox replay reads | `initEventBridge`, `closeEventBridge`, `initReplicachePokeBridge`, `closeReplicachePokeBridge`, `emitReplicachePokesOverRedis` (the concrete behind the `emitReplicachePokes` port on `triggers`), `subscribeUserEvents`, `subscribeUserPokes`, `getEventsSince`, `getReplayHighWatermark`; the relay, the reaper and the periodic-task primitive stay private | `src/realtime`; framing stays in `packages/http/src/realtime/` |
-| `connections` | Connected-account lifecycle, OAuth state, credential binding, provider availability, watches, webhooks, provider ingestion coordination | `connect`, `disconnect`, `availabilityFor`, `forUser`, `acceptWebhook` | legacy API `integrations`, provider-binding parts of `mcp`, ingestion queue |
+| `connections` | Connected-account lifecycle, OAuth state, credential binding, provider availability, watches, webhooks, provider ingestion coordination | `connect`, `disconnect`, `availabilityFor`, `forUser`, `acceptWebhook` | legacy API `integrations`, the connection/protocol/session half of `mcp`, ingestion queue |
 | `corpus` | Normalized documents, chunks, embedding state, indexing retries, semantic search | `indexDocument`, `retryPending`, `search` | `@alfred/ingestion`, document embedding work in integration jobs |
 | `knowledge` | Observation log, projections, facts, entities, significance, standing instructions, recall, correction | `observe`, `recall`, `contextFor`, `applyCorrection`, projection lifecycle | `memory`, `user-model`, `chat-memory` extraction behavior |
 | `settings` | User preferences, feature flags, account persona, briefing schedule, canonical timezone preference | `get`, `set`, `resolveTimezone`, `resolveFlags` | memory preferences, `features`, parts of briefing preferences and onboarding |
@@ -240,7 +240,14 @@ The process still sees only `createAssistantRuntime().start()` and `.stop()`.
   `tool-runtime`; workflow activation validation belongs to `automation`.
 - `mcp` splits: connection/protocol/session behavior belongs to `connections`;
   risk, tool-call approval, durable invocation, and tool-result correlation
-  belong to `tool-runtime`.
+  belong to `tool-runtime`. **Done** (campaign item 48). The 13 product files left
+  `packages/api/src/modules/connections/mcp/` for `packages/assistant/src/connections/mcp/`
+  and `packages/assistant/src/tool-runtime/mcp/`, split exactly on that line:
+  `persistence.ts` and `runtime.ts` were each cut in two, because holding either
+  whole on one side gives the other a back-edge and closes a
+  `connections` <-> `tool-runtime` cycle. What remains under
+  `packages/api/src/modules/mcp/` is one Elysia route file; item 51 moves it to
+  `@alfred/http`.
 
 ## Required dependency direction
 

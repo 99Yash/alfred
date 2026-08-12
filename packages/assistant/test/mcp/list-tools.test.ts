@@ -7,12 +7,9 @@ import { user } from "@alfred/db/schemas";
 import type { Tool } from "@modelcontextprotocol/client";
 import { inArray, like } from "drizzle-orm";
 
-import { listMcpToolsLocal } from "../../src/modules/connections/mcp";
-import { computeDescriptorHashes } from "../../src/modules/connections/mcp/hash";
-import {
-  insertConnection,
-  publishCatalogRevision,
-} from "../../src/modules/connections/mcp/persistence";
+import { listMcpToolsLocal } from "../../src/connections/mcp";
+import { computeDescriptorHashes } from "../../src/connections/mcp/hash";
+import { insertConnection, publishCatalogRevision } from "../../src/connections/mcp/persistence";
 
 /**
  * DB-backed offline tests for `mcp.list_tools` (PRD #540, clarification #5). The

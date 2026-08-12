@@ -1,15 +1,22 @@
 /**
- * MCP persistence layer (PRD #540) — pure durable row access + the small set of
- * atomic operations the connection manager and execution broker sit on top of.
+ * MCP invocation ledger + per-tool policy persistence (PRD #540, #541) — durable
+ * row access over the `mcp_invocation` and `mcp_tool_policy` tables, plus the ONE
+ * identity derivation the approval gate and the execution broker share.
  *
- * This module holds NO live SDK clients and performs NO network I/O: it is the
- * seam between the in-memory `McpRawClient` world and the four `mcp_*` tables
- * (`packages/db/src/schema/mcp.ts`). Everything here is either a single-row read,
- * a single-row write, or one of the few genuinely-atomic multi-row operations
- * that MUST be a transaction to be crash-safe:
+ * This half of the MCP persistence layer lives in the tool runtime rather than in
+ * `connections` because what it records is a tool call, not a connection: the
+ * ambiguity barrier, the crash-recovery sweep, the reviewed risk downgrade, and
+ * the `(current catalog revision, descriptor hash, reviewed policy)` resolution
+ * that ADR-0088 makes fail-closed. It joins the `mcp_connections` and
+ * `mcp_catalog_revisions` tables directly rather than through the connection
+ * half's row readers, because the resolution is ONE query by design (it runs on
+ * every `mcp.call` dispatch). Nothing in the connection half may import this
+ * module: that edge would close a `connections` <-> `tool-runtime` cycle, which
+ * the module-graph ratchet refuses by name.
  *
- *  - `publishCatalogRevision` — idempotent insert of an immutable revision +
- *    advance of the connection's current-revision pointer.
+ * The genuinely-atomic operations here, each of which MUST be a transaction to be
+ * crash-safe:
+ *
  *  - `insertInvocation` — the barrier reservation. Inserting the ledger row IS
  *    the reservation; the partial unique index rejects a duplicate unresolved
  *    proposal, surfaced here as `{ ok: false, reason: "barrier" }`.
@@ -20,332 +27,22 @@
  *    boot (issue clarification #1).
  */
 
-import { isIndexable } from "@alfred/contracts";
-import { db, type DbTransaction } from "@alfred/db";
+import { db } from "@alfred/db";
+import { requireRow, runAtomic, type DbRunner } from "@alfred/db/helpers";
+import { isUniqueViolation, uniqueViolationConstraint } from "@alfred/db/pg-errors";
 import {
   actionStagings,
   mcpCatalogRevisions,
   mcpConnections,
   mcpInvocation,
   mcpToolPolicy,
-  type McpCatalogRevision,
   type McpConnection,
   type McpInvocation,
   type McpToolPolicyRow,
-  type NewMcpConnection,
   type NewMcpInvocation,
   type NewMcpToolPolicyRow,
 } from "@alfred/db/schemas";
-import { and, desc, eq, isNull, sql } from "drizzle-orm";
-
-/** A transaction handle or the root client — either can run a query. */
-type Db = DbTransaction | ReturnType<typeof db>;
-
-// ===========================================================================
-// Postgres error narrowing. A unique-violation surfaces as a `DatabaseError`
-// *class instance* — `isRecord` rejects those (see the code-review lesson), so
-// the code/constraint are read via `isIndexable` + `Reflect.get`.
-// ===========================================================================
-
-const PG_UNIQUE_VIOLATION = "23505";
-
-/**
- * Assert an `INSERT ... RETURNING` produced its row. `noUncheckedIndexedAccess`
- * types `const [row] = ...returning()` as `T | undefined`, but an insert without
- * a swallowed conflict always yields exactly one row; a missing one is a bug, not
- * a normal outcome, so it throws rather than propagating `undefined`.
- */
-function requireRow<T>(row: T | undefined, op: string): T {
-  if (row === undefined) throw new Error(`mcp persistence: ${op} returned no row`);
-  return row;
-}
-
-/**
- * Run `body` atomically, reusing the caller's transaction if one was passed and
- * opening a fresh one otherwise. Lets a multi-step persistence op compose inside a
- * larger transaction (the push handler's, say) without nesting a second one.
- */
-function runAtomic<T>(runner: Db, body: (tx: Db) => Promise<T>): Promise<T> {
-  return "transaction" in runner ? runner.transaction(body) : body(runner);
-}
-
-/**
- * If `err` is a Postgres unique-violation, return the violated constraint name
- * (or `""` when the driver omitted it); otherwise `undefined`. drizzle-orm wraps
- * the driver error in a "Failed query" error, so the real `DatabaseError` — with
- * `.code`/`.constraint` — lives on `.cause`; both levels are inspected. Fields on
- * a caught error are read with `isIndexable` + `Reflect.get`, never `isRecord`
- * (which rejects Error/driver class instances — see the code-cause lesson).
- */
-function pgConstraintOnUniqueViolation(err: unknown): string | undefined {
-  const candidates = [err, isIndexable(err) ? Reflect.get(err, "cause") : undefined];
-  for (const candidate of candidates) {
-    if (!isIndexable(candidate)) continue;
-    if (Reflect.get(candidate, "code") !== PG_UNIQUE_VIOLATION) continue;
-    const constraint = Reflect.get(candidate, "constraint");
-    return typeof constraint === "string" ? constraint : "";
-  }
-  return undefined;
-}
-
-// ===========================================================================
-// Connections
-// ===========================================================================
-
-/** Columns a caller may mutate on a connection after creation. */
-export type McpConnectionUpdate = Partial<
-  Pick<
-    NewMcpConnection,
-    | "label"
-    | "status"
-    | "negotiatedProtocolVersion"
-    | "serverIdentity"
-    | "currentCatalogRevisionId"
-    | "lastConnectedAt"
-    | "lastError"
-    | "authServerIdentity"
-    | "credentialId"
-    | "grantedScopes"
-    | "requiredScopes"
-    | "endpointUrl"
-    | "endpointOrigin"
-  >
->;
-
-export async function readConnection(
-  id: string,
-  runner: Db = db(),
-): Promise<McpConnection | undefined> {
-  const [row] = await runner
-    .select()
-    .from(mcpConnections)
-    .where(eq(mcpConnections.id, id))
-    .limit(1);
-  return row;
-}
-
-export async function insertConnection(
-  values: NewMcpConnection,
-  runner: Db = db(),
-): Promise<McpConnection> {
-  const [row] = await runner.insert(mcpConnections).values(values).returning();
-  return requireRow(row, "insertConnection");
-}
-
-export async function upsertConnection(
-  values: NewMcpConnection,
-  runner: Db = db(),
-): Promise<McpConnection> {
-  const [row] = await runner
-    .insert(mcpConnections)
-    .values(values)
-    .onConflictDoUpdate({
-      target: [mcpConnections.userId, mcpConnections.canonicalResource],
-      set: {
-        label: values.label,
-        endpointUrl: values.endpointUrl,
-        endpointOrigin: values.endpointOrigin,
-        authServerIdentity: values.authServerIdentity,
-        status: "disconnected",
-        lastError: null,
-        updatedAt: new Date(),
-      },
-    })
-    .returning();
-  return requireRow(row, "upsertConnection");
-}
-
-export async function readOwnedConnection(
-  id: string,
-  userId: string,
-  runner: Db = db(),
-): Promise<McpConnection | undefined> {
-  const [row] = await runner
-    .select()
-    .from(mcpConnections)
-    .where(and(eq(mcpConnections.id, id), eq(mcpConnections.userId, userId)))
-    .limit(1);
-  return row;
-}
-
-export async function listOwnedConnections(
-  userId: string,
-  runner: Db = db(),
-): Promise<McpConnection[]> {
-  return runner
-    .select()
-    .from(mcpConnections)
-    .where(eq(mcpConnections.userId, userId))
-    .orderBy(desc(mcpConnections.updatedAt))
-    .limit(100);
-}
-
-export async function updateConnection(
-  id: string,
-  patch: McpConnectionUpdate,
-  runner: Db = db(),
-): Promise<McpConnection | undefined> {
-  const [row] = await runner
-    .update(mcpConnections)
-    .set(patch)
-    .where(eq(mcpConnections.id, id))
-    .returning();
-  return row;
-}
-
-export interface CompareAndSetCatalogRevisionInput {
-  connectionId: string;
-  expectedCurrentRevisionId: string | null;
-  nextRevisionId: string | null;
-  patch: Omit<McpConnectionUpdate, "currentCatalogRevisionId">;
-}
-
-/**
- * Change catalog authority only if no other worker changed the durable pointer
- * since this operation began. A losing publisher must fetch again; a stale
- * invalidator must not clear a newer worker's revision.
- */
-export async function compareAndSetCatalogRevision(
-  input: CompareAndSetCatalogRevisionInput,
-  runner: Db = db(),
-): Promise<McpConnection | undefined> {
-  const expectedPointer = input.expectedCurrentRevisionId
-    ? eq(mcpConnections.currentCatalogRevisionId, input.expectedCurrentRevisionId)
-    : isNull(mcpConnections.currentCatalogRevisionId);
-  const [row] = await runner
-    .update(mcpConnections)
-    .set({
-      ...input.patch,
-      currentCatalogRevisionId: input.nextRevisionId,
-    })
-    .where(and(eq(mcpConnections.id, input.connectionId), expectedPointer))
-    .returning();
-  return row;
-}
-
-// ===========================================================================
-// Catalog revisions (immutable, append-only)
-// ===========================================================================
-
-export async function readRevisionById(
-  id: string,
-  runner: Db = db(),
-): Promise<McpCatalogRevision | undefined> {
-  const [row] = await runner
-    .select()
-    .from(mcpCatalogRevisions)
-    .where(eq(mcpCatalogRevisions.id, id))
-    .limit(1);
-  return row;
-}
-
-export async function readRevisionByHash(
-  connectionId: string,
-  revisionHash: string,
-  runner: Db = db(),
-): Promise<McpCatalogRevision | undefined> {
-  const [row] = await runner
-    .select()
-    .from(mcpCatalogRevisions)
-    .where(
-      and(
-        eq(mcpCatalogRevisions.connectionId, connectionId),
-        eq(mcpCatalogRevisions.revisionHash, revisionHash),
-      ),
-    )
-    .limit(1);
-  return row;
-}
-
-/** The revision currently pointed at by the connection, if any. */
-export async function readCurrentRevision(
-  connectionId: string,
-  runner: Db = db(),
-): Promise<McpCatalogRevision | undefined> {
-  const connection = await readConnection(connectionId, runner);
-  if (!connection?.currentCatalogRevisionId) return undefined;
-  return readRevisionById(connection.currentCatalogRevisionId, runner);
-}
-
-export interface PublishCatalogRevisionInput {
-  connectionId: string;
-  /** Stable authority hash (`McpCatalogSnapshot.revision`, "sha256:..."). */
-  revisionHash: string;
-  /** Raw, validated descriptors exactly as admitted by the raw client (`Tool[]`). */
-  descriptors: unknown;
-  /** `{ [remoteName]: descriptorHash }` from `computeDescriptorHashes`. */
-  descriptorHashes: Record<string, string>;
-  toolCount: number;
-}
-
-/**
- * The ONE genuinely-atomic catalog operation: publish (or re-use) an immutable
- * revision and advance the connection's current-revision pointer to it, in a
- * single transaction. Idempotent on `(connectionId, revisionHash)` — refreshing
- * an unchanged catalog returns the existing revision without inserting a
- * duplicate, and re-publishing is a no-op pointer write.
- *
- * The insert uses `onConflictDoNothing` so a concurrent publisher racing on the
- * same hash cannot produce two rows; the loser reads the winner's row back.
- */
-export async function publishCatalogRevision(
-  input: PublishCatalogRevisionInput,
-  runner: Db = db(),
-): Promise<McpCatalogRevision> {
-  const run = async (tx: Db) => {
-    const revision = await insertCatalogRevisionInTx(input, tx);
-    await tx
-      .update(mcpConnections)
-      .set({ currentCatalogRevisionId: revision.id })
-      .where(eq(mcpConnections.id, input.connectionId));
-    return revision;
-  };
-  // Reuse a caller's transaction when given one; otherwise open our own.
-  return runAtomic(runner, run);
-}
-
-/**
- * Idempotently insert an immutable catalog revision without making it current.
- * The connection manager uses this to verify that the in-memory generation is
- * still live before it promotes the durable pointer.
- */
-export async function insertCatalogRevision(
-  input: PublishCatalogRevisionInput,
-  runner: Db = db(),
-): Promise<McpCatalogRevision> {
-  const run = (tx: Db) => insertCatalogRevisionInTx(input, tx);
-  return runAtomic(runner, run);
-}
-
-async function insertCatalogRevisionInTx(
-  input: PublishCatalogRevisionInput,
-  tx: Db,
-): Promise<McpCatalogRevision> {
-  const [inserted] = await tx
-    .insert(mcpCatalogRevisions)
-    .values({
-      connectionId: input.connectionId,
-      revisionHash: input.revisionHash,
-      descriptors: input.descriptors,
-      descriptorHashes: input.descriptorHashes,
-      toolCount: input.toolCount,
-    })
-    .onConflictDoNothing({
-      target: [mcpCatalogRevisions.connectionId, mcpCatalogRevisions.revisionHash],
-    })
-    .returning();
-
-  const revision =
-    inserted ?? (await readRevisionByHash(input.connectionId, input.revisionHash, tx));
-  if (!revision) {
-    // Unreachable: the row was either just inserted or already present.
-    throw new Error(
-      `publishCatalogRevision: revision vanished for connection ${input.connectionId}`,
-    );
-  }
-
-  return revision;
-}
+import { and, eq, isNull, sql } from "drizzle-orm";
 
 // ===========================================================================
 // Per-tool policy (reviewed effect/retry/tier, bound to a descriptor hash)
@@ -355,7 +52,7 @@ export async function readToolPolicy(
   connectionId: string,
   remoteName: string,
   descriptorHash: string,
-  runner: Db = db(),
+  runner: DbRunner = db(),
 ): Promise<McpToolPolicyRow | undefined> {
   const [row] = await runner
     .select()
@@ -411,7 +108,7 @@ export type McpToolIdentityResolution =
  */
 export async function resolveMcpToolIdentity(
   input: ResolveMcpToolIdentityInput,
-  runner: Db = db(),
+  runner: DbRunner = db(),
 ): Promise<McpToolIdentityResolution> {
   const descriptorHashExpr = sql<
     string | null
@@ -464,7 +161,7 @@ export async function resolveMcpToolIdentity(
  */
 export async function upsertToolPolicy(
   values: NewMcpToolPolicyRow,
-  runner: Db = db(),
+  runner: DbRunner = db(),
 ): Promise<McpToolPolicyRow> {
   const [row] = await runner
     .insert(mcpToolPolicy)
@@ -483,7 +180,6 @@ export async function upsertToolPolicy(
     .returning();
   return requireRow(row, "upsertToolPolicy");
 }
-
 // ===========================================================================
 // Operation ledger
 // ===========================================================================
@@ -506,7 +202,7 @@ export type InsertInvocationResult =
  */
 async function stagingCorrelation(
   stagingId: string,
-  runner: Db,
+  runner: DbRunner,
 ): Promise<{ traceId: string; stepId: string; toolCallId: string }> {
   const [staging] = await runner
     .select({
@@ -531,7 +227,7 @@ async function stagingCorrelation(
  */
 export async function insertInvocation(
   values: NewMcpInvocation,
-  runner: Db = db(),
+  runner: DbRunner = db(),
 ): Promise<InsertInvocationResult> {
   const correlation = await stagingCorrelation(values.stagingId, runner);
   try {
@@ -541,9 +237,13 @@ export async function insertInvocation(
       .returning();
     return { ok: true, invocation: requireRow(invocation, "insertInvocation") };
   } catch (err) {
-    const constraint = pgConstraintOnUniqueViolation(err);
-    if (constraint === undefined) throw err;
-    if (constraint === "mcp_invocation_staging_idx") {
+    // Two distinct outcomes ride on this narrowing, so both `@alfred/db/pg-errors`
+    // helpers are needed: anything that is not a 23505 is a real failure and must
+    // rethrow, while a 23505 whose constraint name the driver omitted defaults to
+    // the barrier. Reading only the constraint name would collapse the first case
+    // into the second.
+    if (!isUniqueViolation(err)) throw err;
+    if (uniqueViolationConstraint(err) === "mcp_invocation_staging_idx") {
       return { ok: false, reason: "duplicate_staging" };
     }
     // The barrier index (or an unnamed unique violation defaulting to barrier).
@@ -574,7 +274,7 @@ export type McpInvocationUpdate = Partial<
 export async function updateInvocation(
   id: string,
   patch: McpInvocationUpdate,
-  runner: Db = db(),
+  runner: DbRunner = db(),
 ): Promise<McpInvocation | undefined> {
   const [row] = await runner
     .update(mcpInvocation)
@@ -593,7 +293,7 @@ export async function updateInvocation(
  */
 export async function readInvocationByStagingId(
   stagingId: string,
-  runner: Db = db(),
+  runner: DbRunner = db(),
 ): Promise<McpInvocation | undefined> {
   const [row] = await runner
     .select()
@@ -610,7 +310,7 @@ export async function readInvocationByStagingId(
  */
 export async function findUnresolvedBarrier(
   key: { userId: string; connectionId: string; remoteName: string; argsHash: string },
-  runner: Db = db(),
+  runner: DbRunner = db(),
 ): Promise<McpInvocation | undefined> {
   const [row] = await runner
     .select()
@@ -663,9 +363,9 @@ export type CreateSuccessorResult =
  */
 export async function createSuccessorInvocation(
   input: CreateSuccessorInput,
-  runner: Db = db(),
+  runner: DbRunner = db(),
 ): Promise<CreateSuccessorResult> {
-  const run = async (tx: Db): Promise<CreateSuccessorResult> => {
+  const run = async (tx: DbRunner): Promise<CreateSuccessorResult> => {
     const resolvedPrior = await tx
       .update(mcpInvocation)
       .set({ resolvedAt: sql`now()`, resolutionReason: input.priorResolutionReason })
@@ -715,9 +415,9 @@ export interface ReconcileSummary {
  */
 export async function reconcileInflightInvocations(
   userId?: string,
-  runner: Db = db(),
+  runner: DbRunner = db(),
 ): Promise<ReconcileSummary> {
-  const run = async (tx: Db): Promise<ReconcileSummary> => {
+  const run = async (tx: DbRunner): Promise<ReconcileSummary> => {
     const scope = userId ? [eq(mcpInvocation.userId, userId)] : [];
 
     const abandoned = await tx

@@ -629,6 +629,9 @@ importers:
       '@alfred/sync':
         specifier: workspace:*
         version: link:../sync
+      '@modelcontextprotocol/client':
+        specifier: 2.0.0
+        version: 2.0.0
       ai:
         specifier: 'catalog:'
         version: 7.0.19(zod@4.4.3)

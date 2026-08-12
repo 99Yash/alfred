@@ -75,16 +75,27 @@ const MODULE_ROOTS = {
   assistantSource: ASSISTANT_SOURCE_ROOT,
 };
 const WEB_ROUTES_ROOT = join(ROOT, "apps/web/src/routes");
-// The connections barrel and the two ingestion modules it must never reach, transitively.
-// The barrel's own header records the convention in two lines: it does not re-export
-// `./ingestion`, and `./oauth-state` imports the `./ingestion/workflow-recovery` LEAF rather
-// than the ingestion barrel. Both lines exist because importing the ingestion barrel evaluates
-// the BullMQ queue and the whole Gmail ingestion graph, and this barrel is reached by
-// `@alfred/api/backend`'s `export *` and therefore by every operational script.
+// The connections barrel and the heavy leaves it must never reach, transitively. Two subtrees
+// under `connections/` carry their own `exports` key precisely so this barrel does not evaluate
+// them, and each one contributes the leaves that make it heavy.
 //
-// This gate covers BOTH lines, not just the first. `export * from "./ingestion"` here is the
-// direct violation; swapping `oauth-state`'s leaf import for the `./ingestion` barrel is the
-// indirect one, and it fires too, because that barrel re-exports `queue` and `gmail-ingest`.
+// `./ingestion`: the barrel does not re-export it, and `./oauth-state` imports the
+// `./ingestion/workflow-recovery` LEAF rather than the ingestion barrel. Both lines exist
+// because importing the ingestion barrel evaluates the BullMQ queue and the whole Gmail
+// ingestion graph, and this barrel is reached by `@alfred/api/backend`'s `export *` and
+// therefore by every operational script.
+//
+// `./mcp`: the barrel does not re-export it either, for the same reason at a different cost.
+// `client.ts` holds a process-lifetime live-client cache and `oauth.ts` reaches the credential
+// vault, and a module that only wants a Google connection helper must not pay for either. That
+// subtree's door is `@alfred/assistant/connections/mcp`. The re-add is not hypothetical: the
+// slice that moved MCP into this package deleted exactly that pattern — a six-name MCP
+// re-export block — from the api-side connections barrel.
+//
+// This gate covers every one of those lines, not just the first. `export * from "./ingestion"`
+// or `export * from "./mcp"` here is the direct violation; swapping `oauth-state`'s leaf import
+// for the `./ingestion` barrel is the indirect one, and it fires too, because that barrel
+// re-exports `queue` and `gmail-ingest`.
 //
 // It has to be a reachability walk rather than a `moduleEdges` row or an oxlint group.
 // `moduleForPath` files `connections/ingestion/*` inside the `connections` module, so an
@@ -100,6 +111,8 @@ const CONNECTIONS_BARREL = join(ASSISTANT_SOURCE_ROOT, "connections/index.ts");
 const CONNECTIONS_BARREL_FORBIDDEN_REACH = [
   join(ASSISTANT_SOURCE_ROOT, "connections/ingestion/queue.ts"),
   join(ASSISTANT_SOURCE_ROOT, "connections/ingestion/gmail-ingest.ts"),
+  join(ASSISTANT_SOURCE_ROOT, "connections/mcp/client.ts"),
+  join(ASSISTANT_SOURCE_ROOT, "connections/mcp/oauth.ts"),
 ];
 // Every hardcoded repository path a rule in this file reads. Each one is the SOLE
 // input of its rule, so a path that stops resolving does not make its rule lenient —
@@ -1739,7 +1752,7 @@ const text = 'import "ignored-string"';
   if (
     !barrelReachRedDrive.some(
       (violation) =>
-        violation.includes("connections barrel reaches forbidden ingestion module:") &&
+        violation.includes("connections barrel reaches forbidden heavy module:") &&
         violation.includes("index.ts -> ingestion/index.ts -> queue.ts"),
     )
   ) {
@@ -2859,7 +2872,7 @@ function connectionsBarrelReachViolations(reach) {
   const forbiddenPaths = new Set(reach.forbidden.map((entry) => entry.path));
   for (const entry of reach.reached) {
     if (!forbiddenPaths.has(entry.file)) continue;
-    violations.push(`connections barrel reaches forbidden ingestion module: ${entry.chain}`);
+    violations.push(`connections barrel reaches forbidden heavy module: ${entry.chain}`);
   }
   return violations;
 }

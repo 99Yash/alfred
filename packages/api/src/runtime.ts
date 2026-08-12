@@ -53,7 +53,6 @@ export { registerAgentSystemToolAdapter } from "@alfred/assistant/execution/syst
 export { registerConversationsSystemToolAdapter } from "@alfred/assistant/conversations";
 export { registerWorkflowSystemToolAdapter } from "@alfred/assistant/automation";
 export { registerReplicachePokeAdapter } from "./composition/replicache-poke-adapter";
-export { reconcileInflightInvocations } from "./modules/connections/mcp/index";
 export {
   scheduleRepeatableWorkflowsJobs,
   seedBuiltinWorkflowsForAllUsers,

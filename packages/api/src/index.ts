@@ -18,7 +18,7 @@ import {
 import { createRedisConnection, type BoundedRedis } from "@alfred/db/redis";
 import { connections } from "./modules/connections/index";
 import { meRoutes } from "./modules/me/index";
-import { mcpIntegrationRoutes } from "./modules/connections/mcp/index";
+import { mcpIntegrationRoutes } from "./modules/mcp";
 import { toolTiersRoutes } from "./modules/tools/index";
 
 // `normalize: 'typebox'` opts out of Elysia 1.4's bundled `exact-mirror`

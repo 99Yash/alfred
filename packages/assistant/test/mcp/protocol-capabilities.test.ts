@@ -1,9 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import {
-  MCP_CLIENT_CAPABILITIES,
-  MCP_INPUT_REQUIRED_PROFILE,
-} from "../../src/modules/connections/mcp";
+import { MCP_CLIENT_CAPABILITIES, MCP_INPUT_REQUIRED_PROFILE } from "../../src/connections/mcp";
 
 test("Alfred does not advertise MRTR handlers", () => {
   assert.deepEqual(MCP_CLIENT_CAPABILITIES, {});

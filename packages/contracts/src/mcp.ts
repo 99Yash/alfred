@@ -2,12 +2,12 @@
  * Browser-safe MCP cross-boundary contracts: the `mcp.call` / `mcp.list_tools`
  * argument envelopes and the literal unions that back the persisted MCP tables
  * (`packages/db/src/schema/mcp.ts`) and the execution broker
- * (`packages/api/src/modules/connections/mcp/`).
+ * (`packages/assistant/src/tool-runtime/mcp/`).
  *
  * These are the shapes the web client, the model-facing tool surface, and the
  * DB layer must all agree on. Everything that depends on the MCP SDK or
  * `node:crypto` (the raw client, the protocol, the SHA-256 ambiguity-barrier
- * hash) stays server-side in `@alfred/api`; only the wire-visible enums and the
+ * hash) stays server-side in `@alfred/assistant`; only the wire-visible enums and the
  * two projected-tool argument schemas live here.
  */
 
@@ -32,7 +32,7 @@ export const mcpConnectionStatusSchema = z.enum(mcpConnectionStatusValues);
 
 // ---------------------------------------------------------------------------
 // Browser-safe mirror of the negotiated server identity. The runtime type
-// lives in `packages/api/src/modules/connections/mcp/protocol.ts` (SDK-bound); this is the
+// lives in `packages/assistant/src/connections/mcp/protocol.ts` (SDK-bound); this is the
 // persisted/`$type` snapshot stored on `mcp_connections.server_identity`.
 // ---------------------------------------------------------------------------
 export const mcpServerIdentitySchema = z.object({
