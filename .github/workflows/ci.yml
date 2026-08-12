@@ -261,6 +261,89 @@ jobs:
       - name: HTTP barrel loads with no service environment
         run: corepack pnpm --filter @alfred/http test:env-free
 
+  # `@alfred/db` owns the one door to an ioredis client, and what a connection
+  # does during a Redis outage is decided entirely by that module's
+  # `RedisConnectionKind` table. The suite is the only thing that can tell a
+  # bounded rejection from a command that never settles, which is what the
+  # unbounded offline queue used to produce. It was in no CI job before this one.
+  #
+  # A Redis SERVICE is required and Postgres is not: the suite touches no
+  # Postgres, and `serverEnv()` needs `DATABASE_URL` to be format-valid rather
+  # than live, so the `env:` block below carries one and there is no migrate
+  # step. Several subtests point `REDIS_URL` at an endpoint they build
+  # themselves; the service is what `redis-cold-command.test.ts` and
+  # `redis-subscriber-reconnect.test.ts` need, and both FAIL rather than skip
+  # when nothing answers. A skip would silently delete the only proof that
+  # `"command"` and `"fail-fast"` differ, and the only proof that a subscriber
+  # survives a reconnect. Their liveness probes run on bounded kinds for the
+  # same reason: a probe on `"queue"` would hang instead of reporting.
+  #
+  # This is a separate job rather than a step on `assistant-unit-tests` (which
+  # already has a Redis service) so a red row names the package that broke. It
+  # pays a second `pnpm install`; see the note at `web-unit-tests` for when that
+  # trade goes the other way.
+  db-tests:
+    name: db-tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    services:
+      redis:
+        image: redis:7-alpine
+        ports:
+          - 6379:6379
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+    env:
+      REDIS_URL: redis://localhost:6379
+      # Format-valid dummies required by serverEnv(). Nothing here is reached:
+      # `@alfred/db/redis` reads REDIS_URL and no other field.
+      DATABASE_URL: postgresql://ci:ci@localhost:5432/alfred_ci
+      BETTER_AUTH_SECRET: ci-dummy-better-auth-secret-32chars-min
+      OAUTH_CREDENTIAL_KEK: Y2ktZHVtbXkta2VrLTMyLWJ5dGVzLW5vdC1zZWNyZXQ
+      BETTER_AUTH_URL: http://localhost:3001
+      ALFRED_ALLOWED_EMAIL: ci@example.com
+      RESEND_API_KEY: re_ci_dummy
+      RESEND_FROM_EMAIL: Alfred <noreply@example.com>
+      ANTHROPIC_API_KEY: ci-dummy
+      GOOGLE_GENERATIVE_AI_API_KEY: ci-dummy
+      GOOGLE_OAUTH_CLIENT_ID: ci-dummy
+      GOOGLE_OAUTH_CLIENT_SECRET: ci-dummy
+      GOOGLE_OAUTH_REDIRECT_URI: http://localhost:3001/api/integrations/google/callback
+      GITHUB_APP_ID: "1"
+      GITHUB_APP_SLUG: ci-dummy
+      GITHUB_APP_CLIENT_ID: ci-dummy
+      GITHUB_APP_CLIENT_SECRET: ci-dummy
+      GITHUB_APP_PRIVATE_KEY: ci-dummy
+      GITHUB_WEBHOOK_SECRET: ci-dummy
+      GITHUB_APP_REDIRECT_URI: http://localhost:3001/api/integrations/github/callback
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Enable Corepack
+        run: corepack enable
+
+      - name: Resolve pnpm store path
+        run: echo "PNPM_STORE_PATH=$(corepack pnpm store path --silent)" >> "$GITHUB_ENV"
+
+      - uses: actions/cache@v4
+        with:
+          path: ${{ env.PNPM_STORE_PATH }}
+          key: ${{ runner.os }}-pnpm-store-${{ hashFiles('pnpm-lock.yaml') }}
+          restore-keys: ${{ runner.os }}-pnpm-store-
+
+      - name: Install dependencies
+        run: corepack pnpm install --frozen-lockfile
+
+      - name: DB tests
+        run: corepack pnpm --filter @alfred/db test
+
   ai-unit-tests:
     name: ai-unit-tests
     runs-on: ubuntu-latest

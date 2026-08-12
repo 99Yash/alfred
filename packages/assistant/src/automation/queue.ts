@@ -26,7 +26,7 @@ let _worker: Worker<WorkflowsJobData> | undefined;
 export function getWorkflowsQueue(): Queue<WorkflowsJobData> {
   if (_queue) return _queue;
   _queue = new Queue<WorkflowsJobData>(WORKFLOWS_QUEUE_NAME, {
-    connection: createRedisConnection(),
+    connection: createRedisConnection("queue"),
     defaultJobOptions: {
       attempts: 2,
       backoff: { type: "exponential", delay: 30_000 },
@@ -46,7 +46,7 @@ export interface StartWorkflowsWorkerOpts {
 export async function startWorkflowsWorker(opts: StartWorkflowsWorkerOpts = {}): Promise<void> {
   if (_worker) return;
   _worker = new Worker<WorkflowsJobData>(WORKFLOWS_QUEUE_NAME, processWorkflowsJob, {
-    connection: createRedisConnection(),
+    connection: createRedisConnection("queue"),
     // The tick handler is cheap (one indexed SELECT + a small per-row
     // enqueue loop); single-threaded is right.
     concurrency: opts.concurrency ?? 1,
