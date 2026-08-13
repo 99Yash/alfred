@@ -172,11 +172,11 @@ jobs:
             return 0
           }
 
-          run_suite date-grounding @alfred/api
-          run_suite calendar-grounding @alfred/api
-          run_suite github-grounding @alfred/api
-          run_suite sender-suppression-grounding @alfred/api
-          run_suite voice-ai-tells @alfred/api
+          run_suite date-grounding @alfred/assistant
+          run_suite calendar-grounding @alfred/assistant
+          run_suite github-grounding @alfred/assistant
+          run_suite sender-suppression-grounding @alfred/assistant
+          run_suite voice-ai-tells @alfred/assistant
           run_suite passthrough-honesty @alfred/assistant
 
       - name: Upload eval JSON artifacts
