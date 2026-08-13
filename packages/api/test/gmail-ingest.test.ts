@@ -14,9 +14,10 @@ import { and, eq, inArray } from "drizzle-orm";
 // of the move (Risk: a watch install that fails to seed a cursor drops a
 // freshly-watched credential into perpetual full re-sync).
 import { seedGmailHistoryCursorIfAbsent } from "@alfred/assistant/connections/ingestion/internal";
+import { dbBackedSkip } from "./support/db-backed";
 
 const ID_PREFIX = "test-gmail-ingest-";
-const SKIP = process.env.DATABASE_URL ? false : "DATABASE_URL not set — skipping DB-backed test";
+const SKIP = dbBackedSkip("database");
 
 const createdUserIds: string[] = [];
 

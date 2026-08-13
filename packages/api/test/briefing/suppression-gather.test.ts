@@ -4,7 +4,6 @@ import { after, before, describe, test } from "node:test";
 
 import { closeConnections, db } from "@alfred/db";
 import { documents, emailTriage, user } from "@alfred/db/schemas";
-import { databaseEnv } from "@alfred/env/database";
 import { ianaTimezoneSchema, type TriageCategory } from "@alfred/contracts";
 import { inArray, like } from "drizzle-orm";
 
@@ -12,6 +11,7 @@ import { closeReplicachePokeBridge } from "@alfred/assistant/realtime";
 import { gatherBriefingWithSuppressionAudit } from "@alfred/assistant/briefings/gather";
 import { isQuietMorning } from "@alfred/assistant/briefings/read";
 import { closeRedis } from "@alfred/db/redis";
+import { dbBackedSkip } from "../support/db-backed";
 
 /**
  * End-to-end coverage of the morning suppression chain the daily-briefing
@@ -23,15 +23,7 @@ import { closeRedis } from "@alfred/db/redis";
  * bypassing the gate.
  */
 
-function hasDatabaseUrl(): boolean {
-  try {
-    return Boolean(databaseEnv().DATABASE_URL);
-  } catch {
-    return false;
-  }
-}
-
-const SKIP = hasDatabaseUrl() ? false : "DATABASE_URL not set — skipping DB-backed test";
+const SKIP = dbBackedSkip("database");
 const ID_PREFIX = "test-briefing-suppress-gather-";
 const createdUserIds: string[] = [];
 

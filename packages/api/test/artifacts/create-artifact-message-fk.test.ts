@@ -4,11 +4,11 @@ import { after, describe, test } from "node:test";
 
 import { closeConnections, db } from "@alfred/db";
 import { agentRuns, artifacts, chatMessages, chatThreads, user } from "@alfred/db/schemas";
-import { databaseEnv } from "@alfred/env/database";
 import { eq, inArray, sql } from "drizzle-orm";
 
 import { closeRedis } from "@alfred/db/redis";
 import { createArtifact, finalizeRunArtifacts } from "@alfred/assistant/artifacts/write";
+import { dbBackedSkip } from "../support/db-backed";
 
 /**
  * DB-backed regression for the `artifacts.message_id` FK-ordering bug.
@@ -28,14 +28,7 @@ import { createArtifact, finalizeRunArtifacts } from "@alfred/assistant/artifact
  *
  * Opt-in: runs only when `DATABASE_URL` points at a reachable migrated Postgres.
  */
-const SKIP = (() => {
-  try {
-    databaseEnv();
-    return false;
-  } catch {
-    return "DATABASE_URL not set — skipping DB-backed test";
-  }
-})();
+const SKIP = dbBackedSkip("database");
 
 const ID_PREFIX = "test-artifact-fk-";
 const createdUserIds: string[] = [];

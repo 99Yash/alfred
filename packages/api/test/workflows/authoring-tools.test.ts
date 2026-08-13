@@ -10,7 +10,6 @@ import {
 } from "@alfred/contracts";
 import { closeConnections, db } from "@alfred/db";
 import { agentRuns, user, workflowRevisions, workflows } from "@alfred/db/schemas";
-import { databaseEnv } from "@alfred/env/database";
 import { asc, eq } from "drizzle-orm";
 
 import { systemTools } from "../../src/modules/tools/system";
@@ -20,15 +19,9 @@ import { toolExecuteContext } from "@alfred/assistant/tool-runtime/context";
 import { definitionFromProposal } from "@alfred/assistant/automation/authoring";
 import { refreshWorkflowActivationProposal } from "@alfred/assistant/automation/revisions";
 import { createRun } from "@alfred/assistant/execution/service";
+import { dbBackedSkip } from "../support/db-backed";
 
-const SKIP = (() => {
-  try {
-    databaseEnv();
-    return false;
-  } catch {
-    return "DATABASE_URL not set — skipping DB-backed test";
-  }
-})();
+const SKIP = dbBackedSkip("database");
 
 const authorTool = systemTools.find((tool) => tool.name === "system.author_workflow");
 const recoverTool = systemTools.find((tool) => tool.name === "system.recover_workflow");

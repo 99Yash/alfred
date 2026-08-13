@@ -14,6 +14,7 @@ import {
   registerRecipe,
 } from "@alfred/assistant/execution/registry";
 import type { StepResult, Workflow } from "@alfred/assistant/execution/types";
+import { dbBackedSkip } from "../support/db-backed";
 
 /**
  * DB-backed test that PINS the server precondition item 49's client fix rests on
@@ -49,7 +50,7 @@ import type { StepResult, Workflow } from "@alfred/assistant/execution/types";
  *
  * Opt-in: runs only when `DATABASE_URL` points at a reachable migrated Postgres.
  */
-const SKIP = process.env.DATABASE_URL ? false : "DATABASE_URL not set — skipping DB-backed test";
+const SKIP = dbBackedSkip("database");
 
 const ID_PREFIX = "test-terminal-pairing-";
 const createdUserIds: string[] = [];

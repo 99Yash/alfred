@@ -3,7 +3,6 @@ import { randomUUID } from "node:crypto";
 import { after, describe, test } from "node:test";
 import { closeConnections, db, rowsFromExecute } from "@alfred/db";
 import { observations, projectionRuns, user } from "@alfred/db/schemas";
-import { databaseEnv } from "@alfred/env/database";
 import { gmailEmailMessagePayloadSchema, USER_MODEL_PROJECTION_NAME } from "@alfred/contracts";
 import { and, desc, eq, inArray, lte, sql } from "drizzle-orm";
 import {
@@ -15,6 +14,7 @@ import {
   startProjectionRun,
   userModelReader,
 } from "@alfred/assistant/knowledge";
+import { dbBackedSkip } from "../support/db-backed";
 
 /**
  * Scheduled/event re-fold gate (#218 PR J). Proves the frozen-logic invariant:
@@ -54,15 +54,7 @@ const SERVER_ENV_FIXTURES: Record<string, string> = {
   ENTITY_ID_NAMESPACE: TEST_ENTITY_ID_SECRET,
 };
 
-function hasDatabaseUrl(): boolean {
-  try {
-    return Boolean(databaseEnv().DATABASE_URL);
-  } catch {
-    return false;
-  }
-}
-
-const SKIP_DB = hasDatabaseUrl() ? false : "DATABASE_URL not set - skipping DB-backed test";
+const SKIP_DB = dbBackedSkip("database");
 
 describe("refoldActiveGmailKindProjection (DB-backed)", { skip: SKIP_DB }, () => {
   after(async () => {

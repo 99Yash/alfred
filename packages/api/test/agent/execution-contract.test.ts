@@ -22,6 +22,7 @@ import type {
   TerminalOutcome,
   Workflow,
 } from "@alfred/assistant/execution/types";
+import { dbBackedSkip } from "../support/db-backed";
 
 /**
  * Generic execution contract for the durable-execution module (campaign item
@@ -46,10 +47,7 @@ import type {
  * `test-exec-contract-*` users and cascades them away on teardown; the enqueued
  * jobs are removed directly because no worker runs here. A skip is NOT a pass.
  */
-const HAS_DB_AND_REDIS = Boolean(process.env.DATABASE_URL && process.env.REDIS_URL);
-const SKIP = HAS_DB_AND_REDIS
-  ? false
-  : "DATABASE_URL/REDIS_URL not set — skipping DB/Redis-backed test";
+const SKIP = dbBackedSkip("database+redis");
 
 const SERVER_ENV_FIXTURES: Record<string, string> = {
   BETTER_AUTH_SECRET: "test better auth secret with length",

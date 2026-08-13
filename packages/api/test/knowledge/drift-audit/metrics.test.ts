@@ -5,7 +5,6 @@ import { after, describe, test } from "node:test";
 import { parseEmailAddress } from "@alfred/contracts";
 import { closeConnections, db } from "@alfred/db";
 import { documents, driftMetrics, emailTriage, todos, user } from "@alfred/db/schemas";
-import { databaseEnv } from "@alfred/env/database";
 import { serverEnv } from "@alfred/env/server";
 import { eq, inArray } from "drizzle-orm";
 
@@ -17,16 +16,9 @@ import {
   selfIngestionCount,
   todoDismissDoneRatio,
 } from "@alfred/assistant/knowledge/drift-audit/metrics";
+import { dbBackedSkip } from "../../support/db-backed";
 
-function hasDatabaseUrl(): boolean {
-  try {
-    return Boolean(databaseEnv().DATABASE_URL);
-  } catch {
-    return false;
-  }
-}
-
-const SKIP = hasDatabaseUrl() ? false : "DATABASE_URL not set — skipping DB-backed test";
+const SKIP = dbBackedSkip("database");
 const ID_PREFIX = "test-drift-audit-";
 const createdUserIds: string[] = [];
 
