@@ -43,7 +43,7 @@ export type WorkflowToolCatalog = ReadonlyMap<ToolName, WorkflowToolFacts>;
  *   internal. `catalog()` returns a fresh snapshot each call.
  * Why the seam: it inverts workflows -> tools, so a workflow readiness, author,
  *   or revision read confirms a tool without an import edge to tools.
- * Wiring: tools/workflow-tool-catalog-source.ts installs; workflows readiness
+ * Wiring: tool-runtime/workflow-tool-catalog-source.ts installs; workflows readiness
  *   (runtime-readiness.ts, authoring.ts, revisions.ts) reads.
  * See: ADR-0089, and docs/reference/tool-runtime-map.md.
  */
