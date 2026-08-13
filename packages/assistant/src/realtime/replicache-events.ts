@@ -189,7 +189,7 @@ function publish(event: ReplicachePoke): void {
   emitter.emit(eventFor(event.userId), event);
 }
 
-export function emitReplicachePokes(userIds: string[], assetId = ""): void {
+export function emitReplicachePokesOverRedis(userIds: string[], assetId = ""): void {
   for (const userId of userIds) {
     publish({ userId, assetId });
   }

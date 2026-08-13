@@ -3,7 +3,7 @@ import {
   registerReplicachePokeAdapter as registerPort,
   unregisterReplicachePokeAdapter as unregisterPort,
 } from "@alfred/assistant/triggers";
-import { emitReplicachePokes as emitReplicachePokesOverRedis } from "./replicache-events";
+import { emitReplicachePokesOverRedis } from "./replicache-events";
 
 /**
  * Install the concrete Replicache poke emitter behind the `triggers` port, so a
