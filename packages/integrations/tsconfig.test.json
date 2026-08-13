@@ -1,0 +1,30 @@
+{
+  // Scoped typecheck project for the package's whole `test/` tree. `check-types`
+  // runs this as a SECOND `tsc` pass (after the composite `tsc -b`), because the
+  // composite build emits declarations only for `src` and never sees `test/**`.
+  //
+  // `@alfred/integrations` is the one package whose tests NO CI job runs (queued
+  // as campaign item 158), so this pass is the ONLY automated reader of the
+  // tree. Until this project existed nothing read these files at all: a type
+  // error, or an `import type` from a module that no longer exists, survived
+  // `pnpm check-types` at exit 0 and no test run contradicted it.
+  //
+  // `include` covers `test` rather than any narrower glob so that a file added
+  // anywhere under `test/` is type-checked without an edit here. That matches
+  // the `tsx --test "test/**/*.test.ts"` runner glob, so a new file joins both
+  // sets at once.
+  //
+  // The base `tsconfig.json` is `composite: true`; a `tsc -p` invocation with
+  // `noEmit` errors unless `composite`/`declaration` are overridden off here.
+  // Nothing under `test/` is emitted or built — this project only type-checks.
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "noEmit": true,
+    "rootDir": ".",
+    "composite": false,
+    "declaration": false,
+    "declarationMap": false,
+    "sourceMap": false
+  },
+  "include": ["src", "test"]
+}
