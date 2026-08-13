@@ -1,6 +1,8 @@
 import assert from "node:assert/strict";
 import { describe, test } from "node:test";
 
+import { EVENT_KINDS } from "@alfred/contracts/events";
+
 import { sseResponse } from "../src/realtime/sse";
 
 /**
@@ -134,16 +136,18 @@ describe("sseResponse", () => {
     assert.equal(cursor, "id: 7\n\n");
   });
 
-  test("frame rejects a line break in the event name", () => {
-    // Without this, a route that names its event from user-controlled text
-    // could terminate the frame early and inject a second one.
-    assert.throws(
-      () =>
-        sseResponse((conn) => {
-          conn.frame({ event: "poke\ndata: injected\n", data: "{}" });
-        }),
-      TypeError,
-    );
+  test("no event kind can end a frame early", () => {
+    // `SseFrame.event` is the closed union `EventKind | "poke"`, so `frame()`
+    // needs no run-time check for the line break that would terminate a frame
+    // early and let the payload write a second one. That trades a throw for a
+    // compile error (`test/type/sse-event-name.type-test.ts` is the gate), and
+    // it trusts the union: every name in it holds no line break. `"poke"` is a
+    // literal in this package, but `EventKind` is owned by `@alfred/contracts`,
+    // where a kind is added without reading this file. This detects such a kind;
+    // it does not prevent one.
+    for (const kind of EVENT_KINDS) {
+      assert.ok(!/[\r\n]/.test(kind), `event kind ${JSON.stringify(kind)} holds a line break`);
+    }
   });
 
   test("runs a registered teardown exactly once on client cancel", async () => {
