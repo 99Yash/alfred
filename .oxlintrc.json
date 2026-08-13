@@ -46,6 +46,10 @@
           {
             "group": ["@alfred/assistant/connections/ingestion/internal"],
             "message": "The raw Gmail ingestion entry points are restricted to the operational scripts under apps/server/src/scripts/** and the ingestion-cursor test packages/api/test/gmail-ingest.test.ts (see packages/assistant/src/connections/ingestion/internal.ts). Import the sanctioned contract from @alfred/assistant/connections/ingestion instead, which drives ingestion through the BullMQ job that owns retry, burst dedup and the ingestion_state cursor."
+          },
+          {
+            "group": ["@alfred/assistant/tool-runtime/internal/registry"],
+            "message": "The global tool catalog is restricted to packages/assistant/src/tool-runtime/ (see packages/assistant/src/tool-runtime/internal/registry.ts, which owns the one mutable map). Import the sanctioned contract from @alfred/assistant/tool-runtime instead, whose index re-exports the catalog surface."
           }
         ]
       }
@@ -105,6 +109,10 @@
               {
                 "group": ["@alfred/integrations/google/internal"],
                 "message": "The raw Gmail watch primitive is restricted to its two allowlisted friend files (see packages/integrations/src/google/internal.ts). Install a watch through installGmailWatchAndSeedCursor from @alfred/assistant/connections/ingestion, which also seeds the ingestion_state cursor; a raw installGmailWatch leaves the credential cursorless."
+              },
+              {
+                "group": ["@alfred/assistant/tool-runtime/internal/registry"],
+                "message": "The global tool catalog is restricted to packages/assistant/src/tool-runtime/ (see packages/assistant/src/tool-runtime/internal/registry.ts, which owns the one mutable map). Import the sanctioned contract from @alfred/assistant/tool-runtime instead, whose index re-exports the catalog surface."
               }
             ]
           }
@@ -132,6 +140,10 @@
               {
                 "group": ["@alfred/assistant/connections/ingestion/internal"],
                 "message": "The raw Gmail ingestion entry points are restricted to the operational scripts under apps/server/src/scripts/** and the ingestion-cursor test packages/api/test/gmail-ingest.test.ts (see packages/assistant/src/connections/ingestion/internal.ts). Import the sanctioned contract from @alfred/assistant/connections/ingestion instead, which drives ingestion through the BullMQ job that owns retry, burst dedup and the ingestion_state cursor."
+              },
+              {
+                "group": ["@alfred/assistant/tool-runtime/internal/registry"],
+                "message": "The global tool catalog is restricted to packages/assistant/src/tool-runtime/ (see packages/assistant/src/tool-runtime/internal/registry.ts, which owns the one mutable map). Import the sanctioned contract from @alfred/assistant/tool-runtime instead, whose index re-exports the catalog surface."
               }
             ]
           }
@@ -161,6 +173,10 @@
               {
                 "group": ["@alfred/integrations/google/internal"],
                 "message": "The raw Gmail watch primitive is restricted to its two allowlisted friend files (see packages/integrations/src/google/internal.ts). Install a watch through installGmailWatchAndSeedCursor from @alfred/assistant/connections/ingestion, which also seeds the ingestion_state cursor; a raw installGmailWatch leaves the credential cursorless."
+              },
+              {
+                "group": ["@alfred/assistant/tool-runtime/internal/registry"],
+                "message": "The global tool catalog is restricted to packages/assistant/src/tool-runtime/ (see packages/assistant/src/tool-runtime/internal/registry.ts, which owns the one mutable map). Import the sanctioned contract from @alfred/assistant/tool-runtime instead, whose index re-exports the catalog surface."
               }
             ]
           }
@@ -185,6 +201,10 @@
               {
                 "group": ["@alfred/assistant/connections/ingestion/internal"],
                 "message": "The raw Gmail ingestion entry points are restricted to the operational scripts under apps/server/src/scripts/** and the ingestion-cursor test packages/api/test/gmail-ingest.test.ts (see packages/assistant/src/connections/ingestion/internal.ts). Import the sanctioned contract from @alfred/assistant/connections/ingestion instead, which drives ingestion through the BullMQ job that owns retry, burst dedup and the ingestion_state cursor."
+              },
+              {
+                "group": ["@alfred/assistant/tool-runtime/internal/registry"],
+                "message": "The global tool catalog is restricted to packages/assistant/src/tool-runtime/ (see packages/assistant/src/tool-runtime/internal/registry.ts, which owns the one mutable map). Import the sanctioned contract from @alfred/assistant/tool-runtime instead, whose index re-exports the catalog surface."
               },
               {
                 "group": [
