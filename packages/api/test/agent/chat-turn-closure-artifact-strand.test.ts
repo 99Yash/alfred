@@ -14,7 +14,7 @@ import {
 import { eq, inArray, like } from "drizzle-orm";
 
 import { closeRedis } from "@alfred/db/redis";
-import { registerReplicachePokeAdapter } from "@alfred/api/runtime";
+import { registerReplicachePokeAdapter } from "@alfred/assistant/realtime";
 import {
   finalizeAssistantMessage,
   finalizeFailedMessage,

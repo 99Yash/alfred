@@ -12,7 +12,7 @@ import {
   workflows,
 } from "@alfred/db/schemas";
 import { and, eq, inArray, sql } from "drizzle-orm";
-import { coldStartResearchWorkflow } from "../../src/backend";
+import { coldStartResearchWorkflow } from "@alfred/assistant/knowledge";
 
 import {
   _resetRegistryForTests,
@@ -26,7 +26,7 @@ import {
   unregisterTriggerConsumers,
 } from "@alfred/assistant/runtime/test-support";
 import { publishDomainEvent } from "@alfred/assistant/triggers";
-import { acceptEvent } from "../../src/modules/workflows";
+import { acceptEvent } from "@alfred/assistant/automation";
 import { publishGoogleCallbackCompleted } from "@alfred/assistant/connections";
 import { COLD_START_WORKFLOW_SLUG } from "@alfred/assistant/knowledge/cold-start";
 import { uniqueViolationConstraint } from "@alfred/db/pg-errors";

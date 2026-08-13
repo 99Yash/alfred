@@ -1,12 +1,12 @@
 import path from "node:path";
 import { route, type LanguageModel } from "@alfred/ai";
-import type { EmailListItem, PriorBriefingSummary } from "@alfred/api/backend";
+import type { EmailListItem, PriorBriefingSummary } from "@alfred/assistant/briefings";
 import type { DayShape } from "@alfred/contracts";
 import { generateText, isStepCount, tool } from "ai";
 import { config as loadEnv } from "dotenv";
 import { evalite } from "evalite";
 import { z } from "zod";
-import { buildSystemPrompt } from "@alfred/api/backend";
+import { buildSystemPrompt } from "@alfred/assistant/briefings";
 
 // #265 — the briefing composer must NOT assert a progress/status claim ("still
 // no reply", "no progress", "you haven't started X") on an item that arrived as

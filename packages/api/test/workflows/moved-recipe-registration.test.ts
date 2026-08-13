@@ -3,17 +3,14 @@ import { describe, test } from "node:test";
 
 import type { WorkflowTrigger } from "@alfred/contracts";
 
+import { dailyBriefingWorkflow, morningBriefingWorkflow } from "@alfred/assistant/briefings";
+import { chatMemoryCaptureWorkflow } from "@alfred/assistant/conversations";
 import {
   buildMemoryExtractionWorkflow,
-  chatMemoryCaptureWorkflow,
   coldStartResearchWorkflow,
-  dailyBriefingWorkflow,
-  emailTriageWorkflow,
-  gmailSenderAdapter,
-  learnSkillWorkflow,
-  morningBriefingWorkflow,
-  skillDocumentationWorkflow,
-} from "../../src/backend";
+} from "@alfred/assistant/knowledge";
+import { learnSkillWorkflow, skillDocumentationWorkflow } from "@alfred/assistant/skills";
+import { emailTriageWorkflow, gmailSenderAdapter } from "@alfred/assistant/triage";
 
 // The recipe is built with the injected Gmail sender adapter (ADR-0089); its
 // identity (slug/steps/entry/trigger/dedup) is independent of the injection.
@@ -22,9 +19,12 @@ import type { Workflow, WorkflowInput } from "@alfred/assistant/execution/types"
 
 /**
  * Item 04 moves the product recipe declarations out of
- * `apps/server/src/builtins/workflows/` into the module that owns each domain,
- * then re-exports them through `@alfred/api/backend` (the seam the composition
- * root registers from). The move is behavior-neutral: the recipe identity — its
+ * `apps/server/src/builtins/workflows/` into the module that owns each domain.
+ * Each recipe is published by that module's own `@alfred/assistant` subpath,
+ * which is the seam the composition root registers from. (The
+ * `@alfred/api/backend` door that once forwarded them is deleted; see
+ * `packages/api/test/no-transitional-doors.test.ts`.) The move is
+ * behavior-neutral: the recipe identity — its
  * slug, its ordered step ids, its entry step, its `trigger` declaration, and its
  * `dedupKey` derivation — must stay byte-identical, or a persisted nonterminal
  * run resolves to a different state machine on resume, fires from a different
@@ -40,7 +40,7 @@ import type { Workflow, WorkflowInput } from "@alfred/assistant/execution/types"
  * bodies (those did not move); item 06's generic-execution contract test guards
  * the registration list.
  */
-describe("moved product recipes keep their identity at the backend seam", () => {
+describe("moved product recipes keep their identity at their owning module seam", () => {
   // A schema-valid manual trigger for the dedupKey samples. Every `dedupKey`
   // below ignores `userId`/`trigger` (they read only `input`/`metadata`), but
   // `WorkflowInput` requires them, so this satisfies the shape.
@@ -179,8 +179,8 @@ describe("moved product recipes keep their identity at the backend seam", () => 
   ];
 
   for (const c of cases) {
-    test(`${c.name} is reachable through @alfred/api/backend with a stable identity`, () => {
-      assert.ok(c.recipe, `${c.name} must be re-exported by backend`);
+    test(`${c.name} is reachable from its owning @alfred/assistant module with a stable identity`, () => {
+      assert.ok(c.recipe, `${c.name} must be exported by the module that owns it`);
       assert.equal(c.recipe.slug, c.slug, "slug must match the module's own slug constant");
       assert.equal(c.recipe.initialStep, c.initialStep, "entry step must be unchanged");
       assert.deepEqual(

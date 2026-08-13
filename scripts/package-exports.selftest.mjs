@@ -237,6 +237,18 @@ function malformedTargetFailures() {
     }
   }
 
+  // A SEALED package: `{}` at the top level advertises nothing and must be clean, while
+  // `{ ".": {} }` one level down stays a failure. The pair is asserted together because
+  // the two shapes differ by one nesting level and the branch that tells them apart is
+  // one `Object.keys().length === 0` read — a widened branch would swallow the second
+  // case and the `empty object` row above is the only thing that would notice.
+  const sealed = exportTargets({});
+  if (sealed.failures.length > 0 || sealed.targets.length > 0) {
+    failures.push(
+      `exportTargets must report a top-level {} as a sealed package with no targets and no failures, received ${JSON.stringify(sealed)}`,
+    );
+  }
+
   return failures;
 }
 

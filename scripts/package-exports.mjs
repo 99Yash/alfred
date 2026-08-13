@@ -33,10 +33,28 @@ import { listWorkspaces } from "./workspaces.mjs";
  *
  * The result shape is uniform: a malformed leaf is a failure that does not
  * discard the well-formed siblings beside it.
+ *
+ * One shape is deliberately NOT a failure: an empty map at the TOP level. That is a
+ * sealed package — it advertises no subpath at all, and Node answers every specifier
+ * into it with `ERR_PACKAGE_PATH_NOT_EXPORTED`. It is the door `@alfred/api` closed
+ * with its two transitional subpaths (campaign item 149), and it is STRONGER than
+ * deleting the `exports` key, because a package with no key falls back to legacy path
+ * resolution and every file in it becomes importable again. The empty CONDITION object
+ * one level down (`{ ".": {} }`) stays a failure: that one does advertise `.`, and then
+ * resolves it to nothing.
  */
 export function exportTargets(exportsValue) {
   const targets = [];
   const failures = [];
+
+  if (
+    exportsValue !== null &&
+    typeof exportsValue === "object" &&
+    !Array.isArray(exportsValue) &&
+    Object.keys(exportsValue).length === 0
+  ) {
+    return { targets, failures };
+  }
 
   if (isSubpathMap(exportsValue)) {
     for (const [subpath, entry] of Object.entries(exportsValue)) {
