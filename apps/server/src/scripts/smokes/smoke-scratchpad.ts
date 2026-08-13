@@ -28,14 +28,13 @@ import {
   writeScratch,
 } from "@alfred/assistant/execution";
 
-// Stays on @alfred/api: still real api code. Item 148 gives it an @alfred/assistant address.
-import { dispatchToolCall } from "@alfred/api/backend";
+import { dispatchToolCall } from "@alfred/assistant/tool-runtime/dispatch";
 import type { RuntimeSpanEndArgs, RuntimeSpanInput } from "@alfred/ai";
 import { closeConnections, warmPool } from "@alfred/db";
 import { closeRedis } from "@alfred/db/redis";
 
-// Stays on @alfred/api: still real api code. Item 148 gives it an @alfred/assistant address.
-import { registerBuiltinTools } from "@alfred/api/runtime";
+import { registerAgentSystemToolAdapter } from "@alfred/assistant/execution/system-tool-adapter";
+import { registerBuiltinTools } from "@alfred/assistant/tool-runtime/builtin-tools";
 import { db } from "@alfred/db";
 import { actionStagings, agentRunContext, agentRuns, user as userTable } from "@alfred/db/schemas";
 import { createRedisConnection } from "@alfred/db/redis";
@@ -103,6 +102,7 @@ function deepEqual(a: unknown, b: unknown): boolean {
 async function main(): Promise<void> {
   await warmPool();
   registerBuiltinTools();
+  registerAgentSystemToolAdapter();
 
   // Capture every scratch health span emitted below so we can assert the
   // runtime-span contract end-to-end alongside the real behavior (#408).

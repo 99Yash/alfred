@@ -16,18 +16,32 @@ import {
 import { registerTriggerConsumers, unregisterTriggerConsumers } from "./trigger-consumers";
 import { registerWorkflowReadiness, unregisterWorkflowReadiness } from "./workflow-readiness";
 import { registerWorkflowRecovery, unregisterWorkflowRecovery } from "./workflow-recovery";
+import {
+  registerSystemToolProductAdapters,
+  unregisterSystemToolProductAdapters,
+} from "./system-tool-product";
+import { registerSystemToolAgent, unregisterSystemToolAgent } from "./system-tool-agent";
+import {
+  registerSystemToolConversations,
+  unregisterSystemToolConversations,
+} from "./system-tool-conversations";
+import {
+  registerSystemToolWorkflows,
+  unregisterSystemToolWorkflows,
+} from "./system-tool-workflows";
 
 export interface RuntimeAdapterDefinition {
   name: string;
   register(): void;
   unregister(): void;
+  retainIfAgentWorkerActive: boolean;
   retainIfIngestionWorkerActive: boolean;
   shutdownOrder: number;
 }
 
 interface RuntimeAdapterLifecycle {
   register(): void;
-  unregister(input: { ingestionWorkerStopped: boolean }): void;
+  unregister(input: { agentWorkerStopped: boolean; ingestionWorkerStopped: boolean }): void;
 }
 
 export function createRuntimeAdapterLifecycle(
@@ -42,8 +56,9 @@ export function createRuntimeAdapterLifecycle(
     register() {
       for (const adapter of startupAdapters) adapter.register();
     },
-    unregister({ ingestionWorkerStopped }) {
+    unregister({ agentWorkerStopped, ingestionWorkerStopped }) {
       for (const adapter of shutdownAdapters) {
+        if (!agentWorkerStopped && adapter.retainIfAgentWorkerActive) continue;
         if (!ingestionWorkerStopped && adapter.retainIfIngestionWorkerActive) continue;
         adapter.unregister();
       }
@@ -53,9 +68,42 @@ export function createRuntimeAdapterLifecycle(
 
 export const RUNTIME_ADAPTERS = [
   {
+    name: "system-tool-agent",
+    register: registerSystemToolAgent,
+    unregister: unregisterSystemToolAgent,
+    retainIfAgentWorkerActive: true,
+    retainIfIngestionWorkerActive: false,
+    shutdownOrder: 12,
+  },
+  {
+    name: "system-tool-conversations",
+    register: registerSystemToolConversations,
+    unregister: unregisterSystemToolConversations,
+    retainIfAgentWorkerActive: true,
+    retainIfIngestionWorkerActive: false,
+    shutdownOrder: 11,
+  },
+  {
+    name: "system-tool-workflows",
+    register: registerSystemToolWorkflows,
+    unregister: unregisterSystemToolWorkflows,
+    retainIfAgentWorkerActive: true,
+    retainIfIngestionWorkerActive: false,
+    shutdownOrder: 10,
+  },
+  {
+    name: "system-tool-product",
+    register: registerSystemToolProductAdapters,
+    unregister: unregisterSystemToolProductAdapters,
+    retainIfAgentWorkerActive: true,
+    retainIfIngestionWorkerActive: false,
+    shutdownOrder: 9,
+  },
+  {
     name: "chat-attachment-enrichment",
     register: registerChatAttachmentEnrichmentScheduler,
     unregister: unregisterChatAttachmentEnrichmentScheduler,
+    retainIfAgentWorkerActive: false,
     retainIfIngestionWorkerActive: true,
     shutdownOrder: 8,
   },
@@ -63,6 +111,7 @@ export const RUNTIME_ADAPTERS = [
     name: "chat-media",
     register: registerChatMedia,
     unregister: unregisterChatMedia,
+    retainIfAgentWorkerActive: false,
     retainIfIngestionWorkerActive: true,
     shutdownOrder: 1,
   },
@@ -70,6 +119,7 @@ export const RUNTIME_ADAPTERS = [
     name: "gmail-triage",
     register: registerGmailTriage,
     unregister: unregisterGmailTriage,
+    retainIfAgentWorkerActive: false,
     retainIfIngestionWorkerActive: true,
     shutdownOrder: 2,
   },
@@ -77,6 +127,7 @@ export const RUNTIME_ADAPTERS = [
     name: "gmail-user-model",
     register: registerGmailUserModel,
     unregister: unregisterGmailUserModel,
+    retainIfAgentWorkerActive: false,
     retainIfIngestionWorkerActive: true,
     shutdownOrder: 3,
   },
@@ -84,6 +135,7 @@ export const RUNTIME_ADAPTERS = [
     name: "google-credential-lifecycle",
     register: registerGoogleCredentialLifecycle,
     unregister: unregisterGoogleCredentialLifecycle,
+    retainIfAgentWorkerActive: false,
     retainIfIngestionWorkerActive: false,
     shutdownOrder: 4,
   },
@@ -91,6 +143,7 @@ export const RUNTIME_ADAPTERS = [
     name: "replicache-poke-adapter",
     register: registerReplicachePokeAdapter,
     unregister: unregisterReplicachePokeAdapter,
+    retainIfAgentWorkerActive: false,
     retainIfIngestionWorkerActive: false,
     shutdownOrder: 7,
   },
@@ -98,6 +151,7 @@ export const RUNTIME_ADAPTERS = [
     name: "trigger-consumers",
     register: registerTriggerConsumers,
     unregister: unregisterTriggerConsumers,
+    retainIfAgentWorkerActive: false,
     retainIfIngestionWorkerActive: true,
     shutdownOrder: 0,
   },
@@ -105,6 +159,7 @@ export const RUNTIME_ADAPTERS = [
     name: "workflow-recovery",
     register: registerWorkflowRecovery,
     unregister: unregisterWorkflowRecovery,
+    retainIfAgentWorkerActive: false,
     retainIfIngestionWorkerActive: false,
     shutdownOrder: 5,
   },
@@ -112,6 +167,7 @@ export const RUNTIME_ADAPTERS = [
     name: "workflow-readiness",
     register: registerWorkflowReadiness,
     unregister: unregisterWorkflowReadiness,
+    retainIfAgentWorkerActive: false,
     retainIfIngestionWorkerActive: true,
     shutdownOrder: 6,
   },
@@ -123,6 +179,9 @@ export function registerRuntimeAdapters(): void {
   runtimeAdapterLifecycle.register();
 }
 
-export function unregisterRuntimeAdapters(input: { ingestionWorkerStopped: boolean }): void {
+export function unregisterRuntimeAdapters(input: {
+  agentWorkerStopped: boolean;
+  ingestionWorkerStopped: boolean;
+}): void {
   runtimeAdapterLifecycle.unregister(input);
 }

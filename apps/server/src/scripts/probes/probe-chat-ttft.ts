@@ -25,9 +25,7 @@ import {
   type Tool,
   type ToolSet,
 } from "@alfred/ai";
-import { listToolsForIntegration } from "@alfred/assistant/tool-runtime";
-// Stays on @alfred/api: still real api code. Item 148 gives it an @alfred/assistant address.
-import { registerBuiltinTools } from "@alfred/api/runtime";
+import { registerBuiltinTools } from "@alfred/assistant/tool-runtime/builtin-tools";
 import { INTEGRATION_SLUGS } from "@alfred/contracts";
 
 // Routed through the real dispatch helpers so the tool-name shim + provider
@@ -73,10 +71,10 @@ const SYSTEM_PROMPT = [
 
 /** Build the full real tool menu (system + every loadable integration). */
 function buildAllTools(): { tools: ToolSet; count: number } {
-  registerBuiltinTools(); // the registry is populated at server boot; do it here too.
+  const registry = registerBuiltinTools(); // the registry is populated at server boot; do it here too.
   const out: Record<string, Tool> = {};
   for (const slug of INTEGRATION_SLUGS) {
-    for (const r of listToolsForIntegration(slug)) {
+    for (const r of registry.listForIntegration(slug)) {
       out[r.name] = tool({ description: r.description, inputSchema: r.inputSchema });
     }
   }

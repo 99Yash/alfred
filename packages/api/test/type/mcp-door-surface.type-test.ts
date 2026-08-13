@@ -11,7 +11,7 @@
  * and the `exports` map is what a caller outside the package meets.
  *
  * `packages/api` is the home because it is a real outside consumer of both doors
- * (`src/modules/tools/mcp.ts` and four MCP tests) and
+ * (`@alfred/assistant/tool-runtime/internal/tools/mcp.ts` and its owner tests) and
  * because its `check-types` runs a second `tsc -p tsconfig.test.json` pass over
  * this tree, which is the whole mechanism. A fixture inside `packages/assistant`
  * would resolve these specifiers as SELF-references, which is not the resolution

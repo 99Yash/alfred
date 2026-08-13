@@ -6,6 +6,7 @@ import {
   type AgentTranscriptMessage,
   type IanaTimezone,
   type IntegrationAvailabilitySnapshot,
+  type TOOL_INPUT_SCHEMAS,
   type ToolName,
   type ToolRunContext,
   type WakeCondition,
@@ -31,10 +32,9 @@ export { joinToolInput } from "./join-contract";
 // registry and queues stay private", so `registerTools` is plan-sanctioned. The
 // other three plan names are not symbols in this repo: `resolveToolSurface` and
 // `executeToolCallRound` further down this file are their live equivalents, and
-// approval resolution sits in `dispatch`. `@alfred/api`'s tool definitions are
-// WRITERS: 12 files build entries with `liveTool`, and `modules/tools/
-// runtime.ts` makes every production registration call. `registerTool`
-// (singular) remains the single-tool fixture door for three api test files.
+// approval resolution sits in `dispatch`. Built-in definition files build
+// entries with `liveTool`, and `builtin-tools.ts` makes every production
+// registration call. `registerTool` (singular) remains the fixture door.
 // `riskTierCountsForIntegration` is the permanent web-facing projection used
 // by `@alfred/http`; it cannot read the private registry implementation.
 export {
@@ -46,31 +46,6 @@ export {
   type RegisteredTool,
   type ToolExecuteContext,
   type ToolExecuteContextFields,
-} from "./internal/registry";
-// GROUP B — transitional readers, 9 names. They remain public only for callers
-// that cannot move until campaign item 148 folds the api tools and dispatch
-// modules into this owner. What holds each name open:
-// - getTool: dispatch, two server smokes, and the schema-token script.
-// - listRegisteredTools: the schema-token script and four built-in-tool tests.
-// - listKernelTools: tool-surface tests.
-// - listToolsForIntegration: server probes/smokes, evals, and api tests.
-// - assertKernelToolsRegistered: modules/tools/runtime.ts.
-// - availableToolNames: discovery tests.
-// - evaluateToolAvailability: api tests that register built-in tools.
-// - resolveToolAvailability: dispatch and staging-policy tests.
-// - readsAvailabilitySnapshot: the availability-snapshot contract test.
-// Nothing distinguishes this group from group A to a check. Do not add to it.
-// Removal phase: campaign item 148.
-export {
-  getTool,
-  listRegisteredTools,
-  listKernelTools,
-  listToolsForIntegration,
-  assertKernelToolsRegistered,
-  availableToolNames,
-  evaluateToolAvailability,
-  resolveToolAvailability,
-  readsAvailabilitySnapshot,
 } from "./internal/registry";
 export {
   awaitSubAgentInputSchema,
@@ -285,24 +260,72 @@ export type SpawnSubAgentRequest = SpawnSubAgentInput & {
   chat?: { threadId: string; messageId: string } | undefined;
 };
 
+export interface JoinChildRunRequest {
+  parentRunId: string;
+  userId: string;
+  childRunId: string;
+}
+
+declare const safeToParkSignalBrand: unique symbol;
+
+/**
+ * A signal name whose dead-man wake is already scheduled.
+ *
+ * Execution owns the only mint, after its scheduler returns `scheduled`. The
+ * brand crosses the adapter seam so another adapter cannot return a plain
+ * signal name and accidentally park a run without that backstop.
+ */
+export type SafeToParkSignal = string & {
+  readonly [safeToParkSignalBrand]: true;
+};
+
+export type AwaitSubAgentDispatchResult =
+  | {
+      kind: "executed";
+      stagingId: null;
+      toolResult: unknown;
+      editedByUser: false;
+    }
+  | {
+      kind: "parked";
+      wake: Extract<WakeCondition, { kind: "signal" }> & { name: SafeToParkSignal };
+    };
+
+export type SystemToolScratchRead =
+  | { runId: string; zone: "shared"; path: string }
+  | { runId: string; zone: "scratch"; subId: string; path: string };
+
+export type SystemToolScratchWrite = SystemToolScratchRead & {
+  value: unknown;
+  writtenBy: string;
+};
+
+export interface SystemToolScratchPromote {
+  runId: string;
+  fromSubId: string;
+  fromPath: string;
+  toSharedPath: string;
+  writtenBy?: string | undefined;
+}
+
 /**
  * Surface:  chat.
  * Owns/hides: owns the agent-behavior door the system tools reach — spawn a
  *   sub-agent, read a child run outcome. Hides the agent runtime and its state
  *   (`agentRuns`). Each method returns `unknown`, so no agent result type crosses
  *   the seam.
- * Why the seam: it inverts tools -> agent, so the tools layer never imports the
- *   agent runtime.
- * Wiring: agent/system-tool-adapter.ts installs; tools/system.ts reads.
+ * Why the seam: it inverts tool-runtime -> execution, so tool-runtime never
+ *   imports the agent runtime.
+ * Wiring: execution/system-tool-adapter.ts installs; internal/tools/system.ts reads.
  * See: ADR-0089, and docs/reference/tool-runtime-map.md.
  */
 export interface SystemToolAgentAdapter {
   spawnSubAgent(args: SpawnSubAgentRequest): Promise<unknown>;
-  readChildRunOutcome(args: {
-    parentRunId: string;
-    userId: string;
-    childRunId: string;
-  }): Promise<unknown>;
+  readChildRunOutcome(args: JoinChildRunRequest): Promise<unknown>;
+  resolveAwaitSubAgent(args: JoinChildRunRequest): Promise<AwaitSubAgentDispatchResult>;
+  readScratch(args: SystemToolScratchRead): Promise<unknown>;
+  writeScratch(args: SystemToolScratchWrite): Promise<unknown>;
+  promoteScratch(args: SystemToolScratchPromote): Promise<unknown>;
 }
 
 const systemToolAgentAdapterPort = bootPort<SystemToolAgentAdapter>("system-tool agent adapter");
@@ -319,10 +342,10 @@ export function registerSystemToolAgentAdapter(adapter: SystemToolAgentAdapter):
  *   `conversations` retrieval implementation and its chat-message/attachment
  *   state. The method returns `unknown`, so no conversations result type crosses
  *   the seam.
- * Why the seam: it inverts tools -> conversations, so the tools layer never
+ * Why the seam: it inverts tool-runtime -> conversations, so tool-runtime never
  *   imports a product recipe. `conversations` installs its own half over the
  *   existing `conversations -> tool-runtime` edge, so no new module edge is added.
- * Wiring: conversations/system-tool-adapter.ts installs; tools/system.ts reads.
+ * Wiring: conversations/system-tool-adapter.ts installs; internal/tools/system.ts reads.
  * See: ADR-0089, and docs/reference/tool-runtime-map.md.
  */
 export interface SystemToolChatHistoryAdapter {
@@ -358,6 +381,123 @@ export function readChildRunOutcome(args: {
   return requireSystemToolAgentAdapter().readChildRunOutcome(args);
 }
 
+/** Resolve the join protocol while preserving execution's safe-to-park proof. */
+export function resolveAwaitSubAgent(
+  args: JoinChildRunRequest,
+): Promise<AwaitSubAgentDispatchResult> {
+  return requireSystemToolAgentAdapter().resolveAwaitSubAgent(args);
+}
+
+/** Read one run-local scratch entry behind the execution-owned adapter. */
+export function readScratch(args: SystemToolScratchRead): Promise<unknown> {
+  return requireSystemToolAgentAdapter().readScratch(args);
+}
+
+/** Write one run-local scratch entry behind the execution-owned adapter. */
+export function writeScratch(args: SystemToolScratchWrite): Promise<unknown> {
+  return requireSystemToolAgentAdapter().writeScratch(args);
+}
+
+/** Promote one sub-agent scratch entry behind the execution-owned adapter. */
+export function promoteScratch(args: SystemToolScratchPromote): Promise<unknown> {
+  return requireSystemToolAgentAdapter().promoteScratch(args);
+}
+
+export type SystemToolRequest<Name extends keyof typeof TOOL_INPUT_SCHEMAS> = {
+  input: z.infer<(typeof TOOL_INPUT_SCHEMAS)[Name]>;
+  context: {
+    userId: string;
+    runId: string;
+    stepId: string;
+    toolCallId: string;
+  };
+};
+
+/**
+ * Surface: chat.
+ * Owns/hides: knowledge reads, standing-instruction writes, and live web search.
+ * Why the seam: tool-runtime must not import knowledge or create a module cycle.
+ * Wiring: runtime/adapters/system-tool-product.ts installs; internal/tools/system.ts reads.
+ */
+export interface SystemToolKnowledgeAdapter {
+  readUserContext(args: SystemToolRequest<"system.read_user_context">): Promise<unknown>;
+  rememberSenderSuppressionAndDismissTodos(
+    args: SystemToolRequest<"system.remember">,
+  ): Promise<unknown>;
+  listInstructions(args: SystemToolRequest<"system.list_instructions">): Promise<unknown>;
+  forgetInstruction(args: SystemToolRequest<"system.forget_instruction">): Promise<unknown>;
+  editInstruction(args: SystemToolRequest<"system.edit_instruction">): Promise<unknown>;
+  webSearch(args: SystemToolRequest<"system.web_search">): Promise<unknown>;
+}
+
+/**
+ * Surface: chat.
+ * Owns/hides: todo suggestion and Gmail-sender todo resolution.
+ * Why the seam: tool-runtime must not import tasks or create a module cycle.
+ * Wiring: runtime/adapters/system-tool-product.ts installs; internal/tools/system.ts reads.
+ */
+export interface SystemToolTaskAdapter {
+  resolveTodo(args: SystemToolRequest<"system.resolve_todo">): Promise<unknown>;
+  suggestTodo(args: SystemToolRequest<"system.suggest_todo">): Promise<unknown>;
+}
+
+const systemToolKnowledgeAdapterPort = bootPort<SystemToolKnowledgeAdapter>(
+  "system-tool knowledge adapter",
+);
+const systemToolTaskAdapterPort = bootPort<SystemToolTaskAdapter>("system-tool task adapter");
+
+export function registerSystemToolKnowledgeAdapter(
+  adapter: SystemToolKnowledgeAdapter,
+): () => void {
+  return systemToolKnowledgeAdapterPort.install(adapter);
+}
+
+export function registerSystemToolTaskAdapter(adapter: SystemToolTaskAdapter): () => void {
+  return systemToolTaskAdapterPort.install(adapter);
+}
+
+export function readUserContext(
+  args: SystemToolRequest<"system.read_user_context">,
+): Promise<unknown> {
+  return systemToolKnowledgeAdapterPort.read().readUserContext(args);
+}
+
+export function rememberSenderSuppressionAndDismissTodos(
+  args: SystemToolRequest<"system.remember">,
+): Promise<unknown> {
+  return systemToolKnowledgeAdapterPort.read().rememberSenderSuppressionAndDismissTodos(args);
+}
+
+export function listInstructions(
+  args: SystemToolRequest<"system.list_instructions">,
+): Promise<unknown> {
+  return systemToolKnowledgeAdapterPort.read().listInstructions(args);
+}
+
+export function forgetInstruction(
+  args: SystemToolRequest<"system.forget_instruction">,
+): Promise<unknown> {
+  return systemToolKnowledgeAdapterPort.read().forgetInstruction(args);
+}
+
+export function editInstruction(
+  args: SystemToolRequest<"system.edit_instruction">,
+): Promise<unknown> {
+  return systemToolKnowledgeAdapterPort.read().editInstruction(args);
+}
+
+export function webSearch(args: SystemToolRequest<"system.web_search">): Promise<unknown> {
+  return systemToolKnowledgeAdapterPort.read().webSearch(args);
+}
+
+export function resolveTodo(args: SystemToolRequest<"system.resolve_todo">): Promise<unknown> {
+  return systemToolTaskAdapterPort.read().resolveTodo(args);
+}
+
+export function suggestTodo(args: SystemToolRequest<"system.suggest_todo">): Promise<unknown> {
+  return systemToolTaskAdapterPort.read().suggestTodo(args);
+}
+
 /** Read bounded raw evidence from the current chat thread. */
 export function readChatHistory(args: {
   userId: string;
@@ -375,9 +515,9 @@ export function readChatHistory(args: {
  *   shape the tool result. Hides workflow authoring, revision, recovery, and
  *   readiness policy. Each method returns `unknown`, so no workflow result type
  *   crosses the seam.
- * Why the seam: it inverts tools -> workflows, so the tools module never imports
+ * Why the seam: it inverts tool-runtime -> workflows, so tool-runtime never imports
  *   workflows.
- * Wiring: workflows/system-tool-adapter.ts installs; tools/system.ts reads.
+ * Wiring: workflows/system-tool-adapter.ts installs; internal/tools/system.ts reads.
  * See: ADR-0089, and docs/reference/tool-runtime-map.md.
  */
 export interface SystemToolWorkflowAdapter {

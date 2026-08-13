@@ -4,7 +4,6 @@ import {
   stopPolicyBustSubscriber,
 } from "@alfred/assistant/action-policies";
 import {
-  registerWorkflowSystemToolAdapter,
   scheduleRepeatableWorkflowsJobs,
   seedBuiltinWorkflowsForAllUsers,
   seedBuiltinWorkflowsForUser,
@@ -27,7 +26,6 @@ import {
 import {
   closeChatMemoryQueue,
   closeConversationCompactionQueue,
-  registerConversationsSystemToolAdapter,
   startChatMemoryWorker,
   startConversationCompactionWorker,
   stopChatMemoryWorker,
@@ -46,7 +44,6 @@ import {
   stopSubAgentJoinWakeWorker,
   verifyMeteringModels,
 } from "@alfred/assistant/execution";
-import { registerAgentSystemToolAdapter } from "@alfred/assistant/execution/system-tool-adapter";
 import {
   closeMemoryQueue,
   scheduleRepeatableMemoryJobs,
@@ -106,9 +103,8 @@ export interface AssistantRuntime {
  *
  * It never rethrows: `stop` must attempt every remaining step, so one unrelated
  * failure cannot leave a worker live while the adapters it needs disappear. The
- * boolean is read for exactly one decision — see the ingestion retention rule in
- * `stop`. Exported for `test/runtime/runtime-contract.test.ts`; the manifest does
- * not carry it.
+ * boolean is read by the adapter-retention decisions in `stop`. Exported for
+ * `test/runtime/runtime-contract.test.ts`; the manifest does not carry it.
  */
 export async function runShutdownStep(label: string, step: () => Promise<void>): Promise<boolean> {
   try {
@@ -156,22 +152,9 @@ export function createAssistantRuntime(config: RuntimeConfig): AssistantRuntime 
       // their workflow or tool names. The host owns this step because the built-in
       // recipes and the dispatch tool-call-round adapter sit above this package.
       config.registerRecipes();
-      // The system tools reach two agent behaviors (sub-agent spawn/join) through a
-      // registered tool-runtime seam, so the tools module holds no agent import
-      // (ADR-0089). Install the agent-side handler here, after the tools register, so
-      // a first system-tool call finds it.
-      registerAgentSystemToolAdapter();
-      // `system.read_chat_history` reaches conversations chat-history retrieval
-      // through its own tool-runtime seam, installed by conversations (ADR-0089: the
-      // execution layer imports no product recipe). Install it beside the agent
-      // handler so a first `read_chat_history` call finds it rather than throwing.
-      registerConversationsSystemToolAdapter();
-      // The three workflow-authoring system tools reach workflow authoring,
-      // revision, recovery, and readiness behind a registered tool-runtime seam, so
-      // the tools module holds no workflows import (ADR-0089). Install the
-      // workflow-side handler here, after the tools register, so a first
-      // system-tool call finds it.
-      registerWorkflowSystemToolAdapter();
+      // Runtime composition installs the agent, conversations, workflow, knowledge,
+      // and task system-tool ports after the built-ins exist and before a worker can
+      // dispatch its first call. Their disposers run with the other adapters.
       registerRuntimeAdapters();
 
       config.registerUserCreated(async (user) => {
@@ -206,7 +189,7 @@ export function createAssistantRuntime(config: RuntimeConfig): AssistantRuntime 
     async stop(): Promise<void> {
       // Preserve the required stop order, but attempt every step. One unrelated
       // worker failure must not leave ingestion live while its adapters disappear.
-      await runShutdownStep("agent worker", stopAgentWorker);
+      const agentWorkerStopped = await runShutdownStep("agent worker", stopAgentWorker);
       await runShutdownStep("sub-agent join-wake worker", stopSubAgentJoinWakeWorker);
       // The chat-memory debounce worker's fire creates + enqueues an agent run, so
       // it must stop before the agent queue closes — same rationale as join-wake.
@@ -230,12 +213,16 @@ export function createAssistantRuntime(config: RuntimeConfig): AssistantRuntime 
       await runShutdownStep("workflows queue", closeWorkflowsQueue);
       console.log("Worker shutdown attempted");
 
-      // These adapters serve ingestion jobs. Keep them registered if stopping that
-      // worker failed, so an already-leased job cannot observe missing composition.
+      // These adapters serve agent and ingestion jobs. Keep each worker's adapters
+      // registered if stopping that worker failed, so an already-leased job cannot
+      // observe missing composition.
+      if (!agentWorkerStopped) {
+        console.warn("System-tool adapters retained because the agent worker did not stop");
+      }
       if (!ingestionWorkerStopped) {
         console.warn("Ingestion adapters retained because the ingestion worker did not stop");
       }
-      unregisterRuntimeAdapters({ ingestionWorkerStopped });
+      unregisterRuntimeAdapters({ agentWorkerStopped, ingestionWorkerStopped });
 
       try {
         // Workers are stopped, so no new metering rows or Langfuse spans will be
