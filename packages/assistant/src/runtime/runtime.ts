@@ -103,9 +103,8 @@ export interface AssistantRuntime {
  *
  * It never rethrows: `stop` must attempt every remaining step, so one unrelated
  * failure cannot leave a worker live while the adapters it needs disappear. The
- * boolean is read for exactly one decision — see the ingestion retention rule in
- * `stop`. Exported for `test/runtime/runtime-contract.test.ts`; the manifest does
- * not carry it.
+ * boolean is read by the adapter-retention decisions in `stop`. Exported for
+ * `test/runtime/runtime-contract.test.ts`; the manifest does not carry it.
  */
 export async function runShutdownStep(label: string, step: () => Promise<void>): Promise<boolean> {
   try {
@@ -190,7 +189,7 @@ export function createAssistantRuntime(config: RuntimeConfig): AssistantRuntime 
     async stop(): Promise<void> {
       // Preserve the required stop order, but attempt every step. One unrelated
       // worker failure must not leave ingestion live while its adapters disappear.
-      await runShutdownStep("agent worker", stopAgentWorker);
+      const agentWorkerStopped = await runShutdownStep("agent worker", stopAgentWorker);
       await runShutdownStep("sub-agent join-wake worker", stopSubAgentJoinWakeWorker);
       // The chat-memory debounce worker's fire creates + enqueues an agent run, so
       // it must stop before the agent queue closes — same rationale as join-wake.
@@ -214,12 +213,16 @@ export function createAssistantRuntime(config: RuntimeConfig): AssistantRuntime 
       await runShutdownStep("workflows queue", closeWorkflowsQueue);
       console.log("Worker shutdown attempted");
 
-      // These adapters serve ingestion jobs. Keep them registered if stopping that
-      // worker failed, so an already-leased job cannot observe missing composition.
+      // These adapters serve agent and ingestion jobs. Keep each worker's adapters
+      // registered if stopping that worker failed, so an already-leased job cannot
+      // observe missing composition.
+      if (!agentWorkerStopped) {
+        console.warn("System-tool adapters retained because the agent worker did not stop");
+      }
       if (!ingestionWorkerStopped) {
         console.warn("Ingestion adapters retained because the ingestion worker did not stop");
       }
-      unregisterRuntimeAdapters({ ingestionWorkerStopped });
+      unregisterRuntimeAdapters({ agentWorkerStopped, ingestionWorkerStopped });
 
       try {
         // Workers are stopped, so no new metering rows or Langfuse spans will be
