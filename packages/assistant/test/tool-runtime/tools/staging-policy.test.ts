@@ -95,8 +95,9 @@ describe("the fast path may not waive an approval a tool could require", () => {
 
   // The half a riskTier-only guard misses: approval is
   // `policyMode === "gated" || riskTier === "high"`, and only `system` is forced
-  // to autonomy at the floor. So a low-tier NON-system fast path skips a real
-  // approval under the default policy — the naive call must fail at boot.
+  // to autonomy by `resolvePolicyMode`. So a low-tier NON-system fast path
+  // skips a real approval under the default policy — the naive call must fail
+  // at boot.
   test("a mid-tier non-system fast-path tool throws without a named waiver", () => {
     assert.throws(
       () => registerTool(notionTool({ staging: "fast_path" })),

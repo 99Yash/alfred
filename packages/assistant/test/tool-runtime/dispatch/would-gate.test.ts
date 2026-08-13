@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { after, describe, test } from "node:test";
+import { after, before, describe, test } from "node:test";
 
 import type { ResolvedPolicy } from "@alfred/assistant/action-policies";
 import {
@@ -30,11 +30,30 @@ import {
  * `resolvePolicyMode` answers `"autonomy"` for `system.*` before it reads
  * anything (ADR-0040 as amended), and an unregistered name is refused by
  * `isToolName` first. The registry-wide mirror suite primes the cache instead.
+ *
+ * The first suite MUST register the builtins. Without them the registry is
+ * empty, `toolCallWouldGate` returns at its `if (!tool) return false` guard, and
+ * every assertion below passes without reading a policy mode or a risk tier —
+ * green and vacuous. Each suite that names a real tool therefore asserts the
+ * registry is populated first.
  */
 describe("toolCallWouldGate", () => {
   const userId = "test-would-gate-user";
 
+  before(() => {
+    clearToolRegistryForTests();
+    registerBuiltinTools();
+  });
+
+  after(() => {
+    clearToolRegistryForTests();
+  });
+
   test("no_risk system tools never gate — they stay in the concurrent bucket", async () => {
+    assert.ok(
+      listRegisteredTools().length > 0,
+      "the registry must be populated or this asserts nothing",
+    );
     for (const name of [
       "system.read_user_context",
       "system.spawn_sub_agent",
