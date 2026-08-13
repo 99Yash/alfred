@@ -17,7 +17,7 @@
 // all and read every drive as green.
 
 import { execFileSync } from "node:child_process";
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, realpathSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -49,14 +49,25 @@ const DIRTY_SOURCE = 'export const bad: number = "not a number";\n';
 /**
  * Build a fixture repository and run the rules over it.
  *
- * @param {{exclude?: string[], include?: string[], files?: Record<string, string>, tsc?: string}} shape
+ * The tree is always built under `<mkdtemp>/tree` and every fixture path is joined
+ * off that, never off the root handed to the rules. With `aliasRoot`, the rules are
+ * given `<mkdtemp>/link` — a symlink to the same tree — which is the shape a scratch
+ * worktree reached through `/tmp` has on macOS.
+ *
+ * @param {{exclude?: string[], include?: string[], files?: Record<string, string>, tsc?: string, aliasRoot?: boolean}} shape
  * @returns {{result: ReturnType<typeof checkTestTypecheckBaseline>, root: string, cleanup: () => void}}
  */
 function drive(shape) {
-  const root = mkdtempSync(join(tmpdir(), "alfred-test-baseline-"));
-  const cleanup = () => rmSync(root, { recursive: true, force: true });
+  // Realpathed on purpose. `tmpdir()` is itself reached through a symlink on macOS
+  // (`/var` -> `/private/var`), so an un-realpathed `mkdtemp` root would make the
+  // aliased drive and the plain drive break in the SAME way, and the pair below
+  // would agree on a wrong answer.
+  const home = realpathSync(mkdtempSync(join(tmpdir(), "alfred-test-baseline-")));
+  const cleanup = () => rmSync(home, { recursive: true, force: true });
+  const root = join(home, "tree");
 
   try {
+    mkdirSync(root);
     execFileSync("git", ["init", "--quiet"], { cwd: root, stdio: "ignore" });
 
     const packageDir = join(root, FIXTURE_PACKAGE);
@@ -85,8 +96,14 @@ function drive(shape) {
       writeFileSync(target, contents);
     }
 
+    let drivenRoot = root;
+    if (shape.aliasRoot === true) {
+      drivenRoot = join(home, "link");
+      symlinkSync(root, drivenRoot);
+    }
+
     const result = checkTestTypecheckBaseline({
-      root,
+      root: drivenRoot,
       tscBinary: shape.tsc ?? defaultTscBinary(REPO_ROOT),
       searchRoots: FIXTURE_ROOTS,
     });
@@ -248,6 +265,64 @@ export function testTypecheckBaselineSelfTestFailures() {
         ? null
         : "expected a refusal naming the missing binary",
   );
+
+  /**
+   * The same shape driven twice — once by the tree's real path, once by a symlink
+   * to it — must produce the same verdict and the same drift lists. `summarize`
+   * prints only repo-relative names and package directories, so the two strings are
+   * comparable verbatim; a root that leaked into either list would show up as a
+   * difference rather than as a silent second path space.
+   *
+   * @param {string} name
+   * @param {Parameters<typeof drive>[0]} shape
+   */
+  const agree = (name, shape) => {
+    let real;
+    let alias;
+    try {
+      real = drive(shape);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      failures.push(`${name} · real-root fixture could not be built: ${message}`);
+      return;
+    }
+    try {
+      alias = drive({ ...shape, aliasRoot: true });
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      failures.push(`${name} · aliased-root fixture could not be built: ${message}`);
+      return;
+    } finally {
+      real.cleanup();
+    }
+    try {
+      const realSummary = summarize(real.result);
+      const aliasSummary = summarize(alias.result);
+      if (realSummary !== aliasSummary) {
+        failures.push(
+          `${name} · a symlinked root changed the verdict (real ${realSummary}, alias ${aliasSummary})`,
+        );
+      }
+    } finally {
+      alias.cleanup();
+    }
+  };
+
+  // The one path space. `tsc --listFilesOnly` prints realpaths while the caller may
+  // spell the root through a symlink — which is every scratch worktree under `/tmp`
+  // on macOS — so a comparison that spans the two spellings reports every baselined
+  // entry as a file the project does not read. The green shape alone would not catch
+  // it degenerating into a subset or a basename match; the two drift shapes below are
+  // the two reasons this gate exists, and both must survive the alias.
+  agree("a symlinked root does not change the green verdict", BASELINED);
+  agree("a symlinked root does not change the nowClean verdict", {
+    ...BASELINED,
+    files: { ...BASELINED.files, "test/dirty.ts": CLEAN_SOURCE },
+  });
+  agree("a symlinked root does not change the newlyDirty verdict", {
+    ...BASELINED,
+    files: { ...BASELINED.files, "test/clean.ts": DIRTY_SOURCE },
+  });
 
   // No project at all is a refusal too: a search root that matches nothing is how
   // a rename turns this gate into a no-op that still prints a clean line. This one
