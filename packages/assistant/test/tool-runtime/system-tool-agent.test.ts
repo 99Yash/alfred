@@ -9,11 +9,25 @@ import {
   resolveAwaitSubAgent,
   spawnSubAgent,
   writeScratch,
+  type AwaitSubAgentDispatchResult,
   type SpawnSubAgentRequest,
   type SystemToolAgentAdapter,
   type SystemToolScratchRead,
   type SystemToolScratchWrite,
 } from "@alfred/assistant/tool-runtime";
+
+function typecheckSafeParkCapability(): void {
+  // A raw signal name is not evidence that execution scheduled the dead-man
+  // wake. This negative type pin fails if the adapter port becomes structurally
+  // constructible again.
+  const unprovenPark: AwaitSubAgentDispatchResult = {
+    kind: "parked",
+    // @ts-expect-error plain strings are not safe-to-park capabilities
+    wake: { kind: "signal", name: "sub_agent_done:run_child" },
+  };
+  void unprovenPark;
+}
+void typecheckSafeParkCapability;
 
 // The seam owns no behavior: it forwards each op to the registered adapter and
 // returns its result unchanged. These tests pin exactly that — a missing

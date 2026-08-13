@@ -266,6 +266,19 @@ export interface JoinChildRunRequest {
   childRunId: string;
 }
 
+declare const safeToParkSignalBrand: unique symbol;
+
+/**
+ * A signal name whose dead-man wake is already scheduled.
+ *
+ * Execution owns the only mint, after its scheduler returns `scheduled`. The
+ * brand crosses the adapter seam so another adapter cannot return a plain
+ * signal name and accidentally park a run without that backstop.
+ */
+export type SafeToParkSignal = string & {
+  readonly [safeToParkSignalBrand]: true;
+};
+
 export type AwaitSubAgentDispatchResult =
   | {
       kind: "executed";
@@ -273,7 +286,10 @@ export type AwaitSubAgentDispatchResult =
       toolResult: unknown;
       editedByUser: false;
     }
-  | { kind: "parked"; wake: Extract<WakeCondition, { kind: "signal" }> };
+  | {
+      kind: "parked";
+      wake: Extract<WakeCondition, { kind: "signal" }> & { name: SafeToParkSignal };
+    };
 
 export type SystemToolScratchRead =
   | { runId: string; zone: "shared"; path: string }
@@ -365,7 +381,7 @@ export function readChildRunOutcome(args: {
   return requireSystemToolAgentAdapter().readChildRunOutcome(args);
 }
 
-/** Resolve the join protocol without exposing execution's branded park signal. */
+/** Resolve the join protocol while preserving execution's safe-to-park proof. */
 export function resolveAwaitSubAgent(
   args: JoinChildRunRequest,
 ): Promise<AwaitSubAgentDispatchResult> {
