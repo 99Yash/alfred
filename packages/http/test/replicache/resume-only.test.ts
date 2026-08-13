@@ -4,8 +4,6 @@ import { after, afterEach, beforeEach, describe, test } from "node:test";
 
 import { closeConnections, db } from "@alfred/db";
 import { user, workflows } from "@alfred/db/schemas";
-import { databaseEnv } from "@alfred/env/database";
-import { serverEnv } from "@alfred/env/server";
 import { IDB_KEY } from "@alfred/sync";
 import { inArray } from "drizzle-orm";
 
@@ -16,6 +14,7 @@ import type { AgentDbExecutor, Workflow } from "@alfred/assistant/execution/type
 import { handlePull } from "../../src/sync/pull";
 import { seedBuiltinWorkflowsForUser } from "@alfred/assistant/automation/seeder";
 import { closeRedis } from "@alfred/db/redis";
+import { dbBackedSkip } from "../support/db-backed";
 
 const RESUME_ONLY_SLUG = "retired-built-in";
 
@@ -127,20 +126,15 @@ const SERVER_ENV_FIXTURES: Record<string, string> = {
   GITHUB_APP_REDIRECT_URI: "http://localhost:3001/api/integrations/github/callback",
 };
 
-function hasDatabaseAndRedis(): boolean {
-  for (const [key, value] of Object.entries(SERVER_ENV_FIXTURES)) {
-    process.env[key] ??= value;
-  }
-  try {
-    return Boolean(databaseEnv().DATABASE_URL && serverEnv().REDIS_URL);
-  } catch {
-    return false;
-  }
+// The fixtures must land before the first `serverEnv()` call in a test body,
+// and `serverEnv()` memoizes. So this stays at module scope. It sets neither
+// DATABASE_URL nor REDIS_URL, so it cannot hide an absent service from the
+// guard below.
+for (const [key, value] of Object.entries(SERVER_ENV_FIXTURES)) {
+  process.env[key] ??= value;
 }
 
-const SKIP_TOMBSTONE = hasDatabaseAndRedis()
-  ? false
-  : "DATABASE_URL/REDIS_URL not set — skipping DB/Redis-backed test";
+const SKIP_TOMBSTONE = dbBackedSkip("database+redis");
 const createdUserIds: string[] = [];
 
 describe(

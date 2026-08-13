@@ -7,8 +7,9 @@ import { user, userFacts } from "@alfred/db/schemas";
 import { and, eq, inArray } from "drizzle-orm";
 
 import { serverMutators } from "../../src/sync/server-mutators";
+import { dbBackedSkip } from "../support/db-backed";
 
-const SKIP = process.env.DATABASE_URL ? false : "DATABASE_URL not set — skipping DB-backed test";
+const SKIP = dbBackedSkip("database");
 
 const ID_PREFIX = "test-rfact-";
 const createdUserIds: string[] = [];
