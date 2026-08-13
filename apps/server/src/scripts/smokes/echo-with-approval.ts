@@ -1,4 +1,4 @@
-import type { Workflow } from "@alfred/api/backend";
+import type { Workflow } from "@alfred/assistant/execution";
 import { getStringPath } from "@alfred/contracts";
 import { z } from "zod";
 

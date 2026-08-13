@@ -25,8 +25,10 @@
  *   COLD_START_EMAILS="a@x.com,b@y.com" node dist/scripts/ops/trigger-cold-start-committed.js --commit
  */
 import { randomUUID } from "node:crypto";
-import { COLD_START_WORKFLOW_SLUG, startRun } from "@alfred/api/backend";
-import { closeAgentQueue, registerReplicachePokeAdapter, warmPool } from "@alfred/api/runtime";
+import { COLD_START_WORKFLOW_SLUG } from "@alfred/assistant/knowledge";
+import { startRun, closeAgentQueue } from "@alfred/assistant/execution";
+import { registerReplicachePokeAdapter } from "@alfred/assistant/realtime";
+import { warmPool } from "@alfred/db";
 import { db } from "@alfred/db";
 import { agentRuns, user as userTable } from "@alfred/db/schemas";
 import { and, eq, inArray, sql } from "drizzle-orm";

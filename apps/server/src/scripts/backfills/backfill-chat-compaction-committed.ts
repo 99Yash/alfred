@@ -17,9 +17,9 @@ import {
   backgroundCompactionThresholdTokens,
   CHAT_MAX_OUTPUT_TOKENS,
   scheduleConversationCompactionIfNeeded,
-} from "@alfred/api/backend";
+} from "@alfred/assistant/conversations";
 import { route, resolveEffectiveInputWindowTokens } from "@alfred/ai";
-import { warmPool } from "@alfred/api/runtime";
+import { warmPool } from "@alfred/db";
 import { closeScriptResources } from "../script-runtime";
 import { toMessage } from "@alfred/contracts";
 import { db } from "@alfred/db";

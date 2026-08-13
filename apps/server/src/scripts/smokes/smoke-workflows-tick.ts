@@ -20,14 +20,10 @@
  *   6. The same scheduled instant is not re-fired even after the
  *      handler runs again (CAS on `next_run_at`).
  */
-import { dispatchDueCronWorkflows } from "@alfred/api/backend";
-import {
-  closeAgentQueue,
-  closeConnections,
-  closeRedis,
-  closeWorkflowsQueue,
-  warmPool,
-} from "@alfred/api/runtime";
+import { dispatchDueCronWorkflows, closeWorkflowsQueue } from "@alfred/assistant/automation";
+import { closeAgentQueue } from "@alfred/assistant/execution";
+import { closeConnections, warmPool } from "@alfred/db";
+import { closeRedis } from "@alfred/db/redis";
 import { db } from "@alfred/db";
 import { agentRuns, user as userTable, workflows } from "@alfred/db/schemas";
 import { and, eq } from "drizzle-orm";

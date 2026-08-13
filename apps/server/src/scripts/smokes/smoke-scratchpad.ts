@@ -18,7 +18,6 @@
 
 import {
   _setScratchRuntimeSpanStarterForTests,
-  dispatchToolCall,
   promoteScratch,
   readScratch,
   RUNTIME_SCRATCH_PROMOTE,
@@ -27,9 +26,16 @@ import {
   RUNTIME_SCRATCH_WRITE,
   snapshotScratchToPostgres,
   writeScratch,
-} from "@alfred/api/backend";
+} from "@alfred/assistant/execution";
+
+// Stays on @alfred/api: still real api code. Item 148 gives it an @alfred/assistant address.
+import { dispatchToolCall } from "@alfred/api/backend";
 import type { RuntimeSpanEndArgs, RuntimeSpanInput } from "@alfred/ai";
-import { closeConnections, closeRedis, registerBuiltinTools, warmPool } from "@alfred/api/runtime";
+import { closeConnections, warmPool } from "@alfred/db";
+import { closeRedis } from "@alfred/db/redis";
+
+// Stays on @alfred/api: still real api code. Item 148 gives it an @alfred/assistant address.
+import { registerBuiltinTools } from "@alfred/api/runtime";
 import { db } from "@alfred/db";
 import { actionStagings, agentRunContext, agentRuns, user as userTable } from "@alfred/db/schemas";
 import { createRedisConnection } from "@alfred/db/redis";

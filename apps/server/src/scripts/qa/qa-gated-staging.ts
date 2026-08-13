@@ -14,8 +14,9 @@
  */
 
 import { randomUUID } from "node:crypto";
-import { startRun } from "@alfred/api/backend";
-import { closeAgentQueue, registerReplicachePokeAdapter, warmPool } from "@alfred/api/runtime";
+import { startRun, closeAgentQueue } from "@alfred/assistant/execution";
+import { registerReplicachePokeAdapter } from "@alfred/assistant/realtime";
+import { warmPool } from "@alfred/db";
 import { db } from "@alfred/db";
 import {
   actionStagings,

@@ -10,7 +10,7 @@ import {
   classifyEmail,
   extractSenderContext,
   resolveTodoSuggestion,
-} from "@alfred/api/backend";
+} from "@alfred/assistant/triage";
 
 const IDENTITY = { name: "Yash Kar", email: "yash.k@oliv.ai" };
 

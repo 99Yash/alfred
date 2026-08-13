@@ -25,8 +25,9 @@
  *      ends up with one alfred label across the whole thread.
  */
 import { randomUUID } from "node:crypto";
-import { getTriage, startRun, TRIAGE_WORKFLOW_SLUG } from "@alfred/api/backend";
-import { closeAgentQueue, warmPool } from "@alfred/api/runtime";
+import { getTriage, TRIAGE_WORKFLOW_SLUG } from "@alfred/assistant/triage";
+import { startRun, closeAgentQueue } from "@alfred/assistant/execution";
+import { warmPool } from "@alfred/db";
 import { db } from "@alfred/db";
 import { agentRuns, documents, emailTriage, integrationCredentials } from "@alfred/db/schemas";
 import {

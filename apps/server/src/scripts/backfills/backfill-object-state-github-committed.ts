@@ -24,8 +24,8 @@
  *   # commit:
  *   node dist/scripts/backfills/backfill-object-state-github-committed.js --commit
  */
-import { objectStateStore } from "@alfred/api/backend";
-import { warmPool } from "@alfred/api/runtime";
+import { objectStateStore } from "@alfred/assistant/connections";
+import { warmPool } from "@alfred/db";
 import { closeScriptResources } from "../script-runtime";
 import { db } from "@alfred/db";
 import { integrationObjects, webhookEvents } from "@alfred/db/schemas";

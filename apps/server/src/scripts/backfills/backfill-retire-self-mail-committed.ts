@@ -40,7 +40,7 @@
  *   # override target(s):
  *   node dist/scripts/backfills/backfill-retire-self-mail-committed.js --emails=a@x.com,b@y.com --commit
  */
-import { warmPool } from "@alfred/api/runtime";
+import { warmPool } from "@alfred/db";
 import { closeScriptResources } from "../script-runtime";
 import { parseEmailAddress, toMessage } from "@alfred/contracts";
 import { serverEnv } from "@alfred/env/server";
