@@ -43,25 +43,30 @@ export default defineConfig({
   noExternal: [/@alfred\/.*/],
   // Pin symlink resolution. `noExternal` above inlines every @alfred/* package
   // into this bundle, and pnpm links several of them through more than one
-  // path: @alfred/http is reached directly by apps/server and transitively by
-  // @alfred/assistant module subpaths, @alfred/db through nine such paths, and
+  // path. Each package that declares a dependency gets its own symlink, so the
+  // path count is the count of declaring packages inside this bundle graph.
+  // @alfred/api left that graph with this app's dependency on it, which removed
+  // the second path to @alfred/http: this app is now the only package in the
+  // bundle that declares it. @alfred/db is still reached through eight paths and
   // @alfred/auth through two — each set points at one directory under packages/.
+  // (@alfred/assistant reaches neither @alfred/api nor @alfred/http;
+  // scripts/check-module-architecture.mjs fails the build on that import.)
   // With `symlinks: true` the resolver collapses every path onto the
   // real one, so each source file becomes one module in the output. With
   // `false` it keeps the symlinked location, so one file becomes one module per
-  // path that reaches it (measured: two copies of session-cache.ts).
+  // path that reaches it.
   //
   // Module-level mutable state is what makes that matter.
   // packages/http/src/middleware/session-cache.ts holds tokenCache,
-  // tokenInflight and a 60s sweep timer. For that cache the duplication is
-  // live now: apps/server imports the root app directly from @alfred/http, and
-  // that app reaches both the sign-out writer and the route readers in the same
-  // session-cache module. A duplicated copy could make sign-out clear one map
+  // tokenInflight and a 60s sweep timer. That cache is what made the class
+  // explicit: while @alfred/api was in this bundle, @alfred/http was reached
+  // through two links and a `symlinks: false` build produced two copies of
+  // session-cache.ts. A duplicated copy could make sign-out clear one map
   // while requests read another, which would keep a signed-out session valid
-  // for up to TOKEN_TTL_MS (10s). The same class is wider than this one cache —
-  // @alfred/db's _db/_pool/_heartbeatTimer would fork into two pools and two
-  // heartbeat timers with shutdown closing one — so read this pin
-  // as covering every @alfred/* module reached through more than one link, not
+  // for up to TOKEN_TTL_MS (10s). @alfred/http has one link today, so the live
+  // case is @alfred/db — its _db/_pool/_heartbeatTimer would fork into two
+  // pools and two heartbeat timers with shutdown closing one. Read this pin as
+  // covering every @alfred/* module reached through more than one link, not
   // just the cache that made it explicit.
   //
   // `true` is already rolldown's default (it is oxc-resolver's). This states it
