@@ -16,15 +16,18 @@ Path alias `~/` maps to `src/` in both apps.
 
 **Web → HTTP:** `apps/web/src/lib/eden.ts` creates an Eden treaty client typed against `App` from `@alfred/http`. The Vite dev server proxies `/api/auth/*` to `localhost:3001`; all other API calls use `VITE_API_URL` directly.
 
-**HTTP and API entrypoints during migration:** the `@alfred/http` root exports
-the composed Elysia `app`, its derived `App` type, middleware, and routes. Reusable
-server-side domain and queue behavior still lives at `@alfred/api/backend`.
-Worker lifecycle, registration, scheduling, bootstrap, and teardown operations
-now live behind `createAssistantRuntime` at `@alfred/assistant/runtime`. A host
-process builds one runtime and drives `start` and `stop`; the runtime adapters,
-the queues, and the workers stay private to that package. `@alfred/api/runtime`
-keeps a re-export door for operational scripts. These are legacy doors, not the
-target interface.
+**HTTP and API entrypoints:** the `@alfred/http` root exports the composed Elysia
+`app`, its derived `App` type, middleware, and routes. Reusable server-side domain
+and queue behavior lives behind the `@alfred/assistant` module subpaths that own
+each name. Worker lifecycle, registration, scheduling, bootstrap, and teardown
+operations live behind `createAssistantRuntime` at `@alfred/assistant/runtime`,
+which is now the only process-facing door: a host process builds one runtime and
+drives `start` and `stop`, while the runtime adapters, the queues, and the workers
+stay private to that package.
+
+`@alfred/api` published two transitional doors during the migration,
+`@alfred/api/backend` and `@alfred/api/runtime`. Both are deleted. The package
+publishes an empty `exports` map, so no subpath of it resolves at all.
 
 ADR-0089 moves product behavior and runtime composition to
 `@alfred/assistant`, moves HTTP adaptation to `@alfred/http`, and then deletes

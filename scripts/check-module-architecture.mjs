@@ -18,7 +18,6 @@ import { listWorkspaces } from "./workspaces.mjs";
 const ROOT = dirname(dirname(fileURLToPath(import.meta.url)));
 const BASELINE_PATH = join(ROOT, "scripts/module-architecture-baseline.json");
 const SOURCE_EXTENSIONS = [".ts", ".tsx", ".mts", ".cts"];
-const LEGACY_API_MODULES_ROOT = join(ROOT, "packages/api/src/modules");
 const ASSISTANT_SOURCE_ROOT = join(ROOT, "packages/assistant/src");
 // The runtime adapters moved out of `packages/api/src/composition` with the runtime
 // itself (campaign item 09). `walkSourceFiles` returns `[]` for a directory that does
@@ -70,13 +69,13 @@ const TARGET_ASSISTANT_MODULES = new Set([
   "time",
   "triage",
 ]);
-// The two roots that decide which module owns a file, as one parameter so a self-test
-// can point the module derivation at a fixture tree. Both members are the existing
-// constants, so this adds no path literal and no `SCANNED_PATHS` row: the rows for
-// `ASSISTANT_SOURCE_ROOT` and `LEGACY_API_MODULES_ROOT` below already prove both
-// resolve on every `pnpm check`.
+// The root that decides which module owns a file, as one parameter so a self-test can
+// point the module derivation at a fixture tree. Its member is the existing constant,
+// so this adds no path literal and no `SCANNED_PATHS` row: the `ASSISTANT_SOURCE_ROOT`
+// row below already proves it resolves on every `pnpm check`. This was a two-root map
+// until campaign item 149 deleted `packages/api/src/modules` with the two transitional
+// doors that were its only readers; `@alfred/assistant` now owns every module.
 const MODULE_ROOTS = {
-  apiModules: LEGACY_API_MODULES_ROOT,
   assistantSource: ASSISTANT_SOURCE_ROOT,
 };
 const WEB_ROUTES_ROOT = join(ROOT, "apps/web/src/routes");
@@ -87,8 +86,9 @@ const WEB_ROUTES_ROOT = join(ROOT, "apps/web/src/routes");
 // `./ingestion`: the barrel does not re-export it, and `./oauth-state` imports the
 // `./ingestion/workflow-recovery` LEAF rather than the ingestion barrel. Both lines exist
 // because importing the ingestion barrel evaluates the BullMQ queue and the whole Gmail
-// ingestion graph, and this barrel is reached by `@alfred/api/backend`'s `export *` and
-// therefore by every operational script.
+// ingestion graph, and every operational script reaches this barrel. It used to reach it
+// through `@alfred/api/backend`'s `export *`; campaign item 149 deleted that door, and the
+// scripts now name `@alfred/assistant/connections` directly, so the cost is unchanged.
 //
 // `./mcp`: the barrel does not re-export it either, for the same reason at a different cost.
 // `client.ts` holds a process-lifetime live-client cache and `oauth.ts` reaches the credential
@@ -132,7 +132,6 @@ const CONNECTIONS_BARREL_FORBIDDEN_REACH = [
 // elsewhere, not claimed here.
 const SCANNED_PATHS = [
   { constant: "ASSISTANT_SOURCE_ROOT", path: ASSISTANT_SOURCE_ROOT, kind: "directory" },
-  { constant: "LEGACY_API_MODULES_ROOT", path: LEGACY_API_MODULES_ROOT, kind: "directory" },
   { constant: "WEB_ROUTES_ROOT", path: WEB_ROUTES_ROOT, kind: "directory" },
   { constant: "RUNTIME_ADAPTER_ROOT", path: RUNTIME_ADAPTER_ROOT, kind: "directory" },
   { constant: "TOOL_RUNTIME_ROOT", path: TOOL_RUNTIME_ROOT, kind: "directory" },
@@ -156,10 +155,20 @@ const EXECUTION_MODULE = "execution";
 // the grandfathered baseline SCC, so a re-introduced product import fails even
 // while `agent` still shares a baseline cycle with other product modules. The
 // set only ever grows — each edge-removal PR that lands its module here:
-//   `triage`    — item 06 (this rule's first entry)
-//   `chat`      — item 03 (chat → conversations migration)
-//   `workflows` — item 10 (homes the last brief recipe out of agent/)
-const EXECUTION_FORBIDDEN_PRODUCT_MODULES = new Set(["triage", "workflows"]);
+//   `triage`     — item 06 (this rule's first entry)
+//   `chat`       — item 03 (chat → conversations migration)
+//   `automation` — item 10 (homes the last brief recipe out of agent/)
+//
+// `automation` was spelled `workflows` until campaign item 149. That name was the
+// api-side directory `packages/api/src/modules/workflows`, whose `index.ts` was a pure
+// re-export of `@alfred/assistant/automation`; the owning module has been `automation`
+// since the recipes moved. The rename is not cosmetic — it un-vacuums the entry. A
+// forbidden edge is `execution -> P` and both endpoints are derived from a module
+// directory, so while `P` was `workflows` no assistant file could produce the edge and
+// the entry enforced nothing. `executionGateLivenessViolations` is what refused to let
+// the stale name survive the deletion of the api tree, which is the failure mode that
+// closure exists for. No `execution -> automation` edge exists today.
+const EXECUTION_FORBIDDEN_PRODUCT_MODULES = new Set(["triage", "automation"]);
 
 function normalizePath(path) {
   return path.split(sep).join("/");
@@ -529,10 +538,6 @@ function packageFromSpecifier(entries, specifier) {
 // identity is only decided from inside the import walk, so a drive that plants a
 // fixture module tree outside the repository has to be able to point this at it.
 function moduleForPath(path, roots = MODULE_ROOTS) {
-  if (path.startsWith(`${roots.apiModules}${sep}`)) {
-    const [name] = relative(roots.apiModules, path).split(sep);
-    return name ? { index: join(roots.apiModules, name, "index.ts"), name } : null;
-  }
   if (path.startsWith(`${roots.assistantSource}${sep}`)) {
     const [name] = relative(roots.assistantSource, path).split(sep);
     return name && TARGET_ASSISTANT_MODULES.has(name)
@@ -887,7 +892,7 @@ function collectConnectionsBarrelReach(
  *
  * @param {{ directory: string, name: string, source: string }[]} entries
  * @param {string} routesRoot
- * @param {{ apiModules: string, assistantSource: string }} moduleRoots
+ * @param {{ assistantSource: string }} moduleRoots
  * @returns {{ packageEdges: { from: string, to: string }[],
  *             moduleEdges: { from: string, to: string }[],
  *             exceptions: {
@@ -918,15 +923,7 @@ function collectImportFacts(entries, routesRoot = WEB_ROUTES_ROOT, moduleRoots =
 
         const fromModule = moduleForPath(file, moduleRoots);
         let toModule = targetFile ? moduleForPath(targetFile, moduleRoots) : null;
-        if (!toModule && imported.specifier.startsWith("@alfred/api/modules/")) {
-          const name = imported.specifier.split("/")[3];
-          if (name) {
-            toModule = {
-              index: join(moduleRoots.apiModules, name, "index.ts"),
-              name,
-            };
-          }
-        } else if (!toModule && imported.specifier.startsWith("@alfred/assistant/")) {
+        if (!toModule && imported.specifier.startsWith("@alfred/assistant/")) {
           const name = imported.specifier.split("/")[2];
           if (name && TARGET_ASSISTANT_MODULES.has(name)) {
             toModule = {
@@ -943,12 +940,12 @@ function collectImportFacts(entries, routesRoot = WEB_ROUTES_ROOT, moduleRoots =
         // A private REACH needs only one module endpoint — the target's. Any file
         // that resolves an import to another module's non-index file has reached
         // past that module's public interface, whether or not the importer itself
-        // lives in a module directory: the wiring files in `packages/api/src`,
-        // `packages/http` and `apps/server` are exactly the ones that can do it.
+        // lives in a module directory: the wiring files in `packages/http` and
+        // `apps/server` are exactly the ones that can do it.
         //
         // A null `targetFile` is what holds bare package specifiers out. The custom
         // resolver returns null for anything that does not start with `.` or `~/`,
-        // so a `@alfred/assistant/<m>` or `@alfred/api/modules/<m>` specifier
+        // so a `@alfred/assistant/<m>` specifier
         // synthesizes a `toModule` with no resolved file: it addresses the module by
         // its public subpath and cannot name an implementation file. Only a resolved
         // non-index target — a relative deep import — is a private reach.
@@ -1029,12 +1026,9 @@ function collectArchitecture() {
     productionPreviewImports,
   } = collectImportFacts(entries);
 
-  const moduleNodes = [
-    ...listDirectories(LEGACY_API_MODULES_ROOT).map((path) => path.split(sep).at(-1)),
-    ...listDirectories(ASSISTANT_SOURCE_ROOT)
-      .map((path) => path.split(sep).at(-1))
-      .filter((name) => name && TARGET_ASSISTANT_MODULES.has(name)),
-  ];
+  const moduleNodes = listDirectories(ASSISTANT_SOURCE_ROOT)
+    .map((path) => path.split(sep).at(-1))
+    .filter((name) => name && TARGET_ASSISTANT_MODULES.has(name));
   return {
     // Every tree read a rule needs is collected here, so `checkArchitecture` decides
     // over its arguments alone (item 38). Before this the boot-seam and runtime-adapter
@@ -1381,15 +1375,17 @@ const text = 'import "ignored-string"';
       `execution forbidden-import fixture mismatch: expected an execution -> triage violation, received ${JSON.stringify(forbiddenFired)}`,
     );
   }
-  // Each locked module carries its own live fixture (item 11): `workflows` is
+  // Each locked module carries its own live fixture (item 11): `automation` is
   // the last product edge the execution core shed (item 10), so prove the gate
-  // fires for `execution -> workflows` too, not just `execution -> triage`.
-  const forbiddenFiredWorkflows = executionForbiddenImportViolations([
-    { from: "execution", to: "workflows" },
+  // fires for `execution -> automation` too, not just `execution -> triage`.
+  const forbiddenFiredAutomation = executionForbiddenImportViolations([
+    { from: "execution", to: "automation" },
   ]);
-  if (!forbiddenFiredWorkflows.some((violation) => violation.includes("execution -> workflows"))) {
+  if (
+    !forbiddenFiredAutomation.some((violation) => violation.includes("execution -> automation"))
+  ) {
     failures.push(
-      `execution forbidden-import fixture mismatch: expected an execution -> workflows violation, received ${JSON.stringify(forbiddenFiredWorkflows)}`,
+      `execution forbidden-import fixture mismatch: expected an execution -> automation violation, received ${JSON.stringify(forbiddenFiredAutomation)}`,
     );
   }
   const forbiddenSilent = executionForbiddenImportViolations([
@@ -1644,7 +1640,7 @@ const text = 'import "ignored-string"';
   // become records, and a NARROWED predicate collects a shorter list that every
   // baselined key still covers, leaving every gate green. The fence used to require the
   // IMPORTING file to live in a module directory too, which exempted every wiring file
-  // in `packages/api/src`, `packages/http` and `apps/server` — the files that reach
+  // in `packages/http` and `apps/server` — the files that reach
   // across modules for a living. This drive names each importer position separately, so
   // re-gating on `fromModule` fails by the position it dropped rather than as "the list
   // got shorter".
@@ -1654,36 +1650,46 @@ const text = 'import "ignored-string"';
   // walk under test is the production `collectImportFacts` and not a copy of it.
   const moduleReachDirectory = mkdtempSync(join(tmpdir(), "check-module-architecture-"));
   try {
-    const apiRoot = join(moduleReachDirectory, "api");
     const assistantRoot = join(moduleReachDirectory, "assistant");
     const serverRoot = join(moduleReachDirectory, "server");
-    const apiSourceRoot = join(apiRoot, "src");
     const assistantSourceRoot = join(assistantRoot, "src");
     const serverSourceRoot = join(serverRoot, "src");
-    const apiModulesRoot = join(apiSourceRoot, "modules");
-    const fixtureModuleRoots = { apiModules: apiModulesRoot, assistantSource: assistantSourceRoot };
+    const fixtureModuleRoots = { assistantSource: assistantSourceRoot };
     // Every `plant` path below is built off `moduleReachDirectory`, never off
     // `fixtureModuleRoots` — the roots object is what a mutant repoints, and a plant that
-    // read it would write a fixture into the real `packages/api/src/modules` tree.
-    plant(join(apiModulesRoot, "connections", "store.ts"), null);
-    plant(join(apiModulesRoot, "skills", "index.ts"), null);
+    // read it would write a fixture into the real `packages/assistant/src` tree.
+    //
+    // Campaign item 149 deleted `packages/api/src/modules`, so the four arms that used to
+    // plant an api-side fixture were REPOINTED onto the assistant module root rather than
+    // deleted. They drive THREE distinct importer positions, not four:
+    // `wire-reach` (a non-module file in another package), `wire-barrel` and
+    // `runtime-barrel` (the two barrel spellings, which the index exemption must leave
+    // uncollected). `runtime-reach` is the redundant one. Nothing in `moduleForPath`
+    // separates it from the older `outside-module` arm — both take the same `if`, both
+    // fall to the same ternary else, both get `fromModule === null`, and both import the
+    // same target file — so a mutant that reds one reds the other with a byte-identical
+    // residual list. It also labels a position with no live instance: `packages/assistant/src`
+    // holds no top-level `.ts` file today. Keep the arm anyway. It costs one plant, it
+    // carries the field-coverage row below that pins `from` to the package name, and it
+    // becomes non-redundant the day a top-level assistant file appears.
+    //
     // `triage` and `knowledge` are real `TARGET_ASSISTANT_MODULES` members, so the module
     // name Set needs no parameter of its own; `not-a-module` deliberately is not one.
     plant(join(assistantSourceRoot, "triage", "internal.ts"), null);
+    plant(join(assistantSourceRoot, "triage", "index.ts"), null);
     plant(join(assistantSourceRoot, "knowledge", "internal.ts"), null);
     // One importer per position a private reach can come from.
-    plant(join(apiSourceRoot, "runtime-reach.ts"), "./modules/connections/store.ts");
-    plant(join(serverSourceRoot, "wire-reach.ts"), "../../api/src/modules/connections/store.ts");
+    plant(join(assistantSourceRoot, "runtime-reach.ts"), "./triage/internal.ts");
+    plant(join(serverSourceRoot, "wire-reach.ts"), "../../assistant/src/triage/internal.ts");
     plant(join(assistantSourceRoot, "not-a-module", "outside-module.ts"), "../triage/internal.ts");
     plant(join(assistantSourceRoot, "triage", "module-reach.ts"), "../knowledge/internal.ts");
     // One importer per way an import into a module directory stays public.
-    plant(join(apiSourceRoot, "runtime-barrel.ts"), "./modules/skills/index.ts");
-    plant(join(serverSourceRoot, "wire-barrel.ts"), "../../api/src/modules/skills/index.ts");
+    plant(join(assistantSourceRoot, "runtime-barrel.ts"), "./triage/index.ts");
+    plant(join(serverSourceRoot, "wire-barrel.ts"), "../../assistant/src/triage/index.ts");
     plant(join(assistantSourceRoot, "triage", "intra-flat.ts"), "./internal.ts");
     plant(join(assistantSourceRoot, "triage", "nested", "intra-deep.ts"), "../internal.ts");
     const moduleReachFacts = collectImportFacts(
       [
-        { directory: apiRoot, name: "@alfred/api", source: apiSourceRoot },
         { directory: assistantRoot, name: "@alfred/assistant", source: assistantSourceRoot },
         { directory: serverRoot, name: "server", source: serverSourceRoot },
       ],
@@ -1692,7 +1698,7 @@ const text = 'import "ignored-string"';
     );
     const privateReaches = moduleReachFacts.exceptions.privateModuleImports;
     for (const [importerBasename, position] of [
-      ["runtime-reach", "a non-module file reaching into a module of its own package"],
+      ["runtime-reach", "a top-level non-module file reaching into a module of its own package"],
       ["wire-reach", "a non-module file in another package reaching around into a module"],
       ["outside-module", "a file inside the assistant source root but outside any target module"],
       ["module-reach", "a module file reaching into another module"],
@@ -1719,7 +1725,7 @@ const text = 'import "ignored-string"';
     // leaves a stubbed field green. `from` is the importer's owning scope: its module
     // when it has one, otherwise its package name.
     for (const expected of [
-      { from: "@alfred/api", importer: "runtime-reach.ts", line: 1, to: "connections" },
+      { from: "@alfred/assistant", importer: "runtime-reach.ts", line: 1, to: "triage" },
       { from: "triage", importer: "module-reach.ts", line: 1, to: "knowledge" },
     ]) {
       const reach = privateReaches.find((imported) => imported.key.includes(expected.importer));

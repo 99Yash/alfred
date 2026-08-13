@@ -153,9 +153,6 @@ importers:
       '@alfred/ai':
         specifier: workspace:*
         version: link:../../packages/ai
-      '@alfred/api':
-        specifier: workspace:*
-        version: link:../../packages/api
       '@alfred/assistant':
         specifier: workspace:*
         version: link:../../packages/assistant
