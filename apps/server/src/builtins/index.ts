@@ -1,17 +1,13 @@
 import {
   buildMemoryExtractionWorkflow,
-  chatMemoryCaptureWorkflow,
-  chatTurnWorkflow,
   coldStartResearchWorkflow,
-  dailyBriefingWorkflow,
-  emailTriageWorkflow,
-  gmailSenderAdapter,
-  learnSkillWorkflow,
-  morningBriefingWorkflow,
-  skillDocumentationWorkflow,
-  userAuthoredBriefWorkflow,
-} from "@alfred/api/backend";
-import { registerRecipe } from "@alfred/api/runtime";
+} from "@alfred/assistant/knowledge";
+import { chatMemoryCaptureWorkflow, chatTurnWorkflow } from "@alfred/assistant/conversations";
+import { dailyBriefingWorkflow, morningBriefingWorkflow } from "@alfred/assistant/briefings";
+import { emailTriageWorkflow, gmailSenderAdapter } from "@alfred/assistant/triage";
+import { learnSkillWorkflow, skillDocumentationWorkflow } from "@alfred/assistant/skills";
+import { userAuthoredBriefWorkflow } from "@alfred/assistant/execution/workflows/user-authored-brief";
+import { registerRecipe } from "@alfred/assistant/execution";
 import { echoWithApprovalWorkflow } from "../scripts/smokes/echo-with-approval";
 
 /**

@@ -10,17 +10,17 @@
  */
 
 import { randomUUID } from "node:crypto";
-import { dispatchToolCall, readScratch, startRun } from "@alfred/api/backend";
-import {
-  closeAgentQueue,
-  closeConnections,
-  closeRedis,
-  registerAgentSystemToolAdapter,
-  registerBuiltinTools,
-  registerConversationsSystemToolAdapter,
-  registerReplicachePokeAdapter,
-  warmPool,
-} from "@alfred/api/runtime";
+// Stays on @alfred/api: still real api code. Item 148 gives it an @alfred/assistant address.
+import { dispatchToolCall } from "@alfred/api/backend";
+import { readScratch, startRun, closeAgentQueue } from "@alfred/assistant/execution";
+import { closeConnections, warmPool } from "@alfred/db";
+import { closeRedis } from "@alfred/db/redis";
+import { registerAgentSystemToolAdapter } from "@alfred/assistant/execution/system-tool-adapter";
+
+// Stays on @alfred/api: still real api code. Item 148 gives it an @alfred/assistant address.
+import { registerBuiltinTools } from "@alfred/api/runtime";
+import { registerConversationsSystemToolAdapter } from "@alfred/assistant/conversations";
+import { registerReplicachePokeAdapter } from "@alfred/assistant/realtime";
 import { isRecord } from "@alfred/contracts";
 import { db } from "@alfred/db";
 import { actionStagings, agentRuns, user as userTable, workflows } from "@alfred/db/schemas";
@@ -92,7 +92,7 @@ async function main(): Promise<void> {
   // via `dispatchToolCall` and never polls it, so the extra queued job is inert.
   // There is no module-private create-without-enqueue door on the public facade
   // (that door is exactly what item 09 closes), and the agent service subfile is
-  // not on `@alfred/api`'s exports map, so `startRun` is the migration here.
+  // not on `@alfred/assistant`'s exports map, so `startRun` is the migration here.
   const parent = await startRun({
     userId,
     workflowSlug: WORKFLOW_SLUG,

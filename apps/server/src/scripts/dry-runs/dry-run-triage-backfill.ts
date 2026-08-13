@@ -23,11 +23,11 @@ import {
   resolveSenderKind,
   resolveSenderRelationship,
   loadTriageContext,
-  resolveTimezone,
   resolveTodoSuggestion,
   senderKeyFor,
   todoSuppressionReason,
-} from "@alfred/api/backend";
+} from "@alfred/assistant/triage";
+import { resolveTimezone } from "@alfred/assistant/settings";
 import { toMessage } from "@alfred/contracts";
 import { db } from "@alfred/db";
 import { documents, todos, user as userTable } from "@alfred/db/schemas";

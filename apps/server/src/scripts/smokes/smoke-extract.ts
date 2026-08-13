@@ -16,9 +16,10 @@
  *   5. Trigger again — second run is a no-op (proposeFact dedups, doc
  *      sits inside the extracted-window) and produces the same output.
  */
-import { closeAgentQueue, warmPool } from "@alfred/api/runtime";
-import { enqueueExtractionForUser } from "@alfred/api/backend";
-import { recallActiveByKey } from "@alfred/api/backend";
+import { closeAgentQueue } from "@alfred/assistant/execution";
+import { warmPool } from "@alfred/db";
+import { enqueueExtractionForUser } from "@alfred/assistant/knowledge/queue";
+import { recallActiveByKey } from "@alfred/assistant/knowledge";
 import { registerBuiltinWorkflows } from "~/builtins";
 import { db } from "@alfred/db";
 import {

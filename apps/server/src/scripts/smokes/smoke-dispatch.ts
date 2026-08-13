@@ -21,9 +21,13 @@
  *   4. cancelRun: idempotent transitions + pending approval cleanup.
  */
 
-import { cancelRun, dispatchToolCall, signalRun } from "@alfred/api/backend";
+import { cancelRun, signalRun } from "@alfred/assistant/execution";
+
+// Stays on @alfred/api: still real api code. Item 148 gives it an @alfred/assistant address.
+import { dispatchToolCall } from "@alfred/api/backend";
 import { clearToolRegistryForTests, liveTool, registerTools } from "@alfred/assistant/tool-runtime";
-import { closeConnections, closeRedis, warmPool } from "@alfred/api/runtime";
+import { closeConnections, warmPool } from "@alfred/db";
+import { closeRedis } from "@alfred/db/redis";
 import {
   bustPolicyCache,
   ensureDefaultActionPolicyForUser,

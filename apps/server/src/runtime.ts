@@ -1,9 +1,7 @@
 import { flushLangfuse, flushMeteringWrites } from "@alfred/ai";
-import {
-  registerBuiltinTools,
-  registerDispatchToolCallRoundAdapter,
-  registerOnUserCreated,
-} from "@alfred/api/runtime";
+// Stays on @alfred/api: still real api code. Item 148 gives it an @alfred/assistant address.
+import { registerBuiltinTools, registerDispatchToolCallRoundAdapter } from "@alfred/api/runtime";
+import { registerOnUserCreated } from "@alfred/auth";
 import { createAssistantRuntime, type AssistantRuntime } from "@alfred/assistant/runtime";
 import { assertPersistedCredentialsSealed } from "@alfred/db/credential-vault-maintenance";
 import { serverEnv } from "@alfred/env/server";

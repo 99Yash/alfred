@@ -28,8 +28,9 @@
  *      emitted any proposals — single-string keys per the distill schema).
  */
 import { randomUUID } from "node:crypto";
-import { LEARN_SKILL_WORKFLOW_SLUG, startRun } from "@alfred/api/backend";
-import { closeAgentQueue, warmPool } from "@alfred/api/runtime";
+import { LEARN_SKILL_WORKFLOW_SLUG } from "@alfred/assistant/skills";
+import { startRun, closeAgentQueue } from "@alfred/assistant/execution";
+import { warmPool } from "@alfred/db";
 import { db } from "@alfred/db";
 import {
   agentRuns,

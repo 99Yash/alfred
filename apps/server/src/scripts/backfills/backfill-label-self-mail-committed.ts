@@ -39,7 +39,7 @@
  *   # every connected Google account, extra alias:
  *   node dist/scripts/backfills/backfill-label-self-mail-committed.js --all-connected --aliases=old@x.com --commit
  */
-import { warmPool } from "@alfred/api/runtime";
+import { warmPool } from "@alfred/db";
 import { closeScriptResources } from "../script-runtime";
 import { parseEmailAddress, toMessage } from "@alfred/contracts";
 import { db } from "@alfred/db";

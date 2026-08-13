@@ -26,8 +26,8 @@ import {
   requireEntityIdNamespace,
   startProjectionRun,
   writeProjectionCursor,
-} from "@alfred/api/backend";
-import { warmPool } from "@alfred/api/runtime";
+} from "@alfred/assistant/knowledge";
+import { warmPool } from "@alfred/db";
 import { closeScriptResources } from "../script-runtime";
 import {
   USER_MODEL_PROJECTION_NAME,

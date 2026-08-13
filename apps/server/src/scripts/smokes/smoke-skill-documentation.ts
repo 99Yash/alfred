@@ -30,9 +30,9 @@ import {
   learnSkillDedupKey,
   SKILL_DOCUMENTATION_WORKFLOW_SLUG,
   skillDocumentationDedupKey,
-  startRun,
-} from "@alfred/api/backend";
-import { closeAgentQueue, warmPool } from "@alfred/api/runtime";
+} from "@alfred/assistant/skills";
+import { startRun, closeAgentQueue } from "@alfred/assistant/execution";
+import { warmPool } from "@alfred/db";
 import { toRecord } from "@alfred/contracts";
 import { db } from "@alfred/db";
 import {

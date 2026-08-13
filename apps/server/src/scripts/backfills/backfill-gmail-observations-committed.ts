@@ -20,8 +20,8 @@ import {
   appendObservationFamilyMember,
   reduceGmailDocument,
   type GmailDocumentForReduction,
-} from "@alfred/api/backend";
-import { warmPool } from "@alfred/api/runtime";
+} from "@alfred/assistant/knowledge";
+import { warmPool } from "@alfred/db";
 import { closeScriptResources } from "../script-runtime";
 import { toMessage } from "@alfred/contracts";
 import { db } from "@alfred/db";

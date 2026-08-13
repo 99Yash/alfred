@@ -33,8 +33,9 @@
  *   - Quality of the research output (qualitative, requires human review).
  */
 import { randomUUID } from "node:crypto";
-import { COLD_START_WORKFLOW_SLUG, startRun } from "@alfred/api/backend";
-import { closeAgentQueue, warmPool } from "@alfred/api/runtime";
+import { COLD_START_WORKFLOW_SLUG } from "@alfred/assistant/knowledge";
+import { startRun, closeAgentQueue } from "@alfred/assistant/execution";
+import { warmPool } from "@alfred/db";
 import { db } from "@alfred/db";
 import { agentRuns, memoryChunks, user as userTable, userFacts } from "@alfred/db/schemas";
 import { serverEnv } from "@alfred/env/server";
