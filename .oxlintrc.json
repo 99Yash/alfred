@@ -50,6 +50,13 @@
           {
             "group": ["@alfred/assistant/tool-runtime/internal/registry"],
             "message": "The global tool catalog is restricted to packages/assistant/src/tool-runtime/ (see packages/assistant/src/tool-runtime/internal/registry.ts, which owns the one mutable map). Import the sanctioned contract from @alfred/assistant/tool-runtime instead, whose index re-exports the catalog surface."
+          },
+          {
+            "group": [
+              "@alfred/assistant/tool-runtime/internal/*",
+              "@alfred/assistant/tool-runtime/internal/**"
+            ],
+            "message": "Every module under packages/assistant/src/tool-runtime/internal/ is private to packages/assistant/src/tool-runtime/, not one door but the whole directory. Import the sanctioned contract from @alfred/assistant/tool-runtime instead, whose index publishes the runtime surface. The narrower @alfred/assistant/tool-runtime/internal/registry group above is deliberately kept beside this one: a specifier holding a glob is gated on package existence alone, so the literal registry specifier is the only one in this family that `pnpm check:oxlint-config` still resolves through the exports map to a git-listed file."
           }
         ]
       }
@@ -113,6 +120,13 @@
               {
                 "group": ["@alfred/assistant/tool-runtime/internal/registry"],
                 "message": "The global tool catalog is restricted to packages/assistant/src/tool-runtime/ (see packages/assistant/src/tool-runtime/internal/registry.ts, which owns the one mutable map). Import the sanctioned contract from @alfred/assistant/tool-runtime instead, whose index re-exports the catalog surface."
+              },
+              {
+                "group": [
+                  "@alfred/assistant/tool-runtime/internal/*",
+                  "@alfred/assistant/tool-runtime/internal/**"
+                ],
+                "message": "Every module under packages/assistant/src/tool-runtime/internal/ is private to packages/assistant/src/tool-runtime/, not one door but the whole directory. Import the sanctioned contract from @alfred/assistant/tool-runtime instead, whose index publishes the runtime surface. The narrower @alfred/assistant/tool-runtime/internal/registry group above is deliberately kept beside this one: a specifier holding a glob is gated on package existence alone, so the literal registry specifier is the only one in this family that `pnpm check:oxlint-config` still resolves through the exports map to a git-listed file."
               }
             ]
           }
@@ -144,6 +158,13 @@
               {
                 "group": ["@alfred/assistant/tool-runtime/internal/registry"],
                 "message": "The global tool catalog is restricted to packages/assistant/src/tool-runtime/ (see packages/assistant/src/tool-runtime/internal/registry.ts, which owns the one mutable map). Import the sanctioned contract from @alfred/assistant/tool-runtime instead, whose index re-exports the catalog surface."
+              },
+              {
+                "group": [
+                  "@alfred/assistant/tool-runtime/internal/*",
+                  "@alfred/assistant/tool-runtime/internal/**"
+                ],
+                "message": "Every module under packages/assistant/src/tool-runtime/internal/ is private to packages/assistant/src/tool-runtime/, not one door but the whole directory. Import the sanctioned contract from @alfred/assistant/tool-runtime instead, whose index publishes the runtime surface. The narrower @alfred/assistant/tool-runtime/internal/registry group above is deliberately kept beside this one: a specifier holding a glob is gated on package existence alone, so the literal registry specifier is the only one in this family that `pnpm check:oxlint-config` still resolves through the exports map to a git-listed file."
               }
             ]
           }
@@ -177,6 +198,13 @@
               {
                 "group": ["@alfred/assistant/tool-runtime/internal/registry"],
                 "message": "The global tool catalog is restricted to packages/assistant/src/tool-runtime/ (see packages/assistant/src/tool-runtime/internal/registry.ts, which owns the one mutable map). Import the sanctioned contract from @alfred/assistant/tool-runtime instead, whose index re-exports the catalog surface."
+              },
+              {
+                "group": [
+                  "@alfred/assistant/tool-runtime/internal/*",
+                  "@alfred/assistant/tool-runtime/internal/**"
+                ],
+                "message": "Every module under packages/assistant/src/tool-runtime/internal/ is private to packages/assistant/src/tool-runtime/, not one door but the whole directory. Import the sanctioned contract from @alfred/assistant/tool-runtime instead, whose index publishes the runtime surface. The narrower @alfred/assistant/tool-runtime/internal/registry group above is deliberately kept beside this one: a specifier holding a glob is gated on package existence alone, so the literal registry specifier is the only one in this family that `pnpm check:oxlint-config` still resolves through the exports map to a git-listed file."
               }
             ]
           }
@@ -208,6 +236,13 @@
               },
               {
                 "group": [
+                  "@alfred/assistant/tool-runtime/internal/*",
+                  "@alfred/assistant/tool-runtime/internal/**"
+                ],
+                "message": "Every module under packages/assistant/src/tool-runtime/internal/ is private to packages/assistant/src/tool-runtime/, not one door but the whole directory. Import the sanctioned contract from @alfred/assistant/tool-runtime instead, whose index publishes the runtime surface. The narrower @alfred/assistant/tool-runtime/internal/registry group above is deliberately kept beside this one: a specifier holding a glob is gated on package existence alone, so the literal registry specifier is the only one in this family that `pnpm check:oxlint-config` still resolves through the exports map to a git-listed file."
+              },
+              {
+                "group": [
                   "@alfred/http",
                   "@alfred/http/*",
                   "@alfred/http/**",
@@ -219,6 +254,54 @@
                   "../../index*"
                 ],
                 "message": "packages/http/src may not import its own root barrel. `@alfred/http` and every relative spelling of src/index.ts resolve to the barrel that re-exports this file, so the import closes an `index.ts -> this file -> index.ts` module cycle. That cycle compiles, passes every gate and boots; it becomes a TDZ ReferenceError the day someone reorders the exports in index.ts. Import the concrete sibling module instead, e.g. `./middleware/auth`."
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      // These four api test files reach three modules under packages/assistant/src/tool-runtime/internal/
+      // by bare specifier, and they cannot repoint. The sanctioned barrel
+      // packages/assistant/src/tool-runtime/index.ts publishes only 2 of the 11 names they import
+      // (startToolLoadSpan, startToolSearchSpan); publishing the other 9 would add
+      // _setToolRuntimeSpanStarterForTests, a test-only mutator, to a public surface that a separate
+      // slice is shrinking. So this entry is the directory's allowlist rather than a widened barrel.
+      // It is APPENDED LAST on purpose: `pnpm check:oxlint-config` attributes every oxlint-omission
+      // marker to a site by POSITION, so inserting an entry above would misattribute the four markers
+      // that already exist.
+      "files": [
+        "packages/api/test/tools/passthrough/dispatch-routing.test.ts",
+        "packages/api/test/tools/passthrough/budget.test.ts",
+        "packages/api/test/tool-runtime/runtime-spans.test.ts",
+        "packages/api/test/tool-runtime/tool-call-round.test.ts"
+      ],
+      "rules": {
+        // Deliberate omission: the @alfred/assistant/tool-runtime/internal/* group is absent on purpose —
+        // these four files ARE that directory's allowlist. Every other root group must be restated here,
+        // because an override REPLACES the rule's options wholesale. The narrower
+        // @alfred/assistant/tool-runtime/internal/registry group IS restated, because no file here
+        // imports the registry and none may start.
+        // oxlint-omission: @alfred/assistant/tool-runtime/internal/* — these four api test files ARE this directory's allowlist.
+        "no-restricted-imports": [
+          "error",
+          {
+            "patterns": [
+              {
+                "group": ["@alfred/assistant/knowledge/internal"],
+                "message": "The knowledge internal tooling door is restricted to apps/server/src/scripts/** (see packages/assistant/src/knowledge/internal.ts). Import the sanctioned contract from @alfred/assistant/knowledge instead."
+              },
+              {
+                "group": ["@alfred/integrations/google/internal"],
+                "message": "The raw Gmail watch primitive is restricted to its two allowlisted friend files (see packages/integrations/src/google/internal.ts). Install a watch through installGmailWatchAndSeedCursor from @alfred/assistant/connections/ingestion, which also seeds the ingestion_state cursor; a raw installGmailWatch leaves the credential cursorless."
+              },
+              {
+                "group": ["@alfred/assistant/connections/ingestion/internal"],
+                "message": "The raw Gmail ingestion entry points are restricted to the operational scripts under apps/server/src/scripts/** and the ingestion-cursor test packages/api/test/gmail-ingest.test.ts (see packages/assistant/src/connections/ingestion/internal.ts). Import the sanctioned contract from @alfred/assistant/connections/ingestion instead, which drives ingestion through the BullMQ job that owns retry, burst dedup and the ingestion_state cursor."
+              },
+              {
+                "group": ["@alfred/assistant/tool-runtime/internal/registry"],
+                "message": "The global tool catalog is restricted to packages/assistant/src/tool-runtime/ (see packages/assistant/src/tool-runtime/internal/registry.ts, which owns the one mutable map). Import the sanctioned contract from @alfred/assistant/tool-runtime instead, whose index re-exports the catalog surface."
               }
             ]
           }
