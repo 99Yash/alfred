@@ -11,7 +11,6 @@ import {
   user,
   workflows,
 } from "@alfred/db/schemas";
-import { databaseEnv } from "@alfred/env/database";
 import { and, eq, inArray, sql } from "drizzle-orm";
 import { coldStartResearchWorkflow } from "../../src/backend";
 
@@ -32,6 +31,7 @@ import { publishGoogleCallbackCompleted } from "@alfred/assistant/connections";
 import { COLD_START_WORKFLOW_SLUG } from "@alfred/assistant/knowledge/cold-start";
 import { uniqueViolationConstraint } from "@alfred/db/pg-errors";
 import { closeRedis } from "@alfred/db/redis";
+import { dbBackedSkip } from "../support/db-backed";
 
 /**
  * DB-backed guard for the event-dispatch duplicate-run invariant (#531).
@@ -55,14 +55,7 @@ import { closeRedis } from "@alfred/db/redis";
  *
  * Opt-in: runs only when `DATABASE_URL` points at a reachable migrated Postgres.
  */
-const SKIP = (() => {
-  try {
-    databaseEnv();
-    return false;
-  } catch {
-    return "DATABASE_URL not set — skipping DB-backed test";
-  }
-})();
+const SKIP = dbBackedSkip("database");
 
 const ID_PREFIX = "test-event-dedup-";
 const EVENT_WORKFLOW_SLUG = "__test-event-dedup";

@@ -3,7 +3,6 @@ import { randomUUID } from "node:crypto";
 import { after, describe, test } from "node:test";
 
 import { closeConnections, db } from "@alfred/db";
-import { databaseEnv } from "@alfred/env/database";
 import { makeEntityNodeInsert } from "@alfred/db/helpers";
 import {
   activeProjectionVersions,
@@ -31,6 +30,7 @@ import {
   userModelReader,
   writeProjectionCursor,
 } from "@alfred/assistant/knowledge";
+import { dbBackedSkip } from "../support/db-backed";
 
 /**
  * DB-backed behavior test for the ADR-0067 P1 WRITE BOUNDARY + read surface — the
@@ -50,14 +50,7 @@ import {
  * Seeds nodes through `makeEntityNodeInsert` with a fixed test secret (same as
  * the rails test) so it needs only `DATABASE_URL`, not the full `serverEnv`.
  */
-function hasDatabaseUrl(): boolean {
-  try {
-    return Boolean(databaseEnv().DATABASE_URL);
-  } catch {
-    return false;
-  }
-}
-const SKIP = hasDatabaseUrl() ? false : "DATABASE_URL not set — skipping DB-backed test";
+const SKIP = dbBackedSkip("database");
 
 const ID_PREFIX = "test-umwriters-";
 const TEST_ENTITY_ID_SECRET = "stable namespace secret for tests";

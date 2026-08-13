@@ -5,7 +5,6 @@ import { after, before, describe, test } from "node:test";
 import { ianaTimezoneSchema, type TriageCategory } from "@alfred/contracts";
 import { closeConnections, db } from "@alfred/db";
 import { documents, emailTriage, user } from "@alfred/db/schemas";
-import { databaseEnv } from "@alfred/env/database";
 import { inArray, like } from "drizzle-orm";
 
 import { closeReplicachePokeBridge } from "@alfred/assistant/realtime";
@@ -14,6 +13,7 @@ import { listEmailsSinceWatermark } from "@alfred/assistant/briefings/read";
 import { rememberSenderSuppression } from "@alfred/assistant/knowledge";
 import { parseLocalDateKey } from "@alfred/assistant/time";
 import { closeRedis } from "@alfred/db/redis";
+import { dbBackedSkip } from "../support/db-backed";
 
 /**
  * Characterization of the *relationship* between the briefing's two reads of
@@ -38,15 +38,7 @@ import { closeRedis } from "@alfred/db/redis";
  * the composer's view.
  */
 
-function hasDatabaseUrl(): boolean {
-  try {
-    return Boolean(databaseEnv().DATABASE_URL);
-  } catch {
-    return false;
-  }
-}
-
-const SKIP = hasDatabaseUrl() ? false : "DATABASE_URL not set — skipping DB-backed test";
+const SKIP = dbBackedSkip("database");
 const ID_PREFIX = "test-briefing-parity-";
 const createdUserIds: string[] = [];
 

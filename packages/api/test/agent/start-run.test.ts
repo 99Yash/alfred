@@ -16,6 +16,7 @@ import {
 } from "@alfred/assistant/execution/registry";
 import { startRun } from "@alfred/assistant/execution/service";
 import type { StepResult, Workflow } from "@alfred/assistant/execution/types";
+import { dbBackedSkip } from "../support/db-backed";
 
 /**
  * DB/Redis-backed coverage for the execution module's `startRun` seam
@@ -30,10 +31,7 @@ import type { StepResult, Workflow } from "@alfred/assistant/execution/types";
  * teardown. The agent worker never runs here, so the enqueued job is inspected
  * and removed directly.
  */
-const HAS_DB_AND_REDIS = Boolean(process.env.DATABASE_URL && process.env.REDIS_URL);
-const SKIP = HAS_DB_AND_REDIS
-  ? false
-  : "DATABASE_URL/REDIS_URL not set — skipping DB/Redis-backed test";
+const SKIP = dbBackedSkip("database+redis");
 
 const SERVER_ENV_FIXTURES: Record<string, string> = {
   BETTER_AUTH_SECRET: "test better auth secret with length",

@@ -4,23 +4,15 @@ import { after, before, describe, test } from "node:test";
 
 import { closeConnections, db } from "@alfred/db";
 import { agentDecisionTraces, agentRuns, documents, emailTriage, user } from "@alfred/db/schemas";
-import { databaseEnv } from "@alfred/env/database";
 import { and, eq, inArray, like } from "drizzle-orm";
 
 import { runOnce } from "@alfred/assistant/execution/executor";
 import { _resetRegistryForTests, registerRecipe } from "@alfred/assistant/execution/registry";
 import type { StepResult, Workflow } from "@alfred/assistant/execution/types";
 import { upsertTriage, type SenderExtractionEvent } from "@alfred/assistant/triage";
+import { dbBackedSkip } from "../support/db-backed";
 
-function hasDatabaseUrl(): boolean {
-  try {
-    return Boolean(databaseEnv().DATABASE_URL);
-  } catch {
-    return false;
-  }
-}
-
-const SKIP = hasDatabaseUrl() ? false : "DATABASE_URL not set — skipping DB-backed test";
+const SKIP = dbBackedSkip("database");
 const ID_PREFIX = "test-triage-decision-trace-";
 const createdUserIds: string[] = [];
 

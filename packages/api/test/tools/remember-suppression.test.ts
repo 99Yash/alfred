@@ -5,23 +5,15 @@ import { after, before, describe, test } from "node:test";
 import type { TodoSource } from "@alfred/contracts";
 import { closeConnections, db } from "@alfred/db";
 import { documents, todos, user } from "@alfred/db/schemas";
-import { databaseEnv } from "@alfred/env/database";
 import { eq, inArray, like } from "drizzle-orm";
 
 import { closeReplicachePokeBridge } from "@alfred/assistant/realtime";
 import { rememberSenderSuppression } from "@alfred/assistant/knowledge";
 import { closeRedis } from "@alfred/db/redis";
 import { rememberSenderSuppressionAndDismissTodos } from "../../src/modules/tools/remember-suppression";
+import { dbBackedSkip } from "../support/db-backed";
 
-function hasDatabaseUrl(): boolean {
-  try {
-    return Boolean(databaseEnv().DATABASE_URL);
-  } catch {
-    return false;
-  }
-}
-
-const SKIP = hasDatabaseUrl() ? false : "DATABASE_URL not set — skipping DB-backed test";
+const SKIP = dbBackedSkip("database");
 const ID_PREFIX = "test-remember-suppression-";
 const SENDER = "billing@example.com";
 const createdUserIds: string[] = [];

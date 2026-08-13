@@ -4,13 +4,13 @@ import { after, before, describe, test } from "node:test";
 
 import { closeConnections, db } from "@alfred/db";
 import { user, webhookEvents } from "@alfred/db/schemas";
-import { databaseEnv } from "@alfred/env/database";
 import { inArray, like } from "drizzle-orm";
 
 import { closeReplicachePokeBridge } from "@alfred/assistant/realtime";
 import { gatherDayShape } from "@alfred/assistant/briefings/gather";
 import { objectStateStore } from "@alfred/assistant/connections";
 import { closeRedis } from "@alfred/db/redis";
+import { dbBackedSkip } from "../support/db-backed";
 
 /**
  * Characterization of `gatherDayShape` (ADR-0064 / #230) — the deterministic
@@ -24,15 +24,7 @@ import { closeRedis } from "@alfred/db/redis";
  * reseat could silently change.
  */
 
-function hasDatabaseUrl(): boolean {
-  try {
-    return Boolean(databaseEnv().DATABASE_URL);
-  } catch {
-    return false;
-  }
-}
-
-const SKIP = hasDatabaseUrl() ? false : "DATABASE_URL not set — skipping DB-backed test";
+const SKIP = dbBackedSkip("database");
 const ID_PREFIX = "test-briefing-day-shape-";
 const createdUserIds: string[] = [];
 

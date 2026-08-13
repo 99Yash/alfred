@@ -11,6 +11,7 @@ import { insertConnection } from "@alfred/assistant/connections/mcp";
 import { publishCatalogRevision } from "@alfred/assistant/connections/mcp/test-support";
 import { MCP_CALL_RISK_FLOOR, resolveMcpCallRiskTier } from "@alfred/assistant/tool-runtime/mcp";
 import { upsertToolPolicy } from "@alfred/assistant/tool-runtime/mcp/test-support";
+import { dbBackedSkip } from "../support/db-backed";
 
 /**
  * DB-backed tests for the `mcp.call` gate-side effective-risk resolver (#541
@@ -21,7 +22,7 @@ import { upsertToolPolicy } from "@alfred/assistant/tool-runtime/mcp/test-suppor
  * Opt-in on `DATABASE_URL` (mirrors the other MCP tests); seeds throwaway
  * `test-mcprisk-*` users and cascades everything away on teardown.
  */
-const SKIP = process.env.DATABASE_URL ? false : "DATABASE_URL not set — skipping DB-backed test";
+const SKIP = dbBackedSkip("database");
 
 const ID_PREFIX = "test-mcprisk-";
 const createdUserIds: string[] = [];

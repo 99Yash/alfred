@@ -20,6 +20,7 @@ import {
 } from "@alfred/assistant/execution/service";
 import type { StepResult, Workflow } from "@alfred/assistant/execution/types";
 import { userAuthoredBriefWorkflow } from "@alfred/assistant/execution/workflows/user-authored-brief";
+import { dbBackedSkip } from "../support/db-backed";
 
 /**
  * Tests for the per-step stale-lease window (ADR-0070 §1.4, Lever A). Lever A
@@ -37,7 +38,7 @@ import { userAuthoredBriefWorkflow } from "@alfred/assistant/execution/workflows
  * The pure-resolver block always runs. The lease/sweep block is opt-in: it runs
  * only when `DATABASE_URL` points at a reachable migrated Postgres.
  */
-const SKIP = process.env.DATABASE_URL ? false : "DATABASE_URL not set — skipping DB-backed test";
+const SKIP = dbBackedSkip("database");
 
 const SLUG = "__test-stale-window";
 const ID_PREFIX = "test-stale-window-";

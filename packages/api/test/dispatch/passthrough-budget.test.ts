@@ -19,6 +19,7 @@ import { clearPolicyCacheForTests } from "@alfred/assistant/action-policies/test
 import { dispatchToolCall } from "../../src/modules/dispatch";
 import { PASSTHROUGH_PER_RUN_CEILING } from "../../src/modules/tools/passthrough";
 import { clearToolRegistryForTests, liveTool, registerTool } from "@alfred/assistant/tool-runtime";
+import { dbBackedSkip } from "../support/db-backed";
 
 /**
  * DB-backed regression for the ADR-0074 per-run passthrough ceiling. A runaway
@@ -38,7 +39,7 @@ import { clearToolRegistryForTests, liveTool, registerTool } from "@alfred/assis
  * Opt-in on a reachable migrated Postgres (same gate as staging.test.ts); the
  * pure envelope/routing assertions live in test/tools/passthrough/budget.test.ts.
  */
-const SKIP = process.env.DATABASE_URL ? false : "DATABASE_URL not set — skipping DB-backed test";
+const SKIP = dbBackedSkip("database");
 
 const ID_PREFIX = "test-pt-budget-";
 const createdUserIds: string[] = [];

@@ -54,6 +54,22 @@ jobs:
   # only that those skip guards work — and a glob split instead of a merge would
   # rot silently, because a new DB-backed file omitted from the list would skip
   # in one job and never run in the other.
+  #
+  # DO NOT guard this job by reading the skip count. `node:test` prints
+  # `# skipped 0` for a SUITE-level skip — `describe("…", { skip: SKIP }, …)` —
+  # because the subtests inside a skipped `describe` are never registered, so
+  # they land in neither `# tests` nor `# skipped`. Roughly 50 DB-backed suites
+  # in this tree use that shape, so a run that reached no database is
+  # indistinguishable by any count from a run that reached Postgres.
+  #
+  # What guards it instead: those suites call `dbBackedSkip()` from
+  # `packages/api/test/support/db-backed.ts`. It skips on a developer machine
+  # that has no Postgres, and THROWS when `CI` is set and a required variable is
+  # absent. The throw fires at module scope, `node:test` reports the file as a
+  # failing test, and this job exits non-zero. So if you delete or shrink the
+  # `services:` or `env:` blocks below, the `API tests` step reddens and names
+  # the absent variable. A NEW DB-backed suite here must call `dbBackedSkip()`
+  # too — the helper is a convention, not a structural check.
   api-tests:
     name: api-tests
     runs-on: ubuntu-latest

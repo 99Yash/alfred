@@ -12,7 +12,6 @@ import {
   workflowRevisions,
   workflows,
 } from "@alfred/db/schemas";
-import { databaseEnv } from "@alfred/env/database";
 import { GMAIL_READONLY_SCOPE } from "@alfred/integrations/google";
 import { and, eq } from "drizzle-orm";
 
@@ -34,15 +33,9 @@ import {
   setWorkflowBlocked,
   setWorkflowStatus,
 } from "@alfred/assistant/automation/revisions";
+import { dbBackedSkip } from "../support/db-backed";
 
-const SKIP = (() => {
-  try {
-    databaseEnv();
-    return false;
-  } catch {
-    return "DATABASE_URL not set — skipping DB-backed test";
-  }
-})();
+const SKIP = dbBackedSkip("database");
 
 const createdUserIds: string[] = [];
 

@@ -3,7 +3,6 @@ import { randomUUID } from "node:crypto";
 import { after, describe, test } from "node:test";
 import { closeConnections, db } from "@alfred/db";
 import { user } from "@alfred/db/schemas";
-import { databaseEnv } from "@alfred/env/database";
 import { gmailEmailMessagePayloadSchema, USER_MODEL_PROJECTION_NAME } from "@alfred/contracts";
 import { inArray } from "drizzle-orm";
 import {
@@ -15,6 +14,7 @@ import {
   userModelReader,
 } from "@alfred/assistant/knowledge";
 import { resolveSenderKind } from "@alfred/assistant/triage";
+import { dbBackedSkip } from "../support/db-backed";
 
 /**
  * Local activation-gate rehearsal for the Gmail kind projection (#218 PR G).
@@ -66,15 +66,7 @@ const SERVER_ENV_FIXTURES: Record<string, string> = {
   ENTITY_ID_NAMESPACE: TEST_ENTITY_ID_SECRET,
 };
 
-function hasDatabaseUrl(): boolean {
-  try {
-    return Boolean(databaseEnv().DATABASE_URL);
-  } catch {
-    return false;
-  }
-}
-
-const SKIP_DB = hasDatabaseUrl() ? false : "DATABASE_URL not set - skipping DB-backed test";
+const SKIP_DB = dbBackedSkip("database");
 
 describe("Gmail kind projection activation gates (DB-backed)", { skip: SKIP_DB }, () => {
   after(async () => {

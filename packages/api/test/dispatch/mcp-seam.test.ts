@@ -27,6 +27,7 @@ import {
 import { clearToolRegistryForTests, registerTools } from "@alfred/assistant/tool-runtime";
 import { mcpTools } from "../../src/modules/tools/mcp";
 import { closeRedis } from "@alfred/db/redis";
+import { dbBackedSkip } from "../support/db-backed";
 
 /**
  * DB-backed tests for the dispatch → MCP seam (PRD #540 #6). These prove the two
@@ -44,7 +45,7 @@ import { closeRedis } from "@alfred/db/redis";
  * `_setMcpExecutionBrokerForTests`, so these assert only the SEAM (gate + fast-path +
  * stagingId threading), not the ledger semantics. Opt-in on `DATABASE_URL`.
  */
-const SKIP = process.env.DATABASE_URL ? false : "DATABASE_URL not set — skipping DB-backed test";
+const SKIP = dbBackedSkip("database");
 
 const ID_PREFIX = "test-mcpseam-";
 const createdUserIds: string[] = [];

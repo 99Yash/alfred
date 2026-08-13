@@ -15,6 +15,7 @@ import {
   pendingEmbedChunkIds,
   recordMemoryEmbedFailure,
 } from "@alfred/assistant/knowledge/chunks";
+import { dbBackedSkip } from "../support/db-backed";
 
 /**
  * DB-backed test for the embedding poison-pill guard on both `memory_chunks`
@@ -50,7 +51,7 @@ import {
  * Postgres; skipped otherwise. Seeds throwaway `test-embedpoison-*` users and
  * cascades them away on teardown.
  */
-const SKIP = process.env.DATABASE_URL ? false : "DATABASE_URL not set — skipping DB-backed test";
+const SKIP = dbBackedSkip("database");
 
 const ID_PREFIX = "test-embedpoison-";
 // More than the old attempt cap (5), to prove attempt count no longer gates.
