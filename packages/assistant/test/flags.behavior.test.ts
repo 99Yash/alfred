@@ -8,6 +8,7 @@ import { user } from "@alfred/db/schemas";
 import { inArray, like } from "drizzle-orm";
 
 import { resolveFeatureFlags, setPreference } from "../src/settings";
+import { dbBackedSkip } from "./support/db-backed";
 
 /**
  * DB-backed integration test for feature-flag resolution after it folded into
@@ -23,7 +24,7 @@ import { resolveFeatureFlags, setPreference } from "../src/settings";
  * suite still runs without a database. It seeds throwaway `test-flags-*` users
  * and deletes them (cascade clears their preferences) on teardown.
  */
-const SKIP = process.env.DATABASE_URL ? false : "DATABASE_URL not set — skipping DB-backed test";
+const SKIP = dbBackedSkip("database");
 
 const ID_PREFIX = "test-flags-";
 const createdUserIds: string[] = [];

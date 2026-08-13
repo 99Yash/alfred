@@ -8,6 +8,7 @@ import { user } from "@alfred/db/schemas";
 import { inArray, like } from "drizzle-orm";
 
 import { deletePreference, getPreference, getPreferences, setPreference } from "../src/settings";
+import { dbBackedSkip } from "./support/db-backed";
 
 /**
  * DB-backed integration test for the `settings` preference gateway — the four
@@ -21,7 +22,7 @@ import { deletePreference, getPreference, getPreferences, setPreference } from "
  * suite still runs without a database. It seeds throwaway `test-settings-*`
  * users and deletes them (cascade clears their preferences) on teardown.
  */
-const SKIP = process.env.DATABASE_URL ? false : "DATABASE_URL not set — skipping DB-backed test";
+const SKIP = dbBackedSkip("database");
 
 const ID_PREFIX = "test-settings-";
 const createdUserIds: string[] = [];

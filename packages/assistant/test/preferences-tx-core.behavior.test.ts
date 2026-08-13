@@ -12,6 +12,7 @@ import {
   setPreference,
   upsertPreference,
 } from "../src/settings";
+import { dbBackedSkip } from "./support/db-backed";
 
 /**
  * DB-backed integration test for the `tx`-accepting preference cores —
@@ -27,7 +28,7 @@ import {
  * migrated schema. Skipped otherwise. Seeds throwaway `test-settings-tx-*`
  * users and deletes them (cascade clears their preferences) on teardown.
  */
-const SKIP = process.env.DATABASE_URL ? false : "DATABASE_URL not set — skipping DB-backed test";
+const SKIP = dbBackedSkip("database");
 
 const ID_PREFIX = "test-settings-tx-";
 const createdUserIds: string[] = [];

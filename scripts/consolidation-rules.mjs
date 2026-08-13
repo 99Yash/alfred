@@ -40,6 +40,14 @@
  *                                the file holds both sanctioned and new call
  *                                sites — a whole-file exemption blinds the rule
  *                                exactly where the next mistake will be made.
+ * @property {RegExp}   [paths]   The files this rule applies to, INSTEAD of the
+ *                                global {@link isSkippedPath} filter. A rule
+ *                                that names `paths` sees exactly the files that
+ *                                regex admits; a rule that omits it sees exactly
+ *                                the files `isSkippedPath` admits. This is how a
+ *                                rule reaches a test tree without handing every
+ *                                other rule the same file population — see
+ *                                {@link isScannedPath}.
  */
 
 /** @type {ConsolidationRule[]} */
@@ -260,6 +268,37 @@ export const RULES = [
     owners: ["packages/db/src/redis.ts"],
     fix: 'Use createRedisConnection(kind) from @alfred/db/redis. Its RedisConnectionKind table is the one place that decides what a connection does during an outage — a hand-built client silently picks "waits forever".',
   },
+  {
+    id: "db-backed-skip-hand-rolled",
+    // A test tree's own reader of a SERVICE variable. The idiom it replaces is
+    // `const SKIP = process.env.DATABASE_URL ? false : "…"`, whose failure mode
+    // is silence: `node:test` prints `# skipped 0` for a suite-level skip,
+    // because the subtests inside a skipped `describe` are never registered. So
+    // a CI job that reached no Postgres exits 0 and reads exactly like a job
+    // that did. `dbBackedSkip` throws instead when `CI` is set.
+    //
+    // VOCABULARY. `DATABASE_URL` and `REDIS_URL` only — the two variables whose
+    // absence makes a whole suite disappear. A provider variable (a mail
+    // sender, an API key) stays a convention, because the guards that read one
+    // sit on `test(…, { skip })`, which `node:test` does register and count.
+    //
+    // The sanctioned call site, `dbBackedSkip("database")`, names neither
+    // variable, so it never matches and no allowlist is needed. Two populations
+    // are spared for the same reason — a reader and a name must share one line:
+    // the helper's own `REQUIRED_VARIABLES` table (names, no reader) and its
+    // `!process.env[name]` loop (a reader, no name), and every env-fixture seed
+    // block (`DATABASE_URL: "postgres://…"` carries no reader).
+    //
+    // `packages/db/test` is DELIBERATELY EXEMPT from the convention, not blind to
+    // it: that tree FAILS LOUDLY when Redis is absent instead of skipping (see
+    // `packages/db/test/redis-cold-command.test.ts`), which is the stronger
+    // behavior. Its remaining readers carry `// drift-ok:` markers.
+    re: /(?:\bprocess\.env\b|\b(?:databaseEnv|serverEnv)\(\)).*\b(?:DATABASE_URL|REDIS_URL)\b/,
+    scope: "chain",
+    paths: /(^|\/)(?:packages|apps)\/[^/]+\/test\//,
+    severity: "gate",
+    fix: 'Use dbBackedSkip("database") from ./support/db-backed in this test tree — it skips on a laptop with no Postgres and THROWS when CI is set, so a job that reached no service cannot exit 0. Do not hand-roll a `{ skip }` on a service variable. If this line is not a skip guard, append `// drift-ok: <reason>`.',
+  },
 ];
 
 /**
@@ -277,6 +316,27 @@ export const isSkippedPath = (file) =>
   /(^|\/)scripts\//.test(file);
 
 /**
+ * True for a file some rule can match, so a consumer knows whether to read it.
+ *
+ * This is a cheap narrowing of the file list, NOT the scoping decision. The
+ * per-rule clause in {@link matchLine} / {@link matchChains} is what scopes a
+ * rule; a `paths` rule would be silently unscanned if a consumer kept
+ * pre-filtering on {@link isSkippedPath} alone. Both consumers call this.
+ * @param {string} file Repo-relative path.
+ */
+export const isScannedPath = (file) =>
+  !isSkippedPath(file) || RULES.some((rule) => rule.paths?.test(file));
+
+/**
+ * True when `rule` is in scope for `file`. A rule that names `paths` opts out of
+ * the global skip filter entirely and sees exactly what its own regex admits.
+ * @param {ConsolidationRule} rule
+ * @param {string} file Repo-relative path.
+ */
+const coversFile = (rule, file) =>
+  (rule.paths ? rule.paths.test(file) : !isSkippedPath(file)) && !rule.owners?.includes(file);
+
+/**
  * Match one line against the rules in scope for a file.
  * @param {string} line
  * @param {string} file Repo-relative path, for per-rule owner exemptions.
@@ -292,7 +352,7 @@ export function matchLine(line, file, lanes) {
     (rule) =>
       rule.scope !== "chain" &&
       (lanes === "all" || rule.severity === "gate") &&
-      !rule.owners?.includes(file) &&
+      coversFile(rule, file) &&
       rule.re.test(line),
   );
 }
@@ -340,7 +400,7 @@ export function matchChains(text, file, lanes) {
   for (const rule of RULES) {
     if (rule.scope !== "chain") continue;
     if (lanes !== "all" && rule.severity !== "gate") continue;
-    if (rule.owners?.includes(file)) continue;
+    if (!coversFile(rule, file)) continue;
     const re = new RegExp(rule.re.source, `${rule.re.flags.replace(/g/g, "")}g`);
     for (let m = re.exec(code); m !== null; m = re.exec(code)) {
       // Widen the match to the whole lines it touches: that is the unit the

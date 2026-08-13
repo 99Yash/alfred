@@ -20,7 +20,7 @@
 
 import { readFileSync } from "node:fs";
 
-import { isSkippedPath, matchChains, matchLine } from "../../scripts/consolidation-rules.mjs";
+import { isScannedPath, matchChains, matchLine } from "../../scripts/consolidation-rules.mjs";
 
 const ROOT = process.env.CLAUDE_PROJECT_DIR || process.cwd();
 
@@ -54,7 +54,10 @@ const filePath = String(input?.file_path ?? "");
 if (!filePath) process.exit(0);
 
 const rel = filePath.startsWith(ROOT) ? filePath.slice(ROOT.length + 1) : filePath;
-if (!/\.tsx?$/.test(rel) || isSkippedPath(rel)) process.exit(0);
+// `isScannedPath` keeps this hook in step with the gate: a rule that names its own
+// `paths` (`db-backed-skip-hand-rolled` reaches every test tree) must be hinted in
+// the same files it gates, or the hint and the build disagree.
+if (!/\.tsx?$/.test(rel) || !isScannedPath(rel)) process.exit(0);
 
 const text = writtenText(String(payload.tool_name ?? ""), input);
 if (!text.trim()) process.exit(0);

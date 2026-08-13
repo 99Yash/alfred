@@ -76,7 +76,7 @@ describe("redis connection kinds against an unreachable Redis", () => {
     // Redis of the CI job or the developer's machine, and every assertion below
     // would pass while measuring nothing.
     const { serverEnv } = await import("@alfred/env/server");
-    assert.equal(serverEnv().REDIS_URL, closedUrl);
+    assert.equal(serverEnv().REDIS_URL, closedUrl); // drift-ok: asserts the fixture URL landed, does not gate a suite
   });
 
   after(async () => {

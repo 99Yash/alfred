@@ -24,6 +24,7 @@ import {
   createSuccessorInvocation,
   upsertToolPolicy,
 } from "../../src/tool-runtime/mcp/invocations";
+import { dbBackedSkip } from "../support/db-backed";
 
 /**
  * DB-backed offline tests for the execution broker (PRD #540). A real
@@ -31,7 +32,7 @@ import {
  * connect → refresh → ledger → call path runs with no socket. Opt-in on
  * `DATABASE_URL`, mirroring the other MCP tests.
  */
-const SKIP = process.env.DATABASE_URL ? false : "DATABASE_URL not set — skipping DB-backed test";
+const SKIP = dbBackedSkip("database");
 
 const ID_PREFIX = "test-mcpbrk-";
 const createdUserIds: string[] = [];

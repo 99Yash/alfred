@@ -58,6 +58,14 @@ const { isSelfAuthored, selfSenderEmail } = await import("@alfred/integrations/g
  */
 describe("isSelfAuthored — self-ingestion drop (#211/#266)", () => {
   const self = selfSenderEmail();
+  // Deliberately NOT `dbBackedSkip`, and deliberately outside the
+  // `db-backed-skip-hand-rolled` rule's vocabulary. Two reasons. This `SKIP` sits
+  // on `test(…, { skip })`, not on a `describe`, so `node:test` registers these
+  // subtests and prints them under `# skipped` — it is not the invisible
+  // suite-level class that helper exists to delete. And `RESEND_FROM_EMAIL` is
+  // provider configuration, not a service the job stands a container up for;
+  // `ServiceRequirement` names containers, so giving it a provider arm would turn
+  // it into a bag of every variable.
   const SKIP = self ? false : "RESEND_FROM_EMAIL has no parseable address — skipping";
 
   test("drops the self address in its bare form", { skip: SKIP }, () => {
