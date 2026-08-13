@@ -2,7 +2,7 @@ import { useNavigate, useSearch } from "@tanstack/react-router";
 import { useEffect } from "react";
 import { AppThemed, AppThemeProvider, AppThemeToggle } from "~/components/ui/v2";
 import { authClient } from "~/lib/auth/auth-client";
-import { readAuthHint } from "~/lib/auth/auth-hint";
+import { getLocalStorageItem, LOCAL_STORAGE_KEY } from "~/lib/storage/storage";
 import { AuthPanel } from "./auth-panel";
 import { ShowcasePanel } from "./showcase-panel";
 
@@ -21,7 +21,7 @@ export function LoginPage() {
   if (isAuthed) return null;
   // Session not yet resolved: defer to the synchronous hint to avoid flashing
   // the sign-in screen at a returning signed-in user before redirect fires.
-  if (isPending && readAuthHint()) return null;
+  if (isPending && getLocalStorageItem(LOCAL_STORAGE_KEY.MAYBE_AUTHED)) return null;
 
   return (
     <AppThemeProvider>
