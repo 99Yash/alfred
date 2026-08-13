@@ -59,11 +59,12 @@ type _Facts = typeof import("@alfred/assistant/knowledge/facts");
  *   "./knowledge/*": "./src/knowledge/*.ts"  -> the extensionless specifiers above resolve
  *   "./knowledge/*": "./src/knowledge/*"     -> only the `.ts` specifiers below resolve
  *
- * The second form is not hypothetical: `./artifacts/*` and `./tool-runtime/*` are written
- * that way in this very manifest, so it is the idiom a future edit is most likely to copy.
- * With only the extensionless half, re-adding that form republishes every unlisted file in
- * the directory while all three directives above stay used and `check-types`,
- * `check:exports` and CI all stay green — measured, not argued.
+ * No manifest in this repo uses the extensionless form today: every surviving wildcard
+ * target carries `.ts`, and the deleted `./knowledge/*` did too. Nothing rejects the
+ * extensionless form either, which is why the second half is still pinned. With only the
+ * extensionless half, re-adding that form republishes every unlisted file in the directory
+ * while all three directives above stay used and `check-types`, `check:exports` and CI all
+ * stay green — measured, not argued.
  */
 
 // @ts-expect-error - `self-identity` is not exported under any spelling; see above.
