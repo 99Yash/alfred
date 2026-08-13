@@ -19,15 +19,38 @@ import { createRedisConnection, type BoundedRedis } from "@alfred/db/redis";
  * finished rather than cancelled. Going through `cancelRun` instead would discard
  * the in-flight step's work and mark the run terminal from the outside.
  *
- * Fail-open on Redis trouble: a stop that can't be recorded means the turn
- * keeps streaming (annoying), whereas fail-closed would mean every turn stops
- * (broken). The `"fail-fast"` connection rejects instead of queueing.
+ * TWO CONNECTIONS, one per verb, because the two commands on this key want
+ * OPPOSITE failures. That is the whole reason the pair below is not one handle.
+ *
+ * The write is one-shot and user-initiated, and its caller fails CLOSED:
+ * `packages/http/src/conversations.ts` turns a `false` return into a 503. So the
+ * write must WAIT for a connection that is still handshaking rather than be
+ * rejected by it, or the first stop press of every process 503s against a
+ * healthy Redis (#127). That is `"command"`.
+ *
+ * The poll fails OPEN by design — an unreadable flag means the turn keeps
+ * streaming (annoying), where fail-closed would stop every turn (broken) — and
+ * it runs inside the model stream loop, at most once per 400 ms
+ * (`turn-stop-controller.ts`). During a real outage a `"command"` read would
+ * hold the chunk loop for up to its 2 s bound on each poll, because
+ * `stream-model-turn.ts` awaits `checkStop()`. A `"fail-fast"` read rejects at
+ * once and the loop keeps streaming. Its cold-window miss costs one poll, which
+ * the next poll 400 ms later corrects. That is `"fail-fast"`, and the extra
+ * socket per process is the cheaper of the two costs.
  */
 
-let conn: BoundedRedis | null = null;
-function redis(): BoundedRedis {
-  if (!conn) conn = createRedisConnection("fail-fast");
-  return conn;
+let writeConn: BoundedRedis | null = null;
+/** The write half: waits for `ready`, because its caller fails closed. */
+function writeRedis(): BoundedRedis {
+  if (!writeConn) writeConn = createRedisConnection("command");
+  return writeConn;
+}
+
+let pollConn: BoundedRedis | null = null;
+/** The poll half: never waits, because the stream loop awaits this read. */
+function pollRedis(): BoundedRedis {
+  if (!pollConn) pollConn = createRedisConnection("fail-fast");
+  return pollConn;
 }
 
 const stopKey = (runId: string) => `chat:stop:${runId}`;
@@ -38,7 +61,7 @@ const STOP_TTL_SECONDS = 15 * 60;
 /** Record a stop request. Returns false when Redis is unreachable. */
 export async function requestChatStop(runId: string): Promise<boolean> {
   try {
-    await redis().set(stopKey(runId), "1", "EX", STOP_TTL_SECONDS);
+    await writeRedis().set(stopKey(runId), "1", "EX", STOP_TTL_SECONDS);
     return true;
   } catch {
     return false;
@@ -48,7 +71,7 @@ export async function requestChatStop(runId: string): Promise<boolean> {
 /** Poll the stop flag. Returns false (keep streaming) when Redis is unreachable. */
 export async function isChatStopRequested(runId: string): Promise<boolean> {
   try {
-    return (await redis().get(stopKey(runId))) !== null;
+    return (await pollRedis().get(stopKey(runId))) !== null;
   } catch {
     return false;
   }

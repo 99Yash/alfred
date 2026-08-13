@@ -71,7 +71,12 @@ const BRIEFING_RUN_THROTTLE_SECONDS = 60;
 let briefingRunThrottleRedis: BoundedRedis | undefined;
 
 function getBriefingRunThrottleRedis(): BoundedRedis {
-  briefingRunThrottleRedis ??= createRedisConnection("fail-fast");
+  // `"command"`, not `"fail-fast"`: the `SET NX` claim IS the throttle, so no
+  // other store can answer for it. A `"fail-fast"` handle rejects its first
+  // command after construction even against a healthy Redis, and the `catch`
+  // below reads that rejection as "not throttled" — so the throttle failed to
+  // fire exactly once per process (#127).
+  briefingRunThrottleRedis ??= createRedisConnection("command");
   return briefingRunThrottleRedis;
 }
 
