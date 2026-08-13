@@ -213,7 +213,6 @@ export {
 export * from "@alfred/assistant/delivery";
 export * from "@alfred/assistant/time";
 export * from "@alfred/assistant/execution/scratchpad/index";
-export * from "./modules/dispatch/index";
 export {
   collectSkillLearnContext,
   distillResultSchema,

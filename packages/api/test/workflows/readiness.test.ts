@@ -7,7 +7,7 @@ import type {
   WorkflowRevisionDefinition,
 } from "@alfred/contracts";
 
-import { registerBuiltinTools } from "../../src/modules/tools/runtime";
+import { registerBuiltinTools } from "@alfred/assistant/tool-runtime/builtin-tools";
 import { workflowToolCatalog, type WorkflowToolFacts } from "@alfred/assistant/tool-runtime";
 import {
   canonicalizeWorkflowAccounts,

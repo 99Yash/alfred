@@ -26,6 +26,10 @@ describe("runtime adapter lifecycle", () => {
     assert.deepEqual(
       RUNTIME_ADAPTERS.map(({ name }) => name),
       [
+        "system-tool-agent",
+        "system-tool-conversations",
+        "system-tool-workflows",
+        "system-tool-product",
         "chat-attachment-enrichment",
         "chat-media",
         "gmail-triage",
@@ -51,6 +55,10 @@ describe("runtime adapter lifecycle", () => {
         "workflow-readiness",
         "replicache-poke-adapter",
         "chat-attachment-enrichment",
+        "system-tool-product",
+        "system-tool-workflows",
+        "system-tool-conversations",
+        "system-tool-agent",
       ],
     );
     assert.deepEqual(

@@ -10,15 +10,13 @@
  */
 
 import { randomUUID } from "node:crypto";
-// Stays on @alfred/api: still real api code. Item 148 gives it an @alfred/assistant address.
-import { dispatchToolCall } from "@alfred/api/backend";
+import { dispatchToolCall } from "@alfred/assistant/tool-runtime/dispatch";
 import { readScratch, startRun, closeAgentQueue } from "@alfred/assistant/execution";
 import { closeConnections, warmPool } from "@alfred/db";
 import { closeRedis } from "@alfred/db/redis";
 import { registerAgentSystemToolAdapter } from "@alfred/assistant/execution/system-tool-adapter";
 
-// Stays on @alfred/api: still real api code. Item 148 gives it an @alfred/assistant address.
-import { registerBuiltinTools } from "@alfred/api/runtime";
+import { registerBuiltinTools } from "@alfred/assistant/tool-runtime/builtin-tools";
 import { registerConversationsSystemToolAdapter } from "@alfred/assistant/conversations";
 import { registerReplicachePokeAdapter } from "@alfred/assistant/realtime";
 import { isRecord } from "@alfred/contracts";
