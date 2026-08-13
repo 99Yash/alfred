@@ -36,9 +36,9 @@ import {
   startScratchSpan,
 } from "./health";
 
-// Re-export the scratch health-span contract so it reaches `@alfred/api/backend`
-// (the barrel does `export * from "./modules/scratchpad/index"`) for the smoke's
-// span-capture seam and for callers that want the stable observation names.
+// Re-export the scratch health-span contract so it reaches the
+// `@alfred/assistant/execution` barrel, for the smoke's span-capture seam and for
+// callers that want the stable observation names.
 export {
   RUNTIME_SCRATCH_READ,
   RUNTIME_SCRATCH_WRITE,

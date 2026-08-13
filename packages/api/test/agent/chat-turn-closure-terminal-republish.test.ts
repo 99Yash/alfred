@@ -7,8 +7,7 @@ import { agentRuns, chatMessages, chatThreads, eventsOutbox, user } from "@alfre
 import { and, eq, inArray, like } from "drizzle-orm";
 
 import { closeRedis } from "@alfred/db/redis";
-import { registerReplicachePokeAdapter } from "@alfred/api/runtime";
-import { subscribeUserPokes } from "@alfred/assistant/realtime";
+import { registerReplicachePokeAdapter, subscribeUserPokes } from "@alfred/assistant/realtime";
 import {
   finalizeAssistantMessage,
   finalizeFailedMessage,

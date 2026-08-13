@@ -116,13 +116,10 @@ export * from "./extractor";
  *     files, and `./chunks`, `./fact-policy` and `./team-graph` front symbols the
  *     privileged `./internal` door also fronts. Do not read this barrel as the only
  *     route to a knowledge internal.
- *   - `@alfred/api/backend` re-exports this barrel, and separately re-exports by
- *     path from TWO subpaths that this barrel does not front the same way:
- *     `./workflow-operations`, which is not in this barrel at all, and `./queue`,
- *     of which this barrel exports only the worker lifecycle. So a curated-barrel
- *     entry is not a complete account of what a `@alfred/api/backend` consumer can
- *     see. Count the blocks in `backend.ts`, not the symbols here — a symbol tally
- *     in a comment rots on the next export added there.
+ *   - TWO subpaths this barrel does not front the same way are reachable on their
+ *     own: `./workflow-operations`, which is not in this barrel at all, and
+ *     `./queue`, of which this barrel exports only the worker lifecycle. So a
+ *     curated-barrel entry is not a complete account of what a caller can see.
  *
  * `./types` stays `export *` — pure enums / schemas / contract re-exports, no
  * behavior-bearing symbol, so curating it buys no encapsulation.
@@ -194,9 +191,8 @@ export { buildMemoryExtractionWorkflow } from "./memory-extraction";
  * `cold-start/` and `drift-audit/` were standalone modules; both are knowledge
  * activities (turning web findings into user_facts/memory chunks; auditing the
  * user-model substrate for drift) so they fold in here. Their whole former index
- * surface is re-exported wholesale so `@alfred/api/backend` — which used to carry
- * a `export *` from each module directly — surfaces the exact same symbols now
- * through the single `knowledge` barrel. `web-search` (the grounded-Gemini live
+ * surface is re-exported wholesale, so every symbol the two former module barrels
+ * carried is reachable now through the single `knowledge` barrel. `web-search` (the grounded-Gemini live
  * search) moves in alongside its now-primary consumer, cold-start research.
  */
 export * from "./cold-start";

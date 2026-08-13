@@ -33,7 +33,7 @@ export type CorrespondenceStats = z.infer<typeof correspondenceStatsSchema>;
  * Components of the scalar significance signal (ADR-0057) — kept for
  * tuning/explainability. Distinct from `@alfred/contracts`'s ADR-0067
  * `SignificanceComponents` (a different, multi-source decomposition); named
- * apart so the two never collide through the `@alfred/api/backend` barrel.
+ * apart so the two never collide in a caller that imports both.
  */
 export const significanceScoreComponentsSchema = z.object({
   frequency: z.number(),
