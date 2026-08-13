@@ -297,11 +297,16 @@ export const RULES = [
     // whichever side the reader sits on. `matchChains` rebuilds the source with a
     // `g` flag and keeps the rest, so `m` survives and `^…$` stays per-line.
     //
-    // RESIDUE. The rule reads ONE line, so a reader and a name on DIFFERENT lines
-    // escape it whatever order each line reads in. The plausible shape is an
-    // alias — `const env = process.env;` near the top of a file, and a bare
-    // `env.DATABASE_URL` later. No such alias exists in this repo today, and
-    // widening the rule past one line is a separate decision, not a regex tweak.
+    // RESIDUE — at least two shapes. An author can build the variable name at
+    // runtime. And the rule reads ONE line, so a reader and a name on DIFFERENT
+    // lines escape it whatever order each line reads in. The plausible shape is
+    // an alias — `const env = process.env;` near the top of a file, and a bare
+    // `env.DATABASE_URL` later. No such alias sits in any tree this rule polices
+    // — every `packages/<name>/test/` and `apps/<name>/test/` — but the shape is
+    // LIVE outside them: `packages/db/src/index.ts` binds `databaseEnv()` to
+    // `env` and reads `env.DATABASE_URL` two lines down. So read the absence as
+    // "not here yet", not as "it cannot happen", and treat widening the rule
+    // past one line as a separate decision, not a regex tweak.
     //
     // `packages/db/test` is DELIBERATELY EXEMPT from the convention, not blind to
     // it: that tree FAILS LOUDLY when Redis is absent instead of skipping (see
