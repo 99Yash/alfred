@@ -112,14 +112,30 @@ function pickRule(rules: IntegrationRules, slug: IntegrationSlug): IntegrationRu
 }
 
 /**
- * Resolve the policy mode for a `(userId, toolName)` pair. Read order
- * (per ADR-0034 / dispatcher spec): tool override → integration mode →
- * user default. The default for `system.*` tools is autonomy because the
- * signup hook seeds `integrationRules.system = { mode: 'autonomy' }`.
+ * Resolve the policy mode for a `(userId, toolName)` pair. Read order:
+ * `system.*` → tool override → integration mode → user default (ADR-0034 /
+ * dispatcher spec for the last three).
+ *
+ * `system.*` answers `autonomy` structurally, and it answers BEFORE the policy
+ * row is read. That order is the whole defense, and it is why the rule lives
+ * here rather than at a call site (ADR-0040 decision 5, amended 2026-08-13). The
+ * signup hook also seeds `integrationRules.system = { mode: 'autonomy' }`, but
+ * that seed is the SECOND line of defense, not the first: the invariant
+ * "`system.*` is structurally non-gateable" has to survive a future user toggle,
+ * a missing default row, a botched migration, and a policy-editor bug, and all
+ * four are data-layer failures that a check ahead of the read cannot see.
+ *
+ * Two consequences worth naming. Every caller is correct by default — including
+ * a new `@alfred/http` write path that reaches this module and knows nothing
+ * about the rule. And `system.*` still gates on the ADR-0069 `high`-tier floor,
+ * which `toolRequiresApproval` ORs with this mode; `autonomy` here means "the
+ * user's policy never gates a system tool", not "a system tool never stages".
  */
 export async function resolvePolicyMode(userId: string, toolName: ToolName): Promise<PolicyMode> {
-  const policy = await getResolvedPolicy(userId);
   const integration = integrationFromToolName(toolName);
+  if (integration === "system") return "autonomy";
+
+  const policy = await getResolvedPolicy(userId);
   const rule = pickRule(policy.integrationRules, integration);
   const override = rule?.toolOverrides?.[toolName];
   if (override) return override;
