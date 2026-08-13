@@ -47,9 +47,10 @@
 
 import { execFileSync } from "node:child_process";
 import { existsSync, realpathSync, statSync, unlinkSync, writeFileSync } from "node:fs";
-import { join, relative, resolve } from "node:path";
+import { join, resolve } from "node:path";
 
 import { listGitSourceFiles } from "./git-source-files.mjs";
+import { toRepoRelative } from "./repo-relative.mjs";
 
 /** The second-pass project name every package in this repo uses. */
 const TEST_PROJECT = "tsconfig.test.json";
@@ -233,22 +234,6 @@ export function probeWidenedProgram(tscBinary, root, projectPath) {
     if (match?.[1] !== undefined) dirty.add(toRepoRelative(realRoot, match[1]));
   }
   return { members, dirty, problem: null };
-}
-
-/**
- * A path as `tsc` printed it — an absolute realpath from `--listFilesOnly`, or a
- * path relative to the run's cwd from a diagnostic — as a repo-relative path.
- *
- * `realRoot` must already be realpathed; both spellings then collapse onto the same
- * string, which is what lets `members`, `dirty` and the committed baseline entries
- * be compared as one set.
- *
- * @param {string} realRoot
- * @param {string} printed
- * @returns {string}
- */
-function toRepoRelative(realRoot, printed) {
-  return relative(realRoot, resolve(realRoot, printed));
 }
 
 /**

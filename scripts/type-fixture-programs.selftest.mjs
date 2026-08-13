@@ -17,7 +17,7 @@
 // exact defect this check reports.
 
 import { execFileSync } from "node:child_process";
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, realpathSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -46,6 +46,25 @@ function project(include) {
   )}\n`;
 }
 
+/** `project`, plus the two flags without which tsc reads no `.mjs` file at all. */
+function scriptsProject(include) {
+  return `${JSON.stringify(
+    {
+      compilerOptions: {
+        noEmit: true,
+        allowJs: true,
+        checkJs: true,
+        module: "nodenext",
+        target: "es2022",
+      },
+      include,
+      exclude: ["spikes/**"],
+    },
+    null,
+    2,
+  )}\n`;
+}
+
 function write(root, relative, content) {
   const path = join(root, relative);
   mkdirSync(dirname(path), { recursive: true });
@@ -62,6 +81,70 @@ function withWorkspace(prefix, body) {
   } finally {
     rmSync(fixture, { recursive: true, force: true });
   }
+}
+
+/**
+ * The same workspace reached two ways: by the tree's real path, and by a symlink to
+ * it. `body` is handed both spellings and returns the failures it found.
+ *
+ * That pair is the shape of every scratch worktree under `/tmp` on macOS, and of
+ * every fixture here, because `/tmp` and `/var` are themselves symlinks there. So
+ * `home` is realpathed on purpose: an un-realpathed `mkdtemp` root would make the
+ * aliased half and the real half break in the SAME way, and the pair would agree on
+ * a wrong answer. Both preconditions are asserted rather than commented — a fixture
+ * whose control cannot fire is the defect this suite exists to report.
+ *
+ * @param {string} prefix
+ * @param {(tree: string, link: string) => string[]} body
+ * @returns {string[]}
+ */
+function withAliasedWorkspace(prefix, body) {
+  const home = realpathSync(mkdtempSync(join(tmpdir(), prefix)));
+  try {
+    const tree = join(home, "tree");
+    const link = join(home, "link");
+    mkdirSync(tree);
+    execFileSync("git", ["init", "--quiet"], { cwd: tree });
+    write(tree, "pnpm-workspace.yaml", "packages:\n  - packages/*\n");
+    symlinkSync(tree, link);
+
+    const real = realpathSync(tree);
+    if (real !== tree) {
+      return [`${prefix}: the real half must be its own realpath, received ${real}`];
+    }
+    if (realpathSync(link) === link) {
+      return [`${prefix}: the aliased half must resolve elsewhere, received ${link}`];
+    }
+
+    return body(tree, link);
+  } finally {
+    rmSync(home, { recursive: true, force: true });
+  }
+}
+
+/**
+ * Drive one shape twice — by the tree's real path, then by a symlink to it — and
+ * require the two answers to be identical. The WHOLE answer is compared, not just
+ * whether it is empty: a root that leaked into a path set moves `checked` or
+ * `projectsProbed` too, and a difference there is the same defect.
+ *
+ * @template {{failures: string[]}} T
+ * @param {string} label
+ * @param {(root: string) => T} run
+ * @param {string} tree
+ * @param {string} link
+ * @param {string[]} failures
+ * @returns {T} the real half's answer, for the caller to assert on
+ */
+function agree(label, run, tree, link, failures) {
+  const real = run(tree);
+  const alias = run(link);
+  if (JSON.stringify(real) !== JSON.stringify(alias)) {
+    failures.push(
+      `${label}: a symlinked root changed the answer (real ${JSON.stringify(real)}, alias ${JSON.stringify(alias)})`,
+    );
+  }
+  return real;
 }
 
 /** One package: a manifest with the given `check-types`, one source file, one type fixture. */
@@ -294,24 +377,6 @@ function untrackedDiscoveryFailures() {
 function scriptProgramCoverageFailures() {
   const failures = [];
 
-  /** `project`, plus the two flags without which tsc reads no `.mjs` file at all. */
-  const scriptsProject = (include) =>
-    `${JSON.stringify(
-      {
-        compilerOptions: {
-          noEmit: true,
-          allowJs: true,
-          checkJs: true,
-          module: "nodenext",
-          target: "es2022",
-        },
-        include,
-        exclude: ["spikes/**"],
-      },
-      null,
-      2,
-    )}\n`;
-
   const expect = (label, fixture, expected) => {
     const result = scriptProgramFailures(fixture, TSC);
     if (result.checked !== expected.checked) {
@@ -375,6 +440,91 @@ function scriptProgramCoverageFailures() {
   return failures;
 }
 
+/**
+ * 9 — one path space. `tsc --listFilesOnly` prints absolute realpaths while a caller
+ * may spell the root through a symlink, so a membership test that spans the two
+ * spellings answers a different question than the one this check asks: every fixture
+ * reads as unread, or — worse — a normalization loose enough to paper over it starts
+ * calling unread files members.
+ *
+ * The green shape alone cannot tell those apart, so the FIRING shape is driven through
+ * both spellings too. A normalization that degenerated into a prefix or a basename
+ * match would keep the green half green and make the firing half stop reporting.
+ */
+function aliasedRootFailures() {
+  const fixtureDrives = withAliasedWorkspace("alfred-type-fixture-alias-", (tree, link) => {
+    const failures = [];
+    const run = (root) => typeFixtureFailures(root, TSC);
+
+    packageWith(tree, "one", "tsc -b && tsc -p tsconfig.test.json");
+    write(tree, "packages/one/tsconfig.json", project(["src"]));
+    write(tree, "packages/one/tsconfig.test.json", project(["src", "test"]));
+
+    const green = agree("an aliased root keeps the green verdict", run, tree, link, failures);
+    if (green.failures.length > 0 || green.checked !== 1 || green.projectsProbed !== 2) {
+      failures.push(
+        `an aliased root keeps the green verdict: expected 1 fixture, 2 probed projects and no failure, received ${JSON.stringify(green)}`,
+      );
+    }
+
+    write(tree, "packages/one/tsconfig.test.json", project(["src", "test/type"]));
+    const fired = agree("an aliased root keeps the reported failure", run, tree, link, failures);
+    if (
+      !fired.failures.some(
+        (failure) =>
+          failure.includes("packages/one/test/surface.type-test.ts") &&
+          failure.includes("in no program"),
+      )
+    ) {
+      failures.push(
+        `an aliased root keeps the reported failure: expected the fixture to be named as unread, received ${JSON.stringify(fired.failures)}`,
+      );
+    }
+
+    return failures;
+  });
+
+  const scriptDrives = withAliasedWorkspace("alfred-script-alias-", (tree, link) => {
+    const failures = [];
+    const run = (root) => scriptProgramFailures(root, TSC);
+
+    write(tree, SCRIPTS_PROJECT, scriptsProject(["**/*.mjs"]));
+    write(tree, "scripts/one.mjs", "export const one = 1;\n");
+    write(tree, "scripts/nested/two.mjs", "export const two = 2;\n");
+
+    const green = agree(
+      "an aliased root keeps every script in the program",
+      run,
+      tree,
+      link,
+      failures,
+    );
+    if (green.failures.length > 0 || green.checked !== 2) {
+      failures.push(
+        `an aliased root keeps every script in the program: expected 2 checked and no failure, received ${JSON.stringify(green)}`,
+      );
+    }
+
+    write(tree, SCRIPTS_PROJECT, scriptsProject(["*.mjs"]));
+    const fired = agree(
+      "an aliased root keeps the unread script reported",
+      run,
+      tree,
+      link,
+      failures,
+    );
+    if (!fired.failures.some((failure) => failure.includes("scripts/nested/two.mjs"))) {
+      failures.push(
+        `an aliased root keeps the unread script reported: expected the nested script to be named, received ${JSON.stringify(fired.failures)}`,
+      );
+    }
+
+    return failures;
+  });
+
+  return [...fixtureDrives, ...scriptDrives];
+}
+
 /** 7 — the four `check-types` shapes this repo runs today, read directly. */
 function projectParseFailures() {
   const failures = [];
@@ -423,6 +573,7 @@ export function typeFixtureProgramsSelfTestFailures() {
     ...zeroFixtureFailures(),
     ...untrackedDiscoveryFailures(),
     ...scriptProgramCoverageFailures(),
+    ...aliasedRootFailures(),
   ];
 }
 

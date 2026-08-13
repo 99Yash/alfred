@@ -27,6 +27,15 @@
 // CLOSED — a package that holds a fixture and whose script yields no project is
 // a reported failure, never a silent pass.
 //
+// There is ONE path space here: repo-relative to a realpathed root. Git lists
+// fixtures and scripts repo-relative, while `tsc --listFilesOnly` prints absolute
+// realpaths, and a caller may spell the root through a symlink — `/tmp` is a link
+// to `/private/tmp` on macOS, and every `mkdtemp` fixture is reachable by two
+// names. `programFiles` is the one door a `tsc`-printed path enters through, so it
+// realpaths the root once and routes every printed line through `toRepoRelative`.
+// No comparison in this module spans two spellings, and nothing here re-answers
+// the question one path at a time.
+//
 // The rules live here so fixtures can drive them; `check-type-fixture-programs.mjs`
 // is the enforcing consumer, and `type-fixture-programs.selftest.mjs` is their
 // only executor — `scripts/` has no CI test job and no tsconfig names the tree.
@@ -36,6 +45,7 @@ import { existsSync, readFileSync, realpathSync } from "node:fs";
 import { join, resolve } from "node:path";
 
 import { listGitSourceFiles } from "./git-source-files.mjs";
+import { toRepoRelative } from "./repo-relative.mjs";
 import { listWorkspaces } from "./workspaces.mjs";
 
 const MANIFEST = "package.json";
@@ -186,6 +196,13 @@ function normalizeProject(project) {
  * `scripts/tsconfig.json` type-checked this file: the documented option list and the
  * call site had disagreed in silence, which is the shape this program exists to end.
  *
+ * `files` holds REPO-RELATIVE paths, against a root this function realpaths itself
+ * rather than trusting its caller — it is exported, so it must hold the module's one
+ * path space alone. That also makes the cache key one string per project instead of
+ * one per spelling of the root. A root that cannot be realpathed is a named refusal,
+ * never a throw and never a silent empty set, and it is not cached: no key exists for
+ * a tree this function could not reach.
+ *
  * @typedef {{files: Set<string>, problem: string | null}} ProgramFileSet
  *
  * @param {string} root
@@ -194,7 +211,14 @@ function normalizeProject(project) {
  * @returns {ProgramFileSet}
  */
 export function programFiles(root, projectPath, { tsc = defaultTscPath(root), cache } = {}) {
-  const absolute = resolve(root, projectPath);
+  let realRoot;
+  try {
+    realRoot = realpathSync(root);
+  } catch {
+    return { files: new Set(), problem: `no directory at ${root}` };
+  }
+
+  const absolute = resolve(realRoot, projectPath);
   const cached = cache?.get(absolute);
   if (cached !== undefined) return cached;
 
@@ -207,7 +231,7 @@ export function programFiles(root, projectPath, { tsc = defaultTscPath(root), ca
     let stdout;
     try {
       stdout = execFileSync(tsc, ["-p", absolute, "--listFilesOnly"], {
-        cwd: root,
+        cwd: realRoot,
         encoding: "utf8",
         maxBuffer: 64 * 1024 * 1024,
         stdio: ["ignore", "pipe", "pipe"],
@@ -223,7 +247,7 @@ export function programFiles(root, projectPath, { tsc = defaultTscPath(root), ca
         .split("\n")
         .map((line) => line.trim())
         .filter((line) => line.length > 0 && !line.startsWith("error TS"))
-        .map((line) => resolve(root, line)),
+        .map((line) => toRepoRelative(realRoot, line)),
     );
     result =
       files.size === 0
@@ -312,7 +336,7 @@ export function typeFixtureFailures(root, tsc = defaultTscPath(root)) {
     }
 
     for (const fixture of held) {
-      if (isMember(root, fixture, members)) continue;
+      if (members.has(fixture)) continue;
       failures.push(
         `${packageDir} · ${fixture} · is in no program its \`${CHECK_TYPES}\` runs (probed ${projects.join(", ")}), so tsc never reads it.`,
       );
@@ -358,24 +382,13 @@ export function scriptProgramFailures(root, tsc = defaultTscPath(root), cache) {
   }
 
   for (const script of tracked) {
-    if (isMember(root, script, files)) continue;
+    if (files.has(script)) continue;
     failures.push(
       `${script} · is in no program (${SCRIPTS_PROJECT} does not read it), so tsc never checks it. Widen that project's \`include\`, or move the file under \`${SCRIPTS_EXCLUDED_ROOT}\` if it is a spike with dependencies of its own.`,
     );
   }
 
   return { checked: tracked.length, failures };
-}
-
-/** Compare against tsc's own answer under both spellings of the path — a temp dir may be reached through a symlink. */
-function isMember(root, fixture, members) {
-  const absolute = resolve(root, fixture);
-  if (members.has(absolute)) return true;
-  try {
-    return members.has(realpathSync(absolute));
-  } catch {
-    return false;
-  }
 }
 
 function checkTypesScript(root, packageDir) {
