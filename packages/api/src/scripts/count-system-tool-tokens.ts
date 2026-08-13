@@ -20,7 +20,7 @@ import { asSchema } from "ai";
 import { getTool, listRegisteredTools } from "@alfred/assistant/tool-runtime";
 import { registerBuiltinTools } from "../modules/tools/runtime";
 import { systemToolKernel } from "@alfred/assistant/execution/tool-surface";
-import { toolSchemaSize } from "../modules/tools/schema-budget";
+import { toolSchemaSize } from "@alfred/assistant/tool-runtime/schema-budget";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const MODEL = "claude-opus-4-8";

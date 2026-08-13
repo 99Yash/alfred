@@ -71,7 +71,7 @@ Unresolved.
 Known mismatch to prove and fix:
 
 - `apps/web/src/lib/integrations/integrations.ts` advertises richer hand-written capabilities.
-- `packages/contracts/src/tools.ts` and `packages/api/src/modules/tools/registry.ts` define executable actions and risk tiers.
+- `packages/contracts/src/tools.ts` and `packages/assistant/src/tool-runtime/internal/registry.ts` define executable actions and risk tiers.
 - `packages/api/src/modules/integrations/tool-tiers-routes.ts` already exposes a narrow server projection to the web.
 
 Prototype target: replace or augment `provider.capabilities` with an API projection such as `/api/capabilities/integrations`, where each displayed capability is tagged `available`, `connected`, `needs_connect`, `needs_reauth`, `planned`, or `unsupported`.
