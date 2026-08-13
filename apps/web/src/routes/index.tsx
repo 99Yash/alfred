@@ -2,8 +2,8 @@ import { createFileRoute, useNavigate } from "@tanstack/react-router";
 import { useEffect } from "react";
 import { LandingPage } from "~/components/landing/landing-page";
 import { authClient } from "~/lib/auth/auth-client";
-import { readAuthHint } from "~/lib/auth/auth-hint";
 import { pageMeta } from "~/lib/page-meta";
+import { getLocalStorageItem, LOCAL_STORAGE_KEY } from "~/lib/storage/storage";
 
 /**
  * Root index — `/`.
@@ -17,7 +17,9 @@ import { pageMeta } from "~/lib/page-meta";
  *   • signed-in             → hold a blank frame for the `/chat` redirect
  *                             (no flash of the marketing page)
  * A stale hint only ever costs a one-frame flash or a brief blank, and the
- * resolved session immediately corrects course. See `lib/auth-hint`.
+ * resolved session immediately corrects course. It is a UX hint, never a
+ * security boundary — `AppShell` writes it, and the key's schema defaults it to
+ * `false` (show the landing) for SSR, private mode, and first-ever visits.
  */
 export const Route = createFileRoute("/")({
   head: () => pageMeta({ path: "/" }),
@@ -37,6 +39,6 @@ function IndexRoute() {
   if (isAuthed) return null;
   // Session not yet resolved → defer to the hint to avoid flashing the landing
   // at a returning signed-in user before the redirect fires.
-  if (isPending && readAuthHint()) return null;
+  if (isPending && getLocalStorageItem(LOCAL_STORAGE_KEY.MAYBE_AUTHED)) return null;
   return <LandingPage />;
 }
