@@ -28,8 +28,8 @@ import { fileURLToPath } from "node:url";
 
 /** Every required server env var, so `serverEnv()` parses without a real deploy. */
 function ensureAuthTestEnv(): void {
-  process.env.DATABASE_URL ??= "postgres://test:test@127.0.0.1:5432/test";
-  process.env.REDIS_URL ??= "redis://localhost:6379";
+  process.env.DATABASE_URL ??= "postgres://test:test@127.0.0.1:5432/test"; // drift-ok: seeds a fixture value, does not gate a suite
+  process.env.REDIS_URL ??= "redis://localhost:6379"; // drift-ok: seeds a fixture value, does not gate a suite
   process.env.BETTER_AUTH_SECRET ??= "test-secret-that-is-at-least-32-characters";
   process.env.BETTER_AUTH_URL ??= "http://localhost:3001";
   process.env.ALFRED_ALLOWED_EMAIL ??= "test@example.test";

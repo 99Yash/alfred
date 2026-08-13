@@ -26,6 +26,7 @@ import {
   updateInvocation,
   upsertToolPolicy,
 } from "../../src/tool-runtime/mcp/invocations";
+import { dbBackedSkip } from "../support/db-backed";
 
 /**
  * DB-backed tests for the MCP persistence layer (PRD #540). They exercise the
@@ -37,7 +38,7 @@ import {
  * Opt-in on `DATABASE_URL` (mirrors dispatch/staging.test.ts): seeds throwaway
  * `test-mcp-*` users and cascades everything away on teardown.
  */
-const SKIP = process.env.DATABASE_URL ? false : "DATABASE_URL not set — skipping DB-backed test";
+const SKIP = dbBackedSkip("database");
 
 const ID_PREFIX = "test-mcp-";
 const createdUserIds: string[] = [];

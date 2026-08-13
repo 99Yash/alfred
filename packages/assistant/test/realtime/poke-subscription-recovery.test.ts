@@ -185,12 +185,12 @@ describe("replicache poke bus recovers from a rejected SUBSCRIBE", () => {
     for (const [key, value] of Object.entries(ENV_DUMMIES)) process.env[key] ??= value;
     // Unconditional: an ambient REDIS_URL pointing at a healthy Redis would
     // make the first SUBSCRIBE succeed and delete the whole point of the file.
-    process.env["REDIS_URL"] = redis.url;
+    process.env["REDIS_URL"] = redis.url; // drift-ok: overrides the value on purpose, does not gate a suite
 
     bus = await import("../../src/realtime/replicache-events");
     db = await import("@alfred/db/redis");
     const { serverEnv } = await import("@alfred/env/server");
-    assert.equal(serverEnv().REDIS_URL, redis.url, "the REDIS_URL override did not land");
+    assert.equal(serverEnv().REDIS_URL, redis.url, "the REDIS_URL override did not land"); // drift-ok: asserts the override above landed, does not gate a suite
 
     await bus.initReplicachePokeBridge();
   });

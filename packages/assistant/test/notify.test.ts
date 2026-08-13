@@ -4,21 +4,13 @@ import { after, before, describe, test } from "node:test";
 
 import { closeConnections, db } from "@alfred/db";
 import { user } from "@alfred/db/schemas";
-import { databaseEnv } from "@alfred/env/database";
 import { inArray, like } from "drizzle-orm";
 
 import { send } from "../src/delivery";
 import { _setResendClientForTests } from "../src/delivery/resend-client";
+import { dbBackedSkip } from "./support/db-backed";
 
-function hasDatabaseUrl(): boolean {
-  try {
-    return Boolean(databaseEnv().DATABASE_URL);
-  } catch {
-    return false;
-  }
-}
-
-const SKIP = hasDatabaseUrl() ? false : "DATABASE_URL not set — skipping DB-backed test";
+const SKIP = dbBackedSkip("database");
 const ID_PREFIX = "test-notify-";
 const createdUserIds: string[] = [];
 

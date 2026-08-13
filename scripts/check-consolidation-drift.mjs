@@ -16,7 +16,7 @@
 
 import { readFileSync } from "node:fs";
 
-import { isSkippedPath, matchChains, matchLine } from "./consolidation-rules.mjs";
+import { isScannedPath, matchChains, matchLine } from "./consolidation-rules.mjs";
 import { selfTestFailures } from "./consolidation-rules.selftest.mjs";
 import { listGitSourceFiles } from "./git-source-files.mjs";
 import { gitSourceFileSelfTestFailures } from "./git-source-files.selftest.mjs";
@@ -33,7 +33,11 @@ if (selfTest.length > 0) {
   process.exit(1);
 }
 
-const files = listGitSourceFiles(["*.ts", "*.tsx"]).filter((f) => !isSkippedPath(f));
+// `isScannedPath`, not `!isSkippedPath`: a rule that names its own `paths` reaches
+// files the global skip filter drops (a test tree, for `db-backed-skip-hand-rolled`).
+// Pre-filtering on the skip filter alone would hand such a rule zero files while its
+// self-test stayed green — a check disarmed before it ever ran.
+const files = listGitSourceFiles(["*.ts", "*.tsx"]).filter(isScannedPath);
 
 const violations = [];
 

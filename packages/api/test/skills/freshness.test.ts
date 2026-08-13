@@ -16,6 +16,8 @@ import { dbBackedSkip } from "../support/db-backed";
 
 const SKIP =
   dbBackedSkip("database") ||
+  // drift-ok: composes an EXTRA condition on top of dbBackedSkip — these poke
+  // assertions need REDIS_URL ABSENT, which a presence-only guard cannot express.
   (process.env.REDIS_URL
     ? "REDIS_URL set - local poke assertions require the in-process bridge"
     : false);

@@ -26,7 +26,7 @@ import { settleWithin, settlementMessage } from "./support/settle";
  * `docker compose up redis` does.
  */
 
-const REDIS_URL = process.env["REDIS_URL"] ?? "redis://127.0.0.1:6379";
+const REDIS_URL = process.env["REDIS_URL"] ?? "redis://127.0.0.1:6379"; // drift-ok: this tree FAILS LOUDLY on an absent Redis instead of skipping
 const DEADLINE_MS = 5_000;
 
 describe("redis connection kinds against a healthy Redis", () => {

@@ -87,8 +87,8 @@ async function withTimerArmsCounted(body: () => Promise<void>): Promise<string[]
 test("action-policies barrel loads with no database and no redis configured", async () => {
   // `serverEnv()` is all-or-nothing, so removing these two keys is enough to make a
   // module-scope env read throw; a module-scope `createRedisConnection(...)` needs REDIS_URL.
-  delete process.env["DATABASE_URL"];
-  delete process.env["REDIS_URL"];
+  delete process.env["DATABASE_URL"]; // drift-ok: the probe needs the variable ABSENT, which no presence guard expresses
+  delete process.env["REDIS_URL"]; // drift-ok: the probe needs the variable ABSENT, which no presence guard expresses
 
   // A no-throw assertion cannot see an armed timer or an opened socket, so the import
   // runs under both extra detectors — the arm count for any timer, ref'd or not, and the

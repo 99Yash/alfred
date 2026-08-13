@@ -54,7 +54,7 @@ import { before, describe, test } from "node:test";
  * supplies one; locally, `docker compose up redis` does.
  */
 
-const UPSTREAM_URL = process.env["REDIS_URL"] ?? "redis://127.0.0.1:6379";
+const UPSTREAM_URL = process.env["REDIS_URL"] ?? "redis://127.0.0.1:6379"; // drift-ok: this tree FAILS LOUDLY on an absent Redis instead of skipping
 /** The child's own window is 8s; this is that plus room for spawn and install. */
 const CHILD_DEADLINE_MS = 20_000;
 /** How long a reconnect onto a healthy peer may take before it counts as never. */

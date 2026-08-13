@@ -15,6 +15,7 @@ import {
   startOutboxReaper,
   stopOutboxReaper,
 } from "../../src/realtime/outbox-reaper";
+import { dbBackedSkip } from "../support/db-backed";
 
 /**
  * Retention for `events_outbox` (#533), asserted against a real database.
@@ -31,7 +32,7 @@ import {
  * seeded ids by name.
  */
 
-const SKIP = process.env.DATABASE_URL ? false : "DATABASE_URL not set — skipping DB-backed test";
+const SKIP = dbBackedSkip("database");
 
 const HOUR_MS = 60 * 60 * 1000;
 
