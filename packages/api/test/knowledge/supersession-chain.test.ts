@@ -7,6 +7,7 @@ import { user, userFacts } from "@alfred/db/schemas";
 import { inArray, like } from "drizzle-orm";
 
 import { getSupersessionChain } from "@alfred/assistant/knowledge";
+import { dbBackedSkip } from "../support/db-backed";
 
 /**
  * DB-backed test for `getSupersessionChain`'s recursive-CTE traversal (#189):
@@ -21,7 +22,7 @@ import { getSupersessionChain } from "@alfred/assistant/knowledge";
  * database. Seeds throwaway `test-superchain-*` users and cascades them away on
  * teardown.
  */
-const SKIP = process.env.DATABASE_URL ? false : "DATABASE_URL not set — skipping DB-backed test";
+const SKIP = dbBackedSkip("database");
 
 const ID_PREFIX = "test-superchain-";
 const createdUserIds: string[] = [];

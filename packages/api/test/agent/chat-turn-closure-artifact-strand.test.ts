@@ -25,6 +25,7 @@ import {
 } from "@alfred/assistant/conversations/chat-turn-state";
 import { CHAT_TURN_WORKFLOW_SLUG } from "@alfred/assistant/conversations/chat-turn";
 import { resetToolFixtures } from "../lib/tool-fixtures";
+import { dbBackedSkip } from "../support/db-backed";
 
 /**
  * DB-backed test for the late-fault artifact strand (campaign item 52).
@@ -54,7 +55,7 @@ import { resetToolFixtures } from "../lib/tool-fixtures";
  *
  * Opt-in: runs only when `DATABASE_URL` points at a reachable migrated Postgres.
  */
-const SKIP = process.env.DATABASE_URL ? false : "DATABASE_URL not set — skipping DB-backed test";
+const SKIP = dbBackedSkip("database");
 
 const ID_PREFIX = "test-closure-artifact-";
 const createdUserIds: string[] = [];

@@ -7,6 +7,7 @@ import { agentRuns, agentSteps, user } from "@alfred/db/schemas";
 import { and, eq, inArray, like } from "drizzle-orm";
 
 import { leaseRun } from "@alfred/assistant/execution/executor";
+import { dbBackedSkip } from "../support/db-backed";
 
 /**
  * DB-backed tests for the ADR-0070 §1.4 non-progressing-step backstop (#137
@@ -20,7 +21,7 @@ import { leaseRun } from "@alfred/assistant/execution/executor";
  * Postgres; skipped otherwise. Seeds throwaway `test-lease-*` users and
  * cascades them away on teardown.
  */
-const SKIP = process.env.DATABASE_URL ? false : "DATABASE_URL not set — skipping DB-backed test";
+const SKIP = dbBackedSkip("database");
 
 const ID_PREFIX = "test-lease-";
 const createdUserIds: string[] = [];

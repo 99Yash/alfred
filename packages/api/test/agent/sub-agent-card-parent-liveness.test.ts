@@ -12,6 +12,7 @@ import {
   parentRunStillOpen,
   USER_AUTHORED_BRIEF_WORKFLOW_SLUG,
 } from "@alfred/assistant/execution/workflows/user-authored-brief";
+import { dbBackedSkip } from "../support/db-backed";
 
 /**
  * DB-backed test for the sub-agent republish guard (campaign item 38, 37-MF1).
@@ -26,7 +27,7 @@ import {
  *
  * Opt-in: runs only when `DATABASE_URL` points at a reachable migrated Postgres.
  */
-const SKIP = process.env.DATABASE_URL ? false : "DATABASE_URL not set — skipping DB-backed test";
+const SKIP = dbBackedSkip("database");
 
 const ID_PREFIX = "test-parent-liveness-";
 const createdUserIds: string[] = [];

@@ -11,7 +11,6 @@ import {
   chatThreads,
   user,
 } from "@alfred/db/schemas";
-import { databaseEnv } from "@alfred/env/database";
 import { eq, inArray, sql } from "drizzle-orm";
 
 import { persistChatAttachmentRepresentation } from "@alfred/assistant/conversations/attachments/attachment-enrichment";
@@ -19,15 +18,9 @@ import {
   loadConversationSummaryEvidence,
   persistConversationSummary,
 } from "@alfred/assistant/conversations/compaction/index";
+import { dbBackedSkip } from "../support/db-backed";
 
-const SKIP = (() => {
-  try {
-    databaseEnv();
-    return false;
-  } catch {
-    return "DATABASE_URL not set — skipping DB-backed test";
-  }
-})();
+const SKIP = dbBackedSkip("database");
 
 const ID_PREFIX = "test-compaction-db-";
 const createdUserIds: string[] = [];

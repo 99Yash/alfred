@@ -7,6 +7,7 @@ import { entities, user, userFacts } from "@alfred/db/schemas";
 import { inArray, like } from "drizzle-orm";
 
 import { readUserContext } from "@alfred/assistant/knowledge";
+import { dbBackedSkip } from "../support/db-backed";
 
 /**
  * DB-backed integration test for `readUserContext`'s bounded-slice behaviors:
@@ -25,7 +26,7 @@ import { readUserContext } from "@alfred/assistant/knowledge";
  * suite still runs in environments without a database. It seeds throwaway
  * `test-uctx-*` users and deletes them (cascade clears their entities) on teardown.
  */
-const SKIP = process.env.DATABASE_URL ? false : "DATABASE_URL not set — skipping DB-backed test";
+const SKIP = dbBackedSkip("database");
 
 const ID_PREFIX = "test-uctx-";
 const createdUserIds: string[] = [];

@@ -16,6 +16,7 @@ import {
 } from "@alfred/assistant/execution/registry";
 import { cancelRun } from "@alfred/assistant/execution/service";
 import type { StepResult, Workflow } from "@alfred/assistant/execution/types";
+import { dbBackedSkip } from "../support/db-backed";
 
 /**
  * DB-backed tests for the mid-flight cancel race (#530).
@@ -44,7 +45,7 @@ import type { StepResult, Workflow } from "@alfred/assistant/execution/types";
  *
  * Opt-in: runs only when `DATABASE_URL` points at a reachable migrated Postgres.
  */
-const SKIP = process.env.DATABASE_URL ? false : "DATABASE_URL not set — skipping DB-backed test";
+const SKIP = dbBackedSkip("database");
 
 const ID_PREFIX = "test-cancel-race-";
 const createdUserIds: string[] = [];

@@ -4,11 +4,11 @@ import { after, describe, test } from "node:test";
 
 import { closeConnections, db } from "@alfred/db";
 import { CHAT_THREAD_ACTIVE_RUN_INDEX, agentRuns, chatThreads, user } from "@alfred/db/schemas";
-import { databaseEnv } from "@alfred/env/database";
 import { and, eq, inArray, sql } from "drizzle-orm";
 
 import { closeRedis } from "@alfred/db/redis";
 import { uniqueViolationConstraint } from "@alfred/db/pg-errors";
+import { dbBackedSkip } from "../support/db-backed";
 
 /**
  * DB-backed guard for the per-thread turn concurrency invariant (#488).
@@ -25,14 +25,7 @@ import { uniqueViolationConstraint } from "@alfred/db/pg-errors";
  *
  * Opt-in: runs only when `DATABASE_URL` points at a reachable migrated Postgres.
  */
-const SKIP = (() => {
-  try {
-    databaseEnv();
-    return false;
-  } catch {
-    return "DATABASE_URL not set — skipping DB-backed test";
-  }
-})();
+const SKIP = dbBackedSkip("database");
 
 const CHAT_TURN_WORKFLOW_SLUG = "__chat-turn__";
 const DEDUP_INDEX = "agent_runs_dedup_key_idx";

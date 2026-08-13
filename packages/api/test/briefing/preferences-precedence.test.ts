@@ -8,6 +8,7 @@ import { inArray, like } from "drizzle-orm";
 
 import { resolveBriefingPreferences } from "@alfred/assistant/briefings/preferences";
 import { setPreference } from "@alfred/assistant/settings";
+import { dbBackedSkip } from "../support/db-backed";
 
 /**
  * DB-backed integration test for `briefing.resolveBriefingPreferences` — the
@@ -25,7 +26,7 @@ import { setPreference } from "@alfred/assistant/settings";
  * suite still runs without a database. It seeds throwaway `test-briefing-tz-*`
  * users and deletes them (cascade clears their preferences) on teardown.
  */
-const SKIP = process.env.DATABASE_URL ? false : "DATABASE_URL not set — skipping DB-backed test";
+const SKIP = dbBackedSkip("database");
 
 const ID_PREFIX = "test-briefing-tz-";
 const createdUserIds: string[] = [];
