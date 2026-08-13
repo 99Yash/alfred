@@ -4,12 +4,14 @@ Behavioral evals for Alfred's LLM call sites. We run [evalite](https://evalite.d
 locally — no extra service, no cost beyond the model calls themselves.
 
 ```bash
-pnpm --filter @alfred/api eval        # run once
-pnpm --filter @alfred/api eval:watch  # watch mode + local UI on :3006
+pnpm --filter @alfred/assistant eval        # run once
+pnpm --filter @alfred/assistant eval:watch  # watch mode + local UI on :3006
 ```
 
-Tool-runtime evals live in `packages/assistant/evals` and run with
-`pnpm --filter @alfred/assistant eval`.
+A bare `evalite run` globs **all nine** suites in this directory, `boss-judgment`
+and `triage-classify` included. Every suite calls a real model, so a bare run
+costs real tokens. Name one suite to run one:
+`pnpm --filter @alfred/assistant exec evalite run date-grounding`.
 
 Env (loaded from `apps/server/.env`):
 
@@ -23,6 +25,9 @@ Env (loaded from `apps/server/.env`):
 - `boss-judgment.eval.ts` — chat boss source-ladder judgment: repeated "more"
   asks and public/current questions must reach web/sub-agent breadth, while
   calendar requests must not over-search.
+- `calendar-grounding.eval.ts` — chat agent answers relative calendar questions
+  ("today", "this week") through the structured `window` / `partOfDay` fields
+  instead of inventing a param name or hand-computing RFC3339 bounds.
 - `github-grounding.eval.ts` — chat agent answers time-relative GitHub PR
   questions with structured `*WithinDays` fields instead of invented or
   colliding free-form GitHub search qualifiers.
@@ -34,6 +39,13 @@ Env (loaded from `apps/server/.env`):
   usefulness with a cheap cross-provider judge.
 - `triage-classify.eval.ts` — the email-triage classifier: category match, rail-todo
   mint decision, and an LLM-judge pass on rationale soundness.
+- `passthrough-honesty.eval.ts` — the ADR-0074 rung-a general read-only tier:
+  the boss reaches for the uncurated passthrough on a read the curated tools
+  don't cover, and reports honestly when it cannot.
+- `tool-selection-bloat.eval.ts` — the context-purity experiment: does a bloated
+  tool menu degrade tool selection? Runs the same tasks under a lean menu and a
+  full one.
+- `lib/grounding.ts` — the `GroundingTaskOutput` shape the grounding suites share.
 - `lib/llm-judge.ts` — reusable LLM-as-a-judge scorer factory.
 
 ## Scorers
