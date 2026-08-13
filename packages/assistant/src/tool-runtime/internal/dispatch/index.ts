@@ -569,8 +569,7 @@ export async function dispatchToolCall(args: DispatchArgs): Promise<DispatchResu
   // downgrade (#541). The central resolver clamps undeclared downgrades. The
   // effective tier drives both the approval decision and the persisted row.
   const riskTier = await resolveEffectiveRiskTier(tool, input, ctx);
-  const policyMode =
-    integration === "system" ? "autonomy" : await resolvePolicyMode(args.userId, toolName);
+  const policyMode = await resolvePolicyMode(args.userId, toolName);
   const requiresApproval = toolRequiresApproval(policyMode, riskTier);
   const approvalNotifyDelayMs = requiresApproval
     ? await resolveApprovalNotifyDelayMs(args.userId)
@@ -913,9 +912,19 @@ export async function resolveEffectiveRiskTier(
 /**
  * Best-effort prediction of whether a *fresh* dispatch of this tool would gate
  * (stage for approval) instead of executing autonomously. Mirrors the policy +
- * risk-tier gate in {@link dispatchToolCall}: `system.*` is always autonomy,
- * everything else follows the user's (cached) policy mode OR the high-tier
- * floor.
+ * STATIC risk-tier gate in {@link dispatchToolCall} by calling the same two
+ * functions it calls: `resolvePolicyMode` and {@link toolRequiresApproval}.
+ *
+ * `resolvePolicyMode` owns the `system.*` rule — it answers `autonomy` for those
+ * tools before it reads anything, so this function needs no carve-out of its own
+ * and performs no policy read for them. A `system.*` tool can therefore still be
+ * reported as gating: `system.activate_workflow` is `high`-tier, and the ADR-0069
+ * floor outranks autonomy.
+ *
+ * Two arms it does NOT mirror, both over-reports:
+ *   - a tool with `resolveRiskTier` (see below) — no validated input here.
+ *   - `staging: "fast_path"`, which returns from `dispatchToolCall` before the
+ *     gate. `mcp.list_tools` is the one holder.
  *
  * This is a scheduling hint, not a correctness gate — `dispatchToolCall` stays
  * the source of truth and still honors the row's stored `requires_approval` on
@@ -927,7 +936,6 @@ export async function resolveEffectiveRiskTier(
  */
 export async function toolCallWouldGate(userId: string, toolName: string): Promise<boolean> {
   if (!isToolName(toolName)) return false;
-  if (integrationFromToolName(toolName) === "system") return false;
   const policyMode = await resolvePolicyMode(userId, toolName);
   const tool = getTool(toolName);
   if (!tool) return false;
