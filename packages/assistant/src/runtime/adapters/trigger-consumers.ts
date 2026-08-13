@@ -1,5 +1,5 @@
 import { registerTriggerConsumer } from "@alfred/assistant/triggers";
-import { acceptEvent } from "../modules/workflows";
+import { acceptEvent } from "@alfred/assistant/automation";
 import { gmailIngestedTriggerConsumers } from "./gmail-ingested-consumers";
 
 let unregisterConsumers: (() => void)[] | undefined;

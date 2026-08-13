@@ -25,7 +25,7 @@ import type { StepResult, Workflow } from "@alfred/assistant/execution/types";
 import {
   registerTriggerConsumers,
   unregisterTriggerConsumers,
-} from "../../src/composition/trigger-consumers";
+} from "@alfred/assistant/runtime/test-support";
 import { publishDomainEvent } from "@alfred/assistant/triggers";
 import { acceptEvent } from "../../src/modules/workflows";
 import { publishGoogleCallbackCompleted } from "@alfred/assistant/connections";

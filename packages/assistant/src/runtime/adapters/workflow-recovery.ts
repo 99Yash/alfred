@@ -2,7 +2,7 @@ import {
   registerWorkflowRecoveryHandler,
   type WorkflowRecoveryResult,
 } from "@alfred/assistant/connections/ingestion";
-import { recoverWorkflowDraft } from "../modules/workflows";
+import { recoverWorkflowDraft } from "@alfred/assistant/automation";
 
 let unregisterWorkflowRecoveryHandler: (() => void) | undefined;
 

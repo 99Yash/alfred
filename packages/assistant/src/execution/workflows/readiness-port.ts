@@ -1,7 +1,7 @@
 // The durable-execution module owns only the readiness verdict shape its
 // `check-readiness` step reads; the concrete check lives in `workflows` and is
-// wired in at boot by the composition layer (see
-// `composition/workflow-readiness.ts`). This keeps `agent` from importing
+// wired in at boot by the runtime (see
+// `packages/assistant/src/runtime/adapters/workflow-readiness.ts`). This keeps `agent` from importing
 // `workflows` — the last product edge the execution core sheds (ADR-0089) —
 // mirroring how `connections/ingestion/workflow-recovery.ts` receives its checker.
 

@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { describe, test } from "node:test";
 
-import { toVerdict } from "../../src/composition/workflow-readiness";
+import { toVerdict } from "../../src/runtime/adapters/workflow-readiness";
 import type { RuntimeReadinessResult } from "@alfred/assistant/automation/runtime-readiness";
 import type { WorkflowReadinessProblem } from "@alfred/assistant/automation/readiness";
 

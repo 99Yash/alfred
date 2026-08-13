@@ -43,7 +43,7 @@ import {
 } from "@alfred/assistant/action-policies/test-support";
 import { clearToolRegistryForTests, liveTool, registerTool } from "@alfred/assistant/tool-runtime";
 import { calendarTools } from "../../src/modules/tools/calendar";
-import { registerReplicachePokeAdapter } from "../../src/composition/replicache-poke-adapter";
+import { registerReplicachePokeAdapter } from "@alfred/assistant/realtime";
 import { memoryStagingStore, type MemoryStagingStore } from "./memory-staging-store";
 import { runStagingStoreContract, type StagingStoreHarness } from "./staging-store-contract";
 
