@@ -10,7 +10,6 @@ import {
   observations,
   user,
 } from "@alfred/db/schemas";
-import { databaseEnv } from "@alfred/env/database";
 import { and, asc, eq, inArray } from "drizzle-orm";
 import {
   buildOrgAffiliationObservationInput,
@@ -19,6 +18,7 @@ import {
   recordOrgAffiliationOnDisconnect,
   type CredentialForAffiliation,
 } from "@alfred/assistant/knowledge/affiliation";
+import { dbBackedSkip } from "../support/db-backed";
 
 /**
  * Pure-builder tests for the connect-time `user_org_affiliation` emitter (ADR-0080
@@ -32,14 +32,7 @@ const T0 = new Date("2026-06-01T12:00:00.000Z");
 const ID_PREFIX = "test-affiliation-";
 const createdUserIds: string[] = [];
 
-function hasDatabaseUrl(): boolean {
-  try {
-    return Boolean(databaseEnv().DATABASE_URL);
-  } catch {
-    return false;
-  }
-}
-const SKIP_DB = hasDatabaseUrl() ? false : "DATABASE_URL not set - skipping DB-backed test";
+const SKIP_DB = dbBackedSkip("database");
 
 after(async () => {
   if (createdUserIds.length > 0) {

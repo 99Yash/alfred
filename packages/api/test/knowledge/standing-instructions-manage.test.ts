@@ -11,7 +11,6 @@ import {
 } from "@alfred/contracts";
 import { closeConnections, db } from "@alfred/db";
 import { observations, user, userFacts } from "@alfred/db/schemas";
-import { databaseEnv } from "@alfred/env/database";
 import { eq, inArray, like } from "drizzle-orm";
 
 import { closeReplicachePokeBridge } from "@alfred/assistant/realtime";
@@ -25,16 +24,9 @@ import {
 // barrel, item 15) — read from its owning file directly.
 import { STANDING_INSTRUCTION_LIST_LIMIT } from "@alfred/assistant/knowledge/standing-instructions";
 import { closeRedis } from "@alfred/db/redis";
+import { dbBackedSkip } from "../support/db-backed";
 
-function hasDatabaseUrl(): boolean {
-  try {
-    return Boolean(databaseEnv().DATABASE_URL);
-  } catch {
-    return false;
-  }
-}
-
-const SKIP = hasDatabaseUrl() ? false : "DATABASE_URL not set — skipping DB-backed test";
+const SKIP = dbBackedSkip("database");
 const ID_PREFIX = "test-standing-manage-";
 const USER_MEMORY_SOURCE = { kind: "user" } satisfies MemorySource;
 const createdUserIds: string[] = [];

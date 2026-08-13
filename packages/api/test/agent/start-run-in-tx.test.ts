@@ -16,6 +16,7 @@ import {
 import { createRun, startRunInTx } from "@alfred/assistant/execution/service";
 import type { CreateRunArgs } from "@alfred/assistant/execution/service";
 import type { StepResult, Workflow } from "@alfred/assistant/execution/types";
+import { dbBackedSkip } from "../support/db-backed";
 
 /**
  * DB/Redis-backed coverage for the execution module's `startRunInTx` seam
@@ -34,10 +35,7 @@ import type { StepResult, Workflow } from "@alfred/assistant/execution/types";
  * Opt-in: runs only when `DATABASE_URL` and `REDIS_URL` point at reachable test
  * services. Seeds a throwaway `test-start-run-in-tx-*` user and cascades it away.
  */
-const HAS_DB_AND_REDIS = Boolean(process.env.DATABASE_URL && process.env.REDIS_URL);
-const SKIP = HAS_DB_AND_REDIS
-  ? false
-  : "DATABASE_URL/REDIS_URL not set — skipping DB/Redis-backed test";
+const SKIP = dbBackedSkip("database+redis");
 
 const SERVER_ENV_FIXTURES: Record<string, string> = {
   BETTER_AUTH_SECRET: "test better auth secret with length",

@@ -7,8 +7,9 @@ import { credentialVault } from "@alfred/db/credential-vault";
 import { integrationCredentials, user } from "@alfred/db/schemas";
 import { getFreshAccessToken, upsertCredential } from "@alfred/integrations/google";
 import { eq, sql } from "drizzle-orm";
+import { dbBackedSkip } from "../support/db-backed";
 
-const SKIP = process.env.DATABASE_URL ? false : "DATABASE_URL not set — skipping DB-backed test";
+const SKIP = dbBackedSkip("database");
 
 function ensureOAuthTestEnv(): void {
   process.env.REDIS_URL ??= "redis://localhost:6379";

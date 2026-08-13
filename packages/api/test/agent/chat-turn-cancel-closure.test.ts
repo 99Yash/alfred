@@ -25,6 +25,7 @@ import {
   chatTurnWorkflow,
 } from "@alfred/assistant/conversations/chat-turn";
 import { resetToolFixtures } from "../lib/tool-fixtures";
+import { dbBackedSkip } from "../support/db-backed";
 
 /**
  * DB-backed closure tests for the ONE workflow that owes the user a visible
@@ -55,7 +56,7 @@ import { resetToolFixtures } from "../lib/tool-fixtures";
  *
  * Opt-in: runs only when `DATABASE_URL` points at a reachable migrated Postgres.
  */
-const SKIP = process.env.DATABASE_URL ? false : "DATABASE_URL not set — skipping DB-backed test";
+const SKIP = dbBackedSkip("database");
 
 const ID_PREFIX = "test-chat-cancel-";
 const createdUserIds: string[] = [];

@@ -22,6 +22,7 @@ import {
 } from "@alfred/integrations/google";
 import { getActiveBearerCredential, upsertBearerCredential } from "@alfred/integrations/shared";
 import { eq, sql } from "drizzle-orm";
+import { dbBackedSkip } from "../support/db-backed";
 
 /**
  * The invariant of #453, asserted against a real database: after any allowed
@@ -33,7 +34,7 @@ import { eq, sql } from "drizzle-orm";
  * its own query.
  */
 
-const SKIP = process.env.DATABASE_URL ? false : "DATABASE_URL not set — skipping DB-backed test";
+const SKIP = dbBackedSkip("database");
 
 function ensureCredentialTestEnv(): void {
   process.env.REDIS_URL ??= "redis://localhost:6379";

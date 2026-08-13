@@ -8,6 +8,7 @@ import { and, eq, inArray } from "drizzle-orm";
 
 import { confirmFact, proposeFact, recallActiveByKey } from "@alfred/assistant/knowledge";
 import { closeRedis } from "@alfred/db/redis";
+import { dbBackedSkip } from "../support/db-backed";
 
 /**
  * DB-backed integration test for `proposeFact`'s #330 capture invariants:
@@ -20,7 +21,7 @@ import { closeRedis } from "@alfred/db/redis";
  * Opt-in: runs only with a reachable migrated `DATABASE_URL`. Seeds throwaway
  * `test-pf-*` users and deletes them on teardown.
  */
-const SKIP = process.env.DATABASE_URL ? false : "DATABASE_URL not set — skipping DB-backed test";
+const SKIP = dbBackedSkip("database");
 
 const ID_PREFIX = "test-pf-";
 const createdUserIds: string[] = [];

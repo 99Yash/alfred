@@ -3,11 +3,11 @@ import { randomUUID } from "node:crypto";
 import { after, describe, test } from "node:test";
 
 import { closeConnections } from "@alfred/db";
-import { databaseEnv } from "@alfred/env/database";
 
 import { closeReplicachePokeBridge } from "@alfred/assistant/realtime";
 import { isQuietMorning, scorePriorityEmailDemand } from "@alfred/assistant/briefings/read";
 import { closeRedis } from "@alfred/db/redis";
+import { dbBackedSkip } from "../support/db-backed";
 
 /**
  * Pins the morning suppression invariant (#259 / ADR-0064): a cron morning
@@ -62,14 +62,7 @@ describe("isQuietMorning", () => {
  * cutoff still count, while quiet sub-cutoff items do not. Payment failures are
  * pinned demanding from subject/snippet so real billing problems are not eaten.
  */
-function hasDatabaseUrl(): boolean {
-  try {
-    return Boolean(databaseEnv().DATABASE_URL);
-  } catch {
-    return false;
-  }
-}
-const SKIP = hasDatabaseUrl() ? false : "DATABASE_URL not set — skipping DB-backed test";
+const SKIP = dbBackedSkip("database");
 
 describe("scorePriorityEmailDemand", { skip: SKIP }, () => {
   const userId = `test-briefing-suppression-${randomUUID()}`;

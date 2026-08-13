@@ -15,6 +15,7 @@ import {
 } from "@alfred/assistant/execution/registry";
 import type { StepResult, Workflow } from "@alfred/assistant/execution/types";
 import type { SenderExtractionEvent } from "@alfred/assistant/triage";
+import { dbBackedSkip } from "../support/db-backed";
 
 /**
  * DB-backed regression for the ADR-0070 §1.1/§1.3 executor-sink gap (PR review
@@ -30,7 +31,7 @@ import type { SenderExtractionEvent } from "@alfred/assistant/triage";
  * Postgres; skipped otherwise. Written with the `\x00` ESCAPE form, never a
  * literal NUL byte (a literal one turns this file binary to rg/grep/git).
  */
-const SKIP = process.env.DATABASE_URL ? false : "DATABASE_URL not set — skipping DB-backed test";
+const SKIP = dbBackedSkip("database");
 
 const NUL = String.fromCharCode(0);
 const LONE_SURROGATE = String.fromCharCode(0xd800); // unpaired high surrogate

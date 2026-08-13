@@ -19,6 +19,7 @@ import {
 } from "@alfred/assistant/conversations/chat-turn-state";
 import { CHAT_TURN_WORKFLOW_SLUG } from "@alfred/assistant/conversations/chat-turn";
 import { resetToolFixtures } from "../lib/tool-fixtures";
+import { dbBackedSkip } from "../support/db-backed";
 
 /**
  * DB-backed test for the replay-barrier release hole (campaign item 38, path 1).
@@ -50,7 +51,7 @@ import { resetToolFixtures } from "../lib/tool-fixtures";
  *
  * Opt-in: runs only when `DATABASE_URL` points at a reachable migrated Postgres.
  */
-const SKIP = process.env.DATABASE_URL ? false : "DATABASE_URL not set — skipping DB-backed test";
+const SKIP = dbBackedSkip("database");
 
 /**
  * The Replicache poke is delivered over the in-process emitter only when there
@@ -59,11 +60,11 @@ const SKIP = process.env.DATABASE_URL ? false : "DATABASE_URL not set — skippi
  * observes a poke through `subscribeUserPokes` requires `REDIS_URL` unset —
  * same gate `test/skills/freshness.test.ts` uses for its poke assertions.
  */
-const POKE_SKIP = process.env.DATABASE_URL
-  ? process.env.REDIS_URL
+const POKE_SKIP =
+  dbBackedSkip("database") ||
+  (process.env.REDIS_URL
     ? "REDIS_URL set — local poke assertions require the in-process bridge"
-    : false
-  : "DATABASE_URL not set — skipping DB-backed test";
+    : false);
 
 const ID_PREFIX = "test-closure-republish-";
 const createdUserIds: string[] = [];

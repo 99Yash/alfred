@@ -12,6 +12,7 @@ import { clearToolRegistryForTests, liveTool, registerTool } from "@alfred/assis
 import { postgresStagingStore } from "../../src/modules/dispatch/staging-store";
 import { closeRedis } from "@alfred/db/redis";
 import { runStagingStoreContract, type StagingStoreHarness } from "./staging-store-contract";
+import { dbBackedSkip } from "../support/db-backed";
 
 /**
  * DB-backed regression tests for the dispatcher's idempotency contract and the
@@ -44,7 +45,7 @@ import { runStagingStoreContract, type StagingStoreHarness } from "./staging-sto
  * shared store contract. Both halves of that contract must run, or the fake
  * stops being evidence about the real adapter.
  */
-const SKIP = process.env.DATABASE_URL ? false : "DATABASE_URL not set — skipping DB-backed test";
+const SKIP = dbBackedSkip("database");
 
 const ID_PREFIX = "test-dispatch-";
 const createdUserIds: string[] = [];

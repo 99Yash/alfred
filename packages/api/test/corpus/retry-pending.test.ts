@@ -6,6 +6,7 @@ import { retryPending } from "@alfred/corpus";
 import { closeConnections, db } from "@alfred/db";
 import { documents, user } from "@alfred/db/schemas";
 import { eq, inArray, like } from "drizzle-orm";
+import { dbBackedSkip } from "../support/db-backed";
 
 /**
  * DB-backed test for the sweep orchestration `@alfred/corpus` now owns
@@ -31,7 +32,7 @@ import { eq, inArray, like } from "drizzle-orm";
  * Postgres; skipped otherwise. Seeds throwaway `test-retrypending-*` users and
  * cascades them away on teardown.
  */
-const SKIP = process.env.DATABASE_URL ? false : "DATABASE_URL not set — skipping DB-backed test";
+const SKIP = dbBackedSkip("database");
 
 const ID_PREFIX = "test-retrypending-";
 const SOURCE = "imessage" as const;

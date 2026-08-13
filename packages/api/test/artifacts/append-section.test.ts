@@ -10,11 +10,11 @@ import {
 } from "@alfred/contracts";
 import { closeConnections, db } from "@alfred/db";
 import { agentRuns, artifacts, chatThreads, user } from "@alfred/db/schemas";
-import { databaseEnv } from "@alfred/env/database";
 import { eq, inArray } from "drizzle-orm";
 
 import { closeRedis } from "@alfred/db/redis";
 import { appendArtifactSection, createArtifact } from "@alfred/assistant/artifacts/write";
+import { dbBackedSkip } from "../support/db-backed";
 
 /* ── schema caps (ADR-0085) — pure, always run ─────────────────────────── */
 
@@ -82,14 +82,7 @@ test("append_artifact_section rejects unknown keys (strict boundary)", () => {
 
 /* ── write path (ADR-0085) — DB-backed, opt-in ─────────────────────────── */
 
-const SKIP = (() => {
-  try {
-    databaseEnv();
-    return false;
-  } catch {
-    return "DATABASE_URL not set — skipping DB-backed test";
-  }
-})();
+const SKIP = dbBackedSkip("database");
 
 const ID_PREFIX = "test-artifact-section-";
 const createdUserIds: string[] = [];

@@ -12,17 +12,18 @@ import {
   finalizeSkillRun,
   recordSkillRun,
 } from "@alfred/assistant/skills/revisions";
+import { dbBackedSkip } from "../support/db-backed";
 
-const SKIP = process.env.DATABASE_URL
-  ? process.env.REDIS_URL
+const SKIP =
+  dbBackedSkip("database") ||
+  (process.env.REDIS_URL
     ? "REDIS_URL set - local poke assertions require the in-process bridge"
-    : false
-  : "DATABASE_URL not set - skipping DB-backed test";
+    : false);
 
 // The prefix-only throw path needs a DB row absence, not the in-process poke
 // bridge, so it runs whether or not REDIS_URL is set — a strictly weaker gate
 // than SKIP above.
-const SKIP_DB = process.env.DATABASE_URL ? false : "DATABASE_URL not set - skipping DB-backed test";
+const SKIP_DB = dbBackedSkip("database");
 
 const createdUserIds: string[] = [];
 
