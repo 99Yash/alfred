@@ -166,6 +166,21 @@ async function markRunFailed(runId: string, error: string): Promise<void> {
     code: `    return Boolean(databaseEnv().DATABASE_URL);`,
   },
   {
+    // The order control. A `reader .* name` regex reads left to right, so this
+    // form — the one `action-policies/barrel-load.test.ts` already names in
+    // prose — escaped it silently. The rule pairs two lookaheads instead.
+    name: "db-backed-skip-hand-rolled — a destructured read puts the variable name first",
+    caught: true,
+    file: TEST_TREE_FILE,
+    code: `const { DATABASE_URL } = process.env;`,
+  },
+  {
+    name: "db-backed-skip-hand-rolled — a destructured read off serverEnv() fires too",
+    caught: true,
+    file: TEST_TREE_FILE,
+    code: `  const { REDIS_URL } = serverEnv();`,
+  },
+  {
     name: "db-backed-skip-hand-rolled — the sanctioned call site names no variable",
     caught: false,
     file: TEST_TREE_FILE,
