@@ -8,24 +8,23 @@
  * `server` package, which is exactly the signal we want.
  */
 
-import {
-  getTool,
-  listToolsForIntegration,
-  type RegisteredTool,
-} from "@alfred/assistant/tool-runtime";
+import type { RegisteredTool } from "@alfred/assistant/tool-runtime";
+import type { BuiltinToolRegistry } from "@alfred/assistant/tool-runtime/builtin-tools";
+
+declare const registry: BuiltinToolRegistry;
 
 // Resolves: `'gmail.search'` is a member of the `ToolName` template union.
-const _searchTool: RegisteredTool | undefined = getTool("gmail.search");
+const _searchTool: RegisteredTool | undefined = registry.get("gmail.search");
 void _searchTool;
 
 // Compile errors below are the contract — if any of them stop erroring,
 // the registry has lost its type safety.
 
 // @ts-expect-error — `'gmail.fake_action'` is not a declared GMAIL_ACTION.
-getTool("gmail.fake_action");
+registry.get("gmail.fake_action");
 
 // @ts-expect-error — `'imessage.search'` is not in INTEGRATION_ACTIONS['imessage'] (empty).
-getTool("imessage.search");
+registry.get("imessage.search");
 
 // @ts-expect-error — `'unknown_integration.search'` is not an IntegrationSlug.
-listToolsForIntegration("unknown_integration");
+registry.listForIntegration("unknown_integration");

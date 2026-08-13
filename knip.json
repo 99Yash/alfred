@@ -67,6 +67,11 @@
       // only thing satisfying it — dropping it breaks `pnpm --filter @alfred/api eval`.
       "ignoreDependencies": ["vitest"]
     },
+    "packages/assistant": {
+      "entry": ["src/scripts/**/*.ts", "evals/**/*.ts", "evalite.config.ts", "test/**/*.test.ts"],
+      // Evalite loads Vitest at runtime but does not declare it as a dependency.
+      "ignoreDependencies": ["vitest"]
+    },
     "packages/sync": {
       "entry": ["test/**/*.{test,type-test}.ts"]
     },

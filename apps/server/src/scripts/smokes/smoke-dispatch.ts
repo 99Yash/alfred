@@ -23,8 +23,7 @@
 
 import { cancelRun, signalRun } from "@alfred/assistant/execution";
 
-// Stays on @alfred/api: still real api code. Item 148 gives it an @alfred/assistant address.
-import { dispatchToolCall } from "@alfred/api/backend";
+import { dispatchToolCall } from "@alfred/assistant/tool-runtime/dispatch";
 import { clearToolRegistryForTests, liveTool, registerTools } from "@alfred/assistant/tool-runtime";
 import { closeConnections, warmPool } from "@alfred/db";
 import { closeRedis } from "@alfred/db/redis";

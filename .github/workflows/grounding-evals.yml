@@ -122,16 +122,17 @@ jobs:
 
           run_suite() {
             suite="$1"
+            package="$2"
             # evalite resolves --outputPath against ITS cwd — under
-            # `corepack pnpm --filter @alfred/api exec` that is packages/api, not the
-            # repo root this step runs in. An absolute path keeps the write and
+            # `pnpm --filter ... exec` that is the selected package, not the repo
+            # root this step runs in. An absolute path keeps the write and
             # the read pointed at the same file. A relative path silently wrote
             # the report under packages/api/ while the reader looked at the
             # root — ENOENT, which reddened this non-gating job on every
             # scheduled run since the workflow was added.
             output="${results_dir}/${suite}.json"
             set +e
-            corepack pnpm --filter @alfred/api exec evalite run "$suite" --threshold 0 --outputPath "$output"
+            corepack pnpm --filter "$package" exec evalite run "$suite" --threshold 0 --outputPath "$output"
             status="$?"
             set -e
 
@@ -171,12 +172,12 @@ jobs:
             return 0
           }
 
-          run_suite date-grounding
-          run_suite calendar-grounding
-          run_suite github-grounding
-          run_suite sender-suppression-grounding
-          run_suite voice-ai-tells
-          run_suite passthrough-honesty
+          run_suite date-grounding @alfred/api
+          run_suite calendar-grounding @alfred/api
+          run_suite github-grounding @alfred/api
+          run_suite sender-suppression-grounding @alfred/api
+          run_suite voice-ai-tells @alfred/api
+          run_suite passthrough-honesty @alfred/assistant
 
       - name: Upload eval JSON artifacts
         if: always()

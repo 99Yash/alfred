@@ -147,15 +147,7 @@
       "owner": "assistant-migration",
       "removalPhase": "Phases 1-6",
       "reason": "Existing API files import another module's implementation: the entries under packages/api/src/modules/ are one module reaching into another, and the entries directly under packages/api/src/ are wiring files reaching into a module. Each migration slice must remove entries and cannot add replacements.",
-      "imports": [
-        "packages/api/src/modules/dispatch/index.ts:../tools/passthrough",
-        "packages/api/src/modules/dispatch/index.ts:../tools/scratch-key",
-        "packages/api/src/modules/replicache/push.ts:../integrations/queue",
-        "packages/api/src/runtime.ts:./modules/tools/runtime",
-        "packages/api/src/scripts/count-system-tool-tokens.ts:../modules/tools/runtime",
-        "packages/api/src/scripts/count-system-tool-tokens.ts:../modules/tools/schema-budget",
-        "packages/api/src/scripts/smoke-fetch-url.ts:../modules/tools/fetch-url"
-      ]
+      "imports": ["packages/api/src/modules/replicache/push.ts:../integrations/queue"]
     },
     "webFeatureImports": {
       "owner": "web-architecture",

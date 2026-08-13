@@ -1,6 +1,6 @@
 import { flushLangfuse, flushMeteringWrites } from "@alfred/ai";
-// Stays on @alfred/api: still real api code. Item 148 gives it an @alfred/assistant address.
-import { registerBuiltinTools, registerDispatchToolCallRoundAdapter } from "@alfred/api/runtime";
+import { registerBuiltinTools } from "@alfred/assistant/tool-runtime/builtin-tools";
+import { registerDispatchToolCallRoundAdapter } from "@alfred/assistant/tool-runtime/dispatch";
 import { registerOnUserCreated } from "@alfred/auth";
 import { createAssistantRuntime, type AssistantRuntime } from "@alfred/assistant/runtime";
 import { assertPersistedCredentialsSealed } from "@alfred/db/credential-vault-maintenance";
@@ -37,7 +37,7 @@ function assistantRuntime(): AssistantRuntime {
       registerBuiltinWorkflows();
       registerBuiltinTools();
       // Dispatch implements tool-runtime's tool-call-round seam. It is installed at
-      // the composition root (not inside registerBuiltinTools) so the tools module
+      // the composition root (not inside registerBuiltinTools) so the built-in leaf
       // holds no dispatch import (ADR-0089); a first executeToolCallRound throws
       // "tool call-round adapter not installed" if this is missing.
       registerDispatchToolCallRoundAdapter();

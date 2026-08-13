@@ -13,14 +13,13 @@ Two user surfaces reach tools, and they reach them in opposite directions:
 - The **workflows** side reads the tool catalog. A readiness, author, or revision
   decision confirms that a tool is integrated. It never executes a tool.
 
-The `tool-runtime` module owns the tool catalog, discovery, schema budgeting, and
-the shared seams. The `tools` module owns the tool definitions. The catalog lives
-in `tool-runtime/internal/registry.ts`, and `tool-runtime/index.ts` publishes a
-named door over it: a permanent registration group, plus nine transitional
-readers needed while the definitions and dispatch still sit in `@alfred/api`
-(campaign item 148 closes that group). Neither user surface imports the other,
-and neither reaches the catalog itself — for chat and workflows, each crossing
-goes through one boot-seam.
+The `tool-runtime` module owns the tool definitions, dispatch, catalog,
+discovery, schema budgeting, and the shared seams. The catalog lives in
+`tool-runtime/internal/registry.ts`. Built-in registration and dispatch use the
+narrow `tool-runtime/builtin-tools` and `tool-runtime/dispatch` leaves so the
+eager main barrel does not load provider or database graphs. Neither user
+surface imports the other, and neither reaches the catalog itself. Each crossing
+from chat or workflows goes through one boot seam.
 
 ## The four players
 
@@ -28,10 +27,10 @@ goes through one boot-seam.
 | --------------------- | ---------------------------------------------------------------------------------------- |
 | chat / agent          | proposes and runs tool calls; spawns sub-agents; reads chat history                       |
 | workflows             | reads tool facts to decide readiness, authoring, and revision                            |
-| tools                 | owns the tool definitions: each tool's schema, credential gate, staging, and `execute`   |
-| tool-runtime          | owns the catalog, discovery and schema projection; holds the boot-seams; imports no user surface directly |
+| tool-runtime          | owns definitions, dispatch, catalog, discovery, schema projection, and boot seams; imports no user surface directly |
+| runtime composition   | installs product adapters without adding reverse owner dependencies                       |
 
-## The five seams
+## The eight seams
 
 Each seam is a `bootPort<T>` slot. The composition root installs one concrete
 value at boot, and a peer reads it. The `boot-port.ts` file defines the factory;
@@ -44,9 +43,11 @@ it is not itself a seam.
 | `SystemToolAgentAdapter`       | chat      | agent installs → the system tools read                |
 | `SystemToolChatHistoryAdapter` | chat      | conversations installs → the system tools read        |
 | `SystemToolWorkflowAdapter`    | chat      | workflows installs → the system tools read            |
+| `SystemToolKnowledgeAdapter`   | chat      | runtime composition installs → the system tools read   |
+| `SystemToolTaskAdapter`        | chat      | runtime composition installs → the system tools read   |
 | `WorkflowToolCatalogSource`    | workflows | `workflow-tool-catalog-source.ts` installs → `workflowToolCatalog` reads |
 
-The first five seams live in `tool-runtime/index.ts`. The sixth lives in
+The first seven seams live in `tool-runtime/index.ts`. The eighth lives in
 `tool-runtime/workflow-tool-catalog.ts`. Each seam carries a fixed four-field
 header (`Surface:`, `Owns/hides:`, `Why the seam:`, `Wiring:`), and
 `scripts/check-module-architecture.mjs` fails when a `bootPort` file lacks it.
@@ -59,10 +60,13 @@ small boot-time interface:
 
 - `ToolRuntimeAdapter` keeps discovery and availability, including their
   `connections` -> `@alfred/db` reach, out of the eager `tool-runtime` barrel.
-- `ToolCallRoundAdapter` inverts `tool-runtime -> dispatch`.
-- `SystemToolAgentAdapter` inverts `tools -> agent`.
-- `SystemToolChatHistoryAdapter` inverts `tools -> conversations`.
-- `SystemToolWorkflowAdapter` inverts `tools -> workflows`.
+- `ToolCallRoundAdapter` keeps the dispatch value graph out of the eager barrel.
+- `SystemToolAgentAdapter` inverts `tool-runtime -> execution`.
+- `SystemToolChatHistoryAdapter` inverts `tool-runtime -> conversations`.
+- `SystemToolWorkflowAdapter` inverts `tool-runtime -> workflows`.
+- `SystemToolKnowledgeAdapter` and `SystemToolTaskAdapter` invert the product
+  operations. Runtime composition owns the suppression-write then todo-dismiss
+  sequence because neither product owner can import the other.
 - `WorkflowToolCatalogSource` keeps workflow readers on a facts projection and
   out of the private registry.
 

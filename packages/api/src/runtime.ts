@@ -46,8 +46,6 @@ export {
   stopChatMemoryWorker,
   stopConversationCompactionWorker,
 } from "./modules/conversations";
-export { registerBuiltinTools } from "./modules/tools/runtime";
-export { registerDispatchToolCallRoundAdapter } from "./modules/dispatch";
 export { registerAgentSystemToolAdapter } from "@alfred/assistant/execution/system-tool-adapter";
 export { registerConversationsSystemToolAdapter } from "@alfred/assistant/conversations";
 export { registerWorkflowSystemToolAdapter } from "@alfred/assistant/automation";
