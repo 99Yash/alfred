@@ -431,6 +431,175 @@ jobs:
       - name: Logging unit tests
         run: corepack pnpm --filter @alfred/logging test
 
+  # The two jobs below run the suites that used to hide under `api-tests` because
+  # `packages/api/test/` was the only test tree those packages had. Each suite now
+  # lives in the package it covers, so it needs a job.
+  #
+  # They are grouped by the SETUP a suite needs, not one job per package: four
+  # byte-identical jobs for five test files would be about 200 lines of duplicated
+  # YAML. Attribution is kept by one NAMED step per package, so a red row names
+  # the package that broke. The cost admitted: steps run in sequence, so a red
+  # first step hides the ones after it. That is acceptable at one or two files per
+  # package. A package that grows a real suite gets promoted to its own job.
+  #
+  # Both jobs open with a file-count step, because `tsx --test` over a glob that
+  # matches NO file prints `# tests 0` and exits 0. Without that step a package
+  # whose `test/` directory is renamed or emptied reports green and runs nothing,
+  # which is the exact failure these jobs exist to end. The repo-wide version of
+  # that gate is campaign item 205; this is the job-local one.
+  leaf-unit-tests:
+    name: leaf-unit-tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Enable Corepack
+        run: corepack enable
+
+      - name: Resolve pnpm store path
+        run: echo "PNPM_STORE_PATH=$(corepack pnpm store path --silent)" >> "$GITHUB_ENV"
+
+      - uses: actions/cache@v4
+        with:
+          path: ${{ env.PNPM_STORE_PATH }}
+          key: ${{ runner.os }}-pnpm-store-${{ hashFiles('pnpm-lock.yaml') }}
+          restore-keys: ${{ runner.os }}-pnpm-store-
+
+      - name: Install dependencies
+        run: corepack pnpm install --frozen-lockfile
+
+      # A DIRECTORY pathspec plus a suffix match, never `test/**/*.test.ts`: a git
+      # pathspec `**` does not match zero directories, so the glob spelling counts
+      # 0 over a flat test tree and would fail this step on a lie.
+      - name: Every leaf test glob matches at least one file
+        run: |
+          for pkg in auth artifacts-design sync; do
+            count=$(git ls-files "packages/$pkg/test" | grep -c '\.test\.ts$' || true)
+            echo "packages/$pkg/test holds $count *.test.ts files"
+            if [ "$count" -eq 0 ]; then
+              echo "::error::packages/$pkg/test matches no *.test.ts file; the test step would exit 0 and run nothing"
+              exit 1
+            fi
+          done
+
+      - name: Auth unit tests
+        run: corepack pnpm --filter @alfred/auth test
+
+      - name: Artifacts-design unit tests
+        run: corepack pnpm --filter @alfred/artifacts-design test
+
+      - name: Sync unit tests
+        run: corepack pnpm --filter @alfred/sync test
+
+  # Postgres AND Redis, both as services, plus the full format-valid `serverEnv`
+  # block and `db:migrate` — the `http-tests` template. Every DB-backed suite here
+  # asks `dbBackedSkip` for `"database"` only, but these files ran under
+  # `api-tests` until this change, and `api-tests` gives them a live Redis. The
+  # service stays so that no suite's environment gets WEAKER by moving.
+  #
+  # `dbBackedSkip` throws at module scope when `CI` is set and a required variable
+  # is absent, so a broken `env:` block here reddens the job instead of skipping
+  # quietly. Do not guard this job by reading a skip count: node:test prints
+  # `# skipped 0` for a suite-level skip.
+  leaf-db-tests:
+    name: leaf-db-tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    services:
+      postgres:
+        image: pgvector/pgvector:pg16
+        env:
+          POSTGRES_USER: ci
+          POSTGRES_PASSWORD: ci
+          POSTGRES_DB: alfred_ci
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U ci -d alfred_ci"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+      redis:
+        image: redis:7-alpine
+        ports:
+          - 6379:6379
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+    env:
+      DATABASE_URL: postgresql://ci:ci@localhost:5432/alfred_ci
+      # Format-valid dummies required by serverEnv(). The suites use the local
+      # Postgres/Redis services and do not call external providers.
+      REDIS_URL: redis://localhost:6379
+      BETTER_AUTH_SECRET: ci-dummy-better-auth-secret-32chars-min
+      # #453: serverEnv() requires a credential KEK decoding to 32 bytes. This
+      # one seals nothing real — CI writes no provider tokens.
+      OAUTH_CREDENTIAL_KEK: Y2ktZHVtbXkta2VrLTMyLWJ5dGVzLW5vdC1zZWNyZXQ
+      BETTER_AUTH_URL: http://localhost:3001
+      ALFRED_ALLOWED_EMAIL: ci@example.com
+      RESEND_API_KEY: re_ci_dummy
+      RESEND_FROM_EMAIL: Alfred <noreply@example.com>
+      ANTHROPIC_API_KEY: ci-dummy
+      GOOGLE_GENERATIVE_AI_API_KEY: ci-dummy
+      GOOGLE_OAUTH_CLIENT_ID: ci-dummy
+      GOOGLE_OAUTH_CLIENT_SECRET: ci-dummy
+      GOOGLE_OAUTH_REDIRECT_URI: http://localhost:3001/api/integrations/google/callback
+      GITHUB_APP_ID: "1"
+      GITHUB_APP_SLUG: ci-dummy
+      GITHUB_APP_CLIENT_ID: ci-dummy
+      GITHUB_APP_CLIENT_SECRET: ci-dummy
+      GITHUB_APP_PRIVATE_KEY: ci-dummy
+      GITHUB_WEBHOOK_SECRET: ci-dummy
+      GITHUB_APP_REDIRECT_URI: http://localhost:3001/api/integrations/github/callback
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Enable Corepack
+        run: corepack enable
+
+      - name: Resolve pnpm store path
+        run: echo "PNPM_STORE_PATH=$(corepack pnpm store path --silent)" >> "$GITHUB_ENV"
+
+      - uses: actions/cache@v4
+        with:
+          path: ${{ env.PNPM_STORE_PATH }}
+          key: ${{ runner.os }}-pnpm-store-${{ hashFiles('pnpm-lock.yaml') }}
+          restore-keys: ${{ runner.os }}-pnpm-store-
+
+      - name: Install dependencies
+        run: corepack pnpm install --frozen-lockfile
+
+      - name: Every leaf test glob matches at least one file
+        run: |
+          for pkg in corpus integrations; do
+            count=$(git ls-files "packages/$pkg/test" | grep -c '\.test\.ts$' || true)
+            echo "packages/$pkg/test holds $count *.test.ts files"
+            if [ "$count" -eq 0 ]; then
+              echo "::error::packages/$pkg/test matches no *.test.ts file; the test step would exit 0 and run nothing"
+              exit 1
+            fi
+          done
+
+      - name: Apply database migrations
+        run: corepack pnpm --filter @alfred/db db:migrate
+
+      - name: Corpus tests
+        run: corepack pnpm --filter @alfred/corpus test
+
+      - name: Integrations tests
+        run: corepack pnpm --filter @alfred/integrations test
+
   # @alfred/assistant holds product modules moved out of @alfred/api during
   # Phase 6B. Some are DB-backed (e.g. `delivery` owns notification idempotency
   # over `email_sends`), so this job runs Postgres + Redis + a format-valid

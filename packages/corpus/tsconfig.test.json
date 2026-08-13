@@ -1,0 +1,31 @@
+{
+  // Scoped typecheck project for the package's whole `test/` tree. `check-types`
+  // runs this as a SECOND `tsc` pass (after the composite `tsc -b`), because the
+  // composite build emits declarations only for `src` and never sees `test/**`.
+  //
+  // `@alfred/corpus` got its first `test/` tree with this project. Its one suite
+  // is DB-backed — it drives the `retryPending` sweep against real rows — and
+  // the `leaf-db-tests` CI job runs it with Postgres. This pass is what reads
+  // the suite's types: an `import type` from a module that no longer exists is
+  // erased before the runner ever resolves it.
+  //
+  // `include` covers `test` rather than any narrower glob so that a file added
+  // anywhere under `test/` is type-checked without an edit here. That matches
+  // the `tsx --test "test/**/*.test.ts"` runner glob, so a new file joins both
+  // sets at once. `test/support/db-backed.ts` is in this project for the same
+  // reason, even though the runner glob never executes it directly.
+  //
+  // The base `tsconfig.json` is `composite: true`; a `tsc -p` invocation with
+  // `noEmit` errors unless `composite`/`declaration` are overridden off here.
+  // Nothing under `test/` is emitted or built — this project only type-checks.
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "noEmit": true,
+    "rootDir": ".",
+    "composite": false,
+    "declaration": false,
+    "declarationMap": false,
+    "sourceMap": false
+  },
+  "include": ["src", "test"]
+}

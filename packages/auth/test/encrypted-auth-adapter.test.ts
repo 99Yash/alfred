@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { randomBytes } from "node:crypto";
 import { beforeEach, describe, test } from "node:test";
 
-import { encryptedAuthAdapter, type AuthAdapter } from "@alfred/auth/credential-adapter";
+import { encryptedAuthAdapter, type AuthAdapter } from "../src/credential-adapter";
 import { createCredentialVault, CredentialVaultError } from "@alfred/db/credential-vault";
 
 /**

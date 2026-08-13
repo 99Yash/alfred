@@ -7,7 +7,8 @@
   },
   "scripts": {
     "build": "node ../../scripts/clean-package-dist.mjs && tsc -b --emitDeclarationOnly --force",
-    "check-types": "tsc -b --emitDeclarationOnly && tsc -p tsconfig.test.json"
+    "check-types": "tsc -b --emitDeclarationOnly && tsc -p tsconfig.test.json",
+    "test": "tsx --test --test-force-exit \"test/**/*.test.ts\""
   },
   "dependencies": {
     "@alfred/contracts": "workspace:*",
@@ -15,7 +16,8 @@
   },
   "devDependencies": {
     "@alfred/config": "workspace:*",
-    "replicache": "catalog:"
+    "replicache": "catalog:",
+    "tsx": "^4.21.0"
   },
   "peerDependencies": {
     "replicache": "^15",

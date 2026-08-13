@@ -38,7 +38,7 @@ for (const [key, value] of Object.entries(SERVER_ENV_FIXTURES)) {
 
 // Imported AFTER env is seeded. `selfSenderEmail()` reads serverEnv() lazily on
 // first call (inside the tests), so it observes the seeded env.
-const { isSelfAuthored, selfSenderEmail } = await import("@alfred/integrations/google");
+const { isSelfAuthored, selfSenderEmail } = await import("../src/google/index");
 
 /**
  * Regression guard for the self-ingestion drop (#211 / #266). Alfred's OWN

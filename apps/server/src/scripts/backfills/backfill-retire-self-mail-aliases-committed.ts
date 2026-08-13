@@ -13,7 +13,8 @@
  * NOTE ON THE FORWARD DROP: no code change is needed to stop NEW self-mail — all
  * Alfred outbound (briefing AND HIL approval) ships through one path
  * (`notify.ts` → `from: RESEND_FROM_EMAIL`), and `isSelfAuthored` already drops
- * that envelope (locked by `test/integrations/self-authored-drop.test.ts`). This
+ * that envelope (locked by
+ * `packages/integrations/test/self-authored-drop.test.ts`). This
  * script is purely a one-off cleanup of the pre-existing rows from the OLD alias.
  *
  * What it removes, scoped to the target user(s) — only for threads that are

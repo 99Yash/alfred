@@ -587,6 +587,9 @@ importers:
       '@alfred/config':
         specifier: workspace:*
         version: link:../config
+      tsx:
+        specifier: ^4.21.0
+        version: 4.23.11
 
   packages/assistant:
     dependencies:
@@ -709,6 +712,9 @@ importers:
       '@alfred/config':
         specifier: workspace:*
         version: link:../config
+      tsx:
+        specifier: ^4.21.0
+        version: 4.23.11
 
   packages/config: {}
 
@@ -743,6 +749,9 @@ importers:
       '@alfred/config':
         specifier: workspace:*
         version: link:../config
+      tsx:
+        specifier: ^4.21.0
+        version: 4.23.11
 
   packages/db:
     dependencies:
@@ -960,6 +969,9 @@ importers:
       replicache:
         specifier: 'catalog:'
         version: 15.3.0
+      tsx:
+        specifier: ^4.21.0
+        version: 4.23.11
 
 packages:
 
