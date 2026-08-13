@@ -1,4 +1,4 @@
-import { Errors, parseJsonWith, toMessage } from "@alfred/contracts";
+import { Errors, getStringPath, parseJsonWith, toMessage } from "@alfred/contracts";
 import {
   assertGmailPushOidcConfigured,
   findCredentialByEmail,
@@ -27,9 +27,9 @@ import { getIngestionQueue } from "@alfred/assistant/connections/ingestion";
  * We never trust the payload by itself. Three checks gate processing:
  *   1. OIDC token on Authorization header (when configured) — proves the
  *      request came from Pub/Sub with the expected service account.
- *   2. `parseGmailPushEnvelope` validates the envelope and the decoded
- *      notification against the two schemas below. The route body stays
- *      `t.Unknown()` on purpose; see that function's header for why.
+ *   2. `parseGmailPushEnvelope` reads the envelope fields with `getStringPath`
+ *      and validates the decoded notification against the schema below. The
+ *      route body stays `t.Unknown()` on purpose; see that function's header.
  *   3. The decoded `emailAddress` must map to a known credential row.
  *
  * The handler returns 200 fast (target <500ms) and offloads the actual
@@ -108,40 +108,36 @@ const gmailPushNotificationSchema = z.object({
 });
 
 /**
- * The envelope Pub/Sub wraps around the notification. `looseObject` declares
- * only the two fields the handler reads and passes every other field through,
- * so `publishTime`, `attributes` and `subscription` cannot invent a rejection.
- * The `.catch(undefined)` arms degrade a wrong-typed cosmetic field to absent
- * rather than failing the whole parse.
- */
-const pubSubEnvelopeSchema = z.looseObject({
-  message: z
-    .looseObject({
-      data: z.string().optional().catch(undefined),
-      messageId: z.string().optional().catch(undefined),
-    })
-    .optional()
-    .catch(undefined),
-});
-
-/**
- * The single door from the wire body to a domain value. Total: it never throws
- * and it never returns `null` — a body of any shape yields a `notification` of
- * `null`, which the handler answers 200 for.
+ * The single door from the wire body to a domain value. Total: it never throws,
+ * and every body it receives yields either a validated notification or a
+ * `notification` of `null`, which the handler answers 200 for. `messageId` is
+ * for the log line only.
  *
  * The route keeps `body: t.Unknown()` rather than a rejecting typebox schema
  * because `errorHandler` maps an Elysia `VALIDATION` code to 400, and Pub/Sub
  * retries every non-2xx with backoff — so a rejecting schema would retry a
- * permanently invalid body forever. `messageId` is for the log line only.
+ * permanently invalid body forever.
+ *
+ * That covers route validation only. One arm stays open, and it is accepted
+ * residual risk rather than a claim this function holds: Elysia parses the body
+ * by content type BEFORE route validation, so bytes that are not JSON under
+ * `content-type: application/json` raise `PARSE`, which `errorHandler` maps to
+ * 400 through a door this function never sees. Under the production
+ * `@elysiajs/node` adapter that arm covers malformed JSON text, an empty-string
+ * body and an absent body. Base `315823c5` answers 400 for all of them too, so
+ * nothing regressed here; campaign item 210 owns whether to close the arm with
+ * a `parse: ({ request }) => request.text()` hook, as `github-webhook.ts` does.
  */
 export function parseGmailPushEnvelope(body: unknown): {
   messageId: string | undefined;
   notification: z.infer<typeof gmailPushNotificationSchema> | null;
 } {
-  const envelope = pubSubEnvelopeSchema.safeParse(body);
-  if (!envelope.success) return { messageId: undefined, notification: null };
-
-  const { data, messageId } = envelope.data.message ?? {};
+  // `getStringPath` walks a body of any shape and accepts only a string leaf, so
+  // a non-object root, a wrong-typed `message` and a wrong-typed `messageId` all
+  // read as absent instead of failing the whole envelope. Fields nothing reads —
+  // `publishTime`, `attributes`, `subscription` — cannot invent a rejection.
+  const messageId = getStringPath(body, "message", "messageId");
+  const data = getStringPath(body, "message", "data");
   if (data === undefined) return { messageId, notification: null };
 
   // `Buffer.from(x, "base64")` never throws; it drops any character outside the
