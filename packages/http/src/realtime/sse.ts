@@ -15,6 +15,7 @@
  */
 
 import { toMessage } from "@alfred/contracts";
+import type { EventKind } from "@alfred/contracts/events";
 
 /** How often a stream writes a comment frame to keep the connection warm. */
 const HEARTBEAT_INTERVAL_MS = 30_000;
@@ -58,6 +59,28 @@ function createSseHeaders(): Headers {
   });
 }
 
+/**
+ * Every event name a route in this package may send. Closed on purpose.
+ *
+ * An SSE frame ends at a blank line, so a name holding a line break would
+ * terminate the frame early and let the payload write a second frame of its own.
+ * A closed union of literals cannot express such a name, so the compiler rejects
+ * it at the call site and `frame()` needs no run-time check — which is what lets
+ * `frame()` throw for no input at all. `SseConnection.frame` is called from
+ * inside a bus listener (`realtime/events.ts`), where a throw would abort the
+ * dispatch and take the other subscribers with it.
+ *
+ * The two names come from the two live producers: `EventKind` covers every
+ * `EventFrame.kind` that `realtime/events.ts` forwards, and `"poke"` is the
+ * literal `sync/replicache.ts` sends. A future route that wants a name outside
+ * this set must ADD its literal here, or re-open sanitisation deliberately. It
+ * must not widen the field back to `string`, which is the door this union exists
+ * to close.
+ *
+ * Package-internal: `src/index.ts` re-exports nothing from this module.
+ */
+export type SseEventName = EventKind | "poke";
+
 /** One SSE frame, as its parts rather than as wire text. */
 export interface SseFrame {
   /**
@@ -70,8 +93,12 @@ export interface SseFrame {
    * a conditional spread that buys nothing.
    */
   id?: number | undefined;
-  /** Selects the client listener. Omitted frames go to the `message` listener. */
-  event?: string | undefined;
+  /**
+   * Selects the client listener. Omitted frames go to the `message` listener.
+   * A closed union rather than `string`, so no frame can carry a name that ends
+   * the frame early — see `SseEventName`.
+   */
+  event?: SseEventName | undefined;
   /** The payload. Newlines are re-emitted as SSE continuation lines. */
   data: string;
 }
@@ -84,12 +111,13 @@ export interface SseConnection {
    * continuation lines when it contains a line break, and always terminates
    * the frame with the blank line that makes a client dispatch it.
    *
-   * Writing to a stream the client has already dropped is a no-op rather than
-   * a throw, because a poke or a heartbeat that races the disconnect is normal
-   * and must not become an unhandled rejection.
-   *
-   * Throws `TypeError` if `event` contains a line break, which would otherwise
-   * let the payload inject a second frame.
+   * A write never throws. A stream the client has already dropped is a no-op,
+   * because a poke or a heartbeat that races the disconnect is normal and must
+   * not become an unhandled rejection; and a name that would end the frame
+   * early cannot arrive, because `event` admits only the closed set of literals
+   * in `SseEventName`. Both halves matter to the same caller: `realtime/events.ts`
+   * writes frames from inside a bus listener, where any throw would abort the
+   * dispatch for every other subscriber on that emit.
    */
   frame(frame: SseFrame): void;
   /**
@@ -183,9 +211,6 @@ export function sseResponse(open: (conn: SseConnection) => void | Promise<void>)
 
       const conn: SseConnection = {
         frame({ id, event, data }) {
-          if (event !== undefined && /[\r\n]/.test(event)) {
-            throw new TypeError("SSE event name must not contain a line break");
-          }
           let text = "";
           if (id !== undefined) text += `id: ${id}\n`;
           if (event !== undefined) text += `event: ${event}\n`;
