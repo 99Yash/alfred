@@ -34,7 +34,7 @@ import {
 } from "@alfred/contracts";
 // Type-only, deliberately: importing the `integrations` VALUE here would pull
 // `@alfred/db` and `@alfred/corpus` into the import graph of the module every
-// tool declaration imports. Building a context lives in `./context`.
+// tool declaration imports. Building a context lives in `../context`.
 import type { Integrations } from "@alfred/integrations";
 import { z } from "zod";
 import { joinToolInput } from "../join-contract";
@@ -197,7 +197,7 @@ export interface ToolExecuteContext {
 /**
  * Everything a caller supplies to build a {@link ToolExecuteContext} — which is
  * everything EXCEPT the provider bind, because that is derived rather than
- * passed. See `toolExecuteContext` in `./context`.
+ * passed. See `toolExecuteContext` in `../context`.
  */
 export type ToolExecuteContextFields = Omit<ToolExecuteContext, "integrations">;
 
