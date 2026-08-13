@@ -39,7 +39,7 @@ export { closeEventBridge, initEventBridge } from "./bridge";
 export { getEventsSince, getReplayHighWatermark } from "./replay";
 export {
   closeReplicachePokeBridge,
-  emitReplicachePokes as emitReplicachePokesOverRedis,
+  emitReplicachePokesOverRedis,
   initReplicachePokeBridge,
   subscribeUserPokes,
 } from "./replicache-events";
