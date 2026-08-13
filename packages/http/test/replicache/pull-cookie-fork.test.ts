@@ -4,12 +4,11 @@ import { after, describe, test } from "node:test";
 
 import { closeConnections, db } from "@alfred/db";
 import { replicacheClientGroup, user } from "@alfred/db/schemas";
-import { databaseEnv } from "@alfred/env/database";
-import { serverEnv } from "@alfred/env/server";
 import { eq, inArray } from "drizzle-orm";
 
 import { handlePull } from "../../src/sync/pull";
 import { closeRedis } from "@alfred/db/redis";
+import { dbBackedSkip } from "../support/db-backed";
 
 const SERVER_ENV_FIXTURES: Record<string, string> = {
   BETTER_AUTH_SECRET: "test better auth secret with length",
@@ -39,18 +38,13 @@ function seedServerEnvForReplicacheTests(): void {
   }
 }
 
-function hasDatabaseAndRedis(): boolean {
-  seedServerEnvForReplicacheTests();
-  try {
-    return Boolean(databaseEnv().DATABASE_URL && serverEnv().REDIS_URL);
-  } catch {
-    return false;
-  }
-}
+// The fixtures must land before the first `serverEnv()` call in a test body,
+// and `serverEnv()` memoizes. So this stays at module scope. It sets neither
+// DATABASE_URL nor REDIS_URL, so it cannot hide an absent service from the
+// guard below.
+seedServerEnvForReplicacheTests();
 
-const SKIP = hasDatabaseAndRedis()
-  ? false
-  : "DATABASE_URL/REDIS_URL not set — skipping DB+Redis-backed test";
+const SKIP = dbBackedSkip("database+redis");
 
 const ID_PREFIX = "test-rpull-";
 const createdUserIds: string[] = [];
