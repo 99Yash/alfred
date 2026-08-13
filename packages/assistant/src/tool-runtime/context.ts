@@ -1,16 +1,22 @@
 /**
  * The execution context one tool call runs against — built here rather than in
- * `./registry` so the registry stays a leaf. Declaring the tool *shape* needs
- * only the `Integrations` TYPE (erased at compile time); building a context needs
- * the `integrations` VALUE, which pulls `@alfred/db` (drizzle + pg) and
+ * `./internal/registry` so the registry stays a leaf. Declaring the tool *shape*
+ * needs only the `Integrations` TYPE (erased at compile time); building a context
+ * needs the `integrations` VALUE, which pulls `@alfred/db` (drizzle + pg) and
  * `@alfred/corpus` into whatever imports it. Every tool module imports the
  * registry to declare itself; only the dispatcher builds a context.
+ *
+ * That split is also why this module is addressed as
+ * `@alfred/assistant/tool-runtime/context` and is deliberately NOT re-exported
+ * from `./index`: the barrel is imported by `@alfred/http` and by every tool
+ * declaration, and a value re-export would drag the provider graph into all of
+ * them.
  */
 
 import { integrations } from "@alfred/integrations";
 import type { RetryPolicy } from "@alfred/integrations/shared";
 
-import type { ToolExecuteContext, ToolExecuteContextFields } from "@alfred/assistant/tool-runtime";
+import type { ToolExecuteContext, ToolExecuteContextFields } from "./internal/registry";
 
 /**
  * The transient-retry envelope every provider bind inside a tool dispatch gets.
