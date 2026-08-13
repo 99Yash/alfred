@@ -1661,8 +1661,17 @@ const text = 'import "ignored-string"';
     //
     // Campaign item 149 deleted `packages/api/src/modules`, so the four arms that used to
     // plant an api-side fixture were REPOINTED onto the assistant module root rather than
-    // deleted: each one proves a distinct importer position, and every position still
-    // exists once `@alfred/assistant` owns every module.
+    // deleted. They drive THREE distinct importer positions, not four:
+    // `wire-reach` (a non-module file in another package), `wire-barrel` and
+    // `runtime-barrel` (the two barrel spellings, which the index exemption must leave
+    // uncollected). `runtime-reach` is the redundant one. Nothing in `moduleForPath`
+    // separates it from the older `outside-module` arm — both take the same `if`, both
+    // fall to the same ternary else, both get `fromModule === null`, and both import the
+    // same target file — so a mutant that reds one reds the other with a byte-identical
+    // residual list. It also labels a position with no live instance: `packages/assistant/src`
+    // holds no top-level `.ts` file today. Keep the arm anyway. It costs one plant, it
+    // carries the field-coverage row below that pins `from` to the package name, and it
+    // becomes non-redundant the day a top-level assistant file appears.
     //
     // `triage` and `knowledge` are real `TARGET_ASSISTANT_MODULES` members, so the module
     // name Set needs no parameter of its own; `not-a-module` deliberately is not one.

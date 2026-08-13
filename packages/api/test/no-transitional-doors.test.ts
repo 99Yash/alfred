@@ -8,7 +8,20 @@
  * A grep cannot make that claim. A grep proves that nobody writes the
  * specifier today; only a resolution attempt proves that nobody CAN.
  *
- * Two shapes keep this test honest:
+ * The answer depends on WHERE the probe runs, so read this before you move the
+ * file. No `node_modules/@alfred/api` link exists in this repo any more,
+ * because this package is now the last manifest that names itself. A probe run
+ * from inside `packages/api` — which is where `pnpm --filter @alfred/api test`
+ * runs it — therefore resolves through Node's SELF-REFERENCE rule: the nearest
+ * parent manifest carries both a matching `name` and an `exports` key, so Node
+ * consults the map and the empty map refuses the subpath. A probe run from the
+ * repo root or from `apps/server` gets `ERR_MODULE_NOT_FOUND` instead, because
+ * no link exists to consult. Keep `"exports": {}` anyway: it is the stronger
+ * door the moment any package re-declares the dependency. Deleting the key does
+ * not reopen legacy path resolution here — it STOPS self-reference, and every
+ * assertion below then reports `ERR_MODULE_NOT_FOUND`.
+ *
+ * Three shapes keep this test honest:
  *
  * 1. Every specifier is held in a `const` and reached through `import()`.
  *    TypeScript resolves a literal specifier at compile time, so a static
@@ -19,11 +32,10 @@
  *    resolver: every `assert.rejects` would pass if workspace resolution were
  *    dead altogether.
  * 3. The rejection code must be EXACTLY `ERR_PACKAGE_PATH_NOT_EXPORTED`.
- *    `ERR_MODULE_NOT_FOUND` says only that a file is absent, and that is what
- *    Node reports when the `exports` key is deleted instead of emptied: legacy
- *    path resolution then reopens every file in the package, which is the
- *    weaker door this item rejects. Accepting both codes made this test pass
- *    with that key removed.
+ *    `ERR_MODULE_NOT_FOUND` says only that no package answered the specifier.
+ *    That is what Node reports when the `exports` key is deleted instead of
+ *    emptied, which is the weaker door this item rejects. Accepting both codes
+ *    made this test pass with that key removed.
  */
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
