@@ -2,14 +2,15 @@
  * The guard a DB-backed suite in this tree uses instead of a hand-rolled
  * `{ skip: !process.env.DATABASE_URL }`.
  *
- * THERE ARE THREE COPIES, one per test tree that needs one: this one for
+ * THERE ARE FOUR COPIES, one per test tree that needs one: this one for
  * `assistant-unit-tests`, `packages/api/test/support/db-backed.ts` for
- * `api-tests`, and `packages/http/test/support/db-backed.ts` for `http-tests`.
+ * `api-tests`, `packages/db/test/support/db-backed.ts` for `db-tests`, and
+ * `packages/http/test/support/db-backed.ts` for `http-tests`.
  * They differ only in the job name in the fail message. Each test project has
  * its own `rootDir`, so a relative reach into another package's test tree is a
  * TS6059 error by design — the copy is deliberate, not an oversight. Promotion
- * to a workspace package was measured and rejected: `packages/db/test` needs no
- * copy because it FAILS LOUDLY on an absent service instead of skipping.
+ * to a workspace package was measured and rejected for that reason: no tree can
+ * import another tree's copy.
  *
  * WHY THIS EXISTS. A skip count cannot detect an `assistant-unit-tests` job that
  * reached no database. `node:test` prints `# skipped 0` for a SUITE-level skip —
