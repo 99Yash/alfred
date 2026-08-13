@@ -15,7 +15,7 @@ import {
   resolveExactToolLoad,
   searchToolCatalog,
   type ToolCatalogAccess,
-} from "../../src/modules/tools/discovery";
+} from "@alfred/assistant/tool-runtime/discovery";
 import {
   availableToolNames,
   evaluateToolAvailability,

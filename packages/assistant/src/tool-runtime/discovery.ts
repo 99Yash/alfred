@@ -13,9 +13,9 @@ import {
   evaluateToolCatalog,
   getTool,
   listRegisteredTools,
-  singularizePhrase,
   type RegisteredTool,
-} from "@alfred/assistant/tool-runtime";
+} from "./internal/registry";
+import { singularizePhrase } from "./internal/metadata-defaults";
 
 interface ToolCandidateBase {
   name: ToolName;

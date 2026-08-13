@@ -1,7 +1,7 @@
 import {
   clearToolRuntimeCacheForTests,
   registerToolsRuntimeAdapter,
-} from "../../src/modules/tools/tool-runtime-adapter";
+} from "@alfred/assistant/tool-runtime/surface-adapter";
 import { clearToolRegistryForTests } from "@alfred/assistant/tool-runtime";
 
 /** One lifecycle door for tests that project registered tools through the tool runtime. */

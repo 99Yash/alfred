@@ -208,6 +208,10 @@ export interface LiveToolArgs<
 > {
   integration: I;
   action: A;
+  /**
+   * Static risk tier. `high` is the one-way ADR-0069 approval floor; lower tiers
+   * are UX hints. `resolveRiskTier` is the only supported effective-tier hook.
+   */
   riskTier: ToolRiskTier;
   /**
    * Optional: compute the EFFECTIVE risk tier from the validated input at the
@@ -297,8 +301,6 @@ export interface RegisteredTool {
   /** See {@link LiveToolArgs.redactInput}. Erased to `unknown` at the registry boundary. */
   redactInput?: (input: unknown) => unknown;
 }
-
-export type { ToolAvailabilityResult, ToolUnavailabilityCode } from "@alfred/contracts";
 
 function evaluateRunContextGates(
   tool: RegisteredTool,
@@ -673,9 +675,6 @@ export function assertKernelToolsRegistered(declaredTools: readonly RegisteredTo
   }
 }
 
-/** Per-tier counts for one integration. UX hint only (see file header). */
-export type { RiskTierCounts };
-
 function emptyTierCounts(): RiskTierCounts {
   return { no_risk: 0, low: 0, medium: 0, high: 0 };
 }
@@ -683,8 +682,8 @@ function emptyTierCounts(): RiskTierCounts {
 /**
  * Tier breakdown for a single integration, e.g. `{ high: 1, medium: 0,
  * low: 1, no_risk: 1 }`. Drives the integration detail page's
- * "Gmail — 3 tools (1 high, 1 low, 1 no-risk)" summary. The web can't
- * import the registry, so this is exposed through the integrations API.
+ * "Gmail — 3 tools (1 high, 1 low, 1 no-risk)" summary. This is the permanent
+ * web-facing projection because `@alfred/http` cannot import the private map.
  */
 export function riskTierCountsForIntegration(slug: IntegrationSlug): RiskTierCounts {
   const counts = emptyTierCounts();

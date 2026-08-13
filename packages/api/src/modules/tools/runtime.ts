@@ -1,7 +1,7 @@
 /** Server-boot registration for the built-in tool definitions. */
 
 import { calendarTools } from "./calendar";
-import { registerToolsRuntimeAdapter } from "./tool-runtime-adapter";
+import { registerToolsRuntimeAdapter } from "@alfred/assistant/tool-runtime/surface-adapter";
 import { docsTools } from "./docs";
 import { driveTools } from "./drive";
 import { githubTools } from "./github";
@@ -14,7 +14,7 @@ import { sheetsTools } from "./sheets";
 import { slidesTools } from "./slides";
 import { systemTools } from "./system";
 import { vercelTools } from "./vercel";
-import { registerWorkflowToolCatalog } from "./workflow-tool-catalog-source";
+import { registerWorkflowToolCatalog } from "@alfred/assistant/tool-runtime/workflow-tool-catalog-source";
 
 export function registerBuiltinTools(): void {
   registerTools(systemTools);
