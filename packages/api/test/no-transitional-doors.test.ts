@@ -18,6 +18,12 @@
  *    Without it, a green result cannot tell a closed door apart from a broken
  *    resolver: every `assert.rejects` would pass if workspace resolution were
  *    dead altogether.
+ * 3. The rejection code must be EXACTLY `ERR_PACKAGE_PATH_NOT_EXPORTED`.
+ *    `ERR_MODULE_NOT_FOUND` says only that a file is absent, and that is what
+ *    Node reports when the `exports` key is deleted instead of emptied: legacy
+ *    path resolution then reopens every file in the package, which is the
+ *    weaker door this item rejects. Accepting both codes made this test pass
+ *    with that key removed.
  */
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
@@ -51,9 +57,11 @@ describe("transitional @alfred/api doors", () => {
         (error: unknown) => {
           assert.ok(error instanceof Error, `${door} must reject with an Error`);
           const code = (error as NodeJS.ErrnoException).code;
-          assert.ok(
-            code === "ERR_PACKAGE_PATH_NOT_EXPORTED" || code === "ERR_MODULE_NOT_FOUND",
-            `${door} must reject with a resolution failure, got ${String(code)}: ${error.message}`,
+          assert.equal(
+            code,
+            "ERR_PACKAGE_PATH_NOT_EXPORTED",
+            `${door} must be refused by the exports map, not merely missing on disk. ` +
+              `Got ${String(code)}: ${error.message}`,
           );
           return true;
         },
