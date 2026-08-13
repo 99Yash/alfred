@@ -6,7 +6,7 @@ import {
   RUNTIME_ADAPTERS,
   unregisterRuntimeAdapters,
   type RuntimeAdapterDefinition,
-} from "../../src/composition/runtime-adapters";
+} from "../../src/runtime/adapters/runtime-adapters";
 
 function adapter(
   name: string,

@@ -43,4 +43,8 @@ export {
   initReplicachePokeBridge,
   subscribeUserPokes,
 } from "./replicache-events";
+export {
+  registerReplicachePokeAdapter,
+  unregisterReplicachePokeAdapter,
+} from "./replicache-poke-adapter";
 export { subscribeUserEvents } from "./user-events-bus";

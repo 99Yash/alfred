@@ -1,5 +1,4 @@
 export { closeConnections, warmPool } from "@alfred/db";
-export { registerRuntimeAdapters, unregisterRuntimeAdapters } from "./composition/runtime-adapters";
 export { closeRedis } from "@alfred/db/redis";
 export {
   closeEventBridge,
@@ -52,7 +51,7 @@ export { registerDispatchToolCallRoundAdapter } from "./modules/dispatch";
 export { registerAgentSystemToolAdapter } from "@alfred/assistant/execution/system-tool-adapter";
 export { registerConversationsSystemToolAdapter } from "@alfred/assistant/conversations";
 export { registerWorkflowSystemToolAdapter } from "@alfred/assistant/automation";
-export { registerReplicachePokeAdapter } from "./composition/replicache-poke-adapter";
+export { registerReplicachePokeAdapter } from "@alfred/assistant/realtime";
 export {
   scheduleRepeatableWorkflowsJobs,
   seedBuiltinWorkflowsForAllUsers,

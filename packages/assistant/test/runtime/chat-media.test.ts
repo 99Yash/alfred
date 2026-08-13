@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { describe, test } from "node:test";
-import { createChatMediaHandler } from "../../src/composition/chat-media";
+import { createChatMediaHandler } from "../../src/runtime/adapters/chat-media";
 import {
   claimChatMediaEnrichment,
   cleanupChatMediaPrefix,
@@ -10,8 +10,8 @@ import {
   recordChatMediaEnqueueFailure,
   registerChatMediaHandler,
   type ChatMediaHandler,
-} from "@alfred/assistant/connections/ingestion/chat-media";
-import { enqueueChatAttachmentEnrichmentWith } from "@alfred/assistant/connections/ingestion/queue";
+} from "../../src/connections/ingestion/chat-media";
+import { enqueueChatAttachmentEnrichmentWith } from "../../src/connections/ingestion/queue";
 import { TriggerConsumerBootError } from "@alfred/assistant/triggers";
 
 const enrichmentRequest = {

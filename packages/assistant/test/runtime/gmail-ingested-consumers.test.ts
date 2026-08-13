@@ -1,10 +1,10 @@
 import assert from "node:assert/strict";
 import { describe, test } from "node:test";
-import { gmailIngestedTriggerConsumers } from "../../src/composition/gmail-ingested-consumers";
+import { gmailIngestedTriggerConsumers } from "../../src/runtime/adapters/gmail-ingested-consumers";
 import {
   NoGmailTriageHandlerRegisteredError,
   registerGmailTriageHandler,
-} from "@alfred/assistant/connections/ingestion/gmail-triage";
+} from "../../src/connections/ingestion/gmail-triage";
 import {
   publishDomainEvent,
   registerTriggerConsumer,

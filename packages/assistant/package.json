@@ -11,10 +11,6 @@
     "./connections/mcp/test-support": "./src/connections/mcp/test-support.ts",
     "./connections/ingestion": "./src/connections/ingestion/index.ts",
     "./connections/ingestion/internal": "./src/connections/ingestion/internal.ts",
-    "./connections/ingestion/chat-media": "./src/connections/ingestion/chat-media.ts",
-    "./connections/ingestion/gmail-triage": "./src/connections/ingestion/gmail-triage.ts",
-    "./connections/ingestion/gmail-user-model": "./src/connections/ingestion/gmail-user-model.ts",
-    "./connections/ingestion/queue": "./src/connections/ingestion/queue.ts",
     "./artifacts": "./src/artifacts/index.ts",
     "./artifacts/*": "./src/artifacts/*.ts",
     "./tool-runtime": "./src/tool-runtime/index.ts",
@@ -55,7 +51,9 @@
     "./automation/*": "./src/automation/*.ts",
     "./realtime": "./src/realtime/index.ts",
     "./action-policies": "./src/action-policies/index.ts",
-    "./action-policies/test-support": "./src/action-policies/test-support.ts"
+    "./action-policies/test-support": "./src/action-policies/test-support.ts",
+    "./runtime": "./src/runtime/index.ts",
+    "./runtime/test-support": "./src/runtime/test-support.ts"
   },
   "scripts": {
     "build": "node ../../scripts/clean-package-dist.mjs && tsc -b --emitDeclarationOnly --force",
