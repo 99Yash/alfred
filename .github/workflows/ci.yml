@@ -246,10 +246,7 @@ jobs:
       # service variables at THIS STEP only, so `Apply database migrations` above
       # still runs and this step is the one that must redden. Never merge.
       - name: HTTP tests
-        run: corepack pnpm --filter @alfred/http test
-        env:
-          DATABASE_URL: ""
-          REDIS_URL: ""
+        run: env -u DATABASE_URL -u REDIS_URL corepack pnpm --filter @alfred/http test
 
   http-env-free-load:
     name: http-env-free-load
