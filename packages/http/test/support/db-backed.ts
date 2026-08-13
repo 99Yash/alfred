@@ -1,6 +1,14 @@
 /**
  * The guard a DB-backed suite in this tree uses instead of a hand-rolled
- * `{ skip: !process.env.DATABASE_URL }`.
+ * `{ skip: !process.env.DATABASE_URL }`. *
+ * THERE ARE THREE COPIES, one per test tree that needs one: this one for
+ * `http-tests`, `packages/api/test/support/db-backed.ts` for `api-tests`, and
+ * `packages/assistant/test/support/db-backed.ts` for `assistant-unit-tests`.
+ * They differ only in the job name in the fail message. Each test project sets
+ * `rootDir: "."`, so a relative reach into another package's test tree is a
+ * TS6059 error by design — the copy is deliberate, not an oversight. Promotion
+ * to a workspace package was measured and rejected: `packages/db/test` needs no
+ * copy because it FAILS LOUDLY on an absent service instead of skipping.
  *
  * WHY THIS EXISTS. A skip count cannot detect a `http-tests` job that reached
  * no database. `node:test` prints `# skipped 0` for a SUITE-level skip —
@@ -16,10 +24,14 @@
  * file as a failing test and the job exits non-zero. That is the whole
  * mechanism: no count, no magic number.
  *
- * SCOPE. This is a convention, not a structural check. A NEW DB-backed suite
- * in this tree that hand-rolls its own `{ skip }` still goes quiet. Raising
- * that bar needs a check over every package's test tree, which is queued
- * separately.
+ * SCOPE. A new DB-backed suite that hand-rolls its own `{ skip }` on a service
+ * variable no longer goes quiet: the `db-backed-skip-hand-rolled` rule in
+ * `scripts/consolidation-rules.mjs` fails `pnpm check` on it and names this
+ * helper, and `.claude/hooks/helper-hints.mjs` names it from the same row while
+ * the line is being written. The rule polices `DATABASE_URL` and `REDIS_URL`
+ * over every `packages/<name>/test/` and `apps/<name>/test/` tree. It is tier 2,
+ * not tier 1: an author can still build the variable name at runtime, and
+ * `// drift-ok: <reason>` is always available. It stops the accident.
  *
  * This module reads `process.env` DIRECTLY and asks only about PRESENCE, not
  * validity. It deliberately does not call `databaseEnv()` / `serverEnv()`:

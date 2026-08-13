@@ -10,6 +10,7 @@ import { inArray, like } from "drizzle-orm";
 import { listMcpToolsLocal } from "../../src/connections/mcp";
 import { computeDescriptorHashes } from "../../src/connections/mcp/hash";
 import { insertConnection, publishCatalogRevision } from "../../src/connections/mcp/persistence";
+import { dbBackedSkip } from "../support/db-backed";
 
 /**
  * DB-backed offline tests for `mcp.list_tools` (PRD #540, clarification #5). The
@@ -18,7 +19,7 @@ import { insertConnection, publishCatalogRevision } from "../../src/connections/
  * the ownership scope, empty/summary/detail shapes, filtering, pagination, and
  * drift flag. Opt-in on `DATABASE_URL`, mirroring the other MCP tests.
  */
-const SKIP = process.env.DATABASE_URL ? false : "DATABASE_URL not set — skipping DB-backed test";
+const SKIP = dbBackedSkip("database");
 
 const ID_PREFIX = "test-mcplist-";
 const createdUserIds: string[] = [];

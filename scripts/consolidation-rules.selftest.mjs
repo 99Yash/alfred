@@ -16,7 +16,17 @@ import { matchChains, matchLine } from "./consolidation-rules.mjs";
 /** A source file the rule is not exempt in. */
 const FILE = "packages/api/src/modules/agent/executor.ts";
 
-/** @type {{name: string, caught: boolean, code: string}[]} */
+/**
+ * A file inside a package test tree. `db-backed-skip-hand-rolled` names its own
+ * `paths`, so the file a fixture claims to be is part of the answer, not scenery.
+ */
+const TEST_TREE_FILE = "packages/assistant/test/flags.behavior.test.ts";
+
+/**
+ * @type {{name: string, caught: boolean, code: string, file?: string}[]} `file`
+ *   defaults to {@link FILE}; name it only when the rule under test scopes on the
+ *   path.
+ */
 const CASES = [
   {
     name: "as-loose-record — direct boundary assertion",
@@ -143,6 +153,46 @@ async function markRunFailed(runId: string, error: string): Promise<void> {
     .set({ status: "failed" })
     .where(eq(agentRuns.id, id));`,
   },
+  {
+    name: "db-backed-skip-hand-rolled — the inline ternary guard, the shape 12 suites carried",
+    caught: true,
+    file: TEST_TREE_FILE,
+    code: `const SKIP = process.env.DATABASE_URL ? false : "DATABASE_URL not set — skipping DB-backed test";`,
+  },
+  {
+    name: "db-backed-skip-hand-rolled — the databaseEnv() variant conflates absent with malformed",
+    caught: true,
+    file: TEST_TREE_FILE,
+    code: `    return Boolean(databaseEnv().DATABASE_URL);`,
+  },
+  {
+    name: "db-backed-skip-hand-rolled — the sanctioned call site names no variable",
+    caught: false,
+    file: TEST_TREE_FILE,
+    code: `const SKIP = dbBackedSkip("database");`,
+  },
+  {
+    name: "db-backed-skip-hand-rolled — the helper's own loop has a reader but no variable name",
+    caught: false,
+    file: "packages/assistant/test/support/db-backed.ts",
+    code: `  const missing = REQUIRED_VARIABLES[requires].filter((name) => !process.env[name]);`,
+  },
+  {
+    name: "db-backed-skip-hand-rolled — a stated drift-ok reason exempts a non-guard reader",
+    caught: false,
+    file: TEST_TREE_FILE,
+    code: `  delete process.env["DATABASE_URL"]; // drift-ok: the test needs the variable absent`,
+  },
+  {
+    // The control for `paths` in the OTHER direction. Without it, a rule whose
+    // regex happens to be broad could scope to the whole repo and nothing here
+    // would notice; the same text must stay silent in `src/`, where the helper
+    // this rule points at does not exist.
+    name: "db-backed-skip-hand-rolled — the same drift text outside a test tree does not fire",
+    caught: false,
+    file: "packages/assistant/src/flags.ts",
+    code: `const SKIP = process.env.DATABASE_URL ? false : "DATABASE_URL not set — skipping DB-backed test";`,
+  },
 ];
 
 // Line-scope fixtures. `boot-error-plain-extends` is a per-line rule, so it is
@@ -153,7 +203,10 @@ async function markRunFailed(runId: string, error: string): Promise<void> {
 /** A source file the line rules are not exempt in. */
 const LINE_FILE = "packages/assistant/src/connections/ingestion/chat-media.ts";
 
-/** @type {{name: string, caught: boolean, code: string}[]} */
+/**
+ * @type {{name: string, caught: boolean, code: string, file?: string}[]} `file`
+ *   defaults to {@link LINE_FILE}, as in {@link CASES}.
+ */
 const LINE_CASES = [
   {
     name: "boot-error-plain-extends — a No…RegisteredError left on plain Error",
@@ -180,8 +233,8 @@ const LINE_CASES = [
 /** @returns {string[]} One message per failed fixture; empty when all pass. */
 export function selfTestFailures() {
   const failures = [];
-  for (const { name, caught, code } of CASES) {
-    const hits = matchChains(code, FILE, "gate");
+  for (const { name, caught, code, file } of CASES) {
+    const hits = matchChains(code, file ?? FILE, "gate");
     if (hits.length > 0 !== caught) {
       failures.push(
         caught
@@ -190,8 +243,8 @@ export function selfTestFailures() {
       );
     }
   }
-  for (const { name, caught, code } of LINE_CASES) {
-    const hits = code.split("\n").flatMap((line) => matchLine(line, LINE_FILE, "gate"));
+  for (const { name, caught, code, file } of LINE_CASES) {
+    const hits = code.split("\n").flatMap((line) => matchLine(line, file ?? LINE_FILE, "gate"));
     if (hits.length > 0 !== caught) {
       failures.push(
         caught

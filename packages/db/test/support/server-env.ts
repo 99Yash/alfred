@@ -43,5 +43,5 @@ const DUMMIES: Readonly<Record<string, string>> = {
  */
 export function applyServerEnv(redisUrl: string): void {
   for (const [key, value] of Object.entries(DUMMIES)) process.env[key] ??= value;
-  process.env["REDIS_URL"] = redisUrl;
+  process.env["REDIS_URL"] = redisUrl; // drift-ok: seeds the fixture environment, does not gate a suite
 }

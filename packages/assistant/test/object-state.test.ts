@@ -13,6 +13,7 @@ import {
   objectStateStore,
   reduceGithubEvent,
 } from "../src/connections/object-state";
+import { dbBackedSkip } from "./support/db-backed";
 
 /**
  * Contract tests for integration object-state memory (ADR-0062, #212).
@@ -149,7 +150,7 @@ describe("isGithubNotificationSender", () => {
   });
 });
 
-const SKIP = process.env.DATABASE_URL ? false : "DATABASE_URL not set — skipping DB-backed test";
+const SKIP = dbBackedSkip("database");
 
 describe("objectStateStore contract (DB-backed)", { skip: SKIP }, () => {
   const userId = `test-objstate-${randomUUID()}`;

@@ -12,7 +12,7 @@ import { dbBackedSkip } from "../support/db-backed";
 const SKIP = dbBackedSkip("database");
 
 function ensureOAuthTestEnv(): void {
-  process.env.REDIS_URL ??= "redis://localhost:6379";
+  process.env.REDIS_URL ??= "redis://localhost:6379"; // drift-ok: seeds a fixture value, does not gate a suite
   process.env.BETTER_AUTH_SECRET ??= "test-secret-that-is-at-least-32-characters";
   process.env.BETTER_AUTH_URL ??= "http://localhost:3001";
   process.env.ALFRED_ALLOWED_EMAIL ??= "test@example.test";
@@ -116,7 +116,7 @@ describe("Google credential refresh (DB-backed)", { skip: SKIP }, () => {
   // and every contributor running against `alfred` (NOTES 01-implement).
   test("the DB-backed suite connected to the database DATABASE_URL names", async () => {
     ensureOAuthTestEnv();
-    const databaseUrl = process.env.DATABASE_URL;
+    const databaseUrl = process.env.DATABASE_URL; // drift-ok: asserts which database the suite reached; dbBackedSkip already gated it
     assert.ok(databaseUrl, "DATABASE_URL must be set for the DB-backed suite");
     const configured = new URL(databaseUrl).pathname.replace(/^\//, "");
     const rows = rowsFromExecute<{ current_database: string }>(
