@@ -1,4 +1,4 @@
-import { Errors, toMessage } from "@alfred/contracts";
+import { Errors, parseJsonWith, toMessage } from "@alfred/contracts";
 import {
   assertGmailPushOidcConfigured,
   findCredentialByEmail,
@@ -7,6 +7,7 @@ import {
 } from "@alfred/integrations/google";
 import { Elysia, t } from "elysia";
 import { createRemoteJWKSet, jwtVerify, type JWTPayload } from "jose";
+import { z } from "zod";
 import { getIngestionQueue } from "@alfred/assistant/connections/ingestion";
 
 /**
@@ -23,10 +24,13 @@ import { getIngestionQueue } from "@alfred/assistant/connections/ingestion";
  *     subscription: "projects/.../subscriptions/..."
  *   }
  *
- * We never trust the payload by itself. Two checks gate processing:
+ * We never trust the payload by itself. Three checks gate processing:
  *   1. OIDC token on Authorization header (when configured) — proves the
  *      request came from Pub/Sub with the expected service account.
- *   2. The decoded `emailAddress` must map to a known credential row.
+ *   2. `parseGmailPushEnvelope` validates the envelope and the decoded
+ *      notification against the two schemas below. The route body stays
+ *      `t.Unknown()` on purpose; see that function's header for why.
+ *   3. The decoded `emailAddress` must map to a known credential row.
  *
  * The handler returns 200 fast (target <500ms) and offloads the actual
  * sync to the ingestion queue. Pub/Sub treats anything but 2xx as
@@ -36,23 +40,6 @@ import { getIngestionQueue } from "@alfred/assistant/connections/ingestion";
 
 const GOOGLE_OIDC_JWKS = createRemoteJWKSet(new URL("https://www.googleapis.com/oauth2/v3/certs"));
 const GOOGLE_OIDC_ISSUERS = ["https://accounts.google.com", "accounts.google.com"];
-
-interface PubSubMessage {
-  data?: string;
-  messageId?: string;
-  publishTime?: string;
-  attributes?: Record<string, string>;
-}
-
-interface PubSubEnvelope {
-  message?: PubSubMessage;
-  subscription?: string;
-}
-
-interface GmailNotificationPayload {
-  emailAddress: string;
-  historyId: string;
-}
 
 interface OidcClaims extends JWTPayload {
   email?: string;
@@ -110,16 +97,57 @@ export async function verifyPubSubOidcForGmailWebhook(
   return payload;
 }
 
-function decodePayload(data: string | undefined): GmailNotificationPayload | null {
-  if (!data) return null;
-  try {
-    const json = Buffer.from(data, "base64").toString("utf8");
-    const parsed = JSON.parse(json) as Partial<GmailNotificationPayload>;
-    if (!parsed.emailAddress || !parsed.historyId) return null;
-    return { emailAddress: parsed.emailAddress, historyId: parsed.historyId };
-  } catch {
-    return null;
-  }
+const gmailPushNotificationSchema = z.object({
+  emailAddress: z.string().min(1),
+  // Nothing downstream reads `historyId`; it is a presence gate only, and it
+  // keeps the base handler's `!parsed.historyId` check. Google's push payload
+  // sends it as a JSON number and our test fixture sends a string, so accept
+  // both. A `z.string()` spelling here would answer `bad-payload` for every
+  // production notification while the suite stayed green.
+  historyId: z.union([z.string(), z.number()]).refine((value) => Boolean(value)),
+});
+
+/**
+ * The envelope Pub/Sub wraps around the notification. `looseObject` declares
+ * only the two fields the handler reads and passes every other field through,
+ * so `publishTime`, `attributes` and `subscription` cannot invent a rejection.
+ * The `.catch(undefined)` arms degrade a wrong-typed cosmetic field to absent
+ * rather than failing the whole parse.
+ */
+const pubSubEnvelopeSchema = z.looseObject({
+  message: z
+    .looseObject({
+      data: z.string().optional().catch(undefined),
+      messageId: z.string().optional().catch(undefined),
+    })
+    .optional()
+    .catch(undefined),
+});
+
+/**
+ * The single door from the wire body to a domain value. Total: it never throws
+ * and it never returns `null` — a body of any shape yields a `notification` of
+ * `null`, which the handler answers 200 for.
+ *
+ * The route keeps `body: t.Unknown()` rather than a rejecting typebox schema
+ * because `errorHandler` maps an Elysia `VALIDATION` code to 400, and Pub/Sub
+ * retries every non-2xx with backoff — so a rejecting schema would retry a
+ * permanently invalid body forever. `messageId` is for the log line only.
+ */
+export function parseGmailPushEnvelope(body: unknown): {
+  messageId: string | undefined;
+  notification: z.infer<typeof gmailPushNotificationSchema> | null;
+} {
+  const envelope = pubSubEnvelopeSchema.safeParse(body);
+  if (!envelope.success) return { messageId: undefined, notification: null };
+
+  const { data, messageId } = envelope.data.message ?? {};
+  if (data === undefined) return { messageId, notification: null };
+
+  // `Buffer.from(x, "base64")` never throws; it drops any character outside the
+  // alphabet. `parseJsonWith` owns the malformed-JSON and failed-schema arms.
+  const json = Buffer.from(data, "base64").toString("utf8");
+  return { messageId, notification: parseJsonWith(json, gmailPushNotificationSchema) };
 }
 
 export function makeGmailWebhookRoutes(
@@ -146,22 +174,18 @@ export function makeGmailWebhookRoutes(
         throw Errors.UnauthorizedError("Invalid OIDC token");
       }
 
-      const envelope = body as PubSubEnvelope;
-      const payload = decodePayload(envelope.message?.data);
-      if (!payload) {
+      const { messageId, notification } = parseGmailPushEnvelope(body);
+      if (!notification) {
         // Malformed payload → 200 to stop retries; nothing we can do with it.
-        console.warn(
-          "[gmail-webhook] could not decode payload; messageId=",
-          envelope.message?.messageId,
-        );
+        console.warn("[gmail-webhook] could not decode payload; messageId=", messageId);
         return { ok: true, ignored: "bad-payload" };
       }
 
-      const cred = await findCredential(payload.emailAddress);
+      const cred = await findCredential(notification.emailAddress);
       if (!cred) {
         // The user may have disconnected; we shouldn't keep retrying. 200.
         console.warn(
-          `[gmail-webhook] no credential for ${payload.emailAddress}; messageId=${envelope.message?.messageId}`,
+          `[gmail-webhook] no credential for ${notification.emailAddress}; messageId=${messageId}`,
         );
         return { ok: true, ignored: "no-credential" };
       }
@@ -186,7 +210,10 @@ export function makeGmailWebhookRoutes(
       return { ok: true, credentialId: cred.id };
     },
     {
-      body: t.Any(),
+      // Not a rejecting schema — see `parseGmailPushEnvelope`. `t.Unknown()`
+      // also types `body` as `unknown`, so no handler can read a wire field
+      // without going through that door.
+      body: t.Unknown(),
     },
   );
 }

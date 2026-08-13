@@ -6,6 +6,7 @@ import { errorHandler } from "@alfred/http";
 import { assertGmailPushOidcConfigured } from "@alfred/integrations/google";
 import {
   makeGmailWebhookRoutes,
+  parseGmailPushEnvelope,
   verifyPubSubOidcForGmailWebhook,
 } from "../../src/connections/gmail-webhook";
 
@@ -18,6 +19,140 @@ function gmailEnvelope(emailAddress: string) {
     subscription: "projects/example/subscriptions/gmail-push",
   };
 }
+
+/** Base64 of an arbitrary notification, so a case can state its own payload. */
+function encodeNotification(notification: unknown) {
+  return Buffer.from(JSON.stringify(notification)).toString("base64");
+}
+
+describe("parseGmailPushEnvelope", () => {
+  test("reads a well-formed envelope", () => {
+    assert.deepEqual(parseGmailPushEnvelope(gmailEnvelope("yash@example.com")), {
+      messageId: "msg_123",
+      notification: { emailAddress: "yash@example.com", historyId: "hist_123" },
+    });
+  });
+
+  test("accepts the JSON number historyId that Google's push payload sends", () => {
+    assert.deepEqual(
+      parseGmailPushEnvelope({
+        message: {
+          messageId: "msg_123",
+          data: encodeNotification({ emailAddress: "yash@example.com", historyId: 9876543210 }),
+        },
+      }),
+      {
+        messageId: "msg_123",
+        notification: { emailAddress: "yash@example.com", historyId: 9876543210 },
+      },
+    );
+  });
+
+  test("drops a wrong-typed messageId without blocking the notification", () => {
+    assert.deepEqual(
+      parseGmailPushEnvelope({
+        message: {
+          messageId: 42,
+          data: encodeNotification({ emailAddress: "yash@example.com", historyId: "hist_123" }),
+        },
+      }),
+      {
+        messageId: undefined,
+        notification: { emailAddress: "yash@example.com", historyId: "hist_123" },
+      },
+    );
+  });
+
+  test("answers for a null body instead of throwing", () => {
+    assert.deepEqual(parseGmailPushEnvelope(null), {
+      messageId: undefined,
+      notification: null,
+    });
+  });
+
+  test("answers for a body that is not an object", () => {
+    for (const body of ["hello", 42, [], undefined, true]) {
+      assert.deepEqual(
+        parseGmailPushEnvelope(body),
+        { messageId: undefined, notification: null },
+        `body ${JSON.stringify(body) ?? "undefined"}`,
+      );
+    }
+  });
+
+  test("answers for an envelope whose message or data cannot be read", () => {
+    assert.deepEqual(parseGmailPushEnvelope({}), {
+      messageId: undefined,
+      notification: null,
+    });
+    assert.deepEqual(parseGmailPushEnvelope({ message: {} }), {
+      messageId: undefined,
+      notification: null,
+    });
+    assert.deepEqual(parseGmailPushEnvelope({ message: { messageId: "msg_123" } }), {
+      messageId: "msg_123",
+      notification: null,
+    });
+    assert.deepEqual(parseGmailPushEnvelope({ message: 42 }), {
+      messageId: undefined,
+      notification: null,
+    });
+  });
+
+  test("answers for data that is not base64 or does not hold JSON", () => {
+    assert.deepEqual(
+      parseGmailPushEnvelope({ message: { messageId: "msg_123", data: "!!! not base64 !!!" } }),
+      { messageId: "msg_123", notification: null },
+    );
+    assert.deepEqual(
+      parseGmailPushEnvelope({
+        message: { messageId: "msg_123", data: Buffer.from("not json").toString("base64") },
+      }),
+      { messageId: "msg_123", notification: null },
+    );
+  });
+
+  test("refuses each notification gate separately", () => {
+    const rejected: unknown[] = [
+      { historyId: "hist_123" },
+      { emailAddress: "yash@example.com" },
+      { emailAddress: "", historyId: "hist_123" },
+      { emailAddress: "yash@example.com", historyId: "" },
+      { emailAddress: "yash@example.com", historyId: 0 },
+      { emailAddress: 123, historyId: "hist_123" },
+      { emailAddress: "yash@example.com", historyId: null },
+    ];
+
+    for (const notification of rejected) {
+      assert.deepEqual(
+        parseGmailPushEnvelope({
+          message: { messageId: "msg_123", data: encodeNotification(notification) },
+        }),
+        { messageId: "msg_123", notification: null },
+        `notification ${JSON.stringify(notification)}`,
+      );
+    }
+  });
+
+  test("passes through the envelope and message fields nothing reads", () => {
+    assert.deepEqual(
+      parseGmailPushEnvelope({
+        subscription: "projects/example/subscriptions/gmail-push",
+        unexpectedTopLevelKey: "ignored",
+        message: {
+          messageId: "msg_123",
+          publishTime: "2026-08-13T09:00:00.000Z",
+          attributes: { region: "us-central1" },
+          data: encodeNotification({ emailAddress: "yash@example.com", historyId: "hist_123" }),
+        },
+      }),
+      {
+        messageId: "msg_123",
+        notification: { emailAddress: "yash@example.com", historyId: "hist_123" },
+      },
+    );
+  });
+});
 
 describe("verifyPubSubOidcForGmailWebhook", () => {
   test("accepts a configured valid Pub/Sub OIDC token", async () => {
@@ -154,6 +289,43 @@ describe("verifyPubSubOidcForGmailWebhook", () => {
   });
 });
 
+/**
+ * A route harness whose OIDC arm always passes, so every case below isolates the
+ * body. It records the two side effects a malformed body must never reach.
+ */
+function gmailWebhookHarness() {
+  const seen: { credentialLookups: string[]; enqueued: unknown[][] } = {
+    credentialLookups: [],
+    enqueued: [],
+  };
+  const app = new Elysia({ normalize: "typebox" }).use(errorHandler).use(
+    makeGmailWebhookRoutes({
+      verifyOidc: async () => ({ email: "pubsub-push@example.iam.gserviceaccount.com" }),
+      findCredential: async (emailAddress) => {
+        seen.credentialLookups.push(emailAddress);
+        return { id: "cred_123", userId: "user_123" };
+      },
+      getQueue: () => ({
+        add: async (...args) => {
+          seen.enqueued.push(args);
+        },
+      }),
+    }),
+  );
+  const post = (init: { body?: string; headers?: Record<string, string> }) =>
+    app.handle(
+      new Request("http://localhost/webhooks/gmail", {
+        method: "POST",
+        headers: init.headers ?? {
+          "content-type": "application/json",
+          authorization: "Bearer jwt_123",
+        },
+        ...(init.body === undefined ? {} : { body: init.body }),
+      }),
+    );
+  return { seen, post };
+}
+
 describe("/webhooks/gmail", () => {
   test("returns 401 and does not enqueue when OIDC verification fails", async () => {
     let lookedUpCredential = false;
@@ -229,5 +401,74 @@ describe("/webhooks/gmail", () => {
         { deduplication: { id: "gmail.poll_recent.cred_123", ttl: 30_000 } },
       ],
     ]);
+  });
+
+  test("answers 200 bad-payload for an undecodable message and reaches neither side effect", async () => {
+    const { seen, post } = gmailWebhookHarness();
+
+    const res = await post({
+      body: JSON.stringify({
+        message: {
+          messageId: "msg_bad",
+          data: Buffer.from("not json at all").toString("base64"),
+        },
+      }),
+    });
+
+    assert.equal(res.status, 200);
+    assert.deepEqual(await res.json(), { ok: true, ignored: "bad-payload" });
+    assert.deepEqual(seen.credentialLookups, []);
+    assert.deepEqual(seen.enqueued, []);
+  });
+
+  test("answers 200 bad-payload for a JSON null body", async () => {
+    const { seen, post } = gmailWebhookHarness();
+
+    const res = await post({ body: "null" });
+
+    assert.equal(res.status, 200);
+    assert.deepEqual(await res.json(), { ok: true, ignored: "bad-payload" });
+    assert.deepEqual(seen.enqueued, []);
+  });
+
+  test("answers 200 bad-payload for a body whose Pub/Sub fields hold the wrong JSON types", async () => {
+    const { seen, post } = gmailWebhookHarness();
+
+    const res = await post({ body: JSON.stringify({ message: 42 }) });
+
+    assert.equal(res.status, 200);
+    assert.deepEqual(await res.json(), { ok: true, ignored: "bad-payload" });
+    assert.deepEqual(seen.enqueued, []);
+  });
+
+  test("answers 200 bad-payload for an absent body, never a validation status", async () => {
+    const { seen, post } = gmailWebhookHarness();
+
+    const res = await post({ headers: { authorization: "Bearer jwt_123" } });
+
+    assert.equal(res.status, 200);
+    assert.deepEqual(await res.json(), { ok: true, ignored: "bad-payload" });
+    assert.deepEqual(seen.enqueued, []);
+  });
+
+  test("keeps enqueuing when the envelope carries fields the handler does not read", async () => {
+    const { seen, post } = gmailWebhookHarness();
+
+    const res = await post({
+      body: JSON.stringify({
+        ...gmailEnvelope("yash@example.com"),
+        message: {
+          ...gmailEnvelope("yash@example.com").message,
+          publishTime: "2026-08-13T09:00:00.000Z",
+          attributes: { region: "us-central1" },
+        },
+        unexpectedTopLevelKey: "ignored",
+      }),
+    });
+
+    assert.equal(res.status, 200);
+    assert.deepEqual(await res.json(), { ok: true, credentialId: "cred_123" });
+    assert.deepEqual(seen.credentialLookups, ["yash@example.com"]);
+    assert.equal(seen.enqueued.length, 1);
   });
 });
