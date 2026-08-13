@@ -320,7 +320,13 @@ export function checkTestTypecheckBaseline({ root, tscBinary, searchRoots }) {
   try {
     realRoot = realpathSync(root);
   } catch {
-    return { ok: false, nowClean: [], newlyDirty: [], missing: [], problems: [`no tree at ${root}`] };
+    return {
+      ok: false,
+      nowClean: [],
+      newlyDirty: [],
+      missing: [],
+      problems: [`no tree at ${root}`],
+    };
   }
 
   const projects = discoverTestProjects(realRoot, searchRoots ?? DEFAULT_SEARCH_ROOTS);
