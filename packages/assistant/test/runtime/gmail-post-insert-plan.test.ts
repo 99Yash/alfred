@@ -1,10 +1,10 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { hasGmailPostInsertSideEffects } from "@alfred/assistant/connections/ingestion/queue";
+import { hasGmailPostInsertSideEffects } from "../../src/connections/ingestion/queue";
 import {
   FULL_RESYNC_REPLY_REEVAL_THREAD_LIMIT,
   planGmailPostInsertSideEffects,
-} from "../../src/composition/gmail-ingested-consumers";
+} from "../../src/runtime/adapters/gmail-ingested-consumers";
 import {
   planGmailThreadReconcile,
   type ReconcileStoredGmailDoc,

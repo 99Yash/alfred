@@ -20,8 +20,12 @@ const BASELINE_PATH = join(ROOT, "scripts/module-architecture-baseline.json");
 const SOURCE_EXTENSIONS = [".ts", ".tsx", ".mts", ".cts"];
 const LEGACY_API_MODULES_ROOT = join(ROOT, "packages/api/src/modules");
 const ASSISTANT_SOURCE_ROOT = join(ROOT, "packages/assistant/src");
-const API_COMPOSITION_ROOT = join(ROOT, "packages/api/src/composition");
-const RUNTIME_ADAPTER_MANIFEST = join(API_COMPOSITION_ROOT, "runtime-adapters.ts");
+// The runtime adapters moved out of `packages/api/src/composition` with the runtime
+// itself (campaign item 09). `walkSourceFiles` returns `[]` for a directory that does
+// not exist, so a stale root would leave this rule scanning zero files and reporting
+// success; the `SCANNED_PATHS` row below is what makes that absence loud.
+const RUNTIME_ADAPTER_ROOT = join(ROOT, "packages/assistant/src/runtime/adapters");
+const RUNTIME_ADAPTER_MANIFEST = join(RUNTIME_ADAPTER_ROOT, "runtime-adapters.ts");
 // The boot seams live in `@alfred/assistant`, not in the legacy api modules tree.
 // They moved there before this constant did, and because `walkSourceFiles` returns
 // `[]` for a directory that does not exist, the header rule below scanned zero files
@@ -59,6 +63,7 @@ const TARGET_ASSISTANT_MODULES = new Set([
   "execution",
   "knowledge",
   "realtime",
+  "runtime",
   "settings",
   "skills",
   "tasks",
@@ -129,7 +134,7 @@ const SCANNED_PATHS = [
   { constant: "ASSISTANT_SOURCE_ROOT", path: ASSISTANT_SOURCE_ROOT, kind: "directory" },
   { constant: "LEGACY_API_MODULES_ROOT", path: LEGACY_API_MODULES_ROOT, kind: "directory" },
   { constant: "WEB_ROUTES_ROOT", path: WEB_ROUTES_ROOT, kind: "directory" },
-  { constant: "API_COMPOSITION_ROOT", path: API_COMPOSITION_ROOT, kind: "directory" },
+  { constant: "RUNTIME_ADAPTER_ROOT", path: RUNTIME_ADAPTER_ROOT, kind: "directory" },
   { constant: "TOOL_RUNTIME_ROOT", path: TOOL_RUNTIME_ROOT, kind: "directory" },
   { constant: "RUNTIME_ADAPTER_MANIFEST", path: RUNTIME_ADAPTER_MANIFEST, kind: "file" },
   { constant: "BOOT_PORT_DEFINER", path: BOOT_PORT_DEFINER, kind: "file" },
@@ -312,7 +317,7 @@ function runtimeAdapterViolations(compositionSources, manifestSource) {
         );
         continue;
       }
-      const relativeModule = normalizePath(relative(API_COMPOSITION_ROOT, file)).replace(
+      const relativeModule = normalizePath(relative(RUNTIME_ADAPTER_ROOT, file)).replace(
         /\.[^.]+$/,
         "",
       );
@@ -782,7 +787,7 @@ function graphFromEdges(nodes, rawEdges) {
  * simply does not run.
  */
 function collectRuntimeAdapterScan(
-  root = API_COMPOSITION_ROOT,
+  root = RUNTIME_ADAPTER_ROOT,
   manifest = RUNTIME_ADAPTER_MANIFEST,
 ) {
   const compositionSources = walkSourceFiles(root)
@@ -2372,7 +2377,7 @@ export const RUNTIME_ADAPTERS = [
 ];
 `;
   const lifecycleFixture = [
-    { file: join(API_COMPOSITION_ROOT, "example.ts"), source: lifecycleSource },
+    { file: join(RUNTIME_ADAPTER_ROOT, "example.ts"), source: lifecycleSource },
   ];
   const validLifecycleViolations = runtimeAdapterViolations(lifecycleFixture, validManifestSource);
   if (validLifecycleViolations.length > 0) {
@@ -2639,7 +2644,7 @@ const aliasedPort = make("aliased");
     discoveredCompositionScan.manifestSource === null
   ) {
     failures.push(
-      `runtime-adapter discovery self-test mismatch: ${relativeToRoot(API_COMPOSITION_ROOT)} yielded ${discoveredCompositionScan.compositionSources.length} scanned files and manifestSource=${typeof discoveredCompositionScan.manifestSource}, so the runtime-adapter rule enforces nothing — update API_COMPOSITION_ROOT/RUNTIME_ADAPTER_MANIFEST or delete the rule that reads them`,
+      `runtime-adapter discovery self-test mismatch: ${relativeToRoot(RUNTIME_ADAPTER_ROOT)} yielded ${discoveredCompositionScan.compositionSources.length} scanned files and manifestSource=${typeof discoveredCompositionScan.manifestSource}, so the runtime-adapter rule enforces nothing — update RUNTIME_ADAPTER_ROOT/RUNTIME_ADAPTER_MANIFEST or delete the rule that reads them`,
     );
   }
   // (f-b) Discovery, over the REAL connections barrel — the third mirror of (c), and the one

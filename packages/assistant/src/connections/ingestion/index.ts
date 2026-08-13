@@ -8,14 +8,14 @@
  * retry, burst dedup and cursor bookkeeping — and operational scripts reach them
  * through the explicit friend door `./internal` instead.
  *
- * Two other kinds of door exist next to it, and neither is permanent. `./internal`
- * is the privileged friend door described above. The manifest also carries four
- * transitional leaf keys (`./connections/ingestion/{queue,chat-media,gmail-triage,
- * gmail-user-model}`) that exist only so the four `packages/api/test/integrations/`
- * tests can reach a subject whose composition half still lives in
- * `packages/api/src/composition/`; campaign item 09 dissolves that directory, moves
- * those tests, and deletes the four keys with them. Do not add a product consumer
- * of a leaf key.
+ * One other door exists next to it, and it is not permanent: `./internal`, the
+ * privileged friend door described above. The manifest used to carry four
+ * transitional leaf keys as well, because the tests that drove these registrations
+ * lived in `packages/api/test/` while the adapters that satisfy them lived in
+ * `packages/api/src/composition/`. Campaign item 09 moved the adapters to
+ * `packages/assistant/src/runtime/adapters/` and those five suites to
+ * `packages/assistant/test/runtime/`, so the tests now reach the leaves relatively
+ * and the four keys are gone. Do not add a leaf key back.
  *
  * Importing this module evaluates `./queue`, which constructs BullMQ `Queue` and
  * `Worker` classes lazily but pulls the whole Gmail ingestion graph into the

@@ -10,9 +10,9 @@ import {
   runGmailPostInsertTriage,
   runGmailTriageRelabel,
   type GmailTriageHandler,
-} from "@alfred/assistant/connections/ingestion/gmail-triage";
-import { pairReplyReevalTargets } from "../../src/composition/gmail-ingested-consumers";
-import { createGmailTriageHandler } from "../../src/composition/gmail-triage";
+} from "../../src/connections/ingestion/gmail-triage";
+import { pairReplyReevalTargets } from "../../src/runtime/adapters/gmail-ingested-consumers";
+import { createGmailTriageHandler } from "../../src/runtime/adapters/gmail-triage";
 
 const postInsertRequest = {
   credentialId: "credential-1",
