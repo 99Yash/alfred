@@ -51,7 +51,6 @@
     "test/conversations/attachments/attachment-enrichment.test.ts",
     "test/conversations/chat-history-retrieval.test.ts",
     "test/credentials/credential-persistence.test.ts",
-    "test/credentials/credential-vault.test.ts",
     "test/integrations/google-credential-refresh.test.ts",
     "test/knowledge/drift-audit/metrics.test.ts",
     "test/knowledge/fact-policy.test.ts",

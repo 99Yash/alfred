@@ -1,0 +1,38 @@
+{
+  // Scoped typecheck project for the package's whole `test/` tree, run by
+  // `check-types` as a SECOND `tsc` pass after the composite `tsc -b` — the
+  // composite build emits declarations for `src` only and never sees `test/**`.
+  // Without this project the tree is checked by no `tsc` at all: this package
+  // had no `test/` directory until the contract suites arrived from
+  // `packages/api/test/contracts/`, so nothing here had ever been in a program.
+  //
+  // `include` covers `test` rather than any file list, so a file added anywhere
+  // under `test/` is type-checked without an edit here.
+  //
+  // The base `tsconfig.json` is `composite: true`; a `tsc -p` invocation with
+  // `noEmit` errors unless `composite`/`declaration` are overridden off here.
+  // Nothing under `test/` is emitted or built — this project only type-checks.
+  //
+  // `rootDir: "."` is also the fence, and it carries this package's one
+  // structural rule: `@alfred/contracts` declares `zod` as its only runtime
+  // dependency and depends on no `@alfred/*` package. Every other workspace
+  // package depends on this one, so a reach the other way is a cycle. A suite
+  // that names `@alfred/db` — at run time OR type-only, because `tsc` must
+  // resolve an erased import too — belongs in `packages/db/test`, not here, and
+  // a relative reach into another package's tree is TS6059 by design.
+  //
+  // No `exclude`: an `exclude` in a file like this is a baseline of debt a tree
+  // arrived with, and this tree arrived clean. The one file that carried debt
+  // out of `packages/api/test/` is `credentials/credential-vault.test.ts`, and
+  // it went to `packages/db/test/` with its baseline entry attached.
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "noEmit": true,
+    "rootDir": ".",
+    "composite": false,
+    "declaration": false,
+    "declarationMap": false,
+    "sourceMap": false
+  },
+  "include": ["src", "test"]
+}

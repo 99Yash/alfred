@@ -3,17 +3,17 @@
  * `{ skip: !process.env.DATABASE_URL }`.
  *
  * THERE ARE FOUR COPIES, one per test tree that needs one: this one for
- * `api-tests`, `packages/db/test/support/db-backed.ts` for `db-tests`,
+ * `db-tests`, `packages/api/test/support/db-backed.ts` for `api-tests`,
  * `packages/http/test/support/db-backed.ts` for `http-tests`, and
  * `packages/assistant/test/support/db-backed.ts` for `assistant-unit-tests`.
  * They differ only in the job name in the fail message.
- * `packages/api/tsconfig.test.json` sets `rootDir: "."`, so a relative reach
+ * `packages/db/tsconfig.test.json` sets `rootDir: "."`, so a relative reach
  * into another package's test tree is a TS6059 error by design — the copy is
  * deliberate, not an oversight. Promotion to a workspace package was measured
  * and rejected for that reason: every test project sets `rootDir: "."`, so no
  * tree can import another tree's copy.
  *
- * WHY THIS EXISTS. A skip count cannot detect an `api-tests` job that reached
+ * WHY THIS EXISTS. A skip count cannot detect a `db-tests` job that reached
  * no database. `node:test` prints `# skipped 0` for a SUITE-level skip —
  * `describe("…", { skip: SKIP }, …)` — because the subtests inside a skipped
  * `describe` are never registered, so they land in neither `# tests` nor
@@ -78,8 +78,8 @@ export function decideDbBackedSkip(input: {
   return {
     kind: "fail",
     message:
-      `${names} not set, but CI is set. The api-tests job must provide every service ` +
-      `variable its suites need. Check the services: and env: blocks of the api-tests ` +
+      `${names} not set, but CI is set. The db-tests job must provide every service ` +
+      `variable its suites need. Check the services: and env: blocks of the db-tests ` +
       `job in .github/workflows/ci.yml. A skip here would exit 0 and hide the failure.`,
   };
 }
