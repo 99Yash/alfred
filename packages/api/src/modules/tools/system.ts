@@ -61,7 +61,10 @@ import { rememberSenderSuppressionAndDismissTodos } from "./remember-suppression
 import { redactCredentialUrl, runFetchUrl } from "./fetch-url";
 import { liveTool, type RegisteredTool } from "@alfred/assistant/tool-runtime";
 import { parseScratchToolKey } from "./scratch-key";
-import { resolveExactToolLoad, searchAvailableTools } from "./discovery";
+import {
+  resolveExactToolLoad,
+  searchAvailableTools,
+} from "@alfred/assistant/tool-runtime/discovery";
 
 /**
  * Resolve the provenance an artifact tool needs from the call context. Returns

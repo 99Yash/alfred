@@ -9,7 +9,10 @@ import {
   migrateActiveTools,
   systemToolKernel,
 } from "@alfred/assistant/execution/tool-surface";
-import { preloadToolCatalog, type ToolCatalogAccess } from "../../src/modules/tools/discovery";
+import {
+  preloadToolCatalog,
+  type ToolCatalogAccess,
+} from "@alfred/assistant/tool-runtime/discovery";
 import { registerBuiltinTools } from "../../src/modules/tools/runtime";
 import {
   clearToolRegistryForTests,

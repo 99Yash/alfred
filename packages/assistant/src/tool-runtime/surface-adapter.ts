@@ -5,7 +5,7 @@ import {
   registerToolRuntimeAdapter,
   type ResolvedToolSurface,
   type ToolRuntimeAdapter,
-} from "@alfred/assistant/tool-runtime";
+} from "./index";
 import { latestUserPrompt, preloadToolsForPrompt } from "./discovery";
 import {
   availableToolNames,
@@ -15,7 +15,7 @@ import {
   listRegisteredTools,
   listToolsForIntegration,
   type RegisteredTool,
-} from "@alfred/assistant/tool-runtime";
+} from "./internal/registry";
 import { estimateToolSurfaceBudget } from "./schema-budget";
 
 const sdkSurfaceCache = new Map<string, ResolvedToolSurface>();

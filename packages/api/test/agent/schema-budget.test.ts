@@ -5,7 +5,10 @@ import type { ToolName } from "@alfred/contracts";
 import { z } from "zod";
 
 import { systemToolKernel } from "@alfred/assistant/execution/tool-surface";
-import { estimateToolSurfaceBudget, toolSchemaSize } from "../../src/modules/tools/schema-budget";
+import {
+  estimateToolSurfaceBudget,
+  toolSchemaSize,
+} from "@alfred/assistant/tool-runtime/schema-budget";
 import { getTool, listRegisteredTools, type RegisteredTool } from "@alfred/assistant/tool-runtime";
 import { registerBuiltinTools } from "../../src/modules/tools/runtime";
 

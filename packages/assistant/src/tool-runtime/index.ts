@@ -20,9 +20,10 @@ export { isMutatingToolName } from "./internal/result-routing";
 export { joinToolInput } from "./join-contract";
 // The tool catalog. `internal/registry.ts` owns the one
 // `Map<ToolName, RegisteredTool>` every reader in every package resolves; the
-// map itself and its sorted cache are module-locals that no barrel re-exports as
-// a value, so nothing outside this directory can name them. Two groups below,
-// and the split is deliberate.
+// map itself and its sorted cache are module-locals that no export can name.
+// The FILE remains reachable through the package's wildcard deep export until
+// campaign item 105 fences `internal/` imports. Two groups below, and the split
+// is deliberate.
 //
 // GROUP A — permanent, 8 names. The registration + tool-contract door.
 // `docs/plans/agent-friendly-module-structure.md:210` gives this module the
@@ -32,44 +33,45 @@ export { joinToolInput } from "./join-contract";
 // `executeToolCallRound` further down this file are their live equivalents, and
 // approval resolution sits in `dispatch`. `@alfred/api`'s tool definitions are
 // WRITERS: 12 files build entries with `liveTool`, and `modules/tools/
-// runtime.ts` makes every registration call. `registerTool` (singular) has no
-// production caller — item 97 narrows group A too, not only group B.
+// runtime.ts` makes every production registration call. `registerTool`
+// (singular) remains the single-tool fixture door for three api test files.
+// `riskTierCountsForIntegration` is the permanent web-facing projection used
+// by `@alfred/http`; it cannot read the private registry implementation.
 export {
   liveTool,
   registerTool,
   registerTools,
   clearToolRegistryForTests,
+  riskTierCountsForIntegration,
   type RegisteredTool,
-  type LiveToolArgs,
   type ToolExecuteContext,
   type ToolExecuteContextFields,
 } from "./internal/registry";
-// GROUP B — transitional readers, 13 names: the 12 in the statement below plus
-// `singularizePhrase`, which needs its own statement because it comes from
-// `./internal/metadata-defaults`. They are published only because the tool
-// DEFINITIONS still live in `@alfred/api` while their catalog lives here, and
-// they collapse into group A's 8-name shape when
-// `packages/api/src/modules/tools/*` moves into this module. Nothing
-// distinguishes them from group A to any check, so the removal phase is a queue
-// item, not a lint. Do not add to this group.
-//
-// Removal phase (campaign item 97): once the tool definitions live here, delete
-// this group and let this module's own surface forwarders answer the readers.
+// GROUP B — transitional readers, 9 names. They remain public only for callers
+// that cannot move until campaign item 148 folds the api tools and dispatch
+// modules into this owner. What holds each name open:
+// - getTool: dispatch, two server smokes, and the schema-token script.
+// - listRegisteredTools: the schema-token script and four built-in-tool tests.
+// - listKernelTools: tool-surface tests.
+// - listToolsForIntegration: server probes/smokes, evals, and api tests.
+// - assertKernelToolsRegistered: modules/tools/runtime.ts.
+// - availableToolNames: discovery tests.
+// - evaluateToolAvailability: api tests that register built-in tools.
+// - resolveToolAvailability: dispatch and staging-policy tests.
+// - readsAvailabilitySnapshot: the availability-snapshot contract test.
+// Nothing distinguishes this group from group A to a check. Do not add to it.
+// Removal phase: campaign item 148.
 export {
   getTool,
   listRegisteredTools,
   listKernelTools,
   listToolsForIntegration,
   assertKernelToolsRegistered,
-  riskTierCountsForIntegration,
   availableToolNames,
-  evaluateToolRunContext,
   evaluateToolAvailability,
-  evaluateToolCatalog,
   resolveToolAvailability,
   readsAvailabilitySnapshot,
 } from "./internal/registry";
-export { singularizePhrase } from "./internal/metadata-defaults";
 export {
   awaitSubAgentInputSchema,
   spawnSubAgentInputSchema,
@@ -207,14 +209,12 @@ export type ToolCallRoundOutcome<Call extends ProposedToolCall = ProposedToolCal
  * Surface:  chat.
  * Owns/hides: owns the executable tool surface — surface restore, surface
  *   resolve, integration-name projection, and preload selection. Hides the tools
- *   IMPLEMENTATION that answers them: the credential and availability gates, the
- *   integration projection, and the preload selector, all of which live in
- *   `@alfred/api`'s tools module. The catalog is NOT hidden by this seam any
- *   more — `internal/registry.ts` owns the one map, and the door at the top of
- *   this file publishes readers over it (group B, campaign item 97).
- * Why the seam: it inverts tool-runtime -> tools, so the runtime forwards to the
- *   installed tools implementation instead of importing it.
- * Wiring: tools/tool-runtime-adapter.ts installs; the tool-runtime forwarders
+ *   IMPLEMENTATION that answers them: the credential and availability gates,
+ *   integration projection, and preload selector. That implementation lives in
+ *   `tool-runtime/surface-adapter.ts` and reaches `connections` -> `@alfred/db`.
+ * Why the seam: it keeps that implementation and its database-bearing import
+ *   graph out of this barrel's eager load graph.
+ * Wiring: tool-runtime/surface-adapter.ts installs; the tool-runtime forwarders
  *   (resolveToolSurface, restoreToolSurface, selectToolPreload) read.
  * See: ADR-0089, and docs/reference/tool-runtime-map.md.
  */

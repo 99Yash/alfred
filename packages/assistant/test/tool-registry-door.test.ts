@@ -23,6 +23,7 @@
 
 import assert from "node:assert/strict";
 import { afterEach, test } from "node:test";
+import * as toolRuntimeBarrel from "@alfred/assistant/tool-runtime";
 import {
   clearToolRegistryForTests,
   getTool,
@@ -35,6 +36,24 @@ import {
   getTool as getToolRelative,
   listRegisteredTools as listRegisteredToolsRelative,
 } from "../src/tool-runtime/internal/registry";
+
+const TRANSITIONAL_REGISTRY_READERS = [
+  "getTool",
+  "listRegisteredTools",
+  "listKernelTools",
+  "listToolsForIntegration",
+  "assertKernelToolsRegistered",
+  "availableToolNames",
+  "evaluateToolAvailability",
+  "resolveToolAvailability",
+  "readsAvailabilitySnapshot",
+] as const;
+
+const RETIRED_REGISTRY_READERS = [
+  "evaluateToolRunContext",
+  "evaluateToolCatalog",
+  "singularizePhrase",
+] as const;
 
 function probeTool(action: "read_scratch" | "write_scratch") {
   return liveTool({
@@ -49,6 +68,17 @@ function probeTool(action: "read_scratch" | "write_scratch") {
 
 afterEach(() => {
   clearToolRegistryForTests();
+});
+
+test("the package door keeps only the transitional registry readers still in use", () => {
+  const keys = new Set(Object.keys(toolRuntimeBarrel));
+
+  for (const name of TRANSITIONAL_REGISTRY_READERS) {
+    assert.ok(keys.has(name), `${name} must stay on the transitional reader door`);
+  }
+  for (const name of RETIRED_REGISTRY_READERS) {
+    assert.ok(!keys.has(name), `${name} must leave the transitional reader door`);
+  }
 });
 
 test("registerTool round-trips through getTool on the package specifier", () => {
