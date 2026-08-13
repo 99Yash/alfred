@@ -16,6 +16,7 @@ import {
 } from "../../src/connections/mcp";
 import { McpConnectionManager } from "../../src/connections/mcp/manager";
 import { insertConnection, readConnection } from "../../src/connections/mcp/persistence";
+import { dbBackedSkip } from "../support/db-backed";
 
 /**
  * DB-backed tests for the connection manager (PRD #540). A real `McpRawClient`
@@ -24,7 +25,7 @@ import { insertConnection, readConnection } from "../../src/connections/mcp/pers
  * connect → refresh → publish → status runs end-to-end with no socket. Opt-in on
  * `DATABASE_URL`, mirroring the other MCP tests.
  */
-const SKIP = process.env.DATABASE_URL ? false : "DATABASE_URL not set — skipping DB-backed test";
+const SKIP = dbBackedSkip("database");
 
 const ID_PREFIX = "test-mcpmgr-";
 const createdUserIds: string[] = [];

@@ -7,6 +7,7 @@ import { eventsOutbox, user } from "@alfred/db/schemas";
 import { and, eq, inArray } from "drizzle-orm";
 
 import { publishEvent } from "../../src/triggers";
+import { dbBackedSkip } from "../support/db-backed";
 
 /**
  * `publishEvent`'s executor selection, asserted against a real database.
@@ -18,7 +19,7 @@ import { publishEvent } from "../../src/triggers";
  * and that the `tx` arm is genuinely atomic: a rolled-back tx leaves no row.
  */
 
-const SKIP = process.env.DATABASE_URL ? false : "DATABASE_URL not set — skipping DB-backed test";
+const SKIP = dbBackedSkip("database");
 
 describe("publishEvent executor selection", { skip: SKIP }, () => {
   const userIds: string[] = [];

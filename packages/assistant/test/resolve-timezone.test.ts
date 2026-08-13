@@ -7,6 +7,7 @@ import { user } from "@alfred/db/schemas";
 import { inArray, like } from "drizzle-orm";
 
 import { resolveTimezone, setPreference } from "../src/settings";
+import { dbBackedSkip } from "./support/db-backed";
 
 /**
  * DB-backed integration test for `settings.resolveTimezone` — the single
@@ -23,7 +24,7 @@ import { resolveTimezone, setPreference } from "../src/settings";
  * suite still runs without a database. It seeds throwaway `test-resolve-tz-*`
  * users and deletes them (cascade clears their preferences) on teardown.
  */
-const SKIP = process.env.DATABASE_URL ? false : "DATABASE_URL not set — skipping DB-backed test";
+const SKIP = dbBackedSkip("database");
 
 const ID_PREFIX = "test-resolve-tz-";
 const createdUserIds: string[] = [];

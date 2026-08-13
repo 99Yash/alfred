@@ -55,7 +55,7 @@ describe("redis connection kinds against a socket that accepts and never replies
     // is silently ignored, and this file would then talk to a real Redis and
     // measure nothing.
     const { serverEnv } = await import("@alfred/env/server");
-    assert.equal(serverEnv().REDIS_URL, zombieUrl);
+    assert.equal(serverEnv().REDIS_URL, zombieUrl); // drift-ok: asserts the fixture URL landed, does not gate a suite
   });
 
   after(async () => {
