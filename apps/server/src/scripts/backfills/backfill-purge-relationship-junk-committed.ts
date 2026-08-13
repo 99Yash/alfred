@@ -33,12 +33,12 @@
  *   # commit:
  *   node dist/scripts/backfills/backfill-purge-relationship-junk-committed.js --emails=a@x.com --commit
  */
-import { isUninformativeRelationshipFact, rejectFact } from "@alfred/api/backend";
+import { isUninformativeRelationshipFact, rejectFact } from "@alfred/assistant/knowledge";
 import {
   isServiceSender,
   isUninformativeRelationshipValue,
 } from "@alfred/assistant/knowledge/internal";
-import { warmPool } from "@alfred/api/runtime";
+import { warmPool } from "@alfred/db";
 import { closeScriptResources } from "../script-runtime";
 import { RELATIONSHIP_FACT_PREFIX, toMessage } from "@alfred/contracts";
 import { db } from "@alfred/db";

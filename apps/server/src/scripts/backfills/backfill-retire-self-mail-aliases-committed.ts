@@ -45,7 +45,7 @@
  *   # override target(s) / aliases:
  *   node dist/scripts/backfills/backfill-retire-self-mail-aliases-committed.js --emails=a@x.com --aliases=old@y.com,other@z.com --commit
  */
-import { warmPool } from "@alfred/api/runtime";
+import { warmPool } from "@alfred/db";
 import { closeScriptResources } from "../script-runtime";
 import { parseEmailAddress, toMessage } from "@alfred/contracts";
 import { db } from "@alfred/db";

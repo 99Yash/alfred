@@ -21,9 +21,9 @@
  *   # override target(s) / scan depth:
  *   TEAM_GRAPH_EMAILS="a@x.com" TEAM_GRAPH_MAX_DOCS=2000 node dist/scripts/backfills/backfill-team-graph-committed.js --commit
  */
-import { gmailSenderAdapter } from "@alfred/api/backend";
+import { gmailSenderAdapter } from "@alfred/assistant/triage";
 import { backfillTeamGraph } from "@alfred/assistant/knowledge/internal";
-import { warmPool } from "@alfred/api/runtime";
+import { warmPool } from "@alfred/db";
 import { closeScriptResources } from "../script-runtime";
 import { db } from "@alfred/db";
 import { user as userTable } from "@alfred/db/schemas";

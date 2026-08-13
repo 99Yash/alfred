@@ -8,8 +8,8 @@
  * progress, signals the HIL approval, and asserts the final output.
  */
 import { randomUUID } from "node:crypto";
-import { redeliverRun, signalRun, startRun } from "@alfred/api/backend";
-import { closeAgentQueue, warmPool } from "@alfred/api/runtime";
+import { redeliverRun, signalRun, startRun, closeAgentQueue } from "@alfred/assistant/execution";
+import { warmPool } from "@alfred/db";
 import { db } from "@alfred/db";
 import { agentRuns, agentSteps, user as userTable } from "@alfred/db/schemas";
 import { eq } from "drizzle-orm";

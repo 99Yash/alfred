@@ -40,8 +40,8 @@
  *   # commit:
  *   node dist/scripts/backfills/backfill-workflow-revisions-committed.js --emails=yashgouravkar@gmail.com --commit
  */
-import { workflowRevisionContentHash } from "@alfred/api/backend";
-import { warmPool } from "@alfred/api/runtime";
+import { workflowRevisionContentHash } from "@alfred/assistant/automation";
+import { warmPool } from "@alfred/db";
 import { toMessage, workflowRevisionDefinitionSchema } from "@alfred/contracts";
 import { db } from "@alfred/db";
 import { createId } from "@alfred/db/helpers";

@@ -25,8 +25,6 @@ import {
   AUTO_CONFIRM_THRESHOLD,
   confirmFact,
   editFact,
-  getPreference,
-  getPreferences,
   getSupersessionChain,
   listFactsByStatus,
   proposeFact,
@@ -34,16 +32,17 @@ import {
   recallLatestByKey,
   recallMemory,
   rejectFact,
-  setPreference,
   supersedeFact,
   writeMemoryChunk,
-} from "@alfred/api/backend";
+} from "@alfred/assistant/knowledge";
+import { getPreference, getPreferences, setPreference } from "@alfred/assistant/settings";
 import {
   embedMemoryChunk,
   findPendingEmbedChunks,
   isRejected,
 } from "@alfred/assistant/knowledge/internal";
-import { closeAgentQueue, warmPool } from "@alfred/api/runtime";
+import { closeAgentQueue } from "@alfred/assistant/execution";
+import { warmPool } from "@alfred/db";
 import { embed } from "@alfred/ai/embeddings";
 import { db } from "@alfred/db";
 import { user as userTable } from "@alfred/db/schemas";

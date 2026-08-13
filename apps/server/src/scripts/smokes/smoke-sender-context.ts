@@ -10,8 +10,8 @@
  * Exits with code 1 on the first failure so CI gets a clear signal.
  */
 
-// Deep import so the smoke doesn't pull `@alfred/api`'s entry barrel
-// (which boots env, queues, and Elysia plugins at module load).
+// Deep import so the smoke doesn't pull `@alfred/assistant/triage`'s barrel
+// (which reaches the queues and the classifier model routes at module load).
 import { extractSenderContext } from "@alfred/assistant/triage/sender-context";
 import type { SenderContext } from "@alfred/contracts";
 

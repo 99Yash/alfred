@@ -28,8 +28,9 @@ import {
   assertHandoffSections,
   extractHandoffSection,
   type HandoffSection,
-} from "@alfred/api/backend";
-import { closeConnections, verifyMeteringModels, warmPool } from "@alfred/api/runtime";
+} from "@alfred/assistant/execution/run-compaction/index";
+import { closeConnections, warmPool } from "@alfred/db";
+import { verifyMeteringModels } from "@alfred/assistant/execution";
 import { flushLangfuse } from "@alfred/ai";
 import type { AgentTranscriptMessage } from "@alfred/contracts";
 import { readFile, readdir } from "node:fs/promises";

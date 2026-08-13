@@ -9,7 +9,8 @@
  * when shipping a new builtin (e.g. a new boss-agent workflow in m13)
  * without forcing a re-signup.
  */
-import { closeConnections, seedBuiltinWorkflowsForAllUsers, warmPool } from "@alfred/api/runtime";
+import { closeConnections, warmPool } from "@alfred/db";
+import { seedBuiltinWorkflowsForAllUsers } from "@alfred/assistant/automation";
 import { registerBuiltinWorkflows } from "~/builtins";
 
 async function main() {

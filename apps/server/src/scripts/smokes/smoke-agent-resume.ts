@@ -5,8 +5,8 @@
  *
  *   $ pnpm tsx --env-file=.env src/scripts/smokes/smoke-agent-resume.ts <runId>
  */
-import { redeliverRun, signalRun } from "@alfred/api/backend";
-import { closeAgentQueue, warmPool } from "@alfred/api/runtime";
+import { redeliverRun, signalRun, closeAgentQueue } from "@alfred/assistant/execution";
+import { warmPool } from "@alfred/db";
 import { db } from "@alfred/db";
 import { agentRuns } from "@alfred/db/schemas";
 import { eq } from "drizzle-orm";
