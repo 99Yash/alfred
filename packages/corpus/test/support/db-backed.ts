@@ -18,17 +18,19 @@
  * `test/db-backed-guard.test.ts`, which drives `decideDbBackedSkip` over its
  * three arms inside the tree that depends on it.
  *
- * WHY THIS EXISTS. A skip count cannot detect an `assistant-unit-tests` job that
- * reached no database. `node:test` prints `# skipped 0` for a SUITE-level skip —
- * the subtests inside a skipped `describe` are never registered, so they land in
- * neither `# tests` nor `# skipped`. A run with `DATABASE_URL` unset therefore
- * prints `# fail 0` and `# skipped 0` and exits 0, which is indistinguishable
- * from a run that reached Postgres. Do not guard this tree by reading a number.
+ * WHY THIS EXISTS. A skip count cannot detect a `leaf-db-tests` job that reached
+ * no database. `node:test` prints `# skipped 0` for a SUITE-level skip —
+ * `describe("…", { skip: SKIP }, …)` — because the subtests inside a skipped
+ * `describe` are never registered, so they land in neither `# tests` nor
+ * `# skipped`. A run with `DATABASE_URL` unset therefore prints `# fail 0` and
+ * `# skipped 0` and exits 0, which is indistinguishable from a run that
+ * reached Postgres. Do not guard this tree by reading a number.
  *
  * WHAT REPLACES IT. `dbBackedSkip` skips on a developer machine that has no
  * Postgres, and THROWS when `CI` is set and a required variable is absent. The
- * throw fires at module scope of the suite file, so `node:test` reports the file
- * as a failing test and the job exits non-zero.
+ * throw fires at module scope of the suite file, so `node:test` reports the
+ * file as a failing test and the job exits non-zero. That is the whole
+ * mechanism: no count, no magic number.
  *
  * SCOPE. A new DB-backed suite that hand-rolls its own `{ skip }` on a service
  * variable no longer goes quiet: the `db-backed-skip-hand-rolled` rule in
@@ -47,9 +49,11 @@
  * "it cannot happen". `// drift-ok: <reason>` is always available. It stops
  * the accident.
  *
- * This module reads `process.env` directly and asks only about presence. It does
- * not call `databaseEnv()` or `serverEnv()` because those parse and memoize
- * unrelated variables.
+ * This module reads `process.env` DIRECTLY and asks only about PRESENCE, not
+ * validity. It deliberately does not call `databaseEnv()` / `serverEnv()`:
+ * those parse every variable at once and memoize, so one unrelated absent
+ * variable would read as an absent Redis — the same class of quiet miscount
+ * this module exists to delete.
  */
 
 /** Which services a suite needs before it can run. */
@@ -61,7 +65,11 @@ const REQUIRED_VARIABLES: Record<ServiceRequirement, readonly string[]> = {
   "database+redis": ["DATABASE_URL", "REDIS_URL"],
 };
 
-/** The pure decision used by the environment-reading door below. */
+/**
+ * The pure decision. Total over three arms, reads no environment, and is the
+ * seam `test/db-backed-guard.test.ts` drives — the `fail` arm can be tested
+ * without mutating `process.env`.
+ */
 export function decideDbBackedSkip(input: {
   readonly missing: readonly string[];
   readonly ci: boolean;
@@ -75,15 +83,16 @@ export function decideDbBackedSkip(input: {
   return {
     kind: "fail",
     message:
-      `${names} not set, but CI is set. The assistant-unit-tests job must provide every service ` +
-      `variable its suites need. Check the services: and env: blocks of the assistant-unit-tests ` +
+      `${names} not set, but CI is set. The leaf-db-tests job must provide every service ` +
+      `variable its suites need. Check the services: and env: blocks of the leaf-db-tests ` +
       `job in .github/workflows/ci.yml. A skip here would exit 0 and hide the failure.`,
   };
 }
 
 /**
- * Returns the `skip` value accepted by `describe`: `false` to run, or a reason
- * string to skip. Throws when CI lacks a required service variable.
+ * The env-reading door. Returns the `skip` value a `describe` option takes:
+ * `false` to run, or a reason string to skip. Throws when `CI` is set and a
+ * required variable is absent.
  */
 export function dbBackedSkip(requires: ServiceRequirement): false | string {
   const missing = REQUIRED_VARIABLES[requires].filter((name) => !process.env[name]);

@@ -10,15 +10,15 @@ import {
   googleClientForUser,
   listCredentials,
   upsertCredential,
-} from "@alfred/integrations/google";
-import { listGithubCredentials, upsertGithubCredential } from "@alfred/integrations/github";
+} from "../src/google/index";
+import { listGithubCredentials, upsertGithubCredential } from "../src/github/index";
 import {
   getActiveBearerCredential,
   listActiveBearerCredentials,
   upsertBearerCredential,
-} from "@alfred/integrations/shared";
+} from "../src/shared/index";
 import { eq, sql } from "drizzle-orm";
-import { dbBackedSkip } from "../support/db-backed";
+import { dbBackedSkip } from "./support/db-backed";
 
 const SKIP = dbBackedSkip("database");
 

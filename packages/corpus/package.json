@@ -6,7 +6,9 @@
   },
   "scripts": {
     "build": "node ../../scripts/clean-package-dist.mjs && tsc -b --emitDeclarationOnly --force",
-    "check-types": "tsc -b --emitDeclarationOnly"
+    "check-types": "tsc -b --emitDeclarationOnly && tsc -p tsconfig.test.json",
+    "test": "tsx --test --test-force-exit \"test/**/*.test.ts\"",
+    "test:db": "tsx --env-file-if-exists=../../apps/server/.env --test --test-force-exit \"test/**/*.test.ts\""
   },
   "dependencies": {
     "@alfred/ai": "workspace:*",
@@ -14,7 +16,8 @@
     "drizzle-orm": "^0.45.2"
   },
   "devDependencies": {
-    "@alfred/config": "workspace:*"
+    "@alfred/config": "workspace:*",
+    "tsx": "^4.21.0"
   },
   "peerDependencies": {
     "typescript": "catalog:"
