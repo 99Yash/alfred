@@ -1,8 +1,9 @@
 import assert from "node:assert/strict";
 import { describe, test } from "node:test";
 
+import { getPath } from "@alfred/contracts";
 import { anthropic } from "@ai-sdk/anthropic";
-import { APICallError, generateText, tool } from "ai";
+import { APICallError, generateText, tool, type ToolSet } from "ai";
 import type { LanguageModel } from "ai-retry";
 import { MockLanguageModelV4 } from "ai/test";
 import { z } from "zod";
@@ -38,13 +39,13 @@ function mockModel(provider: ModelProviderId, modelId: ModelId): MockLanguageMod
 
 const asModel = (model: MockLanguageModelV4) => model as unknown as LanguageModel;
 
-function cacheControl(value: {
-  providerOptions?: Record<string, Record<string, unknown>>;
-}): unknown {
-  return value.providerOptions?.anthropic?.cacheControl;
+// Reads a nested field off an SDK object, so it takes `unknown` and uses the
+// shared `getPath` reader rather than a hand-written structural type.
+function cacheControl(value: unknown): unknown {
+  return getPath(value, "providerOptions", "anthropic", "cacheControl");
 }
 
-const tools = {
+const tools: ToolSet = {
   "system.search_tools": tool({
     description: "Search the catalog",
     inputSchema: z.object({ query: z.string() }),
@@ -141,10 +142,13 @@ describe("provider turn protocol", () => {
     await generateText({
       model,
       prompt: "hello",
+      // The SDK unifies the two entries' input generic to `never` inside the
+      // non-generic `ToolSet`, so a provider-defined tool needs the same
+      // `as ToolSet` cast `googleSearchGroundingTools` uses in `src/provider.ts`.
       tools: {
         ...tools,
         anthropic_tool_search: anthropic.tools.toolSearchBm25_20251119(),
-      },
+      } as ToolSet,
       providerOptions: attachProviderTurnPolicy(undefined, undefined),
     });
 
