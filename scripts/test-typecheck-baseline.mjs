@@ -23,7 +23,7 @@
 // the ratchet: `"test/dispatch"` would un-check every file added to that
 // directory tomorrow, and nothing about the entry would look wrong.
 //
-// Two mechanics are deliberate and both cost a day to relearn:
+// Three mechanics are deliberate and all three cost a day to relearn:
 //
 //   - The tsc binary is a PARAMETER. A `mkdtemp` fixture has no `node_modules`,
 //     and a symlinked pnpm `.bin` shim reads its `basedir` off `$0`, so a fixture
@@ -31,6 +31,13 @@
 //   - Nothing here memoizes across calls. A fixture that repairs a file and
 //     re-runs must see the new answer; a module-level cache returns the
 //     pre-mutation one and turns the negative control green in silence.
+//   - There is ONE path space here: repo-relative to a realpathed root. A caller
+//     may spell the root through a symlink — `/tmp` is a link to `/private/tmp` on
+//     macOS, and a scratch worktree under it is reached by both names — while `tsc`
+//     prints realpaths from `--listFilesOnly`. Compare the two spellings directly
+//     and the sets are disjoint, so every baselined entry reads as unread. The root
+//     is realpathed once on entry and every `tsc`-printed path routes through
+//     `toRepoRelative`, so no comparison in this module spans two spaces.
 //
 // The projects are discovered from git, not from a list of package names in this
 // file — a hardcoded list rots in exactly the way the `exclude` it polices does.
@@ -40,7 +47,7 @@
 
 import { execFileSync } from "node:child_process";
 import { existsSync, realpathSync, statSync, unlinkSync, writeFileSync } from "node:fs";
-import { join, resolve } from "node:path";
+import { join, relative, resolve } from "node:path";
 
 import { listGitSourceFiles } from "./git-source-files.mjs";
 
@@ -147,10 +154,17 @@ export function resolvedExclude(tscBinary, root, projectPath) {
  * program" produce identical diagnostic output, and only the file list tells them
  * apart.
  *
- * Diagnostic paths are returned as `tsc` printed them — repo-relative, because
- * `cwd` is the root. Relativizing them to the package is the caller's job, so a
- * diagnostic in a file OUTSIDE the package stays namable instead of being folded
- * into a path no `exclude` could hold.
+ * Both sets are returned as repo-relative paths, against a realpathed root: `tsc`
+ * prints realpaths in `--listFilesOnly` and cwd-relative paths in a diagnostic, and
+ * a caller may spell the root through a symlink, so the two are only comparable
+ * after they route through `toRepoRelative`. Relativizing further, to the package,
+ * is the caller's job — a diagnostic in a file OUTSIDE the package stays namable
+ * instead of being folded into a path no `exclude` could hold. A diagnostic outside
+ * the root at all becomes a `../…` path, which matches no baseline entry and fails
+ * the caller's package-prefix filter, exactly as an absolute path did.
+ *
+ * This function realpaths the root itself rather than trusting its caller, because
+ * it is exported and must hold the one-path-space invariant alone.
  *
  * @typedef {{members: Set<string>, dirty: Set<string>, problem: null}
  *          | {members: Set<never>, dirty: Set<never>, problem: string}} ProbeResult
@@ -165,9 +179,16 @@ export function probeWidenedProgram(tscBinary, root, projectPath) {
     return { members: new Set(), dirty: new Set(), problem: `no tsc binary at ${tscBinary}` };
   }
 
+  let realRoot;
+  try {
+    realRoot = realpathSync(root);
+  } catch {
+    return { members: new Set(), dirty: new Set(), problem: `no directory at ${root}` };
+  }
+
   const packageDir = projectPath.slice(0, projectPath.length - TEST_PROJECT.length - 1);
   const probeName = `${PROBE_PREFIX}.${process.pid}.json`;
-  const probePath = resolve(root, packageDir, probeName);
+  const probePath = resolve(realRoot, packageDir, probeName);
   if (existsSync(probePath)) {
     return {
       members: new Set(),
@@ -184,8 +205,8 @@ export function probeWidenedProgram(tscBinary, root, projectPath) {
       `${JSON.stringify({ extends: `./${TEST_PROJECT}`, exclude: [] }, null, 2)}\n`,
     );
     const project = `${packageDir}/${probeName}`;
-    listed = runTsc(tscBinary, root, [project, "--listFilesOnly"]);
-    diagnostics = runTsc(tscBinary, root, [project, "--pretty", "false"]);
+    listed = runTsc(tscBinary, realRoot, [project, "--listFilesOnly"]);
+    diagnostics = runTsc(tscBinary, realRoot, [project, "--pretty", "false"]);
   } finally {
     if (existsSync(probePath)) unlinkSync(probePath);
   }
@@ -194,7 +215,8 @@ export function probeWidenedProgram(tscBinary, root, projectPath) {
   const members = new Set();
   for (const line of listed.split("\n")) {
     const file = line.trim();
-    if (file.length > 0 && !file.startsWith("error TS")) members.add(resolve(root, file));
+    if (file.length > 0 && !file.startsWith("error TS"))
+      members.add(toRepoRelative(realRoot, file));
   }
   if (members.size === 0) {
     return {
@@ -208,9 +230,25 @@ export function probeWidenedProgram(tscBinary, root, projectPath) {
   const dirty = new Set();
   for (const line of diagnostics.split("\n")) {
     const match = DIAGNOSTIC.exec(line.trim());
-    if (match?.[1] !== undefined) dirty.add(match[1]);
+    if (match?.[1] !== undefined) dirty.add(toRepoRelative(realRoot, match[1]));
   }
   return { members, dirty, problem: null };
+}
+
+/**
+ * A path as `tsc` printed it — an absolute realpath from `--listFilesOnly`, or a
+ * path relative to the run's cwd from a diagnostic — as a repo-relative path.
+ *
+ * `realRoot` must already be realpathed; both spellings then collapse onto the same
+ * string, which is what lets `members`, `dirty` and the committed baseline entries
+ * be compared as one set.
+ *
+ * @param {string} realRoot
+ * @param {string} printed
+ * @returns {string}
+ */
+function toRepoRelative(realRoot, printed) {
+  return relative(realRoot, resolve(realRoot, printed));
 }
 
 /**
@@ -254,6 +292,10 @@ function runTsc(tscBinary, root, args) {
  * `ok: false` carries the drift lists and nothing else — a refusal branch with a
  * payload to write is a refusal that can be talked past.
  *
+ * The root is realpathed once here and only the realpathed spelling travels
+ * downward, so the verdict and the drift lists do not depend on how the caller
+ * spelled it.
+ *
  * @typedef {{name: string, excluded: number}} BaselinedPackage
  * @typedef {{ok: true, packages: BaselinedPackage[], projectsProbed: number}
  *          | {ok: false, nowClean: string[], newlyDirty: string[], missing: string[], problems: string[]}} BaselineResult
@@ -274,11 +316,24 @@ export function checkTestTypecheckBaseline({ root, tscBinary, searchRoots }) {
   const packages = [];
   let projectsProbed = 0;
 
-  const projects = discoverTestProjects(root, searchRoots ?? DEFAULT_SEARCH_ROOTS);
+  let realRoot;
+  try {
+    realRoot = realpathSync(root);
+  } catch {
+    return {
+      ok: false,
+      nowClean: [],
+      newlyDirty: [],
+      missing: [],
+      problems: [`no tree at ${root}`],
+    };
+  }
+
+  const projects = discoverTestProjects(realRoot, searchRoots ?? DEFAULT_SEARCH_ROOTS);
 
   for (const projectPath of projects) {
     const packageDir = projectPath.slice(0, projectPath.length - TEST_PROJECT.length - 1);
-    const resolved = resolvedExclude(tscBinary, root, projectPath);
+    const resolved = resolvedExclude(tscBinary, realRoot, projectPath);
     if (resolved.problem !== null) {
       problems.push(resolved.problem);
       continue;
@@ -304,7 +359,7 @@ export function checkTestTypecheckBaseline({ root, tscBinary, searchRoots }) {
       }
       let stats;
       try {
-        stats = statSync(resolve(root, repoPath));
+        stats = statSync(resolve(realRoot, repoPath));
       } catch {
         missing.push(`${repoPath} · does not exist`);
         continue;
@@ -318,7 +373,7 @@ export function checkTestTypecheckBaseline({ root, tscBinary, searchRoots }) {
       listed.add(repoPath);
     }
 
-    const probe = probeWidenedProgram(tscBinary, root, projectPath);
+    const probe = probeWidenedProgram(tscBinary, realRoot, projectPath);
     projectsProbed += 1;
     if (probe.problem !== null) {
       problems.push(probe.problem);
@@ -330,7 +385,7 @@ export function checkTestTypecheckBaseline({ root, tscBinary, searchRoots }) {
       // be dirty, so calling it clean would be a guess. Refuse instead: either the
       // `include` no longer reaches it, or the entry is for a file the program
       // never had.
-      if (!isMember(root, repoPath, probe.members)) {
+      if (!probe.members.has(repoPath)) {
         problems.push(
           `${repoPath} · is baselined, but the project reads no such file even with \`exclude\` dropped`,
         );
@@ -362,26 +417,6 @@ export function checkTestTypecheckBaseline({ root, tscBinary, searchRoots }) {
   }
 
   return { ok: true, packages, projectsProbed };
-}
-
-/**
- * Compare against tsc's own file list under both spellings of the path — a temp
- * directory is reached through a symlink on macOS, so the literal and the real path
- * differ.
- *
- * @param {string} root
- * @param {string} repoPath
- * @param {Set<string>} members
- * @returns {boolean}
- */
-function isMember(root, repoPath, members) {
-  const absolute = resolve(root, repoPath);
-  if (members.has(absolute)) return true;
-  try {
-    return members.has(realpathSync(absolute));
-  } catch {
-    return false;
-  }
 }
 
 /** The `tsc` this repo installs, resolved from the root so every project uses one compiler. */
