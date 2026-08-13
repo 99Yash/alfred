@@ -55,8 +55,11 @@ import { MutatorForbiddenError } from "../authz";
 
 /**
  * Baseline rules for a row that doesn't exist yet (legacy user predating the
- * signup seed). Must keep `system: autonomy` or system tools would start
- * gating — mirrors `ensureDefaultActionPolicyForUser` / `resolve.ts`.
+ * signup seed). Mirrors `ensureDefaultActionPolicyForUser` / `resolve.ts` so the
+ * editor shows the same rules the resolver would apply. `system: autonomy` is
+ * the SECOND line of defense only: `resolvePolicyMode` answers `"autonomy"` for
+ * every `system.*` tool before it reads a row at all (ADR-0040 as amended), so
+ * dropping it here cannot make a system tool gate.
  */
 const DEFAULT_INTEGRATION_RULES: IntegrationRules = {
   system: { mode: "autonomy" },
