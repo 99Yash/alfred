@@ -9,7 +9,7 @@ import { agentRuns, user } from "@alfred/db/schemas";
 import { eq, inArray, like } from "drizzle-orm";
 
 import { closeRedis } from "@alfred/db/redis";
-import { closeAgentQueue, getAgentQueue } from "@alfred/assistant/execution/queue";
+import { closeAgentQueue, enqueueRun, getAgentQueue } from "@alfred/assistant/execution/queue";
 import { cancelRun } from "@alfred/assistant/execution/service";
 import {
   SUB_AGENT_WORKFLOW_SLUG,
@@ -143,12 +143,29 @@ async function parentRunState(runId: string): Promise<{
   return { status: rows[0]?.status, wakeCondition: rows[0]?.wakeCondition };
 }
 
-async function waitForParentRunnable(runId: string): Promise<void> {
-  for (let attempt = 0; attempt < 40; attempt++) {
-    const row = await parentRunState(runId);
-    if (row.status === "runnable" && row.wakeCondition === null) return;
-    await sleep(50);
+const POLL_INTERVAL_MS = 50;
+const POLL_ATTEMPTS = 40; // ~2 s, the bound `waitForParentRunnable` already used.
+
+/**
+ * Run `check` up to `POLL_ATTEMPTS` times at `POLL_INTERVAL_MS`, and report
+ * whether it ever held. Sleeps *between* attempts only, so the final attempt is
+ * not followed by a sleep nobody waits on. The caller owns the failure message,
+ * because the two callers report different failures against the same bound.
+ */
+async function pollUntil(check: () => Promise<boolean>): Promise<boolean> {
+  for (let attempt = 0; attempt < POLL_ATTEMPTS; attempt++) {
+    if (await check()) return true;
+    if (attempt < POLL_ATTEMPTS - 1) await sleep(POLL_INTERVAL_MS);
   }
+  return false;
+}
+
+async function waitForParentRunnable(runId: string): Promise<void> {
+  const woken = await pollUntil(async () => {
+    const row = await parentRunState(runId);
+    return row.status === "runnable" && row.wakeCondition === null;
+  });
+  if (woken) return;
   const row = await parentRunState(runId);
   assert.fail(`parent ${runId} was not woken; status=${row.status}`);
 }
@@ -164,9 +181,18 @@ async function queuedAgentRunIds(): Promise<Set<string>> {
   return runIds;
 }
 
+/**
+ * The wake paths commit the parent row and enqueue it in a *later* round trip:
+ * `signalParentOfSubAgent` runs `emitSubAgentWaitSpan` — an `agentSteps` select
+ * plus a span write — between the commit and the enqueue. A single read of the
+ * queue right after `waitForParentRunnable` therefore lands inside that window
+ * on a contended runner and fails a healthy wake (measured on PR #786, job
+ * 93817517661; a re-run of the identical SHA passed). The bound makes this fail
+ * only when the enqueue never happens.
+ */
 async function assertAgentRunQueued(runId: string): Promise<void> {
-  const runIds = await queuedAgentRunIds();
-  assert.equal(runIds.has(runId), true, `expected agent queue to contain run ${runId}`);
+  const queued = await pollUntil(async () => (await queuedAgentRunIds()).has(runId));
+  assert.equal(queued, true, `expected agent queue to contain run ${runId}`);
 }
 
 async function removeQueuedAgentRuns(): Promise<void> {
@@ -223,6 +249,47 @@ describe("sub-agent join wake liveness (DB/Redis-backed)", { skip: SKIP }, () =>
     assert.equal(scheduled, "scheduled");
     await waitForParentRunnable(parentRunId);
     await assertAgentRunQueued(parentRunId);
+  });
+
+  test("assertAgentRunQueued tolerates an enqueue that lands after the wake", async () => {
+    // The wake path commits the parent row, then does two more DB round trips
+    // (`emitSubAgentWaitSpan`) before anything enqueues. This drives
+    // `assertAgentRunQueued` directly against that window: the queue is empty
+    // when the first read happens, and holds the run 200 ms later. A
+    // single-read helper fails here; a bounded poll passes.
+    const runId = `run_late_enqueue_${randomUUID().slice(0, 12)}`;
+    createdRunIds.push(runId);
+
+    const lateEnqueue = (async () => {
+      await sleep(200);
+      await enqueueRun(runId);
+    })();
+
+    try {
+      await assertAgentRunQueued(runId);
+    } finally {
+      // Await the deferred enqueue even when the assertion fails, so no
+      // rejection escapes the test and `afterEach` can remove the job.
+      await lateEnqueue;
+    }
+  });
+
+  test("assertAgentRunQueued still fails when the run is never enqueued", async () => {
+    // The negative control for the poll. It costs the full ~2 s bound, and that
+    // is the price of proving the bound did not turn the assertion into a
+    // no-op. Nothing ever enqueues this id, so nothing needs cleaning up.
+    const runId = `run_never_queued_${randomUUID().slice(0, 12)}`;
+
+    await assert.rejects(
+      () => assertAgentRunQueued(runId),
+      // `assert.equal` appends its own `false !== true` diff after a custom
+      // message, so match the prefix. The run id must still be in there: that
+      // is how PR #786's failure was traced to the queue read rather than the
+      // wake read.
+      (error: unknown) =>
+        error instanceof assert.AssertionError &&
+        error.message.startsWith(`expected agent queue to contain run ${runId}`),
+    );
   });
 
   test("cancelling a child wakes and enqueues its waiting parent immediately", async () => {
