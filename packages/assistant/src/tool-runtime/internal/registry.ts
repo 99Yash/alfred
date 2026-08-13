@@ -240,8 +240,8 @@ export interface LiveToolArgs<
    * is safe for this exact tool.
    *
    * The trap this closes: `riskTier` is NOT what decides approval. The floor
-   * computes `toolRequiresApproval(policyMode, riskTier)`, and `policyMode` is
-   * forced to `autonomy` for `integration === "system"` only — every other
+   * computes `toolRequiresApproval(policyMode, riskTier)`, and `resolvePolicyMode`
+   * answers `autonomy` for `integration === "system"` only — every other
    * integration reads the user's policy, whose default is `gated`. So under
    * default policy a non-`system` tool requires approval at EVERY risk tier, and
    * `staging: "fast_path"` on it silently skips the approval, the audit row, and
@@ -564,15 +564,15 @@ export function registerTool(tool: RegisteredTool): void {
           "the fast path skips the approval gate",
       );
     }
-    // Disjunct 1 — the policy mode, which is the half that actually bites. The
-    // floor forces `autonomy` for `integration === "system"` ONLY; every other
-    // integration reads the user's policy, whose default is `gated`. So a
-    // non-`system` fast path skips a real approval at EVERY risk tier, and the
-    // declaration must name why that is safe for this exact tool.
+    // Disjunct 1 — the policy mode, which is the half that actually bites.
+    // `resolvePolicyMode` answers `autonomy` for `integration === "system"` ONLY;
+    // every other integration reads the user's policy, whose default is `gated`.
+    // So a non-`system` fast path skips a real approval at EVERY risk tier, and
+    // the declaration must name why that is safe for this exact tool.
     if (tool.integration !== "system" && tool.policyGateWaiver === undefined) {
       throw new Error(
         `[tools] '${tool.name}' declares staging='fast_path' on integration='${tool.integration}', ` +
-          "but only 'system' is forced to autonomy at the dispatch floor — under the default " +
+          "but only 'system' is forced to autonomy by resolvePolicyMode — under the default " +
           "'gated' policy this skips a real approval at every risk tier. Set " +
           "`policyGateWaiver` with the reason waiving the gate is safe, or use staging='staged'",
       );
