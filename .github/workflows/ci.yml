@@ -242,8 +242,14 @@ jobs:
       - name: Apply database migrations
         run: corepack pnpm --filter @alfred/db db:migrate
 
+      # SCRATCH BRANCH ONLY — Proof B for campaign item 122. This strips the two
+      # service variables at THIS STEP only, so `Apply database migrations` above
+      # still runs and this step is the one that must redden. Never merge.
       - name: HTTP tests
         run: corepack pnpm --filter @alfred/http test
+        env:
+          DATABASE_URL: ""
+          REDIS_URL: ""
 
   http-env-free-load:
     name: http-env-free-load
