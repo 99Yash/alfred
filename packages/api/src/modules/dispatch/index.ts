@@ -97,7 +97,7 @@ import {
   passthroughBudgetExhausted,
   passthroughTruncationTelemetry,
 } from "../tools/passthrough";
-import { toolExecuteContext } from "../tools/context";
+import { toolExecuteContext } from "@alfred/assistant/tool-runtime/context";
 import {
   getTool,
   resolveToolAvailability,
