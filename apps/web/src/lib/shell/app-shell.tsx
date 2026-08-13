@@ -20,11 +20,7 @@ import { AppThemeProvider } from "~/components/ui/v2/theme";
 import { authClient } from "~/lib/auth/auth-client";
 import { client } from "~/lib/eden";
 import type { ShellThreadViewModel } from "~/lib/shell/thread-view-model";
-import {
-  getLocalStorageItem,
-  LOCAL_STORAGE_KEY,
-  setLocalStorageItem,
-} from "~/lib/storage/storage";
+import { getLocalStorageItem, LOCAL_STORAGE_KEY, setLocalStorageItem } from "~/lib/storage/storage";
 
 /* -----------------------------------------------------------------------------
  * Right-rail slot
