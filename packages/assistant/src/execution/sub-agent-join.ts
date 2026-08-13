@@ -1,3 +1,5 @@
+import type { SafeToParkSignal } from "@alfred/assistant/tool-runtime";
+
 import {
   AWAIT_SUB_AGENT_CEILING_MS,
   scheduleSubAgentJoinWakeJob,
@@ -56,7 +58,7 @@ export type JoinChildRunResult =
  * this one. The brand closes the shape that looks like joining a child; use
  * {@link joinChildRun} and there is nothing to remember.
  */
-export type ParkSignal = string & { readonly __parkSignal: unique symbol };
+export type ParkSignal = SafeToParkSignal;
 
 /**
  * The single mint. A cast is unavoidable — the brand exists only in the type
