@@ -159,6 +159,9 @@ importers:
       '@alfred/assistant':
         specifier: workspace:*
         version: link:../../packages/assistant
+      '@alfred/auth':
+        specifier: workspace:*
+        version: link:../../packages/auth
       '@alfred/contracts':
         specifier: workspace:*
         version: link:../../packages/contracts

@@ -12,8 +12,12 @@
  * search the web, invented `search.search`, and the dispatcher rejected it.
  */
 
-import { DEFAULT_USER_TIMEZONE, toolExecuteContext } from "@alfred/api/backend";
+import { DEFAULT_USER_TIMEZONE } from "@alfred/assistant/time";
+
+// Stays on @alfred/api: still real api code. Item 148 gives it an @alfred/assistant address.
+import { toolExecuteContext } from "@alfred/api/backend";
 import { getTool } from "@alfred/assistant/tool-runtime";
+// Stays on @alfred/api: still real api code. Item 148 gives it an @alfred/assistant address.
 import { registerBuiltinTools } from "@alfred/api/runtime";
 
 async function main(): Promise<void> {

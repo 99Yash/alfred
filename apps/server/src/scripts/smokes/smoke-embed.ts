@@ -11,7 +11,7 @@
  *   metered() row in api_call_log with non-zero cost → search
  *   joins back to documents and returns top-K.
  */
-import { closeConnections, warmPool } from "@alfred/api/runtime";
+import { closeConnections, warmPool } from "@alfred/db";
 import { db } from "@alfred/db";
 import { apiCallLog, chunks, documents, user as userTable } from "@alfred/db/schemas";
 import { indexDocument, search } from "@alfred/corpus";

@@ -26,6 +26,7 @@ import {
   type ToolSet,
 } from "@alfred/ai";
 import { listToolsForIntegration } from "@alfred/assistant/tool-runtime";
+// Stays on @alfred/api: still real api code. Item 148 gives it an @alfred/assistant address.
 import { registerBuiltinTools } from "@alfred/api/runtime";
 import { INTEGRATION_SLUGS } from "@alfred/contracts";
 

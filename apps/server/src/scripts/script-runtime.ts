@@ -1,4 +1,5 @@
-import { closeConnections, closeRedis } from "@alfred/api/runtime";
+import { closeConnections } from "@alfred/db";
+import { closeRedis } from "@alfred/db/redis";
 
 type ResourceCloser = () => Promise<unknown> | unknown;
 

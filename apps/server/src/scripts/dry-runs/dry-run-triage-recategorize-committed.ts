@@ -29,8 +29,8 @@ import {
   resolveSenderKind,
   resolveSenderRelationship,
   senderKeyFor,
-} from "@alfred/api/backend";
-import { warmPool } from "@alfred/api/runtime";
+} from "@alfred/assistant/triage";
+import { warmPool } from "@alfred/db";
 import { closeScriptResources } from "../script-runtime";
 import { toMessage } from "@alfred/contracts";
 import { db } from "@alfred/db";

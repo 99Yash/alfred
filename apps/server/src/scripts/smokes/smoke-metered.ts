@@ -9,7 +9,7 @@
  * span so it shows up in the Langfuse dashboard.
  */
 import { flushLangfuse, route, meteredGenerateText } from "@alfred/ai";
-import { closeConnections, warmPool } from "@alfred/api/runtime";
+import { closeConnections, warmPool } from "@alfred/db";
 import { db } from "@alfred/db";
 import { apiCallLog } from "@alfred/db/schemas";
 import { desc } from "drizzle-orm";

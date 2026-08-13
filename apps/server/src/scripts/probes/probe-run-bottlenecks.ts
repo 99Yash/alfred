@@ -11,7 +11,10 @@
  * Run locally (needs serverEnv DB vars) from apps/server:
  *   ./node_modules/.bin/tsx --env-file=.env src/scripts/probes/probe-run-bottlenecks.ts <runId>
  */
-import { getRunBottleneckSummary, type RunBottleneckSummary } from "@alfred/api/backend";
+import {
+  getRunBottleneckSummary,
+  type RunBottleneckSummary,
+} from "@alfred/assistant/execution/run-bottlenecks";
 
 const ms = (n: number | null): string => (n == null ? "   n/a" : `${Math.round(n)}ms`);
 

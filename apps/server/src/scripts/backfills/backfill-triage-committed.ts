@@ -29,8 +29,11 @@
  *   node dist/scripts/backfills/backfill-triage-committed.js --commit
  */
 import { randomUUID } from "node:crypto";
-import { emitReplicachePokes, startRun, TRIAGE_WORKFLOW_SLUG } from "@alfred/api/backend";
-import { closeAgentQueue, registerReplicachePokeAdapter, warmPool } from "@alfred/api/runtime";
+import { emitReplicachePokes } from "@alfred/assistant/triggers";
+import { startRun, closeAgentQueue } from "@alfred/assistant/execution";
+import { TRIAGE_WORKFLOW_SLUG } from "@alfred/assistant/triage";
+import { registerReplicachePokeAdapter } from "@alfred/assistant/realtime";
+import { warmPool } from "@alfred/db";
 import { db, rowsFromExecute } from "@alfred/db";
 import { documents, todos, user as userTable } from "@alfred/db/schemas";
 import { and, desc, eq, inArray, isNotNull, sql } from "drizzle-orm";
