@@ -17,6 +17,19 @@
   // The base `tsconfig.json` is `composite: true`; a `tsc -p` invocation with
   // `noEmit` errors unless `composite`/`declaration` are overridden off here.
   // Nothing under `test/` is emitted or built — this project only type-checks.
+  //
+  // `exclude` is a BASELINE, not a policy. Every path below is a file that
+  // carried at least one diagnostic when it entered this program, and each is a
+  // debt to repay rather than a file that is allowed to be unchecked. The list
+  // arrived with the 116 assistant-owned suites that moved here from
+  // `packages/api/test`, and it was DERIVED from a `tsc -p tsconfig.test.json`
+  // run in this program — not copied from api's baseline, because a file can be
+  // dirty in one program and clean in another. `pnpm check:test-typecheck-baseline`
+  // derives the list the same way and fails when it drifts in either direction:
+  // an entry whose file is now clean or absent must be deleted, and a file that
+  // is dirty and unlisted must be repaired. Paths are literal on purpose — a
+  // directory glob such as `"test/agent"` would silently un-check every file
+  // added tomorrow, and the check rejects a glob outright.
   "extends": "./tsconfig.json",
   "compilerOptions": {
     "noEmit": true,
@@ -26,5 +39,37 @@
     "declarationMap": false,
     "sourceMap": false
   },
-  "include": ["src", "test"]
+  "include": ["src", "test"],
+  "exclude": [
+    "test/agent/chat-context-assembly.test.ts",
+    "test/agent/chat-turn-closure-artifact-strand.test.ts",
+    "test/agent/commit-cancel-race.test.ts",
+    "test/agent/conversation-compaction-wait.test.ts",
+    "test/agent/conversation-summary-evidence.test.ts",
+    "test/agent/conversation-summary-generator.test.ts",
+    "test/agent/grounding.test.ts",
+    "test/agent/guard-spawned-children.test.ts",
+    "test/agent/guard-unreported-tool-failures.test.ts",
+    "test/agent/synchronous-conversation-compaction.test.ts",
+    "test/agent/terminal-agent-run-pairing.test.ts",
+    "test/agent/tool-preload-span.test.ts",
+    "test/artifacts/edit-context.test.ts",
+    "test/briefing/read-enrichment.test.ts",
+    "test/briefing/suppression-gather.test.ts",
+    "test/conversations/attachments/attachment-enrichment.test.ts",
+    "test/conversations/chat-history-retrieval.test.ts",
+    "test/knowledge/drift-audit/metrics.test.ts",
+    "test/knowledge/fact-policy.test.ts",
+    "test/knowledge/user-context.test.ts",
+    "test/mcp/manager-lifecycle.test.ts",
+    "test/mcp/risk.test.ts",
+    "test/mcp/streamable-http.test.ts",
+    "test/triage/classify.test.ts",
+    "test/triage/decision-trace-store.test.ts",
+    "test/triage/reconcile-thread-label.test.ts",
+    "test/triage/sender-kind.test.ts",
+    "test/workflows/authoring-tools.test.ts",
+    "test/workflows/readiness.test.ts",
+    "test/workflows/seeder.test.ts"
+  ]
 }

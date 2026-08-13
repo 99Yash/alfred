@@ -212,7 +212,7 @@ Sub-modules:
 - `resolveBotSlug(fromAddress, bodyActor) → BotSlug | undefined` — maps known senders/handles to the `BOT_SLUGS` tuple.
 - `deriveEffectiveAuthor({ fromKind, bodyActor, botSlug }) → EffectiveAuthor` — the rule set from ADR-0042 §"`SenderContext` shape".
 
-Fixture tests in `packages/api/test/triage/sender-context.test.ts` covering at minimum:
+Fixture tests in `packages/assistant/test/triage/sender-context.test.ts` covering at minimum:
 
 - GitHub `noreply@github.com` with `**coderabbitai** commented` → `effectiveAuthor: 'bot'`, `botSlug: 'coderabbit'`
 - Google Calendar invite from `calendar-notification@google.com` with iCal `ORGANIZER` → `effectiveAuthor: 'person'`, `bodyActor.kind: 'person'`
@@ -334,7 +334,7 @@ Sink is the standard pino logger; Langfuse tracing already covers the `deepen` L
 
 ### Phase 3 acceptance
 
-- `packages/api/test/triage/sender-context.test.ts` green for the 6+ fixture cases.
+- `packages/assistant/test/triage/sender-context.test.ts` green for the 6+ fixture cases.
 - Integration test: an email with `From: noreply@github.com` + `**coderabbitai** commented` produces `effectiveAuthor: 'bot'`, `botSlug: 'coderabbit'`, classifier emits `fyi`, no `deepen` fires.
 - Integration test: an email with `From: noreply@sentry.io` + "error spike" body produces `effectiveAuthor: 'bot'`, `botSlug: 'sentry'`, `deepen` fires (severity-suspect), refined category in `{urgent, action_needed}`.
 - Integration test: a context-sensitive service email only changes category in `deepen` after `system.read_user_context` returns relevant user-owned project/company context; the cheap classifier remains email-only.

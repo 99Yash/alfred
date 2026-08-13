@@ -669,6 +669,12 @@ importers:
       '@alfred/config':
         specifier: workspace:*
         version: link:../config
+      '@modelcontextprotocol/node':
+        specifier: 2.0.0
+        version: 2.0.0(@modelcontextprotocol/server@2.0.0)(hono@4.13.1)
+      '@modelcontextprotocol/server':
+        specifier: 2.0.0
+        version: 2.0.0
       '@types/pg':
         specifier: ^8.18.0
         version: 8.21.0
