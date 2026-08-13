@@ -11,8 +11,8 @@
  *
  * It works because for a non-passthrough `system.*` tool with `args.timezone`
  * supplied, the gate's ONLY live-Postgres dependency is the store (availability
- * skips its snapshot for `system`, `resolvePolicyMode` is bypassed by the
- * `integration === "system"` ternary, `countRunPassthroughCalls` is behind the
+ * skips its snapshot for `system`, `resolvePolicyMode` answers `autonomy` for
+ * `system.*` BEFORE it reads the policy row, `countRunPassthroughCalls` is behind the
  * passthrough flag, and the pokes / approval queues / Langfuse sinks all
  * degrade to no-ops without their service). The one exception is
  * `resolveApprovalNotifyDelayMs`, which fires the moment a call gates — so the
