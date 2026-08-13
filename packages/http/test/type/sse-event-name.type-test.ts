@@ -11,10 +11,11 @@
  * `TypeError` would abort the bus dispatch in `packages/assistant/src/realtime/
  * user-events-bus.ts` and take the other subscribers on that same emit with it.
  *
- * So the field admits only the names a route in this package actually sends —
+ * So the field admits only the names the routes in this package send —
  * `EventKind | "poke"` — and none of them holds a line break. A bad name is a
  * compile error at the call site instead of a throw at write time, and `frame()`
- * now throws for no input, which is what makes it safe to call from a listener.
+ * no longer throws for any input, which is what makes it safe to call from a
+ * listener.
  *
  * This fixture fails CLOSED. Widen `event` back to `string` and every
  * `@ts-expect-error` below goes UNUSED, which `check-types` reports as an error,
@@ -28,17 +29,24 @@
  * `-test.ts`, so the glob does not match it. Same argument as
  * `test/type/knowledge-subpath-surface.type-test.ts`.
  *
- * Every declaration is exported because `noUnusedLocals` reports an unread
- * module-scope binding, and an assignment is the only form that puts the error
- * a `@ts-expect-error` needs on the line.
+ * Every declaration a `@ts-expect-error` sits above is exported, because
+ * `noUnusedLocals` reports an unread module-scope binding, and an assignment is
+ * the only form that puts the error a `@ts-expect-error` needs on the line. The
+ * one unexported binding, `nameBuiltAtRunTime`, is read by the declaration below
+ * it, so it needs no export of its own.
  */
 
 import type { EventKind } from "@alfred/contracts/events";
 
 import type { SseFrame } from "../../src/realtime/sse";
 
-/** The field under test, read off the interface so the two cannot drift. */
-type SseEventName = SseFrame["event"];
+/**
+ * The field under test, read off the interface so the two cannot drift. It is
+ * deliberately not the exported `SseEventName` alias: this pins the FIELD, so
+ * widening `event` back to `string` reddens this file even if the alias survives
+ * beside it. The two also differ — the field adds `| undefined`.
+ */
+type SseFrameEventField = SseFrame["event"];
 
 /**
  * The positive half, so the negatives below cannot pass by naming something
@@ -46,15 +54,15 @@ type SseEventName = SseFrame["event"];
  * `kind` on an `EventFrame` (`realtime/events.ts`) and the Replicache poke
  * literal (`sync/replicache.ts`).
  */
-export const eventKindIsAnEventName: SseEventName = "agent.progress" satisfies EventKind;
-export const pokeIsAnEventName: SseEventName = "poke";
+export const eventKindIsAnEventName: SseFrameEventField = "agent.progress" satisfies EventKind;
+export const pokeIsAnEventName: SseFrameEventField = "poke";
 
 /**
  * The injection string the deleted `TypeError` existed to reject. It is now
  * rejected one step earlier, by the compiler, at the call site.
  */
 // @ts-expect-error - a name holding a line break is not in the union.
-export const lineBreakIsRejected: SseEventName = "poke\ndata: injected\n";
+export const lineBreakIsRejected: SseFrameEventField = "poke\ndata: injected\n";
 
 /**
  * The door this item exists to close: a future route that builds its event name
@@ -64,7 +72,7 @@ export const lineBreakIsRejected: SseEventName = "poke\ndata: injected\n";
  */
 const nameBuiltAtRunTime: string = "poke";
 // @ts-expect-error - `string` is wider than the union; a dynamic name cannot pass.
-export const dynamicNameIsRejected: SseEventName = nameBuiltAtRunTime;
+export const dynamicNameIsRejected: SseFrameEventField = nameBuiltAtRunTime;
 
 /**
  * A plausible name that no route sends. The union is the set of names that
@@ -72,4 +80,4 @@ export const dynamicNameIsRejected: SseEventName = nameBuiltAtRunTime;
  * compile error.
  */
 // @ts-expect-error - no route sends this name; it is not in the union.
-export const unsentNameIsRejected: SseEventName = "replicache.poke";
+export const unsentNameIsRejected: SseFrameEventField = "replicache.poke";
