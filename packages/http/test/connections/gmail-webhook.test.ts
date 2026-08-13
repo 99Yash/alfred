@@ -441,7 +441,12 @@ describe("/webhooks/gmail", () => {
     assert.deepEqual(seen.enqueued, []);
   });
 
-  test("answers 200 bad-payload for an absent body, never a validation status", async () => {
+  // Pins the handler arm only, not the whole request path. `app.handle()` is the
+  // web-standard adapter; under the production `@elysiajs/node` adapter an absent
+  // body raises Elysia `PARSE` and answers 400 before the handler runs, exactly
+  // as base `315823c5` does. Campaign item 209 owns that adapter divergence and
+  // item 210 owns the 400 arm itself.
+  test("answers 200 bad-payload for an absent body once the handler sees it", async () => {
     const { seen, post } = gmailWebhookHarness();
 
     const res = await post({ headers: { authorization: "Bearer jwt_123" } });
