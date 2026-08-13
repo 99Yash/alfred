@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { describe, test } from "node:test";
 import type { DbTransaction } from "@alfred/db";
-import { createGoogleCredentialLifecycleHandler } from "../../src/composition/google-credential-lifecycle";
+import { createGoogleCredentialLifecycleHandler } from "../../src/runtime/adapters/google-credential-lifecycle";
 import {
   disconnectGoogleCredentialConnectionWith,
   googleCredentialDisconnectRequestSchema,

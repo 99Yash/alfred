@@ -23,7 +23,7 @@ import { registerBuiltinTools } from "../../src/modules/tools/runtime";
 import {
   registerWorkflowReadiness,
   unregisterWorkflowReadiness,
-} from "../../src/composition/workflow-readiness";
+} from "@alfred/assistant/runtime/test-support";
 import { dispatchDueCronWorkflows } from "@alfred/assistant/automation/tick";
 import {
   activateWorkflow,

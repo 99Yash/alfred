@@ -115,8 +115,10 @@ const EXPECTED_EXPORTS: Readonly<Record<string, readonly string[]>> = {
     "getReplayHighWatermark",
     "initEventBridge",
     "initReplicachePokeBridge",
+    "registerReplicachePokeAdapter",
     "subscribeUserEvents",
     "subscribeUserPokes",
+    "unregisterReplicachePokeAdapter",
   ],
 };
 
