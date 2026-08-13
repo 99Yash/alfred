@@ -29,8 +29,12 @@
  * helper, and `.claude/hooks/helper-hints.mjs` names it from the same row while
  * the line is being written. The rule polices `DATABASE_URL` and `REDIS_URL`
  * over every `packages/<name>/test/` and `apps/<name>/test/` tree. It is tier 2,
- * not tier 1: an author can still build the variable name at runtime, and
- * `// drift-ok: <reason>` is always available. It stops the accident.
+ * not tier 1, and the residue has two shapes. An author can build the variable
+ * name at runtime. And because the rule reads ONE line, an author can put the
+ * reader and the name on DIFFERENT lines: `const env = process.env;` near the
+ * top of a file, and a bare `env.DATABASE_URL` later. Neither line carries both
+ * halves, so no line-scoped regex sees it; no such alias exists in this repo
+ * today. `// drift-ok: <reason>` is always available. It stops the accident.
  *
  * This module reads `process.env` directly and asks only about presence. It does
  * not call `databaseEnv()` or `serverEnv()` because those parse and memoize
