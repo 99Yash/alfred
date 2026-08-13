@@ -44,7 +44,7 @@ export default defineConfig({
   // Pin symlink resolution. `noExternal` above inlines every @alfred/* package
   // into this bundle, and pnpm links several of them through more than one
   // path: @alfred/http is reached directly by apps/server and transitively by
-  // legacy @alfred/api modules, @alfred/db through nine such paths, and
+  // @alfred/assistant module subpaths, @alfred/db through nine such paths, and
   // @alfred/auth through two — each set points at one directory under packages/.
   // With `symlinks: true` the resolver collapses every path onto the
   // real one, so each source file becomes one module in the output. With
@@ -84,7 +84,7 @@ export default defineConfig({
   // on boot. Keep both packages external so they resolve from
   // node_modules at runtime instead of being inlined.
   //
-  // sharp (used by @alfred/api for chat attachment image processing) is a
+  // sharp (used by @alfred/assistant for chat attachment image processing) is a
   // native module: at runtime it loads a platform-specific binary
   // (@img/sharp-linux-x64 on Railway) via its own resolver. Bundling it
   // breaks that resolution — prod crash-loops with "Could not load the

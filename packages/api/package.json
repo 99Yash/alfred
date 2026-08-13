@@ -1,10 +1,7 @@
 {
   "name": "@alfred/api",
   "type": "module",
-  "exports": {
-    "./backend": "./src/backend.ts",
-    "./runtime": "./src/runtime.ts"
-  },
+  "exports": {},
   "scripts": {
     "build": "node ../../scripts/clean-package-dist.mjs && tsc -b --emitDeclarationOnly --force",
     "check-types": "tsc -b --emitDeclarationOnly && tsc -p tsconfig.test.json",

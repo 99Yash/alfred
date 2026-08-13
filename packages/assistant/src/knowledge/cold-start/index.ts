@@ -15,7 +15,7 @@
  *
  * The workflow itself (`cold-start-research.ts`) lives here in the module
  * and only orchestrates these helpers; the composition root registers it
- * through `@alfred/api/backend`.
+ * through this barrel's `@alfred/assistant/knowledge` door.
  */
 
 export { collectColdStartSignals } from "./signals";

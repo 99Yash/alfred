@@ -10,8 +10,10 @@
  * It deliberately does NOT re-export `./ingestion`. That submodule has its own
  * door (`@alfred/assistant/connections/ingestion`) because importing it evaluates
  * the BullMQ ingestion queue and the whole Gmail ingestion graph, and this barrel
- * is reached by `@alfred/api/backend`'s `export *` and therefore by every
- * operational script. For the same reason `./oauth-state` imports the
+ * is reached by every operational script. It used to reach them through
+ * `@alfred/api/backend`'s `export *`; that door is deleted and the scripts name
+ * this barrel directly, so the cost is unchanged. For the same reason
+ * `./oauth-state` imports the
  * `./ingestion/workflow-recovery` leaf directly rather than the ingestion barrel.
  *
  * It does NOT re-export `./mcp` either, for the same reason at a different cost:

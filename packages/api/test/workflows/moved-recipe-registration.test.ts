@@ -3,17 +3,14 @@ import { describe, test } from "node:test";
 
 import type { WorkflowTrigger } from "@alfred/contracts";
 
+import { dailyBriefingWorkflow, morningBriefingWorkflow } from "@alfred/assistant/briefings";
+import { chatMemoryCaptureWorkflow } from "@alfred/assistant/conversations";
 import {
   buildMemoryExtractionWorkflow,
-  chatMemoryCaptureWorkflow,
   coldStartResearchWorkflow,
-  dailyBriefingWorkflow,
-  emailTriageWorkflow,
-  gmailSenderAdapter,
-  learnSkillWorkflow,
-  morningBriefingWorkflow,
-  skillDocumentationWorkflow,
-} from "../../src/backend";
+} from "@alfred/assistant/knowledge";
+import { learnSkillWorkflow, skillDocumentationWorkflow } from "@alfred/assistant/skills";
+import { emailTriageWorkflow, gmailSenderAdapter } from "@alfred/assistant/triage";
 
 // The recipe is built with the injected Gmail sender adapter (ADR-0089); its
 // identity (slug/steps/entry/trigger/dedup) is independent of the injection.

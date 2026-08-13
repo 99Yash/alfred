@@ -146,8 +146,8 @@
     "privateModuleImports": {
       "owner": "assistant-migration",
       "removalPhase": "Phases 1-6",
-      "reason": "Existing API files import another module's implementation: the entries under packages/api/src/modules/ are one module reaching into another, and the entries directly under packages/api/src/ are wiring files reaching into a module. Each migration slice must remove entries and cannot add replacements.",
-      "imports": ["packages/api/src/modules/replicache/push.ts:../integrations/queue"]
+      "reason": "This list held API files that imported another module's implementation. Campaign item 149 deleted the last of them together with packages/api/src/modules and the two transitional doors that were its only readers, so the list is now empty. The comparison is a superset test, so an empty list closes the ratchet completely: no caller may add an entry back.",
+      "imports": []
     },
     "webFeatureImports": {
       "owner": "web-architecture",
