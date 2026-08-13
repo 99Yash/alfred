@@ -20,8 +20,11 @@ Path alias `~/` maps to `src/` in both apps.
 the composed Elysia `app`, its derived `App` type, middleware, and routes. Reusable
 server-side domain and queue behavior still lives at `@alfred/api/backend`.
 Worker lifecycle, registration, scheduling, bootstrap, and teardown operations
-still live at `@alfred/api/runtime`. These are legacy doors, not the target
-interface.
+now live behind `createAssistantRuntime` at `@alfred/assistant/runtime`. A host
+process builds one runtime and drives `start` and `stop`; the runtime adapters,
+the queues, and the workers stay private to that package. `@alfred/api/runtime`
+keeps a re-export door for operational scripts. These are legacy doors, not the
+target interface.
 
 ADR-0089 moves product behavior and runtime composition to
 `@alfred/assistant`, moves HTTP adaptation to `@alfred/http`, and then deletes
@@ -32,7 +35,7 @@ before it extracts either target package. See the
 During Phase 1, application domain events enter through
 `publishDomainEvent` in the `@alfred/assistant/triggers`
 interface. Producers call this named seam without importing consumers.
-`packages/api/src/composition/trigger-consumers.ts` wires the workflow trigger
+`packages/assistant/src/runtime/adapters/trigger-consumers.ts` wires the workflow trigger
 consumer before background workers start. Gmail ingestion also treats a
 missing consumer as a fatal composition error instead of swallowing it as an
 event-level delivery failure. In this name,
