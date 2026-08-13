@@ -48,7 +48,10 @@ export const LOCAL_STORAGE_SCHEMAS = {
   [LOCAL_STORAGE_KEY.CHAT_TIER]: chatModelTierSchema.default("standard"),
   /**
    * Best-effort "is the visitor signed in" hint for first paint. A UX hint,
-   * never a security boundary (see `lib/auth-hint`).
+   * never a security boundary. `AppShell` mirrors the resolved session here;
+   * `/` and the login page read it to avoid flashing a marketing or sign-in
+   * screen at a returning user. The `false` default is the safe, fast choice
+   * for the common signed-out visitor, and for SSR and private mode.
    */
   [LOCAL_STORAGE_KEY.MAYBE_AUTHED]: z
     .preprocess((value) => (value === 1 ? true : value === 0 ? false : value), z.boolean())
@@ -57,7 +60,9 @@ export const LOCAL_STORAGE_SCHEMAS = {
    * Best-effort "this user has finished onboarding" hint for first paint, so a
    * returning user's authed routes render immediately instead of blanking
    * behind the session → onboarding round-trip chain. A UX hint, never a
-   * security boundary (see `lib/onboarding-hint`).
+   * security boundary — `AppShell` both writes and reads it. The `false`
+   * default keeps the column blank until the query answers, which is the
+   * correct behavior for a genuinely new user.
    */
   [LOCAL_STORAGE_KEY.ONBOARDING_COMPLETE]: z
     .preprocess((value) => (value === 1 ? true : value === 0 ? false : value), z.boolean())

@@ -18,10 +18,13 @@ import {
 import { ChatContext } from "~/components/chat-context";
 import { AppThemeProvider } from "~/components/ui/v2/theme";
 import { authClient } from "~/lib/auth/auth-client";
-import { writeAuthHint } from "~/lib/auth/auth-hint";
 import { client } from "~/lib/eden";
-import { readOnboardingHint, writeOnboardingHint } from "~/lib/auth/onboarding-hint";
 import type { ShellThreadViewModel } from "~/lib/shell/thread-view-model";
+import {
+  getLocalStorageItem,
+  LOCAL_STORAGE_KEY,
+  setLocalStorageItem,
+} from "~/lib/storage/storage";
 
 /* -----------------------------------------------------------------------------
  * Right-rail slot
@@ -217,7 +220,7 @@ export function AppShell({ children }: { children: ReactNode }) {
    * stays fresh no matter which route the user entered through. */
   useEffect(() => {
     if (isPending) return;
-    writeAuthHint(!!session?.user);
+    setLocalStorageItem(LOCAL_STORAGE_KEY.MAYBE_AUTHED, !!session?.user);
   }, [isPending, session?.user]);
   const { data: onboardingData } = useQuery({
     queryKey: ["me", "onboarding"],
@@ -238,19 +241,21 @@ export function AppShell({ children }: { children: ReactNode }) {
 
   /* Mirror the resolved onboarding decision into a synchronous localStorage
    * hint so the *next* first paint doesn't have to blank the main column behind
-   * the session → onboarding round-trip chain (see `lib/onboarding-hint`).
-   * Written here for the same reason as the auth hint: AppShell wraps every
-   * route, so the hint stays fresh no matter where the user entered. */
+   * the session → onboarding round-trip chain. Written here for the same reason
+   * as the auth hint: AppShell wraps every route, so the hint stays fresh no
+   * matter where the user entered. */
   useEffect(() => {
     const nextRoute = onboardingData?.routeToOnboarding;
     if (nextRoute === undefined) return;
-    writeOnboardingHint(!nextRoute);
+    setLocalStorageItem(LOCAL_STORAGE_KEY.ONBOARDING_COMPLETE, !nextRoute);
   }, [onboardingData?.routeToOnboarding]);
 
   /* First-paint guess (read once at mount): does this returning user appear to
    * be already onboarded? Lets us render content optimistically instead of
    * blanking while the query resolves. */
-  const [onboardingHintComplete] = useState(readOnboardingHint);
+  const [onboardingHintComplete] = useState(() =>
+    getLocalStorageItem(LOCAL_STORAGE_KEY.ONBOARDING_COMPLETE),
+  );
   useEffect(() => {
     if (!session?.user) return;
     const nextRoute = onboardingData?.routeToOnboarding;
