@@ -289,11 +289,19 @@ export const RULES = [
     // `!process.env[name]` loop (a reader, no name), and every env-fixture seed
     // block (`DATABASE_URL: "postgres://…"` carries no reader).
     //
+    // The pair is written as two lookaheads, NOT as `reader .* name`, because a
+    // sequential regex is order-sensitive and `const { DATABASE_URL } =
+    // process.env;` puts the name first. That destructured form is a live escape
+    // the repo already names in prose (`packages/assistant/test/
+    // action-policies/barrel-load.test.ts`), so the rule must see it whichever
+    // side the reader sits on. `matchChains` rebuilds the source with a `g` flag
+    // and keeps the rest, so `m` survives and `^…$` stays per-line.
+    //
     // `packages/db/test` is DELIBERATELY EXEMPT from the convention, not blind to
     // it: that tree FAILS LOUDLY when Redis is absent instead of skipping (see
     // `packages/db/test/redis-cold-command.test.ts`), which is the stronger
     // behavior. Its remaining readers carry `// drift-ok:` markers.
-    re: /(?:\bprocess\.env\b|\b(?:databaseEnv|serverEnv)\(\)).*\b(?:DATABASE_URL|REDIS_URL)\b/,
+    re: /^(?=.*(?:\bprocess\.env\b|\b(?:databaseEnv|serverEnv)\(\)))(?=.*\b(?:DATABASE_URL|REDIS_URL)\b).*$/m,
     scope: "chain",
     paths: /(^|\/)(?:packages|apps)\/[^/]+\/test\//,
     severity: "gate",
