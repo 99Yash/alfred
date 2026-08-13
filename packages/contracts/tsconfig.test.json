@@ -3,8 +3,9 @@
   // `check-types` as a SECOND `tsc` pass after the composite `tsc -b` — the
   // composite build emits declarations for `src` only and never sees `test/**`.
   // Without this project the tree is checked by no `tsc` at all: this package
-  // had no `test/` directory until the contract suites arrived from
-  // `packages/api/test/contracts/`, so nothing here had ever been in a program.
+  // had no `test/` directory until 19 suites arrived from `packages/api/test/`
+  // — 16 from `test/contracts/`, 2 from `test/briefing/` and 1 from the tree
+  // root — so nothing here had ever been in a program.
   //
   // `include` covers `test` rather than any file list, so a file added anywhere
   // under `test/` is type-checked without an edit here.
@@ -15,8 +16,11 @@
   //
   // `rootDir: "."` is also the fence, and it carries this package's one
   // structural rule: `@alfred/contracts` declares `zod` as its only runtime
-  // dependency and depends on no `@alfred/*` package. Every other workspace
-  // package depends on this one, so a reach the other way is a cycle. A suite
+  // dependency, and it depends on no package that depends on it. The one
+  // `@alfred/*` entry it does carry is `@alfred/config` in `devDependencies`,
+  // a build-config package that declares no dependency of its own and so
+  // closes no loop. Every other workspace package depends on this one, so a
+  // reach the other way is a cycle. A suite
   // that names `@alfred/db` — at run time OR type-only, because `tsc` must
   // resolve an erased import too — belongs in `packages/db/test`, not here, and
   // a relative reach into another package's tree is TS6059 by design.

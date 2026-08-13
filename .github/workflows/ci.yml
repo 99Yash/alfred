@@ -399,8 +399,11 @@ jobs:
         run: corepack pnpm --filter @alfred/db test
 
   # `@alfred/contracts` is the workspace leaf: it declares `zod` as its only
-  # runtime dependency and depends on no `@alfred/*` package. Its 19 suites came
-  # from `packages/api/test/contracts/` and they touch NO service, so this job
+  # runtime dependency, and it depends on no package that depends on it. (It does
+  # carry `@alfred/config` in `devDependencies` — a build-config package that
+  # names no workspace dependency of its own, so it closes no loop.) Its 19 test
+  # files came from `packages/api/test/`: 16 from `test/contracts/`, 2 from
+  # `test/briefing/` and 1 from the tree root. They touch NO service, so this job
   # carries no `services:` block and no `env:` block, exactly like
   # `ai-unit-tests` and `logging-unit-tests`. A suite here that needs Postgres or
   # Redis is in the wrong tree: a file that names `@alfred/db` belongs in
@@ -411,7 +414,7 @@ jobs:
   # directory would leave this job green while running nothing at all. The step
   # counts FILES before the runner starts — never a TAP number, which is the
   # guard shape this repo already rejects. The floor is `-gt 0` rather than the
-  # current 19, because a hard-coded count rots on the next added suite. The
+  # current 19 files, because a hard-coded count rots on the next added file. The
   # repo-wide replacement for all nine test jobs is campaign item 205, which
   # deletes this step. The pathspec is a DIRECTORY and the suffix match is a
   # `grep`, because a git pathspec `**` does not match zero directories: the
