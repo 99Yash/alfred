@@ -285,8 +285,21 @@ The cheapest phase, and the one whose output you should expect a human to skim.
 
    Record both `branch` and `worktree` in state **now**, before writing code — if
    this phase dies mid-way, the next invocation needs to find the tree.
-2. `cd` into the worktree. Install if the item touches deps; otherwise the root
-   `node_modules` symlink layout already works.
+2. `cd` into the worktree, then **`pnpm install --frozen-lockfile` before any command
+   that runs code** (~8 s). A new worktree is a fresh checkout of tracked files only, so
+   it has no `node_modules` of its own. The repo root's copy does not cover it: a
+   worktree lives under `.claude/worktrees/`, so Node's upward search does reach
+   `<repo>/node_modules`, but that directory holds neither the workspace links
+   (pnpm links `@alfred/*` per package, into `packages/<name>/node_modules`) nor the
+   per-package binaries (`tsx` is a devDependency at
+   `packages/<name>/node_modules/.bin/tsx`, absent from the root `.bin`). So `tsx` and
+   every `@alfred/*` import fail until you install. A reused worktree already has one —
+   check before paying for it again.
+
+   **A worktree also carries no `apps/server/.env`**, so `--env-file-if-exists` silently
+   supplies nothing and the DB-backed suites skip while printing `# skipped 0`. Point
+   `--env-file` at the main checkout's absolute path and prove the run by the suite-name
+   list, per step 5.
 3. Implement the Design section. **TDD at the seam the design named** — the test
    that fails for the right reason first. The repo's own guidance applies: derive
    source-of-truth shapes, validate `unknown` at the owning boundary, `db:generate`
