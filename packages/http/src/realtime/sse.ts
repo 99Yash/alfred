@@ -60,17 +60,31 @@ function createSseHeaders(): Headers {
 }
 
 /**
- * Every event name a route in this package may send. Closed on purpose.
+ * Every event name any route in this package may send. Closed on purpose.
+ *
+ * The set is closed per PACKAGE, not per stream. The two live streams are two
+ * URLs with disjoint client listener sets, so this is the union of what both of
+ * them send, and no single route sends all of it.
  *
  * An SSE frame ends at a blank line, so a name holding a line break would
  * terminate the frame early and let the payload write a second frame of its own.
  * A closed union of literals cannot express such a name, so the compiler rejects
- * it at the call site and `frame()` needs no run-time check — which is what lets
- * `frame()` throw for no input at all. `SseConnection.frame` is called from
- * inside a bus listener (`realtime/events.ts`), where a throw would abort the
- * dispatch and take the other subscribers with it.
+ * a literal like that at the call site and `frame()` needs no check of its own —
+ * which is what lets `frame()` throw for no input at all. `SseConnection.frame`
+ * is called from inside a bus listener (`realtime/events.ts`), where a throw
+ * would abort the dispatch and take the other subscribers with it.
  *
- * The two names come from the two live producers: `EventKind` covers every
+ * This alias supplies one gate, the compiler, and TypeScript erases it. At run
+ * time the guarantee comes from `@alfred/assistant`, which validates every
+ * `EventFrame.kind` with `isKnownEventKind` at three doors: `isFrame` for a
+ * Redis message (`realtime/user-events-bus.ts`), `realtime/replay.ts` for a
+ * replayed row, and `realtime/outbox-relay.ts` for an outbox row. Those three
+ * doors are the run-time guard; the type is not. `EventFrame.kind` is
+ * `z.custom<EventKind>`, whose annotation and predicate are independent, so a
+ * writer who drops the predicate keeps every call site here compiling while an
+ * arbitrary string flows through.
+ *
+ * The two members come from the two live producers: `EventKind` covers every
  * `EventFrame.kind` that `realtime/events.ts` forwards, and `"poke"` is the
  * literal `sync/replicache.ts` sends. A future route that wants a name outside
  * this set must ADD its literal here, or re-open sanitisation deliberately. It
@@ -111,13 +125,25 @@ export interface SseConnection {
    * continuation lines when it contains a line break, and always terminates
    * the frame with the blank line that makes a client dispatch it.
    *
-   * A write never throws. A stream the client has already dropped is a no-op,
-   * because a poke or a heartbeat that races the disconnect is normal and must
-   * not become an unhandled rejection; and a name that would end the frame
-   * early cannot arrive, because `event` admits only the closed set of literals
-   * in `SseEventName`. Both halves matter to the same caller: `realtime/events.ts`
+   * `frame`, `cursor` and `close` throw for no value their types admit. A
+   * stream the client has already dropped is a no-op, because a poke or a
+   * heartbeat that races the disconnect is normal and must not become an
+   * unhandled rejection. That matters most to one caller: `realtime/events.ts`
    * writes frames from inside a bus listener, where any throw would abort the
    * dispatch for every other subscriber on that emit.
+   *
+   * The claim is scoped to those three methods, and to values their types admit.
+   * Two throw paths remain on this interface, both older than the `event` union
+   * and neither reachable from a route today. `defer` runs a late `cleanup()`
+   * outside any `try`, so a late handler that throws reaches its caller even
+   * though the docstring below promises the handler is logged. And a `data` that
+   * is a string only to the compiler reaches `data.split`: `lib.d.ts` declares
+   * `JSON.stringify()` as returning `string` while it returns `undefined` for an
+   * `undefined` input.
+   *
+   * A name that would end the frame early also cannot reach the wire, but this
+   * signature is not the reason. `SseEventName` names the three run-time doors
+   * that carry that half.
    */
   frame(frame: SseFrame): void;
   /**
