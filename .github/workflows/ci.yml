@@ -136,11 +136,24 @@ jobs:
 
   # TWO http jobs, and they prove different claims. `http-tests` runs the whole
   # `packages/http/test` glob against real Postgres and Redis, because a file in
-  # that tree may guard itself with `{ skip: !process.env.DATABASE_URL }` and a
-  # skipped test exits 0. Without the `services:` and `env:` blocks below, a
-  # DB-backed suite moved in here reports `# skipped` and this job goes green
-  # without running it — the quiet failure, not the loud one. Read the skip
-  # count, not the exit status, when you change anything here.
+  # that tree may guard itself with a `{ skip: … }` option and a skipped test
+  # exits 0.
+  #
+  # DO NOT guard this job by reading the skip count. `node:test` prints
+  # `# skipped 0` for a SUITE-level skip — `describe("…", { skip: SKIP }, …)` —
+  # because the subtests inside a skipped `describe` are never registered, so
+  # they land in neither `# tests` nor `# skipped`. All three DB-backed suites
+  # in this tree use that shape, so a run that reached no database is
+  # indistinguishable by any count from a run that reached Postgres.
+  #
+  # What guards it instead: those suites call `dbBackedSkip()` from
+  # `packages/http/test/support/db-backed.ts`. It skips on a developer machine
+  # that has no Postgres, and THROWS when `CI` is set and a required variable is
+  # absent. The throw fires at module scope, `node:test` reports the file as a
+  # failing test, and this job exits non-zero. So if you delete or shrink the
+  # `services:` or `env:` blocks below, the `HTTP tests` step reddens and names
+  # the absent variable. A NEW DB-backed suite here must call `dbBackedSkip()`
+  # too — the helper is a convention, not a structural check.
   #
   # `http-env-free-load` runs one file, with no `services:` and no `env:` at all.
   # The `@alfred/http` barrel is a single module-evaluation unit that must load
