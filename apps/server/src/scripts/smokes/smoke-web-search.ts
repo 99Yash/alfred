@@ -13,15 +13,18 @@
  */
 
 import { DEFAULT_USER_TIMEZONE } from "@alfred/assistant/time";
-import { getTool } from "@alfred/assistant/tool-runtime";
 import { toolExecuteContext } from "@alfred/assistant/tool-runtime/context";
-// Stays on @alfred/api: still real api code. Item 148 gives it an @alfred/assistant address.
-import { registerBuiltinTools } from "@alfred/api/runtime";
+import { registerBuiltinTools } from "@alfred/assistant/tool-runtime/builtin-tools";
+import {
+  registerSystemToolProductAdapters,
+  unregisterSystemToolProductAdapters,
+} from "@alfred/assistant/runtime/test-support";
 
 async function main(): Promise<void> {
-  registerBuiltinTools();
+  const registry = registerBuiltinTools();
+  registerSystemToolProductAdapters();
 
-  const tool = getTool("system.web_search");
+  const tool = registry.get("system.web_search");
   if (!tool) throw new Error("system.web_search did not register");
   console.log(`✓ registered: ${tool.name} (riskTier=${tool.riskTier})`);
 
@@ -44,6 +47,7 @@ async function main(): Promise<void> {
   console.log(result.answer.slice(0, 1200));
   console.log(`\n✓ ${result.citations.length} citations:`);
   for (const c of result.citations.slice(0, 8)) console.log(`  - ${c}`);
+  unregisterSystemToolProductAdapters();
 
   if (!result.ok || result.answer.length === 0) {
     throw new Error("web_search returned an empty answer");

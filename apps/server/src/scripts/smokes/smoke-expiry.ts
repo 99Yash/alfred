@@ -29,8 +29,7 @@ import {
   removeApprovalExpiryJob,
 } from "@alfred/assistant/tool-runtime";
 
-// Stays on @alfred/api: still real api code. Item 148 gives it an @alfred/assistant address.
-import { dispatchToolCall } from "@alfred/api/backend";
+import { dispatchToolCall } from "@alfred/assistant/tool-runtime/dispatch";
 import { expireStaging } from "@alfred/assistant/execution";
 import { clearToolRegistryForTests, liveTool, registerTools } from "@alfred/assistant/tool-runtime";
 import { closeConnections, warmPool } from "@alfred/db";

@@ -18,7 +18,7 @@ import {
   type ChatRunState,
 } from "@alfred/assistant/conversations/chat-turn-state";
 import { CHAT_TURN_WORKFLOW_SLUG } from "@alfred/assistant/conversations/chat-turn";
-import { resetToolFixtures } from "../lib/tool-fixtures";
+import { resetToolFixtures } from "@alfred/assistant/tool-runtime/test-support";
 import { dbBackedSkip } from "../support/db-backed";
 
 /**

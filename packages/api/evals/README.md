@@ -8,6 +8,9 @@ pnpm --filter @alfred/api eval        # run once
 pnpm --filter @alfred/api eval:watch  # watch mode + local UI on :3006
 ```
 
+Tool-runtime evals live in `packages/assistant/evals` and run with
+`pnpm --filter @alfred/assistant eval`.
+
 Env (loaded from `apps/server/.env`):
 
 - `GOOGLE_GENERATIVE_AI_API_KEY` — the cheap classifier under test (Gemini Flash-Lite).

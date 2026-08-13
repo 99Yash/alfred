@@ -4,7 +4,6 @@ import {
   stopPolicyBustSubscriber,
 } from "@alfred/assistant/action-policies";
 import {
-  registerWorkflowSystemToolAdapter,
   scheduleRepeatableWorkflowsJobs,
   seedBuiltinWorkflowsForAllUsers,
   seedBuiltinWorkflowsForUser,
@@ -27,7 +26,6 @@ import {
 import {
   closeChatMemoryQueue,
   closeConversationCompactionQueue,
-  registerConversationsSystemToolAdapter,
   startChatMemoryWorker,
   startConversationCompactionWorker,
   stopChatMemoryWorker,
@@ -46,7 +44,6 @@ import {
   stopSubAgentJoinWakeWorker,
   verifyMeteringModels,
 } from "@alfred/assistant/execution";
-import { registerAgentSystemToolAdapter } from "@alfred/assistant/execution/system-tool-adapter";
 import {
   closeMemoryQueue,
   scheduleRepeatableMemoryJobs,
@@ -156,22 +153,9 @@ export function createAssistantRuntime(config: RuntimeConfig): AssistantRuntime 
       // their workflow or tool names. The host owns this step because the built-in
       // recipes and the dispatch tool-call-round adapter sit above this package.
       config.registerRecipes();
-      // The system tools reach two agent behaviors (sub-agent spawn/join) through a
-      // registered tool-runtime seam, so the tools module holds no agent import
-      // (ADR-0089). Install the agent-side handler here, after the tools register, so
-      // a first system-tool call finds it.
-      registerAgentSystemToolAdapter();
-      // `system.read_chat_history` reaches conversations chat-history retrieval
-      // through its own tool-runtime seam, installed by conversations (ADR-0089: the
-      // execution layer imports no product recipe). Install it beside the agent
-      // handler so a first `read_chat_history` call finds it rather than throwing.
-      registerConversationsSystemToolAdapter();
-      // The three workflow-authoring system tools reach workflow authoring,
-      // revision, recovery, and readiness behind a registered tool-runtime seam, so
-      // the tools module holds no workflows import (ADR-0089). Install the
-      // workflow-side handler here, after the tools register, so a first
-      // system-tool call finds it.
-      registerWorkflowSystemToolAdapter();
+      // Runtime composition installs the agent, conversations, workflow, knowledge,
+      // and task system-tool ports after the built-ins exist and before a worker can
+      // dispatch its first call. Their disposers run with the other adapters.
       registerRuntimeAdapters();
 
       config.registerUserCreated(async (user) => {

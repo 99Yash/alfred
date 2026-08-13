@@ -12,8 +12,7 @@ import { closeConnections, db } from "@alfred/db";
 import { agentRuns, user, workflowRevisions, workflows } from "@alfred/db/schemas";
 import { asc, eq } from "drizzle-orm";
 
-import { systemTools } from "../../src/modules/tools/system";
-import { registerBuiltinTools } from "../../src/modules/tools/runtime";
+import { registerBuiltinTools } from "@alfred/assistant/tool-runtime/builtin-tools";
 import { registerWorkflowSystemToolAdapter } from "@alfred/assistant/automation/system-tool-adapter";
 import { toolExecuteContext } from "@alfred/assistant/tool-runtime/context";
 import { definitionFromProposal } from "@alfred/assistant/automation/authoring";
@@ -23,12 +22,12 @@ import { dbBackedSkip } from "../support/db-backed";
 
 const SKIP = dbBackedSkip("database");
 
-const authorTool = systemTools.find((tool) => tool.name === "system.author_workflow");
-const recoverTool = systemTools.find((tool) => tool.name === "system.recover_workflow");
-const activateTool = systemTools.find((tool) => tool.name === "system.activate_workflow");
+const builtinTools = registerBuiltinTools();
+const authorTool = builtinTools.get("system.author_workflow");
+const recoverTool = builtinTools.get("system.recover_workflow");
+const activateTool = builtinTools.get("system.activate_workflow");
 
 before(() => {
-  registerBuiltinTools();
   // The workflow tools route through the tool-runtime seam; install the
   // workflows-owned handler so `execute` resolves instead of the boot-order throw.
   registerWorkflowSystemToolAdapter();

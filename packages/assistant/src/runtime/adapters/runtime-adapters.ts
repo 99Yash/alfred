@@ -16,6 +16,19 @@ import {
 import { registerTriggerConsumers, unregisterTriggerConsumers } from "./trigger-consumers";
 import { registerWorkflowReadiness, unregisterWorkflowReadiness } from "./workflow-readiness";
 import { registerWorkflowRecovery, unregisterWorkflowRecovery } from "./workflow-recovery";
+import {
+  registerSystemToolProductAdapters,
+  unregisterSystemToolProductAdapters,
+} from "./system-tool-product";
+import { registerSystemToolAgent, unregisterSystemToolAgent } from "./system-tool-agent";
+import {
+  registerSystemToolConversations,
+  unregisterSystemToolConversations,
+} from "./system-tool-conversations";
+import {
+  registerSystemToolWorkflows,
+  unregisterSystemToolWorkflows,
+} from "./system-tool-workflows";
 
 export interface RuntimeAdapterDefinition {
   name: string;
@@ -52,6 +65,34 @@ export function createRuntimeAdapterLifecycle(
 }
 
 export const RUNTIME_ADAPTERS = [
+  {
+    name: "system-tool-agent",
+    register: registerSystemToolAgent,
+    unregister: unregisterSystemToolAgent,
+    retainIfIngestionWorkerActive: false,
+    shutdownOrder: 12,
+  },
+  {
+    name: "system-tool-conversations",
+    register: registerSystemToolConversations,
+    unregister: unregisterSystemToolConversations,
+    retainIfIngestionWorkerActive: false,
+    shutdownOrder: 11,
+  },
+  {
+    name: "system-tool-workflows",
+    register: registerSystemToolWorkflows,
+    unregister: unregisterSystemToolWorkflows,
+    retainIfIngestionWorkerActive: false,
+    shutdownOrder: 10,
+  },
+  {
+    name: "system-tool-product",
+    register: registerSystemToolProductAdapters,
+    unregister: unregisterSystemToolProductAdapters,
+    retainIfIngestionWorkerActive: false,
+    shutdownOrder: 9,
+  },
   {
     name: "chat-attachment-enrichment",
     register: registerChatAttachmentEnrichmentScheduler,

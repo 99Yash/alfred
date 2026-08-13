@@ -14,7 +14,7 @@ import {
  * outcome, in the one order that cannot strand it.
  *
  * Two sites join a child — the `system.await_sub_agent` tool
- * (`resolveAwaitSubAgent` in `modules/dispatch`) and the chat-turn finalization
+ * (`resolveAwaitSubAgent` in `tool-runtime/dispatch`) and the chat-turn finalization
  * guard (`guardSpawnedChildren` in `workflows/finalize-guards`) — and they used
  * to be two hand-written copies of this sequence, kept in step by comments
  * citing each other. `shouldResolveWithoutParking` centralized the *predicate*;
