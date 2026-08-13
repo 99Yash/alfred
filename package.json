@@ -37,7 +37,7 @@
     "test:deterministic": "pnpm --filter @alfred/ai --filter @alfred/api --filter @alfred/contracts --filter @alfred/integrations --filter web test",
     "verify:fast": "pnpm check && pnpm check-types",
     "verify": "pnpm verify:fast && pnpm test:deterministic",
-    "verify:db": "pnpm db:migrate && pnpm --filter @alfred/api test:db",
+    "verify:db": "pnpm db:migrate && pnpm --filter @alfred/api --filter @alfred/db test:db",
     "doctor": "pnpm exec react-doctor",
     "dup": "jscpd apps packages",
     "dup:report": "jscpd apps packages --reporters json,html",

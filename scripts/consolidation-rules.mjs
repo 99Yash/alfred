@@ -308,10 +308,13 @@ export const RULES = [
     // "not here yet", not as "it cannot happen", and treat widening the rule
     // past one line as a separate decision, not a regex tweak.
     //
-    // `packages/db/test` is DELIBERATELY EXEMPT from the convention, not blind to
-    // it: that tree FAILS LOUDLY when Redis is absent instead of skipping (see
-    // `packages/db/test/redis-cold-command.test.ts`), which is the stronger
-    // behavior. Its remaining readers carry `// drift-ok:` markers.
+    // `packages/db/test` follows the convention like every other tree: it ships
+    // `packages/db/test/support/db-backed.ts`, and its two Postgres-backed suites
+    // call `dbBackedSkip("database")`. Its Redis suites are the exception, and
+    // they are not exempt from the rule so much as stronger than it: they FAIL
+    // LOUDLY when Redis is absent instead of skipping (see
+    // `packages/db/test/redis-cold-command.test.ts`). Those readers carry
+    // `// drift-ok:` markers.
     re: /^(?=.*(?:\bprocess\.env\b|\b(?:databaseEnv|serverEnv)\(\)))(?=.*\b(?:DATABASE_URL|REDIS_URL)\b).*$/m,
     scope: "chain",
     paths: /(^|\/)(?:packages|apps)\/[^/]+\/test\//,
