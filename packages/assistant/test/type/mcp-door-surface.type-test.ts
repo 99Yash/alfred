@@ -10,13 +10,22 @@
  * point of the split is that the connection side cannot reach the approval side,
  * and the `exports` map is what a caller outside the package meets.
  *
- * `packages/api` is the home because it is a real outside consumer of both doors
- * (`@alfred/assistant/tool-runtime/internal/tools/mcp.ts` and its owner tests) and
- * because its `check-types` runs a second `tsc -p tsconfig.test.json` pass over
- * this tree, which is the whole mechanism. A fixture inside `packages/assistant`
- * would resolve these specifiers as SELF-references, which is not the resolution
- * an outside caller performs, so it would pin a different property than the one
- * that matters. `moduleResolution` is `bundler`
+ * `packages/assistant` is the home, and the tier is weaker here than it was in
+ * `packages/api`. The mechanism that still holds is the `exports` map: this
+ * package's `check-types` runs a second `tsc -p tsconfig.test.json` pass over
+ * this tree, and TypeScript routes a SELF-reference through the package's own
+ * `exports` map exactly as it routes an outside caller, so every admission and
+ * every refusal below is still a real answer from that map.
+ * `packages/assistant/test/action-policies/barrel-load.test.ts` probes the same
+ * doors from the same position.
+ *
+ * What is GONE is the outside-consumer tier. This fixture used to sit in
+ * `packages/api`, a package that DEPENDED on `@alfred/assistant`, so it also
+ * pinned that a caller reaching in from another package meets the same surface —
+ * a self-reference cannot pin that, because it never consults a `node_modules`
+ * link or a workspace dependency edge. Restoring it needs a copy of this fixture
+ * in a package that depends on assistant; campaign item 208 owns that.
+ * `moduleResolution` is `bundler`
  * (`packages/config/tsconfig.base.json`), so `tsc` honours `exports`; Node ESM and
  * rolldown honour it at runtime.
  */
