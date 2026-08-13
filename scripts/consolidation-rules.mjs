@@ -292,10 +292,16 @@ export const RULES = [
     // The pair is written as two lookaheads, NOT as `reader .* name`, because a
     // sequential regex is order-sensitive and `const { DATABASE_URL } =
     // process.env;` puts the name first. That destructured form is a live escape
-    // the repo already names in prose (`packages/assistant/test/
-    // action-policies/barrel-load.test.ts`), so the rule must see it whichever
-    // side the reader sits on. `matchChains` rebuilds the source with a `g` flag
-    // and keeps the rest, so `m` survives and `^…$` stays per-line.
+    // the repo already names in prose
+    // (`packages/assistant/test/barrel-load.test.ts`), so the rule must see it
+    // whichever side the reader sits on. `matchChains` rebuilds the source with a
+    // `g` flag and keeps the rest, so `m` survives and `^…$` stays per-line.
+    //
+    // RESIDUE. The rule reads ONE line, so a reader and a name on DIFFERENT lines
+    // escape it whatever order each line reads in. The plausible shape is an
+    // alias — `const env = process.env;` near the top of a file, and a bare
+    // `env.DATABASE_URL` later. No such alias exists in this repo today, and
+    // widening the rule past one line is a separate decision, not a regex tweak.
     //
     // `packages/db/test` is DELIBERATELY EXEMPT from the convention, not blind to
     // it: that tree FAILS LOUDLY when Redis is absent instead of skipping (see
