@@ -16,8 +16,13 @@
  * this tree, and TypeScript routes a SELF-reference through the package's own
  * `exports` map exactly as it routes an outside caller, so every admission and
  * every refusal below is still a real answer from that map.
- * `packages/assistant/test/action-policies/barrel-load.test.ts` probes the same
- * doors from the same position.
+ * `packages/assistant/test/action-policies/barrel-load.test.ts` is the precedent
+ * for that MECHANISM, not for these doors: it probes
+ * `@alfred/assistant/action-policies` and the refusal of
+ * `@alfred/assistant/action-policies/resolve`, and it probes them at the Node
+ * resolver rather than in `tsc`. What the two fixtures share is the self-reference
+ * routed through this package's own `exports` map. The two MCP doors below are
+ * pinned here and nowhere else.
  *
  * What is GONE is the outside-consumer tier. This fixture used to sit in
  * `packages/api`, a package that DEPENDED on `@alfred/assistant`, so it also
